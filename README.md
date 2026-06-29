@@ -74,23 +74,96 @@ Not yet packaged — planned for a later release.
 
 ## Develop
 
-Requires **Node.js 20+**.
+Requires **Node.js 20+** (and, on macOS, the Xcode Command Line Tools).
+
+```sh
+git clone https://github.com/kortdriessen/flux.git
+cd flux
+npm install
+npm run electron:dev      # Vite dev server + Electron, with live reload
+```
+
+### Build & run locally on macOS
+
+Step-by-step to clone and build Flux on a Mac — Apple Silicon (M-series) or Intel.
+A locally-built app is **not** quarantined the way a downloaded one is, so it just
+opens (no "damaged app" Gatekeeper dance).
+
+**0 · One-time setup**
+
+```sh
+xcode-select --install        # git, codesign, compiler tooling
+node -v                       # need v20+ — if missing/older: brew install node
+```
+
+**1 · Clone the repo**
+
+```sh
+git clone https://github.com/kortdriessen/flux.git
+cd flux
+```
+
+**2 · Install dependencies**
 
 ```sh
 npm install
-npm run electron:dev      # or: ./electron-dev.sh  — Vite dev server + Electron shell
 ```
 
-Build a local package:
+(A `npm warn EBADENGINE … node >=22` message is harmless; Flux builds on Node 20.)
+
+**3 · Develop with live reload** — the day-to-day loop:
 
 ```sh
-npm run dist:linux        # AppImage + .deb into ./release
-npm run pack              # unpacked app (fast, for quick testing)
+npm run electron:dev
 ```
 
-macOS builds are produced in CI (GitHub Actions) on tagged releases — push a
-`vX.Y.Z` tag matching `package.json` `version` and the workflow in
-`.github/workflows/release.yml` attaches the DMGs to a draft release.
+Starts the Vite dev server (port **1420**) and launches Electron pointed at it;
+edits in `src/` reload on save. `Ctrl+C` to stop.
+
+**4 · Build a standalone app**
+
+```sh
+# Fast — unpacked .app, no installer (best for quick testing):
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack
+
+# Full installer — .dmg (+ .zip) into ./release:
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac
+```
+
+The `CSC_IDENTITY_AUTO_DISCOVERY=false` prefix tells the packager not to look for
+an Apple Developer certificate; the app is instead *ad-hoc* signed by
+`build/afterPack.cjs` — all that's needed for it to launch locally on Apple Silicon.
+Without it, the build can fail trying to sign.
+
+**5 · Run the built app**
+
+```sh
+open release/mac-arm64/Flux.app     # Intel Mac: release/mac-x64/Flux.app
+```
+
+If you ran `dist:mac`, the installer DMG is also in `release/`
+(e.g. `Flux-0.1.0-arm64.dmg`). If macOS ever blocks the app, right-click → **Open**,
+or clear the flag: `xattr -dr com.apple.quarantine release/mac-arm64/Flux.app`.
+
+### Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run electron:dev` | Dev server **+ Electron**, live reload — main dev loop |
+| `npm run dev` | Vite dev server only (no Electron window) |
+| `npm run build` | Production web build → `dist/` |
+| `npm run pack` | Unpacked `Flux.app` → `release/` (fast) |
+| `npm run dist:mac` / `dist:linux` | Installer (`.dmg`+`.zip` / `AppImage`+`.deb`) → `release/` |
+| `npm run check` | Svelte / TypeScript type-check |
+
+Keep your clone current with `git pull` (then `npm install` if dependencies changed).
+Clean rebuild if needed: `rm -rf node_modules dist release && npm install`.
+
+### Releases (CI)
+
+macOS + Linux installers are built in CI on a version tag — push a `vX.Y.Z` tag
+matching `package.json` `version` and `.github/workflows/release.yml` attaches the
+DMGs / AppImage / deb to a **draft** GitHub Release.
 
 ## Related
 
