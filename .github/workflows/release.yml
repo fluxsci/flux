@@ -3,6 +3,7 @@ name: release
 on:
   push:
     tags: ["v*"] # tag MUST match package.json "version" — electron-builder names the release v${version}
+  workflow_dispatch: # manual "Run workflow" button in the Actions tab (for testing/verification)
 
 permissions:
   contents: write # electron-builder creates/updates the GitHub Release
