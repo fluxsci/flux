@@ -1,0 +1,59 @@
+/* Global base. Tokens (styles/tokens.css) and fonts (styles/fonts.css) are
+   imported before this file in main.ts. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background: var(--c-bg);
+  color: var(--c-tx);
+  font-family: var(--font-serif);
+  font-size: var(--ts-base);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+  user-select: none;
+  cursor: default;
+}
+
+::selection {
+  background: var(--c-accent-tint);
+  color: var(--c-tx-hi);
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+
+/* Quiet, thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--flx-base-800) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--flx-base-800);
+  border-radius: var(--r-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--flx-base-700);
+}

@@ -1,0 +1,23 @@
+# Dependencies
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# Rust / Tauri
+src-tauri/target
+
+# Packaging output (electron-builder)
+release/
+
+# Personal planning/spec docs — kept local, never published
+notes/
+
+# Defensive: fluxplot is its own repo at ~/fluxplot — ignore if ever re-cloned here
+fluxplot/

@@ -1,0 +1,1010 @@
+<script lang="ts">
+  import { onMount, onDestroy } from "svelte";
+  import { get } from "svelte/store";
+  import { EditorView } from "@codemirror/view";
+  import { projectModel } from "../../shellStore";
+  import { readManuscript, writeManuscript } from "../../../lib/project/load";
+  import { createEditorExtensions } from "./markdown-setup";
+  import Editor from "./Editor.svelte";
+  import Outline from "./outline/Outline.svelte";
+  import TitlePill from "./TitlePill.svelte";
+  import TitleEditor from "./TitleEditor.svelte";
+  import CommandPalette from "./command/CommandPalette.svelte";
+  import type { Command } from "./command/commands";
+  import { paperLayout } from "./view-mode/paperLayoutStore";
+  import { cursorPos, cursorWatcher } from "./outline/activeHeading";
+  import SelectionToolbar from "./toolbar/SelectionToolbar.svelte";
+  import EmptyState from "./EmptyState.svelte";
+  import { selectionWatcher } from "./toolbar/selectionState";
+  import { formattingKeymap } from "./editing/keymap";
+  import { pageCompartment, themeFor } from "./view-mode/pageView";
+  import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
+  import { getOutline, type OutlineItem } from "./outline/outline";
+  import { scienceChips, refreshChips } from "./science/chips";
+  import { scienceEmbeds } from "./science/embeds";
+  import { scienceTables } from "./science/tables";
+  import {
+    setChipHandlers,
+    setEmbedHandlers,
+    setSlashHandlers,
+    type ChipTarget,
+  } from "./science/chipContext";
+  import FigurePicker from "./scholar/FigurePicker.svelte";
+  import type { FigureRef } from "./scholar/figures";
+  import DynamicMargin from "./margin/DynamicMargin.svelte";
+  import type { MarginHost } from "./margin/types";
+  import { writeCiteGroup, removeCite as removeCiteOp, citationGroupAt } from "./scholar/citeOps";
+  import PreviewPane from "./render/PreviewPane.svelte";
+  import { renderManuscript } from "./render/renderManuscript";
+  import { fileBridge } from "../../../lib/project/types";
+  import { popIn } from "../../../lib/motion/actions";
+  import {
+    commentField,
+    commentClickHandler,
+    commentRanges,
+    addCommentMark,
+    removeCommentMark,
+    setCommentActive,
+  } from "./comments/commentField";
+  import {
+    makeAnchor,
+    resolveAnchor,
+    readComments,
+    writeComments,
+    newId,
+    type CommentThread,
+  } from "./comments/comments";
+  import { loadFigures, figureRefs, resolveFigure } from "./scholar/figures";
+  import { bibEntries } from "./scholar/bib";
+  import { loadBib, addDoiToBib } from "./scholar/bibLoad";
+  import { scholarCompletion } from "./scholar/completions";
+  import { doiPaste } from "./science/doiPaste";
+  import { figRevision, bibRevision } from "../../scholar/revisions";
+  import { revealFigure } from "../../scholar/nav";
+  import HoverCard from "./scholar/HoverCard.svelte";
+
+  let { focused = false }: { focused?: boolean } = $props();
+
+  const SEED = `# Introduction\n\nStart writing…\n`;
+  const pm = get(projectModel);
+  const title = pm?.manifest.title ?? "Untitled";
+
+  let ready = $state(false);
+  let initialDoc = $state("");
+  let saved = $state(true);
+  let isDemo = $state(false);
+  let latest = $state("");
+  let view = $state<EditorView | undefined>(undefined);
+  let outline = $state<OutlineItem[]>([]);
+  let paletteOpen = $state(false);
+
+  function toggleOutliner() {
+    paperLayout.update((s) => ({ ...s, outlinerOpen: !s.outlinerOpen }));
+  }
+
+  // ---- title｜authors pill (front-matter, read-only in Phase A) -----------
+  const meta = $derived.by(() => parseFrontmatterMeta(latest));
+  function unquote(s: string): string {
+    return s.trim().replace(/^["']|["']$/g, "");
+  }
+  function parseFrontmatterMeta(src: string): { title: string; authors: string[] } {
+    let t = pm?.manifest.title ?? "Untitled";
+    let authors: string[] = ((pm?.manifest.authors ?? []) as Array<{ name?: string }>)
+      .map((a) => a?.name ?? "")
+      .filter(Boolean);
+    if (src.startsWith("---")) {
+      const end = src.indexOf("\n---", 3);
+      if (end >= 0) {
+        const fm = src.slice(3, end);
+        const tm = /^title:[ \t]*(.+?)[ \t]*$/m.exec(fm);
+        if (tm) t = unquote(tm[1]);
+        const am = /^authors?:[ \t]*(.*)$/m.exec(fm);
+        if (am) {
+          const inline = am[1].trim();
+          if (inline.startsWith("[")) {
+            authors = inline.replace(/^\[|\]$/g, "").split(",").map(unquote).filter(Boolean);
+          } else if (inline) {
+            authors = [unquote(inline)];
+          } else {
+            // block list following the key, e.g. "- name: A"
+            const acc: string[] = [];
+            for (const ln of fm.slice(am.index + am[0].length).split("\n").slice(1)) {
+              if (/^[ \t]*-[ \t]*/.test(ln)) acc.push(unquote(ln.replace(/^[ \t]*-[ \t]*(?:name:[ \t]*)?/, "")));
+              else if (/^[ \t]+name:[ \t]*/.test(ln)) acc.push(unquote(ln.replace(/^[ \t]+name:[ \t]*/, "")));
+              else if (/^\S/.test(ln)) break; // next top-level key
+            }
+            if (acc.length) authors = acc.filter(Boolean);
+          }
+        }
+      }
+    }
+    return { title: t, authors };
+  }
+
+  // ---- reader-adjustable editor margins ----------------------------------
+  let colEl = $state<HTMLDivElement | undefined>(undefined);
+  let dragSide = $state<null | "l" | "r">(null);
+  const gutterStyle = $derived(
+    ($paperLayout.gutterL != null ? `--gutter-l:${($paperLayout.gutterL * 100).toFixed(3)}%;` : "") +
+      ($paperLayout.gutterR != null ? `--gutter-r:${($paperLayout.gutterR * 100).toFixed(3)}%;` : ""),
+  );
+  function seedGutters(r: DOMRect) {
+    if (!colEl) return;
+    const content = colEl.querySelector(".cm-content") as HTMLElement | null;
+    if (!content) return;
+    const cs = getComputedStyle(content);
+    const l = parseFloat(cs.marginLeft) / r.width;
+    const rr = parseFloat(cs.marginRight) / r.width;
+    paperLayout.update((s) => ({
+      ...s,
+      gutterL: s.gutterL ?? (Number.isFinite(l) ? l : 0.1),
+      gutterR: s.gutterR ?? (Number.isFinite(rr) ? rr : 0.1),
+    }));
+  }
+  function startMargin(side: "l" | "r", e: PointerEvent) {
+    if (!colEl) return;
+    e.preventDefault();
+    seedGutters(colEl.getBoundingClientRect());
+    dragSide = side;
+    window.addEventListener("pointermove", moveMargin);
+    window.addEventListener("pointerup", endMargin);
+  }
+  function moveMargin(e: PointerEvent) {
+    if (!dragSide || !colEl) return;
+    const r = colEl.getBoundingClientRect();
+    let f = dragSide === "l" ? (e.clientX - r.left) / r.width : (r.right - e.clientX) / r.width;
+    const cur = get(paperLayout);
+    const other = (dragSide === "l" ? cur.gutterR : cur.gutterL) ?? 0;
+    const maxF = 1 - Math.min(0.6, 360 / r.width) - other;
+    f = Math.max(0.02, Math.min(0.45, Math.min(f, maxF)));
+    paperLayout.update((s) => (dragSide === "l" ? { ...s, gutterL: f } : { ...s, gutterR: f }));
+    view?.requestMeasure();
+  }
+  function endMargin() {
+    dragSide = null;
+    window.removeEventListener("pointermove", moveMargin);
+    window.removeEventListener("pointerup", endMargin);
+  }
+
+  // ---- outliner: active-heading tracking + collapse state ----------------
+  const activeFrom = $derived.by(() => {
+    const pos = $cursorPos;
+    let lo = 0;
+    let hi = outline.length - 1;
+    let ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (outline[mid].from <= pos) {
+        ans = outline[mid].from;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return ans;
+  });
+  const collapsedSet = $derived(new Set($paperLayout.collapsed));
+  function toggleCollapse(path: string) {
+    paperLayout.update((s) => ({
+      ...s,
+      collapsed: s.collapsed.includes(path)
+        ? s.collapsed.filter((p) => p !== path)
+        : [...s.collapsed, path],
+    }));
+  }
+
+  // ---- title｜authors editing (writes YAML front-matter) -----------------
+  let titleEditOpen = $state(false);
+  async function saveTitleAuthors(newTitle: string, authorsCsv: string) {
+    titleEditOpen = false;
+    if (!view) return;
+    const yaml = await import("js-yaml");
+    const src = view.state.doc.toString();
+    let metaObj: Record<string, unknown> = {};
+    const fmEnd = src.startsWith("---") ? src.indexOf("\n---", 3) : -1;
+    const hadFm = fmEnd >= 0;
+    if (hadFm) {
+      try {
+        metaObj = (yaml.load(src.slice(3, fmEnd)) as Record<string, unknown>) ?? {};
+      } catch {
+        metaObj = {};
+      }
+    }
+    metaObj.title = newTitle;
+    const entries = authorsCsv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((name) => ({ name }));
+    if ("authors" in metaObj && !("author" in metaObj)) metaObj.authors = entries;
+    else metaObj.author = entries;
+    const dumped = yaml.dump(metaObj, { lineWidth: -1 });
+    if (hadFm) {
+      view.dispatch({ changes: { from: 0, to: fmEnd + 4, insert: `---\n${dumped}---` } });
+    } else {
+      view.dispatch({ changes: { from: 0, insert: `---\n${dumped}---\n\n` } });
+    }
+    view.focus();
+  }
+  let viewMode = $state<PaperViewMode>(get(paperViewMode));
+  let dismissedEmpty = $state(false);
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let hover = $state<{ target: ChipTarget; anchor: HTMLElement } | null>(null);
+  let hoverHideTimer: ReturnType<typeof setTimeout> | undefined;
+  let doiStatus = $state<"" | "fetching" | "error">("");
+  let pickerOpen = $state(false);
+  const subs: Array<() => void> = [];
+
+  // Citekeys actually referenced in the manuscript (the red-dot "cited" state).
+  const citedKeys = $derived.by(() => {
+    const set = new Set<string>();
+    const re = /(?:\[@|(?:^|[\s([])@)([A-Za-z][\w:.-]*)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(latest))) {
+      if (!/^(?:fig|tbl|sec|eq)-/.test(m[1])) set.add(m[1]);
+    }
+    return set;
+  });
+  const figures = $derived($figureRefs);
+  const references = $derived($bibEntries);
+
+  async function addDoiFromPanel(d: string): Promise<string | null> {
+    const r = await addDoiToBib(d, pm?.root ?? null);
+    return "error" in r ? null : r.key;
+  }
+
+  // ---- comments ----------------------------------------------------------
+  type DraftThread = CommentThread & { draft?: boolean };
+  let threads = $state<DraftThread[]>([]);
+  let activeComment = $state<string | null>(null);
+  let cRanges = $state<Map<string, { from: number; to: number }>>(new Map());
+  let commentSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  const commentAuthor = pm?.manifest.authors?.[0]?.name || "You";
+  const commentCount = $derived(threads.filter((t) => !t.draft && !t.resolved).length);
+
+  function syncRanges() {
+    if (view) cRanges = commentRanges(view);
+  }
+
+  function scheduleCommentSave() {
+    if (!pm) return;
+    clearTimeout(commentSaveTimer);
+    commentSaveTimer = setTimeout(() => {
+      // Refresh each anchor from its live range before persisting.
+      const doc = view?.state.doc.toString() ?? latest;
+      const persist: CommentThread[] = threads
+        .filter((t) => !t.draft)
+        .map((t) => {
+          const r = cRanges.get(t.id);
+          const anchor = r ? makeAnchor(doc, r.from, r.to) : t.anchor;
+          return { id: t.id, anchor, resolved: t.resolved, messages: t.messages };
+        });
+      void writeComments(pm, persist);
+    }, 600);
+  }
+
+  function startComment() {
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) return;
+    openMarginView("comments");
+    const id = newId();
+    const doc = view.state.doc.toString();
+    const anchor = makeAnchor(doc, sel.from, sel.to);
+    threads = [...threads, { id, anchor, resolved: false, messages: [], draft: true }];
+    view.dispatch({ effects: [addCommentMark.of({ id, from: sel.from, to: sel.to }), setCommentActive.of(id)] });
+    activeComment = id;
+    syncRanges();
+  }
+
+  function submitNew(id: string, body: string) {
+    threads = threads.map((t) =>
+      t.id === id
+        ? { ...t, draft: false, messages: [{ author: commentAuthor, body, createdAt: new Date().toISOString() }] }
+        : t,
+    );
+    scheduleCommentSave();
+  }
+  function cancelNew(id: string) {
+    threads = threads.filter((t) => t.id !== id);
+    view?.dispatch({ effects: removeCommentMark.of(id) });
+    if (activeComment === id) activeComment = null;
+    syncRanges();
+  }
+  function replyComment(id: string, body: string) {
+    threads = threads.map((t) =>
+      t.id === id
+        ? { ...t, messages: [...t.messages, { author: commentAuthor, body, createdAt: new Date().toISOString() }] }
+        : t,
+    );
+    scheduleCommentSave();
+  }
+  function resolveComment(id: string) {
+    threads = threads.map((t) => (t.id === id ? { ...t, resolved: true } : t));
+    view?.dispatch({ effects: removeCommentMark.of(id) });
+    syncRanges();
+    scheduleCommentSave();
+  }
+  function reopenComment(id: string) {
+    threads = threads.map((t) => (t.id === id ? { ...t, resolved: false } : t));
+    const t = threads.find((x) => x.id === id);
+    const doc = view?.state.doc.toString() ?? "";
+    if (t && view) {
+      const r = resolveAnchor(doc, t.anchor);
+      if (r) view.dispatch({ effects: addCommentMark.of({ id, from: r.from, to: r.to }) });
+    }
+    syncRanges();
+    scheduleCommentSave();
+  }
+  function deleteComment(id: string) {
+    threads = threads.filter((t) => t.id !== id);
+    view?.dispatch({ effects: removeCommentMark.of(id) });
+    if (activeComment === id) activeComment = null;
+    syncRanges();
+    scheduleCommentSave();
+  }
+  function focusComment(id: string) {
+    activeComment = id;
+    view?.dispatch({ effects: setCommentActive.of(id) });
+    const r = cRanges.get(id);
+    if (r && view) view.dispatch({ effects: EditorView.scrollIntoView(r.from, { y: "center" }) });
+  }
+
+  // ---- preview + export --------------------------------------------------
+  let previewActive = $state(false);
+  let exportOpen = $state(false);
+  let exportBusy = $state(false);
+  let exportDone = $state(false);
+  let quartoAvail = $state(false);
+
+  async function doExport(kind: "pdf" | "html" | "docx") {
+    exportOpen = false;
+    const fb = fileBridge();
+    if (!fb) return;
+    exportBusy = true;
+    try {
+      if (kind === "docx") {
+        if (pm && fb.quartoRender) await fb.quartoRender(pm.root, "docx");
+        exportBusy = false;
+        exportDone = true;
+        setTimeout(() => (exportDone = false), 2600);
+        return;
+      }
+      const { full, title } = await renderManuscript(latest, {
+        paginated: viewMode === "paginated",
+      });
+      const safe = (title || "manuscript").replace(/[^\w-]+/g, "-").toLowerCase() || "manuscript";
+      const ext = kind === "pdf" ? "pdf" : "html";
+      const defPath = pm ? `${pm.root}/exports/${safe}.${ext}` : `${safe}.${ext}`;
+      const out = await fb.save(defPath, [{ name: ext.toUpperCase(), extensions: [ext] }]);
+      if (!out) {
+        exportBusy = false;
+        return;
+      }
+      if (kind === "pdf") await fb.printPdf?.(full, out, {});
+      else await fb.writeText(out, full);
+      exportBusy = false;
+      exportDone = true;
+      setTimeout(() => (exportDone = false), 2600);
+    } catch (e) {
+      console.error("[flux] export failed", e);
+      exportBusy = false;
+    }
+  }
+
+  function insertFigure(ref: FigureRef) {
+    pickerOpen = false;
+    if (!view) return;
+    const pos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(pos);
+    const cap = ref.caption || ref.name || "";
+    const embed = `![${cap}](../fig/renders/${ref.id}.svg){#${ref.label}}`;
+    let from: number, to: number, insert: string, anchor: number;
+    if (line.text.trim() === "") {
+      from = line.from;
+      to = line.to;
+      insert = embed;
+      anchor = line.from + embed.length;
+    } else {
+      from = to = line.to;
+      insert = "\n\n" + embed;
+      anchor = line.to + insert.length;
+    }
+    view.dispatch({ changes: { from, to, insert }, selection: { anchor }, userEvent: "input" });
+    view.focus();
+  }
+
+  async function handleDoi(doi: string, v: EditorView, from: number, to: number) {
+    doiStatus = "fetching";
+    const r = await addDoiToBib(doi, pm?.root ?? null);
+    if ("error" in r) {
+      doiStatus = "error";
+      setTimeout(() => (doiStatus = ""), 2600);
+      v.dispatch({ changes: { from, to, insert: doi }, selection: { anchor: from + doi.length } });
+    } else {
+      doiStatus = "";
+      const ins = `[@${r.key}]`;
+      v.dispatch({ changes: { from, to, insert: ins }, selection: { anchor: from + ins.length } });
+    }
+    v.focus();
+  }
+
+  function showHover(target: ChipTarget, anchor: HTMLElement) {
+    clearTimeout(hoverHideTimer);
+    hover = { target, anchor };
+  }
+  function hideHoverSoon() {
+    clearTimeout(hoverHideTimer);
+    hoverHideTimer = setTimeout(() => (hover = null), 160);
+  }
+  function activateChip(target: ChipTarget) {
+    if (target.kind === "figref") {
+      const r = resolveFigure(target.label);
+      if (r) revealFigure(r.ref.id);
+    }
+  }
+
+  const status = $derived<"demo" | "saved" | "saving">(
+    isDemo ? "demo" : saved ? "saved" : "saving",
+  );
+  const bodyEmpty = $derived(stripFrontmatter(latest).trim().length === 0);
+
+  function stripFrontmatter(s: string): string {
+    if (s.startsWith("---")) {
+      const end = s.indexOf("\n---", 3);
+      if (end >= 0) return s.slice(end + 4);
+    }
+    return s;
+  }
+
+  onMount(async () => {
+    if (pm) initialDoc = (await readManuscript(pm)) || SEED;
+    else {
+      initialDoc = SEED;
+      isDemo = true;
+    }
+    latest = initialDoc;
+    ready = true;
+
+    setChipHandlers({
+      onActivate: activateChip,
+      onHover: showHover,
+      onLeave: hideHoverSoon,
+    });
+    setEmbedHandlers({ onOpenFigure: (id) => revealFigure(id) });
+    setSlashHandlers({ onInsertFigure: () => (pickerOpen = true) });
+    await Promise.all([loadFigures(pm?.root ?? null), loadBib(pm?.root ?? null)]);
+    const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
+    subs.push(figRevision.subscribe(() => void loadFigures(pm?.root ?? null)));
+    subs.push(bibRevision.subscribe(() => void loadBib(pm?.root ?? null)));
+    subs.push(figureRefs.subscribe(refresh));
+    subs.push(bibEntries.subscribe(refresh));
+
+    const fb = fileBridge();
+    if (fb?.quartoAvailable) {
+      try {
+        quartoAvail = (await fb.quartoAvailable()).installed;
+      } catch {
+        quartoAvail = false;
+      }
+    }
+  });
+
+  function buildExtensions() {
+    return createEditorExtensions({
+      extra: [
+        pageCompartment.of(themeFor(viewMode)),
+        selectionWatcher,
+        cursorWatcher,
+        formattingKeymap,
+        scienceChips,
+        scienceEmbeds,
+        scienceTables,
+        scholarCompletion,
+        doiPaste(handleDoi),
+        commentField,
+        commentClickHandler(focusComment),
+      ],
+    });
+  }
+
+  function onReady(v: EditorView) {
+    view = v;
+    outline = getOutline(v.state);
+    void loadComments(v);
+  }
+
+  async function loadComments(v: EditorView) {
+    if (!pm) return;
+    const loaded = await readComments(pm);
+    if (!loaded.length) return;
+    const doc = v.state.doc.toString();
+    const effects = [];
+    for (const t of loaded) {
+      const r = t.resolved ? null : resolveAnchor(doc, t.anchor);
+      if (r) effects.push(addCommentMark.of({ id: t.id, from: r.from, to: r.to }));
+    }
+    threads = loaded;
+    if (effects.length) v.dispatch({ effects });
+    syncRanges();
+  }
+
+  function onChange(s: string) {
+    latest = s;
+    if (view) outline = getOutline(view.state);
+    syncRanges();
+    if (threads.some((t) => !t.draft)) scheduleCommentSave();
+    if (!pm) return;
+    saved = false;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      await writeManuscript(pm, latest);
+      saved = true;
+    }, 600);
+  }
+
+  function setView(m: PaperViewMode) {
+    viewMode = m;
+    paperViewMode.set(m);
+    view?.dispatch({ effects: pageCompartment.reconfigure(themeFor(m)) });
+    view?.focus();
+  }
+
+  function jump(from: number) {
+    if (!view) return;
+    view.dispatch({
+      selection: { anchor: from },
+      effects: EditorView.scrollIntoView(from, { y: "start" }),
+    });
+    view.focus();
+  }
+
+  function startFrom(seed: string) {
+    dismissedEmpty = true;
+    if (view && seed)
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: seed } });
+    view?.focus();
+  }
+
+  async function flush() {
+    clearTimeout(saveTimer);
+    if (pm && !saved) {
+      await writeManuscript(pm, latest);
+      saved = true;
+    }
+  }
+  onDestroy(() => {
+    void flush();
+    subs.forEach((u) => u());
+    clearTimeout(hoverHideTimer);
+    clearTimeout(commentSaveTimer);
+  });
+
+  // ---- dynamic margin -----------------------------------------------------
+  let omniFocusN = $state(0);
+  let viewReq = $state<{ id: string; n: number }>({ id: "figure", n: 0 });
+  let workEl = $state<HTMLDivElement | undefined>(undefined);
+  let dmDragging = $state(false);
+
+  function openMarginView(id: string) {
+    paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
+    viewReq = { id, n: viewReq.n + 1 };
+  }
+  function focusMarginSearch() {
+    paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
+    omniFocusN += 1;
+  }
+  function toggleMargin() {
+    paperLayout.update((s) => ({ ...s, dynMarginOpen: !s.dynMarginOpen }));
+  }
+  function startDmDrag(e: PointerEvent) {
+    dmDragging = true;
+    e.preventDefault();
+    window.addEventListener("pointermove", dmMove);
+    window.addEventListener("pointerup", dmEnd);
+  }
+  function dmMove(e: PointerEvent) {
+    if (!dmDragging || !workEl) return;
+    const r = workEl.getBoundingClientRect();
+    const w = Math.max(260, Math.min(620, r.right - e.clientX));
+    paperLayout.update((s) => ({ ...s, dynMarginW: w }));
+  }
+  function dmEnd() {
+    dmDragging = false;
+    window.removeEventListener("pointermove", dmMove);
+    window.removeEventListener("pointerup", dmEnd);
+  }
+
+  // A stable, getter-backed bundle: identity never changes, but each field read
+  // is fine-grained reactive (so views only re-run when their data changes).
+  const marginHost: MarginHost = {
+    get view() {
+      return view;
+    },
+    get latest() {
+      return latest;
+    },
+    get citedKeys() {
+      return citedKeys;
+    },
+    get figures() {
+      return figures;
+    },
+    get references() {
+      return references;
+    },
+    get comments() {
+      return {
+        threads,
+        ranges: cRanges,
+        activeId: activeComment,
+        author: commentAuthor,
+        count: commentCount,
+        onSubmitNew: submitNew,
+        onCancelNew: cancelNew,
+        onReply: replyComment,
+        onResolve: resolveComment,
+        onReopen: reopenComment,
+        onDelete: deleteComment,
+        onFocus: focusComment,
+        onStart: startComment,
+      };
+    },
+    writeCites: (keys, target) => {
+      if (view) writeCiteGroup(view, keys, target);
+    },
+    removeCite: (key) => {
+      if (view) removeCiteOp(view, key);
+    },
+    citationAtCaret: () =>
+      view ? citationGroupAt(view.state, view.state.selection.main.head) : null,
+    insertFigure,
+    addDoi: addDoiFromPanel,
+    focusEditor: () => view?.focus(),
+    openFigure: (id) => revealFigure(id),
+  };
+
+  // ---- command palette (⌘K) + keyboard shortcuts -------------------------
+  const commands = $derived<Command[]>([
+    {
+      id: "view-toggle",
+      title: previewActive ? "Switch to Edit" : "Switch to Preview",
+      hint: "View",
+      keywords: "preview edit render",
+      run: () => (previewActive = !previewActive),
+    },
+    { id: "view-continuous", title: "Continuous view", hint: "View", keywords: "scroll column", run: () => setView("continuous") },
+    { id: "view-paginated", title: "Paginated view", hint: "View", keywords: "page sheets print", run: () => setView("paginated") },
+    { id: "insert-figure", title: "Insert figure…", hint: "Insert", keywords: "image panel embed", run: () => (pickerOpen = true) },
+    {
+      id: "toggle-outliner",
+      title: $paperLayout.outlinerOpen ? "Hide outliner" : "Show outliner",
+      hint: "Alt+O",
+      keywords: "outline toc headings sections",
+      run: toggleOutliner,
+    },
+    { id: "toggle-margin", title: $paperLayout.dynMarginOpen ? "Hide dynamic margin" : "Show dynamic margin", hint: "Alt+F", keywords: "panel margin sidebar", run: toggleMargin },
+    { id: "margin-search", title: "Search references…", hint: "Margin", keywords: "find cite reference bibliography", run: focusMarginSearch },
+    { id: "margin-references", title: "References", hint: "Margin", keywords: "bibliography citations library", run: () => openMarginView("bibliography") },
+    { id: "margin-figures", title: "Figures", hint: "Margin", keywords: "image plot zoom panel", run: () => openMarginView("figure") },
+    { id: "margin-comments", title: "Comments", hint: "Margin", keywords: "notes annotations review", run: () => openMarginView("comments") },
+    { id: "margin-stats", title: "Statistics", hint: "Margin", keywords: "word count length", run: () => openMarginView("stats") },
+    { id: "export-pdf", title: "Export PDF", hint: "Export", keywords: "download print", run: () => doExport("pdf") },
+    { id: "export-html", title: "Export HTML", hint: "Export", keywords: "download web", run: () => doExport("html") },
+    ...(quartoAvail
+      ? [{ id: "export-docx", title: "Export Word", hint: "Export", keywords: "docx quarto", run: () => doExport("docx") }]
+      : []),
+  ]);
+
+  $effect(() => {
+    if (!focused) return;
+    const h = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && !e.shiftKey && !e.altKey && e.code === "KeyK") {
+        e.preventDefault();
+        paletteOpen = !paletteOpen;
+      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyO") {
+        e.preventDefault();
+        toggleOutliner();
+      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyF") {
+        e.preventDefault();
+        focusMarginSearch();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  });
+</script>
+
+<section class="paper">
+  <div class="work" bind:this={workEl}>
+    {#if $paperLayout.outlinerOpen}
+      <Outline
+        items={outline}
+        title={meta.title}
+        {activeFrom}
+        collapsed={collapsedSet}
+        onJump={jump}
+        onToggleCollapse={toggleCollapse} />
+    {/if}
+    <div class="editor-col" bind:this={colEl} style={gutterStyle}>
+      {#if ready}
+        <div class="titlepill-wrap">
+          <TitlePill
+            title={meta.title}
+            authors={meta.authors}
+            {status}
+            onEdit={() => (titleEditOpen = true)} />
+        </div>
+        <Editor doc={initialDoc} extensions={buildExtensions()} {onReady} {onChange} />
+        {#if viewMode !== "paginated" && !previewActive}
+          <div
+            class="mhandle left"
+            class:active={dragSide === "l"}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Adjust left margin"
+            onpointerdown={(e) => startMargin("l", e)}>
+            <span class="grip"></span>
+          </div>
+          <div
+            class="mhandle right"
+            class:active={dragSide === "r"}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Adjust right margin"
+            onpointerdown={(e) => startMargin("r", e)}>
+            <span class="grip"></span>
+          </div>
+        {/if}
+        {#if bodyEmpty && !dismissedEmpty}
+          <EmptyState {title} onStart={startFrom} />
+        {/if}
+        {#if previewActive}
+          <PreviewPane src={latest} paginated={viewMode === "paginated"} />
+        {/if}
+      {/if}
+    </div>
+    {#if $paperLayout.dynMarginOpen}
+      <div class="dm-wrap" style="flex:0 0 {$paperLayout.dynMarginW}px">
+        <div
+          class="dm-grip"
+          class:active={dmDragging}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize margin"
+          onpointerdown={startDmDrag}>
+          <span class="bar"></span>
+        </div>
+        <DynamicMargin
+          host={marginHost}
+          focusReq={omniFocusN}
+          {viewReq}
+          onClose={() => paperLayout.update((s) => ({ ...s, dynMarginOpen: false }))} />
+      </div>
+    {/if}
+  </div>
+
+  <SelectionToolbar {view} onComment={startComment} />
+
+  {#if paletteOpen}
+    <CommandPalette {commands} onClose={() => (paletteOpen = false)} />
+  {/if}
+
+  {#if titleEditOpen}
+    <TitleEditor
+      title={meta.title}
+      authors={meta.authors}
+      onSave={saveTitleAuthors}
+      onClose={() => (titleEditOpen = false)} />
+  {/if}
+
+  {#if hover}
+    <HoverCard
+      target={hover.target}
+      anchor={hover.anchor}
+      onenter={() => clearTimeout(hoverHideTimer)}
+      onleave={hideHoverSoon} />
+  {/if}
+
+  {#if doiStatus}
+    <div class="doi-toast" class:err={doiStatus === "error"}>
+      {doiStatus === "fetching" ? "Fetching reference…" : "Couldn't resolve that DOI"}
+    </div>
+  {/if}
+
+  {#if pickerOpen}
+    <FigurePicker
+      figures={$figureRefs}
+      onSelect={insertFigure}
+      onClose={() => (pickerOpen = false)} />
+  {/if}
+
+  {#if exportOpen}
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="menu-scrim" onclick={() => (exportOpen = false)}></div>
+    <div class="export-menu" transition:popIn>
+      <button onclick={() => doExport("pdf")}>PDF</button>
+      <button onclick={() => doExport("html")}>HTML</button>
+      <button
+        onclick={() => doExport("docx")}
+        disabled={!quartoAvail}
+        title={quartoAvail ? "Word via Quarto" : "Install Quarto for Word export"}>
+        Word {quartoAvail ? "" : "· needs Quarto"}
+      </button>
+    </div>
+  {/if}
+
+  {#if exportBusy}
+    <div class="doi-toast">Exporting…</div>
+  {:else if exportDone}
+    <div class="doi-toast done">Exported ✓</div>
+  {/if}
+</section>
+
+<style>
+  .paper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    background: var(--c-bg);
+    color: var(--c-tx);
+  }
+  /* The three panels read as distinct paper cards on a cream desk. */
+  .work {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    gap: 14px;
+    padding: 20px 16px 16px;
+    background: var(--c-bg);
+  }
+  .editor-col {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    --cm-pad-top: 72px;
+    border: 1.5px solid var(--c-edge);
+    border-radius: var(--r-3);
+    background: var(--flx-paper);
+  }
+  /* The title｜authors banner straddles the editor card's top edge. */
+  .titlepill-wrap {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    transform: translateY(-50%);
+    z-index: 6;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .titlepill-wrap :global(.pill) {
+    pointer-events: auto;
+  }
+  /* Reader-adjustable margins: a thin guide that lights up on hover/drag, sitting
+     just inside the gutter so the text column stays fully clickable. */
+  .mhandle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    z-index: 4;
+    cursor: col-resize;
+    display: flex;
+    justify-content: center;
+  }
+  .mhandle.left {
+    left: calc(var(--gutter-l, max(24px, (100% - 72ch) / 2)) - 12px);
+  }
+  .mhandle.right {
+    right: calc(var(--gutter-r, max(24px, (100% - 72ch) / 2)) - 12px);
+  }
+  .mhandle .grip {
+    width: 2px;
+    height: 100%;
+    background: var(--c-accent);
+    opacity: 0;
+    transition: opacity var(--dur-quick) var(--ease-standard);
+  }
+  .mhandle:hover .grip,
+  .mhandle.active .grip {
+    opacity: 0.55;
+    box-shadow: 0 0 8px var(--c-accent-glow);
+  }
+  .dm-wrap {
+    position: relative;
+    height: 100%;
+    min-width: 0;
+  }
+  /* Resize grip living in the desk gap on the margin card's left edge. */
+  .dm-grip {
+    position: absolute;
+    left: -14px;
+    top: 0;
+    bottom: 0;
+    width: 14px;
+    z-index: 4;
+    display: grid;
+    place-items: center;
+    cursor: col-resize;
+  }
+  .dm-grip .bar {
+    width: 2px;
+    height: 36px;
+    border-radius: 1px;
+    background: var(--c-edge);
+    opacity: 0.45;
+    transition:
+      opacity var(--dur-quick) var(--ease-standard),
+      background var(--dur-quick) var(--ease-standard);
+  }
+  .dm-grip:hover .bar,
+  .dm-grip.active .bar {
+    background: var(--c-accent);
+    opacity: 1;
+    height: 100%;
+    box-shadow: 0 0 8px var(--c-accent-glow);
+  }
+  .doi-toast {
+    position: absolute;
+    bottom: var(--sp-5);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: var(--sp-2) var(--sp-4);
+    background: var(--c-surface);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-pill);
+    box-shadow: var(--elev-2);
+    font-size: var(--ts-sm);
+    color: var(--c-tx-2);
+    z-index: 60;
+  }
+  .doi-toast.err {
+    color: var(--c-danger, #d14d41);
+  }
+  .doi-toast.done {
+    color: var(--c-accent-bright);
+  }
+  .menu-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 65;
+  }
+  .export-menu {
+    position: absolute;
+    top: 78px;
+    right: 12px;
+    z-index: 66;
+    min-width: 150px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    background: var(--c-surface);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-2);
+    box-shadow: var(--elev-2);
+  }
+  .export-menu button {
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 7px 10px;
+    border-radius: var(--r-1);
+    color: var(--c-tx-2);
+    font: inherit;
+    font-size: var(--ts-sm);
+    cursor: pointer;
+  }
+  .export-menu button:hover:not(:disabled) {
+    background: var(--c-ui-hover);
+    color: var(--c-tx-hi);
+  }
+  .export-menu button:disabled {
+    color: var(--c-tx-faint);
+    cursor: default;
+  }
+</style>

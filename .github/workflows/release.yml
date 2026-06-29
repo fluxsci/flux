@@ -1,0 +1,50 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"] # tag MUST match package.json "version" — electron-builder names the release v${version}
+
+permissions:
+  contents: write # electron-builder creates/updates the GitHub Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest # Apple Silicon runner; cross-builds the x64 slice too
+            args: "--mac"
+          - os: ubuntu-latest
+            args: "--linux"
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # Expose ONLY a boolean (not the secret) so steps can branch in `if:`.
+      HAS_SIGNING: ${{ secrets.MAC_CSC_LINK != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build # Vite -> ./dist (MUST precede electron-builder)
+
+      - name: Package · sign · notarize · publish (macOS, signed)
+        if: matrix.os == 'macos-latest' && env.HAS_SIGNING == 'true'
+        run: npx electron-builder ${{ matrix.args }} -c.mac.notarize.teamId="$APPLE_TEAM_ID" --publish always
+
+      - name: Package · publish (macOS unsigned / Linux)
+        if: matrix.os != 'macos-latest' || env.HAS_SIGNING != 'true'
+        run: npx electron-builder ${{ matrix.args }} --publish always
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false" # don't hunt for a cert (afterPack ad-hoc signs)

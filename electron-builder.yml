@@ -1,0 +1,55 @@
+appId: com.kortdriessen.flux
+productName: Flux
+copyright: © 2026 Kort Driessen
+
+directories:
+  buildResources: build
+  output: release
+
+# Allowlist. src/, src-tauri/, fluxplot/, brand/, notes/, *.md are excluded by
+# omission. node_modules is dropped explicitly: electron/main.cjs requires only
+# `electron` + node builtins, and the renderer is fully bundled into dist/ by Vite —
+# so the packaged app needs no node_modules at all.
+files:
+  - electron/**/*
+  - dist/**/*
+  - package.json
+  - "!**/node_modules/**/*"
+
+asar: true
+npmRebuild: false # no native/compiled modules anywhere
+
+# Ad-hoc signs the .app on macOS when no Developer ID is configured, so unsigned
+# builds still launch on Apple Silicon (arm64 refuses unsigned/broken signatures).
+afterPack: build/afterPack.cjs
+
+mac:
+  category: public.app-category.productivity
+  icon: src-tauri/icons/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  # notarize is enabled per-build from CI (release.yml) so an unsigned build (no
+  # secrets) still succeeds.
+
+linux:
+  icon: src-tauri/icons
+  category: Graphics
+  target:
+    - AppImage
+    - deb
+
+dmg:
+  title: ${productName} ${version}
+
+publish:
+  provider: github
+  owner: kortdriessen
+  repo: flux
+  releaseType: draft

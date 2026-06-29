@@ -1,0 +1,18 @@
+/* Bundled Gelasio (SIL OFL 1.1) — a metric-compatible substitute for Georgia,
+   so the brand serif looks ~identical even where Georgia isn't installed, and
+   the app never depends on a system font being present. One variable file
+   covers weights 400–700. */
+@font-face {
+  font-family: "Gelasio";
+  src: url("./fonts/Gelasio.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Gelasio";
+  src: url("./fonts/Gelasio-italic.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
