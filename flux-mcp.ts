@@ -289,6 +289,33 @@ server.registerTool(
 );
 
 server.registerTool(
+  "list_comments",
+  {
+    description:
+      "List a document's review comments (the human's margin comments). Open threads by default. Each thread's anchor.quote is the EXACT manuscript text the comment targets — find that text in the .qmd, address it, then call resolve_comment. Omit doc for the main manuscript.",
+    inputSchema: { doc: z.string().optional(), includeResolved: z.boolean().optional() },
+  },
+  async ({ doc, includeResolved }) => {
+    const threads = await core.listComments(ROOT, doc);
+    const shown = includeResolved ? threads : threads.filter((t) => !t.resolved);
+    return ok(JSON.stringify(shown, null, 2));
+  },
+);
+
+server.registerTool(
+  "resolve_comment",
+  {
+    description:
+      "Mark a review comment resolved — by thread id, or a substring of its quoted text (must match exactly one). Optionally append a reply note. Holds the manuscript lock + journals. Call this AFTER addressing the comment in the .qmd (set_manuscript). Omit doc for the main manuscript.",
+    inputSchema: { id: z.string(), doc: z.string().optional(), note: z.string().optional() },
+  },
+  async ({ id, doc, note }) => {
+    const r = await core.resolveComment(ROOT, id, { docRel: doc, note });
+    return ok(`resolved ${r.id} (${r.resolved}/${r.total} resolved)`);
+  },
+);
+
+server.registerTool(
   "validate_project",
   {
     description: "Validate the project (or one file) against the bundled JSON Schemas (.meta/schema/). Use after editing files directly to confirm your writes are well-formed.",

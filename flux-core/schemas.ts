@@ -172,9 +172,14 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     $id: "flux/fluxplot-manifest.schema.json",
     title: "FluxPlot semantic-SVG manifest (*.fluxplot.json)",
     type: "object",
-    required: ["specVersion"],
+    // The FluxPlot library emits `schemaVersion` (+ spec:"fluxplot/manifest");
+    // older hand-authored fixtures use `specVersion`. Accept either version key so
+    // Flux validates the real library's output as well as the fixtures.
+    anyOf: [{ required: ["specVersion"] }, { required: ["schemaVersion"] }],
     properties: {
       specVersion: { type: "string" },
+      schemaVersion: { type: "string" },
+      spec: { type: "string" },
       axes: { type: ["object", "array"] },
       series: {
         type: "array",

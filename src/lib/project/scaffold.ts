@@ -152,6 +152,7 @@ See \`AGENTS.md\` for the full layout and conventions.
 const GITIGNORE = `exports/
 .meta/cache/
 .meta/locks/
+.meta/live/
 fig/renders/
 `;
 

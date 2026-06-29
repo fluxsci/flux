@@ -4,11 +4,21 @@ const fs = require("node:fs");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 
-let chokidar;
-try {
-  chokidar = require("chokidar");
-} catch {
-  chokidar = null; // file-watch (F1 live reload) degrades gracefully without the dep
+// chokidar is ESM-only (v5); this file is CommonJS, so it must be loaded via a
+// dynamic import() — a require() throws ERR_REQUIRE_ESM, which (when swallowed)
+// silently disables F1 file-watch live-reload entirely. Cached after first load.
+let chokidarMod; // module namespace (has .watch); null if genuinely unavailable
+let chokidarLoad;
+function loadChokidar() {
+  if (chokidarMod !== undefined) return Promise.resolve(chokidarMod);
+  if (!chokidarLoad)
+    chokidarLoad = import("chokidar")
+      .then((m) => (chokidarMod = m))
+      .catch((e) => {
+        console.error("file-watch disabled: chokidar failed to load —", e && e.message);
+        return (chokidarMod = null);
+      });
+  return chokidarLoad;
 }
 
 // Integrated-terminal backend (native shell in a PTY). A native module, so the
@@ -383,7 +393,9 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     await projectWatcher.close().catch(() => {});
     projectWatcher = null;
   }
-  if (!root || !chokidar) return false;
+  if (!root) return false;
+  const ck = await loadChokidar();
+  if (!ck) return false;
   const targets = ["plots", "fig", "manuscript", "references"].map((d) => path.join(root, d));
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
@@ -393,7 +405,7 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
       mainWindow?.webContents.send("fs:changed", { subsystem, path: p });
     pending.clear();
   };
-  projectWatcher = chokidar.watch(targets, {
+  projectWatcher = ck.watch(targets, {
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
   });

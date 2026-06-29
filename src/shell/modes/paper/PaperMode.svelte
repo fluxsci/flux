@@ -655,8 +655,44 @@
     outline = getOutline(view.state);
     syncRanges();
   }
+  // The active document's comments sidecar (mirrors flux-core commentsRel /
+  // comments.ts commentsPath): main doc → comments.json, others → <base>.comments.json.
+  function commentsSidecarRel(): string {
+    const mainPath = pm?.manifest.manuscript.path ?? "";
+    const mp = activeDocPath;
+    const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
+    const isMain = mp === mainPath;
+    const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.qmd$/, "");
+    const name = isMain ? "comments.json" : `${base}.comments.json`;
+    return dir ? `${dir}/${name}` : name;
+  }
+
+  // F1 live reload for review comments: an external resolve/edit to the active
+  // doc's comments.json refreshes the margin in place. Non-destructive — skipped
+  // while the human is composing a draft, so in-progress work is never clobbered.
+  async function reloadCommentsFromDisk() {
+    if (!pm || !view) return;
+    if (threads.some((t) => t.draft)) return;
+    const loaded = await readComments(pm, activeDocPath);
+    const doc = view.state.doc.toString();
+    const effects = [];
+    for (const t of threads) effects.push(removeCommentMark.of(t.id));
+    for (const t of loaded) {
+      const r = t.resolved ? null : resolveAnchor(doc, t.anchor);
+      if (r) effects.push(addCommentMark.of({ id: t.id, from: r.from, to: r.to }));
+    }
+    threads = loaded;
+    if (activeComment && !loaded.some((t) => t.id === activeComment && !t.resolved)) activeComment = null;
+    if (effects.length) view.dispatch({ effects });
+    syncRanges();
+  }
+
   async function onExternalManuscript(chg: { path: string; n: number } | null) {
     if (!chg || !pm || !view) return;
+    if (chg.path.endsWith(commentsSidecarRel())) {
+      await reloadCommentsFromDisk(); // comments sidecar changed → refresh margin in place
+      return;
+    }
     if (!chg.path.endsWith(activeDocPath)) return; // only the active document
     const text = (await readManuscript(pm, activeDocPath)) || "";
     if (text === latest) return; // nothing new (e.g. our own echoed write)

@@ -38,6 +38,8 @@ usage: flux <verb> [root] [args] [--flags]
   ref <figId> [--root R] [--doc rel]   append a @fig cross-reference
   cite-doi <doi> [--root R]            fetch a DOI's BibTeX → library.bib
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
+  comments [--root R] [--doc rel] [--all]   list review comments (open by default)
+  resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   mark a comment resolved
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
   rerun-plot <recipe.json> [--param v…]   re-run a plot's recipe (regenerate)
@@ -230,6 +232,26 @@ async function main() {
         console.error(r.log);
         process.exit(r.code);
       }
+      break;
+    }
+    case "comments": {
+      const threads = await core.listComments(R(), flags.doc as string | undefined);
+      const shown = flags.all ? threads : threads.filter((t) => !t.resolved);
+      console.log(
+        JSON.stringify(
+          shown.map((t) => ({ id: t.id, resolved: t.resolved, quote: t.anchor?.quote ?? "", messages: t.messages })),
+          null,
+          2,
+        ),
+      );
+      break;
+    }
+    case "resolve-comment": {
+      const r = await core.resolveComment(R(), _[0], {
+        docRel: flags.doc as string | undefined,
+        note: typeof flags.note === "string" ? flags.note : undefined,
+      });
+      console.error(`✓ resolved ${r.id} (${r.resolved}/${r.total} resolved)`);
       break;
     }
     case "validate": {
