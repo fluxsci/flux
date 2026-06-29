@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240">
+  <rect width="320" height="240" fill="#ffffff"/>
+  <g id="plot-area">
+    <line id="axis.x.line" x1="40" y1="200" x2="300" y2="200" stroke="#333333" stroke-width="1"/>
+    <line id="axis.y.line" x1="40" y1="20" x2="40" y2="200" stroke="#333333" stroke-width="1"/>
+    <text id="axis.x.title" x="170" y="232" text-anchor="middle" font-size="11" fill="#333333">time (h)</text>
+    <text id="axis.y.title" x="14" y="110" text-anchor="middle" font-size="11" fill="#333333" transform="rotate(-90 14 110)">growth</text>
+    <g id="control">
+      <path id="control.line" d="M40 180 L170 120 L300 90" stroke="#1b9e77" stroke-width="2" fill="none"/>
+      <g id="control.points">
+        <circle id="control.point.0" cx="40" cy="180" r="3" fill="#1b9e77"/>
+        <circle id="control.point.1" cx="170" cy="120" r="3" fill="#1b9e77"/>
+        <circle id="control.point.2" cx="300" cy="90" r="3" fill="#1b9e77"/>
+      </g>
+    </g>
+    <g id="treatment">
+      <path id="treatment.line" d="M40 180 L170 90 L300 40" stroke="#d95f02" stroke-width="2" fill="none"/>
+      <g id="treatment.points">
+        <circle id="treatment.point.0" cx="40" cy="180" r="3" fill="#d95f02"/>
+        <circle id="treatment.point.1" cx="170" cy="90" r="3" fill="#d95f02"/>
+        <circle id="treatment.point.2" cx="300" cy="40" r="3" fill="#d95f02"/>
+      </g>
+    </g>
+  </g>
+</svg>

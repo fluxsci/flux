@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MarginHost, MarginApi } from "../types";
+  import { bibError } from "../../scholar/bib";
 
   let { host, margin }: { host: MarginHost; margin: MarginApi } = $props();
 
@@ -31,6 +32,9 @@
     <span class="count">{refs.length} reference{refs.length === 1 ? "" : "s"}</span>
     <span class="cited">{citedCount} cited</span>
   </div>
+  {#if $bibError}
+    <div class="biberr" role="status">{$bibError}</div>
+  {/if}
   <button class="search" onclick={() => margin.openPane("reference-search")}>Search references…</button>
 
   <div class="adddoi" class:failed>
@@ -80,6 +84,15 @@
   }
   .cited {
     color: var(--c-accent-bright);
+  }
+  .biberr {
+    font-size: var(--ts-xs);
+    line-height: 1.4;
+    padding: 7px 10px;
+    border: 1px solid var(--c-danger);
+    border-radius: var(--r-1);
+    background: color-mix(in srgb, var(--c-danger) 12%, transparent);
+    color: var(--c-tx);
   }
   .search {
     font: inherit;

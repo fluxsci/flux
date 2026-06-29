@@ -1,6 +1,7 @@
 import { writable, get } from "svelte/store";
 import type { ColorGroup, ColorSwatch, Id, PartOverride } from "./types";
 import { project, selection, partSelection, drawStyle, commit } from "./store";
+import * as ops from "./ops";
 
 // Whether palette clicks set fill or stroke.
 export const colorTarget = writable<"fill" | "stroke">("fill");
@@ -21,14 +22,7 @@ export function closeQuick() {
 // semantic id (e.g. "control.line", or a group id like "axis.x.tick-labels").
 // Survives plot regeneration because the id is deterministic (spec §7). Undoable.
 export function applyPartStyleTo(elementId: Id, partId: string, patch: PartOverride) {
-  commit((p) => {
-    for (const f of p.figures)
-      for (const e of f.elements) {
-        if (e.id !== elementId || e.type !== "plot") continue;
-        e.overrides = { ...(e.overrides ?? {}) };
-        e.overrides[partId] = { ...(e.overrides[partId] ?? {}), ...patch };
-      }
-  });
+  commit((p) => ops.setPartOverride(p, elementId, partId, patch));
 }
 
 // Write a style override onto the currently selected plot PART (the canvas

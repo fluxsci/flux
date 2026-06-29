@@ -1,0 +1,36 @@
+{
+  "specVersion": "0.2.0",
+  "axes": {
+    "x": { "scale": "linear", "domain": [0, 24], "pixelRange": [40, 300] },
+    "y": { "scale": "linear", "domain": [0, 10], "pixelRange": [200, 20] }
+  },
+  "series": [
+    {
+      "id": "control",
+      "role": "series",
+      "kind": "line",
+      "svg": { "line": "control.line", "points": "control.points" },
+      "points": [
+        { "index": 0, "svgId": "control.point.0", "x": 0, "y": 1.4 },
+        { "index": 1, "svgId": "control.point.1", "x": 12, "y": 4.0 },
+        { "index": 2, "svgId": "control.point.2", "x": 24, "y": 5.2 }
+      ]
+    },
+    {
+      "id": "treatment",
+      "role": "series",
+      "kind": "line",
+      "svg": { "line": "treatment.line", "points": "treatment.points" },
+      "points": [
+        { "index": 0, "svgId": "treatment.point.0", "x": 0, "y": 1.4 },
+        { "index": 1, "svgId": "treatment.point.1", "x": 12, "y": 6.1 },
+        { "index": 2, "svgId": "treatment.point.2", "x": 24, "y": 8.7 }
+      ]
+    }
+  ],
+  "guides": [
+    { "role": "axis-title", "svgId": "axis.x.title" },
+    { "role": "axis-title", "svgId": "axis.y.title" }
+  ],
+  "build": { "order": ["axis.x.line", "axis.y.line", "control.line", "treatment.line"] }
+}

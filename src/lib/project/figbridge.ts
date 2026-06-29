@@ -21,6 +21,7 @@ import { plotManifests, plotRecipes, cachePlot, clearPlots } from "../plot/store
 import type { FluxPlotManifest } from "../plot/types";
 import { FLEXOKI } from "../flexoki";
 import { settings } from "../settings";
+import { composeCaption, panelLetters } from "../captions";
 import { fileBridge, joinPath, slugify } from "./types";
 
 const SUB = "fig";
@@ -139,6 +140,7 @@ export async function saveFigFrom(root: string): Promise<void> {
   await fig.mkdir(joinPath(root, SUB));
   await fig.mkdir(joinPath(root, SUB, "canvases"));
   await fig.mkdir(joinPath(root, SUB, "assets"));
+  await fig.mkdir(joinPath(root, SUB, "captions"));
 
   // Asset bytes → fig/assets/<id>.<kind> (+ a semantic plot's sidecars next to it)
   for (const a of p.assets) {
@@ -175,6 +177,30 @@ export async function saveFigFrom(root: string): Promise<void> {
     );
   }
 
+  // Captions → fig/captions/<id>.md (Flux_Project_Format.md §3.2): the single
+  // source of truth, composed from each figure's panel blocks (F7). The index
+  // also caches the composed text for tools that read only index.json.
+  const captionById: Record<string, string> = {};
+  for (const f of p.figures) {
+    const cap = composeCaption(f);
+    captionById[f.id] = cap;
+    await fig.writeText(joinPath(root, SUB, "captions", `${f.id}.md`), cap ? cap + "\n" : "");
+  }
+
+  // Preserve existing cross-ref labels (the figure↔prose join key) across saves;
+  // only derive a label for figures that don't have one yet (F7 label stability —
+  // otherwise renaming a figure would silently break its @fig-… references).
+  const prevLabels: Record<string, string> = {};
+  try {
+    const ip = joinPath(root, SUB, "index.json");
+    if (await fig.exists(ip)) {
+      const prev = JSON.parse(await fig.readText(ip)) as FigIndexFile;
+      for (const pf of prev.figures ?? []) if (pf.label) prevLabels[pf.id] = pf.label;
+    }
+  } catch {
+    /* no prior index — derive fresh labels below */
+  }
+
   // Index (rollup) — drives numbering / cross-ref; also stores palette + assets.
   const index: FigIndexFile = {
     schemaVersion: "0.1.0",
@@ -182,11 +208,11 @@ export async function saveFigFrom(root: string): Promise<void> {
     figures: p.figures.map((f, i) => ({
       id: f.id,
       name: f.name,
-      label: `fig-${slugify(f.name || f.id)}`,
+      label: prevLabels[f.id] ?? `fig-${slugify(f.name || f.id)}`,
       order: i + 1,
       kind: "main",
       canvas: f.canvasId,
-      caption: "",
+      caption: captionById[f.id] ?? "",
     })),
     assets: p.assets,
     palette: p.palette,
@@ -196,6 +222,11 @@ export async function saveFigFrom(root: string): Promise<void> {
     joinPath(root, SUB, "index.json"),
     JSON.stringify(index, null, 2) + "\n",
   );
+
+  // WS6: record the human's save in the provenance journal (Electron only; the
+  // mem/demo bridge has no journalAppend, so this is a no-op there).
+  const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
+  host?.journalAppend?.({ action: "save_fig", target: p.figures.map((f) => f.id), client: "human" });
 
   figDirty.set(false);
 }
@@ -213,6 +244,7 @@ export interface FigSourceFigure {
   order: number;
   canvas: string;
   caption: string;
+  panels: string[]; // ordered panel letters ["a","b",…] for sub-panel refs (F7)
 }
 export interface FigSource {
   indexFigures: FigSourceFigure[];
@@ -264,6 +296,18 @@ export async function readFigSource(root: string): Promise<FigSource> {
     }
   }
 
+  // Prefer the per-figure caption file (F7 single-source); fall back to the
+  // cached index caption for older projects without caption files.
+  const captionMd: Record<string, string> = {};
+  for (const f of index.figures ?? []) {
+    try {
+      const cp = joinPath(root, SUB, "captions", `${f.id}.md`);
+      if (await fig.exists(cp)) captionMd[f.id] = (await fig.readText(cp)).trim();
+    } catch {
+      /* skip unreadable caption */
+    }
+  }
+
   return {
     indexFigures: (index.figures ?? []).map((f) => ({
       id: f.id,
@@ -271,7 +315,8 @@ export async function readFigSource(root: string): Promise<FigSource> {
       label: f.label,
       order: f.order,
       canvas: f.canvas,
-      caption: f.caption,
+      caption: captionMd[f.id] ?? f.caption ?? "",
+      panels: figures[f.id] ? panelLetters(figures[f.id]) : [],
     })),
     figures,
     assetData,

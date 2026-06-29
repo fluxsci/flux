@@ -1,0 +1,172 @@
+// WS4 — the allow-listed commands an external agent can dispatch against the live
+// app. Each maps to the SAME pure op the GUI uses, run through commit() so the
+// agent's action is identical to a human edit and fully undoable (Ctrl+Z). The
+// switch IS the allow-list: an unknown command throws. Commands operate on the
+// current selection / active figure by default (so "act on what I have selected"
+// is the natural call), or on explicit ids.
+
+import { get } from "svelte/store";
+import * as store from "../store";
+import * as ops from "../ops";
+import type { AlignKind } from "../geometry";
+import type { PartOverride } from "../types";
+
+export type Command = { type: string } & Record<string, unknown>;
+
+const ids = (c: Command): string[] => (Array.isArray(c.ids) ? (c.ids as string[]) : [...get(store.selection)]);
+const fig = (c: Command): string | null => (typeof c.figureId === "string" ? c.figureId : get(store.activeFigureId));
+const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+
+export const ALLOWED_COMMANDS = [
+  "select",
+  "clear_selection",
+  "restyle_part",
+  "set_style",
+  "arrange",
+  "align",
+  "distribute",
+  "auto_label",
+  "group",
+  "ungroup",
+  "set_z",
+  "delete",
+  "set_figure_layout",
+  "duplicate_figure",
+  "create_figure",
+] as const;
+
+export async function dispatchCommand(c: Command): Promise<unknown> {
+  switch (c.type) {
+    case "select": {
+      const list = Array.isArray(c.ids) ? (c.ids as string[]) : [];
+      store.selection.set(new Set(list));
+      store.partSelection.set(null);
+      store.selectedFrameId.set(null);
+      return { selected: list.length };
+    }
+    case "clear_selection":
+      store.clearSelection();
+      return { ok: true };
+
+    case "restyle_part": {
+      const ps = get(store.partSelection);
+      // Default partId + elementId to the human's drilled-in part selection, so
+      // "restyle what I have selected" works with just a patch.
+      const partId = typeof c.partId === "string" ? c.partId : ps?.partId ?? "";
+      if (!partId) throw new Error("restyle_part: partId required (or drill into a plot part first)");
+      let elementId = typeof c.elementId === "string" ? c.elementId : ps?.elementId;
+      if (!elementId) {
+        const f = store.getActiveFigure(get(store.project));
+        const plots = f?.elements.filter((e) => e.type === "plot") ?? [];
+        if (plots.length === 1) elementId = plots[0].id;
+      }
+      if (!elementId) throw new Error("restyle_part: no target plot (select a plot part or pass elementId)");
+      const target = elementId;
+      store.commit((p) => ops.setPartOverride(p, target, partId, (c.patch ?? {}) as PartOverride));
+      return { elementId: target, partId };
+    }
+
+    case "set_style": {
+      const list = ids(c);
+      store.commit((p) => ops.setElementStyle(p, list, (c.patch ?? {}) as ops.ElementStylePatch));
+      return { styled: list.length };
+    }
+
+    case "arrange": {
+      const f = fig(c);
+      if (!f) throw new Error("arrange: no active figure");
+      store.commit((p) =>
+        ops.arrangePanels(p, f, {
+          rows: num(c.rows),
+          cols: num(c.cols),
+          gap: num(c.gap),
+          ids: Array.isArray(c.ids) ? (c.ids as string[]) : undefined,
+        }),
+      );
+      return { figureId: f };
+    }
+
+    case "align": {
+      const f = fig(c);
+      if (!f) throw new Error("align: no active figure");
+      store.commit((p) => ops.alignPanels(p, f, c.kind as AlignKind, ids(c)));
+      return { figureId: f };
+    }
+
+    case "distribute": {
+      const f = fig(c);
+      if (!f) throw new Error("distribute: no active figure");
+      store.commit((p) => ops.distributePanels(p, f, c.axis === "v" ? "v" : "h", ids(c)));
+      return { figureId: f };
+    }
+
+    case "auto_label": {
+      const f = fig(c);
+      if (!f) throw new Error("auto_label: no active figure");
+      store.commit((p) => ops.autoLetterPanels(p, f));
+      return { figureId: f };
+    }
+
+    case "group": {
+      const list = ids(c);
+      let gid: string | null = null;
+      store.commit((p) => {
+        gid = ops.group(p, list);
+      });
+      return { groupId: gid };
+    }
+    case "ungroup": {
+      const list = ids(c);
+      store.commit((p) => ops.ungroup(p, list));
+      return { ungrouped: list.length };
+    }
+
+    case "set_z": {
+      const f = fig(c);
+      if (!f) throw new Error("set_z: no active figure");
+      store.commit((p) => ops.setZOrder(p, f, ids(c), (c.where as ops.ZOrder) ?? "front"));
+      return { figureId: f };
+    }
+
+    case "delete": {
+      const list = ids(c);
+      store.commit((p) => ops.deleteElements(p, list));
+      store.clearSelection();
+      return { deleted: list.length };
+    }
+
+    case "set_figure_layout": {
+      const f = fig(c);
+      if (!f) throw new Error("set_figure_layout: no active figure");
+      store.commit((p) => ops.setFigureLayout(p, f, (c.patch ?? {}) as Parameters<typeof ops.setFigureLayout>[2]));
+      return { figureId: f };
+    }
+
+    case "duplicate_figure": {
+      const f = fig(c);
+      if (!f) throw new Error("duplicate_figure: no active figure");
+      let nid: string | null = null;
+      store.commit((p) => {
+        nid = ops.duplicateFigure(p, f);
+      });
+      return { figureId: nid };
+    }
+
+    case "create_figure": {
+      const cid = get(store.activeCanvasId) ?? get(store.project).canvases[0]?.id;
+      if (!cid) throw new Error("create_figure: no canvas");
+      let nid: string | null = null;
+      store.commit((p) => {
+        nid = ops.createFigure(p, {
+          canvasId: cid,
+          id: typeof c.id === "string" ? c.id : undefined,
+          name: typeof c.name === "string" ? c.name : undefined,
+        }).id;
+      });
+      return { figureId: nid };
+    }
+
+    default:
+      throw new Error(`unknown command: ${c.type}`);
+  }
+}

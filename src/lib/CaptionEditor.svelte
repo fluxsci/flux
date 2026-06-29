@@ -6,7 +6,7 @@
   // in. While it's open the rest of the canvas is read-only (see keyboard.ts /
   // Canvas.svelte) — only pan/zoom and caption editing are allowed.
   import { project, viewport, activeFigureId, beginGesture, mutate } from "./store";
-  import { figurePanels } from "./captions";
+  import { captionBlocks } from "./captions";
   import { drawOn } from "./motion/actions";
   import { prefersReducedMotion } from "./motion/motion";
   import { DUR } from "./motion/tokens";
@@ -19,7 +19,7 @@
   const reduce = prefersReducedMotion();
 
   $: af = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
-  $: panels = af ? figurePanels(af) : [];
+  $: panels = af ? captionBlocks(af) : [];
   $: captions = af?.captions ?? {};
 
   $: pageX = af ? af.x + af.width + GAP : 0;

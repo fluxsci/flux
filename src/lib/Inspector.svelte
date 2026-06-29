@@ -1,6 +1,6 @@
 <script lang="ts">
   import { get } from "svelte/store";
-  import { project, selection, partSelection, activeFigureId, commit, lastArrangeRows } from "./store";
+  import { project, selection, partSelection, activeFigureId, commit, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
   import type { Element } from "./types";
   import { doAlign, doDistribute, arrangeToRows } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
@@ -261,12 +261,18 @@
       <h4>Figure</h4>
       <label class="full">Name<input value={fig.name} on:change={(e) => updateFigure((f) => (f.name = e.currentTarget.value))} /></label>
       <div class="row">
+        <label>X<input type="number" value={Math.round(fig.x)} on:change={(e) => updateFigure((f) => (f.x = num(e.currentTarget.value, f.x)))} /></label>
+        <label>Y<input type="number" value={Math.round(fig.y)} on:change={(e) => updateFigure((f) => (f.y = num(e.currentTarget.value, f.y)))} /></label>
+      </div>
+      <div class="row">
         <label>W<input type="number" value={Math.round(fig.width)} on:change={(e) => updateFigure((f) => (f.width = num(e.currentTarget.value, f.width)))} /></label>
         <label>H<input type="number" value={Math.round(fig.height)} on:change={(e) => updateFigure((f) => (f.height = num(e.currentTarget.value, f.height)))} /></label>
       </div>
       <label class="full">Background
         <input type="color" value={fig.background === "transparent" ? "#ffffff" : fig.background} on:change={(e) => updateFigure((f) => (f.background = e.currentTarget.value))} />
       </label>
+      <button class="fig-act" on:click={() => duplicateFigure(fig.id)}>Duplicate figure</button>
+      <button class="fig-act" on:click={() => autoLetterPanels(fig.id)}>Auto-letter panels (a, b, c)</button>
     </section>
 
     <!-- EXPORT -->
@@ -387,5 +393,9 @@
   }
   button:hover {
     background: var(--c-ui-hover);
+  }
+  .fig-act {
+    width: 100%;
+    margin-top: 6px;
   }
 </style>

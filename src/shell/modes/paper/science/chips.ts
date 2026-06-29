@@ -18,14 +18,12 @@ import { CiteWidget, FigRefWidget } from "./widgets";
 /** Dispatched when figure/bib data changes, to force a chip rebuild. */
 export const refreshChips = StateEffect.define<null>();
 
-function activeLineSet(state: EditorState): Set<number> {
-  const lines = new Set<number>();
+/** True if any selection range intersects [from,to] (± `pad` chars of adjacency). */
+function rangesTouch(state: EditorState, from: number, to: number, pad = 1): boolean {
   for (const r of state.selection.ranges) {
-    const a = state.doc.lineAt(r.from).number;
-    const b = state.doc.lineAt(r.to).number;
-    for (let n = a; n <= b; n++) lines.add(n);
+    if (r.from <= to + pad && r.to >= from - pad) return true;
   }
-  return lines;
+  return false;
 }
 
 // A trailing `,a` / `,a-c` (comma immediately followed by a panel letter, no
@@ -88,7 +86,6 @@ function scanLine(lineFrom: number, text: string): Tok[] {
 
 function build(view: EditorView): DecorationSet {
   const { state } = view;
-  const active = activeLineSet(state);
   const deco: Range<Decoration>[] = [];
   const tree = syntaxTree(state);
 
@@ -96,12 +93,15 @@ function build(view: EditorView): DecorationSet {
     let pos = from;
     while (pos <= to) {
       const line = state.doc.lineAt(pos);
-      if (!active.has(line.number)) {
-        for (const tk of scanLine(line.from, line.text)) {
-          const nm = tree.resolveInner(tk.from, 1).name;
-          if (/Code|URL/.test(nm)) continue; // don't chip-ify inside code/links
-          deco.push(Decoration.replace({ widget: tk.widget }).range(tk.from, tk.to));
-        }
+      for (const tk of scanLine(line.from, line.text)) {
+        // F6: reveal a chip's raw text only when a selection touches THAT chip
+        // (± 1 char) — not when the caret is merely somewhere on the line. This is
+        // what stops a click elsewhere on the line from expanding every chip and
+        // reflowing the caret away from where it was placed.
+        if (rangesTouch(state, tk.from, tk.to, 0)) continue;
+        const nm = tree.resolveInner(tk.from, 1).name;
+        if (/Code|URL/.test(nm)) continue; // don't chip-ify inside code/links
+        deco.push(Decoration.replace({ widget: tk.widget }).range(tk.from, tk.to));
       }
       if (line.to + 1 > to) break;
       pos = line.to + 1;

@@ -184,15 +184,65 @@ all that's needed to launch locally. If macOS blocks a built app, right-click �
 | `npm run pack` | Unpacked `Flux.app` → `release/` (fast) |
 | `npm run dist:mac` / `dist:linux` | Installer (`.dmg`+`.zip` / `AppImage`+`.deb`) → `release/` |
 | `npm run check` | Svelte / TypeScript type-check |
+| `npm run flux -- <verb>` | The Flux CLI (drive a project from the shell — see **Agents & automation**) |
+| `npm run flux:mcp -- <project>` | Start the Flux MCP server over stdio |
 
 Keep your clone current with `git pull` (then `npm install` if dependencies changed).
 Clean rebuild if needed: `rm -rf node_modules dist release && npm install`.
+
+### Testing the app
+
+Flux is verified with a headless **Live Visual Verification** harness: a Vite dev
+server (`npm run dev`) driven by `puppeteer-core` against headless Chrome, which
+screenshots before/after, reads the console for errors, and profiles hot paths for
+60fps. The `?fixture=demo` URL loads an in-memory project and `window.__flux`
+exposes the stores/editors for deterministic setup + assertions. The
+`scripts/verify-*.mjs` (browser) and `scripts/verify-*.ts` (Node, via `tsx`) files
+are runnable examples — e.g. `node scripts/verify-m11-m14.mjs`. Always run
+`npm run check` **and** `npm run build` after a change.
 
 ### Releases (CI)
 
 macOS + Linux installers are built in CI on a version tag — push a `vX.Y.Z` tag
 matching `package.json` `version` and `.github/workflows/release.yml` attaches the
 DMGs / AppImage / deb to a **draft** GitHub Release.
+
+## Agents & automation
+
+A Flux project is a plain folder, and **the file is the API**: a CLI, an MCP server,
+and scripts/agents all operate by reading and writing the project files, while the
+open app **watches the folder and live-reloads** — non-destructively, skipping its
+own writes. Edit a caption from a script and it updates in the manuscript margin a
+beat later.
+
+- **Compose a whole figure** — `npm run flux -- compose-figure growth plots/*.svg --rows 2`
+  takes N plots and assembles **one labeled, gridded, captioned multi-panel figure**
+  (import → grid → auto-letter `a..j` → caption stub). Then `… render-figure growth --png out.png`
+  to *see* it, and `… restyle growth control.line --stroke '#1b9e77'` to fix a part —
+  the override survives the plot being regenerated.
+- **CLI** — `npm run flux -- list`, plus `compose-figure`, `create-figure`, `arrange`,
+  `auto-label`, `restyle`, `set-caption`, `add-reference`, `cite-doi`, `compile`,
+  `validate`, `validate-plot`, `rerun-plot`, `new <dir>`. Full verb list: `npm run flux -- help`.
+- **MCP server** — `npm run flux:mcp -- /path/to/project` exposes the same surface
+  (`compose_figure`, `restyle_part`, `auto_label`, `get_figure_image` → a PNG so a vision
+  agent can SEE its work, `validate_project`, `validate_plot`, `compile`, …) to an MCP assistant.
+- **Live bridge — act on what the human is doing.** While the app is open, the MCP tools
+  `get_app_context`, `dispatch_command`, and `act_on_selection` let an agent read the live UI
+  state (the current selection / drilled-in plot part / active figure) and act on it — over a
+  **token-gated loopback** server — with every action being the same **undoable** edit a human
+  makes. Closed app → the tools fall back to the file verbs.
+- **Reproducible figures** — a plot can carry a *recipe* (its generating script +
+  params). **Regenerate** it (CLI `rerun-plot`, or the Plot X-Ray button) and the
+  drawing updates in place **while keeping your hand-tuned per-series styling**.
+- **Safe coexistence** — every write is logged to `.meta/journal.ndjson` (who/what/when),
+  and while you're mid-edit the app holds an advisory lock so an agent's file write **defers
+  instead of clobbering** it.
+
+The CLI/core (`flux-core/`) reuses the GUI's own figure-render and caption functions
+through one pure ops core (`src/lib/ops.ts`), so there's one source of truth. Full reference:
+**[`notes/Flux_Agent_Native.md`](notes/Flux_Agent_Native.md)** (and the F1/F2 layer in
+**[`notes/Flux_Agent_Layer.md`](notes/Flux_Agent_Layer.md)**). Every scaffolded project also
+ships an in-repo `AGENTS.md`.
 
 ## Related
 

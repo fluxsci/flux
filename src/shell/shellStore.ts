@@ -9,6 +9,7 @@ import {
 } from "../lib/project/types";
 import { scaffoldProject } from "../lib/project/scaffold";
 import { loadProject, NotAProjectError } from "../lib/project/load";
+import { startProjectWatch, stopProjectWatch } from "../lib/project/projectWatch";
 import { resetPanes } from "./paneStore";
 
 export type ModeId = "figure" | "paper" | "slide";
@@ -78,6 +79,7 @@ function enterLoaded(loaded: LoadedProject) {
   projectError.set(null);
   resetPanes("paper");
   view.set("workspace");
+  startProjectWatch(loaded.root); // F1: live-reload agent/script edits
 }
 
 /** Web-fallback (no Electron bridge): an in-memory project so the shell is demoable. */
@@ -88,9 +90,11 @@ function enterInMemory(name: string) {
   projectError.set(null);
   resetPanes("paper");
   view.set("workspace");
+  startProjectWatch(null);
 }
 
 export function goHome() {
+  stopProjectWatch();
   view.set("home");
 }
 
@@ -128,6 +132,11 @@ export async function openProject() {
         : `Couldn't open project: ${(e as Error).message}`,
     );
   }
+}
+
+/** Load and enter a project at an explicit path (used by the dev fixture and, later, F1/F4). */
+export async function openProjectAt(path: string): Promise<void> {
+  enterLoaded(await loadProject(path));
 }
 
 export async function openRecent(r: RecentProject) {

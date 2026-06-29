@@ -5,7 +5,7 @@
 
 import { get } from "svelte/store";
 import { fileBridge, joinPath } from "../../../../lib/project/types";
-import { bibEntries, type BibEntry } from "./bib";
+import { bibEntries, bibError, type BibEntry } from "./bib";
 import { bumpBibRevision } from "../../../scholar/revisions";
 
 const BIB_PATH = ["references", "library.bib"];
@@ -62,14 +62,28 @@ export async function loadBib(root: string | null): Promise<void> {
   }
   if (!text.trim()) {
     bibEntries.set([]);
+    bibError.set(null);
     return;
   }
   try {
     const Cite = await getCite();
     const cite = new Cite(text);
-    bibEntries.set((cite.data as any[]).map(cslToEntry).filter((e) => e.key));
+    const entries = (cite.data as any[]).map(cslToEntry).filter((e) => e.key);
+    bibEntries.set(entries);
+    // M12: parsed, but a non-empty file yielding nothing usually means malformed
+    // entries Citation.js skipped — say so rather than silently showing "no refs".
+    const atCount = (text.match(/^[ \t]*@/gm) ?? []).length;
+    bibError.set(
+      atCount > 0 && entries.length === 0
+        ? `Couldn't parse library.bib — 0 of ~${atCount} entries loaded.`
+        : entries.length < atCount
+          ? `Partially parsed library.bib — ${entries.length} of ~${atCount} entries loaded.`
+          : null,
+    );
   } catch (err) {
     console.error("[flux] library.bib parse failed", err);
+    bibEntries.set([]);
+    bibError.set("Couldn't parse library.bib — check the file for syntax errors.");
   }
 }
 
@@ -164,6 +178,9 @@ export async function addDoiToBib(
       /* fresh file */
     }
     await fb.writeText(path, prev + toBibtex(key, msg, entry));
+    // WS6: provenance for the human's reference add (Electron only).
+    const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
+    host?.journalAppend?.({ action: "cite", target: key, client: "human" });
   }
   bibEntries.update((list) => [...list, entry]);
   bumpBibRevision();

@@ -4,9 +4,12 @@
   import { EditorView } from "@codemirror/view";
   import { projectModel } from "../../shellStore";
   import { readManuscript, writeManuscript } from "../../../lib/project/load";
+  import { externalManuscriptChange } from "../../../lib/project/projectWatch";
   import { createEditorExtensions } from "./markdown-setup";
   import Editor from "./Editor.svelte";
   import Outline from "./outline/Outline.svelte";
+  import DocumentPicker from "./documents/DocumentPicker.svelte";
+  import { listDocuments, createDocument, type DocEntry } from "./documents/documents";
   import TitlePill from "./TitlePill.svelte";
   import TitleEditor from "./TitleEditor.svelte";
   import CommandPalette from "./command/CommandPalette.svelte";
@@ -77,6 +80,10 @@
   let view = $state<EditorView | undefined>(undefined);
   let outline = $state<OutlineItem[]>([]);
   let paletteOpen = $state(false);
+  // F4: the active document (project-relative path) + the project's document list.
+  let activeDocPath = $state(pm?.manifest.manuscript.path ?? "manuscript/main.qmd");
+  let docs = $state<DocEntry[]>([]);
+  let diskDiverged = $state(false); // F1: active doc changed on disk while dirty
 
   function toggleOutliner() {
     paperLayout.update((s) => ({ ...s, outlinerOpen: !s.outlinerOpen }));
@@ -279,7 +286,7 @@
           const anchor = r ? makeAnchor(doc, r.from, r.to) : t.anchor;
           return { id: t.id, anchor, resolved: t.resolved, messages: t.messages };
         });
-      void writeComments(pm, persist);
+      void writeComments(pm, persist, activeDocPath);
     }, 600);
   }
 
@@ -458,8 +465,14 @@
   }
 
   onMount(async () => {
-    if (pm) initialDoc = (await readManuscript(pm)) || SEED;
-    else {
+    if (pm) {
+      docs = await listDocuments(pm);
+      // Restore the last active document if it still exists, else the main one.
+      const want = get(paperLayout).activeDocPath;
+      activeDocPath =
+        want && docs.some((d) => d.path === want) ? want : pm.manifest.manuscript.path;
+      initialDoc = (await readManuscript(pm, activeDocPath)) || SEED;
+    } else {
       initialDoc = SEED;
       isDemo = true;
     }
@@ -477,6 +490,7 @@
     const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
     subs.push(figRevision.subscribe(() => void loadFigures(pm?.root ?? null)));
     subs.push(bibRevision.subscribe(() => void loadBib(pm?.root ?? null)));
+    subs.push(externalManuscriptChange.subscribe((chg) => void onExternalManuscript(chg)));
     subs.push(figureRefs.subscribe(refresh));
     subs.push(bibEntries.subscribe(refresh));
 
@@ -516,7 +530,7 @@
 
   async function loadComments(v: EditorView) {
     if (!pm) return;
-    const loaded = await readComments(pm);
+    const loaded = await readComments(pm, activeDocPath);
     if (!loaded.length) return;
     const doc = v.state.doc.toString();
     const effects = [];
@@ -538,7 +552,7 @@
     saved = false;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
-      await writeManuscript(pm, latest);
+      await writeManuscript(pm, latest, activeDocPath);
       saved = true;
     }, 600);
   }
@@ -569,9 +583,92 @@
   async function flush() {
     clearTimeout(saveTimer);
     if (pm && !saved) {
-      await writeManuscript(pm, latest);
+      await writeManuscript(pm, latest, activeDocPath);
       saved = true;
     }
+  }
+
+  // ---- F4: document switching --------------------------------------------
+  function persistThreadsTo(docPath: string) {
+    if (!pm) return;
+    const doc = view?.state.doc.toString() ?? latest;
+    const persist: CommentThread[] = threads
+      .filter((t) => !t.draft)
+      .map((t) => {
+        const r = cRanges.get(t.id);
+        const anchor = r ? makeAnchor(doc, r.from, r.to) : t.anchor;
+        return { id: t.id, anchor, resolved: t.resolved, messages: t.messages };
+      });
+    void writeComments(pm, persist, docPath);
+  }
+
+  async function loadDocument(path: string) {
+    if (!pm || !view || path === activeDocPath) return;
+    // Persist the current document (text + comments) before switching away.
+    clearTimeout(saveTimer);
+    clearTimeout(commentSaveTimer);
+    if (!saved) await writeManuscript(pm, latest, activeDocPath);
+    persistThreadsTo(activeDocPath);
+
+    const text = (await readManuscript(pm, path)) || "";
+    threads = [];
+    activeComment = null;
+    cRanges = new Map();
+    activeDocPath = path;
+    paperLayout.update((s) => ({ ...s, activeDocPath: path }));
+    // Swap the editor content in place (preserve the extension set).
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: text },
+      selection: { anchor: 0 },
+    });
+    latest = text;
+    saved = true;
+    clearTimeout(saveTimer); // ignore the swap's own change event
+    outline = getOutline(view.state);
+    syncRanges();
+    await loadComments(view);
+    view.focus();
+  }
+
+  async function newDocument() {
+    if (!pm) return;
+    const name = window.prompt("New document name", "Untitled");
+    if (name == null) return;
+    const rel = await createDocument(pm, name.trim() || "Untitled");
+    docs = await listDocuments(pm);
+    await loadDocument(rel);
+  }
+
+  // F1 live reload: an external (agent/script) edit to the *active* document.
+  // Reload silently if the editor is clean; if dirty, never clobber unsaved work —
+  // surface a "reloaded from disk / keep mine" choice instead.
+  function applyDiskText(text: string) {
+    if (!view) return;
+    const head = Math.min(view.state.selection.main.head, text.length);
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: text },
+      selection: { anchor: head },
+    });
+    latest = text;
+    saved = true;
+    diskDiverged = false;
+    outline = getOutline(view.state);
+    syncRanges();
+  }
+  async function onExternalManuscript(chg: { path: string; n: number } | null) {
+    if (!chg || !pm || !view) return;
+    if (!chg.path.endsWith(activeDocPath)) return; // only the active document
+    const text = (await readManuscript(pm, activeDocPath)) || "";
+    if (text === latest) return; // nothing new (e.g. our own echoed write)
+    if (!saved) {
+      diskDiverged = true; // dirty → keep the user's unsaved work, offer a choice
+      return;
+    }
+    applyDiskText(text);
+  }
+  async function forceReloadFromDisk() {
+    if (!pm) return;
+    applyDiskText((await readManuscript(pm, activeDocPath)) || "");
   }
   onDestroy(() => {
     void flush();
@@ -689,6 +786,7 @@
     { id: "margin-figures", title: "Figures", hint: "Margin", keywords: "image plot zoom panel", run: () => openMarginView("figure") },
     { id: "margin-comments", title: "Comments", hint: "Margin", keywords: "notes annotations review", run: () => openMarginView("comments") },
     { id: "margin-stats", title: "Statistics", hint: "Margin", keywords: "word count length", run: () => openMarginView("stats") },
+    { id: "margin-terminal", title: "Terminal", hint: "Ctrl+`", keywords: "shell console command cli bash zsh run", run: () => openMarginView("terminal") },
     { id: "export-pdf", title: "Export PDF", hint: "Export", keywords: "download print", run: () => doExport("pdf") },
     { id: "export-html", title: "Export HTML", hint: "Export", keywords: "download web", run: () => doExport("html") },
     ...(quartoAvail
@@ -709,6 +807,9 @@
       } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyF") {
         e.preventDefault();
         focusMarginSearch();
+      } else if (mod && !e.shiftKey && !e.altKey && e.code === "Backquote") {
+        e.preventDefault();
+        openMarginView("terminal");
       }
     };
     window.addEventListener("keydown", h);
@@ -719,13 +820,18 @@
 <section class="paper">
   <div class="work" bind:this={workEl}>
     {#if $paperLayout.outlinerOpen}
-      <Outline
-        items={outline}
-        title={meta.title}
-        {activeFrom}
-        collapsed={collapsedSet}
-        onJump={jump}
-        onToggleCollapse={toggleCollapse} />
+      <div class="leftrail">
+        <Outline
+          items={outline}
+          title={meta.title}
+          {activeFrom}
+          collapsed={collapsedSet}
+          onJump={jump}
+          onToggleCollapse={toggleCollapse} />
+        {#if !isDemo}
+          <DocumentPicker {docs} activePath={activeDocPath} onSelect={loadDocument} onNew={newDocument} />
+        {/if}
+      </div>
     {/if}
     <div class="editor-col" bind:this={colEl} style={gutterStyle}>
       {#if ready}
@@ -813,6 +919,14 @@
     </div>
   {/if}
 
+  {#if diskDiverged}
+    <div class="disk-toast">
+      <span>This document changed on disk.</span>
+      <button onclick={forceReloadFromDisk}>Reload</button>
+      <button class="ghost" onclick={() => (diskDiverged = false)}>Keep mine</button>
+    </div>
+  {/if}
+
   {#if pickerOpen}
     <FigurePicker
       figures={$figureRefs}
@@ -859,6 +973,20 @@
     gap: 14px;
     padding: 20px 16px 16px;
     background: var(--c-bg);
+  }
+  /* F4: left rail = Outline (fills) + the document picker beneath it. */
+  .leftrail {
+    flex: 0 0 224px;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .leftrail :global(.outline) {
+    flex: 1 1 auto;
+    width: auto;
+    min-height: 0;
   }
   .editor-col {
     position: relative;
@@ -968,6 +1096,38 @@
   }
   .doi-toast.done {
     color: var(--c-accent-bright);
+  }
+  .disk-toast {
+    position: absolute;
+    bottom: var(--sp-5);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--c-surface);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-pill);
+    box-shadow: var(--elev-2);
+    font-size: var(--ts-sm);
+    color: var(--c-tx-2);
+    z-index: 60;
+  }
+  .disk-toast button {
+    background: var(--c-accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--r-1);
+    padding: 4px 10px;
+    font: inherit;
+    font-size: var(--ts-sm);
+    cursor: pointer;
+  }
+  .disk-toast button.ghost {
+    background: none;
+    color: var(--c-tx-faint);
+    border: 1px solid var(--c-line-strong);
   }
   .menu-scrim {
     position: absolute;

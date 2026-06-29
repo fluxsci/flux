@@ -35,6 +35,21 @@ import { cachePlot, clearPlots, plotManifests, plotRecipes } from "./plot/store"
 import { plotToSvgMarkup } from "./plot/export";
 import type { FluxPlotManifest } from "./plot/types";
 
+// F2 hot-swap: replace a plot's cached SVG/manifest/recipe in place for an
+// EXISTING assetId (regenerate). The element + its id-keyed `overrides` are left
+// untouched, so the re-mount reapplies them automatically (group overrides too);
+// cachePlot bumps plotGen, which forces mountPlot to re-clone the new DOM.
+export function reimportPlot(
+  assetId: string,
+  svgText: string,
+  manifest: FluxPlotManifest,
+  recipe?: unknown,
+): boolean {
+  const ok = cachePlot(assetId, svgText, manifest, recipe);
+  setAssetData(assetId, bytesToDataUrl(new TextEncoder().encode(svgText), mimeFor("svg")));
+  return ok;
+}
+
 // ---------------------------------------------------------------------------
 // Small path helpers (POSIX; the app targets Linux primarily).
 // ---------------------------------------------------------------------------

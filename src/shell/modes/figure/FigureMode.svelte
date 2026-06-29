@@ -12,7 +12,7 @@
   import Inspector from "../../../lib/Inspector.svelte";
   import Help from "../../../lib/Help.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
-  import Forgery from "../../../lib/Forgery.svelte";
+  import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Settings from "../../../lib/Settings.svelte";
   import PlotXray from "../../../lib/PlotXray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
@@ -80,7 +80,7 @@
          caption page room (and keeping the figure read-only / distraction-free). -->
     {#if !$captionOpen}<Inspector />{/if}
   </div>
-  <Forgery />
+  <FluxFigMenu />
   <Settings />
   <PlotXray />
   <PlotImporter />

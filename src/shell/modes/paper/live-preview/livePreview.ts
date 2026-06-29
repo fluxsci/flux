@@ -20,15 +20,12 @@ import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import type { EditorState, Range } from "@codemirror/state";
 import { BulletWidget, HrWidget } from "./widgets";
 
-/** Line numbers touched by any selection range — those lines reveal raw syntax. */
-function activeLineSet(state: EditorState): Set<number> {
-  const lines = new Set<number>();
+/** True if any selection range intersects [from,to] (± `pad` chars of adjacency). */
+function rangesTouch(state: EditorState, from: number, to: number, pad: number): boolean {
   for (const r of state.selection.ranges) {
-    const a = state.doc.lineAt(r.from).number;
-    const b = state.doc.lineAt(r.to).number;
-    for (let n = a; n <= b; n++) lines.add(n);
+    if (r.from <= to + pad && r.to >= from - pad) return true;
   }
-  return lines;
+  return false;
 }
 
 function buildDecorations(view: EditorView): {
@@ -36,18 +33,34 @@ function buildDecorations(view: EditorView): {
   atomic: DecorationSet;
 } {
   const { state } = view;
-  const active = activeLineSet(state);
-  const isActive = (from: number, to: number) => {
-    const a = state.doc.lineAt(from).number;
-    const b = state.doc.lineAt(to).number;
-    for (let n = a; n <= b; n++) if (active.has(n)) return true;
-    return false;
+  // F6: reveal a construct's raw syntax only when a selection touches THAT
+  // construct's own extent (its parent node) — not merely its line — so clicking
+  // elsewhere on a line no longer expands (and reflows) every chip/link/mark on
+  // it. Inline marks use ±1 adjacency so a caret resting just outside a construct
+  // still reveals it for editing; block constructs (heading/quote/list/HR) reveal
+  // only on their own line.
+  const composing = view.composing;
+  const touches = (from: number, to: number, pad = 1) => rangesTouch(state, from, to, pad);
+  const parentTouches = (
+    node: { from: number; to: number; node: { parent: { from: number; to: number } | null } },
+    pad = 0,
+  ) => {
+    const p = node.node.parent;
+    return p ? touches(p.from, p.to, pad) : touches(node.from, node.to, pad);
+  };
+  const lineTouched = (pos: number) => {
+    const ln = state.doc.lineAt(pos);
+    return touches(ln.from, ln.to, 0);
   };
 
   const marks: Range<Decoration>[] = [];
   const atomic: Range<Decoration>[] = [];
+  // Hidden raw syntax is made ATOMIC so Left/Right step over the now-invisible
+  // markers in a single keystroke (F6) — except during IME composition, where
+  // atomic ranges can disrupt the composing region.
   const hide = (from: number, to: number) => {
-    if (from < to) marks.push(Decoration.replace({}).range(from, to));
+    if (from >= to) return;
+    (composing ? marks : atomic).push(Decoration.replace({}).range(from, to));
   };
   const lineClass = (node_from: number, node_to: number, cls: string) => {
     let pos = node_from;
@@ -91,7 +104,7 @@ function buildDecorations(view: EditorView): {
         // ---- Heading marker: hide "## " when inactive (size comes from highlight)
         if (name === "HeaderMark") {
           if (nf < fmEnd) return; // keep the front-matter closing `---` visible
-          if (!isActive(nf, nt)) {
+          if (!parentTouches(node, 0)) {
             let end = nt;
             if (state.doc.sliceString(nt, nt + 1) === " ") end = nt + 1;
             hide(nf, end);
@@ -101,13 +114,13 @@ function buildDecorations(view: EditorView): {
 
         // ---- Emphasis / strong / strikethrough markers
         if (name === "EmphasisMark" || name === "StrikethroughMark") {
-          if (!isActive(nf, nt)) hide(nf, nt);
+          if (!parentTouches(node)) hide(nf, nt);
           return;
         }
 
         // ---- Inline code backticks (leave fenced-code fences alone)
         if (name === "CodeMark") {
-          if (parent === "InlineCode" && !isActive(nf, nt)) hide(nf, nt);
+          if (parent === "InlineCode" && !parentTouches(node)) hide(nf, nt);
           return;
         }
 
@@ -123,11 +136,11 @@ function buildDecorations(view: EditorView): {
           return;
         }
         if (name === "LinkMark") {
-          if (parent === "Link" && !isActive(nf, nt)) hide(nf, nt);
+          if (parent === "Link" && !parentTouches(node)) hide(nf, nt);
           return;
         }
         if (name === "URL") {
-          if (parent === "Link" && !isActive(nf, nt)) hide(nf, nt);
+          if (parent === "Link" && !parentTouches(node)) hide(nf, nt);
           return;
         }
 
@@ -137,7 +150,8 @@ function buildDecorations(view: EditorView): {
           return;
         }
         if (name === "QuoteMark") {
-          if (!isActive(nf, nt)) {
+          // Reveal the ">" only on the line being edited.
+          if (!lineTouched(nf)) {
             let end = nt;
             if (state.doc.sliceString(nt, nt + 1) === " ") end = nt + 1;
             hide(nf, end);
@@ -154,7 +168,7 @@ function buildDecorations(view: EditorView): {
         // ---- Bullet lists: a clean • when inactive (keep ordered numbers)
         if (name === "ListMark") {
           const txt = state.doc.sliceString(nf, nt);
-          if (/^[-*+]$/.test(txt) && !isActive(nf, nt)) {
+          if (/^[-*+]$/.test(txt) && !lineTouched(nf)) {
             atomic.push(
               Decoration.replace({ widget: new BulletWidget() }).range(nf, nt),
             );
@@ -165,7 +179,7 @@ function buildDecorations(view: EditorView): {
         // ---- Horizontal rule
         if (name === "HorizontalRule") {
           if (nf < fmEnd) return; // the front-matter fence, not a real rule
-          if (!isActive(nf, nt)) {
+          if (!lineTouched(nf)) {
             atomic.push(
               Decoration.replace({ widget: new HrWidget(), block: false }).range(
                 nf,

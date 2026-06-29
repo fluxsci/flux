@@ -8,7 +8,7 @@ import FigureView from "./views/FigureView.svelte";
 import BibliographyView from "./views/BibliographyView.svelte";
 import CommentsView from "./views/CommentsView.svelte";
 import PomodoroView from "./views/PomodoroView.svelte";
-import ReferencePdfView from "./views/ReferencePdfView.svelte";
+import TerminalView from "./views/TerminalView.svelte";
 import ReferenceSearchPane from "./panes/ReferenceSearchPane.svelte";
 import { isStructured } from "./panes/refQuery";
 
@@ -33,13 +33,14 @@ export const VIEWS: ViewDescriptor[] = [
   { id: "stats", title: "Statistics", icon: "hash", keywords: "word count stats length", component: StatsView },
   { id: "pomodoro", title: "Timer", icon: "clock", keywords: "pomodoro focus timer", component: PomodoroView },
   {
-    id: "reference-pdf",
-    title: "Reference PDF",
-    icon: "page",
-    keywords: "pdf reader paper",
-    enabled: false,
-    component: ReferencePdfView,
+    id: "terminal",
+    title: "Terminal",
+    icon: "terminal",
+    keywords: "terminal shell console command cli bash zsh prompt run",
+    component: TerminalView,
   },
+  // M13: the "Reference PDF" view was a disabled "Coming soon" stub — removed
+  // until it's a real feature (no dead/placeholder rail entries).
 ];
 
 export const PANES: PaneDescriptor[] = [

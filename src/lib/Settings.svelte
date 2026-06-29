@@ -1,19 +1,19 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
-  import { settings, settingsOpen, type ForgerySize, type ForgeryPos, type ForgeryAnim } from "./settings";
+  import { settings, settingsOpen, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim } from "./settings";
 
-  const sizes: { v: ForgerySize; l: string }[] = [
+  const sizes: { v: FluxFigMenuSize; l: string }[] = [
     { v: "sm", l: "Small" },
     { v: "md", l: "Medium" },
     { v: "lg", l: "Large" },
   ];
-  const positions: { v: ForgeryPos; l: string }[] = [
+  const positions: { v: FluxFigMenuPos; l: string }[] = [
     { v: "center", l: "Center" },
     { v: "top", l: "Top" },
     { v: "left", l: "Left" },
     { v: "right", l: "Right" },
   ];
-  const anims: { v: ForgeryAnim; l: string }[] = [
+  const anims: { v: FluxFigMenuAnim; l: string }[] = [
     { v: "draw", l: "Draw-in" },
     { v: "fade", l: "Quick fade" },
   ];
@@ -26,36 +26,36 @@
     <div class="modal" transition:scale={{ duration: 150, start: 0.96 }} on:click|stopPropagation>
       <h2>Settings</h2>
 
-      <h3>The Forgery — size</h3>
+      <h3>FluxFig Menu — size</h3>
       <div class="seg">
         {#each sizes as s}
-          <button class:on={$settings.forgerySize === s.v} on:click={() => settings.update((v) => ({ ...v, forgerySize: s.v }))}>{s.l}</button>
+          <button class:on={$settings.fluxFigMenuSize === s.v} on:click={() => settings.update((v) => ({ ...v, fluxFigMenuSize: s.v }))}>{s.l}</button>
         {/each}
       </div>
 
-      <h3>The Forgery — position</h3>
+      <h3>FluxFig Menu — position</h3>
       <div class="seg">
         {#each positions as p}
-          <button class:on={$settings.forgeryPos === p.v} on:click={() => settings.update((v) => ({ ...v, forgeryPos: p.v }))}>{p.l}</button>
+          <button class:on={$settings.fluxFigMenuPos === p.v} on:click={() => settings.update((v) => ({ ...v, fluxFigMenuPos: p.v }))}>{p.l}</button>
         {/each}
       </div>
 
-      <h3>The Forgery — appearance</h3>
+      <h3>FluxFig Menu — appearance</h3>
       <div class="seg">
         {#each anims as a}
-          <button class:on={$settings.forgeryAnim === a.v} on:click={() => settings.update((v) => ({ ...v, forgeryAnim: a.v }))}>{a.l}</button>
+          <button class:on={$settings.fluxFigMenuAnim === a.v} on:click={() => settings.update((v) => ({ ...v, fluxFigMenuAnim: a.v }))}>{a.l}</button>
         {/each}
       </div>
-      <p class="hint">{$settings.forgeryAnim === "draw" ? "The accent frame draws itself, then the controls rise in." : "The whole menu fades in at once — fastest."}</p>
+      <p class="hint">{$settings.fluxFigMenuAnim === "draw" ? "The accent frame draws itself, then the controls rise in." : "The whole menu fades in at once — fastest."}</p>
 
-      <h3>The Forgery — opacity ({Math.round($settings.forgeryOpacity * 100)}%)</h3>
+      <h3>FluxFig Menu — opacity ({Math.round($settings.fluxFigMenuOpacity * 100)}%)</h3>
       <input
         type="range"
         min="0.6"
         max="1"
         step="0.01"
-        value={$settings.forgeryOpacity}
-        on:input={(e) => settings.update((v) => ({ ...v, forgeryOpacity: parseFloat(e.currentTarget.value) }))}
+        value={$settings.fluxFigMenuOpacity}
+        on:input={(e) => settings.update((v) => ({ ...v, fluxFigMenuOpacity: parseFloat(e.currentTarget.value) }))}
       />
 
       <h3>Palette</h3>
@@ -68,7 +68,7 @@
         Include the Flexoki palette in new projects
       </label>
 
-      <p class="tip">Open the Forgery with <b>F</b> while objects are selected.</p>
+      <p class="tip">Open the FluxFig Menu with <b>F</b> while objects are selected.</p>
       <button class="close" on:click={() => settingsOpen.set(false)}>Done</button>
     </div>
   </div>

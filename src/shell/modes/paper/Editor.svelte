@@ -32,9 +32,25 @@
       }),
     });
     onReady?.(view);
-    // Dev-only handle for headless testing/inspection.
-    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__fluxView = view;
-    return () => view.destroy();
+    // Dev-only handles for headless testing/inspection (§1.4 / M17). __fluxView is
+    // the most-recently-mounted editor; __flux.editors holds all live views (one
+    // per Paper pane) so multi-pane tests can target a specific editor.
+    if (import.meta.env.DEV) {
+      const w = window as unknown as Record<string, any>;
+      w.__fluxView = view;
+      w.__flux = w.__flux || {};
+      w.__flux.editors = w.__flux.editors || [];
+      w.__flux.editors.push(view);
+    }
+    return () => {
+      if (import.meta.env.DEV) {
+        const w = window as unknown as Record<string, any>;
+        if (Array.isArray(w.__flux?.editors)) {
+          w.__flux.editors = w.__flux.editors.filter((v: unknown) => v !== view);
+        }
+      }
+      view.destroy();
+    };
   });
 </script>
 

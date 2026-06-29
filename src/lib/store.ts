@@ -2,15 +2,15 @@ import { writable, get } from "svelte/store";
 import type { Canvas, Element, Figure, Project, Viewport, Id } from "./types";
 import { FLEXOKI } from "./flexoki";
 import { settings } from "./settings";
+import { newId } from "./ids";
+import * as ops from "./ops";
 
 // ---------------------------------------------------------------------------
-// Ids
+// Ids — the generator now lives in the dependency-free ./ids leaf so the pure
+// ops core and flux-core (Node) share it. Re-exported here for the many
+// existing `import { newId } from "./store"` call sites.
 // ---------------------------------------------------------------------------
-let idCounter = 0;
-export function newId(prefix = "el"): Id {
-  idCounter += 1;
-  return `${prefix}_${Date.now().toString(36)}_${idCounter}`;
-}
+export { newId };
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -59,9 +59,9 @@ export function blankFigure(canvasId: Id, name = "Figure 1"): Figure {
     canvasId,
     x: 0,
     y: 0,
-    width: 816,
-    height: 1056,
-    background: "#ffffff",
+    width: ops.BLANK_FIGURE.width,
+    height: ops.BLANK_FIGURE.height,
+    background: ops.BLANK_FIGURE.background,
     elements: [],
   };
 }
@@ -117,6 +117,10 @@ export const xrayOpen = writable<boolean>(false);
 export const importerOpen = writable<boolean>(false);
 
 export const activeFigureId = writable<Id | null>(get(project).figures[0]?.id ?? null);
+// The figure (frame) selected as a whole object — distinct from element selection
+// — so a frame can be moved/duplicated/nudged on the canvas (F8). Set by clicking
+// a figure's title label; cleared when elements are (re)selected.
+export const selectedFrameId = writable<Id | null>(null);
 // The canvas (page) currently shown in the editor.
 export const activeCanvasId = writable<Id | null>(get(project).canvases[0]?.id ?? null);
 
@@ -234,6 +238,7 @@ export function resetHistory() {
 export function selectOnly(id: Id) {
   selection.set(new Set([id]));
   partSelection.set(null);
+  selectedFrameId.set(null);
 }
 export function addToSelection(id: Id) {
   selection.update((s) => {
@@ -253,6 +258,36 @@ export function toggleSelection(id: Id) {
 export function clearSelection() {
   selection.set(new Set());
   partSelection.set(null);
+  selectedFrameId.set(null);
+}
+
+// Frame-as-object selection (F8): select a whole figure for move/duplicate/nudge.
+export function selectFrame(id: Id) {
+  selectedFrameId.set(id);
+  selection.set(new Set());
+  partSelection.set(null);
+}
+
+// Duplicate a figure (frame) with all its elements — remapping element/group ids
+// and re-keying captions — placed directly below it on the same canvas (F8). The
+// model work lives in the shared pure core (ops.duplicateFigure); the store just
+// commits it (for undo) and updates the active/frame selection.
+export function duplicateFigure(id: Id) {
+  let newFigId: Id | null = null;
+  commit((p) => {
+    newFigId = ops.duplicateFigure(p, id);
+  });
+  if (newFigId) {
+    activeFigureId.set(newFigId);
+    selectedFrameId.set(newFigId);
+  }
+}
+
+// F7: assign panel letters (a, b, c…) to a figure's panel-label text elements by
+// reading order (top-to-bottom, then left-to-right) so @fig-x-a refs stay valid
+// and follow arrangement. Call after laying panels out. (Shared via ops.)
+export function autoLetterPanels(figId: Id) {
+  commit((p) => ops.autoLetterPanels(p, figId));
 }
 
 // Drop ids that no longer exist (after undo/redo/delete).

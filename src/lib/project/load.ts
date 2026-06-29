@@ -36,11 +36,14 @@ export async function loadProject(root: string): Promise<LoadedProject> {
   return { root, manifest };
 }
 
-/** Read the manuscript text for a loaded project (empty string if missing). */
-export async function readManuscript(p: LoadedProject): Promise<string> {
+/**
+ * Read a document's text for a loaded project (empty string if missing).
+ * `relPath` defaults to the main manuscript; pass a sibling .qmd for F4 multi-doc.
+ */
+export async function readManuscript(p: LoadedProject, relPath?: string): Promise<string> {
   const fig = fileBridge();
   if (!fig) return "";
-  const path = joinPath(p.root, p.manifest.manuscript.path);
+  const path = joinPath(p.root, relPath ?? p.manifest.manuscript.path);
   try {
     if (await fig.exists(path)) return await fig.readText(path);
   } catch {
@@ -52,8 +55,13 @@ export async function readManuscript(p: LoadedProject): Promise<string> {
 export async function writeManuscript(
   p: LoadedProject,
   text: string,
+  relPath?: string,
 ): Promise<void> {
   const fig = fileBridge();
   if (!fig) return;
-  await fig.writeText(joinPath(p.root, p.manifest.manuscript.path), text);
+  const rel = relPath ?? p.manifest.manuscript.path;
+  await fig.writeText(joinPath(p.root, rel), text);
+  // WS6: provenance for the human's manuscript save (Electron only).
+  const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
+  host?.journalAppend?.({ action: "set_manuscript", target: rel, client: "human" });
 }

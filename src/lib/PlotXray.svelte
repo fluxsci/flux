@@ -4,17 +4,19 @@
   // series → line/points/bars; legend → entries) with a visibility eye on every
   // node; the right pane edits the selected part's (or group's) properties. Edits
   // are durable overrides keyed by the part's stable semantic id (survive
-  // save/reload AND regeneration). Mirrors Forgery's glass + self-drawing frame.
+  // save/reload AND regeneration). Mirrors FluxFig Menu's glass + self-drawing frame.
   import { fade } from "svelte/transition";
   import { get } from "svelte/store";
   import { project, selection, partSelection, xrayOpen } from "./store";
   import type { PartOverride, SemanticPlotElement } from "./types";
-  import { plotManifests } from "./plot/store";
+  import { plotManifests, plotRecipes } from "./plot/store";
   import { buildPartTree, type XrayNode } from "./plot/tree";
   import { applyPartStyleTo } from "./colors";
-  import { smoothstep } from "./motion/tokens";
-  import { prefersReducedMotion } from "./motion/motion";
+  import { halfFrame, drawForge as forge } from "./motion/selfDraw";
   import ColorSearch from "./ColorSearch.svelte";
+  import { reimportPlot } from "./io";
+  import { fileBridge } from "./project/types";
+  import type { FluxPlotManifest } from "./plot/types";
 
   // The single selected semantic plot the X-Ray operates on.
   $: plotEl = (() => {
@@ -26,6 +28,41 @@
   })();
   $: manifest = plotEl ? $plotManifests[plotEl.assetId] : undefined;
   $: tree = buildPartTree(manifest);
+
+  // F2 Regenerate: re-run the plot's recipe and hot-swap the result in place,
+  // preserving the id-keyed overrides. Gated behind this explicit action (never
+  // auto-runs user code); the figure layout/caption/cross-refs are untouched.
+  $: recipe = (plotEl ? $plotRecipes[plotEl.assetId] : undefined) as
+    | { params?: Record<string, unknown>; lastRun?: string }
+    | undefined;
+  $: recipePath = plotEl?.source?.recipePath;
+  let regenBusy = false;
+  let regenMsg = "";
+  async function regenerate() {
+    const fb = fileBridge();
+    if (!plotEl || !recipePath || !fb?.runRecipe) {
+      regenMsg = "no recipe";
+      return;
+    }
+    regenBusy = true;
+    regenMsg = "";
+    try {
+      const res = await fb.runRecipe(recipePath, (recipe?.params ?? {}) as Record<string, unknown>);
+      if (res.code !== 0) regenMsg = "recipe failed";
+      else if (res.svgText && res.manifestText) {
+        reimportPlot(
+          plotEl.assetId,
+          res.svgText,
+          JSON.parse(res.manifestText) as FluxPlotManifest,
+          JSON.parse(res.recipeText),
+        );
+        regenMsg = "regenerated ✓";
+      } else regenMsg = "no output";
+    } catch {
+      regenMsg = "error";
+    }
+    regenBusy = false;
+  }
 
   let expanded = new Set<string>();
   let selectedId: string | null = null;
@@ -197,32 +234,9 @@
     }
   }
 
-  // --- the self-drawing accent frame (from Forgery) ---
-  const R3 = 14;
-  function halfFrame(w: number, h: number, right: boolean, inset = 1.4): string {
-    if (!w || !h) return "";
-    const x0 = inset, y0 = inset, x1 = w - inset, y1 = h - inset;
-    const r = Math.max(0, Math.min(R3 - inset, (x1 - x0) / 2, (y1 - y0) / 2));
-    const cx = w / 2;
-    return right
-      ? `M ${cx} ${y0} L ${x1 - r} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y0 + r} L ${x1} ${y1 - r} A ${r} ${r} 0 0 1 ${x1 - r} ${y1} L ${cx} ${y1}`
-      : `M ${cx} ${y0} L ${x0 + r} ${y0} A ${r} ${r} 0 0 0 ${x0} ${y0 + r} L ${x0} ${y1 - r} A ${r} ${r} 0 0 0 ${x0 + r} ${y1} L ${cx} ${y1}`;
-  }
+  // --- the self-drawing accent frame (shared with FluxFig Menu; see selfDraw.ts) ---
   $: pathR = halfFrame(frameW, frameH, true);
   $: pathL = halfFrame(frameW, frameH, false);
-  function forge(_node: HTMLElement) {
-    if (prefersReducedMotion()) return { duration: 0 };
-    const seg = (a: number, b: number, t: number) => smoothstep(Math.min(1, Math.max(0, (t - a) / (b - a))));
-    return {
-      duration: 180,
-      css: (t: number) => {
-        const panel = seg(0, 0.16, t);
-        const draw = seg(0.04, 0.82, t);
-        const content = seg(0.42, 1, t);
-        return `opacity:${panel}; --draw:${draw}; --content:${content}; transform: scale(${0.978 + 0.022 * panel});`;
-      },
-    };
-  }
 
   const FONTS = ["Lato", "Latin Modern Roman", "Arial", "Helvetica", "Georgia", "Times New Roman", "DejaVu Sans"];
 </script>
@@ -251,6 +265,11 @@
         <div class="xhead">
           <span class="ttl">Plot X-Ray</span>
           <span class="sub">{plotEl ? plotEl.source?.svgPath ?? "plot" : "no plot selected"}</span>
+          {#if plotEl && recipePath}
+            <button class="regen" on:click={regenerate} disabled={regenBusy} title={recipePath}>
+              {regenBusy ? "Regenerating…" : regenMsg || "Regenerate"}
+            </button>
+          {/if}
         </div>
 
         {#if !plotEl || !tree}
@@ -487,6 +506,23 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .regen {
+    margin-left: auto;
+    flex: 0 0 auto;
+    align-self: center;
+    background: var(--c-accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .regen:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
   .search-row {
     display: flex;

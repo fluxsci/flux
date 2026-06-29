@@ -32,6 +32,23 @@ contextBridge.exposeInMainWorld("fig", {
   // App / user paths.
   paths: () => ipcRenderer.invoke("app:paths"),
 
+  // File-watch live reload (F1): register the open project root, and subscribe to
+  // external (agent/script) changes mapped to a subsystem ("fig"|"plots"|
+  // "manuscript"|"references"). Returns an unsubscribe fn.
+  watchRoot: (root) => ipcRenderer.invoke("watch:setRoot", root),
+  // F2: re-run a plot's recipe; returns { code, svgText, manifestText, recipeText }.
+  runRecipe: (recipePath, params) => ipcRenderer.invoke("recipe:run", { recipePath, params }),
+  onFsChanged: (cb) => {
+    const handler = (_e, info) => cb(info);
+    ipcRenderer.on("fs:changed", handler);
+    return () => ipcRenderer.removeListener("fs:changed", handler);
+  },
+
+  // WS6: provenance journal + advisory locks. Main appends/writes under .meta/
+  // (suppressing the self-write echo); both no-op until a project is open.
+  journalAppend: (entry) => ipcRenderer.invoke("journal:append", entry),
+  lockSet: (name, held) => ipcRenderer.invoke("lock:set", { name, held }),
+
   // Frameless window controls (used by the custom title bar).
   win: {
     minimize: () => ipcRenderer.invoke("win:minimize"),
@@ -43,5 +60,38 @@ contextBridge.exposeInMainWorld("fig", {
       ipcRenderer.on("win:maximized", handler);
       return () => ipcRenderer.removeListener("win:maximized", handler);
     },
+  },
+
+  // Integrated terminal: drive a native shell (PTY) living in the main process.
+  // write/resize are fire-and-forget; onData/onExit return an unsubscribe fn and
+  // carry the session id so the renderer can filter. Mirrors onFsChanged's shape.
+  term: {
+    create: (opts) => ipcRenderer.invoke("pty:create", opts),
+    write: (id, data) => ipcRenderer.send("pty:write", id, data),
+    resize: (id, cols, rows) => ipcRenderer.send("pty:resize", id, cols, rows),
+    kill: (id) => ipcRenderer.invoke("pty:kill", id),
+    onData: (cb) => {
+      const handler = (_e, msg) => cb(msg);
+      ipcRenderer.on("pty:data", handler);
+      return () => ipcRenderer.removeListener("pty:data", handler);
+    },
+    onExit: (cb) => {
+      const handler = (_e, msg) => cb(msg);
+      ipcRenderer.on("pty:exit", handler);
+      return () => ipcRenderer.removeListener("pty:exit", handler);
+    },
+  },
+
+  // WS4: live agent context bridge. The renderer pushes its UI context up
+  // (pushContext) and answers dispatch requests from an external agent
+  // (onDispatch → reply). Main relays these to/from the loopback control server.
+  bridge: {
+    pushContext: (ctx) => ipcRenderer.send("bridge:context", ctx),
+    onDispatch: (cb) => {
+      const handler = (_e, msg) => cb(msg);
+      ipcRenderer.on("bridge:dispatch", handler);
+      return () => ipcRenderer.removeListener("bridge:dispatch", handler);
+    },
+    reply: (id, result, error) => ipcRenderer.send("bridge:dispatch:reply", { id, result, error }),
   },
 });

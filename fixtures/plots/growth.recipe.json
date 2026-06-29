@@ -1,0 +1,6 @@
+{
+  "command": "python",
+  "args": ["growth_plot.py"],
+  "params": { "test": "t-test", "smooth": false },
+  "output": "growth.svg"
+}

@@ -17,6 +17,7 @@ export interface FigureRef {
   number: string; // display number, "1", "2", …
   canvas: string;
   caption: string;
+  panels: string[]; // ordered panel letters ["a","b",…]; [] if unknown (F7)
 }
 
 export const figureRefs = writable<FigureRef[]>([]);
@@ -41,6 +42,7 @@ export async function loadFigures(root: string | null): Promise<void> {
       number: String(i + 1),
       canvas: f.canvas,
       caption: f.caption,
+      panels: f.panels ?? [],
     }));
   figureRefs.set(refs);
 }
@@ -58,7 +60,7 @@ export function resolveFigure(
     const n = tableNumber(label);
     if (n != null) {
       return {
-        ref: { id: "", label, name: "", order: n, number: String(n), canvas: "", caption: "" },
+        ref: { id: "", label, name: "", order: n, number: String(n), canvas: "", caption: "", panels: [] },
         number: String(n),
       };
     }
@@ -82,9 +84,16 @@ export function resolveFigure(
     const items = suffix.split(",");
     const parts: string[] = [];
     let ok = items.length > 0;
+    // When the figure's real panel letters are known (F7), validate that every
+    // referenced panel exists, so @fig-x-z (no panel z) stays unresolved.
+    const known = base.panels.length > 0;
     for (const it of items) {
       const sm = /^([a-z])(?:-([a-z]))?$/.exec(it);
       if (!sm) {
+        ok = false;
+        break;
+      }
+      if (known && (!base.panels.includes(sm[1]) || (sm[2] && !base.panels.includes(sm[2])))) {
         ok = false;
         break;
       }
@@ -125,4 +134,9 @@ export function __seedFigures(
 }
 if (import.meta.env.DEV) {
   (window as unknown as Record<string, unknown>).__fluxSeedFigures = __seedFigures;
+  (window as unknown as Record<string, unknown>).__fluxFigures = {
+    refs: () => get(figureRefs),
+    resolve: resolveFigure,
+    reload: (root: string | null) => loadFigures(root),
+  };
 }

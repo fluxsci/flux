@@ -18,6 +18,8 @@ export interface PaperLayout {
   dynMarginW: number;
   /** Outliner collapsed node paths (stable tree paths, not doc offsets). */
   collapsed: string[];
+  /** F4: active document's project-relative path (validated on load; null = main). */
+  activeDocPath?: string | null;
 }
 
 const KEY = "flux.paper.layout";

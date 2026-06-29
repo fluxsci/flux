@@ -10,12 +10,13 @@ import type { SemanticPlotElement } from "../types";
 import { plotDom, plotManifests } from "./store";
 import { applyOverrides, prefixIds } from "./parse";
 
-function signature(e: SemanticPlotElement): string {
-  return [e.assetId, e.x, e.y, e.width, e.height, JSON.stringify(e.overrides ?? {})].join("|");
+function signature(e: SemanticPlotElement, gen: number): string {
+  return [e.assetId, e.x, e.y, e.width, e.height, gen, JSON.stringify(e.overrides ?? {})].join("|");
 }
 
-export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElement }) {
+export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElement; gen?: number }) {
   let element = params.element;
+  let gen = params.gen ?? 0;
   let sig = "";
 
   function render() {
@@ -35,13 +36,14 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     host.appendChild(inst);
   }
 
-  sig = signature(element);
+  sig = signature(element, gen);
   render();
 
   return {
-    update(next: { element: SemanticPlotElement }) {
+    update(next: { element: SemanticPlotElement; gen?: number }) {
       element = next.element;
-      const ns = signature(element);
+      gen = next.gen ?? 0;
+      const ns = signature(element, gen);
       if (ns === sig) return;
       sig = ns;
       render();

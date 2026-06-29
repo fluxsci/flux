@@ -11,6 +11,9 @@ import {
   mutate,
   clearSelection,
   selectOnly,
+  selectedFrameId,
+  duplicateFigure,
+  blankFigure,
   newId,
   lastDupOffset,
   captionOpen,
@@ -36,7 +39,7 @@ import {
   type AlignKind,
 } from "./geometry";
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
-import { forgeryOpen, settingsOpen } from "./settings";
+import { fluxFigMenuOpen, settingsOpen } from "./settings";
 
 let clipboard: Element[] = [];
 
@@ -233,6 +236,48 @@ function flipSelected(axis: "h" | "v") {
   withSelected((els) => flipElements(els, axis));
 }
 
+// --- Frame-as-object keyboard ops (F8): when a figure frame is selected as a
+// whole (and no elements are), arrows nudge it, Ctrl+D duplicates it, Delete
+// removes it (keeping at least one figure per canvas). ---
+function frameSelected(): string | null {
+  const fid = get(selectedFrameId);
+  return fid && get(selection).size === 0 ? fid : null;
+}
+
+function nudgeFrame(dx: number, dy: number) {
+  const fid = frameSelected();
+  if (!fid) return;
+  commit((p) => {
+    const f = p.figures.find((ff) => ff.id === fid);
+    if (f) {
+      f.x += dx;
+      f.y += dy;
+    }
+  });
+}
+
+function deleteFrame(): boolean {
+  const fid = frameSelected();
+  if (!fid) return false;
+  let nextActive: string | null = null;
+  commit((p) => {
+    const victim = p.figures.find((f) => f.id === fid);
+    const cid = victim?.canvasId ?? null;
+    p.figures = p.figures.filter((f) => f.id !== fid);
+    const remaining = cid ? p.figures.filter((f) => f.canvasId === cid) : [];
+    if (cid && remaining.length === 0) {
+      const blank = blankFigure(cid);
+      p.figures.push(blank);
+      nextActive = blank.id;
+    } else {
+      nextActive = remaining[0]?.id ?? p.figures[0]?.id ?? null;
+    }
+  });
+  selectedFrameId.set(null);
+  activeFigureId.set(nextActive);
+  return true;
+}
+
 function copySelected() {
   const sel = get(selection);
   const fig = activeFig();
@@ -340,8 +385,8 @@ function openXray() {
 }
 
 export function handleKey(e: KeyboardEvent) {
-  // The Forgery / Settings / X-Ray / Importer own all keys while open.
-  if (get(forgeryOpen) || get(settingsOpen) || get(xrayOpen) || get(importerOpen)) return;
+  // the FluxFig Menu / Settings / X-Ray / Importer own all keys while open.
+  if (get(fluxFigMenuOpen) || get(settingsOpen) || get(xrayOpen) || get(importerOpen)) return;
 
   const mod = e.metaKey || e.ctrlKey;
 
@@ -469,7 +514,9 @@ export function handleKey(e: KeyboardEvent) {
       importAssets();
     } else if (k === "d") {
       e.preventDefault();
-      duplicateSelected();
+      const fid = frameSelected();
+      if (fid) duplicateFigure(fid);
+      else duplicateSelected();
     } else if (k === "c") {
       copySelected();
     } else if (k === "v") {
@@ -493,7 +540,7 @@ export function handleKey(e: KeyboardEvent) {
   // Plain keys
   if (e.key === "Delete" || e.key === "Backspace") {
     e.preventDefault();
-    deleteSelected();
+    if (!deleteFrame()) deleteSelected();
     return;
   }
   if (e.key === "Escape") {
@@ -502,6 +549,12 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
   const step = e.shiftKey ? 10 : 1;
+  if (frameSelected()) {
+    if (e.key === "ArrowLeft") return e.preventDefault(), nudgeFrame(-step, 0);
+    if (e.key === "ArrowRight") return e.preventDefault(), nudgeFrame(step, 0);
+    if (e.key === "ArrowUp") return e.preventDefault(), nudgeFrame(0, -step);
+    if (e.key === "ArrowDown") return e.preventDefault(), nudgeFrame(0, step);
+  }
   if (e.key === "ArrowLeft") return e.preventDefault(), nudge(-step, 0);
   if (e.key === "ArrowRight") return e.preventDefault(), nudge(step, 0);
   if (e.key === "ArrowUp") return e.preventDefault(), nudge(0, -step);
@@ -511,11 +564,11 @@ export function handleKey(e: KeyboardEvent) {
   if (e.key === "]") return e.preventDefault(), raise(true);
   if (e.key === "[") return e.preventDefault(), raise(false);
 
-  // F opens The Forgery (property cockpit) when something is selected.
+  // F opens the FluxFig Menu (property cockpit) when something is selected.
   const lk = e.key.toLowerCase();
   if (lk === "f") {
     e.preventDefault();
-    if (get(selection).size > 0) forgeryOpen.set(true);
+    if (get(selection).size > 0) fluxFigMenuOpen.set(true);
     return;
   }
 

@@ -10,6 +10,8 @@
     drawStyle,
     selectOnly,
     clearSelection,
+    selectFrame,
+    selectedFrameId,
     beginGesture,
     mutate,
     expandGroups,
@@ -79,7 +81,17 @@
         origs: Map<string, Element>;
       }
     | { kind: "marquee"; figId: string; x0: number; y0: number; add: Set<string> }
-    | { kind: "draw"; figId: string; x0: number; y0: number };
+    | { kind: "draw"; figId: string; x0: number; y0: number }
+    | {
+        kind: "figmove";
+        figId: string;
+        sx: number;
+        sy: number;
+        ox: number;
+        oy: number;
+        xs: number[];
+        ys: number[];
+      };
 
   let gesture: Gesture = null;
 
@@ -93,6 +105,8 @@
   let pendingShiftToggle: string | null = null; // shift-click toggle deferred to up
   let gDX = 0;
   let gDY = 0;
+  let fDX = 0; // live frame-move delta, world units (F8)
+  let fDY = 0;
   let gNb: Rect | null = null;
   let liveBox: Rect | null = null;
   let marquee: Rect | null = null; // figure-local
@@ -136,6 +150,61 @@
 
   // Only the active canvas's figures are rendered / hit-tested.
   $: canvasFigures = $project.figures.filter((f) => f.canvasId === $activeCanvasId);
+
+  // F5 viewport culling: render only figures/elements intersecting the viewport
+  // (+ a generous buffer). The pan is QUANTIZED so the visible set's identity only
+  // changes every CULL_STEP px of pan — preserving the cheap CSS-transform pan
+  // within the buffer (no per-frame re-filter / re-render). Selected elements are
+  // always rendered, so a drag that leaves the viewport never culls what you drag.
+  let hostW = 0;
+  let hostH = 0;
+  const CULL_MARGIN = 600; // screen-px buffer around the viewport
+  const CULL_STEP = 400; // re-cull granularity (must be < CULL_MARGIN to avoid popping)
+  let cullRect: Rect = { x: -1e9, y: -1e9, w: 2e9, h: 2e9 };
+  let cullKey = "";
+  $: {
+    const z = $viewport.zoom;
+    const ready = hostW > 0 && hostH > 0;
+    const qx = ready ? Math.round($viewport.panX / CULL_STEP) * CULL_STEP : 0;
+    const qy = ready ? Math.round($viewport.panY / CULL_STEP) * CULL_STEP : 0;
+    const key = ready ? `${hostW}x${hostH}@${z}:${qx},${qy}` : "all";
+    if (key !== cullKey) {
+      cullKey = key;
+      cullRect = ready
+        ? {
+            x: (-qx - CULL_MARGIN) / z,
+            y: (-qy - CULL_MARGIN) / z,
+            w: (hostW + 2 * CULL_MARGIN) / z,
+            h: (hostH + 2 * CULL_MARGIN) / z,
+          }
+        : { x: -1e9, y: -1e9, w: 2e9, h: 2e9 };
+    }
+  }
+  $: visibleFigures = canvasFigures.filter(
+    (f) =>
+      f.id === $activeFigureId ||
+      rectsIntersect({ x: f.x, y: f.y, w: f.width, h: f.height }, cullRect),
+  );
+  function visibleEls(fig: Figure): Element[] {
+    // The frame being moved renders all its elements: its world position is stale
+    // until commit, so culling by the stale bbox would drop elements as it travels.
+    if (dragging && gesture?.kind === "figmove" && gesture.figId === fig.id) return fig.elements;
+    const lr: Rect = { x: cullRect.x - fig.x, y: cullRect.y - fig.y, w: cullRect.w, h: cullRect.h };
+    return fig.elements.filter((el) => $selection.has(el.id) || rectsIntersect(elementBBox(el), lr));
+  }
+  // Precompute the per-figure visible element lists keyed off the (stable-within-a-
+  // pan-step) cull rect + selection, so the template's {#each} only re-diffs when
+  // the cull region/selection/project actually change — not on every pan frame.
+  $: visibleByFig = (() => {
+    void cullRect;
+    void $selection;
+    void $project;
+    void dragging;
+    void gesture;
+    const m = new Map<string, Element[]>();
+    for (const f of visibleFigures) m.set(f.id, visibleEls(f));
+    return m;
+  })();
 
   // selection bbox in active-figure-local coords
   $: overlayBox = (() => {
@@ -199,6 +268,7 @@
     if ($captionOpen) return; // read-only while the caption editor is open
     e.stopPropagation();
     activeFigureId.set(fig.id);
+    selectedFrameId.set(null);
     const lp = localPoint(e.clientX, e.clientY, fig);
 
     if ($activeTool === "select") {
@@ -329,6 +399,7 @@
     }
     e.stopPropagation();
     activeFigureId.set(fig.id);
+    selectedFrameId.set(null);
     // Drill into a semantic plot: clicking an ALREADY-selected plot selects the
     // part under the cursor (its prefixed DOM id → canonical semantic id);
     // otherwise clear any part selection. The whole-plot drag still proceeds.
@@ -415,6 +486,30 @@
     hostEl.setPointerCapture(e.pointerId);
   }
 
+  // F8: begin moving a whole figure (frame) by its title label. Snaps the frame's
+  // edges/centres to neighbouring figures. Reuses the flicker-free path (a transient
+  // GPU transform on the live figure group; the model commits on pointer-up).
+  function startFigMove(e: PointerEvent, fig: Figure) {
+    e.stopPropagation();
+    if ($captionOpen) return;
+    selectFrame(fig.id);
+    activeFigureId.set(fig.id);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const f of canvasFigures) {
+      if (f.id === fig.id) continue;
+      xs.push(f.x, f.x + f.width, f.x + f.width / 2);
+      ys.push(f.y, f.y + f.height, f.y + f.height / 2);
+    }
+    gesture = { kind: "figmove", figId: fig.id, sx: e.clientX, sy: e.clientY, ox: fig.x, oy: fig.y, xs, ys };
+    gestureFig = fig;
+    committed = false;
+    dragging = false;
+    fDX = 0;
+    fDY = 0;
+    hostEl.setPointerCapture(e.pointerId);
+  }
+
   function snap(edges: number[], targets: number[], thr: number) {
     let best = thr;
     let off = 0;
@@ -452,7 +547,12 @@
   function startDragging() {
     if (!dragging) {
       dragging = true;
-      gestureHiddenIds = new Set(gestureEls.map((el) => el.id));
+      // F5 flicker-free move: a move applies a transient GPU transform to the live
+      // scene groups (no hide, no re-decode, no overlay copy), so SVG/plot/image
+      // elements never blank. Only resize freezes the originals + uses the overlay
+      // (cheap geometry). The data model stays frozen until pointer-up either way.
+      gestureHiddenIds =
+        gesture?.kind === "resize" ? new Set(gestureEls.map((el) => el.id)) : new Set();
     }
   }
 
@@ -470,6 +570,34 @@
     }
     const fig = $project.figures.find((f) => f.id === g.figId);
     if (!fig) return;
+
+    if (g.kind === "figmove") {
+      const rawDx = (e.clientX - g.sx) / $viewport.zoom;
+      const rawDy = (e.clientY - g.sy) / $viewport.zoom;
+      let dx = rawDx;
+      let dy = rawDy;
+      const nextGuides: { x?: number; y?: number }[] = [];
+      if (!e.altKey) {
+        const thr = 6 / $viewport.zoom;
+        const fx = g.ox + dx;
+        const fy = g.oy + dy;
+        const sX = snap([fx, fx + fig.width / 2, fx + fig.width], g.xs, thr);
+        const sY = snap([fy, fy + fig.height / 2, fy + fig.height], g.ys, thr);
+        if (sX.line != null) {
+          dx += sX.off;
+          nextGuides.push({ x: sX.line });
+        }
+        if (sY.line != null) {
+          dy += sY.off;
+          nextGuides.push({ y: sY.line });
+        }
+      }
+      dragging = true;
+      guides = nextGuides;
+      fDX = dx;
+      fDY = dy;
+      return;
+    }
 
     if (g.kind === "move") {
       const rawDx = (e.clientX - g.sx) / $viewport.zoom;
@@ -572,6 +700,15 @@
         selectOnly(el.id);
       }
       activeTool.set("select");
+    } else if (g.kind === "figmove" && dragging && (fDX !== 0 || fDY !== 0)) {
+      ensureCommitted();
+      mutate((p) => {
+        const f = p.figures.find((ff) => ff.id === g.figId);
+        if (f) {
+          f.x = g.ox + fDX;
+          f.y = g.oy + fDY;
+        }
+      });
     }
 
     // Reset all transient state in one batch -> single clean scene render.
@@ -581,6 +718,8 @@
     liveBox = null;
     gDX = 0;
     gDY = 0;
+    fDX = 0;
+    fDY = 0;
     gNb = null;
     gestureEls = [];
     gestureFig = null;
@@ -822,7 +961,9 @@
     const ps = $partSelection;
     void $viewport;
     void $project;
-    if (!ps || !hostEl) return null;
+    // Suppress during a drag: the measured node moves via a transient transform
+    // this block doesn't track, so the box would otherwise lag/stale (F5).
+    if (!ps || !hostEl || dragging || gesture) return null;
     const node = document.getElementById(`${ps.elementId}__${ps.partId}`);
     if (!node) return null;
     const r = node.getBoundingClientRect();
@@ -858,6 +999,29 @@
     }
     return base;
   })();
+
+  // F5 flicker-free move: the set of element ids being moved + the transient GPU
+  // transform applied to their LIVE scene groups (Tier-1, composited). gDX/gDY are
+  // figure-local world units; on an SVG <g> a CSS px == one user unit, so the
+  // ancestor scale(zoom) maps the translate to the correct on-screen delta.
+  $: moveIds =
+    dragging && gesture?.kind === "move"
+      ? new Set(gestureEls.map((el) => el.id))
+      : (null as Set<string> | null);
+  $: moveTransform = `translate3d(${gDX}px, ${gDY}px, 0)`;
+
+  // F8 frame move: the figure being moved + its transient GPU transform, plus
+  // smart-guide lines (world-absolute, drawn full-viewport in the overlay).
+  $: figMoveId = dragging && gesture?.kind === "figmove" ? gesture.figId : (null as string | null);
+  $: frameTransform = `translate3d(${fDX}px, ${fDY}px, 0)`;
+  $: frameGuidesScreen =
+    gesture?.kind === "figmove"
+      ? guides.map((gd) =>
+          gd.x != null
+            ? { v: true, x: $viewport.panX + gd.x * $viewport.zoom }
+            : { v: false, y: $viewport.panY + (gd.y ?? 0) * $viewport.zoom },
+        )
+      : [];
 </script>
 
 <svelte:window
@@ -870,6 +1034,8 @@
 <div
   class="canvas-host"
   bind:this={hostEl}
+  bind:clientWidth={hostW}
+  bind:clientHeight={hostH}
   style:cursor={hostCursor}
   role="application"
   aria-label="Figure canvas"
@@ -888,13 +1054,18 @@
   <div class="scene" style={`transform: translate3d(${$viewport.panX}px, ${$viewport.panY}px, 0);`}>
     <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg">
       <g transform={`scale(${$viewport.zoom})`}>
-        {#each canvasFigures as fig (fig.id)}
+        {#each visibleFigures as fig (fig.id)}
+          <g
+            style:transform={figMoveId === fig.id ? frameTransform : null}
+            style:will-change={figMoveId === fig.id ? "transform" : null}
+          >
           <g transform={`translate(${fig.x} ${fig.y})`}>
             <rect class="fig-shadow" x="3" y="4" width={fig.width} height={fig.height} />
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <rect
               class="figure-bg"
               class:active={$activeFigureId === fig.id}
+              class:frame-selected={$selectedFrameId === fig.id}
               class:droptarget={dropFigId === fig.id}
               x="0"
               y="0"
@@ -907,12 +1078,14 @@
               <rect x="0" y="0" width={fig.width} height={fig.height} />
             </clipPath>
             <g clip-path={`url(#clip-${fig.id})`}>
-              {#each fig.elements as el (el.id)}
+              {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <g
                   class="el"
                   class:editing-hidden={editingId === el.id}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
+                  style:transform={moveIds?.has(el.id) ? moveTransform : null}
+                  style:will-change={moveIds?.has(el.id) ? "transform" : null}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
                   on:pointerenter={() => {
                     if ($activeTool === "select" && !$captionOpen) hoverId.set(el.id);
@@ -931,7 +1104,17 @@
                 </g>
               {/each}
             </g>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <rect
+              class="figure-titlebar"
+              x="0"
+              y={-22 / $viewport.zoom}
+              width={Math.max(fig.width, 120 / $viewport.zoom)}
+              height={18 / $viewport.zoom}
+              on:pointerdown={(e) => startFigMove(e, fig)}
+            />
             <text class="figure-label" x="0" y={-8 / $viewport.zoom} font-size={13 / $viewport.zoom}>{fig.name}</text>
+          </g>
           </g>
         {/each}
       </g>
@@ -940,8 +1123,8 @@
 
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
   <svg class="overlay-svg" xmlns="http://www.w3.org/2000/svg">
-    <!-- dragged / resized element previews -->
-    {#if dragging && gestureFig}
+    <!-- resized element preview (a move uses a live scene transform instead — F5) -->
+    {#if dragging && gestureFig && gesture?.kind === "resize"}
       <g transform={dragTransform} style="will-change: transform">
         {#each gestureEls as el (el.id)}
           <ElementView element={el} />
@@ -962,6 +1145,15 @@
         <line class="guide" x1={gd.x} y1={gd.a} x2={gd.x} y2={gd.b} />
       {:else}
         <line class="guide" x1={gd.a} y1={gd.y} x2={gd.b} y2={gd.y} />
+      {/if}
+    {/each}
+
+    <!-- smart guides (frame move) — full-viewport lines -->
+    {#each frameGuidesScreen as gd}
+      {#if gd.v}
+        <line class="guide" x1={gd.x} y1={0} x2={gd.x} y2={hostH} />
+      {:else}
+        <line class="guide" x1={0} y1={gd.y} x2={hostW} y2={gd.y} />
       {/if}
     {/each}
 
@@ -1114,6 +1306,16 @@
     stroke-width: 3;
     vector-effect: non-scaling-stroke;
     filter: drop-shadow(0 0 6px var(--c-accent-glow));
+  }
+  .figure-bg.frame-selected {
+    stroke: var(--c-accent);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+  }
+  .figure-titlebar {
+    fill: transparent;
+    pointer-events: all;
+    cursor: move;
   }
   .figure-label {
     fill: var(--c-tx-2);

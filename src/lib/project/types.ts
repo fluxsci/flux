@@ -87,6 +87,22 @@ export interface FileBridge {
     root: string,
     to: string,
   ): Promise<{ ok: boolean; code?: number; log: string }>;
+  // F1 file-watch live reload. Optional: only the Electron bridge (and the dev
+  // fixture) provide them.
+  watchRoot?(root: string | null): Promise<boolean> | boolean;
+  onFsChanged?(cb: (info: { subsystem: string; path: string }) => void): () => void;
+  // F2: re-run a plot's recipe (regenerate). Electron only.
+  runRecipe?(
+    recipePath: string,
+    params: Record<string, unknown>,
+  ): Promise<{
+    code: number;
+    svgText: string | null;
+    manifestText: string | null;
+    recipeText: string;
+    stdout?: string;
+    stderr?: string;
+  }>;
 }
 
 export function fileBridge(): FileBridge | undefined {

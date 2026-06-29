@@ -17,6 +17,10 @@ export interface BibEntry {
 
 export const bibEntries = writable<BibEntry[]>([]);
 
+// M12: surfaces a non-blocking notice when library.bib fails to parse (so a
+// corrupt file doesn't silently yield zero citations). null = no problem.
+export const bibError = writable<string | null>(null);
+
 export function bibEntry(key: string): BibEntry | undefined {
   return get(bibEntries).find((e) => e.key === key);
 }
@@ -49,4 +53,8 @@ export function __seedBib(entries: BibEntry[]) {
 }
 if (import.meta.env.DEV) {
   (window as unknown as Record<string, unknown>).__fluxSeedBib = __seedBib;
+  (window as unknown as Record<string, unknown>).__fluxBib = {
+    entries: () => get(bibEntries),
+    keys: () => get(bibEntries).map((e) => e.key),
+  };
 }

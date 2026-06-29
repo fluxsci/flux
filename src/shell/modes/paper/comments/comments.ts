@@ -90,16 +90,21 @@ function commonSuffix(a: string, b: string): number {
 }
 
 // ---- persistence ----------------------------------------------------------
-function commentsPath(p: LoadedProject): string {
-  const mp = p.manifest.manuscript.path; // e.g. "manuscript/main.qmd"
+// Comments live beside their document (Principle 6). The main manuscript keeps
+// the historical `comments.json`; other documents get `<base>.comments.json` so
+// each F4 document has its own thread set.
+function commentsPath(p: LoadedProject, docRel?: string): string {
+  const mp = docRel ?? p.manifest.manuscript.path; // e.g. "manuscript/main.qmd"
   const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
-  return joinPath(p.root, dir, "comments.json");
+  const isMain = mp === p.manifest.manuscript.path;
+  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.qmd$/, "");
+  return joinPath(p.root, dir, isMain ? "comments.json" : `${base}.comments.json`);
 }
 
-export async function readComments(p: LoadedProject): Promise<CommentThread[]> {
+export async function readComments(p: LoadedProject, docRel?: string): Promise<CommentThread[]> {
   const fb = fileBridge();
   if (!fb) return [];
-  const path = commentsPath(p);
+  const path = commentsPath(p, docRel);
   try {
     if (!(await fb.exists(path))) return [];
     const data = JSON.parse(await fb.readText(path)) as CommentsFile;
@@ -109,11 +114,15 @@ export async function readComments(p: LoadedProject): Promise<CommentThread[]> {
   }
 }
 
-export async function writeComments(p: LoadedProject, threads: CommentThread[]): Promise<void> {
+export async function writeComments(
+  p: LoadedProject,
+  threads: CommentThread[],
+  docRel?: string,
+): Promise<void> {
   const fb = fileBridge();
   if (!fb) return;
   const file: CommentsFile = { version: 1, threads };
-  await fb.writeText(commentsPath(p), JSON.stringify(file, null, 2) + "\n");
+  await fb.writeText(commentsPath(p, docRel), JSON.stringify(file, null, 2) + "\n");
 }
 
 export function newId(): string {

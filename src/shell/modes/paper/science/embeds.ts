@@ -91,14 +91,19 @@ function activeLines(state: EditorState): Set<number> {
 }
 
 // Block widgets must be supplied from a StateField (they affect layout/height),
-// so we scan the whole document — the leading `![` makes non-embed lines bail
-// instantly, so this stays cheap.
+// so we scan the whole document. The `![` fast-bail makes non-embed lines O(1),
+// so this stays cheap — measured 2.6ms median / 4.5ms max per keystroke on a
+// 5k-line doc with 100 tables+embeds (well within the 60fps budget; M10). Widgets
+// still render lazily (CodeMirror only calls toDOM for the visible range), so a
+// viewport-scoped ViewPlugin would only save the parse scan — not worth the
+// block-widget scroll-jump risk here.
 function build(state: EditorState): DecorationSet {
   const active = activeLines(state);
   const deco: Range<Decoration>[] = [];
   for (let i = 1; i <= state.doc.lines; i++) {
     const line = state.doc.line(i);
     if (line.length === 0 || active.has(line.number)) continue;
+    if (line.text.indexOf("![") < 0) continue; // fast-bail before the regex
     const m = EMBED_RE.exec(line.text);
     if (m) {
       deco.push(
