@@ -20,12 +20,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      # Expose ONLY a boolean (not the secret) so steps can branch in `if:`.
+      # Boolean only (not the secret) so steps can branch in `if:`. The actual
+      # signing secrets are injected ONLY into the signed step below — keeping
+      # them out of the unsigned path, where empty values would otherwise push
+      # electron-builder into a (failing) code-signing attempt.
       HAS_SIGNING: ${{ secrets.MAC_CSC_LINK != '' }}
     steps:
       - uses: actions/checkout@v4
@@ -41,10 +39,20 @@ jobs:
 
       - name: Package · sign · notarize · publish (macOS, signed)
         if: matrix.os == 'macos-latest' && env.HAS_SIGNING == 'true'
-        run: npx electron-builder ${{ matrix.args }} -c.mac.notarize.teamId="$APPLE_TEAM_ID" --publish always
+        run: npx electron-builder --mac -c.mac.notarize.teamId="$APPLE_TEAM_ID" --publish always
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Package · publish (macOS unsigned / Linux)
         if: matrix.os != 'macos-latest' || env.HAS_SIGNING != 'true'
-        run: npx electron-builder ${{ matrix.args }} --publish always
+        # On the unsigned macOS path, disable electron-builder's own signing
+        # (-c.mac.identity=null) and hardened runtime; the ad-hoc signature is
+        # applied solely by build/afterPack.cjs so the app still launches on
+        # Apple Silicon. These -c.mac.* overrides are harmless on the Linux build.
+        run: npx electron-builder ${{ matrix.args }} -c.mac.identity=null -c.mac.hardenedRuntime=false --publish always
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false" # don't hunt for a cert (afterPack ad-hoc signs)
+          CSC_IDENTITY_AUTO_DISCOVERY: "false" # never hunt for a cert on the unsigned path
