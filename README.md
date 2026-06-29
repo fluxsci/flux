@@ -93,7 +93,15 @@ opens (no "damaged app" Gatekeeper dance).
 
 ```sh
 xcode-select --install        # git, codesign, compiler tooling
-node -v                       # need v20+ — if missing/older: brew install node
+```
+
+Use **Node.js 20 LTS** — the version Flux's tooling and CI target. Newer "Current"
+releases (24, 26, …) can break the Electron binary install. Easiest with
+[nvm](https://github.com/nvm-sh/nvm) (the repo ships an `.nvmrc`):
+
+```sh
+nvm install 20 && nvm use 20
+node -v                       # → v20.x
 ```
 
 **1 · Clone the repo**

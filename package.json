@@ -11,13 +11,16 @@
   },
   "license": "MIT",
   "homepage": "https://github.com/kortdriessen/flux",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
-    "electron:dev": "concurrently -k -n vite,electron \"npm run dev\" \"wait-on tcp:127.0.0.1:1420 && VITE_DEV_SERVER_URL=http://localhost:1420 electron .\"",
+    "electron:dev": "concurrently -k -n vite,electron \"npm run dev\" \"wait-on tcp:127.0.0.1:1420 && VITE_DEV_SERVER_URL=http://127.0.0.1:1420 electron .\"",
     "electron:build": "vite build && electron .",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",

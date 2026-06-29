@@ -16,7 +16,11 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // Bind to IPv4 loopback explicitly. On macOS `localhost` resolves to IPv6
+    // (::1) first, which left `wait-on tcp:127.0.0.1` in electron:dev hanging
+    // forever (so Electron never launched). Pinning 127.0.0.1 here + in the
+    // electron:dev URL keeps dev working on both macOS and Linux.
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",
