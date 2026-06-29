@@ -74,34 +74,31 @@ Not yet packaged — planned for a later release.
 
 ## Develop
 
-Requires **Node.js 20+** (and, on macOS, the Xcode Command Line Tools).
-
-```sh
-git clone https://github.com/kortdriessen/flux.git
-cd flux
-npm install
-npm run electron:dev      # Vite dev server + Electron, with live reload
-```
+Build and run Flux from source. The **macOS** walkthrough below takes a clean
+machine all the way to a running app — follow it top to bottom. **Linux** is the
+same, minus the macOS-only notes (skip `xcode-select`; install Node 20 your way).
 
 ### Build & run locally on macOS
 
-Step-by-step to clone and build Flux on a Mac — Apple Silicon (M-series) or Intel.
-A locally-built app is **not** quarantined the way a downloaded one is, so it just
+From a clean Mac to a running app — Apple Silicon (M-series) or Intel. A
+locally-built app is **not** quarantined the way a downloaded one is, so it just
 opens (no "damaged app" Gatekeeper dance).
 
-**0 · One-time setup**
+**0 · Install prerequisites (one-time)**
+
+Xcode Command Line Tools (`git`, `codesign`, compilers):
 
 ```sh
-xcode-select --install        # git, codesign, compiler tooling
+xcode-select --install
 ```
 
-Use **Node.js 20 LTS** — the version Flux's tooling and CI target. Newer "Current"
-releases (24, 26, …) can break the Electron binary install. Easiest with
-[nvm](https://github.com/nvm-sh/nvm) (the repo ships an `.nvmrc`):
+**Node.js 20 LTS** — important: Flux targets Node 20, and newer "Current" releases
+(23, 24, 26, …) break Electron's binary install. Manage it with
+[nvm](https://github.com/nvm-sh/nvm). If you don't have nvm yet, install it, then
+**close and reopen Terminal**:
 
 ```sh
-nvm install 20 && nvm use 20
-node -v                       # → v20.x
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 ```
 
 **1 · Clone the repo**
@@ -111,47 +108,71 @@ git clone https://github.com/kortdriessen/flux.git
 cd flux
 ```
 
-**2 · Install dependencies**
+**2 · Select Node 20** (the repo ships an `.nvmrc`, so this picks 20 automatically):
+
+```sh
+nvm install 20      # installs Node 20 if you don't have it
+nvm use 20
+node -v             # must print v20.x — NOT v23/24/26
+```
+
+**3 · Install dependencies + confirm Electron**
 
 ```sh
 npm install
+npx electron --version     # must print v33.x.x
 ```
 
-(A `npm warn EBADENGINE … node >=22` message is harmless; Flux builds on Node 20.)
+`npm install` also downloads the Electron app binary; the `electron --version`
+check confirms it landed. A harmless `EBADENGINE` warning during install is fine.
 
-**3 · Develop with live reload** — the day-to-day loop:
+> **If `electron --version` errors** with _"Electron failed to install correctly"_,
+> the binary download was skipped/blocked. Finish it and re-check:
+> ```sh
+> node node_modules/electron/install.js
+> npx electron --version
+> ```
+> If it still fails, make sure `node -v` is **v20.x**, then
+> `rm -rf node_modules && npm install`.
+
+**4 · Run it — live-reload dev loop**
 
 ```sh
 npm run electron:dev
 ```
 
-Starts the Vite dev server (port **1420**) and launches Electron pointed at it;
-edits in `src/` reload on save. `Ctrl+C` to stop.
+A native **Flux window** opens (Vite dev server on port 1420 + Electron); edits in
+`src/` reload on save. `Ctrl+C` stops it.
 
-**4 · Build a standalone app**
+> The `http://localhost:1420` page is just the bundler — **don't** open Flux in a
+> browser there (the desktop APIs won't exist). Use the app window that opens.
+
+**5 · (Optional) Build a standalone app**
 
 ```sh
-# Fast — unpacked .app, no installer (best for quick testing):
+# Fast — unpacked .app, no installer:
 CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack
+open release/mac-arm64/Flux.app     # Intel Mac: release/mac-x64/Flux.app
 
-# Full installer — .dmg (+ .zip) into ./release:
+# …or a full installer DMG (+ zip) in ./release:
 CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac
 ```
 
-The `CSC_IDENTITY_AUTO_DISCOVERY=false` prefix tells the packager not to look for
-an Apple Developer certificate; the app is instead *ad-hoc* signed by
-`build/afterPack.cjs` — all that's needed for it to launch locally on Apple Silicon.
-Without it, the build can fail trying to sign.
+`CSC_IDENTITY_AUTO_DISCOVERY=false` tells the packager not to look for an Apple
+Developer certificate; the app is ad-hoc signed by `build/afterPack.cjs`, which is
+all that's needed to launch locally. If macOS blocks a built app, right-click →
+**Open**, or `xattr -dr com.apple.quarantine release/mac-arm64/Flux.app`.
 
-**5 · Run the built app**
+#### Troubleshooting
 
-```sh
-open release/mac-arm64/Flux.app     # Intel Mac: release/mac-x64/Flux.app
-```
-
-If you ran `dist:mac`, the installer DMG is also in `release/`
-(e.g. `Flux-0.1.0-arm64.dmg`). If macOS ever blocks the app, right-click → **Open**,
-or clear the flag: `xattr -dr com.apple.quarantine release/mac-arm64/Flux.app`.
+| Symptom | Fix |
+| --- | --- |
+| `Electron failed to install correctly` | Make sure `node -v` is v20.x, then `node node_modules/electron/install.js` (or `rm -rf node_modules && npm install`) |
+| `node -v` shows 23 / 24 / 26 | `nvm use 20` (run `nvm install 20` first if needed) — newer Node breaks Electron's install |
+| `npm run electron:dev` shows only `[vite]` lines, no window | Make sure you're on a current clone (`git pull`); the dev server is pinned to `127.0.0.1` to fix a macOS hang |
+| `codesign: command not found` | `xcode-select --install` |
+| Built app won't open ("damaged" / unidentified) | `xattr -dr com.apple.quarantine release/mac-arm64/Flux.app`, or right-click → **Open** |
+| Start completely clean | `rm -rf node_modules dist release && npm install` |
 
 ### Scripts
 
