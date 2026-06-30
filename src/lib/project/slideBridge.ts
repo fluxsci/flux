@@ -134,18 +134,55 @@ export interface Insertables {
  *  semantic plots, and raster/vector images (from project.json). Titles fall back
  *  to ids. Empty groups simply don't appear in the menu. */
 export async function listInsertables(root: string): Promise<Insertables> {
-  // The slide subsystem reads these project arrays leniently (figures lack a
-  // `title` in the manifest type, plots/assets aren't in it yet) — decouple via
-  // `unknown` so we can fall titles back to ids at runtime.
+  // Plots, figures, and images are ALL filesystem-discovered — project.json is
+  // not the source of truth (its figures[] is a stale rollup; plots/assets aren't
+  // in it at all). Read images leniently from the manifest assets array.
   const m = (await readManifest(root)) as unknown as {
-    figures?: { id: string; title?: string }[];
-    plots?: { id: string; title?: string; svgPath?: string; path?: string; manifestPath?: string }[];
     assets?: { id: string; kind: string; path: string }[];
   } | null;
-  const figures = (m?.figures ?? []).map((f) => ({ id: f.id, title: f.title ?? f.id }));
-  const plots = (m?.plots ?? []).map((p) => ({
-    id: p.id, title: p.title ?? p.id, svgPath: p.svgPath ?? p.path, manifestPath: p.manifestPath,
-  }));
+
+  // Figures: the composed figures the figure viewer shows, from fig/index.json —
+  // the SAME readFigSource loadDeckAssets uses below (NOT project.json.figures).
+  let figures: Insertables["figures"] = [];
+  try {
+    const src = await readFigSource(root);
+    figures = src.indexFigures
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((f) => ({ id: f.id, title: f.name ?? f.id }));
+  } catch {
+    /* no fig/ dir — no figures to insert */
+  }
+
+  // Plots: walk plots/ for *.svg (semantic = has a .fluxplot.json sibling), the
+  // same recursive scan PlotImporter uses. Project-relative svg/manifest paths so
+  // loadDeckAssets can read + cache them; id = the path under plots/ (stable+unique).
+  const plots: Insertables["plots"] = [];
+  const fig = fileBridge();
+  if (fig?.readdir) {
+    const visit = async (dir: string, rel: string, depth: number) => {
+      if (depth > 6 || plots.length > 2000) return;
+      let es: { name: string; dir: boolean }[];
+      try { es = await fig.readdir!(dir); } catch { return; }
+      const names = new Set(es.map((e) => e.name));
+      for (const e of es) {
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.dir) await visit(joinPath(dir, e.name), r, depth + 1);
+        else if (/\.svg$/i.test(e.name)) {
+          const base = r.replace(/\.svg$/i, "");
+          const semantic = names.has(e.name.replace(/\.svg$/i, ".fluxplot.json"));
+          plots.push({
+            id: base, title: base.split("/").pop() ?? base,
+            svgPath: `plots/${base}.svg`,
+            manifestPath: semantic ? `plots/${base}.fluxplot.json` : undefined,
+          });
+        }
+      }
+    };
+    await visit(joinPath(root, "plots"), "", 0);
+    plots.sort((a, b) => a.title.localeCompare(b.title));
+  }
+
   const images = (m?.assets ?? [])
     .filter((a) => /^(png|jpg|jpeg|gif|webp|svg)$/.test(a.kind))
     .map((a) => ({ id: a.id, kind: a.kind, path: a.path }));
