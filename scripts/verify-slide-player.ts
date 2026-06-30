@@ -80,6 +80,29 @@ assert(opacity(title) === "1" && opacity(bullets.children[2] as unknown as HTMLE
 applyStatic(specs, 0);
 assert(opacity(bullets.children[2] as unknown as HTMLElement) === "0", "back to beat 0 re-hides the bullets (reversible/O(1))");
 
+// --- draw-on static-state regression (anim 0.3) ------------------------------
+// A draw-on part must rest UNDRAWN (strokeDasharray set + strokeDashoffset=len)
+// before its beat — not fully drawn. Guards the prep()-after-clearAnimStyles
+// ordering in applyStatic (the bug: clear wiped prep's dash-array → drawn).
+const lineNode = el("ln_line");
+const drawSlide: Slide = {
+  id: "s2",
+  elements: [{ type: "textBox", id: "ln_line", x: 0, y: 0, width: 400, height: 100, rotation: 0, blocks: [{ id: "x", text: "line" }] }],
+  beats: [
+    { id: "d0", label: "base", tracks: [] },
+    { id: "d1", label: "draw", tracks: [{ target: "ln_line", preset: "drawOn", start: 0, duration: 800 }] },
+  ],
+};
+const drawSpecs = computeSlideAnims(drawSlide, { elements: new Map([["ln_line", lineNode]]) }, camera, stage, opts);
+const dash = (n: HTMLElement) => (n.style as unknown as { strokeDasharray?: string }).strokeDasharray ?? "";
+const offset = (n: HTMLElement) => (n.style as unknown as { strokeDashoffset?: string }).strokeDashoffset ?? "";
+applyStatic(drawSpecs, 0);
+assert(dash(lineNode) !== "" && offset(lineNode) !== "" && offset(lineNode) !== "0", "beat 0: draw-on part rests UNDRAWN (dasharray set + offset=len) — the static-state fix");
+applyStatic(drawSpecs, 1);
+assert(offset(lineNode) === "0", "beat 1: draw-on part fully drawn (offset 0)");
+applyStatic(drawSpecs, 0);
+assert(offset(lineNode) !== "0" && offset(lineNode) !== "", "back to beat 0 re-hides the draw (reversible)");
+
 // --- easing resolution -------------------------------------------------------
 assert(resolveEasing("smooth").startsWith("linear("), "smooth → manim smoothstep linear() string");
 assert(resolveEasing("linear") === "linear" && resolveEasing(undefined).startsWith("cubic-bezier"), "linear + default easings resolve");

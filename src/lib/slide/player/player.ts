@@ -179,13 +179,18 @@ export function applyStatic(specs: Spec[], beatIndex: number): void {
   }
   for (const [node, list] of byNode) {
     list.sort((a, b) => a.beatIndex - b.beatIndex || a.delay - b.delay);
+    // Reset to the base look BEFORE prep(), so prep's stroke-dasharray (draw-on)
+    // and transform-origin (grow-baseline) SURVIVE into the resting state. If
+    // cleared after prep, the pre-beat keyframe (strokeDashoffset:len / scaleY:0)
+    // has nothing to act on and the part wrongly shows fully drawn/full-size at
+    // rest before its beat — corrupting "hide all", the scrubber, and export.
+    clearAnimStyles(node);
     for (const s of list) s.prep?.();
     // morph specs drive child geometry directly: B once its beat has passed, else A.
     const morphs = list.filter((s) => s.morph);
     for (const s of morphs) s.morph!.seek(s.beatIndex <= beatIndex ? 1 : 0);
     const kf = list.filter((s) => !s.morph);
     if (!kf.length) continue;
-    clearAnimStyles(node);
     const past = kf.filter((s) => s.beatIndex <= beatIndex);
     if (past.length) {
       // accumulate per-property: later specs override, untouched props persist
