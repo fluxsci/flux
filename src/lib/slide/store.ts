@@ -24,6 +24,13 @@ export const selection = writable<string[]>([]);
  *  id), so the Animator can focus its X-ray row / track. Null clears the focus. */
 export const focusedPart = writable<{ elId: string; part: string } | null>(null);
 
+/** The project root the live deck was loaded from. Lets SlideMode REUSE the
+ *  in-memory deck across a mode round-trip (slide→figure→slide, same project)
+ *  instead of reloading from disk — which previously raced an un-awaited
+ *  destroy-time save and dropped edits. It still reloads when the project
+ *  actually changes (root mismatch). Null = no deck loaded for any project. */
+export const loadedProjectRoot = writable<string | null>(null);
+
 /** Replace the live deck (on load) and reset editor cursor + dirty. */
 export function loadDeckModel(d: Deck): void {
   deck.set(d);
@@ -49,11 +56,13 @@ export function commitDeck(mutate: (d: Deck) => void): void {
   deckDirty.set(true);
 }
 
-/** Clear the deck (on mode exit / project close). */
+/** Clear the deck (on true project close — NOT on a mode switch; the live deck is
+ *  intentionally kept across mode round-trips, see `loadedProjectRoot`). */
 export function clearDeck(): void {
   deck.set(null);
   activeSlideId.set(null);
   activeBeat.set(0);
   selection.set([]);
   deckDirty.set(false);
+  loadedProjectRoot.set(null);
 }

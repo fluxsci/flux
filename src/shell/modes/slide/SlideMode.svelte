@@ -15,7 +15,7 @@
     selection,
     loadDeckModel,
     commitDeck,
-    clearDeck,
+    loadedProjectRoot,
   } from "../../../lib/slide/store";
   import {
     listProjectDecks,
@@ -118,11 +118,20 @@
     try {
       if (pm) {
         decks = await listProjectDecks(pm.root);
-        if (decks.length) await loadDeckInto(pm.root, decks[0].id);
-        else await createDeckInProject(pm.root, { title: pm.manifest.title });
-        decks = await listProjectDecks(pm.root);
-        if (!get(deckStore)) loadDeckModel(createDeckModel({ title: pm.manifest.title }));
-      } else {
+        // Reuse the live in-memory deck across a mode round-trip (slide→figure→
+        // slide, same project) — the deck store is module-level and survives
+        // unmount, so don't reload from disk (which raced the un-awaited
+        // destroy-time save and dropped edits). Reload only on first entry or a
+        // genuine project change (root mismatch).
+        const live = get(deckStore) && get(loadedProjectRoot) === pm.root;
+        if (!live) {
+          if (decks.length) await loadDeckInto(pm.root, decks[0].id);
+          else await createDeckInProject(pm.root, { title: pm.manifest.title });
+          decks = await listProjectDecks(pm.root);
+          if (!get(deckStore)) loadDeckModel(createDeckModel({ title: pm.manifest.title }));
+          loadedProjectRoot.set(pm.root);
+        }
+      } else if (!get(deckStore)) {
         loadDeckModel(createDeckModel({ title: "Demo Deck" }));
       }
       await refreshAssets();
@@ -138,6 +147,7 @@
       loadDeckModel(createDeckModel({ title: pm?.manifest.title ?? "Demo Deck" }));
     }
     ready = true;
+    if (typeof window !== "undefined") window.addEventListener("beforeunload", flushOnExit);
     unsubDirty = deckDirty.subscribe((d) => {
       if (!ready || !pm || !d) return;
       clearTimeout(saveTimer);
@@ -152,9 +162,17 @@
     unsubDirty?.();
     clearTimeout(saveTimer);
     player?.destroy();
+    if (typeof window !== "undefined") window.removeEventListener("beforeunload", flushOnExit);
+    // Flush pending edits to disk, but DO NOT clearDeck() — the live deck is kept
+    // in the module-level store so a quick round-trip to another mode reuses it
+    // (see onMount's `live` guard). clearDeck() is reserved for true project close.
     if (pm && get(deckDirty)) void saveDeckFrom(pm.root);
-    clearDeck();
   });
+
+  // Belt-and-suspenders: flush on window close while in slide mode.
+  function flushOnExit() {
+    if (pm && get(deckDirty)) void saveDeckFrom(pm.root);
+  }
 
   function selectSlide(id: string) {
     activeSlideId.set(id);
