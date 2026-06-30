@@ -37,6 +37,17 @@ const num = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
 const each = (nodes: TargetNode[], fn: (node: TargetNode, index: number) => NodeAnim): NodeAnim[] =>
   nodes.map(fn);
 
+/** The strokable geometry to draw-on for a target. FluxPlot wraps each part in a
+ *  <g id="…"> and the real path/line lives inside, so a draw-on target is usually
+ *  a group — drill to its path/line/polyline/polygon descendants (or the node
+ *  itself if it already is one). Returns the node as-is if no geometry is found. */
+function geometryEls(node: TargetNode): SVGElement[] {
+  const tag = (node as Element).tagName?.toLowerCase();
+  if (tag && /^(path|line|polyline|polygon)$/.test(tag)) return [node as SVGElement];
+  const found = Array.from((node as Element).querySelectorAll?.("path,line,polyline,polygon") ?? []) as SVGElement[];
+  return found.length ? found : [node as SVGElement];
+}
+
 export const PRESETS: Record<string, Preset> = {
   // --- enters (hidden before their beat) -----------------------------------
   fade: (nodes) => each(nodes, (node, index) => ({ node, index, enter: true, keyframes: [{ opacity: 0 }, { opacity: 1 }] })),
@@ -71,17 +82,21 @@ export const PRESETS: Record<string, Preset> = {
       keyframes: [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0 0 0)" }],
     })),
 
-  // Tier-2: the SVG self-draw. Per-node path length → dashoffset.
+  // Tier-2: the SVG self-draw. Drills through wrapper <g>s to the strokable
+  // geometry, then dashes each child by its OWN length so the stroke draws itself
+  // on (dashing the empty <g> would do nothing / dot the children).
   drawOn: (nodes) =>
-    each(nodes, (node, index) => {
-      let len = 1;
-      try { len = (node as SVGGeometryElement).getTotalLength?.() || 1; } catch { len = 1; }
-      return {
-        node, index, enter: true,
-        prep: () => { (node as SVGElement).style.strokeDasharray = `${len}`; },
-        keyframes: [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
-      };
-    }),
+    nodes.flatMap((node, index) =>
+      geometryEls(node).map((geo): NodeAnim => {
+        let len = 1;
+        try { len = (geo as SVGGeometryElement).getTotalLength?.() || 1; } catch { len = 1; }
+        return {
+          node: geo, index, enter: true,
+          prep: () => { geo.style.strokeDasharray = `${len}`; },
+          keyframes: [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
+        };
+      }),
+    ),
 
   // --- transforms / emphasis (already-present elements) --------------------
   move: (nodes, t) => {

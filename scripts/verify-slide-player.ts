@@ -7,7 +7,9 @@
 // Run: npx tsx scripts/verify-slide-player.ts
 import { parseHTML } from "linkedom";
 import { computeSlideAnims, applyStatic, resolveEasing } from "../src/lib/slide/player/player";
+import { PRESETS } from "../src/lib/slide/player/presets";
 import { FLUX_DARK } from "../src/lib/slide/theme";
+import type { Track } from "../src/lib/slide/types";
 import type { RenderedSlide } from "../src/lib/slide/player/render";
 import type { Slide, StageSize } from "../src/lib/slide/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
@@ -159,6 +161,22 @@ const delayById = new Map(sxSpecs.filter((s) => s.beatIndex === 1).map((s) => [(
 assert(delayById.get("p_sx__g.point.1") === 0, "1.2: by:x — smallest data-x (point.1, x=1) fires first (delay 0)");
 assert(delayById.get("p_sx__g.point.2") === 100, "1.2: by:x — middle data-x (point.2, x=3) fires at 100ms");
 assert(delayById.get("p_sx__g.point.0") === 200, "1.2: by:x — largest data-x (point.0, x=5) fires last (200ms)");
+
+// --- drawOn drills into wrapper <g> to the geometry (anim 1.5) ----------------
+// FluxPlot wraps each part in a <g id>; the strokable path lives inside. drawOn
+// must dash the PATH (by its length), not the empty <g> (which would do nothing).
+const gWrap = document.createElement("g");
+const gp1 = document.createElement("path"), gp2 = document.createElement("path");
+gWrap.appendChild(gp1); gWrap.appendChild(gp2);
+const drawTrack = { target: "p", preset: "drawOn" } as Track;
+const drawAnims = PRESETS.drawOn([gWrap as unknown as HTMLElement], drawTrack, { theme: FLUX_DARK, stage });
+assert(drawAnims.length === 2, "1.5 drawOn: a <g> wrapper yields one anim per geometry child");
+assert(drawAnims.every((a) => (a.node as Element).tagName?.toLowerCase() === "path"), "1.5 drawOn: anims target the PATH children, not the <g>");
+drawAnims.forEach((a) => a.prep?.());
+assert((gp1 as unknown as HTMLElement).style.strokeDasharray !== "", "1.5 drawOn: prep sets stroke-dasharray on the path child");
+assert(!(gWrap as unknown as HTMLElement).style.strokeDasharray, "1.5 drawOn: the wrapper <g> is left untouched");
+const bareDraw = PRESETS.drawOn([document.createElement("path") as unknown as HTMLElement], drawTrack, { theme: FLUX_DARK, stage });
+assert(bareDraw.length === 1, "1.5 drawOn: a bare path (already geometry) stays a single anim");
 
 // --- easing resolution -------------------------------------------------------
 assert(resolveEasing("smooth").startsWith("linear("), "smooth → manim smoothstep linear() string");
