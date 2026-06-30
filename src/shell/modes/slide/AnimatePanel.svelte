@@ -63,41 +63,65 @@
   // --- per-track editing (issue #5: many anims/beat + stagger + speed control) --
   const EDIT_PRESETS: PresetName[] = ["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn", "highlight", "dim"];
   const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
-  let selTrack = $state<{ bi: number; ti: number } | null>(null);
-  const curTrack = $derived.by(() => {
-    const st = selTrack;
-    if (!st || !slide) return null;
-    return slide.beats[st.bi]?.tracks[st.ti] ?? null;
+  // Multi-select: a set of selected track ids (stable Track.id). The LAST entry is
+  // the "primary" and drives the editor field VALUES; edits apply to ALL selected
+  // (bulk). Shift/Ctrl/Cmd-click a chip to add/remove from the set.
+  let selTrackIds = $state<string[]>([]);
+  const selTracks = $derived.by(() => {
+    if (!slide) return [] as Track[];
+    const all = slide.beats.flatMap((b) => b.tracks);
+    return selTrackIds.map((id) => all.find((t) => t.id === id)).filter((t): t is Track => !!t);
   });
-  function withTrack(fn: (t: Track) => void) {
-    const st = selTrack;
+  const curTrack = $derived.by(() => {
+    const ids = selTrackIds;
+    if (!ids.length || !slide) return null;
+    const primary = ids[ids.length - 1];
+    return slide.beats.flatMap((b) => b.tracks).find((t) => t.id === primary) ?? null;
+  });
+  // true when the selected tracks disagree on a field → the editor shows "mixed".
+  function mixed<T>(get: (t: Track) => T): boolean {
+    const vs = selTracks.map(get);
+    return vs.length > 1 && vs.some((v) => v !== vs[0]);
+  }
+  function selectTrack(id: string | undefined, additive: boolean) {
+    if (!id) return;
+    if (additive) selTrackIds = selTrackIds.includes(id) ? selTrackIds.filter((x) => x !== id) : [...selTrackIds, id];
+    else selTrackIds = [id];
+  }
+  // apply a mutation to EVERY selected track in ONE commit (bulk edit — e.g. set
+  // stagger=80 on the three `.points` tracks at once).
+  function withTracks(fn: (t: Track) => void) {
+    const ids = selTrackIds;
     const sid = slide?.id;
-    if (!st || !sid) return;
+    if (!ids.length || !sid) return;
     commitDeck((d) => {
-      const t = slideById(d, sid)?.beats[st.bi]?.tracks[st.ti];
-      if (t) fn(t);
+      const s = slideById(d, sid);
+      if (s) for (const b of s.beats) for (const t of b.tracks) if (t.id && ids.includes(t.id)) fn(t);
     });
   }
-  const patchTrack = (p: Partial<Track>) => withTrack((t) => Object.assign(t, p));
+  const patchTrack = (p: Partial<Track>) => withTracks((t) => Object.assign(t, p));
   function patchStagger(p: Partial<Stagger>) {
-    withTrack((t) => {
+    withTracks((t) => {
       if (p.perMs === 0) { delete t.stagger; return; }
       t.stagger = { perMs: t.stagger?.perMs ?? 40, ...t.stagger, ...p } as Stagger;
     });
   }
   function deleteTrack() {
-    const st = selTrack;
+    const ids = selTrackIds;
     const sid = slide?.id;
-    if (!st || !sid) return;
-    commitDeck((d) => { slideById(d, sid)?.beats[st.bi]?.tracks.splice(st.ti, 1); });
-    selTrack = null;
+    if (!ids.length || !sid) return;
+    commitDeck((d) => {
+      const s = slideById(d, sid);
+      if (s) for (const b of s.beats) b.tracks = b.tracks.filter((t) => !t.id || !ids.includes(t.id));
+    });
+    selTrackIds = [];
   }
   function removeBeat(beatId: string, bi: number) {
     const sid = slide?.id;
     if (!sid || bi === 0) return;
     commitDeck((d) => deleteBeatOp(d, sid, beatId));
     if ($activeBeat >= bi) activeBeat.set(Math.max(0, $activeBeat - 1));
-    selTrack = null;
+    selTrackIds = [];
   }
 
   // direct manipulation: a part clicked on the stage → open its track + reveal its
@@ -106,8 +130,8 @@
     const fp = $focusedPart;
     if (!fp || !slide || fp.elId !== selPlot?.id) return;
     for (let bi = 0; bi < slide.beats.length; bi++) {
-      const ti = slide.beats[bi].tracks.findIndex((t) => t.target === fp.elId && t.part === fp.part);
-      if (ti >= 0) { selTrack = { bi, ti }; activeBeat.set(bi); break; }
+      const t = slide.beats[bi].tracks.find((tk) => tk.target === fp.elId && tk.part === fp.part);
+      if (t) { selTrackIds = t.id ? [t.id] : []; activeBeat.set(bi); break; }
     }
     queueMicrotask(() => document.querySelector(`.parts .row[data-part="${fp.part}"]`)?.scrollIntoView({ block: "nearest" }));
   });
@@ -268,9 +292,10 @@
               {#each b.tracks as t, ti (t.id ?? ti)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div class="trk" class:sel={selTrack?.bi === bi && selTrack?.ti === ti}
+                <div class="trk" class:sel={!!t.id && selTrackIds.includes(t.id)}
                   style={`--pc:${PRESET_COLOR[t.preset ?? "fade"] ?? "#888"}`}
-                  onclick={(e) => { e.stopPropagation(); selTrack = { bi, ti }; activeBeat.set(bi); }}>
+                  title="Click to select · Shift/Ctrl-click to multi-select for bulk edits"
+                  onclick={(e) => { e.stopPropagation(); selectTrack(t.id, e.shiftKey || e.metaKey || e.ctrlKey); activeBeat.set(bi); }}>
                   <span class="dot"></span>
                   <span class="nm" title={t.part ?? t.target}>{chip(t)}</span>
                   <span class="ps">{t.preset ?? "fade"}</span>
@@ -285,7 +310,10 @@
 
     {#if curTrack}
       <div class="track-editor">
-        <span class="te-nm" style={`--pc:${PRESET_COLOR[curTrack.preset ?? "fade"] ?? "#888"}`}>{chip(curTrack)}</span>
+        <span class="te-nm" style={`--pc:${PRESET_COLOR[curTrack.preset ?? "fade"] ?? "#888"}`}>{selTracks.length > 1 ? `${selTracks.length} tracks` : chip(curTrack)}</span>
+        {#if selTracks.length > 1 && (mixed((t) => t.preset) || mixed((t) => t.duration ?? 400) || mixed((t) => t.start ?? 0) || mixed((t) => t.stagger?.perMs ?? 0) || mixed((t) => t.easing ?? "standard"))}
+          <span class="te-mixed" title="Selected tracks differ on some fields — editing a field sets it on ALL of them">mixed</span>
+        {/if}
         <label>preset
           <select value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
             {#each EDIT_PRESETS as p (p)}<option value={p}>{p}</option>{/each}
@@ -313,7 +341,7 @@
         </label>
         <span class="spacer"></span>
         <button class="del" onclick={deleteTrack}>Delete</button>
-        <button class="closex" title="Close editor" onclick={() => (selTrack = null)}>✕</button>
+        <button class="closex" title="Close editor" onclick={() => (selTrackIds = [])}>✕</button>
       </div>
     {/if}
   </div>
@@ -431,6 +459,11 @@
   .te-nm {
     font-weight: 600; color: var(--c-tx-hi, #cecdc3);
     border-left: 3px solid var(--pc); padding-left: 6px;
+  }
+  .te-mixed {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--c-tx-3, #878580); border: 1px solid var(--c-line, #403e3c);
+    border-radius: 3px; padding: 0 4px;
   }
   .track-editor label { display: inline-flex; align-items: center; gap: 4px; color: var(--c-tx-3, #878580); }
   .track-editor small { color: var(--c-tx-3, #6f6e69); }
