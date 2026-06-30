@@ -32,6 +32,10 @@ const k1 = slideOps.addBeat(deck, s1, { label: "reveal", advance: "click" })!;
 slideOps.setAnimation(deck, s1, k1.id, { target: body, selector: { blocks: "all" }, preset: "stagger", duration: 320, stagger: { perMs: 110 } });
 const k2 = slideOps.addBeat(deck, s1, { label: "morph", advance: "click" })!;
 slideOps.setAnimation(deck, s1, k2.id, { target: plot, preset: "morph", to: { assetId: "plotB" }, duration: 1200, easing: "smooth" });
+// anim export parity: a parts-tree-targeted draw-on + a spatial (by:x) stagger —
+// the auto-animate output shapes — must round-trip into the exported deck JSON.
+slideOps.setAnimation(deck, s1, k1.id, { target: plot, part: "axis.x", preset: "drawOn", start: 0, duration: 400 });
+slideOps.setAnimation(deck, s1, k1.id, { target: plot, part: "fit.points", preset: "stagger", duration: 240, stagger: { perMs: 40, by: "x", from: "start" }, params: { child: "fade" } });
 
 // --- payload: inline plots (A rising, B falling), a 1×1 image asset ----------
 const mkManifest = (ys: number[]): FluxPlotManifest => ({
@@ -62,6 +66,9 @@ assert(!/<link\b/i.test(html) && !/<script[^>]*\bsrc=/i.test(html), "no external
 assert(!/src=["']https?:/i.test(html) && !/url\(\s*["']?https?:/i.test(html), "no http(s) asset references");
 assert(bytes > 80_000, `bundle is substantial (${(bytes / 1024).toFixed(0)} KB incl. KaTeX + fonts)`);
 assert(warnings.length === 0, "no size warnings for this deck");
+// anim parity: the parts-tree targeting + spatial stagger survive into the bundle
+assert(html.includes('"part":"axis.x"'), "part-targeted (axis.x) draw-on track round-trips into the exported deck JSON");
+assert(/"by":"x"/.test(html), "spatial stagger (by:x) round-trips into the exported deck JSON");
 
 const outPath = (process.env.FLUX_EXPORT_OUT || "/tmp/flux-export-talk") + ".html";
 await writeFile(outPath, html);
