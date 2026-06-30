@@ -40,6 +40,7 @@
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import { importerOpen } from "../../../lib/store";
   import { slideLayout } from "./slideLayoutStore";
+  import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
   import "katex/dist/katex.min.css";
 
   let { focused = true }: { focused?: boolean } = $props();
@@ -277,6 +278,12 @@
     if (p) commitDeck((dd) => slideOps.setStageSize(dd, { width: p.w, height: p.h }));
   }
 
+  // Deckbar zoom buttons step centered (pan reset); fine zoom-to-cursor is the
+  // canvas's Ctrl+wheel. The % chip resets to fit.
+  function stepZoom(factor: number) {
+    stageView.update((v) => ({ zoom: Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom * factor)), panX: 0, panY: 0 }));
+  }
+
   // --- draggable pane edges (filmstrip / inspector widths) — mirrors Paper's
   // pointer-drag gutter; sizes persist in slideLayout (localStorage). The Animator
   // dock height is dragged inside AnimatePanel via the same store.
@@ -351,6 +358,11 @@
             <option value={i} selected={deck.stage.width === p.w && deck.stage.height === p.h}>{p.label}</option>
           {/each}
         </select>
+        <div class="zoomctl" title="Zoom — Ctrl+wheel to zoom to cursor · + / − / 0 (fit) · middle-drag to pan">
+          <button class="zb" onclick={() => stepZoom(1 / 1.2)} disabled={$stageView.zoom <= ZOOM_MIN} aria-label="Zoom out">−</button>
+          <button class="zb pct" onclick={resetStageView} title="Reset to fit">{Math.round($stageView.zoom * 100)}%</button>
+          <button class="zb" onclick={() => stepZoom(1.2)} disabled={$stageView.zoom >= ZOOM_MAX} aria-label="Zoom in">+</button>
+        </div>
       {/if}
       <button class="btn" onclick={() => (presentOpen = true)} disabled={!deck} title="Present (from current slide)">Present ▶</button>
       <button class="btn ghost" disabled title="Export .html (P4)">Export</button>
@@ -487,6 +499,15 @@
     background: var(--c-bg-raised);
     flex: 0 0 auto;
   }
+  /* zoom control (C2) */
+  .zoomctl { display: inline-flex; align-items: center; border: 1px solid var(--c-line); border-radius: var(--r-1); overflow: hidden; }
+  .zb {
+    border: none; background: var(--c-surface); color: var(--c-tx); cursor: pointer;
+    font-size: var(--ts-sm); padding: 4px 8px; line-height: 1;
+  }
+  .zb:hover:not(:disabled) { background: var(--c-accent-tint); color: var(--c-tx-hi); }
+  .zb:disabled { opacity: 0.4; cursor: default; }
+  .zb.pct { min-width: 46px; font-variant-numeric: tabular-nums; border-left: 1px solid var(--c-line); border-right: 1px solid var(--c-line); }
   .deckbar .left, .deckbar .right { display: flex; align-items: center; gap: var(--sp-2); }
   .pillar { font-family: var(--font-serif); font-style: italic; font-size: var(--ts-lg, 20px); color: var(--c-tx-hi); }
   .title {

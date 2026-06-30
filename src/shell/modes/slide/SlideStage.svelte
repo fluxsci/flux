@@ -18,6 +18,7 @@
   import { commitDeck, selection, focusedPart } from "../../../lib/slide/store";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import { setElementBox, deleteElements, findElement, setTextBoxText, setMathTex } from "../../../lib/slide/ops";
+  import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
   import type { Element as FigElement } from "../../../lib/types";
   import type { Slide, SlideElement, DeckTheme, StageSize } from "../../../lib/slide/types";
 
@@ -55,7 +56,60 @@
   let stageEl = $state<HTMLElement>();
   let fitW = $state(0);
   let fitH = $state(0);
-  const scale = $derived(fitW > 0 && fitH > 0 ? Math.min(fitW / stage.width, fitH / stage.height) : 0);
+  // fit-to-viewport scale (what thumbnails always use); the live editor multiplies
+  // it by the user's zoom. Everything downstream (the .stage transform, the overlay,
+  // toAuthoring, hit tolerances) is expressed in terms of `scale`, so making it the
+  // EFFECTIVE scale is all it takes to zoom the whole interactive surface coherently.
+  const fitScale = $derived(fitW > 0 && fitH > 0 ? Math.min(fitW / stage.width, fitH / stage.height) : 0);
+  const scale = $derived(interactive ? fitScale * $stageView.zoom : fitScale);
+  const panX = $derived(interactive ? $stageView.panX : 0);
+  const panY = $derived(interactive ? $stageView.panY : 0);
+
+  // --- user zoom + pan (C2) ----------------------------------------------------
+  let panGesture = $state<{ sx: number; sy: number; px: number; py: number } | null>(null);
+  function clampPan(px: number, scaleP: number, axis: "x" | "y"): number {
+    const span = (axis === "x" ? stage.width : stage.height) * scaleP;
+    const fit = axis === "x" ? fitW : fitH;
+    const over = Math.max(0, (span - fit) / 2);
+    const lim = over + Math.min(fit, span) * 0.35; // a little slack past the edge
+    return Math.max(-lim, Math.min(lim, px));
+  }
+  /** Set zoom, keeping the model point under (anchorX, anchorY) fixed on screen.
+   *  Anchor defaults to the viewport centre (for keyboard / button zoom). */
+  function applyZoom(nextZoom: number, anchorX?: number, anchorY?: number) {
+    if (!interactive) return;
+    const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, nextZoom));
+    if (z <= 1.0001) { resetStageView(); return; } // snap back to centered fit
+    if (!viewport || !scaledEl || fitScale <= 0) { stageView.update((v) => ({ ...v, zoom: z })); return; }
+    const fr = viewport.getBoundingClientRect();
+    const ax = anchorX ?? fr.left + fr.width / 2;
+    const ay = anchorY ?? fr.top + fr.height / 2;
+    const sr = scaledEl.getBoundingClientRect();
+    const mx = (ax - sr.left) / scale; // model point under the anchor at the CURRENT scale
+    const my = (ay - sr.top) / scale;
+    const sp = fitScale * z;
+    const cl0 = fr.left + fr.width / 2 - (stage.width * sp) / 2; // centered .scaled left at the new scale
+    const ct0 = fr.top + fr.height / 2 - (stage.height * sp) / 2;
+    stageView.set({ zoom: z, panX: clampPan(ax - mx * sp - cl0, sp, "x"), panY: clampPan(ay - my * sp - ct0, sp, "y") });
+  }
+  function onWheel(e: WheelEvent) {
+    if (!interactive) return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault(); // pinch-zoom / ctrl+wheel → zoom toward the cursor
+      applyZoom(get(stageView).zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+    } else {
+      const v = get(stageView);
+      if (v.zoom <= 1) return; // at fit there's nothing to pan
+      e.preventDefault();
+      stageView.set({ zoom: v.zoom, panX: clampPan(v.panX - e.deltaX, scale, "x"), panY: clampPan(v.panY - e.deltaY, scale, "y") });
+    }
+  }
+
+  // Pan resets when the slide changes (a new frame); zoom persists across slides.
+  $effect(() => {
+    void slide.id;
+    if (interactive) stageView.update((v) => (v.panX || v.panY ? { ...v, panX: 0, panY: 0 } : v));
+  });
 
   // Rendered wrappers (elId → div), refreshed each render so previews can mutate them.
   let wrappers = new Map<string, HTMLElement>();
@@ -248,6 +302,13 @@
   }
 
   function onStagePointerDown(e: PointerEvent) {
+    // middle-button drag pans the zoomed canvas (no-op at fit)
+    if (interactive && e.button === 1) {
+      e.preventDefault();
+      const v = get(stageView);
+      if (v.zoom > 1) { panGesture = { sx: e.clientX, sy: e.clientY, px: v.panX, py: v.panY }; scaledEl!.setPointerCapture(e.pointerId); }
+      return;
+    }
     if (!interactive || e.button !== 0) return;
     const p = toAuthoring(e.clientX, e.clientY);
     const hit = hitTest(p);
@@ -290,6 +351,14 @@
   }
 
   function onPointerMove(e: PointerEvent) {
+    if (panGesture) {
+      stageView.update((v) => ({
+        ...v,
+        panX: clampPan(panGesture!.px + (e.clientX - panGesture!.sx), scale, "x"),
+        panY: clampPan(panGesture!.py + (e.clientY - panGesture!.sy), scale, "y"),
+      }));
+      return;
+    }
     if (!gesture) return;
     const p = toAuthoring(e.clientX, e.clientY);
     if (gesture.kind === "move") {
@@ -330,6 +399,7 @@
   }
 
   function onPointerUp() {
+    if (panGesture) { panGesture = null; return; }
     if (!gesture) return;
     const g = gesture;
     gesture = null;
@@ -392,9 +462,14 @@
 
   // --- keyboard: delete + nudge (only when this stage has a selection) ---------
   function onKey(e: KeyboardEvent) {
-    if (!interactive || !focused || $selection.length === 0) return;
+    if (!interactive || !focused) return;
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+    // zoom keys work regardless of selection
+    if (e.key === "+" || e.key === "=") { e.preventDefault(); applyZoom(get(stageView).zoom * 1.2); return; }
+    if (e.key === "-" || e.key === "_") { e.preventDefault(); applyZoom(get(stageView).zoom / 1.2); return; }
+    if (e.key === "0") { e.preventDefault(); resetStageView(); return; }
+    if ($selection.length === 0) return;
     if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       const ids = $selection;
@@ -420,13 +495,14 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="fit" bind:this={viewport} bind:clientWidth={fitW} bind:clientHeight={fitH}>
+<div class="fit" bind:this={viewport} bind:clientWidth={fitW} bind:clientHeight={fitH} onwheel={onWheel}>
   {#if scale > 0}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="scaled"
+      class:panning={panGesture}
       bind:this={scaledEl}
-      style={`width:${stage.width * scale}px;height:${stage.height * scale}px`}
+      style={`width:${stage.width * scale}px;height:${stage.height * scale}px;transform:translate(${panX}px,${panY}px)`}
       onpointerdown={onStagePointerDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
@@ -502,7 +578,9 @@
       0 0 0 1px rgba(255, 255, 255, 0.08),
       0 16px 48px rgba(0, 0, 0, 0.62);
     touch-action: none;
+    will-change: transform;
   }
+  .scaled.panning { cursor: grabbing; }
   .stage {
     position: absolute;
     top: 0;
