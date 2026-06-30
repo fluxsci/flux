@@ -24,6 +24,8 @@
     createDeckInProject,
     loadDeckAssets,
     listInsertables,
+    exportDeck as exportDeckBridge,
+    canExportDeck,
     type DeckListItem,
     type DeckAssetResolvers,
     type Insertables,
@@ -207,6 +209,7 @@
       loadDeckModel(createDeckModel({ title: pm?.manifest.title ?? "Demo Deck" }));
     }
     ready = true;
+    canExport = canExportDeck();
     if (typeof window !== "undefined") window.addEventListener("beforeunload", flushOnExit);
     unsubDirty = deckDirty.subscribe((d) => {
       if (!ready || !pm || !d) return;
@@ -336,6 +339,32 @@
     if (p) commitDeck((dd) => slideOps.setStageSize(dd, { width: p.w, height: p.h }));
   }
 
+  // --- export (E) --------------------------------------------------------------
+  let canExport = $state(false); // desktop-only (the engine needs Node/esbuild)
+  let exporting = $state(false);
+  let exportMsg = $state<{ ok: boolean; text: string } | null>(null);
+  let exportMsgTimer: ReturnType<typeof setTimeout> | undefined;
+  async function onExport() {
+    const d = get(deckStore);
+    if (!pm || !d || exporting) return;
+    exporting = true;
+    exportMsg = null;
+    try {
+      if (get(deckDirty)) await saveDeckFrom(pm.root); // export the latest, not a stale file
+      const path = await exportDeckBridge(pm.root, d.id);
+      flashExport(true, `Exported → ${path.split("/").slice(-2).join("/")}`);
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "Export failed");
+    } finally {
+      exporting = false;
+    }
+  }
+  function flashExport(ok: boolean, text: string) {
+    exportMsg = { ok, text };
+    clearTimeout(exportMsgTimer);
+    exportMsgTimer = setTimeout(() => (exportMsg = null), ok ? 6000 : 9000);
+  }
+
   // Deckbar zoom buttons step centered (pan reset); fine zoom-to-cursor is the
   // canvas's Ctrl+wheel. The % chip resets to fit.
   function stepZoom(factor: number) {
@@ -423,7 +452,10 @@
         </div>
       {/if}
       <button class="btn" onclick={() => (presentOpen = true)} disabled={!deck} title="Present (from current slide)">Present ▶</button>
-      <button class="btn ghost" disabled title="Export .html (P4)">Export</button>
+      <button class="btn ghost" onclick={onExport} disabled={!deck || !canExport || exporting}
+        title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
+        {exporting ? "Exporting…" : "Export"}
+      </button>
       <span class="dirty" class:on={$deckDirty} title="Unsaved changes">●</span>
     </div>
   </header>
@@ -524,6 +556,13 @@
       <Inspector {focused} />
     </aside>
   </div>
+
+  {#if exportMsg}
+    <div class="export-toast" class:err={!exportMsg.ok} role="status">
+      {exportMsg.ok ? "✓" : "⚠"}
+      {exportMsg.text}
+    </div>
+  {/if}
 </div>
 
 {#if presentOpen && deck && activeSlide}
@@ -569,6 +608,15 @@
   .zb:hover:not(:disabled) { background: var(--c-accent-tint); color: var(--c-tx-hi); }
   .zb:disabled { opacity: 0.4; cursor: default; }
   .zb.pct { min-width: 46px; font-variant-numeric: tabular-nums; border-left: 1px solid var(--c-line); border-right: 1px solid var(--c-line); }
+  /* export toast (E) */
+  .export-toast {
+    position: absolute; top: 54px; left: 50%; transform: translateX(-50%); z-index: 40;
+    max-width: 70%; padding: 8px 14px; border-radius: var(--r-2);
+    background: var(--c-bg-raised); border: 1px solid var(--c-accent);
+    color: var(--c-tx-hi); font-size: var(--ts-sm); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .export-toast.err { border-color: var(--c-danger, #d14); }
   .deckbar .left, .deckbar .right { display: flex; align-items: center; gap: var(--sp-2); }
   .pillar { font-family: var(--font-serif); font-style: italic; font-size: var(--ts-lg, 20px); color: var(--c-tx-hi); }
   .title {

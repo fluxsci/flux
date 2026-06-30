@@ -123,6 +123,27 @@ export async function saveDeckFrom(root: string): Promise<void> {
   deckDirty.set(false);
 }
 
+// --- export (E): self-contained offline .html, via the main process -----------
+/** True when the host can export a deck. The engine is Node-only (esbuild + fs),
+ *  so export is desktop-only — gated on the bridge method existing (absent in the
+ *  web/mem demo). */
+export function canExportDeck(): boolean {
+  const f = fileBridge() as { exportDeck?: unknown } | null;
+  return typeof f?.exportDeck === "function";
+}
+
+/** Export a deck to a self-contained offline .html via the main process. Returns
+ *  the written path; throws with the reason on failure (or if unavailable). */
+export async function exportDeck(root: string, deckId: string): Promise<string> {
+  const f = fileBridge() as {
+    exportDeck?: (r: string, d: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+  } | null;
+  if (!f?.exportDeck) throw new Error("Export is only available in the desktop app.");
+  const res = await f.exportDeck(root, deckId);
+  if (!res?.ok || !res.path) throw new Error(res?.error || "Export failed.");
+  return res.path;
+}
+
 // --- insertables (what the editor's Insert menu can drop on a slide) ---------
 export interface Insertables {
   figures: { id: string; title: string }[];
