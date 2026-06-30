@@ -5,7 +5,7 @@
   // columns, each showing the animations that fire on it) you scrub by clicking.
   // Replaces the thin numbered beat strip. The X-ray tri-state (2.2) and per-track
   // editing (2.3) layer onto this shell.
-  import { deck as deckStore, activeSlideId, activeBeat, selection, commitDeck } from "../../../lib/slide/store";
+  import { deck as deckStore, activeSlideId, activeBeat, selection, commitDeck, focusedPart } from "../../../lib/slide/store";
   import { slideById, addBeat as addBeatOp, setPartVisibility, deleteBeat as deleteBeatOp } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animatePart } from "../../../lib/slide/autobuild";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
@@ -98,6 +98,18 @@
     selTrack = null;
   }
 
+  // direct manipulation: a part clicked on the stage → open its track + reveal its
+  // X-ray row (so clicking a scatter point jumps you straight to its animation).
+  $effect(() => {
+    const fp = $focusedPart;
+    if (!fp || !slide || fp.elId !== selPlot?.id) return;
+    for (let bi = 0; bi < slide.beats.length; bi++) {
+      const ti = slide.beats[bi].tracks.findIndex((t) => t.target === fp.elId && t.part === fp.part);
+      if (ti >= 0) { selTrack = { bi, ti }; activeBeat.set(bi); break; }
+    }
+    queueMicrotask(() => document.querySelector(`.parts .row[data-part="${fp.part}"]`)?.scrollIntoView({ block: "nearest" }));
+  });
+
   function autoAnimate() {
     const sid = slide?.id;
     const plot = selPlot;
@@ -157,7 +169,8 @@
           <div class="tree">
             {#each xrayRows as { node, depth } (node.id)}
               {@const st = partState(node.id)}
-              <div class="row" style={`padding-left:${depth * 11 + 2}px`}>
+              <div class="row" class:focus={$focusedPart?.elId === selPlot?.id && $focusedPart?.part === node.id}
+                data-part={node.id} style={`padding-left:${depth * 11 + 2}px`}>
                 {#if node.children.length}
                   <button class="tw" onclick={() => toggleCollapse(node.id)} aria-label="collapse">{collapsed.has(node.id) ? "▸" : "▾"}</button>
                 {:else}<span class="tw"></span>{/if}
@@ -284,7 +297,8 @@
   }
   .ph-hint { font-size: 9px; text-transform: none; letter-spacing: 0; opacity: 0.6; }
   .tree { overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
-  .row { display: flex; align-items: center; gap: 4px; font-size: 11px; height: 20px; flex: 0 0 auto; }
+  .row { display: flex; align-items: center; gap: 4px; font-size: 11px; height: 20px; flex: 0 0 auto; border-radius: 3px; }
+  .row.focus { background: color-mix(in oklab, var(--c-accent, #4385be) 22%, transparent); outline: 1px solid var(--c-accent, #4385be); }
   .tw {
     width: 12px; flex: 0 0 auto; background: none; border: none; color: var(--c-tx-3, #6f6e69);
     cursor: pointer; font-size: 8px; padding: 0; line-height: 1;

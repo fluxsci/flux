@@ -20,6 +20,9 @@ export const deckDirty = writable<boolean>(false);
 export const activeSlideId = writable<string | null>(null);
 export const activeBeat = writable<number>(0);
 export const selection = writable<string[]>([]);
+/** Direct manipulation: the plot part last clicked on the stage (elId + semantic
+ *  id), so the Animator can focus its X-ray row / track. Null clears the focus. */
+export const focusedPart = writable<{ elId: string; part: string } | null>(null);
 
 /** Replace the live deck (on load) and reset editor cursor + dirty. */
 export function loadDeckModel(d: Deck): void {

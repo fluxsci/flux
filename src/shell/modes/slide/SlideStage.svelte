@@ -15,7 +15,8 @@
   import { get } from "svelte/store";
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
   import { resizeRemap } from "../../../lib/editing";
-  import { commitDeck, selection } from "../../../lib/slide/store";
+  import { commitDeck, selection, focusedPart } from "../../../lib/slide/store";
+  import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import { setElementBox, deleteElements, findElement, setTextBoxText, setMathTex } from "../../../lib/slide/ops";
   import type { Element as FigElement } from "../../../lib/types";
   import type { Slide, SlideElement, DeckTheme, StageSize } from "../../../lib/slide/types";
@@ -211,6 +212,29 @@
     return null;
   }
 
+  /** The animatable parts-tree node (group/leaf) under a clicked DOM node inside a
+   *  plot — direct manipulation: click a scatter point → focus "setosa.points",
+   *  click the fit line → focus "fit.line". Falls back to the nearest container. */
+  function partAtNode(target: EventTarget | null, plotElId: string): string | null {
+    const el = els.find((x) => x.id === plotElId);
+    const assetId = el && "assetId" in el ? (el as { assetId: string }).assetId : undefined;
+    const tree = assetId ? buildPartTree(get(plotManifests)[assetId]) : null;
+    if (!tree) return null;
+    const animatable = new Set<string>();
+    const containers = new Set<string>();
+    const walk = (n: XrayNode) => { (n.children.length ? containers : animatable).add(n.id); n.children.forEach(walk); };
+    walk(tree);
+    const prefix = `${plotElId}__`;
+    const chain: string[] = [];
+    let node = target as Element | null;
+    while (node) {
+      const id = node.getAttribute?.("id");
+      if (id && id.startsWith(prefix)) chain.push(id.slice(prefix.length));
+      node = node.parentElement;
+    }
+    return chain.find((s) => animatable.has(s)) ?? chain.find((s) => containers.has(s)) ?? null;
+  }
+
   function onStagePointerDown(e: PointerEvent) {
     if (!interactive || e.button !== 0) return;
     const p = toAuthoring(e.clientX, e.clientY);
@@ -227,11 +251,17 @@
         ids = $selection.includes(hit.id) ? $selection : expandGroups(new Set([hit.id]));
       }
       selection.set(ids);
+      // direct manipulation: clicking inside a plot focuses the part under the cursor
+      if (hit.type === "plot") {
+        const part = partAtNode(e.target, hit.id);
+        focusedPart.set(part ? { elId: hit.id, part } : null);
+      } else focusedPart.set(null);
       const ob = selectionBBox(ids.map(byId).filter(Boolean) as unknown as FigElement[]);
       if (ob) { gesture = { kind: "move", ids, origs: cloneSel(ids), ob, start: p }; liveMove = { dx: 0, dy: 0 }; }
     } else {
       // Empty: marquee select (clear unless shift-extending).
       if (!e.shiftKey) selection.set([]);
+      focusedPart.set(null);
       gesture = { kind: "marquee", x0: p.x, y0: p.y, add: new Set(e.shiftKey ? $selection : []) };
     }
   }
