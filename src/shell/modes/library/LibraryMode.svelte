@@ -88,6 +88,18 @@
       ? "Rate-limited (semantic is 1/s) — add a free OpenAlex key in ⚙ Keys for 10×, then retry."
       : m;
   };
+  // Semantic Scholar is unusable without a key (the shared keyless pool is throttled).
+  // If none is configured, say so instead of surfacing a raw HTTP error.
+  async function s2ErrMsg(e: unknown): Promise<string> {
+    try {
+      const k = await fileBridge()?.keysGet?.();
+      if (!k?.s2Key)
+        return "Semantic Scholar needs a free API key — add it in ⚙ Keys (the keyless pool is rate-limited).";
+    } catch {
+      /* ignore */
+    }
+    return (e as Error)?.message || String(e);
+  }
 
   async function reload() {
     [entries, enrichMap] = await Promise.all([loadFluxLib(), loadEnrichMap()]);
@@ -288,7 +300,7 @@
         if (worldResults.length < 50) worldLoadMore = null;
       }
     } catch (e) {
-      worldError = friendlyErr(e);
+      worldError = lookupSource === "s2" ? await s2ErrMsg(e) : friendlyErr(e);
     }
     worldBusy = false;
   }
