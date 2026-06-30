@@ -42,7 +42,7 @@ const ANIM_TO_PRESET: Record<string, PresetName> = {
 };
 
 // roles that must never draw-on / scale (they're text or fills) — always fade.
-const TEXTISH = new Set(["tick-label", "axis-title", "title", "legend-label", "label", "annotation"]);
+const TEXTISH = new Set(["tick-label", "axis-title", "title", "subtitle", "legend-label", "label", "annotation"]);
 // roles whose natural reveal is the self-draw (a stroked path).
 const STROKABLE = new Set(["spine", "tick", "line", "reference-line", "significance-bracket", "errorbar"]);
 
@@ -55,7 +55,7 @@ function highLevelKey(role: string): string {
 // which beat (phase) a role reveals in. Grouping build.order into phases makes
 // each "advance" expose a coherent layer the way a talk is narrated.
 const PHASE: Record<string, number> = {
-  axis: 0, spine: 0, tick: 0, "tick-label": 0, "axis-title": 0, title: 0,
+  axis: 0, spine: 0, tick: 0, "tick-label": 0, "axis-title": 0, title: 0, subtitle: 0,
   gridline: 1,
   line: 2, area: 2, point: 2, bar: 2, "reference-line": 2, errorbar: 2,
   legend: 3, "legend-entry": 3, "legend-swatch": 3, "legend-label": 3, annotation: 3, overlay: 3,

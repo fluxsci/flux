@@ -80,6 +80,7 @@ function inferRole(id: string): string {
   if (/\.tick\.\d+$/.test(id)) return "tick";
   if (/\.ticklabel\.\d+$/.test(id)) return "tick-label";
   if (/\.title$/.test(id)) return id.startsWith("axis.") ? "axis-title" : "title";
+  if (id.startsWith("subtitle")) return "subtitle";
   if (/\.spine(-\d+)?$/.test(id)) return "spine";
   if (/\.line$/.test(id)) return "line";
   if (/\.area$/.test(id)) return "area";
@@ -103,6 +104,7 @@ const LEAF_LABEL: Record<string, string> = {
   spine: "Spine",
   "axis-title": "Axis title",
   title: "Title",
+  subtitle: "Subtitle",
   "tick-label": "Tick label",
   tick: "Tick",
   gridline: "Gridline",
