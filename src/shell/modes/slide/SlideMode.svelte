@@ -36,6 +36,7 @@
   import SlideStage from "./SlideStage.svelte";
   import Inspector from "./Inspector.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
+  import DeckPicker from "./DeckPicker.svelte";
   import PresentOverlay from "./PresentOverlay.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import { importerOpen } from "../../../lib/store";
@@ -48,6 +49,7 @@
   const pm = get(projectModel);
   let ready = $state(false);
   let decks = $state<DeckListItem[]>([]);
+  let activeDeckId = $state<string | null>(null);
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let unsubDirty: (() => void) | undefined;
   let resolvers = $state<DeckAssetResolvers>({ assetUrl: () => undefined, figureSvg: () => undefined });
@@ -58,6 +60,57 @@
   async function refreshAssets() {
     const d = get(deckStore);
     if (pm && d) resolvers = await loadDeckAssets(pm.root, d);
+  }
+
+  // --- multiple decks (D) ------------------------------------------------------
+  // Remember the last-open deck per project (mirrors paperLayout's activeDocPath).
+  const lastDeckKey = (root: string) => `flux.slide.lastDeck:${root}`;
+  function rememberDeck(root: string, id: string | null) {
+    try { if (id) localStorage.setItem(lastDeckKey(root), id); } catch { /* ignore */ }
+  }
+  function lastDeckId(root: string): string | null {
+    try { return localStorage.getItem(lastDeckKey(root)); } catch { return null; }
+  }
+  // After a deck swaps in, point the cursor at its first slide (fully built) and
+  // reset the canvas view + selection.
+  function resetCursorAndView() {
+    const d = get(deckStore);
+    if (d?.slides.length) {
+      activeSlideId.set(d.slides[0].id);
+      activeBeat.set(Math.max(0, d.slides[0].beats.length - 1));
+    } else {
+      activeSlideId.set(null);
+      activeBeat.set(0);
+    }
+    selection.set([]);
+    resetStageView();
+  }
+  /** Switch to another deck — saves the current one FIRST (await, mirrors Paper's
+   *  loadDocument), so no edits race the swap. */
+  async function switchDeck(id: string) {
+    if (!pm || id === activeDeckId) return;
+    clearTimeout(saveTimer);
+    if (get(deckDirty)) await saveDeckFrom(pm.root);
+    await loadDeckInto(pm.root, id);
+    activeDeckId = get(deckStore)?.id ?? id;
+    rememberDeck(pm.root, activeDeckId);
+    loadedProjectRoot.set(pm.root);
+    await refreshAssets();
+    resetCursorAndView();
+    decks = await listProjectDecks(pm.root);
+  }
+  /** Create a fresh deck in the project, then switch to it. */
+  async function newDeck() {
+    if (!pm) return;
+    clearTimeout(saveTimer);
+    if (get(deckDirty)) await saveDeckFrom(pm.root);
+    const d = await createDeckInProject(pm.root, { title: `Deck ${decks.length + 1}`, theme: get(deckStore)?.theme });
+    activeDeckId = d.id;
+    rememberDeck(pm.root, d.id);
+    loadedProjectRoot.set(pm.root);
+    decks = await listProjectDecks(pm.root);
+    await refreshAssets();
+    resetCursorAndView();
   }
   // Plots get their own always-on `Plot…` browser button; Insert ▾ is for the
   // (typically short) figure + image lists.
@@ -127,12 +180,17 @@
         // genuine project change (root mismatch).
         const live = get(deckStore) && get(loadedProjectRoot) === pm.root;
         if (!live) {
-          if (decks.length) await loadDeckInto(pm.root, decks[0].id);
-          else await createDeckInProject(pm.root, { title: pm.manifest.title });
+          if (decks.length) {
+            // open the deck the user last had here, else the first
+            const want = lastDeckId(pm.root);
+            await loadDeckInto(pm.root, want && decks.some((d) => d.id === want) ? want : decks[0].id);
+          } else await createDeckInProject(pm.root, { title: pm.manifest.title });
           decks = await listProjectDecks(pm.root);
           if (!get(deckStore)) loadDeckModel(createDeckModel({ title: pm.manifest.title }));
           loadedProjectRoot.set(pm.root);
         }
+        activeDeckId = get(deckStore)?.id ?? null;
+        if (activeDeckId) rememberDeck(pm.root, activeDeckId);
       } else if (!get(deckStore)) {
         loadDeckModel(createDeckModel({ title: "Demo Deck" }));
       }
@@ -409,6 +467,9 @@
   <div class="body" bind:this={bodyEl} style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
     <!-- filmstrip -->
     <aside class="filmstrip">
+      {#if pm}
+        <DeckPicker {decks} activeId={activeDeckId} onSelect={switchDeck} onNew={newDeck} />
+      {/if}
       {#if deck}
         {#each deck.slides as s, i (s.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
