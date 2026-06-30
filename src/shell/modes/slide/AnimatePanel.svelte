@@ -6,8 +6,9 @@
   // Replaces the thin numbered beat strip. The X-ray tri-state (2.2) and per-track
   // editing (2.3) layer onto this shell.
   import { deck as deckStore, activeSlideId, activeBeat, selection, commitDeck } from "../../../lib/slide/store";
-  import { slideById, addBeat as addBeatOp } from "../../../lib/slide/ops";
-  import { applyAutoAnimation } from "../../../lib/slide/autobuild";
+  import { slideById, addBeat as addBeatOp, setPartVisibility } from "../../../lib/slide/ops";
+  import { applyAutoAnimation, animatePart } from "../../../lib/slide/autobuild";
+  import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import { plotManifests } from "../../../lib/plot/store";
   import type { Track } from "../../../lib/slide/types";
 
@@ -21,6 +22,41 @@
     return el && el.type === "plot" ? el : null;
   });
   const selManifest = $derived(selPlot ? manifests[selPlot.assetId] : undefined);
+
+  // --- X-ray parts tree: per-part show / animate / mask (the figure X-ray, here) ---
+  let collapsed = $state(new Set<string>());
+  const xrayTree = $derived(selManifest ? buildPartTree(selManifest) : null);
+  const xrayRows = $derived.by(() => {
+    const rows: { node: XrayNode; depth: number }[] = [];
+    const walk = (n: XrayNode, depth: number) => {
+      rows.push({ node: n, depth });
+      if (n.children.length && !collapsed.has(n.id)) for (const c of n.children) walk(c, depth + 1);
+    };
+    if (xrayTree) walk(xrayTree, 0);
+    return rows;
+  });
+  function toggleCollapse(id: string) {
+    const s = new Set(collapsed);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    collapsed = s;
+  }
+  /** A part's resting state: masked (override hidden) → animated (has a track) → shown. */
+  function partState(part: string): "show" | "animate" | "mask" {
+    const plot = selPlot;
+    if (!plot || !slide) return "show";
+    if ((plot.overrides as Record<string, { hidden?: boolean }> | undefined)?.[part]?.hidden) return "mask";
+    if (slide.beats.some((b) => b.tracks.some((t) => t.target === plot.id && t.part === part))) return "animate";
+    return "show";
+  }
+  function setVis(part: string, mode: "show" | "animate" | "mask") {
+    const plot = selPlot;
+    const sid = slide?.id;
+    if (!plot || !sid) return;
+    commitDeck((d) => {
+      if (mode === "animate") animatePart(d, sid, plot.id, part, manifests[plot.assetId], $activeBeat);
+      else setPartVisibility(d, plot.id, part, mode);
+    });
+  }
 
   function autoAnimate() {
     const sid = slide?.id;
@@ -74,7 +110,29 @@
       {#if selPlot}<span class="tag">plot selected — try ✨</span>{:else}<span class="tag dim">select a plot to auto-animate</span>{/if}
     </div>
 
-    <div class="timeline">
+    <div class="dock-body">
+      {#if xrayTree}
+        <div class="parts">
+          <div class="ph">Parts <span class="ph-hint">show · animate · mask</span></div>
+          <div class="tree">
+            {#each xrayRows as { node, depth } (node.id)}
+              {@const st = partState(node.id)}
+              <div class="row" style={`padding-left:${depth * 11 + 2}px`}>
+                {#if node.children.length}
+                  <button class="tw" onclick={() => toggleCollapse(node.id)} aria-label="collapse">{collapsed.has(node.id) ? "▸" : "▾"}</button>
+                {:else}<span class="tw"></span>{/if}
+                <span class="pl" title={node.id}>{node.label}</span>
+                <span class="tri">
+                  <button class:on={st === "show"} title="Show from the start" onclick={() => setVis(node.id, "show")}>S</button>
+                  <button class:on={st === "animate"} title="Animate in (add a reveal track)" onclick={() => setVis(node.id, "animate")}>A</button>
+                  <button class:on={st === "mask"} title="Mask (hide entirely)" onclick={() => setVis(node.id, "mask")}>M</button>
+                </span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+      <div class="timeline">
       {#each slide.beats as b, bi (b.id)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -100,6 +158,7 @@
           </div>
         </div>
       {/each}
+      </div>
     </div>
   </div>
 {/if}
@@ -134,7 +193,34 @@
   }
   .b:hover { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
 
+  .dock-body { display: flex; gap: 10px; min-height: 0; flex: 1; }
+  .parts {
+    flex: 0 0 234px; display: flex; flex-direction: column; min-height: 0;
+    border: 1px solid var(--c-line, #282726); border-radius: 6px; overflow: hidden;
+  }
+  .ph {
+    font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-tx-3, #878580);
+    padding: 4px 8px; background: var(--c-bg-3, #1c1b1a); border-bottom: 1px solid var(--c-line, #282726);
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .ph-hint { font-size: 9px; text-transform: none; letter-spacing: 0; opacity: 0.6; }
+  .tree { overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
+  .row { display: flex; align-items: center; gap: 4px; font-size: 11px; height: 20px; flex: 0 0 auto; }
+  .tw {
+    width: 12px; flex: 0 0 auto; background: none; border: none; color: var(--c-tx-3, #6f6e69);
+    cursor: pointer; font-size: 8px; padding: 0; line-height: 1;
+  }
+  .pl { flex: 1; color: var(--c-tx, #cecdc3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tri { display: inline-flex; gap: 2px; flex: 0 0 auto; }
+  .tri button {
+    width: 17px; height: 16px; font-size: 9px; font-weight: 600; padding: 0; cursor: pointer;
+    border: 1px solid var(--c-line-strong, #343331); background: var(--c-bg-2, #1c1b1a);
+    color: var(--c-tx-3, #6f6e69); border-radius: 3px;
+  }
+  .tri button:hover { color: var(--c-tx-hi, #fff); border-color: var(--c-accent, #4385be); }
+  .tri button.on { background: var(--c-accent, #4385be); color: var(--c-bg, #100f0f); border-color: var(--c-accent, #4385be); }
   .timeline {
+    flex: 1; min-width: 0;
     display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px;
     align-items: stretch; min-height: 96px;
   }

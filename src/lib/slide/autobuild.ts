@@ -23,7 +23,7 @@
 
 import { buildPartTree, type XrayNode } from "../plot/tree";
 import type { FluxPlotManifest } from "../plot/types";
-import { slideById } from "./ops";
+import { slideById, addBeat, setAnimation, setPartVisibility } from "./ops";
 import type { Beat, Track, PresetName, Deck } from "./types";
 import type { Id } from "../types";
 
@@ -201,6 +201,24 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
     track.params = { child: "fade" };
   }
   return track;
+}
+
+/** Make ONE part "animate in" (the X-ray "Animate" toggle): clear any mask and
+ *  add a default reveal track on a build beat — never beat 0 (the resting state).
+ *  `beatIndex` targets an existing build beat; otherwise the last build beat is
+ *  used (creating beat 1 if the slide only has the resting beat). Returns the beat
+ *  index the track landed on, or -1 if the slide is missing. */
+export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, manifest: FluxPlotManifest | undefined, beatIndex?: number): number {
+  const slide = slideById(deck, slideId);
+  if (!slide) return -1;
+  let bi = beatIndex != null && beatIndex > 0 && beatIndex < slide.beats.length ? beatIndex : -1;
+  if (bi < 0) {
+    if (slide.beats.length <= 1) addBeat(deck, slideId, { label: "Beat 1", advance: "click" });
+    bi = slide.beats.length - 1;
+  }
+  setPartVisibility(deck, elId, part, "animate"); // clear any mask, keep tracks
+  setAnimation(deck, slideId, slide.beats[bi].id, suggestTrack(manifest, elId, part));
+  return bi;
 }
 
 /** Apply an auto-build to a slide: replace its beats with [resting, …phase beats].
