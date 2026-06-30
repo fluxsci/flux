@@ -274,6 +274,11 @@ export interface Keyframe {
 /** One animation within a beat. `start`/`duration` form the within-beat
  *  mini-timeline (ms). `target` is an element id, or `@camera`/`@stage`. */
 export interface Track {
+  /** Stable identity for editor selection / timeline keying / reorder. Populated
+   *  at every creation point (setAnimation, autobuild) and backfilled for legacy
+   *  decks at load (`ensureTrackIds`); optional only so older Track literals and
+   *  on-disk decks predating it still type-check. */
+  id?: Id;
   target: string;
   /** A single plot semantic id (e.g. "control.line"). */
   part?: string;

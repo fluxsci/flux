@@ -575,9 +575,19 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
   const b = s && beatById(s, beatId);
   if (!b) return false;
   const i = b.tracks.findIndex((t) => tracksMatch(t, track));
-  if (i >= 0) b.tracks[i] = track;
-  else b.tracks.push(track);
+  // Every track carries a stable id; replacing a matched track keeps its id so
+  // editor selection survives the edit, a brand-new track gets a fresh one.
+  if (i >= 0) b.tracks[i] = { ...track, id: track.id ?? b.tracks[i].id ?? newId("track") };
+  else b.tracks.push({ ...track, id: track.id ?? newId("track") });
   return true;
+}
+
+/** Backfill stable ids onto any track that lacks one (decks authored before
+ *  `Track.id` existed). Idempotent; called at load so the editor can key/select
+ *  tracks reliably. Mutates in place + returns the deck. */
+export function ensureTrackIds(deck: Deck): Deck {
+  for (const s of deck.slides) for (const b of s.beats) for (const t of b.tracks) if (!t.id) t.id = newId("track");
+  return deck;
 }
 
 export function removeAnimation(

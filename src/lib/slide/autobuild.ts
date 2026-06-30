@@ -26,6 +26,7 @@ import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, setAnimation, setPartVisibility } from "./ops";
 import type { Beat, Track, PresetName, Deck } from "./types";
 import type { Id } from "../types";
+import { newId } from "../ids";
 
 // manifest animation name → player preset name
 const ANIM_TO_PRESET: Record<string, PresetName> = {
@@ -162,7 +163,7 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
  *  and the geometry (line/area) starts partway through that stagger so it
  *  resolves "just as the points finish" — the user's exact scatter beat. */
 function planToTrack(pt: PlanTrack, elId: string, phase: number, peers: PlanTrack[]): Track {
-  const track: Track = { target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: 0 };
+  const track: Track = { id: newId("track"), target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: 0 };
   if (pt.preset === "stagger") {
     track.stagger = { perMs: pt.staggerMs ?? 40, by: "x", from: "start" };
     track.params = { child: "fade" }; // points FADE in (staggered) — cleaner than rise for a scatter
@@ -195,7 +196,7 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
   const anim = presets[role]?.animation ?? presets[highLevelKey(role)]?.animation;
   const preset = presetForRole(role, anim);
   const cfg = presets[role] ?? presets[highLevelKey(role)];
-  const track: Track = { target: elId, part, preset, duration: cfg?.durationMs ?? DEFAULT_DUR[preset] ?? 400, start: 0 };
+  const track: Track = { id: newId("track"), target: elId, part, preset, duration: cfg?.durationMs ?? DEFAULT_DUR[preset] ?? 400, start: 0 };
   if (preset === "stagger") {
     track.stagger = { perMs: cfg?.staggerMs ?? 40, by: "x", from: "start" };
     track.params = { child: "fade" };

@@ -10,6 +10,7 @@
 
 import { writable, get } from "svelte/store";
 import type { Deck } from "./types";
+import { ensureTrackIds } from "./ops";
 
 /** The live deck being edited (null on the web/demo fallback or before load). */
 export const deck = writable<Deck | null>(null);
@@ -33,6 +34,7 @@ export const loadedProjectRoot = writable<string | null>(null);
 
 /** Replace the live deck (on load) and reset editor cursor + dirty. */
 export function loadDeckModel(d: Deck): void {
+  ensureTrackIds(d); // backfill stable track ids for decks predating Track.id
   deck.set(d);
   activeSlideId.set(d.slides[0]?.id ?? null);
   activeBeat.set(0);

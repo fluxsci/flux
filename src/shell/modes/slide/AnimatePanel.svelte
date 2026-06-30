@@ -265,7 +265,7 @@
             {:else if !b.tracks.length}
               <div class="rest">no animations</div>
             {:else}
-              {#each b.tracks as t, ti (ti)}
+              {#each b.tracks as t, ti (t.id ?? ti)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div class="trk" class:sel={selTrack?.bi === bi && selTrack?.ti === ti}
