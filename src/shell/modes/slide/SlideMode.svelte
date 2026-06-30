@@ -31,6 +31,8 @@
   import * as slideOps from "../../../lib/slide/ops";
   import { createDeck as createDeckModel } from "../../../lib/slide/ops";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
+  import { createPlayer, type Player } from "../../../lib/slide/player/player";
+  import { plotManifests, plotGen } from "../../../lib/plot/store";
   import SlideStage from "./SlideStage.svelte";
   import Inspector from "./Inspector.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
@@ -64,6 +66,47 @@
     deck && $activeSlideId ? slideOps.slideById(deck, $activeSlideId) : deck?.slides[0] ?? null,
   );
   const theme = $derived(resolveTheme(deck?.theme));
+
+  // --- inline build preview (play the current slide's animations on the stage) --
+  let previewing = $state(false);
+  let previewHost = $state<HTMLElement>();
+  let pvW = $state(0);
+  let pvH = $state(0);
+  let player: Player | undefined;
+  const pvScale = $derived(deck && pvW > 0 && pvH > 0 ? Math.min(pvW / deck.stage.width, pvH / deck.stage.height) : 1);
+
+  function startPreview() {
+    const d = deck;
+    const s = activeSlide;
+    if (!d || !s || previewing) return;
+    const si = d.slides.findIndex((x) => x.id === s.id);
+    if (si < 0) return;
+    previewing = true;
+    queueMicrotask(() => {
+      if (!previewHost) { previewing = false; return; }
+      const opts = {
+        theme, assetUrl: resolvers.assetUrl, figureSvg: resolvers.figureSvg,
+        plotGen: get(plotGen), mode: "present" as const, plotManifest: (id: string) => get(plotManifests)[id],
+      };
+      player = createPlayer(previewHost, d, opts);
+      previewHost.style.transformOrigin = "center center";
+      previewHost.style.transform = `scale(${pvScale})`;
+      player.goTo(si, 0);
+      const nBeats = s.beats.length;
+      player.on("beatEnd", () => {
+        if (!player) return;
+        if (player.state().beat >= nBeats - 1) setTimeout(stopPreview, 1100);
+        else setTimeout(() => player?.next(), 480);
+      });
+      if (nBeats <= 1) setTimeout(stopPreview, 900);
+      else setTimeout(() => player?.next(), 420);
+    });
+  }
+  function stopPreview() {
+    player?.destroy();
+    player = undefined;
+    previewing = false;
+  }
 
   const STAGE_PRESETS = [
     { label: "16:9 · 1280×720", w: 1280, h: 720 },
@@ -108,6 +151,7 @@
   onDestroy(() => {
     unsubDirty?.();
     clearTimeout(saveTimer);
+    player?.destroy();
     if (pm && get(deckDirty)) void saveDeckFrom(pm.root);
     clearDeck();
   });
@@ -322,10 +366,16 @@
     <!-- stage -->
     <main class="stage-wrap">
       {#if ready && deck && activeSlide}
-        <div class="stage-viewport">
+        <div class="stage-viewport" bind:clientWidth={pvW} bind:clientHeight={pvH}>
           <SlideStage slide={activeSlide} {theme} stage={deck.stage} interactive={true} {focused} beat={Math.min($activeBeat, activeSlide.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
+          {#if previewing}
+            <div class="preview-overlay">
+              <div class="preview-host" bind:this={previewHost}></div>
+              <button class="preview-stop" onclick={stopPreview} title="Stop preview">■ Stop</button>
+            </div>
+          {/if}
         </div>
-        <AnimatePanel />
+        <AnimatePanel onPreview={startPreview} />
       {:else if ready && deck}
         <div class="empty">This deck has no slides. <button class="btn" onclick={onAddSlide}>Add one</button></div>
       {:else}
@@ -447,6 +497,17 @@
   .addslide:hover { border-color: var(--c-accent); color: var(--c-tx-hi); }
   .stage-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--c-bg); padding: 18px; gap: 12px; }
   .stage-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  .preview-overlay {
+    position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+    background: var(--c-bg, #100f0f);
+  }
+  .preview-host { flex: 0 0 auto; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5); }
+  .preview-stop {
+    position: absolute; top: 12px; right: 12px; z-index: 31;
+    font-size: 12px; color: var(--c-tx-hi, #fff); background: color-mix(in oklab, var(--c-bg, #100f0f) 70%, transparent);
+    border: 1px solid var(--c-line-strong, #343331); border-radius: 6px; padding: 5px 12px; cursor: pointer;
+  }
+  .preview-stop:hover { border-color: var(--c-accent, #4385be); }
   .inspector-host { flex: 0 0 248px; border-left: 1px solid var(--c-line); background: var(--c-bg-raised); overflow-y: auto; position: relative; }
   .empty { margin: auto; color: var(--c-tx-faint); font-style: italic; display: flex; gap: 10px; align-items: center; }
 </style>

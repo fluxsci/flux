@@ -12,6 +12,8 @@
   import { plotManifests } from "../../../lib/plot/store";
   import type { Track, PresetName, Stagger } from "../../../lib/slide/types";
 
+  let { onPreview }: { onPreview?: () => void } = $props();
+
   const deck = $derived($deckStore);
   const slide = $derived(deck && $activeSlideId ? slideById(deck, $activeSlideId) : deck?.slides[0] ?? null);
   const sel = $derived($selection);
@@ -158,6 +160,9 @@
           title={selManifest ? "Build a beat sequence from this plot's own animation hints" : "This plot has no build manifest to auto-animate"}>✨ Auto-animate</button>
       {/if}
       <button class="b" onclick={addBeat} title="Add a beat">+ Beat</button>
+      {#if onPreview && slide.beats.length > 1}
+        <button class="b play" onclick={() => onPreview?.()} title="Play this slide's build on the stage">▶ Preview</button>
+      {/if}
       <span class="spacer"></span>
       {#if selPlot}<span class="tag">plot selected — try ✨</span>{:else}<span class="tag dim">select a plot to auto-animate</span>{/if}
     </div>
