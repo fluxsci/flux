@@ -17,6 +17,7 @@ import { DUR } from "../../motion/tokens";
 import { smoothEasing, EASE, smoothstep } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { buildPartIndex } from "../../plot/parse";
+import { resolveTargets } from "../../plot/tree";
 import type { FluxPlotManifest } from "../../plot/types";
 import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, type TargetNode, type PresetCtx } from "./presets";
@@ -53,6 +54,13 @@ function staggerRank(i: number, n: number, from: string): number {
   }
 }
 
+/** The plot manifest backing a slide element (its assetId → manifest), or none. */
+function manifestFor(target: string, slide: Slide, opts: PlayerOpts): FluxPlotManifest | undefined {
+  const el = slide.elements.find((e) => e.id === target);
+  const assetId = el && "assetId" in el ? (el as { assetId: string }).assetId : undefined;
+  return assetId ? opts.plotManifest?.(assetId) : undefined;
+}
+
 /** A track → the DOM nodes it animates (whole element, text blocks, a plot part,
  *  a plot part-set by role/series/index, or the camera layer). */
 function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, opts: PlayerOpts): TargetNode[] {
@@ -68,18 +76,21 @@ function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, camer
     return blocks.filter((b) => want.has(b.dataset.blockId ?? ""));
   }
 
-  // a single plot part by semantic id
+  // a plot part OR a part-GROUP by parts-tree id: a leaf id → that one node; a
+  // group/container id (e.g. "axis.x", "series.main.point-group") → every leaf
+  // member, in tree order. This is the only path that reaches axis parts (spine/
+  // ticks/labels/gridlines live in the parts tree, not the series part-index).
   if (track.part) {
-    const n = wrap.querySelector<SVGElement>(`[id="${track.target}${SEP}${track.part}"]`);
-    return n ? [n] : [];
+    const ids = resolveTargets(manifestFor(track.target, slide, opts), track.part);
+    return ids
+      .map((id) => wrap.querySelector<SVGElement>(`[id="${track.target}${SEP}${id}"]`))
+      .filter((n): n is SVGElement => !!n);
   }
 
   // a plot part-set by role / series / index
   const sel = track.selector;
   if (sel && (sel.role || sel.series || sel.index != null)) {
-    const el = slide.elements.find((e) => e.id === track.target);
-    const assetId = el && "assetId" in el ? (el as { assetId: string }).assetId : undefined;
-    const idx = buildPartIndex(assetId ? opts.plotManifest?.(assetId) : undefined);
+    const idx = buildPartIndex(manifestFor(track.target, slide, opts));
     const wantIdx = sel.index == null ? null : new Set(Array.isArray(sel.index) ? sel.index : [sel.index]);
     const parts = Object.values(idx)
       .filter((p) => (!sel.role || p.role === sel.role) && (!sel.series || p.series === sel.series) && (!wantIdx || (p.index != null && wantIdx.has(p.index))))

@@ -10,6 +10,7 @@ import { computeSlideAnims, applyStatic, resolveEasing } from "../src/lib/slide/
 import { FLUX_DARK } from "../src/lib/slide/theme";
 import type { RenderedSlide } from "../src/lib/slide/player/render";
 import type { Slide, StageSize } from "../src/lib/slide/types";
+import type { FluxPlotManifest } from "../src/lib/plot/types";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -102,6 +103,37 @@ applyStatic(drawSpecs, 1);
 assert(offset(lineNode) === "0", "beat 1: draw-on part fully drawn (offset 0)");
 applyStatic(drawSpecs, 0);
 assert(offset(lineNode) !== "0" && offset(lineNode) !== "", "back to beat 0 re-hides the draw (reversible)");
+
+// --- parts-tree group targeting (anim 1.1) -----------------------------------
+// track.part naming a GROUP id expands to ALL its leaf members via resolveTargets
+// (the only path that reaches axis parts — they aren't in the series part-index).
+const plotWrap = el("p_plot");
+for (const id of ["s.point.0", "s.point.1", "s.point.2"]) {
+  const m = document.createElement("div");
+  m.setAttribute("id", `p_plot__${id}`);
+  plotWrap.appendChild(m);
+}
+const treeManifest = {
+  schemaVersion: "0.2.0",
+  parts: { id: "figure", role: "figure", children: [
+    { id: "s.points", role: "group", groupRole: "point", members: ["s.point.0", "s.point.1", "s.point.2"] },
+  ] },
+} as unknown as FluxPlotManifest;
+const plotEl = { type: "plot", id: "p_plot", assetId: "plotA", x: 0, y: 0, width: 400, height: 300, rotation: 0 } as unknown as Slide["elements"][number];
+const plotOpts = { theme: FLUX_DARK, plotManifest: (id: string) => (id === "plotA" ? treeManifest : undefined) };
+const plotMap = { elements: new Map([["p_plot", plotWrap]]) };
+const groupSlide: Slide = {
+  id: "s3", elements: [plotEl],
+  beats: [{ id: "p0", label: "base", tracks: [] }, { id: "p1", label: "points", tracks: [{ target: "p_plot", part: "s.points", preset: "fade", start: 0, duration: 300 }] }],
+};
+const groupSpecs = computeSlideAnims(groupSlide, plotMap, camera, stage, plotOpts);
+assert(groupSpecs.filter((s) => s.beatIndex === 1).length === 3, "1.1: track.part GROUP id expands to its 3 leaf member nodes (parts tree)");
+const leafSlide: Slide = {
+  id: "s3", elements: [plotEl],
+  beats: [{ id: "p0", label: "base", tracks: [] }, { id: "p1", label: "one", tracks: [{ target: "p_plot", part: "s.point.1", preset: "fade", start: 0, duration: 300 }] }],
+};
+const leafSpecs = computeSlideAnims(leafSlide, plotMap, camera, stage, plotOpts);
+assert(leafSpecs.filter((s) => s.beatIndex === 1).length === 1, "1.1: a single leaf part id still resolves to exactly one node (back-compat)");
 
 // --- easing resolution -------------------------------------------------------
 assert(resolveEasing("smooth").startsWith("linear("), "smooth → manim smoothstep linear() string");
