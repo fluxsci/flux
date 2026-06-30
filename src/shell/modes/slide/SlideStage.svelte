@@ -67,9 +67,21 @@
     const gen = $plotGen; // subscribe so plot hot-swaps re-render
     if (!stageEl) return;
     const opts = { theme, assetUrl, figureSvg, plotGen: gen, mode: "edit" as const, plotManifest: (id: string) => get(plotManifests)[id] };
-    const r = renderSlide(stageEl, slide, stage, opts);
+    // Render into a dedicated camera layer inside the (fit-scaled) .stage so an
+    // @camera move's transform zooms the content WITHOUT clobbering the stage's
+    // own scale. The layer is at inset:0, so element model coords are unchanged —
+    // selection/hit-testing (which use model geometry) keep working.
+    let cam = stageEl.querySelector(":scope > .sl-camera") as HTMLElement | null;
+    if (!cam) {
+      cam = document.createElement("div");
+      cam.className = "sl-camera";
+      cam.style.cssText = "position:absolute;inset:0;transform-origin:0 0;";
+      stageEl.appendChild(cam);
+    }
+    cam.style.transform = ""; // clean baseline; applyStatic re-applies camera if this beat has one
+    const r = renderSlide(cam, slide, stage, opts);
     wrappers = r.elements;
-    const specs = computeSlideAnims(slide, r, stageEl, stage, opts);
+    const specs = computeSlideAnims(slide, r, cam, stage, opts);
     applyStatic(specs, beat);
     // hide the element being inline-edited (the textarea overlay stands in for it)
     if (editingId) { const w = r.elements.get(editingId); if (w) w.style.visibility = "hidden"; }

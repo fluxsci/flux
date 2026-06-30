@@ -6,7 +6,7 @@
   // Replaces the thin numbered beat strip. The X-ray tri-state (2.2) and per-track
   // editing (2.3) layer onto this shell.
   import { deck as deckStore, activeSlideId, activeBeat, selection, commitDeck, focusedPart } from "../../../lib/slide/store";
-  import { slideById, addBeat as addBeatOp, setPartVisibility, deleteBeat as deleteBeatOp } from "../../../lib/slide/ops";
+  import { slideById, addBeat as addBeatOp, setPartVisibility, deleteBeat as deleteBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animatePart } from "../../../lib/slide/autobuild";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import { plotManifests } from "../../../lib/plot/store";
@@ -122,6 +122,47 @@
     if (added) activeBeat.set(1);
   }
 
+  // --- camera + morph authoring (3.1) -----------------------------------------
+  let morphOpen = $state(false);
+  // other plots on this slide = morph targets (a plot's data → another's, in place)
+  const morphTargets = $derived.by(() => {
+    if (!selPlot || !slide) return [] as { id: string; assetId: string }[];
+    return slide.elements
+      .filter((e) => e.type === "plot" && e.id !== selPlot.id)
+      .map((e) => ({ id: e.id, assetId: (e as { assetId: string }).assetId }));
+  });
+
+  function addBeatWith(label: string, track: Track) {
+    const sid = slide?.id;
+    if (!sid) return;
+    let idx = 0;
+    commitDeck((d) => {
+      const b = addBeatOp(d, sid, { label, advance: "click" });
+      if (b) setAnimation(d, sid, b.id, track);
+      idx = (slideById(d, sid)?.beats.length ?? 1) - 1;
+    });
+    if (idx > 0) activeBeat.set(idx);
+  }
+  function addCameraMove(kind: "zoom" | "reset") {
+    const d0 = deck;
+    if (!d0 || !slide) return;
+    const st = d0.stage;
+    if (kind === "reset") {
+      addBeatWith("Reset view", { target: "@camera", preset: "camera", to: { zoom: 1, x: st.width / 2, y: st.height / 2 }, duration: 900, easing: "smooth" });
+      return;
+    }
+    const el = sel.length ? slide.elements.find((e) => e.id === sel[0]) : null;
+    if (!el) return;
+    const zoom = Math.max(1.05, Math.min(st.width / el.width, st.height / el.height) * 0.82);
+    addBeatWith("Zoom in", { target: "@camera", preset: "camera", to: { zoom, x: el.x + el.width / 2, y: el.y + el.height / 2 }, duration: 900, easing: "smooth" });
+  }
+  function addMorph(toAssetId: string) {
+    morphOpen = false;
+    const plot = selPlot;
+    if (!plot) return;
+    addBeatWith("Morph", { target: plot.id, preset: "morph", to: { assetId: toAssetId }, duration: 1200, easing: "smooth" });
+  }
+
   function addBeat() {
     const sid = slide?.id;
     if (!sid) return;
@@ -160,6 +201,24 @@
           title={selManifest ? "Build a beat sequence from this plot's own animation hints" : "This plot has no build manifest to auto-animate"}>✨ Auto-animate</button>
       {/if}
       <button class="b" onclick={addBeat} title="Add a beat">+ Beat</button>
+      {#if sel.length === 1}
+        <button class="b" onclick={() => addCameraMove("zoom")} title="Camera: zoom in to the selected element">🎥 Zoom</button>
+      {/if}
+      {#if slide.beats.length > 1}
+        <button class="b" onclick={() => addCameraMove("reset")} title="Camera: pull back to the full slide">⤢ Reset</button>
+      {/if}
+      {#if selPlot && morphTargets.length}
+        <span class="morph-wrap">
+          <button class="b" onclick={() => (morphOpen = !morphOpen)} title="Morph this plot's data into another plot on the slide">⇄ Morph ▾</button>
+          {#if morphOpen}
+            <div class="morph-menu">
+              {#each morphTargets as m (m.id)}
+                <button onclick={() => addMorph(m.assetId)}>→ {m.assetId}</button>
+              {/each}
+            </div>
+          {/if}
+        </span>
+      {/if}
       {#if onPreview && slide.beats.length > 1}
         <button class="b play" onclick={() => onPreview?.()} title="Play this slide's build on the stage">▶ Preview</button>
       {/if}
@@ -289,6 +348,17 @@
     border-radius: 5px; padding: 5px 10px; cursor: pointer;
   }
   .b:hover { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
+  .morph-wrap { position: relative; display: inline-flex; }
+  .morph-menu {
+    position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 25; min-width: 150px;
+    background: var(--c-bg-2, #1c1b1a); border: 1px solid var(--c-line-strong, #343331);
+    border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); padding: 4px; display: flex; flex-direction: column; gap: 1px;
+  }
+  .morph-menu button {
+    text-align: left; border: none; background: none; color: var(--c-tx-2, #b7b5ac);
+    border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px;
+  }
+  .morph-menu button:hover { background: color-mix(in oklab, var(--c-accent, #4385be) 18%, transparent); color: var(--c-tx-hi, #fff); }
 
   .dock-body { display: flex; gap: 10px; min-height: 0; flex: 1; }
   .parts {
