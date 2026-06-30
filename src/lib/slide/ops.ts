@@ -14,7 +14,7 @@
 // SemanticPlotElement), the id leaf, and the theme defaults.
 // ---------------------------------------------------------------------------
 
-import type { Element, Id } from "../types";
+import type { Element, Id, RectElement, EllipseElement, LineElement } from "../types";
 import { newId } from "../ids";
 import { makePlotPanel, makeImagePanel, type Box } from "../ops";
 import { DEFAULT_THEME_ID } from "./theme";
@@ -368,6 +368,41 @@ export function addPlotToSlide(
   opts: { assetId: Id; source?: import("../types").SemanticPlotElement["source"]; manifestRef?: import("../types").SemanticPlotElement["manifestRef"] } & Box,
 ): Id | null {
   return addElement(deck, slideId, makePlotPanel(opts.assetId, opts, opts.source, opts.manifestRef));
+}
+
+// --- vector shapes (figure RectElement/EllipseElement/LineElement reused) -----
+export function makeRect(opts: Box & { fill?: string; stroke?: string; strokeWidth?: number; cornerRadius?: number } = {}): RectElement {
+  const g = box(opts, 240, 160);
+  return {
+    type: "rect", id: newId("rect"), ...g, rotation: 0,
+    fill: opts.fill ?? "var(--sl-accent)", stroke: opts.stroke ?? "transparent",
+    strokeWidth: opts.strokeWidth ?? 0, cornerRadius: opts.cornerRadius ?? 0,
+  };
+}
+export function makeEllipse(opts: Box & { fill?: string; stroke?: string; strokeWidth?: number } = {}): EllipseElement {
+  const g = box(opts, 200, 200);
+  return {
+    type: "ellipse", id: newId("ellipse"), ...g, rotation: 0,
+    fill: opts.fill ?? "var(--sl-accent)", stroke: opts.stroke ?? "transparent", strokeWidth: opts.strokeWidth ?? 0,
+  };
+}
+export function makeLine(opts: Box & { stroke?: string; strokeWidth?: number; arrowEnd?: boolean } = {}): LineElement {
+  const g = box(opts, 240, 0);
+  return {
+    type: "line", id: newId("line"), ...g, height: opts.height ?? 0, rotation: 0,
+    x1: 0, y1: 0, x2: g.width, y2: 0,
+    stroke: opts.stroke ?? "var(--sl-text)", strokeWidth: opts.strokeWidth ?? 3,
+    arrowStart: false, arrowEnd: opts.arrowEnd ?? false,
+  };
+}
+export function addRect(deck: Deck, slideId: Id, opts: Parameters<typeof makeRect>[0] = {}): Id | null {
+  return addElement(deck, slideId, makeRect(opts));
+}
+export function addEllipse(deck: Deck, slideId: Id, opts: Parameters<typeof makeEllipse>[0] = {}): Id | null {
+  return addElement(deck, slideId, makeEllipse(opts));
+}
+export function addLine(deck: Deck, slideId: Id, opts: Parameters<typeof makeLine>[0] = {}): Id | null {
+  return addElement(deck, slideId, makeLine(opts));
 }
 
 /** Drop an imported image (deck asset) on a slide. */

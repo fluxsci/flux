@@ -8,9 +8,14 @@
 
 import { get } from "svelte/store";
 import { fileBridge, joinPath, type ProjectManifest } from "./types";
-import type { Deck } from "../slide/types";
+import type { Deck, SlideElement } from "../slide/types";
 import { createDeck as createDeckModel } from "../slide/ops";
 import { deck as deckStore, loadDeckModel, deckDirty } from "../slide/store";
+import { cachePlot, hasPlotDom } from "../plot/store";
+import type { FluxPlotManifest } from "../plot/types";
+import { readFigSource } from "./figbridge";
+import { figureToSvg } from "../export";
+import { bytesToDataUrl } from "../assets";
 
 export interface DeckListItem {
   id: string;
@@ -116,6 +121,113 @@ export async function saveDeckFrom(root: string): Promise<void> {
   const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
   host?.journalAppend?.({ action: "save_deck", target: d.id, client: "human" });
   deckDirty.set(false);
+}
+
+// --- insertables (what the editor's Insert menu can drop on a slide) ---------
+export interface Insertables {
+  figures: { id: string; title: string }[];
+  plots: { id: string; title: string; svgPath?: string; manifestPath?: string }[];
+  images: { id: string; kind: string; path: string }[];
+}
+
+/** Enumerate the project's reusable content a slide can embed: composed figures,
+ *  semantic plots, and raster/vector images (from project.json). Titles fall back
+ *  to ids. Empty groups simply don't appear in the menu. */
+export async function listInsertables(root: string): Promise<Insertables> {
+  // The slide subsystem reads these project arrays leniently (figures lack a
+  // `title` in the manifest type, plots/assets aren't in it yet) — decouple via
+  // `unknown` so we can fall titles back to ids at runtime.
+  const m = (await readManifest(root)) as unknown as {
+    figures?: { id: string; title?: string }[];
+    plots?: { id: string; title?: string; svgPath?: string; path?: string; manifestPath?: string }[];
+    assets?: { id: string; kind: string; path: string }[];
+  } | null;
+  const figures = (m?.figures ?? []).map((f) => ({ id: f.id, title: f.title ?? f.id }));
+  const plots = (m?.plots ?? []).map((p) => ({
+    id: p.id, title: p.title ?? p.id, svgPath: p.svgPath ?? p.path, manifestPath: p.manifestPath,
+  }));
+  const images = (m?.assets ?? [])
+    .filter((a) => /^(png|jpg|jpeg|gif|webp|svg)$/.test(a.kind))
+    .map((a) => ({ id: a.id, kind: a.kind, path: a.path }));
+  return { figures, plots, images };
+}
+
+// --- asset loading (so plots / figures / images render on the stage) ---------
+function mimeForKind(kind: string): string {
+  switch (kind) {
+    case "svg": return "image/svg+xml";
+    case "png": return "image/png";
+    case "jpg": case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "webp": return "image/webp";
+    case "mp4": return "video/mp4";
+    case "webm": return "video/webm";
+    case "mov": return "video/quicktime";
+    default: return "application/octet-stream";
+  }
+}
+
+export interface DeckAssetResolvers {
+  assetUrl: (assetId: string) => string | undefined;
+  figureSvg: (figureId: string) => string | undefined;
+}
+
+/** Preload the assets a deck needs to render: deck-local media → data URLs,
+ *  semantic plots → the plot cache (so render's mountPlot finds them), and the
+ *  project's figures → standalone SVG (for embedFigure). Returns sync resolvers. */
+export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAssetResolvers> {
+  const fig = fileBridge();
+  const assetData: Record<string, string> = {};
+
+  // 1. deck-local media (slides/<id>/assets/*) → data URLs.
+  if (fig) {
+    for (const a of deck.assets ?? []) {
+      if (!a.path) continue;
+      try {
+        const bytes = new Uint8Array(await fig.readFile(joinPath(root, "slides", deck.id, a.path)));
+        assetData[a.id] = bytesToDataUrl(bytes, mimeForKind(a.kind));
+      } catch {
+        /* missing media — element shows a placeholder */
+      }
+    }
+  }
+
+  // 2. semantic plots referenced by plot elements → the plot cache.
+  if (fig) {
+    const plots = deck.slides.flatMap((s) => s.elements).filter((e): e is Extract<SlideElement, { type: "plot" }> => e.type === "plot");
+    for (const el of plots) {
+      if (hasPlotDom(el.assetId) || !el.source?.svgPath) continue;
+      try {
+        const svgText = await fig.readText(joinPath(root, el.source.svgPath));
+        let manifest: FluxPlotManifest | undefined;
+        if (el.source.manifestPath) {
+          try { manifest = JSON.parse(await fig.readText(joinPath(root, el.source.manifestPath))) as FluxPlotManifest; } catch { /* manifest optional */ }
+        }
+        cachePlot(el.assetId, svgText, manifest as FluxPlotManifest);
+      } catch {
+        /* unreadable plot — element shows a placeholder */
+      }
+    }
+  }
+
+  // 3. project figures (for embedFigure) → standalone SVG via figureToSvg.
+  let figSvgCache: Record<string, string> = {};
+  const needsFigures = deck.slides.some((s) => s.elements.some((e) => e.type === "embedFigure"));
+  if (needsFigures && fig) {
+    try {
+      const src = await readFigSource(root);
+      for (const [fid, f] of Object.entries(src.figures)) {
+        figSvgCache[fid] = figureToSvg(f, (aid) => src.assetData[aid]);
+      }
+    } catch {
+      /* no fig/ — embedFigure shows a placeholder */
+    }
+  }
+
+  return {
+    assetUrl: (id) => assetData[id],
+    figureSvg: (fid) => figSvgCache[fid],
+  };
 }
 
 /** Create a new deck in the project (write + register), and load it into the
