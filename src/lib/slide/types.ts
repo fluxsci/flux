@@ -239,7 +239,11 @@ export interface TrackSelector {
  *  and seeded `from` an edge/center. */
 export interface Stagger {
   perMs: number;
-  by?: "index" | "blocks" | "series" | "dom";
+  /** Ordering key for the stagger ramp. "index" = target array order; "x"/"y" =
+   *  each target's spatial coordinate (data-x/data-y, falling back to the rendered
+   *  x/y), so points fire left→right ("x") or low→high ("y") regardless of the
+   *  order they were emitted in — the basis for the scatter "left to right" reveal. */
+  by?: "index" | "x" | "y" | "blocks" | "series" | "dom";
   from?: "start" | "end" | "center" | "edges";
 }
 

@@ -135,6 +135,31 @@ const leafSlide: Slide = {
 const leafSpecs = computeSlideAnims(leafSlide, plotMap, camera, stage, plotOpts);
 assert(leafSpecs.filter((s) => s.beatIndex === 1).length === 1, "1.1: a single leaf part id still resolves to exactly one node (back-compat)");
 
+// --- spatial stagger by x (anim 1.2) -----------------------------------------
+// Points emitted OUT of x-order, staggered by:"x", must fire left→right by their
+// data-x — NOT by array/emission order. (The scatter "left to right" reveal.)
+const sx = el("p_sx");
+const xs: Record<string, number> = { "g.point.0": 5, "g.point.1": 1, "g.point.2": 3 }; // emission ≠ x order
+for (const [id, x] of Object.entries(xs)) {
+  const m = document.createElement("div");
+  m.setAttribute("id", `p_sx__${id}`);
+  m.setAttribute("data-x", String(x));
+  sx.appendChild(m);
+}
+const sxManifest = { schemaVersion: "0.2.0", parts: { id: "figure", role: "figure", children: [
+  { id: "g.points", role: "group", groupRole: "point", members: ["g.point.0", "g.point.1", "g.point.2"] },
+] } } as unknown as FluxPlotManifest;
+const sxEl = { type: "plot", id: "p_sx", assetId: "plotS", x: 0, y: 0, width: 400, height: 300, rotation: 0 } as unknown as Slide["elements"][number];
+const sxSlide: Slide = { id: "sx", elements: [sxEl], beats: [
+  { id: "x0", label: "base", tracks: [] },
+  { id: "x1", label: "pts", tracks: [{ target: "p_sx", part: "g.points", preset: "fade", start: 0, duration: 200, stagger: { perMs: 100, by: "x", from: "start" } }] },
+] };
+const sxSpecs = computeSlideAnims(sxSlide, { elements: new Map([["p_sx", sx]]) }, camera, stage, { theme: FLUX_DARK, plotManifest: (id: string) => (id === "plotS" ? sxManifest : undefined) });
+const delayById = new Map(sxSpecs.filter((s) => s.beatIndex === 1).map((s) => [(s.node as unknown as { getAttribute(n: string): string }).getAttribute("id"), s.delay]));
+assert(delayById.get("p_sx__g.point.1") === 0, "1.2: by:x — smallest data-x (point.1, x=1) fires first (delay 0)");
+assert(delayById.get("p_sx__g.point.2") === 100, "1.2: by:x — middle data-x (point.2, x=3) fires at 100ms");
+assert(delayById.get("p_sx__g.point.0") === 200, "1.2: by:x — largest data-x (point.0, x=5) fires last (200ms)");
+
 // --- easing resolution -------------------------------------------------------
 assert(resolveEasing("smooth").startsWith("linear("), "smooth → manim smoothstep linear() string");
 assert(resolveEasing("linear") === "linear" && resolveEasing(undefined).startsWith("cubic-bezier"), "linear + default easings resolve");

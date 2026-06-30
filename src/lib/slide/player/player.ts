@@ -20,7 +20,7 @@ import { buildPartIndex } from "../../plot/parse";
 import { resolveTargets } from "../../plot/tree";
 import type { FluxPlotManifest } from "../../plot/types";
 import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
-import { PRESETS, type TargetNode, type PresetCtx } from "./presets";
+import { PRESETS, type TargetNode, type PresetCtx, type NodeAnim } from "./presets";
 import { createMorph, type MorphController } from "./morph";
 import type { Deck, Slide, Track, EasingToken, StageSize, DeckTheme } from "../types";
 
@@ -52,6 +52,37 @@ function staggerRank(i: number, n: number, from: string): number {
     case "edges": return Math.round(mid - Math.abs(i - mid));
     default: return i; // "start"
   }
+}
+
+/** A node's spatial coordinate for stagger ordering: the data-space value the
+ *  semantic SVG carries (data-x/data-y), else the rendered geometry (x/y, cx/cy). */
+function spatialCoord(node: TargetNode, axis: "x" | "y"): number | null {
+  const el = node as unknown as { getAttribute?: (n: string) => string | null };
+  const at = (name: string): number | null => {
+    const v = el.getAttribute?.(name);
+    if (v == null || v === "") return null;
+    const num = Number(v);
+    return Number.isFinite(num) ? num : null;
+  };
+  return at(`data-${axis}`) ?? at(axis) ?? at(axis === "x" ? "cx" : "cy");
+}
+
+/** Each node's 0..n-1 position along the stagger key. "x"/"y" sort by spatial
+ *  coordinate (points without one keep array order, after the located ones);
+ *  everything else keeps array order. `from` then sets direction (start/end/…). */
+function orderRanks(nodeAnims: NodeAnim[], by: string): number[] {
+  if (by !== "x" && by !== "y") return nodeAnims.map((na) => na.index);
+  const coords = nodeAnims.map((na) => spatialCoord(na.node, by));
+  const order = nodeAnims.map((_, i) => i).sort((a, b) => {
+    const ca = coords[a], cb = coords[b];
+    if (ca == null && cb == null) return a - b;
+    if (ca == null) return 1;
+    if (cb == null) return -1;
+    return ca - cb || a - b;
+  });
+  const rank = new Array<number>(nodeAnims.length);
+  order.forEach((origIdx, r) => { rank[origIdx] = r; });
+  return rank;
 }
 
 /** The plot manifest backing a slide element (its assetId → manifest), or none. */
@@ -148,18 +179,19 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const n = nodeAnims.length;
       const perMs = track.stagger?.perMs ?? 0;
       const from = track.stagger?.from ?? "start";
-      for (const na of nodeAnims) {
+      const ranks = perMs ? orderRanks(nodeAnims, track.stagger?.by ?? "index") : [];
+      nodeAnims.forEach((na, i) => {
         specs.push({
           node: na.node,
           beatIndex: bi,
           keyframes: na.keyframes,
-          delay: (track.start ?? 0) + (perMs ? staggerRank(na.index, n, from) * perMs : 0),
+          delay: (track.start ?? 0) + (perMs ? staggerRank(ranks[i], n, from) * perMs : 0),
           duration: track.duration ?? DUR.gentle,
           easing: resolveEasing(track.easing),
           enter: na.enter,
           prep: na.prep,
         });
-      }
+      });
     }
   });
   return specs;
