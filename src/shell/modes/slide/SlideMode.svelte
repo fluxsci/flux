@@ -278,9 +278,17 @@
 
   // Slide nav with arrows — only when no element is selected (else the stage nudges).
   function onKey(e: KeyboardEvent) {
-    if (!focused || !deck || $selection.length > 0) return;
+    if (!focused || !deck) return;
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+    // Alt+I opens the plot importer (mirrors Figure mode's keyboard.ts:461) — works
+    // regardless of selection, so handle it before the slide-nav selection guard.
+    if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyI") {
+      e.preventDefault();
+      if (!$importerOpen) openPlotBrowser();
+      return;
+    }
+    if ($selection.length > 0) return;
     const i = deck.slides.findIndex((s) => s.id === $activeSlideId);
     if (e.key === "ArrowDown" || e.key === "PageDown") {
       e.preventDefault();
