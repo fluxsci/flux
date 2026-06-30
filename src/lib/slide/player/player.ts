@@ -14,13 +14,18 @@
 // ---------------------------------------------------------------------------
 
 import { DUR } from "../../motion/tokens";
-import { smoothEasing, EASE } from "../../motion/tokens";
-import { animate, allDone, prefersReducedMotion } from "../../motion/motion";
+import { smoothEasing, EASE, smoothstep } from "../../motion/tokens";
+import { animate, prefersReducedMotion } from "../../motion/motion";
 import { buildPartIndex } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
 import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, type TargetNode, type PresetCtx } from "./presets";
-import type { Deck, Slide, Track, EasingToken, StageSize, DeckTheme, EmbedFigureElement } from "../types";
+import { createMorph, type MorphController } from "./morph";
+import type { Deck, Slide, Track, EasingToken, StageSize, DeckTheme } from "../types";
+
+/** A unified handle the sequencer awaits + can interrupt — a WAAPI Animation or
+ *  the morph's rAF driver both satisfy it. */
+interface Playable { finished: Promise<unknown>; cancel(): void }
 
 const SEP = "__"; // mirrors plot/parse prefixIds — plot part DOM id = `${elId}__${semanticId}`
 
@@ -98,6 +103,8 @@ interface Spec {
   easing: string;
   enter: boolean;
   prep?: () => void;
+  /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
+  morph?: MorphController;
 }
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
@@ -106,6 +113,23 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   const ctx: PresetCtx = { theme: opts.theme, stage };
   slide.beats.forEach((beat, bi) => {
     for (const track of beat.tracks) {
+      // morph — a data-space driver over a plot element (not keyframe-based).
+      if (track.preset === "morph") {
+        const wrap = rendered.elements.get(track.target);
+        const el = slide.elements.find((e) => e.id === track.target);
+        const fromId = el && "assetId" in el ? (el as { assetId: string }).assetId : undefined;
+        const toId = track.to?.assetId;
+        const A = fromId ? opts.plotManifest?.(fromId) : undefined;
+        const B = toId ? opts.plotManifest?.(toId) : undefined;
+        if (wrap && A && B) {
+          specs.push({
+            node: wrap, beatIndex: bi, keyframes: [], enter: false,
+            delay: track.start ?? 0, duration: track.duration ?? 1200, easing: resolveEasing(track.easing ?? "smooth"),
+            morph: createMorph(wrap, track.target, A, B),
+          });
+        }
+        continue;
+      }
       const nodes = resolveNodes(track, slide, rendered, cameraLayer, opts);
       if (!nodes.length) continue;
       const preset = PRESETS[track.preset ?? "fade"] ?? PRESETS.fade;
@@ -156,25 +180,54 @@ export function applyStatic(specs: Spec[], beatIndex: number): void {
   for (const [node, list] of byNode) {
     list.sort((a, b) => a.beatIndex - b.beatIndex || a.delay - b.delay);
     for (const s of list) s.prep?.();
+    // morph specs drive child geometry directly: B once its beat has passed, else A.
+    const morphs = list.filter((s) => s.morph);
+    for (const s of morphs) s.morph!.seek(s.beatIndex <= beatIndex ? 1 : 0);
+    const kf = list.filter((s) => !s.morph);
+    if (!kf.length) continue;
     clearAnimStyles(node);
-    const past = list.filter((s) => s.beatIndex <= beatIndex);
+    const past = kf.filter((s) => s.beatIndex <= beatIndex);
     if (past.length) {
       // accumulate per-property: later specs override, untouched props persist
       for (const s of past) applyKeyframe(node, s.keyframes[s.keyframes.length - 1]);
-    } else if (list[0].enter) {
-      applyKeyframe(node, list[0].keyframes[0]); // hidden until its intro beat
+    } else if (kf[0].enter) {
+      applyKeyframe(node, kf[0].keyframes[0]); // hidden until its intro beat
     }
   }
 }
 
-function playSpecs(specs: Spec[], lo: number, hi: number): Animation[] {
-  const anims: Animation[] = [];
+/** Drive a morph over `duration` via rAF, easing time with manim's smoothstep.
+ *  Returns a Playable so the sequencer awaits + can interrupt it like a WAAPI anim. */
+function runMorph(m: MorphController, duration: number, reduced: boolean): Playable {
+  let raf = 0, start = 0, cancelled = false;
+  const finished = new Promise<void>((resolve) => {
+    if (reduced || duration <= 0) { m.seek(1); resolve(); return; }
+    const step = (ts: number) => {
+      if (cancelled) return;
+      if (!start) start = ts;
+      const t = Math.min(1, (ts - start) / duration);
+      m.seek(smoothstep(t));
+      if (t < 1) raf = requestAnimationFrame(step);
+      else resolve();
+    };
+    raf = requestAnimationFrame(step);
+  });
+  return { finished, cancel: () => { cancelled = true; if (raf) cancelAnimationFrame(raf); } };
+}
+
+function playSpecs(specs: Spec[], lo: number, hi: number, reduced: boolean): Playable[] {
+  const out: Playable[] = [];
   for (const s of specs) {
     if (s.beatIndex < lo || s.beatIndex > hi) continue;
     s.prep?.();
-    anims.push(animate(s.node, s.keyframes, { delay: s.delay, duration: s.duration, easing: s.easing, fill: "both" }));
+    if (s.morph) out.push(runMorph(s.morph, s.duration, reduced));
+    else out.push(animate(s.node, s.keyframes, { delay: s.delay, duration: s.duration, easing: s.easing, fill: "both" }));
   }
-  return anims;
+  return out;
+}
+/** Await a set of Playables (Animations + morph drivers), errors swallowed. */
+function settle(ps: Playable[]): Promise<void> {
+  return Promise.all(ps.map((p) => p.finished.catch(() => {}))).then(() => {});
 }
 
 // --- the live player ---------------------------------------------------------
@@ -216,7 +269,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let beatIndex = 0;
   let rendered: RenderedSlide | null = null;
   let specs: Spec[] = [];
-  let active: Animation[] = [];
+  let active: Playable[] = [];
   let autoTimer: ReturnType<typeof setTimeout> | undefined;
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set() };
 
@@ -254,9 +307,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       // forward within a slide: rest at the gap before, then play the run.
       applyStatic(specs, bi - 1);
       slideIndex = si; beatIndex = bi;
-      active = playSpecs(specs, bi, bi);
+      active = playSpecs(specs, bi, bi, reduced);
       emit("beatStart"); emit("change");
-      allDone(...active).then(() => { emit("beatEnd"); maybeAuto(); });
+      settle(active).then(() => { emit("beatEnd"); maybeAuto(); });
     } else {
       applyStatic(specs, bi);
       slideIndex = si; beatIndex = bi;
@@ -274,10 +327,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       cancelActive();
       if (!reduced) applyStatic(specs, t - 1);
       beatIndex = e;
-      active = reduced ? [] : playSpecs(specs, t, e);
+      active = reduced ? [] : playSpecs(specs, t, e, reduced);
       if (reduced) applyStatic(specs, e);
       emit("beatStart"); emit("change");
-      allDone(...active).then(() => { emit("beatEnd"); maybeAuto(); });
+      settle(active).then(() => { emit("beatEnd"); maybeAuto(); });
     } else {
       nextSlide();
     }

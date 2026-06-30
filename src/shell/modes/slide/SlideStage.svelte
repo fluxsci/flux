@@ -11,7 +11,8 @@
   // ONCE on pointer-up via a single commitDeck (no per-frame deck clone).
   import { renderSlide } from "../../../lib/slide/player/render";
   import { computeSlideAnims, applyStatic } from "../../../lib/slide/player/player";
-  import { plotGen } from "../../../lib/plot/store";
+  import { plotGen, plotManifests } from "../../../lib/plot/store";
+  import { get } from "svelte/store";
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
   import { resizeRemap } from "../../../lib/editing";
   import { commitDeck, selection } from "../../../lib/slide/store";
@@ -64,9 +65,10 @@
   $effect(() => {
     const gen = $plotGen; // subscribe so plot hot-swaps re-render
     if (!stageEl) return;
-    const r = renderSlide(stageEl, slide, stage, { theme, assetUrl, figureSvg, plotGen: gen, mode: "edit" });
+    const opts = { theme, assetUrl, figureSvg, plotGen: gen, mode: "edit" as const, plotManifest: (id: string) => get(plotManifests)[id] };
+    const r = renderSlide(stageEl, slide, stage, opts);
     wrappers = r.elements;
-    const specs = computeSlideAnims(slide, r, stageEl, stage, { theme, assetUrl, figureSvg, plotGen: gen, mode: "edit" });
+    const specs = computeSlideAnims(slide, r, stageEl, stage, opts);
     applyStatic(specs, beat);
   });
 

@@ -16,6 +16,7 @@ import * as bridge from "../project/figbridge";
 import * as plot from "../plot/store";
 import * as io from "../io";
 import * as slide from "../slide/store";
+import * as slideOps from "../slide/ops";
 import * as slideBridge from "../project/slideBridge";
 
 export interface FluxDevHandle {
@@ -37,6 +38,8 @@ export interface FluxDevHandle {
   io: typeof io;
   /** Flux Slide editor stores (deck, deckDirty, activeSlideId, commitDeck, …). */
   slide: typeof slide;
+  /** Flux Slide pure ops core (addSlide, addPlotToSlide, addBeat, setAnimation, …). */
+  slideOps: typeof slideOps;
   /** Slide deck bridge (listProjectDecks, loadDeckInto, saveDeckFrom, …). */
   slideBridge: typeof slideBridge;
   /** Convenience: the current figures array. */
@@ -58,6 +61,7 @@ export function installDevHandle(): void {
     plot,
     io,
     slide,
+    slideOps,
     slideBridge,
     figures: () => get(fig.project).figures,
     editors: existing.editors ?? [],

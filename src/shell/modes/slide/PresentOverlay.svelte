@@ -4,7 +4,9 @@
   // keymap (§6.1). The stage IS the player; Esc exits. The same player powers the
   // exported HTML (P4), so what you present is what you ship.
   import { onMount, onDestroy } from "svelte";
+  import { get } from "svelte/store";
   import { createPlayer, type Player, type PlayerState, type PlayerOpts } from "../../../lib/slide/player/player";
+  import { plotManifests } from "../../../lib/plot/store";
   import type { Deck, DeckTheme } from "../../../lib/slide/types";
 
   let {
@@ -36,7 +38,7 @@
 
   onMount(() => {
     if (!mount) return;
-    const opts: PlayerOpts = { mode: "present", theme, assetUrl, figureSvg };
+    const opts: PlayerOpts = { mode: "present", theme, assetUrl, figureSvg, plotManifest: (id) => get(plotManifests)[id] };
     player = createPlayer(mount, deck, opts);
     player.on("change", (s) => (st = s));
     player.goTo(start.slide, start.beat);
