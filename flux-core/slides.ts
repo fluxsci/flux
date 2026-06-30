@@ -9,10 +9,13 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import Ajv from "ajv";
-import { safeJoin, journal, loadManifest, getClient } from "./index";
+import { safeJoin, journal, loadManifest, getClient, renderFigureSvg } from "./index";
 import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
 import * as slideOps from "../src/lib/slide/ops";
+import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
+import type { ExportPayload } from "../src/lib/slide/export/runtime";
+import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { Deck } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 
@@ -134,6 +137,80 @@ export async function addSlide(
   const slide = slideOps.addSlide(deck, opts);
   await saveDeck(root, deck, "add_slide");
   return { slideId: slide.id };
+}
+
+// --------------------------------------------------------------------------
+// export — the portable .html (§7/§8.2), fully headless (no browser)
+// --------------------------------------------------------------------------
+function assetMime(kind: string): string {
+  const m: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+    webp: "image/webp", svg: "image/svg+xml", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+  };
+  return m[kind] ?? "application/octet-stream";
+}
+
+/** Gather everything a deck needs to render offline: deck-local media → data
+ *  URIs, semantic plots (incl. morph targets) → inline SVG + manifest, project
+ *  figures → standalone SVG (the headless figure render). Best-effort: a missing
+ *  asset is simply absent (the element shows its placeholder). */
+export async function gatherDeckPayload(root: string, deckId: string): Promise<ExportPayload> {
+  const deck = await loadDeck(root, deckId);
+  const assets: Record<string, string> = {};
+  const plots: Record<string, { svg: string; manifest: FluxPlotManifest }> = {};
+  const figures: Record<string, string> = {};
+
+  for (const a of deck.assets ?? []) {
+    if (!a.path) continue;
+    try {
+      const buf = await fs.readFile(safeJoin(root, j("slides", deck.id, a.path)));
+      assets[a.id] = `data:${assetMime(a.kind)};base64,${buf.toString("base64")}`;
+    } catch { /* missing media */ }
+  }
+
+  const manifest = await loadManifest(root).catch(() => null);
+  const plotIndex = ((manifest as unknown as { plots?: { id: string; path?: string; svgPath?: string; manifestPath?: string }[] })?.plots) ?? [];
+  const collectPlot = async (assetId: string, svgPath?: string, manifestPath?: string) => {
+    if (plots[assetId]) return;
+    const entry = plotIndex.find((p) => p.id === assetId);
+    const sp = svgPath ?? entry?.svgPath ?? entry?.path;
+    const mp = manifestPath ?? entry?.manifestPath;
+    if (!sp) return;
+    try {
+      const svg = await fs.readFile(safeJoin(root, sp), "utf8");
+      let m: FluxPlotManifest | undefined;
+      if (mp) try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* optional */ }
+      plots[assetId] = { svg, manifest: m ?? ({ axes: [], series: [] } as unknown as FluxPlotManifest) };
+    } catch { /* unreadable plot */ }
+  };
+
+  for (const s of deck.slides) {
+    for (const el of s.elements) {
+      if (el.type === "plot") await collectPlot(el.assetId, el.source?.svgPath, el.source?.manifestPath);
+      else if (el.type === "embedFigure") {
+        try { figures[el.figureId] = await renderFigureSvg(root, el.figureId); } catch { /* no figure */ }
+      }
+    }
+    for (const b of s.beats) for (const t of b.tracks) {
+      if (t.preset === "morph" && t.to?.assetId) await collectPlot(t.to.assetId);
+    }
+  }
+  return { deck, plots, figures, assets };
+}
+
+/** export-deck: gather + emit the self-contained .html (defaults to
+ *  exports/<deckId>.html). Journals the export. */
+export async function exportDeck(
+  root: string,
+  deckId: string,
+  opts: { out?: string } = {},
+): Promise<{ path: string; bytes: number; warnings: string[] }> {
+  const payload = await gatherDeckPayload(root, deckId);
+  const { html, bytes, warnings } = await exportDeckHtml(payload);
+  const out = opts.out ?? safeJoin(root, j("exports", `${deckId}.html`));
+  await writeText(out, html);
+  await journal(root, { action: "export_deck", deck: deckId, bytes });
+  return { path: out, bytes, warnings };
 }
 
 export interface ValidateDeckResult {
