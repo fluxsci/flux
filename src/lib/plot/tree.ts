@@ -7,18 +7,11 @@
 // "axis.x"); an override keyed by that id is re-resolved to its current leaf
 // members every mount, so "hide all x ticks" survives regeneration.
 
-import type { FluxPlotManifest } from "./types";
+import type { FluxPlotManifest, PartNode } from "./types";
 
-// Raw manifest node (as emitted by the Python lib).
-export interface PartNode {
-  id?: string;
-  ref?: string;
-  role?: string;
-  axis?: string;
-  groupRole?: string;
-  members?: string[];
-  children?: PartNode[];
-}
+// PartNode (the raw manifest scene-graph node) now lives in ./types alongside the
+// manifest it belongs to, and is re-exported here for existing importers.
+export type { PartNode };
 
 // A node rendered in the X-Ray tree.
 export interface XrayNode {

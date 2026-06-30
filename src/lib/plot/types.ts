@@ -50,8 +50,30 @@ export interface FluxPlotManifest {
   series: FluxPlotSeries[];
   guides?: FluxPlotGuide[];
   overlays?: FluxPlotOverlay[];
-  parts?: unknown;
-  build?: { order: string[]; presets?: Record<string, unknown> };
+  parts?: PartNode;
+  build?: { order: string[]; presets?: Record<string, FluxPlotBuildPreset> };
+}
+
+/** A node in the manifest's hierarchical part tree (the scene graph the generator
+ *  emits). A leaf has `id`/`ref`; a group carries `members` (concrete leaf ids); a
+ *  container carries `children`. Consumed by buildPartTree/resolveTargets and the
+ *  slide player's part targeting. */
+export interface PartNode {
+  id?: string;
+  ref?: string;
+  role?: string;
+  axis?: string;
+  groupRole?: string;
+  members?: string[];
+  children?: PartNode[];
+}
+
+/** A per-role default animation the generator suggests (manifest.build.presets),
+ *  e.g. { animation: "draw-on", durationMs: 400 } or stagger-in with staggerMs. */
+export interface FluxPlotBuildPreset {
+  animation: string;
+  durationMs?: number;
+  staggerMs?: number;
 }
 
 // Flat lookup of one addressable part, resolved from the manifest by semantic id.
