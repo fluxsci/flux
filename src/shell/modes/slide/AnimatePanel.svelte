@@ -6,11 +6,11 @@
   // Replaces the thin numbered beat strip. The X-ray tri-state (2.2) and per-track
   // editing (2.3) layer onto this shell.
   import { deck as deckStore, activeSlideId, activeBeat, selection, commitDeck } from "../../../lib/slide/store";
-  import { slideById, addBeat as addBeatOp, setPartVisibility } from "../../../lib/slide/ops";
+  import { slideById, addBeat as addBeatOp, setPartVisibility, deleteBeat as deleteBeatOp } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animatePart } from "../../../lib/slide/autobuild";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import { plotManifests } from "../../../lib/plot/store";
-  import type { Track } from "../../../lib/slide/types";
+  import type { Track, PresetName, Stagger } from "../../../lib/slide/types";
 
   const deck = $derived($deckStore);
   const slide = $derived(deck && $activeSlideId ? slideById(deck, $activeSlideId) : deck?.slides[0] ?? null);
@@ -56,6 +56,46 @@
       if (mode === "animate") animatePart(d, sid, plot.id, part, manifests[plot.assetId], $activeBeat);
       else setPartVisibility(d, plot.id, part, mode);
     });
+  }
+
+  // --- per-track editing (issue #5: many anims/beat + stagger + speed control) --
+  const EDIT_PRESETS: PresetName[] = ["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn", "highlight", "dim"];
+  const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
+  let selTrack = $state<{ bi: number; ti: number } | null>(null);
+  const curTrack = $derived.by(() => {
+    const st = selTrack;
+    if (!st || !slide) return null;
+    return slide.beats[st.bi]?.tracks[st.ti] ?? null;
+  });
+  function withTrack(fn: (t: Track) => void) {
+    const st = selTrack;
+    const sid = slide?.id;
+    if (!st || !sid) return;
+    commitDeck((d) => {
+      const t = slideById(d, sid)?.beats[st.bi]?.tracks[st.ti];
+      if (t) fn(t);
+    });
+  }
+  const patchTrack = (p: Partial<Track>) => withTrack((t) => Object.assign(t, p));
+  function patchStagger(p: Partial<Stagger>) {
+    withTrack((t) => {
+      if (p.perMs === 0) { delete t.stagger; return; }
+      t.stagger = { perMs: t.stagger?.perMs ?? 40, ...t.stagger, ...p } as Stagger;
+    });
+  }
+  function deleteTrack() {
+    const st = selTrack;
+    const sid = slide?.id;
+    if (!st || !sid) return;
+    commitDeck((d) => { slideById(d, sid)?.beats[st.bi]?.tracks.splice(st.ti, 1); });
+    selTrack = null;
+  }
+  function removeBeat(beatId: string, bi: number) {
+    const sid = slide?.id;
+    if (!sid || bi === 0) return;
+    commitDeck((d) => deleteBeatOp(d, sid, beatId));
+    if ($activeBeat >= bi) activeBeat.set(Math.max(0, $activeBeat - 1));
+    selTrack = null;
   }
 
   function autoAnimate() {
@@ -140,6 +180,7 @@
           <div class="head">
             <span class="bi">{bi === 0 ? "Start" : bi}</span>
             {#if b.label && bi > 0}<span class="lab">{b.label}</span>{/if}
+            {#if bi > 0}<button class="bx" title="Delete this beat" onclick={(e) => { e.stopPropagation(); removeBeat(b.id, bi); }}>✕</button>{/if}
           </div>
           <div class="body">
             {#if bi === 0}
@@ -148,7 +189,11 @@
               <div class="rest">no animations</div>
             {:else}
               {#each b.tracks as t, ti (ti)}
-                <div class="trk" style={`--pc:${PRESET_COLOR[t.preset ?? "fade"] ?? "#888"}`}>
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="trk" class:sel={selTrack?.bi === bi && selTrack?.ti === ti}
+                  style={`--pc:${PRESET_COLOR[t.preset ?? "fade"] ?? "#888"}`}
+                  onclick={(e) => { e.stopPropagation(); selTrack = { bi, ti }; activeBeat.set(bi); }}>
                   <span class="dot"></span>
                   <span class="nm" title={t.part ?? t.target}>{chip(t)}</span>
                   <span class="ps">{t.preset ?? "fade"}</span>
@@ -160,6 +205,40 @@
       {/each}
       </div>
     </div>
+
+    {#if curTrack}
+      <div class="track-editor">
+        <span class="te-nm" style={`--pc:${PRESET_COLOR[curTrack.preset ?? "fade"] ?? "#888"}`}>{chip(curTrack)}</span>
+        <label>preset
+          <select value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
+            {#each EDIT_PRESETS as p (p)}<option value={p}>{p}</option>{/each}
+          </select>
+        </label>
+        <label>dur <input type="number" min="0" step="50" value={curTrack.duration ?? 400} onchange={(e) => patchTrack({ duration: +e.currentTarget.value })} /><small>ms</small></label>
+        <label>start <input type="number" min="0" step="50" value={curTrack.start ?? 0} onchange={(e) => patchTrack({ start: +e.currentTarget.value })} /><small>ms</small></label>
+        <label>stagger <input type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></label>
+        {#if curTrack.stagger?.perMs}
+          <label>by
+            <select value={curTrack.stagger?.by ?? "index"} onchange={(e) => patchStagger({ by: e.currentTarget.value as Stagger["by"] })}>
+              <option value="index">order</option><option value="x">x →</option><option value="y">y ↑</option>
+            </select>
+          </label>
+          <label>from
+            <select value={curTrack.stagger?.from ?? "start"} onchange={(e) => patchStagger({ from: e.currentTarget.value as Stagger["from"] })}>
+              <option value="start">start</option><option value="end">end</option><option value="center">center</option><option value="edges">edges</option>
+            </select>
+          </label>
+        {/if}
+        <label>ease
+          <select value={curTrack.easing ?? "standard"} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"] })}>
+            {#each EASINGS as ee (ee)}<option value={ee}>{ee}</option>{/each}
+          </select>
+        </label>
+        <span class="spacer"></span>
+        <button class="del" onclick={deleteTrack}>Delete</button>
+        <button class="closex" title="Close editor" onclick={() => (selTrack = null)}>✕</button>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -172,7 +251,7 @@
     border-top: 1px solid var(--c-line, #282726);
     padding: 8px 10px 10px;
     background: var(--c-bg, #100f0f);
-    max-height: 240px;
+    max-height: 300px;
   }
   .bar { display: flex; align-items: center; gap: 8px; }
   .ttl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-3, #878580); }
@@ -242,9 +321,42 @@
   .rest { font-size: 10px; color: var(--c-tx-3, #6f6e69); font-style: italic; padding: 2px; }
   .trk {
     display: flex; align-items: center; gap: 6px;
-    font-size: 11px; padding: 2px 4px; border-radius: 4px;
+    font-size: 11px; padding: 2px 4px; border-radius: 4px; cursor: pointer;
     background: color-mix(in oklab, var(--pc) 12%, transparent);
   }
+  .trk:hover { background: color-mix(in oklab, var(--pc) 22%, transparent); }
+  .trk.sel { outline: 1px solid var(--pc); background: color-mix(in oklab, var(--pc) 26%, transparent); }
+  .head { position: relative; }
+  .bx {
+    margin-left: auto; width: 15px; height: 15px; padding: 0; flex: 0 0 auto;
+    border: none; background: none; color: var(--c-tx-3, #6f6e69); cursor: pointer; font-size: 9px; opacity: 0;
+  }
+  .col:hover .bx { opacity: 1; }
+  .bx:hover { color: var(--c-de, #d14d41); }
+  .track-editor {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 6px 8px; border: 1px solid var(--c-accent, #4385be); border-radius: 6px;
+    background: color-mix(in oklab, var(--c-accent, #4385be) 8%, var(--c-bg-2, #1c1b1a));
+    font-size: 11px;
+  }
+  .te-nm {
+    font-weight: 600; color: var(--c-tx-hi, #cecdc3);
+    border-left: 3px solid var(--pc); padding-left: 6px;
+  }
+  .track-editor label { display: inline-flex; align-items: center; gap: 4px; color: var(--c-tx-3, #878580); }
+  .track-editor small { color: var(--c-tx-3, #6f6e69); }
+  .track-editor select, .track-editor input {
+    font-size: 11px; color: var(--c-tx, #cecdc3); background: var(--c-bg, #100f0f);
+    border: 1px solid var(--c-line-strong, #343331); border-radius: 4px; padding: 2px 5px;
+  }
+  .track-editor input { width: 52px; }
+  .del {
+    font-size: 11px; color: var(--c-de, #d14d41); background: none;
+    border: 1px solid color-mix(in oklab, var(--c-de, #d14d41) 50%, transparent);
+    border-radius: 4px; padding: 3px 9px; cursor: pointer;
+  }
+  .del:hover { background: color-mix(in oklab, var(--c-de, #d14d41) 14%, transparent); }
+  .closex { border: none; background: none; color: var(--c-tx-3, #6f6e69); cursor: pointer; font-size: 11px; padding: 2px; }
   .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--pc); flex: 0 0 auto; }
   .nm { color: var(--c-tx, #cecdc3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .ps { color: var(--c-tx-3, #878580); font-size: 10px; flex: 0 0 auto; }
