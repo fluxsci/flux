@@ -25,6 +25,19 @@
     return el && el.type === "plot" ? el : null;
   });
   const selManifest = $derived(selPlot ? manifests[selPlot.assetId] : undefined);
+  // When a slide carries >1 plot, tag each plot element P1/P2/… (in slide order)
+  // so the timeline stays legible — two plots can both own a "setosa.points", and
+  // the chip/editor disambiguate which plot a track animates. Single-plot slides
+  // get no tags (kept clean).
+  const plotTags = $derived.by(() => {
+    const m = new Map<string, string>();
+    const plots = slide?.elements.filter((e) => e.type === "plot") ?? [];
+    if (plots.length > 1) plots.forEach((e, i) => m.set(e.id, `P${i + 1}`));
+    return m;
+  });
+  // a track belongs to a different plot than the selected one → dim it so the
+  // selected plot's tracks stand out in a shared, multi-plot timeline.
+  const isOtherPlot = (t: Track) => !!selPlot && t.target !== selPlot.id && plotTags.has(t.target);
 
   // --- X-ray parts tree: per-part show / animate / mask (the figure X-ray, here) ---
   let collapsed = $state(new Set<string>());
@@ -226,6 +239,9 @@
     queueMicrotask(() => document.querySelector(`.parts .row[data-part="${fp.part}"]`)?.scrollIntoView({ block: "nearest" }));
   });
 
+  function focusDock() {
+    animEl?.focus({ preventScroll: true });
+  }
   function autoAnimate() {
     const sid = slide?.id;
     const plot = selPlot;
@@ -233,7 +249,16 @@
     const manifest = manifests[plot.assetId];
     let added = 0;
     commitDeck((d) => { added = applyAutoAnimation(d, sid, plot.id, manifest); });
-    if (added) activeBeat.set(1);
+    if (added) {
+      activeBeat.set(1);
+      // Hand the keyboard cockpit focus + a starting selection so the arrows/
+      // letters work immediately (no hidden "click a track first" step).
+      queueMicrotask(() => {
+        const first = slide?.beats[1]?.tracks.find((t) => t.target === plot.id) ?? slide?.beats[1]?.tracks[0];
+        selTrackIds = first?.id ? [first.id] : [];
+        focusDock();
+      });
+    }
   }
 
   // --- camera + morph authoring (3.1) -----------------------------------------
@@ -290,13 +315,16 @@
     if (idx > 0) activeBeat.set(idx);
   }
 
-  // a compact label for a track on the timeline
+  // a compact label for a track on the timeline (prefixed with the plot tag when
+  // the slide has multiple plots, so identical part names stay distinguishable).
   function chip(t: Track): string {
     if (t.target.startsWith("@")) return t.target.slice(1);
-    if (t.part) return t.part.split(".").slice(-2).join(".");
-    if (t.selector?.blocks) return "bullets";
+    const tag = plotTags.get(t.target);
+    const pre = tag ? `${tag} · ` : "";
+    if (t.part) return pre + t.part.split(".").slice(-2).join(".");
+    if (t.selector?.blocks) return pre + "bullets";
     const el = slide?.elements.find((e) => e.id === t.target);
-    return el?.type ?? "elem";
+    return pre + (el?.type ?? "elem");
   }
 
   const PRESET_COLOR: Record<string, string> = {
@@ -342,6 +370,9 @@
         <button class="b play" onclick={() => onPreview?.()} title="Play this slide's build on the stage">▶ Preview</button>
       {/if}
       <span class="spacer"></span>
+      <span class="keyhint" title="When the Animator has focus (click a track first): arrows navigate, Enter edits, letters jump to fields">
+        <kbd>←→</kbd>beat <kbd>↑↓</kbd>track <kbd>↵</kbd>edit
+      </span>
       {#if selPlot}<span class="tag">plot selected — try ✨</span>{:else}<span class="tag dim">select a plot to auto-animate</span>{/if}
     </div>
 
@@ -372,7 +403,7 @@
       {#each slide.beats as b, bi (b.id)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="col" class:cur={bi === $activeBeat} onclick={() => activeBeat.set(bi)}>
+        <div class="col" class:cur={bi === $activeBeat} onclick={() => { activeBeat.set(bi); focusDock(); }}>
           <div class="head">
             <span class="bi">{bi === 0 ? "Start" : bi}</span>
             {#if b.label && bi > 0}<span class="lab">{b.label}</span>{/if}
@@ -387,9 +418,9 @@
               {#each b.tracks as t, ti (t.id ?? ti)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div class="trk" class:sel={!!t.id && selTrackIds.includes(t.id)}
+                <div class="trk" class:sel={!!t.id && selTrackIds.includes(t.id)} class:dim={isOtherPlot(t)}
                   style={`--pc:${PRESET_COLOR[t.preset ?? "fade"] ?? "#888"}`}
-                  title="Click to select · Shift/Ctrl-click to multi-select for bulk edits"
+                  title={isOtherPlot(t) ? "Belongs to another plot — select that plot to edit it" : "Click to select · Shift/Ctrl-click to multi-select for bulk edits"}
                   onclick={(e) => { e.stopPropagation(); selectTrack(t.id, e.shiftKey || e.metaKey || e.ctrlKey); activeBeat.set(bi); animEl?.focus({ preventScroll: true }); }}>
                   <span class="dot"></span>
                   <span class="nm" title={t.part ?? t.target}>{chip(t)}</span>
@@ -409,14 +440,14 @@
         {#if selTracks.length > 1 && (mixed((t) => t.preset) || mixed((t) => t.duration ?? 400) || mixed((t) => t.start ?? 0) || mixed((t) => t.stagger?.perMs ?? 0) || mixed((t) => t.easing ?? "standard"))}
           <span class="te-mixed" title="Selected tracks differ on some fields — editing a field sets it on ALL of them">mixed</span>
         {/if}
-        <label>preset
+        <label>preset<kbd class="kc" title="shortcut: p">p</kbd>
           <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
             {#each EDIT_PRESETS as p (p)}<option value={p}>{p}</option>{/each}
           </select>
         </label>
-        <label>dur <input data-fld="d" type="number" min="0" step="50" value={curTrack.duration ?? 400} onchange={(e) => patchTrack({ duration: +e.currentTarget.value })} /><small>ms</small></label>
-        <label>start <input data-fld="t" type="number" min="0" step="50" value={curTrack.start ?? 0} onchange={(e) => patchTrack({ start: +e.currentTarget.value })} /><small>ms</small></label>
-        <label>stagger <input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></label>
+        <label>dur<kbd class="kc" title="shortcut: d">d</kbd> <input data-fld="d" type="number" min="0" step="50" value={curTrack.duration ?? 400} onchange={(e) => patchTrack({ duration: +e.currentTarget.value })} /><small>ms</small></label>
+        <label>start<kbd class="kc" title="shortcut: t">t</kbd> <input data-fld="t" type="number" min="0" step="50" value={curTrack.start ?? 0} onchange={(e) => patchTrack({ start: +e.currentTarget.value })} /><small>ms</small></label>
+        <label>stagger<kbd class="kc" title="shortcut: g">g</kbd> <input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></label>
         {#if curTrack.stagger?.perMs}
           <label>by
             <select value={curTrack.stagger?.by ?? "index"} onchange={(e) => patchStagger({ by: e.currentTarget.value as Stagger["by"] })}>
@@ -429,14 +460,14 @@
             </select>
           </label>
         {/if}
-        <label>ease
+        <label>ease<kbd class="kc" title="shortcut: e">e</kbd>
           <select data-fld="e" value={curTrack.easing ?? "standard"} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"] })}>
             {#each EASINGS as ee (ee)}<option value={ee}>{ee}</option>{/each}
           </select>
         </label>
         <span class="infl" title="Velocity profile (After Effects influence). out = slow-out at the start, in = slow-in at the end. When either is > 0 it overrides the named ease.">
           <small>infl</small>
-          <input data-fld="o" type="number" min="0" max="100" step="5" value={curTrack.influence?.out ?? 0} onchange={(e) => setInfluence({ out: +e.currentTarget.value })} /><small>out</small>
+          <input data-fld="o" type="number" min="0" max="100" step="5" value={curTrack.influence?.out ?? 0} onchange={(e) => setInfluence({ out: +e.currentTarget.value })} /><small>out<kbd class="kc" title="shortcut: o">o</kbd></small>
           <input type="number" min="0" max="100" step="5" value={curTrack.influence?.in ?? 0} onchange={(e) => setInfluence({ in: +e.currentTarget.value })} /><small>in</small>
           <span class="ipresets">
             {#each INFLUENCE_PRESETS as p (p.name)}
@@ -465,8 +496,11 @@
     outline: none;
     position: relative;
   }
-  /* keyboard-cockpit affordance: a thin accent edge only on keyboard focus */
-  .animator:focus-visible { box-shadow: inset 0 2px 0 0 var(--c-accent, #4385be); }
+  /* keyboard-cockpit affordance: a thin accent edge whenever the dock holds focus
+     (programmatic focus after auto-animate / a click counts, so the keys feel live) */
+  .animator:focus-within { box-shadow: inset 0 2px 0 0 var(--c-accent, #4385be); }
+  .animator:focus-within .keyhint { color: var(--c-tx-2, #878580); }
+  .animator:focus-within .keyhint kbd { border-color: color-mix(in oklab, var(--c-accent, #4385be) 45%, var(--c-line, #403e3c)); }
   /* draggable top edge (C1) — a hit-strip straddling the dock's top border */
   .dock-gutter {
     position: absolute; top: -3px; left: 0; right: 0; height: 7px;
@@ -559,6 +593,24 @@
   }
   .trk:hover { background: color-mix(in oklab, var(--pc) 22%, transparent); }
   .trk.sel { outline: 1px solid var(--pc); background: color-mix(in oklab, var(--pc) 26%, transparent); }
+  /* tracks owned by a non-selected plot recede so the selected plot's stand out */
+  .trk.dim { opacity: 0.4; }
+  .trk.dim:hover { opacity: 0.72; }
+  /* keyboard-shortcut badges next to each editor field (the cockpit cues) */
+  .kc {
+    margin-left: 3px; padding: 0 3px; border-radius: 3px; vertical-align: middle;
+    font: 600 9px/1.5 var(--font-mono, ui-monospace, monospace);
+    color: var(--c-accent, #4385be);
+    background: color-mix(in oklab, var(--c-accent, #4385be) 16%, transparent);
+    border: 1px solid color-mix(in oklab, var(--c-accent, #4385be) 32%, transparent);
+  }
+  .keyhint { font-size: 10px; color: var(--c-tx-3, #6f6e69); white-space: nowrap; }
+  .keyhint kbd {
+    margin: 0 2px 0 6px; padding: 0 3px; border-radius: 3px;
+    font: 600 9px/1.5 var(--font-mono, ui-monospace, monospace);
+    color: var(--c-tx-2, #878580); background: var(--c-bg-2, #1c1b1a);
+    border: 1px solid var(--c-line, #403e3c);
+  }
   .head { position: relative; }
   .bx {
     margin-left: auto; width: 15px; height: 15px; padding: 0; flex: 0 0 auto;

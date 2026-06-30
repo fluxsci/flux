@@ -222,14 +222,51 @@ export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, man
   return bi;
 }
 
-/** Apply an auto-build to a slide: replace its beats with [resting, …phase beats].
- *  Returns the number of build beats added (0 if the plot had no parts tree). */
+/** The phase-order rank of a beat: the resting beat sorts first, auto phase beats
+ *  by their phase index (auto-0 < auto-1 …), and any manual beat after the auto
+ *  build. Used to slot a newly-produced phase beat into the right position. */
+function phaseRank(b: Beat, index: number): number {
+  if (index === 0) return -1; // beat 0 is always the resting state
+  if (b.id.startsWith("auto-")) return Number(b.id.slice(5)) || 0;
+  return Number.POSITIVE_INFINITY; // manual beats follow the auto build
+}
+
+/** Apply an auto-build for ONE plot element to a slide WITHOUT disturbing the
+ *  animations of any other element. Re-running it for the same element replaces
+ *  only that element's tracks (idempotent); running it for a second plot MERGES
+ *  that plot's phase tracks into the shared phase beats (Axes / Gridlines / Data /
+ *  Legend) so both plots build in coherent layers instead of one clobbering the
+ *  other. Returns the number of build beats this element contributed (0 if the
+ *  plot had no parts tree — the caller falls back to a whole-element fade). */
 export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: FluxPlotManifest | undefined): number {
   const slide = slideById(deck, slideId);
   if (!slide) return 0;
   const auto = autoAnimatePlot(manifest, elId);
   if (!auto.length) return 0;
-  const base: Beat = slide.beats[0]?.tracks.length === 0 ? slide.beats[0] : { id: "base", label: "Start", tracks: [] };
-  slide.beats = [base, ...auto];
+
+  // 1. Drop ONLY this element's existing tracks (idempotent re-animate); every
+  //    other element's tracks stay exactly where they are.
+  for (const b of slide.beats) b.tracks = b.tracks.filter((t) => t.target !== elId);
+
+  // 2. Guarantee a resting beat 0.
+  if (!slide.beats.length) slide.beats = [{ id: "base", label: "Start", tracks: [] }];
+
+  // 3. Merge each phase beat by id: append this element's tracks to an existing
+  //    phase beat, or insert the missing phase beat in phase order.
+  for (const ab of auto) {
+    const existing = slide.beats.find((b) => b.id === ab.id);
+    if (existing) {
+      existing.tracks.push(...ab.tracks);
+    } else {
+      const r = phaseRank(ab, 1);
+      let i = 1;
+      while (i < slide.beats.length && phaseRank(slide.beats[i], i) <= r) i++;
+      slide.beats.splice(i, 0, ab);
+    }
+  }
+
+  // 4. Remove any auto-* phase beat left empty (a phase this element no longer
+  //    produces and no other element fills) — never the resting or a manual beat.
+  slide.beats = slide.beats.filter((b, i) => i === 0 || b.tracks.length > 0 || !b.id.startsWith("auto-"));
   return auto.length;
 }
