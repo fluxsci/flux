@@ -124,6 +124,54 @@
     selTrackIds = [];
   }
 
+  // --- keyboard cockpit (the "f-menu" for animations) -------------------------
+  // Element-scoped (fires only when the Animator has focus), so it never fights
+  // the stage/slide window shortcuts. ←/→ = beat, ↑/↓ = track, Enter = into the
+  // editor, p/d/t/g/e jump to preset / dur / start / staGger / easE, Esc clears.
+  let animEl = $state<HTMLDivElement | null>(null);
+  function focusField(k: string) {
+    (animEl?.querySelector(`[data-fld="${k}"]`) as HTMLElement | null)?.focus();
+  }
+  function navBeat(dir: number) {
+    if (!slide) return;
+    const next = Math.max(0, Math.min(slide.beats.length - 1, $activeBeat + dir));
+    activeBeat.set(next);
+    const first = slide.beats[next]?.tracks[0];
+    selTrackIds = first?.id ? [first.id] : [];
+  }
+  function navTrack(dir: number) {
+    if (!slide) return;
+    const tracks = slide.beats[$activeBeat]?.tracks ?? [];
+    if (!tracks.length) return;
+    const curId = selTrackIds[selTrackIds.length - 1];
+    const ci = tracks.findIndex((t) => t.id === curId);
+    const ni = ci < 0 ? (dir > 0 ? 0 : tracks.length - 1) : Math.max(0, Math.min(tracks.length - 1, ci + dir));
+    const t = tracks[ni];
+    selTrackIds = t?.id ? [t.id] : [];
+  }
+  function onAnimKey(e: KeyboardEvent) {
+    const tgt = e.target as HTMLElement;
+    if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "SELECT" || tgt.tagName === "TEXTAREA")) {
+      // inside a field: Enter/Esc hands focus back to the panel so nav keys resume
+      if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); tgt.blur(); animEl?.focus({ preventScroll: true }); }
+      return;
+    }
+    switch (e.key) {
+      case "ArrowLeft": e.preventDefault(); navBeat(-1); break;
+      case "ArrowRight": e.preventDefault(); navBeat(1); break;
+      case "ArrowUp": e.preventDefault(); navTrack(-1); break;
+      case "ArrowDown": e.preventDefault(); navTrack(1); break;
+      case "Enter": e.preventDefault(); focusField("p"); break;
+      case "Escape": e.preventDefault(); selTrackIds = []; break;
+      case "p": case "d": case "t": case "g": case "e": e.preventDefault(); focusField(e.key); break;
+    }
+  }
+  // Window-level, but only acts when focus is inside the Animator — avoids a div
+  // keydown listener (a11y) while still never firing for the stage/slide shortcuts.
+  function onWinKey(e: KeyboardEvent) {
+    if (animEl && animEl.contains(document.activeElement)) onAnimKey(e);
+  }
+
   // direct manipulation: a part clicked on the stage → open its track + reveal its
   // X-ray row (so clicking a scatter point jumps you straight to its animation).
   $effect(() => {
@@ -216,8 +264,10 @@
   };
 </script>
 
+<svelte:window onkeydown={onWinKey} />
 {#if slide}
-  <div class="animator">
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="animator" bind:this={animEl} tabindex="0" role="group" aria-label="Animation timeline">
     <div class="bar">
       <strong class="ttl">Animation</strong>
       {#if selPlot}
@@ -295,7 +345,7 @@
                 <div class="trk" class:sel={!!t.id && selTrackIds.includes(t.id)}
                   style={`--pc:${PRESET_COLOR[t.preset ?? "fade"] ?? "#888"}`}
                   title="Click to select · Shift/Ctrl-click to multi-select for bulk edits"
-                  onclick={(e) => { e.stopPropagation(); selectTrack(t.id, e.shiftKey || e.metaKey || e.ctrlKey); activeBeat.set(bi); }}>
+                  onclick={(e) => { e.stopPropagation(); selectTrack(t.id, e.shiftKey || e.metaKey || e.ctrlKey); activeBeat.set(bi); animEl?.focus({ preventScroll: true }); }}>
                   <span class="dot"></span>
                   <span class="nm" title={t.part ?? t.target}>{chip(t)}</span>
                   <span class="ps">{t.preset ?? "fade"}</span>
@@ -315,13 +365,13 @@
           <span class="te-mixed" title="Selected tracks differ on some fields — editing a field sets it on ALL of them">mixed</span>
         {/if}
         <label>preset
-          <select value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
+          <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
             {#each EDIT_PRESETS as p (p)}<option value={p}>{p}</option>{/each}
           </select>
         </label>
-        <label>dur <input type="number" min="0" step="50" value={curTrack.duration ?? 400} onchange={(e) => patchTrack({ duration: +e.currentTarget.value })} /><small>ms</small></label>
-        <label>start <input type="number" min="0" step="50" value={curTrack.start ?? 0} onchange={(e) => patchTrack({ start: +e.currentTarget.value })} /><small>ms</small></label>
-        <label>stagger <input type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></label>
+        <label>dur <input data-fld="d" type="number" min="0" step="50" value={curTrack.duration ?? 400} onchange={(e) => patchTrack({ duration: +e.currentTarget.value })} /><small>ms</small></label>
+        <label>start <input data-fld="t" type="number" min="0" step="50" value={curTrack.start ?? 0} onchange={(e) => patchTrack({ start: +e.currentTarget.value })} /><small>ms</small></label>
+        <label>stagger <input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></label>
         {#if curTrack.stagger?.perMs}
           <label>by
             <select value={curTrack.stagger?.by ?? "index"} onchange={(e) => patchStagger({ by: e.currentTarget.value as Stagger["by"] })}>
@@ -335,7 +385,7 @@
           </label>
         {/if}
         <label>ease
-          <select value={curTrack.easing ?? "standard"} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"] })}>
+          <select data-fld="e" value={curTrack.easing ?? "standard"} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"] })}>
             {#each EASINGS as ee (ee)}<option value={ee}>{ee}</option>{/each}
           </select>
         </label>
@@ -357,7 +407,10 @@
     padding: 8px 10px 10px;
     background: var(--c-bg, #100f0f);
     max-height: 300px;
+    outline: none;
   }
+  /* keyboard-cockpit affordance: a thin accent edge only on keyboard focus */
+  .animator:focus-visible { box-shadow: inset 0 2px 0 0 var(--c-accent, #4385be); }
   .bar { display: flex; align-items: center; gap: 8px; }
   .ttl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-3, #878580); }
   .spacer { flex: 1; }
