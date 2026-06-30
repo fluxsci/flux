@@ -174,6 +174,35 @@ function planToTrack(pt: PlanTrack, elId: string, phase: number, peers: PlanTrac
   return track;
 }
 
+/** Find a node by id anywhere in an xray tree. */
+function findNode(root: XrayNode, id: string): XrayNode | null {
+  if (root.id === id) return root;
+  for (const c of root.children) {
+    const f = findNode(c, id);
+    if (f) return f;
+  }
+  return null;
+}
+
+/** A sensible single default Track for one part (used by the X-ray "Animate"
+ *  toggle): the plot's authored preset for that role, role-corrected, with a
+ *  spatial stagger for point/bar groups. Falls back to a plain fade. */
+export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: string, part: string): Track {
+  const xray = buildPartTree(manifest);
+  const node = xray ? findNode(xray, part) : null;
+  const role = node?.role ?? "";
+  const presets = manifest?.build?.presets ?? {};
+  const anim = presets[role]?.animation ?? presets[highLevelKey(role)]?.animation;
+  const preset = presetForRole(role, anim);
+  const cfg = presets[role] ?? presets[highLevelKey(role)];
+  const track: Track = { target: elId, part, preset, duration: cfg?.durationMs ?? DEFAULT_DUR[preset] ?? 400, start: 0 };
+  if (preset === "stagger") {
+    track.stagger = { perMs: cfg?.staggerMs ?? 40, by: "x", from: "start" };
+    track.params = { child: "fade" };
+  }
+  return track;
+}
+
 /** Apply an auto-build to a slide: replace its beats with [resting, …phase beats].
  *  Returns the number of build beats added (0 if the plot had no parts tree). */
 export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: FluxPlotManifest | undefined): number {

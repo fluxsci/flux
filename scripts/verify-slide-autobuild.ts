@@ -5,7 +5,8 @@
 // their own step, the fit line draws itself as the points stagger in left→right,
 // legend last. Run: npx tsx scripts/verify-slide-autobuild.ts
 import * as fs from "node:fs/promises";
-import { autoAnimatePlot } from "../src/lib/slide/autobuild";
+import * as slideOps from "../src/lib/slide/ops";
+import { autoAnimatePlot, applyAutoAnimation } from "../src/lib/slide/autobuild";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 
 function assert(cond: unknown, msg: string) {
@@ -53,5 +54,20 @@ assert(legend.tracks.length > 0 && legend.tracks.every((t) => t.preset === "fade
 
 // --- every track targets the placed element ----------------------------------
 assert(beats.every((b) => b.tracks.every((t) => t.target === "plot1")), "every track targets the placed plot element id");
+
+// --- applyAutoAnimation: the GUI's ✨ button path (deck mutation) -------------
+const deck = slideOps.createDeck({ id: "ab", title: "Autobuild" });
+const sid = slideOps.addSlide(deck, { name: "S", layout: "blank" }).id;
+const plotId = slideOps.addPlotToSlide(deck, sid, { assetId: "scatterA", x: 0, y: 0, width: 800, height: 500 })!;
+const added = applyAutoAnimation(deck, sid, plotId, manifest);
+const s = slideOps.slideById(deck, sid)!;
+assert(added === 4, "applyAutoAnimation reports 4 build beats added");
+assert(s.beats.length === 5, "slide now has [resting + 4 phase] beats");
+assert(s.beats[0].tracks.length === 0, "beat 0 is the resting (empty) beat");
+assert(s.beats[1].label === "Axes" && s.beats[4].label === "Legend & annotations", "phase beats in order");
+assert(s.beats.slice(1).every((b) => b.tracks.every((t) => t.target === plotId)), "every track targets the placed plot element id");
+// a plot with no manifest → no-op (the GUI falls back / disables the button)
+const added0 = applyAutoAnimation(deck, sid, plotId, undefined);
+assert(added0 === 0, "applyAutoAnimation is a no-op when the plot has no manifest");
 
 console.log("\nALL AUTOBUILD (anim 1.4) TESTS PASSED");
