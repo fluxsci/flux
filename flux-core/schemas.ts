@@ -218,6 +218,110 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
+  deck: {
+    $schema: draft,
+    $id: "flux/deck.schema.json",
+    title: "Flux Slide deck (slides/<id>/deck.json)",
+    type: "object",
+    // Lenient (additionalProperties allowed everywhere so the format can grow),
+    // strict only on the load-bearing fields: schemaVersion/id/slides and the
+    // per-slide/element/track join keys an agent must get right.
+    required: ["schemaVersion", "id", "slides"],
+    properties: {
+      schemaVersion: { type: "string" },
+      id: { type: "string" },
+      title: { type: "string" },
+      created: { type: "string" },
+      modified: { type: "string" },
+      stage: {
+        type: "object",
+        properties: { width: { type: "number" }, height: { type: "number" } },
+      },
+      theme: { type: "string" },
+      defaults: { type: "object" },
+      assets: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["id", "kind", "path"],
+          properties: {
+            id: { type: "string" },
+            kind: { type: "string" },
+            path: { type: "string" },
+            naturalWidth: { type: "number" },
+            naturalHeight: { type: "number" },
+          },
+        },
+      },
+      slides: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["id", "elements", "beats"],
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            layout: { type: "string" },
+            background: { type: "string" },
+            transition: { type: "string" },
+            notes: { type: "string" },
+            camera: { type: "object" },
+            elements: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["id", "type"],
+                properties: {
+                  id: { type: "string" },
+                  type: { type: "string" },
+                  x: { type: "number" },
+                  y: { type: "number" },
+                  width: { type: "number" },
+                  height: { type: "number" },
+                  rotation: { type: "number" },
+                  opacity: { type: "number" },
+                },
+              },
+            },
+            beats: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["id"],
+                properties: {
+                  id: { type: "string" },
+                  label: { type: "string" },
+                  advance: { type: "string", enum: ["click", "with-prev", "auto"] },
+                  autoDelayMs: { type: "number" },
+                  tracks: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      required: ["target"],
+                      properties: {
+                        target: { type: "string" },
+                        part: { type: "string" },
+                        selector: { type: "object" },
+                        preset: { type: "string" },
+                        params: { type: "object" },
+                        start: { type: "number" },
+                        duration: { type: "number" },
+                        easing: { type: "string" },
+                        stagger: { type: "object" },
+                        to: { type: "object" },
+                        keyframes: { type: "array" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+
   comments: {
     $schema: draft,
     $id: "flux/comments.schema.json",
@@ -251,6 +355,7 @@ export function schemaForFile(rel: string): keyof typeof SCHEMAS | null {
   if (/fig\/canvases\/[^/]+\.json$/.test(f)) return "canvas";
   if (f.endsWith(".fluxplot.json")) return "manifest";
   if (f.endsWith(".recipe.json")) return "recipe";
+  if (/slides\/[^/]+\/deck\.json$/.test(f)) return "deck";
   if (f.endsWith(".comments.json") || f.endsWith("comments.json")) return "comments";
   return null;
 }
@@ -262,5 +367,6 @@ export const SCHEMA_FILENAMES: Record<keyof typeof SCHEMAS, string> = {
   canvas: "canvas.schema.json",
   manifest: "fluxplot-manifest.schema.json",
   recipe: "recipe.schema.json",
+  deck: "deck.schema.json",
   comments: "comments.schema.json",
 };

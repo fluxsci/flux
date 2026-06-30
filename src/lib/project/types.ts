@@ -32,9 +32,14 @@ export interface FigureEntry {
   caption: string;
 }
 
+// A deck registered in project.json.slides[]. Extended leniently beyond the
+// original {id,path} with optional title/order (Flux Slide — the file is the
+// API; unknown future fields round-trip untouched).
 export interface SlideEntry {
   id: string;
   path: string;
+  title?: string;
+  order?: number;
 }
 
 export interface ProjectManifest {

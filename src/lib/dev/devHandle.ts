@@ -15,6 +15,8 @@ import * as caps from "../captions";
 import * as bridge from "../project/figbridge";
 import * as plot from "../plot/store";
 import * as io from "../io";
+import * as slide from "../slide/store";
+import * as slideBridge from "../project/slideBridge";
 
 export interface FluxDevHandle {
   /** Snapshot any Svelte store: `__flux.get(__flux.fig.project)`. */
@@ -33,6 +35,10 @@ export interface FluxDevHandle {
   plot: typeof plot;
   /** Asset/plot I/O incl. reimportPlot (F2 hot-swap). */
   io: typeof io;
+  /** Flux Slide editor stores (deck, deckDirty, activeSlideId, commitDeck, …). */
+  slide: typeof slide;
+  /** Slide deck bridge (listProjectDecks, loadDeckInto, saveDeckFrom, …). */
+  slideBridge: typeof slideBridge;
   /** Convenience: the current figures array. */
   figures: () => unknown[];
   /** Live CodeMirror editor views (one per open Paper pane). */
@@ -51,6 +57,8 @@ export function installDevHandle(): void {
     bridge,
     plot,
     io,
+    slide,
+    slideBridge,
     figures: () => get(fig.project).figures,
     editors: existing.editors ?? [],
   } satisfies FluxDevHandle;

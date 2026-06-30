@@ -67,8 +67,11 @@ export interface Asset {
   naturalHeight: number;
 }
 
-// Common transform/style fields shared by every element.
-interface ElementBase {
+// Common transform/style fields shared by every element. Exported so the Flux
+// Slide element superset (src/lib/slide/types.ts) can extend it — the slide-only
+// types (textBox/math/video/embedFigure) reuse the same base so position/size/
+// rotation/opacity/group + the editor's drag/resize/snap are uniform.
+export interface ElementBase {
   id: Id;
   name?: string;
   x: number;
