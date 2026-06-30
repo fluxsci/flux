@@ -496,7 +496,11 @@
   .scaled {
     position: relative;
     border: 1px solid var(--c-line-strong, #343331);
-    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+    /* a crisp light hairline reads against the near-black canvas regardless of
+     *  the slide's own background colour; the deeper shadow lifts it off. */
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 16px 48px rgba(0, 0, 0, 0.62);
     touch-action: none;
   }
   .stage {

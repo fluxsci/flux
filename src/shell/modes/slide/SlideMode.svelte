@@ -327,7 +327,7 @@
     <button class="tool" onclick={addText} disabled={!activeSlide}>Text</button>
     <button class="tool" onclick={addBullets} disabled={!activeSlide}>Bullets</button>
     <button class="tool" onclick={addMath} disabled={!activeSlide}>Math</button>
-    <button class="tool accent" onclick={openPlotBrowser} disabled={!activeSlide} title="Browse + insert a project plot (semantic — animatable & morphable)">Plot…</button>
+    <button class="tool" class:active={$importerOpen} onclick={openPlotBrowser} disabled={!activeSlide} title="Browse + insert a project plot (semantic — animatable & morphable) · Alt+I">Plot…</button>
     <span class="div"></span>
     <button class="tool" onclick={addRect} disabled={!activeSlide}>Rect</button>
     <button class="tool" onclick={addEllipse} disabled={!activeSlide}>Ellipse</button>
@@ -472,8 +472,8 @@
     color: var(--c-tx-2); cursor: pointer; font-size: var(--ts-sm); padding: 3px 11px;
   }
   .tool:hover:not(:disabled) { border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .tool.accent { border-color: var(--c-accent); color: var(--c-accent-bright); }
-  .tool.accent:hover:not(:disabled) { background: var(--c-accent); color: var(--c-on-accent); }
+  /* lit only while the plot importer is open (was a permanent .accent → looked stuck) */
+  .tool.active { border-color: var(--c-accent); background: var(--c-accent); color: var(--c-on-accent); }
   .div { width: 1px; height: 18px; background: var(--c-line); margin: 0 4px; }
   .insert-wrap { position: relative; }
   .insert-menu {
