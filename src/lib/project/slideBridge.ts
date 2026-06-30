@@ -11,7 +11,7 @@ import { fileBridge, joinPath, type ProjectManifest } from "./types";
 import type { Deck, SlideElement } from "../slide/types";
 import { createDeck as createDeckModel } from "../slide/ops";
 import { deck as deckStore, loadDeckModel, deckDirty } from "../slide/store";
-import { cachePlot, hasPlotDom } from "../plot/store";
+import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
 import type { FluxPlotManifest } from "../plot/types";
 import { readFigSource } from "./figbridge";
 import { figureToSvg } from "../export";
@@ -233,14 +233,30 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
   if (fig) {
     const plots = deck.slides.flatMap((s) => s.elements).filter((e): e is Extract<SlideElement, { type: "plot" }> => e.type === "plot");
     for (const el of plots) {
-      if (hasPlotDom(el.assetId) || !el.source?.svgPath) continue;
+      if (!el.source?.svgPath) continue;
+      const haveDom = hasPlotDom(el.assetId);
+      const haveManifest = !!get(plotManifests)[el.assetId];
+      if (haveDom && haveManifest) continue; // fully cached — nothing to do
       try {
-        const svgText = await fig.readText(joinPath(root, el.source.svgPath));
+        // Prefer an explicit manifestPath; otherwise fall back to the
+        // `.fluxplot.json` SIBLING of the SVG — the exact convention the plot
+        // importer uses to flag a plot "semantic". Decks authored before
+        // manifestPath was persisted carry only svgPath, so without this their
+        // plots cache with no manifest and Auto-animate reports "no build
+        // manifest" even though the sidecar sits right next to the SVG.
+        const manifestPath = el.source.manifestPath ?? el.source.svgPath.replace(/\.svg$/i, ".fluxplot.json");
         let manifest: FluxPlotManifest | undefined;
-        if (el.source.manifestPath) {
-          try { manifest = JSON.parse(await fig.readText(joinPath(root, el.source.manifestPath))) as FluxPlotManifest; } catch { /* manifest optional */ }
+        try { manifest = JSON.parse(await fig.readText(joinPath(root, manifestPath))) as FluxPlotManifest; } catch { /* no sidecar — a non-semantic plot */ }
+        if (!haveDom) {
+          // first time: parse the SVG + register dom + manifest together.
+          const svgText = await fig.readText(joinPath(root, el.source.svgPath));
+          cachePlot(el.assetId, svgText, manifest as FluxPlotManifest);
+        } else if (manifest) {
+          // dom is already cached (e.g. authored by code that didn't load the
+          // manifest); backfill JUST the manifest without re-parsing the SVG, so
+          // an in-app reload heals an already-loaded plot without a restart.
+          plotManifests.update((m) => ({ ...m, [el.assetId]: manifest as FluxPlotManifest }));
         }
-        cachePlot(el.assetId, svgText, manifest as FluxPlotManifest);
       } catch {
         /* unreadable plot — element shows a placeholder */
       }
