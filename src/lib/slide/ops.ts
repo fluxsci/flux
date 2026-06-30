@@ -14,7 +14,7 @@
 // SemanticPlotElement), the id leaf, and the theme defaults.
 // ---------------------------------------------------------------------------
 
-import type { Element, Id, RectElement, EllipseElement, LineElement } from "../types";
+import type { Element, Id, RectElement, EllipseElement, LineElement, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { makePlotPanel, makeImagePanel, type Box } from "../ops";
 import { DEFAULT_THEME_ID } from "./theme";
@@ -390,6 +390,39 @@ export function addPlotToSlide(
   opts: { assetId: Id; source?: import("../types").SemanticPlotElement["source"]; manifestRef?: import("../types").SemanticPlotElement["manifestRef"] } & Box,
 ): Id | null {
   return addElement(deck, slideId, makePlotPanel(opts.assetId, opts, opts.source, opts.manifestRef));
+}
+
+/** Remove every track on a slide that targets one plot part (used when a part
+ *  leaves the animated set — masked or shown-from-start). Matches by part id at
+ *  the granularity the track was authored (group or leaf). */
+function removePartTracks(slide: Slide, elId: Id, part: string): void {
+  for (const beat of slide.beats) {
+    beat.tracks = beat.tracks.filter((t) => !(t.target === elId && t.part === part));
+  }
+}
+
+/** The three resting states the X-ray GUI offers for a plot part (or part group):
+ *   • "mask"    — hidden always (override hidden:true); drop its tracks.
+ *   • "show"    — visible from beat 0 (clear hidden); drop its tracks (no anim).
+ *   • "animate" — visible only once its build track plays (clear hidden, KEEP
+ *                 tracks; the caller/autobuild owns adding the enter track).
+ *  The override key may be a leaf id or a group id ("axis.x") — applyOverrides
+ *  re-resolves groups to their leaves every render, so masks survive regen. */
+export function setPartVisibility(deck: Deck, elId: Id, part: string, mode: "show" | "animate" | "mask"): void {
+  const found = findElement(deck, elId);
+  if (!found || found.el.type !== "plot") return;
+  const el = found.el as SemanticPlotElement;
+  const ov = (el.overrides = el.overrides ?? {});
+  if (mode === "mask") {
+    ov[part] = { ...(ov[part] ?? {}), hidden: true };
+    removePartTracks(found.slide, elId, part);
+  } else {
+    if (ov[part]) {
+      delete ov[part].hidden;
+      if (Object.keys(ov[part]).length === 0) delete ov[part];
+    }
+    if (mode === "show") removePartTracks(found.slide, elId, part);
+  }
 }
 
 // --- vector shapes (figure RectElement/EllipseElement/LineElement reused) -----

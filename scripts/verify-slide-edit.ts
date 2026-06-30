@@ -93,6 +93,26 @@ try {
   const dv = await core.validateDeck(root, "edit");
   assert(dv.ok, `edited deck validates clean (${dv.checked} checked)`);
 
+  // --- 1.3 per-part visibility (mask / show / animate) -----------------------
+  const vsid = slideOps.addSlide(deck, { name: "Viz", layout: "blank" }).id;
+  const plot = slideOps.addPlotToSlide(deck, vsid, { assetId: "assetX", x: 0, y: 0, width: 400, height: 300 })!;
+  const vslide = slideOps.slideById(deck, vsid)!;
+  vslide.beats.push({ id: "vb1", label: "axes", tracks: [{ target: plot, part: "axis.x", preset: "drawOn", start: 0, duration: 400 }] });
+  vslide.beats.push({ id: "vb2", label: "line", tracks: [{ target: plot, part: "series.line", preset: "drawOn", start: 0, duration: 400 }] });
+  const povr = () => (slideOps.findElement(deck, plot)!.el as { overrides?: Record<string, { hidden?: boolean }> }).overrides;
+  const hasTrack = (part: string) => slideOps.slideById(deck, vsid)!.beats.some((b) => b.tracks.some((t) => t.part === part));
+
+  slideOps.setPartVisibility(deck, plot, "axis.x", "mask");
+  assert(povr()?.["axis.x"]?.hidden === true, "1.3 mask: overrides[axis.x].hidden = true");
+  assert(!hasTrack("axis.x"), "1.3 mask: the part's tracks are removed");
+
+  slideOps.setPartVisibility(deck, plot, "series.line", "show");
+  assert(!povr()?.["series.line"], "1.3 show: no hidden override for the part");
+  assert(!hasTrack("series.line"), "1.3 show: the part's tracks are removed (visible from start)");
+
+  slideOps.setPartVisibility(deck, plot, "axis.x", "animate");
+  assert(!povr()?.["axis.x"], "1.3 animate: clears the prior mask (hidden override removed)");
+
   console.log("\nALL SLIDE-EDIT (P1) TESTS PASSED");
 } finally {
   await fs.rm(root, { recursive: true, force: true });
