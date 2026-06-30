@@ -41,6 +41,17 @@ try {
   );
   assert(slideOps.findElement(deck, fig)!.el.type === "embedFigure", "findElement returns the {slide, el} wrapper");
 
+  // --- inline-edit write paths: setTextBoxText (line↔block reconcile) + setMathTex
+  const origBlockId = (slideOps.findElement(deck, tb)!.el as { blocks: { id: string }[] }).blocks[0].id;
+  slideOps.setTextBoxText(deck, tb, "Alpha\nBeta\nGamma");
+  const tbBlocks = (slideOps.findElement(deck, tb)!.el as { blocks: { id: string; text: string }[] }).blocks;
+  assert(tbBlocks.length === 3 && tbBlocks.map((b) => b.text).join(",") === "Alpha,Beta,Gamma", "setTextBoxText splits lines into blocks");
+  assert(tbBlocks[0].id === origBlockId, "setTextBoxText preserves block 0's id (stable identity across edits)");
+  slideOps.setTextBoxText(deck, tb, "Title"); // restore + prove never-empty on the way
+  assert((slideOps.findElement(deck, tb)!.el as { blocks: unknown[] }).blocks.length === 1, "setTextBoxText reconciles back down to 1 block");
+  slideOps.setMathTex(deck, math, "x^2 + y^2 = r^2");
+  assert((slideOps.findElement(deck, math)!.el as { tex: string }).tex === "x^2 + y^2 = r^2", "setMathTex updates the TeX source");
+
   // --- setElementBox (the drag-commit path) ----------------------------------
   slideOps.setElementBox(deck, rect, { x: 250, y: 175 });
   const r1 = slideOps.findElement(deck, rect)!.el;

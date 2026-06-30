@@ -246,6 +246,28 @@ export function makeBlock(text: string, opts: Partial<TextBlock> = {}): TextBloc
   };
 }
 
+/** Inline-edit write path: reconcile a textarea's plain text (one line per block)
+ *  back into a TextBox's blocks — preserving each surviving block's id + marker/
+ *  emphasis/level; new lines inherit the last block's marker; never goes empty. */
+export function setTextBoxText(deck: Deck, elId: Id, text: string): void {
+  const found = findElement(deck, elId);
+  if (!found || found.el.type !== "textBox") return;
+  const el = found.el;
+  const old = el.blocks;
+  const lines = text.split("\n");
+  el.blocks = lines.map((line, i) => {
+    const ref = old[i] ?? old[old.length - 1];
+    return makeBlock(line, { id: old[i]?.id, marker: ref?.marker, emphasis: ref?.emphasis, level: ref?.level });
+  });
+  if (!el.blocks.length) el.blocks = [makeBlock("")];
+}
+
+/** Inline-edit write path for a math element: set its TeX source. */
+export function setMathTex(deck: Deck, elId: Id, tex: string): void {
+  const found = findElement(deck, elId);
+  if (found && found.el.type === "math") found.el.tex = tex;
+}
+
 export function makeTextBox(opts: TextBoxOpts = {}): TextBoxElement {
   const g = box(opts, 560, 120);
   const blocks =

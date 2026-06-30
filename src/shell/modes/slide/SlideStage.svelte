@@ -16,7 +16,7 @@
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
   import { resizeRemap } from "../../../lib/editing";
   import { commitDeck, selection } from "../../../lib/slide/store";
-  import { setElementBox, deleteElements, findElement } from "../../../lib/slide/ops";
+  import { setElementBox, deleteElements, findElement, setTextBoxText, setMathTex } from "../../../lib/slide/ops";
   import type { Element as FigElement } from "../../../lib/types";
   import type { Slide, SlideElement, DeckTheme, StageSize } from "../../../lib/slide/types";
 
@@ -70,6 +70,8 @@
     wrappers = r.elements;
     const specs = computeSlideAnims(slide, r, stageEl, stage, opts);
     applyStatic(specs, beat);
+    // hide the element being inline-edited (the textarea overlay stands in for it)
+    if (editingId) { const w = r.elements.get(editingId); if (w) w.style.visibility = "hidden"; }
   });
 
   // --- selection helpers (slide store is string[]; we work with a Set) ---------
@@ -160,6 +162,24 @@
   let guideX = $state<number | null>(null);
   let guideY = $state<number | null>(null);
   let marquee = $state<Rect | null>(null);
+
+  // --- inline text editing (dblclick → screen-space textarea overlay) ----------
+  let editingId = $state<string | null>(null);
+  let editText = $state("");
+  let taEl = $state<HTMLTextAreaElement>();
+  const editingEl = $derived(editingId ? byId(editingId) : undefined);
+  // Box + font for the overlay textarea (screen px), or null if not editing.
+  const editStyle = $derived.by(() => {
+    const el = editingEl;
+    if (!el || (el.type !== "textBox" && el.type !== "math")) return null;
+    return {
+      x: el.x, y: el.y, w: el.width, h: el.height,
+      fs: el.fontSize ?? 32,
+      weight: el.type === "textBox" ? (el.fontWeight ?? 400) : 400,
+      align: el.type === "textBox" ? (el.align ?? "left") : "center",
+      color: el.color ?? "var(--c-tx)",
+    };
+  });
 
   function cloneSel(ids: string[]): Map<string, SlideElement> {
     const m = new Map<string, SlideElement>();
@@ -298,6 +318,36 @@
     }
   }
 
+  // --- inline editing (mirror Canvas.svelte's textarea-overlay pattern) --------
+  function startEdit(el: SlideElement) {
+    if (el.type !== "textBox" && el.type !== "math") return;
+    gesture = null; previewBox = null;
+    selection.set([el.id]);
+    editingId = el.id;
+    editText = el.type === "textBox" ? el.blocks.map((b) => b.text).join("\n") : el.tex;
+    requestAnimationFrame(() => { taEl?.focus(); taEl?.select(); });
+  }
+  function onEditInput() {
+    const id = editingId;
+    if (!id) return;
+    const t = editingEl?.type;
+    commitDeck((d) => {
+      if (t === "textBox") setTextBoxText(d, id, editText);
+      else if (t === "math") setMathTex(d, id, editText);
+    });
+  }
+  function finishEdit() { editingId = null; }
+  function onEditKey(e: KeyboardEvent) {
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); finishEdit(); }
+    else if (e.key === "Enter" && editingEl?.type === "math") { e.preventDefault(); finishEdit(); }
+  }
+  function onStageDblClick(e: MouseEvent) {
+    if (!interactive) return;
+    const hit = hitTest(toAuthoring(e.clientX, e.clientY));
+    if (hit) startEdit(hit);
+  }
+
   // --- keyboard: delete + nudge (only when this stage has a selection) ---------
   function onKey(e: KeyboardEvent) {
     if (!interactive || !focused || $selection.length === 0) return;
@@ -338,7 +388,8 @@
       onpointerdown={onStagePointerDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
-      onpointercancel={onPointerUp}>
+      onpointercancel={onPointerUp}
+      ondblclick={onStageDblClick}>
       <div
         class="stage"
         bind:this={stageEl}
@@ -371,6 +422,21 @@
             {/each}
           {/if}
         </svg>
+      {/if}
+
+      {#if interactive && editStyle}
+        <!-- inline text editor: screen-space textarea over the element being edited -->
+        <textarea
+          class="inline-edit"
+          bind:this={taEl}
+          bind:value={editText}
+          spellcheck="false"
+          style={`left:${editStyle.x * scale}px;top:${editStyle.y * scale}px;width:${editStyle.w * scale}px;height:${editStyle.h * scale}px;font-size:${editStyle.fs * scale}px;font-weight:${editStyle.weight};text-align:${editStyle.align};color:${editStyle.color};`}
+          oninput={onEditInput}
+          onblur={finishEdit}
+          onkeydown={onEditKey}
+          onpointerdown={(e) => e.stopPropagation()}
+        ></textarea>
       {/if}
     </div>
   {/if}
@@ -424,5 +490,20 @@
     fill: color-mix(in oklab, var(--c-accent, #4385be) 14%, transparent);
     stroke: var(--c-accent, #4385be);
     stroke-width: 1;
+  }
+  .inline-edit {
+    position: absolute;
+    z-index: 10;
+    margin: 0;
+    padding: 0;
+    border: 1px dashed var(--c-accent, #4385be);
+    border-radius: 2px;
+    background: color-mix(in oklab, var(--c-bg, #100f0f) 70%, transparent);
+    font-family: var(--font-serif, Georgia, "Times New Roman", serif);
+    line-height: 1.2;
+    resize: none;
+    outline: none;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 </style>
