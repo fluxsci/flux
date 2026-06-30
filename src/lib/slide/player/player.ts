@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { DUR } from "../../motion/tokens";
-import { smoothEasing, EASE, smoothstep } from "../../motion/tokens";
+import { smoothEasing, EASE, smoothstep, influenceToCss, influenceToBezier, cubicBezierFn } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { buildPartIndex } from "../../plot/parse";
 import { resolveTargets } from "../../plot/tree";
@@ -22,7 +22,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, type TargetNode, type PresetCtx, type NodeAnim } from "./presets";
 import { createMorph, type MorphController } from "./morph";
-import type { Deck, Slide, Track, EasingToken, StageSize, DeckTheme } from "../types";
+import type { Deck, Slide, Track, EasingToken, Influence, StageSize, DeckTheme } from "../types";
 
 /** A unified handle the sequencer awaits + can interrupt — a WAAPI Animation or
  *  the morph's rAF driver both satisfy it. */
@@ -37,10 +37,20 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   reducedMotion?: boolean;
 }
 
-export function resolveEasing(tok?: EasingToken): string {
+export function resolveEasing(tok?: EasingToken, inf?: Influence): string {
+  // an explicit AE-style influence profile overrides the named token
+  if (inf && (inf.in > 0 || inf.out > 0)) return influenceToCss(inf);
   if (tok === "smooth") return smoothEasing();
   if (tok === "linear") return "linear";
   return EASE[tok ?? "standard"] ?? EASE.standard;
+}
+
+/** The same easing as a JS sampler y(t) — for the morph driver, which eases time
+ *  in rAF (not via WAAPI), so it honours the same influence profile as keyframes. */
+export function resolveEasingFn(tok?: EasingToken, inf?: Influence): (t: number) => number {
+  if (inf && (inf.in > 0 || inf.out > 0)) return cubicBezierFn(influenceToBezier(inf));
+  if (tok === "linear") return (t) => t;
+  return smoothstep; // smooth/standard/enter/exit keep manim's easy-ease for morph
 }
 
 // --- target resolution -------------------------------------------------------
@@ -147,6 +157,8 @@ interface Spec {
   prep?: () => void;
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
+  /** Time-easing sampler for a morph (honours the track's influence/easing). */
+  morphEase?: (t: number) => number;
 }
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
@@ -166,8 +178,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         if (wrap && A && B) {
           specs.push({
             node: wrap, beatIndex: bi, keyframes: [], enter: false,
-            delay: track.start ?? 0, duration: track.duration ?? 1200, easing: resolveEasing(track.easing ?? "smooth"),
+            delay: track.start ?? 0, duration: track.duration ?? 1200, easing: resolveEasing(track.easing ?? "smooth", track.influence),
             morph: createMorph(wrap, track.target, A, B),
+            morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence),
           });
         }
         continue;
@@ -187,7 +200,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           keyframes: na.keyframes,
           delay: (track.start ?? 0) + (perMs ? staggerRank(ranks[i], n, from) * perMs : 0),
           duration: track.duration ?? DUR.gentle,
-          easing: resolveEasing(track.easing),
+          easing: resolveEasing(track.easing, track.influence),
           enter: na.enter,
           prep: na.prep,
         });
@@ -246,7 +259,7 @@ export function applyStatic(specs: Spec[], beatIndex: number): void {
 
 /** Drive a morph over `duration` via rAF, easing time with manim's smoothstep.
  *  Returns a Playable so the sequencer awaits + can interrupt it like a WAAPI anim. */
-function runMorph(m: MorphController, duration: number, reduced: boolean): Playable {
+function runMorph(m: MorphController, duration: number, reduced: boolean, ease: (t: number) => number = smoothstep): Playable {
   let raf = 0, start = 0, cancelled = false;
   const finished = new Promise<void>((resolve) => {
     if (reduced || duration <= 0) { m.seek(1); resolve(); return; }
@@ -254,7 +267,7 @@ function runMorph(m: MorphController, duration: number, reduced: boolean): Playa
       if (cancelled) return;
       if (!start) start = ts;
       const t = Math.min(1, (ts - start) / duration);
-      m.seek(smoothstep(t));
+      m.seek(ease(t));
       if (t < 1) raf = requestAnimationFrame(step);
       else resolve();
     };
@@ -268,7 +281,7 @@ function playSpecs(specs: Spec[], lo: number, hi: number, reduced: boolean): Pla
   for (const s of specs) {
     if (s.beatIndex < lo || s.beatIndex > hi) continue;
     s.prep?.();
-    if (s.morph) out.push(runMorph(s.morph, s.duration, reduced));
+    if (s.morph) out.push(runMorph(s.morph, s.duration, reduced, s.morphEase));
     else out.push(animate(s.node, s.keyframes, { delay: s.delay, duration: s.duration, easing: s.easing, fill: "both" }));
   }
   return out;

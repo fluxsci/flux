@@ -11,7 +11,7 @@
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import { plotManifests } from "../../../lib/plot/store";
   import { slideLayout } from "./slideLayoutStore";
-  import type { Track, PresetName, Stagger } from "../../../lib/slide/types";
+  import type { Track, PresetName, Stagger, Influence } from "../../../lib/slide/types";
 
   let { onPreview }: { onPreview?: () => void } = $props();
 
@@ -64,6 +64,28 @@
   // --- per-track editing (issue #5: many anims/beat + stagger + speed control) --
   const EDIT_PRESETS: PresetName[] = ["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn", "highlight", "dim"];
   const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
+  // AE-style velocity presets (outgoing/incoming influence %). "ease" clears the
+  // influence so the named easing applies again.
+  const INFLUENCE_PRESETS: { name: string; in: number; out: number }[] = [
+    { name: "ease", in: 0, out: 0 },
+    { name: "subtle", in: 25, out: 25 },
+    { name: "medium", in: 50, out: 50 },
+    { name: "strong", in: 75, out: 75 },
+    { name: "extreme", in: 95, out: 95 },
+  ];
+  // edit the influence pair (bulk); drop it entirely when both reach 0 (→ named ease)
+  function setInfluence(p: Partial<Influence>) {
+    withTracks((t) => {
+      const next = { in: 0, out: 0, ...t.influence, ...p } as Influence;
+      if (next.in <= 0 && next.out <= 0) delete t.influence;
+      else t.influence = { in: Math.max(0, Math.min(100, next.in)), out: Math.max(0, Math.min(100, next.out)) };
+    });
+  }
+  function applyInfluencePreset(p: { in: number; out: number }) {
+    withTracks((t) => { if (p.in <= 0 && p.out <= 0) delete t.influence; else t.influence = { in: p.in, out: p.out }; });
+  }
+  const inflActive = (p: { in: number; out: number }) =>
+    !!curTrack && (curTrack.influence ? curTrack.influence.in === p.in && curTrack.influence.out === p.out : p.in === 0 && p.out === 0);
   // Multi-select: a set of selected track ids (stable Track.id). The LAST entry is
   // the "primary" and drives the editor field VALUES; edits apply to ALL selected
   // (bulk). Shift/Ctrl/Cmd-click a chip to add/remove from the set.
@@ -164,7 +186,7 @@
       case "ArrowDown": e.preventDefault(); navTrack(1); break;
       case "Enter": e.preventDefault(); focusField("p"); break;
       case "Escape": e.preventDefault(); selTrackIds = []; break;
-      case "p": case "d": case "t": case "g": case "e": e.preventDefault(); focusField(e.key); break;
+      case "p": case "d": case "t": case "g": case "e": case "o": e.preventDefault(); focusField(e.key); break;
     }
   }
   // Window-level, but only acts when focus is inside the Animator — avoids a div
@@ -412,6 +434,16 @@
             {#each EASINGS as ee (ee)}<option value={ee}>{ee}</option>{/each}
           </select>
         </label>
+        <span class="infl" title="Velocity profile (After Effects influence). out = slow-out at the start, in = slow-in at the end. When either is > 0 it overrides the named ease.">
+          <small>infl</small>
+          <input data-fld="o" type="number" min="0" max="100" step="5" value={curTrack.influence?.out ?? 0} onchange={(e) => setInfluence({ out: +e.currentTarget.value })} /><small>out</small>
+          <input type="number" min="0" max="100" step="5" value={curTrack.influence?.in ?? 0} onchange={(e) => setInfluence({ in: +e.currentTarget.value })} /><small>in</small>
+          <span class="ipresets">
+            {#each INFLUENCE_PRESETS as p (p.name)}
+              <button class="ichip" class:on={inflActive(p)} title={`out ${p.out} · in ${p.in}`} onclick={() => applyInfluencePreset(p)}>{p.name}</button>
+            {/each}
+          </span>
+        </span>
         <span class="spacer"></span>
         <button class="del" onclick={deleteTrack}>Delete</button>
         <button class="closex" title="Close editor" onclick={() => (selTrackIds = [])}>✕</button>
@@ -556,6 +588,16 @@
     border: 1px solid var(--c-line-strong, #343331); border-radius: 4px; padding: 2px 5px;
   }
   .track-editor input { width: 52px; }
+  /* influence (F): two 0–100 inputs + intensity preset chips */
+  .infl { display: inline-flex; align-items: center; gap: 3px; color: var(--c-tx-3, #878580); }
+  .infl input { width: 42px; }
+  .ipresets { display: inline-flex; gap: 2px; margin-left: 4px; }
+  .ichip {
+    font-size: 10px; color: var(--c-tx-3, #878580); background: var(--c-bg, #100f0f);
+    border: 1px solid var(--c-line, #403e3c); border-radius: 3px; padding: 1px 5px; cursor: pointer;
+  }
+  .ichip:hover { color: var(--c-tx-hi, #cecdc3); border-color: var(--c-tx-3, #878580); }
+  .ichip.on { color: var(--c-on-accent, #fff); background: var(--c-accent, #4385be); border-color: var(--c-accent, #4385be); }
   .del {
     font-size: 11px; color: var(--c-de, #d14d41); background: none;
     border: 1px solid color-mix(in oklab, var(--c-de, #d14d41) 50%, transparent);

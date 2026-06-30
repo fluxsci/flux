@@ -307,6 +307,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         start: { type: "number" },
                         duration: { type: "number" },
                         easing: { type: "string" },
+                        influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
                         stagger: { type: "object" },
                         to: { type: "object" },
                         keyframes: { type: "array" },

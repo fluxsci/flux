@@ -41,6 +41,14 @@ export type TransitionKind = "none" | "fade" | "slide" | "push";
  *  "smooth" is manim's 5th-order smoothstep, reserved for signature motion. */
 export type EasingToken = "smooth" | "standard" | "enter" | "exit" | "linear";
 
+/** After Effects-style velocity profile: outgoing/incoming influence, 0–100%. */
+export interface Influence {
+  /** Incoming influence — slow-in at the END (0 = abrupt stop, 100 = long glide). */
+  in: number;
+  /** Outgoing influence — slow-out at the START (0 = abrupt start, 100 = long ease-in). */
+  out: number;
+}
+
 /** How the presenter reaches a beat (§4.2). `click` = a manual advance (the
  *  default "thing" you step to); `with-prev` chains onto the previous beat's
  *  click so several tracks land on one press; `auto` plays automatically
@@ -289,6 +297,10 @@ export interface Track {
   start?: number;
   duration?: number;
   easing?: EasingToken;
+  /** After Effects-style velocity profile, 0–100% each. `out` = outgoing influence
+   *  (slow-out at the start), `in` = incoming (slow-in at the end). Overrides
+   *  `easing` when set: maps to cubic-bezier(out/100, 0, 1 − in/100, 1). */
+  influence?: Influence;
   stagger?: Stagger;
   /** morph/camera/move destination. */
   to?: TrackTarget;
