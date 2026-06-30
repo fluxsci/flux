@@ -39,6 +39,7 @@
   import PresentOverlay from "./PresentOverlay.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import { importerOpen } from "../../../lib/store";
+  import { slideLayout } from "./slideLayoutStore";
   import "katex/dist/katex.min.css";
 
   let { focused = true }: { focused?: boolean } = $props();
@@ -276,6 +277,34 @@
     if (p) commitDeck((dd) => slideOps.setStageSize(dd, { width: p.w, height: p.h }));
   }
 
+  // --- draggable pane edges (filmstrip / inspector widths) — mirrors Paper's
+  // pointer-drag gutter; sizes persist in slideLayout (localStorage). The Animator
+  // dock height is dragged inside AnimatePanel via the same store.
+  let bodyEl = $state<HTMLDivElement | null>(null);
+  let dragPane = $state<"film" | "insp" | null>(null);
+  function startPaneDrag(which: "film" | "insp", e: PointerEvent) {
+    e.preventDefault();
+    dragPane = which;
+    window.addEventListener("pointermove", movePaneDrag);
+    window.addEventListener("pointerup", endPaneDrag);
+  }
+  function movePaneDrag(e: PointerEvent) {
+    if (!dragPane || !bodyEl) return;
+    const r = bodyEl.getBoundingClientRect();
+    if (dragPane === "film") {
+      const w = Math.max(120, Math.min(420, e.clientX - r.left));
+      slideLayout.update((s) => ({ ...s, filmstripW: Math.round(w) }));
+    } else {
+      const w = Math.max(190, Math.min(480, r.right - e.clientX));
+      slideLayout.update((s) => ({ ...s, inspectorW: Math.round(w) }));
+    }
+  }
+  function endPaneDrag() {
+    dragPane = null;
+    window.removeEventListener("pointermove", movePaneDrag);
+    window.removeEventListener("pointerup", endPaneDrag);
+  }
+
   // Slide nav with arrows — only when no element is selected (else the stage nudges).
   function onKey(e: KeyboardEvent) {
     if (!focused || !deck) return;
@@ -365,7 +394,7 @@
     {/if}
   </div>
 
-  <div class="body">
+  <div class="body" bind:this={bodyEl} style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
     <!-- filmstrip -->
     <aside class="filmstrip">
       {#if deck}
@@ -389,6 +418,10 @@
       {/if}
     </aside>
 
+    <!-- filmstrip ↔ stage resize handle -->
+    <div class="pane-gutter" class:active={dragPane === "film"} role="separator" aria-orientation="vertical"
+      aria-label="Resize filmstrip" onpointerdown={(e) => startPaneDrag("film", e)}><span class="grip"></span></div>
+
     <!-- stage -->
     <main class="stage-wrap">
       {#if ready && deck && activeSlide}
@@ -408,6 +441,10 @@
         <div class="empty">Loading deck…</div>
       {/if}
     </main>
+
+    <!-- stage ↔ inspector resize handle -->
+    <div class="pane-gutter" class:active={dragPane === "insp"} role="separator" aria-orientation="vertical"
+      aria-label="Resize inspector" onpointerdown={(e) => startPaneDrag("insp", e)}><span class="grip"></span></div>
 
     <!-- inspector -->
     <aside class="inspector-host">
@@ -497,9 +534,16 @@
   .insert-menu .item:hover { background: var(--c-accent-tint); color: var(--c-tx-hi); }
   .body { display: flex; flex: 1; min-height: 0; }
   .filmstrip {
-    flex: 0 0 172px; overflow-y: auto; border-right: 1px solid var(--c-line);
+    flex: 0 0 var(--film-w, 172px); overflow-y: auto; border-right: 1px solid var(--c-line);
     background: var(--c-bg-raised); padding: 10px; display: flex; flex-direction: column; gap: 10px;
   }
+  /* draggable pane edges (C1): a thin hit-strip with a centered grip on hover/drag */
+  .pane-gutter {
+    flex: 0 0 5px; align-self: stretch; cursor: col-resize; position: relative;
+    margin: 0 -2px; z-index: 5; display: flex; align-items: center; justify-content: center;
+  }
+  .pane-gutter .grip { width: 1px; height: 100%; background: transparent; transition: background 0.12s; }
+  .pane-gutter:hover .grip, .pane-gutter.active .grip { background: var(--c-accent, #4385be); width: 2px; }
   .thumb {
     position: relative; display: grid; grid-template-columns: 16px 1fr; grid-template-rows: auto auto;
     gap: 2px 6px; cursor: pointer; padding: 4px; border: 1px solid transparent; border-radius: var(--r-2);
@@ -534,6 +578,6 @@
     border: 1px solid var(--c-line-strong, #343331); border-radius: 6px; padding: 5px 12px; cursor: pointer;
   }
   .preview-stop:hover { border-color: var(--c-accent, #4385be); }
-  .inspector-host { flex: 0 0 248px; border-left: 1px solid var(--c-line); background: var(--c-bg-raised); overflow-y: auto; position: relative; }
+  .inspector-host { flex: 0 0 var(--insp-w, 248px); border-left: 1px solid var(--c-line); background: var(--c-bg-raised); overflow-y: auto; position: relative; }
   .empty { margin: auto; color: var(--c-tx-faint); font-style: italic; display: flex; gap: 10px; align-items: center; }
 </style>

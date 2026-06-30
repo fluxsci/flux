@@ -10,6 +10,7 @@
   import { applyAutoAnimation, animatePart } from "../../../lib/slide/autobuild";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import { plotManifests } from "../../../lib/plot/store";
+  import { slideLayout } from "./slideLayoutStore";
   import type { Track, PresetName, Stagger } from "../../../lib/slide/types";
 
   let { onPreview }: { onPreview?: () => void } = $props();
@@ -172,6 +173,25 @@
     if (animEl && animEl.contains(document.activeElement)) onAnimKey(e);
   }
 
+  // --- draggable top edge → the dock's max-height (C1). Drag up = taller dock.
+  let dockResize = $state(false);
+  function startDockDrag(e: PointerEvent) {
+    e.preventDefault();
+    dockResize = true;
+    window.addEventListener("pointermove", moveDockDrag);
+    window.addEventListener("pointerup", endDockDrag);
+  }
+  function moveDockDrag(e: PointerEvent) {
+    if (!dockResize || !animEl) return;
+    const h = Math.max(150, Math.min(640, animEl.getBoundingClientRect().bottom - e.clientY));
+    slideLayout.update((s) => ({ ...s, animatorH: Math.round(h) }));
+  }
+  function endDockDrag() {
+    dockResize = false;
+    window.removeEventListener("pointermove", moveDockDrag);
+    window.removeEventListener("pointerup", endDockDrag);
+  }
+
   // direct manipulation: a part clicked on the stage → open its track + reveal its
   // X-ray row (so clicking a scatter point jumps you straight to its animation).
   $effect(() => {
@@ -267,7 +287,10 @@
 <svelte:window onkeydown={onWinKey} />
 {#if slide}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="animator" bind:this={animEl} tabindex="0" role="group" aria-label="Animation timeline">
+  <div class="animator" bind:this={animEl} tabindex="0" role="group" aria-label="Animation timeline" style={`--anim-h:${$slideLayout.animatorH}px`}>
+    <!-- drag the top edge to resize the dock (C1) -->
+    <div class="dock-gutter" class:active={dockResize} role="separator" aria-orientation="horizontal"
+      aria-label="Resize animator" onpointerdown={startDockDrag}><span class="grip"></span></div>
     <div class="bar">
       <strong class="ttl">Animation</strong>
       {#if selPlot}
@@ -406,11 +429,19 @@
     border-top: 1px solid var(--c-line, #282726);
     padding: 8px 10px 10px;
     background: var(--c-bg, #100f0f);
-    max-height: 300px;
+    max-height: var(--anim-h, 300px);
     outline: none;
+    position: relative;
   }
   /* keyboard-cockpit affordance: a thin accent edge only on keyboard focus */
   .animator:focus-visible { box-shadow: inset 0 2px 0 0 var(--c-accent, #4385be); }
+  /* draggable top edge (C1) — a hit-strip straddling the dock's top border */
+  .dock-gutter {
+    position: absolute; top: -3px; left: 0; right: 0; height: 7px;
+    cursor: row-resize; z-index: 6; display: flex; align-items: center; justify-content: center;
+  }
+  .dock-gutter .grip { width: 100%; height: 1px; background: transparent; transition: background 0.12s; }
+  .dock-gutter:hover .grip, .dock-gutter.active .grip { background: var(--c-accent, #4385be); height: 2px; }
   .bar { display: flex; align-items: center; gap: 8px; }
   .ttl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-3, #878580); }
   .spacer { flex: 1; }
