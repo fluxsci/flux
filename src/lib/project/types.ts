@@ -20,6 +20,10 @@ export interface ReferencesRef {
   csljson?: string;
   defaultStyle?: string | null;
   zoteroSync?: string | null;
+  // Diagnostic pointer to the machine-global FluxLib this project's subset was
+  // materialized from. Advisory only — the project's library.bib stays canonical
+  // within the project (self-contained); never a runtime dependency.
+  fluxLib?: string | null;
 }
 
 export interface FigureEntry {
@@ -86,6 +90,16 @@ export interface FileBridge {
     opts?: { margins?: Record<string, number> },
   ): Promise<boolean>;
   fetchDoi?(doi: string): Promise<{ message?: unknown; error?: string }>;
+  // Resolve a paper URL (or DOI) to a DOI by fetching + scraping the page in main.
+  resolveUrl?(url: string): Promise<{ doi?: string; error?: string }>;
+  // Fetch an OpenAlex API URL (built by src/lib/references/openalex.ts) in main to
+  // avoid CORS — returns parsed JSON, or { error }. Powers hydration + world lookups.
+  fetchOpenAlex?(url: string): Promise<unknown>;
+  // Fetch a Semantic Scholar API URL in main (x-api-key attached when configured).
+  fetchS2?(url: string): Promise<unknown>;
+  // Machine-global API-key store (~/FluxLib/keys.json), shared across all projects.
+  keysGet?(): Promise<Record<string, unknown>>;
+  keysSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   openExternal?(url: string): Promise<void>;
   quartoAvailable?(): Promise<{ installed: boolean; version?: string }>;
   quartoRender?(
@@ -96,6 +110,13 @@ export interface FileBridge {
   // fixture) provide them.
   watchRoot?(root: string | null): Promise<boolean> | boolean;
   onFsChanged?(cb: (info: { subsystem: string; path: string }) => void): () => void;
+  // Web capture (flux://): main delivers a { doi?, url? } payload to add to FluxLib.
+  // Electron only; returns an unsubscribe fn. Mirrors onFsChanged's shape.
+  onCapture?(cb: (payload: { doi?: string; url?: string }) => void): () => void;
+  // Global preferences (the first file-based config the GUI + CLI/agents share:
+  // <userData>/preferences.json — holds the FluxLib path). Optional: Electron only.
+  prefsGet?(): Promise<Record<string, unknown>>;
+  prefsSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   // F2: re-run a plot's recipe (regenerate). Electron only.
   runRecipe?(
     recipePath: string,

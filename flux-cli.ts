@@ -36,13 +36,31 @@ usage: flux <verb> [root] [args] [--flags]
   docs [--root R]                      list the project's documents
   new-doc <name…> [--root R]           create a new document
   ref <figId> [--root R] [--doc rel]   append a @fig cross-reference
-  cite-doi <doi> [--root R]            fetch a DOI's BibTeX → library.bib
+  cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
+  search <query…>                      search FluxLib (e.g. author:smith year:2020)
+  lib                                  show the FluxLib path + entry count
+  lib-add <doi|bibtex…|--file f>       add to FluxLib only (no project cite)
+  reconcile [--root R]                 sync this project's library.bib with FluxLib
+  hydrate [--refresh] [--key K]        enrich FluxLib with OpenAlex (abstracts, topics, citations)
+  discover <query…> [--semantic] [--sort cites|date]   search ALL of OpenAlex (--semantic = by meaning)
+  similar <key> [--s2] [--sort cites]  "more like this" (OpenAlex semantic; --s2 = Semantic Scholar recs)
+  citing <key|doi|Wid> [--s2] [--sort date]   works citing this (--s2 = Semantic Scholar + contexts)
+  by-author <key|Aid>                  other works by this entry's first author
+  related <key|Wid>                    related papers (OpenAlex similarity)
+  keys [--openalex K] [--s2 K] [--mailto M]   show/set API keys (~/FluxLib/keys.json)
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
   comments [--root R] [--doc rel] [--all]   list review comments (open by default)
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   mark a comment resolved
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
   rerun-plot <recipe.json> [--param v…]   re-run a plot's recipe (regenerate)
+
+ Slides (Flux Slide — figure-first animated talks):
+  decks [--root R]                     list the project's slide decks (JSON)
+  new-deck [--title T] [--theme T] [--root R]   create a new slide deck
+  add-slide <deckId> [--name N] [--layout L] [--root R]   append a slide to a deck
+  validate-deck [deckId] [--root R]    validate a deck (or all decks)
+  export-deck <deckId> [--out F] [--root R]   export a self-contained offline .html (default exports/<deckId>.html)
   help                                 this message
 `;
 
@@ -222,7 +240,119 @@ async function main() {
     }
     case "cite-doi": {
       const r = await core.citeDoi(R(), _[0]);
-      console.error(`✓ cited: ${r.bibtex.slice(0, 72).replace(/\s+/g, " ")}…`);
+      console.error(`✓ cited [@${r.keys.join("; @")}]: ${r.bibtex.slice(0, 60).replace(/\s+/g, " ")}…`);
+      break;
+    }
+    case "search": {
+      const hits = await core.searchReferences(_.join(" "));
+      console.log(JSON.stringify(hits, null, 2));
+      console.error(`✓ ${hits.length} match(es) in FluxLib`);
+      break;
+    }
+    case "lib": {
+      console.log(JSON.stringify(await core.libraryInfo(), null, 2));
+      break;
+    }
+    case "reconcile": {
+      const r = await core.reconcile(R());
+      console.error(
+        `✓ reconcile: materialized ${r.materialized.length}, promoted ${r.promoted.length}, orphans ${r.orphans.length}`,
+      );
+      if (r.orphans.length) console.error("  orphans (cited, not in FluxLib): " + r.orphans.join(", "));
+      break;
+    }
+    case "lib-add": {
+      const arg = _.join(" ").trim();
+      const isDoi = /^(https?:\/\/(dx\.)?doi\.org\/)?10\.\d{4,9}\//i.test(arg);
+      if (flags.file) {
+        const r = await core.addToLibrary(await fs.readFile(String(flags.file), "utf8"));
+        console.error(`✓ FluxLib: +${r.added.length} added, ${r.deduped.length} already present`);
+      } else if (isDoi && !flags.bibtex) {
+        const r = await core.addDoiToLibrary(arg);
+        console.error(`✓ FluxLib += [@${r.result.keys.join("; @")}]`);
+      } else {
+        const r = await core.addToLibrary(arg);
+        console.error(`✓ FluxLib: +${r.added.length} added, ${r.deduped.length} already present`);
+      }
+      break;
+    }
+    case "hydrate": {
+      const r = await core.hydrateLibrary({
+        refresh: !!flags.refresh,
+        key: typeof flags.key === "string" ? flags.key : undefined,
+      });
+      console.error(
+        `✓ hydrated ${r.fetched} (+${r.crossrefBackfill} CrossRef abstracts); ${r.hydrated}/${r.total} entries enriched, ${r.withAbstract} with abstracts`,
+      );
+      if (r.missing.length) console.error(`  no OpenAlex match: ${r.missing.join(", ")}`);
+      break;
+    }
+    case "discover": {
+      const semantic = flags.semantic !== undefined;
+      // `--semantic` is a boolean, but the arg parser swallows the next token as its
+      // value (`discover --semantic "q"`); recover the query from there when needed.
+      const q = _.join(" ") || (typeof flags.semantic === "string" ? flags.semantic : "");
+      const hits = semantic
+        ? await core.searchWorldSemantic(q, { sort: flags.sort === "cites" ? "citations" : "relevance" })
+        : await core.searchWorld(q, {
+            sort:
+              flags.sort === "cites"
+                ? "cited_by_count:desc"
+                : flags.sort === "date"
+                  ? "publication_date:desc"
+                  : undefined,
+          });
+      console.log(JSON.stringify(hits, null, 2));
+      console.error(`✓ ${hits.length} ${flags.semantic ? "semantic " : ""}OpenAlex hit(s)`);
+      break;
+    }
+    case "citing": {
+      const hits = flags.s2
+        ? await core.s2Citing(_[0])
+        : await core.citingWorks(_[0], { sort: flags.sort === "date" ? "publication_date:desc" : undefined });
+      console.log(JSON.stringify(hits, null, 2));
+      console.error(`✓ ${hits.length} citing (${flags.s2 ? "Semantic Scholar + contexts" : "OpenAlex"})`);
+      break;
+    }
+    case "by-author": {
+      const hits = await core.authorWorks(_[0]);
+      console.log(JSON.stringify(hits, null, 2));
+      console.error(`✓ ${hits.length} work(s) by author`);
+      break;
+    }
+    case "related": {
+      const hits = await core.relatedWorks(_[0]);
+      console.log(JSON.stringify(hits, null, 2));
+      console.error(`✓ ${hits.length} related work(s)`);
+      break;
+    }
+    case "similar": {
+      const hits = flags.s2
+        ? await core.s2Similar(_[0])
+        : await core.similarByKey(_[0], { sort: flags.sort === "cites" ? "citations" : "relevance" });
+      console.log(JSON.stringify(hits, null, 2));
+      console.error(`✓ ${hits.length} similar (${flags.s2 ? "Semantic Scholar" : "OpenAlex semantic"})`);
+      break;
+    }
+    case "keys": {
+      const patch: Record<string, string> = {};
+      if (typeof flags.openalex === "string") patch.openAlexKey = flags.openalex;
+      if (typeof flags.s2 === "string") patch.s2Key = flags.s2;
+      if (typeof flags.mailto === "string") patch.mailto = flags.mailto;
+      if (Object.keys(patch).length) {
+        await core.saveKeys(patch);
+        console.error("✓ keys saved to ~/FluxLib/keys.json");
+      }
+      const k = await core.loadKeys();
+      const mask = (v?: unknown) =>
+        typeof v === "string" && v ? v.slice(0, 4) + "…" + v.slice(-3) : "(unset)";
+      console.log(
+        JSON.stringify(
+          { mailto: (k.mailto as string) || "(unset)", openAlexKey: mask(k.openAlexKey), s2Key: mask(k.s2Key) },
+          null,
+          2,
+        ),
+      );
       break;
     }
     case "compile": {
@@ -252,6 +382,45 @@ async function main() {
         note: typeof flags.note === "string" ? flags.note : undefined,
       });
       console.error(`✓ resolved ${r.id} (${r.resolved}/${r.total} resolved)`);
+      break;
+    }
+    case "decks": {
+      console.log(JSON.stringify(await core.listDecks(R()), null, 2));
+      break;
+    }
+    case "new-deck": {
+      const r = await core.createDeck(R(), {
+        id: flags.id as string,
+        title: flags.title as string,
+        theme: flags.theme as string,
+      });
+      console.error(`✓ created deck ${r.deckId} (${r.path})`);
+      break;
+    }
+    case "add-slide": {
+      if (!_[0]) throw new Error("add-slide needs a deck id");
+      const r = await core.addSlide(R(), _[0], {
+        name: flags.name as string,
+        layout: flags.layout as import("./src/lib/slide/types").LayoutId,
+      });
+      console.error(`✓ added slide ${r.slideId} to ${_[0]}`);
+      break;
+    }
+    case "validate-deck": {
+      const r = await core.validateDeck(R(), _[0]);
+      if (r.ok) console.error(`✓ valid deck(s) (${r.checked} checked)`);
+      else {
+        console.error(`✗ ${r.errors.length} problem(s):`);
+        for (const e of r.errors) console.error("  " + e);
+        process.exit(1);
+      }
+      break;
+    }
+    case "export-deck": {
+      if (!_[0]) throw new Error("export-deck needs a deck id");
+      const r = await core.exportDeck(R(), _[0], { out: flags.out as string });
+      console.error(`✓ exported ${_[0]} → ${r.path} (${(r.bytes / 1024).toFixed(0)} KB, self-contained)`);
+      for (const w of r.warnings) console.error("  ⚠ " + w);
       break;
     }
     case "validate": {

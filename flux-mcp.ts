@@ -17,6 +17,13 @@ const server = new McpServer({ name: "flux", version: "0.1.0" });
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
+// OpenAlex sort presets for the whole-world tools (undefined = relevance).
+const SORT: Record<string, string | undefined> = {
+  relevance: undefined,
+  citations: "cited_by_count:desc",
+  date: "publication_date:desc",
+};
+
 server.registerTool(
   "list_project",
   { description: "List the project's documents, figures (with panel letters), and references.", inputSchema: {} },
@@ -61,11 +68,151 @@ server.registerTool(
 
 server.registerTool(
   "add_reference",
-  { description: "Append a BibTeX entry to the project's library.bib.", inputSchema: { bibtex: z.string() } },
+  {
+    description:
+      "Add a BibTeX entry to the machine-global FluxLib (deduped by DOI) AND cite it in this project (materialized into references/library.bib).",
+    inputSchema: { bibtex: z.string() },
+  },
   async ({ bibtex }) => {
     await core.addReference(ROOT, bibtex);
-    return ok("reference added");
+    return ok("reference added (FluxLib + project)");
   },
+);
+
+server.registerTool(
+  "search_references",
+  {
+    description:
+      "Search the machine-global FluxLib reference library with a structured query, e.g. 'author:smith year:2020 journal:nature' (fields: author, year, journal, title, doi; bare words match any). Returns matching entries — cite one via its `key` as @key. Each hit also carries `enrich` (abstract, topics, keywords, citedByCount, openalexId) when the entry has been hydrated (see hydrate_library).",
+    inputSchema: { query: z.string() },
+  },
+  async ({ query }) => ok(JSON.stringify(await core.searchReferencesEnriched(query), null, 2)),
+);
+
+server.registerTool(
+  "add_to_library",
+  {
+    description:
+      "Add a reference to FluxLib WITHOUT citing it in the current project — by DOI (fetched via content negotiation) or raw BibTeX. Use add_reference / cite_doi to also cite it here.",
+    inputSchema: { doi: z.string().optional(), bibtex: z.string().optional() },
+  },
+  async ({ doi, bibtex }) => {
+    if (doi) {
+      const r = await core.addDoiToLibrary(doi);
+      return ok(`added to FluxLib: @${r.result.keys.join("; @")}`);
+    }
+    if (bibtex) {
+      const r = await core.addToLibrary(bibtex);
+      return ok(`FluxLib: +${r.added.length} added, ${r.deduped.length} already present`);
+    }
+    return ok("add_to_library: provide `doi` or `bibtex`");
+  },
+);
+
+// --- Reference hydration + whole-world lookups (OpenAlex; no API key needed) ---
+
+server.registerTool(
+  "hydrate_library",
+  {
+    description:
+      "Enrich the machine-global FluxLib from OpenAlex — abstracts, topics/keywords, citation counts, referenced/related works, open-access, author + external IDs — into a derived sidecar (the canonical .bib is untouched). Incremental by default (skips already-hydrated entries); refresh re-fetches all; key limits to one citekey. Powers richer search_references + the world lookups. No API key needed.",
+    inputSchema: { refresh: z.boolean().optional(), key: z.string().optional() },
+  },
+  async ({ refresh, key }) => {
+    const r = await core.hydrateLibrary({ refresh, key });
+    return ok(
+      `hydrated ${r.fetched} (+${r.crossrefBackfill} CrossRef abstracts); ${r.hydrated}/${r.total} entries enriched, ${r.withAbstract} with abstracts` +
+        (r.missing.length ? `; no OpenAlex match for: ${r.missing.join(", ")}` : ""),
+    );
+  },
+);
+
+server.registerTool(
+  "search_world",
+  {
+    description:
+      "Search ALL of OpenAlex (~250M works) by free text — discovery BEYOND your library. sort: 'relevance' (default), 'citations', or 'date'. Returns brief records (openalexId, doi, title, authors, year, container, citedByCount, abstract). Add one to FluxLib with add_to_library {doi}.",
+    inputSchema: {
+      query: z.string(),
+      sort: z.enum(["relevance", "citations", "date"]).optional(),
+      perPage: z.number().optional(),
+    },
+  },
+  async ({ query, sort, perPage }) =>
+    ok(JSON.stringify(await core.searchWorld(query, { sort: SORT[sort ?? "relevance"], perPage }), null, 2)),
+);
+
+server.registerTool(
+  "semantic_search",
+  {
+    description:
+      "SEMANTIC (meaning-based) search across ALL of OpenAlex via search.semantic — finds conceptually related work even when the wording differs. Returns up to 50 brief records ranked by similarity (relevanceScore). sort: 'relevance' (default) or 'citations' (re-ranks the 50 by citation count). Add a hit with add_to_library {doi}.",
+    inputSchema: { query: z.string(), sort: z.enum(["relevance", "citations"]).optional() },
+  },
+  async ({ query, sort }) =>
+    ok(JSON.stringify(await core.searchWorldSemantic(query, { sort: sort ?? "relevance" }), null, 2)),
+);
+
+server.registerTool(
+  "similar_papers",
+  {
+    description:
+      "Papers similar to a FluxLib entry. source 'openalex' (default) = OpenAlex semantic 'more like this' (seeded from title+abstract; hydrate first); 'semanticscholar' = SPECTER2 recommendations; 'both' = run each and return { openalex, semanticscholar } for comparison. `ref` = a citekey (or DOI for S2). sort 'relevance' (default) or 'citations' (OpenAlex only).",
+    inputSchema: {
+      ref: z.string(),
+      source: z.enum(["openalex", "semanticscholar", "both"]).optional(),
+      sort: z.enum(["relevance", "citations"]).optional(),
+    },
+  },
+  async ({ ref, source, sort }) => {
+    const src = source ?? "openalex";
+    if (src === "openalex")
+      return ok(JSON.stringify(await core.similarByKey(ref, { sort: sort ?? "relevance" }), null, 2));
+    if (src === "semanticscholar") return ok(JSON.stringify(await core.s2Similar(ref), null, 2));
+    const [openalex, semanticscholar] = await Promise.all([
+      core.similarByKey(ref, { sort: sort ?? "relevance" }).catch((e) => ({ error: String(e?.message || e) })),
+      core.s2Similar(ref).catch((e) => ({ error: String(e?.message || e) })),
+    ]);
+    return ok(JSON.stringify({ openalex, semanticscholar }, null, 2));
+  },
+);
+
+server.registerTool(
+  "citing_works",
+  {
+    description:
+      "Works that CITE a given paper. source 'openalex' (default) = breadth: the full paginated citer list (sort 'citations'|'date'). source 'semanticscholar' = citing papers WITH citation contexts (the sentence citing the seed), intents, and influential-citation flags — the 'how/why cited' view. `ref` = citekey (hydrated) / OpenAlex id (W…) / DOI.",
+    inputSchema: {
+      ref: z.string(),
+      source: z.enum(["openalex", "semanticscholar"]).optional(),
+      sort: z.enum(["citations", "date"]).optional(),
+      perPage: z.number().optional(),
+    },
+  },
+  async ({ ref, source, sort, perPage }) =>
+    (source ?? "openalex") === "semanticscholar"
+      ? ok(JSON.stringify(await core.s2Citing(ref, { limit: perPage }), null, 2))
+      : ok(JSON.stringify(await core.citingWorks(ref, { sort: SORT[sort ?? "citations"], perPage }), null, 2)),
+);
+
+server.registerTool(
+  "author_works",
+  {
+    description:
+      "Other works by an author (OpenAlex), sorted by citation count. `ref` = a FluxLib citekey (uses its first author; must be hydrated) or an OpenAlex author id (A…). Returns brief records.",
+    inputSchema: { ref: z.string(), perPage: z.number().optional() },
+  },
+  async ({ ref, perPage }) => ok(JSON.stringify(await core.authorWorks(ref, { perPage }), null, 2)),
+);
+
+server.registerTool(
+  "related_works",
+  {
+    description:
+      "Related papers via OpenAlex's precomputed similarity (the closest 'papers like this' without local embeddings). `ref` = a FluxLib citekey (must be hydrated) or an OpenAlex work id (W…).",
+    inputSchema: { ref: z.string() },
+  },
+  async ({ ref }) => ok(JSON.stringify(await core.relatedWorks(ref), null, 2)),
 );
 
 server.registerTool(
@@ -272,10 +419,14 @@ server.registerTool(
 
 server.registerTool(
   "cite_doi",
-  { description: "Fetch a DOI's BibTeX (DOI content negotiation) and append it to library.bib.", inputSchema: { doi: z.string() } },
+  {
+    description:
+      "Fetch a DOI's BibTeX (content negotiation), add it to FluxLib (deterministic citekey, deduped by DOI), and cite it in this project (materialized into references/library.bib). Returns the citekey(s) to use as @key.",
+    inputSchema: { doi: z.string() },
+  },
   async ({ doi }) => {
     const r = await core.citeDoi(ROOT, doi);
-    return ok(`cited: ${r.bibtex.slice(0, 72).replace(/\s+/g, " ")}…`);
+    return ok(`cited @${r.keys.join("; @")} — ${r.bibtex.slice(0, 60).replace(/\s+/g, " ")}…`);
   },
 );
 

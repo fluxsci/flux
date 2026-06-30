@@ -43,7 +43,7 @@
       });
     }
     if (text.length >= 2) {
-      for (const r of runQuery(host.references, q).slice(0, 5)) {
+      for (const r of runQuery(host.libraryReferences, q).slice(0, 5)) {
         out.push({
           key: `ref:${r.key}`,
           label: `${r.authors[0] ?? r.key}${r.year ? ` ${r.year}` : ""} — ${r.title}`,

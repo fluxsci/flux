@@ -58,8 +58,10 @@
     type CommentThread,
   } from "./comments/comments";
   import { loadFigures, figureRefs, resolveFigure } from "./scholar/figures";
-  import { bibEntries } from "./scholar/bib";
-  import { loadBib, addDoiToBib } from "./scholar/bibLoad";
+  import { bibEntries, type BibEntry } from "./scholar/bib";
+  import { loadBib, addDoiToBib, addUrlOrDoiToBib, addUrlOrDoiToLibrary } from "./scholar/bibLoad";
+  import { materializeIntoProject, refreshFluxLib } from "../../../lib/references/fluxlibBridge";
+  import { fluxLibRevision, fluxLibEntries } from "../../../lib/references/revision";
   import { scholarCompletion } from "./scholar/completions";
   import { doiPaste } from "./science/doiPaste";
   import { figRevision, bibRevision } from "../../scholar/revisions";
@@ -238,7 +240,7 @@
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let hover = $state<{ target: ChipTarget; anchor: HTMLElement } | null>(null);
   let hoverHideTimer: ReturnType<typeof setTimeout> | undefined;
-  let doiStatus = $state<"" | "fetching" | "error">("");
+  let doiStatus = $state<"" | "fetching" | "error" | "added">("");
   let pickerOpen = $state(false);
   const subs: Array<() => void> = [];
 
@@ -255,9 +257,90 @@
   const figures = $derived($figureRefs);
   const references = $derived($bibEntries);
 
+  // The reference SEARCH pane searches the whole machine-global FluxLib (you search
+  // to find any paper to cite); the bibliography (`references`) stays the project's
+  // cited subset. Union so project-local-only entries (orphans) still surface.
+  const libraryReferences = $derived.by(() => {
+    if (!$fluxLibEntries.length) return references;
+    const byKey = new Map<string, BibEntry>();
+    for (const e of $fluxLibEntries) byKey.set(e.key, e);
+    for (const e of references) if (!byKey.has(e.key)) byKey.set(e.key, e);
+    return [...byKey.values()];
+  });
+
+  // Citing a FluxLib entry not yet in this project: pull it into the project's
+  // library.bib so the [@key] resolves in the preview, bibliography, and export.
+  async function materializeCites(keys: string[]) {
+    const root = pm?.root;
+    if (!root || !keys.length) return;
+    const have = new Set(references.map((e) => e.key));
+    const missing = keys.filter((k) => k && !have.has(k));
+    if (!missing.length) return;
+    const { added } = await materializeIntoProject(root, missing);
+    if (added.length) await loadBib(root);
+  }
+
+  // One materialization path for ALL citing routes (margin search, omnibox,
+  // @-autocomplete, hand-typed [@key]): any cited key that lives in FluxLib but not
+  // yet in this project's subset gets materialized. Converges — once materialized the
+  // key joins `references`, so the next run finds nothing to do.
+  $effect(() => {
+    if (!pm?.root || !citedKeys.size) return;
+    const have = new Set(references.map((e) => e.key));
+    const libKeys = new Set($fluxLibEntries.map((e) => e.key));
+    const missing = [...citedKeys].filter((k) => !have.has(k) && libKeys.has(k));
+    if (missing.length) void materializeCites(missing);
+  });
+
   async function addDoiFromPanel(d: string): Promise<string | null> {
-    const r = await addDoiToBib(d, pm?.root ?? null);
+    const r = await addUrlOrDoiToBib(d, pm?.root ?? null);
     return "error" in r ? null : r.key;
+  }
+
+  // ---- Cmd-K "Add DOI to FluxLib" (in-app input; window.prompt is disabled in
+  // Electron). "library" mode adds to FluxLib only; "cite" also inserts [@key]. ----
+  let doiPromptOpen = $state(false);
+  let doiPromptMode = $state<"library" | "cite">("library");
+  let doiPromptValue = $state("");
+  let doiPromptError = $state("");
+  function openDoiPrompt(mode: "library" | "cite") {
+    doiPromptMode = mode;
+    doiPromptValue = "";
+    doiPromptError = "";
+    doiPromptOpen = true;
+  }
+  function focusSelect(node: HTMLInputElement) {
+    node.focus();
+    node.select();
+  }
+  async function submitDoiPrompt() {
+    const doi = doiPromptValue.trim();
+    if (!doi || doiStatus === "fetching") return;
+    doiPromptError = "";
+    doiStatus = "fetching";
+    if (doiPromptMode === "cite") {
+      const r = await addUrlOrDoiToBib(doi, pm?.root ?? null);
+      if ("error" in r) {
+        doiStatus = "";
+        doiPromptError = r.error;
+        return;
+      }
+      doiStatus = "";
+      doiPromptOpen = false;
+      if (view) writeCiteGroup(view, [r.key]);
+    } else {
+      const r = await addUrlOrDoiToLibrary(doi);
+      if ("error" in r) {
+        doiStatus = "";
+        doiPromptError = r.error;
+        return;
+      }
+      doiStatus = "added";
+      doiPromptOpen = false;
+      setTimeout(() => {
+        if (doiStatus === "added") doiStatus = "";
+      }, 2400);
+    }
   }
 
   // ---- comments ----------------------------------------------------------
@@ -490,6 +573,9 @@
     const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
     subs.push(figRevision.subscribe(() => void loadFigures(pm?.root ?? null)));
     subs.push(bibRevision.subscribe(() => void loadBib(pm?.root ?? null)));
+    // Keep the shared FluxLib store current for the reference search + @-autocomplete
+    // (fires immediately, then on any FluxLib change — add here, Library mode, capture).
+    subs.push(fluxLibRevision.subscribe(() => void refreshFluxLib()));
     subs.push(externalManuscriptChange.subscribe((chg) => void onExternalManuscript(chg)));
     subs.push(figureRefs.subscribe(refresh));
     subs.push(bibEntries.subscribe(refresh));
@@ -766,6 +852,9 @@
     get references() {
       return references;
     },
+    get libraryReferences() {
+      return libraryReferences;
+    },
     get comments() {
       return {
         threads,
@@ -819,6 +908,8 @@
     { id: "toggle-margin", title: $paperLayout.dynMarginOpen ? "Hide dynamic margin" : "Show dynamic margin", hint: "Alt+F", keywords: "panel margin sidebar", run: toggleMargin },
     { id: "margin-search", title: "Search references…", hint: "Margin", keywords: "find cite reference bibliography", run: focusMarginSearch },
     { id: "margin-references", title: "References", hint: "Margin", keywords: "bibliography citations library", run: () => openMarginView("bibliography") },
+    { id: "add-doi-library", title: "Add DOI to FluxLib", hint: "Reference", keywords: "doi reference library fluxlib add paper crossref import", run: () => openDoiPrompt("library") },
+    { id: "add-doi-cite", title: "Add DOI & cite here", hint: "Reference", keywords: "doi cite citation reference insert crossref", run: () => openDoiPrompt("cite") },
     { id: "margin-figures", title: "Figures", hint: "Margin", keywords: "image plot zoom panel", run: () => openMarginView("figure") },
     { id: "margin-comments", title: "Comments", hint: "Margin", keywords: "notes annotations review", run: () => openMarginView("comments") },
     { id: "margin-stats", title: "Statistics", hint: "Margin", keywords: "word count length", run: () => openMarginView("stats") },
@@ -933,6 +1024,46 @@
     <CommandPalette {commands} onClose={() => (paletteOpen = false)} />
   {/if}
 
+  {#if doiPromptOpen}
+    <div class="doi-prompt-backdrop">
+      <div class="doi-prompt" role="dialog" aria-label="Add a DOI or URL">
+        <label for="doi-prompt-input">
+          {doiPromptMode === "cite"
+            ? "Add a DOI or URL and cite it here"
+            : "Add a DOI or URL to your FluxLib"}
+        </label>
+        <input
+          id="doi-prompt-input"
+          type="text"
+          placeholder="10.1038/…  ·  https://doi.org/…  ·  or a paper URL"
+          bind:value={doiPromptValue}
+          use:focusSelect
+          onkeydown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submitDoiPrompt();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              doiPromptOpen = false;
+            }
+          }} />
+        {#if doiPromptError}<div class="doi-prompt-err">{doiPromptError}</div>{/if}
+        <div class="doi-prompt-actions">
+          <button class="ghost" onclick={() => (doiPromptOpen = false)}>Cancel</button>
+          <button
+            onclick={submitDoiPrompt}
+            disabled={doiStatus === "fetching" || !doiPromptValue.trim()}>
+            {doiStatus === "fetching"
+              ? "Fetching…"
+              : doiPromptMode === "cite"
+                ? "Add & cite"
+                : "Add to FluxLib"}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   {#if titleEditOpen}
     <TitleEditor
       title={meta.title}
@@ -950,8 +1081,12 @@
   {/if}
 
   {#if doiStatus}
-    <div class="doi-toast" class:err={doiStatus === "error"}>
-      {doiStatus === "fetching" ? "Fetching reference…" : "Couldn't resolve that DOI"}
+    <div class="doi-toast" class:err={doiStatus === "error"} class:done={doiStatus === "added"}>
+      {doiStatus === "fetching"
+        ? "Fetching reference…"
+        : doiStatus === "added"
+          ? "Added to FluxLib ✓"
+          : "Couldn't resolve that DOI"}
     </div>
   {/if}
 
@@ -1132,6 +1267,50 @@
   }
   .doi-toast.done {
     color: var(--c-accent-bright);
+  }
+  .doi-prompt-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 16vh;
+    background: rgba(0, 0, 0, 0.18);
+  }
+  .doi-prompt {
+    width: min(440px, 90%);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
+    background: var(--c-surface, #fff);
+    border: 1px solid var(--c-line-strong, #ccc);
+    border-radius: 10px;
+    box-shadow: var(--elev-2);
+  }
+  .doi-prompt label {
+    font-size: var(--ts-sm);
+    color: var(--c-tx-2);
+  }
+  .doi-prompt input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--c-line-strong, #ccc);
+    border-radius: 6px;
+    background: var(--c-surface, #fff);
+    color: inherit;
+    font-size: var(--ts-base, 0.95rem);
+  }
+  .doi-prompt-err {
+    font-size: var(--ts-sm);
+    color: var(--c-danger, #d14d41);
+  }
+  .doi-prompt-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-2);
   }
   .disk-toast {
     position: absolute;

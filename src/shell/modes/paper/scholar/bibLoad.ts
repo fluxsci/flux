@@ -1,51 +1,22 @@
-// Loads + grows the bibliography. Parsing existing BibTeX is the hard direction,
-// so we lean on Citation.js (dynamic-imported to stay off the editor hot path).
-// Growing it from a pasted DOI is the easy direction — we generate a BibTeX
-// entry from the CrossRef metadata ourselves (Flux_Paper_Plan.md B5).
+// Loads the project's cited-subset bibliography and grows the machine-global
+// FluxLib. loadBib() reads references/library.bib (the fast, in-memory editor
+// path — unchanged). Adding a reference (pasted DOI / Cmd-K) now writes to FluxLib
+// (deduped by DOI, deterministic citekey) and materializes the entry into this
+// project's library.bib. Parsing/citekey/dedup live in the shared references
+// module so the GUI and flux-core stay in lockstep.
 
-import { get } from "svelte/store";
 import { fileBridge, joinPath } from "../../../../lib/project/types";
 import { bibEntries, bibError, type BibEntry } from "./bib";
 import { bumpBibRevision } from "../../../scholar/revisions";
+import { getCite, cslToEntry } from "../../../../lib/references/bibtex";
+import { addToFluxLib, materializeIntoProject } from "../../../../lib/references/fluxlibBridge";
 
 const BIB_PATH = ["references", "library.bib"];
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-let CiteCtor: any = null;
-async function getCite(): Promise<any> {
-  if (!CiteCtor) {
-    const core = await import("@citation-js/core");
-    await import("@citation-js/plugin-bibtex");
-    await import("@citation-js/plugin-doi");
-    await import("@citation-js/plugin-csl");
-    CiteCtor = core.Cite;
-  }
-  return CiteCtor;
-}
 
-function cslToEntry(c: any): BibEntry {
-  const authors: string[] = (c.author ?? [])
-    .map((a: any) => a.family || a.literal || a.name || a.given || "")
-    .filter(Boolean);
-  const year =
-    c.issued?.["date-parts"]?.[0]?.[0]?.toString() ??
-    c.issued?.year?.toString() ??
-    "";
-  const container = Array.isArray(c["container-title"])
-    ? c["container-title"][0]
-    : c["container-title"];
-  return {
-    key: c.id || c["citation-key"] || "",
-    title: Array.isArray(c.title) ? c.title[0] : (c.title ?? ""),
-    authors,
-    year,
-    container: container || undefined,
-    doi: c.DOI || undefined,
-    url: c.URL || undefined,
-  };
-}
-
-/** Parse `references/library.bib` into the bib store. Safe no-op without a project. */
+/** Parse `references/library.bib` (the project's cited subset) into the bib store.
+ *  Safe no-op without a project. */
 export async function loadBib(root: string | null): Promise<void> {
   const fb = fileBridge();
   if (!root || !fb) return;
@@ -104,16 +75,20 @@ function crossrefYear(msg: any): string {
   return dp?.[0]?.toString() ?? "";
 }
 
-function makeKey(family: string, year: string, title: string, taken: Set<string>): string {
-  const a = (family || "anon").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const w = (title.split(/\s+/).find((x) => x.replace(/[^a-z]/gi, "").length > 3) ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-  let base = `${a}${year}${w}`.slice(0, 40) || "ref";
-  let key = base;
-  let n = 0;
-  while (taken.has(key)) key = base + String.fromCharCode(97 + ++n); // a, b, c…
-  return key;
+/** Build a BibEntry (no key yet — FluxLib assigns it) from CrossRef metadata. */
+function msgToEntry(msg: any, fallbackDoi?: string): BibEntry {
+  const doi = msg.DOI || fallbackDoi?.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
+  return {
+    key: "",
+    title: first<string>(msg.title) ?? "",
+    authors: crossrefAuthors(msg)
+      .map((a) => a.family)
+      .filter(Boolean),
+    year: crossrefYear(msg),
+    container: first<string>(msg["container-title"]) || undefined,
+    doi: doi || undefined,
+    url: msg.URL || undefined,
+  };
 }
 
 function toBibtex(key: string, msg: any, entry: BibEntry): string {
@@ -141,50 +116,97 @@ function toBibtex(key: string, msg: any, entry: BibEntry): string {
   return `\n@${type}{${key},\n${body},\n}\n`;
 }
 
-/** Fetch a DOI's metadata, append a BibTeX entry to library.bib, return the new entry. */
+/** Fetch a DOI's CrossRef metadata and turn it into a BibTeX string (temp key). */
+async function doiToBibtex(
+  doi: string,
+): Promise<{ bibtex: string; entry: BibEntry } | { error: string }> {
+  const fb = fileBridge();
+  if (!fb?.fetchDoi) return { error: "DOI lookup needs the desktop app." };
+  const res = await fb.fetchDoi(doi);
+  if (!res || res.error || !res.message) return { error: res?.error || "Not found" };
+  const msg = res.message as any;
+  const entry = msgToEntry(msg, doi);
+  return { bibtex: toBibtex("ref", msg, entry), entry };
+}
+
+/**
+ * Fetch a DOI, add it to FluxLib (deterministic citekey, deduped by DOI), and
+ * materialize it into this project's library.bib. Returns the entry to cite.
+ */
 export async function addDoiToBib(
   doi: string,
   root: string | null,
 ): Promise<BibEntry | { error: string }> {
-  const fb = fileBridge();
-  if (!fb?.fetchDoi) return { error: "DOI lookup needs the desktop app." };
-  const res = await fb.fetchDoi(doi);
-  if (!res || res.error || !res.message)
-    return { error: res?.error || "Not found" };
-  const msg = res.message as any;
+  const built = await doiToBibtex(doi);
+  if ("error" in built) return built;
+  const r = await addToFluxLib(built.bibtex, { source: "doi" });
+  const key = r.keys[0];
+  if (!key) return { error: "Could not add the reference to FluxLib." };
+  const entry: BibEntry = { ...built.entry, key };
 
-  const authors = crossrefAuthors(msg);
-  const year = crossrefYear(msg);
-  const title = first<string>(msg.title) ?? "";
-  const taken = new Set(get(bibEntries).map((e) => e.key));
-  const key = makeKey(authors[0]?.family ?? "", year, title, taken);
-
-  const entry: BibEntry = {
-    key,
-    title,
-    authors: authors.map((a) => a.family).filter(Boolean),
-    year,
-    container: first<string>(msg["container-title"]) || undefined,
-    doi: msg.DOI || doi,
-    url: msg.URL || undefined,
-  };
-
-  if (root) {
-    const path = joinPath(root, ...BIB_PATH);
-    let prev = "";
-    try {
-      if (await fb.exists(path)) prev = await fb.readText(path);
-    } catch {
-      /* fresh file */
-    }
-    await fb.writeText(path, prev + toBibtex(key, msg, entry));
-    // WS6: provenance for the human's reference add (Electron only).
-    const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
-    host?.journalAppend?.({ action: "cite", target: key, client: "human" });
-  }
-  bibEntries.update((list) => [...list, entry]);
+  if (root) await materializeIntoProject(root, [key]);
+  bibEntries.update((list) => (list.some((e) => e.key === key) ? list : [...list, entry]));
+  // WS6: provenance for the human's reference add (Electron only).
+  const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
+  host?.journalAppend?.({ action: "cite", target: key, client: "human" });
   bumpBibRevision();
   return entry;
+}
+
+/**
+ * Fetch a DOI and add it to FluxLib ONLY (no project cite) — backs the Cmd-K
+ * "Add DOI to FluxLib" command. Returns the resolved citekey + title.
+ */
+export async function addDoiToLibrary(
+  doi: string,
+): Promise<{ key: string; title: string } | { error: string }> {
+  const built = await doiToBibtex(doi);
+  if ("error" in built) return built;
+  const r = await addToFluxLib(built.bibtex, { source: "doi" });
+  const key = r.keys[0];
+  if (!key) return { error: "Could not add the reference to FluxLib." };
+  return { key, title: built.entry.title };
+}
+
+/**
+ * Resolve a DOI *or* a paper URL to a DOI. Bare DOIs and doi.org links normalize
+ * locally (no fetch); any other URL is handed to the main process to fetch + scrape
+ * its citation metadata. Backs the URL-aware add paths below + web capture.
+ */
+export async function resolveToDoi(
+  input: string,
+): Promise<{ doi: string } | { error: string }> {
+  const raw = input.trim();
+  if (!raw) return { error: "Paste a DOI or URL." };
+  const bare = raw.replace(/^\s*doi:\s*/i, "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
+  if (/^10\.\d{4,9}\/\S+$/i.test(bare)) return { doi: bare.replace(/[)\]>.,;'"]+$/, "") };
+  if (/^https?:\/\//i.test(raw)) {
+    const fb = fileBridge();
+    if (!fb?.resolveUrl) return { error: "Resolving a URL needs the desktop app — paste a DOI instead." };
+    const r = await fb.resolveUrl(raw);
+    if (r?.doi) return { doi: r.doi };
+    return { error: r?.error || "Couldn't find a DOI on that page." };
+  }
+  return { error: "Enter a DOI (10.xxxx/…) or a paper URL." };
+}
+
+/** Resolve a DOI/URL and add it to FluxLib only (Library paste box + web capture). */
+export async function addUrlOrDoiToLibrary(
+  input: string,
+): Promise<{ key: string; title: string } | { error: string }> {
+  const r = await resolveToDoi(input);
+  if ("error" in r) return r;
+  return addDoiToLibrary(r.doi);
+}
+
+/** Resolve a DOI/URL, add it to FluxLib, and materialize it into this project. */
+export async function addUrlOrDoiToBib(
+  input: string,
+  root: string | null,
+): Promise<BibEntry | { error: string }> {
+  const r = await resolveToDoi(input);
+  if ("error" in r) return r;
+  return addDoiToBib(r.doi, root);
 }
 
 // Dev probe: verify Citation.js loads + parses in the real Vite/browser env

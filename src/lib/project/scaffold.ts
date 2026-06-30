@@ -8,6 +8,8 @@ import {
   slugify,
   type ProjectManifest,
 } from "./types";
+import { ensureFluxLib } from "../references/fluxlibBridge";
+import { createDeck as createStarterDeck } from "../slide/ops";
 
 export interface ScaffoldOptions {
   title: string;
@@ -209,22 +211,11 @@ function figCanvas(): string {
   );
 }
 
-/** Seed references/library.bib from the user-level master library if present. */
-async function seedReferences(root: string): Promise<string> {
-  const fig = fileBridge()!;
-  const header = `% Bibliography for this project (BibLaTeX). Canonical source of truth.\n`;
-  try {
-    const { home } = await fig.paths();
-    const master = joinPath(home, ".config", "Flux", "references", "library.bib");
-    if (await fig.exists(master)) {
-      const text = await fig.readText(master);
-      return text.trimEnd() + "\n";
-    }
-  } catch {
-    /* no user-level library; fall through to empty */
-  }
-  return header;
-}
+// The project's library.bib is the *cited subset*: it starts empty and fills as
+// references are cited (materialized from the machine-global FluxLib). It stays
+// canonical-within-project, so the project zips/clones/renders standalone.
+const PROJECT_BIB_HEADER =
+  "% This project's cited references (BibLaTeX), materialized from your FluxLib.\n";
 
 /**
  * Create a new project at `root` (a directory path that may not exist yet).
@@ -240,6 +231,14 @@ export async function scaffoldProject(
   for (const d of DIRS) await fig.mkdir(joinPath(root, d));
 
   const m = manifest(opts);
+
+  // Seed a starter deck (the Slide pillar) so a fresh project opens with a deck.
+  const starterDeck = createStarterDeck({ title: opts.title });
+  const deckRel = `slides/${starterDeck.id}/deck.json`;
+  m.slides = [{ id: starterDeck.id, path: deckRel, title: starterDeck.title, order: 1 }];
+  await fig.mkdir(joinPath(root, "slides", starterDeck.id));
+  await fig.mkdir(joinPath(root, "slides", starterDeck.id, "assets"));
+
   const writes: [string, string][] = [
     ["project.json", JSON.stringify(m, null, 2) + "\n"],
     ["AGENTS.md", agentsMd(opts)],
@@ -247,12 +246,21 @@ export async function scaffoldProject(
     [".gitignore", GITIGNORE],
     ["manuscript/main.qmd", mainQmd(opts)],
     ["manuscript/_quarto.yml", QUARTO_YML],
-    ["references/library.bib", await seedReferences(root)],
+    ["references/library.bib", PROJECT_BIB_HEADER],
     ["fig/index.json", figIndex()],
     ["fig/canvases/canvas-1.json", figCanvas()],
+    [deckRel, JSON.stringify(starterDeck, null, 2) + "\n"],
     [".meta/journal.ndjson", ""],
   ];
   for (const [rel, text] of writes) await fig.writeText(joinPath(root, rel), text);
+
+  // Guarantee the machine-global FluxLib exists (best-effort; never blocks the
+  // new-project flow). The project bib fills as references are cited.
+  try {
+    await ensureFluxLib();
+  } catch {
+    /* FluxLib bootstrap is non-fatal for project creation */
+  }
 
   return root;
 }

@@ -19,6 +19,17 @@ contextBridge.exposeInMainWorld("fig", {
 
   // Citation metadata fetch (CrossRef) — runs in main to avoid CORS.
   fetchDoi: (doi) => ipcRenderer.invoke("cite:fetchDoi", doi),
+  // Resolve a paper URL (or DOI) to a DOI by fetching + scraping the page in main.
+  resolveUrl: (url) => ipcRenderer.invoke("cite:resolveUrl", url),
+  // Fetch an OpenAlex API URL (built by src/lib/references/openalex.ts) in main —
+  // powers library hydration + whole-world lookups (no CORS; api_key attached if set).
+  fetchOpenAlex: (url) => ipcRenderer.invoke("cite:openalex", url),
+  // Fetch a Semantic Scholar API URL in main (recommendations / citation contexts);
+  // the x-api-key header is attached when an S2 key is configured.
+  fetchS2: (url) => ipcRenderer.invoke("cite:s2", url),
+  // Machine-global API-key store (~/FluxLib/keys.json), shared across projects.
+  keysGet: () => ipcRenderer.invoke("keys:get"),
+  keysSet: (patch) => ipcRenderer.invoke("keys:set", patch),
   // Open a URL (e.g. a DOI link) in the OS browser.
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
   // Optional external tools.
@@ -32,16 +43,32 @@ contextBridge.exposeInMainWorld("fig", {
   // App / user paths.
   paths: () => ipcRenderer.invoke("app:paths"),
 
+  // Global preferences (<userData>/preferences.json — holds the FluxLib path).
+  prefsGet: () => ipcRenderer.invoke("prefs:get"),
+  prefsSet: (patch) => ipcRenderer.invoke("prefs:set", patch),
+
   // File-watch live reload (F1): register the open project root, and subscribe to
   // external (agent/script) changes mapped to a subsystem ("fig"|"plots"|
   // "manuscript"|"references"). Returns an unsubscribe fn.
   watchRoot: (root) => ipcRenderer.invoke("watch:setRoot", root),
   // F2: re-run a plot's recipe; returns { code, svgText, manifestText, recipeText }.
   runRecipe: (recipePath, params) => ipcRenderer.invoke("recipe:run", { recipePath, params }),
+  // Slide export: emit a self-contained offline .html for a deck. Node-only
+  // (esbuild + fs run in main, via the flux-cli verb). Returns { ok, path } |
+  // { ok:false, error }. The renderer gates its Export button on this existing.
+  exportDeck: (root, deckId) => ipcRenderer.invoke("slides:exportDeck", { root, deckId }),
   onFsChanged: (cb) => {
     const handler = (_e, info) => cb(info);
     ipcRenderer.on("fs:changed", handler);
     return () => ipcRenderer.removeListener("fs:changed", handler);
+  },
+
+  // Web capture: the main process delivers a flux://add?doi=…|url=… payload here
+  // (from the bookmarklet / OS protocol handler) for the shell to add to FluxLib.
+  onCapture: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on("capture:add", handler);
+    return () => ipcRenderer.removeListener("capture:add", handler);
   },
 
   // WS6: provenance journal + advisory locks. Main appends/writes under .meta/

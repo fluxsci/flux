@@ -7,6 +7,7 @@
     { id: "figure", label: "Figure", icon: "figure" },
     { id: "paper", label: "Paper", icon: "paper" },
     { id: "slide", label: "Slide", icon: "slide" },
+    { id: "library", label: "Library", icon: "bookOpen" },
   ];
 
   const activeIndex = $derived(modes.findIndex((m) => m.id === $focusedMode));

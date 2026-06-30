@@ -8,6 +8,19 @@
   import { fileBridge, joinPath, basename } from "./project/types";
   import { importPlotFromPath } from "./io";
 
+  // Reuse beyond Figure mode: when `onPick` is provided (e.g. Slide mode), a chosen
+  // plot is handed to it (abs path + project-relative `rel` under plots/ + whether
+  // it's semantic) instead of being imported into the active figure. `title` lets
+  // a host relabel the header. Defaults preserve the original figure-import behavior.
+  export let onPick:
+    | ((p: { abs: string; rel: string; semantic: boolean }) => void | Promise<void>)
+    | undefined = undefined;
+  export let title = "Import plot";
+  // Host can pin the project root (Slide mode passes its own pm.root so the
+  // browsed plots/ matches the path its loadDeckAssets reads). Falls back to the
+  // global figure-mode stores.
+  export let rootOverride = "";
+
   interface PlotRec {
     abs: string;
     rel: string;
@@ -22,7 +35,7 @@
     semantic?: boolean;
   }
 
-  $: root = $embeddedProjectRoot || $projectDir || "";
+  $: root = rootOverride || $embeddedProjectRoot || $projectDir || "";
   $: plotsRoot = root ? joinPath(root, "plots") : "";
 
   let cwd = "";
@@ -147,7 +160,14 @@
       return;
     }
     if (r.abs) {
-      await importPlotFromPath(r.abs);
+      if (onPick) {
+        // hand back a stable project-relative path under plots/ (consistent across
+        // search vs. browse rows, where r.rel differs)
+        const rel = plotsRoot && r.abs.startsWith(plotsRoot) ? r.abs.slice(plotsRoot.length).replace(/^\/+/, "") : (r.rel ?? r.name);
+        await onPick({ abs: r.abs, rel, semantic: !!r.semantic });
+      } else {
+        await importPlotFromPath(r.abs);
+      }
       importerOpen.set(false);
     }
   }
@@ -191,7 +211,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="importer" transition:scale={{ duration: 150, start: 0.97 }} on:pointerdown|stopPropagation>
       <div class="ihead">
-        <span class="ttl">Import plot</span>
+        <span class="ttl">{title}</span>
         <span class="path">
           plots{relDir ? "/" : ""}<span class="cur">{relDir}</span>
           {#if !q && cwd && cwd !== plotsRoot}<button class="upbtn" on:click={up}>↑ up</button>{/if}

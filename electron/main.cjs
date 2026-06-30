@@ -3,6 +3,8 @@ const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
+const { resolveToDoi } = require("./resolveDoi.cjs");
+const { parseFluxUrl, fluxUrlFromArgv } = require("./fluxUrl.cjs");
 
 // chokidar is ESM-only (v5); this file is CommonJS, so it must be loaded via a
 // dynamic import() — a require() throws ERR_REQUIRE_ESM, which (when swallowed)
@@ -69,10 +71,51 @@ function fsGuard(p) {
     app.getPath("userData"),
     app.getPath("temp"),
     app.getPath("home"),
+    getFluxLibRoot(), // the machine-global FluxLib (covers a relocated path outside $HOME)
     ...approvedDirs,
   ].filter(Boolean);
   if (roots.some((r) => underDir(ab, path.resolve(r)))) return;
   throw new Error(`refused path outside project/app roots: ${p}`);
+}
+
+// ---------------------------------------------------------------------------
+// Global preferences: <userData>/preferences.json — the first file-based config
+// the GUI and the CLI/agents share (holds the FluxLib path). flux-core computes
+// the same userData dir, so both sides agree on where the library lives.
+// ---------------------------------------------------------------------------
+const prefsFile = () => path.join(app.getPath("userData"), "preferences.json");
+function readPrefs() {
+  try {
+    return JSON.parse(fs.readFileSync(prefsFile(), "utf8"));
+  } catch {
+    return { schemaVersion: "0.1.0" };
+  }
+}
+let fluxLibRoot; // undefined = not yet resolved from prefs; null = use default (~/FluxLib, under $HOME)
+function getFluxLibRoot() {
+  if (fluxLibRoot !== undefined) return fluxLibRoot;
+  const c = readPrefs().fluxLibPath;
+  fluxLibRoot = typeof c === "string" && c.trim() ? path.resolve(c) : null;
+  return fluxLibRoot;
+}
+
+// API keys (machine-global ~/FluxLib/keys.json), shared across every project.
+// Read in main so credentials are attached here, never baked into renderer URLs.
+const fluxLibDir = () => getFluxLibRoot() || path.join(os.homedir(), "FluxLib");
+const fluxKeysPath = () => path.join(fluxLibDir(), "keys.json");
+function readKeys() {
+  try {
+    return JSON.parse(fs.readFileSync(fluxKeysPath(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+const KEY_ENV = { mailto: "FLUX_MAILTO", openAlexKey: "OPENALEX_API_KEY", s2Key: "S2_API_KEY" };
+function getKey(name) {
+  const e = process.env[KEY_ENV[name]];
+  if (e && e.trim()) return e.trim();
+  const v = readKeys()[name];
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,10 +293,70 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
+
+  // Flush any flux:// web capture that arrived before the renderer was ready.
+  win.webContents.once("did-finish-load", () => {
+    if (pendingCapture) {
+      win.webContents.send("capture:add", pendingCapture);
+      pendingCapture = null;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// flux:// web capture. A single instance owns the protocol; a second launch (or
+// the macOS open-url event) forwards its flux://add?doi=…|url=… to the renderer,
+// which adds it to FluxLib. URL grammar lives in electron/fluxUrl.cjs.
+// ---------------------------------------------------------------------------
+let pendingCapture = null; // capture payload seen before the renderer is ready
+
+function deliverCapture(payload) {
+  if (!payload) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    const wc = mainWindow.webContents;
+    if (wc.isLoading()) wc.once("did-finish-load", () => wc.send("capture:add", payload));
+    else wc.send("capture:add", payload);
+  } else {
+    pendingCapture = payload; // flushed when the next window finishes loading
+  }
+}
+function handleFluxUrl(raw) {
+  deliverCapture(parseFluxUrl(raw));
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_e, argv) => {
+    const url = fluxUrlFromArgv(argv);
+    if (url) handleFluxUrl(url);
+    else if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+  // macOS delivers flux:// here (not via argv).
+  app.on("open-url", (e, url) => {
+    e.preventDefault();
+    handleFluxUrl(url);
+  });
+  // Register as the OS handler for flux:// (dev: pass execPath + script path).
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient("flux", process.execPath, [path.resolve(process.argv[1])]);
+  } else {
+    app.setAsDefaultProtocolClient("flux");
+  }
 }
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return;
   createWindow();
+  // Cold start via protocol (Windows/Linux carry the URL in argv).
+  const initialUrl = fluxUrlFromArgv(process.argv);
+  if (initialUrl) handleFluxUrl(initialUrl);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -296,6 +399,20 @@ ipcMain.handle("app:paths", () => ({
   userData: app.getPath("userData"),
   documents: app.getPath("documents"),
 }));
+
+// Global preferences (FluxLib path, etc.) — see prefsFile()/readPrefs() above.
+ipcMain.handle("prefs:get", () => readPrefs());
+ipcMain.handle("prefs:set", (_e, patch) => {
+  const cur = readPrefs();
+  const next = { ...cur, ...(patch || {}), schemaVersion: cur.schemaVersion || "0.1.0" };
+  fs.mkdirSync(path.dirname(prefsFile()), { recursive: true });
+  noteWrite(prefsFile());
+  fs.writeFileSync(prefsFile(), JSON.stringify(next, null, 2) + "\n");
+  if (typeof next.fluxLibPath === "string" && next.fluxLibPath.trim()) {
+    fluxLibRoot = path.resolve(next.fluxLibPath); // refresh the fsGuard allowlist
+  }
+  return next;
+});
 
 // ---------------------------------------------------------------------------
 // IPC: file dialogs + filesystem + PDF export
@@ -460,6 +577,32 @@ ipcMain.handle("recipe:run", async (_e, { recipePath, params = {} }) => {
   return { ...res, svgText, manifestText, recipeText: JSON.stringify(recipe) };
 });
 
+// Slide export (E): emit a self-contained offline .html for a deck. The engine is
+// Node-only (esbuild bundles the runtime; fs inlines assets), so we run the same
+// `flux export-deck` CLI verb in a child process using Electron's bundled Node
+// (ELECTRON_RUN_AS_NODE) + the tsx loader. Returns the written path.
+ipcMain.handle("slides:exportDeck", async (_e, { root, deckId }) => {
+  if (!root || !deckId) return { ok: false, error: "missing root or deckId" };
+  const appRoot = path.resolve(__dirname, "..");
+  const res = await new Promise((resolve) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", "flux-cli.ts", "export-deck", String(deckId), "--root", String(root)],
+      { cwd: appRoot, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } },
+    );
+    let err = "";
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", (e2) => resolve({ code: -1, stderr: String(e2) }));
+    child.on("close", (c) => resolve({ code: c ?? 0, stderr: err }));
+  });
+  const outPath = path.join(root, "exports", `${deckId}.html`);
+  if (res.code !== 0 || !fs.existsSync(outPath)) {
+    return { ok: false, error: (res.stderr || `export exited ${res.code}`).trim() };
+  }
+  noteWrite(outPath); // don't let the file-watcher echo our own write
+  return { ok: true, path: outPath };
+});
+
 // Render a standalone SVG to a vector PDF via Chromium's print engine.
 ipcMain.handle("export:pdf", async (_e, { svg, outPath, w, h }) => {
   const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
@@ -515,6 +658,66 @@ ipcMain.handle("cite:fetchDoi", async (_e, doi) => {
     if (!res.ok) return { error: `HTTP ${res.status}` };
     const json = await res.json();
     return { message: json.message };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+});
+
+// Resolve a paper URL (or DOI) to a DOI: fetch the page (global fetch → no CORS)
+// and scrape its citation meta tags. Backs the Library paste box and web capture.
+ipcMain.handle("cite:resolveUrl", (_e, url) => resolveToDoi(url, fetch));
+
+// OpenAlex fetch (library hydration + whole-world lookups) — runs in main to avoid
+// renderer CORS. The renderer builds the URL via src/lib/references/openalex.ts and
+// passes it here; we only allow the OpenAlex host. No API key needed (polite mailto).
+ipcMain.handle("cite:openalex", async (_e, url) => {
+  let u = String(url || "");
+  if (!/^https:\/\/api\.openalex\.org\//i.test(u)) return { error: "blocked: non-OpenAlex URL" };
+  const key = getKey("openAlexKey"); // free key → 10× daily budget
+  const mailto = getKey("mailto");
+  if (key && !/[?&]api_key=/.test(u)) u += (u.includes("?") ? "&" : "?") + "api_key=" + encodeURIComponent(key);
+  if (mailto && !/[?&]mailto=/.test(u)) u += (u.includes("?") ? "&" : "?") + "mailto=" + encodeURIComponent(mailto);
+  try {
+    const res = await fetch(u, {
+      headers: { "User-Agent": "Flux/0.1 (reference hydration)", Accept: "application/json" },
+    });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    return await res.json();
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+});
+
+// Semantic Scholar fetch (recommendations, citation contexts/intents) — runs in main
+// to avoid CORS; attaches the x-api-key header when an S2 key is set. Host-restricted.
+ipcMain.handle("cite:s2", async (_e, url) => {
+  const u = String(url || "");
+  if (!/^https:\/\/api\.semanticscholar\.org\//i.test(u)) return { error: "blocked: non-S2 URL" };
+  const key = getKey("s2Key");
+  try {
+    const res = await fetch(u, {
+      headers: {
+        "User-Agent": "Flux/0.1 (reference)",
+        Accept: "application/json",
+        ...(key ? { "x-api-key": key } : {}),
+      },
+    });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    return await res.json();
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+});
+
+// API-key store (machine-global ~/FluxLib/keys.json). keys:get returns the raw map
+// for the settings form (the user's own machine); keys:set merge-writes it.
+ipcMain.handle("keys:get", () => readKeys());
+ipcMain.handle("keys:set", (_e, patch) => {
+  try {
+    fs.mkdirSync(fluxLibDir(), { recursive: true });
+    const next = { ...readKeys(), ...(patch || {}) };
+    fs.writeFileSync(fluxKeysPath(), JSON.stringify(next, null, 2) + "\n");
+    return next;
   } catch (err) {
     return { error: String((err && err.message) || err) };
   }

@@ -10,9 +10,11 @@ import {
 import { scaffoldProject } from "../lib/project/scaffold";
 import { loadProject, NotAProjectError } from "../lib/project/load";
 import { startProjectWatch, stopProjectWatch } from "../lib/project/projectWatch";
+import { reconcileProject } from "../lib/references/fluxlibBridge";
+import { bumpBibRevision } from "./scholar/revisions";
 import { resetPanes } from "./paneStore";
 
-export type ModeId = "figure" | "paper" | "slide";
+export type ModeId = "figure" | "paper" | "slide" | "library";
 export type View = "home" | "workspace";
 
 export interface RecentProject {
@@ -80,6 +82,14 @@ function enterLoaded(loaded: LoadedProject) {
   resetPanes("paper");
   view.set("workspace");
   startProjectWatch(loaded.root); // F1: live-reload agent/script edits
+  // FluxLib: reconcile this project's cited-subset library.bib against the global
+  // library (materialize cited entries, promote project-local-only ones up). Non-
+  // blocking; refresh the bib store if anything changed. Failures are non-fatal.
+  void reconcileProject(loaded.root)
+    .then((r) => {
+      if (r.materialized.length || r.promoted.length) bumpBibRevision();
+    })
+    .catch(() => {});
 }
 
 /** Web-fallback (no Electron bridge): an in-memory project so the shell is demoable. */

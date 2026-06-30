@@ -15,6 +15,25 @@ import { elementBBox, unionRect } from "../src/lib/geometry";
 import { parsePlotSvg, prefixIds, applyOverrides, buildPartIndex } from "../src/lib/plot/parse";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { withLock } from "./locks";
+import * as fluxlib from "./fluxlib";
+import { mergeEnrich } from "../src/lib/references/enrich";
+// Reference hydration + whole-world lookups (OpenAlex) — see flux-core/enrich.ts.
+export {
+  hydrateLibrary,
+  searchWorld,
+  searchWorldSemantic,
+  similarByKey,
+  authorWorks,
+  citingWorks,
+  relatedWorks,
+} from "./enrich";
+export type { HydrateResult } from "./enrich";
+export type { WorldBrief } from "../src/lib/references/openalex";
+// Semantic Scholar — recommendations ("papers like this") + citation contexts.
+export { s2Similar, s2Citing } from "./s2";
+// API keys (machine-global ~/FluxLib/keys.json + env), shared by CLI/MCP/GUI.
+export { loadKeys, saveKeys, getSecret } from "./fluxlib";
+export type { FluxKeys } from "./fluxlib";
 
 // WS6 — client identity, stamped on every journal entry and used as lock owner.
 // The CLI sets "cli", the MCP server "mcp"; the GUI writes as "human" and the
@@ -27,6 +46,7 @@ export function getClient(): string {
   return CLIENT;
 }
 import * as ops from "../src/lib/ops";
+import * as slideOps from "../src/lib/slide/ops";
 import Ajv from "ajv";
 import { SCHEMAS, SCHEMA_FILENAMES, schemaForFile } from "./schemas";
 import type { Figure, Element, Project, Asset, Canvas, PartOverride } from "../src/lib/types";
@@ -449,14 +469,18 @@ export async function setCaption(root: string, figId: string, md: string): Promi
   }
 }
 
-/** add-reference / cite: append a BibTeX entry to the project's library.bib. */
+/** add-reference / cite: add a BibTeX entry to FluxLib (the machine-global
+ *  library, deduped by DOI) and materialize it into this project's cited-subset
+ *  library.bib. The project copy stays canonical-within-project (self-contained). */
 export async function addReference(root: string, bibtex: string): Promise<void> {
-  const manifest = await loadManifest(root);
-  const lib = j(root, manifest.references?.library ?? "references/library.bib");
-  let cur = "";
-  if (await exists(lib)) cur = await fs.readFile(lib, "utf8");
-  const sep = cur && !cur.endsWith("\n") ? "\n" : "";
-  await writeText(lib, cur + sep + bibtex.trim() + "\n");
+  const res = await fluxlib.addToFluxLib(bibtex, { source: "bibtex" });
+  await fluxlib.materializeIntoProject(root, res.keys);
+}
+
+/** Add a BibTeX entry to FluxLib only (no project cite). Backs `lib add` /
+ *  the add_to_library MCP tool / the "Add DOI to FluxLib" command. */
+export async function addToLibrary(bibtex: string): Promise<fluxlib.AddResult> {
+  return fluxlib.addToFluxLib(bibtex, { source: "bibtex" });
 }
 
 /** add-panel: import an SVG file as a panel on a figure — a semantic FluxPlot
@@ -659,7 +683,17 @@ export async function scaffold(
     slides: [],
     capabilities: {},
   };
+  // Seed a starter deck (the Slide pillar) so a fresh project has a deck to open.
+  const starterDeck = slideOps.createDeck({ title });
+  manifest.slides = [
+    { id: starterDeck.id, path: `slides/${starterDeck.id}/deck.json`, title: starterDeck.title, order: 1 },
+  ];
   await writeText(j(root, "project.json"), JSON.stringify(manifest, null, 2) + "\n");
+  await fs.mkdir(j(root, "slides", starterDeck.id, "assets"), { recursive: true });
+  await writeText(
+    j(root, "slides", starterDeck.id, "deck.json"),
+    JSON.stringify(starterDeck, null, 2) + "\n",
+  );
   await writeText(
     j(root, "manuscript", "main.qmd"),
     `---\ntitle: "${title}"\nbibliography: ../references/library.bib\n---\n\n# Introduction\n\nStart writing…\n`,
@@ -679,6 +713,9 @@ export async function scaffold(
   await writeText(j(root, "AGENTS.md"), agentsMd(title));
   await writeSchemas(root);
   await writeText(j(root, ".meta", "journal.ndjson"), "");
+  // Guarantee the machine-global FluxLib exists; the project's library.bib starts
+  // empty and fills via the cited-subset model as references are added/cited.
+  await fluxlib.ensureFluxLib();
 }
 
 /** A per-project AGENTS.md: how an agent should read/write this Flux project. */
@@ -869,8 +906,8 @@ export async function insertFigureRef(
   return { ref };
 }
 
-/** fetch a DOI's BibTeX (DOI content negotiation) and append it to library.bib. */
-export async function citeDoi(root: string, doi: string): Promise<{ bibtex: string }> {
+/** Fetch a DOI's BibTeX via DOI content negotiation. */
+async function fetchDoiBibtex(doi: string): Promise<{ clean: string; bibtex: string }> {
   const clean = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
   const res = await fetch(`https://doi.org/${encodeURIComponent(clean)}`, {
     headers: { Accept: "application/x-bibtex" },
@@ -879,9 +916,55 @@ export async function citeDoi(root: string, doi: string): Promise<{ bibtex: stri
   if (!res.ok) throw new Error(`DOI fetch failed (${res.status})`);
   const bibtex = (await res.text()).trim();
   if (!bibtex.startsWith("@")) throw new Error("DOI did not return BibTeX");
-  await addReference(root, bibtex);
-  await journal(root, { action: "cite_doi", doi: clean });
-  return { bibtex };
+  return { clean, bibtex };
+}
+
+/** cite-doi: fetch a DOI's BibTeX, add it to FluxLib (deterministic citekey,
+ *  deduped by DOI), and materialize it into this project's library.bib. */
+export async function citeDoi(root: string, doi: string): Promise<{ bibtex: string; keys: string[] }> {
+  const { clean, bibtex } = await fetchDoiBibtex(doi);
+  const res = await fluxlib.addToFluxLib(bibtex, { source: "doi" });
+  await fluxlib.materializeIntoProject(root, res.keys);
+  await journal(root, { action: "cite_doi", doi: clean, keys: res.keys });
+  return { bibtex, keys: res.keys };
+}
+
+/** Fetch a DOI's BibTeX and add it to FluxLib only (no project cite). */
+export async function addDoiToLibrary(doi: string): Promise<{ bibtex: string; result: fluxlib.AddResult }> {
+  const { bibtex } = await fetchDoiBibtex(doi);
+  const result = await fluxlib.addToFluxLib(bibtex, { source: "doi" });
+  return { bibtex, result };
+}
+
+/** Re-export FluxLib query for the CLI/MCP search surface. */
+export async function searchReferences(query: string): Promise<import("../src/lib/references/types").RefEntry[]> {
+  return fluxlib.searchReferences(query);
+}
+
+/** Like searchReferences but joins each hit with its enrichment (abstract, topics,
+ *  citation count) when hydrated — the richer surface for the MCP search tool. */
+export async function searchReferencesEnriched(query: string) {
+  const hits = await fluxlib.searchReferences(query);
+  return mergeEnrich(hits, await fluxlib.loadEnrich());
+}
+
+/** FluxLib location + size + hydration coverage, for `flux lib`. */
+export async function libraryInfo(): Promise<{
+  path: string;
+  entries: number;
+  hydrated: number;
+  withAbstract: number;
+}> {
+  return fluxlib.fluxLibInfo();
+}
+
+/** Reconcile a project's cited-subset library.bib against FluxLib (on open / on
+ *  demand): promote project-local-only cited entries up, materialize the rest,
+ *  report orphans. Non-destructive. */
+export async function reconcile(
+  root: string,
+): Promise<{ materialized: string[]; promoted: string[]; orphans: string[] }> {
+  return fluxlib.reconcileProject(root);
 }
 
 /** compile the manuscript via Quarto (pdf|html|docx). Requires `quarto` on PATH. */
@@ -1061,6 +1144,16 @@ export async function validate(root: string, file?: string): Promise<ValidateRes
       if (await exists(safeJoin(root, rel))) check("canvas", rel, await readRel(rel));
     }
   }
+  // Decks (slides/<id>/deck.json) — validate every deck registered in the manifest.
+  try {
+    const m = await loadManifest(root);
+    for (const s of m.slides ?? []) {
+      const rel = s.path ?? `slides/${s.id}/deck.json`;
+      if (await exists(safeJoin(root, rel))) check("deck", rel, await readRel(rel));
+    }
+  } catch {
+    /* no manifest — skip deck validation */
+  }
   return { ok: errors.length === 0, checked, errors };
 }
 
@@ -1184,3 +1277,21 @@ export async function captionFor(root: string, figId: string): Promise<string> {
   const { byId } = await readCanvasFiles(root, index);
   return byId[figId] ? composeCaption(byId[figId]) : "";
 }
+
+// --------------------------------------------------------------------------
+// Flux Slide — the deck verbs (load/save/list/create/validate a deck). Defined
+// in ./slides (which reuses safeJoin/journal/loadManifest/getClient above) and
+// re-exported here so the CLI + MCP reach them through one flux-core surface.
+// --------------------------------------------------------------------------
+export {
+  loadDeck,
+  saveDeck,
+  listDecks,
+  createDeck,
+  addSlide,
+  validateDeck,
+  gatherDeckPayload,
+  exportDeck,
+  type DeckSummary,
+  type ValidateDeckResult,
+} from "./slides";

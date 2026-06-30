@@ -37,7 +37,12 @@ export interface MarginHost {
   readonly latest: string;
   readonly citedKeys: Set<string>;
   readonly figures: FigureRef[];
+  /** The project's cited subset (references/library.bib) — the bibliography. */
   readonly references: BibEntry[];
+  /** The whole machine-global FluxLib for the reference SEARCH — you search to find
+   *  any paper to cite, not only ones already cited here. Union of FluxLib + any
+   *  project-local-only entries; citing one materializes it into `references`. */
+  readonly libraryReferences: BibEntry[];
   readonly comments: CommentBridge;
   /** Insert (target omitted) or replace (target given) a citation group. */
   writeCites: (keys: string[], target?: { from: number; to: number }) => void;

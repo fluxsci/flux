@@ -16,6 +16,7 @@
     figure: "Figure",
     paper: "Paper",
     slide: "Slide",
+    library: "Library",
   };
 
   const isSplit = $derived($panes.length > 1);

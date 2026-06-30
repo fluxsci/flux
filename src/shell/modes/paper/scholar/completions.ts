@@ -14,6 +14,7 @@ import type { EditorView } from "@codemirror/view";
 import { get } from "svelte/store";
 import { figureRefs } from "./figures";
 import { bibEntries } from "./bib";
+import { fluxLibEntries } from "../../../../lib/references/revision";
 import { slashHandlers } from "../science/chipContext";
 
 function refKind(label: string): string {
@@ -38,7 +39,13 @@ function atSource(ctx: CompletionContext): CompletionResult | null {
       type: "figure",
     });
   }
-  for (const e of get(bibEntries)) {
+  // Citations: the whole FluxLib (so a fresh project can cite anything you own),
+  // unioned with this project's subset. Citing a not-yet-local entry materializes it
+  // into the project (PaperMode's cited-keys effect) so the [@key] resolves.
+  const seenRef = new Set<string>();
+  for (const e of [...get(fluxLibEntries), ...get(bibEntries)]) {
+    if (!e.key || seenRef.has(e.key)) continue;
+    seenRef.add(e.key);
     const who = e.authors[0] ?? e.key;
     options.push({
       label: "@" + e.key,

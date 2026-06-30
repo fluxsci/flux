@@ -3,17 +3,11 @@
 // formatting used by the cite chips and the References preview.
 
 import { get, writable } from "svelte/store";
+import type { RefEntry } from "../../../../lib/references/types";
 
-export interface BibEntry {
-  key: string;
-  title: string;
-  authors: string[]; // family names, in order
-  year: string;
-  container?: string; // journal / venue
-  doi?: string;
-  url?: string;
-  raw?: string; // the original BibTeX entry text
-}
+// The scholar UI's entry type IS the shared reference entry — one definition
+// across the editor, FluxLib, and flux-core (CLI/MCP).
+export type BibEntry = RefEntry;
 
 export const bibEntries = writable<BibEntry[]>([]);
 

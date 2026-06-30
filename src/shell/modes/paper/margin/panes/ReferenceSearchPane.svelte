@@ -17,8 +17,17 @@
   let inputEl = $state<HTMLInputElement | undefined>(undefined);
   let gridEl = $state<HTMLElement | undefined>(undefined);
 
-  const results = $derived(runQuery(host.references, query));
+  // Search the whole FluxLib (not just this project's cited subset) — you search to
+  // find any paper to cite. Citing one materializes it into the project (writeCites).
+  const results = $derived(runQuery(host.libraryReferences, query));
   const markedList = $derived([...marked]);
+
+  // Show the OpenAlex citation count when a FluxLib entry has been hydrated (enrich).
+  function citedBy(r: unknown): string {
+    const n = (r as { enrich?: { citedByCount?: number } }).enrich?.citedByCount;
+    if (n == null) return "";
+    return n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+  }
 
   onMount(() => {
     // Edit-the-citation-at-the-cursor: pre-seed the tray from the group the caret sits in.
@@ -35,7 +44,7 @@
   });
 
   function labelFor(key: string): string {
-    const r = host.references.find((x) => x.key === key);
+    const r = host.libraryReferences.find((x) => x.key === key);
     return r ? `${r.authors[0] ?? key}${r.year ? ` ${r.year}` : ""}` : key;
   }
   function toggleMark(key: string) {
@@ -144,13 +153,14 @@
             toggleCite(r.key);
           }}></button>
         <span class="ga">{r.authors.slice(0, 2).join(", ")}{r.authors.length > 2 ? " et al." : ""}</span>
-        <span class="gt" title={r.title}>{r.title}</span>
+        <span class="gt" title={(r as { enrich?: { abstract?: string } }).enrich?.abstract || r.title}
+          >{r.title}</span>
         <span class="gj">{r.container ?? ""}</span>
-        <span class="gy">{r.year}</span>
+        <span class="gy">{r.year}{citedBy(r) ? ` · ${citedBy(r)}` : ""}</span>
       </div>
     {/each}
     {#if results.length === 0}
-      <div class="none">No matches{host.references.length ? "" : " — your library is empty"}.</div>
+      <div class="none">No matches{host.libraryReferences.length ? "" : " — your FluxLib is empty"}.</div>
     {/if}
   </div>
 

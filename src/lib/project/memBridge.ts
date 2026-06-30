@@ -34,10 +34,12 @@ export function createMemBridge(): FileBridge & {
   _files: Map<string, Uint8Array>;
   _dirs: Set<string>;
   _emitFsChange: (info: { subsystem: string; path: string }) => void;
+  _emitCapture: (p: { doi?: string; url?: string }) => void;
 } {
   const files = new Map<string, Uint8Array>();
   const dirs = new Set<string>(["/"]);
   const fsListeners = new Set<(info: { subsystem: string; path: string }) => void>();
+  const captureListeners = new Set<(p: { doi?: string; url?: string }) => void>();
 
   const addDir = (p: string) => {
     let cur = norm(p);
@@ -56,12 +58,23 @@ export function createMemBridge(): FileBridge & {
     _emitFsChange: (info) => {
       for (const l of fsListeners) l(info);
     },
+    // Dev-only: lets the headless harness simulate a flux:// web capture.
+    _emitCapture: (p) => {
+      for (const l of captureListeners) l(p);
+    },
     watchRoot() {
       return true;
     },
     onFsChanged(cb) {
       fsListeners.add(cb);
       return () => fsListeners.delete(cb);
+    },
+    onCapture(cb) {
+      captureListeners.add(cb);
+      return () => captureListeners.delete(cb);
+    },
+    async resolveUrl() {
+      return { error: "URL resolution is unavailable in the demo fixture (use Surface B)." };
     },
     async mkdir(p) {
       addDir(p);
@@ -115,6 +128,46 @@ export function createMemBridge(): FileBridge & {
     async fetchDoi() {
       return { error: "DOI fetch is unavailable in the demo fixture (use Surface B)." };
     },
+    async fetchOpenAlex(url) {
+      // OpenAlex sends permissive CORS, so the browser demo can fetch it directly.
+      try {
+        const r = await fetch(String(url));
+        if (!r.ok) return { error: `HTTP ${r.status}` };
+        return await r.json();
+      } catch (e) {
+        return { error: String((e && (e as Error).message) || e) };
+      }
+    },
+    async fetchS2(url) {
+      try {
+        const r = await fetch(String(url));
+        if (!r.ok) return { error: `HTTP ${r.status}` };
+        return await r.json();
+      } catch (e) {
+        return { error: String((e && (e as Error).message) || e) };
+      }
+    },
+    async keysGet() {
+      const p = norm("/home/demo/FluxLib/keys.json");
+      try {
+        return files.has(p) ? JSON.parse(new TextDecoder().decode(files.get(p)!)) : {};
+      } catch {
+        return {};
+      }
+    },
+    async keysSet(patch) {
+      const p = norm("/home/demo/FluxLib/keys.json");
+      let cur: Record<string, unknown> = {};
+      try {
+        if (files.has(p)) cur = JSON.parse(new TextDecoder().decode(files.get(p)!));
+      } catch {
+        /* fresh */
+      }
+      const next = { ...cur, ...patch };
+      ensureParent(p);
+      files.set(p, enc.encode(JSON.stringify(next)));
+      return next;
+    },
     async openExternal() {
       /* no-op in the fixture */
     },
@@ -123,6 +176,26 @@ export function createMemBridge(): FileBridge & {
     },
     async quartoRender() {
       return { ok: false, log: "Quarto is unavailable in the demo fixture (use Surface B)." };
+    },
+    async prefsGet() {
+      const p = norm("/home/demo/.config/Flux/preferences.json");
+      try {
+        return files.has(p) ? JSON.parse(new TextDecoder().decode(files.get(p)!)) : {};
+      } catch {
+        return {};
+      }
+    },
+    async prefsSet(patch) {
+      const p = norm("/home/demo/.config/Flux/preferences.json");
+      let cur: Record<string, unknown> = {};
+      try {
+        if (files.has(p)) cur = JSON.parse(new TextDecoder().decode(files.get(p)!));
+      } catch {
+        /* fresh prefs */
+      }
+      const next = { ...cur, ...patch };
+      files.set(p, enc.encode(JSON.stringify(next)));
+      return next;
     },
   };
 }
@@ -248,6 +321,8 @@ export async function installDemoFixture(): Promise<string> {
   (window as unknown as { fig?: FileBridge }).fig = bridge;
   // Dev-only: let the headless harness simulate an external (agent/script) write.
   (window as unknown as { __fluxEmitFsChange?: unknown }).__fluxEmitFsChange = bridge._emitFsChange;
+  // Dev-only: let the headless harness simulate a flux:// web capture.
+  (window as unknown as { __fluxEmitCapture?: unknown }).__fluxEmitCapture = bridge._emitCapture;
 
   // Scaffold the real tree (project.json, _quarto.yml, AGENTS.md, dirs, …),
   // then enrich it with sample content so the two-module workflow is exercised.
