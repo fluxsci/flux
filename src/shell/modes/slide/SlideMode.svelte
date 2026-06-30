@@ -31,8 +31,10 @@
   import * as slideOps from "../../../lib/slide/ops";
   import { createDeck as createDeckModel } from "../../../lib/slide/ops";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
+  import type { PresetName } from "../../../lib/slide/types";
   import SlideStage from "./SlideStage.svelte";
   import Inspector from "./Inspector.svelte";
+  import PresentOverlay from "./PresentOverlay.svelte";
   import "katex/dist/katex.min.css";
 
   let { focused = true }: { focused?: boolean } = $props();
@@ -45,6 +47,17 @@
   let resolvers = $state<DeckAssetResolvers>({ assetUrl: () => undefined, figureSvg: () => undefined });
   let insertables = $state<Insertables>({ figures: [], plots: [], images: [] });
   let insertOpen = $state(false);
+  let animOpen = $state(false);
+  let presentOpen = $state(false);
+
+  // Build presets offered for the selected element(s) on a beat (label → preset).
+  const BUILD_PRESETS: { label: string; preset: PresetName }[] = [
+    { label: "Fade in", preset: "fadeRise" },
+    { label: "Pop in", preset: "popIn" },
+    { label: "Reveal bullets", preset: "stagger" },
+    { label: "Draw on", preset: "drawOn" },
+    { label: "Highlight", preset: "highlight" },
+  ];
 
   async function refreshAssets() {
     const d = get(deckStore);
@@ -79,6 +92,12 @@
       }
       await refreshAssets();
       if (pm) insertables = await listInsertables(pm.root);
+      const d0 = get(deckStore);
+      if (d0?.slides.length) {
+        if (!get(activeSlideId)) activeSlideId.set(d0.slides[0].id);
+        const cur = slideOps.slideById(d0, get(activeSlideId) ?? d0.slides[0].id) ?? d0.slides[0];
+        activeBeat.set(Math.max(0, cur.beats.length - 1)); // open fully-built
+      }
     } catch (e) {
       console.error("SlideMode: deck load failed, using in-memory deck", e);
       loadDeckModel(createDeckModel({ title: pm?.manifest.title ?? "Demo Deck" }));
@@ -103,8 +122,55 @@
 
   function selectSlide(id: string) {
     activeSlideId.set(id);
-    activeBeat.set(0);
+    const s = deck && slideOps.slideById(deck, id);
+    activeBeat.set(s ? Math.max(0, s.beats.length - 1) : 0); // show fully-built for editing
     selection.set([]);
+  }
+
+  // --- beats + animation authoring --------------------------------------------
+  function onAddBeat() {
+    const sid = $activeSlideId ?? activeSlide?.id;
+    if (!sid) return;
+    let bi = 0;
+    commitDeck((d) => {
+      const s = slideOps.slideById(d, sid);
+      const b = slideOps.addBeat(d, sid, { label: `beat ${s ? s.beats.length : ""}`, advance: "click" });
+      bi = s && b ? s.beats.findIndex((x) => x.id === b.id) : 0;
+    });
+    if (bi > 0) activeBeat.set(bi);
+  }
+
+  /** Animate the selected element(s) on the active beat (creating beat 1 if the
+   *  resting beat 0 is active — animations never live on the base beat). */
+  function animateSelected(preset: PresetName) {
+    animOpen = false;
+    const sid = $activeSlideId ?? activeSlide?.id;
+    const ids = $selection;
+    if (!sid || !ids.length) return;
+    let targetBeatIndex = $activeBeat;
+    commitDeck((d) => {
+      const s = slideOps.slideById(d, sid);
+      if (!s) return;
+      let beat = s.beats[targetBeatIndex];
+      if (!beat || targetBeatIndex === 0) {
+        beat = slideOps.addBeat(d, sid, { label: preset, advance: "click" })!;
+        targetBeatIndex = s.beats.findIndex((x) => x.id === beat.id);
+      }
+      ids.forEach((id, i) => {
+        const found = slideOps.findElement(d, id);
+        const isText = found?.el.type === "textBox";
+        slideOps.setAnimation(d, sid, beat.id, {
+          target: id,
+          ...(isText && (preset === "stagger" || preset === "fadeRise") ? { selector: { blocks: "all" } } : {}),
+          preset,
+          start: i === 0 ? 0 : 0,
+          duration: preset === "drawOn" ? 900 : 360,
+          easing: preset === "drawOn" ? "smooth" : "standard",
+          ...(preset === "stagger" || (isText && preset === "fadeRise") ? { stagger: { perMs: 110 } } : {}),
+        });
+      });
+    });
+    activeBeat.set(targetBeatIndex);
   }
 
   // --- tools: add an element to the active slide, then select it ---------------
@@ -234,7 +300,7 @@
           {/each}
         </select>
       {/if}
-      <button class="btn ghost" disabled title="Present (P2)">Present ▶</button>
+      <button class="btn" onclick={() => (presentOpen = true)} disabled={!deck} title="Present (from current slide)">Present ▶</button>
       <button class="btn ghost" disabled title="Export .html (P4)">Export</button>
       <span class="dirty" class:on={$deckDirty} title="Unsaved changes">●</span>
     </div>
@@ -309,13 +375,29 @@
     <main class="stage-wrap">
       {#if ready && deck && activeSlide}
         <div class="stage-viewport">
-          <SlideStage slide={activeSlide} {theme} stage={deck.stage} interactive={true} {focused} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
+          <SlideStage slide={activeSlide} {theme} stage={deck.stage} interactive={true} {focused} beat={Math.min($activeBeat, activeSlide.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
         </div>
         <div class="beatbar">
           <span class="bl">Beats</span>
           {#each activeSlide.beats as b, bi (b.id)}
-            <span class="beat" class:cur={bi === $activeBeat} title={b.label ?? `beat ${bi}`}>{bi}</span>
+            <button class="beat" class:cur={bi === $activeBeat} title={b.label ?? `beat ${bi}`} onclick={() => activeBeat.set(bi)}>{bi}</button>
           {/each}
+          <button class="beatadd" onclick={onAddBeat} title="Add a beat">+</button>
+          <span class="spacer"></span>
+          {#if $selection.length}
+            <div class="anim-wrap">
+              <button class="anim" onclick={() => (animOpen = !animOpen)} aria-haspopup="menu" aria-expanded={animOpen}>Animate ▾</button>
+              {#if animOpen}
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="anim-menu" role="menu">
+                  <div class="grp">on beat {$activeBeat === 0 ? "1 (new)" : $activeBeat}</div>
+                  {#each BUILD_PRESETS as p (p.preset)}
+                    <button class="item" role="menuitem" onclick={() => animateSelected(p.preset)}>{p.label}</button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
         </div>
       {:else if ready && deck}
         <div class="empty">This deck has no slides. <button class="btn" onclick={onAddSlide}>Add one</button></div>
@@ -330,6 +412,16 @@
     </aside>
   </div>
 </div>
+
+{#if presentOpen && deck && activeSlide}
+  <PresentOverlay
+    {deck}
+    {theme}
+    assetUrl={resolvers.assetUrl}
+    figureSvg={resolvers.figureSvg}
+    start={{ slide: deck.slides.findIndex((s) => s.id === activeSlide.id), beat: 0 }}
+    onClose={() => (presentOpen = false)} />
+{/if}
 
 <style>
   .slide-mode {
@@ -425,10 +517,32 @@
   .beatbar { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
   .bl { font-size: var(--ts-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-tx-muted); margin-right: 4px; }
   .beat {
-    width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%;
-    border: 1px solid var(--c-line-strong); font-size: 11px; color: var(--c-tx-muted); font-variant-numeric: tabular-nums;
+    width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; padding: 0;
+    border: 1px solid var(--c-line-strong); background: transparent; cursor: pointer;
+    font-size: 11px; color: var(--c-tx-muted); font-variant-numeric: tabular-nums;
   }
+  .beat:hover { color: var(--c-tx-2); border-color: var(--c-accent); }
   .beat.cur { border-color: var(--c-accent); color: var(--c-tx-hi); background: var(--c-accent-tint); }
+  .beatadd {
+    width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; padding: 0;
+    border: 1px dashed var(--c-line-strong); background: transparent; color: var(--c-tx-muted); cursor: pointer; font-size: 13px;
+  }
+  .beatadd:hover { border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .beatbar .spacer { flex: 1; }
+  .anim-wrap { position: relative; }
+  .anim {
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-1); background: var(--c-surface);
+    color: var(--c-tx-2); cursor: pointer; font-size: var(--ts-sm); padding: 3px 10px;
+  }
+  .anim:hover { border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .anim-menu {
+    position: absolute; bottom: calc(100% + 5px); right: 0; z-index: 20; min-width: 150px;
+    background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-2);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); padding: 4px; display: flex; flex-direction: column; gap: 1px;
+  }
+  .anim-menu .grp { font-size: var(--ts-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-tx-muted); padding: 5px 8px 2px; }
+  .anim-menu .item { text-align: left; border: none; background: transparent; color: var(--c-tx-2); border-radius: var(--r-1); padding: 5px 8px; cursor: pointer; font-size: var(--ts-sm); }
+  .anim-menu .item:hover { background: var(--c-accent-tint); color: var(--c-tx-hi); }
   .inspector-host { flex: 0 0 248px; border-left: 1px solid var(--c-line); background: var(--c-bg-raised); overflow-y: auto; position: relative; }
   .empty { margin: auto; color: var(--c-tx-faint); font-style: italic; display: flex; gap: 10px; align-items: center; }
 </style>

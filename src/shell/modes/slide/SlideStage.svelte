@@ -10,6 +10,7 @@
   // preview live by mutating the rendered wrappers' geometry, and write the model
   // ONCE on pointer-up via a single commitDeck (no per-frame deck clone).
   import { renderSlide } from "../../../lib/slide/player/render";
+  import { computeSlideAnims, applyStatic } from "../../../lib/slide/player/player";
   import { plotGen } from "../../../lib/plot/store";
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
   import { resizeRemap } from "../../../lib/editing";
@@ -24,6 +25,7 @@
     stage,
     interactive = true,
     focused = true,
+    beat = 0,
     assetUrl,
     figureSvg,
   }: {
@@ -32,6 +34,8 @@
     stage: StageSize;
     interactive?: boolean;
     focused?: boolean;
+    /** Freeze the stage at this beat's static (build) state for preview. */
+    beat?: number;
     assetUrl?: (id: string) => string | undefined;
     figureSvg?: (id: string) => string | undefined;
   } = $props();
@@ -54,12 +58,16 @@
   // Rendered wrappers (elId → div), refreshed each render so previews can mutate them.
   let wrappers = new Map<string, HTMLElement>();
 
-  // Re-render the slide whenever its content, the theme, or a plot regen changes.
+  // Re-render the slide whenever its content/theme/plot-regen/beat changes, then
+  // freeze it at the selected beat's static (build) state so the scrubber previews
+  // builds. Editing happens against model coordinates regardless of preview styles.
   $effect(() => {
     const gen = $plotGen; // subscribe so plot hot-swaps re-render
     if (!stageEl) return;
     const r = renderSlide(stageEl, slide, stage, { theme, assetUrl, figureSvg, plotGen: gen, mode: "edit" });
     wrappers = r.elements;
+    const specs = computeSlideAnims(slide, r, stageEl, stage, { theme, assetUrl, figureSvg, plotGen: gen, mode: "edit" });
+    applyStatic(specs, beat);
   });
 
   // --- selection helpers (slide store is string[]; we work with a Set) ---------
