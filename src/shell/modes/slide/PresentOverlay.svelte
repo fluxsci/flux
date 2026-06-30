@@ -32,9 +32,14 @@
   let player: Player | undefined;
   let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1 });
   let blank = $state<"" | "black" | "white">("");
+  let showNotes = $state(false);
+  let elapsed = $state(0);
+  let timer: ReturnType<typeof setInterval> | undefined;
   let digits = "";
 
   const scale = $derived(vw > 0 && vh > 0 ? Math.min(vw / deck.stage.width, vh / deck.stage.height) : 1);
+  const notes = $derived(deck.slides[st.slide]?.notes ?? "");
+  const clock = $derived(`${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`);
 
   onMount(() => {
     if (!mount) return;
@@ -43,9 +48,13 @@
     player.on("change", (s) => (st = s));
     player.goTo(start.slide, start.beat);
     st = player.state();
+    timer = setInterval(() => (elapsed += 1), 1000);
     root?.focus();
   });
-  onDestroy(() => player?.destroy());
+  onDestroy(() => {
+    player?.destroy();
+    if (timer) clearInterval(timer);
+  });
 
   function onKey(e: KeyboardEvent) {
     if (!player) return;
@@ -65,6 +74,8 @@
       case "b": case "B": blank = blank === "black" ? "" : "black"; break;
       case "w": case "W": blank = blank === "white" ? "" : "white"; break;
       case "f": case "F": toggleFullscreen(); break;
+      case "s": case "S": showNotes = !showNotes; break;
+      case "r": case "R": elapsed = 0; break;
     }
   }
   function toggleFullscreen() {
@@ -94,6 +105,18 @@
 
   {#if blank}<div class="blank" style={`background:${blank === "black" ? "#000" : "#fff"}`}></div>{/if}
 
+  {#if showNotes}
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+    <div class="notes" onclick={(e) => e.stopPropagation()}>
+      <div class="notes-top">
+        <span class="clock">{clock}</span>
+        <span class="pos">slide {st.slide + 1}/{st.totalSlides} · beat {st.beat + 1}/{st.totalBeats}</span>
+      </div>
+      <div class="notes-body">{notes || "No notes for this slide."}</div>
+      <div class="notes-hint">S hide · R reset timer</div>
+    </div>
+  {/if}
+
   <div class="hud">
     <span>{st.slide + 1} / {st.totalSlides}</span>
     <span class="beats">{#each Array(st.totalBeats) as _, i (i)}<span class="dot" class:on={i <= st.beat}></span>{/each}</span>
@@ -120,4 +143,15 @@
   .hud .dot.on { background: #4385be; }
   .hud .x { pointer-events: all; border: 1px solid rgba(255, 255, 255, 0.3); background: transparent; color: rgba(255, 255, 255, 0.7); border-radius: 5px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
   .hud .x:hover { color: #fff; border-color: #fff; }
+  .notes {
+    position: absolute; top: 18px; right: 18px; z-index: 12; width: 340px; max-height: 60vh;
+    display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
+    background: rgba(16, 16, 18, 0.9); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px;
+    backdrop-filter: blur(6px); color: rgba(255, 255, 255, 0.82); cursor: default;
+  }
+  .notes-top { display: flex; align-items: baseline; justify-content: space-between; }
+  .notes .clock { font: 600 22px ui-monospace, monospace; color: #fff; font-variant-numeric: tabular-nums; }
+  .notes .pos { font-size: 11px; color: rgba(255, 255, 255, 0.45); }
+  .notes-body { font: 15px/1.5 Georgia, serif; white-space: pre-wrap; overflow-y: auto; }
+  .notes-hint { font-size: 10px; color: rgba(255, 255, 255, 0.35); letter-spacing: 0.03em; }
 </style>

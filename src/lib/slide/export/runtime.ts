@@ -103,6 +103,15 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   mount.addEventListener("click", (e) => { (e as MouseEvent).clientX < window.innerWidth * 0.25 ? player.prev() : player.next(); });
   window.addEventListener("resize", fitToViewport);
 
+  // §7.3 deterministic frame-step hook: a capture pass (PDF/video, a trivial
+  // later add) drives goTo with animation OFF and reads resting state per frame.
+  (window as unknown as { fluxDeck?: unknown }).fluxDeck = {
+    goTo: (s: number, b: number) => player.goTo(s, b, { animate: false }),
+    state: () => player.state(),
+    slideCount: deck.slides.length,
+    beatsOf: (s: number) => deck.slides[s]?.beats.length ?? 0,
+  };
+
   fitToViewport();
   renderHud();
   mount.focus();

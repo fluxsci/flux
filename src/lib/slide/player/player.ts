@@ -313,6 +313,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     } else {
       applyStatic(specs, bi);
       slideIndex = si; beatIndex = bi;
+      // slide-entry transition (§5.6): a quick fade unless reduced / "none".
+      if (slideChanged && !reduced && deck.slides[si].transition !== "none") {
+        animate(cameraLayer, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.gentle, easing: EASE.enter });
+      }
       emit("change");
     }
   }
