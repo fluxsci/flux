@@ -60,6 +60,14 @@
     });
   }
 
+  // Changing the layout on an EMPTY slide scaffolds it (A16); on a slide that
+  // already has content we only record the choice (never clobber the user's work).
+  function changeLayout(sid: string, layout: LayoutId, empty: boolean) {
+    commitDeck((d) => {
+      slideOps.setSlide(d, sid, { layout });
+      if (empty) slideOps.applyLayoutStarters(d, sid, layout);
+    });
+  }
   function commitSlide(patch: Parameters<typeof slideOps.setSlide>[2]) {
     const sid = activeSlide?.id;
     if (!sid) return;
@@ -441,7 +449,7 @@
     <section>
       <label class="full">Layout
         <select value={s.layout ?? "blank"}
-          onchange={(e) => { const v = e.currentTarget.value as LayoutId; commitSlide({ layout: v }); }}>
+          onchange={(e) => { const v = e.currentTarget.value as LayoutId; changeLayout(s.id, v, s.elements.length === 0); }}>
           <option value="title">Title</option>
           <option value="section">Section</option>
           <option value="content-figure">Content + figure</option>

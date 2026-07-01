@@ -26,6 +26,8 @@
     loadDeckInto,
     saveDeckFrom,
     createDeckInProject,
+    duplicateDeckInProject as duplicateDeckBridge,
+    deleteDeckFromProject as deleteDeckBridge,
     loadDeckAssets,
     writeDeckAsset,
     listInsertables,
@@ -126,6 +128,23 @@
     decks = await listProjectDecks(pm.root);
     await refreshAssets();
     resetCursorAndView();
+  }
+  async function duplicateDeck(id: string) {
+    if (!pm) return;
+    clearTimeout(saveTimer);
+    if (get(deckDirty)) await saveDeckFrom(pm.root); // flush the source first if it's live
+    const newId = await duplicateDeckBridge(pm.root, id);
+    decks = await listProjectDecks(pm.root);
+    if (newId) await switchDeck(newId);
+  }
+  async function deleteDeck(id: string) {
+    if (!pm || decks.length <= 1) return;
+    if (typeof window !== "undefined" && !window.confirm("Remove this deck from the project? Its file stays on disk.")) return;
+    const wasActive = id === activeDeckId;
+    const ok = await deleteDeckBridge(pm.root, id);
+    if (!ok) return;
+    decks = await listProjectDecks(pm.root);
+    if (wasActive && decks[0]) await switchDeck(decks[0].id);
   }
   // Plots get their own always-on `Plot…` browser button; Insert ▾ is for the
   // (typically short) figure + image lists.
@@ -396,7 +415,7 @@
     if (!d) return;
     let newId = "";
     commitDeck((dd) => {
-      newId = slideOps.addSlide(dd, { name: `Slide ${dd.slides.length + 1}`, layout: "content-figure" }).id;
+      newId = slideOps.addSlide(dd, { name: `Slide ${dd.slides.length + 1}`, layout: "content-figure", starters: true }).id;
     });
     if (newId) selectSlide(newId);
   }
@@ -625,7 +644,7 @@
     <!-- filmstrip -->
     <aside class="filmstrip">
       {#if pm}
-        <DeckPicker {decks} activeId={activeDeckId} onSelect={switchDeck} onNew={newDeck} />
+        <DeckPicker {decks} activeId={activeDeckId} onSelect={switchDeck} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} />
       {/if}
       {#if deck}
         {#each deck.slides as s, i (s.id)}

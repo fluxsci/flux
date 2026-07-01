@@ -51,7 +51,9 @@ async function writeManifest(root: string, m: ProjectManifest): Promise<void> {
 export async function listProjectDecks(root: string): Promise<DeckListItem[]> {
   const fig = fileBridge();
   const m = await readManifest(root);
-  const entries = m?.slides ?? [];
+  // Respect the registry's `order` (C19) — a stable deck order, newest appended
+  // last (registerDeck assigns order = slides.length + 1) unless the user sorts.
+  const entries = [...(m?.slides ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const out: DeckListItem[] = [];
   for (const e of entries) {
     const rel = e.path ?? deckRel(e.id);
@@ -343,4 +345,44 @@ export async function createDeckInProject(
   }
   loadDeckModel(d);
   return d;
+}
+
+/** Duplicate a deck on disk (new id + " copy" title, assets copied) and register
+ *  it. Returns the new deck id. Does NOT load it — the caller switches decks. */
+export async function duplicateDeckInProject(root: string, srcId: string): Promise<string | null> {
+  const fig = fileBridge();
+  const src = await readDeck(root, srcId);
+  if (!fig || !src) return null;
+  const dupe: Deck = structuredClone(src);
+  dupe.id = createDeckModel({ title: src.title }).id; // fresh deck id
+  dupe.title = `${src.title} copy`;
+  dupe.created = stamp();
+  dupe.modified = stamp();
+  await fig.mkdir(joinPath(root, "slides", dupe.id));
+  await fig.mkdir(joinPath(root, "slides", dupe.id, "assets"));
+  // copy each deck-local asset file (paths are deck-relative, same names)
+  for (const a of dupe.assets ?? []) {
+    try {
+      const bytes = new Uint8Array(await fig.readFile(joinPath(root, "slides", srcId, a.path)));
+      await fig.writeFile(joinPath(root, "slides", dupe.id, a.path), bytes);
+    } catch { /* skip an unreadable asset — the deck still opens */ }
+  }
+  await fig.writeText(joinPath(root, deckRel(dupe.id)), JSON.stringify(dupe, null, 2) + "\n");
+  await registerDeck(root, dupe);
+  return dupe.id;
+}
+
+/** Remove a deck from the project registry (project.json.slides[]). The deck's
+ *  files are left on disk (the bridge has no file-remove) — a safe, reversible
+ *  "remove from project". No-op if it's the only deck. */
+export async function deleteDeckFromProject(root: string, deckId: string): Promise<boolean> {
+  const fig = fileBridge();
+  const m = await readManifest(root);
+  if (!fig || !m) return false;
+  const slides = Array.isArray(m.slides) ? m.slides : [];
+  if (slides.length <= 1) return false; // never remove the last deck
+  m.slides = slides.filter((s) => s.id !== deckId);
+  if (m.slides.length === slides.length) return false; // nothing removed
+  await writeManifest(root, m);
+  return true;
 }

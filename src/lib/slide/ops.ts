@@ -122,6 +122,9 @@ export interface AddSlideOpts {
   background?: string;
   /** Insert at this index (default: append). */
   at?: number;
+  /** Pre-place editable starter text boxes for the layout (the GUI "Add slide"
+   *  passes this; programmatic callers get an empty slide unless they opt in). */
+  starters?: boolean;
 }
 
 /** Add a slide (always carries a resting beat 0). Returns the new slide. */
@@ -137,7 +140,38 @@ export function addSlide(deck: Deck, opts: AddSlideOpts = {}): Slide {
   const at = opts.at;
   if (at != null && at >= 0 && at <= deck.slides.length) deck.slides.splice(at, 0, slide);
   else deck.slides.push(slide);
+  if (opts.starters) applyLayoutStarters(deck, slide.id, slide.layout ?? "blank");
   return slide;
+}
+
+/** Pre-place editable placeholder text boxes for a layout (A16) — the "Layout"
+ *  choice now actually scaffolds the slide. Coordinates are fractions of the
+ *  stage so any aspect ratio lands sensibly. `full-bleed`/`blank` stay empty
+ *  (they're for a single dropped figure/plot or a hand-built slide). */
+export function applyLayoutStarters(deck: Deck, slideId: Id, layout: LayoutId): void {
+  const s = slideById(deck, slideId);
+  if (!s) return;
+  const W = deck.stage.width, H = deck.stage.height;
+  const box = (fx: number, fy: number, fw: number, fh: number) => ({ x: Math.round(fx * W), y: Math.round(fy * H), width: Math.round(fw * W), height: Math.round(fh * H) });
+  const add = (b: ReturnType<typeof box>, text: string, extra: Partial<TextBoxOpts> = {}) =>
+    addTextBox(deck, slideId, { ...b, blocks: [makeBlock(text)], ...extra });
+  if (layout === "title") {
+    add(box(0.1, 0.34, 0.8, 0.18), "Title", { fontSize: Math.round(H * 0.089), fontWeight: 700, align: "center" });
+    add(box(0.1, 0.56, 0.8, 0.1), "Subtitle", { fontSize: Math.round(H * 0.044), align: "center", blocks: [makeBlock("Subtitle", { emphasis: "muted" })] });
+  } else if (layout === "section") {
+    add(box(0.1, 0.4, 0.8, 0.2), "Section", { fontSize: Math.round(H * 0.078), fontWeight: 700, align: "center" });
+  } else if (layout === "content-figure") {
+    add(box(0.06, 0.08, 0.88, 0.13), "Title", { fontSize: Math.round(H * 0.061), fontWeight: 700 });
+    add(box(0.06, 0.26, 0.42, 0.64), "Point one", {
+      fontSize: Math.round(H * 0.042),
+      blocks: [makeBlock("Point one", { marker: "bullet" }), makeBlock("Point two", { marker: "bullet" }), makeBlock("Point three", { marker: "bullet" })],
+    });
+  } else if (layout === "two-column") {
+    add(box(0.06, 0.08, 0.88, 0.13), "Title", { fontSize: Math.round(H * 0.061), fontWeight: 700 });
+    add(box(0.06, 0.26, 0.42, 0.64), "Left column", { fontSize: Math.round(H * 0.042), blocks: [makeBlock("Left column", { marker: "bullet" })] });
+    add(box(0.52, 0.26, 0.42, 0.64), "Right column", { fontSize: Math.round(H * 0.042), blocks: [makeBlock("Right column", { marker: "bullet" })] });
+  }
+  // full-bleed / blank: intentionally empty.
 }
 
 /** Delete a slide. Returns the id that should become active next (or null). */
@@ -253,11 +287,27 @@ export function setTextBoxText(deck: Deck, elId: Id, text: string): void {
   const found = findElement(deck, elId);
   if (!found || found.el.type !== "textBox") return;
   const el = found.el;
-  const old = el.blocks;
   const lines = text.split("\n");
+  // Reconcile block IDENTITY across the edit so per-block animation tracks keep
+  // targeting the same line (A18). Pass 1: a new line whose text is UNCHANGED
+  // reclaims that exact old block (id + marker/emphasis/level) even if lines were
+  // inserted/removed above it. Pass 2: an edited line inherits the nearest
+  // still-unclaimed old block positionally (so an in-place edit keeps its id);
+  // a genuinely new line mints a fresh id.
+  const pool = el.blocks.map((b) => ({ b, used: false }));
+  const claim: (TextBlock | undefined)[] = lines.map((line) => {
+    const hit = pool.find((p) => !p.used && p.b.text === line);
+    if (hit) { hit.used = true; return hit.b; }
+    return undefined;
+  });
+  let cursor = 0;
   el.blocks = lines.map((line, i) => {
-    const ref = old[i] ?? old[old.length - 1];
-    return makeBlock(line, { id: old[i]?.id, marker: ref?.marker, emphasis: ref?.emphasis, level: ref?.level });
+    const exact = claim[i];
+    if (exact) return { ...exact, text: line };
+    while (cursor < pool.length && pool[cursor].used) cursor++;
+    const ref = cursor < pool.length ? pool[cursor] : null;
+    if (ref) ref.used = true;
+    return makeBlock(line, { id: ref?.b.id, marker: ref?.b.marker, emphasis: ref?.b.emphasis, level: ref?.b.level });
   });
   if (!el.blocks.length) el.blocks = [makeBlock("")];
 }

@@ -584,7 +584,9 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<!-- Only the interactive stage listens for keys; filmstrip thumbnails (interactive=false)
+     must NOT each attach a window listener that fires on every keystroke (A19). -->
+<svelte:window onkeydown={interactive ? onKey : undefined} />
 
 <div class="fit" bind:this={viewport} bind:clientWidth={fitW} bind:clientHeight={fitH} onwheel={onWheel}>
   {#if scale > 0}
