@@ -11,7 +11,7 @@
 
 import { get } from "svelte/store";
 import { cachePlot, plotManifests } from "../../plot/store";
-import { createPlayer, type Player } from "../player/player";
+import { createPlayer, renderStaticAt, type Player } from "../player/player";
 import { resolveTheme } from "../theme";
 import type { Deck } from "../types";
 import type { FluxPlotManifest } from "../../plot/types";
@@ -53,13 +53,37 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   mount.addEventListener("mousemove", () => { hud.style.opacity = "1"; clearTimeout(hudT); hudT = setTimeout(() => (hud.style.opacity = "0"), 1800); });
   let hudT: ReturnType<typeof setTimeout>;
 
-  const player = createPlayer(host, deck, {
-    mode: "export",
-    theme,
-    assetUrl: (id) => payload.assets?.[id],
-    figureSvg: (id) => payload.figures?.[id],
-    plotManifest: (id) => get(plotManifests)[id],
-  });
+  // Presenter panel (S): timer + position + next-slide preview + notes — the same
+  // speaker support the app's present mode has, now inside the portable file (C1).
+  const NEXT_W = 260;
+  const nextScale = NEXT_W / deck.stage.width;
+  const panel = document.createElement("div");
+  panel.style.cssText =
+    "position:absolute;top:16px;right:16px;z-index:12;width:300px;max-height:94vh;display:none;flex-direction:column;gap:9px;" +
+    "padding:13px 15px;background:rgba(16,16,18,.9);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:rgba(255,255,255,.82);font:13px Georgia,serif;";
+  const nextScaled = document.createElement("div");
+  nextScaled.style.cssText = `position:absolute;top:0;left:0;width:${deck.stage.width}px;height:${deck.stage.height}px;transform:scale(${nextScale});transform-origin:0 0;`;
+  mount.appendChild(panel);
+  let showPanel = false, elapsed = 0;
+  const twoDig = (n: number) => String(n).padStart(2, "0");
+
+  let reducedMotion = false;
+  let player: Player;
+  function buildPlayer(at: { slide: number; beat: number }) {
+    player?.destroy();
+    player = createPlayer(host, deck, {
+      mode: "export",
+      theme,
+      assetUrl: (id) => payload.assets?.[id],
+      figureSvg: (id) => payload.figures?.[id],
+      plotManifest: (id) => get(plotManifests)[id],
+      reducedMotion, // default OFF: a talk is meant to animate regardless of OS setting (C15)
+    });
+    player.on("change", () => { renderHud(); renderPanel(); });
+    player.goTo(at.slide, at.beat);
+    exposeHook();
+    renderHud();
+  }
 
   function fitToViewport() {
     const s = Math.min(window.innerWidth / deck.stage.width, window.innerHeight / deck.stage.height);
@@ -71,7 +95,39 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
     for (let i = 0; i < st.totalBeats; i++) dots += `<span style="width:7px;height:7px;border-radius:50%;display:inline-block;margin:0 2px;background:${i <= st.beat ? theme.accent : "rgba(255,255,255,.22)"}"></span>`;
     hud.innerHTML = `<span>${st.slide + 1} / ${st.totalSlides}</span><span>${dots}</span>`;
   }
-  player.on("change", renderHud);
+  function renderPanel() {
+    if (!showPanel) return;
+    const st = player.state();
+    const s = deck.slides[st.slide];
+    const nextIdx = st.slide + 1 < deck.slides.length ? st.slide + 1 : -1;
+    const notes = (s?.notes || "No notes for this slide.").replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;"));
+    const clock = `${Math.floor(elapsed / 60)}:${twoDig(elapsed % 60)}`;
+    panel.innerHTML =
+      `<div style="display:flex;justify-content:space-between;align-items:baseline">` +
+      `<span style="font:600 21px ui-monospace,monospace;color:#fff">${clock}</span>` +
+      `<span style="font-size:11px;color:rgba(255,255,255,.45)">slide ${st.slide + 1}/${st.totalSlides} · beat ${st.beat + 1}/${st.totalBeats}</span></div>` +
+      `<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.4)">${nextIdx >= 0 ? "Next" : "End of deck"}</div>`;
+    if (nextIdx >= 0) {
+      const frame = document.createElement("div");
+      frame.style.cssText = `position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.14);border-radius:6px;width:${NEXT_W}px;height:${deck.stage.height * nextScale}px;background:${deck.slides[nextIdx].background ?? theme.background};`;
+      nextScaled.innerHTML = "";
+      const inner = document.createElement("div");
+      inner.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;`;
+      nextScaled.appendChild(inner);
+      try { renderStaticAt(inner, deck.slides[nextIdx], deck.stage, Math.max(0, deck.slides[nextIdx].beats.length - 1), { mode: "export", theme, assetUrl: (id) => payload.assets?.[id], figureSvg: (id) => payload.figures?.[id], plotManifest: (id) => get(plotManifests)[id] }); } catch (_e) { /* preview best-effort */ }
+      frame.appendChild(nextScaled);
+      panel.appendChild(frame);
+    }
+    const body = document.createElement("div");
+    body.style.cssText = "font:15px/1.5 Georgia,serif;white-space:pre-wrap;overflow-y:auto";
+    body.innerHTML = notes;
+    panel.appendChild(body);
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:10px;color:rgba(255,255,255,.35);letter-spacing:.03em";
+    hint.textContent = `S notes · M motion ${reducedMotion ? "off" : "on"} · B/W blank · R reset · F full`;
+    panel.appendChild(hint);
+  }
+  setInterval(() => { elapsed++; if (showPanel) renderPanel(); }, 1000);
 
   let blank: HTMLElement | null = null;
   function toggleBlank(color: string) {
@@ -97,23 +153,34 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       case "b": case "B": toggleBlank("#000"); break;
       case "w": case "W": toggleBlank("#fff"); break;
       case "f": case "F": document.fullscreenElement ? document.exitFullscreen() : mount.requestFullscreen?.(); break;
+      case "s": case "S": showPanel = !showPanel; panel.style.display = showPanel ? "flex" : "none"; renderPanel(); break;
+      case "r": case "R": elapsed = 0; renderPanel(); break;
+      case "m": case "M": reducedMotion = !reducedMotion; buildPlayer(player.state()); renderPanel(); break;
     }
   }
   mount.addEventListener("keydown", onKey);
-  mount.addEventListener("click", (e) => { (e as MouseEvent).clientX < window.innerWidth * 0.25 ? player.prev() : player.next(); });
+  mount.addEventListener("click", (e) => {
+    // clicks on the presenter panel / video controls must not advance the deck
+    const t = e.target as HTMLElement;
+    if (t.closest("video") || panel.contains(t)) return;
+    (e as MouseEvent).clientX < window.innerWidth * 0.25 ? player.prev() : player.next();
+  });
   window.addEventListener("resize", fitToViewport);
 
   // §7.3 deterministic frame-step hook: a capture pass (PDF/video, a trivial
   // later add) drives goTo with animation OFF and reads resting state per frame.
-  (window as unknown as { fluxDeck?: unknown }).fluxDeck = {
-    goTo: (s: number, b: number) => player.goTo(s, b, { animate: false }),
-    state: () => player.state(),
-    slideCount: deck.slides.length,
-    beatsOf: (s: number) => deck.slides[s]?.beats.length ?? 0,
-  };
+  // Re-exposed after each (re)build so it always points at the live player.
+  function exposeHook() {
+    (window as unknown as { fluxDeck?: unknown }).fluxDeck = {
+      goTo: (s: number, b: number) => player.goTo(s, b, { animate: false }),
+      state: () => player.state(),
+      slideCount: deck.slides.length,
+      beatsOf: (s: number) => deck.slides[s]?.beats.length ?? 0,
+    };
+  }
 
+  buildPlayer({ slide: 0, beat: 0 });
   fitToViewport();
-  renderHud();
   mount.focus();
-  return player;
+  return player!;
 }

@@ -49,9 +49,78 @@ export const FLUX_LIGHT: DeckTheme = {
   fontMono: MONO,
 };
 
+/** Deep navy, cyan accent — a calm, high-contrast dark for a big auditorium. */
+export const FLUX_MIDNIGHT: DeckTheme = {
+  id: "flux-midnight",
+  name: "Flux Midnight",
+  background: "#0b1220",
+  surface: "#141d2e",
+  text: "#c8d2e0",
+  textHi: "#f4f8ff",
+  textMuted: "#7c8798",
+  accent: "#4fb3c4",
+  accentBright: "#7fd4e3",
+  fontTitle: SERIF,
+  fontBody: SERIF,
+  fontMono: MONO,
+};
+
+/** Neutral slate, warm amber accent — restrained, editorial. */
+export const FLUX_SLATE: DeckTheme = {
+  id: "flux-slate",
+  name: "Flux Slate",
+  background: "#1a1a1c",
+  surface: "#262629",
+  text: "#d2d0cb",
+  textHi: "#fbfaf7",
+  textMuted: "#8b8985",
+  accent: "#d0a215", // amber-ish, warm on cool slate
+  accentBright: "#eab308",
+  fontTitle: SERIF,
+  fontBody: SERIF,
+  fontMono: MONO,
+};
+
+/** Warm parchment, sienna accent — an academic "paper" look, easy on the eyes. */
+export const FLUX_SEPIA: DeckTheme = {
+  id: "flux-sepia",
+  name: "Flux Sepia",
+  background: "#f4ecd8",
+  surface: "#eadfc4",
+  text: "#3b2f22",
+  textHi: "#241c12",
+  textMuted: "#7a6a54",
+  accent: "#9c4a21", // sienna
+  accentBright: "#bc6428",
+  fontTitle: SERIF,
+  fontBody: SERIF,
+  fontMono: MONO,
+};
+
+/** Maximum contrast — pure black, bright text, vivid accent. Reads from the back
+ *  row in a bright room where subtler darks wash out. */
+export const FLUX_CONTRAST: DeckTheme = {
+  id: "flux-contrast",
+  name: "Flux Contrast",
+  background: "#000000",
+  surface: "#141414",
+  text: "#f2f2f2",
+  textHi: "#ffffff",
+  textMuted: "#a8a8a8",
+  accent: "#4cc2ff",
+  accentBright: "#8ad8ff",
+  fontTitle: SERIF,
+  fontBody: SERIF,
+  fontMono: MONO,
+};
+
 export const BUILTIN_THEMES: Record<string, DeckTheme> = {
   "flux-dark": FLUX_DARK,
   "flux-light": FLUX_LIGHT,
+  "flux-midnight": FLUX_MIDNIGHT,
+  "flux-slate": FLUX_SLATE,
+  "flux-sepia": FLUX_SEPIA,
+  "flux-contrast": FLUX_CONTRAST,
 };
 
 export const DEFAULT_THEME_ID = "flux-dark";

@@ -85,7 +85,14 @@ export interface ExportResult {
 /** Build the self-contained HTML from a fully-gathered payload (deck + inlined
  *  plots/figures/assets). `warnThreshold` (bytes) flags video-heavy decks (§7.2). */
 export async function exportDeckHtml(payload: ExportPayload, opts: { warnThreshold?: number } = {}): Promise<ExportResult> {
-  const [runtime, gelasio, katexCss] = await Promise.all([bundleRuntime(), gelasioFontFaces(), katexCssInlined()]);
+  // KaTeX CSS + its fonts weigh ~1 MB; only inline them when the deck actually has
+  // an equation (C12). Most decks have none, so this is the biggest size win.
+  const hasMath = payload.deck.slides.some((s) => s.elements.some((e) => e.type === "math"));
+  const [runtime, gelasio, katexCss] = await Promise.all([
+    bundleRuntime(),
+    gelasioFontFaces(),
+    hasMath ? katexCssInlined() : Promise.resolve(""),
+  ]);
   const warnings: string[] = [];
 
   // JSON for a <script type=application/json>: only `<` needs neutralizing.
