@@ -21,3 +21,6 @@ notes/
 
 # Defensive: fluxplot is its own repo at ~/fluxplot — ignore if ever re-cloned here
 fluxplot/
+
+# TypeScript incremental build info (from `tsc -p` on composite configs)
+*.tsbuildinfo

@@ -806,6 +806,46 @@ export async function autoLabel(root: string, figId: string): Promise<{ panels: 
   });
 }
 
+/** Read a plot element's semantic manifest — sidecar-first (fig/assets/<id>.fluxplot.json,
+ *  the W9 round-trip location), then the provenance source.manifestPath. Returns null for
+ *  opaque images or when no manifest is on disk. */
+async function readPlotManifest(root: string, el: Element): Promise<FluxPlotManifest | null> {
+  const aid = (el as { assetId?: string }).assetId;
+  if (aid) {
+    try {
+      return JSON.parse(
+        await fs.readFile(j(root, "fig", "assets", `${aid}.fluxplot.json`), "utf8"),
+      ) as FluxPlotManifest;
+    } catch {
+      /* fall through to source */
+    }
+  }
+  const src = (el as { source?: { manifestPath?: string } }).source;
+  if (src?.manifestPath) {
+    try {
+      return JSON.parse(await fs.readFile(safeJoin(root, src.manifestPath), "utf8")) as FluxPlotManifest;
+    } catch {
+      /* no manifest reachable */
+    }
+  }
+  return null;
+}
+
+/** Every addressable part id in a manifest: the flat leaf ids (buildPartIndex) plus
+ *  every node/group id in the parts tree. Used to reject typo'd partIds (AGT-13). */
+function addressablePartIds(m: FluxPlotManifest): Set<string> {
+  const ids = new Set<string>(Object.keys(buildPartIndex(m)));
+  const walk = (n: { id?: string; ref?: string; members?: string[]; children?: unknown[] } | undefined) => {
+    if (!n) return;
+    if (n.id) ids.add(n.id);
+    if (n.ref) ids.add(n.ref);
+    for (const mem of n.members ?? []) ids.add(mem);
+    for (const c of (n.children ?? []) as (typeof n)[]) walk(c);
+  };
+  walk(m.parts as never);
+  return ids;
+}
+
 /** restyle a semantic-plot part/series by stable id (e.g. "control.line" or the
  *  group "control"). Writes an override that survives regeneration. If elementId
  *  is omitted and the figure has exactly one plot panel, that panel is used. */
@@ -816,7 +856,7 @@ export async function setPartOverride(
   patch: PartOverride,
   elementId?: string,
 ): Promise<{ elementId: string }> {
-  return mutateFigModel(root, "restyle_part", ({ project }) => {
+  return mutateFigModel(root, "restyle_part", async ({ project }) => {
     const fig = ops.figById(project, figId);
     if (!fig) throw new Error(`figure not found: ${figId}`);
     let elId = elementId;
@@ -824,6 +864,22 @@ export async function setPartOverride(
       const plots = fig.elements.filter((e) => e.type === "plot");
       if (plots.length !== 1) throw new Error(`figure ${figId} has ${plots.length} plot panels; pass elementId`);
       elId = plots[0].id;
+    }
+    // AGT-13: reject typo'd partIds instead of silently writing an inert override.
+    const el = fig.elements.find((e) => e.id === elId);
+    if (el) {
+      const manifest = await readPlotManifest(root, el);
+      if (manifest) {
+        const valid = addressablePartIds(manifest);
+        if (valid.size && !valid.has(partId)) {
+          const known = [...valid].sort();
+          const shown = known.slice(0, 40).join(", ");
+          throw new Error(
+            `unknown part "${partId}" on ${figId}. ${known.length} known part(s): ${shown}` +
+              (known.length > 40 ? `, … (+${known.length - 40} more)` : ""),
+          );
+        }
+      }
     }
     ops.setPartOverride(project, elId, partId, patch);
     return { elementId: elId };
@@ -838,6 +894,89 @@ export async function setElementStyle(
 ): Promise<void> {
   await mutateFigModel(root, "set_style", ({ project }) => {
     ops.setElementStyle(project, ids, patch);
+  });
+}
+
+// --- W11 (AGT-6): figure verbs that existed as pure ops + live-bridge commands
+// but had no flux-core/CLI/MCP wrapper — so a closed-app agent couldn't delete a
+// wrong panel, align a column, group, etc. Thin mutateFigModel wrappers. ---
+
+/** delete elements by id (across the active figures). */
+export async function deleteElements(root: string, ids: string[]): Promise<void> {
+  await mutateFigModel(root, "delete", ({ project }) => {
+    ops.deleteElements(project, ids);
+  });
+}
+
+/** delete a whole figure. Returns the id the GUI would activate next. */
+export async function deleteFigure(root: string, figId: string): Promise<{ nextActiveId: string | null }> {
+  return mutateFigModel(root, "delete_figure", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    return ops.deleteFigure(project, figId);
+  });
+}
+
+/** duplicate a whole figure (fresh element/group ids). Returns the new figure id. */
+export async function duplicateFigure(root: string, figId: string): Promise<{ figureId: string }> {
+  return mutateFigModel(root, "duplicate_figure", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    const id = ops.duplicateFigure(project, figId);
+    if (!id) throw new Error(`could not duplicate ${figId}`);
+    return { figureId: id };
+  });
+}
+
+/** align a figure's elements (left/right/top/bottom/centerH/centerV). */
+export async function alignFigure(
+  root: string,
+  figId: string,
+  kind: "left" | "right" | "top" | "bottom" | "centerH" | "centerV",
+  ids?: string[],
+): Promise<void> {
+  await mutateFigModel(root, "align", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.alignPanels(project, figId, kind, ids);
+  });
+}
+
+/** group elements into one movable unit. Returns the new group id. */
+export async function groupElements(root: string, ids: string[]): Promise<{ groupId: string }> {
+  return mutateFigModel(root, "group", ({ project }) => {
+    const gid = ops.group(project, ids);
+    if (!gid) throw new Error("group needs ≥2 elements in the same figure");
+    return { groupId: gid };
+  });
+}
+
+/** ungroup elements (dissolve their group membership). */
+export async function ungroupElements(root: string, ids: string[]): Promise<void> {
+  await mutateFigModel(root, "ungroup", ({ project }) => {
+    ops.ungroup(project, ids);
+  });
+}
+
+/** set a figure's frame (x/y/width/height/background/name). */
+export async function setFigureLayout(
+  root: string,
+  figId: string,
+  patch: { x?: number; y?: number; width?: number; height?: number; background?: string; name?: string },
+): Promise<void> {
+  await mutateFigModel(root, "set_figure_layout", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.setFigureLayout(project, figId, patch);
+  });
+}
+
+/** change elements' z-order within their figure (front/back/forward/backward). */
+export async function setZOrder(
+  root: string,
+  figId: string,
+  ids: string[],
+  where: ops.ZOrder,
+): Promise<void> {
+  await mutateFigModel(root, "set_z", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.setZOrder(project, figId, ids, where);
   });
 }
 

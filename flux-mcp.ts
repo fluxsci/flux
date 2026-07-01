@@ -494,6 +494,160 @@ server.registerTool(
   },
 );
 
+// --- W11 (AGT-6): figure verbs an agent can run with the app CLOSED. Previously
+// these edits (delete/align/group/z-order/layout) were live-bridge-only. ---
+
+server.registerTool(
+  "delete_elements",
+  {
+    description: "Delete elements by id (removes them from whatever figure they're in). Use to remove a wrong panel/label/shape.",
+    inputSchema: { ids: z.array(z.string()) },
+  },
+  async ({ ids }) => {
+    await core.deleteElements(ROOT, ids);
+    return ok(`deleted ${ids.length} element(s)`);
+  },
+);
+
+server.registerTool(
+  "delete_figure",
+  {
+    description: "Delete a whole figure (keeps at least one figure in the project). Returns the id the GUI would select next.",
+    inputSchema: { figureId: z.string() },
+  },
+  async ({ figureId }) => {
+    const r = await core.deleteFigure(ROOT, figureId);
+    return ok(`deleted figure ${figureId}${r.nextActiveId ? ` (next: ${r.nextActiveId})` : ""}`);
+  },
+);
+
+server.registerTool(
+  "duplicate_figure",
+  {
+    description: "Duplicate a whole figure (fresh element/group ids). Returns the new figure id.",
+    inputSchema: { figureId: z.string() },
+  },
+  async ({ figureId }) => {
+    const r = await core.duplicateFigure(ROOT, figureId);
+    return ok(`duplicated ${figureId} → ${r.figureId}`);
+  },
+);
+
+server.registerTool(
+  "align_figure",
+  {
+    description:
+      "Align a figure's elements to a common edge/axis: left, right, top, bottom, centerH (share a vertical center line), centerV (share a horizontal center line). Omit `ids` to align all of the figure's elements.",
+    inputSchema: {
+      figureId: z.string(),
+      kind: z.enum(["left", "right", "top", "bottom", "centerH", "centerV"]),
+      ids: z.array(z.string()).optional(),
+    },
+  },
+  async ({ figureId, kind, ids }) => {
+    await core.alignFigure(ROOT, figureId, kind, ids);
+    return ok(`aligned ${figureId} (${kind})`);
+  },
+);
+
+server.registerTool(
+  "group_elements",
+  {
+    description: "Group ≥2 elements (in the same figure) into one movable/selectable unit. Returns the new group id.",
+    inputSchema: { ids: z.array(z.string()) },
+  },
+  async ({ ids }) => {
+    const r = await core.groupElements(ROOT, ids);
+    return ok(`grouped ${ids.length} element(s) → ${r.groupId}`);
+  },
+);
+
+server.registerTool(
+  "ungroup_elements",
+  {
+    description: "Ungroup elements — dissolve their group membership.",
+    inputSchema: { ids: z.array(z.string()) },
+  },
+  async ({ ids }) => {
+    await core.ungroupElements(ROOT, ids);
+    return ok(`ungrouped ${ids.length} element(s)`);
+  },
+);
+
+server.registerTool(
+  "set_figure_layout",
+  {
+    description: "Set a figure's frame: position (x,y), size (width,height), background color, and/or name. Only the fields you pass change.",
+    inputSchema: {
+      figureId: z.string(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+      background: z.string().optional(),
+      name: z.string().optional(),
+    },
+  },
+  async ({ figureId, x, y, width, height, background, name }) => {
+    const patch: Parameters<typeof core.setFigureLayout>[2] = {};
+    if (x != null) patch.x = x;
+    if (y != null) patch.y = y;
+    if (width != null) patch.width = width;
+    if (height != null) patch.height = height;
+    if (background != null) patch.background = background;
+    if (name != null) patch.name = name;
+    await core.setFigureLayout(ROOT, figureId, patch);
+    return ok(`set layout on ${figureId}`);
+  },
+);
+
+server.registerTool(
+  "set_z",
+  {
+    description: "Change elements' stacking order within their figure: front, back, forward (one step up), or backward (one step down). For an absolute index use reorder_element.",
+    inputSchema: { figureId: z.string(), ids: z.array(z.string()), where: z.enum(["front", "back", "forward", "backward"]) },
+  },
+  async ({ figureId, ids, where }) => {
+    await core.setZOrder(ROOT, figureId, ids, where);
+    return ok(`z-order ${where} for ${ids.length} element(s) in ${figureId}`);
+  },
+);
+
+server.registerTool(
+  "render_figure",
+  {
+    description:
+      "Render a figure to SVG text (per-part plot overrides baked in) — the vector source. For a raster preview an agent can SEE, use get_figure_image (PNG) instead.",
+    inputSchema: { id: z.string() },
+  },
+  async ({ id }) => ok(await core.renderFigureSvg(ROOT, id)),
+);
+
+server.registerTool(
+  "get_caption",
+  {
+    description: "Read a figure's composed caption (fig/captions/<id>.md — figure caption + per-panel captions). Use before set_caption to see the current text.",
+    inputSchema: { figureId: z.string() },
+  },
+  async ({ figureId }) => ok((await core.captionFor(ROOT, figureId)) || `(no caption for ${figureId})`),
+);
+
+server.registerTool(
+  "reconcile",
+  {
+    description:
+      "Reconcile the project's cited references against the machine-global FluxLib: re-materialize references/library.bib from cited keys, promote any project-only entries into FluxLib, and report orphaned citekeys (cited but not found). Run after editing citations by hand.",
+    inputSchema: {},
+  },
+  async () => {
+    const r = await core.reconcile(ROOT);
+    return ok(
+      `reconciled: ${r.materialized.length} materialized, ${r.promoted.length} promoted to FluxLib` +
+        (r.orphans.length ? `, ${r.orphans.length} orphan(s): ${r.orphans.join(", ")}` : ""),
+    );
+  },
+);
+
 server.registerTool(
   "rerun_plot",
   {
@@ -638,6 +792,19 @@ server.registerTool(
 );
 
 server.registerTool(
+  "ingest_pdf",
+  {
+    description:
+      "Store a PDF you already have on disk into FluxLib for a citekey (items/<citekey>/paper.pdf) and extract its fulltext — the manual fallback when fetch_pdfs can't find an open-access copy (paywalled/proxy-only papers). `key` is the citekey; `filePath` is an absolute path to the .pdf.",
+    inputSchema: { key: z.string(), filePath: z.string() },
+  },
+  async ({ key, filePath }) => {
+    const r = await core.ingestPdf(filePath, { key });
+    return ok(`ingested ${filePath} → @${key} (${r.status})`);
+  },
+);
+
+server.registerTool(
   "get_paper_text",
   {
     description:
@@ -677,6 +844,34 @@ server.registerTool(
     const hits = await core.searchAnnotations(query, { key });
     if (!hits.length) return ok(`No annotations match "${query}".`);
     return ok(hits.map((h) => `@${h.key} p${h.page} [${h.color}] "${h.anchor.quote}"${h.note ? ` — ${h.note}` : ""}`).join("\n"));
+  },
+);
+
+server.registerTool(
+  "add_annotation",
+  {
+    description:
+      "Add a highlight/note to a FluxLib paper (items/<citekey>/annotations.json) — the same annotations FluxReader shows the human. `quote` is the exact text to highlight; `prefix`/`suffix` are the surrounding text that disambiguates it on the page (find them in get_paper_text). `page` is 1-based.",
+    inputSchema: {
+      key: z.string(),
+      page: z.number(),
+      quote: z.string(),
+      prefix: z.string().optional(),
+      suffix: z.string().optional(),
+      color: z.enum(["yellow", "green", "blue", "pink", "orange"]).optional(),
+      note: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+  },
+  async ({ key, page, quote, prefix, suffix, color, note, tags }) => {
+    const a = await core.addAnnotation(key, {
+      page,
+      anchor: { quote, prefix: prefix ?? "", suffix: suffix ?? "" },
+      color: color ?? "yellow",
+      note,
+      tags,
+    });
+    return ok(`added annotation ${a.id} on @${key} p${page} [${a.color}]`);
   },
 );
 

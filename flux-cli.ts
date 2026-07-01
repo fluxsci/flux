@@ -294,6 +294,61 @@ async function main() {
       console.error(`✓ styled ${_.length} element(s)`);
       break;
     }
+    case "delete-element":
+    case "delete-elements": {
+      await core.deleteElements(R(), _);
+      console.error(`✓ deleted ${_.length} element(s)`);
+      break;
+    }
+    case "delete-figure": {
+      const r = await core.deleteFigure(R(), _[0]);
+      console.error(`✓ deleted figure ${_[0]}${r.nextActiveId ? ` (next: ${r.nextActiveId})` : ""}`);
+      break;
+    }
+    case "duplicate-figure": {
+      const r = await core.duplicateFigure(R(), _[0]);
+      console.error(`✓ duplicated ${_[0]} → ${r.figureId}`);
+      console.log(r.figureId);
+      break;
+    }
+    case "align": {
+      const kind = (flags.kind as string) ?? _[1];
+      const ids = typeof flags.ids === "string" ? flags.ids.split(",") : undefined;
+      await core.alignFigure(R(), _[0], kind as Parameters<typeof core.alignFigure>[2], ids);
+      console.error(`✓ aligned ${_[0]} (${kind})`);
+      break;
+    }
+    case "group": {
+      const r = await core.groupElements(R(), _);
+      console.error(`✓ grouped ${_.length} element(s) → ${r.groupId}`);
+      console.log(r.groupId);
+      break;
+    }
+    case "ungroup": {
+      await core.ungroupElements(R(), _);
+      console.error(`✓ ungrouped ${_.length} element(s)`);
+      break;
+    }
+    case "set-figure-layout": {
+      const patch: Parameters<typeof core.setFigureLayout>[2] = {};
+      if (num(flags.x) != null) patch.x = num(flags.x);
+      if (num(flags.y) != null) patch.y = num(flags.y);
+      if (num(flags.width) != null) patch.width = num(flags.width);
+      if (num(flags.height) != null) patch.height = num(flags.height);
+      if (typeof flags.background === "string") patch.background = flags.background;
+      if (typeof flags.name === "string") patch.name = flags.name;
+      await core.setFigureLayout(R(), _[0], patch);
+      console.error(`✓ set layout on ${_[0]}`);
+      break;
+    }
+    case "set-z":
+    case "z-order": {
+      const where = ((flags.where as string) ?? _[1]) as Parameters<typeof core.setZOrder>[3];
+      const ids = typeof flags.ids === "string" ? flags.ids.split(",") : _.slice(2);
+      await core.setZOrder(R(), _[0], ids, where);
+      console.error(`✓ z-order ${where} for ${ids.length} element(s) in ${_[0]}`);
+      break;
+    }
     case "manuscript": {
       process.stdout.write(await core.getManuscript(R(), flags.doc as string | undefined));
       break;
@@ -478,6 +533,19 @@ async function main() {
         console.log(JSON.stringify(hits, null, 2));
         console.error(`✓ ${hits.length} annotation(s) library-wide`);
       }
+      break;
+    }
+    case "add-annotation": {
+      const key = String(flags.key ?? _[0]);
+      const quote = String(flags.quote ?? "");
+      if (!key || !quote) throw new Error("add-annotation needs --key and --quote");
+      const a = await core.addAnnotation(key, {
+        page: num(flags.page) ?? 1,
+        anchor: { quote, prefix: String(flags.prefix ?? ""), suffix: String(flags.suffix ?? "") },
+        color: typeof flags.color === "string" ? flags.color : "yellow",
+        note: typeof flags.note === "string" ? flags.note : undefined,
+      });
+      console.error(`✓ annotated @${key} p${a.page} [${a.color}] (${a.id})`);
       break;
     }
     case "compile": {

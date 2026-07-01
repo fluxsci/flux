@@ -42,7 +42,9 @@ export interface Fulltext {
 
 /** Extract the full text of a PDF (Uint8Array) using pdf.js in Node (fake worker). */
 export async function extractFulltext(bytes: Uint8Array): Promise<Fulltext> {
-  const task = getDocument({
+  // getDocument is a lazy async wrapper (see above) → it resolves to the pdf.js
+  // loading task; await it before touching .promise/.destroy().
+  const task = await getDocument({
     data: bytes,
     useWorkerFetch: false,
     isEvalSupported: false,
