@@ -13,12 +13,24 @@ import {
   sourcePath,
   fulltextPath,
   annotationsPath,
+  readerContextPath,
   type SourceInfo,
   type ItemStatus,
   type ItemsIndex,
+  type ReaderContext,
 } from "../src/lib/references/items";
 
 const libItemsIndexPath = (lib: string) => path.join(lib, ".fluxlib", "items.json");
+
+/** Read the live FluxReader context (what the human is reading) — for the
+ *  get_reading_context MCP tool. null if the reader hasn't written one. */
+export async function readReaderContext(libPath?: string): Promise<ReaderContext | null> {
+  try {
+    return JSON.parse(await fs.readFile(readerContextPath(await lib(libPath)), "utf8")) as ReaderContext;
+  } catch {
+    return null;
+  }
+}
 
 async function lib(libPath?: string): Promise<string> {
   return libPath ? path.resolve(libPath) : await resolveFluxLibPath();

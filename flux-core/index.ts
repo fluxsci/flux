@@ -34,7 +34,7 @@ export { s2Similar, s2Citing } from "./s2";
 // FluxFinder — PDF acquisition + the items/ store.
 export { fetchPdfForKey, fetchPdfs, ingestPdf } from "./acquire";
 export type { FetchSummary, FetchOneResult } from "./acquire";
-export { hasPdf, readPdf, readSource, writePdf, readFulltext, writeFulltext, loadItemsIndex, rebuildItemsIndex, itemStatus } from "./items";
+export { hasPdf, readPdf, readSource, writePdf, readFulltext, writeFulltext, loadItemsIndex, rebuildItemsIndex, itemStatus, readReaderContext } from "./items";
 export { extractFulltext, getOrExtractFulltext } from "./fulltext";
 // FluxReader annotations (highlights/notes; searchable library-wide).
 export { loadAnnotations, addAnnotation, deleteAnnotation, listAnnotations, searchAnnotations } from "./annotate";
@@ -57,7 +57,7 @@ import * as ops from "../src/lib/ops";
 import * as slideOps from "../src/lib/slide/ops";
 import Ajv from "ajv";
 import { SCHEMAS, SCHEMA_FILENAMES, schemaForFile } from "./schemas";
-import type { Figure, Element, Project, Asset, Canvas, PartOverride } from "../src/lib/types";
+import type { Figure, Element, Project, Asset, Canvas, PartOverride, VectorNode } from "../src/lib/types";
 import type { ProjectManifest, FigureEntry } from "../src/lib/project/types";
 import { slugify } from "../src/lib/project/types";
 
@@ -621,6 +621,118 @@ export async function arrangeFigure(
   if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
   ops.arrangePanels(project, figId, opts);
   await saveFigModel(root, project, index, "arrange");
+}
+
+/** proportionally scale elements (Feature 5) about a pivot (default = their bbox
+ *  centre) by `factor`, scaling geometry AND stroke/corner/font weights together. */
+export async function scaleElements(
+  root: string,
+  ids: string[],
+  factor: number,
+  pivot?: { x: number; y: number },
+): Promise<void> {
+  const { project, index } = await loadFigModel(root);
+  ops.scaleElements(project, ids, factor, pivot);
+  await saveFigModel(root, project, index, "scale");
+}
+
+/** duplicate elements (Feature 4) within their figure, `count` times, each stamp
+ *  offset by k·(dx,dy) with fresh element/group ids. Returns the last stamp's ids. */
+export async function duplicateElements(
+  root: string,
+  figId: string,
+  ids: string[],
+  opts: { dx?: number; dy?: number; count?: number } = {},
+): Promise<{ ids: string[] }> {
+  const { project, index } = await loadFigModel(root);
+  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+  const made = ops.duplicateElements(project, figId, ids, opts);
+  await saveFigModel(root, project, index, "duplicate");
+  return { ids: made };
+}
+
+/** set a figure's ruler guides (Feature 11) — figure-local guide lines that
+ *  elements snap to. Either axis omitted → cleared. Lay down a column grid or
+ *  baseline set programmatically; the GUI shows + snaps to them. */
+export async function setGuides(
+  root: string,
+  figId: string,
+  guides: { x?: number[]; y?: number[] },
+): Promise<void> {
+  const { project, index } = await loadFigModel(root);
+  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+  ops.setGuides(project, figId, guides);
+  await saveFigModel(root, project, index, "set_guides");
+}
+
+/** distribute a figure's elements along an axis. With `gap`, place them at an
+ *  EXACT edge-to-edge gap (anchored on the first); without, equalize the spacing
+ *  between the outermost items (needs ≥3). `ids` restricts the set (default all). */
+export async function distributeFigure(
+  root: string,
+  figId: string,
+  axis: "h" | "v",
+  gap?: number,
+  ids?: string[],
+): Promise<void> {
+  const { project, index } = await loadFigModel(root);
+  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+  ops.distributePanels(project, figId, axis, ids, gap);
+  await saveFigModel(root, project, index, "distribute");
+}
+
+/** reorder one element to an absolute z-index within its figure (0 = bottom). */
+export async function reorderElement(
+  root: string,
+  figId: string,
+  id: string,
+  toIndex: number,
+): Promise<void> {
+  const { project, index } = await loadFigModel(root);
+  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+  ops.reorderElement(project, figId, id, toIndex);
+  await saveFigModel(root, project, index, "reorder");
+}
+
+/** rotate elements by `deltaDeg` about a pivot (default = selection bbox centre). */
+export async function rotateElements(
+  root: string,
+  ids: string[],
+  deltaDeg: number,
+  pivot?: { x: number; y: number },
+): Promise<void> {
+  const { project, index } = await loadFigModel(root);
+  ops.rotateElements(project, ids, deltaDeg, pivot);
+  await saveFigModel(root, project, index, "rotate");
+}
+
+/** add a vector path (Feature 1 pen) to a figure from an editable node list.
+ *  Mirrors the GUI pen / bridge add_path — the node list is normalized + the bbox
+ *  fitted by ops.addPath, and the path renders/exports identically. */
+export async function addPath(
+  root: string,
+  figId: string,
+  opts: { nodes: VectorNode[]; closed?: boolean; fill?: string; stroke?: string; strokeWidth?: number },
+): Promise<{ id: string }> {
+  const { project, index } = await loadFigModel(root);
+  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+  const id = ops.addPath(project, figId, opts);
+  if (!id) throw new Error("add-path: need ≥2 nodes");
+  await saveFigModel(root, project, index, "add_path");
+  return { id };
+}
+
+/** replace a path's nodes and/or closed flag (Feature 1 node-edit). Adopts a
+ *  legacy d-only path into nodes first, so any path stays editable. */
+export async function editPath(
+  root: string,
+  id: string,
+  patch: { nodes?: VectorNode[]; closed?: boolean },
+): Promise<{ id: string }> {
+  const { project, index } = await loadFigModel(root);
+  ops.updatePath(project, id, patch);
+  await saveFigModel(root, project, index, "edit_path");
+  return { id };
 }
 
 /** auto-letter a figure's panel-label elements (a, b, c…) by reading order. */

@@ -3,8 +3,43 @@
 // Reuses the pure path helpers (items.ts) + the resolved FluxLib path.
 import { fileBridge } from "../project/types";
 import { resolveFluxLibPath } from "./fluxlibBridge";
-import { itemDir, itemsBase, pdfPath, sourcePath, safeKey, PAPER_PDF, type SourceInfo } from "./items";
+import {
+  itemDir,
+  itemsBase,
+  pdfPath,
+  fulltextPath,
+  sourcePath,
+  safeKey,
+  readerContextPath,
+  PAPER_PDF,
+  type SourceInfo,
+  type ReaderContext,
+} from "./items";
 import { isPdfBytes } from "./pdfFinder";
+
+/** Write the live reader context (what the human is reading) so the agent's
+ *  get_reading_context MCP tool can see it. Fills in the on-disk paths. Best-effort,
+ *  debounced by the caller. */
+export async function writeReaderContext(ctx: ReaderContext): Promise<void> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return;
+  const full: ReaderContext = { ...ctx };
+  if (ctx.citekey) {
+    full.pdfPath = pdfPath(lib, ctx.citekey);
+    full.fulltextPath = fulltextPath(lib, ctx.citekey);
+  }
+  try {
+    if (fb.mkdir) await fb.mkdir(`${lib}/.fluxlib`);
+    await fb.writeText(readerContextPath(lib), JSON.stringify(full, null, 2));
+  } catch {
+    /* best-effort */
+  }
+}
+/** Clear the reader context when the reader closes / no paper is open. */
+export async function clearReaderContext(): Promise<void> {
+  await writeReaderContext({ citekey: "", updatedAt: new Date().toISOString() });
+}
 
 /** File a hand-downloaded PDF (chosen via the OS picker) into items/<key>/ — the manual
  *  fallback for paywalled papers. Validates the %PDF- header. Returns false if the file
@@ -43,7 +78,10 @@ export async function listPdfKeys(): Promise<Set<string>> {
       .filter((e) => e.dir)
       .map(async ({ name }) => {
         try {
-          if (await fb.exists(`${itemsBase(lib)}/${name}/${PAPER_PDF}`)) out.add(name);
+          // Store NFC-normalized: macOS/APFS returns readdir names as NFD while the .bib
+          // stores citekeys as NFC — without this, accented keys (buzsáki, yüzgeç…) miss
+          // the presence check and their PDFs flicker as "missing" between launches.
+          if (await fb.exists(`${itemsBase(lib)}/${name}/${PAPER_PDF}`)) out.add(name.normalize("NFC"));
         } catch {
           /* ignore */
         }
@@ -52,8 +90,10 @@ export async function listPdfKeys(): Promise<Set<string>> {
   return out;
 }
 
-/** True if `key`'s PDF dir-name is in a set produced by listPdfKeys(). */
-export const hasPdfIn = (pdfKeys: Set<string>, key: string): boolean => pdfKeys.has(safeKey(key));
+/** True if `key`'s PDF dir-name is in a set produced by listPdfKeys(). NFC-normalized so
+ *  the join is Unicode-normalization-invariant (see listPdfKeys). */
+export const hasPdfIn = (pdfKeys: Set<string>, key: string): boolean =>
+  pdfKeys.has(safeKey(key).normalize("NFC"));
 
 /** File a fetched PDF into items/<key>/ + write source.json provenance (renderer twin
  *  of flux-core writePdf). Computes a SHA-256 via WebCrypto for parity. */

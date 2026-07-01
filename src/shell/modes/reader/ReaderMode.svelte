@@ -4,8 +4,9 @@
   // flanked by a reference sidebar (the paper's OpenAlex referenced_works → add to
   // FluxLib) and an annotations panel (this paper's highlights → click to scroll,
   // delete). Highlights persist to items/<citekey>/annotations.json.
+  import { onDestroy } from "svelte";
   import { readerKey } from "./readerStore";
-  import { readerPdfBytes } from "../../../lib/references/itemsBridge";
+  import { readerPdfBytes, writeReaderContext, clearReaderContext } from "../../../lib/references/itemsBridge";
   import { loadAnnotations, addAnnotation, deleteAnnotation } from "../../../lib/references/annotationsBridge";
   import { loadFluxLib } from "../../../lib/references/fluxlibBridge";
   import { referencedWorksByKey } from "../../../lib/references/enrichBridge";
@@ -14,7 +15,9 @@
   import type { WorldBrief } from "../../../lib/references/openalex";
   import type { RefEntry } from "../../../lib/references/types";
   import type { Annotation, TextQuoteSelector } from "../../../lib/references/annotations";
+  import type { ReaderContext } from "../../../lib/references/items";
   import PdfView from "./PdfView.svelte";
+  import AgentDrawer from "./AgentDrawer.svelte";
 
   let { focused = true }: { focused?: boolean } = $props();
 
@@ -35,6 +38,12 @@
   let showAnnots = $state(true);
   let scrollTo = $state<{ id?: string; page?: number; nonce: number } | null>(null);
   let nonce = 0;
+
+  // Agent drawer (Claude Code) + the human's live text selection (pushed to the agent).
+  let agentOpen = $state(false);
+  let selection = $state("");
+  let selPage = $state<number | undefined>(undefined);
+  let ctxTimer: ReturnType<typeof setTimeout> | undefined;
 
   const HL: Record<string, string> = {
     yellow: "rgba(255,221,51,0.75)",
@@ -104,7 +113,51 @@
   const title = $derived(entry?.title ?? $readerKey ?? "");
   // Annotations in reading order (page, then first-seen).
   const orderedAnns = $derived([...annotations].sort((a, b) => a.page - b.page));
+
+  function handleSelect(text: string, page?: number) {
+    selection = text;
+    if (page != null) selPage = page;
+  }
+
+  // Push the live reading context to ~/FluxLib/.fluxlib/reader-context.json (debounced)
+  // so the agent's get_reading_context tool can see the paper + selection + highlights.
+  $effect(() => {
+    const key = $readerKey;
+    const sel = selection;
+    const e = entry;
+    const anns = annotations;
+    if (!key || !buffer) return;
+    clearTimeout(ctxTimer);
+    const ctx: ReaderContext = {
+      citekey: key,
+      title: e?.title,
+      authors: e?.authors,
+      year: e?.year,
+      doi: e?.doi,
+      page: selPage,
+      selection: sel || undefined,
+      annotations: anns.map((a) => ({ page: a.page, color: a.color, quote: a.anchor.quote, note: a.note })),
+      updatedAt: new Date().toISOString(),
+    };
+    ctxTimer = setTimeout(() => void writeReaderContext(ctx), 250);
+  });
+
+  function onKey(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && (e.key === "j" || e.key === "J")) {
+      e.preventDefault();
+      agentOpen = !agentOpen;
+    } else if (e.key === "Escape" && agentOpen) {
+      agentOpen = false;
+    }
+  }
+
+  onDestroy(() => {
+    clearTimeout(ctxTimer);
+    void clearReaderContext();
+  });
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="reader">
   {#if !$readerKey}
@@ -126,6 +179,8 @@
         <span class="rtitle" title={title}>{title}</span>
         <button class="tgl" class:on={showAnnots} onclick={() => (showAnnots = !showAnnots)} title="Toggle annotations"
           >Notes ({annotations.length}) ✎</button>
+        <button class="tgl agentbtn" class:on={agentOpen} onclick={() => (agentOpen = !agentOpen)}
+          title="Ask Claude Code about this paper — it sees your selection + highlights (⌘/Ctrl-J)">✦ Ask Claude</button>
       </div>
       <div class="rbody">
         {#if showRefs}
@@ -163,9 +218,16 @@
         {/if}
 
         <div class="pdfwrap">
-          {#key $readerKey}
-            <PdfView {buffer} documentId={$readerKey} {annotations} {scrollTo} onCreate={handleCreate} />
-          {/key}
+          <div class="pdfarea">
+            {#key $readerKey}
+              <PdfView {buffer} documentId={$readerKey} {annotations} {scrollTo} onCreate={handleCreate} onSelect={handleSelect} />
+            {/key}
+          </div>
+          {#if agentOpen}
+            <div class="agentpane">
+              <AgentDrawer onClose={() => (agentOpen = false)} />
+            </div>
+          {/if}
         </div>
 
         {#if showAnnots}
@@ -279,9 +341,26 @@
     line-height: 1.5;
   }
   .pdfwrap {
-    position: relative;
     flex: 1 1 auto;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .pdfarea {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .agentpane {
+    position: relative;
+    flex: 0 0 42%;
+    min-height: 140px;
+    border-top: 1px solid var(--c-line-strong);
+  }
+  .agentbtn.on {
+    border-color: var(--c-accent);
+    background: var(--c-accent-tint);
+    color: var(--c-accent);
   }
   .reflist,
   .annlist {

@@ -342,7 +342,8 @@ server.registerTool(
 server.registerTool(
   "set_style",
   {
-    description: "Set element-level style (fill/stroke/strokeWidth/opacity/color/fontSize) on element ids.",
+    description:
+      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize, plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
     inputSchema: {
       ids: z.array(z.string()),
       fill: z.string().optional(),
@@ -351,18 +352,145 @@ server.registerTool(
       opacity: z.number().optional(),
       color: z.string().optional(),
       fontSize: z.number().optional(),
+      hidden: z.boolean().optional(),
+      locked: z.boolean().optional(),
+      name: z.string().optional(),
     },
   },
-  async ({ ids, fill, stroke, strokeWidth, opacity, color, fontSize }) => {
-    const patch: Record<string, string | number> = {};
+  async ({ ids, fill, stroke, strokeWidth, opacity, color, fontSize, hidden, locked, name }) => {
+    const patch: Record<string, string | number | boolean> = {};
     if (fill != null) patch.fill = fill;
     if (stroke != null) patch.stroke = stroke;
     if (strokeWidth != null) patch.strokeWidth = strokeWidth;
     if (opacity != null) patch.opacity = opacity;
     if (color != null) patch.color = color;
     if (fontSize != null) patch.fontSize = fontSize;
+    if (hidden != null) patch.hidden = hidden;
+    if (locked != null) patch.locked = locked;
+    if (name != null) patch.name = name;
     await core.setElementStyle(ROOT, ids, patch);
     return ok(`styled ${ids.length} element(s)`);
+  },
+);
+
+server.registerTool(
+  "reorder_element",
+  {
+    description: "Move an element to an absolute z-index within its figure (0 = bottom, higher = closer to front).",
+    inputSchema: { figureId: z.string(), id: z.string(), index: z.number() },
+  },
+  async ({ figureId, id, index }) => {
+    await core.reorderElement(ROOT, figureId, id, index);
+    return ok(`reordered ${id} → z-index ${index}`);
+  },
+);
+
+server.registerTool(
+  "rotate_elements",
+  {
+    description:
+      "Rotate elements by `deg` degrees about a pivot (default = the selection's bbox centre). A single element rotates about its own centre; a group orbits the shared pivot rigidly.",
+    inputSchema: { ids: z.array(z.string()), deg: z.number(), pivotX: z.number().optional(), pivotY: z.number().optional() },
+  },
+  async ({ ids, deg, pivotX, pivotY }) => {
+    const pivot = pivotX != null && pivotY != null ? { x: pivotX, y: pivotY } : undefined;
+    await core.rotateElements(ROOT, ids, deg, pivot);
+    return ok(`rotated ${ids.length} element(s) by ${deg}°`);
+  },
+);
+
+const handleZ = z.object({ dx: z.number(), dy: z.number() });
+const nodeZ = z.object({
+  x: z.number(),
+  y: z.number(),
+  type: z.enum(["corner", "smooth"]),
+  hIn: handleZ.optional(),
+  hOut: handleZ.optional(),
+});
+
+server.registerTool(
+  "scale_elements",
+  {
+    description:
+      "Proportionally scale elements about a pivot (default = their bbox centre) by `factor` — scales geometry AND stroke widths, corner radii, and font sizes together (unlike a plain resize, which leaves weights fixed). 0.5 halves everything.",
+    inputSchema: { ids: z.array(z.string()), factor: z.number(), pivotX: z.number().optional(), pivotY: z.number().optional() },
+  },
+  async ({ ids, factor, pivotX, pivotY }) => {
+    const pivot = pivotX != null && pivotY != null ? { x: pivotX, y: pivotY } : undefined;
+    await core.scaleElements(ROOT, ids, factor, pivot);
+    return ok(`scaled ${ids.length} element(s) by ${factor}×`);
+  },
+);
+
+server.registerTool(
+  "duplicate_elements",
+  {
+    description:
+      "Duplicate elements within their figure `count` times, each stamp offset by k·(dx,dy), with fresh element + group ids (each stamp independent). Use to build even arrays — tick rows, marker series, panel scaffolds. Returns the last stamp's ids.",
+    inputSchema: { figureId: z.string(), ids: z.array(z.string()), dx: z.number().optional(), dy: z.number().optional(), count: z.number().optional() },
+  },
+  async ({ figureId, ids, dx, dy, count }) => {
+    const r = await core.duplicateElements(ROOT, figureId, ids, { dx: dx ?? 16, dy: dy ?? 16, count });
+    return ok(`duplicated ${ids.length} → ${r.ids.length} new`);
+  },
+);
+
+server.registerTool(
+  "set_guides",
+  {
+    description:
+      "Set a figure's ruler guides (figure-local guide lines that elements snap to). `x` = vertical guides at those x positions, `y` = horizontal guides. Either axis omitted clears it. Use to lay down a column grid / baseline set programmatically.",
+    inputSchema: { figureId: z.string(), x: z.array(z.number()).optional(), y: z.array(z.number()).optional() },
+  },
+  async ({ figureId, x, y }) => {
+    await core.setGuides(ROOT, figureId, { x, y });
+    return ok(`set guides on ${figureId} (x:${x?.length ?? 0}, y:${y?.length ?? 0})`);
+  },
+);
+
+server.registerTool(
+  "distribute",
+  {
+    description:
+      "Distribute a figure's panels along an axis. With `gap`, place them at an EXACT edge-to-edge gap (equal gutters, anchored on the first item); without `gap`, equalize the spacing between the outermost items (needs ≥3). `ids` restricts the set (default = all elements).",
+    inputSchema: { figureId: z.string(), axis: z.enum(["h", "v"]).optional(), gap: z.number().optional(), ids: z.array(z.string()).optional() },
+  },
+  async ({ figureId, axis, gap, ids }) => {
+    await core.distributeFigure(ROOT, figureId, axis ?? "h", gap, ids);
+    return ok(`distributed ${figureId} (${axis ?? "h"}${gap != null ? `, gap ${gap}` : ""})`);
+  },
+);
+
+server.registerTool(
+  "add_path",
+  {
+    description:
+      "Add a vector path (bezier) to a figure from an editable node list — the same core the pen tool uses. Each node has element-local x/y and optional hIn/hOut handle offsets (present → cubic segment; absent → straight). `closed` joins the last node to the first. The node list is normalized and the bbox fitted automatically.",
+    inputSchema: {
+      figureId: z.string(),
+      nodes: z.array(nodeZ),
+      closed: z.boolean().optional(),
+      fill: z.string().optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().optional(),
+    },
+  },
+  async ({ figureId, nodes, closed, fill, stroke, strokeWidth }) => {
+    const r = await core.addPath(ROOT, figureId, { nodes, closed, fill, stroke, strokeWidth });
+    return ok(`added path ${r.id} (${nodes.length} nodes)`);
+  },
+);
+
+server.registerTool(
+  "edit_path",
+  {
+    description:
+      "Replace a path's nodes and/or closed flag (node editing). Adopts a legacy d-only path into nodes first, so any path stays editable. Regenerates the rendered `d` and bbox.",
+    inputSchema: { id: z.string(), nodes: z.array(nodeZ).optional(), closed: z.boolean().optional() },
+  },
+  async ({ id, nodes, closed }) => {
+    await core.editPath(ROOT, id, { nodes, closed });
+    return ok(`edited path ${id}`);
   },
 );
 
@@ -549,6 +677,20 @@ server.registerTool(
     const hits = await core.searchAnnotations(query, { key });
     if (!hits.length) return ok(`No annotations match "${query}".`);
     return ok(hits.map((h) => `@${h.key} p${h.page} [${h.color}] "${h.anchor.quote}"${h.note ? ` — ${h.note}` : ""}`).join("\n"));
+  },
+);
+
+server.registerTool(
+  "get_reading_context",
+  {
+    description:
+      "What the human is reading in FluxReader RIGHT NOW — the open paper (citekey, title, authors, DOI), current page, their current text selection (if any), and their highlights. Start here when the human opens you from the reader ('what does this mean?', 'summarize this'): the `selection` is what they're pointing at. Then use get_paper_text {key} for the full text and search_annotations for their notes.",
+    inputSchema: {},
+  },
+  async () => {
+    const c = await core.readReaderContext();
+    if (!c || !c.citekey) return ok("No paper is open in FluxReader right now.");
+    return ok(JSON.stringify(c, null, 2));
   },
 );
 

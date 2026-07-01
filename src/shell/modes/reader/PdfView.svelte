@@ -1,12 +1,16 @@
 <script lang="ts">
-  // The PDF view — pdf.js (Mozilla; vanilla JS, no framework/version coupling). Renders
-  // each page to a canvas + a selectable DOM text layer, and overlays anchored
-  // highlights. Annotations are anchored by quote (annotations.ts), located in the page
-  // text at render time → DOM range → client rects, so they survive zoom/re-render.
-  // Worker is the locally-bundled asset (Vite ?url) → offline in Electron.
+  // The PDF view — pdf.js (Mozilla; vanilla JS). Renders pages to canvas + a selectable
+  // DOM text layer, VIRTUALIZED (only near-visible pages are rasterized; offscreen pages
+  // are freed) so long PDFs don't exhaust canvas/GPU memory and stall the app. Highlights
+  // are drawn into a dedicated per-page overlay (never mutating the text layer) and anchored
+  // by quote (annotations.ts) so they survive re-render. Fonts/cmaps/wasm are served from
+  // /pdfjs/ (vite.config.ts) — WITHOUT standardFontDataUrl, non-embedded fonts fall back to
+  // Symbol and render Latin text as Greek. Worker carries a base64/hex + Map polyfill for
+  // Electron 33's Chromium 130 (src/lib/pdf/*).
   import { onMount } from "svelte";
+  import "../../../lib/pdf/uint8Polyfill"; // main-thread toBase64/getOrInsertComputed (Electron 33)
   import * as pdfjs from "pdfjs-dist";
-  import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+  import PdfWorker from "../../../lib/pdf/pdfjsWorker?worker";
   import "pdfjs-dist/web/pdf_viewer.css";
   import {
     makeQuoteAnchor,
@@ -16,7 +20,7 @@
     type TextQuoteSelector,
   } from "../../../lib/references/annotations";
 
-  pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+  pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
 
   let {
     buffer,
@@ -24,6 +28,7 @@
     scale = 1.35,
     annotations = [],
     onCreate,
+    onSelect,
     scrollTo = null,
   }: {
     buffer: ArrayBuffer;
@@ -31,31 +36,50 @@
     scale?: number;
     annotations?: Annotation[];
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void;
+    onSelect?: (text: string, page?: number) => void;
     scrollTo?: { id?: string; page?: number; nonce: number } | null;
   } = $props();
 
+  // Highlighter colours — plain translucent rgba (NO mix-blend-mode: blending over a large
+  // HiDPI canvas triggers GPU-readback artifacts / smearing under memory pressure).
   const HL: Record<string, string> = {
-    yellow: "rgba(255,221,51,0.40)",
-    green: "rgba(94,189,108,0.38)",
-    blue: "rgba(67,133,190,0.32)",
-    pink: "rgba(225,90,140,0.32)",
-    orange: "rgba(218,160,23,0.38)",
+    yellow: "rgba(255,214,10,0.38)",
+    green: "rgba(94,189,108,0.36)",
+    blue: "rgba(67,133,190,0.30)",
+    pink: "rgba(225,90,140,0.30)",
+    orange: "rgba(218,160,23,0.36)",
   };
+
+  const DPR = Math.min(window.devicePixelRatio || 1, 2); // cap backing-store size
+  const MAX_LIVE = 6; // rasterized pages kept in memory at once
 
   let container = $state<HTMLDivElement | undefined>();
   let status = $state<"loading" | "ready" | "error">("loading");
   let errMsg = $state("");
   let numPages = $state(0);
-  let rendered = $state(0);
+  let rendered = $state(0); // monotonic count of first-renders (a "did it draw" signal)
 
-  // Per-page text-layer mapping for anchoring (char offset ⇄ DOM text node).
-  type PageInfo = { text: string; nodes: { node: Text; start: number }[]; pageDiv: HTMLDivElement; layer: HTMLDivElement };
-  const pageInfos = new Map<number, PageInfo>();
+  type PageInfo = { text: string; nodes: { node: Text; start: number }[] };
+  type PageState = {
+    page: import("pdfjs-dist").PDFPageProxy;
+    viewport: import("pdfjs-dist").PageViewport;
+    pageDiv: HTMLDivElement;
+    canvas?: HTMLCanvasElement;
+    layer?: HTMLDivElement; // text layer
+    hlLayer?: HTMLDivElement; // highlight overlay (sibling of the text layer)
+    info?: PageInfo;
+    task?: import("pdfjs-dist").RenderTask;
+    rendering: boolean;
+    done: boolean;
+  };
+  const pages = new Map<number, PageState>();
+  let observer: IntersectionObserver | undefined;
 
   // Floating highlight menu shown on text selection.
   let menu = $state<{ x: number; y: number; page: number; anchor: TextQuoteSelector } | null>(null);
 
-  function buildPageText(layer: HTMLElement): { text: string; nodes: { node: Text; start: number }[] } {
+  // --- text ↔ DOM mapping for anchoring (unchanged logic) ---------------------
+  function buildPageText(layer: HTMLElement): PageInfo {
     const nodes: { node: Text; start: number }[] = [];
     let text = "";
     const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
@@ -67,7 +91,6 @@
     return { text, nodes };
   }
   function charOffset(info: PageInfo, node: Node, offset: number): number | null {
-    // node may be a Text node (usual) or an element boundary
     let textNode: Text | null = node.nodeType === Node.TEXT_NODE ? (node as Text) : null;
     if (!textNode) {
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
@@ -100,57 +123,147 @@
     }
   }
 
-  function drawHighlights(page: number) {
-    const info = pageInfos.get(page);
-    if (!info) return;
-    info.layer.querySelectorAll(".annot-hl").forEach((el) => el.remove());
-    const pageRect = info.pageDiv.getBoundingClientRect();
+  // --- highlights → dedicated overlay layer (never the text layer) ------------
+  function drawHighlights(p: number) {
+    const st = pages.get(p);
+    if (!st || !st.done || !st.info || !st.hlLayer) return;
+    st.hlLayer.replaceChildren();
+    const pageRect = st.pageDiv.getBoundingClientRect();
     for (const a of annotations) {
-      if (a.page !== page) continue;
-      const loc = locateQuote(info.text, a.anchor);
+      if (a.page !== p) continue;
+      const loc = locateQuote(st.info.text, a.anchor);
       if (!loc) continue;
-      const r = rangeFor(info, loc.start, loc.end);
+      const r = rangeFor(st.info, loc.start, loc.end);
       if (!r) continue;
       for (const rect of r.getClientRects()) {
-        const hl = document.createElement("div");
-        hl.className = "annot-hl";
-        hl.dataset.id = a.id;
-        hl.style.position = "absolute";
-        hl.style.left = `${rect.left - pageRect.left}px`;
-        hl.style.top = `${rect.top - pageRect.top}px`;
-        hl.style.width = `${rect.width}px`;
-        hl.style.height = `${rect.height}px`;
-        hl.style.background = HL[a.color] ?? HL.yellow;
-        hl.style.pointerEvents = "none";
-        hl.style.mixBlendMode = "multiply";
-        info.layer.appendChild(hl);
+        const d = document.createElement("div");
+        d.className = "annot-hl";
+        d.dataset.id = a.id;
+        d.style.cssText =
+          `position:absolute;left:${rect.left - pageRect.left}px;top:${rect.top - pageRect.top}px;` +
+          `width:${rect.width}px;height:${rect.height}px;background:${HL[a.color] ?? HL.yellow};` +
+          `border-radius:1px;pointer-events:none;`;
+        st.hlLayer.appendChild(d);
       }
     }
   }
-  function drawAll() {
-    for (const p of pageInfos.keys()) drawHighlights(p);
+  function redrawAllLive() {
+    for (const [p, st] of pages) if (st.done) drawHighlights(p);
   }
-  // Re-draw whenever the annotation set changes (after pages are rendered).
   $effect(() => {
     void annotations;
-    if (status === "ready") drawAll();
+    if (status === "ready") redrawAllLive();
   });
 
-  // Scroll to a highlight (by id) or a page when the annotation panel requests it.
+  // Scroll to a page (rendering it if needed), then refine to the exact highlight.
   $effect(() => {
     const t = scrollTo;
     if (!t || !container) return;
     void t.nonce;
-    const el =
-      (t.id && container.querySelector(`.annot-hl[data-id="${t.id}"]`)) ||
-      (t.page != null && container.querySelector(`.pdf-page[data-page="${t.page}"]`));
-    (el as HTMLElement | null)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const div =
+      (t.page != null && (container.querySelector(`.pdf-page[data-page="${t.page}"]`) as HTMLElement | null)) || null;
+    if (div) {
+      div.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (t.id) setTimeout(() => refineScroll(t.id!), 450);
+    } else if (t.id) {
+      refineScroll(t.id);
+    }
   });
+  function refineScroll(id: string) {
+    const el = container?.querySelector(`.annot-hl[data-id="${id}"]`) as HTMLElement | null;
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
+  // --- virtualized render / free ----------------------------------------------
+  async function renderPage(p: number) {
+    const st = pages.get(p);
+    if (!st || st.done || st.rendering) return;
+    st.rendering = true;
+    try {
+      const { page, viewport, pageDiv } = st;
+      const canvas = document.createElement("canvas");
+      canvas.className = "pdf-canvas";
+      canvas.width = Math.floor(viewport.width * DPR);
+      canvas.height = Math.floor(viewport.height * DPR);
+      canvas.style.width = `${Math.floor(viewport.width)}px`;
+      canvas.style.height = `${Math.floor(viewport.height)}px`;
+      pageDiv.appendChild(canvas);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const task = page.render({
+        canvas,
+        canvasContext: ctx,
+        viewport,
+        transform: DPR !== 1 ? [DPR, 0, 0, DPR, 0, 0] : undefined,
+      });
+      st.task = task;
+      st.canvas = canvas;
+      await task.promise;
+
+      const layer = document.createElement("div");
+      layer.className = "textLayer";
+      pageDiv.appendChild(layer);
+      await new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: layer, viewport }).render();
+
+      const hlLayer = document.createElement("div");
+      hlLayer.className = "hl-layer";
+      pageDiv.appendChild(hlLayer);
+
+      st.layer = layer;
+      st.hlLayer = hlLayer;
+      st.info = buildPageText(layer);
+      st.task = undefined;
+      st.done = true;
+      rendered += 1;
+      drawHighlights(p);
+      freeExcess(p);
+    } catch {
+      /* cancelled or failed — freePage will have cleaned partial state on unmount */
+    } finally {
+      st.rendering = false;
+    }
+  }
+
+  function freePage(p: number) {
+    const st = pages.get(p);
+    if (!st) return;
+    try {
+      st.task?.cancel();
+    } catch {
+      /* ignore */
+    }
+    if (st.canvas) {
+      st.canvas.width = 0; // release the backing store
+      st.canvas.height = 0;
+      st.canvas.remove();
+    }
+    st.layer?.remove();
+    st.hlLayer?.remove();
+    try {
+      st.page.cleanup();
+    } catch {
+      /* ignore */
+    }
+    st.canvas = st.layer = st.hlLayer = undefined;
+    st.info = undefined;
+    st.task = undefined;
+    st.done = false;
+    st.rendering = false;
+  }
+  // Keep only MAX_LIVE rasterized pages — free the ones farthest from page `near`.
+  function freeExcess(near: number) {
+    const done = [...pages.entries()].filter(([, st]) => st.done).map(([p]) => p);
+    if (done.length <= MAX_LIVE) return;
+    done.sort((a, b) => Math.abs(b - near) - Math.abs(a - near));
+    for (const p of done.slice(0, done.length - MAX_LIVE)) freePage(p);
+  }
+
+  // --- selection → highlight menu (unchanged) ---------------------------------
   function onMouseUp() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
       menu = null;
+      onSelect?.("");
       return;
     }
     const range = sel.getRangeAt(0);
@@ -160,23 +273,22 @@
       return;
     }
     const page = Number(pageDiv.dataset.page);
-    const info = pageInfos.get(page);
-    if (!info) return;
-    const start = charOffset(info, range.startContainer, range.startOffset);
-    const end = charOffset(info, range.endContainer, range.endOffset);
+    const st = pages.get(page);
+    if (!st?.info) return;
+    const start = charOffset(st.info, range.startContainer, range.startOffset);
+    const end = charOffset(st.info, range.endContainer, range.endOffset);
     if (start == null || end == null || start === end) {
       menu = null;
       return;
     }
-    const lo = Math.min(start, end);
-    const hi = Math.max(start, end);
-    const anchor = makeQuoteAnchor(info.text, lo, hi);
+    const anchor = makeQuoteAnchor(st.info.text, Math.min(start, end), Math.max(start, end));
     if (!anchor.quote.trim()) {
       menu = null;
       return;
     }
     const rect = range.getBoundingClientRect();
     menu = { x: rect.left + rect.width / 2, y: rect.top - 8, page, anchor };
+    onSelect?.(anchor.quote, page);
   }
   function pick(color: string) {
     if (menu) onCreate?.({ page: menu.page, anchor: menu.anchor, color });
@@ -186,60 +298,57 @@
 
   onMount(() => {
     let cancelled = false;
-    let task: ReturnType<typeof pdfjs.getDocument> | undefined;
+    const base = new URL("pdfjs/", document.baseURI).href; // dev: http://…/pdfjs/  prod: file://…/dist/pdfjs/
+    const task = pdfjs.getDocument({
+      data: new Uint8Array(buffer.slice(0)),
+      cMapUrl: base + "cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: base + "standard_fonts/",
+      wasmUrl: base + "wasm/",
+      iccUrl: base + "iccs/",
+      // Draw non-embedded fonts from the shipped standard fonts rather than the OS. On a
+      // machine without a font like "ITCSymbolStd" installed, the system path fails and
+      // pdf.js falls back to Symbol encoding (Latin → Greek); this keeps it deterministic.
+      useSystemFonts: false,
+    });
+
+    observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) void renderPage(Number((e.target as HTMLElement).dataset.page));
+        }
+      },
+      { root: container, rootMargin: "1200px 0px" },
+    );
+
     (async () => {
       try {
-        task = pdfjs.getDocument({ data: new Uint8Array(buffer.slice(0)) });
         const pdf = await task.promise;
         if (cancelled) return;
         numPages = pdf.numPages;
         const host = container;
         if (!host) return;
         host.replaceChildren();
-        pageInfos.clear();
-
+        pages.clear();
+        // Phase 1: cheap placeholders sized to each page (no rasterization) → correct
+        // scrollbar + zero layout shift; the observer rasterizes near-visible pages.
         for (let p = 1; p <= pdf.numPages; p++) {
           if (cancelled) return;
           const page = await pdf.getPage(p);
           const viewport = page.getViewport({ scale });
-          const dpr = window.devicePixelRatio || 1;
-
           const pageDiv = document.createElement("div");
           pageDiv.className = "pdf-page";
           pageDiv.dataset.page = String(p);
           pageDiv.style.width = `${Math.floor(viewport.width)}px`;
           pageDiv.style.height = `${Math.floor(viewport.height)}px`;
+          // pdf.js v6 sizes text-layer spans off --total-scale-factor (only defined under
+          // its own .pdfViewer .page). We use our own classes, so set it here or every span
+          // mis-sizes → wrong getClientRects → corrupted highlights.
+          pageDiv.style.setProperty("--total-scale-factor", String(scale));
           pageDiv.style.setProperty("--scale-factor", String(scale));
           host.appendChild(pageDiv);
-
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.floor(viewport.width * dpr);
-          canvas.height = Math.floor(viewport.height * dpr);
-          canvas.style.width = `${Math.floor(viewport.width)}px`;
-          canvas.style.height = `${Math.floor(viewport.height)}px`;
-          pageDiv.appendChild(canvas);
-          const ctx = canvas.getContext("2d");
-          if (!ctx) continue;
-
-          const layer = document.createElement("div");
-          layer.className = "textLayer";
-          pageDiv.appendChild(layer);
-
-          await page.render({
-            canvas,
-            canvasContext: ctx,
-            viewport,
-            transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
-          }).promise;
-          if (cancelled) return;
-
-          await new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: layer, viewport }).render();
-
-          const { text, nodes } = buildPageText(layer);
-          pageInfos.set(p, { text, nodes, pageDiv, layer });
-          drawHighlights(p);
-          rendered = p;
-          if (status === "loading") status = "ready";
+          pages.set(p, { page, viewport, pageDiv, rendering: false, done: false });
+          observer!.observe(pageDiv);
         }
         status = "ready";
       } catch (e) {
@@ -249,10 +358,25 @@
         }
       }
     })();
+
     return () => {
       cancelled = true;
+      observer?.disconnect();
+      for (const st of pages.values()) {
+        try {
+          st.task?.cancel();
+        } catch {
+          /* ignore */
+        }
+        try {
+          st.page.cleanup();
+        } catch {
+          /* ignore */
+        }
+      }
+      pages.clear();
       try {
-        task?.destroy();
+        task.destroy();
       } catch {
         /* ignore */
       }
@@ -268,8 +392,8 @@
   {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="pdf-scroll" bind:this={container} onmouseup={onMouseUp} class:hidden={status === "error"}></div>
-  {#if status === "loading" && rendered === 0}
-    <div class="msg loading">Rendering…</div>
+  {#if status === "loading"}
+    <div class="msg loading">Loading…</div>
   {/if}
 
   {#if menu}
@@ -305,11 +429,15 @@
     background: #fff;
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
   }
-  :global(.pdf-page canvas) {
+  :global(.pdf-page .pdf-canvas) {
     display: block;
   }
-  :global(.pdf-page .annot-hl) {
-    border-radius: 1px;
+  /* highlight overlay sits above the canvas + text layer, never inside .textLayer */
+  :global(.pdf-page .hl-layer) {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
   }
   .msg {
     padding: 16px;

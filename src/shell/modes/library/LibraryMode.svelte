@@ -29,8 +29,11 @@
 
   let { focused = true }: { focused?: boolean } = $props();
 
-  let entries = $state<RefEntry[]>([]);
-  let enrichMap = $state<EnrichMap>({});
+  // $state.raw (not deep-reactive): these are replaced wholesale on reload, never mutated
+  // in place. The enrich graph is ~12 MB / 140k+ nested IDs — deep-proxying it on every
+  // load is what made the Library crawl. .raw keeps them plain objects.
+  let entries = $state.raw<RefEntry[]>([]);
+  let enrichMap = $state.raw<EnrichMap>({});
   let loading = $state(true);
   let query = $state("");
   let scope = $state<"library" | "world">("library");
@@ -54,7 +57,7 @@
   let enrichProg = $state("");
 
   // PDF acquisition (FluxFinder) — which keys have a PDF on disk + fetch progress.
-  let pdfKeys = $state<Set<string>>(new Set());
+  let pdfKeys = $state.raw<Set<string>>(new Set());
   let fetchingKey = $state(""); // citekey currently fetching (per-row)
   let fetchingAll = $state(false);
   let fetchProg = $state("");
@@ -92,7 +95,20 @@
   let lookupSource = $state<"openalex" | "s2">("openalex");
 
   const enriched = $derived(mergeEnrich(entries, enrichMap) as EnrichedEntry[]);
-  const results = $derived(runQuery(enriched, query));
+  // Debounce the query: runQuery scans every entry's title+abstract (multi-MB over 1710
+  // entries), so running it on each keystroke janks. Recompute ~150ms after typing stops.
+  let queryDebounced = $state("");
+  let queryTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const q = query;
+    clearTimeout(queryTimer);
+    if (!q) {
+      queryDebounced = "";
+      return;
+    }
+    queryTimer = setTimeout(() => (queryDebounced = q), 150);
+  });
+  const results = $derived(runQuery(enriched, queryDebounced));
   const coverage = $derived({
     total: entries.length,
     hydrated: entries.filter((e) => enrichMap[e.key]).length,
@@ -629,8 +645,8 @@
       </label>
       <label class="krow">
         <span class="klbl">Library EZProxy prefix
-          <span class="ksub">optional · paywalled PDFs · e.g. https://login.ezproxy.library.wisc.edu/login?url=</span></span>
-        <input bind:value={keyEzproxy} placeholder="https://login.ezproxy.library.…/login?url=" spellcheck="false"
+          <span class="ksub">optional · paywalled PDFs · UW-Madison: https://ezproxy.library.wisc.edu/login?url=</span></span>
+        <input bind:value={keyEzproxy} placeholder="https://ezproxy.library.wisc.edu/login?url=" spellcheck="false"
           autocomplete="off" />
       </label>
       {#if proxyConfigured}
@@ -1152,6 +1168,11 @@
     border-bottom: 1px solid var(--c-line);
     font-size: var(--ts-sm);
     cursor: pointer;
+    /* Skip layout/paint for off-screen rows — the library can have 1000s of entries.
+       contain-intrinsic-size reserves the collapsed row height so the scrollbar is
+       correct; `auto` remembers each row's real size once it has been rendered. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 37px;
   }
   .ghead {
     position: sticky;
@@ -1163,6 +1184,7 @@
     font-size: 10px;
     cursor: default;
     z-index: 1;
+    content-visibility: visible; /* header is always on-screen */
   }
   .grow.hl {
     background: var(--c-accent-tint-2);

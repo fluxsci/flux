@@ -27,10 +27,20 @@ usage: flux <verb> [root] [args] [--flags]
                                        assemble N plots into a labeled figure
   arrange <figId> [--root R] [--rows N | --cols N] [--gap N]   grid-arrange panels
   auto-label <figId> [--root R]        auto-letter panel labels (a, b, c…)
+  distribute <figId> [--axis h|v] [--gap n] [--ids a,b,c] [--root R]   distribute panels (exact gap when --gap)
+  set-guides <figId> [--x a,b,c] [--y a,b,c] [--root R]   set ruler guides (column/baseline grid)
+  duplicate <figId> <id…> [--dx n] [--dy n] [--count n] [--root R]   duplicate elements at an offset
+  scale <id…> --factor n [--px X --py Y] [--root R]   proportionally scale (geometry + stroke/font)
+  reorder <figId> <id> <index> [--root R]   move an element to a z-index (0=bottom)
+  rotate <id…> --deg N [--px X --py Y] [--root R]   rotate elements about a pivot
+  add-path <figId> --nodes '<json>' [--closed] [--fill c] [--stroke c]
+           [--stroke-width n] [--root R]   add a vector path from a node list
+  edit-path <id> [--nodes '<json>'] [--closed|--open] [--root R]   replace a path's nodes
   restyle <figId> <partId> [--root R] [--element E] [--stroke c] [--fill c]
           [--stroke-width n] [--opacity n] [--hidden]   restyle a plot part
   set-style <id…> [--root R] [--fill c] [--stroke c] [--stroke-width n]
-            [--opacity n] [--color c] [--font-size n]   set element style
+            [--opacity n] [--color c] [--font-size n] [--hidden|--show]
+            [--locked|--unlock] [--name N]   set element style
   manuscript [--root R] [--doc rel]    print a manuscript document (.qmd)
   set-manuscript [--root R] [--doc rel] <text…|--file f>   overwrite a document
   docs [--root R]                      list the project's documents
@@ -108,6 +118,10 @@ async function main() {
     const fs2 = num(flags["font-size"]);
     if (fs2 != null) s.fontSize = fs2;
     if (flags.hidden) s.hidden = true;
+    if (flags.show) s.hidden = false;
+    if (flags.locked) s.locked = true;
+    if (flags.unlock) s.locked = false;
+    if (typeof flags.name === "string") s.name = flags.name;
     return s;
   };
 
@@ -205,6 +219,69 @@ async function main() {
     case "auto-label": {
       const r = await core.autoLabel(R(), _[0]);
       console.error(`✓ labeled ${_[0]}: ${r.panels.join("")}`);
+      break;
+    }
+    case "distribute": {
+      const axis = flags.axis === "v" || flags.v ? "v" : "h";
+      const gap = num(flags.gap);
+      const ids = typeof flags.ids === "string" ? flags.ids.split(",") : undefined;
+      await core.distributeFigure(R(), _[0], axis, gap, ids);
+      console.error(`✓ distributed ${_[0]} (${axis}${gap != null ? `, gap ${gap}` : ""})`);
+      break;
+    }
+    case "set-guides": {
+      const nums = (s: unknown) => (typeof s === "string" ? s.split(",").map(Number).filter((n) => !Number.isNaN(n)) : undefined);
+      await core.setGuides(R(), _[0], { x: nums(flags.x), y: nums(flags.y) });
+      console.error(`✓ set guides on ${_[0]} (x:[${flags.x ?? ""}] y:[${flags.y ?? ""}])`);
+      break;
+    }
+    case "duplicate": {
+      const r = await core.duplicateElements(R(), _[0], _.slice(1), { dx: num(flags.dx) ?? 16, dy: num(flags.dy) ?? 16, count: num(flags.count) });
+      console.error(`✓ duplicated ${_.slice(1).length} element(s) → ${r.ids.length} new`);
+      break;
+    }
+    case "scale": {
+      const factor = num(flags.factor) ?? num(flags.f) ?? 1;
+      const px = num(flags.px);
+      const py = num(flags.py);
+      const pivot = px != null && py != null ? { x: px, y: py } : undefined;
+      await core.scaleElements(R(), _, factor, pivot);
+      console.error(`✓ scaled ${_.length} element(s) by ${factor}×`);
+      break;
+    }
+    case "reorder": {
+      await core.reorderElement(R(), _[0], _[1], Number(_[2]));
+      console.error(`✓ reordered ${_[1]} → z-index ${_[2]} in ${_[0]}`);
+      break;
+    }
+    case "rotate": {
+      const deg = num(flags.deg) ?? num(flags.degrees) ?? 0;
+      const px = num(flags.px);
+      const py = num(flags.py);
+      const pivot = px != null && py != null ? { x: px, y: py } : undefined;
+      await core.rotateElements(R(), _, deg, pivot);
+      console.error(`✓ rotated ${_.length} element(s) by ${deg}°`);
+      break;
+    }
+    case "add-path": {
+      const nodes = JSON.parse(String(flags.nodes ?? "[]"));
+      const r = await core.addPath(R(), _[0], {
+        nodes,
+        closed: !!flags.closed,
+        fill: typeof flags.fill === "string" ? flags.fill : undefined,
+        stroke: typeof flags.stroke === "string" ? flags.stroke : undefined,
+        strokeWidth: num(flags["stroke-width"]),
+      });
+      console.error(`✓ added path ${r.id} (${nodes.length} nodes) to ${_[0]}`);
+      break;
+    }
+    case "edit-path": {
+      const patch: { nodes?: unknown; closed?: boolean } = {};
+      if (typeof flags.nodes === "string") patch.nodes = JSON.parse(flags.nodes);
+      if (flags.closed) patch.closed = true;
+      if (flags.open) patch.closed = false;
+      const r = await core.editPath(R(), _[0], patch as Parameters<typeof core.editPath>[2]);
+      console.error(`✓ edited path ${r.id}`);
       break;
     }
     case "restyle": {

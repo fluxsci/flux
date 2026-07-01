@@ -34,6 +34,24 @@ export function safeKey(key: string): string {
 }
 
 export const itemsBase = (lib: string): string => j(lib, ITEMS_DIR);
+
+/** Live FluxReader context (what the human is reading right now) — written by the
+ *  reader, read by the get_reading_context MCP tool so an agent can "see" the paper,
+ *  page, selection, and highlights. Transient (derived), under .fluxlib/. */
+export const readerContextPath = (lib: string): string => j(lib, ".fluxlib", "reader-context.json");
+export interface ReaderContext {
+  citekey: string;
+  title?: string;
+  authors?: string[];
+  year?: string;
+  doi?: string;
+  page?: number; // 1-based, if known
+  selection?: string; // the human's current text selection, if any
+  annotations?: { page: number; color: string; quote: string; note?: string }[];
+  pdfPath?: string;
+  fulltextPath?: string;
+  updatedAt: string; // ISO
+}
 export const itemDir = (lib: string, key: string): string => j(lib, ITEMS_DIR, safeKey(key));
 export const pdfPath = (lib: string, key: string): string => j(itemDir(lib, key), PAPER_PDF);
 export const sourcePath = (lib: string, key: string): string => j(itemDir(lib, key), SOURCE_JSON);

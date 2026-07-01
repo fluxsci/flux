@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage, net } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -762,6 +762,101 @@ function ezproxyPrefix() {
   return (getKey("ezproxyPrefix") || "").trim();
 }
 
+// Build a proxied entry URL from the configured "login?url=" prefix by appending the
+// target RAW (exactly like the library's bookmarklet: `...login?url=' + location.href`).
+// CRITICAL: do NOT percent-encode it. EZProxy only accepts the url= value as a real
+// target when it literally begins with "http(s)://"; a %3A%2F%2F-encoded value is
+// rejected and EZProxy falls back to url=menu → its dead-end "Remote Access Menu". An
+// EMPTY target hits the same menu, so always pass a real, unencoded target.
+function proxiedUrl(target) {
+  return ezproxyPrefix() + String(target || "");
+}
+// A resource the university licenses, used only to drive the login/status flow through
+// NetID SSO. Any non-empty proxiable target works; the landing page is irrelevant because
+// the login window auto-closes once it reaches a proxied host, and the status probe only
+// inspects the redirect chain.
+const PROXY_AUTH_TARGET = "https://www.nature.com/";
+// True if `u` is EZProxy's own login/menu plumbing or an identity provider (NetID SSO,
+// Shibboleth, Duo) rather than a proxied resource — i.e. the request bounced to sign-in.
+// This is what distinguishes "signed in" from "session expired".
+function isProxyLoginUrl(u) {
+  try {
+    const h = new URL(u).hostname;
+    if (/^login\./i.test(h)) return true; // EZProxy auth connector + NetID SSO (login.wisc.edu)
+    if (/(^|\.)duosecurity\.com$/i.test(h)) return true; // Duo MFA
+    return /\/(login|connect|idp|saml|sso|shibboleth)\b|[?&]url=menu\b/i.test(u);
+  } catch {
+    return false;
+  }
+}
+// Probe whether the persisted session is ACTUALLY authenticated (not just "a cookie
+// exists"): request a proxied resource with the partition's cookies, follow the redirect
+// chain, and see where it lands. A proxied host ⇒ signed in; the NetID/EZProxy login ⇒
+// session expired. Best-effort — resolves false on any error and never hangs the pill.
+function probeProxySignedIn() {
+  return new Promise((resolve) => {
+    let url, prefixHost;
+    try {
+      prefixHost = new URL(ezproxyPrefix()).hostname;
+      url = proxiedUrl(PROXY_AUTH_TARGET);
+    } catch {
+      return resolve(false);
+    }
+    let settled = false;
+    const decide = (u) => {
+      let h = "";
+      try {
+        h = new URL(u).hostname;
+      } catch {
+        return false;
+      }
+      const onResource = h === prefixHost || h.endsWith("." + prefixHost);
+      return onResource && !isProxyLoginUrl(u);
+    };
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    try {
+      const req = net.request({ url, session: session.fromPartition(PROXY_PARTITION), redirect: "manual" });
+      let finalUrl = url;
+      let hops = 0;
+      req.on("redirect", (_status, _method, redirectUrl) => {
+        finalUrl = redirectUrl || finalUrl;
+        if (++hops > 8) {
+          try {
+            req.abort();
+          } catch {
+            /* ignore */
+          }
+          return finish(decide(finalUrl));
+        }
+        try {
+          req.followRedirect();
+        } catch {
+          finish(decide(finalUrl));
+        }
+      });
+      req.on("response", (res) => {
+        finish(decide(finalUrl));
+        res.on("data", () => {});
+        res.on("end", () => {});
+        try {
+          req.abort();
+        } catch {
+          /* ignore */
+        }
+      });
+      req.on("error", () => finish(false));
+      req.end();
+      setTimeout(() => finish(false), 8000);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
 // Credentials are stored ENCRYPTED via the OS keychain (Electron safeStorage:
 // macOS Keychain / Windows DPAPI / Linux libsecret) in ~/FluxLib/.proxy.json (0600) —
 // never plaintext. They auto-fill the SSO login form so re-auth is seamless; combined
@@ -841,13 +936,18 @@ ipcMain.handle("proxy:clearCredentials", () => {
   return { ok: true };
 });
 
-// Open a real window to the library's EZProxy login; resolve when the user closes it.
+// Open a real window to the library's EZProxy login and let the user sign in. We enter
+// through a PROXIED resource (proxiedUrl, not the bare /login origin — that lands on
+// EZProxy's dead-end "Remote Access Menu") so EZProxy routes into NetID SSO. Credentials
+// auto-fill; the user completes Duo and ticks "trust this browser". The window then
+// auto-closes the moment navigation reaches a proxied host = authentication succeeded.
 ipcMain.handle("proxy:login", async () => {
   const prefix = ezproxyPrefix();
   if (!prefix) return { error: "Set your library's EZProxy prefix in ⚙ Keys first." };
-  let loginUrl;
+  let loginUrl, prefixHost;
   try {
-    loginUrl = new URL(prefix).origin + "/login";
+    prefixHost = new URL(prefix).hostname; // validate + capture the proxy host
+    loginUrl = proxiedUrl(PROXY_AUTH_TARGET);
   } catch {
     return { error: "Invalid EZProxy prefix URL." };
   }
@@ -860,79 +960,186 @@ ipcMain.handle("proxy:login", async () => {
       parent: mainWindow || undefined,
       webPreferences: { partition: PROXY_PARTITION },
     });
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve({ ok: true });
+      if (!win.isDestroyed()) win.close();
+    };
     // Auto-fill stored NetID + password on each login page (no auto-submit — the user
-    // reviews + approves Duo the first time, ticking "remember this device").
+    // reviews credentials, approves Duo, and ticks "trust this browser").
     win.webContents.on("did-finish-load", () => autofillCreds(win, false));
+    // Past all the login/connect/SSO/Duo hops, navigation lands on the proxied resource
+    // host (a subdomain of the proxy) — the session cookie is now set, so sign-in worked.
+    win.webContents.on("did-navigate", (_e, url) => {
+      try {
+        const h = new URL(url).hostname;
+        if ((h === prefixHost || h.endsWith("." + prefixHost)) && !isProxyLoginUrl(url)) finish();
+      } catch {
+        /* ignore non-URL navigations */
+      }
+    });
     win.loadURL(loginUrl).catch(() => {});
-    win.on("closed", () => resolve({ ok: true }));
+    win.on("closed", () => finish());
   });
 });
 
-// Report whether the proxy is configured + appears signed in (any cookie in the
-// partition for the proxy host / an ezproxy cookie). Heuristic — drives a status pill.
+// Report whether the proxy is configured + can ACTUALLY reach paywalled content (drives
+// the status pill). We always probe a proxied resource rather than checking cookies:
+// access can come from a signed-in session OR from IP-based autologin (on-campus / VPN),
+// which grants access with no cookie at all — so cookie presence is neither necessary nor
+// sufficient. The probe is the ground truth: does a proxied request reach the resource?
 ipcMain.handle("proxy:status", async () => {
   const prefix = ezproxyPrefix();
   if (!prefix) return { configured: false, signedIn: false };
-  let host;
   try {
-    host = new URL(prefix).hostname;
+    new URL(prefix);
   } catch {
     return { configured: false, signedIn: false };
   }
-  try {
-    const root = host.split(".").slice(-3).join(".");
-    const all = await session.fromPartition(PROXY_PARTITION).cookies.get({});
-    const signedIn = all.some((c) => /ezproxy/i.test(c.domain || "") || (c.domain || "").endsWith(root));
-    return { configured: true, signedIn };
-  } catch {
-    return { configured: true, signedIn: false };
-  }
+  return { configured: true, signedIn: await probeProxySignedIn() };
 });
 
-// Fetch a paywalled PDF for `target` (a DOI URL or landing page) through the proxy.
-// Navigates the proxied page in a hidden window, scrapes citation_pdf_url (or a .pdf
-// link), then fetches it in-page with credentials. Returns validated PDF bytes.
+// Fetch a paywalled PDF for `target` (a DOI URL or landing page) through the proxy, in a
+// real (non-offscreen) hidden window so publisher anti-bot JS challenges pass — offscreen/
+// headless get blocked. Two phases: (1) scrape a direct PDF link (citation_pdf_url etc.)
+// and fetch it in-page; (2) if that's a challenge/redirect endpoint (e.g. Elsevier
+// /pdfft), NAVIGATE to it so Chromium solves the challenge, then fetch the resolved PDF
+// from that page context (main-process net.request can't — it lacks the solved context).
 ipcMain.handle("pdf:fetchViaProxy", async (_e, target) => {
   const prefix = ezproxyPrefix();
   if (!prefix) return { error: "No EZProxy prefix configured." };
-  const proxied = prefix + encodeURIComponent(String(target || ""));
-  const win = new BrowserWindow({
-    show: false,
-    webPreferences: { partition: PROXY_PARTITION, offscreen: true },
-  });
-  // If the proxied page bounces to the SSO login (session expired), auto-fill + submit
-  // stored credentials so re-auth is seamless (Duo is skipped when the device is
-  // remembered; otherwise this stalls and we surface "sign in" below).
-  const hasCreds = !!(readProxyCred().username || readProxyCred().passwordEnc);
-  win.webContents.on("did-finish-load", () => autofillCreds(win, true));
+  let prefixHost;
   try {
-    await win.loadURL(proxied);
-    await new Promise((r) => setTimeout(r, hasCreds ? 2600 : 1400)); // let redirects / auto-login settle
-    const result = await win.webContents.executeJavaScript(
-      `(async () => {
-        try {
-          const pick = () => {
-            const m = document.querySelector('meta[name="citation_pdf_url"]');
-            if (m && m.content) return m.content;
-            const a = [...document.querySelectorAll('a')].map((x) => x.href)
-              .find((h) => /\\.pdf(\\?|$)/i.test(h || ''));
-            return a || null;
-          };
-          const url = pick();
-          if (!url) return { error: 'no PDF link on the page' };
-          const r = await fetch(url, { credentials: 'include' });
-          if (!r.ok) return { error: 'HTTP ' + r.status };
-          const buf = new Uint8Array(await r.arrayBuffer());
-          if (!(buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46))
-            return { error: 'not a PDF (login/paywall page?)' };
-          let bin = ''; const CH = 0x8000;
-          for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
-          return { bytesB64: btoa(bin), contentType: r.headers.get('content-type') || '', finalUrl: url };
-        } catch (e) { return { error: String((e && e.message) || e) }; }
-      })()`,
-      true,
-    );
-    return result || { error: "no result from proxy page" };
+    prefixHost = new URL(prefix).hostname;
+  } catch {
+    return { error: "Invalid EZProxy prefix URL." };
+  }
+  const entryUrl = proxiedUrl(target);
+  // NOT offscreen: offscreen rendering is detected like headless and fails anti-bot checks.
+  const win = new BrowserWindow({ show: false, webPreferences: { partition: PROXY_PARTITION } });
+  const wc = win.webContents;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // In-page fetch of `u` → validated PDF bytes (base64) or null. Runs in the page context
+  // so it carries the session cookies AND any cookie a prior navigation's challenge set.
+  const grab = (u) =>
+    wc
+      .executeJavaScript(
+        `(async () => { try {
+          const r = await fetch(${JSON.stringify(u)}, { credentials: 'include' });
+          if (!r.ok) return null;
+          const b = new Uint8Array(await r.arrayBuffer());
+          if (!(b[0]===0x25 && b[1]===0x50 && b[2]===0x44 && b[3]===0x46)) return null;
+          let s = ''; const CH = 0x8000;
+          for (let i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
+          return { bytesB64: btoa(s), contentType: r.headers.get('content-type') || '', finalUrl: r.url || ${JSON.stringify(u)} };
+        } catch (e) { return null; } })()`,
+      )
+      .catch(() => null);
+  try {
+    await wc.loadURL(entryUrl).catch(() => {}); // redirect chains can reject; inspect what landed anyway
+    // Settle: wait out the EZProxy login?url→resource hops AND publisher interstitials
+    // (e.g. Elsevier LinkingHub's meta-refresh) until we're on a stable, real page.
+    let last = "";
+    for (let start = Date.now(); Date.now() - start < 12000; ) {
+      await sleep(400);
+      const u = wc.getURL();
+      if (!wc.isLoading() && u && u === last && !isProxyLoginUrl(u) && !/\/(retrieve|linkinghub|articleselect)/i.test(u)) break;
+      last = u;
+    }
+    if (isProxyLoginUrl(wc.getURL())) {
+      return { error: "Your library session isn't active. Open ⚙ Keys → Re-sign in, complete NetID + Duo, then try again." };
+    }
+    // Scrape candidate PDF links. nav:true = needs a real navigation to resolve (JS anti-
+    // bot challenge / redirect, e.g. Elsevier /pdfft); nav:false = directly fetchable.
+    const candidates = await wc.executeJavaScript(`(() => {
+      const PD = ${JSON.stringify(prefixHost)};
+      const abs = (h) => { try { return new URL(h, location.href).href; } catch (e) { return null; } };
+      const out = [];
+      const m = document.querySelector('meta[name="citation_pdf_url"]'); if (m && m.content) out.push({ url: abs(m.content), nav: false });
+      try {
+        const h = document.documentElement.innerHTML;
+        const b = (h.match(/"pdfDownload":\\{[\\s\\S]{0,800}?\\}\\}/) || [])[0] || '';
+        const g = (re) => (b.match(re) || [])[1];
+        const md5 = g(/"md5":"([^"]+)"/), pid = g(/"pid":"([^"]+)"/), pii = g(/"pii":"([^"]+)"/), ext = g(/"pdfExtension":"([^"]+)"/), p = g(/"path":"([^"]+)"/);
+        if (md5 && pid && pii && ext && p) out.push({ url: location.origin + '/' + p + '/' + pii + ext + '?md5=' + md5 + '&pid=' + encodeURIComponent(pid), nav: true });
+      } catch (e) {}
+      for (const l of document.querySelectorAll('link[type="application/pdf"]')) if (l.href) out.push({ url: abs(l.href), nav: false });
+      for (const a of document.querySelectorAll('a[href]')) {
+        const hh = abs(a.getAttribute('href')); if (!hh) continue;
+        if (/\\.pdf(\\?|#|$)/i.test(hh)) out.push({ url: hh, nav: false });
+        else if (/\\/pdfft\\b|\\/pdfdirect\\b|[?&](format|type)=pdf\\b/i.test(hh)) out.push({ url: hh, nav: true });
+      }
+      // Rewrite non-proxied publisher URLs into EZProxy's host-rewritten form (dots→dashes).
+      const rp = (u) => { try { const x = new URL(u); if (x.hostname === PD || x.hostname.endsWith('.' + PD)) return u; const rw = x.hostname.replace(/-/g, '--').replace(/\\./g, '-') + '.' + PD; return x.protocol + '//' + rw + x.pathname + x.search + x.hash; } catch (e) { return u; } };
+      const seen = new Set(), res = []; for (const c of out) { if (!c.url) continue; const u = rp(c.url); if (seen.has(u)) continue; seen.add(u); res.push({ url: u, nav: c.nav }); } return res;
+    })()`);
+    if (!candidates || !candidates.length)
+      return { error: "No PDF link found on the article page (it may need a different access route)." };
+
+    // Phase 1 — direct in-page fetch for real .pdf links (wins for Nature/Springer/etc.).
+    // We deliberately do NOT pre-fetch nav candidates: an XHR to a challenge endpoint (e.g.
+    // Elsevier /pdfft) flags the session and makes the challenge-solving navigation fail.
+    for (const c of candidates.filter((c) => !c.nav)) {
+      const got = await grab(c.url);
+      if (got && got.bytesB64) return got;
+    }
+
+    // Phase 2 — navigate so Chromium solves any JS anti-bot challenge, then capture a forced
+    // download or fetch the resolved PDF from that page context. The challenge fails
+    // intermittently (redirecting back with ?ref=cra_js_challenge), so retry a few times.
+    const nav = candidates.find((c) => c.nav) || candidates[0];
+    const ses = session.fromPartition(PROXY_PARTITION);
+    let downloadDone = null;
+    const onDownload = (_event, item) => {
+      try {
+        const p = path.join(os.tmpdir(), "flux-proxy-" + Date.now() + ".pdf");
+        item.setSavePath(p); // set a path so Electron never pops a (blocking, invisible) save dialog
+        downloadDone = new Promise((res) => item.once("done", (_e, state) => res(state === "completed" ? p : null)));
+      } catch {
+        /* ignore */
+      }
+    };
+    ses.on("will-download", onDownload);
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        downloadDone = null;
+        await wc.loadURL(nav.url).catch(() => {}); // a PDF nav often "fails" as ERR_ABORTED / becomes a download
+        let cur = "";
+        for (let start = Date.now(); Date.now() - start < 15000; ) {
+          await sleep(500);
+          if (downloadDone) break;
+          cur = wc.getURL();
+          if (!wc.isLoading() && (/sciencedirectassets|\.pdf(\?|$)/i.test(cur) || /cra_js_challenge/i.test(cur))) break;
+        }
+        if (downloadDone) {
+          const file = await Promise.race([downloadDone, sleep(20000).then(() => null)]);
+          if (file) {
+            try {
+              const buf = fs.readFileSync(file);
+              fs.unlink(file, () => {});
+              if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46)
+                return { bytesB64: buf.toString("base64"), contentType: "application/pdf", finalUrl: nav.url };
+            } catch {
+              /* fall through */
+            }
+          }
+        }
+        cur = wc.getURL();
+        if (isProxyLoginUrl(cur)) break; // session expired mid-flow — retrying won't help
+        if (!/cra_js_challenge/i.test(cur)) {
+          const got = await grab(cur);
+          if (got && got.bytesB64) return got;
+        }
+        await sleep(800); // brief backoff before retrying a failed challenge
+      }
+    } finally {
+      ses.removeListener("will-download", onDownload);
+    }
+    return {
+      error: "Found a PDF link but the publisher blocked the automated download. Open the article in your browser (or the library bookmarklet) and use “Add PDF…”.",
+    };
   } catch (e) {
     return { error: String((e && e.message) || e) };
   } finally {
@@ -1029,7 +1236,9 @@ function reapPtys(pred) {
 ipcMain.handle("pty:create", (e, opts = {}) => {
   if (!nodePty) return { ok: false, error: "Terminal backend unavailable (node-pty not loaded)." };
   const wc = e.sender;
-  const shell = defaultShell();
+  // Optional command (e.g. the agent drawer spawns `claude`); default = the login shell.
+  const command = typeof opts.command === "string" && opts.command.trim() ? opts.command : defaultShell();
+  const cmdArgs = Array.isArray(opts.args) ? opts.args.map(String) : [];
   // Open in the requested dir, else the open project root, else home.
   const wanted = opts.cwd;
   const cwd =
@@ -1042,12 +1251,18 @@ ipcMain.handle("pty:create", (e, opts = {}) => {
   const rows = Math.max(1, opts.rows | 0) || 24;
   let child;
   try {
-    child = nodePty.spawn(shell, [], {
+    child = nodePty.spawn(command, cmdArgs, {
       name: "xterm-256color",
       cols,
       rows,
       cwd,
-      env: { ...process.env, TERM: "xterm-256color", TERM_PROGRAM: "Flux", COLORTERM: "truecolor" },
+      env: {
+        ...process.env,
+        TERM: "xterm-256color",
+        TERM_PROGRAM: "Flux",
+        COLORTERM: "truecolor",
+        ...(opts.env && typeof opts.env === "object" ? opts.env : {}),
+      },
     });
   } catch (err) {
     return { ok: false, error: String((err && err.message) || err) };
