@@ -43,6 +43,13 @@ export function errors(page) {
   return _errs.get(page) || [];
 }
 
+// Errors that matter for a feature gate: drops the pre-existing page-load resource
+// 404 (a favicon / demo-fixture asset present on `main` before any of these
+// features) so a real regression (PAGEERR, thrown exceptions) still fails loudly.
+export function realErrors(page) {
+  return errors(page).filter((e) => !/Failed to load resource.*404/i.test(e));
+}
+
 // Navigate to the app and let intro animations settle. Retries while the dev
 // server is still warming up.
 export async function gotoApp(page, { settle = 1200, url = APP_URL } = {}) {

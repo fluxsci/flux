@@ -1,6 +1,6 @@
 <script lang="ts">
   import { get } from "svelte/store";
-  import { project, selection, partSelection, activeFigureId, commit, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
+  import { project, selection, partSelection, activeFigureId, commit, mutate, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
   import type { Element } from "./types";
   import { doAlign, doDistribute, arrangeToRows } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
@@ -10,6 +10,7 @@
   import { plotManifests } from "./plot/store";
   import { buildPartIndex } from "./plot/parse";
   import ColorPalette from "./ColorPalette.svelte";
+  import NumberField from "./NumberField.svelte";
 
   // Reactive view of the current selection / active figure.
   $: sel = (() => {
@@ -98,10 +99,26 @@
     });
   }
 
-  // numeric input helper
-  function num(v: string, fallback: number) {
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : fallback;
+  // Scrub setters mirror updateSelected/updateFigure but use `mutate` (no new
+  // history entry): the scrub action already opened ONE beginGesture for the whole
+  // drag, so a scrub is a single undo (Feature 8).
+  function scrubSelected(fn: (e: Element) => void) {
+    const ids = get(selection);
+    mutate((p) => {
+      for (const f of p.figures)
+        for (const e of f.elements)
+          if (ids.has(e.id)) {
+            fn(e);
+            applyAutoWidth(e);
+          }
+    });
+  }
+  function scrubFigure(fn: (f: typeof fig & {}) => void) {
+    const id = get(activeFigureId);
+    mutate((p) => {
+      const f = p.figures.find((ff) => ff.id === id);
+      if (f) fn(f);
+    });
   }
 </script>
 
@@ -161,13 +178,21 @@
     <section>
       <h4>{single.type}</h4>
       <div class="row">
-        <label>X<input type="number" value={Math.round(single.x)} on:change={(e) => updateSelected((el) => (el.x = num(e.currentTarget.value, el.x)))} /></label>
-        <label>Y<input type="number" value={Math.round(single.y)} on:change={(e) => updateSelected((el) => (el.y = num(e.currentTarget.value, el.y)))} /></label>
+        <NumberField label="X" value={single.x}
+          on:commit={(e) => updateSelected((el) => (el.x = e.detail))}
+          on:scrub={(e) => scrubSelected((el) => (el.x = e.detail))} />
+        <NumberField label="Y" value={single.y}
+          on:commit={(e) => updateSelected((el) => (el.y = e.detail))}
+          on:scrub={(e) => scrubSelected((el) => (el.y = e.detail))} />
       </div>
       {#if "width" in single && single.type !== "line"}
         <div class="row">
-          <label>W<input type="number" value={Math.round(single.width)} on:change={(e) => updateSelected((el) => { if ("width" in el) el.width = num(e.currentTarget.value, el.width); })} /></label>
-          <label>H<input type="number" value={Math.round(single.height)} on:change={(e) => updateSelected((el) => { if ("height" in el) el.height = num(e.currentTarget.value, el.height); })} /></label>
+          <NumberField label="W" value={single.width} min={1}
+            on:commit={(e) => updateSelected((el) => { if ("width" in el) el.width = e.detail; })}
+            on:scrub={(e) => scrubSelected((el) => { if ("width" in el) el.width = e.detail; })} />
+          <NumberField label="H" value={single.height} min={1}
+            on:commit={(e) => updateSelected((el) => { if ("height" in el) el.height = e.detail; })}
+            on:scrub={(e) => scrubSelected((el) => { if ("height" in el) el.height = e.detail; })} />
         </div>
       {/if}
     </section>
@@ -185,7 +210,9 @@
         on:input={(e) => updateSelected((el) => { if (el.type === "text") el.text = e.currentTarget.value; })}
       ></textarea>
       <div class="row">
-        <label>Size<input type="number" value={single.fontSize} on:change={(e) => updateSelected((el) => { if (el.type === "text") el.fontSize = num(e.currentTarget.value, el.fontSize); })} /></label>
+        <NumberField label="Size" value={single.fontSize} min={1}
+          on:commit={(e) => updateSelected((el) => { if (el.type === "text") el.fontSize = e.detail; })}
+          on:scrub={(e) => scrubSelected((el) => { if (el.type === "text") el.fontSize = e.detail; })} />
         <label>Weight
           <select value={single.fontWeight} on:change={(e) => updateSelected((el) => { if (el.type === "text") el.fontWeight = parseInt(e.currentTarget.value); })}>
             <option value="400">Regular</option>
@@ -238,9 +265,13 @@
     <section>
       <h4>Stroke / fill</h4>
       <div class="row">
-        <label>Stroke W<input type="number" min="0" value={single.strokeWidth} on:change={(e) => updateSelected((el) => { if ("strokeWidth" in el) el.strokeWidth = num(e.currentTarget.value, el.strokeWidth); })} /></label>
+        <NumberField label="Stroke W" value={single.strokeWidth} min={0} step={0.5}
+          on:commit={(e) => updateSelected((el) => { if ("strokeWidth" in el) el.strokeWidth = e.detail; })}
+          on:scrub={(e) => scrubSelected((el) => { if ("strokeWidth" in el) el.strokeWidth = e.detail; })} />
         {#if single.type === "rect"}
-          <label>Radius<input type="number" min="0" value={single.cornerRadius} on:change={(e) => updateSelected((el) => { if (el.type === "rect") el.cornerRadius = num(e.currentTarget.value, el.cornerRadius); })} /></label>
+          <NumberField label="Radius" value={single.cornerRadius} min={0}
+            on:commit={(e) => updateSelected((el) => { if (el.type === "rect") el.cornerRadius = e.detail; })}
+            on:scrub={(e) => scrubSelected((el) => { if (el.type === "rect") el.cornerRadius = e.detail; })} />
         {/if}
       </div>
       {#if single.type === "line"}
@@ -261,12 +292,20 @@
       <h4>Figure</h4>
       <label class="full">Name<input value={fig.name} on:change={(e) => updateFigure((f) => (f.name = e.currentTarget.value))} /></label>
       <div class="row">
-        <label>X<input type="number" value={Math.round(fig.x)} on:change={(e) => updateFigure((f) => (f.x = num(e.currentTarget.value, f.x)))} /></label>
-        <label>Y<input type="number" value={Math.round(fig.y)} on:change={(e) => updateFigure((f) => (f.y = num(e.currentTarget.value, f.y)))} /></label>
+        <NumberField label="X" value={fig.x}
+          on:commit={(e) => updateFigure((f) => (f.x = e.detail))}
+          on:scrub={(e) => scrubFigure((f) => (f.x = e.detail))} />
+        <NumberField label="Y" value={fig.y}
+          on:commit={(e) => updateFigure((f) => (f.y = e.detail))}
+          on:scrub={(e) => scrubFigure((f) => (f.y = e.detail))} />
       </div>
       <div class="row">
-        <label>W<input type="number" value={Math.round(fig.width)} on:change={(e) => updateFigure((f) => (f.width = num(e.currentTarget.value, f.width)))} /></label>
-        <label>H<input type="number" value={Math.round(fig.height)} on:change={(e) => updateFigure((f) => (f.height = num(e.currentTarget.value, f.height)))} /></label>
+        <NumberField label="W" value={fig.width} min={1}
+          on:commit={(e) => updateFigure((f) => (f.width = e.detail))}
+          on:scrub={(e) => scrubFigure((f) => (f.width = e.detail))} />
+        <NumberField label="H" value={fig.height} min={1}
+          on:commit={(e) => updateFigure((f) => (f.height = e.detail))}
+          on:scrub={(e) => scrubFigure((f) => (f.height = e.detail))} />
       </div>
       <label class="full">Background
         <input type="color" value={fig.background === "transparent" ? "#ffffff" : fig.background} on:change={(e) => updateFigure((f) => (f.background = e.currentTarget.value))} />

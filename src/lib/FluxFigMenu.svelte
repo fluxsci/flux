@@ -9,6 +9,8 @@
   } from "./store";
   import type { Element, Project } from "./types";
   import { applyAutoWidth } from "./text";
+  import { evalExpr } from "./num";
+  import { scrub } from "./scrub";
   import { nameForHex } from "./colors";
   import { fluxFigMenuOpen, settings } from "./settings";
   import { halfFrame, drawForge } from "./motion/selfDraw";
@@ -353,7 +355,11 @@
             {#each grp.fields as f (f.key)}
               <div class="field" class:editing={activeKey === f.key}>
                 <span class="hk">{f.key}</span>
-                <span class="label">{f.label}</span>
+                {#if f.kind === "number"}
+                  <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, onStep: (v) => f.apply(v) }}>{f.label}</span>
+                {:else}
+                  <span class="label">{f.label}</span>
+                {/if}
                 <span class="control">
                   {#if f.kind === "color"}
                     {@const cd = colorDisplay(f)}
@@ -387,10 +393,11 @@
                     <input
                       bind:this={inputs[f.key]}
                       class="nin"
-                      type="number"
-                      step={f.step}
+                      type="text"
+                      inputmode="decimal"
+                      spellcheck="false"
                       value={f.get()}
-                      on:input={(e) => f.apply(e.currentTarget.value)}
+                      on:input={(e) => { const v = evalExpr(e.currentTarget.value); if (v != null) f.apply(v); }}
                       on:keydown={(e) => onFieldKey(e)}
                     />
                   {/if}

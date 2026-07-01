@@ -1,0 +1,117 @@
+# flux-figure Enhancement Plan — Living Checklist
+
+Status legend: `[ ]` not started · `[~]` in progress · `[x]` done (with evidence)
+
+Evidence files live under `$FLUX_OUT` (screenshots/GIFs) and are listed inline as each feature completes.
+
+═══════════════════════════════════════════════════════════════════
+THE 12 FEATURES
+═══════════════════════════════════════════════════════════════════
+
+── TIER 1 — Flagship & core precision ──
+
+## [ ] [1] PEN / VECTOR TOOL OVERHAUL — bezier curves + node editing  [Authoring-relevant] tool key P
+WHY: scientific figures live on custom vector marks — curved connectors, brackets, leader/pointer lines, dashed inset boxes, significance bars. Today's pen is straight M/L only, paths are opaque after creation, and path-resize is broken. This is the flagship.
+MODEL (additive, backward-compatible): extend PathElement; keep `d` as rendered/exported form so Element.svelte/export.ts are untouched.
+  interface VectorNode { x:number; y:number; type:"corner"|"smooth"; hIn?:{dx,dy}; hOut?:{dx,dy} } // element-local; handles relative to node
+  PathElement += `nodes?: VectorNode[]`  // when present, AUTHORITATIVE; `d` is regenerated from it
+NEW FILE `src/lib/path.ts` (pure, unit-tested): `nodesToPath(nodes,closed):string` (emit L when a segment has no handles either end, else cubic C; append Z if closed), `pathToNodes(d):VectorNode[]` (parse ONLY the M/L/C/Q/Z grammar WE emit, so legacy d-only paths become editable), `scalePath(nodes|d, sx, sy)` for the resize fix. Invariant: whenever nodes change, recompute `d=nodesToPath(...)` and refit width/height from node+handle extents.
+UX: P+click drops a corner node; click-DRAG pulls symmetric bezier handles (smooth node). Hold SHIFT to constrain new segment + handle direction to 0/45/90° (the user's "shift-click to keep lines straight"). Click first node (≤8/zoom px, ≥2 nodes) closes; Enter/double-click finishes open; Esc cancels; switching tools finishes (preserve current). NODE-EDIT MODE: with a path selected, Enter or double-click enters edit mode; overlay draws all nodes (square=corner, circle=smooth) + handles for the selected node; drag node to move; drag handle to bend; Alt-drag handle breaks symmetry (corner with independent tangents); click a segment inserts a node; select node + Delete removes; double-click node toggles corner↔smooth; Shift constrains drags to 0/45/90°; Esc/click-away exits.
+RESIZE FIX (in scope): add a `path` branch to `resizeRemap` that scales nodes (or parses+scales legacy `d`) by (sx,sy) about box origin, regenerates `d`, updates width/height. Verify it PERSISTS on commit (previously snapped back) on-canvas AND via render-figure --png.
+IMPL: types.ts + schemas.ts (lenient `nodes`); src/lib/path.ts; ops.ts `addPath(figId,{nodes,closed,style,x,y})` + `updatePath(id,{nodes?,closed?})` (build d via nodesToPath, refit w/h); Canvas.svelte pen handlers (handle-drag + Shift-constrain) + a path-edit interaction layer (node/handle hit-test + drag gestures in the overlay); editing.ts resizeRemap path branch. Element.svelte/export.ts unchanged.
+AI: bridge `add_path` + `edit_path` (dispatchCommand + ALLOWED_COMMANDS) + a flux-core `add-path` verb (node JSON) + flux-cli case + flux-mcp registerTool + append to the dispatch_command description. An agent can author/curve-edit a path by coordinates.
+TESTS: screenshots of a curved multi-segment path, node-edit mode w/ handles, corner→smooth, a closed filled shape; GIF of bending a node and Alt-breaking a handle. Unit: pathToNodes(nodesToPath(n))≈n (incl. closed+cubic). Shift→handles exactly 0/45/90°. Insert/delete updates d+bbox. Resize fix persists (canvas+PNG). AI: identical curved arrow via GUI vs bridge add_path vs CLI add-path (d/PNG match), undoable. Regression: old straight pen flow + legacy d-only paths still render & become editable.
+
+## [ ] [2] ROTATE HANDLE + numeric rotation  [Authoring-relevant]
+WHY: tilted gels, rotated inset labels, angled brackets. rotation exists+renders but has no interaction and no Inspector field.
+UX: a small rotate handle (circle above the top-center resize handle, joined by a ~12px stem) drawn in the overlay only when a single element or a group is selected (hidden in caption mode like resize handles). Drag rotates about the selection-bbox center; live tooltip shows angle (e.g. 37°); SHIFT snaps to 15°. Inspector: add a Rotation degrees field in the position section (reuse Feature 8 math+scrub). Multi-element: rotate each element about the selection center (increment each rotation by the drag delta AND orbit each element's center around the pivot).
+IMPL: Canvas.svelte add `{kind:"rotate";figId;cx;cy;startAngle;origs}` to Gesture; draw handle+stem; onRotateDown snapshots (beginGesture); onPointerMove computes angle=atan2(lp.y-cy,lp.x-cx), applies delta (Shift→round 15°) via mutate; commit on up. geometry.ts `applyRotation(els,pivot,deltaDeg)` shared helper. Inspector.svelte rotation field.
+AI: single-element already works via set_style{rotation}. Add `ops.rotateElements(p,ids,deltaDeg,pivot?)` + bridge `rotate` + allow-list + CLI/MCP for pivot-aware GROUP rotation.
+TESTS: screenshots (rect@30°, 3-element group rotated 45° about center, Inspector live value); GIF of smooth drag-rotate + Shift-15° snap. Drag to ~37°→rotation 37±0.5; Shift→exact multiples of 15; group members lie on the rotated circle about pivot; undo restores; field accepts `45*2`. AI: rotate vs set_style match GUI, PNG shows it, undoable. Regression: resize handles + rotated-element move/resize/align/export intact.
+
+## [ ] [3] MEASUREMENT CALIPER — Alt-hover distances  [GUI-ergonomics]
+WHY: equal gutters are everything in multi-panel figures. Select A, hold ALT, hover B → red lines with exact pixel gaps (and to frame edges) so a human sets AND verifies spacing without arithmetic. Pure overlay, no model change.
+UX: with a selection present, holding Alt enters measure mode; the hovered element is the target. Draw red horizontal+vertical gap dimensions between the selection bbox and target bbox (distinct rendering for overlap vs gap) with numeric labels at midpoints (world units, rounded); when hovering empty figure space, show the selection's distances to the figure edges. Live-updates; clears on Alt release; never mutates; pointer-events:none. MUST NOT clash with Alt's existing roles (Alt=duplicate-on-drag during a move, Alt=disable-snap) — measure mode only when NOT mid-drag.
+IMPL: Canvas.svelte track altDown + measureTargetId (reuse hover hit-test); derive measureLines from selectionBBox + target elementBBox (figure-local → screen via the existing $viewport transform used by selScreen/guidesScreen); render red lines + <text> near the guide markup (~L1142-1158). geometry.ts add pure `gapBetween(a,b):{dx,dy,overlapX,overlapY}`.
+AI: GUI-ergonomics — no agent analog (an agent reads coordinates directly). Optionally expose gapBetween via appContext; not required.
+TESTS: screenshots (two panels w/ H+V gap labels; a panel w/ margins to all four edges); GIF of labels updating live across panels. Known 40px gap → label 40±1; overlap shown correctly; Alt release clears chrome; Alt-drag still duplicates and Alt still disables snap mid-move. Regression: hover outline + selection + handles intact.
+
+## [ ] [4] SMART DUPLICATE — duplicate & repeat last offset  [Authoring-relevant]
+WHY: build even arrays (tick rows, marker series, repeated scale bars, panel scaffolds): Alt-drag one copy to set spacing, then Ctrl+D repeatedly to stamp evenly. First verify whether Ctrl+D already reuses the last move/duplicate offset; if not, wire it.
+UX: track `lastTransform={dx,dy}` set by the most recent move of a selection AND by Alt-drag-duplicate. Ctrl+D duplicates the selection offset by lastTransform (if selection unchanged since), else a default nudge (+16,+16). New copies become the selection so repeats continue the run; group ids remap so each stamp is independent. Optional: a count entry in the F cockpit ("duplicate ×N along last offset").
+IMPL: ops.ts `duplicateElements(p,figId,ids,{dx,dy,count?}):newIds` (clone + id/group remap + offset; reuse remap logic from duplicateFigure/paste). keyboard.ts maintain lastTransform; duplicateSelected (Ctrl+D) calls it; update lastTransform on move-commit (Canvas records net delta) and alt-drag-dup.
+AI: bridge `duplicate {ids?,dx,dy,count?}` + allow-list + flux-core verb + CLI/MCP (there is currently NO element-duplicate live command — genuinely useful primitive).
+TESTS: screenshots (single marker → even row of 6 via repeated Ctrl+D; grid via two runs); GIF of stamping. Alt-drag 30px then Ctrl+D×4 → 5 elements at exact +30px steps (assert coords); copies independent/regroup-safe; undo removes one stamp per Ctrl+D. AI: duplicate{dx:24,count:5} via bridge+CLI = GUI, undoable. Regression: plain Ctrl+C/V and frame-duplicate intact.
+
+## [ ] [5] PROPORTIONAL SCALE MODE — scale strokes & type with the box  [Authoring-relevant] tool key K
+WHY: shrinking a panel/annotation to column width should scale line weights, corner radii, AND fonts together (default resize leaves shape strokes fixed). The Figma Scale-tool distinction; matters a lot for figures.
+UX: add a Scale tool (K) to toolbar + TOOL_KEYS. While active, dragging the bbox handles does a UNIFORM proportional scale (locked aspect by default) multiplying, per selected element: geometry, strokeWidth, cornerRadius, and text fontSize by the same factor. Keep default Select-tool resize UNCHANGED (predictable; non-destructive to line weights). Also add a one-shot "Scale by %" entry in F cockpit / Inspector.
+IMPL: editing.ts `scaleRemap(e,orig,ob,nb)` (sibling of resizeRemap) applying s=nb.w/ob.w to geometry + strokeWidth + cornerRadius + fontSize. Canvas.svelte: when activeTool==="scale", commit via scaleRemap (force uniform in computeResizeBox). store.ts/Toolbar.svelte: add `scale` to Tool union + toolbar (icon + K).
+AI: `ops.scaleElements(p,ids,factor,pivot?)` + bridge `scale` + CLI/MCP.
+TESTS: screenshots (bordered rect 4px stroke + text scaled to 50% → ~2px stroke, half font, proportions kept; contrast vs Select resize keeping 4px); GIF of smooth scale drag. factor 0.5 halves strokeWidth/cornerRadius/fontSize/geometry (assert); aspect preserved; group scales consistently about pivot; undo restores. AI: scale{factor:0.8} via bridge+CLI=GUI (PNG confirms). Regression: Select-tool resize unchanged; text autoWidth refits.
+
+## [ ] [6] LAYERS PANEL OVERHAUL + enforce lock + element hide  [Authoring-relevant]
+WHY: dense figures have dozens of elements; the current Layers list only click-selects. Need drag-reorder, visibility eye, lock, rename. `locked` exists but is never enforced; there's no `hidden`.
+MODEL: add `hidden?: boolean` to ElementBase (additive).
+UX: Layers panel per active figure — each row: eye toggle (hidden), lock toggle (locked), type/label name, panel-label badge. Drag rows to reorder → reorders figure.elements (z-order), canvas updates live. Eye → hidden (not rendered, not hit-testable, omitted from export). Lock → locked. Double-click name → rename (sets el.name). ENFORCE LOCK on canvas: locked elements can't be selected/moved/resized/rotated via canvas or marquee, but ARE selectable from the Layers panel (to unlock/restyle); hidden implies not hit-testable. Inspector gets quick Lock + Hide toggles for the selection (optional Ctrl/Cmd+Shift+L = lock).
+IMPL: types.ts hidden?; Element.svelte/export.ts skip rendering/serializing when hidden. ops.ts: extend ElementStylePatch/setElementStyle with hidden + name; add `reorderElement(p,figId,id,toIndex)`. Canvas.svelte: onElementDown + marquee hit-test skip locked||hidden; visibleEls skips hidden. Sidebar.svelte: eye/lock/name controls + pointer drag-reorder calling reorderElement. Inspector.svelte: lock/hide toggles.
+AI: set_style already carries locked; add hidden/name to the bridge set_style patch; add a reorder-to-index capability (extend set_z or new `set_z {index}`) + CLI/MCP.
+TESTS: screenshots (new Layers panel w/ eye/lock/name; hidden element gone from canvas; locked element not marquee-selectable; renamed layer); GIF of drag-reorder with live z-order. Drag index 2→0 reorders array+stacking (assert); hidden absent from canvas AND render-figure --png; locked not click/marquee-selectable but panel-selectable; unlocking restores; rename persists save/load. AI: set hidden/locked/name + reorder via bridge+CLI = GUI, undoable, export reflects hidden. Regression: z-order shortcuts, grouping, plot X-Ray part visibility intact.
+
+── TIER 2 — Precision & consistency ──
+
+## [ ] [7] EXACT-GAP DISTRIBUTE + equal-spacing snap  [Authoring-relevant]
+WHY: distributeElements only equalizes between the outermost items. Figures need a precise settable gutter ("24px apart") and the Figma feel where dragging snaps to a neighbor's existing gap. Pairs with Feature 3.
+UX: add optional `gap` to distribute — when given, sort along axis and place each so consecutive gaps equal `gap` (anchor first item). Add a "Gap" numeric field (math+scrub, Feature 8) in the Inspector Align/Arrange section. EQUAL-SPACING SNAP: while moving an element among siblings, if its gap to the nearest neighbor approaches an existing gap elsewhere, snap to it and show the matching measurement (reuse Feature 3 rendering).
+IMPL: geometry.ts distributeElements(els,axis,gap?) exact-gap branch; ops.ts thread gap through distributePanels; Inspector.svelte Gap field → commit(distributePanels(...,gap)); Canvas.svelte snap() add equal-gap candidates (compute existing pairwise gaps, snap moving bbox to reproduce one) keeping threshold/Alt-disable consistent.
+AI: extend bridge `distribute` with gap; same for file verb/CLI/MCP.
+TESTS: screenshot 4 panels at exactly 24px; GIF dragging a 5th to snap to 24px w/ readout. distribute gap:24 → all consecutive gaps 24 (assert); equal-spacing snap lands ±1px. AI: distribute{axis:'h',gap:24} via bridge+CLI=GUI, undoable. Regression: gap-less distribute unchanged; align/arrange intact.
+
+## [x] [8] MATH EXPRESSIONS + label scrubbing in numeric fields  [GUI-ergonomics]
+DONE. `src/lib/num.ts` (evalExpr — safe recursive-descent, no eval/Function; fmtNum), `src/lib/scrub.ts` (label-drag action, one deferred beginGesture per gesture), `src/lib/NumberField.svelte` (text input + evalExpr + scrub label). Inspector X/Y/W/H/Size/StrokeW/Radius + Figure X/Y/W/H converted; FluxFigMenu number fields accept math + scrub. Evidence: `figenh-08-math.ts` (17 evalExpr unit asserts pass; "816/2"→408, "(60*2)+30"→150, invalid rejected, scrub 200→320, undo restores in one step, 0 console errors); f8-01-inspector.png, f8-02-expr-applied.png, f8-03-after-scrub.png, f8-scrub-width.gif.
+WHY: reproducible low-arithmetic precision — type `816/2`, `(240*3)+48` into X/Y/W/H/size/stroke/rotation/gap, and drag a field's label to scrub.
+UX: every numeric input accepts arithmetic (+ - * / ( ) ^, unary minus); invalid → keep previous value (no NaN writes); eval on change/blur/Enter. Scrub: pointer-drag on a field's LABEL changes value (right/up=increase); modifier changes step (Shift=×10, Alt=÷10); cursor ew-resize; one undo entry per scrub gesture.
+IMPL: NEW `src/lib/num.ts` `evalExpr(str):number|null` — a SAFE shunting-yard/recursive-descent evaluator (NO eval/Function), whitelisting digits/./operators/parens; unit-tested. Replace `num()` in Inspector.svelte (and FluxFigMenu fields) with evalExpr (fallback to old value on null). Reusable Svelte action `scrub(node,{get,set,step})` on each field label → same updateSelected/updateFigure setters (begin/commit once per drag).
+AI: GUI-ergonomics — agents pass numbers directly; no wiring. State this.
+TESTS: GIF scrubbing W with live resize; screenshot after typing `816/2` into X (=408). Unit: "100+20"→120, "(240*3)+48"→768, "2^3"→8, "abc"→null, "1/0"→guard. Invalid leaves value unchanged; Shift scrub ×10 step; one undo per scrub. Regression: all existing numeric fields still accept plain numbers; text autoWidth refit fires.
+
+## [ ] [9] SELECT-ALL-WITH-SAME property  [Authoring-relevant]
+WHY: pick one red marker (or one axis label) → select EVERY element sharing its fill/stroke/font/type, then restyle across all panels at once.
+UX: with one element selected, offer "Select all with same → {Fill, Stroke, Font, Type}" via the F cockpit + a right-click/context entry (optional Cmd+Opt+A = same fill). Scope = active figure (default) or whole project (modifier). Matching adds to selection for immediate restyle. Optional: extend to plot parts (same role).
+IMPL: ops.ts (pure predicate) `matchElements(p,figId|all,ref,by):Id[]`; FluxFigMenu/context entries set selection.
+AI: bridge `select_matching {by,value?,scope?}` + allow-list (selection-only). An agent can "select all #d62728 strokes" before a restyle.
+TESTS: screenshot selecting one red point → all red points across 3 panels highlighted, then recolored in one action. Seed mixed fills; "same fill" selects exactly the matching set (assert ids); scope toggle respected. AI: select_matching{by:'fill',value:'#d62728'} = GUI set; a following set_style recolors; undoable. Regression: normal selection intact.
+
+## [ ] [10] COPY / PASTE PROPERTIES (style transfer)  [GUI-ergonomics]
+WHY: two-keystroke styling consistency — copy a panel's look and paste onto siblings.
+UX: Cmd/Ctrl+Alt+C captures a style snapshot from the single selected element into a module-level styleClipboard (fill,stroke,strokeWidth,opacity,cornerRadius,font family/size/weight/style,align,color — geometry/text-content EXCLUDED). Cmd/Ctrl+Alt+V applies to the selection (type-aware). F-cockpit "Paste style" mirror.
+IMPL: keyboard.ts styleClipboard + the two shortcuts → commit(setElementStyle(ids, styleClipboard)) (setElementStyle already applies only valid props per type, so cross-type pastes are safe).
+AI: GUI-ergonomics — agents already have full set_style; no wiring. State this.
+TESTS: screenshot a styled rect copied onto 3 plain rects; a text style copied across labels. Mixed selection → each gets only its valid props; one undo per paste. Regression: element Ctrl+C/V untouched.
+
+## [ ] [11] RULERS + draggable guides + grid/pixel snapping  [Authoring-relevant (guides) / GUI (rulers, grid)]
+WHY: registration lines keep panel margins/baselines/columns consistent across a full page. Add rulers, drag-out guides elements snap to, optional background grid + snap-to-grid, and snap-to-pixel for crisp export.
+MODEL: add `guides?: {x?:number[]; y?:number[]}` to Figure (figure-local; additive). Grid size + snap toggles in editor Settings.
+UX: rulers toggle (Toolbar button + Shift+R) showing H/V rulers in screen space, ticked in world units, tracking zoom/pan. Drag from a ruler onto the active figure → create a guide; drag a guide back to the ruler (or context remove) → delete; guides render across the figure and join the move-snap targets. Optional faint background grid at a configurable size; snap-to-grid toggle; snap-to-pixel toggle (round committed coords to whole px). All in Settings.
+IMPL: types.ts Figure.guides?; ops.ts setGuides/addGuide/removeGuide; Canvas.svelte render rulers (screen-space overlay), guide drag-create/delete gestures, add guide coords + (optional) grid lines to snap() targets, apply pixel rounding at commit when enabled; Settings.svelte toggles.
+AI: guides are authoring-relevant — `set_guides` bridge command + CLI/MCP (lay down a column grid programmatically). Rulers/grid display + pixel-snap are GUI/Settings (no agent analog).
+TESTS: screenshots (rulers + two guides; element snapping to a guide; 16px grid; pixel-snapped crisp edges in render-figure --png); GIF dragging a guide out + snapping. guide@x=408 persists save/load; move near it snaps ±1px; snap-to-grid lands multiples; snap-to-pixel → integer coords; rulers track zoom/pan. AI: set_guides{x:[408]} via bridge+CLI creates same guides; elements snap. Regression: existing edge/center smart guides + Alt-disable-snap intact.
+
+── TIER 3 — Interaction polish ──
+
+## [ ] [12] SHAPE & LINE CREATION MODIFIERS — constrain, from-center, 45°  [GUI-ergonomics]
+WHY: precise marks effortlessly — Shift=perfect square/circle, Alt=draw from center, Shift on line/arrow=0/45/90°.
+UX: in the draw gesture (onPointerMove), before building the preview: Shift → constrain rect/ellipse to square/circle (equalize |w|,|h| keeping drag direction) and snap line/arrow angle to nearest 45°; Alt → expand symmetrically about the start point; Shift+Alt → both. Live preview reflects modifiers.
+IMPL: Canvas.svelte draw branch and/or editing.ts createDrawElement: apply modifier transforms to (p0,p1) before constructing the element. Pure, localized.
+AI: GUI-ergonomics — agents pass exact w/h/endpoints; no wiring. State this.
+TESTS: screenshots (Shift circle+square; Alt-centered rect; Shift 45° arrow); GIF drawing a circle w/ Shift + a centered ellipse w/ Alt. Shift rect → width===height; Shift line angle ∈{0,45,90,…}±0.5°; Alt rect centered on p0; releasing modifiers mid-drag updates live. Regression: unmodified drawing unchanged; text/pen unaffected.
+
+── APPENDIX — optional cheap quick-wins (only if time allows; still need a screenshot + green gates) ──
+• Zoom-to-fit / zoom-to-selection (Shift+1 fit figure, Shift+2 fit selection, Shift+0 = 100%) — pure viewport math.
+• Deep-select + hierarchy nav — Cmd/Ctrl+click selects the deepest element under cursor (into groups/plot parts); Enter step in, Shift+Enter step out, Tab/Shift+Tab cycle siblings.
+• Eyedropper (I) — sample an on-canvas color to apply as fill/stroke.
+
+═══════════════════════════════════════════════════════════════════
+PROGRESS LOG
+═══════════════════════════════════════════════════════════════════
+(Updated as features complete — evidence filenames + notes.)
