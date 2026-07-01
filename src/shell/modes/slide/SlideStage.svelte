@@ -15,9 +15,13 @@
   import { get } from "svelte/store";
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
   import { resizeRemap } from "../../../lib/editing";
-  import { commitDeck, selection, focusedPart, sealHistory } from "../../../lib/slide/store";
+  import { commitDeck, selection, focusedPart, sealHistory, getClipboard, setClipboard } from "../../../lib/slide/store";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
-  import { setElementBox, deleteElements, findElement, setTextBoxText, setMathTex } from "../../../lib/slide/ops";
+  import {
+    setElementBox, deleteElements, findElement, setTextBoxText, setMathTex,
+    duplicateElements, pasteElements, groupElements, ungroupElements,
+    bringToFront, sendToBack, raiseElements, lowerElements,
+  } from "../../../lib/slide/ops";
   import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
   import type { Element as FigElement } from "../../../lib/types";
   import type { Slide, SlideElement, DeckTheme, StageSize } from "../../../lib/slide/types";
@@ -474,7 +478,57 @@
     if (e.key === "+" || e.key === "=") { e.preventDefault(); applyZoom(get(stageView).zoom * 1.2); return; }
     if (e.key === "-" || e.key === "_") { e.preventDefault(); applyZoom(get(stageView).zoom / 1.2); return; }
     if (e.key === "0") { e.preventDefault(); resetStageView(); return; }
+
+    // element ops (⌘/Ctrl): select-all + paste work with no selection; the rest
+    // act on the current selection. Copy stashes clones; the deck-edit ops commit
+    // (so they undo). Shift promotes ]/[ to front/back and G to ungroup.
+    const mod = e.metaKey || e.ctrlKey;
+    const sid = slide?.id;
+    const els = slide?.elements ?? [];
+    if (mod && (e.key === "a" || e.key === "A")) {
+      e.preventDefault();
+      selection.set(els.map((el) => el.id));
+      return;
+    }
+    if (mod && (e.key === "v" || e.key === "V")) {
+      e.preventDefault();
+      const clip = getClipboard();
+      if (sid && clip.length) {
+        let ids: string[] = [];
+        commitDeck((d) => { ids = pasteElements(d, sid, clip); });
+        selection.set(ids);
+      }
+      return;
+    }
     if ($selection.length === 0) return;
+    const cur = $selection;
+    if (mod && (e.key === "d" || e.key === "D")) {
+      e.preventDefault();
+      if (sid) { let ids: string[] = []; commitDeck((d) => { ids = duplicateElements(d, sid, cur); }); selection.set(ids); }
+      return;
+    }
+    if (mod && (e.key === "c" || e.key === "C")) {
+      e.preventDefault();
+      setClipboard(els.filter((el) => cur.includes(el.id)));
+      return;
+    }
+    if (mod && (e.key === "g" || e.key === "G")) {
+      e.preventDefault();
+      if (sid) commitDeck((d) => (e.shiftKey ? ungroupElements(d, sid, cur) : groupElements(d, sid, cur)));
+      return;
+    }
+    // Bracket z-order: match on e.code (physical key) not e.key — with Shift held
+    // the browser reports "}"/"{", so e.key === "]" would miss the front/back variant.
+    if (mod && e.code === "BracketRight") {
+      e.preventDefault();
+      if (sid) commitDeck((d) => (e.shiftKey ? bringToFront(d, sid, cur) : raiseElements(d, sid, cur)));
+      return;
+    }
+    if (mod && e.code === "BracketLeft") {
+      e.preventDefault();
+      if (sid) commitDeck((d) => (e.shiftKey ? sendToBack(d, sid, cur) : lowerElements(d, sid, cur)));
+      return;
+    }
     if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       const ids = $selection;

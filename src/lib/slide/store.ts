@@ -128,6 +128,20 @@ function reconcileCursor(): void {
   if (get(activeBeat) >= (slide?.beats.length ?? 1)) activeBeat.set(0);
 }
 
+// ---------------------------------------------------------------------------
+// Element clipboard (copy/paste, within the session — across slides + decks).
+// ---------------------------------------------------------------------------
+let _clipboard: SlideElement[] = [];
+/** True when the clipboard holds elements (drives the paste enablement). */
+export const clipboardFull = writable<boolean>(false);
+export function setClipboard(els: SlideElement[]): void {
+  _clipboard = structuredClone(els);
+  clipboardFull.set(_clipboard.length > 0);
+}
+export function getClipboard(): SlideElement[] {
+  return structuredClone(_clipboard);
+}
+
 /** Clear the deck (on true project close — NOT on a mode switch; the live deck is
  *  intentionally kept across mode round-trips, see `loadedProjectRoot`). */
 export function clearDeck(): void {

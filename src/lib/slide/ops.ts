@@ -423,6 +423,30 @@ export function duplicateElements(deck: Deck, slideId: Id, ids: Id[], dx = 24, d
   return out;
 }
 
+/** Clone external elements (from the clipboard) into a slide with fresh ids —
+ *  the paste counterpart of duplicateElements. Returns the new ids. */
+export function pasteElements(deck: Deck, slideId: Id, els: SlideElement[], dx = 24, dy = 24): Id[] {
+  const s = slideById(deck, slideId);
+  if (!s) return [];
+  const groupRemap = new Map<Id, Id>();
+  const out: Id[] = [];
+  for (const src of els) {
+    const copy = structuredClone(src);
+    copy.id = newId(src.type);
+    copy.x += dx;
+    copy.y += dy;
+    if (copy.groupId) {
+      let g = groupRemap.get(copy.groupId);
+      if (!g) { g = newId("group"); groupRemap.set(copy.groupId, g); }
+      copy.groupId = g;
+    }
+    if (copy.type === "textBox") for (const b of copy.blocks) b.id = newId("block");
+    s.elements.push(copy);
+    out.push(copy.id);
+  }
+  return out;
+}
+
 /** Assign a fresh shared groupId to the given elements (≥2). Returns the group id. */
 export function groupElements(deck: Deck, slideId: Id, ids: Id[]): Id | null {
   const s = slideById(deck, slideId);

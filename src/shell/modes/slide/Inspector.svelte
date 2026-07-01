@@ -107,6 +107,15 @@
     commitDeck((d) => slideOps.deleteElements(d, ids));
     selection.set([]);
   }
+  // Arrange (align / distribute / group / z-order) — all funnel through commitDeck
+  // (so they undo) and act on the current selection; the pure ops guard the counts.
+  function withSel(fn: (d: import("../../../lib/slide/types").Deck, sid: string, ids: string[]) => void) {
+    const sid = activeSlide?.id;
+    if (!sid) return;
+    commitDeck((d) => fn(d, sid, selectedEls.map((e) => e.id)));
+  }
+  const alignSel = (m: slideOps.AlignMode) => withSel((d, s, i) => slideOps.alignElements(d, s, i, m));
+  const distSel = (axis: "h" | "v") => withSel((d, s, i) => slideOps.distributeElements(d, s, i, axis));
 
   // A native <input type="color"> only accepts #rrggbb — map shorthand/alpha hex,
   // and fall back (theme colour) for CSS vars / "transparent" / named colours.
@@ -354,6 +363,29 @@
         </label>
       </section>
       <section>
+        <h4>Arrange</h4>
+        <div class="arrange">
+          <button title="Align left" onclick={() => alignSel("left")} aria-label="Align left">⇤</button>
+          <button title="Align centers (horizontal)" onclick={() => alignSel("hcenter")} aria-label="Align horizontal centers">↔</button>
+          <button title="Align right" onclick={() => alignSel("right")} aria-label="Align right">⇥</button>
+          <button title="Align top" onclick={() => alignSel("top")} aria-label="Align top">⤒</button>
+          <button title="Align middles (vertical)" onclick={() => alignSel("vcenter")} aria-label="Align vertical centers">↕</button>
+          <button title="Align bottom" onclick={() => alignSel("bottom")} aria-label="Align bottom">⤓</button>
+        </div>
+        <div class="arrange two">
+          <button title="Distribute horizontally (needs 3+)" onclick={() => distSel("h")}>Distribute&nbsp;H</button>
+          <button title="Distribute vertically (needs 3+)" onclick={() => distSel("v")}>Distribute&nbsp;V</button>
+        </div>
+        <div class="arrange two">
+          <button title="Group (⌘/Ctrl+G)" onclick={() => withSel((d, s, i) => slideOps.groupElements(d, s, i))}>Group</button>
+          <button title="Ungroup (⇧⌘/Ctrl+G)" onclick={() => withSel((d, s, i) => slideOps.ungroupElements(d, s, i))}>Ungroup</button>
+        </div>
+        <div class="arrange two">
+          <button title="Bring to front (⇧⌘/Ctrl+])" onclick={() => withSel((d, s, i) => slideOps.bringToFront(d, s, i))}>Bring front</button>
+          <button title="Send to back (⇧⌘/Ctrl+[)" onclick={() => withSel((d, s, i) => slideOps.sendToBack(d, s, i))}>Send back</button>
+        </div>
+      </section>
+      <section>
         <button class="danger" onclick={deleteSelected}>Delete {selectedEls.length} elements</button>
       </section>
     {/if}
@@ -537,6 +569,29 @@
   .add {
     width: 100%;
     margin-top: 4px;
+  }
+  .arrange {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .arrange.two {
+    grid-template-columns: 1fr 1fr;
+  }
+  .arrange:last-child {
+    margin-bottom: 0;
+  }
+  .arrange button {
+    padding: 5px 4px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .arrange:not(.two) button {
+    font-size: var(--ts-md, 15px);
+    line-height: 1;
   }
   .block {
     display: flex;
