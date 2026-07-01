@@ -94,6 +94,16 @@ contextBridge.exposeInMainWorld("fig", {
     return () => ipcRenderer.removeListener("app:error", handler);
   },
 
+  // W6: quit/close flush handshake. Main sends `app:flush` with a token before it
+  // destroys the window; the renderer flushes every dirty mode and replies with
+  // flushDone(token). Main destroys on ack or after a 2.5s timeout.
+  onFlushRequest: (cb) => {
+    const handler = (_e, token) => cb(token);
+    ipcRenderer.on("app:flush", handler);
+    return () => ipcRenderer.removeListener("app:flush", handler);
+  },
+  flushDone: (token) => ipcRenderer.send("app:flush:done", token),
+
   // WS6: provenance journal + advisory locks. Main appends/writes under .meta/
   // (suppressing the self-write echo); both no-op until a project is open.
   journalAppend: (entry) => ipcRenderer.invoke("journal:append", entry),

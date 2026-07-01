@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage, net } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, session, safeStorage, net } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -39,6 +39,18 @@ try {
 // renderer as "external" changes.
 let mainWindow = null;
 let projectWatcher = null;
+
+// W6: quit/close flush handshake. When a window is asked to close (X button, our
+// custom title-bar close, Ctrl+W, or Cmd-Q via before-quit), we hold the close,
+// ask the renderer to flush every dirty mode, and destroy only once it acks (or
+// after a timeout so a wedged renderer can never brick quit). `quitting` records
+// that we're tearing the whole app down, so the post-flush destroy re-issues the
+// quit (needed on macOS, where destroying the last window doesn't quit). The state
+// machine + menu template live in appLifecycle.cjs so they stay unit-testable.
+const { createFlushCoordinator, appMenuTemplate } = require("./appLifecycle.cjs");
+let quitting = false;
+const flushCoordinator = createFlushCoordinator();
+ipcMain.on("app:flush:done", (_e, token) => flushCoordinator.ack(token));
 
 // W1 (V1 review): surface main-process failures to the renderer as shell toasts.
 // level ∈ "info" | "success" | "error". Falls back to the console when no window.
@@ -377,6 +389,18 @@ if (process.env.SOFTGPU === "1") {
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 
+// W6: a deliberate application menu. The default menu was hidden but its
+// accelerators stayed live — most dangerously Ctrl/Cmd+R (reload) and
+// Ctrl/Cmd+Shift+I, which silently wipe unsaved renderer state. The template
+// (which platform gets what) lives in appLifecycle.cjs; here we just realize it.
+function buildAppMenu() {
+  const template = appMenuTemplate({
+    isMac: process.platform === "darwin",
+    isDev: !!DEV_URL,
+  });
+  Menu.setApplicationMenu(template ? Menu.buildFromTemplate(template) : null);
+}
+
 function createWindow() {
   const isMac = process.platform === "darwin";
   const win = new BrowserWindow({
@@ -406,6 +430,21 @@ function createWindow() {
   // Keep the renderer's custom maximize/restore button in sync.
   win.on("maximize", () => win.webContents.send("win:maximized", true));
   win.on("unmaximize", () => win.webContents.send("win:maximized", false));
+
+  // W6: hold the close until the renderer has flushed unsaved work. `destroy()`
+  // force-closes without re-emitting `close`, so there's no re-entrancy; a repeat
+  // close while the handshake is running is simply ignored.
+  let flushing = false;
+  win.on("close", (e) => {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return; // nothing to flush
+    e.preventDefault();
+    if (flushing) return;
+    flushing = true;
+    flushCoordinator.request(win, () => {
+      if (!win.isDestroyed()) win.destroy();
+      if (quitting) app.quit(); // finish the app-wide quit (matters on macOS)
+    });
+  });
 
   // Reap any integrated-terminal PTYs owned by this window's renderer on close,
   // and tear down the live agent bridge (removes .meta/live/bridge.json).
@@ -479,6 +518,7 @@ if (!gotSingleInstanceLock) {
 
 app.whenReady().then(() => {
   if (!gotSingleInstanceLock) return;
+  buildAppMenu(); // W6: replace the default menu (kills the stray reload accelerator)
   createWindow();
   // Cold start via protocol (Windows/Linux carry the URL in argv).
   const initialUrl = fluxUrlFromArgv(process.argv);
@@ -494,6 +534,7 @@ app.on("window-all-closed", () => {
 
 // Never leave a shell child behind.
 app.on("before-quit", () => {
+  quitting = true; // W6: the post-flush destroy re-issues app.quit() to finish the quit
   reapPtys();
   releaseAllGuiLocks(); // W3: never leave a stale "human" lock deferring agents
   try {

@@ -157,6 +157,11 @@ export interface FileBridge {
   // App-level notices from the main process (watcher death, spawn failures) —
   // surfaced as shell toasts (src/lib/toast.ts). Electron only.
   onAppError?(cb: (payload: { level?: string; msg: string; detail?: string }) => void): () => void;
+  // W6: quit/close flush handshake. Main sends `app:flush` with a token before
+  // destroying the window; the renderer flushes every dirty mode and acks with
+  // flushDone(token). Main destroys on ack or after a 2.5s timeout. Electron only.
+  onFlushRequest?(cb: (token: number) => void): () => void;
+  flushDone?(token: number): void;
   // W3: advisory locks. lockSet holds/releases a heartbeat-restamped "human"
   // activity lock; lockAcquire/lockRelease bracket short renderer RMWs
   // (scope "project" = <root>/.meta/locks, "fluxlib" = <lib>/.fluxlib/locks).

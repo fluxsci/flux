@@ -69,12 +69,7 @@ export function installLifecycle(): void {
 
   // W6: the main process intercepts close/quit, asks us to flush, and waits
   // for the ack (with a timeout so a wedged renderer can never brick quit).
-  const fb = fileBridge() as
-    | (ReturnType<typeof fileBridge> & {
-        onFlushRequest?: (cb: (token: number) => void) => () => void;
-        flushDone?: (token: number) => void;
-      })
-    | undefined;
+  const fb = fileBridge();
   fb?.onFlushRequest?.((token) => {
     void flushAll()
       .then((r) => {
