@@ -19,6 +19,8 @@ import {
   getActiveFigure,
 } from "../store";
 import type { Element } from "../types";
+import { focusedMode } from "../../shell/paneStore";
+import type { ModeId } from "../../shell/shellStore";
 
 export interface ContextElement {
   id: string;
@@ -33,7 +35,10 @@ export interface ContextElement {
 
 export interface AppContext {
   v: 1;
-  surface: "figure";
+  // AGT-14: the human's actually-focused mode (was hardcoded "figure"), so an
+  // agent knows which surface the human is on. The figure-centric fields below
+  // stay populated (the figure model is the richest live context we expose).
+  surface: ModeId;
   projectRoot: string | null;
   activeFigureId: string | null;
   selectedFrameId: string | null;
@@ -64,7 +69,7 @@ export function getAppContext(): AppContext {
   const sel = get(selection);
   return {
     v: 1,
-    surface: "figure",
+    surface: get(focusedMode),
     projectRoot: get(embeddedProjectRoot) ?? get(projectDir) ?? null,
     activeFigureId: get(activeFigureId),
     selectedFrameId: get(selectedFrameId),

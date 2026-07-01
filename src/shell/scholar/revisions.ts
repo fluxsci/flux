@@ -7,10 +7,16 @@ import { writable } from "svelte/store";
 
 export const figRevision = writable(0);
 export const bibRevision = writable(0);
+// W10: external (agent/CLI) edits to slides/ bump this so an open SlideMode
+// live-reloads the deck (clean-only), matching the figure/manuscript story.
+export const deckRevision = writable(0);
 
 export function bumpFigRevision() {
   figRevision.update((n) => n + 1);
 }
 export function bumpBibRevision() {
   bibRevision.update((n) => n + 1);
+}
+export function bumpDeckRevision() {
+  deckRevision.update((n) => n + 1);
 }

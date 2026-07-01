@@ -45,6 +45,7 @@
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave } from "../../../lib/autosave";
   import { registerFlushable } from "../../lifecycle";
+  import { deckRevision } from "../../scholar/revisions";
   import SlideStage from "./SlideStage.svelte";
   import Inspector from "./Inspector.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
@@ -63,6 +64,19 @@
   let decks = $state<DeckListItem[]>([]);
   let activeDeckId = $state<string | null>(null);
   let unsubDirty: (() => void) | undefined;
+  let unsubDeckRev: (() => void) | undefined;
+
+  // W10 (SLD-1): an external (agent/CLI) write to slides/ live-reloads the deck.
+  // deckRevision fires only for genuine external edits (the watcher suppresses our
+  // own saves), so no self-reload guard is needed. Clean → reload the active deck
+  // in place; dirty → keep the human's work (the W3 slides lock guards the save).
+  async function onDeckRevision() {
+    if (!pm || !ready) return;
+    decks = await listProjectDecks(pm.root); // an agent may have added/removed a deck
+    if (get(deckDirty) || !activeDeckId) return;
+    await loadDeckInto(pm.root, activeDeckId);
+    await refreshAssets();
+  }
 
   // W4: the shared autosave controller (stay-dirty + silent retry + sticky
   // error toast) replaces the hand-rolled saveTimer/saveError pattern here.
@@ -259,6 +273,12 @@
       touchActivityLock("slides"); // W3: defer concurrent agent deck writes while mid-edit
       autosave.schedule();
     });
+    // W10: live-reload on external slides/ edits (skip the immediate on-subscribe call).
+    let firstDeck = true;
+    unsubDeckRev = deckRevision.subscribe(() => {
+      if (firstDeck) { firstDeck = false; return; }
+      void onDeckRevision();
+    });
   });
 
   // W5: the shell's dirty registry replaces this mode's private beforeunload —
@@ -271,6 +291,7 @@
 
   onDestroy(() => {
     unsubDirty?.();
+    unsubDeckRev?.();
     player?.destroy();
     // Flush pending edits to disk, but DO NOT clearDeck() — the live deck is kept
     // in the module-level store so a quick round-trip to another mode reuses it

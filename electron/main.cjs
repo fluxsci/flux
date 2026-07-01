@@ -94,6 +94,11 @@ async function atomicWriteMain(p, data) {
   }
   try {
     await fs.promises.rename(tmp, p);
+    // SHL-10: refresh the self-write TTL at COMPLETION. The watcher's
+    // awaitWriteFinish only fires ≥250ms after the last write, so a large/slow
+    // write (e.g. the ~12MB enrich.json) could otherwise outlive the TTL set at
+    // write-start and echo back as a spurious "external change".
+    noteWrite(p);
   } catch (e) {
     await fs.promises.rm(tmp, { force: true }).catch(() => {});
     throw e;
@@ -451,6 +456,14 @@ function createWindow() {
   win.on("closed", () => {
     reapPtys((s) => s.wc.isDestroyed());
     stopBridge();
+    // SHL-7: drop the dead window + its file watcher, so a later external write
+    // can't call .send() on destroyed webContents (macOS: window closed, app
+    // stays in the dock).
+    if (mainWindow === win) mainWindow = null;
+    if (projectWatcher) {
+      projectWatcher.close().catch(() => {});
+      projectWatcher = null;
+    }
   });
 
   if (DEV_URL) {
@@ -683,6 +696,19 @@ function subsystemFor(root, abs) {
   if (rel.startsWith("fig/")) return "fig";
   if (rel.startsWith("manuscript/")) return "manuscript";
   if (rel.startsWith("references/")) return "references";
+  if (rel.startsWith("slides/")) return "slides"; // W10 (SLD-1)
+  return null;
+}
+
+// W10 (LR-3): the machine-global FluxLib lives outside the project root, so classify
+// its watched paths separately. We watch library.bib + .fluxlib/enrich.json + items/
+// (NOT .fluxlib/locks/, whose 10s heartbeats would spam spurious revisions).
+function fluxLibSubsystemFor(libRoot, abs) {
+  const rel = path.relative(libRoot, abs).split(path.sep).join("/");
+  if (rel.startsWith("..")) return null;
+  if (rel === "library.bib" || rel === ".fluxlib/enrich.json" || rel.startsWith("items/")) {
+    return "fluxlib";
+  }
   return null;
 }
 
@@ -706,7 +732,14 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     );
     return false;
   }
-  const targets = ["plots", "fig", "manuscript", "references"].map((d) => path.join(root, d));
+  const libRoot = fluxLibDir();
+  const targets = [
+    ...["plots", "fig", "manuscript", "references", "slides"].map((d) => path.join(root, d)),
+    // W10: the machine-global FluxLib (agent adds/enrich/fetch land here too).
+    path.join(libRoot, "library.bib"),
+    path.join(libRoot, ".fluxlib", "enrich.json"),
+    path.join(libRoot, "items"),
+  ];
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
   const flush = () => {
@@ -723,7 +756,7 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   });
   projectWatcher.on("all", (_evt, abs) => {
     if (isSelfWrite(abs)) return;
-    const subsystem = subsystemFor(root, abs);
+    const subsystem = subsystemFor(root, abs) ?? fluxLibSubsystemFor(libRoot, abs);
     if (!subsystem) return;
     pending.set(subsystem, abs);
     if (!timer) timer = setTimeout(flush, 200);

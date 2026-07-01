@@ -4,8 +4,9 @@
   // flanked by a reference sidebar (the paper's OpenAlex referenced_works → add to
   // FluxLib) and an annotations panel (this paper's highlights → click to scroll,
   // delete). Highlights persist to items/<citekey>/annotations.json.
-  import { onDestroy } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { readerKey } from "./readerStore";
+  import { fluxLibRevision } from "../../../lib/references/revision";
   import { readerPdfBytes, writeReaderContext, clearReaderContext } from "../../../lib/references/itemsBridge";
   import { loadAnnotations, addAnnotation, deleteAnnotation } from "../../../lib/references/annotationsBridge";
   import { loadFluxLib } from "../../../lib/references/fluxlibBridge";
@@ -80,6 +81,22 @@
       refsState = "done";
     }).catch(() => {
       if (curKey === key) refsState = "error";
+    });
+  });
+
+  // W10 (LR-3): an external FluxLib write (e.g. an agent's add_annotation, or a new
+  // paper) refreshes the open paper's annotations + library membership in place.
+  onMount(() => {
+    let first = true;
+    return fluxLibRevision.subscribe(() => {
+      if (first) { first = false; return; }
+      const key = curKey;
+      if (!key) return;
+      void Promise.all([loadAnnotations(key), loadFluxLib()]).then(([af, lib]) => {
+        if (curKey !== key) return;
+        annotations = af.annotations;
+        libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
+      });
     });
   });
 

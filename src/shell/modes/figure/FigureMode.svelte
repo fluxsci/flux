@@ -19,9 +19,9 @@
   import { handleKey } from "../../../lib/keyboard";
   import { dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
   import { projectModel } from "../../shellStore";
-  import { loadFigInto, saveFigFrom } from "../../../lib/project/figbridge";
+  import { loadFigInto, saveFigFrom, figDiskDiverged } from "../../../lib/project/figbridge";
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
-  import { bumpFigRevision } from "../../scholar/revisions";
+  import { bumpFigRevision, figRevision } from "../../scholar/revisions";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
   import { registerFlushable } from "../../lifecycle";
 
@@ -33,6 +33,7 @@
   let ready = false;
   let unsubDirty: (() => void) | undefined;
   let unsubReveal: (() => void) | undefined;
+  let unsubFigRev: (() => void) | undefined;
   // W7: fig/ changed on disk (agent/CLI) while the editor had unsaved edits.
   let figDiverged = $state(false);
 
@@ -61,6 +62,16 @@
     if (!pm) return;
     await loadFigInto(pm.root, pm.manifest.title); // resets baseline + clears dirty
     figDiverged = false;
+  }
+  // W10 (AGT-3): an external (agent/CLI) write to fig/ live-reloads the open
+  // editor. figRevision also fires on our OWN save, so gate on figDiskDiverged
+  // (false right after we write). Clean → reload in place (viewport preserved);
+  // dirty → surface the reload/overwrite banner instead of clobbering.
+  async function onFigRevision() {
+    if (!pm || !ready) return;
+    if (!(await figDiskDiverged(pm.root))) return;
+    if (get(figDirty)) figDiverged = true;
+    else await reloadFigures();
   }
   async function overwriteFigures() {
     if (!pm) return;
@@ -92,6 +103,13 @@
       if (!ready || !pm || !d) return;
       autosave.schedule();
     });
+    // W10: live-reload on external fig/ edits (gated by figDiskDiverged so our own
+    // saves don't self-reload). Skip the immediate on-subscribe call.
+    let first = true;
+    unsubFigRev = figRevision.subscribe(() => {
+      if (first) { first = false; return; }
+      void onFigRevision();
+    });
   });
 
   // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
@@ -104,6 +122,7 @@
   onDestroy(() => {
     unsubDirty?.();
     unsubReveal?.();
+    unsubFigRev?.();
     void autosave.flush();
     autosave.dispose();
     unregFlush();
