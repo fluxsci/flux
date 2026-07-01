@@ -55,6 +55,7 @@ export function getClient(): string {
 }
 import * as ops from "../src/lib/ops";
 import * as slideOps from "../src/lib/slide/ops";
+import { atomicWrite } from "./fsx";
 import Ajv from "ajv";
 import { SCHEMAS, SCHEMA_FILENAMES, schemaForFile } from "./schemas";
 import type { Figure, Element, Project, Asset, Canvas, PartOverride, VectorNode } from "../src/lib/types";
@@ -88,8 +89,7 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 async function writeText(p: string, t: string): Promise<void> {
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, t);
+  await atomicWrite(p, t); // W2: durable tmp+fsync+rename for every canonical write
 }
 function stamp(): string {
   return new Date().toISOString();
@@ -291,8 +291,7 @@ async function importPlotAsset(
   const tag = Date.now().toString(36) + Math.round(Math.random() * 1e6).toString(36);
   const assetId = `asset_${tag}`;
   const rel = `assets/${assetId}.svg`;
-  await fs.mkdir(j(root, "fig", "assets"), { recursive: true });
-  await fs.writeFile(j(root, "fig", rel), svg);
+  await atomicWrite(j(root, "fig", rel), svg);
   project.assets.push({ id: assetId, name: path.basename(abs), kind: "svg", path: rel, naturalWidth: w, naturalHeight: h });
   const base = abs.replace(/\.svg$/i, "");
   const manifest = base + ".fluxplot.json";
@@ -1221,9 +1220,8 @@ export async function resolveComment(
 // --------------------------------------------------------------------------
 export async function writeSchemas(root: string): Promise<void> {
   const dir = j(root, ".meta", "schema");
-  await fs.mkdir(dir, { recursive: true });
   for (const [key, schema] of Object.entries(SCHEMAS)) {
-    await fs.writeFile(
+    await atomicWrite(
       j(dir, SCHEMA_FILENAMES[key as keyof typeof SCHEMAS]),
       JSON.stringify(schema, null, 2) + "\n",
     );
@@ -1329,13 +1327,21 @@ async function findProjectRoot(start: string): Promise<string | null> {
   return null;
 }
 
-/** Append a provenance line to .meta/journal.ndjson. */
+/** Append a provenance line to .meta/journal.ndjson.
+ *  W2: O_APPEND (not read-whole-rewrite) — concurrent writers can no longer drop
+ *  each other's entries and cost stays O(1); size-based rotation keeps it bounded. */
+const JOURNAL_MAX_BYTES = 5 * 1024 * 1024;
 export async function journal(root: string, entry: Record<string, unknown>): Promise<void> {
   const p = j(root, ".meta", "journal.ndjson");
   await fs.mkdir(path.dirname(p), { recursive: true });
-  let cur = "";
-  if (await exists(p)) cur = await fs.readFile(p, "utf8");
-  await fs.writeFile(p, cur + JSON.stringify({ ts: stamp(), client: CLIENT, ...entry }) + "\n");
+  try {
+    const st = await fs.stat(p);
+    if (st.size > JOURNAL_MAX_BYTES)
+      await fs.rename(p, j(root, ".meta", `journal-${Date.now()}.ndjson`));
+  } catch {
+    /* no journal yet */
+  }
+  await fs.appendFile(p, JSON.stringify({ ts: stamp(), client: CLIENT, ...entry }) + "\n");
 }
 
 export async function runRecipe(

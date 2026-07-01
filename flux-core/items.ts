@@ -7,6 +7,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { resolveFluxLibPath, loadLibrary } from "./fluxlib";
+import { atomicWrite } from "./fsx";
 import {
   itemDir,
   pdfPath,
@@ -62,8 +63,7 @@ export async function writePdf(
   libPath?: string,
 ): Promise<SourceInfo> {
   const L = await lib(libPath);
-  await fs.mkdir(itemDir(L, key), { recursive: true });
-  await fs.writeFile(pdfPath(L, key), bytes);
+  await atomicWrite(pdfPath(L, key), bytes);
   const info: SourceInfo = {
     key,
     ...source,
@@ -71,7 +71,7 @@ export async function writePdf(
     bytes: bytes.byteLength,
     fetchedAt: source.fetchedAt ?? new Date().toISOString(),
   };
-  await fs.writeFile(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
+  await atomicWrite(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
   return info;
 }
 
@@ -93,8 +93,7 @@ export async function readSource(key: string, libPath?: string): Promise<SourceI
 
 export async function writeFulltext(key: string, text: string, libPath?: string): Promise<void> {
   const L = await lib(libPath);
-  await fs.mkdir(itemDir(L, key), { recursive: true });
-  await fs.writeFile(fulltextPath(L, key), text);
+  await atomicWrite(fulltextPath(L, key), text);
 }
 export async function readFulltext(key: string, libPath?: string): Promise<string | null> {
   try {
@@ -146,8 +145,7 @@ export async function rebuildItemsIndex(libPath?: string): Promise<ItemsIndex> {
     const st = await itemStatus(k, L);
     if (st.hasPdf || st.annotations || st.supplements) idx[k] = st;
   }
-  await fs.mkdir(path.dirname(libItemsIndexPath(L)), { recursive: true });
-  await fs.writeFile(libItemsIndexPath(L), JSON.stringify(idx, null, 2) + "\n");
+  await atomicWrite(libItemsIndexPath(L), JSON.stringify(idx, null, 2) + "\n");
   return idx;
 }
 

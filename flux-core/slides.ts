@@ -10,6 +10,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import Ajv from "ajv";
 import { safeJoin, journal, loadManifest, getClient, renderFigureSvg } from "./index";
+import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
 import * as slideOps from "../src/lib/slide/ops";
@@ -34,8 +35,7 @@ async function readJSON<T>(p: string): Promise<T> {
   return JSON.parse(await fs.readFile(p, "utf8")) as T;
 }
 async function writeText(p: string, t: string): Promise<void> {
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, t);
+  await atomicWrite(p, t); // W2: durable tmp+fsync+rename
 }
 
 const deckRel = (deckId: string) => `slides/${deckId}/deck.json`;

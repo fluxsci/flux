@@ -21,6 +21,7 @@ export type { AddResult };
 import { makeCitekey } from "../src/lib/references/citekey";
 import { runQuery } from "../src/lib/references/query";
 import { enrichCoverage } from "../src/lib/references/enrich";
+import { atomicWrite, quarantineCorrupt } from "./fsx";
 import {
   splitBibEntries,
   lightEntry,
@@ -67,8 +68,7 @@ export async function getPreferences(): Promise<Preferences> {
 export async function setPreferences(patch: Partial<Preferences>): Promise<Preferences> {
   const cur = await getPreferences();
   const next = { ...cur, ...patch, schemaVersion: cur.schemaVersion || SCHEMA_VERSION };
-  await fs.mkdir(path.dirname(prefsPath()), { recursive: true });
-  await fs.writeFile(prefsPath(), JSON.stringify(next, null, 2) + "\n");
+  await atomicWrite(prefsPath(), JSON.stringify(next, null, 2) + "\n");
   return next;
 }
 
@@ -137,13 +137,13 @@ export async function ensureFluxLib(libPath?: string): Promise<string> {
         /* fall through to header */
       }
     }
-    await fs.writeFile(
+    await atomicWrite(
       libBib(lib),
       seed || "% FluxLib — your machine-global reference library (BibLaTeX). Canonical source of truth.\n",
     );
   }
   if (!(await exists(libManifest(lib)))) {
-    await fs.writeFile(
+    await atomicWrite(
       libManifest(lib),
       JSON.stringify(
         {
@@ -197,8 +197,7 @@ export async function buildIndex(libPath?: string): Promise<LibraryIndex> {
     builtAt: new Date().toISOString(),
     entries: map,
   };
-  await fs.mkdir(path.dirname(libIndexPath(lib)), { recursive: true });
-  await fs.writeFile(libIndexPath(lib), JSON.stringify(idx, null, 2) + "\n");
+  await atomicWrite(libIndexPath(lib), JSON.stringify(idx, null, 2) + "\n");
   return idx;
 }
 
@@ -229,12 +228,24 @@ export async function searchReferences(query: string, libPath?: string): Promise
 // enrichment sidecar (Tier 1+2 — derived, rebuildable; keyed by citekey)
 // --------------------------------------------------------------------------
 
-/** Load the enrichment sidecar (`<lib>/.fluxlib/enrich.json`); `{}` if absent. */
+/** Load the enrichment sidecar (`<lib>/.fluxlib/enrich.json`); `{}` if absent.
+ *  W2: an unparseable file is quarantined as `.corrupt-<ts>` and reported —
+ *  never silently treated as empty (which used to wipe the cache on next write). */
 export async function loadEnrich(libPath?: string): Promise<Record<string, EnrichEntry>> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
+  let text: string;
   try {
-    return JSON.parse(await fs.readFile(libEnrichPath(lib), "utf8")) as Record<string, EnrichEntry>;
+    text = await fs.readFile(libEnrichPath(lib), "utf8");
   } catch {
+    return {}; // genuinely absent
+  }
+  try {
+    return JSON.parse(text) as Record<string, EnrichEntry>;
+  } catch {
+    const q = await quarantineCorrupt(libEnrichPath(lib));
+    console.error(
+      `[flux] enrich.json is corrupt${q ? ` — quarantined to ${q}` : ""}; starting a fresh cache (re-run hydrate)`,
+    );
     return {};
   }
 }
@@ -245,8 +256,7 @@ export async function writeEnrich(
   libPath?: string,
 ): Promise<void> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
-  await fs.mkdir(path.dirname(libEnrichPath(lib)), { recursive: true });
-  await fs.writeFile(libEnrichPath(lib), JSON.stringify(map, null, 2) + "\n");
+  await atomicWrite(libEnrichPath(lib), JSON.stringify(map, null, 2) + "\n");
 }
 
 /** A compact info rollup for `flux lib` (size + hydration coverage). */
@@ -286,7 +296,7 @@ export async function loadKeys(libPath?: string): Promise<FluxKeys> {
 export async function saveKeys(patch: FluxKeys, libPath?: string): Promise<FluxKeys> {
   const lib = await ensureFluxLib(libPath);
   const next = { ...(await loadKeys(lib)), ...patch };
-  await fs.writeFile(libKeysPath(lib), JSON.stringify(next, null, 2) + "\n");
+  await atomicWrite(libKeysPath(lib), JSON.stringify(next, null, 2) + "\n");
   return next;
 }
 
@@ -362,7 +372,7 @@ export async function addToFluxLib(
 
   if (appendBuf.length) {
     const sep = curText && !curText.endsWith("\n") ? "\n" : "";
-    await fs.writeFile(libBib(lib), curText + sep + appendBuf.join("\n\n") + "\n");
+    await atomicWrite(libBib(lib), curText + sep + appendBuf.join("\n\n") + "\n");
     await buildIndex(lib);
   }
   return { added, deduped, keys };
@@ -405,9 +415,8 @@ export async function materializeIntoProject(
     projKeys.add(k);
   }
   if (toAdd.length) {
-    await fs.mkdir(path.dirname(pbib), { recursive: true });
     const sep = projText && !projText.endsWith("\n") ? "\n" : "";
-    await fs.writeFile(pbib, projText + sep + toAdd.join("\n\n") + "\n");
+    await atomicWrite(pbib, projText + sep + toAdd.join("\n\n") + "\n");
   }
   return { added: addedKeys };
 }

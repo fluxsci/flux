@@ -60,6 +60,33 @@ const recentWrites = new Map(); // absPath -> expiry (ms)
 function noteWrite(p) {
   recentWrites.set(path.resolve(p), Date.now() + 1500);
 }
+
+// W2 (V1 review): durable renderer writes — every fs:write* lands via
+// write-tmp + fsync + rename, so a crash/power-loss can never truncate a
+// project file and no reader (agent CLI, watcher) sees a half-written file.
+// The dot-prefixed `.name.tmp-<pid>-<seq>` pattern is shared with
+// flux-core/fsx.ts and ignored by the project watcher below.
+let atomicSeq = 0;
+const TMP_WRITE_RE = /(^|[/\\])\.[^/\\]*\.tmp-\d+-\d+$/;
+async function atomicWriteMain(p, data) {
+  const dir = path.dirname(p);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(p)}.tmp-${process.pid}-${++atomicSeq}`);
+  noteWrite(tmp);
+  const fh = await fs.promises.open(tmp, "w");
+  try {
+    await fh.writeFile(data);
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+  try {
+    await fs.promises.rename(tmp, p);
+  } catch (e) {
+    await fs.promises.rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  }
+}
 function isSelfWrite(p) {
   const ab = path.resolve(p);
   const exp = recentWrites.get(ab);
@@ -478,7 +505,7 @@ ipcMain.handle("fs:readFile", async (_e, p) => {
 ipcMain.handle("fs:writeFile", async (_e, p, data) => {
   fsGuard(p);
   noteWrite(p);
-  await fs.promises.writeFile(p, Buffer.from(data));
+  await atomicWriteMain(p, Buffer.from(data));
 });
 ipcMain.handle("fs:readText", async (_e, p) => {
   fsGuard(p);
@@ -487,7 +514,7 @@ ipcMain.handle("fs:readText", async (_e, p) => {
 ipcMain.handle("fs:writeText", async (_e, p, text) => {
   fsGuard(p);
   noteWrite(p);
-  await fs.promises.writeFile(p, text, "utf8");
+  await atomicWriteMain(p, Buffer.from(String(text), "utf8"));
 });
 ipcMain.handle("fs:mkdir", async (_e, p) => {
   fsGuard(p);
@@ -567,6 +594,8 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   projectWatcher = ck.watch(targets, {
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
+    // Never surface in-flight atomic-write temp files (ours or flux-core's).
+    ignored: (p) => TMP_WRITE_RE.test(p),
   });
   projectWatcher.on("all", (_evt, abs) => {
     if (isSelfWrite(abs)) return;

@@ -7,6 +7,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { resolveFluxLibPath } from "./fluxlib";
+import { atomicWrite } from "./fsx";
 import { annotationsPath, ITEMS_DIR } from "../src/lib/references/items";
 import {
   emptyAnnotationFile,
@@ -29,8 +30,7 @@ export async function loadAnnotations(key: string, libPath?: string): Promise<An
 
 export async function saveAnnotations(key: string, file: AnnotationFile, libPath?: string): Promise<void> {
   const p = annotationsPath(await lib(libPath), key);
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  await fs.writeFile(p, JSON.stringify(file, null, 2) + "\n");
+  await atomicWrite(p, JSON.stringify(file, null, 2) + "\n");
 }
 
 export async function addAnnotation(

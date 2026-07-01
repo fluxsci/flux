@@ -11,6 +11,7 @@ import { makeCitekey } from "./citekey";
 import { splitBibEntries, lightEntry, bibtexKey, rekeyBibtex } from "./bibtex";
 import { bumpFluxLib, fluxLibEntries } from "./revision";
 import { mergeEnrich, type EnrichMap } from "./enrich";
+import { pushToast } from "../toast";
 
 const SCHEMA_VERSION = "0.1.0";
 
@@ -175,14 +176,28 @@ export async function loadFluxLib(): Promise<RefEntry[]> {
 const libEnrich = (lib: string) => joinPath(lib, ".fluxlib", "enrich.json");
 
 /** Load the enrichment sidecar (`<lib>/.fluxlib/enrich.json`); `{}` if absent / no bridge.
- *  Derived + rebuildable — the renderer twin of fluxlib.ts loadEnrich. */
+ *  Derived + rebuildable — the renderer twin of fluxlib.ts loadEnrich.
+ *  W2: an unparseable file is quarantined as `.corrupt-<ts>` + toasted — never
+ *  silently treated as empty (which used to wipe the cache on the next write). */
 export async function loadEnrichMap(): Promise<EnrichMap> {
   const lib = await resolveFluxLibPath();
   if (!lib) return {};
-  const t = await readTextSafe(libEnrich(lib));
+  const p = libEnrich(lib);
+  const t = await readTextSafe(p);
   try {
     return t ? (JSON.parse(t) as EnrichMap) : {};
   } catch {
+    const fb = fileBridge();
+    const q = `${p}.corrupt-${Date.now()}`;
+    try {
+      await fb?.writeText(q, t ?? "");
+      await fb?.remove?.(p);
+    } catch {
+      /* best-effort quarantine */
+    }
+    pushToast("error", "Enrichment cache was corrupt", {
+      detail: `Quarantined to ${q.split("/").pop()} — run Enrich again to rebuild`,
+    });
     return {};
   }
 }
