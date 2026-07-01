@@ -155,6 +155,9 @@ interface Spec {
   easing: string;
   enter: boolean;
   prep?: () => void;
+  /** A `camera` track: its FROM keyframe must be re-read from the live layer at
+   *  PLAY time (not this build time) so chained moves start from the current pose. */
+  camera?: boolean;
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
   /** Time-easing sampler for a morph (honours the track's influence/easing). */
@@ -203,6 +206,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           easing: resolveEasing(track.easing, track.influence),
           enter: na.enter,
           prep: na.prep,
+          camera: track.preset === "camera",
         });
       });
     }
@@ -214,6 +218,30 @@ const ANIM_PROPS = ["opacity", "transform", "clipPath", "strokeDashoffset", "str
 function clearAnimStyles(node: TargetNode) {
   const s = (node as HTMLElement).style;
   for (const p of ANIM_PROPS) s.removeProperty(p.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()));
+}
+const IDENTITY_FN = /^(translate\(0(px)?,\s*0(px)?\)|translateX\(0(px)?\)|translateY\(0(px)?\)|scale\(1\)|scaleX\(1\)|scaleY\(1\)|rotate\(0deg\))$/;
+/** Apply the cumulative resting look from a node's past specs. Non-transform props
+ *  are last-wins; transform is COMPOSED by function (translate/scale/rotate/…), last
+ *  of each type winning — so a `move` then a `scale` keep BOTH, instead of the scale
+ *  clobbering the translate (B11). Identity components are dropped. */
+function applyAccumulated(node: TargetNode, past: Spec[]) {
+  const s = (node as HTMLElement).style as unknown as Record<string, string>;
+  const tfns = new Map<string, string>(); // function name → its full "fn(args)"
+  let sawTransform = false;
+  for (const spec of past) {
+    const kf = spec.keyframes[spec.keyframes.length - 1];
+    for (const [k, v] of Object.entries(kf)) {
+      if (k === "offset" || k === "easing" || k === "composite" || v == null) continue;
+      if (k === "transform") {
+        sawTransform = true;
+        for (const m of String(v).matchAll(/([\w-]+)\(([^)]*)\)/g)) tfns.set(m[1], m[0]);
+      } else s[k] = String(v);
+    }
+  }
+  if (sawTransform) {
+    const parts = [...tfns.values()].filter((t) => !IDENTITY_FN.test(t));
+    s.transform = parts.length ? parts.join(" ") : "none";
+  }
 }
 function applyKeyframe(node: TargetNode, kf: Keyframe) {
   const s = (node as HTMLElement).style as unknown as Record<string, string>;
@@ -249,8 +277,8 @@ export function applyStatic(specs: Spec[], beatIndex: number): void {
     if (!kf.length) continue;
     const past = kf.filter((s) => s.beatIndex <= beatIndex);
     if (past.length) {
-      // accumulate per-property: later specs override, untouched props persist
-      for (const s of past) applyKeyframe(node, s.keyframes[s.keyframes.length - 1]);
+      // accumulate: non-transform props last-wins; transform composed by fn (B11)
+      applyAccumulated(node, past);
     } else if (kf[0].enter) {
       applyKeyframe(node, kf[0].keyframes[0]); // hidden until its intro beat
     }
@@ -261,7 +289,9 @@ export function applyStatic(specs: Spec[], beatIndex: number): void {
  *  Returns a Playable so the sequencer awaits + can interrupt it like a WAAPI anim. */
 function runMorph(m: MorphController, duration: number, reduced: boolean, ease: (t: number) => number = smoothstep): Playable {
   let raf = 0, start = 0, cancelled = false;
+  let resolveFinished: () => void = () => {};
   const finished = new Promise<void>((resolve) => {
+    resolveFinished = resolve;
     if (reduced || duration <= 0) { m.seek(1); resolve(); return; }
     const step = (ts: number) => {
       if (cancelled) return;
@@ -273,7 +303,8 @@ function runMorph(m: MorphController, duration: number, reduced: boolean, ease: 
     };
     raf = requestAnimationFrame(step);
   });
-  return { finished, cancel: () => { cancelled = true; if (raf) cancelAnimationFrame(raf); } };
+  // cancel must SETTLE `finished` (else settle()'s Promise.all hangs on this beat — B10).
+  return { finished, cancel: () => { cancelled = true; if (raf) cancelAnimationFrame(raf); resolveFinished(); } };
 }
 
 function playSpecs(specs: Spec[], lo: number, hi: number, reduced: boolean): Playable[] {
@@ -281,8 +312,14 @@ function playSpecs(specs: Spec[], lo: number, hi: number, reduced: boolean): Pla
   for (const s of specs) {
     if (s.beatIndex < lo || s.beatIndex > hi) continue;
     s.prep?.();
-    if (s.morph) out.push(runMorph(s.morph, s.duration, reduced, s.morphEase));
-    else out.push(animate(s.node, s.keyframes, { delay: s.delay, duration: s.duration, easing: s.easing, fill: "both" }));
+    if (s.morph) { out.push(runMorph(s.morph, s.duration, reduced, s.morphEase)); continue; }
+    // Camera: start from the layer's LIVE transform so a second move continues from
+    // the first's pose instead of snapping back to identity (B8).
+    if (s.camera && s.keyframes.length >= 2) {
+      const live = (s.node as HTMLElement).style.transform;
+      if (live) s.keyframes[0] = { ...s.keyframes[0], transform: live };
+    }
+    out.push(animate(s.node, s.keyframes, { delay: s.delay, duration: s.duration, easing: s.easing, fill: "both" }));
   }
   return out;
 }
@@ -343,20 +380,38 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const s = state();
     for (const cb of listeners[ev]) cb(s);
   }
+  /** The transform for a base camera pose (matches the `camera` preset's math), or
+   *  "" for no/identity camera. Applied at rest so slide.camera is honored (B14). */
+  function baseCameraTransform(slide: Slide): string {
+    const c = slide.camera;
+    if (!c || (c.x === stage.width / 2 && c.y === stage.height / 2 && (c.zoom ?? 1) === 1)) return "";
+    const zoom = c.zoom ?? 1;
+    const tx = stage.width / 2 - c.x * zoom;
+    const ty = stage.height / 2 - c.y * zoom;
+    return `translate(${tx}px, ${ty}px) scale(${zoom})`;
+  }
   function buildSlide(si: number) {
     const slide = deck.slides[si];
     mount.style.background = slide.background ?? opts.theme.background;
     rendered = renderSlide(cameraLayer, slide, stage, renderCtx);
     specs = computeSlideAnims(slide, rendered, cameraLayer, stage, opts);
+    // Seed the resting camera to the slide's base pose; camera tracks animate from
+    // here, and slides without a camera track stay parked at it (B14).
+    cameraLayer.style.transform = baseCameraTransform(slide);
     syncMedia();
   }
+  // Bumped on every cancel/new run so a stale settle() (from a beat the presenter
+  // already advanced past) can't re-fire beatEnd / schedule a stale auto (B7).
+  let gen = 0;
   function cancelActive() {
+    gen++;
     for (const a of active) { try { a.cancel(); } catch { /* already gone */ } }
     active = [];
     clearTimeout(autoTimer);
   }
   function curBeats(): number {
-    return deck.slides[slideIndex]?.beats.length ?? 1;
+    // `|| 1`, not `?? 1`: a 0-beat slide must still report a single (resting) beat.
+    return deck.slides[slideIndex]?.beats.length || 1;
   }
 
   // --- slide-to-slide transitions (§5.6): fade, or a directional slide/push -----
@@ -402,14 +457,16 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       applyStatic(specs, bi - 1);
       slideIndex = si; beatIndex = bi;
       active = playSpecs(specs, bi, bi, reduced);
+      const g = gen;
       emit("beatStart"); emit("change");
-      settle(active).then(() => { emit("beatEnd"); maybeAuto(); });
+      settle(active).then(() => { if (g !== gen) return; emit("beatEnd"); maybeAuto(); });
     } else {
       const forward = si >= slideIndex;
       applyStatic(specs, bi);
       slideIndex = si; beatIndex = bi;
       if (slideChanged) slideTransition(transitionOf(si), forward);
       emit("change");
+      maybeAuto(); // an auto beat right after the landing fires on entry/jump too (B9)
     }
   }
 
@@ -425,14 +482,16 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       beatIndex = e;
       active = reduced ? [] : playSpecs(specs, t, e, reduced);
       if (reduced) applyStatic(specs, e);
+      const g = gen;
       emit("beatStart"); emit("change");
-      settle(active).then(() => { emit("beatEnd"); maybeAuto(); });
+      settle(active).then(() => { if (g !== gen) return; emit("beatEnd"); maybeAuto(); });
     } else {
       nextSlide();
     }
   }
 
   function maybeAuto() {
+    clearTimeout(autoTimer); // never stack two pending auto-advances
     const beats = deck.slides[slideIndex]?.beats ?? [];
     const nb = beats[beatIndex + 1];
     if (nb?.advance === "auto") {
