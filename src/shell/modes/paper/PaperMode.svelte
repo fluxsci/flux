@@ -42,6 +42,7 @@
   import { fileBridge } from "../../../lib/project/types";
   import { pushToast, errMsg } from "../../../lib/toast";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
+  import { createAutosave } from "../../../lib/autosave";
   import { popIn } from "../../../lib/motion/actions";
   import {
     commentField,
@@ -239,7 +240,23 @@
   }
   let viewMode = $state<PaperViewMode>(get(paperViewMode));
   let dismissedEmpty = $state(false);
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  // W4: the shared autosave controller (stay-dirty + silent retry + sticky error
+  // toast) replaces the hand-rolled 600ms saveTimer. `saved` flips true only on
+  // a successful write (the old path set it optimistically).
+  const autosave = createAutosave({
+    name: "manuscript",
+    delay: 600,
+    isDirty: () => !!pm && !saved,
+    save: async () => {
+      if (!pm) return;
+      const snapshot = latest;
+      await writeManuscript(pm, snapshot, activeDocPath);
+      // Only mark clean if nothing was typed during the write — otherwise the
+      // controller's trailing save persists the newer text (W4).
+      if (latest === snapshot) saved = true;
+    },
+  });
+  const autosaveStatus = autosave.status;
   let hover = $state<{ target: ChipTarget; anchor: HTMLElement } | null>(null);
   let hoverHideTimer: ReturnType<typeof setTimeout> | undefined;
   let doiStatus = $state<"" | "fetching" | "error" | "added">("");
@@ -537,8 +554,8 @@
     }
   }
 
-  const status = $derived<"demo" | "saved" | "saving">(
-    isDemo ? "demo" : saved ? "saved" : "saving",
+  const status = $derived<"demo" | "saved" | "saving" | "error">(
+    isDemo ? "demo" : $autosaveStatus === "error" ? "error" : saved ? "saved" : "saving",
   );
   const bodyEmpty = $derived(stripFrontmatter(latest).trim().length === 0);
 
@@ -640,11 +657,7 @@
     if (!pm) return;
     touchActivityLock("manuscript"); // W3: defer concurrent agent writes while mid-edit
     saved = false;
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(async () => {
-      await writeManuscript(pm, latest, activeDocPath);
-      saved = true;
-    }, 600);
+    autosave.schedule();
   }
 
   function setView(m: PaperViewMode) {
@@ -671,11 +684,7 @@
   }
 
   async function flush() {
-    clearTimeout(saveTimer);
-    if (pm && !saved) {
-      await writeManuscript(pm, latest, activeDocPath);
-      saved = true;
-    }
+    await autosave.flush();
   }
 
   // ---- F4: document switching --------------------------------------------
@@ -695,9 +704,8 @@
   async function loadDocument(path: string) {
     if (!pm || !view || path === activeDocPath) return;
     // Persist the current document (text + comments) before switching away.
-    clearTimeout(saveTimer);
     clearTimeout(commentSaveTimer);
-    if (!saved) await writeManuscript(pm, latest, activeDocPath);
+    await autosave.flush();
     persistThreadsTo(activeDocPath);
 
     const text = (await readManuscript(pm, path)) || "";
@@ -712,8 +720,7 @@
       selection: { anchor: 0 },
     });
     latest = text;
-    saved = true;
-    clearTimeout(saveTimer); // ignore the swap's own change event
+    saved = true; // the swap's own change event scheduled a save; isDirty=false makes it a no-op
     outline = getOutline(view.state);
     syncRanges();
     await loadComments(view);
@@ -798,6 +805,7 @@
   }
   onDestroy(() => {
     void flush();
+    autosave.dispose();
     subs.forEach((u) => u());
     clearTimeout(hoverHideTimer);
     clearTimeout(commentSaveTimer);

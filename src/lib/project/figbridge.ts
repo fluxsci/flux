@@ -15,6 +15,7 @@ import {
   project as figProject,
   dirty as figDirty,
   loadProject as figLoad,
+  editGen,
 } from "../store";
 import { assetData, bytesToDataUrl, dataUrlToBytes, mimeFor } from "../assets";
 import { plotManifests, plotRecipes, cachePlot, clearPlots } from "../plot/store";
@@ -132,6 +133,7 @@ export async function saveFigFrom(root: string): Promise<void> {
   const fig = fileBridge();
   if (!fig) return;
 
+  const genAtStart = editGen.n; // W4: only clear dirty if no edit lands mid-save
   const p = structuredClone(get(figProject));
   const data = get(assetData);
   const manifests = get(plotManifests);
@@ -228,7 +230,10 @@ export async function saveFigFrom(root: string): Promise<void> {
   const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
   host?.journalAppend?.({ action: "save_fig", target: p.figures.map((f) => f.id), client: "human" });
 
-  figDirty.set(false);
+  // W4: an edit that landed during the async writes above keeps its dirty flag,
+  // so the autosave controller's trailing save persists it (previously the
+  // unconditional clear silently dropped it until the next unrelated edit).
+  if (editGen.n === genAtStart) figDirty.set(false);
 }
 
 // ---------------------------------------------------------------------------

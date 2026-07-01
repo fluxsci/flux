@@ -22,6 +22,7 @@
   import { loadFigInto, saveFigFrom } from "../../../lib/project/figbridge";
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
   import { bumpFigRevision } from "../../scholar/revisions";
+  import { createAutosave } from "../../../lib/autosave";
 
   // Only handle figure shortcuts while this pane is focused, so they don't fire
   // while the user is typing in another (e.g. Write) pane.
@@ -31,7 +32,19 @@
   let ready = false;
   let unsubDirty: (() => void) | undefined;
   let unsubReveal: (() => void) | undefined;
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // W4: shared autosave controller — save failures stay dirty, retry once
+  // silently, then surface a sticky toast (they were fire-and-forget before).
+  const autosave = createAutosave({
+    name: "figures",
+    delay: 700,
+    isDirty: () => !!pm && get(figDirty),
+    save: async () => {
+      if (!pm) return;
+      await saveFigFrom(pm.root); // clears figDirty only on success
+      bumpFigRevision(); // tell the manuscript its figures changed
+    },
+  });
 
   $effect(() => {
     if (!focused) return;
@@ -54,19 +67,15 @@
     // Autosave to fig/ whenever the figure editor marks the project dirty (debounced).
     unsubDirty = figDirty.subscribe((d) => {
       if (!ready || !pm || !d) return;
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(async () => {
-        await saveFigFrom(pm.root);
-        bumpFigRevision(); // tell the manuscript its figures changed
-      }, 700);
+      autosave.schedule();
     });
   });
 
   onDestroy(() => {
     unsubDirty?.();
     unsubReveal?.();
-    clearTimeout(saveTimer);
-    if (pm && get(figDirty)) void saveFigFrom(pm.root); // flush
+    void autosave.flush();
+    autosave.dispose();
     embeddedProjectRoot.set(null);
   });
 </script>

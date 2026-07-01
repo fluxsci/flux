@@ -182,11 +182,21 @@ function clone<T>(v: T): T {
   return structuredClone(v);
 }
 
+// W4: monotonic edit counter. A save snapshots `editGen.n` before its async
+// writes and clears `dirty` only if no edit landed meanwhile — otherwise a
+// mid-save edit's dirty flag was silently clobbered and never persisted.
+export const editGen = { n: 0 };
+
+function markEdited() {
+  editGen.n++;
+  dirty.set(true);
+}
+
 export function beginGesture() {
   past.push(clone(get(project)));
   if (past.length > MAX_HISTORY) past.shift();
   future.length = 0;
-  dirty.set(true);
+  markEdited();
 }
 
 export function commit(fn: (p: Project) => void) {
@@ -204,7 +214,7 @@ export function mutate(fn: (p: Project) => void) {
     fn(p);
     return p;
   });
-  dirty.set(true);
+  markEdited();
 }
 
 export function undo() {
@@ -212,7 +222,7 @@ export function undo() {
   future.push(clone(get(project)));
   project.set(past.pop()!);
   pruneSelection();
-  dirty.set(true);
+  markEdited();
 }
 
 export function redo() {
@@ -220,7 +230,7 @@ export function redo() {
   past.push(clone(get(project)));
   project.set(future.pop()!);
   pruneSelection();
-  dirty.set(true);
+  markEdited();
 }
 
 // Discard the most recent gesture: restore its captured pre-state and leave no
@@ -231,7 +241,7 @@ export function rollbackGesture() {
   project.set(past.pop()!);
   future.length = 0;
   pruneSelection();
-  dirty.set(true);
+  markEdited();
 }
 
 export function resetHistory() {

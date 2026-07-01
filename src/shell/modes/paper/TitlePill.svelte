@@ -10,7 +10,7 @@
   }: {
     title: string;
     authors: string[];
-    status?: "demo" | "saved" | "saving";
+    status?: "demo" | "saved" | "saving" | "error";
     onEdit?: () => void;
   } = $props();
 
@@ -36,7 +36,13 @@
     <span class="a">{authorLine}</span>
   {/if}
   {#if status !== "saved"}
-    <span class="dot {status}" title={status === "saving" ? "Saving…" : "Demo · not saved"}></span>
+    <span
+      class="dot {status}"
+      title={status === "saving"
+        ? "Saving…"
+        : status === "error"
+          ? "Autosave failed — your edits are in memory; it retries on the next change"
+          : "Demo · not saved"}></span>
   {/if}
 </div>
 
@@ -97,5 +103,8 @@
   }
   .dot.demo {
     background: var(--c-tx-faint);
+  }
+  .dot.error {
+    background: var(--c-danger);
   }
 </style>

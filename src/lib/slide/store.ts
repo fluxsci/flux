@@ -52,6 +52,15 @@ const future: Deck[] = [];
 const MAX_HISTORY = 200;
 let coalesceKey: string | null = null;
 
+// W4: monotonic edit counter (mirrors src/lib/store.ts editGen). saveDeckFrom
+// snapshots it before its async writes and clears deckDirty only if no edit
+// landed meanwhile — otherwise a mid-save edit was silently dropped.
+export const deckEditGen = { n: 0 };
+function markDeckEdited(): void {
+  deckEditGen.n++;
+  deckDirty.set(true);
+}
+
 /** Reactive flags for the toolbar undo/redo buttons. */
 export const canUndo = writable<boolean>(false);
 export const canRedo = writable<boolean>(false);
@@ -82,7 +91,7 @@ export function commitDeck(mutate: (d: Deck) => void, opts?: { coalesce?: string
   coalesceKey = key;
   mutate(d);
   deck.set(structuredClone(d));
-  deckDirty.set(true);
+  markDeckEdited();
   publishHistory();
 }
 
@@ -99,7 +108,7 @@ export function undoDeck(): void {
   future.push(structuredClone(d));
   deck.set(past.pop()!);
   coalesceKey = null;
-  deckDirty.set(true);
+  markDeckEdited();
   reconcileCursor();
   publishHistory();
 }
@@ -111,7 +120,7 @@ export function redoDeck(): void {
   past.push(structuredClone(d));
   deck.set(future.pop()!);
   coalesceKey = null;
-  deckDirty.set(true);
+  markDeckEdited();
   reconcileCursor();
   publishHistory();
 }

@@ -10,7 +10,7 @@ import { get } from "svelte/store";
 import { fileBridge, joinPath, type ProjectManifest } from "./types";
 import type { Deck, SlideElement } from "../slide/types";
 import { createDeck as createDeckModel } from "../slide/ops";
-import { deck as deckStore, loadDeckModel, deckDirty } from "../slide/store";
+import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen } from "../slide/store";
 import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
 import type { FluxPlotManifest } from "../plot/types";
 import { readFigSource } from "./figbridge";
@@ -114,6 +114,7 @@ export async function saveDeckFrom(root: string): Promise<void> {
   const fig = fileBridge();
   const d = get(deckStore);
   if (!fig || !d) return;
+  const genAtStart = deckEditGen.n; // W4: only clear dirty if no edit lands mid-save
   d.modified = stamp();
   await fig.mkdir(joinPath(root, "slides", d.id));
   await fig.mkdir(joinPath(root, "slides", d.id, "assets"));
@@ -122,7 +123,9 @@ export async function saveDeckFrom(root: string): Promise<void> {
   // WS6: provenance for the human's save (Electron only; mem/demo bridge no-ops).
   const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
   host?.journalAppend?.({ action: "save_deck", target: d.id, client: "human" });
-  deckDirty.set(false);
+  // W4: an edit landing during the writes above keeps deckDirty; the autosave
+  // controller's trailing save persists it instead of it being silently dropped.
+  if (deckEditGen.n === genAtStart) deckDirty.set(false);
 }
 
 /** Write imported media (a dropped/pasted image) into a deck's assets/ dir and

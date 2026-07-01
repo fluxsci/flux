@@ -43,6 +43,7 @@
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen } from "../../../lib/plot/store";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
+  import { createAutosave } from "../../../lib/autosave";
   import SlideStage from "./SlideStage.svelte";
   import Inspector from "./Inspector.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
@@ -60,14 +61,26 @@
   let ready = $state(false);
   let decks = $state<DeckListItem[]>([]);
   let activeDeckId = $state<string | null>(null);
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let unsubDirty: (() => void) | undefined;
+
+  // W4: the shared autosave controller (stay-dirty + silent retry + sticky
+  // error toast) replaces the hand-rolled saveTimer/saveError pattern here.
+  const autosave = createAutosave({
+    name: "deck",
+    delay: 700,
+    isDirty: () => !!pm && get(deckDirty),
+    save: async () => {
+      if (!pm) return;
+      await saveDeckFrom(pm.root); // clears deckDirty only on success
+      decks = await listProjectDecks(pm.root);
+    },
+  });
+  const saveErr = autosave.error;
   let resolvers = $state<DeckAssetResolvers>({ assetUrl: () => undefined, figureSvg: () => undefined });
   let insertables = $state<Insertables>({ figures: [], plots: [], images: [] });
   let insertOpen = $state(false);
   let presentOpen = $state(false);
   let presentFromStart = $state(false);
-  let saveError = $state<string | null>(null);
   let dragOver = $state(false);
   function launchPresent(fromStart: boolean) {
     if (!deck) return;
@@ -107,8 +120,7 @@
    *  loadDocument), so no edits race the swap. */
   async function switchDeck(id: string) {
     if (!pm || id === activeDeckId) return;
-    clearTimeout(saveTimer);
-    if (get(deckDirty)) await saveDeckFrom(pm.root);
+    await autosave.flush();
     await loadDeckInto(pm.root, id);
     activeDeckId = get(deckStore)?.id ?? id;
     rememberDeck(pm.root, activeDeckId);
@@ -120,8 +132,7 @@
   /** Create a fresh deck in the project, then switch to it. */
   async function newDeck() {
     if (!pm) return;
-    clearTimeout(saveTimer);
-    if (get(deckDirty)) await saveDeckFrom(pm.root);
+    await autosave.flush();
     const d = await createDeckInProject(pm.root, { title: `Deck ${decks.length + 1}`, theme: get(deckStore)?.theme });
     activeDeckId = d.id;
     rememberDeck(pm.root, d.id);
@@ -132,8 +143,7 @@
   }
   async function duplicateDeck(id: string) {
     if (!pm) return;
-    clearTimeout(saveTimer);
-    if (get(deckDirty)) await saveDeckFrom(pm.root); // flush the source first if it's live
+    await autosave.flush(); // flush the source first if it's live
     const newId = await duplicateDeckBridge(pm.root, id);
     decks = await listProjectDecks(pm.root);
     if (newId) await switchDeck(newId);
@@ -247,49 +257,24 @@
     unsubDirty = deckDirty.subscribe((d) => {
       if (!ready || !pm || !d) return;
       touchActivityLock("slides"); // W3: defer concurrent agent deck writes while mid-edit
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(async () => {
-        try {
-          await saveDeckFrom(pm.root);
-          saveError = null;
-          decks = await listProjectDecks(pm.root);
-        } catch (e) {
-          // saveDeckFrom clears the dirty flag only on success, so the deck stays
-          // dirty and the next edit retries — surface the failure so a lectern
-          // autosave error isn't silent data loss.
-          console.error("SlideMode: autosave failed", e);
-          saveError = String((e as Error)?.message ?? e);
-        }
-      }, 700);
+      autosave.schedule();
     });
   });
 
   onDestroy(() => {
     unsubDirty?.();
-    clearTimeout(saveTimer);
     player?.destroy();
     if (typeof window !== "undefined") window.removeEventListener("beforeunload", flushOnExit);
     // Flush pending edits to disk, but DO NOT clearDeck() — the live deck is kept
     // in the module-level store so a quick round-trip to another mode reuses it
     // (see onMount's `live` guard). clearDeck() is reserved for true project close.
-    if (pm && get(deckDirty)) void saveDeckFrom(pm.root);
+    void autosave.flush();
+    autosave.dispose();
   });
 
   // Belt-and-suspenders: flush on window close while in slide mode.
   function flushOnExit() {
-    if (pm && get(deckDirty)) void saveDeckFrom(pm.root);
-  }
-
-  // Retry a failed autosave on demand (click the "⚠ unsaved" chip).
-  async function retrySave() {
-    if (!pm) return;
-    try {
-      await saveDeckFrom(pm.root);
-      saveError = null;
-      decks = await listProjectDecks(pm.root);
-    } catch (e) {
-      saveError = String((e as Error)?.message ?? e);
-    }
+    void autosave.flush();
   }
 
   function selectSlide(id: string) {
@@ -595,8 +580,8 @@
         title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
         {exporting ? "Exporting…" : "Export"}
       </button>
-      {#if saveError}
-        <button class="saveerr" title={`Autosave failed — ${saveError}. Your edits are still in memory; it will retry on the next change.`} onclick={retrySave}>⚠ unsaved</button>
+      {#if $saveErr}
+        <button class="saveerr" title={`Autosave failed — ${$saveErr}. Your edits are still in memory; it will retry on the next change.`} onclick={() => void autosave.flush()}>⚠ unsaved</button>
       {:else}
         <span class="dirty" class:on={$deckDirty} title="Unsaved changes">●</span>
       {/if}
