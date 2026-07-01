@@ -5,6 +5,7 @@ const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
 const { parseFluxUrl, fluxUrlFromArgv } = require("./fluxUrl.cjs");
+const { createProxyEngine } = require("./proxyFetch.cjs");
 
 // chokidar is ESM-only (v5); this file is CommonJS, so it must be loaded via a
 // dynamic import() — a require() throws ERR_REQUIRE_ESM, which (when swallowed)
@@ -367,7 +368,14 @@ app.on("window-all-closed", () => {
 });
 
 // Never leave a shell child behind.
-app.on("before-quit", () => reapPtys());
+app.on("before-quit", () => {
+  reapPtys();
+  try {
+    proxyEngine.dispose(); // tear down the reusable proxy capture window
+  } catch {
+    /* not created yet */
+  }
+});
 
 // ---------------------------------------------------------------------------
 // IPC: frameless window controls
@@ -482,6 +490,16 @@ ipcMain.handle("fs:readdir", async (_e, p) => {
     return es.map((e) => ({ name: e.name, dir: e.isDirectory() }));
   } catch {
     return [];
+  }
+});
+// Delete a file (used to clear a paper's fetch-failure record on a later success). Guarded
+// to the same project/app roots as every other write; a missing file is a no-op success.
+ipcMain.handle("fs:remove", async (_e, p) => {
+  fsGuard(p);
+  try {
+    await fs.promises.rm(p, { force: true });
+  } catch {
+    /* already gone / unremovable — treat as removed */
   }
 });
 
@@ -998,153 +1016,107 @@ ipcMain.handle("proxy:status", async () => {
   } catch {
     return { configured: false, signedIn: false };
   }
-  return { configured: true, signedIn: await probeProxySignedIn() };
+  // Fast path: the net.request probe. If it says signed-in, trust it. If it says NOT
+  // signed-in, it may be a FALSE negative — net.request can't run the JavaScript that
+  // EZProxy's IP-based-autologin `/connect?session=…&qurl=…` page uses to forward to the
+  // resource, so it stalls on that page and misreads it as a login bounce. Confirm with a
+  // real browser navigation (the same window that actually fetches), serialized via the mutex.
+  let signedIn = await probeProxySignedIn();
+  if (!signedIn) {
+    try {
+      const r = await runProxyExclusive(() => proxyEngine.checkSignedIn({ target: PROXY_AUTH_TARGET }));
+      signedIn = !!(r && r.signedIn);
+    } catch {
+      /* keep the net.request result */
+    }
+  }
+  return { configured: true, signedIn };
 });
 
-// Fetch a paywalled PDF for `target` (a DOI URL or landing page) through the proxy, in a
-// real (non-offscreen) hidden window so publisher anti-bot JS challenges pass — offscreen/
-// headless get blocked. Two phases: (1) scrape a direct PDF link (citation_pdf_url etc.)
-// and fetch it in-page; (2) if that's a challenge/redirect endpoint (e.g. Elsevier
-// /pdfft), NAVIGATE to it so Chromium solves the challenge, then fetch the resolved PDF
-// from that page context (main-process net.request can't — it lacks the solved context).
-ipcMain.handle("pdf:fetchViaProxy", async (_e, target) => {
+// The publisher-agnostic capture engine (electron/proxyFetch.cjs). Instead of scraping a
+// PDF link and fetching it (fragile per-publisher; blocked by anti-bot; broken by viewer
+// pages), it drives the real authenticated browser toward the PDF and captures the bytes
+// off the network however the publisher delivers them (CDP interception + forced download
+// + in-page fetch). Deps are the same proxy primitives defined above.
+const proxyEngine = createProxyEngine({
+  session,
+  BrowserWindow,
+  ezproxyPrefix,
+  proxiedUrl,
+  isProxyLoginUrl,
+  PROXY_PARTITION,
+  path,
+  fs,
+  os,
+});
+
+// Only ONE proxy window may exist at a time: the capture net's `will-download` hook lives
+// on the shared persist:fluxproxy session, so overlapping fetches would cross-capture each
+// other's bytes. This promise-chain mutex serializes every proxy call (bulk loop items AND
+// a stray manual "Get via library" click) through a single queue. A cancelled *queued*
+// call is rejected before it ever creates a window.
+let proxyChain = Promise.resolve();
+function runProxyExclusive(fn) {
+  const run = proxyChain.then(fn, fn);
+  // Keep the chain alive regardless of this call's outcome (never let a rejection break it).
+  proxyChain = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
+}
+// Per-call cancellation registry. The renderer passes an opaque token with each fetch and
+// can abort it (or all in-flight, "*") via proxy:cancel — which fires the AbortController
+// so the engine tears down its window and the fetch returns in ~1s instead of ~50s.
+const proxyCalls = new Map(); // token -> AbortController
+
+// Fetch a paywalled PDF for `target` (a DOI URL or landing page) through the proxy. Thin
+// wrapper: validate config, register a cancel token, then run the capture engine inside the
+// serialization mutex. Return contract is unchanged — { bytesB64, contentType, finalUrl } |
+// { error, reason?, diag? } — so pdfFinderBridge needs no change (the extra reason/diag feed
+// the Part C failure log).
+ipcMain.handle("pdf:fetchViaProxy", async (_e, target, token) => {
   const prefix = ezproxyPrefix();
-  if (!prefix) return { error: "No EZProxy prefix configured." };
-  let prefixHost;
+  if (!prefix) return { error: "No EZProxy prefix configured.", reason: "not-configured" };
   try {
-    prefixHost = new URL(prefix).hostname;
+    new URL(prefix);
   } catch {
-    return { error: "Invalid EZProxy prefix URL." };
+    return { error: "Invalid EZProxy prefix URL.", reason: "not-configured" };
   }
-  const entryUrl = proxiedUrl(target);
-  // NOT offscreen: offscreen rendering is detected like headless and fails anti-bot checks.
-  const win = new BrowserWindow({ show: false, webPreferences: { partition: PROXY_PARTITION } });
-  const wc = win.webContents;
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // In-page fetch of `u` → validated PDF bytes (base64) or null. Runs in the page context
-  // so it carries the session cookies AND any cookie a prior navigation's challenge set.
-  const grab = (u) =>
-    wc
-      .executeJavaScript(
-        `(async () => { try {
-          const r = await fetch(${JSON.stringify(u)}, { credentials: 'include' });
-          if (!r.ok) return null;
-          const b = new Uint8Array(await r.arrayBuffer());
-          if (!(b[0]===0x25 && b[1]===0x50 && b[2]===0x44 && b[3]===0x46)) return null;
-          let s = ''; const CH = 0x8000;
-          for (let i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
-          return { bytesB64: btoa(s), contentType: r.headers.get('content-type') || '', finalUrl: r.url || ${JSON.stringify(u)} };
-        } catch (e) { return null; } })()`,
-      )
-      .catch(() => null);
+  const ctrl = new AbortController();
+  if (token != null) {
+    // A cancel that arrived before this call was dequeued: honor it immediately.
+    if (proxyCalls.get(token) === "cancelled") {
+      proxyCalls.delete(token);
+      return { error: "Cancelled.", reason: "cancelled" };
+    }
+    proxyCalls.set(token, ctrl);
+  }
   try {
-    await wc.loadURL(entryUrl).catch(() => {}); // redirect chains can reject; inspect what landed anyway
-    // Settle: wait out the EZProxy login?url→resource hops AND publisher interstitials
-    // (e.g. Elsevier LinkingHub's meta-refresh) until we're on a stable, real page.
-    let last = "";
-    for (let start = Date.now(); Date.now() - start < 12000; ) {
-      await sleep(400);
-      const u = wc.getURL();
-      if (!wc.isLoading() && u && u === last && !isProxyLoginUrl(u) && !/\/(retrieve|linkinghub|articleselect)/i.test(u)) break;
-      last = u;
-    }
-    if (isProxyLoginUrl(wc.getURL())) {
-      return { error: "Your library session isn't active. Open ⚙ Keys → Re-sign in, complete NetID + Duo, then try again." };
-    }
-    // Scrape candidate PDF links. nav:true = needs a real navigation to resolve (JS anti-
-    // bot challenge / redirect, e.g. Elsevier /pdfft); nav:false = directly fetchable.
-    const candidates = await wc.executeJavaScript(`(() => {
-      const PD = ${JSON.stringify(prefixHost)};
-      const abs = (h) => { try { return new URL(h, location.href).href; } catch (e) { return null; } };
-      const out = [];
-      const m = document.querySelector('meta[name="citation_pdf_url"]'); if (m && m.content) out.push({ url: abs(m.content), nav: false });
-      try {
-        const h = document.documentElement.innerHTML;
-        const b = (h.match(/"pdfDownload":\\{[\\s\\S]{0,800}?\\}\\}/) || [])[0] || '';
-        const g = (re) => (b.match(re) || [])[1];
-        const md5 = g(/"md5":"([^"]+)"/), pid = g(/"pid":"([^"]+)"/), pii = g(/"pii":"([^"]+)"/), ext = g(/"pdfExtension":"([^"]+)"/), p = g(/"path":"([^"]+)"/);
-        if (md5 && pid && pii && ext && p) out.push({ url: location.origin + '/' + p + '/' + pii + ext + '?md5=' + md5 + '&pid=' + encodeURIComponent(pid), nav: true });
-      } catch (e) {}
-      for (const l of document.querySelectorAll('link[type="application/pdf"]')) if (l.href) out.push({ url: abs(l.href), nav: false });
-      for (const a of document.querySelectorAll('a[href]')) {
-        const hh = abs(a.getAttribute('href')); if (!hh) continue;
-        if (/\\.pdf(\\?|#|$)/i.test(hh)) out.push({ url: hh, nav: false });
-        else if (/\\/pdfft\\b|\\/pdfdirect\\b|[?&](format|type)=pdf\\b/i.test(hh)) out.push({ url: hh, nav: true });
-      }
-      // Rewrite non-proxied publisher URLs into EZProxy's host-rewritten form (dots→dashes).
-      const rp = (u) => { try { const x = new URL(u); if (x.hostname === PD || x.hostname.endsWith('.' + PD)) return u; const rw = x.hostname.replace(/-/g, '--').replace(/\\./g, '-') + '.' + PD; return x.protocol + '//' + rw + x.pathname + x.search + x.hash; } catch (e) { return u; } };
-      const seen = new Set(), res = []; for (const c of out) { if (!c.url) continue; const u = rp(c.url); if (seen.has(u)) continue; seen.add(u); res.push({ url: u, nav: c.nav }); } return res;
-    })()`);
-    if (!candidates || !candidates.length)
-      return { error: "No PDF link found on the article page (it may need a different access route)." };
-
-    // Phase 1 — direct in-page fetch for real .pdf links (wins for Nature/Springer/etc.).
-    // We deliberately do NOT pre-fetch nav candidates: an XHR to a challenge endpoint (e.g.
-    // Elsevier /pdfft) flags the session and makes the challenge-solving navigation fail.
-    for (const c of candidates.filter((c) => !c.nav)) {
-      const got = await grab(c.url);
-      if (got && got.bytesB64) return got;
-    }
-
-    // Phase 2 — navigate so Chromium solves any JS anti-bot challenge, then capture a forced
-    // download or fetch the resolved PDF from that page context. The challenge fails
-    // intermittently (redirecting back with ?ref=cra_js_challenge), so retry a few times.
-    const nav = candidates.find((c) => c.nav) || candidates[0];
-    const ses = session.fromPartition(PROXY_PARTITION);
-    let downloadDone = null;
-    const onDownload = (_event, item) => {
-      try {
-        const p = path.join(os.tmpdir(), "flux-proxy-" + Date.now() + ".pdf");
-        item.setSavePath(p); // set a path so Electron never pops a (blocking, invisible) save dialog
-        downloadDone = new Promise((res) => item.once("done", (_e, state) => res(state === "completed" ? p : null)));
-      } catch {
-        /* ignore */
-      }
-    };
-    ses.on("will-download", onDownload);
-    try {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        downloadDone = null;
-        await wc.loadURL(nav.url).catch(() => {}); // a PDF nav often "fails" as ERR_ABORTED / becomes a download
-        let cur = "";
-        for (let start = Date.now(); Date.now() - start < 15000; ) {
-          await sleep(500);
-          if (downloadDone) break;
-          cur = wc.getURL();
-          if (!wc.isLoading() && (/sciencedirectassets|\.pdf(\?|$)/i.test(cur) || /cra_js_challenge/i.test(cur))) break;
-        }
-        if (downloadDone) {
-          const file = await Promise.race([downloadDone, sleep(20000).then(() => null)]);
-          if (file) {
-            try {
-              const buf = fs.readFileSync(file);
-              fs.unlink(file, () => {});
-              if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46)
-                return { bytesB64: buf.toString("base64"), contentType: "application/pdf", finalUrl: nav.url };
-            } catch {
-              /* fall through */
-            }
-          }
-        }
-        cur = wc.getURL();
-        if (isProxyLoginUrl(cur)) break; // session expired mid-flow — retrying won't help
-        if (!/cra_js_challenge/i.test(cur)) {
-          const got = await grab(cur);
-          if (got && got.bytesB64) return got;
-        }
-        await sleep(800); // brief backoff before retrying a failed challenge
-      }
-    } finally {
-      ses.removeListener("will-download", onDownload);
-    }
-    return {
-      error: "Found a PDF link but the publisher blocked the automated download. Open the article in your browser (or the library bookmarklet) and use “Add PDF…”.",
-    };
+    return await runProxyExclusive(() => {
+      if (ctrl.signal.aborted) return { error: "Cancelled.", reason: "cancelled" };
+      return proxyEngine.capturePdfViaBrowser({ target, signal: ctrl.signal });
+    });
   } catch (e) {
-    return { error: String((e && e.message) || e) };
+    if (e && e.name === "AbortError") return { error: "Cancelled.", reason: "cancelled" };
+    return { error: String((e && e.message) || e), reason: "error" };
   } finally {
-    win.destroy();
+    if (token != null) proxyCalls.delete(token);
   }
+});
+
+// Cancel one in-flight/queued proxy fetch by token, or all of them with "*". Aborting the
+// controller destroys the engine's window (hard-interrupts loadURL/executeJavaScript); a
+// token with no live controller yet (still queued) is tombstoned so it aborts on dequeue.
+ipcMain.handle("proxy:cancel", (_e, token) => {
+  if (token == null || token === "*") {
+    for (const ctrl of proxyCalls.values()) if (ctrl && ctrl.abort) ctrl.abort();
+    return { ok: true };
+  }
+  const ctrl = proxyCalls.get(token);
+  if (ctrl && ctrl.abort) ctrl.abort();
+  else proxyCalls.set(token, "cancelled"); // arrived before the call registered — tombstone
+  return { ok: true };
 });
 
 // API-key store (machine-global ~/FluxLib/keys.json). keys:get returns the raw map

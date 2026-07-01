@@ -110,6 +110,9 @@ export function createMemBridge(): FileBridge & {
       for (const d of dirs) if (d !== base && parentOf(d) === base) out.set(baseOf(d), true);
       return [...out].map(([name, dir]) => ({ name, dir }));
     },
+    async remove(p) {
+      files.delete(norm(p));
+    },
     async paths() {
       return { home: "/home/demo", userData: "/home/demo/.config/Flux", documents: "/home/demo/Documents" };
     },
@@ -172,6 +175,9 @@ export function createMemBridge(): FileBridge & {
     },
     async fetchViaProxy() {
       return { error: "Library proxy is unavailable in the demo fixture (use the desktop app)." };
+    },
+    async proxyCancel() {
+      return { ok: true }; // nothing to cancel in the demo (Part B is inert here)
     },
     async proxySetCredentials() {
       return { error: "Credential storage is unavailable in the demo fixture (use the desktop app)." };

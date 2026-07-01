@@ -17,6 +17,7 @@ export const PAPER_PDF = "paper.pdf";
 export const SOURCE_JSON = "source.json";
 export const FULLTEXT_TXT = "fulltext.txt";
 export const ANNOTATIONS_JSON = "annotations.json";
+export const FETCH_FAILURE_JSON = "fetch-failure.json";
 
 function j(...parts: string[]): string {
   return parts
@@ -57,6 +58,7 @@ export const pdfPath = (lib: string, key: string): string => j(itemDir(lib, key)
 export const sourcePath = (lib: string, key: string): string => j(itemDir(lib, key), SOURCE_JSON);
 export const fulltextPath = (lib: string, key: string): string => j(itemDir(lib, key), FULLTEXT_TXT);
 export const annotationsPath = (lib: string, key: string): string => j(itemDir(lib, key), ANNOTATIONS_JSON);
+export const failurePath = (lib: string, key: string): string => j(itemDir(lib, key), FETCH_FAILURE_JSON);
 export const supplementPath = (lib: string, key: string, n: number, ext: string): string =>
   j(itemDir(lib, key), `supplement-${n}.${ext.replace(/^\./, "")}`);
 
@@ -71,6 +73,27 @@ export interface SourceInfo {
   bytes?: number;
   isOa?: boolean; // true = open-access copy; false = version-of-record via proxy
   license?: string;
+}
+
+/** Why a PDF fetch genuinely failed, recorded per-paper as items/<key>/fetch-failure.json
+ *  so the failure is directly associated to the paper, survives restarts, is cleared on any
+ *  later success, and lets the bulk run SKIP papers that already exhausted every route (no
+ *  re-grinding the same DOI with the same failing methods). NEVER written for environment
+ *  failures (session-expired / cancelled / not-configured) — those stay merely "missing". */
+export interface FetchFailure {
+  key: string; // citekey
+  target: string; // the DOI/landing URL we tried
+  host?: string; // publisher host we landed on (from proxy diag)
+  attemptedAt: string; // ISO of the most recent attempt
+  attempts: number; // increments across runs
+  oa?: string; // OA outcome: "no-oa" | "no-id" | an error string
+  proxy?: {
+    reason?: string; // engine reason: "no-affordances" | "not-a-pdf" | "error" | ...
+    landedUrl?: string;
+    affordancesFound?: string[];
+    detail?: string;
+  };
+  lastError?: string; // human-readable last error (OA or proxy)
 }
 
 /** One row of the derived items index (.fluxlib/items.json) — a fast cache of

@@ -1,0 +1,241 @@
+// Background PDF-fetch job — a MODULE-LEVEL Svelte-5 runes singleton so a bulk "Get all
+// PDFs" run survives the user navigating away from the Library view (mode switches swap
+// components inside one live renderer; a component-scoped job would be torn down). The heavy
+// work lives in the Electron main process (per-paper IPC), so this loop just awaits IPC
+// calls sequentially and stays responsive in any mode. A global shell chip subscribes to it.
+//
+// Two phases per run: (A) the open-access waterfall, then (B) — for anything still missing —
+// the institutional library proxy. Files each PDF to disk immediately, so the run is bounded
+// in memory and RESUMABLE across restarts (re-running rebuilds the todo from what's on disk).
+// Genuine both-routes-failed papers get a Part C failure record so the next run skips them.
+import { fetchPdfsForEntries, fetchViaProxyForEntries, ENV_REASONS, type GuiFetchResult } from "./pdfFinderBridge";
+import { listPdfKeys, hasPdfIn, listFailedKeys, writeFetchFailure, clearFetchFailure } from "./itemsBridge";
+import { mergeEnrich, type EnrichMap, type EnrichedEntry } from "./enrich";
+import type { RefEntry } from "./types";
+import { fileBridge } from "../project/types";
+
+/** Has a fetchable identifier for the OA waterfall (DOI / OA url / PMCID). */
+const canFetch = (r: EnrichedEntry) => !!(r.doi || r.enrich?.openAccess?.url || r.enrich?.ids?.pmcid);
+/** Has something the proxy can navigate to (DOI / OA url / landing url). */
+const hasProxyTarget = (r: EnrichedEntry) => !!(r.doi || r.enrich?.openAccess?.url || r.url);
+
+export interface FetchGate {
+  proxyConfigured: boolean;
+  proxySignedIn: boolean;
+}
+
+class PdfFetchJob {
+  running = $state(false);
+  phase = $state<"" | "oa" | "proxy">("");
+  done = $state(0);
+  total = $state(0);
+  oaGot = $state(0);
+  proxyGot = $state(0);
+  errors = $state(0);
+  failedNew = $state(0); // papers newly recorded as both-routes-failed this run
+  needSignIn = $state(0); // still-missing papers we couldn't proxy because not signed in
+  note = $state("");
+  cancelled = $state(false);
+
+  #ctrl: AbortController | null = null;
+  #token = "";
+
+  /** True while a run is active (for button/chip state). */
+  get active() {
+    return this.running;
+  }
+
+  cancel() {
+    this.cancelled = true;
+    this.note = "Cancelling…";
+    this.#ctrl?.abort();
+    // Kill the in-flight main-process proxy window so the current fetch returns in ~1s.
+    if (this.#token) void fileBridge()?.proxyCancel?.(this.#token);
+  }
+
+  /**
+   * Run the two-phase fetch over the whole library.
+   * @param entries   the raw .bib entries
+   * @param enrichMap the OpenAlex enrichment sidecar
+   * @param gate      proxy availability (from proxyStatus)
+   * @param opts.retryFailed  ignore the Part C skip-list for this run (the "Retry failed" action)
+   * @param onTick    optional callback after each item (lets a mounted Library tick its coverage)
+   */
+  async start(
+    entries: RefEntry[],
+    enrichMap: EnrichMap,
+    gate: FetchGate,
+    opts: { retryFailed?: boolean; onTick?: (key: string, got: boolean) => void } = {},
+  ): Promise<GuiFetchSummaryLite | null> {
+    if (this.running) return null;
+    this.#reset();
+    this.running = true;
+
+    const enriched = mergeEnrich(entries, enrichMap) as EnrichedEntry[];
+    const failedSkip = opts.retryFailed ? new Set<string>() : await listFailedKeys();
+    const skip = (r: EnrichedEntry) => hasPdfIn(failedSkip, r.key);
+
+    try {
+      const ctrl = new AbortController();
+      this.#ctrl = ctrl;
+      this.#token = `pdfjob-${genToken()}`;
+
+      // --- Phase A: open access ---------------------------------------------------------
+      const pdfKeys0 = await listPdfKeys();
+      const todoA = enriched
+        .filter((r) => !hasPdfIn(pdfKeys0, r.key) && canFetch(r) && !skip(r))
+        .map((r) => ({ entry: r as RefEntry, enrich: enrichMap[r.key] }));
+
+      this.phase = "oa";
+      this.total = todoA.length;
+      this.done = 0;
+      const oaByKey = new Map<string, GuiFetchResult>();
+      if (todoA.length) {
+        const sumA = await fetchPdfsForEntries(todoA, {
+          signal: ctrl.signal,
+          onProgress: (done, _t, last) => {
+            this.done = done;
+            if (last.status === "got") this.oaGot++;
+            oaByKey.set(last.key, last);
+            opts.onTick?.(last.key, last.status === "got" || last.status === "have");
+          },
+        });
+        for (const r of sumA.results) oaByKey.set(r.key, r);
+      }
+      if (ctrl.signal.aborted) return this.#finish(true);
+
+      // --- Phase B: library proxy (only for what's still missing) ------------------------
+      const pdfKeys1 = await listPdfKeys();
+      const missing = enriched.filter((r) => !hasPdfIn(pdfKeys1, r.key) && hasProxyTarget(r) && !skip(r));
+
+      // Run the library phase whenever the proxy is CONFIGURED — the engine is the ground
+      // truth for auth (IP-based autologin works even when the status probe can't confirm it),
+      // and it self-reports "session-expired" + early-stops after 2 in a row if truly signed
+      // out. We deliberately don't hard-gate on the (sometimes-false-negative) signed-in probe.
+      let proxyByKey = new Map<string, GuiFetchResult>();
+      if (gate.proxyConfigured && missing.length) {
+        const todoB = missing.map((r) => ({ entry: r as RefEntry, enrich: enrichMap[r.key] }));
+        this.phase = "proxy";
+        this.total = todoB.length;
+        this.done = 0;
+        const sumB = await fetchViaProxyForEntries(todoB, {
+          signal: ctrl.signal,
+          token: this.#token,
+          onProgress: (done, _t, last) => {
+            this.done = done;
+            if (last.status === "got") this.proxyGot++;
+            proxyByKey.set(last.key, last);
+            opts.onTick?.(last.key, last.status === "got");
+          },
+        });
+        for (const r of sumB.results) proxyByKey.set(r.key, r);
+        // If the session is genuinely down, the phase bails after 2 session-expired results;
+        // count how many still-missing papers were blocked that way so the toast can say so.
+        const sessionDead = [...proxyByKey.values()].some((r) => r.reason === "session-expired");
+        if (sessionDead && this.proxyGot === 0) {
+          const pdfKeys2 = await listPdfKeys();
+          this.needSignIn = missing.filter((r) => !hasPdfIn(pdfKeys2, r.key)).length;
+        }
+      } else if (missing.length && !gate.proxyConfigured) {
+        // No EZProxy prefix set: those papers stay merely "missing" (set one in ⚙ Keys).
+        this.needSignIn = missing.length;
+      }
+
+      // --- Part C: record / clear per-paper failure history -----------------------------
+      await this.#reconcileFailures(enriched, oaByKey, proxyByKey);
+
+      this.errors = [...oaByKey.values(), ...proxyByKey.values()].filter((r) => r.status === "error").length;
+      return this.#finish(ctrl.signal.aborted);
+    } catch (e) {
+      this.note = (e as Error)?.message || "PDF fetch failed.";
+      return this.#finish(true);
+    }
+  }
+
+  /** Write a failure record for papers that genuinely exhausted BOTH routes; clear records
+   *  for papers that succeeded. Never records environment failures (session/cancel). */
+  async #reconcileFailures(
+    enriched: EnrichedEntry[],
+    oaByKey: Map<string, GuiFetchResult>,
+    proxyByKey: Map<string, GuiFetchResult>,
+  ) {
+    const pdfKeys = await listPdfKeys();
+    for (const r of enriched) {
+      const key = r.key;
+      const proxy = proxyByKey.get(key);
+      const oa = oaByKey.get(key);
+      if (hasPdfIn(pdfKeys, key)) {
+        // Got it (this run or earlier) → drop any stale failure record.
+        if (oa || proxy) await clearFetchFailure(key);
+        continue;
+      }
+      // Only record a genuine both-routes-failure: we attempted the proxy AND it wasn't an
+      // environment failure (session-expired / cancelled / not-configured).
+      if (!proxy || proxy.status === "got") continue;
+      if (proxy.reason && ENV_REASONS.has(proxy.reason)) continue;
+      if (this.cancelled) continue; // a cancelled run didn't truly exhaust routes
+      this.failedNew++;
+      await writeFetchFailure(key, {
+        target: proxy.target || oa?.url || "",
+        host: proxy.diag?.host,
+        oa: oa ? (oa.status === "no-oa" ? "no-oa" : oa.error || oa.status) : undefined,
+        proxy: {
+          reason: proxy.reason,
+          landedUrl: proxy.diag?.landedUrl,
+          affordancesFound: proxy.diag?.affordancesFound,
+          detail: proxy.diag?.detail,
+        },
+        lastError: proxy.error || oa?.error,
+      });
+    }
+  }
+
+  #finish(aborted: boolean): GuiFetchSummaryLite {
+    const summary: GuiFetchSummaryLite = {
+      oaGot: this.oaGot,
+      proxyGot: this.proxyGot,
+      errors: this.errors,
+      failedNew: this.failedNew,
+      needSignIn: this.needSignIn,
+      cancelled: aborted || this.cancelled,
+    };
+    this.running = false;
+    this.phase = "";
+    this.#ctrl = null;
+    this.#token = "";
+    return summary;
+  }
+
+  #reset() {
+    this.done = 0;
+    this.total = 0;
+    this.oaGot = 0;
+    this.proxyGot = 0;
+    this.errors = 0;
+    this.failedNew = 0;
+    this.needSignIn = 0;
+    this.note = "";
+    this.cancelled = false;
+  }
+}
+
+export interface GuiFetchSummaryLite {
+  oaGot: number;
+  proxyGot: number;
+  errors: number;
+  failedNew: number;
+  needSignIn: number;
+  cancelled: boolean;
+}
+
+/** Non-crypto token generator (renderer runtime — Date.now/Math.random are fine here). */
+function genToken(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+// The one shared job instance for the whole app session.
+export const pdfFetchJob = new PdfFetchJob();

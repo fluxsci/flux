@@ -79,6 +79,9 @@ export interface FileBridge {
   // List a directory's entries (files + subdirs). Optional: older bridges / the
   // web demo may not provide it. Used by the Plot Importer to browse plots/.
   readdir?(p: string): Promise<{ name: string; dir: boolean }[]>;
+  // Delete a file (e.g. clear a paper's fetch-failure record on a later success). Optional:
+  // older bridges may lack it; callers use `fb.remove?.(p)`.
+  remove?(p: string): Promise<void>;
   paths(): Promise<{ home: string; userData: string; documents: string }>;
   openDirectory(title?: string): Promise<string | null>;
   openFiles(filters?: unknown[]): Promise<string[] | null>;
@@ -115,9 +118,22 @@ export interface FileBridge {
   // Library proxy (EZProxy) — user-initiated paywalled PDF access (Electron only).
   proxyLogin?(): Promise<{ ok?: boolean; error?: string }>;
   proxyStatus?(): Promise<{ configured: boolean; signedIn: boolean }>;
+  // `token` is an opaque per-call id so a background bulk run can cancel this exact fetch
+  // (or all in-flight via proxyCancel("*")). `reason`/`diag` classify a failure for the
+  // Part C failure log (e.g. reason "no-affordances" | "session-expired" | "cancelled").
   fetchViaProxy?(
     target: string,
-  ): Promise<{ bytesB64?: string; contentType?: string; finalUrl?: string; error?: string }>;
+    token?: string,
+  ): Promise<{
+    bytesB64?: string;
+    contentType?: string;
+    finalUrl?: string;
+    via?: string;
+    error?: string;
+    reason?: string;
+    diag?: { landedUrl?: string; host?: string; affordancesFound?: string[]; detail?: string };
+  }>;
+  proxyCancel?(token: string): Promise<{ ok?: boolean }>;
   // Proxy credentials, stored ENCRYPTED via the OS keychain (Electron safeStorage).
   proxySetCredentials?(username: string, password: string): Promise<{ ok?: boolean; error?: string }>;
   proxyHasCredentials?(): Promise<{ username: string; hasPassword: boolean; available: boolean }>;

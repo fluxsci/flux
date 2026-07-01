@@ -8,6 +8,7 @@
   import { DUR } from "../lib/motion/tokens";
   import { fileBridge } from "../lib/project/types";
   import { addUrlOrDoiToLibrary } from "./modes/paper/scholar/bibLoad";
+  import { pdfFetchJob } from "../lib/references/pdfFetchJob.svelte";
 
   // Web capture (flux://): the main process delivers { doi?, url? } here regardless
   // of the active mode/view — we add it to the global FluxLib and toast the result.
@@ -77,6 +78,18 @@
       {capture.msg}
     </div>
   {/if}
+
+  <!-- Global PDF-fetch progress chip: a bulk "Get all PDFs" run lives in a module-level job,
+       so it keeps going (and stays visible + cancellable) in every mode, not just Library. -->
+  {#if pdfFetchJob.running}
+    <div class="fetch-chip" role="status" transition:fade={{ duration: DUR.quick }}>
+      <span class="fc-spin" aria-hidden="true"></span>
+      <span class="fc-label"
+        >{pdfFetchJob.phase === "proxy" ? "Library PDFs" : "PDFs"}
+        {pdfFetchJob.done}/{pdfFetchJob.total}</span>
+      <button class="fc-cancel" title="Stop fetching" onclick={() => pdfFetchJob.cancel()}>✕</button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -122,5 +135,51 @@
   }
   .capture-toast.err {
     border-color: var(--c-danger);
+  }
+  /* Global fetch-progress chip, pinned bottom-right (clear of the centered capture toast). */
+  .fetch-chip {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 10px 7px 12px;
+    border-radius: var(--r-pill);
+    background: var(--c-surface);
+    border: 1px solid var(--c-accent);
+    color: var(--c-tx);
+    font-size: var(--ts-sm);
+    box-shadow: var(--elev-2);
+  }
+  .fc-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--c-line-strong);
+    border-top-color: var(--c-accent);
+    border-radius: 50%;
+    animation: fc-spin 0.8s linear infinite;
+  }
+  @keyframes fc-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .fc-label {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .fc-cancel {
+    border: none;
+    background: transparent;
+    color: var(--c-tx-3);
+    cursor: pointer;
+    font-size: var(--ts-sm);
+    padding: 0 2px;
+    line-height: 1;
+  }
+  .fc-cancel:hover {
+    color: var(--c-danger);
   }
 </style>

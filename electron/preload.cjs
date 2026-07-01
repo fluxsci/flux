@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("fig", {
   mkdir: (p) => ipcRenderer.invoke("fs:mkdir", p),
   exists: (p) => ipcRenderer.invoke("fs:exists", p),
   readdir: (p) => ipcRenderer.invoke("fs:readdir", p),
+  remove: (p) => ipcRenderer.invoke("fs:remove", p),
   exportPdf: (svg, outPath, w, h) => ipcRenderer.invoke("export:pdf", { svg, outPath, w, h }),
   // Render a full HTML document (multi-page, CSS @page-driven) to a PDF.
   printPdf: (html, outPath, opts) => ipcRenderer.invoke("print:pdf", { html, outPath, opts }),
@@ -33,7 +34,10 @@ contextBridge.exposeInMainWorld("fig", {
   // Library proxy (EZProxy) — user-initiated paywalled access (OA is tried first).
   proxyLogin: () => ipcRenderer.invoke("proxy:login"),
   proxyStatus: () => ipcRenderer.invoke("proxy:status"),
-  fetchViaProxy: (target) => ipcRenderer.invoke("pdf:fetchViaProxy", target),
+  // `token` is an opaque per-call id the renderer generates so it can cancel this exact
+  // fetch (or all in-flight via proxyCancel("*")) while a background bulk run is going.
+  fetchViaProxy: (target, token) => ipcRenderer.invoke("pdf:fetchViaProxy", target, token),
+  proxyCancel: (token) => ipcRenderer.invoke("proxy:cancel", token),
   // Proxy credentials, stored ENCRYPTED in the OS keychain (safeStorage) for auto-login.
   proxySetCredentials: (username, password) => ipcRenderer.invoke("proxy:setCredentials", { username, password }),
   proxyHasCredentials: () => ipcRenderer.invoke("proxy:hasCredentials"),
