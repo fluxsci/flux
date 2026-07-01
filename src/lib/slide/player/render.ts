@@ -50,14 +50,14 @@ function inlineMd(s: string): string {
     .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
 }
 
+// Static markers; "number" is resolved per-block in fillTextBox (it needs the
+// running position within the list, so it can't be computed from one block).
 function markerFor(b: TextBlock): string {
   switch (b.marker) {
     case "bullet":
       return "•";
     case "dash":
       return "–";
-    case "number":
-      return ""; // numbered markers handled by an <ol>-style counter later
     default:
       return "";
   }
@@ -96,17 +96,37 @@ function fillTextBox(w: HTMLElement, el: Extract<SlideElement, { type: "textBox"
   w.style.textAlign = el.align ?? "left";
   w.style.justifyContent =
     el.valign === "middle" ? "center" : el.valign === "bottom" ? "flex-end" : "flex-start";
+  // Per-level ordinal counters for "number" markers. A numbered block increments
+  // its level's counter and clears any deeper levels, so 1./2./3. counts within a
+  // box (nested numbered runs restart under their parent) — the natural list feel.
+  const counters: number[] = [];
   for (const b of el.blocks) {
     const line = document.createElement("div");
     line.className = "sl-block";
     line.dataset.blockId = b.id;
-    line.style.paddingLeft = `${(b.level ?? 0) * 1.4}em`;
+    const level = b.level ?? 0;
+    line.style.paddingLeft = `${level * 1.4}em`;
     if (b.emphasis === "accent") line.style.color = "var(--sl-accent)";
     else if (b.emphasis === "muted") line.style.color = "var(--sl-text-muted)";
-    const mk = markerFor(b);
-    line.innerHTML =
-      (mk ? `<span class="sl-mk" style="color:var(--sl-accent)">${mk}</span>` : "") +
-      `<span class="sl-tx">${inlineMd(b.text)}</span>`;
+    let mk = markerFor(b);
+    if (b.marker === "number") {
+      counters[level] = (counters[level] ?? 0) + 1;
+      counters.length = level + 1; // reset deeper levels
+      mk = `${counters[level]}.`;
+    }
+    if (mk) {
+      // Flex row → a hanging indent: wrapped text lines up under the first line's
+      // text, not under the marker. min-width keeps multi-digit numbers aligned.
+      line.style.display = "flex";
+      line.style.alignItems = "baseline";
+      line.innerHTML =
+        `<span class="sl-mk" style="color:var(--sl-accent);flex:0 0 auto;margin-right:0.5em;` +
+        `min-width:${b.marker === "number" ? "1.4em" : "auto"};` +
+        `${b.marker === "number" ? "text-align:right;" : ""}">${mk}</span>` +
+        `<span class="sl-tx" style="flex:1 1 auto;min-width:0">${inlineMd(b.text)}</span>`;
+    } else {
+      line.innerHTML = `<span class="sl-tx">${inlineMd(b.text)}</span>`;
+    }
     w.appendChild(line);
   }
 }
@@ -143,7 +163,10 @@ function fillImage(
   img.src = url;
   img.style.width = "100%";
   img.style.height = "100%";
-  img.style.objectFit = "fill";
+  // Preserve aspect ratio by default (a slide image should never be stretched);
+  // the box is sized to the image's aspect at import, so "contain" fills it edge
+  // to edge without distortion.
+  img.style.objectFit = "contain";
   img.draggable = false;
   w.appendChild(img);
 }

@@ -123,6 +123,29 @@ export async function saveDeckFrom(root: string): Promise<void> {
   deckDirty.set(false);
 }
 
+/** Write imported media (a dropped/pasted image) into a deck's assets/ dir and
+ *  return the deck-relative path (e.g. "assets/photo-2.png") to store on the new
+ *  DeckAsset. De-dupes the filename so re-importing never clobbers. The caller
+ *  then registers the asset + element (one commitDeck) and refreshes resolvers. */
+export async function writeDeckAsset(
+  root: string,
+  deckId: string,
+  filename: string,
+  bytes: Uint8Array,
+): Promise<string> {
+  const fig = fileBridge();
+  if (!fig) throw new Error("no file bridge (web/demo mode cannot import media)");
+  const dir = joinPath(root, "slides", deckId, "assets");
+  await fig.mkdir(dir);
+  const dot = filename.lastIndexOf(".");
+  const stem = (dot > 0 ? filename.slice(0, dot) : filename) || "image";
+  const ext = dot > 0 ? filename.slice(dot) : "";
+  let name = `${stem}${ext}`;
+  for (let i = 1; await fig.exists(joinPath(dir, name)); i++) name = `${stem}-${i}${ext}`;
+  await fig.writeFile(joinPath(dir, name), bytes);
+  return `assets/${name}`;
+}
+
 // --- export (E): self-contained offline .html, via the main process -----------
 /** True when the host can export a deck. The engine is Node-only (esbuild + fs),
  *  so export is desktop-only — gated on the bridge method existing (absent in the

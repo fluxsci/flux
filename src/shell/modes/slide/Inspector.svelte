@@ -12,6 +12,10 @@
   import { resolveTheme } from "../../../lib/slide/theme";
   import type { SlideElement, TextBlock, LayoutId, TransitionKind } from "../../../lib/slide/types";
 
+  // Explicit (non-theme) font stacks offered in the family picker.
+  const SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+  const SERIF = "'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif";
+
   // `focused` is accepted for parity with sibling panes (unused — this pane is
   // entirely driven by the editor stores).
   let { focused = true }: { focused?: boolean } = $props();
@@ -151,6 +155,12 @@
         <label>H<input type="number" step="1" value={Math.round(el.height)}
           onchange={(e) => commitBox(el.id, { height: num(e.currentTarget.value, el.height) })} /></label>
       </div>
+      <div class="row">
+        <label>Rotation°<input type="number" step="1" value={Math.round(el.rotation ?? 0)}
+          onchange={(e) => commitBox(el.id, { rotation: num(e.currentTarget.value, el.rotation ?? 0) })} /></label>
+        <label class="btn-reset">&nbsp;<button title="Reset rotation to 0°"
+          onclick={() => commitBox(el.id, { rotation: 0 })}>Reset</button></label>
+      </div>
       <label class="rng">
         <span class="rng-head"><span>Opacity</span><span class="val">{Math.round((el.opacity ?? 1) * 100)}%</span></span>
         <input type="range" min="0" max="1" step="0.01" value={el.opacity ?? 1}
@@ -179,6 +189,7 @@
                   <option value="none">None</option>
                   <option value="bullet">Bullet</option>
                   <option value="dash">Dash</option>
+                  <option value="number">Number</option>
                 </select>
               </label>
               <label>Emphasis
@@ -189,6 +200,12 @@
                   <option value="muted">Muted</option>
                 </select>
               </label>
+              <div class="indent" role="group" aria-label="Indent">
+                <button class="del" title="Outdent" aria-label="Outdent" disabled={(block.level ?? 0) === 0}
+                  onclick={() => setBlock(el.id, block.id, (b) => (b.level = Math.max(0, (b.level ?? 0) - 1)))}>⇤</button>
+                <button class="del" title="Indent" aria-label="Indent" disabled={(block.level ?? 0) >= 4}
+                  onclick={() => setBlock(el.id, block.id, (b) => (b.level = Math.min(4, (b.level ?? 0) + 1)))}>⇥</button>
+              </div>
               <button class="del" title="Remove block" aria-label="Remove block"
                 onclick={() => removeBlock(el.id, block.id)}>×</button>
             </div>
@@ -210,6 +227,25 @@
             </select>
           </label>
         </div>
+        <div class="row">
+          <label>Font
+            <select value={el.fontFamily ?? "var(--sl-font-body)"}
+              onchange={(e) => { const v = e.currentTarget.value; commitEl(el.id, (x) => { if (x.type === "textBox") x.fontFamily = v; }); }}>
+              <option value="var(--sl-font-body)">Body (theme)</option>
+              <option value="var(--sl-font-title)">Title (theme)</option>
+              <option value="var(--sl-font-mono)">Mono (theme)</option>
+              <option value={SANS}>Sans</option>
+              <option value={SERIF}>Serif</option>
+            </select>
+          </label>
+          <label>Line&nbsp;ht<input type="number" step="0.05" min="0.8" max="3" value={el.lineHeight ?? 1.25}
+            onchange={(e) => { const v = Number(e.currentTarget.value); commitEl(el.id, (x) => { if (x.type === "textBox") x.lineHeight = Number.isFinite(v) ? v : 1.25; }); }} /></label>
+        </div>
+        <label class="chk">
+          <input type="checkbox" checked={el.fontStyle === "italic"}
+            onchange={(e) => { const c = e.currentTarget.checked; commitEl(el.id, (x) => { if (x.type === "textBox") x.fontStyle = c ? "italic" : "normal"; }); }} />
+          Italic
+        </label>
         <div class="row">
           <label>Align
             <select value={el.align ?? "left"}

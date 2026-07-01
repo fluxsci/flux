@@ -27,6 +27,7 @@
     saveDeckFrom,
     createDeckInProject,
     loadDeckAssets,
+    writeDeckAsset,
     listInsertables,
     exportDeck as exportDeckBridge,
     canExportDeck,
@@ -63,6 +64,7 @@
   let insertOpen = $state(false);
   let presentOpen = $state(false);
   let saveError = $state<string | null>(null);
+  let dragOver = $state(false);
 
   async function refreshAssets() {
     const d = get(deckStore);
@@ -315,6 +317,60 @@
   const insertImage = (img: Insertables["images"][number]) =>
     insertAndSelect((d, sid) => slideOps.addImageToSlide(d, sid, { assetId: img.id, x: 360, y: 150, width: 600, height: 420 }));
 
+  // --- import a NEW image by drag-drop / paste (writes a deck asset) -----------
+  const MIME_KIND: Record<string, import("../../../lib/slide/types").DeckAsset["kind"]> = {
+    "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
+    "image/webp": "webp", "image/svg+xml": "svg",
+  };
+  /** Natural pixel size of an image file (falls back for SVG without a size). */
+  function naturalSize(file: File): Promise<{ w: number; h: number }> {
+    return new Promise((res) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { res({ w: img.naturalWidth || 800, h: img.naturalHeight || 600 }); URL.revokeObjectURL(url); };
+      img.onerror = () => { res({ w: 800, h: 600 }); URL.revokeObjectURL(url); };
+      img.src = url;
+    });
+  }
+  let importBusy = $state(false);
+  /** Import one dropped/pasted image: write it into the deck's assets/, register
+   *  the asset + a centered, aspect-fit image element, then refresh resolvers. */
+  async function importImageFile(file: File) {
+    const kind = MIME_KIND[file.type];
+    const d = get(deckStore);
+    if (!kind || !pm || !d) return;
+    importBusy = true;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const nat = await naturalSize(file);
+      const rel = await writeDeckAsset(pm.root, d.id, file.name || `image.${kind}`, bytes);
+      // fit within 80% of the stage, preserving aspect ratio; center it.
+      const s = Math.min((d.stage.width * 0.8) / nat.w, (d.stage.height * 0.8) / nat.h, 1);
+      const w = Math.round(nat.w * s), h = Math.round(nat.h * s);
+      await insertAndSelect((dd, sid) => {
+        const assetId = slideOps.addAsset(dd, { kind, path: rel, naturalWidth: nat.w, naturalHeight: nat.h });
+        return slideOps.addImageToSlide(dd, sid, {
+          assetId, x: Math.round((d.stage.width - w) / 2), y: Math.round((d.stage.height - h) / 2), width: w, height: h,
+        });
+      });
+    } finally {
+      importBusy = false;
+    }
+  }
+  function onStageDrop(e: DragEvent) {
+    const files = [...(e.dataTransfer?.files ?? [])].filter((f) => MIME_KIND[f.type]);
+    if (!files.length) return;
+    e.preventDefault();
+    for (const f of files) void importImageFile(f);
+  }
+  function onStagePaste(e: ClipboardEvent) {
+    const t = (e.target as HTMLElement)?.tagName;
+    if (t === "INPUT" || t === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+    const item = [...(e.clipboardData?.items ?? [])].find((it) => MIME_KIND[it.type]);
+    const file = item?.getAsFile();
+    if (file) { e.preventDefault(); void importImageFile(file); }
+  }
+
   // Reuse Figure mode's Plot Importer (the searchable plots/ browser) to drop a
   // plot onto the active slide. `rel` is the path under plots/ (e.g.
   // "example_set/01_bars.svg"); strip .svg for the stable id + source paths.
@@ -475,7 +531,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onpaste={onStagePaste} />
 
 <div class="slide-mode">
   <header class="deckbar">
@@ -592,7 +648,12 @@
       aria-label="Resize filmstrip" onpointerdown={(e) => startPaneDrag("film", e)}><span class="grip"></span></div>
 
     <!-- stage -->
-    <main class="stage-wrap">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <main class="stage-wrap" class:dropping={dragOver}
+      ondragover={(e) => { if ([...(e.dataTransfer?.items ?? [])].some((it) => it.kind === "file")) { e.preventDefault(); dragOver = true; } }}
+      ondragleave={(e) => { if (e.currentTarget === e.target) dragOver = false; }}
+      ondrop={(e) => { dragOver = false; onStageDrop(e); }}>
+      {#if importBusy}<div class="import-toast">Importing image…</div>{/if}
       {#if ready && deck && activeSlide}
         <div class="stage-viewport" bind:clientWidth={pvW} bind:clientHeight={pvH}>
           <SlideStage slide={activeSlide} {theme} stage={deck.stage} interactive={true} {focused} beat={Math.min($activeBeat, activeSlide.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
@@ -769,7 +830,19 @@
     color: var(--c-tx-muted); cursor: pointer; font-size: var(--ts-sm); padding: 8px;
   }
   .addslide:hover { border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .stage-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--c-bg); padding: 18px; gap: 12px; }
+  .stage-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--c-bg); padding: 18px; gap: 12px; position: relative; }
+  .stage-wrap.dropping { outline: 2px dashed var(--c-accent); outline-offset: -6px; }
+  .stage-wrap.dropping::after {
+    content: "Drop image to add"; position: absolute; inset: 0; z-index: 40;
+    display: flex; align-items: center; justify-content: center; pointer-events: none;
+    font-size: var(--ts-lg); color: var(--c-tx-hi);
+    background: color-mix(in oklab, var(--c-accent) 12%, transparent);
+  }
+  .import-toast {
+    position: absolute; top: 24px; left: 50%; transform: translateX(-50%); z-index: 41;
+    background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-2);
+    padding: 6px 14px; color: var(--c-tx-hi); font-size: var(--ts-sm); box-shadow: var(--shadow-2, 0 4px 16px rgba(0,0,0,0.4));
+  }
   .stage-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; }
   .preview-overlay {
     position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;

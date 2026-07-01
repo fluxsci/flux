@@ -224,8 +224,10 @@
   type Gesture =
     | { kind: "move"; ids: string[]; origs: Map<string, SlideElement>; ob: Rect; start: { x: number; y: number } }
     | { kind: "resize"; ids: string[]; origs: Map<string, SlideElement>; ob: Rect; handle: Handle }
+    | { kind: "rotate"; id: string; cx: number; cy: number; startAngle: number; origRot: number }
     | { kind: "marquee"; x0: number; y0: number; add: Set<string> };
   let gesture: Gesture | null = null;
+  let liveRot = 0; // committed rotation (deg) for the active rotate gesture
   // The committed delta/box for the active gesture, stashed during move so
   // pointer-up writes the model from numbers (not by parsing back DOM styles).
   let liveMove = { dx: 0, dy: 0 };
@@ -354,6 +356,21 @@
     liveNb = null;
   }
 
+  const DEG = 180 / Math.PI;
+  function onRotateDown(e: PointerEvent) {
+    if (!interactive) return;
+    e.stopPropagation();
+    const id = $selection[0];
+    const el = id ? byId(id) : undefined;
+    if (!el) return;
+    const cx = el.x + el.width / 2;
+    const cy = el.y + el.height / 2;
+    const p = toAuthoring(e.clientX, e.clientY);
+    scaledEl!.setPointerCapture(e.pointerId);
+    liveRot = el.rotation ?? 0;
+    gesture = { kind: "rotate", id, cx, cy, startAngle: Math.atan2(p.y - cy, p.x - cx) * DEG, origRot: el.rotation ?? 0 };
+  }
+
   function onPointerMove(e: PointerEvent) {
     if (panGesture) {
       stageView.update((v) => ({
@@ -390,6 +407,17 @@
         previewEl(id, { x: tmp.x, y: tmp.y, width: tmp.width, height: tmp.height });
       }
       previewBox = nb;
+    } else if (gesture.kind === "rotate") {
+      const ang = Math.atan2(p.y - gesture.cy, p.x - gesture.cx) * DEG;
+      let rot = gesture.origRot + (ang - gesture.startAngle);
+      // Shift OR a near-hit snaps to 15° increments (Figma-style), so clean angles
+      // land exactly. Otherwise round to whole degrees.
+      const snapped = Math.round(rot / 15) * 15;
+      if (e.shiftKey || Math.abs(rot - snapped) < 4) rot = snapped;
+      else rot = Math.round(rot);
+      liveRot = rot;
+      const w = wrappers.get(gesture.id);
+      if (w) w.style.transform = `rotate(${rot}deg)`;
     } else if (gesture.kind === "marquee") {
       const r: Rect = {
         x: Math.min(gesture.x0, p.x), y: Math.min(gesture.y0, p.y),
@@ -431,6 +459,10 @@
           if (orig && found) resizeRemap(found.el as unknown as FigElement, orig as unknown as FigElement, ob, nb);
         }
       });
+    } else if (g.kind === "rotate") {
+      if (liveRot === g.origRot) return; // no actual turn
+      const rot = liveRot;
+      commitDeck((d) => setElementBox(d, g.id, { rotation: rot }));
     }
   }
 
@@ -597,6 +629,15 @@
                 style={`cursor:${cursorFor[h]}`}
                 onpointerdown={(e) => onHandleDown(e, h)} />
             {/each}
+            {#if $selection.length === 1}
+              {@const cxp = (overlayBox.x + overlayBox.w / 2) * scale}
+              {@const typ = overlayBox.y * scale}
+              <line class="rot-stem" x1={cxp} y1={typ} x2={cxp} y2={typ - 22} />
+              <circle
+                class="handle rot-knob"
+                cx={cxp} cy={typ - 22} r={6}
+                onpointerdown={(e) => onRotateDown(e)} />
+            {/if}
           {/if}
         </svg>
       {/if}
@@ -663,6 +704,17 @@
     stroke: var(--c-accent, #4385be);
     stroke-width: 1.5;
     pointer-events: all;
+  }
+  .rot-knob {
+    cursor: grab;
+  }
+  .rot-knob:active {
+    cursor: grabbing;
+  }
+  .rot-stem {
+    stroke: var(--c-accent, #4385be);
+    stroke-width: 1;
+    pointer-events: none;
   }
   .guide {
     stroke: var(--c-accent-bright, #66a0c8);
