@@ -362,6 +362,19 @@ export function deleteElements(p: Project, ids: Id[]): void {
   for (const f of p.figures) f.elements = f.elements.filter((e) => !set.has(e.id));
 }
 
+/** Move one element to an absolute z-index within its figure's `elements` array
+ *  (0 = bottom). Backs the Layers panel drag-reorder + the `reorder` bridge/CLI
+ *  verb; standard remove-then-insert semantics (toIndex is a post-removal slot). */
+export function reorderElement(p: Project, figId: Id, id: Id, toIndex: number): void {
+  const f = figById(p, figId);
+  if (!f) return;
+  const from = f.elements.findIndex((e) => e.id === id);
+  if (from < 0) return;
+  const [el] = f.elements.splice(from, 1);
+  const idx = Math.max(0, Math.min(f.elements.length, Math.round(toIndex)));
+  f.elements.splice(idx, 0, el);
+}
+
 // ---------------------------------------------------------------------------
 // Styling — element-level + semantic-plot per-part overrides
 // ---------------------------------------------------------------------------
@@ -381,6 +394,9 @@ export interface ElementStylePatch {
   flipX?: boolean;
   flipY?: boolean;
   locked?: boolean;
+  hidden?: boolean;
+  lockAspect?: boolean;
+  name?: string;
 }
 
 /** Apply a style patch to a set of elements, assigning only the props valid for
@@ -395,6 +411,9 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
       if (patch.flipX != null) e.flipX = patch.flipX;
       if (patch.flipY != null) e.flipY = patch.flipY;
       if (patch.locked != null) e.locked = patch.locked;
+      if (patch.hidden != null) e.hidden = patch.hidden;
+      if (patch.lockAspect != null) e.lockAspect = patch.lockAspect;
+      if (patch.name != null) e.name = patch.name;
       if (e.type === "text") {
         if (patch.color != null) e.color = patch.color;
         if (patch.fontFamily != null) e.fontFamily = patch.fontFamily;

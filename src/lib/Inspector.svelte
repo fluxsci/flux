@@ -22,6 +22,13 @@
   $: single = sel.length === 1 ? sel[0] : null;
   $: fig = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
 
+  // Lock / hide state across the selection (F6): all-on drives the checkbox,
+  // some-on shows the indeterminate dash.
+  $: anyLocked = sel.some((e) => e.locked);
+  $: allLocked = sel.length > 0 && sel.every((e) => e.locked);
+  $: anyHidden = sel.some((e) => e.hidden);
+  $: allHidden = sel.length > 0 && sel.every((e) => e.hidden);
+
   // Arrange controls (mouse equivalents of the Alt+G grid mode). `arrN` is the
   // number of layout cells (a group counts once); the section hides below 2.
   $: arrN = sel.length >= 2 ? gridItemCount(sel) : 0;
@@ -120,6 +127,25 @@
       if (f) fn(f);
     });
   }
+
+  // Set W or H on an element; when its aspect ratio is locked (chain toggle),
+  // scale the other dimension proportionally. Reading the ratio from the element
+  // just before writing keeps it stable across a scrub (both stay in proportion).
+  function setDim(el: Element, which: "w" | "h", v: number) {
+    if (!("width" in el) || !("height" in el)) return;
+    if (el.lockAspect) {
+      if (which === "w") {
+        const r = el.width > 0 ? el.height / el.width : 1;
+        el.width = v;
+        el.height = Math.max(1, Math.round(v * r));
+      } else {
+        const r = el.height > 0 ? el.width / el.height : 1;
+        el.height = v;
+        el.width = Math.max(1, Math.round(v * r));
+      }
+    } else if (which === "w") el.width = v;
+    else el.height = v;
+  }
 </script>
 
 <aside class="inspector">
@@ -186,18 +212,55 @@
           on:scrub={(e) => scrubSelected((el) => (el.y = e.detail))} />
       </div>
       {#if "width" in single && single.type !== "line"}
-        <div class="row">
+        <div class="row wh">
           <NumberField label="W" value={single.width} min={1}
-            on:commit={(e) => updateSelected((el) => { if ("width" in el) el.width = e.detail; })}
-            on:scrub={(e) => scrubSelected((el) => { if ("width" in el) el.width = e.detail; })} />
+            on:commit={(e) => updateSelected((el) => setDim(el, "w", e.detail))}
+            on:scrub={(e) => scrubSelected((el) => setDim(el, "w", e.detail))} />
+          <button
+            class="ratio"
+            class:on={single.lockAspect}
+            title={single.lockAspect ? "Unlock aspect ratio" : "Lock aspect ratio (constrain proportions)"}
+            aria-label="Lock aspect ratio"
+            on:click={() => updateSelected((el) => (el.lockAspect = !el.lockAspect))}
+          >
+            {#if single.lockAspect}
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6.6 9.4a2.4 2.4 0 0 1 0-3.4l1.4-1.4a2.4 2.4 0 1 1 3.4 3.4l-.9.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /><path d="M9.4 6.6a2.4 2.4 0 0 1 0 3.4l-1.4 1.4a2.4 2.4 0 1 1-3.4-3.4l.9-.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+            {:else}
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6.6 9.4a2.4 2.4 0 0 1 0-3.4l1-1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /><path d="M9.4 6.6a2.4 2.4 0 0 1 0 3.4l-1 1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+            {/if}
+          </button>
           <NumberField label="H" value={single.height} min={1}
-            on:commit={(e) => updateSelected((el) => { if ("height" in el) el.height = e.detail; })}
-            on:scrub={(e) => scrubSelected((el) => { if ("height" in el) el.height = e.detail; })} />
+            on:commit={(e) => updateSelected((el) => setDim(el, "h", e.detail))}
+            on:scrub={(e) => scrubSelected((el) => setDim(el, "h", e.detail))} />
         </div>
       {/if}
     </section>
   {:else if sel.length > 1}
     <section><h4>{sel.length} selected</h4></section>
+  {/if}
+
+  <!-- LOCK / HIDE (F6) -->
+  {#if sel.length >= 1}
+    <section>
+      <div class="row" style="gap:14px;">
+        <label class="chk">
+          <input
+            type="checkbox"
+            checked={allLocked}
+            indeterminate={anyLocked && !allLocked}
+            on:change={(e) => updateSelected((el) => (el.locked = e.currentTarget.checked))} />
+          Lock <span class="hk">⌘⇧L</span>
+        </label>
+        <label class="chk">
+          <input
+            type="checkbox"
+            checked={allHidden}
+            indeterminate={anyHidden && !allHidden}
+            on:change={(e) => updateSelected((el) => (el.hidden = e.currentTarget.checked))} />
+          Hide
+        </label>
+      </div>
+    </section>
   {/if}
 
   <!-- TYPE-SPECIFIC STYLE -->
@@ -358,6 +421,23 @@
     display: flex;
     gap: 6px;
     margin-bottom: 6px;
+  }
+  .row.wh {
+    align-items: flex-end;
+  }
+  .ratio {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px;
+    color: var(--c-tx-muted);
+    line-height: 1;
+  }
+  .ratio.on {
+    color: var(--c-on-accent);
+    background: var(--c-accent);
+    border-color: var(--c-accent);
   }
   label {
     display: flex;

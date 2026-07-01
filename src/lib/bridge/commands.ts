@@ -124,7 +124,17 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
     case "set_z": {
       const f = fig(c);
       if (!f) throw new Error("set_z: no active figure");
-      store.commit((p) => ops.setZOrder(p, f, ids(c), (c.where as ops.ZOrder) ?? "front"));
+      const list = ids(c);
+      // With an explicit `index`, move each id to that absolute z-position (0 =
+      // bottom); otherwise bump/raise via `where` (front|back|forward|backward).
+      if (typeof c.index === "number") {
+        const idx = c.index as number;
+        store.commit((p) => {
+          for (const id of list) ops.reorderElement(p, f, id, idx);
+        });
+      } else {
+        store.commit((p) => ops.setZOrder(p, f, list, (c.where as ops.ZOrder) ?? "front"));
+      }
       return { figureId: f };
     }
 

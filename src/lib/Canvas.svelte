@@ -188,9 +188,13 @@
   function visibleEls(fig: Figure): Element[] {
     // The frame being moved renders all its elements: its world position is stale
     // until commit, so culling by the stale bbox would drop elements as it travels.
-    if (dragging && gesture?.kind === "figmove" && gesture.figId === fig.id) return fig.elements;
+    // Hidden elements (Layers eye) are never rendered — so also never hit-testable.
+    if (dragging && gesture?.kind === "figmove" && gesture.figId === fig.id)
+      return fig.elements.filter((el) => !el.hidden);
     const lr: Rect = { x: cullRect.x - fig.x, y: cullRect.y - fig.y, w: cullRect.w, h: cullRect.h };
-    return fig.elements.filter((el) => $selection.has(el.id) || rectsIntersect(elementBBox(el), lr));
+    return fig.elements.filter(
+      (el) => !el.hidden && ($selection.has(el.id) || rectsIntersect(elementBBox(el), lr)),
+    );
   }
   // Precompute the per-figure visible element lists keyed off the (stable-within-a-
   // pan-step) cull rect + selection, so the template's {#each} only re-diffs when
@@ -394,6 +398,12 @@
     }
     if ($captionOpen) return; // read-only while the caption editor is open
     if ($activeTool !== "select") {
+      onFigureDown(e, fig);
+      return;
+    }
+    // Locked elements can't be selected/moved via the canvas (only from the Layers
+    // panel). Treat a click on one like a click on the figure (marquee / clear).
+    if (el.locked) {
       onFigureDown(e, fig);
       return;
     }
@@ -633,7 +643,9 @@
       liveBox = { x: g.ob.x + dx, y: g.ob.y + dy, w: g.ob.w, h: g.ob.h };
     } else if (g.kind === "resize") {
       const lp = localPoint(e.clientX, e.clientY, fig);
-      const nb = computeResizeBox(g.ob, g.handle, lp, e.shiftKey);
+      // A single element with a locked aspect ratio resizes uniformly without Shift.
+      const forceAspect = gestureEls.length === 1 && !!gestureEls[0].lockAspect;
+      const nb = computeResizeBox(g.ob, g.handle, lp, e.shiftKey || forceAspect);
       startDragging();
       gNb = nb;
       liveBox = nb;
@@ -642,7 +654,8 @@
       const r: Rect = { x: Math.min(g.x0, lp.x), y: Math.min(g.y0, lp.y), w: Math.abs(lp.x - g.x0), h: Math.abs(lp.y - g.y0) };
       marquee = r;
       const hit = new Set(g.add);
-      for (const el of fig.elements) if (rectsIntersect(elementBBox(el), r)) hit.add(el.id);
+      for (const el of fig.elements)
+        if (!el.locked && !el.hidden && rectsIntersect(elementBBox(el), r)) hit.add(el.id);
       selection.set(expandGroups($project, hit));
     } else if (g.kind === "draw") {
       const lp = localPoint(e.clientX, e.clientY, fig);
@@ -862,6 +875,15 @@
   $: af = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
   $: displayBox = liveBox ?? overlayBox; // figure-local, active figure
 
+  // A selection made entirely of locked elements (only reachable via the Layers
+  // panel) shows its box but NO resize/rotate handles — locked elements can't be
+  // transformed on the canvas.
+  $: selLocked = (() => {
+    if (!af) return false;
+    const els = af.elements.filter((e) => $selection.has(e.id));
+    return els.length > 0 && els.every((e) => e.locked);
+  })();
+
   // Figma-style hover outline: a thin accent box around whatever a click would
   // select (the hovered element, expanded to its whole group). Suppressed while
   // dragging, editing, read-only (caption), with a non-select tool, or when the
@@ -879,6 +901,8 @@
       return null;
     const found = findElement($project, $hoverId);
     if (!found) return null;
+    // Don't preview-outline a locked/hidden element — a click won't select it.
+    if (found.element.locked || found.element.hidden) return null;
     const grp = expandGroups($project, new Set([$hoverId]));
     const b = selectionBBox(found.figure.elements.filter((e) => grp.has(e.id)));
     if (!b) return null;
@@ -1170,7 +1194,7 @@
     <!-- selection box + handles -->
     {#if selScreen && !editingInfo}
       <rect class="sel-box" x={selScreen.x} y={selScreen.y} width={selScreen.w} height={selScreen.h} fill="none" />
-      {#if !$captionOpen}
+      {#if !$captionOpen && !selLocked}
         {#each handlesScreen as hd}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <rect

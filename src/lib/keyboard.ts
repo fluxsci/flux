@@ -236,6 +236,21 @@ function flipSelected(axis: "h" | "v") {
   withSelected((els) => flipElements(els, axis));
 }
 
+// Cmd/Ctrl+Shift+L: toggle the lock flag across the selection (F6). Locks if any
+// is unlocked, else unlocks — one undo entry.
+function toggleLockSelected() {
+  const sel = get(selection);
+  if (sel.size === 0) return;
+  const p0 = get(project);
+  let allLocked = true;
+  for (const f of p0.figures)
+    for (const e of f.elements) if (sel.has(e.id) && !e.locked) allLocked = false;
+  commit((p) => {
+    for (const f of p.figures)
+      for (const e of f.elements) if (sel.has(e.id)) e.locked = !allLocked;
+  });
+}
+
 // --- Frame-as-object keyboard ops (F8): when a figure frame is selected as a
 // whole (and no elements are), arrows nudge it, Ctrl+D duplicates it, Delete
 // removes it (keeping at least one figure per canvas). ---
@@ -527,6 +542,9 @@ export function handleKey(e: KeyboardEvent) {
     } else if (k === "g") {
       e.preventDefault();
       e.shiftKey ? ungroupSelected() : groupSelected();
+    } else if (k === "l" && e.shiftKey) {
+      e.preventDefault();
+      toggleLockSelected();
     } else if (e.key === "]") {
       e.preventDefault();
       e.shiftKey ? raise(true) : bump(true);

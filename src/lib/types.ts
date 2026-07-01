@@ -84,6 +84,14 @@ export interface ElementBase {
   flipX?: boolean;
   flipY?: boolean;
   locked?: boolean;
+  // Whole-element visibility (Layers panel eye). Hidden elements are not
+  // rendered, not hit-testable, and omitted from export — but stay in the model
+  // and the Layers list so they can be toggled back on.
+  hidden?: boolean;
+  // Constrain proportions (Figma's chain-link toggle next to W/H). When on,
+  // editing one dimension scales the other to keep the aspect ratio, and a
+  // canvas corner-resize is forced uniform (no Shift needed).
+  lockAspect?: boolean;
   opacity?: number; // 0..1
   // Elements sharing a groupId are selected and moved together.
   groupId?: Id;

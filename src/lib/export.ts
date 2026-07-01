@@ -130,6 +130,7 @@ export function figureToSvg(
   plotMarkup?: (e: Element) => string | undefined,
 ): string {
   const body = fig.elements
+    .filter((e) => !e.hidden) // Layers eye: hidden elements are omitted from export
     .map((e) => elementToSvg(e, assetUrl, plotMarkup))
     .filter(Boolean)
     .join("\n  ");
