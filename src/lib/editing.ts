@@ -1,6 +1,6 @@
 import type { Element } from "./types";
 import type { DrawStyle, Tool } from "./store";
-import { newId } from "./store";
+import { newId } from "./ids";
 import { elementBBox, type Rect } from "./geometry";
 import { applyAutoWidth } from "./text";
 import { scaleNodes, nodesToPath, pathToNodes } from "./path";
@@ -94,6 +94,20 @@ export function createTextElement(p: Pt, style: DrawStyle): Element {
   };
   applyAutoWidth(el);
   return el;
+}
+
+// Proportional SCALE remap (Feature 5): like resizeRemap, but also multiplies the
+// "weight" properties — strokeWidth, cornerRadius, and (via resizeRemap) fontSize —
+// by the same uniform factor, so a shrunk panel keeps its visual proportions. The
+// Scale tool forces a uniform box, so sx == sy; we use s = nb.w/ob.w (falls back to
+// the average if a degenerate axis sneaks in).
+export function scaleRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
+  resizeRemap(e, orig, ob, nb);
+  const sx = ob.w === 0 ? 1 : nb.w / ob.w;
+  const sy = ob.h === 0 ? 1 : nb.h / ob.h;
+  const s = ob.w !== 0 ? sx : sy || (sx + sy) / 2;
+  if ("strokeWidth" in e && "strokeWidth" in orig) e.strokeWidth = Math.max(0, orig.strokeWidth * s);
+  if (e.type === "rect" && orig.type === "rect") e.cornerRadius = Math.max(0, orig.cornerRadius * s);
 }
 
 // Remap one element when the selection bounding box changes from ob -> nb.

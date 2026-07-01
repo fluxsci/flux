@@ -4,6 +4,7 @@
   import type { Element } from "./types";
   import { doAlign, doDistribute, arrangeToRows } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
+  import * as ops from "./ops";
   import { exportFigurePng, exportFigureSvg, exportFigurePdf } from "./io";
   import { applyAutoWidth } from "./text";
   import { applyPartStyle } from "./colors";
@@ -34,6 +35,13 @@
   $: arrN = sel.length >= 2 ? gridItemCount(sel) : 0;
   // Exact-gap distribute (Feature 7): the gutter applied by the Gap H/V buttons.
   let gapVal = 24;
+  // Proportional scale (Feature 5): one-shot "scale by %" of the selection.
+  let scalePct = 100;
+  function applyScale() {
+    const ids = [...$selection];
+    if (!ids.length || !(scalePct > 0)) return;
+    commit((p) => ops.scaleElements(p, ids, scalePct / 100));
+  }
   function stepRows(d: number) {
     const v = validRowCounts(arrN);
     let i = v.indexOf(get(lastArrangeRows));
@@ -173,6 +181,14 @@
           on:scrub={(e) => (gapVal = e.detail)} />
         <button title="Exact gap horizontally" on:click={() => doDistribute("h", gapVal)}>Gap H</button>
         <button title="Exact gap vertically" on:click={() => doDistribute("v", gapVal)}>Gap V</button>
+      </div>
+    {/if}
+    {#if sel.length >= 1}
+      <div class="row gaprow">
+        <NumberField label="Scale %" value={scalePct} min={1}
+          on:commit={(e) => (scalePct = e.detail)}
+          on:scrub={(e) => (scalePct = e.detail)} />
+        <button title="Scale proportionally (geometry + stroke/font) about the selection centre" on:click={applyScale}>Apply</button>
       </div>
     {/if}
   </section>

@@ -14,6 +14,7 @@
 
   const tools: { id: Tool; label: string; key: string }[] = [
     { id: "select", label: "Select", key: "V" },
+    { id: "scale", label: "Scale", key: "K" },
     { id: "hand", label: "Pan", key: "H" },
     { id: "text", label: "Text", key: "T" },
     { id: "rect", label: "Rect", key: "R" },

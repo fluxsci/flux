@@ -363,6 +363,7 @@ function bump(forward: boolean) {
 
 const TOOL_KEYS: Record<string, Tool> = {
   v: "select",
+  k: "scale",
   h: "hand",
   t: "text",
   r: "rect",
@@ -581,8 +582,11 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  const tool = TOOL_KEYS[lk];
-  if (tool) activeTool.set(tool);
+  // Tool shortcuts are unmodified single keys (Shift+R is the ruler toggle, etc.).
+  if (!e.shiftKey) {
+    const tool = TOOL_KEYS[lk];
+    if (tool) activeTool.set(tool);
+  }
 }
 
 export { doAlign, doDistribute, duplicateSelected, deleteSelected };

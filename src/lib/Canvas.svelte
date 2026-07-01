@@ -35,7 +35,7 @@
     gapBetween,
     type Rect,
   } from "./geometry";
-  import { createDrawElement, createTextElement, resizeRemap } from "./editing";
+  import { createDrawElement, createTextElement, resizeRemap, scaleRemap } from "./editing";
   import { nodesToPath, pathToNodes, constrain45 } from "./path";
   import * as ops from "./ops";
   import { settings } from "./settings";
@@ -91,6 +91,7 @@
         handle: Handle;
         ob: Rect;
         origs: Map<string, Element>;
+        scale?: boolean; // Scale tool (F5): also scales stroke/corner/font
       }
     | { kind: "marquee"; figId: string; x0: number; y0: number; add: Set<string> }
     | { kind: "draw"; figId: string; x0: number; y0: number }
@@ -326,7 +327,7 @@
     selectedFrameId.set(null);
     const lp = localPoint(e.clientX, e.clientY, fig);
 
-    if ($activeTool === "select") {
+    if ($activeTool === "select" || $activeTool === "scale") {
       if (!e.shiftKey) clearSelection();
       gesture = { kind: "marquee", figId: fig.id, x0: lp.x, y0: lp.y, add: new Set(e.shiftKey ? $selection : []) };
       gestureFig = fig;
@@ -679,7 +680,7 @@
     // proceeds with a normal selection (node markers stopPropagation, so a click
     // that reaches here is genuinely on the scene, not a node).
     if (editPathId && el.id !== editPathId) exitNodeEdit();
-    if ($activeTool !== "select") {
+    if ($activeTool !== "select" && $activeTool !== "scale") {
       onFigureDown(e, fig);
       return;
     }
@@ -930,7 +931,7 @@
     const sel = selectedEls(fig);
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
-    gesture = { kind: "resize", figId: fig.id, handle, ob: { ...overlayBox }, origs };
+    gesture = { kind: "resize", figId: fig.id, handle, ob: { ...overlayBox }, origs, scale: $activeTool === "scale" };
     gestureFig = fig;
     gestureEls = sel;
     committed = false;
@@ -1104,8 +1105,9 @@
       liveBox = { x: g.ob.x + dx, y: g.ob.y + dy, w: g.ob.w, h: g.ob.h };
     } else if (g.kind === "resize") {
       const lp = localPoint(e.clientX, e.clientY, fig);
-      // A single element with a locked aspect ratio resizes uniformly without Shift.
-      const forceAspect = gestureEls.length === 1 && !!gestureEls[0].lockAspect;
+      // The Scale tool always scales uniformly; a single locked-aspect element does
+      // too (no Shift needed).
+      const forceAspect = g.scale || (gestureEls.length === 1 && !!gestureEls[0].lockAspect);
       const nb = computeResizeBox(g.ob, g.handle, lp, e.shiftKey || forceAspect);
       startDragging();
       gNb = nb;
@@ -1211,7 +1213,8 @@
         for (const el of f.elements) {
           const o = g.origs.get(el.id);
           if (o) {
-            resizeRemap(el, o, g.ob, nb);
+            if (g.scale) scaleRemap(el, o, g.ob, nb);
+            else resizeRemap(el, o, g.ob, nb);
             if ($settings.snapPixel) {
               el.x = Math.round(el.x);
               el.y = Math.round(el.y);
@@ -1461,7 +1464,7 @@
       editingId ||
       editPathId ||
       $captionOpen ||
-      $activeTool !== "select" ||
+      ($activeTool !== "select" && $activeTool !== "scale") ||
       $selection.has($hoverId)
     )
       return null;
@@ -1892,7 +1895,7 @@
                   style:will-change={moveIds?.has(el.id) ? "transform" : null}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
                   on:pointerenter={() => {
-                    if ($activeTool === "select" && !$captionOpen) hoverId.set(el.id);
+                    if (($activeTool === "select" || $activeTool === "scale") && !$captionOpen) hoverId.set(el.id);
                   }}
                   on:pointerleave={() => {
                     if ($hoverId === el.id) hoverId.set(null);

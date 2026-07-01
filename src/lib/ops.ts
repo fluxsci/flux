@@ -42,6 +42,7 @@ import {
   balancedRows,
   type AlignKind,
 } from "./geometry";
+import { scaleRemap } from "./editing";
 import { figurePanels } from "./captions";
 
 // Default frame size (US Letter @ 96dpi) — the single source for a blank figure
@@ -446,6 +447,29 @@ export function group(p: Project, ids: Id[]): Id | null {
   const gid = newId("grp");
   for (const f of p.figures) for (const e of f.elements) if (set.has(e.id)) e.groupId = gid;
   return gid;
+}
+
+// Proportional scale (Feature 5): scale `ids` about a pivot (default = their
+// bbox centre) by `factor`, multiplying geometry AND stroke/corner/font weights so
+// the whole mark shrinks/grows uniformly. Shares editing.scaleRemap with the GUI
+// Scale tool. No-op for factor ≤ 0.
+export function scaleElements(p: Project, ids: Id[], factor: number, pivot?: { x: number; y: number }): void {
+  if (!(factor > 0)) return;
+  const set = new Set(ids);
+  for (const f of p.figures) {
+    const targets = f.elements.filter((e) => set.has(e.id));
+    if (!targets.length) continue;
+    const ob = selectionBBox(targets);
+    if (!ob) continue;
+    const cx = pivot?.x ?? ob.x + ob.w / 2;
+    const cy = pivot?.y ?? ob.y + ob.h / 2;
+    // new bbox: same centre-relative layout, scaled about the pivot
+    const nb = { x: cx + (ob.x - cx) * factor, y: cy + (ob.y - cy) * factor, w: ob.w * factor, h: ob.h * factor };
+    for (const e of targets) {
+      const orig = structuredClone(e);
+      scaleRemap(e, orig, ob, nb);
+    }
+  }
 }
 
 // Smart duplicate (Feature 4): clone `ids` in their figure `count` times, each

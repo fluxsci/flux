@@ -34,6 +34,7 @@ export const ALLOWED_COMMANDS = [
   "edit_path",
   "set_guides",
   "duplicate",
+  "scale",
   "delete",
   "set_figure_layout",
   "duplicate_figure",
@@ -204,6 +205,17 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       });
       if (made.length) store.selection.set(new Set(made));
       return { ids: made };
+    }
+
+    case "scale": {
+      const list = ids(c);
+      const factor = num(c.factor);
+      if (!factor || factor <= 0) throw new Error("scale: need a positive factor");
+      const px = num(c.pivotX);
+      const py = num(c.pivotY);
+      const pivot = px != null && py != null ? { x: px, y: py } : undefined;
+      store.commit((p) => ops.scaleElements(p, list, factor, pivot));
+      return { scaled: list.length, factor };
     }
 
     case "delete": {
