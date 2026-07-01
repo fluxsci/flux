@@ -68,6 +68,29 @@
         Include the Flexoki palette in new projects
       </label>
 
+      <h3>Rulers &amp; grid</h3>
+      <label class="chk">
+        <input type="checkbox" checked={$settings.showRulers} on:change={(e) => settings.update((v) => ({ ...v, showRulers: e.currentTarget.checked }))} />
+        Show rulers (<b>Shift+R</b>) — drag from a ruler to place a guide
+      </label>
+      <label class="chk">
+        <input type="checkbox" checked={$settings.showGrid} on:change={(e) => settings.update((v) => ({ ...v, showGrid: e.currentTarget.checked }))} />
+        Show background grid
+      </label>
+      <label class="chk">
+        <input type="checkbox" checked={$settings.snapGrid} on:change={(e) => settings.update((v) => ({ ...v, snapGrid: e.currentTarget.checked }))} />
+        Snap to grid
+      </label>
+      <label class="chk num">
+        Grid size
+        <input type="number" min="1" step="1" value={$settings.gridSize} on:change={(e) => settings.update((v) => ({ ...v, gridSize: Math.max(1, parseFloat(e.currentTarget.value) || 1) }))} />
+        px
+      </label>
+      <label class="chk">
+        <input type="checkbox" checked={$settings.snapPixel} on:change={(e) => settings.update((v) => ({ ...v, snapPixel: e.currentTarget.checked }))} />
+        Snap to pixel (round coords on commit — crisp export)
+      </label>
+
       <p class="tip">Open the FluxFig Menu with <b>F</b> while objects are selected.</p>
       <button class="close" on:click={() => settingsOpen.set(false)}>Done</button>
     </div>
@@ -137,6 +160,9 @@
   }
   .chk input {
     width: auto;
+  }
+  .chk.num input {
+    width: 64px;
   }
   .tip {
     font-size: 12px;

@@ -400,6 +400,43 @@ export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: I
   distributeElements(targetEls(f, ids), axis, gap);
 }
 
+// --- ruler guides (Feature 11) — figure-local guide lines elements snap to ---
+const roundGuides = (a?: number[]): number[] =>
+  a ? [...new Set(a.map((v) => Math.round(v * 100) / 100))].sort((m, n) => m - n) : [];
+
+/** Replace a figure's guides wholesale (either axis optional → cleared). */
+export function setGuides(p: Project, figId: Id, guides: { x?: number[]; y?: number[] }): void {
+  const f = figById(p, figId);
+  if (!f) return;
+  f.guides = { x: roundGuides(guides.x), y: roundGuides(guides.y) };
+}
+
+/** Add one guide on an axis (idempotent — dedupes to ~0.01 units). */
+export function addGuide(p: Project, figId: Id, axis: "x" | "y", pos: number): void {
+  const f = figById(p, figId);
+  if (!f) return;
+  const g = f.guides ?? {};
+  f.guides = { x: roundGuides(g.x), y: roundGuides(g.y) };
+  f.guides[axis] = roundGuides([...(f.guides[axis] ?? []), pos]);
+}
+
+/** Remove the guide on `axis` nearest `pos` within `tol` (world units). */
+export function removeGuide(p: Project, figId: Id, axis: "x" | "y", pos: number, tol = 6): void {
+  const f = figById(p, figId);
+  if (!f?.guides?.[axis]) return;
+  const arr = f.guides[axis]!;
+  let bi = -1;
+  let bd = tol;
+  arr.forEach((v, i) => {
+    const d = Math.abs(v - pos);
+    if (d <= bd) {
+      bd = d;
+      bi = i;
+    }
+  });
+  if (bi >= 0) f.guides[axis] = arr.filter((_, i) => i !== bi);
+}
+
 // ---------------------------------------------------------------------------
 // Grouping / z-order / delete (extracted from keyboard.ts so they're shared)
 // ---------------------------------------------------------------------------

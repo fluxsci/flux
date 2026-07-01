@@ -38,6 +38,7 @@
   import { createDrawElement, createTextElement, resizeRemap } from "./editing";
   import { nodesToPath, pathToNodes, constrain45 } from "./path";
   import * as ops from "./ops";
+  import { settings } from "./settings";
   import { importDroppedFiles } from "./io";
   import { semanticIdFromNode } from "./plot/parse";
   import ElementView from "./Element.svelte";
@@ -60,6 +61,11 @@
   const MIN_ZOOM = 0.05;
   const MAX_ZOOM = 16;
   const HS = 9; // on-screen handle size in px (constant)
+  const RULER = 20; // ruler strip thickness in screen px (Feature 11)
+
+  // Active ruler-guide drag (create from a ruler, or move/delete an existing one).
+  // Modal like pen/node drags — handled before the Gesture union.
+  let guideDrag: null | { axis: "x" | "y"; pos: number; creating: boolean; origPos: number } = null;
 
   let spaceDown = false;
   let altDown = false; // Feature 3 measurement caliper (Alt held, not mid-drag)
@@ -761,6 +767,9 @@
       xs.push(b.x, b.x + b.w, b.x + b.w / 2);
       ys.push(b.y, b.y + b.h, b.y + b.h / 2);
     }
+    // Ruler guides join the snap targets (Feature 11).
+    if (fig.guides?.x) xs.push(...fig.guides.x);
+    if (fig.guides?.y) ys.push(...fig.guides.y);
     gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, origs, ob, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
@@ -856,6 +865,63 @@
     ] };
   }
 
+  // --- ruler guides (Feature 11) ---
+  // "Nice" world-unit step (~64 screen px per tick) for the ruler labels.
+  function niceStep(zoom: number): number {
+    const raw = 64 / zoom;
+    const p = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / p;
+    const m = n >= 5 ? 5 : n >= 2 ? 2 : 1;
+    return m * p;
+  }
+  // Drag from a ruler strip → begin creating a guide (axis "x" = vertical guide
+  // from the LEFT ruler; "y" = horizontal guide from the TOP ruler).
+  function onRulerDown(e: PointerEvent, axis: "x" | "y") {
+    if (!af || $captionOpen) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const w = clientToWorld(e.clientX, e.clientY);
+    const pos = axis === "x" ? w.x - af.x : w.y - af.y;
+    guideDrag = { axis, pos, creating: true, origPos: pos };
+    hostEl.setPointerCapture(e.pointerId);
+  }
+  function onGuideDown(e: PointerEvent, axis: "x" | "y", pos: number) {
+    if (!af || $captionOpen) return;
+    e.stopPropagation();
+    guideDrag = { axis, pos, creating: false, origPos: pos };
+    hostEl.setPointerCapture(e.pointerId);
+  }
+  function onGuideDragMove(e: PointerEvent) {
+    if (!guideDrag || !af) return;
+    const w = clientToWorld(e.clientX, e.clientY);
+    guideDrag.pos = guideDrag.axis === "x" ? w.x - af.x : w.y - af.y;
+    guideDrag = guideDrag;
+  }
+  function finishGuideDrag(e: PointerEvent) {
+    const gd = guideDrag;
+    if (gd && af) {
+      const figId = af.id;
+      const inFig = gd.axis === "x" ? gd.pos >= 0 && gd.pos <= af.width : gd.pos >= 0 && gd.pos <= af.height;
+      if (gd.creating) {
+        if (inFig) {
+          beginGesture();
+          mutate((p) => ops.addGuide(p, figId, gd.axis, gd.pos));
+        }
+      } else {
+        // move existing (drag off the figure = delete)
+        beginGesture();
+        mutate((p) => {
+          ops.removeGuide(p, figId, gd.axis, gd.origPos, 0.5);
+          if (inFig) ops.addGuide(p, figId, gd.axis, gd.pos);
+        });
+      }
+    }
+    guideDrag = null;
+    try {
+      hostEl.releasePointerCapture(e.pointerId);
+    } catch {}
+  }
+
   function onHandleDown(e: PointerEvent, handle: Handle) {
     e.stopPropagation();
     if ($captionOpen) return; // read-only while the caption editor is open
@@ -912,6 +978,11 @@
   }
 
   function onPointerMove(e: PointerEvent) {
+    // Ruler-guide drag (modal — no Gesture).
+    if (guideDrag) {
+      onGuideDragMove(e);
+      return;
+    }
     // Node-edit drag (no Gesture — modal on editPathId).
     if (nodeDrag) {
       onNodeDrag(e);
@@ -1015,6 +1086,15 @@
             nextSpacing.push(...eg.lines);
           }
         }
+        // Snap-to-grid (Feature 11): if no stronger snap grabbed an axis, quantize
+        // the top-left to the grid.
+        if ($settings.snapGrid && $settings.gridSize > 0) {
+          const G = $settings.gridSize;
+          if (lockAxis !== "y" && !nextGuides.some((q) => q.x != null) && !nextSpacing.length)
+            dx += Math.round((g.ob.x + dx) / G) * G - (g.ob.x + dx);
+          if (lockAxis !== "x" && !nextGuides.some((q) => q.y != null) && !nextSpacing.length)
+            dy += Math.round((g.ob.y + dy) / G) * G - (g.ob.y + dy);
+        }
       }
       startDragging();
       guides = nextGuides;
@@ -1070,6 +1150,11 @@
   }
 
   function onPointerUp(e: PointerEvent) {
+    // End a ruler-guide drag (modal — no Gesture).
+    if (guideDrag) {
+      finishGuideDrag(e);
+      return;
+    }
     // End a node-edit drag (modal — no Gesture).
     if (nodeDrag) {
       finishNodeDrag(e);
@@ -1097,6 +1182,10 @@
             if (o) {
               el.x = o.x + gDX;
               el.y = o.y + gDY;
+              if ($settings.snapPixel) {
+                el.x = Math.round(el.x);
+                el.y = Math.round(el.y);
+              }
             }
           }
         });
@@ -1120,7 +1209,15 @@
         if (!f) return;
         for (const el of f.elements) {
           const o = g.origs.get(el.id);
-          if (o) resizeRemap(el, o, g.ob, nb);
+          if (o) {
+            resizeRemap(el, o, g.ob, nb);
+            if ($settings.snapPixel) {
+              el.x = Math.round(el.x);
+              el.y = Math.round(el.y);
+              if ("width" in el) el.width = Math.round(el.width);
+              if ("height" in el) el.height = Math.round(el.height);
+            }
+          }
         }
       });
     } else if (g.kind === "draw" && preview) {
@@ -1201,6 +1298,13 @@
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
     if (e.key === "Alt") altDown = true; // caliper (measure) mode
     if (typing) return;
+
+    // Shift+R toggles the rulers (Feature 11).
+    if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "KeyR") {
+      e.preventDefault();
+      settings.update((s) => ({ ...s, showRulers: !s.showRulers }));
+      return;
+    }
 
     // Node-edit mode owns the keyboard (keyboard.ts yields on nodeEditId).
     if (editPathId) {
@@ -1577,6 +1681,77 @@
         }))
       : [];
 
+  // --- Feature 11: rulers / guides / grid (screen-space) ---
+  $: rulerHTicks =
+    $settings.showRulers && hostW
+      ? (() => {
+          const z = $viewport.zoom;
+          const pan = $viewport.panX;
+          const step = niceStep(z);
+          const out: { sx: number; label: string }[] = [];
+          const wl = (RULER - pan) / z;
+          const wr = (hostW - pan) / z;
+          for (let wx = Math.ceil(wl / step) * step; wx <= wr; wx += step) out.push({ sx: pan + wx * z, label: `${Math.round(wx)}` });
+          return out;
+        })()
+      : [];
+  $: rulerVTicks =
+    $settings.showRulers && hostH
+      ? (() => {
+          const z = $viewport.zoom;
+          const pan = $viewport.panY;
+          const step = niceStep(z);
+          const out: { sy: number; label: string }[] = [];
+          const wt = (RULER - pan) / z;
+          const wb = (hostH - pan) / z;
+          for (let wy = Math.ceil(wt / step) * step; wy <= wb; wy += step) out.push({ sy: pan + wy * z, label: `${Math.round(wy)}` });
+          return out;
+        })()
+      : [];
+  // Existing guides for the active figure + the live drag preview, mapped to screen.
+  $: guideScreen = (() => {
+    if (!af) return [] as any[];
+    const lines: { axis: "x" | "y"; pos: number; preview: boolean }[] = [];
+    for (const x of af.guides?.x ?? [])
+      if (!(guideDrag && !guideDrag.creating && guideDrag.axis === "x" && Math.abs(guideDrag.origPos - x) < 0.5)) lines.push({ axis: "x", pos: x, preview: false });
+    for (const y of af.guides?.y ?? [])
+      if (!(guideDrag && !guideDrag.creating && guideDrag.axis === "y" && Math.abs(guideDrag.origPos - y) < 0.5)) lines.push({ axis: "y", pos: y, preview: false });
+    if (guideDrag) lines.push({ axis: guideDrag.axis, pos: guideDrag.pos, preview: true });
+    return lines.map((g) =>
+      g.axis === "x"
+        ? {
+            vertical: true,
+            axis: "x" as const,
+            pos: g.pos,
+            preview: g.preview,
+            sx: $viewport.panX + (af!.x + g.pos) * $viewport.zoom,
+            a: $viewport.panY + af!.y * $viewport.zoom,
+            b: $viewport.panY + (af!.y + af!.height) * $viewport.zoom,
+          }
+        : {
+            vertical: false,
+            axis: "y" as const,
+            pos: g.pos,
+            preview: g.preview,
+            sy: $viewport.panY + (af!.y + g.pos) * $viewport.zoom,
+            a: $viewport.panX + af!.x * $viewport.zoom,
+            b: $viewport.panX + (af!.x + af!.width) * $viewport.zoom,
+          },
+    );
+  })();
+  // Background grid path (figure-local) for the active figure.
+  $: gridD = (() => {
+    if (!$settings.showGrid || !af || $settings.gridSize <= 0) return "";
+    const G = $settings.gridSize;
+    const W = af.width;
+    const H = af.height;
+    if (W / G + H / G > 4000) return ""; // too dense to be useful — skip
+    let d = "";
+    for (let x = 0; x <= W + 0.5; x += G) d += `M ${x} 0 L ${x} ${H} `;
+    for (let y = 0; y <= H + 0.5; y += G) d += `M 0 ${y} L ${W} ${y} `;
+    return d;
+  })();
+
   // Highlight box for a selected plot PART (screen px). getBoundingClientRect
   // already accounts for every ancestor transform (zoom / pan / figure /
   // nested-viewBox), so we just subtract the host origin. Re-measures on
@@ -1702,6 +1877,9 @@
             <clipPath id={`clip-${fig.id}`}>
               <rect x="0" y="0" width={fig.width} height={fig.height} />
             </clipPath>
+            {#if gridD && fig.id === $activeFigureId}
+              <path class="grid" d={gridD} clip-path={`url(#clip-${fig.id})`} />
+            {/if}
             <g clip-path={`url(#clip-${fig.id})`}>
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1961,6 +2139,34 @@
         {/if}
       {/each}
     {/if}
+
+    <!-- ruler guides (Feature 11): draggable guide lines + live preview -->
+    {#each guideScreen as g}
+      {#if g.vertical}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <line class="guide-hit" x1={g.sx} y1={g.a} x2={g.sx} y2={g.b} on:pointerdown={(e) => onGuideDown(e, "x", g.pos)} />
+        <line class="guide-line" class:preview={g.preview} x1={g.sx} y1={g.a} x2={g.sx} y2={g.b} />
+      {:else}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <line class="guide-hit" x1={g.a} y1={g.sy} x2={g.b} y2={g.sy} on:pointerdown={(e) => onGuideDown(e, "y", g.pos)} />
+        <line class="guide-line" class:preview={g.preview} x1={g.a} y1={g.sy} x2={g.b} y2={g.sy} />
+      {/if}
+    {/each}
+
+    <!-- rulers (Feature 11): screen-space strips, drag out a guide -->
+    {#if $settings.showRulers}
+      <rect class="ruler" x={RULER} y="0" width={Math.max(0, hostW - RULER)} height={RULER} on:pointerdown={(e) => onRulerDown(e, "y")} role="presentation" />
+      {#each rulerHTicks as t}
+        <line class="ruler-tick" x1={t.sx} y1={RULER - 6} x2={t.sx} y2={RULER} />
+        <text class="ruler-label" x={t.sx + 3} y="9">{t.label}</text>
+      {/each}
+      <rect class="ruler" x="0" y={RULER} width={RULER} height={Math.max(0, hostH - RULER)} on:pointerdown={(e) => onRulerDown(e, "x")} role="presentation" />
+      {#each rulerVTicks as t}
+        <line class="ruler-tick" x1={RULER - 6} y1={t.sy} x2={RULER} y2={t.sy} />
+        <text class="ruler-label" x="10" y={t.sy - 3} transform={`rotate(-90 10 ${t.sy - 3})`}>{t.label}</text>
+      {/each}
+      <rect class="ruler-corner" x="0" y="0" width={RULER} height={RULER} />
+    {/if}
   </svg>
 
   {#if $captionOpen}
@@ -2139,6 +2345,50 @@
     stroke-width: 1;
     pointer-events: none;
   }
+  /* --- rulers / guides / grid (Feature 11) --- */
+  .grid {
+    fill: none;
+    stroke: var(--c-border, #888);
+    stroke-width: 0.5;
+    opacity: 0.28;
+    pointer-events: none;
+    vector-effect: non-scaling-stroke;
+  }
+  .guide-line {
+    stroke: #12b5cb;
+    stroke-width: 1;
+    pointer-events: none;
+  }
+  .guide-line.preview {
+    stroke-dasharray: 4 3;
+  }
+  .guide-hit {
+    stroke: transparent;
+    stroke-width: 9;
+    cursor: grab;
+    pointer-events: stroke;
+  }
+  .ruler {
+    fill: var(--c-panel, #1e1e1e);
+    opacity: 0.96;
+    cursor: crosshair;
+    pointer-events: all;
+  }
+  .ruler-corner {
+    fill: var(--c-panel, #1e1e1e);
+    pointer-events: none;
+  }
+  .ruler-tick {
+    stroke: var(--c-tx-lo, #888);
+    stroke-width: 1;
+    pointer-events: none;
+  }
+  .ruler-label {
+    fill: var(--c-tx-lo, #999);
+    font-size: 9px;
+    pointer-events: none;
+  }
+
   /* --- measurement caliper (Feature 3) --- */
   .measure {
     stroke: #e5484d;

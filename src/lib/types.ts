@@ -53,6 +53,9 @@ export interface Figure {
   // Per-panel caption text, keyed by the panel-label element's id (see
   // captions.ts / CaptionEditor.svelte). Edited via the caption editor (Alt+C).
   captions?: Record<Id, string>;
+  // Ruler guides (Feature 11), figure-local. `x` = vertical guide lines at those
+  // x positions; `y` = horizontal guides. Elements snap to them while moving.
+  guides?: { x?: number[]; y?: number[] };
 }
 
 // An imported source file, stored once and referenced by `image`/`svg` elements.

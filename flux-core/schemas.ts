@@ -145,6 +145,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
           background: { type: "string" },
           elements: { type: "array", items: { $ref: "#/definitions/element" } },
           captions: { type: "object" },
+          guides: { type: "object" },
         },
       },
       element: {

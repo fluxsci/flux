@@ -10,7 +10,7 @@
     type Tool,
   } from "./store";
   import { importAssets, openProject, saveProject } from "./io";
-  import { settingsOpen } from "./settings";
+  import { settingsOpen, settings } from "./settings";
 
   const tools: { id: Tool; label: string; key: string }[] = [
     { id: "select", label: "Select", key: "V" },
@@ -55,6 +55,11 @@
   <div class="group">
     <button on:click={undo} title="Undo (Ctrl+Z)">↶</button>
     <button on:click={redo} title="Redo (Ctrl+Shift+Z)">↷</button>
+    <button
+      class:active={$settings.showRulers}
+      title="Rulers (Shift+R)"
+      on:click={() => settings.update((s) => ({ ...s, showRulers: !s.showRulers }))}>Rulers</button
+    >
   </div>
 
   <span class="spacer"></span>

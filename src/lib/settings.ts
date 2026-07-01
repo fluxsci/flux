@@ -10,6 +10,12 @@ export interface Settings {
   fluxFigMenuAnim: FluxFigMenuAnim;
   fluxFigMenuOpacity: number; // 0.6 .. 1
   flexokiDefault: boolean; // ship the Flexoki palette in new projects
+  // Feature 11 — rulers / guides / grid.
+  showRulers: boolean; // H/V rulers along the canvas edges (Shift+R)
+  showGrid: boolean; // faint background grid at `gridSize`
+  gridSize: number; // world units
+  snapGrid: boolean; // snap moves/resizes to the grid
+  snapPixel: boolean; // round committed coords to whole pixels (crisp export)
 }
 
 const KEY = "flux.settings";
@@ -19,6 +25,11 @@ const DEFAULTS: Settings = {
   fluxFigMenuAnim: "draw",
   fluxFigMenuOpacity: 0.94,
   flexokiDefault: true,
+  showRulers: false,
+  showGrid: false,
+  gridSize: 8,
+  snapGrid: false,
+  snapPixel: false,
 };
 
 // Migrate legacy "forgery*" keys (the FluxFig Menu was formerly "The Forgery", M6)

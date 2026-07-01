@@ -32,6 +32,7 @@ export const ALLOWED_COMMANDS = [
   "set_z",
   "add_path",
   "edit_path",
+  "set_guides",
   "delete",
   "set_figure_layout",
   "duplicate_figure",
@@ -181,6 +182,15 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
         }),
       );
       return { id };
+    }
+
+    case "set_guides": {
+      const f = fig(c);
+      if (!f) throw new Error("set_guides: no active figure");
+      const arr = (v: unknown): number[] | undefined =>
+        Array.isArray(v) ? (v.filter((n) => typeof n === "number") as number[]) : undefined;
+      store.commit((p) => ops.setGuides(p, f, { x: arr(c.x), y: arr(c.y) }));
+      return { figureId: f };
     }
 
     case "delete": {

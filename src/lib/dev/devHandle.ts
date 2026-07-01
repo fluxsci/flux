@@ -9,6 +9,7 @@
 
 import { get, type Readable } from "svelte/store";
 import * as fig from "../store";
+import { settings } from "../settings";
 import * as panes from "../../shell/paneStore";
 import * as shell from "../../shell/shellStore";
 import * as caps from "../captions";
@@ -44,6 +45,8 @@ export interface FluxDevHandle {
   slideBridge: typeof slideBridge;
   /** Convenience: the current figures array. */
   figures: () => unknown[];
+  /** Editor settings store (rulers/grid/snap toggles, FluxFig Menu prefs). */
+  settings: typeof settings;
   /** Live CodeMirror editor views (one per open Paper pane). */
   editors: unknown[];
 }
@@ -64,6 +67,7 @@ export function installDevHandle(): void {
     slideOps,
     slideBridge,
     figures: () => get(fig.project).figures,
+    settings,
     editors: existing.editors ?? [],
   } satisfies FluxDevHandle;
 }
