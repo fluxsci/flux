@@ -16,6 +16,10 @@
     loadDeckModel,
     commitDeck,
     loadedProjectRoot,
+    undoDeck,
+    redoDeck,
+    canUndo,
+    canRedo,
   } from "../../../lib/slide/store";
   import {
     listProjectDecks,
@@ -58,6 +62,7 @@
   let insertables = $state<Insertables>({ figures: [], plots: [], images: [] });
   let insertOpen = $state(false);
   let presentOpen = $state(false);
+  let saveError = $state<string | null>(null);
 
   async function refreshAssets() {
     const d = get(deckStore);
@@ -215,8 +220,17 @@
       if (!ready || !pm || !d) return;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
-        await saveDeckFrom(pm.root);
-        decks = await listProjectDecks(pm.root);
+        try {
+          await saveDeckFrom(pm.root);
+          saveError = null;
+          decks = await listProjectDecks(pm.root);
+        } catch (e) {
+          // saveDeckFrom clears the dirty flag only on success, so the deck stays
+          // dirty and the next edit retries — surface the failure so a lectern
+          // autosave error isn't silent data loss.
+          console.error("SlideMode: autosave failed", e);
+          saveError = String((e as Error)?.message ?? e);
+        }
       }, 700);
     });
   });
@@ -235,6 +249,18 @@
   // Belt-and-suspenders: flush on window close while in slide mode.
   function flushOnExit() {
     if (pm && get(deckDirty)) void saveDeckFrom(pm.root);
+  }
+
+  // Retry a failed autosave on demand (click the "⚠ unsaved" chip).
+  async function retrySave() {
+    if (!pm) return;
+    try {
+      await saveDeckFrom(pm.root);
+      saveError = null;
+      decks = await listProjectDecks(pm.root);
+    } catch (e) {
+      saveError = String((e as Error)?.message ?? e);
+    }
   }
 
   function selectSlide(id: string) {
@@ -325,6 +351,17 @@
     if (next) selectSlide(next);
   }
 
+  // --- filmstrip drag-to-reorder ----------------------------------------------
+  let dragIdx = $state<number | null>(null);
+  let dropIdx = $state<number | null>(null);
+  function moveSlide(from: number, to: number) {
+    if (from == null || from === to || !deck) return;
+    const ids = deck.slides.map((s) => s.id);
+    const [moved] = ids.splice(from, 1);
+    ids.splice(to, 0, moved);
+    commitDeck((dd) => slideOps.reorderSlides(dd, ids));
+  }
+
   function onTitleInput(e: Event) {
     const v = (e.target as HTMLInputElement).value;
     commitDeck((dd) => { dd.title = v; });
@@ -411,6 +448,19 @@
       if (!$importerOpen) openPlotBrowser();
       return;
     }
+    // Undo / redo (deck-level history). After the input guard so a focused text
+    // field keeps its native undo; Cmd/Ctrl+Z everywhere else on the stage.
+    if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")) {
+      e.preventDefault();
+      if (e.shiftKey) redoDeck();
+      else undoDeck();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && (e.key === "y" || e.key === "Y")) {
+      e.preventDefault();
+      redoDeck();
+      return;
+    }
     if ($selection.length > 0) return;
     const i = deck.slides.findIndex((s) => s.id === $activeSlideId);
     if (e.key === "ArrowDown" || e.key === "PageDown") {
@@ -456,12 +506,19 @@
         title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
         {exporting ? "Exporting…" : "Export"}
       </button>
-      <span class="dirty" class:on={$deckDirty} title="Unsaved changes">●</span>
+      {#if saveError}
+        <button class="saveerr" title={`Autosave failed — ${saveError}. Your edits are still in memory; it will retry on the next change.`} onclick={retrySave}>⚠ unsaved</button>
+      {:else}
+        <span class="dirty" class:on={$deckDirty} title="Unsaved changes">●</span>
+      {/if}
     </div>
   </header>
 
   <!-- tools -->
   <div class="tools">
+    <button class="tool ic" onclick={undoDeck} disabled={!$canUndo} title="Undo (⌘/Ctrl+Z)" aria-label="Undo">↶</button>
+    <button class="tool ic" onclick={redoDeck} disabled={!$canRedo} title="Redo (⇧⌘/Ctrl+Z)" aria-label="Redo">↷</button>
+    <span class="div"></span>
     <button class="tool" onclick={addTitle} disabled={!activeSlide}>Title</button>
     <button class="tool" onclick={addText} disabled={!activeSlide}>Text</button>
     <button class="tool" onclick={addBullets} disabled={!activeSlide}>Bullets</button>
@@ -505,7 +562,14 @@
       {#if deck}
         {#each deck.slides as s, i (s.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="thumb" class:active={s.id === ($activeSlideId ?? activeSlide?.id)} onclick={() => selectSlide(s.id)}>
+          <div class="thumb" class:active={s.id === ($activeSlideId ?? activeSlide?.id)}
+            class:dragging={dragIdx === i} class:dropbefore={dropIdx === i && dragIdx !== null && dragIdx > i} class:dropafter={dropIdx === i && dragIdx !== null && dragIdx < i}
+            draggable="true"
+            ondragstart={(e) => { dragIdx = i; if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; }}
+            ondragover={(e) => { e.preventDefault(); dropIdx = i; if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; }}
+            ondrop={(e) => { e.preventDefault(); if (dragIdx !== null) moveSlide(dragIdx, i); dragIdx = null; dropIdx = null; }}
+            ondragend={() => { dragIdx = null; dropIdx = null; }}
+            onclick={() => selectSlide(s.id)}>
             <span class="n">{i + 1}</span>
             <div class="mini">
               <SlideStage slide={s} {theme} stage={deck.stage} interactive={false} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
@@ -638,6 +702,11 @@
   .btn.ghost { background: transparent; }
   .dirty { color: var(--c-tx-faint); opacity: 0; transition: opacity 0.15s; font-size: 12px; }
   .dirty.on { opacity: 1; color: var(--c-accent); }
+  .saveerr {
+    font-size: 11px; font-weight: 600; color: var(--c-on-accent, #100f0f);
+    background: var(--c-de, #d14d41); border: none; border-radius: var(--r-1); padding: 2px 8px; cursor: pointer;
+  }
+  .saveerr:hover { filter: brightness(1.08); }
   .tools {
     display: flex; align-items: center; gap: 5px; padding: 6px 12px;
     border-bottom: 1px solid var(--c-line); background: var(--c-bg-raised); flex: 0 0 auto;
@@ -647,6 +716,7 @@
     color: var(--c-tx-2); cursor: pointer; font-size: var(--ts-sm); padding: 3px 11px;
   }
   .tool:hover:not(:disabled) { border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .tool.ic { padding: 3px 8px; font-size: 15px; line-height: 1; }
   /* lit only while the plot importer is open (was a permanent .accent → looked stuck) */
   .tool.active { border-color: var(--c-accent); background: var(--c-accent); color: var(--c-on-accent); }
   .div { width: 1px; height: 18px; background: var(--c-line); margin: 0 4px; }
@@ -680,6 +750,10 @@
   }
   .thumb:hover { background: var(--c-accent-tint-2); }
   .thumb.active { border-color: var(--c-accent); background: var(--c-accent-tint-2); }
+  /* drag-to-reorder affordances */
+  .thumb.dragging { opacity: 0.4; }
+  .thumb.dropbefore { box-shadow: inset 0 2px 0 0 var(--c-accent); }
+  .thumb.dropafter { box-shadow: inset 0 -2px 0 0 var(--c-accent); }
   .thumb .n { grid-row: 1 / span 2; font-size: 11px; color: var(--c-tx-muted); text-align: right; font-variant-numeric: tabular-nums; }
   .mini { aspect-ratio: 16 / 9; border: 1px solid var(--c-line); border-radius: 3px; overflow: hidden; position: relative; background: #000; }
   .nm { font-size: 11px; color: var(--c-tx-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -15,7 +15,7 @@
   import { get } from "svelte/store";
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
   import { resizeRemap } from "../../../lib/editing";
-  import { commitDeck, selection, focusedPart } from "../../../lib/slide/store";
+  import { commitDeck, selection, focusedPart, sealHistory } from "../../../lib/slide/store";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import { setElementBox, deleteElements, findElement, setTextBoxText, setMathTex } from "../../../lib/slide/ops";
   import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
@@ -443,12 +443,17 @@
     const id = editingId;
     if (!id) return;
     const t = editingEl?.type;
+    // Coalesce the typing burst into ONE undo step (per element), so Cmd+Z after
+    // editing reverts the whole edit, not one character at a time.
     commitDeck((d) => {
       if (t === "textBox") setTextBoxText(d, id, editText);
       else if (t === "math") setMathTex(d, id, editText);
-    });
+    }, { coalesce: `edit:${id}` });
   }
-  function finishEdit() { editingId = null; }
+  function finishEdit() {
+    editingId = null;
+    sealHistory(); // end the coalesced typing run — the next edit is a fresh undo step
+  }
   function onEditKey(e: KeyboardEvent) {
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); finishEdit(); }
