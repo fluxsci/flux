@@ -10,6 +10,7 @@
   import { fileBridge } from "../lib/project/types";
   import { pushToast, type ToastLevel } from "../lib/toast";
   import { installLifecycle } from "./lifecycle";
+  import { warmModes, ALL_MODES } from "./modeRegistry";
   import { addUrlOrDoiToLibrary } from "./modes/paper/scholar/bibLoad";
   import { pdfFetchJob } from "../lib/references/pdfFetchJob.svelte";
 
@@ -33,8 +34,16 @@
     else showCapture("ok", `Added “${r.title || r.key}” to FluxLib ✓`, 3200);
   }
 
+  // W15: the workspace opens in paper mode — warm its chunk while the user is
+  // still on Home so the first entry is instant; once the workspace is showing,
+  // prefetch the remaining modes during idle time.
+  $effect(() => {
+    if ($view !== "home") warmModes(ALL_MODES);
+  });
+
   onMount(() => {
     installLifecycle(); // W5: consolidated beforeunload + quit-flush answering
+    warmModes(["paper"]); // the default first mode — ready before Home → Workspace
     // In Electron the preload sets window.fig before this runs; under the dev
     // fixture it can arrive a beat late, so retry briefly until the bridge appears.
     let unsub: (() => void) | undefined;
