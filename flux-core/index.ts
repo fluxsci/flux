@@ -323,13 +323,26 @@ async function importPlotAsset(
   const base = abs.replace(/\.svg$/i, "");
   const manifest = base + ".fluxplot.json";
   const recipe = base + ".recipe.json";
-  const source = (await exists(manifest))
-    ? {
-        svgPath: path.relative(root, abs),
-        manifestPath: path.relative(root, manifest),
-        recipePath: (await exists(recipe)) ? path.relative(root, recipe) : undefined,
-      }
-    : undefined;
+  let source: { svgPath: string; manifestPath?: string; recipePath?: string } | undefined;
+  if (await exists(manifest)) {
+    // AGT-1/AGT-11: copy the FluxPlot manifest (+ recipe) as ASSET-LOCAL sidecars
+    // (fig/assets/<id>.fluxplot.json). The GUI reconnects a plot's semantic parts
+    // ONLY from that path (figbridge.ts) — without it an agent-composed plot opens
+    // as an opaque <image> and the next human save bakes that in permanently. It
+    // also keeps the manifest in-root so headless render's group-override expansion
+    // works even when the original plot lives outside the project. `source` still
+    // records the original paths as provenance (used by rerun-plot regeneration).
+    await atomicWrite(j(root, "fig", "assets", `${assetId}.fluxplot.json`), await fs.readFile(manifest, "utf8"));
+    const hasRecipe = await exists(recipe);
+    if (hasRecipe) {
+      await atomicWrite(j(root, "fig", "assets", `${assetId}.recipe.json`), await fs.readFile(recipe, "utf8"));
+    }
+    source = {
+      svgPath: path.relative(root, abs),
+      manifestPath: path.relative(root, manifest),
+      recipePath: hasRecipe ? path.relative(root, recipe) : undefined,
+    };
+  }
   return { assetId, w, h, source };
 }
 
@@ -456,8 +469,20 @@ export async function renderFigureSvg(root: string, id: string): Promise<string>
       const svgText = await fs.readFile(j(root, "fig", rel), "utf8").catch(() => null);
       if (!svgText) continue;
       let manifest: FluxPlotManifest | undefined;
+      // Prefer the asset-local sidecar (always in-root, written on import/save) —
+      // then fall back to the original source manifest for older projects. AGT-11:
+      // source.manifestPath can point outside root (plot imported from elsewhere),
+      // where safeJoin throws; the asset-local copy avoids that entirely.
+      const aid = (el as { assetId?: string }).assetId;
+      if (aid) {
+        try {
+          manifest = JSON.parse(await fs.readFile(j(root, "fig", "assets", `${aid}.fluxplot.json`), "utf8")) as FluxPlotManifest;
+        } catch {
+          /* no asset-local sidecar — try the source manifest below */
+        }
+      }
       const src = (el as { source?: { manifestPath?: string } }).source;
-      if (src?.manifestPath) {
+      if (!manifest && src?.manifestPath) {
         try {
           manifest = JSON.parse(await fs.readFile(safeJoin(root, src.manifestPath), "utf8")) as FluxPlotManifest;
         } catch {
@@ -490,20 +515,24 @@ export async function renderFigurePng(root: string, id: string, scale = 2): Prom
   return Buffer.from(r.render().asPng());
 }
 
-/** set-caption: write fig/captions/<id>.md (the F7 single source) + index cache. */
+/** set-caption: store the caption in the figure's canvas model (its true home) and
+ *  emit the derived fig/captions/<id>.md + index cache. */
 export async function setCaption(root: string, figId: string, md: string): Promise<void> {
-  // W3: the caption file + index-cache update are one locked unit (the index
-  // write is a read-modify-write that must not interleave with a GUI save).
-  await withLock(root, "project", CLIENT, async () => {
-    await writeText(j(root, "fig", "captions", `${figId}.md`), md.endsWith("\n") ? md : md + "\n");
-    const index = await readFigIndex(root);
-    if (index) {
-      const f = index.figures.find((x) => x.id === figId);
-      if (f) {
-        f.caption = md.trim();
-        await saveFigIndex(root, index);
-      }
-    }
+  const trimmed = md.trim();
+  await mutateFigModel(root, "set_caption", async ({ project, index }) => {
+    const fig = project.figures.find((f) => f.id === figId);
+    if (!fig) throw new Error(`no figure "${figId}"`);
+    // AGT-2: the caption's true home is Figure.captions in the canvas file — the
+    // single source composeCaption() reads. Writing only fig/captions/<id>.md (as
+    // before) let the GUI's next save recompose from an empty captions map and
+    // silently wipe the agent's caption. Store it in the __figure__ block so the
+    // GUI reproduces it; still emit the derived .md + index cache for tools that
+    // read only those.
+    fig.captions = { ...(fig.captions ?? {}), __figure__: trimmed };
+    const composed = composeCaption(fig);
+    await writeText(j(root, "fig", "captions", `${figId}.md`), composed ? composed + "\n" : "");
+    const entry = index.figures.find((x) => x.id === figId);
+    if (entry) entry.caption = composed.trim();
   });
 }
 
@@ -888,8 +917,11 @@ bridge*).
 - \`project.json\` — manifest. \`manuscript/main.qmd\` — main manuscript (Quarto md);
   extra \`.qmd\` are more documents. \`references/library.bib\` — BibTeX (\`[@key]\`).
 - \`fig/index.json\` — figure rollup; \`fig/canvases/<id>.json\` — figure composition
-  (figures → elements); \`fig/captions/<id>.md\` — each figure's caption (the single
-  source). \`fig/assets/\` — imported panel SVGs.
+  (figures → elements, incl. each figure's \`captions\` map — the caption's true
+  home). \`fig/captions/<id>.md\` — the composed caption DERIVED from that map (use
+  \`set-caption\`, which updates both, rather than editing the .md directly — the GUI
+  recomposes the .md from the canvas on save). \`fig/assets/\` — imported panel SVGs
+  (+ a semantic plot's \`<id>.fluxplot.json\`/\`.recipe.json\` sidecars).
 - \`plots/\` — drop \`*.svg\` (+ optional \`*.fluxplot.json\` manifest and \`*.recipe.json\`)
   here; a plot with a manifest imports as a **semantic** panel whose parts are
   addressable + restylable (and survive regeneration).
