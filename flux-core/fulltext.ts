@@ -3,8 +3,20 @@
 // MCP tool (agent reading context). Page texts are joined with form-feeds so downstream
 // tools can recover page boundaries. The renderer reuses the text it already lays out.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { hasPdf, readPdf, readFulltext, writeFulltext } from "./items";
+
+// pdf.js is imported lazily: its legacy build runs `new DOMMatrix()` at module
+// load, which needs a native canvas polyfill (@napi-rs/canvas) that can't ship in
+// the packaged CLI bundle. A static import would crash the bundle at load for
+// EVERY verb (incl. slide export). Loading it on first use keeps the bundle inert
+// until an actual fulltext extraction runs. Marked external in scripts/build-cli.mjs.
+let _getDocument: any = null;
+async function getDocument(opts: any): Promise<any> {
+  if (!_getDocument) {
+    ({ getDocument: _getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs"));
+  }
+  return _getDocument(opts);
+}
 
 /** Join one page's text-content items, re-inserting line breaks on large Y jumps. */
 function pageText(items: any[]): string {

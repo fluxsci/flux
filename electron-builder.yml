@@ -32,6 +32,11 @@ asar: true
 npmRebuild: false
 asarUnpack:
   - node_modules/@lydell/**
+  # W13: the slide-export CLI runs in a child launched with ELECTRON_RUN_AS_NODE,
+  # which has NO asar support — so the bundle + its prebaked export assets must be
+  # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.
+  - dist/flux-cli.mjs
+  - dist/slide-export-assets.json
 
 # NOTE (macOS universal/dual-arch): the prebuilt binary is delivered as a
 # per-platform optional dependency, so `npm install` only fetches the host's

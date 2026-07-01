@@ -775,17 +775,30 @@ ipcMain.handle("recipe:run", async (_e, { recipePath, params = {} }) => {
   return { ...res, svgText, manifestText, recipeText: JSON.stringify(recipe) };
 });
 
+// W13: resolve the bundled CLI (dist/flux-cli.mjs — esbuild-built, self-contained).
+// Packaged, it's asar-UNPACKED (a child launched with ELECTRON_RUN_AS_NODE has no
+// asar support, so it must be on real disk); in dev it sits in <appRoot>/dist. If
+// the bundle hasn't been built yet in dev, fall back to running the .ts via tsx.
+function fluxCliArgs() {
+  const appRoot = path.resolve(__dirname, "..");
+  const bundled = app.isPackaged
+    ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs")
+    : path.join(appRoot, "dist", "flux-cli.mjs");
+  if (fs.existsSync(bundled)) return { appRoot, argv: [bundled] };
+  return { appRoot, argv: ["--import", "tsx", "flux-cli.ts"] }; // dev, unbuilt
+}
+
 // Slide export (E): emit a self-contained offline .html for a deck. The engine is
-// Node-only (esbuild bundles the runtime; fs inlines assets), so we run the same
-// `flux export-deck` CLI verb in a child process using Electron's bundled Node
-// (ELECTRON_RUN_AS_NODE) + the tsx loader. Returns the written path.
+// Node-only (prebaked runtime + inlined assets), so we run the `flux export-deck`
+// verb in a child process using Electron's bundled Node (ELECTRON_RUN_AS_NODE).
+// Returns the written path.
 ipcMain.handle("slides:exportDeck", async (_e, { root, deckId }) => {
   if (!root || !deckId) return { ok: false, error: "missing root or deckId" };
-  const appRoot = path.resolve(__dirname, "..");
+  const { appRoot, argv } = fluxCliArgs();
   const res = await new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      ["--import", "tsx", "flux-cli.ts", "export-deck", String(deckId), "--root", String(root)],
+      [...argv, "export-deck", String(deckId), "--root", String(root)],
       { cwd: appRoot, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } },
     );
     let err = "";

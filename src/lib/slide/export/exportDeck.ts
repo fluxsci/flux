@@ -5,7 +5,6 @@
 // presents offline on any modern browser (the "flash-drive file", D8).
 // ---------------------------------------------------------------------------
 
-import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
@@ -15,11 +14,27 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../../..");
 const runtimeEntry = path.join(here, "runtime.ts");
 
-let _runtime: string | null = null;
+// W13: the three deck-independent assets below (the runtime IIFE, the Gelasio
+// @font-face CSS, and the inlined KaTeX CSS) used to be computed on every export
+// — the runtime via esbuild-at-export-time, the fonts/KaTeX by reading `src/` and
+// `node_modules/`. None of those exist in a packaged app (node_modules is dropped,
+// `src/` is excluded, esbuild's native binary isn't shipped), so packaged slide
+// export was broken outright. They're all static, so we now PREBAKE them at build
+// time (scripts/gen-export-assets.ts → dist/slide-export-assets.json) and load the
+// sidecar at export time. `computeExportAssets()` is the build-time producer; the
+// fresh-compute path is still the dev fallback when no sidecar is present.
+
+export interface ExportAssets {
+  runtime: string;
+  gelasio: string;
+  katexCss: string;
+}
+
 /** Bundle the export runtime (player + render + morph + presets + motion + KaTeX)
- *  into a single minified IIFE exposing `FluxSlideRuntime`. Cached per process. */
-export async function bundleRuntime(): Promise<string> {
-  if (_runtime) return _runtime;
+ *  into a single minified IIFE exposing `FluxSlideRuntime`. esbuild is imported
+ *  dynamically so it stays out of the shipped CLI bundle (dev-only path). */
+async function computeRuntime(): Promise<string> {
+  const { build } = await import("esbuild");
   const out = await build({
     entryPoints: [runtimeEntry],
     bundle: true,
@@ -31,13 +46,12 @@ export async function bundleRuntime(): Promise<string> {
     write: false,
     legalComments: "none",
   });
-  _runtime = out.outputFiles[0].text;
-  return _runtime;
+  return out.outputFiles[0].text;
 }
 
 const b64 = (buf: Buffer) => buf.toString("base64");
 
-async function gelasioFontFaces(): Promise<string> {
+async function computeGelasio(): Promise<string> {
   const faces: string[] = [];
   const fonts = [
     { file: "Gelasio.woff2", style: "normal" },
@@ -59,7 +73,7 @@ async function gelasioFontFaces(): Promise<string> {
 
 /** Read KaTeX's CSS and inline its woff2 fonts as data URIs (drop woff/ttf src
  *  entries) so equations render offline. */
-async function katexCssInlined(): Promise<string> {
+async function computeKatexCss(): Promise<string> {
   const distDir = path.join(repoRoot, "node_modules/katex/dist");
   let css = await readFile(path.join(distDir, "katex.min.css"), "utf8");
   const woff2 = [...css.matchAll(/url\(fonts\/([\w-]+\.woff2)\)/g)].map((m) => m[1]);
@@ -76,6 +90,48 @@ async function katexCssInlined(): Promise<string> {
   return css;
 }
 
+/** Build-time producer: compute every deck-independent asset from source.
+ *  Called by scripts/gen-export-assets.ts to write the shipped sidecar. */
+export async function computeExportAssets(): Promise<ExportAssets> {
+  const [runtime, gelasio, katexCss] = await Promise.all([
+    computeRuntime(),
+    computeGelasio(),
+    computeKatexCss(),
+  ]);
+  return { runtime, gelasio, katexCss };
+}
+
+/** Candidate locations for the prebuilt sidecar, most-specific first:
+ *  1. next to this module (packaged: the CLI bundle + sidecar are unpacked siblings),
+ *  2. repoRoot/dist (dev, after `npm run build`). */
+function sidecarCandidates(): string[] {
+  return [
+    path.join(here, "slide-export-assets.json"),
+    path.join(repoRoot, "dist", "slide-export-assets.json"),
+  ];
+}
+
+let _assets: ExportAssets | null = null;
+/** Export-time consumer: prefer the prebuilt sidecar (required in a packaged app,
+ *  present in dev after a build); fall back to computing fresh (dev without build).
+ *  Cached per process. */
+async function loadExportAssets(): Promise<ExportAssets> {
+  if (_assets) return _assets;
+  for (const p of sidecarCandidates()) {
+    try {
+      const parsed = JSON.parse(await readFile(p, "utf8")) as ExportAssets;
+      if (parsed?.runtime) {
+        _assets = parsed;
+        return _assets;
+      }
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  _assets = await computeExportAssets();
+  return _assets;
+}
+
 export interface ExportResult {
   html: string;
   bytes: number;
@@ -85,14 +141,13 @@ export interface ExportResult {
 /** Build the self-contained HTML from a fully-gathered payload (deck + inlined
  *  plots/figures/assets). `warnThreshold` (bytes) flags video-heavy decks (§7.2). */
 export async function exportDeckHtml(payload: ExportPayload, opts: { warnThreshold?: number } = {}): Promise<ExportResult> {
+  const hasMath = payload.deck.slides.some((s) => s.elements.some((e) => e.type === "math"));
+  const assets = await loadExportAssets();
+  const runtime = assets.runtime;
+  const gelasio = assets.gelasio;
   // KaTeX CSS + its fonts weigh ~1 MB; only inline them when the deck actually has
   // an equation (C12). Most decks have none, so this is the biggest size win.
-  const hasMath = payload.deck.slides.some((s) => s.elements.some((e) => e.type === "math"));
-  const [runtime, gelasio, katexCss] = await Promise.all([
-    bundleRuntime(),
-    gelasioFontFaces(),
-    hasMath ? katexCssInlined() : Promise.resolve(""),
-  ]);
+  const katexCss = hasMath ? assets.katexCss : "";
   const warnings: string[] = [];
 
   // JSON for a <script type=application/json>: only `<` needs neutralizing.

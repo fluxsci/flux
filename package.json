@@ -12,14 +12,15 @@
   "license": "MIT",
   "homepage": "https://github.com/kortdriessen/flux",
   "bin": {
-    "flux": "flux-cli.ts"
+    "flux": "dist/flux-cli.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
+    "build:cli": "tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "flux": "tsx flux-cli.ts",
