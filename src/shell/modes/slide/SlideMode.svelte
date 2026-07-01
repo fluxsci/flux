@@ -63,8 +63,14 @@
   let insertables = $state<Insertables>({ figures: [], plots: [], images: [] });
   let insertOpen = $state(false);
   let presentOpen = $state(false);
+  let presentFromStart = $state(false);
   let saveError = $state<string | null>(null);
   let dragOver = $state(false);
+  function launchPresent(fromStart: boolean) {
+    if (!deck) return;
+    presentFromStart = fromStart;
+    presentOpen = true;
+  }
 
   async function refreshAssets() {
     const d = get(deckStore);
@@ -504,6 +510,12 @@
       if (!$importerOpen) openPlotBrowser();
       return;
     }
+    // F5 presents from the first slide; Shift+F5 from the current one (B22).
+    if (e.key === "F5") {
+      e.preventDefault();
+      launchPresent(!e.shiftKey);
+      return;
+    }
     // Undo / redo (deck-level history). After the input guard so a focused text
     // field keeps its native undo; Cmd/Ctrl+Z everywhere else on the stage.
     if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")) {
@@ -557,7 +569,7 @@
           <button class="zb" onclick={() => stepZoom(1.2)} disabled={$stageView.zoom >= ZOOM_MAX} aria-label="Zoom in">+</button>
         </div>
       {/if}
-      <button class="btn" onclick={() => (presentOpen = true)} disabled={!deck} title="Present (from current slide)">Present ▶</button>
+      <button class="btn" onclick={() => launchPresent(false)} disabled={!deck} title="Present from the current slide · F5 from the start, ⇧F5 from here">Present ▶</button>
       <button class="btn ghost" onclick={onExport} disabled={!deck || !canExport || exporting}
         title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
         {exporting ? "Exporting…" : "Export"}
@@ -696,7 +708,7 @@
     {theme}
     assetUrl={resolvers.assetUrl}
     figureSvg={resolvers.figureSvg}
-    start={{ slide: deck.slides.findIndex((s) => s.id === activeSlide.id), beat: 0 }}
+    start={{ slide: presentFromStart ? 0 : deck.slides.findIndex((s) => s.id === activeSlide.id), beat: 0 }}
     onClose={() => (presentOpen = false)} />
 {/if}
 

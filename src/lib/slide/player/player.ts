@@ -22,7 +22,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, type TargetNode, type PresetCtx, type NodeAnim } from "./presets";
 import { createMorph, type MorphController } from "./morph";
-import type { Deck, Slide, Track, EasingToken, Influence, StageSize, DeckTheme } from "../types";
+import type { Deck, Slide, Track, EasingToken, Influence, StageSize, DeckTheme, TransitionKind } from "../types";
 
 /** A unified handle the sequencer awaits + can interrupt — a WAAPI Animation or
  *  the morph's rAF driver both satisfy it. */
@@ -307,6 +307,8 @@ export interface Player {
   nextSlide(): void;
   prevSlide(): void;
   state(): PlayerState;
+  /** Pause/resume all videos on the current slide (blank-screen / away). */
+  setMediaPaused(paused: boolean): void;
   on(ev: Ev, cb: (s: PlayerState) => void): () => void;
   destroy(): void;
 }
@@ -346,6 +348,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     mount.style.background = slide.background ?? opts.theme.background;
     rendered = renderSlide(cameraLayer, slide, stage, renderCtx);
     specs = computeSlideAnims(slide, rendered, cameraLayer, stage, opts);
+    syncMedia();
   }
   function cancelActive() {
     for (const a of active) { try { a.cancel(); } catch { /* already gone */ } }
@@ -354,6 +357,36 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function curBeats(): number {
     return deck.slides[slideIndex]?.beats.length ?? 1;
+  }
+
+  // --- slide-to-slide transitions (§5.6): fade, or a directional slide/push -----
+  function slideTransition(kind: TransitionKind, forward: boolean) {
+    if (reduced || kind === "none") return;
+    if (kind === "slide" || kind === "push") {
+      const from = forward ? stage.width : -stage.width;
+      // animate the whole mount (not the camera layer) so a per-slide camera pose
+      // is untouched; the new slide travels in from the leading edge.
+      animate(mount, [{ transform: `translateX(${from}px)` }, { transform: "translateX(0px)" }],
+        { duration: DUR.gentle, easing: EASE.enter });
+    } else {
+      animate(cameraLayer, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.gentle, easing: EASE.enter });
+    }
+  }
+  const transitionOf = (si: number): TransitionKind => deck.slides[si]?.transition ?? deck.defaults?.transition ?? "fade";
+
+  // --- video playback (present only): autoplay on entry, pause on blank (B4/B15) -
+  function videos(): HTMLVideoElement[] {
+    return rendered ? Array.from(cameraLayer.querySelectorAll("video")) : [];
+  }
+  function syncMedia() {
+    if (opts.mode !== "present") return;
+    for (const v of videos()) if (v.dataset.autoplay === "1") { try { v.currentTime = 0; void v.play?.(); } catch { /* ignore */ } }
+  }
+  function setMediaPaused(paused: boolean) {
+    for (const v of videos()) {
+      if (paused) v.pause?.();
+      else if (v.dataset.autoplay === "1") { try { void v.play?.(); } catch { /* ignore */ } }
+    }
   }
 
   function goTo(si: number, bi: number, o: { animate?: boolean } = {}) {
@@ -372,12 +405,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       emit("beatStart"); emit("change");
       settle(active).then(() => { emit("beatEnd"); maybeAuto(); });
     } else {
+      const forward = si >= slideIndex;
       applyStatic(specs, bi);
       slideIndex = si; beatIndex = bi;
-      // slide-entry transition (§5.6): a quick fade unless reduced / "none".
-      if (slideChanged && !reduced && deck.slides[si].transition !== "none") {
-        animate(cameraLayer, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.gentle, easing: EASE.enter });
-      }
+      if (slideChanged) slideTransition(transitionOf(si), forward);
       emit("change");
     }
   }
@@ -412,10 +443,15 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function prev() {
     if (beatIndex > 0) {
       cancelActive();
-      let p = beatIndex - 1;
-      while (p > 0 && deck.slides[slideIndex].beats[p].advance === "with-prev") p--;
-      applyStatic(specs, p);
-      beatIndex = p;
+      // beatIndex is always a "landing" (a click beat's group-end). To reach the
+      // PREVIOUS landing, rewind to this group's start `s` (walk back over its own
+      // with-prev members) then step one before it — so we never rest on a partial
+      // frame mid-group (B2).
+      let s = beatIndex;
+      while (s > 0 && deck.slides[slideIndex].beats[s].advance === "with-prev") s--;
+      const target = Math.max(0, s - 1);
+      applyStatic(specs, target);
+      beatIndex = target;
       emit("change");
     } else if (slideIndex > 0) {
       prevSlide();
@@ -431,6 +467,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       slideIndex = target;
       beatIndex = deck.slides[target].beats.length - 1;
       applyStatic(specs, beatIndex);
+      slideTransition(transitionOf(target), false); // reverse: enters from the left
       emit("change");
     }
   }
@@ -448,7 +485,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
 
   goTo(0, 0);
-  return { goTo, next, prev, nextSlide, prevSlide, state, on, destroy };
+  return { goTo, next, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** Editor helper: render a slide and freeze it at `beat`'s static state (so the

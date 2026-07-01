@@ -182,6 +182,8 @@ function fillVideo(w: HTMLElement, el: Extract<SlideElement, { type: "video" }>,
   v.loop = el.loop ?? false;
   v.controls = el.controls ?? false;
   v.playsInline = true;
+  // Marker the present player reads to autoplay on slide entry (not in the editor).
+  if (el.autoplay) v.dataset.autoplay = "1";
   if (el.poster) {
     const purl = ctx.assetUrl?.(el.poster);
     if (purl) v.poster = purl;
