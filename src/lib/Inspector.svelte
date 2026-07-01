@@ -234,6 +234,14 @@
             on:scrub={(e) => scrubSelected((el) => setDim(el, "h", e.detail))} />
         </div>
       {/if}
+      <div class="row">
+        <NumberField label="Rotation°" value={single.rotation} step={1}
+          on:commit={(e) => updateSelected((el) => (el.rotation = e.detail))}
+          on:scrub={(e) => scrubSelected((el) => (el.rotation = e.detail))} />
+        <NumberField label="Opacity" value={single.opacity ?? 1} step={0.05} min={0} max={1}
+          on:commit={(e) => updateSelected((el) => (el.opacity = e.detail))}
+          on:scrub={(e) => scrubSelected((el) => (el.opacity = e.detail))} />
+      </div>
     </section>
   {:else if sel.length > 1}
     <section><h4>{sel.length} selected</h4></section>

@@ -22,6 +22,7 @@ export const ALLOWED_COMMANDS = [
   "clear_selection",
   "restyle_part",
   "set_style",
+  "rotate",
   "arrange",
   "align",
   "distribute",
@@ -70,6 +71,17 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       const list = ids(c);
       store.commit((p) => ops.setElementStyle(p, list, (c.patch ?? {}) as ops.ElementStylePatch));
       return { styled: list.length };
+    }
+
+    case "rotate": {
+      const list = ids(c);
+      const deg = num(c.deg) ?? num(c.degrees) ?? 0;
+      const pivot =
+        c.pivot && typeof c.pivot === "object"
+          ? (c.pivot as { x: number; y: number })
+          : undefined;
+      store.commit((p) => ops.rotateElements(p, list, deg, pivot));
+      return { rotated: list.length, deg };
     }
 
     case "arrange": {

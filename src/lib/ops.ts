@@ -32,6 +32,8 @@ import {
   arrangeGrid,
   alignElements,
   distributeElements,
+  rotateAbout,
+  selectionBBox,
   gridItemCount,
   validRowCounts,
   balancedRows,
@@ -303,6 +305,29 @@ export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): vo
     cols = Math.ceil(n / balancedRows(n));
   }
   arrangeGrid(els, cols, opts.gap != null ? { gap: opts.gap } : {});
+}
+
+/** Rotate elements by `deltaDeg` about a pivot (default = the group-expanded
+ *  selection's bbox centre). Group-expands like the other layout ops so a whole
+ *  group orbits rigidly. Backs the rotate handle + the `rotate` bridge/CLI verb;
+ *  a single element about its own centre is equivalent to set_style{rotation}. */
+export function rotateElements(
+  p: Project,
+  ids: Id[],
+  deltaDeg: number,
+  pivot?: { x: number; y: number },
+): void {
+  const set = new Set(ids);
+  for (const f of p.figures) {
+    if (!f.elements.some((e) => set.has(e.id))) continue;
+    const targets = targetEls(f, ids);
+    let piv = pivot;
+    if (!piv) {
+      const b = selectionBBox(targets);
+      piv = b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : { x: 0, y: 0 };
+    }
+    rotateAbout(targets, piv, deltaDeg);
+  }
 }
 
 export function alignPanels(p: Project, figId: Id, kind: AlignKind, ids?: Id[]): void {

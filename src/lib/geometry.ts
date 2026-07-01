@@ -152,6 +152,34 @@ export function flipElements(els: Element[], axis: "h" | "v") {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Rotate — turn each element by `deltaDeg` about a shared pivot. Each element's
+// rotation field is incremented (rendered as rotate() about its own centre in
+// Element.svelte/export.ts) AND its centre orbits the pivot, so a multi-element
+// selection rotates rigidly as a group. For a single element rotated about its
+// own centre the orbit is a no-op (it just spins in place). Delta-based so the
+// GUI can drive it live and ops.rotateElements/agents can apply a one-shot turn.
+// ---------------------------------------------------------------------------
+export function rotateAbout(els: Element[], pivot: { x: number; y: number }, deltaDeg: number) {
+  if (!deltaDeg) {
+    for (const e of els) e.rotation = (e.rotation ?? 0) + deltaDeg;
+    return;
+  }
+  const rad = (deltaDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  for (const e of els) {
+    const b = elementBBox(e);
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    const nx = pivot.x + (cx - pivot.x) * cos - (cy - pivot.y) * sin;
+    const ny = pivot.y + (cx - pivot.x) * sin + (cy - pivot.y) * cos;
+    e.x += nx - cx;
+    e.y += ny - cy;
+    e.rotation = (e.rotation ?? 0) + deltaDeg;
+  }
+}
+
 // Distribute spacing evenly between elements along an axis.
 export function distributeElements(els: Element[], axis: "h" | "v") {
   if (els.length < 3) return;

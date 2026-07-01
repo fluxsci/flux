@@ -30,6 +30,7 @@
     elementBBox,
     selectionBBox,
     rectsIntersect,
+    rotateAbout,
     type Rect,
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap } from "./editing";
@@ -83,6 +84,14 @@
     | { kind: "marquee"; figId: string; x0: number; y0: number; add: Set<string> }
     | { kind: "draw"; figId: string; x0: number; y0: number }
     | {
+        kind: "rotate";
+        figId: string;
+        cx: number;
+        cy: number;
+        startAngle: number;
+        origs: Map<string, Element>;
+      }
+    | {
         kind: "figmove";
         figId: string;
         sx: number;
@@ -112,6 +121,7 @@
   let marquee: Rect | null = null; // figure-local
   let preview: Element | null = null;
   let guides: { x?: number; y?: number }[] = [];
+  let rotateTip = ""; // live angle readout during a rotate drag
 
   function ensureCommitted() {
     if (!committed) {
@@ -554,6 +564,31 @@
     hostEl.setPointerCapture(e.pointerId);
   }
 
+  // Rotate handle (F2): drag rotates the selection about its bbox centre. The
+  // model is updated live (from the captured originals so the delta never
+  // compounds); Shift snaps the primary element's resulting angle to 15°.
+  function onRotateDown(e: PointerEvent) {
+    e.stopPropagation();
+    if ($captionOpen) return;
+    const fig = activeFigure();
+    if (!fig || !overlayBox) return;
+    const sel = selectedEls(fig);
+    if (!sel.length) return;
+    const cx = overlayBox.x + overlayBox.w / 2;
+    const cy = overlayBox.y + overlayBox.h / 2;
+    const lp = localPoint(e.clientX, e.clientY, fig);
+    const startAngle = (Math.atan2(lp.y - cy, lp.x - cx) * 180) / Math.PI;
+    const origs = new Map<string, Element>();
+    for (const el of sel) origs.set(el.id, structuredClone(el));
+    gesture = { kind: "rotate", figId: fig.id, cx, cy, startAngle, origs };
+    gestureFig = fig;
+    gestureEls = sel;
+    committed = false;
+    dragging = false;
+    rotateTip = "";
+    hostEl.setPointerCapture(e.pointerId);
+  }
+
   function startDragging() {
     if (!dragging) {
       dragging = true;
@@ -649,6 +684,31 @@
       startDragging();
       gNb = nb;
       liveBox = nb;
+    } else if (g.kind === "rotate") {
+      const lp = localPoint(e.clientX, e.clientY, fig);
+      let delta = (Math.atan2(lp.y - g.cy, lp.x - g.cx) * 180) / Math.PI - g.startAngle;
+      dragging = true;
+      ensureCommitted(); // first move captures the pre-rotation state (one undo)
+      mutate((p) => {
+        const f = p.figures.find((ff) => ff.id === g.figId);
+        if (!f) return;
+        const sel: Element[] = [];
+        for (const el of f.elements) {
+          const o = g.origs.get(el.id);
+          if (!o) continue;
+          el.x = o.x; // restore originals so the delta doesn't compound
+          el.y = o.y;
+          el.rotation = o.rotation;
+          sel.push(el);
+        }
+        if (e.shiftKey && sel.length) {
+          const base = g.origs.get(sel[0].id)?.rotation ?? 0;
+          delta = Math.round((base + delta) / 15) * 15 - base;
+        }
+        rotateAbout(sel, { x: g.cx, y: g.cy }, delta);
+        const a = ((((sel[0]?.rotation ?? 0) % 360) + 360) % 360);
+        rotateTip = `${Math.round(a)}°`;
+      });
     } else if (g.kind === "marquee") {
       const lp = localPoint(e.clientX, e.clientY, fig);
       const r: Rect = { x: Math.min(g.x0, lp.x), y: Math.min(g.y0, lp.y), w: Math.abs(lp.x - g.x0), h: Math.abs(lp.y - g.y0) };
@@ -729,6 +789,7 @@
     marquee = null;
     guides = [];
     liveBox = null;
+    rotateTip = "";
     gDX = 0;
     gDY = 0;
     fDX = 0;
@@ -1195,6 +1256,25 @@
     {#if selScreen && !editingInfo}
       <rect class="sel-box" x={selScreen.x} y={selScreen.y} width={selScreen.w} height={selScreen.h} fill="none" />
       {#if !$captionOpen && !selLocked}
+        <!-- rotate handle: circle above the top-centre resize handle, on a stem -->
+        <line
+          class="rot-stem"
+          x1={selScreen.x + selScreen.w / 2}
+          y1={selScreen.y}
+          x2={selScreen.x + selScreen.w / 2}
+          y2={selScreen.y - 15}
+        />
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <circle
+          class="rot-handle"
+          cx={selScreen.x + selScreen.w / 2}
+          cy={selScreen.y - 20}
+          r="5"
+          on:pointerdown={onRotateDown}
+        />
+        {#if gesture?.kind === "rotate" && rotateTip}
+          <text class="rot-tip" x={selScreen.x + selScreen.w / 2 + 12} y={selScreen.y - 18}>{rotateTip}</text>
+        {/if}
         {#each handlesScreen as hd}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <rect
@@ -1374,6 +1454,27 @@
     stroke: var(--c-accent);
     stroke-width: 1.5;
     pointer-events: all;
+  }
+  .rot-stem {
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .rot-handle {
+    fill: var(--c-tx-hi);
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    pointer-events: all;
+    cursor: grab;
+  }
+  .rot-tip {
+    fill: var(--c-tx-hi);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    paint-order: stroke;
+    stroke: var(--c-canvas);
+    stroke-width: 3px;
+    pointer-events: none;
   }
   .marquee {
     fill: var(--c-accent-tint);
