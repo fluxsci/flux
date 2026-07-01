@@ -126,6 +126,8 @@
   let marquee: Rect | null = null; // figure-local
   let preview: Element | null = null;
   let guides: { x?: number; y?: number }[] = [];
+  // Equal-spacing snap dimension lines during a move (F7), figure-local.
+  let spacing: { x1: number; y1: number; x2: number; y2: number; label: string }[] = [];
   let rotateTip = ""; // live angle readout during a rotate drag
 
   function ensureCommitted() {
@@ -810,6 +812,50 @@
     return { off, line };
   }
 
+  // Equal-spacing snap candidate (F7): if the moving bbox M sits between two
+  // row/column neighbours (siblings sharing M's cross-axis band), the offset that
+  // makes both gaps equal + the two dimension lines that show it. Null if there's
+  // no straddling pair or the equal position is out of threshold.
+  function equalGap(M: Rect, sibs: Rect[], axis: "h" | "v", thr: number) {
+    const band = sibs.filter((s) =>
+      axis === "h" ? s.y < M.y + M.h && s.y + s.h > M.y : s.x < M.x + M.w && s.x + s.w > M.x,
+    );
+    const mc = axis === "h" ? M.x + M.w / 2 : M.y + M.h / 2;
+    let left: Rect | null = null;
+    let right: Rect | null = null;
+    for (const s of band) {
+      const sc = axis === "h" ? s.x + s.w / 2 : s.y + s.h / 2;
+      if (sc < mc) {
+        if (!left || (axis === "h" ? s.x + s.w > left.x + left.w : s.y + s.h > left.y + left.h)) left = s;
+      } else if (!right || (axis === "h" ? s.x < right.x : s.y < right.y)) right = s;
+    }
+    if (!left || !right) return null;
+    if (axis === "h") {
+      const gap = (right.x - (left.x + left.w) - M.w) / 2;
+      if (gap < 0) return null;
+      const off = left.x + left.w + gap - M.x;
+      if (Math.abs(off) > thr) return null;
+      const y = M.y + M.h / 2;
+      const nx = M.x + off;
+      const lbl = `${Math.round(gap)}`;
+      return { off, lines: [
+        { x1: left.x + left.w, y1: y, x2: nx, y2: y, label: lbl },
+        { x1: nx + M.w, y1: y, x2: right.x, y2: y, label: lbl },
+      ] };
+    }
+    const gap = (right.y - (left.y + left.h) - M.h) / 2;
+    if (gap < 0) return null;
+    const off = left.y + left.h + gap - M.y;
+    if (Math.abs(off) > thr) return null;
+    const x = M.x + M.w / 2;
+    const ny = M.y + off;
+    const lbl = `${Math.round(gap)}`;
+    return { off, lines: [
+      { x1: x, y1: left.y + left.h, x2: x, y2: ny, label: lbl },
+      { x1: x, y1: ny + M.h, x2: x, y2: right.y, label: lbl },
+    ] };
+  }
+
   function onHandleDown(e: PointerEvent, handle: Handle) {
     e.stopPropagation();
     if ($captionOpen) return; // read-only while the caption editor is open
@@ -939,23 +985,40 @@
       let dx = lockAxis === "y" ? 0 : rawDx;
       let dy = lockAxis === "x" ? 0 : rawDy;
       const nextGuides: { x?: number; y?: number }[] = [];
+      const nextSpacing: typeof spacing = [];
       if (!e.altKey) {
         const thr = 6 / $viewport.zoom;
         const mx = g.ob.x + dx;
         const my = g.ob.y + dy;
         const sX = snap([mx, mx + g.ob.w / 2, mx + g.ob.w], g.xs, thr);
         const sY = snap([my, my + g.ob.h / 2, my + g.ob.h], g.ys, thr);
+        // sibling bboxes for equal-spacing (F7) — excludes the moving set + hidden
+        const movedIds = new Set(gestureEls.map((el) => el.id));
+        const sibs = fig.elements.filter((el) => !movedIds.has(el.id) && !el.hidden).map(elementBBox);
         if (sX.line != null && lockAxis !== "y") {
           dx += sX.off;
           nextGuides.push({ x: sX.line });
+        } else if (lockAxis !== "y") {
+          const eg = equalGap({ x: g.ob.x + dx, y: g.ob.y + dy, w: g.ob.w, h: g.ob.h }, sibs, "h", thr);
+          if (eg) {
+            dx += eg.off;
+            nextSpacing.push(...eg.lines);
+          }
         }
         if (sY.line != null && lockAxis !== "x") {
           dy += sY.off;
           nextGuides.push({ y: sY.line });
+        } else if (lockAxis !== "x") {
+          const eg = equalGap({ x: g.ob.x + dx, y: g.ob.y + dy, w: g.ob.w, h: g.ob.h }, sibs, "v", thr);
+          if (eg) {
+            dy += eg.off;
+            nextSpacing.push(...eg.lines);
+          }
         }
       }
       startDragging();
       guides = nextGuides;
+      spacing = nextSpacing;
       gDX = dx;
       gDY = dy;
       liveBox = { x: g.ob.x + dx, y: g.ob.y + dy, w: g.ob.w, h: g.ob.h };
@@ -1084,6 +1147,7 @@
     preview = null;
     marquee = null;
     guides = [];
+    spacing = [];
     liveBox = null;
     rotateTip = "";
     gDX = 0;
@@ -1498,6 +1562,20 @@
           label: l.label,
         }))
       : [];
+  // Equal-spacing dimension lines during a move (F7) — same red rendering.
+  $: spacingScreen =
+    spacing.length && af
+      ? spacing.map((l) => ({
+          x1: $viewport.panX + (af!.x + l.x1) * $viewport.zoom,
+          y1: $viewport.panY + (af!.y + l.y1) * $viewport.zoom,
+          x2: $viewport.panX + (af!.x + l.x2) * $viewport.zoom,
+          y2: $viewport.panY + (af!.y + l.y2) * $viewport.zoom,
+          mx: $viewport.panX + (af!.x + (l.x1 + l.x2) / 2) * $viewport.zoom,
+          my: $viewport.panY + (af!.y + (l.y1 + l.y2) / 2) * $viewport.zoom,
+          horizontal: l.y1 === l.y2,
+          label: l.label,
+        }))
+      : [];
 
   // Highlight box for a selected plot PART (screen px). getBoundingClientRect
   // already accounts for every ancestor transform (zoom / pan / figure /
@@ -1716,6 +1794,20 @@
 
     <!-- measurement caliper (Alt + selection): red gap dimensions -->
     {#each measureScreen as m}
+      <line class="measure" x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2} />
+      {#if m.horizontal}
+        <line class="measure" x1={m.x1} y1={m.y1 - 4} x2={m.x1} y2={m.y1 + 4} />
+        <line class="measure" x1={m.x2} y1={m.y2 - 4} x2={m.x2} y2={m.y2 + 4} />
+      {:else}
+        <line class="measure" x1={m.x1 - 4} y1={m.y1} x2={m.x1 + 4} y2={m.y1} />
+        <line class="measure" x1={m.x2 - 4} y1={m.y2} x2={m.x2 + 4} y2={m.y2} />
+      {/if}
+      <rect class="measure-bg" x={m.mx - (m.label.length * 3.5 + 5)} y={m.my - 8} width={m.label.length * 7 + 10} height="16" rx="3" />
+      <text class="measure-label" x={m.mx} y={m.my} text-anchor="middle" dominant-baseline="central">{m.label}</text>
+    {/each}
+
+    <!-- equal-spacing snap dimensions (F7, during a move) -->
+    {#each spacingScreen as m}
       <line class="measure" x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2} />
       {#if m.horizontal}
         <line class="measure" x1={m.x1} y1={m.y1 - 4} x2={m.x1} y2={m.y1 + 4} />

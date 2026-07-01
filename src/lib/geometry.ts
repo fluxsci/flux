@@ -206,7 +206,32 @@ export function rotateAbout(els: Element[], pivot: { x: number; y: number }, del
 }
 
 // Distribute spacing evenly between elements along an axis.
-export function distributeElements(els: Element[], axis: "h" | "v") {
+export function distributeElements(els: Element[], axis: "h" | "v", gap?: number) {
+  // Exact-gap mode (Feature 7): anchor the first item along the axis and place
+  // each subsequent one so every consecutive edge-to-edge gap equals `gap`.
+  // Works with ≥2 items (unlike equal-distribution, which needs ≥3).
+  if (gap != null) {
+    if (els.length < 2) return;
+    const items = els
+      .map((e) => ({ e, b: elementBBox(e) }))
+      .sort((a, z) => (axis === "h" ? a.b.x - z.b.x : a.b.y - z.b.y));
+    if (axis === "h") {
+      let cursor = items[0].b.x + items[0].b.w;
+      for (let i = 1; i < items.length; i++) {
+        cursor += gap;
+        items[i].e.x += cursor - items[i].b.x;
+        cursor += items[i].b.w;
+      }
+    } else {
+      let cursor = items[0].b.y + items[0].b.h;
+      for (let i = 1; i < items.length; i++) {
+        cursor += gap;
+        items[i].e.y += cursor - items[i].b.y;
+        cursor += items[i].b.h;
+      }
+    }
+    return;
+  }
   if (els.length < 3) return;
   const items = els
     .map((e) => ({ e, b: elementBBox(e) }))

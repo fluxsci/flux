@@ -32,6 +32,8 @@
   // Arrange controls (mouse equivalents of the Alt+G grid mode). `arrN` is the
   // number of layout cells (a group counts once); the section hides below 2.
   $: arrN = sel.length >= 2 ? gridItemCount(sel) : 0;
+  // Exact-gap distribute (Feature 7): the gutter applied by the Gap H/V buttons.
+  let gapVal = 24;
   function stepRows(d: number) {
     const v = validRowCounts(arrN);
     let i = v.indexOf(get(lastArrangeRows));
@@ -164,6 +166,15 @@
       <button on:click={() => doDistribute("h")}>Distribute H</button>
       <button on:click={() => doDistribute("v")}>Distribute V</button>
     </div>
+    {#if sel.length >= 2}
+      <div class="row gaprow">
+        <NumberField label="Gap" value={gapVal} min={0}
+          on:commit={(e) => (gapVal = e.detail)}
+          on:scrub={(e) => (gapVal = e.detail)} />
+        <button title="Exact gap horizontally" on:click={() => doDistribute("h", gapVal)}>Gap H</button>
+        <button title="Exact gap vertically" on:click={() => doDistribute("v", gapVal)}>Gap V</button>
+      </div>
+    {/if}
   </section>
 
   <!-- ARRANGE -->

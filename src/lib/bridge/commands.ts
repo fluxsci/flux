@@ -110,7 +110,7 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
     case "distribute": {
       const f = fig(c);
       if (!f) throw new Error("distribute: no active figure");
-      store.commit((p) => ops.distributePanels(p, f, c.axis === "v" ? "v" : "h", ids(c)));
+      store.commit((p) => ops.distributePanels(p, f, c.axis === "v" ? "v" : "h", ids(c), num(c.gap)));
       return { figureId: f };
     }
 

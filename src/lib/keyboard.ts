@@ -91,8 +91,8 @@ function withSelected(fn: (els: Element[], figId: string) => void) {
 function doAlign(kind: AlignKind) {
   withSelected((els) => alignElements(els, kind));
 }
-function doDistribute(axis: "h" | "v") {
-  withSelected((els) => distributeElements(els, axis));
+function doDistribute(axis: "h" | "v", gap?: number) {
+  withSelected((els) => distributeElements(els, axis, gap));
 }
 
 // ---------------------------------------------------------------------------

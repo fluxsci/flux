@@ -394,10 +394,10 @@ export function alignPanels(p: Project, figId: Id, kind: AlignKind, ids?: Id[]):
   alignElements(targetEls(f, ids), kind);
 }
 
-export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: Id[]): void {
+export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: Id[], gap?: number): void {
   const f = figById(p, figId);
   if (!f) return;
-  distributeElements(targetEls(f, ids), axis);
+  distributeElements(targetEls(f, ids), axis, gap);
 }
 
 // ---------------------------------------------------------------------------
