@@ -80,17 +80,30 @@ function publishHistory(): void {
  *  drag) into one undo entry: the pre-state is captured on the first commit of the
  *  run only. A discrete edit (no key, or a new key) starts a fresh undo step. */
 export function commitDeck(mutate: (d: Deck) => void, opts?: { coalesce?: string }): void {
-  const d = get(deck);
-  if (!d) return;
+  const cur = get(deck);
+  if (!cur) return;
   const key = opts?.coalesce ?? null;
   if (!key || key !== coalesceKey) {
-    past.push(structuredClone(d));
+    past.push(structuredClone(cur));
     if (past.length > MAX_HISTORY) past.shift();
     future.length = 0;
   }
   coalesceKey = key;
-  mutate(d);
-  deck.set(structuredClone(d));
+  // SLD-4: mutate a fresh clone (leaving `cur` intact to diff against), then publish
+  // a deck that REUSES each unchanged slide's object reference. A single-slide edit
+  // (the typing/scrub hot path) therefore leaves every OTHER slide's reference
+  // identical, so its filmstrip thumbnail (SlideStage keys its render on the slide
+  // prop) doesn't re-run renderSlide — no per-keystroke importNode/KaTeX/DOM rebuild
+  // across the whole deck. The mutated slide(s) get fresh refs so they DO re-render.
+  const draft = structuredClone(cur);
+  mutate(draft);
+  const curById = new Map(cur.slides.map((s) => [s.id, s] as const));
+  const curJson = new Map(cur.slides.map((s) => [s.id, JSON.stringify(s)] as const));
+  const slides = draft.slides.map((s) => {
+    const old = curById.get(s.id);
+    return old && curJson.get(s.id) === JSON.stringify(s) ? old : s;
+  });
+  deck.set({ ...draft, slides });
   markDeckEdited();
   publishHistory();
 }

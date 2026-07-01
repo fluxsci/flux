@@ -104,7 +104,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
     const clock = `${Math.floor(elapsed / 60)}:${twoDig(elapsed % 60)}`;
     panel.innerHTML =
       `<div style="display:flex;justify-content:space-between;align-items:baseline">` +
-      `<span style="font:600 21px ui-monospace,monospace;color:#fff">${clock}</span>` +
+      `<span class="pv-clock" style="font:600 21px ui-monospace,monospace;color:#fff">${clock}</span>` +
       `<span style="font-size:11px;color:rgba(255,255,255,.45)">slide ${st.slide + 1}/${st.totalSlides} · beat ${st.beat + 1}/${st.totalBeats}</span></div>` +
       `<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.4)">${nextIdx >= 0 ? "Next" : "End of deck"}</div>`;
     if (nextIdx >= 0) {
@@ -127,7 +127,15 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
     hint.textContent = `S notes · M motion ${reducedMotion ? "off" : "on"} · B/W blank · R reset · F full`;
     panel.appendChild(hint);
   }
-  setInterval(() => { elapsed++; if (showPanel) renderPanel(); }, 1000);
+  // SLD-12: the per-second timer must only update the CLOCK text — the old code
+  // re-ran the whole panel render (incl. renderStaticAt of the next-slide preview:
+  // importNode + KaTeX + DOM rebuild) every second. The preview only changes on
+  // navigation (player "change" → renderPanel), so tick just the clock here.
+  function tickClock() {
+    const el = panel.querySelector(".pv-clock");
+    if (el) el.textContent = `${Math.floor(elapsed / 60)}:${twoDig(elapsed % 60)}`;
+  }
+  setInterval(() => { elapsed++; if (showPanel) tickClock(); }, 1000);
 
   let blank: HTMLElement | null = null;
   function toggleBlank(color: string) {
@@ -154,7 +162,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       case "w": case "W": toggleBlank("#fff"); break;
       case "f": case "F": document.fullscreenElement ? document.exitFullscreen() : mount.requestFullscreen?.(); break;
       case "s": case "S": showPanel = !showPanel; panel.style.display = showPanel ? "flex" : "none"; renderPanel(); break;
-      case "r": case "R": elapsed = 0; renderPanel(); break;
+      case "r": case "R": elapsed = 0; tickClock(); break;
       case "m": case "M": reducedMotion = !reducedMotion; buildPlayer(player.state()); renderPanel(); break;
     }
   }

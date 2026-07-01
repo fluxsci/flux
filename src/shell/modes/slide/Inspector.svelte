@@ -7,7 +7,7 @@
   // Geometry/opacity/lock route through the pure `setElementBox` op; slide fields
   // through `setSlide`; style fields the ops don't cover are mutated directly on the
   // element found inside the commit callback (find → narrow → assign).
-  import { deck as deckStore, selection, activeSlideId, commitDeck } from "../../../lib/slide/store";
+  import { deck as deckStore, selection, activeSlideId, commitDeck, sealHistory } from "../../../lib/slide/store";
   import * as slideOps from "../../../lib/slide/ops";
   import { resolveTheme } from "../../../lib/slide/theme";
   import type { SlideElement, TextBlock, LayoutId, TransitionKind } from "../../../lib/slide/types";
@@ -47,17 +47,19 @@
     return Number.isFinite(n) ? n : fallback;
   }
 
-  function commitBox(id: string, patch: Parameters<typeof slideOps.setElementBox>[2]) {
-    commitDeck((d) => slideOps.setElementBox(d, id, patch));
+  // SLD-5: `coalesce` folds a burst of same-key commits (a slider drag, a typing
+  // run) into ONE undo step instead of one-per-tick; seal it on blur/pointer-up.
+  function commitBox(id: string, patch: Parameters<typeof slideOps.setElementBox>[2], coalesce?: string) {
+    commitDeck((d) => slideOps.setElementBox(d, id, patch), coalesce ? { coalesce } : undefined);
   }
 
   // Mutate an element's fields directly (for style the ops don't cover). The
   // callback re-narrows by `type` so the assignment is type-checked.
-  function commitEl(id: string, fn: (el: SlideElement) => void) {
+  function commitEl(id: string, fn: (el: SlideElement) => void, coalesce?: string) {
     commitDeck((d) => {
       const found = slideOps.findElement(d, id);
       if (found) fn(found.el);
-    });
+    }, coalesce ? { coalesce } : undefined);
   }
 
   // Changing the layout on an EMPTY slide scaffolds it (A16); on a slide that
@@ -68,10 +70,10 @@
       if (empty) slideOps.applyLayoutStarters(d, sid, layout);
     });
   }
-  function commitSlide(patch: Parameters<typeof slideOps.setSlide>[2]) {
+  function commitSlide(patch: Parameters<typeof slideOps.setSlide>[2], coalesce?: string) {
     const sid = activeSlide?.id;
     if (!sid) return;
-    commitDeck((d) => slideOps.setSlide(d, sid, patch));
+    commitDeck((d) => slideOps.setSlide(d, sid, patch), coalesce ? { coalesce } : undefined);
   }
 
   // setSlide can't clear `background` (it ignores null); delete the field to fall
@@ -98,12 +100,12 @@
       if (el.type === "textBox") el.blocks = el.blocks.filter((b) => b.id !== blockId);
     });
   }
-  function setBlock(id: string, blockId: string, fn: (b: TextBlock) => void) {
+  function setBlock(id: string, blockId: string, fn: (b: TextBlock) => void, coalesce?: string) {
     commitEl(id, (el) => {
       if (el.type !== "textBox") return;
       const b = el.blocks.find((x) => x.id === blockId);
       if (b) fn(b);
-    });
+    }, coalesce);
   }
 
   // --- multi-selection --------------------------------------------------------
@@ -111,7 +113,7 @@
     const ids = selectedEls.map((e) => e.id);
     commitDeck((d) => {
       for (const id of ids) slideOps.setElementBox(d, id, { opacity: v });
-    });
+    }, { coalesce: "opacity-all" });
   }
   function deleteSelected() {
     const ids = selectedEls.map((e) => e.id);
@@ -172,7 +174,8 @@
       <label class="rng">
         <span class="rng-head"><span>Opacity</span><span class="val">{Math.round((el.opacity ?? 1) * 100)}%</span></span>
         <input type="range" min="0" max="1" step="0.01" value={el.opacity ?? 1}
-          oninput={(e) => commitBox(el.id, { opacity: Number(e.currentTarget.value) })} />
+          oninput={(e) => commitBox(el.id, { opacity: Number(e.currentTarget.value) }, `opacity:${el.id}`)}
+          onchange={() => sealHistory()} />
       </label>
       <label class="chk">
         <input type="checkbox" checked={el.locked ?? false}
@@ -188,7 +191,8 @@
         {#each el.blocks as block (block.id)}
           <div class="block">
             <textarea rows="2" value={block.text}
-              oninput={(e) => { const v = e.currentTarget.value; setBlock(el.id, block.id, (b) => (b.text = v)); }}
+              oninput={(e) => { const v = e.currentTarget.value; setBlock(el.id, block.id, (b) => (b.text = v), `block:${block.id}`); }}
+              onblur={() => sealHistory()}
             ></textarea>
             <div class="blk-head">
               <label>Marker
@@ -281,7 +285,8 @@
       <section>
         <h4>Equation</h4>
         <textarea class="mono" rows="3" value={el.tex} spellcheck="false"
-          oninput={(e) => { const v = e.currentTarget.value; commitEl(el.id, (x) => { if (x.type === "math") x.tex = v; }); }}
+          oninput={(e) => { const v = e.currentTarget.value; commitEl(el.id, (x) => { if (x.type === "math") x.tex = v; }, `tex:${el.id}`); }}
+          onblur={() => sealHistory()}
         ></textarea>
         <label class="chk">
           <input type="checkbox" checked={el.display ?? false}
@@ -403,7 +408,7 @@
         <label class="rng">
           <span class="rng-head"><span>Opacity (all)</span><span class="val">{Math.round((first.opacity ?? 1) * 100)}%</span></span>
           <input type="range" min="0" max="1" step="0.01" value={first.opacity ?? 1}
-            oninput={(e) => setOpacityAll(Number(e.currentTarget.value))} />
+            oninput={(e) => setOpacityAll(Number(e.currentTarget.value))} onchange={() => sealHistory()} />
         </label>
       </section>
       <section>
@@ -471,7 +476,8 @@
     <section>
       <h4>Speaker notes</h4>
       <textarea rows="5" value={s.notes ?? ""} placeholder="Notes for the presenter view…"
-        oninput={(e) => { const v = e.currentTarget.value; commitSlide({ notes: v }); }}
+        oninput={(e) => { const v = e.currentTarget.value; commitSlide({ notes: v }, `notes:${s.id}`); }}
+        onblur={() => sealHistory()}
       ></textarea>
     </section>
   {:else}
