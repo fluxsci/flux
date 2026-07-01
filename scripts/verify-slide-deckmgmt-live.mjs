@@ -20,7 +20,8 @@ const clickAct = (deckIndex, sel) =>
 try {
   await gotoApp(page, { url: APP_URL + "?fixture=demo", settle: 1800 });
   await clickMode(page, "Slide");
-  await sleep(1200);
+  // wait until the deck picker has rendered its first deck (robust under load)
+  for (let i = 0; i < 40 && (await deckTitles()).length === 0; i++) await sleep(200);
 
   // ensure at least 2 decks: click "+ New deck"
   await page.evaluate(() => document.querySelector(".deckpicker .dp-new")?.click());
