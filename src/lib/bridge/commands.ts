@@ -8,6 +8,7 @@
 import { get } from "svelte/store";
 import * as store from "../store";
 import * as ops from "../ops";
+import { flipElements } from "../geometry";
 import type { AlignKind } from "../geometry";
 import type { PartOverride, VectorNode } from "../types";
 
@@ -40,6 +41,12 @@ export const ALLOWED_COMMANDS = [
   "set_figure_layout",
   "duplicate_figure",
   "create_figure",
+  // W11d (FIG-8): live-bridge authoring — create content, not just restyle it.
+  "add_text",
+  "add_plot",
+  "add_image",
+  "flip",
+  "set_caption",
 ] as const;
 
 export async function dispatchCommand(c: Command): Promise<unknown> {
@@ -271,6 +278,94 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
         }).id;
       });
       return { figureId: nid };
+    }
+
+    // --- W11d (FIG-8): authoring — the same create verbs a human has, live ---
+
+    case "add_text": {
+      const f = fig(c);
+      if (!f) throw new Error("add_text: no active figure");
+      const text = typeof c.text === "string" ? c.text : "Text";
+      let nid: string | null = null;
+      store.commit((p) => {
+        nid = ops.addText(p, f, {
+          text,
+          x: num(c.x) ?? 0,
+          y: num(c.y) ?? 0,
+          width: num(c.width) ?? 200,
+          height: num(c.height) ?? 40,
+          ...(typeof c.color === "string" ? { color: c.color } : {}),
+          ...(num(c.fontSize) != null ? { fontSize: num(c.fontSize) } : {}),
+        } as Parameters<typeof ops.addText>[2]);
+      });
+      if (nid) store.selectOnly(nid);
+      return { id: nid };
+    }
+
+    case "add_plot": {
+      const f = fig(c);
+      if (!f) throw new Error("add_plot: no active figure");
+      const assetId = typeof c.assetId === "string" ? c.assetId : null;
+      if (!assetId) throw new Error("add_plot: assetId required (an already-imported plot asset)");
+      let nid: string | null = null;
+      store.commit((p) => {
+        nid = ops.addPlotPanel(p, f, {
+          assetId,
+          x: num(c.x) ?? 0,
+          y: num(c.y) ?? 0,
+          width: num(c.width) ?? 320,
+          height: num(c.height) ?? 240,
+        });
+      });
+      if (nid) store.selectOnly(nid);
+      return { id: nid };
+    }
+
+    case "add_image": {
+      const f = fig(c);
+      if (!f) throw new Error("add_image: no active figure");
+      const assetId = typeof c.assetId === "string" ? c.assetId : null;
+      if (!assetId) throw new Error("add_image: assetId required (an already-imported image asset)");
+      let nid: string | null = null;
+      store.commit((p) => {
+        nid = ops.addImagePanel(p, f, {
+          assetId,
+          kind: c.kind === "svg" ? "svg" : "image",
+          x: num(c.x) ?? 0,
+          y: num(c.y) ?? 0,
+          width: num(c.width) ?? 320,
+          height: num(c.height) ?? 240,
+        });
+      });
+      if (nid) store.selectOnly(nid);
+      return { id: nid };
+    }
+
+    case "flip": {
+      const f = fig(c);
+      if (!f) throw new Error("flip: no active figure");
+      const list = ids(c);
+      const axis = c.axis === "v" ? "v" : "h";
+      store.commit((p) => {
+        const figure = ops.figById(p, f);
+        if (!figure) return;
+        const sel = new Set(list);
+        flipElements(figure.elements.filter((e) => sel.has(e.id)), axis);
+      });
+      return { figureId: f, flipped: list.length, axis };
+    }
+
+    case "set_caption": {
+      const f = fig(c);
+      if (!f) throw new Error("set_caption: no active figure");
+      const text = typeof c.text === "string" ? c.text : typeof c.markdown === "string" ? c.markdown : "";
+      const key = typeof c.panel === "string" ? c.panel : "__figure__";
+      store.commit((p) => {
+        const figure = ops.figById(p, f);
+        if (!figure) return;
+        figure.captions = { ...(figure.captions ?? {}), [key]: text };
+      });
+      return { figureId: f, panel: key };
     }
 
     default:

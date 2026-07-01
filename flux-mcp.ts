@@ -1152,7 +1152,7 @@ server.registerTool(
   "dispatch_command",
   {
     description:
-      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}, {type:'select',ids:['el_…']}. Types: select, clear_selection, restyle_part, set_style, arrange, align, distribute, auto_label, group, ungroup, set_z, delete, set_figure_layout, duplicate_figure, create_figure.",
+      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select, clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group, ungroup, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption.",
     inputSchema: { command: z.record(z.any()) },
   },
   async ({ command }) => ok("dispatched: " + JSON.stringify(await live.dispatchCommand(ROOT, command))),

@@ -11,6 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { get } from "svelte/store";
 import * as store from "../src/lib/store";
+import { setFocusedMode } from "../src/shell/paneStore";
 import { getAppContext } from "../src/lib/bridge/appContext";
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import * as live from "../flux-core/liveClient";
@@ -26,6 +27,7 @@ function assert(cond: unknown, msg: string) {
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-bridge-"));
 store.embeddedProjectRoot.set(root); // so context.projectRoot resolves
+setFocusedMode("figure"); // AGT-14: surface now reflects the REAL focused mode (default is paper)
 
 // Wire the server to the renderer logic (this is exactly what the Electron IPC
 // relay does, minus the process boundary).
@@ -89,6 +91,21 @@ try {
   store.selectOnly("plotX");
   const ctx2 = (await live.getAppContext(root)) as { selection: string[]; partSelection: unknown };
   assert(ctx2.selection.includes("plotX"), "context reflects the new selection");
+
+  // W11d (FIG-8): authoring over the bridge — an in-app agent can now CREATE, not
+  // just restyle. add_text → flip → set_caption, each the same undoable edit.
+  const activeFig = get(store.activeFigureId)!;
+  const t = (await live.dispatchCommand(root, { type: "add_text", text: "Bridge label", x: 10, y: 20, fontSize: 24 })) as { id: string };
+  const textEl = get(store.project).figures.flatMap((f) => f.elements).find((e) => e.id === t.id) as { type: string; text?: string } | undefined;
+  assert(textEl?.type === "text" && textEl.text === "Bridge label", "add_text created a text element with the given text");
+
+  await live.dispatchCommand(root, { type: "flip", ids: [t.id], axis: "h" });
+  const flipped = get(store.project).figures.flatMap((f) => f.elements).find((e) => e.id === t.id) as { flipX?: boolean };
+  assert(flipped.flipX === true, "flip toggled the element's flipX");
+
+  await live.dispatchCommand(root, { type: "set_caption", figureId: activeFig, text: "A live caption." });
+  const capFig = get(store.project).figures.find((f) => f.id === activeFig) as { captions?: Record<string, string> };
+  assert(capFig.captions?.__figure__ === "A live caption.", "set_caption wrote Figure.captions.__figure__");
 
   // Auth: a wrong token is rejected.
   const info = JSON.parse(await fs.readFile(path.join(root, ".meta", "live", "bridge.json"), "utf8"));
