@@ -32,6 +32,7 @@
     selectionBBox,
     rectsIntersect,
     rotateAbout,
+    gapBetween,
     type Rect,
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap } from "./editing";
@@ -61,6 +62,7 @@
   const HS = 9; // on-screen handle size in px (constant)
 
   let spaceDown = false;
+  let altDown = false; // Feature 3 measurement caliper (Alt held, not mid-drag)
 
   type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
@@ -1133,6 +1135,7 @@
     const t = e.target as HTMLElement;
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA";
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
+    if (e.key === "Alt") altDown = true; // caliper (measure) mode
     if (typing) return;
 
     // Node-edit mode owns the keyboard (keyboard.ts yields on nodeEditId).
@@ -1176,6 +1179,11 @@
   }
   function onKeyUp(e: KeyboardEvent) {
     if (e.code === "Space") spaceDown = false;
+    if (e.key === "Alt") altDown = false;
+  }
+  function onWinBlur() {
+    spaceDown = false;
+    altDown = false; // don't leave the caliper stuck on if focus leaves mid-hold
   }
 
   let prevTool = $activeTool;
@@ -1434,6 +1442,63 @@
     }
     return { nodes, mids };
   })();
+
+  // Feature 3 — measurement caliper. Alt + a live selection: red dimension lines
+  // to the hovered element's edges (equal-gutter checking) or, over empty space,
+  // to the figure edges. Pure overlay; suppressed mid-gesture so Alt-drag-dup and
+  // Alt-disable-snap keep working.
+  $: measure = (() => {
+    if (!altDown || !af || gesture || dragging || editPathId || $captionOpen || $activeTool !== "select") return null;
+    const sel = af.elements.filter((e) => $selection.has(e.id));
+    if (!sel.length) return null;
+    const S = selectionBBox(sel);
+    if (!S) return null;
+    const r = (v: number) => `${Math.round(v)}`;
+    const lines: { x1: number; y1: number; x2: number; y2: number; label: string }[] = [];
+    const tgt = $hoverId && !$selection.has($hoverId) ? af.elements.find((e) => e.id === $hoverId && !e.hidden) : null;
+    if (tgt) {
+      const T = elementBBox(tgt);
+      const g = gapBetween(S, T);
+      if (!g.overlapX) {
+        const L = S.x < T.x ? S : T;
+        const R = S.x < T.x ? T : S;
+        const yT = Math.max(S.y, T.y);
+        const yB = Math.min(S.y + S.h, T.y + T.h);
+        const y = yB > yT ? (yT + yB) / 2 : (S.y + S.h / 2 + (T.y + T.h / 2)) / 2;
+        lines.push({ x1: L.x + L.w, y1: y, x2: R.x, y2: y, label: r(R.x - (L.x + L.w)) });
+      }
+      if (!g.overlapY) {
+        const U = S.y < T.y ? S : T;
+        const D = S.y < T.y ? T : S;
+        const xL = Math.max(S.x, T.x);
+        const xR = Math.min(S.x + S.w, T.x + T.w);
+        const x = xR > xL ? (xL + xR) / 2 : (S.x + S.w / 2 + (T.x + T.w / 2)) / 2;
+        lines.push({ x1: x, y1: U.y + U.h, x2: x, y2: D.y, label: r(D.y - (U.y + U.h)) });
+      }
+    } else {
+      const cx = S.x + S.w / 2;
+      const cy = S.y + S.h / 2;
+      lines.push({ x1: 0, y1: cy, x2: S.x, y2: cy, label: r(S.x) });
+      lines.push({ x1: S.x + S.w, y1: cy, x2: af.width, y2: cy, label: r(af.width - (S.x + S.w)) });
+      lines.push({ x1: cx, y1: 0, x2: cx, y2: S.y, label: r(S.y) });
+      lines.push({ x1: cx, y1: S.y + S.h, x2: cx, y2: af.height, label: r(af.height - (S.y + S.h)) });
+    }
+    return lines.filter((l) => Math.hypot(l.x2 - l.x1, l.y2 - l.y1) > 0.5);
+  })();
+  $: measureScreen =
+    measure && af
+      ? measure.map((l) => ({
+          x1: $viewport.panX + (af!.x + l.x1) * $viewport.zoom,
+          y1: $viewport.panY + (af!.y + l.y1) * $viewport.zoom,
+          x2: $viewport.panX + (af!.x + l.x2) * $viewport.zoom,
+          y2: $viewport.panY + (af!.y + l.y2) * $viewport.zoom,
+          mx: $viewport.panX + (af!.x + (l.x1 + l.x2) / 2) * $viewport.zoom,
+          my: $viewport.panY + (af!.y + (l.y1 + l.y2) / 2) * $viewport.zoom,
+          horizontal: l.y1 === l.y2,
+          label: l.label,
+        }))
+      : [];
+
   // Highlight box for a selected plot PART (screen px). getBoundingClientRect
   // already accounts for every ancestor transform (zoom / pan / figure /
   // nested-viewBox), so we just subtract the host origin. Re-measures on
@@ -1508,6 +1573,7 @@
 <svelte:window
   on:keydown={onKeyDown}
   on:keyup={onKeyUp}
+  on:blur={onWinBlur}
   on:dragover|preventDefault
   on:drop|preventDefault
 />
@@ -1647,6 +1713,20 @@
     {#if hoverInfo}
       <rect class="hover-box" x={hoverInfo.x} y={hoverInfo.y} width={hoverInfo.w} height={hoverInfo.h} fill="none" />
     {/if}
+
+    <!-- measurement caliper (Alt + selection): red gap dimensions -->
+    {#each measureScreen as m}
+      <line class="measure" x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2} />
+      {#if m.horizontal}
+        <line class="measure" x1={m.x1} y1={m.y1 - 4} x2={m.x1} y2={m.y1 + 4} />
+        <line class="measure" x1={m.x2} y1={m.y2 - 4} x2={m.x2} y2={m.y2 + 4} />
+      {:else}
+        <line class="measure" x1={m.x1 - 4} y1={m.y1} x2={m.x1 + 4} y2={m.y1} />
+        <line class="measure" x1={m.x2 - 4} y1={m.y2} x2={m.x2 + 4} y2={m.y2} />
+      {/if}
+      <rect class="measure-bg" x={m.mx - (m.label.length * 3.5 + 5)} y={m.my - 8} width={m.label.length * 7 + 10} height="16" rx="3" />
+      <text class="measure-label" x={m.mx} y={m.my} text-anchor="middle" dominant-baseline="central">{m.label}</text>
+    {/each}
 
     <!-- selection box + handles (hidden during node-edit — nodes stand in) -->
     {#if selScreen && !editingInfo && !editPathId}
@@ -1967,6 +2047,23 @@
     stroke-width: 1;
     pointer-events: none;
   }
+  /* --- measurement caliper (Feature 3) --- */
+  .measure {
+    stroke: #e5484d;
+    stroke-width: 1;
+    pointer-events: none;
+  }
+  .measure-bg {
+    fill: #e5484d;
+    pointer-events: none;
+  }
+  .measure-label {
+    fill: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
   .pen-line {
     fill: none;
     stroke: var(--c-accent);

@@ -46,6 +46,31 @@ export function rectsIntersect(a: Rect, b: Rect): boolean {
   );
 }
 
+// Edge-to-edge gap between two rects, per axis (Feature 3 caliper). `dx`/`dy` are
+// the positive clear distance along each axis (0 when the rects overlap on that
+// axis); `overlapX`/`overlapY` say whether they share a band on that axis. Pure;
+// backs the measurement overlay (which draws the gap where !overlap).
+export function gapBetween(
+  a: Rect,
+  b: Rect,
+): { dx: number; dy: number; overlapX: boolean; overlapY: boolean } {
+  const ar = a.x + a.w;
+  const ab = a.y + a.h;
+  const br = b.x + b.w;
+  const bb = b.y + b.h;
+  let dx = 0;
+  let overlapX = false;
+  if (b.x >= ar) dx = b.x - ar; // b entirely right of a
+  else if (a.x >= br) dx = a.x - br; // b entirely left of a
+  else overlapX = true;
+  let dy = 0;
+  let overlapY = false;
+  if (b.y >= ab) dy = b.y - ab;
+  else if (a.y >= bb) dy = a.y - bb;
+  else overlapY = true;
+  return { dx, dy, overlapX, overlapY };
+}
+
 export function pointInRect(px: number, py: number, r: Rect): boolean {
   return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
 }
