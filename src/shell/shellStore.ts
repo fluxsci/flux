@@ -10,6 +10,7 @@ import {
 import { scaffoldProject } from "../lib/project/scaffold";
 import { loadProject, NotAProjectError } from "../lib/project/load";
 import { startProjectWatch, stopProjectWatch } from "../lib/project/projectWatch";
+import { flushAll } from "./lifecycle";
 import { reconcileProject } from "../lib/references/fluxlibBridge";
 import { bumpBibRevision } from "./scholar/revisions";
 import { resetPanes } from "./paneStore";
@@ -103,7 +104,10 @@ function enterInMemory(name: string) {
   startProjectWatch(null);
 }
 
-export function goHome() {
+export async function goHome() {
+  // W5: leaving the project is a flush point — the destroy-time flushes this
+  // used to rely on were fire-and-forget (unawaited async in onDestroy).
+  await flushAll();
   stopProjectWatch();
   view.set("home");
 }

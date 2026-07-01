@@ -43,6 +43,7 @@
   import { pushToast, errMsg } from "../../../lib/toast";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave } from "../../../lib/autosave";
+  import { registerFlushable } from "../../lifecycle";
   import { popIn } from "../../../lib/motion/actions";
   import {
     commentField,
@@ -379,17 +380,17 @@
     if (!pm) return;
     clearTimeout(commentSaveTimer);
     commentSaveTimer = setTimeout(() => {
-      // Refresh each anchor from its live range before persisting.
-      const doc = view?.state.doc.toString() ?? latest;
-      const persist: CommentThread[] = threads
-        .filter((t) => !t.draft)
-        .map((t) => {
-          const r = cRanges.get(t.id);
-          const anchor = r ? makeAnchor(doc, r.from, r.to) : t.anchor;
-          return { id: t.id, anchor, resolved: t.resolved, messages: t.messages };
-        });
-      void writeComments(pm, persist, activeDocPath);
+      commentSaveTimer = undefined;
+      void persistThreadsTo(activeDocPath);
     }, 600);
+  }
+
+  /** W5: flush a pending comment save now (registry/exit path). */
+  async function flushComments() {
+    if (!pm || commentSaveTimer === undefined) return;
+    clearTimeout(commentSaveTimer);
+    commentSaveTimer = undefined;
+    await persistThreadsTo(activeDocPath);
   }
 
   function startComment() {
@@ -688,8 +689,9 @@
   }
 
   // ---- F4: document switching --------------------------------------------
-  function persistThreadsTo(docPath: string) {
-    if (!pm) return;
+  function persistThreadsTo(docPath: string): Promise<void> {
+    if (!pm) return Promise.resolve();
+    // Refresh each anchor from its live range before persisting.
     const doc = view?.state.doc.toString() ?? latest;
     const persist: CommentThread[] = threads
       .filter((t) => !t.draft)
@@ -698,15 +700,16 @@
         const anchor = r ? makeAnchor(doc, r.from, r.to) : t.anchor;
         return { id: t.id, anchor, resolved: t.resolved, messages: t.messages };
       });
-    void writeComments(pm, persist, docPath);
+    return writeComments(pm, persist, docPath);
   }
 
   async function loadDocument(path: string) {
     if (!pm || !view || path === activeDocPath) return;
     // Persist the current document (text + comments) before switching away.
     clearTimeout(commentSaveTimer);
+    commentSaveTimer = undefined;
     await autosave.flush();
-    persistThreadsTo(activeDocPath);
+    await persistThreadsTo(activeDocPath);
 
     const text = (await readManuscript(pm, path)) || "";
     threads = [];
@@ -803,12 +806,26 @@
     if (!pm) return;
     applyDiskText((await readManuscript(pm, activeDocPath)) || "");
   }
+  // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
+  const unregFlush = registerFlushable({
+    id: "paper",
+    isDirty: () => !!pm && !saved,
+    flush: () => autosave.flush(),
+  });
+  const unregComments = registerFlushable({
+    id: "paper-comments",
+    isDirty: () => commentSaveTimer !== undefined,
+    flush: () => flushComments(),
+  });
+
   onDestroy(() => {
     void flush();
+    void flushComments();
     autosave.dispose();
+    unregFlush();
+    unregComments();
     subs.forEach((u) => u());
     clearTimeout(hoverHideTimer);
-    clearTimeout(commentSaveTimer);
   });
 
   // ---- dynamic margin -----------------------------------------------------

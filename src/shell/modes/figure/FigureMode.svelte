@@ -23,6 +23,7 @@
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
   import { bumpFigRevision } from "../../scholar/revisions";
   import { createAutosave } from "../../../lib/autosave";
+  import { registerFlushable } from "../../lifecycle";
 
   // Only handle figure shortcuts while this pane is focused, so they don't fire
   // while the user is typing in another (e.g. Write) pane.
@@ -71,11 +72,19 @@
     });
   });
 
+  // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
+  const unregFlush = registerFlushable({
+    id: "figure",
+    isDirty: () => !!pm && get(figDirty),
+    flush: () => autosave.flush(),
+  });
+
   onDestroy(() => {
     unsubDirty?.();
     unsubReveal?.();
     void autosave.flush();
     autosave.dispose();
+    unregFlush();
     embeddedProjectRoot.set(null);
   });
 </script>

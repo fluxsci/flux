@@ -31,7 +31,12 @@ export async function loadBib(root: string | null): Promise<void> {
   } catch {
     return;
   }
-  if (!text.trim()) {
+  // A comment-only / whitespace-only .bib is valid BibLaTeX with zero entries
+  // (this is exactly the freshly-materialized project bib: just the `% …` header).
+  // Citation.js throws "format not recognized" on such input, so short-circuit
+  // before parsing — no entries, no error.
+  const atCount = (text.match(/^[ \t]*@/gm) ?? []).length;
+  if (!text.trim() || atCount === 0) {
     bibEntries.set([]);
     bibError.set(null);
     return;
@@ -43,7 +48,6 @@ export async function loadBib(root: string | null): Promise<void> {
     bibEntries.set(entries);
     // M12: parsed, but a non-empty file yielding nothing usually means malformed
     // entries Citation.js skipped — say so rather than silently showing "no refs".
-    const atCount = (text.match(/^[ \t]*@/gm) ?? []).length;
     bibError.set(
       atCount > 0 && entries.length === 0
         ? `Couldn't parse library.bib — 0 of ~${atCount} entries loaded.`

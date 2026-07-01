@@ -9,6 +9,7 @@
   import { DUR } from "../lib/motion/tokens";
   import { fileBridge } from "../lib/project/types";
   import { pushToast, type ToastLevel } from "../lib/toast";
+  import { installLifecycle } from "./lifecycle";
   import { addUrlOrDoiToLibrary } from "./modes/paper/scholar/bibLoad";
   import { pdfFetchJob } from "../lib/references/pdfFetchJob.svelte";
 
@@ -33,6 +34,7 @@
   }
 
   onMount(() => {
+    installLifecycle(); // W5: consolidated beforeunload + quit-flush answering
     // In Electron the preload sets window.fig before this runs; under the dev
     // fixture it can arrive a beat late, so retry briefly until the bridge appears.
     let unsub: (() => void) | undefined;

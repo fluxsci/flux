@@ -44,6 +44,7 @@
   import { plotManifests, plotGen } from "../../../lib/plot/store";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave } from "../../../lib/autosave";
+  import { registerFlushable } from "../../lifecycle";
   import SlideStage from "./SlideStage.svelte";
   import Inspector from "./Inspector.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
@@ -253,7 +254,6 @@
     }
     ready = true;
     canExport = canExportDeck();
-    if (typeof window !== "undefined") window.addEventListener("beforeunload", flushOnExit);
     unsubDirty = deckDirty.subscribe((d) => {
       if (!ready || !pm || !d) return;
       touchActivityLock("slides"); // W3: defer concurrent agent deck writes while mid-edit
@@ -261,21 +261,24 @@
     });
   });
 
+  // W5: the shell's dirty registry replaces this mode's private beforeunload —
+  // goHome/quit/reload now flush every registered mode through one protocol.
+  const unregFlush = registerFlushable({
+    id: "slide",
+    isDirty: () => !!pm && get(deckDirty),
+    flush: () => autosave.flush(),
+  });
+
   onDestroy(() => {
     unsubDirty?.();
     player?.destroy();
-    if (typeof window !== "undefined") window.removeEventListener("beforeunload", flushOnExit);
     // Flush pending edits to disk, but DO NOT clearDeck() — the live deck is kept
     // in the module-level store so a quick round-trip to another mode reuses it
     // (see onMount's `live` guard). clearDeck() is reserved for true project close.
     void autosave.flush();
     autosave.dispose();
+    unregFlush();
   });
-
-  // Belt-and-suspenders: flush on window close while in slide mode.
-  function flushOnExit() {
-    void autosave.flush();
-  }
 
   function selectSlide(id: string) {
     activeSlideId.set(id);
