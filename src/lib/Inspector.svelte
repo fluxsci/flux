@@ -2,7 +2,7 @@
   import { get } from "svelte/store";
   import { project, selection, partSelection, activeFigureId, commit, mutate, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
   import type { Element } from "./types";
-  import { doAlign, doDistribute, arrangeToRows } from "./keyboard";
+  import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
   import { exportFigurePng, exportFigureSvg, exportFigurePdf } from "./io";
@@ -192,6 +192,26 @@
       </div>
     {/if}
   </section>
+
+  <!-- SELECT SAME / STYLE (F9 + F10) -->
+  {#if sel.length >= 1}
+    <section>
+      <h4>Select &amp; style</h4>
+      {#if single}
+        <div class="row" style="flex-wrap:wrap;gap:4px;">
+          <span style="opacity:.6;font-size:11px;width:100%;">Select same…</span>
+          <button title="Select all with the same fill (Cmd/Ctrl+Alt+A)" on:click={() => selectMatching("fill")}>Fill</button>
+          <button title="Select all with the same stroke" on:click={() => selectMatching("stroke")}>Stroke</button>
+          <button title="Select all with the same font" on:click={() => selectMatching("font")}>Font</button>
+          <button title="Select all of the same type" on:click={() => selectMatching("type")}>Type</button>
+        </div>
+      {/if}
+      <div class="row">
+        <button title="Copy style (Cmd/Ctrl+Alt+C)" disabled={!single} on:click={copyStyle}>Copy style</button>
+        <button title="Paste style (Cmd/Ctrl+Alt+V)" on:click={pasteStyle}>Paste style</button>
+      </div>
+    </section>
+  {/if}
 
   <!-- ARRANGE -->
   {#if arrN >= 2}

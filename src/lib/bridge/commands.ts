@@ -35,6 +35,7 @@ export const ALLOWED_COMMANDS = [
   "set_guides",
   "duplicate",
   "scale",
+  "select_matching",
   "delete",
   "set_figure_layout",
   "duplicate_figure",
@@ -216,6 +217,22 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       const pivot = px != null && py != null ? { x: px, y: py } : undefined;
       store.commit((p) => ops.scaleElements(p, list, factor, pivot));
       return { scaled: list.length, factor };
+    }
+
+    case "select_matching": {
+      const by = (c.by as ops.MatchBy) ?? "fill";
+      const scope = c.scope === "project" ? "project" : "figure";
+      const p = get(store.project);
+      let matched: string[] = [];
+      if (typeof c.value === "string") {
+        matched = ops.matchByValue(p, by, c.value, scope, fig(c) ?? undefined);
+      } else {
+        const ref = ids(c)[0];
+        if (!ref) throw new Error("select_matching: no reference element (select one or pass value)");
+        matched = ops.matchElements(p, ref, by, scope);
+      }
+      store.selection.set(new Set(store.expandGroups(p, new Set(matched))));
+      return { matched: matched.length };
     }
 
     case "delete": {

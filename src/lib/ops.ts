@@ -449,6 +449,40 @@ export function group(p: Project, ids: Id[]): Id | null {
   return gid;
 }
 
+// Select-all-with-same (Feature 9). The comparable value of an element for a given
+// facet — fill / stroke / font / type — or null when the facet doesn't apply.
+export type MatchBy = "fill" | "stroke" | "font" | "type";
+export function elementMatchValue(e: Element, by: MatchBy): string | null {
+  if (by === "type") return e.type;
+  if (by === "font") return e.type === "text" ? e.fontFamily : null;
+  if (by === "fill") return "fill" in e ? (e as { fill: string }).fill : e.type === "text" ? e.color : null;
+  return "stroke" in e ? (e as { stroke: string }).stroke : null; // stroke
+}
+
+/** Ids of every element matching `refId`'s fill/stroke/font/type, within the
+ *  reference's figure (scope "figure") or the whole project (scope "project").
+ *  Includes the reference. Backs the GUI "select same" + bridge select_matching. */
+export function matchElements(p: Project, refId: Id, by: MatchBy, scope: "figure" | "project" = "figure"): Id[] {
+  let ref: Element | null = null;
+  let refFig: Figure | null = null;
+  for (const f of p.figures) for (const e of f.elements) if (e.id === refId) { ref = e; refFig = f; }
+  if (!ref) return [];
+  const val = elementMatchValue(ref, by);
+  if (val == null) return [refId];
+  const figs = scope === "project" ? p.figures : refFig ? [refFig] : [];
+  const out: Id[] = [];
+  for (const f of figs) for (const e of f.elements) if (elementMatchValue(e, by) === val) out.push(e.id);
+  return out;
+}
+
+/** Ids of every element whose `by` facet equals `value` (bridge path — no ref). */
+export function matchByValue(p: Project, by: MatchBy, value: string, scope: "figure" | "project", figId?: Id): Id[] {
+  const figs = scope === "project" ? p.figures : p.figures.filter((f) => f.id === figId);
+  const out: Id[] = [];
+  for (const f of figs) for (const e of f.elements) if (elementMatchValue(e, by) === value) out.push(e.id);
+  return out;
+}
+
 // Proportional scale (Feature 5): scale `ids` about a pivot (default = their
 // bbox centre) by `factor`, multiplying geometry AND stroke/corner/font weights so
 // the whole mark shrinks/grows uniformly. Shares editing.scaleRemap with the GUI

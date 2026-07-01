@@ -18,6 +18,7 @@ import {
   lastDupOffset,
   captionOpen,
   nodeEditId,
+  expandGroups,
   getActiveFigure,
   arrange,
   lastArrangeRows,
@@ -330,6 +331,45 @@ function selectAll() {
   selection.set(new Set(fig.elements.map((e) => e.id)));
 }
 
+// Select-all-with-same (Feature 9): from the single selected element, select every
+// element sharing its `by` facet, in the active figure (or whole project).
+function selectMatching(by: ops.MatchBy, scope: "figure" | "project" = "figure") {
+  const sel = get(selection);
+  if (sel.size !== 1) return;
+  const p = get(project);
+  const matched = ops.matchElements(p, [...sel][0], by, scope);
+  if (matched.length) selection.set(expandGroups(p, new Set(matched)));
+}
+
+// Copy/paste properties (Feature 10). A style snapshot (no geometry / text content)
+// captured from one element, applied to any selection (setElementStyle keeps only
+// each element's valid props, so cross-type pastes are safe).
+let styleClipboard: ops.ElementStylePatch | null = null;
+function copyStyle() {
+  const sel = get(selection);
+  if (sel.size !== 1) return;
+  const p = get(project);
+  let el: Element | null = null;
+  for (const f of p.figures) for (const e of f.elements) if (e.id === [...sel][0]) el = e;
+  if (!el) return;
+  const s: ops.ElementStylePatch = { opacity: el.opacity };
+  if (el.type === "text") {
+    s.color = el.color; s.fontFamily = el.fontFamily; s.fontSize = el.fontSize;
+    s.fontWeight = el.fontWeight; s.fontStyle = el.fontStyle; s.align = el.align;
+  }
+  if (el.type === "rect" || el.type === "ellipse" || el.type === "path") { s.fill = el.fill; s.stroke = el.stroke; s.strokeWidth = el.strokeWidth; }
+  if (el.type === "line") { s.stroke = el.stroke; s.strokeWidth = el.strokeWidth; }
+  if (el.type === "rect") s.cornerRadius = el.cornerRadius;
+  styleClipboard = s;
+}
+function pasteStyle() {
+  if (!styleClipboard) return;
+  const list = [...get(selection)];
+  if (!list.length) return;
+  const patch = styleClipboard;
+  commit((p) => ops.setElementStyle(p, list, patch));
+}
+
 function raise(toEnd: boolean) {
   // Move selected elements to the front (toEnd) or back of the z-order.
   const sel = get(selection);
@@ -507,6 +547,12 @@ export function handleKey(e: KeyboardEvent) {
 
   if (mod) {
     const k = e.key.toLowerCase();
+    // Alt-modified: F9 select-same-fill (Shift = whole project), F10 copy/paste style.
+    if (e.altKey) {
+      if (k === "a") { e.preventDefault(); selectMatching("fill", e.shiftKey ? "project" : "figure"); return; }
+      if (k === "c") { e.preventDefault(); copyStyle(); return; }
+      if (k === "v") { e.preventDefault(); pasteStyle(); return; }
+    }
     if (k === "z") {
       e.preventDefault();
       e.shiftKey ? redo() : undo();
@@ -589,4 +635,4 @@ export function handleKey(e: KeyboardEvent) {
   }
 }
 
-export { doAlign, doDistribute, duplicateSelected, deleteSelected };
+export { doAlign, doDistribute, duplicateSelected, deleteSelected, selectMatching, copyStyle, pasteStyle };
