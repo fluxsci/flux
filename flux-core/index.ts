@@ -1084,7 +1084,19 @@ bridge*).
 - \`restyle <fig> <partId> [--stroke c]\` / \`restyle_part\` — restyle a plot part/series
   (override survives regeneration). \`auto-label <fig>\` / \`auto_label\`.
 
-**Figures (primitive):** \`create-figure\`, \`add-panel\`, \`arrange\`, \`set-style\`.
+**Figures (primitive):** \`create-figure\`, \`add-panel\`, \`arrange\`, \`set-style\`,
+\`delete-element\`, \`delete-figure\`, \`duplicate-figure\`, \`align\`, \`group\`/\`ungroup\`,
+\`set-z\` (front/back/forward/backward), \`set-figure-layout\`.
+
+**Slides (Flux Slide — a figure-first animated talk → one offline \`.html\`):**
+\`decks\`/\`new-deck\`/\`add-slide\`/\`delete-slide\`/\`duplicate-slide\`/\`reorder-slides\` (structure),
+\`set-slide\` (notes/camera/layout) / \`set-theme\`, \`add-text\`/\`add-math\`/\`add-embed-figure\`
+(content — embed a project figure to keep its panels addressable), \`add-beat\` + \`set-animation\`
+(build timeline + presets incl. the data-space \`morph\`), \`validate-deck\`, \`export-deck\`. Every
+one is also an MCP tool. A deck is \`slides/<id>/deck.json\`.
+
+**Library / reader (machine-global FluxLib):** \`fetch-pdfs\` / \`ingest-pdf\` (store a PDF for a
+citekey), \`add-annotation\` (highlight/note), \`annotations\` (list/search) — MCP mirrors these.
 
 **Manuscript / refs:** \`manuscript\` / \`get_manuscript\`, \`set-manuscript\` /
 \`set_manuscript\`, \`docs\` / \`list_documents\`, \`new-doc\` / \`create_document\`,
@@ -1622,6 +1634,17 @@ export {
   validateDeck,
   gatherDeckPayload,
   exportDeck,
+  // W11b — slide authoring (agent parity for the Slides pillar)
+  deleteSlide,
+  duplicateSlide,
+  reorderSlides,
+  setSlide,
+  setDeckTheme,
+  addTextToSlide,
+  addMathToSlide,
+  addEmbedFigureToSlide,
+  addBeat,
+  setAnimation,
   type DeckSummary,
   type ValidateDeckResult,
 } from "./slides";

@@ -41,6 +41,14 @@ usage: flux <verb> [root] [args] [--flags]
   set-style <id…> [--root R] [--fill c] [--stroke c] [--stroke-width n]
             [--opacity n] [--color c] [--font-size n] [--hidden|--show]
             [--locked|--unlock] [--name N]   set element style
+  delete-element <id…> [--root R]      delete elements by id
+  delete-figure <figId> [--root R]     delete a whole figure
+  duplicate-figure <figId> [--root R]  duplicate a whole figure (fresh ids)
+  align <figId> <left|right|top|bottom|centerH|centerV> [--ids a,b,c] [--root R]   align elements
+  group <id…> [--root R]               group ≥2 elements → one unit
+  ungroup <id…> [--root R]             dissolve group membership
+  set-figure-layout <figId> [--x n --y n --width n --height n --background c --name N] [--root R]   set a figure's frame
+  set-z <figId> <front|back|forward|backward> --ids a,b,c [--root R]   change stacking order
   manuscript [--root R] [--doc rel]    print a manuscript document (.qmd)
   set-manuscript [--root R] [--doc rel] <text…|--file f>   overwrite a document
   docs [--root R]                      list the project's documents
@@ -61,6 +69,7 @@ usage: flux <verb> [root] [args] [--flags]
   fetch-pdfs [--refresh] [--key K]     download OA PDFs into ~/FluxLib/items/<citekey>/
   ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
   annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
+  add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
   comments [--root R] [--doc rel] [--all]   list review comments (open by default)
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   mark a comment resolved
@@ -72,6 +81,16 @@ usage: flux <verb> [root] [args] [--flags]
   decks [--root R]                     list the project's slide decks (JSON)
   new-deck [--title T] [--theme T] [--root R]   create a new slide deck
   add-slide <deckId> [--name N] [--layout L] [--root R]   append a slide to a deck
+  delete-slide <deckId> <slideId>      delete a slide
+  duplicate-slide <deckId> <slideId>   deep-copy a slide (fresh ids)
+  reorder-slides <deckId> --order a,b,c   set the slide order (exact permutation)
+  set-slide <deckId> <slideId> [--name|--layout|--background|--transition|--notes|--notes-file|--camera-x/-y/-zoom]   patch a slide
+  set-theme <deckId> <theme>           flux-dark|light|midnight|slate|sepia|contrast
+  add-text <deckId> <slideId> "text…" [--x --y --width --height --align --color --font-size]   add a text box
+  add-math <deckId> <slideId> "\\tex…" [--display] [--x …]   add a KaTeX element
+  add-embed-figure <deckId> <slideId> <figureId> [--fit contain|cover|fill] [--x …]   embed a project figure
+  add-beat <deckId> <slideId> [--label L]   append a build/advance step
+  set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>']   animate
   validate-deck [deckId] [--root R]    validate a deck (or all decks)
   export-deck <deckId> [--out F] [--root R]   export a self-contained offline .html (default exports/<deckId>.html)
   help                                 this message
@@ -614,6 +633,114 @@ async function main() {
       const r = await core.exportDeck(R(), _[0], { out: flags.out as string });
       console.error(`✓ exported ${_[0]} → ${r.path} (${(r.bytes / 1024).toFixed(0)} KB, self-contained)`);
       for (const w of r.warnings) console.error("  ⚠ " + w);
+      break;
+    }
+    case "delete-slide": {
+      const r = await core.deleteSlide(R(), _[0], _[1]);
+      console.error(`✓ deleted slide ${_[1]}${r.nextActiveId ? ` (next: ${r.nextActiveId})` : ""}`);
+      break;
+    }
+    case "duplicate-slide": {
+      const r = await core.duplicateSlide(R(), _[0], _[1]);
+      console.error(`✓ duplicated slide ${_[1]} → ${r.slideId}`);
+      console.log(r.slideId);
+      break;
+    }
+    case "reorder-slides": {
+      const order = typeof flags.order === "string" ? flags.order.split(",") : _.slice(1);
+      await core.reorderSlides(R(), _[0], order);
+      console.error(`✓ reordered ${_[0]} (${order.length} slides)`);
+      break;
+    }
+    case "set-slide": {
+      const patch: Parameters<typeof core.setSlide>[3] = {};
+      if (typeof flags.name === "string") patch.name = flags.name;
+      if (typeof flags.layout === "string") patch.layout = flags.layout as typeof patch.layout;
+      if (typeof flags.background === "string") patch.background = flags.background;
+      if (typeof flags.transition === "string") patch.transition = flags.transition as typeof patch.transition;
+      if (flags.notes != null || flags["notes-file"]) {
+        patch.notes = flags["notes-file"] ? await fs.readFile(String(flags["notes-file"]), "utf8") : String(flags.notes);
+      }
+      const cx = num(flags["camera-x"]);
+      const cy = num(flags["camera-y"]);
+      const cz = num(flags["camera-zoom"]);
+      if (cx != null || cy != null || cz != null) patch.camera = { x: cx ?? 0, y: cy ?? 0, zoom: cz ?? 1 };
+      await core.setSlide(R(), _[0], _[1], patch);
+      console.error(`✓ set slide ${_[1]}`);
+      break;
+    }
+    case "set-theme": {
+      const theme = (flags.theme as string) ?? _[1];
+      await core.setDeckTheme(R(), _[0], theme);
+      console.error(`✓ set theme ${theme} on ${_[0]}`);
+      break;
+    }
+    case "add-text": {
+      const text = flags.file ? await fs.readFile(String(flags.file), "utf8") : _.slice(2).join(" ");
+      const r = await core.addTextToSlide(R(), _[0], _[1], {
+        text,
+        x: num(flags.x), y: num(flags.y), width: num(flags.width), height: num(flags.height),
+        align: flags.align as import("./src/lib/slide/ops").TextBoxOpts["align"],
+        color: typeof flags.color === "string" ? flags.color : undefined,
+        fontSize: num(flags["font-size"]),
+      });
+      console.error(`✓ added text ${r.elementId} to ${_[1]}`);
+      console.log(r.elementId);
+      break;
+    }
+    case "add-math": {
+      const tex = flags.tex ? String(flags.tex) : _.slice(2).join(" ");
+      const r = await core.addMathToSlide(R(), _[0], _[1], {
+        tex,
+        display: !!flags.display,
+        x: num(flags.x), y: num(flags.y), width: num(flags.width), height: num(flags.height),
+        color: typeof flags.color === "string" ? flags.color : undefined,
+        fontSize: num(flags["font-size"]),
+      });
+      console.error(`✓ added math ${r.elementId} to ${_[1]}`);
+      console.log(r.elementId);
+      break;
+    }
+    case "add-embed-figure": {
+      const r = await core.addEmbedFigureToSlide(R(), _[0], _[1], {
+        figureId: _[2],
+        fit: flags.fit as import("./src/lib/slide/ops").EmbedFigureOpts["fit"],
+        x: num(flags.x), y: num(flags.y), width: num(flags.width), height: num(flags.height),
+      });
+      console.error(`✓ embedded figure ${_[2]} → ${r.elementId} on ${_[1]}`);
+      console.log(r.elementId);
+      break;
+    }
+    case "add-beat": {
+      const r = await core.addBeat(R(), _[0], _[1], { label: typeof flags.label === "string" ? flags.label : undefined });
+      console.error(`✓ added beat ${r.beatId} to ${_[1]}`);
+      console.log(r.beatId);
+      break;
+    }
+    case "set-animation": {
+      // Full-fidelity via --track '<json>'; else build a Track from flags.
+      let track: import("./src/lib/slide/types").Track;
+      if (typeof flags.track === "string") {
+        track = JSON.parse(flags.track);
+      } else {
+        track = { target: String(flags.target ?? _[3] ?? "") };
+        if (typeof flags.preset === "string") track.preset = flags.preset as import("./src/lib/slide/types").PresetName;
+        if (typeof flags.part === "string") track.part = flags.part;
+        if (num(flags.start) != null) track.start = num(flags.start);
+        if (num(flags.duration) != null) track.duration = num(flags.duration);
+        if (typeof flags.easing === "string") track.easing = flags.easing as import("./src/lib/slide/types").EasingToken;
+        if (typeof flags.params === "string") track.params = JSON.parse(flags.params);
+        // morph/camera/move destination → `to` (assetId for morph; x/y/zoom for camera).
+        const to: import("./src/lib/slide/types").TrackTarget = {};
+        if (typeof flags["to-asset"] === "string") to.assetId = flags["to-asset"];
+        if (num(flags["to-x"]) != null) to.x = num(flags["to-x"]);
+        if (num(flags["to-y"]) != null) to.y = num(flags["to-y"]);
+        if (num(flags["to-zoom"]) != null) to.zoom = num(flags["to-zoom"]);
+        if (Object.keys(to).length) track.to = to;
+      }
+      if (!track.target) throw new Error("set-animation needs --target (an element id, or @camera/@stage)");
+      await core.setAnimation(R(), _[0], _[1], _[2], track);
+      console.error(`✓ set animation on beat ${_[2]} (${track.preset ?? "keyframes"} → ${track.target})`);
       break;
     }
     case "validate": {

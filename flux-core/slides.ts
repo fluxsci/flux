@@ -17,7 +17,7 @@ import * as slideOps from "../src/lib/slide/ops";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
-import type { Deck } from "../src/lib/slide/types";
+import type { Deck, Track } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 
 const j = (...p: string[]) => path.join(...p);
@@ -158,6 +158,137 @@ export async function addSlide(
   return mutateDeck(root, deckId, "add_slide", (deck) => {
     const slide = slideOps.addSlide(deck, opts);
     return { slideId: slide.id };
+  });
+}
+
+// --------------------------------------------------------------------------
+// W11b (AGT-6/SLD-6): slide-authoring verbs. The whole Slides pillar was
+// CLI-only (5 verbs) with ZERO MCP tools and no way to add content, beats, or
+// animations headlessly. These wrap the pure slideOps so an agent can build an
+// animated deck with the app closed (and via MCP). Each throws with a clear
+// message if the deck/slide/beat target is missing.
+// --------------------------------------------------------------------------
+const mustSlide = (deck: Deck, slideId: string) => {
+  const s = slideOps.slideById(deck, slideId);
+  if (!s) throw new Error(`slide not found: ${slideId}`);
+  return s;
+};
+
+/** delete-slide: remove a slide. Returns the id the GUI would activate next. */
+export async function deleteSlide(root: string, deckId: string, slideId: string): Promise<{ nextActiveId: string | null }> {
+  return mutateDeck(root, deckId, "delete_slide", (deck) => {
+    mustSlide(deck, slideId);
+    return slideOps.deleteSlide(deck, slideId);
+  });
+}
+
+/** duplicate-slide: deep-copy a slide (fresh element/beat/track ids). */
+export async function duplicateSlide(root: string, deckId: string, slideId: string): Promise<{ slideId: string }> {
+  return mutateDeck(root, deckId, "duplicate_slide", (deck) => {
+    mustSlide(deck, slideId);
+    const id = slideOps.duplicateSlide(deck, slideId);
+    if (!id) throw new Error(`could not duplicate slide ${slideId}`);
+    return { slideId: id };
+  });
+}
+
+/** reorder-slides: set the slide order to exactly `order` (must be a permutation). */
+export async function reorderSlides(root: string, deckId: string, order: string[]): Promise<void> {
+  await mutateDeck(root, deckId, "reorder_slides", (deck) => {
+    slideOps.reorderSlides(deck, order);
+  });
+}
+
+/** set-slide: patch a slide's name/layout/background/transition/notes/camera. */
+export async function setSlide(root: string, deckId: string, slideId: string, patch: slideOps.SetSlidePatch): Promise<void> {
+  await mutateDeck(root, deckId, "set_slide", (deck) => {
+    mustSlide(deck, slideId);
+    slideOps.setSlide(deck, slideId, patch);
+  });
+}
+
+/** set-theme: switch the deck theme (flux-dark|light|midnight|slate|sepia|contrast). */
+export async function setDeckTheme(root: string, deckId: string, theme: string): Promise<void> {
+  await mutateDeck(root, deckId, "set_theme", (deck) => {
+    slideOps.setTheme(deck, theme);
+  });
+}
+
+/** add-text: add a text box to a slide. Returns the new element id. */
+export async function addTextToSlide(
+  root: string,
+  deckId: string,
+  slideId: string,
+  opts: slideOps.TextBoxOpts,
+): Promise<{ elementId: string }> {
+  return mutateDeck(root, deckId, "add_text", (deck) => {
+    mustSlide(deck, slideId);
+    const id = slideOps.addTextBox(deck, slideId, opts);
+    if (!id) throw new Error(`could not add text to ${slideId}`);
+    return { elementId: id };
+  });
+}
+
+/** add-math: add a KaTeX math element to a slide. Returns the new element id. */
+export async function addMathToSlide(
+  root: string,
+  deckId: string,
+  slideId: string,
+  opts: slideOps.MathOpts,
+): Promise<{ elementId: string }> {
+  return mutateDeck(root, deckId, "add_math", (deck) => {
+    mustSlide(deck, slideId);
+    const id = slideOps.addMath(deck, slideId, opts);
+    if (!id) throw new Error(`could not add math to ${slideId}`);
+    return { elementId: id };
+  });
+}
+
+/** add-embed-figure: place a project figure (by id) onto a slide — its panels
+ *  stay addressable, so an agent can animate them. No asset bytes to ingest: the
+ *  figure lives in fig/, resolved at render/export. Returns the new element id. */
+export async function addEmbedFigureToSlide(
+  root: string,
+  deckId: string,
+  slideId: string,
+  opts: slideOps.EmbedFigureOpts,
+): Promise<{ elementId: string }> {
+  return mutateDeck(root, deckId, "add_embed_figure", (deck) => {
+    mustSlide(deck, slideId);
+    const id = slideOps.addEmbedFigure(deck, slideId, opts);
+    if (!id) throw new Error(`could not embed figure on ${slideId}`);
+    return { elementId: id };
+  });
+}
+
+/** add-beat: append a build beat (a step of the slide's on-click timeline). */
+export async function addBeat(
+  root: string,
+  deckId: string,
+  slideId: string,
+  opts: slideOps.AddBeatOpts = {},
+): Promise<{ beatId: string }> {
+  return mutateDeck(root, deckId, "add_beat", (deck) => {
+    mustSlide(deck, slideId);
+    const beat = slideOps.addBeat(deck, slideId, opts);
+    if (!beat) throw new Error(`could not add beat to ${slideId}`);
+    return { beatId: beat.id };
+  });
+}
+
+/** set-animation: add (or replace) an animation track on a beat — the general
+ *  mechanism behind every preset (fade/drawOn/stagger/move/morph/camera/…). */
+export async function setAnimation(
+  root: string,
+  deckId: string,
+  slideId: string,
+  beatId: string,
+  track: Track,
+): Promise<void> {
+  await mutateDeck(root, deckId, "set_animation", (deck) => {
+    mustSlide(deck, slideId);
+    const ok = slideOps.setAnimation(deck, slideId, beatId, track);
+    if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
   });
 }
 

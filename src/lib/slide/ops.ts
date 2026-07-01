@@ -190,6 +190,7 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   if (!src) return null;
   const i = deck.slides.findIndex((s) => s.id === slideId);
   const idRemap = new Map<Id, Id>();
+  const groupRemap = new Map<Id, Id>();
   const copy: Slide = structuredClone(src);
   copy.id = newId("slide");
   copy.name = `${src.name ?? "Slide"} copy`;
@@ -197,10 +198,21 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
     const nid = newId(el.type);
     idRemap.set(el.id, nid);
     el.id = nid;
+    // Remap group membership so the copy's elements group with each OTHER, not
+    // with the originals (same stable-id-contract concern as track ids below).
+    if (el.groupId) {
+      let g = groupRemap.get(el.groupId);
+      if (!g) { g = newId("grp"); groupRemap.set(el.groupId, g); }
+      el.groupId = g;
+    }
   }
   for (const beat of copy.beats) {
     beat.id = newId("beat");
     for (const t of beat.tracks) {
+      // SLD-10: every track carries a stable id; a duplicated slide's tracks must
+      // get FRESH ids or they collide with the source slide's (breaks editor
+      // selection / timeline keying).
+      t.id = newId("track");
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
     }

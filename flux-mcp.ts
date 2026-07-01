@@ -651,8 +651,8 @@ server.registerTool(
 server.registerTool(
   "rerun_plot",
   {
-    description: "Re-run a plot's recipe (regenerate the figure from its source script + params).",
-    inputSchema: { recipePath: z.string(), params: z.record(z.string()).optional() },
+    description: "Re-run a plot's recipe (regenerate the figure from its source script + params). Params may be strings, numbers, or booleans.",
+    inputSchema: { recipePath: z.string(), params: z.record(z.union([z.string(), z.number(), z.boolean()])).optional() },
   },
   async ({ recipePath, params }) => {
     const r = await core.runRecipe(recipePath, params ?? {});
@@ -886,6 +886,253 @@ server.registerTool(
     const c = await core.readReaderContext();
     if (!c || !c.citekey) return ok("No paper is open in FluxReader right now.");
     return ok(JSON.stringify(c, null, 2));
+  },
+);
+
+// --- Flux Slide: author + animate decks headlessly (W11b / SLD-6) ------------
+// The whole Slides pillar had ZERO MCP tools; agents could not build a deck.
+
+// countUp is a declared PresetName but has no runtime driver yet (it silently
+// falls back to fade) — omit it from the agent-facing enum so it isn't offered.
+const PRESETS = [
+  "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
+  "highlight", "dim", "move", "scale", "rotate", "camera", "morph",
+] as const;
+const LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
+const THEMES = ["flux-dark", "flux-light", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
+
+server.registerTool(
+  "list_decks",
+  { description: "List the project's slide decks (id, title, slide count) from project.json.", inputSchema: {} },
+  async () => ok(JSON.stringify(await core.listDecks(ROOT), null, 2)),
+);
+
+server.registerTool(
+  "create_deck",
+  {
+    description: "Create a new slide deck (slides/<id>/deck.json, registered in the manifest). Returns the deck id.",
+    inputSchema: { id: z.string().optional(), title: z.string().optional(), theme: z.enum(THEMES).optional() },
+  },
+  async ({ id, title, theme }) => {
+    const r = await core.createDeck(ROOT, { id, title, theme });
+    return ok(`created deck ${r.deckId} (${r.path})`);
+  },
+);
+
+server.registerTool(
+  "add_slide",
+  {
+    description: "Append a slide to a deck. `layout` seeds the slide's role (title/section/content-figure/two-column/full-bleed/blank). Returns the new slide id.",
+    inputSchema: { deckId: z.string(), name: z.string().optional(), layout: z.enum(LAYOUTS).optional() },
+  },
+  async ({ deckId, name, layout }) => {
+    const r = await core.addSlide(ROOT, deckId, { name, layout });
+    return ok(`added slide ${r.slideId} to ${deckId}`);
+  },
+);
+
+server.registerTool(
+  "delete_slide",
+  {
+    description: "Delete a slide from a deck. Returns the id the GUI would select next.",
+    inputSchema: { deckId: z.string(), slideId: z.string() },
+  },
+  async ({ deckId, slideId }) => {
+    const r = await core.deleteSlide(ROOT, deckId, slideId);
+    return ok(`deleted slide ${slideId}${r.nextActiveId ? ` (next: ${r.nextActiveId})` : ""}`);
+  },
+);
+
+server.registerTool(
+  "duplicate_slide",
+  {
+    description: "Deep-copy a slide (fresh element/beat/track ids). Returns the new slide id.",
+    inputSchema: { deckId: z.string(), slideId: z.string() },
+  },
+  async ({ deckId, slideId }) => {
+    const r = await core.duplicateSlide(ROOT, deckId, slideId);
+    return ok(`duplicated slide ${slideId} → ${r.slideId}`);
+  },
+);
+
+server.registerTool(
+  "reorder_slides",
+  {
+    description: "Set the deck's slide order to exactly `order` (a permutation of the current slide ids).",
+    inputSchema: { deckId: z.string(), order: z.array(z.string()) },
+  },
+  async ({ deckId, order }) => {
+    await core.reorderSlides(ROOT, deckId, order);
+    return ok(`reordered ${deckId} (${order.length} slides)`);
+  },
+);
+
+server.registerTool(
+  "set_slide",
+  {
+    description: "Patch a slide: name, layout, background (CSS color), transition, notes (speaker notes, markdown), and/or camera (base pose {x,y,zoom}). Only the fields you pass change.",
+    inputSchema: {
+      deckId: z.string(),
+      slideId: z.string(),
+      name: z.string().optional(),
+      layout: z.enum(LAYOUTS).optional(),
+      background: z.string().optional(),
+      transition: z.string().optional(),
+      notes: z.string().optional(),
+      camera: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).optional(),
+    },
+  },
+  async ({ deckId, slideId, name, layout, background, transition, notes, camera }) => {
+    const patch: Parameters<typeof core.setSlide>[3] = {};
+    if (name != null) patch.name = name;
+    if (layout != null) patch.layout = layout;
+    if (background != null) patch.background = background;
+    if (transition != null) patch.transition = transition as typeof patch.transition;
+    if (notes != null) patch.notes = notes;
+    if (camera != null) patch.camera = camera;
+    await core.setSlide(ROOT, deckId, slideId, patch);
+    return ok(`set slide ${slideId}`);
+  },
+);
+
+server.registerTool(
+  "set_deck_theme",
+  {
+    description: "Switch a deck's theme (flux-dark | flux-light | flux-midnight | flux-slate | flux-sepia | flux-contrast).",
+    inputSchema: { deckId: z.string(), theme: z.enum(THEMES) },
+  },
+  async ({ deckId, theme }) => {
+    await core.setDeckTheme(ROOT, deckId, theme);
+    return ok(`set theme ${theme} on ${deckId}`);
+  },
+);
+
+server.registerTool(
+  "add_slide_text",
+  {
+    description: "Add a text box to a slide. Returns the new element id (use it as an animation target).",
+    inputSchema: {
+      deckId: z.string(),
+      slideId: z.string(),
+      text: z.string(),
+      x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional(),
+      align: z.enum(["left", "center", "right"]).optional(),
+      color: z.string().optional(),
+      fontSize: z.number().optional(),
+    },
+  },
+  async ({ deckId, slideId, text, x, y, width, height, align, color, fontSize }) => {
+    const r = await core.addTextToSlide(ROOT, deckId, slideId, { text, x, y, width, height, align, color, fontSize });
+    return ok(`added text ${r.elementId} to ${slideId}`);
+  },
+);
+
+server.registerTool(
+  "add_slide_math",
+  {
+    description: "Add a KaTeX math element to a slide (`tex` is a LaTeX string). Returns the new element id.",
+    inputSchema: {
+      deckId: z.string(),
+      slideId: z.string(),
+      tex: z.string(),
+      display: z.boolean().optional(),
+      x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional(),
+      color: z.string().optional(),
+      fontSize: z.number().optional(),
+    },
+  },
+  async ({ deckId, slideId, tex, display, x, y, width, height, color, fontSize }) => {
+    const r = await core.addMathToSlide(ROOT, deckId, slideId, { tex, display, x, y, width, height, color, fontSize });
+    return ok(`added math ${r.elementId} to ${slideId}`);
+  },
+);
+
+server.registerTool(
+  "add_slide_figure",
+  {
+    description:
+      "Embed a project figure (by its figure id, from fig/index.json) onto a slide — its panels stay addressable so you can animate them (stagger a→b→c). This is the way to put your composed figures into a deck (no asset upload needed). Returns the new element id.",
+    inputSchema: {
+      deckId: z.string(),
+      slideId: z.string(),
+      figureId: z.string(),
+      fit: z.enum(["contain", "cover", "fill"]).optional(),
+      x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional(),
+    },
+  },
+  async ({ deckId, slideId, figureId, fit, x, y, width, height }) => {
+    const r = await core.addEmbedFigureToSlide(ROOT, deckId, slideId, { figureId, fit, x, y, width, height });
+    return ok(`embedded figure ${figureId} → ${r.elementId} on ${slideId}`);
+  },
+);
+
+server.registerTool(
+  "add_beat",
+  {
+    description:
+      "Append a build beat to a slide — one 'advance' (click) step of its timeline. Beat 0 is the resting state; add beats, then set_animation on them. Returns the new beat id.",
+    inputSchema: { deckId: z.string(), slideId: z.string(), label: z.string().optional() },
+  },
+  async ({ deckId, slideId, label }) => {
+    const r = await core.addBeat(ROOT, deckId, slideId, { label });
+    return ok(`added beat ${r.beatId} to ${slideId}`);
+  },
+);
+
+server.registerTool(
+  "set_animation",
+  {
+    description:
+      "Add (or replace) an animation track on a beat — the general mechanism behind every preset. `target` is an element id, or '@camera'/'@stage'. `preset` picks the motion (fade, fadeRise, popIn, drawOn, stagger, writeOn, highlight, dim, move, scale, rotate, camera, morph, …). `part` targets one plot semantic id; `to` is the destination for morph (to.assetId = a second same-structure plot) / camera (to.{x,y,zoom}). `start`/`duration` are ms within the beat.",
+    inputSchema: {
+      deckId: z.string(),
+      slideId: z.string(),
+      beatId: z.string(),
+      target: z.string(),
+      preset: z.enum(PRESETS).optional(),
+      part: z.string().optional(),
+      start: z.number().optional(),
+      duration: z.number().optional(),
+      easing: z.string().optional(),
+      params: z.record(z.any()).optional(),
+      to: z.object({ assetId: z.string().optional(), x: z.number().optional(), y: z.number().optional(), zoom: z.number().optional() }).optional(),
+    },
+  },
+  async ({ deckId, slideId, beatId, target, preset, part, start, duration, easing, params, to }) => {
+    const track: import("./src/lib/slide/types").Track = { target };
+    if (preset) track.preset = preset;
+    if (part) track.part = part;
+    if (start != null) track.start = start;
+    if (duration != null) track.duration = duration;
+    if (easing) track.easing = easing as import("./src/lib/slide/types").EasingToken;
+    if (params) track.params = params;
+    if (to) track.to = to;
+    await core.setAnimation(ROOT, deckId, slideId, beatId, track);
+    return ok(`set animation on beat ${beatId} (${preset ?? "keyframes"} → ${target})`);
+  },
+);
+
+server.registerTool(
+  "validate_deck",
+  {
+    description: "Validate a deck (or all decks) against the bundled deck JSON Schema. Run after editing deck.json by hand.",
+    inputSchema: { deckId: z.string().optional() },
+  },
+  async ({ deckId }) => {
+    const r = await core.validateDeck(ROOT, deckId);
+    return ok(r.ok ? `valid deck(s) (${r.checked} checked)` : `INVALID (${r.errors.length}):\n` + r.errors.join("\n"));
+  },
+);
+
+server.registerTool(
+  "export_deck",
+  {
+    description: "Export a deck to a single self-contained offline .html (animations + media inlined). Writes to exports/ by default.",
+    inputSchema: { deckId: z.string(), out: z.string().optional() },
+  },
+  async ({ deckId, out }) => {
+    const r = await core.exportDeck(ROOT, deckId, { out });
+    return ok(`exported ${deckId} → ${r.path} (${(r.bytes / 1024).toFixed(0)} KB)` + (r.warnings.length ? `\n  ⚠ ${r.warnings.join("\n  ⚠ ")}` : ""));
   },
 );
 
