@@ -112,7 +112,8 @@ TESTS: screenshots (rulers + two guides; element snapping to a guide; 16px grid;
 
 ── TIER 3 — Interaction polish ──
 
-## [ ] [12] SHAPE & LINE CREATION MODIFIERS — constrain, from-center, 45°  [GUI-ergonomics]
+## [x] [12] SHAPE & LINE CREATION MODIFIERS — constrain, from-center, 45°  [GUI-ergonomics]
+DONE. Pure editing.applyDrawModifiers(tool,start,cur,shift,alt)→{p0,p1}: Shift equalizes |dx|,|dy| (square/circle, drag direction kept) for rect/ellipse and constrain45s a line/arrow; Alt mirrors the drag about the start (symmetric-about-center); Shift+Alt both. Canvas.svelte draw branch of onPointerMove calls it before createDrawElement, so the live preview reflects modifiers and releasing them mid-drag updates instantly. Localized; text/pen paths untouched. AI: GUI-ergonomics only — agents pass exact w/h/endpoints to add_element, no wiring (stated). Evidence: figenh-12-modifiers.ts — 6 unit cases (rect/ellipse Shift→square/circle; line Shift snaps 150,100→45° equal dx=dy and 150,8→0°; rect Alt centred on start; Shift+Alt centred square) + 4 GUI drags (Shift rect 200×80→200×200 square; Shift line 150,100 drag→x2≈y2≈127 (45°); Alt ellipse start=centre→box centred exactly on 400,250; 0 console errors). Screens f12-01-square (W=H=200), f12-02-center (X340 Y200 W120 H100 → centre 400,250); f12-square.gif. npm run build clean.
 WHY: precise marks effortlessly — Shift=perfect square/circle, Alt=draw from center, Shift on line/arrow=0/45/90°.
 UX: in the draw gesture (onPointerMove), before building the preview: Shift → constrain rect/ellipse to square/circle (equalize |w|,|h| keeping drag direction) and snap line/arrow angle to nearest 45°; Alt → expand symmetrically about the start point; Shift+Alt → both. Live preview reflects modifiers.
 IMPL: Canvas.svelte draw branch and/or editing.ts createDrawElement: apply modifier transforms to (p0,p1) before constructing the element. Pure, localized.

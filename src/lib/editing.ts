@@ -3,11 +3,37 @@ import type { DrawStyle, Tool } from "./store";
 import { newId } from "./ids";
 import { elementBBox, type Rect } from "./geometry";
 import { applyAutoWidth } from "./text";
-import { scaleNodes, nodesToPath, pathToNodes } from "./path";
+import { scaleNodes, nodesToPath, pathToNodes, constrain45 } from "./path";
 
 export interface Pt {
   x: number;
   y: number;
+}
+
+// Creation modifiers (Feature 12): transform a draw drag (start → cur) before the
+// element is built. Shift constrains a rect/ellipse to a square/circle (equal
+// extents, drag direction kept) and a line/arrow to the nearest 0/45/90°; Alt
+// expands symmetrically about the start point; Shift+Alt combines both. Pure.
+export function applyDrawModifiers(
+  tool: Tool,
+  start: Pt,
+  cur: Pt,
+  shift: boolean,
+  alt: boolean,
+): { p0: Pt; p1: Pt } {
+  let dx = cur.x - start.x;
+  let dy = cur.y - start.y;
+  if (shift) {
+    if (tool === "line" || tool === "arrow") {
+      ({ dx, dy } = constrain45(dx, dy));
+    } else {
+      const m = Math.max(Math.abs(dx), Math.abs(dy));
+      dx = (dx < 0 ? -1 : 1) * m;
+      dy = (dy < 0 ? -1 : 1) * m;
+    }
+  }
+  if (alt) return { p0: { x: start.x - dx, y: start.y - dy }, p1: { x: start.x + dx, y: start.y + dy } };
+  return { p0: start, p1: { x: start.x + dx, y: start.y + dy } };
 }
 
 // Build a new element from a drag (p0 -> p1) for a given drawing tool.

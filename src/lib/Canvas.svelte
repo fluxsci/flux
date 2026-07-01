@@ -35,7 +35,7 @@
     gapBetween,
     type Rect,
   } from "./geometry";
-  import { createDrawElement, createTextElement, resizeRemap, scaleRemap } from "./editing";
+  import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers } from "./editing";
   import { nodesToPath, pathToNodes, constrain45 } from "./path";
   import * as ops from "./ops";
   import { settings } from "./settings";
@@ -1147,7 +1147,9 @@
       selection.set(expandGroups($project, hit));
     } else if (g.kind === "draw") {
       const lp = localPoint(e.clientX, e.clientY, fig);
-      preview = createDrawElement($activeTool, { x: g.x0, y: g.y0 }, lp, get(drawStyle));
+      // Creation modifiers (F12): Shift = square/circle or 45° line; Alt = from centre.
+      const { p0, p1 } = applyDrawModifiers($activeTool, { x: g.x0, y: g.y0 }, lp, e.shiftKey, e.altKey);
+      preview = createDrawElement($activeTool, p0, p1, get(drawStyle));
     }
   }
 
