@@ -40,6 +40,7 @@
   import PreviewPane from "./render/PreviewPane.svelte";
   import { renderManuscript } from "./render/renderManuscript";
   import { fileBridge } from "../../../lib/project/types";
+  import { pushToast, errMsg } from "../../../lib/toast";
   import { popIn } from "../../../lib/motion/actions";
   import {
     commentField,
@@ -478,6 +479,7 @@
       setTimeout(() => (exportDone = false), 2600);
     } catch (e) {
       console.error("[flux] export failed", e);
+      pushToast("error", "Export failed", { detail: errMsg(e) });
       exportBusy = false;
     }
   }

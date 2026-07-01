@@ -62,6 +62,13 @@
   --c-accent-glow:   color-mix(in oklab, var(--flx-blue-400) 42%, transparent);
   --c-on-accent:     var(--flx-paper);
 
+  /* ---- Status (functional feedback: toasts, error borders, save states) -- */
+  /* Flexoki red/green/orange 400s — legible on the dark chrome; the .paper
+     scope overrides them with 600-grade inks for AA on cream. */
+  --c-danger:  #d14d41;
+  --c-success: #879a39;
+  --c-warning: #da702c;
+
   /* ---- Home / chrome dot-grid (engineering-paper backdrop) -------------- */
   --c-dot: color-mix(in oklab, var(--flx-base-500) 12%, transparent);
 
@@ -189,8 +196,10 @@
   --c-accent-tint-2: color-mix(in oklab, var(--flx-blue-400) 10%, transparent);
   --c-accent-glow:   color-mix(in oklab, var(--flx-blue-400) 38%, transparent);
 
-  /* error text legible on cream */
+  /* status inks legible on cream (Flexoki 600s) */
   --c-danger: #af3029;
+  --c-success: #66800b;
+  --c-warning: #bc5215;
 }
 
 /* Central reduced-motion kill-switch for CSS-driven motion. The JS motion

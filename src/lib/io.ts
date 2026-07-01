@@ -34,6 +34,10 @@ import { parseTokens } from "./colors";
 import { cachePlot, clearPlots, plotManifests, plotRecipes } from "./plot/store";
 import { plotToSvgMarkup } from "./plot/export";
 import type { FluxPlotManifest } from "./plot/types";
+import { pushToast, errMsg } from "./toast";
+
+// Every user-initiated open/import/save/export below surfaces its failure as a
+// toast (V1 review, W1) — these previously rejected silently into the void.
 
 // F2 hot-swap: replace a plot's cached SVG/manifest/recipe in place for an
 // EXISTING assetId (regenerate). The element + its id-keyed `overrides` are left
@@ -167,15 +171,19 @@ async function buildIncoming(
 }
 
 export async function importAssets() {
-  const paths = await window.fig.openFiles([{ name: "Images", extensions: ["png", "svg"] }]);
-  if (!paths || !paths.length) return;
-  const incoming: Incoming[] = [];
-  for (const path of paths) {
-    const bytes = new Uint8Array(await window.fig.readFile(path));
-    const sib = await resolveSiblingsFromFs(path);
-    incoming.push(await buildIncoming(basename(path), bytes, sib));
+  try {
+    const paths = await window.fig.openFiles([{ name: "Images", extensions: ["png", "svg"] }]);
+    if (!paths || !paths.length) return;
+    const incoming: Incoming[] = [];
+    for (const path of paths) {
+      const bytes = new Uint8Array(await window.fig.readFile(path));
+      const sib = await resolveSiblingsFromFs(path);
+      incoming.push(await buildIncoming(basename(path), bytes, sib));
+    }
+    placeIncoming(incoming);
+  } catch (e) {
+    pushToast("error", "Import failed", { detail: errMsg(e) });
   }
-  placeIncoming(incoming);
 }
 
 // Import a single plot/asset by absolute path (the Plot Importer, Alt+I). Reuses
@@ -183,9 +191,13 @@ export async function importAssets() {
 // recipe sidecars resolved and placed in the active figure.
 export async function importPlotFromPath(absPath: string) {
   if (!window.fig) return;
-  const bytes = new Uint8Array(await window.fig.readFile(absPath));
-  const sib = await resolveSiblingsFromFs(absPath);
-  placeIncoming([await buildIncoming(basename(absPath), bytes, sib)]);
+  try {
+    const bytes = new Uint8Array(await window.fig.readFile(absPath));
+    const sib = await resolveSiblingsFromFs(absPath);
+    placeIncoming([await buildIncoming(basename(absPath), bytes, sib)]);
+  } catch (e) {
+    pushToast("error", "Plot import failed", { detail: `${basename(absPath)}: ${errMsg(e)}` });
+  }
 }
 
 // Files dropped from the OS file explorer onto a specific figure. A dropped svg
@@ -307,11 +319,15 @@ export async function importPalette() {
 // Save / open. A project is a directory: project.json + assets/<id>.<ext>.
 // ---------------------------------------------------------------------------
 export async function saveProject() {
-  const root = get(embeddedProjectRoot);
-  if (root) return saveFigFrom(root); // embedded → the project's fig/ subsystem
-  const dir = get(projectDir);
-  if (!dir) return saveProjectAs();
-  await writeProjectTo(dir);
+  try {
+    const root = get(embeddedProjectRoot);
+    if (root) return await saveFigFrom(root); // embedded → the project's fig/ subsystem
+    const dir = get(projectDir);
+    if (!dir) return await saveProjectAs();
+    await writeProjectTo(dir);
+  } catch (e) {
+    pushToast("error", "Save failed", { detail: errMsg(e) });
+  }
 }
 
 export async function saveProjectAs() {
@@ -360,36 +376,40 @@ export async function openProject() {
   // When embedded in a Flux project, opening a separate Flux project is
   // disabled — the shell owns project open/close.
   if (get(embeddedProjectRoot)) return;
-  const dir = await window.fig.openDirectory("Open Flux project");
-  if (!dir) return;
+  try {
+    const dir = await window.fig.openDirectory("Open Flux project");
+    if (!dir) return;
 
-  const jsonPath = joinPath(dir, "project.json");
-  if (!(await window.fig.exists(jsonPath))) {
-    throw new Error("Not a Flux project (no project.json)");
-  }
-  const p: Project = JSON.parse(await window.fig.readText(jsonPath));
+    const jsonPath = joinPath(dir, "project.json");
+    if (!(await window.fig.exists(jsonPath))) {
+      throw new Error("Not a Flux project (no project.json)");
+    }
+    const p: Project = JSON.parse(await window.fig.readText(jsonPath));
 
-  clearPlots();
-  const fresh: Record<string, string> = {};
-  for (const asset of p.assets) {
-    if (!asset.path) continue;
-    const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
-    fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
-    // Re-attach a semantic plot's manifest (+ recipe) by assetId, so its inlined
-    // rendering + part overrides (stored on the element) reconnect on reload.
-    if (asset.kind === "svg") {
-      const mpath = joinPath(dir, `assets/${asset.id}.fluxplot.json`);
-      if (await window.fig.exists(mpath)) {
-        const manifest = JSON.parse(await window.fig.readText(mpath)) as FluxPlotManifest;
-        let recipe: unknown;
-        const rpath = joinPath(dir, `assets/${asset.id}.recipe.json`);
-        if (await window.fig.exists(rpath)) recipe = JSON.parse(await window.fig.readText(rpath));
-        cachePlot(asset.id, new TextDecoder().decode(bytes), manifest, recipe);
+    clearPlots();
+    const fresh: Record<string, string> = {};
+    for (const asset of p.assets) {
+      if (!asset.path) continue;
+      const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
+      fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
+      // Re-attach a semantic plot's manifest (+ recipe) by assetId, so its inlined
+      // rendering + part overrides (stored on the element) reconnect on reload.
+      if (asset.kind === "svg") {
+        const mpath = joinPath(dir, `assets/${asset.id}.fluxplot.json`);
+        if (await window.fig.exists(mpath)) {
+          const manifest = JSON.parse(await window.fig.readText(mpath)) as FluxPlotManifest;
+          let recipe: unknown;
+          const rpath = joinPath(dir, `assets/${asset.id}.recipe.json`);
+          if (await window.fig.exists(rpath)) recipe = JSON.parse(await window.fig.readText(rpath));
+          cachePlot(asset.id, new TextDecoder().decode(bytes), manifest, recipe);
+        }
       }
     }
+    assetData.set(fresh);
+    loadProject(p, dir);
+  } catch (e) {
+    pushToast("error", "Couldn't open project", { detail: errMsg(e) });
   }
-  assetData.set(fresh);
-  loadProject(p, dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +427,12 @@ function buildSvg(fig: Figure): string {
 export async function exportFigureSvg(fig: Figure) {
   const path = await window.fig.save(`${fig.name}.svg`, [{ name: "SVG", extensions: ["svg"] }]);
   if (!path) return;
-  await window.fig.writeText(path, buildSvg(fig));
+  try {
+    await window.fig.writeText(path, buildSvg(fig));
+    pushToast("success", `Exported ${basename(path)}`);
+  } catch (e) {
+    pushToast("error", "SVG export failed", { detail: errMsg(e) });
+  }
 }
 
 // Rasterize the figure's SVG to PNG at the chosen scale via an offscreen canvas.
@@ -437,12 +462,22 @@ async function svgToPng(svg: string, w: number, h: number, scale: number): Promi
 export async function exportFigurePng(fig: Figure, scale = 4) {
   const path = await window.fig.save(`${fig.name}.png`, [{ name: "PNG", extensions: ["png"] }]);
   if (!path) return;
-  const bytes = await svgToPng(buildSvg(fig), fig.width, fig.height, scale);
-  await window.fig.writeFile(path, bytes);
+  try {
+    const bytes = await svgToPng(buildSvg(fig), fig.width, fig.height, scale);
+    await window.fig.writeFile(path, bytes);
+    pushToast("success", `Exported ${basename(path)}`);
+  } catch (e) {
+    pushToast("error", "PNG export failed", { detail: errMsg(e) });
+  }
 }
 
 export async function exportFigurePdf(fig: Figure) {
   const path = await window.fig.save(`${fig.name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
   if (!path) return;
-  await window.fig.exportPdf(buildSvg(fig), path, fig.width, fig.height);
+  try {
+    await window.fig.exportPdf(buildSvg(fig), path, fig.width, fig.height);
+    pushToast("success", `Exported ${basename(path)}`);
+  } catch (e) {
+    pushToast("error", "PDF export failed", { detail: errMsg(e) });
+  }
 }

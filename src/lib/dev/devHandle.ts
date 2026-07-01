@@ -19,6 +19,7 @@ import * as io from "../io";
 import * as slide from "../slide/store";
 import * as slideOps from "../slide/ops";
 import * as slideBridge from "../project/slideBridge";
+import * as toast from "../toast";
 
 export interface FluxDevHandle {
   /** Snapshot any Svelte store: `__flux.get(__flux.fig.project)`. */
@@ -43,6 +44,8 @@ export interface FluxDevHandle {
   slideOps: typeof slideOps;
   /** Slide deck bridge (listProjectDecks, loadDeckInto, saveDeckFrom, …). */
   slideBridge: typeof slideBridge;
+  /** App-wide toast store + pushToast/dismissToast (W1) — for headless asserts. */
+  toast: typeof toast;
   /** Convenience: the current figures array. */
   figures: () => unknown[];
   /** Editor settings store (rulers/grid/snap toggles, FluxFig Menu prefs). */
@@ -66,6 +69,7 @@ export function installDevHandle(): void {
     slide,
     slideOps,
     slideBridge,
+    toast,
     figures: () => get(fig.project).figures,
     settings,
     editors: existing.editors ?? [],

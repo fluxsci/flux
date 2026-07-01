@@ -39,6 +39,23 @@ try {
 // renderer as "external" changes.
 let mainWindow = null;
 let projectWatcher = null;
+
+// W1 (V1 review): surface main-process failures to the renderer as shell toasts.
+// level ∈ "info" | "success" | "error". Falls back to the console when no window.
+function notifyRenderer(level, msg, detail) {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send("app:error", {
+        level,
+        msg,
+        detail: detail == null ? undefined : String(detail),
+      });
+    else console.error(`[flux] ${msg}`, detail ?? "");
+  } catch {
+    /* window mid-teardown */
+  }
+}
+
 const recentWrites = new Map(); // absPath -> expiry (ms)
 function noteWrite(p) {
   recentWrites.set(path.resolve(p), Date.now() + 1500);
@@ -530,7 +547,14 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   }
   if (!root) return false;
   const ck = await loadChokidar();
-  if (!ck) return false;
+  if (!ck) {
+    notifyRenderer(
+      "error",
+      "Live file-watch is unavailable",
+      "chokidar failed to load — agent/script edits won't live-reload this session",
+    );
+    return false;
+  }
   const targets = ["plots", "fig", "manuscript", "references"].map((d) => path.join(root, d));
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
@@ -551,6 +575,9 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     pending.set(subsystem, abs);
     if (!timer) timer = setTimeout(flush, 200);
   });
+  projectWatcher.on("error", (err) =>
+    notifyRenderer("error", "Project file-watch stopped", err && err.message),
+  );
   return true;
 });
 

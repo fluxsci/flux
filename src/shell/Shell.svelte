@@ -4,9 +4,11 @@
   import TitleBar from "./TitleBar.svelte";
   import Home from "./Home.svelte";
   import Workspace from "./Workspace.svelte";
+  import Toasts from "./Toasts.svelte";
   import { view } from "./shellStore";
   import { DUR } from "../lib/motion/tokens";
   import { fileBridge } from "../lib/project/types";
+  import { pushToast, type ToastLevel } from "../lib/toast";
   import { addUrlOrDoiToLibrary } from "./modes/paper/scholar/bibLoad";
   import { pdfFetchJob } from "../lib/references/pdfFetchJob.svelte";
 
@@ -34,17 +36,26 @@
     // In Electron the preload sets window.fig before this runs; under the dev
     // fixture it can arrive a beat late, so retry briefly until the bridge appears.
     let unsub: (() => void) | undefined;
+    let unsubErr: (() => void) | undefined;
     let tries = 0;
     function attach() {
       const fb = fileBridge();
       if (fb?.onCapture) {
         unsub = fb.onCapture(onCapturePayload);
+        // Main-process failures (watcher death, spawn errors) surface as toasts
+        // instead of dying in the main console (V1 review, W1).
+        unsubErr = fb.onAppError?.((p: { level?: string; msg: string; detail?: string }) =>
+          pushToast((p.level as ToastLevel) || "error", p.msg, { detail: p.detail }),
+        );
       } else if (tries++ < 40) {
         setTimeout(attach, 100);
       }
     }
     attach();
-    return () => unsub?.();
+    return () => {
+      unsub?.();
+      unsubErr?.();
+    };
   });
 </script>
 
@@ -67,6 +78,8 @@
       </div>
     {/if}
   </div>
+
+  <Toasts raised={capture !== null} />
 
   {#if capture}
     <div
@@ -173,7 +186,7 @@
   .fc-cancel {
     border: none;
     background: transparent;
-    color: var(--c-tx-3);
+    color: var(--c-tx-faint);
     cursor: pointer;
     font-size: var(--ts-sm);
     padding: 0 2px;

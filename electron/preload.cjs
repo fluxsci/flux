@@ -86,6 +86,14 @@ contextBridge.exposeInMainWorld("fig", {
     return () => ipcRenderer.removeListener("capture:add", handler);
   },
 
+  // App-level notices: main-process failures (watcher death, spawn errors) surface
+  // as shell toasts instead of dying in the main console. { level, msg, detail? }.
+  onAppError: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on("app:error", handler);
+    return () => ipcRenderer.removeListener("app:error", handler);
+  },
+
   // WS6: provenance journal + advisory locks. Main appends/writes under .meta/
   // (suppressing the self-write echo); both no-op until a project is open.
   journalAppend: (entry) => ipcRenderer.invoke("journal:append", entry),

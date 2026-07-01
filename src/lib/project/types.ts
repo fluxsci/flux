@@ -154,6 +154,9 @@ export interface FileBridge {
   // Web capture (flux://): main delivers a { doi?, url? } payload to add to FluxLib.
   // Electron only; returns an unsubscribe fn. Mirrors onFsChanged's shape.
   onCapture?(cb: (payload: { doi?: string; url?: string }) => void): () => void;
+  // App-level notices from the main process (watcher death, spawn failures) —
+  // surfaced as shell toasts (src/lib/toast.ts). Electron only.
+  onAppError?(cb: (payload: { level?: string; msg: string; detail?: string }) => void): () => void;
   // Global preferences (the first file-based config the GUI + CLI/agents share:
   // <userData>/preferences.json — holds the FluxLib path). Optional: Electron only.
   prefsGet?(): Promise<Record<string, unknown>>;

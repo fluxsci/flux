@@ -98,6 +98,8 @@ export async function hydrateFluxLib(
     { mailto, select: ENRICH_SELECT },
   );
   let done = 0;
+  let failedBatches = 0;
+  let lastBatchErr: unknown;
   for (const url of urls) {
     try {
       const json = await fetchOA(url);
@@ -110,11 +112,18 @@ export async function hydrateFluxLib(
         map[key] = en;
         fetched++;
       }
-    } catch {
-      /* skip a failed batch; others still proceed */
+    } catch (e) {
+      // Skip a failed batch — others still proceed — but count it: a fully
+      // failed run (offline, bad key) must surface as an error, not "Enriched 0".
+      failedBatches++;
+      lastBatchErr = e;
     }
     done++;
     opts.onProgress?.(done, urls.length);
+  }
+  if (urls.length > 0 && failedBatches === urls.length) {
+    const detail = lastBatchErr instanceof Error ? lastBatchErr.message : String(lastBatchErr);
+    throw new Error(`Enrichment failed — all ${urls.length} OpenAlex batches errored (${detail})`);
   }
 
   // CrossRef abstract backfill (reuse the existing fetchDoi bridge).
