@@ -33,6 +33,7 @@ export const ALLOWED_COMMANDS = [
   "add_path",
   "edit_path",
   "set_guides",
+  "duplicate",
   "delete",
   "set_figure_layout",
   "duplicate_figure",
@@ -191,6 +192,18 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
         Array.isArray(v) ? (v.filter((n) => typeof n === "number") as number[]) : undefined;
       store.commit((p) => ops.setGuides(p, f, { x: arr(c.x), y: arr(c.y) }));
       return { figureId: f };
+    }
+
+    case "duplicate": {
+      const f = fig(c);
+      if (!f) throw new Error("duplicate: no active figure");
+      const list = ids(c);
+      let made: string[] = [];
+      store.commit((p) => {
+        made = ops.duplicateElements(p, f, list, { dx: num(c.dx) ?? 16, dy: num(c.dy) ?? 16, count: num(c.count) });
+      });
+      if (made.length) store.selection.set(new Set(made));
+      return { ids: made };
     }
 
     case "delete": {

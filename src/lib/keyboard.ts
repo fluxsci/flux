@@ -41,6 +41,7 @@ import {
 } from "./geometry";
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
 import { fluxFigMenuOpen, settingsOpen } from "./settings";
+import * as ops from "./ops";
 
 let clipboard: Element[] = [];
 
@@ -206,31 +207,15 @@ function duplicateSelected() {
   const sel = get(selection);
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
-  // Step by the last alt-drag-copy offset (Figma-style repeat), or a small
-  // default nudge if there was no prior alt-drag.
+  // Step by the last move / alt-drag-copy offset (Figma-style repeat), or a small
+  // default nudge if there was no prior transform.
   const off = get(lastDupOffset);
-  const newIds: string[] = [];
-  const grpRemap = new Map<string, string>();
+  let newIds: string[] = [];
   commit((p) => {
-    const f = p.figures.find((ff) => ff.id === fig.id)!;
-    const copies = f.elements
-      .filter((e) => sel.has(e.id))
-      .map((e) => {
-        const c = structuredClone(e);
-        c.id = newId(c.type);
-        if (c.groupId) {
-          if (!grpRemap.has(c.groupId)) grpRemap.set(c.groupId, newId("grp"));
-          c.groupId = grpRemap.get(c.groupId);
-        }
-        c.x += off.dx;
-        c.y += off.dy;
-        newIds.push(c.id);
-        return c;
-      });
-    f.elements.push(...copies);
+    newIds = ops.duplicateElements(p, fig.id, [...sel], { dx: off.dx, dy: off.dy });
   });
   // Re-select the copies so repeated Ctrl+D keeps stepping by the same offset.
-  selection.set(new Set(newIds));
+  if (newIds.length) selection.set(new Set(newIds));
 }
 
 function flipSelected(axis: "h" | "v") {

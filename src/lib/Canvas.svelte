@@ -1189,8 +1189,9 @@
             }
           }
         });
-        // Remember an alt-drag-copy's offset so Ctrl+D repeats the same step.
-        if (gestureAltDup) lastDupOffset.set({ dx: gDX, dy: gDY });
+        // Remember the last move offset so Ctrl+D repeats the same step (F4) —
+        // whether it was an alt-drag-copy or a plain move of the selection.
+        lastDupOffset.set({ dx: gDX, dy: gDY });
       } else if (pendingShiftToggle) {
         // It was a shift-CLICK (no real drag) on an already-selected element:
         // now apply the deferred toggle (deselect it / its group).

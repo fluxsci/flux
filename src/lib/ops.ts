@@ -448,6 +448,46 @@ export function group(p: Project, ids: Id[]): Id | null {
   return gid;
 }
 
+// Smart duplicate (Feature 4): clone `ids` in their figure `count` times, each
+// stamp offset by k·(dx,dy) and given fresh element + group ids (so every stamp is
+// independent and regroup-safe). Returns the new ids of the LAST stamp so a
+// repeat run (Ctrl+D) keeps stepping. `count` defaults to 1.
+export function duplicateElements(
+  p: Project,
+  figId: Id,
+  ids: Id[],
+  opts: { dx?: number; dy?: number; count?: number } = {},
+): Id[] {
+  const f = figById(p, figId);
+  if (!f) return [];
+  const set = new Set(ids);
+  const originals = f.elements.filter((e) => set.has(e.id));
+  if (!originals.length) return [];
+  const dx = opts.dx ?? 0;
+  const dy = opts.dy ?? 0;
+  const count = Math.max(1, Math.floor(opts.count ?? 1));
+  let lastStamp: Id[] = [];
+  for (let k = 1; k <= count; k++) {
+    const grpRemap = new Map<Id, Id>();
+    const stamp: Id[] = [];
+    const copies = originals.map((e) => {
+      const c = structuredClone(e);
+      c.id = newId(c.type);
+      if (c.groupId) {
+        if (!grpRemap.has(c.groupId)) grpRemap.set(c.groupId, newId("grp"));
+        c.groupId = grpRemap.get(c.groupId);
+      }
+      c.x += dx * k;
+      c.y += dy * k;
+      stamp.push(c.id);
+      return c;
+    });
+    f.elements.push(...copies);
+    lastStamp = stamp;
+  }
+  return lastStamp;
+}
+
 export function ungroup(p: Project, ids: Id[]): void {
   const set = new Set(ids);
   for (const f of p.figures) for (const e of f.elements) if (set.has(e.id)) delete e.groupId;
