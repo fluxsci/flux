@@ -178,8 +178,20 @@ const past: Project[] = [];
 const future: Project[] = [];
 const MAX_HISTORY = 200;
 
-function clone<T>(v: T): T {
-  return structuredClone(v);
+// FIG-5: `colorGroups` is the bundled Flexoki palette — hundreds of static
+// swatches that are NOT document content and barely change. The old whole-project
+// clone deep-copied it into every one of the ≤200 history entries, the dominant
+// undo memory + per-gesture CPU cost. Snapshot everything else; re-attach the
+// LIVE colorGroups on restore (palette state is simply outside undo, which is
+// fine — you don't Ctrl+Z a swatch).
+function snapshot(p: Project): Project {
+  const { colorGroups: _omit, ...rest } = p;
+  void _omit;
+  return structuredClone(rest) as Project;
+}
+function restore(snap: Project) {
+  snap.colorGroups = get(project).colorGroups;
+  project.set(snap);
 }
 
 // W4: monotonic edit counter. A save snapshots `editGen.n` before its async
@@ -193,7 +205,7 @@ function markEdited() {
 }
 
 export function beginGesture() {
-  past.push(clone(get(project)));
+  past.push(snapshot(get(project)));
   if (past.length > MAX_HISTORY) past.shift();
   future.length = 0;
   markEdited();
@@ -219,16 +231,16 @@ export function mutate(fn: (p: Project) => void) {
 
 export function undo() {
   if (!past.length) return;
-  future.push(clone(get(project)));
-  project.set(past.pop()!);
+  future.push(snapshot(get(project)));
+  restore(past.pop()!);
   pruneSelection();
   markEdited();
 }
 
 export function redo() {
   if (!future.length) return;
-  past.push(clone(get(project)));
-  project.set(future.pop()!);
+  past.push(snapshot(get(project)));
+  restore(future.pop()!);
   pruneSelection();
   markEdited();
 }
@@ -238,7 +250,7 @@ export function redo() {
 // mode) whose pre-state was captured with beginGesture().
 export function rollbackGesture() {
   if (!past.length) return;
-  project.set(past.pop()!);
+  restore(past.pop()!);
   future.length = 0;
   pruneSelection();
   markEdited();

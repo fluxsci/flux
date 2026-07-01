@@ -123,6 +123,7 @@
   let dragging = false;
   let committed = false;
   let gestureAltDup = false; // current move is an alt-drag-copy
+  let altDupDone = false; // FIG-9: the deferred duplicate has been materialized (on first move)
   let pendingShiftToggle: string | null = null; // shift-click toggle deferred to up
   let gDX = 0;
   let gDY = 0;
@@ -131,6 +132,7 @@
   let gNb: Rect | null = null;
   let liveBox: Rect | null = null;
   let marquee: Rect | null = null; // figure-local
+  let lastMarqueeKey = ""; // FIG-1: last hit-set signature, to skip no-op selection.set
   let preview: Element | null = null;
   let guides: { x?: number; y?: number }[] = [];
   // Equal-spacing snap dimension lines during a move (F7), figure-local.
@@ -332,6 +334,7 @@
       gesture = { kind: "marquee", figId: fig.id, x0: lp.x, y0: lp.y, add: new Set(e.shiftKey ? $selection : []) };
       gestureFig = fig;
       marquee = { x: lp.x, y: lp.y, w: 0, h: 0 };
+      lastMarqueeKey = "\0"; // force the first hit-set of this marquee to apply
       hostEl.setPointerCapture(e.pointerId);
     } else if ($activeTool === "text") {
       const el = createTextElement(lp, get(drawStyle));
@@ -727,43 +730,11 @@
     beginMove(e, fig);
   }
 
-  function beginMove(e: PointerEvent, fig: Figure) {
-    let sel = selectedEls(fig);
-    // Alt-drag = duplicate-on-drag: clone the selection in place, then drag the
-    // copies (Figma-style). The originals stay put; the new copies are hidden in
-    // the frozen scene and shown only on the overlay while dragging.
-    gestureAltDup = e.altKey && sel.length > 0;
-    if (gestureAltDup) {
-      beginGesture(); // single history entry covers the duplicate + the drag
-      const newIds: string[] = [];
-      const grpRemap = new Map<string, string>();
-      mutate((p) => {
-        const f = p.figures.find((ff) => ff.id === fig.id);
-        if (!f) return;
-        const copies = sel.map((el) => {
-          const c = structuredClone(el);
-          c.id = newId(c.type);
-          if (c.groupId) {
-            if (!grpRemap.has(c.groupId)) grpRemap.set(c.groupId, newId("grp"));
-            c.groupId = grpRemap.get(c.groupId);
-          }
-          newIds.push(c.id);
-          return c;
-        });
-        f.elements.push(...copies);
-      });
-      selection.set(new Set(newIds));
-      const f2 = $project.figures.find((ff) => ff.id === fig.id) ?? fig;
-      sel = f2.elements.filter((el) => newIds.includes(el.id));
-    }
-    const origs = new Map<string, Element>();
-    for (const el of sel) origs.set(el.id, structuredClone(el));
-    const ob = selectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
-    const selIds = new Set(sel.map((el) => el.id));
+  function snapTargets(fig: Figure, excludeIds: Set<string>): { xs: number[]; ys: number[] } {
     const xs = [0, fig.width, fig.width / 2];
     const ys = [0, fig.height, fig.height / 2];
     for (const el of fig.elements) {
-      if (selIds.has(el.id)) continue;
+      if (excludeIds.has(el.id)) continue;
       const b = elementBBox(el);
       xs.push(b.x, b.x + b.w, b.x + b.w / 2);
       ys.push(b.y, b.y + b.h, b.y + b.h / 2);
@@ -771,15 +742,71 @@
     // Ruler guides join the snap targets (Feature 11).
     if (fig.guides?.x) xs.push(...fig.guides.x);
     if (fig.guides?.y) ys.push(...fig.guides.y);
+    return { xs, ys };
+  }
+
+  function beginMove(e: PointerEvent, fig: Figure) {
+    const sel = selectedEls(fig);
+    // Alt-drag = duplicate-on-drag (Figma-style). FIG-9: the duplication is DEFERRED
+    // to the first real move (performAltDup) — an alt-CLICK with no drag must leave
+    // NOTHING behind (no stray copy, no history entry). Until then the gesture
+    // targets the originals; on first move the copies become the moved set.
+    gestureAltDup = e.altKey && sel.length > 0;
+    altDupDone = false;
+    const origs = new Map<string, Element>();
+    for (const el of sel) origs.set(el.id, structuredClone(el));
+    const ob = selectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
+    const { xs, ys } = snapTargets(fig, new Set(sel.map((el) => el.id)));
     gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, origs, ob, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
-    committed = gestureAltDup; // duplicate already opened the history entry
+    committed = false;
     dragging = false;
     gDX = 0;
     gDY = 0;
     liveBox = ob;
     hostEl.setPointerCapture(e.pointerId);
+  }
+
+  // FIG-9: materialize the alt-drag copies on the first real move. Clones the
+  // originals in place, makes the copies the moved set (re-keying origs + snap
+  // targets), and opens one history entry covering the duplicate + the drag.
+  function performAltDup(fig: Figure) {
+    const g = gesture;
+    if (!g || g.kind !== "move") return;
+    altDupDone = true;
+    beginGesture(); // single history entry for duplicate + drag
+    committed = true;
+    const originals = gestureEls;
+    const newIds: string[] = [];
+    const grpRemap = new Map<string, string>();
+    mutate((p) => {
+      const f = p.figures.find((ff) => ff.id === fig.id);
+      if (!f) return;
+      const copies = originals.map((el) => {
+        const c = structuredClone(el);
+        c.id = newId(c.type);
+        if (c.groupId) {
+          if (!grpRemap.has(c.groupId)) grpRemap.set(c.groupId, newId("grp"));
+          c.groupId = grpRemap.get(c.groupId);
+        }
+        newIds.push(c.id);
+        return c;
+      });
+      f.elements.push(...copies);
+    });
+    selection.set(new Set(newIds));
+    const f2 = $project.figures.find((ff) => ff.id === fig.id) ?? fig;
+    const copies = f2.elements.filter((el) => newIds.includes(el.id));
+    gestureEls = copies;
+    // Re-key origs to the copies (identical geometry) so the move delta applies to
+    // them; the now-unselected originals become valid snap targets.
+    const origs = new Map<string, Element>();
+    for (const el of copies) origs.set(el.id, structuredClone(el));
+    g.origs = origs;
+    const t = snapTargets(fig, new Set(newIds));
+    g.xs = t.xs;
+    g.ys = t.ys;
   }
 
   // F8: begin moving a whole figure (frame) by its title label. Snaps the frame's
@@ -1097,6 +1124,9 @@
             dy += Math.round((g.ob.y + dy) / G) * G - (g.ob.y + dy);
         }
       }
+      // FIG-9: first real movement of an alt-drag materializes the copies now
+      // (deferred from pointer-down so a bare alt-click leaves nothing behind).
+      if (gestureAltDup && !altDupDone && (dx !== 0 || dy !== 0)) performAltDup(fig);
       startDragging();
       guides = nextGuides;
       spacing = nextSpacing;
@@ -1144,7 +1174,15 @@
       const hit = new Set(g.add);
       for (const el of fig.elements)
         if (!el.locked && !el.hidden && rectsIntersect(elementBBox(el), r)) hit.add(el.id);
-      selection.set(expandGroups($project, hit));
+      // FIG-1: dragging the marquee re-ran expandGroups + every selection-dependent
+      // reactive (handles, inspector, bbox) on EACH pointermove even when the hit set
+      // hadn't changed. Only push a new selection when the result actually differs.
+      const expanded = expandGroups($project, hit);
+      const key = [...expanded].sort().join(",");
+      if (key !== lastMarqueeKey) {
+        lastMarqueeKey = key;
+        selection.set(expanded);
+      }
     } else if (g.kind === "draw") {
       const lp = localPoint(e.clientX, e.clientY, fig);
       // Creation modifiers (F12): Shift = square/circle or 45° line; Alt = from centre.
