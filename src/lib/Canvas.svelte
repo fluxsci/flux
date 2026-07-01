@@ -20,10 +20,11 @@
     lastDupOffset,
     captionOpen,
     hoverId,
+    nodeEditId,
     arrange,
   } from "./store";
   import { commitArrange } from "./keyboard";
-  import type { Element, Figure } from "./types";
+  import type { Element, Figure, PathElement, VectorNode } from "./types";
   import { get } from "svelte/store";
   import { applyAutoWidth } from "./text";
   import {
@@ -34,6 +35,8 @@
     type Rect,
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap } from "./editing";
+  import { nodesToPath, pathToNodes, constrain45 } from "./path";
+  import * as ops from "./ops";
   import { importDroppedFiles } from "./io";
   import { semanticIdFromNode } from "./plot/parse";
   import ElementView from "./Element.svelte";
@@ -130,10 +133,34 @@
     }
   }
 
-  // pen tool state
-  let penPts: { x: number; y: number }[] = [];
+  // --- pen tool state (bezier authoring) ---
+  // penNodes are figure-local; on finish they're handed to ops.addPath which
+  // normalizes them to element-local (0,0) and sets the element x/y/bbox.
+  let penNodes: VectorNode[] = [];
   let penFigId: string | null = null;
-  let penCursor: { x: number; y: number } | null = null;
+  let penCursor: { x: number; y: number } | null = null; // figure-local, for the rubber-band
+  // While the button is held right after placing a node, dragging pulls out that
+  // node's (symmetric) bezier handles — Figma/Illustrator click-drag behavior.
+  let penDrag: { i: number } | null = null;
+
+  // --- node-edit state (double-click / Enter on a selected path) ---
+  let editPathId: string | null = null;
+  let editNodes: VectorNode[] = []; // working copy, element-local; live during drag
+  let editClosed = false;
+  let editSel = new Set<number>(); // selected node indices (for handles + delete)
+  // Active node/handle drag. `orig` snapshots editNodes at grab so a multi-node
+  // move applies a clean delta; `started` defers beginGesture to the first move.
+  let nodeDrag:
+    | null
+    | { kind: "node" | "in" | "out"; i: number; started: boolean; alt: boolean; sx: number; sy: number; orig: VectorNode[] } = null;
+
+  const cloneNode = (n: VectorNode): VectorNode => ({
+    x: n.x,
+    y: n.y,
+    type: n.type,
+    hIn: n.hIn ? { ...n.hIn } : undefined,
+    hOut: n.hOut ? { ...n.hOut } : undefined,
+  });
 
   // inline text editing
   let editingId: string | null = null;
@@ -269,6 +296,7 @@
       return;
     }
     if ($captionOpen) return; // read-only while the caption editor is open
+    if (editPathId) exitNodeEdit(); // click on empty canvas leaves node-edit
     if ($activeTool === "select") clearSelection();
   }
 
@@ -280,6 +308,9 @@
       return;
     }
     if ($captionOpen) return; // read-only while the caption editor is open
+    // A click into the figure background while node-editing exits the mode
+    // (unless the pen is active — then it's placing/closing nodes).
+    if (editPathId && $activeTool !== "pen") exitNodeEdit();
     e.stopPropagation();
     activeFigureId.set(fig.id);
     selectedFrameId.set(null);
@@ -304,50 +335,277 @@
       preview = createDrawElement($activeTool, lp, lp, get(drawStyle));
       hostEl.setPointerCapture(e.pointerId);
     } else if ($activeTool === "pen") {
-      if (penPts.length === 0) {
-        penFigId = fig.id;
-        penPts = [lp];
-      } else if (penFigId === fig.id) {
-        const first = penPts[0];
-        const near = Math.hypot(lp.x - first.x, lp.y - first.y) < 8 / $viewport.zoom;
-        if (near && penPts.length >= 2) finishPen(true);
-        else penPts = [...penPts, lp];
+      // Click near the first node (with ≥2 placed) closes the path.
+      if (penNodes.length >= 2 && penFigId === fig.id) {
+        const first = penNodes[0];
+        if (Math.hypot(lp.x - first.x, lp.y - first.y) < 8 / $viewport.zoom) {
+          finishPen(true);
+          return;
+        }
+      }
+      if (penNodes.length === 0) penFigId = fig.id;
+      if (penFigId === fig.id) {
+        penNodes = [...penNodes, { x: lp.x, y: lp.y, type: "corner" }];
+        penDrag = { i: penNodes.length - 1 }; // a drag now pulls out handles
+        hostEl.setPointerCapture(e.pointerId);
       }
     }
   }
 
   function finishPen(close: boolean) {
-    if (penPts.length >= 2 && penFigId) {
-      const xs = penPts.map((p) => p.x);
-      const ys = penPts.map((p) => p.y);
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
+    const figId = penFigId;
+    if (penNodes.length >= 2 && figId) {
       const s = get(drawStyle);
-      let d = penPts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x - minX} ${p.y - minY}`).join(" ");
-      if (close) d += " Z";
-      const el: Element = {
-        type: "path",
-        id: newId("path"),
-        x: minX,
-        y: minY,
-        width: Math.max(...xs) - minX,
-        height: Math.max(...ys) - minY,
-        rotation: 0,
-        d,
-        fill: s.fill,
-        stroke: s.stroke,
-        strokeWidth: s.strokeWidth,
-        closed: close,
-      };
-      const figId = penFigId;
+      const nodes = penNodes.map(cloneNode);
+      let created: string | null = null;
       beginGesture();
-      mutate((p) => p.figures.find((f) => f.id === figId)?.elements.push(el));
-      selectOnly(el.id);
+      mutate((p) => {
+        created = ops.addPath(p, figId, {
+          nodes,
+          closed: close,
+          // an open squiggle shouldn't be filled (it would fill the implied chord)
+          fill: close ? s.fill : "none",
+          stroke: s.stroke,
+          strokeWidth: s.strokeWidth,
+        });
+      });
+      if (created) selectOnly(created);
       activeTool.set("select");
     }
-    penPts = [];
+    penNodes = [];
     penFigId = null;
     penCursor = null;
+    penDrag = null;
+  }
+
+  // --- node editing (double-click / Enter on a selected path) ---
+  function enterNodeEdit(id: string) {
+    const found = findElement($project, id);
+    if (!found || found.element.type !== "path") return;
+    const el = found.element;
+    activeFigureId.set(found.figure.id);
+    selectOnly(id);
+    editPathId = id;
+    editClosed = el.closed;
+    // Adopt legacy d-only paths into nodes so ANY path becomes editable.
+    const src = el.nodes && el.nodes.length ? el.nodes : pathToNodes(el.d);
+    editNodes = src.map(cloneNode);
+    editSel = new Set();
+    nodeDrag = null;
+    nodeEditId.set(id);
+  }
+  function exitNodeEdit() {
+    editPathId = null;
+    editNodes = [];
+    editSel = new Set();
+    nodeDrag = null;
+    nodeEditId.set(null);
+  }
+
+  // Write the working nodes back through ops.updatePath (refit → normalize +
+  // bbox + d), then reload the normalized nodes so the overlay stays in sync.
+  // Assumes a gesture is already open (single undo entry for the whole edit).
+  function commitNodes() {
+    const id = editPathId;
+    if (!id) return;
+    const nodes = editNodes.map(cloneNode);
+    mutate((p) => ops.updatePath(p, id, { nodes, closed: editClosed }));
+    const f = findElement($project, id);
+    if (f && f.element.type === "path" && f.element.nodes) editNodes = f.element.nodes.map(cloneNode);
+  }
+
+  // Keep the working node list in sync if the model path changes underneath us
+  // while node-edit is open and idle — an undo/redo, or a bridge/AI edit. If the
+  // path is gone (undo of its creation), leave the mode.
+  function resyncEditNodes() {
+    if (!editPathId || nodeDrag) return;
+    const f = findElement($project, editPathId);
+    if (!f || f.element.type !== "path") {
+      exitNodeEdit();
+      return;
+    }
+    const el = f.element;
+    if (el.d !== nodesToPath(editNodes, editClosed)) {
+      editClosed = el.closed;
+      editNodes = (el.nodes && el.nodes.length ? el.nodes : pathToNodes(el.d)).map(cloneNode);
+      editSel = new Set([...editSel].filter((i) => i < editNodes.length));
+    }
+  }
+  $: void $project, editPathId, nodeDrag, resyncEditNodes();
+
+  function onNodeDown(e: PointerEvent, i: number, kind: "node" | "in" | "out") {
+    e.stopPropagation();
+    if (startPanIfNeeded(e)) return;
+    const found = findElement($project, editPathId ?? "");
+    if (!found || found.element.type !== "path") return;
+    if (kind === "node") {
+      if (e.shiftKey) {
+        const n = new Set(editSel);
+        n.has(i) ? n.delete(i) : n.add(i);
+        editSel = n;
+      } else if (!editSel.has(i)) {
+        editSel = new Set([i]);
+      }
+    }
+    nodeDrag = { kind, i, started: false, alt: e.altKey, sx: 0, sy: 0, orig: editNodes.map(cloneNode) };
+    // record element-local grab point. NOTE: don't capture the pointer yet —
+    // capturing here would retarget a no-drag dblclick to the host (where
+    // onDblClick is suppressed in node-edit), breaking corner↔smooth toggle.
+    // Capture is taken on the first real move in onNodeDrag instead.
+    const lp = localPoint(e.clientX, e.clientY, found.figure);
+    nodeDrag.sx = lp.x - found.element.x;
+    nodeDrag.sy = lp.y - found.element.y;
+  }
+
+  function onNodeDrag(e: PointerEvent) {
+    const nd = nodeDrag;
+    if (!nd || !editPathId) return;
+    const found = findElement($project, editPathId);
+    if (!found || found.element.type !== "path") return;
+    const el = found.element;
+    const lp = localPoint(e.clientX, e.clientY, found.figure);
+    const ex = lp.x - el.x; // element-local (el.x/y stays fixed until commit)
+    const ey = lp.y - el.y;
+    if (!nd.started) {
+      // ignore sub-pixel jitter so a plain click stays a click (selection only)
+      if (Math.hypot(ex - nd.sx, ey - nd.sy) < 2 / $viewport.zoom) return;
+      nd.started = true;
+      try {
+        hostEl.setPointerCapture(e.pointerId); // now that it's a real drag
+      } catch {}
+      beginGesture();
+    }
+    if (nd.kind === "node") {
+      const dx = ex - nd.sx;
+      const dy = ey - nd.sy;
+      const targets = editSel.has(nd.i) && editSel.size ? [...editSel] : [nd.i];
+      for (const ti of targets) {
+        editNodes[ti].x = nd.orig[ti].x + dx;
+        editNodes[ti].y = nd.orig[ti].y + dy;
+      }
+    } else {
+      const n = editNodes[nd.i];
+      let hdx = ex - n.x;
+      let hdy = ey - n.y;
+      if (e.shiftKey) ({ dx: hdx, dy: hdy } = constrain45(hdx, hdy));
+      const breakSym = e.altKey || nd.alt;
+      if (nd.kind === "out") {
+        n.hOut = { dx: hdx, dy: hdy };
+        if (breakSym) n.type = "corner";
+        else if (n.type === "smooth") n.hIn = { dx: -hdx, dy: -hdy };
+      } else {
+        n.hIn = { dx: hdx, dy: hdy };
+        if (breakSym) n.type = "corner";
+        else if (n.type === "smooth") n.hOut = { dx: -hdx, dy: -hdy };
+      }
+    }
+    editNodes = editNodes;
+    // live scene update WITHOUT refit (keep el.x/y fixed so overlay math holds)
+    const id = editPathId;
+    const live = editNodes.map(cloneNode);
+    mutate((p) => {
+      const f = findElement(p, id);
+      if (f && f.element.type === "path") {
+        f.element.nodes = live;
+        f.element.d = nodesToPath(live, editClosed);
+      }
+    });
+  }
+
+  function finishNodeDrag(e: PointerEvent) {
+    if (nodeDrag?.started) commitNodes(); // refit + resync under the open gesture
+    nodeDrag = null;
+    try {
+      hostEl.releasePointerCapture(e.pointerId);
+    } catch {}
+  }
+
+  function toggleNodeType(i: number) {
+    if (!editPathId) return;
+    const n = editNodes[i];
+    beginGesture();
+    if (n.type === "smooth") {
+      n.type = "corner";
+    } else {
+      n.type = "smooth";
+      if (!n.hIn && !n.hOut) {
+        // synthesize a tangent from the neighbours' direction
+        const N = editNodes.length;
+        const prev = editNodes[(i - 1 + N) % N];
+        const next = editNodes[(i + 1) % N];
+        const tx = next.x - prev.x;
+        const ty = next.y - prev.y;
+        const len = Math.hypot(tx, ty) || 1;
+        const s = Math.min(len / 3, 40);
+        const ux = (tx / len) * s;
+        const uy = (ty / len) * s;
+        n.hOut = { dx: ux, dy: uy };
+        n.hIn = { dx: -ux, dy: -uy };
+      } else {
+        const hi = n.hIn as { dx: number; dy: number };
+        const h = n.hOut ?? { dx: -hi.dx, dy: -hi.dy };
+        n.hOut = { ...h };
+        n.hIn = { dx: -h.dx, dy: -h.dy };
+      }
+    }
+    editNodes = editNodes;
+    commitNodes();
+  }
+
+  function deleteEditNodes() {
+    if (!editPathId) return;
+    const targets = editSel.size ? editSel : new Set<number>();
+    if (!targets.size) return;
+    const keep = editNodes.filter((_, i) => !targets.has(i));
+    if (keep.length < 2) {
+      // too few points to be a path — delete the whole element
+      const id = editPathId;
+      beginGesture();
+      mutate((p) => {
+        for (const f of p.figures) f.elements = f.elements.filter((x) => x.id !== id);
+      });
+      clearSelection();
+      exitNodeEdit();
+      return;
+    }
+    beginGesture();
+    editNodes = keep;
+    editSel = new Set();
+    commitNodes();
+  }
+
+  // Split the segment starting at node index `s` at its midpoint (t=0.5),
+  // preserving the curve exactly (De Casteljau for cubics; bisection for lines).
+  function insertNodeAt(s: number) {
+    if (!editPathId) return;
+    const N = editNodes.length;
+    const a = editNodes[s];
+    const b = editNodes[(s + 1) % N];
+    const mid = (p: { x: number; y: number }, q: { x: number; y: number }) => ({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 });
+    const hasCurve = a.hOut || b.hIn;
+    let node: VectorNode;
+    beginGesture();
+    if (hasCurve) {
+      const p0 = { x: a.x, y: a.y };
+      const p1 = a.hOut ? { x: a.x + a.hOut.dx, y: a.y + a.hOut.dy } : { x: a.x, y: a.y };
+      const p2 = b.hIn ? { x: b.x + b.hIn.dx, y: b.y + b.hIn.dy } : { x: b.x, y: b.y };
+      const p3 = { x: b.x, y: b.y };
+      const m01 = mid(p0, p1);
+      const m12 = mid(p1, p2);
+      const m23 = mid(p2, p3);
+      const m012 = mid(m01, m12);
+      const m123 = mid(m12, m23);
+      const mm = mid(m012, m123);
+      a.hOut = { dx: m01.x - a.x, dy: m01.y - a.y };
+      b.hIn = { dx: m23.x - b.x, dy: m23.y - b.y };
+      node = { x: mm.x, y: mm.y, type: "smooth", hIn: { dx: m012.x - mm.x, dy: m012.y - mm.y }, hOut: { dx: m123.x - mm.x, dy: m123.y - mm.y } };
+    } else {
+      const m = mid(a, b);
+      node = { x: m.x, y: m.y, type: "corner" };
+    }
+    editNodes = [...editNodes.slice(0, s + 1), node, ...editNodes.slice(s + 1)];
+    editSel = new Set([s + 1]);
+    commitNodes();
   }
 
   // --- inline text editing ---
@@ -407,6 +665,10 @@
       return;
     }
     if ($captionOpen) return; // read-only while the caption editor is open
+    // Clicking a DIFFERENT element while node-editing leaves the mode first, then
+    // proceeds with a normal selection (node markers stopPropagation, so a click
+    // that reaches here is genuinely on the scene, not a node).
+    if (editPathId && el.id !== editPathId) exitNodeEdit();
     if ($activeTool !== "select") {
       onFigureDown(e, fig);
       return;
@@ -602,9 +864,28 @@
   }
 
   function onPointerMove(e: PointerEvent) {
+    // Node-edit drag (no Gesture — modal on editPathId).
+    if (nodeDrag) {
+      onNodeDrag(e);
+      return;
+    }
     if ($activeTool === "pen" && penFigId) {
       const pf = $project.figures.find((f) => f.id === penFigId);
-      if (pf) penCursor = localPoint(e.clientX, e.clientY, pf);
+      if (pf) {
+        const lp = localPoint(e.clientX, e.clientY, pf);
+        penCursor = lp;
+        if (penDrag) {
+          // pull symmetric handles out of the just-placed node → smooth node
+          const n = penNodes[penDrag.i];
+          let dx = lp.x - n.x;
+          let dy = lp.y - n.y;
+          if (e.shiftKey) ({ dx, dy } = constrain45(dx, dy));
+          n.hOut = { dx, dy };
+          n.hIn = { dx: -dx, dy: -dy };
+          n.type = "smooth";
+          penNodes = penNodes;
+        }
+      }
     }
     const g = gesture;
     if (!g) return;
@@ -724,6 +1005,19 @@
   }
 
   function onPointerUp(e: PointerEvent) {
+    // End a node-edit drag (modal — no Gesture).
+    if (nodeDrag) {
+      finishNodeDrag(e);
+      return;
+    }
+    // End a pen handle-drag; the node (with its handles) stays for the next click.
+    if (penDrag) {
+      penDrag = null;
+      try {
+        hostEl.releasePointerCapture(e.pointerId);
+      } catch {}
+      return;
+    }
     const g = gesture;
     if (!g) return;
 
@@ -839,14 +1133,44 @@
     const t = e.target as HTMLElement;
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA";
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
-    if (!typing && penPts.length) {
+    if (typing) return;
+
+    // Node-edit mode owns the keyboard (keyboard.ts yields on nodeEditId).
+    if (editPathId) {
+      if (e.key === "Escape" || e.key === "Enter") {
+        e.preventDefault();
+        exitNodeEdit();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        deleteEditNodes();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        editSel = new Set(editNodes.map((_, i) => i));
+      }
+      return;
+    }
+
+    // Pen authoring: Enter finishes (open), Esc cancels.
+    if (penNodes.length) {
       if (e.key === "Enter") {
         e.preventDefault();
         finishPen(false);
       } else if (e.key === "Escape") {
-        penPts = [];
+        penNodes = [];
         penFigId = null;
         penCursor = null;
+        penDrag = null;
+      }
+      return;
+    }
+
+    // Enter node-edit on a single selected path (Figma: Enter to edit vertices).
+    if (e.key === "Enter" && $selection.size === 1) {
+      const id = [...$selection][0];
+      const f = findElement($project, id);
+      if (f && f.element.type === "path" && !f.element.locked) {
+        e.preventDefault();
+        enterNodeEdit(id);
       }
     }
   }
@@ -856,26 +1180,29 @@
 
   let prevTool = $activeTool;
   $: if ($activeTool !== prevTool) {
-    if (prevTool === "pen" && penPts.length >= 2) finishPen(false);
+    if (prevTool === "pen" && penNodes.length >= 2) finishPen(false);
     else if (prevTool === "pen") {
-      penPts = [];
+      penNodes = [];
       penFigId = null;
       penCursor = null;
+      penDrag = null;
     }
     prevTool = $activeTool;
   }
 
   function onDblClick() {
     if ($captionOpen) return; // read-only while the caption editor is open
-    if (penPts.length >= 2) {
+    if (editPathId) return; // node markers/segments handle their own dblclicks
+    if (penNodes.length >= 2) {
       finishPen(false);
       return;
     }
-    // Double-click to edit text — robust even if a resize handle was the target.
+    // Double-click to edit: text → inline editor; path → node-edit mode.
     const ids = [...$selection];
     if (ids.length === 1) {
       const f = findElement($project, ids[0]);
       if (f && f.element.type === "text") startEdit(f.element, true);
+      else if (f && f.element.type === "path" && !f.element.locked) enterNodeEdit(ids[0]);
     }
   }
 
@@ -955,6 +1282,7 @@
       gesture ||
       dragging ||
       editingId ||
+      editPathId ||
       $captionOpen ||
       $activeTool !== "select" ||
       $selection.has($hoverId)
@@ -1024,20 +1352,88 @@
         }
       : null;
   $: penFig = penFigId ? ($project.figures.find((f) => f.id === penFigId) ?? null) : null;
-  $: penScreenPts =
-    penFig && penPts.length
-      ? [...penPts, ...(penCursor ? [penCursor] : [])].map(
-          (p) => `${$viewport.panX + (penFig!.x + p.x) * $viewport.zoom},${$viewport.panY + (penFig!.y + p.y) * $viewport.zoom}`,
-        )
-      : [];
+  // Pen preview draws in figure-local coords inside a transform group (like the
+  // draw preview), so bezier handles scale correctly with zoom.
+  $: penTransform = penFig
+    ? `translate(${$viewport.panX + penFig.x * $viewport.zoom} ${$viewport.panY + penFig.y * $viewport.zoom}) scale(${$viewport.zoom})`
+    : "";
+  $: penMainD = penFig && penNodes.length ? nodesToPath(penNodes, false) : "";
+  // rubber-band from the last node to the cursor (hidden while dragging handles)
+  $: penBandD =
+    penFig && penNodes.length && penCursor && !penDrag
+      ? nodesToPath([penNodes[penNodes.length - 1], { x: penCursor.x, y: penCursor.y, type: "corner" }], false)
+      : "";
   $: penAnchors =
-    penFig && penPts.length
-      ? penPts.map((p, i) => ({
-          x: $viewport.panX + (penFig!.x + p.x) * $viewport.zoom,
-          y: $viewport.panY + (penFig!.y + p.y) * $viewport.zoom,
+    penFig && penNodes.length
+      ? penNodes.map((n, i) => ({
+          x: $viewport.panX + (penFig!.x + n.x) * $viewport.zoom,
+          y: $viewport.panY + (penFig!.y + n.y) * $viewport.zoom,
           first: i === 0,
+          smooth: n.type === "smooth",
         }))
       : [];
+  // live handle line for the node whose handles are being dragged out
+  $: penHandle = (() => {
+    if (!penFig || !penDrag) return null;
+    const n = penNodes[penDrag.i];
+    const px = (x: number) => $viewport.panX + (penFig!.x + x) * $viewport.zoom;
+    const py = (y: number) => $viewport.panY + (penFig!.y + y) * $viewport.zoom;
+    return {
+      bx: px(n.x),
+      by: py(n.y),
+      ox: n.hOut ? px(n.x + n.hOut.dx) : null,
+      oy: n.hOut ? py(n.y + n.hOut.dy) : null,
+      ix: n.hIn ? px(n.x + n.hIn.dx) : null,
+      iy: n.hIn ? py(n.y + n.hIn.dy) : null,
+    };
+  })();
+
+  // --- node-edit overlay geometry (screen px) ---
+  $: editInfo = (() => {
+    if (!editPathId) return null;
+    const f = findElement($project, editPathId);
+    if (!f || f.element.type !== "path") return null;
+    return { el: f.element as PathElement, fig: f.figure };
+  })();
+  // group transform mapping the edited path's local space → screen (for the
+  // highlighted outline). Uses el.x/y which is held fixed during a node drag.
+  $: editTransform = editInfo
+    ? `translate(${$viewport.panX + (editInfo.fig.x + editInfo.el.x) * $viewport.zoom} ${$viewport.panY + (editInfo.fig.y + editInfo.el.y) * $viewport.zoom}) scale(${$viewport.zoom})`
+    : "";
+  $: editScreen = (() => {
+    if (!editInfo) return null;
+    const fx = editInfo.fig.x + editInfo.el.x;
+    const fy = editInfo.fig.y + editInfo.el.y;
+    const px = (x: number) => $viewport.panX + (fx + x) * $viewport.zoom;
+    const py = (y: number) => $viewport.panY + (fy + y) * $viewport.zoom;
+    const N = editNodes.length;
+    const nodes = editNodes.map((n, i) => ({
+      i,
+      x: px(n.x),
+      y: py(n.y),
+      smooth: n.type === "smooth",
+      sel: editSel.has(i),
+      hIn: n.hIn && editSel.has(i) ? { x: px(n.x + n.hIn.dx), y: py(n.y + n.hIn.dy) } : null,
+      hOut: n.hOut && editSel.has(i) ? { x: px(n.x + n.hOut.dx), y: py(n.y + n.hOut.dy) } : null,
+    }));
+    // segment midpoints (screen) → click to insert a node
+    const segCount = editClosed ? N : N - 1;
+    const mids: { s: number; x: number; y: number }[] = [];
+    for (let s = 0; s < segCount; s++) {
+      const a = editNodes[s];
+      const b = editNodes[(s + 1) % N];
+      const de = (t: number, p0: number, p1: number, p2: number, p3: number) => {
+        const u = 1 - t;
+        return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+      };
+      const a1x = a.x + (a.hOut?.dx ?? 0);
+      const a1y = a.y + (a.hOut?.dy ?? 0);
+      const b1x = b.x + (b.hIn?.dx ?? 0);
+      const b1y = b.y + (b.hIn?.dy ?? 0);
+      mids.push({ s, x: px(de(0.5, a.x, a1x, b1x, b.x)), y: py(de(0.5, a.y, a1y, b1y, b.y)) });
+    }
+    return { nodes, mids };
+  })();
   // Highlight box for a selected plot PART (screen px). getBoundingClientRect
   // already accounts for every ancestor transform (zoom / pan / figure /
   // nested-viewBox), so we just subtract the host origin. Re-measures on
@@ -1252,8 +1648,8 @@
       <rect class="hover-box" x={hoverInfo.x} y={hoverInfo.y} width={hoverInfo.w} height={hoverInfo.h} fill="none" />
     {/if}
 
-    <!-- selection box + handles -->
-    {#if selScreen && !editingInfo}
+    <!-- selection box + handles (hidden during node-edit — nodes stand in) -->
+    {#if selScreen && !editingInfo && !editPathId}
       <rect class="sel-box" x={selScreen.x} y={selScreen.y} width={selScreen.w} height={selScreen.h} fill="none" />
       {#if !$captionOpen && !selLocked}
         <!-- rotate handle: circle above the top-centre resize handle, on a stem -->
@@ -1302,11 +1698,95 @@
       />
     {/if}
 
-    <!-- pen preview -->
-    {#if penScreenPts.length}
-      <polyline class="pen-line" points={penScreenPts.join(" ")} />
+    <!-- pen preview: committed curve (solid) + rubber-band to cursor (dashed) -->
+    {#if penMainD}
+      <g transform={penTransform}>
+        <path class="pen-line" d={penMainD} vector-effect="non-scaling-stroke" />
+        {#if penBandD}
+          <path class="pen-band" d={penBandD} vector-effect="non-scaling-stroke" />
+        {/if}
+      </g>
+      {#if penHandle}
+        {#if penHandle.ox != null}
+          <line class="node-handle-line" x1={penHandle.bx} y1={penHandle.by} x2={penHandle.ox} y2={penHandle.oy} />
+          <circle class="node-handle" cx={penHandle.ox} cy={penHandle.oy} r="3.5" />
+        {/if}
+        {#if penHandle.ix != null}
+          <line class="node-handle-line" x1={penHandle.bx} y1={penHandle.by} x2={penHandle.ix} y2={penHandle.iy} />
+          <circle class="node-handle" cx={penHandle.ix} cy={penHandle.iy} r="3.5" />
+        {/if}
+      {/if}
       {#each penAnchors as a}
-        <circle class="pen-anchor" class:first={a.first} cx={a.x} cy={a.y} r="4" />
+        <circle class="pen-anchor" class:first={a.first} class:smooth={a.smooth} cx={a.x} cy={a.y} r={a.first ? 5 : 4} />
+      {/each}
+    {/if}
+
+    <!-- node-edit overlay: outline + segment-insert markers + handles + nodes -->
+    {#if editInfo && editScreen}
+      <g transform={editTransform}>
+        <path class="node-edit-path" d={editInfo.el.d} vector-effect="non-scaling-stroke" />
+      </g>
+      {#each editScreen.mids as m}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <circle
+          class="node-insert"
+          cx={m.x}
+          cy={m.y}
+          r="4"
+          on:pointerdown={(e) => {
+            e.stopPropagation();
+            insertNodeAt(m.s);
+          }}
+        />
+      {/each}
+      {#each editScreen.nodes as n}
+        {#if n.hIn}
+          <line class="node-handle-line" x1={n.x} y1={n.y} x2={n.hIn.x} y2={n.hIn.y} />
+        {/if}
+        {#if n.hOut}
+          <line class="node-handle-line" x1={n.x} y1={n.y} x2={n.hOut.x} y2={n.hOut.y} />
+        {/if}
+      {/each}
+      {#each editScreen.nodes as n}
+        {#if n.hIn}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <circle class="node-handle" cx={n.hIn.x} cy={n.hIn.y} r="3.5" on:pointerdown={(e) => onNodeDown(e, n.i, "in")} />
+        {/if}
+        {#if n.hOut}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <circle class="node-handle" cx={n.hOut.x} cy={n.hOut.y} r="3.5" on:pointerdown={(e) => onNodeDown(e, n.i, "out")} />
+        {/if}
+      {/each}
+      {#each editScreen.nodes as n}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        {#if n.smooth}
+          <circle
+            class="node-pt"
+            class:sel={n.sel}
+            cx={n.x}
+            cy={n.y}
+            r="4.5"
+            on:pointerdown={(e) => onNodeDown(e, n.i, "node")}
+            on:dblclick={(e) => {
+              e.stopPropagation();
+              toggleNodeType(n.i);
+            }}
+          />
+        {:else}
+          <rect
+            class="node-pt"
+            class:sel={n.sel}
+            x={n.x - 4}
+            y={n.y - 4}
+            width="8"
+            height="8"
+            on:pointerdown={(e) => onNodeDown(e, n.i, "node")}
+            on:dblclick={(e) => {
+              e.stopPropagation();
+              toggleNodeType(n.i);
+            }}
+          />
+        {/if}
       {/each}
     {/if}
   </svg>
@@ -1493,6 +1973,14 @@
     stroke-width: 1.5;
     pointer-events: none;
   }
+  .pen-band {
+    fill: none;
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+    opacity: 0.6;
+    pointer-events: none;
+  }
   .pen-anchor {
     fill: var(--c-tx-hi);
     stroke: var(--c-accent);
@@ -1501,5 +1989,52 @@
   }
   .pen-anchor.first {
     fill: var(--c-accent);
+  }
+  .pen-anchor.smooth {
+    fill: var(--c-accent);
+  }
+
+  /* --- node-edit chrome --- */
+  .node-edit-path {
+    fill: none;
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .node-handle-line {
+    stroke: var(--c-accent);
+    stroke-width: 1;
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .node-handle {
+    fill: var(--c-bg);
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    cursor: crosshair;
+    pointer-events: all;
+  }
+  .node-pt {
+    fill: var(--c-bg);
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    cursor: move;
+    pointer-events: all;
+  }
+  .node-pt.sel {
+    fill: var(--c-accent);
+  }
+  .node-insert {
+    fill: none;
+    stroke: var(--c-accent);
+    stroke-width: 1.25;
+    stroke-dasharray: 2 2;
+    opacity: 0.55;
+    cursor: copy;
+    pointer-events: all;
+  }
+  .node-insert:hover {
+    fill: var(--c-accent);
+    opacity: 0.9;
   }
 </style>

@@ -25,9 +25,12 @@ import type {
   SvgElement,
   TextElement,
   SemanticPlotElement,
+  PathElement,
+  VectorNode,
   PartOverride,
 } from "./types";
 import { newId } from "./ids";
+import { refitPath, pathToNodes } from "./path";
 import {
   arrangeGrid,
   alignElements,
@@ -269,6 +272,61 @@ export function addPlotPanel(
 
 export function addText(p: Project, figId: Id, opts: { text: string } & Box & TextStyle): Id | null {
   return addElement(p, figId, makeText(opts.text, opts, opts, false));
+}
+
+// ---------------------------------------------------------------------------
+// Vector paths (Feature 1) — authored from a node list. `nodes` is authoritative;
+// `d`/width/height are derived (refitPath). Backs the pen tool, node editing, and
+// the add_path / edit_path bridge + `add-path` CLI verb.
+// ---------------------------------------------------------------------------
+export interface AddPathOpts {
+  nodes: VectorNode[];
+  closed?: boolean;
+  x?: number;
+  y?: number;
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+}
+
+export function addPath(p: Project, figId: Id, opts: AddPathOpts): Id | null {
+  const f = figById(p, figId);
+  if (!f || !opts.nodes?.length) return null;
+  const el: PathElement = {
+    type: "path",
+    id: newId("path"),
+    x: opts.x ?? 0,
+    y: opts.y ?? 0,
+    width: 1,
+    height: 1,
+    rotation: 0,
+    d: "",
+    fill: opts.fill ?? "#cccccc",
+    stroke: opts.stroke ?? "#222222",
+    strokeWidth: opts.strokeWidth ?? 2,
+    closed: !!opts.closed,
+    nodes: structuredClone(opts.nodes),
+  };
+  refitPath(el); // normalize nodes, set width/height + d
+  f.elements.push(el);
+  return el.id;
+}
+
+/** Replace a path's nodes and/or closed flag, regenerating d + bbox. Adopts a
+ *  legacy d-only path's geometry into nodes first, so any path stays editable. */
+export function updatePath(
+  p: Project,
+  id: Id,
+  patch: { nodes?: VectorNode[]; closed?: boolean },
+): void {
+  for (const f of p.figures)
+    for (const e of f.elements) {
+      if (e.id !== id || e.type !== "path") continue;
+      if (!e.nodes) e.nodes = pathToNodes(e.d);
+      if (patch.nodes) e.nodes = structuredClone(patch.nodes);
+      if (patch.closed != null) e.closed = patch.closed;
+      refitPath(e);
+    }
 }
 
 export function addPanelLabel(p: Project, figId: Id, opts: { text: string } & Box & TextStyle): Id | null {

@@ -9,7 +9,7 @@ import { get } from "svelte/store";
 import * as store from "../store";
 import * as ops from "../ops";
 import type { AlignKind } from "../geometry";
-import type { PartOverride } from "../types";
+import type { PartOverride, VectorNode } from "../types";
 
 export type Command = { type: string } & Record<string, unknown>;
 
@@ -30,6 +30,8 @@ export const ALLOWED_COMMANDS = [
   "group",
   "ungroup",
   "set_z",
+  "add_path",
+  "edit_path",
   "delete",
   "set_figure_layout",
   "duplicate_figure",
@@ -148,6 +150,37 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
         store.commit((p) => ops.setZOrder(p, f, list, (c.where as ops.ZOrder) ?? "front"));
       }
       return { figureId: f };
+    }
+
+    case "add_path": {
+      const f = fig(c);
+      if (!f) throw new Error("add_path: no active figure");
+      const nodes = c.nodes as VectorNode[] | undefined;
+      if (!Array.isArray(nodes) || nodes.length < 2) throw new Error("add_path: need ≥2 nodes");
+      let nid: string | null = null;
+      store.commit((p) => {
+        nid = ops.addPath(p, f, {
+          nodes,
+          closed: !!c.closed,
+          fill: typeof c.fill === "string" ? c.fill : undefined,
+          stroke: typeof c.stroke === "string" ? c.stroke : undefined,
+          strokeWidth: num(c.strokeWidth),
+        });
+      });
+      if (nid) store.selectOnly(nid);
+      return { id: nid };
+    }
+
+    case "edit_path": {
+      const id = typeof c.id === "string" ? c.id : ids(c)[0];
+      if (!id) throw new Error("edit_path: no path id");
+      store.commit((p) =>
+        ops.updatePath(p, id, {
+          nodes: c.nodes as VectorNode[] | undefined,
+          closed: typeof c.closed === "boolean" ? c.closed : undefined,
+        }),
+      );
+      return { id };
     }
 
     case "delete": {

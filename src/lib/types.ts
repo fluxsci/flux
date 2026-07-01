@@ -152,14 +152,33 @@ export interface LineElement extends ElementBase {
   arrowEnd: boolean;
 }
 
+// A bezier vector node (Feature 1). Element-local coords; handles are relative
+// offsets from the node point. `smooth` keeps hIn/hOut colinear (mirrored) while
+// editing; `corner` allows independent tangents (or none → straight segments).
+export interface VectorHandle {
+  dx: number;
+  dy: number;
+}
+export interface VectorNode {
+  x: number;
+  y: number;
+  type: "corner" | "smooth";
+  hIn?: VectorHandle;
+  hOut?: VectorHandle;
+}
+
 export interface PathElement extends ElementBase {
   type: "path";
-  // SVG path data in element-local coords.
+  // SVG path data in element-local coords. Rendered/exported form — kept in sync
+  // with `nodes` when present (regenerated via path.ts nodesToPath).
   d: string;
   fill: string;
   stroke: string;
   strokeWidth: number;
   closed: boolean;
+  // When present, the AUTHORITATIVE editable geometry; `d` is derived from it.
+  // Absent on legacy paths (d-only) until they're parsed for node editing.
+  nodes?: VectorNode[];
 }
 
 // A FluxPlot semantic plot. Unlike SvgElement (an opaque <image>), this is

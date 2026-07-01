@@ -17,6 +17,7 @@ import {
   newId,
   lastDupOffset,
   captionOpen,
+  nodeEditId,
   getActiveFigure,
   arrange,
   lastArrangeRows,
@@ -402,6 +403,11 @@ function openXray() {
 export function handleKey(e: KeyboardEvent) {
   // the FluxFig Menu / Settings / X-Ray / Importer own all keys while open.
   if (get(fluxFigMenuOpen) || get(settingsOpen) || get(xrayOpen) || get(importerOpen)) return;
+
+  // Node-edit mode (Feature 1) owns the keyboard: Canvas.svelte handles
+  // Enter/Esc/Delete/Tab on the vector nodes. Yield everything so Delete doesn't
+  // nuke the whole path and Esc doesn't just clear the selection.
+  if (get(nodeEditId)) return;
 
   const mod = e.metaKey || e.ctrlKey;
 

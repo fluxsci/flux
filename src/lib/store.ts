@@ -132,6 +132,12 @@ export const captionOpen = writable<boolean>(false);
 // hover outline. Null when nothing is hovered / during a drag.
 export const hoverId = writable<Id | null>(null);
 
+// The id of the path element being NODE-edited (Feature 1 pen/vector). While set,
+// the canvas shows that path's vector nodes + handles instead of the normal
+// selection box, and node-edit owns the keyboard (Enter/Esc/Delete/etc.) — so
+// the global shortcut handler yields, like it does for the caption editor.
+export const nodeEditId = writable<Id | null>(null);
+
 // Keyboard-driven grid arrangement ("Arrange mode", Alt+G). While `active`, the
 // selection is being live-reflowed into a grid; `rows`/`cols` are the current
 // shape and `n` the number of layout cells (a group counts once). The HUD reads

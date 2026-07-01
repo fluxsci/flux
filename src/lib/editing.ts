@@ -3,6 +3,7 @@ import type { DrawStyle, Tool } from "./store";
 import { newId } from "./store";
 import { elementBBox, type Rect } from "./geometry";
 import { applyAutoWidth } from "./text";
+import { scaleNodes, nodesToPath, pathToNodes } from "./path";
 
 export interface Pt {
   x: number;
@@ -118,6 +119,23 @@ export function resizeRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
   }
 
   const ob2 = elementBBox(orig);
+
+  // Path: rescale the ACTUAL geometry (previously the bug — only x/y/w/h changed
+  // and `d` snapped back). Scale the authoritative nodes if present, else parse
+  // the legacy `d`, scale, and regenerate — so resize persists on commit + export.
+  if (e.type === "path" && orig.type === "path") {
+    e.x = fx(ob2.x);
+    e.y = fy(ob2.y);
+    if (orig.nodes && orig.nodes.length) {
+      e.nodes = scaleNodes(orig.nodes, sx, sy);
+      e.d = nodesToPath(e.nodes, e.closed);
+    } else {
+      e.d = nodesToPath(scaleNodes(pathToNodes(orig.d), sx, sy), e.closed);
+    }
+    e.width = Math.max(1, orig.width * sx);
+    e.height = Math.max(1, orig.height * sy);
+    return;
+  }
 
   // Text: scale the font (not the box), then let auto-width re-fit the box.
   if (e.type === "text" && orig.type === "text") {
