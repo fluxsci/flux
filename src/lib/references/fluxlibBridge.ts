@@ -12,6 +12,7 @@ import { splitBibEntries, lightEntry, bibtexKey, rekeyBibtex } from "./bibtex";
 import { bumpFluxLib, fluxLibEntries } from "./revision";
 import { mergeEnrich, type EnrichMap } from "./enrich";
 import { pushToast } from "../toast";
+import { withIpcLock } from "./libLock";
 
 const SCHEMA_VERSION = "0.1.0";
 
@@ -108,7 +109,9 @@ export async function ensureFluxLib(): Promise<string | null> {
   return lib;
 }
 
-/** Add BibTeX to FluxLib, deduping by DOI. Mirrors flux-core/fluxlib.ts addToFluxLib. */
+/** Add BibTeX to FluxLib, deduping by DOI. Mirrors flux-core/fluxlib.ts addToFluxLib.
+ *  W3: the read→dedupe→append→write runs under the FluxLib "library" lock, so a
+ *  concurrent CLI/MCP lib-add can no longer race this into a lost entry. */
 export async function addToFluxLib(
   bibtex: string,
   opts: { source?: "doi" | "bibtex" } = {},
@@ -119,7 +122,15 @@ export async function addToFluxLib(
   const source = opts.source ?? "bibtex";
   const lib = await ensureFluxLib();
   if (!lib) return empty;
+  return withIpcLock("fluxlib", "library", () => addToFluxLibLocked(fb, lib, bibtex, source));
+}
 
+async function addToFluxLibLocked(
+  fb: NonNullable<ReturnType<typeof fileBridge>>,
+  lib: string,
+  bibtex: string,
+  source: "doi" | "bibtex",
+): Promise<AddResult> {
   const curText = await readTextSafe(libBib(lib));
   const taken = new Set<string>();
   const doiToKey = new Map<string, string>();
@@ -228,22 +239,26 @@ export async function materializeIntoProject(
   }
   const manifest = opts.manifest ?? (await readManifest(root));
   const pbib = projectBibPath(root, manifest);
-  const projText = await readTextSafe(pbib);
-  const projKeys = new Set(splitBibEntries(projText).map(bibtexKey).filter(Boolean) as string[]);
+  // W3: the project-bib append is an RMW — locked ("references") against
+  // flux-core's materialize/reconcile running concurrently.
+  return withIpcLock("project", "references", async () => {
+    const projText = await readTextSafe(pbib);
+    const projKeys = new Set(splitBibEntries(projText).map(bibtexKey).filter(Boolean) as string[]);
 
-  const toAdd: string[] = [];
-  const addedKeys: string[] = [];
-  for (const k of citekeys) {
-    if (projKeys.has(k) || !libRawByKey.has(k)) continue;
-    toAdd.push(libRawByKey.get(k) as string);
-    addedKeys.push(k);
-    projKeys.add(k);
-  }
-  if (toAdd.length) {
-    const sep = projText && !projText.endsWith("\n") ? "\n" : "";
-    await fb.writeText(pbib, projText + sep + toAdd.join("\n\n") + "\n");
-  }
-  return { added: addedKeys };
+    const toAdd: string[] = [];
+    const addedKeys: string[] = [];
+    for (const k of citekeys) {
+      if (projKeys.has(k) || !libRawByKey.has(k)) continue;
+      toAdd.push(libRawByKey.get(k) as string);
+      addedKeys.push(k);
+      projKeys.add(k);
+    }
+    if (toAdd.length) {
+      const sep = projText && !projText.endsWith("\n") ? "\n" : "";
+      await fb.writeText(pbib, projText + sep + toAdd.join("\n\n") + "\n");
+    }
+    return { added: addedKeys };
+  });
 }
 
 const CITE_RE = /@([A-Za-z][\w:.-]*)/g;

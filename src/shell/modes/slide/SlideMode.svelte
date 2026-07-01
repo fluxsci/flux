@@ -42,6 +42,7 @@
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen } from "../../../lib/plot/store";
+  import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import SlideStage from "./SlideStage.svelte";
   import Inspector from "./Inspector.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
@@ -245,6 +246,7 @@
     if (typeof window !== "undefined") window.addEventListener("beforeunload", flushOnExit);
     unsubDirty = deckDirty.subscribe((d) => {
       if (!ready || !pm || !d) return;
+      touchActivityLock("slides"); // W3: defer concurrent agent deck writes while mid-edit
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {

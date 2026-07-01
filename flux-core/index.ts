@@ -14,7 +14,7 @@ import { composeCaption, panelLetters } from "../src/lib/captions";
 import { elementBBox, unionRect } from "../src/lib/geometry";
 import { parsePlotSvg, prefixIds, applyOverrides, buildPartIndex } from "../src/lib/plot/parse";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
-import { withLock } from "./locks";
+import { withLock, setLockClient } from "./locks";
 import * as fluxlib from "./fluxlib";
 import { mergeEnrich } from "../src/lib/references/enrich";
 // Reference hydration + whole-world lookups (OpenAlex) — see flux-core/enrich.ts.
@@ -49,6 +49,7 @@ export type { FluxKeys } from "./fluxlib";
 let CLIENT = process.env.FLUX_CLIENT || "flux-core";
 export function setClient(c: string): void {
   CLIENT = c;
+  setLockClient(c); // keep the lock layer's identity in sync (fluxlib.ts uses it)
 }
 export function getClient(): string {
   return CLIENT;
@@ -215,8 +216,36 @@ export async function saveFigModel(
   action = "save_fig",
 ): Promise<void> {
   // WS6: an agent file-write defers (throws) rather than clobbering an in-flight
-  // human edit (the GUI holds the "project" lock while figDirty). Then journal it.
+  // human edit (the GUI holds the "project" lock while actively editing). Then journal.
+  await withLock(root, "project", CLIENT, () => saveFigModelUnlocked(root, project, index));
+  await journal(root, { action, figures: project.figures.map((f) => f.id) });
+}
+
+/** W3: run a read→mutate→write cycle atomically under the "project" lock, so two
+ *  agents (or an agent racing the GUI's save) can never interleave a lost update —
+ *  the load happens INSIDE the lock. All mutating fig verbs go through this. */
+export async function mutateFigModel<T>(
+  root: string,
+  action: string,
+  fn: (m: { project: Project; index: FigIndexFile }) => T | Promise<T>,
+): Promise<T> {
+  let out!: T;
+  let figIds: string[] = [];
   await withLock(root, "project", CLIENT, async () => {
+    const m = await loadFigModel(root);
+    out = await fn(m);
+    figIds = m.project.figures.map((f) => f.id);
+    await saveFigModelUnlocked(root, m.project, m.index);
+  });
+  await journal(root, { action, figures: figIds });
+  return out;
+}
+
+async function saveFigModelUnlocked(
+  root: string,
+  project: Project,
+  index: FigIndexFile,
+): Promise<void> {
   const byCanvas = new Map<string, Figure[]>();
   for (const f of project.figures) {
     const arr = byCanvas.get(f.canvasId) ?? [];
@@ -262,8 +291,6 @@ export async function saveFigModel(
   index.colorGroups = project.colorGroups ?? [];
   await saveFigIndex(root, index);
   await reindex(root);
-  });
-  await journal(root, { action, figures: project.figures.map((f) => f.id) });
 }
 
 /** Best-effort intrinsic size of an SVG (viewBox, else width/height attrs). */
@@ -465,15 +492,19 @@ export async function renderFigurePng(root: string, id: string, scale = 2): Prom
 
 /** set-caption: write fig/captions/<id>.md (the F7 single source) + index cache. */
 export async function setCaption(root: string, figId: string, md: string): Promise<void> {
-  await writeText(j(root, "fig", "captions", `${figId}.md`), md.endsWith("\n") ? md : md + "\n");
-  const index = await readFigIndex(root);
-  if (index) {
-    const f = index.figures.find((x) => x.id === figId);
-    if (f) {
-      f.caption = md.trim();
-      await saveFigIndex(root, index);
+  // W3: the caption file + index-cache update are one locked unit (the index
+  // write is a read-modify-write that must not interleave with a GUI save).
+  await withLock(root, "project", CLIENT, async () => {
+    await writeText(j(root, "fig", "captions", `${figId}.md`), md.endsWith("\n") ? md : md + "\n");
+    const index = await readFigIndex(root);
+    if (index) {
+      const f = index.figures.find((x) => x.id === figId);
+      if (f) {
+        f.caption = md.trim();
+        await saveFigIndex(root, index);
+      }
     }
-  }
+  });
 }
 
 /** add-reference / cite: add a BibTeX entry to FluxLib (the machine-global
@@ -498,15 +529,15 @@ export async function addPanel(
   svgFile: string,
   opts: { x?: number; y?: number; width?: number; height?: number } = {},
 ): Promise<{ assetId: string; elementId: string }> {
-  const { project, index } = await loadFigModel(root);
-  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-  const { assetId, w, h, source } = await importPlotAsset(root, project, svgFile);
-  const box = { x: opts.x ?? 20, y: opts.y ?? 20, width: opts.width ?? w, height: opts.height ?? h };
-  const elementId = source
-    ? ops.addPlotPanel(project, figId, { assetId, source, ...box })!
-    : ops.addImagePanel(project, figId, { assetId, kind: "svg", ...box })!;
-  await saveFigModel(root, project, index, "add_panel");
-  return { assetId, elementId };
+  return mutateFigModel(root, "add_panel", async ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    const { assetId, w, h, source } = await importPlotAsset(root, project, svgFile);
+    const box = { x: opts.x ?? 20, y: opts.y ?? 20, width: opts.width ?? w, height: opts.height ?? h };
+    const elementId = source
+      ? ops.addPlotPanel(project, figId, { assetId, source, ...box })!
+      : ops.addImagePanel(project, figId, { assetId, kind: "svg", ...box })!;
+    return { assetId, elementId };
+  });
 }
 
 /** create-figure: add a blank figure (optional slug id, canvas, size). */
@@ -514,22 +545,22 @@ export async function createFigure(
   root: string,
   opts: { id?: string; name?: string; canvasId?: string; width?: number; height?: number; background?: string } = {},
 ): Promise<{ figureId: string }> {
-  const { project, index } = await loadFigModel(root);
-  let canvasId = opts.canvasId ?? project.canvases[0]?.id;
-  if (!canvasId) {
-    canvasId = `canvas_${Date.now().toString(36)}`;
-    project.canvases.push({ id: canvasId, name: "Canvas 1" });
-  }
-  const fig = ops.createFigure(project, {
-    canvasId,
-    id: opts.id,
-    name: opts.name,
-    width: opts.width,
-    height: opts.height,
-    background: opts.background,
+  return mutateFigModel(root, "create_figure", ({ project }) => {
+    let canvasId = opts.canvasId ?? project.canvases[0]?.id;
+    if (!canvasId) {
+      canvasId = `canvas_${Date.now().toString(36)}`;
+      project.canvases.push({ id: canvasId, name: "Canvas 1" });
+    }
+    const fig = ops.createFigure(project, {
+      canvasId,
+      id: opts.id,
+      name: opts.name,
+      width: opts.width,
+      height: opts.height,
+      background: opts.background,
+    });
+    return { figureId: fig.id };
   });
-  await saveFigModel(root, project, index, "create_figure");
-  return { figureId: fig.id };
 }
 
 export interface ComposeFigureOpts {
@@ -558,56 +589,59 @@ export async function composeFigure(
   opts: ComposeFigureOpts = {},
 ): Promise<{ figureId: string; panels: string[]; width: number; height: number }> {
   if (!plotPaths.length) throw new Error("compose-figure needs at least one plot");
-  const { project, index } = await loadFigModel(root);
-  let canvasId = opts.canvasId ?? project.canvases[0]?.id;
-  if (!canvasId) {
-    canvasId = `canvas_${Date.now().toString(36)}`;
-    project.canvases.push({ id: canvasId, name: "Canvas 1" });
-  }
-  const first = plotPaths[0];
-  const baseName = opts.name || path.basename(first, path.extname(first)) || "figure";
-  const figId = opts.id ?? slugify(baseName);
-  const margin = opts.margin ?? 48;
-  const fig = ops.createFigure(project, { canvasId, id: figId, name: opts.name ?? figId, width: 100, height: 100 });
-
-  const panelIds: string[] = [];
-  for (const pp of plotPaths) {
-    const { assetId, w, h, source } = await importPlotAsset(root, project, pp);
-    const box = { x: margin, y: margin, width: w, height: h };
-    const pid = source
-      ? ops.addPlotPanel(project, fig.id, { assetId, source, ...box })
-      : ops.addImagePanel(project, fig.id, { assetId, kind: "svg", ...box });
-    if (pid) panelIds.push(pid);
-  }
-
-  ops.arrangePanels(project, fig.id, { cols: opts.cols, rows: opts.rows, gap: opts.gap, ids: panelIds });
-
-  if (opts.label !== false && panelIds.length > 1) {
-    for (const pid of panelIds) {
-      const el = fig.elements.find((e) => e.id === pid);
-      if (!el) continue;
-      const b = elementBBox(el);
-      ops.addPanelLabel(project, fig.id, { text: "?", x: b.x, y: Math.max(0, b.y - 34), fontSize: 28 });
+  const out = await mutateFigModel(root, "compose_figure", async ({ project }) => {
+    let canvasId = opts.canvasId ?? project.canvases[0]?.id;
+    if (!canvasId) {
+      canvasId = `canvas_${Date.now().toString(36)}`;
+      project.canvases.push({ id: canvasId, name: "Canvas 1" });
     }
-    ops.autoLetterPanels(project, fig.id);
-  }
+    const first = plotPaths[0];
+    const baseName = opts.name || path.basename(first, path.extname(first)) || "figure";
+    const figId = opts.id ?? slugify(baseName);
+    const margin = opts.margin ?? 48;
+    const fig = ops.createFigure(project, { canvasId, id: figId, name: opts.name ?? figId, width: 100, height: 100 });
 
-  const bb = unionRect(fig.elements.map(elementBBox));
-  if (bb) {
-    ops.setFigureLayout(project, fig.id, {
-      width: Math.ceil(bb.x + bb.w + margin),
-      height: Math.ceil(bb.y + bb.h + margin),
-    });
-  }
+    const panelIds: string[] = [];
+    for (const pp of plotPaths) {
+      const { assetId, w, h, source } = await importPlotAsset(root, project, pp);
+      const box = { x: margin, y: margin, width: w, height: h };
+      const pid = source
+        ? ops.addPlotPanel(project, fig.id, { assetId, source, ...box })
+        : ops.addImagePanel(project, fig.id, { assetId, kind: "svg", ...box });
+      if (pid) panelIds.push(pid);
+    }
 
-  await saveFigModel(root, project, index, "compose_figure");
+    ops.arrangePanels(project, fig.id, { cols: opts.cols, rows: opts.rows, gap: opts.gap, ids: panelIds });
 
-  const panels = panelLetters(fig);
-  if (opts.captionStub !== false) {
-    const stub = composeCaption(fig) || `${opts.name ?? figId}.`;
-    await setCaption(root, fig.id, stub);
-  }
-  return { figureId: fig.id, panels, width: fig.width, height: fig.height };
+    if (opts.label !== false && panelIds.length > 1) {
+      for (const pid of panelIds) {
+        const el = fig.elements.find((e) => e.id === pid);
+        if (!el) continue;
+        const b = elementBBox(el);
+        ops.addPanelLabel(project, fig.id, { text: "?", x: b.x, y: Math.max(0, b.y - 34), fontSize: 28 });
+      }
+      ops.autoLetterPanels(project, fig.id);
+    }
+
+    const bb = unionRect(fig.elements.map(elementBBox));
+    if (bb) {
+      ops.setFigureLayout(project, fig.id, {
+        width: Math.ceil(bb.x + bb.w + margin),
+        height: Math.ceil(bb.y + bb.h + margin),
+      });
+    }
+
+    return {
+      figureId: fig.id,
+      panels: panelLetters(fig),
+      width: fig.width,
+      height: fig.height,
+      stub: composeCaption(fig) || `${opts.name ?? figId}.`,
+    };
+  });
+
+  if (opts.captionStub !== false) await setCaption(root, out.figureId, out.stub);
+  return { figureId: out.figureId, panels: out.panels, width: out.width, height: out.height };
 }
 
 /** arrange a figure's existing panels into a grid (rows|cols|gap). */
@@ -616,10 +650,10 @@ export async function arrangeFigure(
   figId: string,
   opts: { rows?: number; cols?: number; gap?: number } = {},
 ): Promise<void> {
-  const { project, index } = await loadFigModel(root);
-  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-  ops.arrangePanels(project, figId, opts);
-  await saveFigModel(root, project, index, "arrange");
+  await mutateFigModel(root, "arrange", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.arrangePanels(project, figId, opts);
+  });
 }
 
 /** proportionally scale elements (Feature 5) about a pivot (default = their bbox
@@ -630,9 +664,9 @@ export async function scaleElements(
   factor: number,
   pivot?: { x: number; y: number },
 ): Promise<void> {
-  const { project, index } = await loadFigModel(root);
-  ops.scaleElements(project, ids, factor, pivot);
-  await saveFigModel(root, project, index, "scale");
+  await mutateFigModel(root, "scale", ({ project }) => {
+    ops.scaleElements(project, ids, factor, pivot);
+  });
 }
 
 /** duplicate elements (Feature 4) within their figure, `count` times, each stamp
@@ -643,11 +677,10 @@ export async function duplicateElements(
   ids: string[],
   opts: { dx?: number; dy?: number; count?: number } = {},
 ): Promise<{ ids: string[] }> {
-  const { project, index } = await loadFigModel(root);
-  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-  const made = ops.duplicateElements(project, figId, ids, opts);
-  await saveFigModel(root, project, index, "duplicate");
-  return { ids: made };
+  return mutateFigModel(root, "duplicate", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    return { ids: ops.duplicateElements(project, figId, ids, opts) };
+  });
 }
 
 /** set a figure's ruler guides (Feature 11) — figure-local guide lines that
@@ -658,10 +691,10 @@ export async function setGuides(
   figId: string,
   guides: { x?: number[]; y?: number[] },
 ): Promise<void> {
-  const { project, index } = await loadFigModel(root);
-  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-  ops.setGuides(project, figId, guides);
-  await saveFigModel(root, project, index, "set_guides");
+  await mutateFigModel(root, "set_guides", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.setGuides(project, figId, guides);
+  });
 }
 
 /** distribute a figure's elements along an axis. With `gap`, place them at an
@@ -674,10 +707,10 @@ export async function distributeFigure(
   gap?: number,
   ids?: string[],
 ): Promise<void> {
-  const { project, index } = await loadFigModel(root);
-  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-  ops.distributePanels(project, figId, axis, ids, gap);
-  await saveFigModel(root, project, index, "distribute");
+  await mutateFigModel(root, "distribute", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.distributePanels(project, figId, axis, ids, gap);
+  });
 }
 
 /** reorder one element to an absolute z-index within its figure (0 = bottom). */
@@ -687,10 +720,10 @@ export async function reorderElement(
   id: string,
   toIndex: number,
 ): Promise<void> {
-  const { project, index } = await loadFigModel(root);
-  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-  ops.reorderElement(project, figId, id, toIndex);
-  await saveFigModel(root, project, index, "reorder");
+  await mutateFigModel(root, "reorder", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.reorderElement(project, figId, id, toIndex);
+  });
 }
 
 /** rotate elements by `deltaDeg` about a pivot (default = selection bbox centre). */
@@ -700,9 +733,9 @@ export async function rotateElements(
   deltaDeg: number,
   pivot?: { x: number; y: number },
 ): Promise<void> {
-  const { project, index } = await loadFigModel(root);
-  ops.rotateElements(project, ids, deltaDeg, pivot);
-  await saveFigModel(root, project, index, "rotate");
+  await mutateFigModel(root, "rotate", ({ project }) => {
+    ops.rotateElements(project, ids, deltaDeg, pivot);
+  });
 }
 
 /** add a vector path (Feature 1 pen) to a figure from an editable node list.
@@ -713,12 +746,12 @@ export async function addPath(
   figId: string,
   opts: { nodes: VectorNode[]; closed?: boolean; fill?: string; stroke?: string; strokeWidth?: number },
 ): Promise<{ id: string }> {
-  const { project, index } = await loadFigModel(root);
-  if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-  const id = ops.addPath(project, figId, opts);
-  if (!id) throw new Error("add-path: need ≥2 nodes");
-  await saveFigModel(root, project, index, "add_path");
-  return { id };
+  return mutateFigModel(root, "add_path", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    const id = ops.addPath(project, figId, opts);
+    if (!id) throw new Error("add-path: need ≥2 nodes");
+    return { id };
+  });
 }
 
 /** replace a path's nodes and/or closed flag (Feature 1 node-edit). Adopts a
@@ -728,20 +761,20 @@ export async function editPath(
   id: string,
   patch: { nodes?: VectorNode[]; closed?: boolean },
 ): Promise<{ id: string }> {
-  const { project, index } = await loadFigModel(root);
-  ops.updatePath(project, id, patch);
-  await saveFigModel(root, project, index, "edit_path");
-  return { id };
+  return mutateFigModel(root, "edit_path", ({ project }) => {
+    ops.updatePath(project, id, patch);
+    return { id };
+  });
 }
 
 /** auto-letter a figure's panel-label elements (a, b, c…) by reading order. */
 export async function autoLabel(root: string, figId: string): Promise<{ panels: string[] }> {
-  const { project, index } = await loadFigModel(root);
-  const fig = ops.figById(project, figId);
-  if (!fig) throw new Error(`figure not found: ${figId}`);
-  ops.autoLetterPanels(project, figId);
-  await saveFigModel(root, project, index, "auto_label");
-  return { panels: panelLetters(fig) };
+  return mutateFigModel(root, "auto_label", ({ project }) => {
+    const fig = ops.figById(project, figId);
+    if (!fig) throw new Error(`figure not found: ${figId}`);
+    ops.autoLetterPanels(project, figId);
+    return { panels: panelLetters(fig) };
+  });
 }
 
 /** restyle a semantic-plot part/series by stable id (e.g. "control.line" or the
@@ -754,18 +787,18 @@ export async function setPartOverride(
   patch: PartOverride,
   elementId?: string,
 ): Promise<{ elementId: string }> {
-  const { project, index } = await loadFigModel(root);
-  const fig = ops.figById(project, figId);
-  if (!fig) throw new Error(`figure not found: ${figId}`);
-  let elId = elementId;
-  if (!elId) {
-    const plots = fig.elements.filter((e) => e.type === "plot");
-    if (plots.length !== 1) throw new Error(`figure ${figId} has ${plots.length} plot panels; pass elementId`);
-    elId = plots[0].id;
-  }
-  ops.setPartOverride(project, elId, partId, patch);
-  await saveFigModel(root, project, index, "restyle_part");
-  return { elementId: elId };
+  return mutateFigModel(root, "restyle_part", ({ project }) => {
+    const fig = ops.figById(project, figId);
+    if (!fig) throw new Error(`figure not found: ${figId}`);
+    let elId = elementId;
+    if (!elId) {
+      const plots = fig.elements.filter((e) => e.type === "plot");
+      if (plots.length !== 1) throw new Error(`figure ${figId} has ${plots.length} plot panels; pass elementId`);
+      elId = plots[0].id;
+    }
+    ops.setPartOverride(project, elId, partId, patch);
+    return { elementId: elId };
+  });
 }
 
 /** set element-level style (fill/stroke/strokeWidth/opacity/color/font…) on ids. */
@@ -774,9 +807,9 @@ export async function setElementStyle(
   ids: string[],
   patch: ops.ElementStylePatch,
 ): Promise<void> {
-  const { project, index } = await loadFigModel(root);
-  ops.setElementStyle(project, ids, patch);
-  await saveFigModel(root, project, index, "set_style");
+  await mutateFigModel(root, "set_style", ({ project }) => {
+    ops.setElementStyle(project, ids, patch);
+  });
 }
 
 /** new: scaffold a minimal Flux project on disk. */

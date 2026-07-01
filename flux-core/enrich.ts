@@ -30,7 +30,7 @@ import {
   ensureFluxLib,
   loadLibrary,
   loadEnrich,
-  writeEnrich,
+  mergeEnrichDelta,
   getPreferences,
   getSecret,
 } from "./fluxlib";
@@ -111,6 +111,7 @@ export async function hydrateLibrary(
   for (const e of targets) if (e.doi) doiToKey.set(e.doi.toLowerCase(), e.key);
 
   const map: EnrichMap = { ...existing };
+  const delta: EnrichMap = {}; // only this run's fetched/updated keys (W3 merge unit)
   const now = new Date().toISOString();
   let fetched = 0;
 
@@ -128,6 +129,7 @@ export async function hydrateLibrary(
       const en = workToEnrich(w, key);
       en.fetchedAt = now;
       map[key] = en;
+      delta[key] = en;
       fetched++;
     }
     await sleep(120); // ≤10 req/s polite pool
@@ -142,13 +144,17 @@ export async function hydrateLibrary(
       if (ab) {
         en.abstract = ab;
         if (!en.sources.includes("crossref")) en.sources.push("crossref");
+        delta[e.key] = en;
         crossrefBackfill++;
       }
       await sleep(60);
     }
   }
 
-  await writeEnrich(map, lib);
+  // W3: merge only this run's delta under the "enrich" lock — the network loop
+  // above can take minutes, and a whole-map write here would clobber anything
+  // another process (the app, a second CLI) enriched meanwhile.
+  await mergeEnrichDelta(delta, lib);
   const cov = enrichCoverage(entries.length, map);
   return {
     total: entries.length,

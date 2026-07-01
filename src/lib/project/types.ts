@@ -157,6 +157,12 @@ export interface FileBridge {
   // App-level notices from the main process (watcher death, spawn failures) —
   // surfaced as shell toasts (src/lib/toast.ts). Electron only.
   onAppError?(cb: (payload: { level?: string; msg: string; detail?: string }) => void): () => void;
+  // W3: advisory locks. lockSet holds/releases a heartbeat-restamped "human"
+  // activity lock; lockAcquire/lockRelease bracket short renderer RMWs
+  // (scope "project" = <root>/.meta/locks, "fluxlib" = <lib>/.fluxlib/locks).
+  lockSet?(name: string, held: boolean, scope?: "project" | "fluxlib"): Promise<boolean>;
+  lockAcquire?(scope: "project" | "fluxlib", name: string): Promise<{ ok: boolean; heldBy?: string; noop?: boolean }>;
+  lockRelease?(scope: "project" | "fluxlib", name: string): Promise<boolean>;
   // Global preferences (the first file-based config the GUI + CLI/agents share:
   // <userData>/preferences.json — holds the FluxLib path). Optional: Electron only.
   prefsGet?(): Promise<Record<string, unknown>>;

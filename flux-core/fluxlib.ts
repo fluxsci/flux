@@ -22,6 +22,7 @@ import { makeCitekey } from "../src/lib/references/citekey";
 import { runQuery } from "../src/lib/references/query";
 import { enrichCoverage } from "../src/lib/references/enrich";
 import { atomicWrite, quarantineCorrupt } from "./fsx";
+import { withLockAt, withLock, fluxlibLockDir, getLockClient } from "./locks";
 import {
   splitBibEntries,
   lightEntry,
@@ -259,6 +260,28 @@ export async function writeEnrich(
   await atomicWrite(libEnrichPath(lib), JSON.stringify(map, null, 2) + "\n");
 }
 
+/** W3: merge this run's fetched entries into enrich.json under the "enrich"
+ *  lock, re-loading fresh state first — so a minutes-long hydrate (which holds
+ *  its snapshot across the network loop) can't wipe entries another process
+ *  wrote meanwhile. Only the DELTA overwrites; everything else is preserved. */
+export async function mergeEnrichDelta(
+  delta: Record<string, EnrichEntry>,
+  libPath?: string,
+): Promise<void> {
+  if (!Object.keys(delta).length) return;
+  const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
+  await withLockAt(
+    fluxlibLockDir(lib),
+    "enrich",
+    getLockClient(),
+    async () => {
+      const fresh = await loadEnrich(lib);
+      await atomicWrite(libEnrichPath(lib), JSON.stringify({ ...fresh, ...delta }, null, 2) + "\n");
+    },
+    { retries: 8 },
+  );
+}
+
 /** A compact info rollup for `flux lib` (size + hydration coverage). */
 export async function fluxLibInfo(
   libPath?: string,
@@ -295,9 +318,17 @@ export async function loadKeys(libPath?: string): Promise<FluxKeys> {
 /** Merge-write keys into `~/FluxLib/keys.json` (creates FluxLib if needed). */
 export async function saveKeys(patch: FluxKeys, libPath?: string): Promise<FluxKeys> {
   const lib = await ensureFluxLib(libPath);
-  const next = { ...(await loadKeys(lib)), ...patch };
-  await atomicWrite(libKeysPath(lib), JSON.stringify(next, null, 2) + "\n");
-  return next;
+  return withLockAt(
+    fluxlibLockDir(lib),
+    "keys",
+    getLockClient(),
+    async () => {
+      const next = { ...(await loadKeys(lib)), ...patch };
+      await atomicWrite(libKeysPath(lib), JSON.stringify(next, null, 2) + "\n");
+      return next;
+    },
+    { retries: 8 },
+  );
 }
 
 const SECRET_ENV: Record<string, string> = {
@@ -334,6 +365,23 @@ export async function addToFluxLib(
 ): Promise<AddResult> {
   const source = opts.source ?? "bibtex";
   const lib = await ensureFluxLib(opts.libPath);
+  // W3: the whole read→dedupe→append→write is one locked unit on the FluxLib —
+  // a concurrent app "Add by DOI" + CLI lib-add can no longer lose an entry.
+  // Mutations are ms-scale, so contenders retry briefly instead of erroring.
+  return withLockAt(
+    fluxlibLockDir(lib),
+    "library",
+    getLockClient(),
+    () => addToFluxLibLocked(lib, bibtex, source),
+    { retries: 8 },
+  );
+}
+
+async function addToFluxLibLocked(
+  lib: string,
+  bibtex: string,
+  source: "doi" | "bibtex",
+): Promise<AddResult> {
   const curText = await fs.readFile(libBib(lib), "utf8");
 
   const taken = new Set<string>();
@@ -389,6 +437,18 @@ export async function materializeIntoProject(
   opts: { libPath?: string; manifest?: ProjectManifest | null } = {},
 ): Promise<{ added: string[] }> {
   if (!citekeys.length) return { added: [] };
+  // W3: the project bib append is an RMW — locked at project scope ("references")
+  // so it can't interleave with the app's own cite-materialization.
+  return withLock(root, "references", getLockClient(), () =>
+    materializeIntoProjectLocked(root, citekeys, opts),
+  );
+}
+
+async function materializeIntoProjectLocked(
+  root: string,
+  citekeys: string[],
+  opts: { libPath?: string; manifest?: ProjectManifest | null } = {},
+): Promise<{ added: string[] }> {
   const lib = opts.libPath ? path.resolve(opts.libPath) : await resolveFluxLibPath();
   const libText = (await exists(libBib(lib))) ? await fs.readFile(libBib(lib), "utf8") : "";
   const libRawByKey = new Map<string, string>();

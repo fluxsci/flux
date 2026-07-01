@@ -105,12 +105,34 @@ async function registerDeck(root: string, deck: Deck): Promise<void> {
 /** saveDeck: write deck.json (restamp modified) + register in the manifest, under
  *  the "slides" advisory lock, then journal. */
 export async function saveDeck(root: string, deck: Deck, action = "save_deck"): Promise<void> {
-  deck.modified = stamp();
-  await withLock(root, "slides", getClient(), async () => {
-    await writeText(safeJoin(root, deckRel(deck.id)), JSON.stringify(deck, null, 2) + "\n");
-    await registerDeck(root, deck);
-  });
+  await withLock(root, "slides", getClient(), () => saveDeckUnlocked(root, deck));
   await journal(root, { action, deck: deck.id, slides: deck.slides.length });
+}
+
+async function saveDeckUnlocked(root: string, deck: Deck): Promise<void> {
+  deck.modified = stamp();
+  await writeText(safeJoin(root, deckRel(deck.id)), JSON.stringify(deck, null, 2) + "\n");
+  await registerDeck(root, deck);
+}
+
+/** W3: run a deck read→mutate→write atomically under the "slides" lock (the load
+ *  happens INSIDE the lock, so two agents can't interleave a lost update). */
+export async function mutateDeck<T>(
+  root: string,
+  deckId: string,
+  action: string,
+  fn: (deck: Deck) => T | Promise<T>,
+): Promise<T> {
+  let out!: T;
+  let slideCount = 0;
+  await withLock(root, "slides", getClient(), async () => {
+    const deck = await loadDeck(root, deckId);
+    out = await fn(deck);
+    slideCount = deck.slides.length;
+    await saveDeckUnlocked(root, deck);
+  });
+  await journal(root, { action, deck: deckId, slides: slideCount });
+  return out;
 }
 
 // --------------------------------------------------------------------------
@@ -133,10 +155,10 @@ export async function addSlide(
   deckId: string,
   opts: { name?: string; layout?: import("../src/lib/slide/types").LayoutId } = {},
 ): Promise<{ slideId: string }> {
-  const deck = await loadDeck(root, deckId);
-  const slide = slideOps.addSlide(deck, opts);
-  await saveDeck(root, deck, "add_slide");
-  return { slideId: slide.id };
+  return mutateDeck(root, deckId, "add_slide", (deck) => {
+    const slide = slideOps.addSlide(deck, opts);
+    return { slideId: slide.id };
+  });
 }
 
 // --------------------------------------------------------------------------

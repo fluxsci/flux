@@ -97,7 +97,10 @@ contextBridge.exposeInMainWorld("fig", {
   // WS6: provenance journal + advisory locks. Main appends/writes under .meta/
   // (suppressing the self-write echo); both no-op until a project is open.
   journalAppend: (entry) => ipcRenderer.invoke("journal:append", entry),
-  lockSet: (name, held) => ipcRenderer.invoke("lock:set", { name, held }),
+  lockSet: (name, held, scope) => ipcRenderer.invoke("lock:set", { name, held, scope }),
+  // W3: short renderer-held locks around FluxLib/project read-modify-writes.
+  lockAcquire: (scope, name) => ipcRenderer.invoke("lock:acquire", { scope, name }),
+  lockRelease: (scope, name) => ipcRenderer.invoke("lock:release", { scope, name }),
 
   // Frameless window controls (used by the custom title bar).
   win: {

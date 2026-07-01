@@ -18,6 +18,7 @@ import {
 } from "../store";
 import { getAppContext } from "./appContext";
 import { dispatchCommand, type Command } from "./commands";
+import { touchActivityLock } from "./activityLock";
 
 interface BridgeApi {
   pushContext: (ctx: unknown) => void;
@@ -27,7 +28,6 @@ interface BridgeApi {
 
 interface FigHost {
   bridge?: BridgeApi;
-  lockSet?: (name: string, held: boolean) => void;
 }
 
 export function installBridge(): void {
@@ -35,16 +35,13 @@ export function installBridge(): void {
   const bridge = fig?.bridge;
   if (!bridge) return; // only under Electron + the bridge preload
 
-  // WS6: hold the advisory "project" lock while the human has unsaved figure
-  // edits, so a concurrent agent/CLI file-write defers instead of clobbering.
-  if (fig?.lockSet) {
-    let locked = false;
-    dirty.subscribe((d) => {
-      if (d === locked) return;
-      locked = d;
-      fig.lockSet!("project", d);
-    });
-  }
+  // WS6/W3: hold the advisory "project" activity lock while the human is
+  // actively editing figures (grace-windowed + heartbeat-restamped), so a
+  // concurrent agent/CLI file-write defers instead of clobbering — while an
+  // idle-open app never locks agents out.
+  dirty.subscribe((d) => {
+    if (d) touchActivityLock("project");
+  });
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   const push = () => {

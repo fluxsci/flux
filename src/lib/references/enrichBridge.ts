@@ -5,6 +5,7 @@
 // abstract backfill reuses the existing fetchDoi bridge.
 import { fileBridge, joinPath } from "../project/types";
 import { resolveFluxLibPath, loadFluxLib, loadEnrichMap } from "./fluxlibBridge";
+import { withIpcLock } from "./libLock";
 import { bumpFluxLib } from "./revision";
 import type { EnrichMap } from "./enrich";
 import {
@@ -90,6 +91,7 @@ export async function hydrateFluxLib(
   for (const e of targets) if (e.doi) doiToKey.set(e.doi.toLowerCase(), e.key);
 
   const map: EnrichMap = { ...existing };
+  const delta: EnrichMap = {}; // only this run's fetched/updated keys (W3 merge unit)
   const now = new Date().toISOString();
   let fetched = 0;
 
@@ -110,6 +112,7 @@ export async function hydrateFluxLib(
         const en = workToEnrich(w, key);
         en.fetchedAt = now;
         map[key] = en;
+        delta[key] = en;
         fetched++;
       }
     } catch (e) {
@@ -139,6 +142,7 @@ export async function hydrateFluxLib(
           if (clean) {
             en.abstract = clean;
             if (!en.sources.includes("crossref")) en.sources.push("crossref");
+            delta[e.key] = en;
             crossrefBackfill++;
           }
         }
@@ -148,7 +152,18 @@ export async function hydrateFluxLib(
     }
   }
 
-  await fb.writeText(joinPath(lib, ".fluxlib", "enrich.json"), JSON.stringify(map, null, 2) + "\n");
+  // W3: merge only this run's delta under the FluxLib "enrich" lock — the fetch
+  // loop above can run for minutes, and a whole-map write here would clobber
+  // whatever another process (CLI hydrate, a second window) enriched meanwhile.
+  if (Object.keys(delta).length) {
+    await withIpcLock("fluxlib", "enrich", async () => {
+      const freshMap = await loadEnrichMap();
+      await fb.writeText(
+        joinPath(lib, ".fluxlib", "enrich.json"),
+        JSON.stringify({ ...freshMap, ...delta }, null, 2) + "\n",
+      );
+    });
+  }
   bumpFluxLib(); // refresh editor surfaces with the enrichment
 
   const vals = Object.values(map);

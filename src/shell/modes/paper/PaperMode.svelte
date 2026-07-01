@@ -41,6 +41,7 @@
   import { renderManuscript } from "./render/renderManuscript";
   import { fileBridge } from "../../../lib/project/types";
   import { pushToast, errMsg } from "../../../lib/toast";
+  import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { popIn } from "../../../lib/motion/actions";
   import {
     commentField,
@@ -637,6 +638,7 @@
     syncRanges();
     if (threads.some((t) => !t.draft)) scheduleCommentSave();
     if (!pm) return;
+    touchActivityLock("manuscript"); // W3: defer concurrent agent writes while mid-edit
     saved = false;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {

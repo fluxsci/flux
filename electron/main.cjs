@@ -251,22 +251,103 @@ ipcMain.handle("journal:append", (_e, entry) => {
   appendJournalLine(currentRoot, entry || {});
   return true;
 });
-ipcMain.handle("lock:set", (_e, { name, held }) => {
-  if (!currentRoot) return false;
-  const p = path.join(currentRoot, ".meta", "locks", `${name}.json`);
+// W3: locks held by the GUI are heartbeat-restamped every 10s so a long human
+// edit never falsely expires past the 30s TTL, and everything releases on
+// quit/project-switch. Lock files mirror flux-core/locks.ts.
+const LOCK_TTL_MS = 30_000;
+const heldGuiLocks = new Map(); // "scope:name" -> interval
+function lockDirFor(scope) {
+  if (scope === "fluxlib") return path.join(fluxLibDir(), ".fluxlib", "locks");
+  return currentRoot ? path.join(currentRoot, ".meta", "locks") : null;
+}
+function writeLockFile(p) {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  noteWrite(p);
+  fs.writeFileSync(p, JSON.stringify({ client: "human", pid: process.pid, ts: new Date().toISOString() }));
+}
+function releaseGuiLock(key) {
+  const held = heldGuiLocks.get(key);
+  if (!held) return;
+  clearInterval(held.interval);
+  heldGuiLocks.delete(key);
   try {
-    noteWrite(p);
+    noteWrite(held.path);
+    fs.rmSync(held.path, { force: true });
+  } catch {
+    /* already gone */
+  }
+}
+function releaseAllGuiLocks() {
+  for (const key of [...heldGuiLocks.keys()]) releaseGuiLock(key);
+}
+ipcMain.handle("lock:set", (_e, { name, held, scope = "project" }) => {
+  const dir = lockDirFor(scope);
+  if (!dir) return false;
+  const key = `${scope}:${name}`;
+  const p = path.join(dir, `${name}.json`);
+  try {
     if (held) {
-      fs.mkdirSync(path.dirname(p), { recursive: true });
-      fs.writeFileSync(p, JSON.stringify({ client: "human", pid: process.pid, ts: new Date().toISOString() }));
+      if (heldGuiLocks.has(key)) {
+        writeLockFile(p); // restamp now (fresh activity)
+        return true;
+      }
+      writeLockFile(p);
+      const interval = setInterval(() => {
+        try {
+          writeLockFile(p);
+        } catch {
+          /* transient */
+        }
+      }, 10_000);
+      heldGuiLocks.set(key, { path: p, interval });
     } else {
-      fs.rmSync(p, { force: true });
+      releaseGuiLock(key);
     }
     return true;
   } catch (e) {
     console.warn("[flux] lock set failed:", e && e.message);
     return false;
   }
+});
+
+// W3: renderer-held short locks around FluxLib/project read-modify-writes (the
+// renderer twins of flux-core's withLockAt). Returns { ok } or { ok:false, heldBy }.
+ipcMain.handle("lock:acquire", (_e, { scope = "project", name }) => {
+  const dir = lockDirFor(scope);
+  if (!dir) return { ok: true, noop: true }; // no root yet — nothing to guard
+  const p = path.join(dir, `${name}.json`);
+  try {
+    const info = JSON.parse(fs.readFileSync(p, "utf8"));
+    const t = Date.parse(info?.ts);
+    const freshLock = Number.isFinite(t) && Date.now() - t < LOCK_TTL_MS;
+    if (freshLock && info.client !== "human") return { ok: false, heldBy: info.client };
+  } catch {
+    /* absent/corrupt lock — treat as free */
+  }
+  try {
+    writeLockFile(p);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, heldBy: "error: " + (e && e.message) };
+  }
+});
+ipcMain.handle("lock:release", (_e, { scope = "project", name }) => {
+  const dir = lockDirFor(scope);
+  if (!dir) return true;
+  const p = path.join(dir, `${name}.json`);
+  try {
+    const info = JSON.parse(fs.readFileSync(p, "utf8"));
+    if (info?.client && info.client !== "human") return true; // never release another client's lock
+  } catch {
+    /* fall through to remove */
+  }
+  try {
+    noteWrite(p);
+    fs.rmSync(p, { force: true });
+  } catch {
+    /* already gone */
+  }
+  return true;
 });
 
 // ---------------------------------------------------------------------------
@@ -414,6 +495,7 @@ app.on("window-all-closed", () => {
 // Never leave a shell child behind.
 app.on("before-quit", () => {
   reapPtys();
+  releaseAllGuiLocks(); // W3: never leave a stale "human" lock deferring agents
   try {
     proxyEngine.dispose(); // tear down the reusable proxy capture window
   } catch {
@@ -564,6 +646,7 @@ function subsystemFor(root, abs) {
 }
 
 ipcMain.handle("watch:setRoot", async (_e, root) => {
+  releaseAllGuiLocks(); // W3: locks belong to the outgoing project/session
   // M9: the open project root is the primary fs allowlist entry.
   currentRoot = root ? path.resolve(root) : null;
   // WS4: bring the live agent bridge up/down with the open project.
