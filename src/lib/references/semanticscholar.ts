@@ -8,9 +8,10 @@ import type { WorldBrief } from "./openalex";
 
 export const S2_BASE = "https://api.semanticscholar.org";
 
-// Fields we request for a citing/recommended paper (S2 nests these under citingPaper
-// for the citations endpoint; flat for recommendations).
-const PAPER_FIELDS = "paperId,title,year,abstract,externalIds,citationCount,authors,venue,tldr";
+// Fields for a recommended/citing paper. NOTE: neither the recommendations NOR the
+// citations endpoint supports `tldr` (both return 400) — only the standalone graph
+// paper lookup does — so we don't request it. WorldBrief.tldr simply stays empty.
+const PAPER_FIELDS = "paperId,title,year,abstract,externalIds,citationCount,authors,venue";
 
 /** An S2 paperId from a DOI (`DOI:<doi>`) or an explicit S2 id. The DOI's slash stays
  *  literal in the path — S2 captures it as part of the id (do NOT percent-encode it). */

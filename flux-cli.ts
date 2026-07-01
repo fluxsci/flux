@@ -48,6 +48,9 @@ usage: flux <verb> [root] [args] [--flags]
   by-author <key|Aid>                  other works by this entry's first author
   related <key|Wid>                    related papers (OpenAlex similarity)
   keys [--openalex K] [--s2 K] [--mailto M]   show/set API keys (~/FluxLib/keys.json)
+  fetch-pdfs [--refresh] [--key K]     download OA PDFs into ~/FluxLib/items/<citekey>/
+  ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
+  annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
   comments [--root R] [--doc rel] [--all]   list review comments (open by default)
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   mark a comment resolved
@@ -353,6 +356,51 @@ async function main() {
           2,
         ),
       );
+      break;
+    }
+    case "fetch-pdfs": {
+      const r = await core.fetchPdfs({
+        refresh: !!flags.refresh,
+        keys: typeof flags.key === "string" ? [flags.key] : undefined,
+        onProgress: (d, t) => process.stderr.write(`\r  ${d}/${t}`),
+      });
+      process.stderr.write("\n");
+      console.error(
+        `✓ PDFs: ${r.got} fetched, ${r.have} already present, ${r.noOa} no-OA, ${r.noId} no-id (of ${r.total})`,
+      );
+      for (const g of r.results.filter((x) => x.status === "got").slice(0, 25))
+        console.error(`  + ${g.key}  (${g.source})`);
+      break;
+    }
+    case "ingest-pdf": {
+      const file = _[0];
+      const key = typeof flags.key === "string" ? flags.key : undefined;
+      if (!file || !key) {
+        console.error("usage: flux ingest-pdf <file.pdf> --key <citekey>");
+        process.exitCode = 1;
+        break;
+      }
+      const r = await core.ingestPdf(file, { key });
+      console.error(`✓ ingested ${file} → items/${r.key}/paper.pdf`);
+      break;
+    }
+    case "annotations": {
+      if (_[0] === "search") {
+        const q = _.slice(1).join(" ");
+        const hits = await core.searchAnnotations(q, {
+          key: typeof flags.key === "string" ? flags.key : undefined,
+        });
+        console.log(JSON.stringify(hits, null, 2));
+        console.error(`✓ ${hits.length} match(es)`);
+      } else if (typeof flags.key === "string") {
+        const list = await core.listAnnotations(flags.key);
+        console.log(JSON.stringify(list, null, 2));
+        console.error(`✓ ${list.length} annotation(s) in ${flags.key}`);
+      } else {
+        const hits = await core.searchAnnotations("");
+        console.log(JSON.stringify(hits, null, 2));
+        console.error(`✓ ${hits.length} annotation(s) library-wide`);
+      }
       break;
     }
     case "compile": {

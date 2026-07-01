@@ -60,7 +60,8 @@
     "markdown-it": "^14.2.0",
     "markdown-it-attrs": "^5.0.0",
     "markdown-it-deflist": "^3.0.1",
-    "markdown-it-footnote": "^4.0.0"
+    "markdown-it-footnote": "^4.0.0",
+    "pdfjs-dist": "^6.1.200"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session, safeStorage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -706,6 +706,237 @@ ipcMain.handle("cite:s2", async (_e, url) => {
     return await res.json();
   } catch (err) {
     return { error: String((err && err.message) || err) };
+  }
+});
+
+// Generic PDF-acquisition fetch (FluxFinder GUI). The renderer runs the resolver
+// waterfall (src/lib/references/pdfFinder.ts) and routes every fetch (metadata JSON +
+// the PDF bytes) here to dodge renderer CORS — mirroring the flux-core/acquire.ts Node
+// path so both share one waterfall. http(s)-only + private-range blocked (SSRF guard);
+// always user-initiated ("Get PDF" / "Get PDFs"). mode ∈ json | text | bytes.
+function publicHttpUrl(raw) {
+  let u;
+  try {
+    u = new URL(String(raw || ""));
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  const h = u.hostname.toLowerCase();
+  if (h === "localhost" || h === "::1" || /\.local$/.test(h)) return null;
+  if (/^(127\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(h)) return null;
+  return u.toString();
+}
+ipcMain.handle("pdf:netGet", async (_e, url, mode = "bytes") => {
+  const safe = publicHttpUrl(url);
+  if (!safe) return { error: "blocked: non-public http(s) URL" };
+  const mailto = getKey("mailto") || "flux";
+  const UA = `Flux/0.1 (PDF acquisition; mailto:${mailto})`;
+  try {
+    const accept = mode === "json" ? "application/json" : mode === "text" ? "text/*,*/*" : "application/pdf,*/*";
+    const res = await fetch(safe, { redirect: "follow", headers: { "User-Agent": UA, Accept: accept } });
+    if (!res.ok) return { error: `HTTP ${res.status}`, status: res.status };
+    if (mode === "json") return { json: await res.json() };
+    if (mode === "text") return { text: await res.text() };
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 80 * 1024 * 1024) return { error: "too large" };
+    return {
+      bytesB64: buf.toString("base64"),
+      contentType: res.headers.get("content-type") || "",
+      finalUrl: res.url || safe,
+    };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+});
+
+// --- Library proxy (EZProxy) — user-initiated paywalled access, last resort -----
+// A persistent, isolated session partition ("persist:fluxproxy") holds the user's
+// library SSO cookies across runs. We NEVER store passwords; the login happens in a
+// real window the user drives. Paywalled fetch runs an in-page fetch() inside the
+// proxied publisher page (carries its TLS fingerprint + cf_clearance + cookies —
+// the native-Electron port of ~/fluxfinder/fetch/browser.py). OA is always tried
+// first (the renderer only calls this after the OA waterfall fails).
+const PROXY_PARTITION = "persist:fluxproxy";
+function ezproxyPrefix() {
+  return (getKey("ezproxyPrefix") || "").trim();
+}
+
+// Credentials are stored ENCRYPTED via the OS keychain (Electron safeStorage:
+// macOS Keychain / Windows DPAPI / Linux libsecret) in ~/FluxLib/.proxy.json (0600) —
+// never plaintext. They auto-fill the SSO login form so re-auth is seamless; combined
+// with the persistent session + a trusted-device (Duo "remember me") cookie, the user
+// signs in rarely. We never transmit them anywhere but the university's own login page.
+function proxyCredPath() {
+  return path.join(fluxLibDir(), ".proxy.json");
+}
+function readProxyCred() {
+  try {
+    return JSON.parse(fs.readFileSync(proxyCredPath(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function proxyPassword() {
+  const c = readProxyCred();
+  if (!c.passwordEnc || !safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(c.passwordEnc, "base64"));
+  } catch {
+    return null;
+  }
+}
+// Fill a detected SSO login form with the stored NetID + password and tick any
+// "remember/trust this device" box (so Duo MFA is skipped on later sessions). Fires on
+// every navigation; a no-op when the page has no password field. Best-effort; the user
+// still approves Duo the first time in the visible window.
+function autofillCreds(win, submit) {
+  const user = String(readProxyCred().username || "").trim();
+  const pass = proxyPassword();
+  if (!user && !pass) return;
+  const js =
+    `(() => { try {
+      const p = document.querySelector('input[type=password]');
+      if (!p) return false;
+      const form = p.form || document;
+      const u = form.querySelector('input[type=text],input[type=email],input[name*=user i],input[id*=user i],input[name=j_username]');
+      if (u && ${JSON.stringify(user)}) { u.value = ${JSON.stringify(user)}; u.dispatchEvent(new Event('input',{bubbles:true})); }
+      if (${JSON.stringify(pass || "")}) { p.value = ${JSON.stringify(pass || "")}; p.dispatchEvent(new Event('input',{bubbles:true})); }
+      for (const c of document.querySelectorAll('input[type=checkbox]')) {
+        const t = (c.name||'')+(c.id||'')+((c.closest('label')||{}).textContent||'');
+        if (/remember|trust|stay|keep/i.test(t)) c.checked = true;
+      }
+      ${submit ? "if (u && u.value && p.value) { const b = form.querySelector('button[type=submit],input[type=submit],button'); if (b) b.click(); else if (form.submit) form.submit(); }" : ""}
+      return true;
+    } catch (e) { return false; } })()`;
+  win.webContents.executeJavaScript(js, true).catch(() => {});
+}
+
+// Store / inspect / clear the proxy credentials (OS-keychain encrypted).
+ipcMain.handle("proxy:setCredentials", (_e, { username, password } = {}) => {
+  try {
+    if (!safeStorage.isEncryptionAvailable())
+      return { error: "Your OS secure storage (keychain) isn't available, so credentials can't be stored safely." };
+    fs.mkdirSync(fluxLibDir(), { recursive: true });
+    const cur = readProxyCred();
+    const next = { username: username != null ? String(username) : cur.username || "" };
+    if (password) next.passwordEnc = safeStorage.encryptString(String(password)).toString("base64");
+    else if (cur.passwordEnc) next.passwordEnc = cur.passwordEnc;
+    fs.writeFileSync(proxyCredPath(), JSON.stringify(next), { mode: 0o600 });
+    return { ok: true };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+});
+ipcMain.handle("proxy:hasCredentials", () => {
+  const c = readProxyCred();
+  return { username: c.username || "", hasPassword: !!c.passwordEnc, available: safeStorage.isEncryptionAvailable() };
+});
+ipcMain.handle("proxy:clearCredentials", () => {
+  try {
+    fs.unlinkSync(proxyCredPath());
+  } catch {
+    /* already gone */
+  }
+  return { ok: true };
+});
+
+// Open a real window to the library's EZProxy login; resolve when the user closes it.
+ipcMain.handle("proxy:login", async () => {
+  const prefix = ezproxyPrefix();
+  if (!prefix) return { error: "Set your library's EZProxy prefix in ⚙ Keys first." };
+  let loginUrl;
+  try {
+    loginUrl = new URL(prefix).origin + "/login";
+  } catch {
+    return { error: "Invalid EZProxy prefix URL." };
+  }
+  return await new Promise((resolve) => {
+    const win = new BrowserWindow({
+      width: 920,
+      height: 820,
+      title: "Sign in to your library",
+      autoHideMenuBar: true,
+      parent: mainWindow || undefined,
+      webPreferences: { partition: PROXY_PARTITION },
+    });
+    // Auto-fill stored NetID + password on each login page (no auto-submit — the user
+    // reviews + approves Duo the first time, ticking "remember this device").
+    win.webContents.on("did-finish-load", () => autofillCreds(win, false));
+    win.loadURL(loginUrl).catch(() => {});
+    win.on("closed", () => resolve({ ok: true }));
+  });
+});
+
+// Report whether the proxy is configured + appears signed in (any cookie in the
+// partition for the proxy host / an ezproxy cookie). Heuristic — drives a status pill.
+ipcMain.handle("proxy:status", async () => {
+  const prefix = ezproxyPrefix();
+  if (!prefix) return { configured: false, signedIn: false };
+  let host;
+  try {
+    host = new URL(prefix).hostname;
+  } catch {
+    return { configured: false, signedIn: false };
+  }
+  try {
+    const root = host.split(".").slice(-3).join(".");
+    const all = await session.fromPartition(PROXY_PARTITION).cookies.get({});
+    const signedIn = all.some((c) => /ezproxy/i.test(c.domain || "") || (c.domain || "").endsWith(root));
+    return { configured: true, signedIn };
+  } catch {
+    return { configured: true, signedIn: false };
+  }
+});
+
+// Fetch a paywalled PDF for `target` (a DOI URL or landing page) through the proxy.
+// Navigates the proxied page in a hidden window, scrapes citation_pdf_url (or a .pdf
+// link), then fetches it in-page with credentials. Returns validated PDF bytes.
+ipcMain.handle("pdf:fetchViaProxy", async (_e, target) => {
+  const prefix = ezproxyPrefix();
+  if (!prefix) return { error: "No EZProxy prefix configured." };
+  const proxied = prefix + encodeURIComponent(String(target || ""));
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: { partition: PROXY_PARTITION, offscreen: true },
+  });
+  // If the proxied page bounces to the SSO login (session expired), auto-fill + submit
+  // stored credentials so re-auth is seamless (Duo is skipped when the device is
+  // remembered; otherwise this stalls and we surface "sign in" below).
+  const hasCreds = !!(readProxyCred().username || readProxyCred().passwordEnc);
+  win.webContents.on("did-finish-load", () => autofillCreds(win, true));
+  try {
+    await win.loadURL(proxied);
+    await new Promise((r) => setTimeout(r, hasCreds ? 2600 : 1400)); // let redirects / auto-login settle
+    const result = await win.webContents.executeJavaScript(
+      `(async () => {
+        try {
+          const pick = () => {
+            const m = document.querySelector('meta[name="citation_pdf_url"]');
+            if (m && m.content) return m.content;
+            const a = [...document.querySelectorAll('a')].map((x) => x.href)
+              .find((h) => /\\.pdf(\\?|$)/i.test(h || ''));
+            return a || null;
+          };
+          const url = pick();
+          if (!url) return { error: 'no PDF link on the page' };
+          const r = await fetch(url, { credentials: 'include' });
+          if (!r.ok) return { error: 'HTTP ' + r.status };
+          const buf = new Uint8Array(await r.arrayBuffer());
+          if (!(buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46))
+            return { error: 'not a PDF (login/paywall page?)' };
+          let bin = ''; const CH = 0x8000;
+          for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+          return { bytesB64: btoa(bin), contentType: r.headers.get('content-type') || '', finalUrl: url };
+        } catch (e) { return { error: String((e && e.message) || e) }; }
+      })()`,
+      true,
+    );
+    return result || { error: "no result from proxy page" };
+  } catch (e) {
+    return { error: String((e && e.message) || e) };
+  } finally {
+    win.destroy();
   }
 });
 

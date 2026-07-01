@@ -81,6 +81,7 @@ export interface FileBridge {
   readdir?(p: string): Promise<{ name: string; dir: boolean }[]>;
   paths(): Promise<{ home: string; userData: string; documents: string }>;
   openDirectory(title?: string): Promise<string | null>;
+  openFiles(filters?: unknown[]): Promise<string[] | null>;
   save(defaultPath: string, filters?: unknown[]): Promise<string | null>;
   // Added for the Paper module (Flux_Paper_Plan.md). Optional: older bridges /
   // the web demo may not provide them.
@@ -97,6 +98,30 @@ export interface FileBridge {
   fetchOpenAlex?(url: string): Promise<unknown>;
   // Fetch a Semantic Scholar API URL in main (x-api-key attached when configured).
   fetchS2?(url: string): Promise<unknown>;
+  // PDF-acquisition fetch (FluxFinder): host-unrestricted http(s) GET in main, used by
+  // the renderer's resolver waterfall (src/lib/references/pdfFinderBridge.ts).
+  netGet?(
+    url: string,
+    mode: "json" | "text" | "bytes",
+  ): Promise<{
+    json?: unknown;
+    text?: string;
+    bytesB64?: string;
+    contentType?: string;
+    finalUrl?: string;
+    error?: string;
+    status?: number;
+  }>;
+  // Library proxy (EZProxy) — user-initiated paywalled PDF access (Electron only).
+  proxyLogin?(): Promise<{ ok?: boolean; error?: string }>;
+  proxyStatus?(): Promise<{ configured: boolean; signedIn: boolean }>;
+  fetchViaProxy?(
+    target: string,
+  ): Promise<{ bytesB64?: string; contentType?: string; finalUrl?: string; error?: string }>;
+  // Proxy credentials, stored ENCRYPTED via the OS keychain (Electron safeStorage).
+  proxySetCredentials?(username: string, password: string): Promise<{ ok?: boolean; error?: string }>;
+  proxyHasCredentials?(): Promise<{ username: string; hasPassword: boolean; available: boolean }>;
+  proxyClearCredentials?(): Promise<{ ok?: boolean }>;
   // Machine-global API-key store (~/FluxLib/keys.json), shared across all projects.
   keysGet?(): Promise<Record<string, unknown>>;
   keysSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;

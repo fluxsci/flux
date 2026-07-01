@@ -14,7 +14,7 @@ import { reconcileProject } from "../lib/references/fluxlibBridge";
 import { bumpBibRevision } from "./scholar/revisions";
 import { resetPanes } from "./paneStore";
 
-export type ModeId = "figure" | "paper" | "slide" | "library";
+export type ModeId = "figure" | "paper" | "slide" | "library" | "reader";
 export type View = "home" | "workspace";
 
 export interface RecentProject {

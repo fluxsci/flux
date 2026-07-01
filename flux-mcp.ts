@@ -490,6 +490,68 @@ server.registerTool(
   },
 );
 
+// --- FluxFinder (PDF acquisition) + FluxReader (full text + annotations) ------
+
+server.registerTool(
+  "fetch_pdfs",
+  {
+    description:
+      "Find & download open-access PDFs for FluxLib entries into items/<citekey>/ (Unpaywall · Europe PMC · PMC · arXiv · bioRxiv · Crossref; first magic-byte-valid PDF wins), and extract fulltext.txt. Incremental: skips entries that already have a PDF unless refresh. `keys` limits to specific citekeys (default: the whole library). Returns a coverage summary.",
+    inputSchema: { keys: z.array(z.string()).optional(), refresh: z.boolean().optional() },
+  },
+  async ({ keys, refresh }) => {
+    const s = await core.fetchPdfs({ keys, refresh });
+    const got = s.results.filter((r) => r.status === "got").map((r) => `  ✓ ${r.key} (${r.source})`);
+    return ok(
+      `PDFs: ${s.got} fetched, ${s.have} already had, ${s.noOa} no open-access copy, ${s.noId} no DOI/PMCID (of ${s.total}).` +
+        (got.length ? "\n" + got.join("\n") : ""),
+    );
+  },
+);
+
+server.registerTool(
+  "get_paper_text",
+  {
+    description:
+      "Return the extracted full text of a FluxLib paper's stored PDF (items/<citekey>/fulltext.txt; extracted on demand if absent). Use this to READ a paper you've fetched. Pages are separated by a form-feed (\\f). `key` is the citekey; `maxChars` truncates.",
+    inputSchema: { key: z.string(), maxChars: z.number().optional() },
+  },
+  async ({ key, maxChars }) => {
+    const t = await core.getOrExtractFulltext(key);
+    if (!t)
+      return ok(`No text for ${key} — fetch its PDF first (fetch_pdfs {keys:["${key}"]}), or it may be a scanned/image PDF.`);
+    return ok(maxChars && t.length > maxChars ? t.slice(0, maxChars) + `\n…[truncated ${t.length - maxChars} chars]` : t);
+  },
+);
+
+server.registerTool(
+  "list_annotations",
+  {
+    description:
+      "List the highlights/notes a human has made on a paper (items/<citekey>/annotations.json) — each with its anchored quote, page, color, and note. `key` is the citekey.",
+    inputSchema: { key: z.string() },
+  },
+  async ({ key }) => {
+    const anns = await core.listAnnotations(key);
+    if (!anns.length) return ok(`No annotations on ${key}.`);
+    return ok(anns.map((a) => `p${a.page} [${a.color}] "${a.anchor.quote}"${a.note ? ` — ${a.note}` : ""}`).join("\n"));
+  },
+);
+
+server.registerTool(
+  "search_annotations",
+  {
+    description:
+      "Search a human's highlights/notes across the WHOLE FluxLib (or one paper via `key`) — matches the highlighted quote + note text. Returns each hit with its citekey, page, color, quote, and note. Use for 'what have I flagged about X?'.",
+    inputSchema: { query: z.string(), key: z.string().optional() },
+  },
+  async ({ query, key }) => {
+    const hits = await core.searchAnnotations(query, { key });
+    if (!hits.length) return ok(`No annotations match "${query}".`);
+    return ok(hits.map((h) => `@${h.key} p${h.page} [${h.color}] "${h.anchor.quote}"${h.note ? ` — ${h.note}` : ""}`).join("\n"));
+  },
+);
+
 // --- Live bridge: read/act on the running app (only while Flux is open) -------
 
 server.registerTool(

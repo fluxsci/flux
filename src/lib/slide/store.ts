@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { writable, get } from "svelte/store";
-import type { Deck } from "./types";
+import type { Deck, SlideElement } from "./types";
 import { ensureTrackIds } from "./ops";
 
 /** The live deck being edited (null on the web/demo fallback or before load). */

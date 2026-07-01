@@ -31,6 +31,14 @@ export type { HydrateResult } from "./enrich";
 export type { WorldBrief } from "../src/lib/references/openalex";
 // Semantic Scholar — recommendations ("papers like this") + citation contexts.
 export { s2Similar, s2Citing } from "./s2";
+// FluxFinder — PDF acquisition + the items/ store.
+export { fetchPdfForKey, fetchPdfs, ingestPdf } from "./acquire";
+export type { FetchSummary, FetchOneResult } from "./acquire";
+export { hasPdf, readPdf, readSource, writePdf, readFulltext, writeFulltext, loadItemsIndex, rebuildItemsIndex, itemStatus } from "./items";
+export { extractFulltext, getOrExtractFulltext } from "./fulltext";
+// FluxReader annotations (highlights/notes; searchable library-wide).
+export { loadAnnotations, addAnnotation, deleteAnnotation, listAnnotations, searchAnnotations } from "./annotate";
+export type { AnnotationHit } from "./annotate";
 // API keys (machine-global ~/FluxLib/keys.json + env), shared by CLI/MCP/GUI.
 export { loadKeys, saveKeys, getSecret } from "./fluxlib";
 export type { FluxKeys } from "./fluxlib";

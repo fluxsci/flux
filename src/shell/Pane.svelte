@@ -17,6 +17,7 @@
     paper: "Paper",
     slide: "Slide",
     library: "Library",
+    reader: "Reader",
   };
 
   const isSplit = $derived($panes.length > 1);

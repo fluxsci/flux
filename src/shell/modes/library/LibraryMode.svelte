@@ -23,6 +23,9 @@
   import { addUrlOrDoiToLibrary } from "../paper/scholar/bibLoad";
   import { fileBridge } from "../../../lib/project/types";
   import { BOOKMARKLET_HREF } from "./bookmarklet";
+  import { openInReader } from "../reader/readerStore";
+  import { fetchPdfForEntry, fetchPdfsForEntries, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
+  import { listPdfKeys, hasPdfIn, ingestPdfFile } from "../../../lib/references/itemsBridge";
 
   let { focused = true }: { focused?: boolean } = $props();
 
@@ -44,17 +47,36 @@
   let addError = $state("");
   let addedTitle = $state("");
   let copied = $state("");
+  let bmCopied = $state(false); // bookmarklet copied-to-clipboard feedback
 
   // Enrich (hydration) state.
   let enriching = $state(false);
   let enrichProg = $state("");
+
+  // PDF acquisition (FluxFinder) — which keys have a PDF on disk + fetch progress.
+  let pdfKeys = $state<Set<string>>(new Set());
+  let fetchingKey = $state(""); // citekey currently fetching (per-row)
+  let fetchingAll = $state(false);
+  let fetchProg = $state("");
 
   // API keys panel — stored in ~/FluxLib/keys.json (machine-global, every project).
   let keysOpen = $state(false);
   let keyOpenAlex = $state("");
   let keyS2 = $state("");
   let keyMailto = $state("");
+  let keyEzproxy = $state("");
   let keysSaved = $state(false);
+
+  // Library proxy (EZProxy) status — drives the sign-in button + "Get via library".
+  let proxyConfigured = $state(false);
+  let proxySignedIn = $state(false);
+  let proxyBusy = $state(false);
+  // Stored (OS-keychain) proxy credentials for seamless auto-login.
+  let proxyUser = $state("");
+  let proxyPass = $state("");
+  let credAvailable = $state(false);
+  let credHasPass = $state(false);
+  let credSaved = $state(false);
 
   // World scope state.
   let worldResults = $state<WorldBrief[]>([]);
@@ -74,6 +96,12 @@
   const coverage = $derived({
     total: entries.length,
     hydrated: entries.filter((e) => enrichMap[e.key]).length,
+  });
+  const hasPdf = (key: string) => hasPdfIn(pdfKeys, key);
+  const canFetch = (r: EnrichedEntry) => !!(r.doi || r.enrich?.openAccess?.url || r.enrich?.ids?.pmcid);
+  const pdfCoverage = $derived({
+    total: entries.length,
+    have: entries.filter((e) => hasPdf(e.key)).length,
   });
 
   function fmtCount(n?: number): string {
@@ -102,13 +130,14 @@
   }
 
   async function reload() {
-    [entries, enrichMap] = await Promise.all([loadFluxLib(), loadEnrichMap()]);
+    [entries, enrichMap, pdfKeys] = await Promise.all([loadFluxLib(), loadEnrichMap(), listPdfKeys()]);
     loading = false;
   }
   onMount(() => {
     void ensureFluxLib()
       .then(reload)
       .catch(() => (loading = false));
+    void refreshProxy();
     let first = true;
     return fluxLibRevision.subscribe(() => {
       if (first) {
@@ -129,18 +158,89 @@
       keyOpenAlex = (k.openAlexKey as string) || "";
       keyS2 = (k.s2Key as string) || "";
       keyMailto = (k.mailto as string) || "";
+      keyEzproxy = (k.ezproxyPrefix as string) || "";
       keysSaved = false;
+      const c = await fileBridge()?.proxyHasCredentials?.();
+      proxyUser = c?.username || "";
+      credAvailable = !!c?.available;
+      credHasPass = !!c?.hasPassword;
+      proxyPass = "";
     }
     keysOpen = !keysOpen;
+  }
+  async function saveCredentials() {
+    const r = await fileBridge()?.proxySetCredentials?.(proxyUser.trim(), proxyPass);
+    if (r && "error" in r && r.error) {
+      addStatus = "error";
+      addError = r.error;
+      setTimeout(() => {
+        if (addStatus === "error") addStatus = "";
+      }, 4200);
+      return;
+    }
+    if (proxyPass) credHasPass = true;
+    proxyPass = "";
+    credSaved = true;
+    setTimeout(() => (credSaved = false), 2000);
+  }
+  async function clearCredentials() {
+    await fileBridge()?.proxyClearCredentials?.();
+    proxyUser = "";
+    proxyPass = "";
+    credHasPass = false;
   }
   async function saveKeysPanel() {
     await fileBridge()?.keysSet?.({
       openAlexKey: keyOpenAlex.trim(),
       s2Key: keyS2.trim(),
       mailto: keyMailto.trim(),
+      ezproxyPrefix: keyEzproxy.trim(),
     });
     keysSaved = true;
     setTimeout(() => (keysSaved = false), 2000);
+    void refreshProxy();
+  }
+
+  async function refreshProxy() {
+    const s = await fileBridge()?.proxyStatus?.();
+    proxyConfigured = !!s?.configured;
+    proxySignedIn = !!s?.signedIn;
+  }
+  async function signInProxy() {
+    if (proxyBusy) return;
+    proxyBusy = true;
+    try {
+      const r = await fileBridge()?.proxyLogin?.();
+      if (r && "error" in r && r.error) {
+        addStatus = "error";
+        addError = r.error;
+        setTimeout(() => {
+          if (addStatus === "error") addStatus = "";
+        }, 3600);
+      }
+      await refreshProxy();
+    } finally {
+      proxyBusy = false;
+    }
+  }
+  async function getViaProxy(e: MouseEvent, entry: EnrichedEntry) {
+    e.stopPropagation();
+    if (fetchingKey || fetchingAll) return;
+    fetchingKey = entry.key;
+    try {
+      const r = await fetchViaProxyForEntry(entry, enrichMap[entry.key]);
+      if (r.status === "got") {
+        pdfKeys = await listPdfKeys();
+      } else {
+        addStatus = "error";
+        addError = r.error || (r.status === "no-oa" ? "The proxy didn’t return a PDF (are you signed in?)." : "Proxy fetch failed.");
+        setTimeout(() => {
+          if (addStatus === "error") addStatus = "";
+        }, 4200);
+      }
+    } finally {
+      fetchingKey = "";
+    }
   }
 
   async function runEnrich() {
@@ -164,6 +264,89 @@
       enriching = false;
       enrichProg = "";
       await reload();
+    }
+  }
+
+  // --- FluxFinder: acquire OA PDFs ------------------------------------------
+  function readPaper(e: MouseEvent, key: string) {
+    e.stopPropagation();
+    openInReader(key);
+  }
+  async function getPdf(e: MouseEvent, entry: EnrichedEntry) {
+    e.stopPropagation();
+    if (fetchingKey || fetchingAll) return;
+    fetchingKey = entry.key;
+    try {
+      const r = await fetchPdfForEntry(entry, enrichMap[entry.key]);
+      if (r.status === "got" || r.status === "have") {
+        pdfKeys = await listPdfKeys();
+      } else {
+        addStatus = "error";
+        addError =
+          r.status === "no-oa"
+            ? "No open-access PDF found (library proxy support is coming)."
+            : r.status === "no-id"
+              ? "No DOI / PMCID on this entry — Enrich it first."
+              : r.error || "PDF fetch failed.";
+        setTimeout(() => {
+          if (addStatus === "error") addStatus = "";
+        }, 3600);
+      }
+    } finally {
+      fetchingKey = "";
+    }
+  }
+  async function ingest(e: MouseEvent, key: string) {
+    e.stopPropagation();
+    if (fetchingKey || fetchingAll) return;
+    const picked = await fileBridge()?.openFiles?.([{ name: "PDF", extensions: ["pdf"] }]);
+    const file = picked?.[0];
+    if (!file) return;
+    fetchingKey = key;
+    try {
+      if (await ingestPdfFile(key, file)) {
+        pdfKeys = await listPdfKeys();
+      } else {
+        addStatus = "error";
+        addError = "That file isn’t a valid PDF.";
+        setTimeout(() => {
+          if (addStatus === "error") addStatus = "";
+        }, 3600);
+      }
+    } finally {
+      fetchingKey = "";
+    }
+  }
+  async function getAllPdfs() {
+    if (fetchingAll || fetchingKey || loading) return;
+    const todo = entries
+      .map((e) => mergeEnrich([e], enrichMap)[0] as EnrichedEntry)
+      .filter((e) => !hasPdf(e.key) && canFetch(e))
+      .map((e) => ({ entry: e, enrich: enrichMap[e.key] }));
+    if (!todo.length) return;
+    fetchingAll = true;
+    fetchProg = `0/${todo.length}`;
+    try {
+      const sum = await fetchPdfsForEntries(todo, {
+        onProgress: (done, total) => (fetchProg = `${done}/${total}`),
+      });
+      pdfKeys = await listPdfKeys();
+      addStatus = "added";
+      addedTitle =
+        `Fetched ${sum.got} PDF${sum.got === 1 ? "" : "s"} · ${sum.noOa} no-OA · ${sum.noId} no-ID` +
+        (sum.error ? ` · ${sum.error} error` : "");
+      setTimeout(() => {
+        if (addStatus === "added") addStatus = "";
+      }, 4600);
+    } catch (e) {
+      addStatus = "error";
+      addError = (e as Error).message || "PDF fetch failed.";
+      setTimeout(() => {
+        if (addStatus === "error") addStatus = "";
+      }, 3600);
+    } finally {
+      fetchingAll = false;
+      fetchProg = "";
     }
   }
 
@@ -396,6 +579,22 @@
           Enriched ✓
         {/if}
       </button>
+      <button
+        class="enrich getpdfs"
+        class:busy={fetchingAll}
+        onclick={getAllPdfs}
+        disabled={fetchingAll || fetchingKey !== "" || loading || coverage.total === 0}
+        title="Find & download open-access PDFs for your library (Unpaywall · Europe PMC · arXiv · bioRxiv · Crossref)">
+        {#if fetchingAll}
+          Fetching… {fetchProg}
+        {:else if pdfCoverage.have === 0}
+          Get PDFs
+        {:else if pdfCoverage.have < pdfCoverage.total}
+          PDFs {pdfCoverage.have}/{pdfCoverage.total}
+        {:else}
+          PDFs ✓
+        {/if}
+      </button>
       <div class="adddoi" class:failed={addStatus === "error"}>
         <input
           bind:this={addEl}
@@ -428,6 +627,34 @@
         <span class="klbl">Polite email <span class="ksub">mailto — OpenAlex/CrossRef etiquette</span></span>
         <input bind:value={keyMailto} placeholder="you@example.com" spellcheck="false" autocomplete="off" />
       </label>
+      <label class="krow">
+        <span class="klbl">Library EZProxy prefix
+          <span class="ksub">optional · paywalled PDFs · e.g. https://login.ezproxy.library.wisc.edu/login?url=</span></span>
+        <input bind:value={keyEzproxy} placeholder="https://login.ezproxy.library.…/login?url=" spellcheck="false"
+          autocomplete="off" />
+      </label>
+      {#if proxyConfigured}
+        <label class="krow">
+          <span class="klbl">Library username <span class="ksub">NetID — stored in your OS keychain, auto-fills login</span></span>
+          <input bind:value={proxyUser} placeholder="your NetID" spellcheck="false" autocomplete="off" />
+        </label>
+        <label class="krow">
+          <span class="klbl">Library password
+            <span class="ksub">{credAvailable ? (credHasPass ? "saved ✓ · leave blank to keep" : "encrypted at rest (safeStorage)") : "OS keychain unavailable on this system"}</span></span>
+          <input bind:value={proxyPass} type="password" placeholder={credHasPass ? "•••••••• (unchanged)" : "your password"}
+            spellcheck="false" autocomplete="off" disabled={!credAvailable} />
+        </label>
+        <div class="krow proxyrow">
+          <span class="klbl">Library access
+            <span class="ksub">{proxySignedIn ? "signed in — paywalled fetch available" : "sign in once; the session + saved credentials keep you in"}</span></span>
+          <div class="proxybtns">
+            {#if credHasPass}<button class="proxybtn" onclick={clearCredentials} title="Remove stored credentials">Clear</button>{/if}
+            <button class="proxybtn" onclick={saveCredentials} disabled={!credAvailable}>{credSaved ? "Saved ✓" : "Save credentials"}</button>
+            <button class="proxybtn" class:on={proxySignedIn} disabled={proxyBusy} onclick={signInProxy}
+              >{proxyBusy ? "…" : proxySignedIn ? "Re-sign in" : "Sign in"}</button>
+          </div>
+        </div>
+      {/if}
       <div class="kfoot">
         <span class="khint">Stored in ~/FluxLib/keys.json · used across every project · keyless still works</span>
         <button onclick={saveKeysPanel}>{keysSaved ? "Saved ✓" : "Save keys"}</button>
@@ -495,6 +722,17 @@
             {#if copied === r.key}
               <span class="copied">✓</span>
             {:else}
+              {#if hasPdf(r.key)}
+                <button class="ico haspdf" title="Read PDF" aria-label="Read PDF" onclick={(e) => readPaper(e, r.key)}
+                  >▦</button>
+              {:else if canFetch(r)}
+                <button
+                  class="ico"
+                  title="Get open-access PDF"
+                  aria-label="Get PDF"
+                  disabled={fetchingKey === r.key || fetchingAll}
+                  onclick={(e) => getPdf(e, r)}>{fetchingKey === r.key ? "…" : "⬇"}</button>
+              {/if}
               {#if r.doi}
                 <button class="ico" title="Open DOI" aria-label="Open DOI" onclick={(e) => openDoi(e, r.doi)}
                   >↗</button>
@@ -526,6 +764,27 @@
               </div>
             {/if}
             <div class="dbtns">
+              {#if hasPdf(r.key)}
+                <button class="prim" onclick={(e) => readPaper(e, r.key)}>Read PDF →</button>
+              {:else}
+                <button
+                  disabled={fetchingKey === r.key || fetchingAll || !canFetch(r)}
+                  onclick={(e) => getPdf(e, r)}
+                  title={canFetch(r) ? "Find an open-access PDF" : "Needs a DOI/PMCID — Enrich first"}
+                  >{fetchingKey === r.key ? "Fetching…" : "Get PDF ⬇"}</button>
+                <button
+                  disabled={fetchingKey === r.key || fetchingAll}
+                  onclick={(e) => ingest(e, r.key)}
+                  title="File a PDF you already downloaded">Add PDF…</button>
+                {#if proxyConfigured}
+                  <button
+                    class="proxy"
+                    disabled={fetchingKey === r.key || fetchingAll || !canFetch(r)}
+                    onclick={(e) => getViaProxy(e, r)}
+                    title={proxySignedIn ? "Fetch via your library proxy (paywalled)" : "Sign in to your library first (⚙ Keys)"}
+                    >{fetchingKey === r.key ? "Via library…" : "Get via library ⚿"}</button>
+                {/if}
+              {/if}
               {#if r.doi}<button onclick={(e) => openDoi(e, r.doi)}>Open DOI ↗</button>{/if}
               <button disabled={!r.enrich?.openalexId} onclick={() => lookup("citing", r.key, authorLabel(r))}
                 >Who cites this →</button>
@@ -553,9 +812,27 @@
         href="#"
         use:bookmarkletLink
         draggable="true"
-        onclick={(e) => e.preventDefault()}
-        title="Drag me to your bookmarks bar">Add to FluxLib</a>
-      <span class="hint">drag to your bookmarks bar, then click it on any paper page</span>
+        ondragstart={(e) => {
+          // Populate the drag explicitly so a drop on the (cross-app) bookmarks bar
+          // receives the javascript: URL — Electron→browser drags otherwise carry nothing.
+          e.dataTransfer?.setData("text/uri-list", BOOKMARKLET_HREF);
+          e.dataTransfer?.setData("text/plain", BOOKMARKLET_HREF);
+        }}
+        onclick={async (e) => {
+          e.preventDefault();
+          try {
+            await navigator.clipboard.writeText(BOOKMARKLET_HREF);
+            bmCopied = true;
+            setTimeout(() => (bmCopied = false), 2600);
+          } catch {
+            /* clipboard blocked */
+          }
+        }}
+        title="Drag to your bookmarks bar, or click to copy">Add to FluxLib</a>
+      <span class="hint"
+        >{bmCopied
+          ? "Copied ✓ — make a new bookmark, then paste this as its URL"
+          : "drag to your bookmarks bar (or click to copy), then click it on any paper page"}</span>
     </footer>
   {:else}
     <!-- World scope: live OpenAlex results -->
@@ -679,6 +956,17 @@
   .enrich:disabled {
     opacity: 0.7;
     cursor: default;
+  }
+  /* "Get PDFs" — a secondary pill next to the primary Enrich pill. */
+  .getpdfs {
+    border-color: var(--c-line-strong);
+    background: transparent;
+    color: var(--c-tx-2);
+  }
+  .getpdfs:hover:not(:disabled) {
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+    border-color: var(--c-accent);
   }
   .gear {
     flex: 0 0 auto;
@@ -954,6 +1242,16 @@
   .ico:hover {
     color: var(--c-accent-bright);
   }
+  .ico:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .ico.haspdf {
+    color: var(--c-accent);
+  }
+  .ico.haspdf:hover {
+    color: var(--c-accent-bright);
+  }
   .copied {
     color: var(--c-accent-bright);
     font-size: var(--ts-xs);
@@ -1021,6 +1319,47 @@
   .dbtns button:hover:not(:disabled) {
     border-color: var(--c-accent);
     color: var(--c-tx-hi);
+  }
+  .dbtns button.prim {
+    border-color: var(--c-accent);
+    background: var(--c-accent-tint);
+    color: var(--c-accent);
+    font-weight: 600;
+  }
+  .dbtns button.prim:hover:not(:disabled) {
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+  }
+  .dbtns button.proxy:hover:not(:disabled) {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+  .proxyrow {
+    align-items: center;
+  }
+  .proxybtns {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
+  }
+  .proxybtn {
+    flex: 0 0 auto;
+    border: 1px solid var(--c-line-strong);
+    background: transparent;
+    color: var(--c-tx-2);
+    border-radius: var(--r-1);
+    padding: 4px 10px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .proxybtn.on {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+  .proxybtn:hover:not(:disabled) {
+    border-color: var(--c-accent);
   }
   .dbtns button:disabled {
     opacity: 0.45;

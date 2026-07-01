@@ -3,6 +3,7 @@
   import FigureMode from "./modes/figure/FigureMode.svelte";
   import LibraryMode from "./modes/library/LibraryMode.svelte";
   import SlideMode from "./modes/slide/SlideMode.svelte";
+  import ReaderMode from "./modes/reader/ReaderMode.svelte";
   import { fadeRise } from "../lib/motion/actions";
   import { DUR } from "../lib/motion/tokens";
   import type { ModeId } from "./shellStore";
@@ -20,6 +21,8 @@
       <LibraryMode {focused} />
     {:else if mode === "slide"}
       <SlideMode {focused} />
+    {:else if mode === "reader"}
+      <ReaderMode {focused} />
     {/if}
   </div>
 {/key}

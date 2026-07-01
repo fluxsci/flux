@@ -265,3 +265,22 @@ export async function relatedWorksByKey(key: string): Promise<WorldBrief[]> {
   }
   return out;
 }
+
+/** The works a hydrated entry CITES (its OpenAlex referenced_works) — the reference
+ *  list, resolved to brief records. Order is preserved (batched in ≤50s by OpenAlex).
+ *  Backs the FluxReader reference sidebar. */
+export async function referencedWorksByKey(key: string): Promise<WorldBrief[]> {
+  const ids = (await loadEnrichMap())[key]?.referencedWorks;
+  if (!ids?.length) return [];
+  const mailto = await getMailto();
+  const byId = new Map<string, WorldBrief>();
+  for (const url of worksByIdsUrl(ids, { mailto, select: BRIEF_SELECT })) {
+    const json = await fetchOA(url);
+    for (const w of json?.results ?? []) {
+      const b = workToBrief(w);
+      if (b.openalexId) byId.set(b.openalexId, b);
+    }
+  }
+  // Preserve the citing order from referenced_works.
+  return ids.map((id) => byId.get(id)).filter((b): b is WorldBrief => !!b);
+}

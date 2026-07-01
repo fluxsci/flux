@@ -392,6 +392,140 @@ export function addPlotToSlide(
   return addElement(deck, slideId, makePlotPanel(opts.assetId, opts, opts.source, opts.manifestRef));
 }
 
+// ---------------------------------------------------------------------------
+// Element editing — duplicate / group / z-order / align (multi-select tools)
+// ---------------------------------------------------------------------------
+
+/** Deep-clone the given elements (remapping ids; keeping a duplicated group
+ *  together under a fresh shared id; re-keying text blocks) and append them,
+ *  offset by (dx,dy). Returns the new element ids — the caller selects them. */
+export function duplicateElements(deck: Deck, slideId: Id, ids: Id[], dx = 24, dy = 24): Id[] {
+  const s = slideById(deck, slideId);
+  if (!s) return [];
+  const set = new Set(ids);
+  const groupRemap = new Map<Id, Id>();
+  const out: Id[] = [];
+  for (const el of [...s.elements]) {
+    if (!set.has(el.id)) continue;
+    const copy = structuredClone(el);
+    copy.id = newId(el.type);
+    copy.x += dx;
+    copy.y += dy;
+    if (copy.groupId) {
+      let g = groupRemap.get(copy.groupId);
+      if (!g) { g = newId("group"); groupRemap.set(copy.groupId, g); }
+      copy.groupId = g;
+    }
+    if (copy.type === "textBox") for (const b of copy.blocks) b.id = newId("block");
+    s.elements.push(copy);
+    out.push(copy.id);
+  }
+  return out;
+}
+
+/** Assign a fresh shared groupId to the given elements (≥2). Returns the group id. */
+export function groupElements(deck: Deck, slideId: Id, ids: Id[]): Id | null {
+  const s = slideById(deck, slideId);
+  if (!s || ids.length < 2) return null;
+  const g = newId("group");
+  const set = new Set(ids);
+  for (const el of s.elements) if (set.has(el.id)) el.groupId = g;
+  return g;
+}
+
+/** Clear the groupId from the given elements (ungroup). */
+export function ungroupElements(deck: Deck, slideId: Id, ids: Id[]): void {
+  const s = slideById(deck, slideId);
+  if (!s) return;
+  const set = new Set(ids);
+  for (const el of s.elements) if (set.has(el.id)) delete el.groupId;
+}
+
+/** Elements paint in array order (last = top). Move the selection to the front. */
+export function bringToFront(deck: Deck, slideId: Id, ids: Id[]): void {
+  const s = slideById(deck, slideId);
+  if (!s) return;
+  const set = new Set(ids);
+  s.elements = [...s.elements.filter((e) => !set.has(e.id)), ...s.elements.filter((e) => set.has(e.id))];
+}
+
+/** Move the selection to the back (bottom of the paint order). */
+export function sendToBack(deck: Deck, slideId: Id, ids: Id[]): void {
+  const s = slideById(deck, slideId);
+  if (!s) return;
+  const set = new Set(ids);
+  s.elements = [...s.elements.filter((e) => set.has(e.id)), ...s.elements.filter((e) => !set.has(e.id))];
+}
+
+/** Raise the selection one step toward the front. */
+export function raiseElements(deck: Deck, slideId: Id, ids: Id[]): void {
+  const s = slideById(deck, slideId);
+  if (!s) return;
+  const set = new Set(ids);
+  for (let i = s.elements.length - 2; i >= 0; i--) {
+    if (set.has(s.elements[i].id) && !set.has(s.elements[i + 1].id)) {
+      [s.elements[i], s.elements[i + 1]] = [s.elements[i + 1], s.elements[i]];
+    }
+  }
+}
+
+/** Lower the selection one step toward the back. */
+export function lowerElements(deck: Deck, slideId: Id, ids: Id[]): void {
+  const s = slideById(deck, slideId);
+  if (!s) return;
+  const set = new Set(ids);
+  for (let i = 1; i < s.elements.length; i++) {
+    if (set.has(s.elements[i].id) && !set.has(s.elements[i - 1].id)) {
+      [s.elements[i], s.elements[i - 1]] = [s.elements[i - 1], s.elements[i]];
+    }
+  }
+}
+
+export type AlignMode = "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom";
+
+/** Align the given elements (≥2) to the selection's bounding-box edge/center. */
+export function alignElements(deck: Deck, slideId: Id, ids: Id[], mode: AlignMode): void {
+  const s = slideById(deck, slideId);
+  if (!s || ids.length < 2) return;
+  const set = new Set(ids);
+  const els = s.elements.filter((e) => set.has(e.id));
+  const minX = Math.min(...els.map((e) => e.x));
+  const maxX = Math.max(...els.map((e) => e.x + e.width));
+  const minY = Math.min(...els.map((e) => e.y));
+  const maxY = Math.max(...els.map((e) => e.y + e.height));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  for (const e of els) {
+    if (mode === "left") e.x = minX;
+    else if (mode === "right") e.x = maxX - e.width;
+    else if (mode === "hcenter") e.x = cx - e.width / 2;
+    else if (mode === "top") e.y = minY;
+    else if (mode === "bottom") e.y = maxY - e.height;
+    else if (mode === "vcenter") e.y = cy - e.height / 2;
+  }
+}
+
+/** Evenly space the given elements (≥3) by gap along an axis (Figma-style). */
+export function distributeElements(deck: Deck, slideId: Id, ids: Id[], axis: "h" | "v"): void {
+  const s = slideById(deck, slideId);
+  if (!s || ids.length < 3) return;
+  const set = new Set(ids);
+  const els = s.elements.filter((e) => set.has(e.id));
+  if (axis === "h") {
+    els.sort((a, b) => a.x - b.x);
+    const span = els[els.length - 1].x + els[els.length - 1].width - els[0].x;
+    const gap = (span - els.reduce((n, e) => n + e.width, 0)) / (els.length - 1);
+    let x = els[0].x;
+    for (const e of els) { e.x = x; x += e.width + gap; }
+  } else {
+    els.sort((a, b) => a.y - b.y);
+    const span = els[els.length - 1].y + els[els.length - 1].height - els[0].y;
+    const gap = (span - els.reduce((n, e) => n + e.height, 0)) / (els.length - 1);
+    let y = els[0].y;
+    for (const e of els) { e.y = y; y += e.height + gap; }
+  }
+}
+
 /** Remove every track on a slide that targets one plot part (used when a part
  *  leaves the animated set — masked or shown-from-start). Matches by part id at
  *  the granularity the track was authored (group or leaf). */

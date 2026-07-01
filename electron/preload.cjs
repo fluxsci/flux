@@ -27,6 +27,17 @@ contextBridge.exposeInMainWorld("fig", {
   // Fetch a Semantic Scholar API URL in main (recommendations / citation contexts);
   // the x-api-key header is attached when an S2 key is configured.
   fetchS2: (url) => ipcRenderer.invoke("cite:s2", url),
+  // PDF-acquisition fetch (FluxFinder): host-unrestricted http(s) GET in main, used by
+  // the renderer's resolver waterfall. mode ∈ "json" | "text" | "bytes".
+  netGet: (url, mode) => ipcRenderer.invoke("pdf:netGet", url, mode),
+  // Library proxy (EZProxy) — user-initiated paywalled access (OA is tried first).
+  proxyLogin: () => ipcRenderer.invoke("proxy:login"),
+  proxyStatus: () => ipcRenderer.invoke("proxy:status"),
+  fetchViaProxy: (target) => ipcRenderer.invoke("pdf:fetchViaProxy", target),
+  // Proxy credentials, stored ENCRYPTED in the OS keychain (safeStorage) for auto-login.
+  proxySetCredentials: (username, password) => ipcRenderer.invoke("proxy:setCredentials", { username, password }),
+  proxyHasCredentials: () => ipcRenderer.invoke("proxy:hasCredentials"),
+  proxyClearCredentials: () => ipcRenderer.invoke("proxy:clearCredentials"),
   // Machine-global API-key store (~/FluxLib/keys.json), shared across projects.
   keysGet: () => ipcRenderer.invoke("keys:get"),
   keysSet: (patch) => ipcRenderer.invoke("keys:set", patch),

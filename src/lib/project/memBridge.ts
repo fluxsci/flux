@@ -116,6 +116,9 @@ export function createMemBridge(): FileBridge & {
     async openDirectory() {
       return "/demo/myc-growth-paper";
     },
+    async openFiles() {
+      return null; // no OS file picker in the demo fixture
+    },
     async save(defaultPath) {
       return joinPath("/demo", defaultPath || "untitled");
     },
@@ -146,6 +149,38 @@ export function createMemBridge(): FileBridge & {
       } catch (e) {
         return { error: String((e && (e as Error).message) || e) };
       }
+    },
+    async netGet(url, mode) {
+      try {
+        const r = await fetch(String(url), { redirect: "follow" });
+        if (!r.ok) return { error: `HTTP ${r.status}`, status: r.status };
+        if (mode === "json") return { json: await r.json() };
+        if (mode === "text") return { text: await r.text() };
+        const buf = new Uint8Array(await r.arrayBuffer());
+        let bin = "";
+        for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+        return { bytesB64: btoa(bin), contentType: r.headers.get("content-type") || "", finalUrl: r.url || String(url) };
+      } catch (e) {
+        return { error: String((e && (e as Error).message) || e) };
+      }
+    },
+    async proxyStatus() {
+      return { configured: false, signedIn: false }; // no library proxy in the demo
+    },
+    async proxyLogin() {
+      return { error: "Library proxy is unavailable in the demo fixture (use the desktop app)." };
+    },
+    async fetchViaProxy() {
+      return { error: "Library proxy is unavailable in the demo fixture (use the desktop app)." };
+    },
+    async proxySetCredentials() {
+      return { error: "Credential storage is unavailable in the demo fixture (use the desktop app)." };
+    },
+    async proxyHasCredentials() {
+      return { username: "", hasPassword: false, available: false };
+    },
+    async proxyClearCredentials() {
+      return { ok: true };
     },
     async keysGet() {
       const p = norm("/home/demo/FluxLib/keys.json");
