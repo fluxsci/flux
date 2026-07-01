@@ -17,7 +17,15 @@ import {
   loadProject as figLoad,
   editGen,
 } from "../store";
-import { assetData, bytesToDataUrl, dataUrlToBytes, mimeFor } from "../assets";
+import {
+  assetData,
+  bytesToDataUrl,
+  dataUrlToBytes,
+  mimeFor,
+  isAssetDirty,
+  clearAssetDirty,
+  clearAllAssetsDirty,
+} from "../assets";
 import { plotManifests, plotRecipes, cachePlot, clearPlots } from "../plot/store";
 import type { FluxPlotManifest } from "../plot/types";
 import { FLEXOKI } from "../flexoki";
@@ -144,6 +152,7 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     }
   }
   assetData.set(data);
+  clearAllAssetsDirty(); // W8: freshly loaded — every asset is in sync with disk
 
   const proj: FigProject = {
     version: 1,
@@ -184,11 +193,15 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
   await fig.mkdir(joinPath(root, SUB, "assets"));
   await fig.mkdir(joinPath(root, SUB, "captions"));
 
-  // Asset bytes → fig/assets/<id>.<kind> (+ a semantic plot's sidecars next to it)
+  // Asset bytes → fig/assets/<id>.<kind> (+ a semantic plot's sidecars next to it).
+  // W8: only (re)write NEW (path-less) or CHANGED (dirty) assets — an unchanged
+  // asset is already on disk, so a debounced save no longer rewrites MBs of bytes.
   for (const a of p.assets) {
     const url = data[a.id];
     if (!url) continue;
-    a.path = `assets/${a.id}.${a.kind}`;
+    const isNew = !a.path;
+    if (isNew) a.path = `assets/${a.id}.${a.kind}`; // ensure a path for the index
+    if (!isNew && !isAssetDirty(a.id)) continue; // unchanged → skip the byte write
     await fig.writeFile(joinPath(root, SUB, a.path), dataUrlToBytes(url));
     const man = manifests[a.id];
     if (man) {
@@ -197,6 +210,7 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
       if (rec !== undefined)
         await fig.writeText(joinPath(root, SUB, "assets", `${a.id}.recipe.json`), JSON.stringify(rec, null, 2));
     }
+    clearAssetDirty(a.id); // persisted — back in sync with disk
   }
 
   // Guarantee at least one canvas (older in-memory projects may predate it).

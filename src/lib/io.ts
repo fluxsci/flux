@@ -24,6 +24,7 @@ import { gridLayout, emptyRegion } from "./layout";
 import {
   assetData,
   setAssetData,
+  markAssetDirty,
   bytesToDataUrl,
   dataUrlToBytes,
   mimeFor,
@@ -51,6 +52,7 @@ export function reimportPlot(
 ): boolean {
   const ok = cachePlot(assetId, svgText, manifest, recipe);
   setAssetData(assetId, bytesToDataUrl(new TextEncoder().encode(svgText), mimeFor("svg")));
+  markAssetDirty(assetId); // W8: hot-swapped bytes → rewrite on next save
   return ok;
 }
 
@@ -122,15 +124,21 @@ async function buildIncoming(
   const kind = kindOf(name);
   const dataUrl = bytesToDataUrl(bytes, mimeFor(kind));
   const { width, height } = await intrinsicSize(dataUrl);
+  const id = newId("asset");
   const asset: Asset = {
-    id: newId("asset"),
+    id,
     name,
     kind,
-    path: "",
+    // W8: assign the deterministic on-disk path up front (assets/<id>.<kind>). The
+    // save clones the store, so a path set only there never syncs back — meaning a
+    // path-less asset would be rewritten every debounce. With the path fixed at
+    // import, the dirty flag alone decides whether the bytes are (re)written.
+    path: `assets/${id}.${kind}`,
     naturalWidth: width,
     naturalHeight: height,
   };
   setAssetData(asset.id, dataUrl); // also serves as the <image> fallback (spec P4)
+  markAssetDirty(asset.id); // W8: newly imported bytes → write on next save
 
   // A semantic FluxPlot = an svg with a parseable manifest sidecar.
   if (kind === "svg" && sib.manifestText) {

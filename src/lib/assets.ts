@@ -14,6 +14,26 @@ export function getAssetData(id: Id): string | undefined {
   return get(assetData)[id];
 }
 
+// W8 (FIG-6): asset-byte dirty tracking. saveFigFrom used to rewrite EVERY asset's
+// bytes (+ sidecars) on every 700ms debounce — MBs of disk thrash (and a corruption
+// window) after any unrelated edit. Import/replace/hot-swap mark the changed asset
+// dirty; the save writes only dirty (or never-written) assets and clears the marks.
+// setAssetData deliberately does NOT mark dirty — it's also the load path.
+const dirtyAssets = new Set<Id>();
+export function markAssetDirty(id: Id) {
+  dirtyAssets.add(id);
+}
+export function isAssetDirty(id: Id): boolean {
+  return dirtyAssets.has(id);
+}
+export function clearAssetDirty(id: Id) {
+  dirtyAssets.delete(id);
+}
+/** Reset on load — everything is in sync with disk. */
+export function clearAllAssetsDirty() {
+  dirtyAssets.clear();
+}
+
 // ---------------------------------------------------------------------------
 // base64 <-> bytes helpers (chunked to avoid call-stack limits on big files)
 // ---------------------------------------------------------------------------
