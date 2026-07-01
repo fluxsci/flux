@@ -2,7 +2,7 @@
 // simulate external fs changes). Proves: an external write to fig/ reloads figures
 // live; to references/ reloads the bibliography; to the active manuscript reloads
 // the editor when clean, and NEVER clobbers unsaved work when dirty.
-import { launch, gotoApp, clickMode, sleep, errors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
 
 const R = "/demo/myc-growth-paper";
 const { browser, page } = await launch();
@@ -62,17 +62,39 @@ const dirtyGuard = await page.evaluate(() => ({
   bannerShown: !!document.querySelector(".disk-toast"),
 }));
 
-console.log(
-  JSON.stringify(
-    {
-      figReloaded: (figCap || "").includes("WATCH RELOADED"),
-      bibReloaded: bibKeys.includes("watch2099"),
-      cleanReload,
-      dirtyGuard,
-      errs: errors(page),
-    },
-    null,
-    2,
-  ),
-);
+// 5) W7 conflict guard: with the editor dirty and disk holding the agent's
+// version, forcing a flush must NOT clobber disk with the editor's text — the
+// autosave detects the divergence and refuses (the banner offers reload/overwrite).
+await page.evaluate(() => window.__flux.lifecycle.flushAll());
+await sleep(300);
+const w7 = await page.evaluate(async (R) => {
+  const disk = await window.fig.readText(R + "/manuscript/main.qmd");
+  return {
+    diskKeptAgentVersion: disk.includes("A DIFFERENT AGENT VERSION"),
+    diskNotClobberedByEditor: !disk.includes("MY UNSAVED EDIT"),
+  };
+}, R);
+
+const out = {
+  figReloaded: (figCap || "").includes("WATCH RELOADED"),
+  bibReloaded: bibKeys.includes("watch2099"),
+  cleanReload,
+  dirtyGuard,
+  w7ConflictGuard: w7,
+  errs: realErrors(page),
+};
+console.log(JSON.stringify(out, null, 2));
 await browser.close();
+
+const pass =
+  out.figReloaded &&
+  out.bibReloaded &&
+  out.cleanReload &&
+  dirtyGuard.keptUnsaved &&
+  dirtyGuard.notClobbered &&
+  dirtyGuard.bannerShown &&
+  w7.diskKeptAgentVersion &&
+  w7.diskNotClobberedByEditor &&
+  out.errs.length === 0;
+console.log(pass ? "F1+W7 VERIFY: PASS" : "F1+W7 VERIFY: FAIL");
+process.exit(pass ? 0 : 1);

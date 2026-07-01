@@ -42,7 +42,7 @@
   import { fileBridge } from "../../../lib/project/types";
   import { pushToast, errMsg } from "../../../lib/toast";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
-  import { createAutosave } from "../../../lib/autosave";
+  import { createAutosave, ConflictError } from "../../../lib/autosave";
   import { registerFlushable } from "../../lifecycle";
   import { popIn } from "../../../lib/motion/actions";
   import {
@@ -90,6 +90,10 @@
   let activeDocPath = $state(pm?.manifest.manuscript.path ?? "manuscript/main.qmd");
   let docs = $state<DocEntry[]>([]);
   let diskDiverged = $state(false); // F1: active doc changed on disk while dirty
+  // W7: what we believe is currently on disk (last loaded or successfully written).
+  // The autosave conflict guard compares against this to avoid clobbering an
+  // agent/CLI write that landed between our load and our save.
+  let diskBaseline = "";
 
   function toggleOutliner() {
     paperLayout.update((s) => ({ ...s, outlinerOpen: !s.outlinerOpen }));
@@ -251,7 +255,17 @@
     save: async () => {
       if (!pm) return;
       const snapshot = latest;
+      // W7 conflict guard: if the file changed on disk since we last loaded/saved
+      // (an agent/CLI wrote it) AND that change isn't what we're about to write,
+      // don't clobber it — surface the diverged banner and stay dirty (the shared
+      // controller treats ConflictError as no-retry/no-toast).
+      const onDisk = (await readManuscript(pm, activeDocPath)) ?? "";
+      if (onDisk !== diskBaseline && onDisk !== snapshot) {
+        diskDiverged = true;
+        throw new ConflictError("manuscript changed on disk");
+      }
       await writeManuscript(pm, snapshot, activeDocPath);
+      diskBaseline = snapshot;
       // Only mark clean if nothing was typed during the write — otherwise the
       // controller's trailing save persists the newer text (W4).
       if (latest === snapshot) saved = true;
@@ -581,6 +595,7 @@
       isDemo = true;
     }
     latest = initialDoc;
+    diskBaseline = initialDoc; // W7: seed the conflict-guard baseline
     ready = true;
 
     setChipHandlers({
@@ -723,6 +738,7 @@
       selection: { anchor: 0 },
     });
     latest = text;
+    diskBaseline = text; // W7: the newly-loaded document is our baseline
     saved = true; // the swap's own change event scheduled a save; isDirty=false makes it a no-op
     outline = getOutline(view.state);
     syncRanges();
@@ -750,6 +766,7 @@
       selection: { anchor: head },
     });
     latest = text;
+    diskBaseline = text; // W7: disk is now our baseline
     saved = true;
     diskDiverged = false;
     outline = getOutline(view.state);
@@ -805,6 +822,16 @@
   async function forceReloadFromDisk() {
     if (!pm) return;
     applyDiskText((await readManuscript(pm, activeDocPath)) || "");
+  }
+  // W7: resolve a divergence by making the editor's version win — write it over
+  // disk and adopt it as the new baseline so the guard stops firing.
+  async function overwriteDisk() {
+    if (!pm) return;
+    const snapshot = latest;
+    await writeManuscript(pm, snapshot, activeDocPath);
+    diskBaseline = snapshot;
+    if (latest === snapshot) saved = true;
+    diskDiverged = false;
   }
   // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
   const unregFlush = registerFlushable({
@@ -1121,9 +1148,9 @@
 
   {#if diskDiverged}
     <div class="disk-toast">
-      <span>This document changed on disk.</span>
-      <button onclick={forceReloadFromDisk}>Reload</button>
-      <button class="ghost" onclick={() => (diskDiverged = false)}>Keep mine</button>
+      <span>This document changed on disk (an agent or another tool edited it).</span>
+      <button onclick={forceReloadFromDisk}>Reload theirs</button>
+      <button class="ghost" onclick={overwriteDisk}>Overwrite with mine</button>
     </div>
   {/if}
 

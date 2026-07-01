@@ -24,9 +24,35 @@ import { FLEXOKI } from "../flexoki";
 import { settings } from "../settings";
 import { composeCaption, panelLetters } from "../captions";
 import { fileBridge, joinPath, slugify } from "./types";
+import { ConflictError } from "../autosave";
 
 const SUB = "fig";
 const DEFAULT_CANVAS_ID = "canvas-1";
+
+// W7 conflict guard: the raw fig/index.json text we last loaded or wrote — i.e.
+// what we believe is on disk. saveFigFrom compares against it and refuses to
+// clobber an agent/CLI write that landed since we loaded (surfacing a banner).
+let figIndexBaseline: string | null = null;
+
+async function readFigIndexText(
+  fig: NonNullable<ReturnType<typeof fileBridge>>,
+  root: string,
+): Promise<string> {
+  try {
+    const p = joinPath(root, SUB, "index.json");
+    return (await fig.exists(p)) ? await fig.readText(p) : "";
+  } catch {
+    return "";
+  }
+}
+
+/** W7: has fig/index.json changed on disk since we loaded/saved it? (used by the
+ *  FigureMode divergence banner + W10 live-reload). */
+export async function figDiskDiverged(root: string): Promise<boolean> {
+  const fig = fileBridge();
+  if (!fig || figIndexBaseline == null) return false;
+  return (await readFigIndexText(fig, root)) !== figIndexBaseline;
+}
 
 interface FigIndexFile {
   schemaVersion: string;
@@ -58,12 +84,17 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   if (!fig) return;
 
   let index: FigIndexFile | null = null;
+  let indexText = "";
   try {
     const p = joinPath(root, SUB, "index.json");
-    if (await fig.exists(p)) index = JSON.parse(await fig.readText(p)) as FigIndexFile;
+    if (await fig.exists(p)) {
+      indexText = await fig.readText(p);
+      index = JSON.parse(indexText) as FigIndexFile;
+    }
   } catch {
     index = null;
   }
+  figIndexBaseline = indexText; // W7: seed the conflict-guard baseline
 
   // Canvas list comes from the index; fall back to a single default canvas.
   const canvasMeta =
@@ -129,9 +160,18 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
 }
 
 /** Persist the figure-editor stores into the project's `fig/` subsystem. */
-export async function saveFigFrom(root: string): Promise<void> {
+export async function saveFigFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
   const fig = fileBridge();
   if (!fig) return;
+
+  // W7 conflict guard: if fig/index.json changed on disk since we loaded/saved
+  // (an agent or CLI edited the figure subsystem), don't clobber it — throw so
+  // the FigureMode banner offers reload/overwrite. The shared autosave controller
+  // treats ConflictError as stay-dirty-no-retry. `force` (the banner's Overwrite)
+  // skips the check and makes the editor's version win.
+  if (!opts.force && figIndexBaseline != null && (await readFigIndexText(fig, root)) !== figIndexBaseline) {
+    throw new ConflictError("figure subsystem changed on disk");
+  }
 
   const genAtStart = editGen.n; // W4: only clear dirty if no edit lands mid-save
   const p = structuredClone(get(figProject));
@@ -220,10 +260,9 @@ export async function saveFigFrom(root: string): Promise<void> {
     palette: p.palette,
     colorGroups: p.colorGroups ?? [],
   };
-  await fig.writeText(
-    joinPath(root, SUB, "index.json"),
-    JSON.stringify(index, null, 2) + "\n",
-  );
+  const indexText = JSON.stringify(index, null, 2) + "\n";
+  await fig.writeText(joinPath(root, SUB, "index.json"), indexText);
+  figIndexBaseline = indexText; // W7: adopt what we just wrote as the new baseline
 
   // WS6: record the human's save in the provenance journal (Electron only; the
   // mem/demo bridge has no journalAppend, so this is a no-op there).

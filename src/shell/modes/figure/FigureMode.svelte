@@ -22,7 +22,7 @@
   import { loadFigInto, saveFigFrom } from "../../../lib/project/figbridge";
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
   import { bumpFigRevision } from "../../scholar/revisions";
-  import { createAutosave } from "../../../lib/autosave";
+  import { createAutosave, ConflictError } from "../../../lib/autosave";
   import { registerFlushable } from "../../lifecycle";
 
   // Only handle figure shortcuts while this pane is focused, so they don't fire
@@ -33,6 +33,8 @@
   let ready = false;
   let unsubDirty: (() => void) | undefined;
   let unsubReveal: (() => void) | undefined;
+  // W7: fig/ changed on disk (agent/CLI) while the editor had unsaved edits.
+  let figDiverged = $state(false);
 
   // W4: shared autosave controller — save failures stay dirty, retry once
   // silently, then surface a sticky toast (they were fire-and-forget before).
@@ -42,10 +44,30 @@
     isDirty: () => !!pm && get(figDirty),
     save: async () => {
       if (!pm) return;
-      await saveFigFrom(pm.root); // clears figDirty only on success
-      bumpFigRevision(); // tell the manuscript its figures changed
+      try {
+        await saveFigFrom(pm.root); // clears figDirty only on success
+        figDiverged = false;
+        bumpFigRevision(); // tell the manuscript its figures changed
+      } catch (e) {
+        // W7: don't clobber an external write — surface the banner; the controller
+        // keeps us dirty and won't retry/toast a ConflictError.
+        if (e instanceof ConflictError) figDiverged = true;
+        throw e;
+      }
     },
   });
+
+  async function reloadFigures() {
+    if (!pm) return;
+    await loadFigInto(pm.root, pm.manifest.title); // resets baseline + clears dirty
+    figDiverged = false;
+  }
+  async function overwriteFigures() {
+    if (!pm) return;
+    await saveFigFrom(pm.root, { force: true }); // editor's version wins
+    figDiverged = false;
+    bumpFigRevision();
+  }
 
   $effect(() => {
     if (!focused) return;
@@ -102,6 +124,14 @@
   <Settings />
   <PlotXray />
   <PlotImporter />
+
+  {#if figDiverged}
+    <div class="disk-toast">
+      <span>These figures changed on disk (an agent or another tool edited them).</span>
+      <button onclick={reloadFigures}>Reload theirs</button>
+      <button class="ghost" onclick={overwriteFigures}>Overwrite with mine</button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -110,6 +140,40 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    position: relative;
+  }
+  .disk-toast {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--c-bg-1, #1c1b1a);
+    color: var(--c-tx, #cecdc3);
+    border: 1px solid var(--c-ui, #403e3c);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    font-size: 13px;
+    z-index: 50;
+  }
+  .disk-toast button {
+    border: 1px solid var(--c-ui, #403e3c);
+    background: var(--c-bg-2, #282726);
+    color: var(--c-tx, #cecdc3);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .disk-toast button:hover {
+    background: var(--c-ui, #403e3c);
+  }
+  .disk-toast button.ghost {
+    background: transparent;
+    color: var(--c-tx-2, #878580);
   }
   .body {
     display: flex;
