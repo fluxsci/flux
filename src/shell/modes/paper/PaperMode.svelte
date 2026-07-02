@@ -20,6 +20,8 @@
   import EmptyState from "./EmptyState.svelte";
   import { selectionWatcher } from "./toolbar/selectionState";
   import { formattingKeymap } from "./editing/keymap";
+  import { vimCompartment, vimExtensions } from "./editing/vim";
+  import { paperVimMode } from "./editing/vimStore";
   import { pageCompartment, themeFor } from "./view-mode/pageView";
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
@@ -682,6 +684,9 @@
 
   function buildExtensions() {
     return createEditorExtensions({
+      // Vim must precede the WHOLE tree (keys claimed at the DOM level; its
+      // plugin must init before the panel host) — see markdown-setup `first`.
+      first: [vimCompartment.of(vimExtensions(get(paperVimMode)))],
       extra: [
         pageCompartment.of(themeFor(viewMode)),
         selectionWatcher,
@@ -752,6 +757,12 @@
     viewMode = m;
     paperViewMode.set(m);
     view?.dispatch({ effects: pageCompartment.reconfigure(themeFor(m)) });
+    view?.focus();
+  }
+
+  function setVim(on: boolean) {
+    paperVimMode.set(on);
+    view?.dispatch({ effects: vimCompartment.reconfigure(vimExtensions(on)) });
     view?.focus();
   }
 
@@ -1035,6 +1046,13 @@
     },
     { id: "view-continuous", title: "Continuous view", hint: "View", keywords: "scroll column", run: () => setView("continuous") },
     { id: "view-paginated", title: "Paginated view", hint: "View", keywords: "page sheets print", run: () => setView("paginated") },
+    {
+      id: "toggle-vim",
+      title: $paperVimMode ? "Disable Vim mode" : "Enable Vim mode",
+      hint: "Editor",
+      keywords: "vim modal hjkl normal insert keyboard",
+      run: () => setVim(!$paperVimMode),
+    },
     { id: "insert-figure", title: "Insert figure…", hint: "Insert", keywords: "image panel embed", run: () => (pickerOpen = true) },
     {
       id: "toggle-outliner",

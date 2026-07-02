@@ -47,12 +47,20 @@ export interface EditorExtensionOpts {
   livePreview?: boolean;
   /** Extra extensions appended by the caller (chips, comments, view-mode, keymaps). */
   extra?: Extension[];
+  /**
+   * Extensions that must precede EVERYTHING else in the tree. Vim lives here:
+   * it claims keys at the DOM level ahead of all keymaps, and its ViewPlugin
+   * must initialize before the shared panel host (which `search()` below pulls
+   * in) or the vim status panel crashes reading `view.cm` before it exists.
+   */
+  first?: Extension[];
 }
 
 export function createEditorExtensions(
   opts: EditorExtensionOpts = {},
 ): Extension[] {
   return [
+    opts.first ?? [],
     history(),
     drawSelection(),
     // PAP-23: no highlightActiveLine() — the theme intentionally paints .cm-activeLine
