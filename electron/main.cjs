@@ -703,8 +703,10 @@ ipcMain.handle("fs:exists", async (_e, p) => {
   try {
     await fs.promises.access(p);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    // SHL-18: only ENOENT means "not there". EACCES/EPERM etc. mean the path EXISTS but isn't
+    // accessible — reporting that as absent would let a caller wrongly treat it as free to create.
+    return !!(err && err.code && err.code !== "ENOENT");
   }
 });
 ipcMain.handle("fs:readdir", async (_e, p) => {
@@ -1533,7 +1535,9 @@ ipcMain.handle("pty:create", (e, opts = {}) => {
     if (!wc.isDestroyed()) wc.send("pty:exit", { id, exitCode, signal });
     ptySessions.delete(id);
   });
-  return { ok: true, id, shell, cwd, pid: child.pid };
+  // SHL-18: report the shell/command actually launched (a path string), NOT the imported
+  // electron `shell` module — the renderer's TermInfo.shell expects the former.
+  return { ok: true, id, shell: command, cwd, pid: child.pid };
 });
 
 ipcMain.on("pty:write", (_e, id, data) => {

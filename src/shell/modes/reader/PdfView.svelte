@@ -29,6 +29,7 @@
     annotations = [],
     onCreate,
     onSelect,
+    onOrphans,
     scrollTo = null,
   }: {
     buffer: ArrayBuffer;
@@ -37,6 +38,9 @@
     annotations?: Annotation[];
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void;
     onSelect?: (text: string, page?: number) => void;
+    /** LR-13: ids whose quote no longer locates on their (rendered) page → the annotations
+     *  panel flags them as orphaned instead of silently showing no highlight. */
+    onOrphans?: (ids: string[]) => void;
     scrollTo?: { id?: string; page?: number; nonce: number } | null;
   } = $props();
 
@@ -124,6 +128,22 @@
   }
 
   // --- highlights → dedicated overlay layer (never the text layer) ------------
+  // LR-13: cache each annotation's located range keyed by its anchor identity. drawHighlights
+  // runs on every `annotations` change (add/delete/scroll) across up to 6 live pages, and
+  // locateQuote is a fuzzy full-page search — without this, adding one note re-located ALL of
+  // them. `null` loc = orphan (quote no longer found on its rendered page); those ids are
+  // reported to the annotations panel so a detached highlight isn't just silently invisible.
+  const locCache = new Map<string, { anchor: TextQuoteSelector; loc: { start: number; end: number } | null }>();
+  const orphanIds = new Set<string>();
+  function locOf(info: PageInfo, a: Annotation): { start: number; end: number } | null {
+    const hit = locCache.get(a.id);
+    if (hit && hit.anchor === a.anchor) return hit.loc;
+    const loc = locateQuote(info.text, a.anchor) ?? null;
+    locCache.set(a.id, { anchor: a.anchor, loc });
+    if (loc) orphanIds.delete(a.id);
+    else orphanIds.add(a.id);
+    return loc;
+  }
   function drawHighlights(p: number) {
     const st = pages.get(p);
     if (!st || !st.done || !st.info || !st.hlLayer) return;
@@ -131,7 +151,7 @@
     const pageRect = st.pageDiv.getBoundingClientRect();
     for (const a of annotations) {
       if (a.page !== p) continue;
-      const loc = locateQuote(st.info.text, a.anchor);
+      const loc = locOf(st.info, a);
       if (!loc) continue;
       const r = rangeFor(st.info, loc.start, loc.end);
       if (!r) continue;
@@ -148,7 +168,12 @@
     }
   }
   function redrawAllLive() {
+    // Prune cache/orphan entries for annotations that were deleted since the last pass.
+    const live = new Set(annotations.map((a) => a.id));
+    for (const id of [...locCache.keys()]) if (!live.has(id)) locCache.delete(id);
+    for (const id of [...orphanIds]) if (!live.has(id)) orphanIds.delete(id);
     for (const [p, st] of pages) if (st.done) drawHighlights(p);
+    onOrphans?.([...orphanIds]);
   }
   $effect(() => {
     void annotations;

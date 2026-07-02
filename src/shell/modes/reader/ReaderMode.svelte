@@ -38,6 +38,8 @@
   let showRefs = $state(true);
   let showAnnots = $state(true);
   let scrollTo = $state<{ id?: string; page?: number; nonce: number } | null>(null);
+  // LR-13: ids whose quote no longer locates on their rendered page (PdfView reports them).
+  let orphans = $state<Set<string>>(new Set());
   let nonce = 0;
 
   // Agent drawer (Claude Code) + the human's live text selection (pushed to the agent).
@@ -237,7 +239,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key $readerKey}
-              <PdfView {buffer} documentId={$readerKey} {annotations} {scrollTo} onCreate={handleCreate} onSelect={handleSelect} />
+              <PdfView {buffer} documentId={$readerKey} {annotations} {scrollTo} onCreate={handleCreate} onSelect={handleSelect} onOrphans={(ids) => (orphans = new Set(ids))} />
             {/key}
           </div>
           {#if agentOpen}
@@ -256,9 +258,10 @@
               <ul class="annlist">
                 {#each orderedAnns as a (a.id)}
                   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-                  <li class="ann" onclick={() => jumpTo(a)}>
+                  <li class="ann" class:orphan={orphans.has(a.id)} onclick={() => jumpTo(a)}>
                     <span class="swatch" style:background={HL[a.color] ?? HL.yellow}></span>
                     <span class="aquote" title={a.anchor.quote}>{a.anchor.quote}</span>
+                    {#if orphans.has(a.id)}<span class="odot" title="This highlight's text wasn't found on its page — the PDF may have changed.">detached</span>{/if}
                     <span class="apage">p{a.page}</span>
                     <button class="del" title="Delete highlight" aria-label="Delete highlight"
                       onclick={(e) => { e.stopPropagation(); handleDelete(a.id); }}>×</button>
@@ -458,6 +461,20 @@
     flex: 0 0 auto;
     font-size: var(--ts-xs);
     color: var(--c-tx-faint);
+  }
+  .ann.orphan .aquote {
+    text-decoration: line-through;
+    color: var(--c-tx-faint);
+  }
+  .odot {
+    flex: 0 0 auto;
+    font-size: var(--ts-xs);
+    color: var(--c-warning, #ad8301);
+    border: 1px solid var(--c-warning, #ad8301);
+    border-radius: var(--r-1);
+    padding: 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
   }
   .del {
     flex: 0 0 auto;

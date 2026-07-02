@@ -217,14 +217,20 @@ function createProxyEngine(deps) {
           if (!r.ok) return null;
           const b = new Uint8Array(await r.arrayBuffer());
           if (!(b[0]===0x25 && b[1]===0x50 && b[2]===0x44 && b[3]===0x46)) return null;
+          const cl = parseInt(r.headers.get('content-length') || '', 10);
           let s = ''; const CH = 0x8000; for (let i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
-          return { b64: btoa(s), url: r.url || ${JSON.stringify(u)} };
+          return { b64: btoa(s), url: r.url || ${JSON.stringify(u)}, len: b.length, contentLength: Number.isFinite(cl) ? cl : 0 };
         } catch (e) { return null; } })()`,
         )
         .then((g) => {
           if (!g) return null;
           const buf = Buffer.from(g.b64, "base64");
-          return isCompletePdf(buf) ? { buf, finalUrl: g.url } : null; // reject truncated
+          // LR-14: accept if the %%EOF gate passes, OR we demonstrably got the WHOLE resource — a
+          // full (non-ranged) 200 whose byte length matches Content-Length. The latter rescues
+          // valid PDFs whose %%EOF sits beyond the last-8KB window (a large appended trailer),
+          // which the window check false-negatives. This grab is always a full GET, never a 206.
+          const whole = g.contentLength > 0 && g.len === g.contentLength && isPdfBuf(buf) && buf.length > 1024;
+          return isCompletePdf(buf) || whole ? { buf, finalUrl: g.url } : null; // else reject truncated
         })
         .catch(() => null);
       // Outer guard: resolve null if executeJavaScript itself never settles (renderer wedged).

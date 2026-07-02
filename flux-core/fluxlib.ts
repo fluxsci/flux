@@ -18,7 +18,7 @@ import * as path from "node:path";
 import type { RefEntry, AddResult, EnrichEntry } from "../src/lib/references/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 export type { AddResult };
-import { makeCitekey } from "../src/lib/references/citekey";
+import { makeCitekey, dupeSignature } from "../src/lib/references/citekey";
 import { runQuery } from "../src/lib/references/query";
 import { enrichCoverage } from "../src/lib/references/enrich";
 import { atomicWrite, quarantineCorrupt } from "./fsx";
@@ -386,11 +386,14 @@ async function addToFluxLibLocked(
 
   const taken = new Set<string>();
   const doiToKey = new Map<string, string>();
+  const sigToKey = new Map<string, string>(); // LR-9: title+year+author dedup when DOI absent
   for (const r of splitBibEntries(curText)) {
     const k = bibtexKey(r);
     if (k) taken.add(k);
     const e = lightEntry(r);
     if (e.doi) doiToKey.set(e.doi.toLowerCase(), k || e.key);
+    const sig = dupeSignature(e);
+    if (sig && !sigToKey.has(sig)) sigToKey.set(sig, k || e.key);
   }
 
   const added: RefEntry[] = [];
@@ -407,11 +410,22 @@ async function addToFluxLibLocked(
       keys.push(k);
       continue;
     }
+    // LR-9: no DOI match — fall back to a normalized title+year+author signature so a paper
+    // added without a DOI and re-added with one (or vice-versa) collapses to one citekey.
+    const sig = dupeSignature(e);
+    if (sig && sigToKey.has(sig)) {
+      const k = sigToKey.get(sig) as string;
+      if (doi) doiToKey.set(doi, k);
+      deduped.push({ ...e, key: k });
+      keys.push(k);
+      continue;
+    }
     const orig = bibtexKey(raw);
     const key = source === "bibtex" && orig && !taken.has(orig) ? orig : makeCitekey(e, taken);
     const outRaw = rekeyBibtex(raw, key);
     taken.add(key);
     if (doi) doiToKey.set(doi, key);
+    if (sig && !sigToKey.has(sig)) sigToKey.set(sig, key);
     const entry: RefEntry = { ...e, key, raw: outRaw };
     added.push(entry);
     keys.push(key);

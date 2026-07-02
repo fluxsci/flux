@@ -51,3 +51,19 @@ export function makeCitekey(
   while (taken.has(key)) key = base + alphaSuffix(++n);
   return key;
 }
+
+/**
+ * LR-9: a normalized dedupe signature for entries that lack a DOI — first-author family + year +
+ * the ascii-folded title (all non-alphanumerics dropped). Two records with the same signature are
+ * the same work, so adding a paper WITHOUT a DOI and later WITH one no longer splits it into two
+ * citekeys (which would fork its PDF + annotations). Returns null when there's too little to match
+ * safely: a very short/empty title, or neither an author nor a year to anchor it.
+ */
+export function dupeSignature(entry: Pick<RefEntry, "authors" | "year" | "title">): string | null {
+  const title = fold(entry.title ?? "").replace(/[^a-z0-9]+/g, "");
+  if (title.length < 8) return null; // too short/generic to safely match on title alone
+  const family = fold(entry.authors?.[0] ?? "").replace(/[^a-z0-9]/g, "");
+  const yr = (entry.year ?? "").replace(/[^0-9]/g, "");
+  if (!family && !yr) return null;
+  return `${family}|${yr}|${title}`;
+}
