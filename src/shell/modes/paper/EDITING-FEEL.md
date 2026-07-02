@@ -73,6 +73,7 @@ node scripts/verify-paper-keyboard.mjs   # focus discipline, folding, preview, s
 node scripts/verify-fig-width.mjs        # figure sizing (updateDOM identity)
 node scripts/verify-citegroup.mjs        # citation group editor
 node scripts/verify-paper-extras.mjs     # flux-vim jj, hover card, panel toggles
+node scripts/verify-figref.mjs           # @@ picker, panel refs, live renumber/caption sync
 npx tsx scripts/verify-citenum.ts        # citation numbering (pure)
 node scripts/verify-w18-paper.mjs        # decoration stability on selection-only txns
 ```

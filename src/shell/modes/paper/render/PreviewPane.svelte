@@ -1,7 +1,17 @@
 <script lang="ts">
   import { renderManuscript } from "./renderManuscript";
 
-  let { src, paginated = false }: { src: string; paginated?: boolean } = $props();
+  let {
+    src,
+    paginated = false,
+    rev = 0,
+  }: {
+    src: string;
+    paginated?: boolean;
+    /** External data revision (figures renumbered/renamed) — bump to re-render
+     *  even when the manuscript text itself is unchanged. */
+    rev?: number;
+  } = $props();
 
   let html = $state("<!doctype html><html><body></body></html>");
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -24,6 +34,7 @@
   $effect(() => {
     void src;
     void paginated;
+    void rev;
     clearTimeout(timer);
     timer = setTimeout(render, 160);
   });

@@ -24,20 +24,31 @@ function refKind(label: string): string {
   return "Figure";
 }
 
+// The two `@` grammars are kept intentionally separate at the input layer:
+// plain `@` completes CITATIONS only (figures go through `@@` → FigRefPicker).
+// Cross-ref completion still appears once the token is explicitly a cross-ref
+// (`@f`, `@fig-gro`, `@tbl…`) so raw label typing stays fluent.
+const CROSSREF_KINDS = ["fig-", "tbl-"];
+
 function atSource(ctx: CompletionContext): CompletionResult | null {
   const tok = ctx.matchBefore(/@[\w:.-]*/);
   if (!tok) return null;
   if (tok.from === tok.to && !ctx.explicit) return null;
+  const typed = tok.text.slice(1);
+  const wantsCrossref =
+    typed.length > 0 && CROSSREF_KINDS.some((k) => typed.startsWith(k) || k.startsWith(typed));
 
   const options: Completion[] = [];
-  for (const f of get(figureRefs)) {
-    options.push({
-      label: "@" + f.label,
-      detail: `${refKind(f.label)} ${f.number}`,
-      info: f.name || f.caption,
-      apply: "@" + f.label,
-      type: "figure",
-    });
+  if (wantsCrossref) {
+    for (const f of get(figureRefs)) {
+      options.push({
+        label: "@" + f.label,
+        detail: `${refKind(f.label)} ${f.number}`,
+        info: f.name || f.caption,
+        apply: "@" + f.label,
+        type: "figure",
+      });
+    }
   }
   // Citations: the whole FluxLib (so a fresh project can cite anything you own),
   // unioned with this project's subset. Citing a not-yet-local entry materializes it
@@ -56,7 +67,9 @@ function atSource(ctx: CompletionContext): CompletionResult | null {
     });
   }
   if (!options.length) return null;
-  return { from: tok.from, options, validFor: /^@[\w:.-]*$/ };
+  // No validFor: the option set itself depends on the typed prefix (citations
+  // vs. citations+crossrefs), so the source must re-run per keystroke.
+  return { from: tok.from, options };
 }
 
 function insert(text: string, cursor?: number) {
@@ -120,9 +133,12 @@ const SLASH: Completion[] = [
   },
   {
     label: "/cross-reference",
-    detail: "Reference a figure or table",
+    detail: "Reference a figure (@@)",
     type: "figure",
-    apply: insert("@fig-", 5),
+    apply: (view, _c, from, to) => {
+      view.dispatch({ changes: { from, to, insert: "" }, userEvent: "input.complete" });
+      slashHandlers.onInsertFigRef?.();
+    },
   },
   { label: "/heading", detail: "Section heading", type: "keyword", apply: insert("## ", 3) },
   {

@@ -28,11 +28,15 @@ export function setChipHandlers(h: ChipHandlers) {
 export interface SlashHandlers {
   onInsertFigure?: () => void;
   onInsertCitation?: () => void;
+  /** Open the figure-REFERENCE picker (`@@` / "/cross-reference"): figure →
+   *  panel selection → inserts `@fig-x[-panels]` at the caret. */
+  onInsertFigRef?: () => void;
 }
 export const slashHandlers: SlashHandlers = {};
 export function setSlashHandlers(h: SlashHandlers) {
   slashHandlers.onInsertFigure = h.onInsertFigure;
   slashHandlers.onInsertCitation = h.onInsertCitation;
+  slashHandlers.onInsertFigRef = h.onInsertFigRef;
 }
 
 // Figure-embed block-widget actions (B2).

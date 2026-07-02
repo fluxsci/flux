@@ -22,7 +22,7 @@
   import { formattingKeymap } from "./editing/keymap";
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
-  import { setEmbedWidth } from "./science/figureAttrs";
+  import { setEmbedWidth, EMBED_RE } from "./science/figureAttrs";
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
   import { citationStyle, citationStyleOf } from "./scholar/citeNumbering";
@@ -47,6 +47,8 @@
     type ChipTarget,
   } from "./science/chipContext";
   import FigurePicker from "./scholar/FigurePicker.svelte";
+  import FigRefPicker from "./scholar/FigRefPicker.svelte";
+  import { figRefTrigger } from "./scholar/figRefTrigger";
   import type { FigureRef } from "./scholar/figures";
   import DynamicMargin from "./margin/DynamicMargin.svelte";
   import type { MarginHost } from "./margin/types";
@@ -308,6 +310,25 @@
   let hoverHideTimer: ReturnType<typeof setTimeout> | undefined;
   let doiStatus = $state<"" | "fetching" | "error" | "added">("");
   let pickerOpen = $state(false);
+  let pickerOpenN = $state(0);
+  let figRefPickerOpen = $state(false);
+  let figRefOpenN = $state(0);
+  // Bumped when figure data (re)loads so the preview re-renders on a pure
+  // renumber/rename (no doc edit to trigger it otherwise).
+  let figRefsRev = $state(0);
+  // Reopening a picker while the previous instance is still animating OUT
+  // would otherwise REVIVE that instance (Svelte keeps an outroing {#if} block
+  // alive): stale query/stage and no onMount refocus, so keystrokes fall into
+  // the document. The open counters key the blocks — every open is a fresh
+  // instance.
+  function openFigurePicker() {
+    pickerOpenN += 1;
+    pickerOpen = true;
+  }
+  function openFigRefPicker() {
+    figRefOpenN += 1;
+    figRefPickerOpen = true;
+  }
   const subs: Array<() => void> = [];
 
   // Citekeys actually referenced in the manuscript (the red-dot "cited" state).
@@ -584,6 +605,47 @@
     view.focus();
   }
 
+  // FigRefPicker (`@@` / palette / "/cross-reference") hands back the full
+  // reference text ("@fig-x", "@fig-x-a,c"); it goes in at the caret.
+  function insertFigRef(text: string) {
+    figRefPickerOpen = false;
+    if (!view) return;
+    const pos = view.state.selection.main.head;
+    view.dispatch({
+      changes: { from: pos, to: pos, insert: text },
+      selection: { anchor: pos + text.length },
+      userEvent: "input",
+    });
+    view.focus();
+  }
+
+  // Flux-figure is the source of truth for figure captions: whenever figure
+  // data (re)loads, rewrite any embed line whose caption text drifted (rename
+  // in the figure editor → the .qmd follows, so the live embed, preview, AND
+  // Quarto exports all read fresh text). Lines the selection touches are
+  // skipped — never fight the caret — and catch up on the next figures change.
+  function syncEmbedCaptions() {
+    if (!view) return;
+    const state = view.state;
+    const changes: { from: number; to: number; insert: string }[] = [];
+    for (let i = 1; i <= state.doc.lines; i++) {
+      const line = state.doc.line(i);
+      if (line.text.indexOf("![") < 0) continue;
+      const m = EMBED_RE.exec(line.text);
+      if (!m) continue;
+      const r = resolveFigure(m[3]);
+      if (!r) continue;
+      const want = r.ref.caption || r.ref.name || "";
+      if (want === m[1]) continue;
+      const lead = /^\s*/.exec(line.text)![0].length;
+      const from = line.from + lead + 2; // just past "!["
+      const to = from + m[1].length;
+      if (state.selection.ranges.some((sr) => sr.from <= to && sr.to >= from)) continue;
+      changes.push({ from, to, insert: want });
+    }
+    if (changes.length) view.dispatch({ changes, userEvent: "input.figsync" });
+  }
+
   async function handleDoi(doi: string, v: EditorView, from: number, to: number) {
     doiStatus = "fetching";
     const r = await addDoiToBib(doi, pm?.root ?? null);
@@ -752,7 +814,10 @@
         setEmbedWidth(view, view.posAtDOM(el), width);
       },
     });
-    setSlashHandlers({ onInsertFigure: () => (pickerOpen = true) });
+    setSlashHandlers({
+      onInsertFigure: openFigurePicker,
+      onInsertFigRef: openFigRefPicker,
+    });
     await Promise.all([loadFigures(pm?.root ?? null), loadBib(pm?.root ?? null)]);
     const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
     subs.push(figRevision.subscribe(() => void loadFigures(pm?.root ?? null)));
@@ -772,7 +837,13 @@
         void onExternalManuscript(chg);
       }),
     );
-    subs.push(figureRefs.subscribe(refresh));
+    subs.push(
+      figureRefs.subscribe(() => {
+        refresh();
+        syncEmbedCaptions(); // flux-figure renames flow into embed lines
+        figRefsRev += 1; // preview re-renders on a pure renumber too
+      }),
+    );
     subs.push(bibEntries.subscribe(refresh));
 
     const fb = fileBridge();
@@ -817,6 +888,8 @@
           },
         ]),
         formattingKeymap,
+        // `@@` → figure-reference picker (the second @ never lands in the doc).
+        figRefTrigger(openFigRefPicker),
         citeNumberField, // before the chip plugin: ordinals publish first
         scienceChips,
         scienceEmbeds,
@@ -833,6 +906,7 @@
     view = v;
     refreshIdleNow(); // seed latestIdle + the TOC synchronously on mount
     void loadComments(v);
+    syncEmbedCaptions(); // figures may have loaded before the editor mounted
   }
 
   async function loadComments(v: EditorView) {
@@ -1219,7 +1293,8 @@
       keywords: "vim flux flavor jj escape insert normal modal",
       run: () => setVimFlavor($paperVimFlavor === "flux" ? "vim" : "flux"),
     },
-    { id: "insert-figure", title: "Insert figure…", hint: "Insert", keywords: "image panel embed", run: () => (pickerOpen = true) },
+    { id: "insert-figure", title: "Insert figure…", hint: "Insert", keywords: "image panel embed", run: openFigurePicker },
+    { id: "insert-figref", title: "Reference a figure…", hint: "@@", keywords: "crossref cross-reference cite figure panel fig", run: openFigRefPicker },
     ...[25, 50, 75, 100, null].map((pct) => ({
       id: `fig-width-${pct ?? "auto"}`,
       title: pct ? `Figure width ${pct}%` : "Figure width auto",
@@ -1292,7 +1367,7 @@
         e.preventDefault();
         previewActive = !previewActive;
         if (!previewActive) view?.focus();
-      } else if (e.key === "Escape" && previewActive && !paletteOpen && !pickerOpen) {
+      } else if (e.key === "Escape" && previewActive && !paletteOpen && !pickerOpen && !figRefPickerOpen) {
         // Preview must not be a keyboard trap.
         e.preventDefault();
         previewActive = false;
@@ -1354,7 +1429,7 @@
           <EmptyState {title} onStart={startFrom} />
         {/if}
         {#if previewActive}
-          <PreviewPane src={latest} paginated={viewMode === "paginated"} />
+          <PreviewPane src={latest} paginated={viewMode === "paginated"} rev={figRefsRev} />
         {:else if !(bodyEmpty && !dismissedEmpty)}
           <StatusBar words={statusWords} {status} onStats={() => openMarginView("stats")} />
         {/if}
@@ -1492,10 +1567,21 @@
   {/if}
 
   {#if pickerOpen}
-    <FigurePicker
-      figures={$figureRefs}
-      onSelect={insertFigure}
-      onClose={() => { pickerOpen = false; view?.focus(); }} />
+    {#key pickerOpenN}
+      <FigurePicker
+        figures={$figureRefs}
+        onSelect={insertFigure}
+        onClose={() => { pickerOpen = false; view?.focus(); }} />
+    {/key}
+  {/if}
+
+  {#if figRefPickerOpen}
+    {#key figRefOpenN}
+      <FigRefPicker
+        figures={$figureRefs}
+        onInsert={insertFigRef}
+        onClose={() => { figRefPickerOpen = false; view?.focus(); }} />
+    {/key}
   {/if}
 
   {#if exportOpen}
