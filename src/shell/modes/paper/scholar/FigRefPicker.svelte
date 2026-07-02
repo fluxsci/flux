@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
-  import { renderFigureSvg, resolveFigure, figRefText, type FigureRef } from "./figures";
+  import {
+    renderFigureSvg,
+    resolveFigure,
+    figRefText,
+    nameIsDesignation,
+    type FigureRef,
+  } from "./figures";
 
   let {
     figures,
@@ -181,7 +187,7 @@
               </div>
               <div class="meta">
                 <b>Fig {f.number}</b>
-                <span class="nm">{f.name || f.label}</span>
+                {#if f.name && !nameIsDesignation(f.name)}<span class="nm">{f.name}</span>{/if}
                 {#if f.panels.length}
                   <span class="pcount">{f.panels.length} panels</span>
                 {/if}
@@ -198,7 +204,7 @@
       <header>
         <button class="back" onclick={backToFigures} title="Back to figures (Esc)">‹</button>
         <span class="ttl">Fig {fig.number}</span>
-        <span class="nm hd">{fig.name || fig.label}</span>
+        {#if fig.name && !nameIsDesignation(fig.name)}<span class="nm hd">{fig.name}</span>{/if}
       </header>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div class="panelstage" bind:this={panelsEl} tabindex="-1">

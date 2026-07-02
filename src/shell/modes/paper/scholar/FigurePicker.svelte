@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
-  import { renderFigureSvg, type FigureRef } from "./figures";
+  import { renderFigureSvg, nameIsDesignation, type FigureRef } from "./figures";
 
   let {
     figures,
@@ -119,7 +119,7 @@
             </div>
             <div class="meta">
               <b>Fig {f.number}</b>
-              <span class="nm">{f.name || f.label}</span>
+              {#if f.name && !nameIsDesignation(f.name)}<span class="nm">{f.name}</span>{/if}
             </div>
           </div>
         {/each}

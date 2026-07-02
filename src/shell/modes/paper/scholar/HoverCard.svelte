@@ -3,7 +3,7 @@
   import { popIn } from "../../../../lib/motion/actions";
   import { fileBridge } from "../../../../lib/project/types";
   import type { ChipTarget } from "../science/chipContext";
-  import { resolveFigure, renderFigureSvg, figureRefs } from "./figures";
+  import { resolveFigure, renderFigureSvg, figureRefs, nameIsDesignation } from "./figures";
   import { bibEntry, bibEntries, type BibEntry } from "./bib";
   import { pdfKeys, refreshPdfKeys, hasPdfIn } from "./pdfPresence";
 
@@ -81,7 +81,9 @@
     {#if fig}
       <div class="hc-head">
         <span class="hc-num">Figure {fig.number}</span>
-        {#if fig.ref.name}<span class="hc-name">{fig.ref.name}</span>{/if}
+        <!-- A name that IS the designation ("Figure 3") would just restate the
+             number label — only descriptive names add information here. -->
+        {#if fig.ref.name && !nameIsDesignation(fig.ref.name)}<span class="hc-name">{fig.ref.name}</span>{/if}
       </div>
       <div class="hc-fig">
         {#if figSvg}
