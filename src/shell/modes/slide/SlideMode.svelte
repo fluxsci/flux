@@ -57,7 +57,10 @@
   import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
   import "katex/dist/katex.min.css";
 
-  let { focused = true }: { focused?: boolean } = $props();
+  // `active` (W16): false when this pane is kept-alive but hidden — pause the build
+  // preview so its animation loop doesn't run off-screen. `focused` alone won't do:
+  // a split pane can be visible-but-unfocused, where you WANT the preview to keep going.
+  let { focused = true, active = true }: { focused?: boolean; active?: boolean } = $props();
 
   const pm = get(projectModel);
   let ready = $state(false);
@@ -222,6 +225,11 @@
     player = undefined;
     previewing = false;
   }
+  // W16: when the pane is hidden (kept alive), tear down any running preview so its
+  // WAAPI loop doesn't advance off-screen. It restarts on demand when shown again.
+  $effect(() => {
+    if (!active && previewing) stopPreview();
+  });
 
   const STAGE_PRESETS = [
     { label: "16:9 · 1280×720", w: 1280, h: 720 },

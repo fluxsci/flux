@@ -1,3 +1,12 @@
+<script module lang="ts">
+  // W16: the figure-editor store (src/lib/store.ts) is an app-wide singleton, so
+  // `embeddedProjectRoot` must be cleared only when the LAST FigureMode instance
+  // unmounts. With keep-alive a hidden instance can be evicted (or one split pane
+  // closed) while another still shows the figure — a naive set(null) on every
+  // onDestroy would null the root out from under the survivor. Ref-count instead.
+  let figureModeMounts = 0;
+</script>
+
 <script lang="ts">
   // flux-figure: the Figure mode of Flux. Reuses the figure-editor components
   // (src/lib/*) verbatim; only the root is de-rooted (height:100% instead of
@@ -87,6 +96,7 @@
   });
 
   onMount(async () => {
+    figureModeMounts++;
     if (pm) {
       embeddedProjectRoot.set(pm.root);
       await loadFigInto(pm.root, pm.manifest.title);
@@ -126,7 +136,7 @@
     void autosave.flush();
     autosave.dispose();
     unregFlush();
-    embeddedProjectRoot.set(null);
+    if (--figureModeMounts === 0) embeddedProjectRoot.set(null); // W16: last one out clears it
   });
 </script>
 

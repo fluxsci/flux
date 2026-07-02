@@ -28,6 +28,21 @@ export function registerFlushable(f: Flushable): () => void {
   };
 }
 
+/** W16: is the mode `prefix` dirty? Matches its own flushable id and any sub-id
+ *  (`paper` also covers `paper-comments`). Modes with no registered flushable
+ *  (library/reader — they write discretely) are always clean → safe to evict. */
+export function isDirtyById(prefix: string): boolean {
+  for (const [id, f] of registry) {
+    if (id !== prefix && !id.startsWith(prefix + "-")) continue;
+    try {
+      if (f.isDirty()) return true;
+    } catch {
+      /* a broken isDirty never claims dirtiness */
+    }
+  }
+  return false;
+}
+
 export function anyDirty(): boolean {
   for (const f of registry.values()) {
     try {
