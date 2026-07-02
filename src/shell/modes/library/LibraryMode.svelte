@@ -14,7 +14,8 @@
   import { runQuery } from "../../../lib/references/query";
   import type { RefEntry } from "../../../lib/references/types";
   import { mergeEnrich, type EnrichMap, type EnrichedEntry } from "../../../lib/references/enrich";
-  import { loadFluxLib, ensureFluxLib, loadEnrichMap } from "../../../lib/references/fluxlibBridge";
+  import { loadFluxLib, ensureFluxLib, loadEnrichMap, materializeIntoProject } from "../../../lib/references/fluxlibBridge";
+  import { currentProject } from "../../shellStore";
   import {
     hydrateFluxLib,
     searchWorld,
@@ -79,6 +80,9 @@
   let failures = $state.raw<Record<string, FetchFailure>>({});
   const failedKeys = $derived(new Set(Object.keys(failures)));
   let showFailedOnly = $state(false);
+  // LR-U2: row multiselect (by citekey) → bulk "add to project". Keyed by citekey so a selection
+  // survives query/scope changes; the Clear action + select-all operate on the currently-shown rows.
+  let selected = $state.raw<Set<string>>(new Set());
 
   // API keys panel — stored in ~/FluxLib/keys.json (machine-global, every project).
   let keysOpen = $state(false);
@@ -161,6 +165,39 @@
       ? runQuery(enriched, queryDebounced).filter((r) => isFailed(r.key))
       : runQuery(enriched, queryDebounced),
   );
+  // LR-U2: selection helpers + the "add N to the open project" bulk action. materializeIntoProject
+  // is idempotent and lock-guarded ("references"), so re-adding already-cited keys is a no-op.
+  const isSel = (key: string) => selected.has(key);
+  function toggleSel(key: string) {
+    const next = new Set(selected);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    selected = next;
+  }
+  const allShownSelected = $derived(results.length > 0 && results.every((r) => selected.has(r.key)));
+  function toggleSelectAll() {
+    const next = new Set(selected);
+    if (allShownSelected) for (const r of results) next.delete(r.key);
+    else for (const r of results) next.add(r.key);
+    selected = next;
+  }
+  const projectRoot = $derived($currentProject?.path ?? null);
+  const projectName = $derived($currentProject?.name ?? "project");
+  async function addSelectedToProject() {
+    const root = projectRoot;
+    if (!root || !selected.size) return;
+    const keys = [...selected];
+    const { added } = await materializeIntoProject(root, keys);
+    addStatus = "added";
+    addedTitle = added.length
+      ? `Added ${added.length} to ${projectName}` +
+        (added.length < keys.length ? ` · ${keys.length - added.length} already there` : "")
+      : `All ${keys.length} already in ${projectName}`;
+    selected = new Set();
+    setTimeout(() => {
+      if (addStatus === "added") addStatus = "";
+    }, 5200);
+  }
   const coverage = $derived({
     total: entries.length,
     hydrated: entries.filter((e) => enrichMap[e.key]).length,
@@ -655,6 +692,12 @@
     } else if (e.key === "Escape") {
       e.preventDefault();
       searchEl?.focus();
+    } else if (e.key === " ") {
+      // Space toggles selection of the highlighted row (must precede the single-char catch-all,
+      // which would otherwise treat Space as a search keystroke and steal focus).
+      e.preventDefault();
+      const r = results[highlighted];
+      if (r) toggleSel(r.key);
     } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
       searchEl?.focus();
     }
@@ -834,22 +877,51 @@
   </div>
 
   {#if scope === "library"}
+    {#if selected.size > 0}
+      <div class="selbar">
+        <span class="selcount">{selected.size} selected</span>
+        <button
+          class="selact"
+          disabled={!projectRoot}
+          title={projectRoot
+            ? `Add ${selected.size} reference(s) to ${projectName}'s library.bib`
+            : "Open a project first to add references to it"}
+          onclick={addSelectedToProject}
+          >+ Add to {projectRoot ? projectName : "project"}{projectRoot ? "" : " (none open)"}</button>
+        <button class="selclear" onclick={() => (selected = new Set())}>Clear</button>
+      </div>
+    {/if}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_static_element_interactions -->
     <div class="grid" tabindex="0" bind:this={gridEl} onkeydown={gridKey}>
-      <div class="grow ghead">
+      <div class="grow ghead selectable">
+        <span class="gsel"
+          ><input
+            type="checkbox"
+            checked={allShownSelected}
+            onchange={toggleSelectAll}
+            aria-label="Select all shown"
+            title="Select all shown" /></span>
         <span>Authors</span><span>Title</span><span>Journal</span><span class="gy">Year</span><span
           class="gc">Cited</span><span class="gx"></span>
       </div>
       {#each results as r, i (r.key)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
-          class="grow"
+          class="grow selectable"
           class:hl={i === highlighted}
+          class:sel={isSel(r.key)}
           title={`Click to copy @${r.key}`}
           onclick={() => {
             highlighted = i;
             void copyKey(r.key);
           }}>
+          <span class="gsel"
+            ><input
+              type="checkbox"
+              checked={isSel(r.key)}
+              onclick={(e) => e.stopPropagation()}
+              onchange={() => toggleSel(r.key)}
+              aria-label="Select {r.key}" /></span>
           <span class="ga">{r.authors.slice(0, 2).join(", ")}{r.authors.length > 2 ? " et al." : ""}</span>
           <span class="gt" title={r.enrich?.abstract || r.title}>
             {r.title}
@@ -1353,6 +1425,61 @@
   }
   .grow:hover:not(.ghead) {
     background: var(--c-accent-tint-2);
+  }
+  /* LR-U2: the library grid gains a leading checkbox column (the World grid keeps the base 6). */
+  .grow.selectable {
+    grid-template-columns: 26px 1.2fr 2.2fr 1fr 0.5fr 0.55fr 64px;
+  }
+  .grow.sel {
+    background: color-mix(in srgb, var(--c-accent) 12%, transparent);
+  }
+  .gsel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gsel input {
+    cursor: pointer;
+    margin: 0;
+  }
+  /* Bulk-selection action bar (shown while ≥1 row is selected). */
+  .selbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-1);
+    background: color-mix(in srgb, var(--c-accent) 8%, transparent);
+    margin-bottom: 8px;
+    font-size: var(--ts-sm);
+  }
+  .selcount {
+    font-weight: 600;
+    color: var(--c-tx);
+  }
+  .selact {
+    padding: 4px 12px;
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-1);
+    background: var(--c-accent);
+    color: var(--c-bg);
+    cursor: pointer;
+  }
+  .selact:disabled {
+    opacity: 0.5;
+    cursor: default;
+    background: none;
+    color: var(--c-tx-faint);
+  }
+  .selclear {
+    margin-left: auto;
+    padding: 4px 12px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
+    background: none;
+    color: var(--c-tx-2);
+    cursor: pointer;
   }
   .ga {
     color: var(--c-tx);

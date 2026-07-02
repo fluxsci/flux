@@ -72,6 +72,16 @@ assert(
 assert(/function showFetchSummary\(sum: GuiFetchSummaryLite\)/.test(lib), "showFetchSummary renders the summary pill");
 assert(!/const sum = await pdfFetchJob\.start/.test(lib), "getAllPdfs no longer depends on its own awaited summary (lost on unmount)");
 
+console.log("\nLR-U2 — multiselect bulk add-to-project (source — the persist path the UI test skips):");
+assert(/import\s*\{[^}]*\bmaterializeIntoProject\b/.test(lib), "imports materializeIntoProject (the idempotent project-bib append)");
+assert(/import\s*\{\s*currentProject\s*\}\s*from\s*"\.\.\/\.\.\/shellStore"/.test(lib), "imports the open-project store");
+assert(/async function addSelectedToProject\(\)/.test(lib), "addSelectedToProject handler present");
+assert(
+  /const \{ added \} = await materializeIntoProject\(root, keys\)/.test(lib),
+  "addSelectedToProject materializes the selected keys into the open project",
+);
+assert(/const projectRoot = \$derived\(\$currentProject\?\.path/.test(lib), "add is gated on an open project root (disabled otherwise)");
+
 if (failures) {
   console.error(`\nP5 LIBRARY VERIFY: FAIL — ${failures} assertion(s)`);
   process.exit(1);
