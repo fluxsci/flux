@@ -40,6 +40,18 @@
   let scrollTo = $state<{ id?: string; page?: number; nonce: number } | null>(null);
   // LR-13: ids whose quote no longer locates on their rendered page (PdfView reports them).
   let orphans = $state<Set<string>>(new Set());
+  // LR-6: reader zoom + page indicator/jump.
+  let scale = $state(1.35);
+  let curPage = $state(1);
+  let totalPages = $state(0);
+  function zoom(delta: number) {
+    scale = Math.min(3, Math.max(0.5, +(scale + delta).toFixed(2)));
+  }
+  function jumpToPage(n: number) {
+    if (!totalPages) return;
+    const p = Math.min(totalPages, Math.max(1, Math.floor(n) || 1));
+    scrollTo = { page: p, nonce: ++nonce };
+  }
   let nonce = 0;
 
   // Agent drawer (Claude Code) + the human's live text selection (pushed to the agent).
@@ -196,6 +208,16 @@
         <button class="tgl" class:on={showRefs} onclick={() => (showRefs = !showRefs)} title="Toggle references"
           >☰ References{refs.length ? ` (${refs.length})` : ""}</button>
         <span class="rtitle" title={title}>{title}</span>
+        <div class="rnav">
+          <button class="zbtn" title="Zoom out" aria-label="Zoom out" onclick={() => zoom(-0.15)}>−</button>
+          <button class="zbtn zpct" title="Reset zoom" onclick={() => (scale = 1.35)}>{Math.round((scale / 1.35) * 100)}%</button>
+          <button class="zbtn" title="Zoom in" aria-label="Zoom in" onclick={() => zoom(0.15)}>+</button>
+          <span class="pgind">
+            <input class="pgin" type="number" min="1" max={totalPages || 1} value={curPage}
+              aria-label="Jump to page" onchange={(e) => jumpToPage(+e.currentTarget.value)} />
+            <span class="pgtot">/ {totalPages || "…"}</span>
+          </span>
+        </div>
         <button class="tgl" class:on={showAnnots} onclick={() => (showAnnots = !showAnnots)} title="Toggle annotations"
           >Notes ({annotations.length}) ✎</button>
         <button class="tgl agentbtn" class:on={agentOpen} onclick={() => (agentOpen = !agentOpen)}
@@ -239,7 +261,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key $readerKey}
-              <PdfView {buffer} documentId={$readerKey} {annotations} {scrollTo} onCreate={handleCreate} onSelect={handleSelect} onOrphans={(ids) => (orphans = new Set(ids))} />
+              <PdfView {buffer} documentId={$readerKey} {scale} {annotations} {scrollTo} onCreate={handleCreate} onSelect={handleSelect} onOrphans={(ids) => (orphans = new Set(ids))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -322,6 +344,57 @@
   .tgl.on {
     border-color: var(--c-accent);
     color: var(--c-accent);
+  }
+  /* LR-6: zoom + page-jump group */
+  .rnav {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--c-tx-2);
+    font-size: var(--ts-xs);
+  }
+  .zbtn {
+    border: 1px solid var(--c-line-strong);
+    background: transparent;
+    color: var(--c-tx-2);
+    border-radius: var(--r-1);
+    min-width: 22px;
+    padding: 3px 6px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    cursor: pointer;
+    line-height: 1;
+  }
+  .zbtn:hover {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+  .zpct {
+    min-width: 42px;
+    font-variant-numeric: tabular-nums;
+  }
+  .pgind {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: var(--sp-2);
+    white-space: nowrap;
+  }
+  .pgin {
+    width: 3.2em;
+    text-align: right;
+    background: var(--c-bg);
+    color: var(--c-tx);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
+    padding: 2px 4px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  .pgtot {
+    color: var(--c-tx-faint);
   }
   .rbody {
     flex: 1 1 auto;

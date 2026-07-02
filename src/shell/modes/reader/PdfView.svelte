@@ -30,6 +30,7 @@
     onCreate,
     onSelect,
     onOrphans,
+    onPage,
     scrollTo = null,
   }: {
     buffer: ArrayBuffer;
@@ -41,6 +42,8 @@
     /** LR-13: ids whose quote no longer locates on their (rendered) page → the annotations
      *  panel flags them as orphaned instead of silently showing no highlight. */
     onOrphans?: (ids: string[]) => void;
+    /** LR-6: report the page centred in the viewport + the total, for the page indicator. */
+    onPage?: (page: number, total: number) => void;
     scrollTo?: { id?: string; page?: number; nonce: number } | null;
   } = $props();
 
@@ -321,6 +324,52 @@
     window.getSelection()?.removeAllRanges();
   }
 
+  // --- LR-6: current-page indicator (scroll-centred) --------------------------
+  let curPage = 0;
+  let pageRaf = 0;
+  function updateCurrentPage() {
+    if (!container || !numPages) return;
+    const mid = container.scrollTop + container.clientHeight / 2;
+    let best = 1;
+    for (const [p, st] of pages) {
+      if (st.pageDiv.offsetTop <= mid) best = p;
+      else break;
+    }
+    if (best !== curPage) {
+      curPage = best;
+      onPage?.(best, numPages);
+    }
+  }
+  function onScroll() {
+    if (pageRaf) return;
+    pageRaf = requestAnimationFrame(() => {
+      pageRaf = 0;
+      updateCurrentPage();
+    });
+  }
+
+  // --- LR-6: zoom — rebuild page viewports when `scale` changes after load. Freeing done
+  // pages re-rasterizes them at the new scale (via the observer / the manual near-page pass);
+  // the DPR cap still applies in renderPage, so a big zoom doesn't blow the canvas budget.
+  let lastBuiltScale = 0; // set to the real scale once the pages are built (see the load below)
+  $effect(() => {
+    const s = scale;
+    if (status !== "ready" || s === lastBuiltScale) return;
+    lastBuiltScale = s;
+    const near = curPage || 1;
+    for (const [p, st] of pages) {
+      if (st.done) freePage(p);
+      const viewport = st.page.getViewport({ scale: s });
+      st.viewport = viewport;
+      st.pageDiv.style.width = `${Math.floor(viewport.width)}px`;
+      st.pageDiv.style.height = `${Math.floor(viewport.height)}px`;
+      st.pageDiv.style.setProperty("--total-scale-factor", String(s));
+      st.pageDiv.style.setProperty("--scale-factor", String(s));
+    }
+    for (let p = Math.max(1, near - 1); p <= Math.min(numPages, near + 1); p++) void renderPage(p);
+    updateCurrentPage();
+  });
+
   onMount(() => {
     let cancelled = false;
     const base = new URL("pdfjs/", document.baseURI).href; // dev: http://…/pdfjs/  prod: file://…/dist/pdfjs/
@@ -375,7 +424,10 @@
           pages.set(p, { page, viewport, pageDiv, rendering: false, done: false });
           observer!.observe(pageDiv);
         }
+        lastBuiltScale = scale; // the pageDivs above were built at the current scale
         status = "ready";
+        container?.addEventListener("scroll", onScroll, { passive: true });
+        onPage?.(1, pdf.numPages); // seed the indicator at page 1
       } catch (e) {
         if (!cancelled) {
           status = "error";
@@ -386,6 +438,8 @@
 
     return () => {
       cancelled = true;
+      container?.removeEventListener("scroll", onScroll);
+      if (pageRaf) cancelAnimationFrame(pageRaf);
       observer?.disconnect();
       for (const st of pages.values()) {
         try {
