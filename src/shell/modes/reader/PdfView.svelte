@@ -19,6 +19,7 @@
     type Annotation,
     type TextQuoteSelector,
   } from "../../../lib/references/annotations";
+  import { findMatchesInPages, stepIndex, type SearchMatch } from "../../../lib/pdf/search";
 
   pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
 
@@ -32,6 +33,8 @@
     onOrphans,
     onPage,
     scrollTo = null,
+    find = null,
+    onFind,
   }: {
     buffer: ArrayBuffer;
     documentId?: string;
@@ -45,6 +48,10 @@
     /** LR-6: report the page centred in the viewport + the total, for the page indicator. */
     onPage?: (page: number, total: number) => void;
     scrollTo?: { id?: string; page?: number; nonce: number } | null;
+    /** LR-6: find-in-document. Parent bumps `nonce` to (re)search or step; `dir` picks first
+     *  match on a new query or next/prev on the same one. null clears the search. */
+    find?: { query: string; nonce: number; dir: "first" | "next" | "prev" } | null;
+    onFind?: (r: { total: number; index: number; page: number }) => void;
   } = $props();
 
   // Highlighter colours — plain translucent rgba (NO mix-blend-mode: blending over a large
@@ -73,7 +80,8 @@
     pageDiv: HTMLDivElement;
     canvas?: HTMLCanvasElement;
     layer?: HTMLDivElement; // text layer
-    hlLayer?: HTMLDivElement; // highlight overlay (sibling of the text layer)
+    hlLayer?: HTMLDivElement; // annotation highlight overlay (sibling of the text layer)
+    sLayer?: HTMLDivElement; // LR-6: find-in-document match overlay (separate from annotations)
     info?: PageInfo;
     task?: import("pdfjs-dist").RenderTask;
     rendering: boolean;
@@ -183,6 +191,116 @@
     if (status === "ready") redrawAllLive();
   });
 
+  // --- LR-6: find-in-document -------------------------------------------------
+  // A search match is drawn like an annotation (into a dedicated per-page overlay) and located
+  // with the SAME quote anchor + fuzzy locator, so it survives virtualized re-render and bridges
+  // the small gap between the extracted text (getTextContent) and the rendered text layer.
+  const searchText = new Map<number, string>(); // per-page plain text (lazy)
+  type SMatch = SearchMatch & { anchor: TextQuoteSelector };
+  let searchMatches: SMatch[] = [];
+  let activeMatch = -1;
+  let searchQuery = "";
+  let lastFindNonce = -1;
+  let focusTries = 0;
+
+  async function ensureSearchText() {
+    if (searchText.size >= numPages) return;
+    for (const [p, st] of pages) {
+      if (searchText.has(p)) continue;
+      try {
+        const tc = await st.page.getTextContent();
+        // Join with "" to mirror how the text layer concatenates item spans (buildPageText).
+        searchText.set(p, tc.items.map((i) => ("str" in i ? i.str : "")).join(""));
+      } catch {
+        searchText.set(p, ""); // a page that won't extract just contributes no matches
+      }
+    }
+  }
+  function clearSearchOverlays() {
+    for (const st of pages.values()) st.sLayer?.replaceChildren();
+  }
+  function drawSearch(p: number) {
+    const st = pages.get(p);
+    if (!st || !st.done || !st.info || !st.sLayer) return;
+    st.sLayer.replaceChildren();
+    if (!searchMatches.length) return;
+    const pageRect = st.pageDiv.getBoundingClientRect();
+    searchMatches.forEach((m, i) => {
+      if (m.page !== p) return;
+      const loc = locateQuote(st.info!.text, m.anchor);
+      if (!loc) return;
+      const r = rangeFor(st.info!, loc.start, loc.end);
+      if (!r) return;
+      for (const rect of r.getClientRects()) {
+        const d = document.createElement("div");
+        d.className = i === activeMatch ? "search-hl active" : "search-hl";
+        d.style.cssText =
+          `position:absolute;left:${rect.left - pageRect.left}px;top:${rect.top - pageRect.top}px;` +
+          `width:${rect.width}px;height:${rect.height}px;pointer-events:none;border-radius:1px;`;
+        st.sLayer!.appendChild(d);
+      }
+    });
+  }
+  function redrawAllSearch() {
+    for (const [p, st] of pages) if (st.done) drawSearch(p);
+  }
+  function focusActiveMatch() {
+    redrawAllSearch();
+    const el = container?.querySelector(".search-hl.active") as HTMLElement | null;
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      focusTries = 0;
+    } else if (focusTries < 12) {
+      focusTries++;
+      setTimeout(focusActiveMatch, 80); // the target page may still be rasterizing its text layer
+    } else {
+      focusTries = 0;
+    }
+  }
+  async function runFind(f: NonNullable<typeof find>) {
+    const q = f.query.trim();
+    if (q !== searchQuery) {
+      searchQuery = q; // new query → rebuild the match set
+      await ensureSearchText();
+      const raw = findMatchesInPages([...searchText].map(([page, text]) => ({ page, text })), q);
+      searchMatches = raw.map((m) => ({ ...m, anchor: makeQuoteAnchor(searchText.get(m.page) ?? "", m.start, m.end) }));
+      activeMatch = stepIndex(searchMatches.length, -1, "first");
+    } else {
+      activeMatch = stepIndex(searchMatches.length, activeMatch, f.dir);
+    }
+    if (activeMatch < 0) {
+      clearSearchOverlays();
+      onFind?.({ total: 0, index: -1, page: 0 });
+      return;
+    }
+    const m = searchMatches[activeMatch];
+    onFind?.({ total: searchMatches.length, index: activeMatch, page: m.page });
+    (container?.querySelector(`.pdf-page[data-page="${m.page}"]`) as HTMLElement | null)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    void renderPage(m.page);
+    focusTries = 0;
+    focusActiveMatch();
+  }
+  $effect(() => {
+    const f = find;
+    if (!f) {
+      if (searchQuery) {
+        searchQuery = "";
+        searchMatches = [];
+        activeMatch = -1;
+        clearSearchOverlays();
+      }
+      lastFindNonce = -1;
+      return;
+    }
+    if (status !== "ready") return; // re-runs when status flips to ready (a pending search then fires)
+    if (f.nonce === lastFindNonce) return;
+    lastFindNonce = f.nonce;
+    void runFind(f);
+  });
+
   // Scroll to a page (rendering it if needed), then refine to the exact highlight.
   $effect(() => {
     const t = scrollTo;
@@ -237,13 +355,19 @@
       hlLayer.className = "hl-layer";
       pageDiv.appendChild(hlLayer);
 
+      const sLayer = document.createElement("div");
+      sLayer.className = "search-layer";
+      pageDiv.appendChild(sLayer);
+
       st.layer = layer;
       st.hlLayer = hlLayer;
+      st.sLayer = sLayer;
       st.info = buildPageText(layer);
       st.task = undefined;
       st.done = true;
       rendered += 1;
       drawHighlights(p);
+      drawSearch(p); // LR-6: re-paint any find matches that fall on this (re)rendered page
       freeExcess(p);
     } catch {
       /* cancelled or failed — freePage will have cleaned partial state on unmount */
@@ -267,12 +391,13 @@
     }
     st.layer?.remove();
     st.hlLayer?.remove();
+    st.sLayer?.remove();
     try {
       st.page.cleanup();
     } catch {
       /* ignore */
     }
-    st.canvas = st.layer = st.hlLayer = undefined;
+    st.canvas = st.layer = st.hlLayer = st.sLayer = undefined;
     st.info = undefined;
     st.task = undefined;
     st.done = false;
@@ -517,6 +642,21 @@
     inset: 0;
     z-index: 3;
     pointer-events: none;
+  }
+  /* LR-6: find-in-document matches, drawn above annotations so the active hit is always visible. */
+  :global(.pdf-page .search-layer) {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+  }
+  :global(.pdf-page .search-hl) {
+    background: rgba(255, 170, 0, 0.32);
+    outline: 1px solid rgba(255, 170, 0, 0.5);
+  }
+  :global(.pdf-page .search-hl.active) {
+    background: rgba(255, 138, 0, 0.55);
+    outline: 1.5px solid rgba(205, 88, 0, 0.95);
   }
   .msg {
     padding: 16px;

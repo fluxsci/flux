@@ -54,6 +54,52 @@
   }
   let nonce = 0;
 
+  // LR-6: find-in-document. The heavy lifting (all-page text index, match location, overlay) lives
+  // in PdfView; here we own the search bar + drive it via a nonce-bumped `find` prop and read back
+  // the {total,index,page} result for the counter.
+  let findOpen = $state(false);
+  let findQuery = $state("");
+  let findNonce = $state(0);
+  let findDir = $state<"first" | "next" | "prev">("first");
+  let findResult = $state<{ total: number; index: number; page: number } | null>(null);
+  let findInput = $state<HTMLInputElement | undefined>(undefined);
+  let findDebounce: ReturnType<typeof setTimeout> | undefined;
+  const findProp = $derived(
+    findOpen && findQuery.trim() ? { query: findQuery.trim(), nonce: findNonce, dir: findDir } : null,
+  );
+  function openFind() {
+    findOpen = true;
+    setTimeout(() => findInput?.select(), 0);
+  }
+  function closeFind() {
+    findOpen = false;
+    findQuery = "";
+    findResult = null;
+    clearTimeout(findDebounce);
+  }
+  function onFindInput() {
+    clearTimeout(findDebounce);
+    findDebounce = setTimeout(() => {
+      findDir = "first"; // a changed query always jumps to the first hit (PdfView rebuilds the set)
+      findNonce++;
+    }, 200);
+  }
+  function stepFind(dir: "next" | "prev") {
+    if (!findQuery.trim()) return;
+    findDir = dir;
+    findNonce++;
+  }
+  function findKey(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      stepFind(e.shiftKey ? "prev" : "next");
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeFind();
+    }
+  }
+
   // Agent drawer (Claude Code) + the human's live text selection (pushed to the agent).
   let agentOpen = $state(false);
   let selection = $state("");
@@ -174,11 +220,16 @@
   });
 
   function onKey(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && (e.key === "j" || e.key === "J")) {
+    if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+      if (!focused || !$readerKey || !buffer) return; // only when this reader pane has a PDF open
+      e.preventDefault();
+      openFind();
+    } else if ((e.metaKey || e.ctrlKey) && (e.key === "j" || e.key === "J")) {
       e.preventDefault();
       agentOpen = !agentOpen;
-    } else if (e.key === "Escape" && agentOpen) {
-      agentOpen = false;
+    } else if (e.key === "Escape") {
+      if (findOpen) closeFind();
+      else if (agentOpen) agentOpen = false;
     }
   }
 
@@ -218,6 +269,25 @@
             <span class="pgtot">/ {totalPages || "…"}</span>
           </span>
         </div>
+        {#if findOpen}
+          <div class="rfind">
+            <input
+              class="rfind-in"
+              bind:this={findInput}
+              bind:value={findQuery}
+              placeholder="Find in document"
+              aria-label="Find in document"
+              oninput={onFindInput}
+              onkeydown={findKey} />
+            <span class="rfind-count"
+              >{findQuery.trim() ? (findResult && findResult.total ? `${findResult.index + 1}/${findResult.total}` : "0/0") : ""}</span>
+            <button class="rfind-btn" title="Previous match (Shift-Enter)" aria-label="Previous match" disabled={!findResult?.total} onclick={() => stepFind("prev")}>↑</button>
+            <button class="rfind-btn" title="Next match (Enter)" aria-label="Next match" disabled={!findResult?.total} onclick={() => stepFind("next")}>↓</button>
+            <button class="rfind-btn" title="Close (Esc)" aria-label="Close find" onclick={closeFind}>✕</button>
+          </div>
+        {:else}
+          <button class="tgl" title="Find in document (⌘/Ctrl-F)" aria-label="Find in document" onclick={openFind}>🔍</button>
+        {/if}
         <button class="tgl" class:on={showAnnots} onclick={() => (showAnnots = !showAnnots)} title="Toggle annotations"
           >Notes ({annotations.length}) ✎</button>
         <button class="tgl agentbtn" class:on={agentOpen} onclick={() => (agentOpen = !agentOpen)}
@@ -261,7 +331,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key $readerKey}
-              <PdfView {buffer} documentId={$readerKey} {scale} {annotations} {scrollTo} onCreate={handleCreate} onSelect={handleSelect} onOrphans={(ids) => (orphans = new Set(ids))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
+              <PdfView {buffer} documentId={$readerKey} {scale} {annotations} {scrollTo} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onOrphans={(ids) => (orphans = new Set(ids))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -395,6 +465,57 @@
   }
   .pgtot {
     color: var(--c-tx-faint);
+  }
+  /* LR-6: find-in-document bar (toolbar-inline). */
+  .rfind {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 4px;
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-1);
+  }
+  .rfind-in {
+    width: 12em;
+    background: var(--c-bg);
+    color: var(--c-tx);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
+    padding: 2px 6px;
+    font: inherit;
+    font-size: var(--ts-xs);
+  }
+  .rfind-in:focus {
+    outline: none;
+    border-color: var(--c-accent);
+  }
+  .rfind-count {
+    min-width: 3em;
+    text-align: center;
+    color: var(--c-tx-faint);
+    font-size: var(--ts-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  .rfind-btn {
+    border: 1px solid var(--c-line-strong);
+    background: transparent;
+    color: var(--c-tx-2);
+    border-radius: var(--r-1);
+    min-width: 20px;
+    padding: 2px 5px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .rfind-btn:hover:not(:disabled) {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+  .rfind-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   .rbody {
     flex: 1 1 auto;
