@@ -8,8 +8,10 @@
 // (lastIndex), so a single shared instance reused across modules would mis-scan. Callers keep
 // their own instance (module const or local) exactly as before.
 
-/** Citation-key char class: a letter then word / ':' / '.' / '-' chars (smith2020, doi:10.x/y). */
-const KEY = "[A-Za-z][\\w:.-]*";
+/** Citation key: a letter, then word / ':' / '.' / '-' chars — but never ENDING in
+ *  punctuation (smith2020, doi:10.x-y). Keys can contain dots, yet a trailing dot is
+ *  sentence punctuation: "@smith2020." must cite smith2020, not the key "smith2020.". */
+const KEY = "[A-Za-z](?:[\\w:.-]*\\w)?";
 
 /** Cross-reference types that resolve to a NUMBER (fig/tbl). sec/eq are recognised as cross-refs
  *  — so they're never mistaken for citations — but carry no numbering and render verbatim. */

@@ -11,6 +11,12 @@ import { bibEntry, type BibEntry } from "../scholar/bib";
 import { journalCss } from "./journal";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "../science/grammar";
 import { EMBED_RE, parseEmbedAttrs, cssWidth } from "../science/figureAttrs";
+import {
+  buildCitationOrdinals,
+  collapseOrdinals,
+  parseCitationStyle,
+  type CitationStyle,
+} from "../scholar/citeNumbering";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let _md: any = null;
@@ -59,25 +65,66 @@ function refKindWord(prefix: string): string {
   return prefix === "tbl" ? "Table" : prefix === "sec" ? "Section" : prefix === "eq" ? "Eq." : "Figure";
 }
 
+/** Per-render citation context: the cited-key collector plus the numbering
+ *  pass when the front matter selects the numeric style. */
+interface CiteCtx {
+  cited: Set<string>;
+  style: CitationStyle;
+  /** key → 1-based ordinal (numeric style only). */
+  ordinals: Map<string, number>;
+  /** ordinal → key (for linking collapsed segments to their first entry). */
+  keyOf: Map<number, string>;
+}
+
+function makeCiteCtx(style: CitationStyle, body: string): CiteCtx {
+  const cited = new Set<string>();
+  if (style !== "numeric") return { cited, style, ordinals: new Map(), keyOf: new Map() };
+  const { map } = buildCitationOrdinals(body, (k) => !!bibEntry(k));
+  const keyOf = new Map<number, string>();
+  for (const [k, n] of map) keyOf.set(n, k);
+  return { cited, style, ordinals: map, keyOf };
+}
+
+/** Numeric in-text form for a key group: `[3,5,9–14]` (outer brackets literal,
+ *  each segment linked to its first entry; unresolved keys → plain "?"). */
+function numericGroup(keys: string[], ctx: CiteCtx): string {
+  const nums: number[] = [];
+  let unresolved = 0;
+  for (const k of keys) {
+    const n = ctx.ordinals.get(k);
+    if (n === undefined) unresolved++;
+    else {
+      nums.push(n);
+      ctx.cited.add(k);
+    }
+  }
+  const parts = collapseOrdinals(nums).map(
+    (s) => `[${s.text}](#ref-${ctx.keyOf.get(s.ordinals[0])})`,
+  );
+  for (let u = 0; u < unresolved; u++) parts.push("?");
+  return `\\[${parts.join(",")}\\]`;
+}
+
 /** Replace cross-refs + citations on a line with markdown links; collect cites. PAP-13: never
  *  rewrite inside inline code — the editor's chips skip code spans, so transforming them here
  *  diverged Preview/export from what the author sees. Split on backtick runs and only
  *  transform the prose between them (the code span is emitted verbatim). */
-function transformInline(line: string, cited: Set<string>): string {
+function transformInline(line: string, ctx: CiteCtx): string {
   const CODE = /(`+)(?:.*?)\1/g; // n-backtick … n-backtick inline-code runs
   let out = "";
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = CODE.exec(line))) {
-    out += transformProse(line.slice(last, m.index), cited);
+    out += transformProse(line.slice(last, m.index), ctx);
     out += m[0]; // code span, untouched
     last = m.index + m[0].length;
   }
-  return out + transformProse(line.slice(last), cited);
+  return out + transformProse(line.slice(last), ctx);
 }
 
 /** The actual cross-ref + citation substitution, applied only to non-code prose. */
-function transformProse(line: string, cited: Set<string>): string {
+function transformProse(line: string, ctx: CiteCtx): string {
+  const { cited } = ctx;
   // [@a; @b] bracketed citations
   line = line.replace(BRACKET_CITE, (_full, inner: string) => {
     const keys = inner
@@ -85,6 +132,7 @@ function transformProse(line: string, cited: Set<string>): string {
       .map((s) => s.trim().replace(/^@/, "").replace(/[,\s].*$/, "").trim())
       .filter(Boolean);
     if (!keys.length) return _full;
+    if (ctx.style === "numeric") return numericGroup(keys, ctx);
     const parts: string[] = [];
     for (const k of keys) {
       const e = bibEntry(k);
@@ -105,6 +153,7 @@ function transformProse(line: string, cited: Set<string>): string {
   // bare @key citations
   line = line.replace(BARE_CITE, (full, lead: string, key: string) => {
     if (isCrossrefKey(key)) return full;
+    if (ctx.style === "numeric") return `${lead}${numericGroup([key], ctx)}`;
     const e = bibEntry(key);
     if (e) cited.add(key);
     const who = e ? authorYear(e) : key;
@@ -128,11 +177,10 @@ interface BlockSpec {
 const CALLOUT_OPEN = /^:::+\s*\{?\s*\.callout-(\w+)/;
 const CALLOUT_CLOSE = /^:::+\s*$/;
 
-function preprocess(body: string): { transformed: string; blocks: BlockSpec[]; cited: Set<string> } {
+function preprocess(body: string, ctx: CiteCtx): { transformed: string; blocks: BlockSpec[] } {
   const lines = body.split("\n");
   const out: string[] = [];
   const blocks: BlockSpec[] = [];
-  const cited = new Set<string>();
   let inFence = false;
   let inCallout = false;
   let calloutType = "";
@@ -176,7 +224,7 @@ function preprocess(body: string): { transformed: string; blocks: BlockSpec[]; c
           html: `<div class="callout callout-${esc(calloutType)}"><div class="callout-label">${esc(
             label,
           )}</div><div class="callout-body">__BODY__</div></div>`,
-          body: calloutLines.map((l) => transformInline(l, cited)).join("\n"),
+          body: calloutLines.map((l) => transformInline(l, ctx)).join("\n"),
         });
         continue;
       }
@@ -221,27 +269,38 @@ function preprocess(body: string): { transformed: string; blocks: BlockSpec[]; c
       capStash.push(m[1]); // PAP-6: caption counter, not blocks.length (see the figure branch)
       continue;
     }
-    out.push(transformInline(raw, cited));
+    out.push(transformInline(raw, ctx));
   }
-  return { transformed: out.join("\n"), blocks, cited };
+  return { transformed: out.join("\n"), blocks };
 }
 
 // Caption markdown is collected during preprocess and inline-rendered after we
 // have the markdown-it instance.
 let capStash: string[] = [];
 
-function bibliographyHtml(cited: Set<string>): string {
-  const entries = [...cited]
-    .map((k) => bibEntry(k))
-    .filter((e): e is BibEntry => !!e)
-    .sort((a, b) => (a.authors[0] ?? a.key).localeCompare(b.authors[0] ?? b.key));
+function bibliographyHtml(ctx: CiteCtx): string {
+  // Numeric: ordered + numbered by first appearance; author-year: alphabetical.
+  const entries =
+    ctx.style === "numeric"
+      ? [...ctx.cited]
+          .map((k) => bibEntry(k))
+          .filter((e): e is BibEntry => !!e)
+          .sort((a, b) => (ctx.ordinals.get(a.key) ?? 0) - (ctx.ordinals.get(b.key) ?? 0))
+      : [...ctx.cited]
+          .map((k) => bibEntry(k))
+          .filter((e): e is BibEntry => !!e)
+          .sort((a, b) => (a.authors[0] ?? a.key).localeCompare(b.authors[0] ?? b.key));
   if (!entries.length) return "";
   const items = entries
     .map((e) => {
+      const num =
+        ctx.style === "numeric"
+          ? `<span class="ref-num">${ctx.ordinals.get(e.key) ?? "?"}.</span> `
+          : "";
       const authors = e.authors.length ? e.authors.join(", ") : e.key;
       const venue = e.container ? ` <span class="ref-venue">${esc(e.container)}</span>.` : "";
       const doi = e.doi ? ` <a href="https://doi.org/${esc(e.doi)}">doi.org/${esc(e.doi)}</a>` : "";
-      return `<p class="ref" id="ref-${esc(e.key)}">${esc(authors)}${
+      return `<p class="ref" id="ref-${esc(e.key)}">${num}${esc(authors)}${
         e.year ? ` (${esc(e.year)})` : ""
       }. ${esc(e.title)}.${venue}${doi}</p>`;
     })
@@ -300,13 +359,14 @@ export async function renderManuscript(
   }
 
   capStash = [];
-  const { transformed, blocks, cited } = preprocess(body);
+  const ctx = makeCiteCtx(parseCitationStyle(meta["citation-style"]), body);
+  const { transformed, blocks } = preprocess(body, ctx);
   let html = md.render(transformed);
 
   // Substitute block placeholders (figures, table captions) + their captions.
   blocks.forEach((b, i) => {
     let blockHtml = b.html.replace(/__CAP(\d+)__/g, (_m, idx) =>
-      md.renderInline(transformInline(capStash[Number(idx)] ?? "", cited)),
+      md.renderInline(transformInline(capStash[Number(idx)] ?? "", ctx)),
     );
     if (b.body !== undefined) blockHtml = blockHtml.replace("__BODY__", md.render(b.body));
     const wrapRe = new RegExp(`<p>\\s*${b.token}\\s*</p>`);
@@ -315,7 +375,7 @@ export async function renderManuscript(
     void i;
   });
 
-  const inner = titleBlock(meta) + html + bibliographyHtml(cited);
+  const inner = titleBlock(meta) + html + bibliographyHtml(ctx);
   const title = (meta.title && String(meta.title)) || "Manuscript";
   const bodyClass = opts.paginated ? "paginated" : "continuous";
   const bodyInner = opts.paginated

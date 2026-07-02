@@ -24,6 +24,8 @@
   import { paperVimMode } from "./editing/vimStore";
   import { setEmbedWidth } from "./science/figureAttrs";
   import { setEmbedWidthPreset } from "./editing/figureSize";
+  import { citeNumberField } from "./science/citeNumbers";
+  import { citationStyle, citationStyleOf } from "./scholar/citeNumbering";
   import { pageCompartment, themeFor } from "./view-mode/pageView";
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
@@ -607,6 +609,15 @@
   const status = $derived<"demo" | "saved" | "saving" | "error">(
     isDemo ? "demo" : $autosaveStatus === "error" ? "error" : saved ? "saved" : "saving",
   );
+
+  // Front matter picks the citation style (citation-style: numeric | author-year).
+  // The scan is O(front matter) per keystroke; the effect fires only when the
+  // STYLE actually flips — every visible chip then relabels via refreshChips.
+  const citeStyle = $derived(citationStyleOf(latest));
+  $effect(() => {
+    citationStyle.set(citeStyle);
+    view?.dispatch({ effects: refreshChips.of(null) });
+  });
   // PAP-7: is there any non-whitespace after the front matter? Scanned in place (no slice +
   // trim of the whole document per keystroke), and left on `latest` — NOT the debounced
   // mirror — so the empty-doc hint stays instant. A non-empty doc bails at its first content
@@ -702,6 +713,7 @@
         selectionWatcher,
         cursorWatcher,
         formattingKeymap,
+        citeNumberField, // before the chip plugin: ordinals publish first
         scienceChips,
         scienceEmbeds,
         scienceTables,

@@ -6,6 +6,7 @@
 import { WidgetType } from "@codemirror/view";
 import { resolveFigure } from "../scholar/figures";
 import { resolveCite } from "../scholar/bib";
+import { getCitationStyle, citeOrdinal, formatNumericLabel } from "../scholar/citeNumbering";
 import { chipHandlers } from "./chipContext";
 
 export class FigRefWidget extends WidgetType {
@@ -62,9 +63,18 @@ export class CiteWidget extends WidgetType {
     readonly raw: string,
   ) {
     super();
-    const r = resolveCite(keys);
-    this.resolved = !!r;
-    this.display = r ?? raw; // unresolved → echo exactly what was typed
+    if (getCitationStyle() === "numeric") {
+      // "[3,5,9–14]" from the live ordinal registry (citeNumbers publishes it
+      // synchronously before chips rebuild); unresolved keys show as "?".
+      const n = formatNumericLabel(keys, citeOrdinal);
+      this.resolved = n.allResolved;
+      // Nothing resolves → echo what was typed (same affordance as author-year).
+      this.display = n.anyResolved ? n.text : raw;
+    } else {
+      const r = resolveCite(keys);
+      this.resolved = !!r;
+      this.display = r ?? raw; // unresolved → echo exactly what was typed
+    }
   }
   eq(o: CiteWidget) {
     return o.raw === this.raw && o.display === this.display;
