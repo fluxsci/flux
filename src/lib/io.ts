@@ -483,6 +483,7 @@ export async function exportFigurePdf(fig: Figure) {
   const path = await window.fig.save(`${fig.name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
   if (!path) return;
   try {
+    if (!window.fig.exportPdf) throw new Error("PDF export is unavailable in this build.");
     await window.fig.exportPdf(buildSvg(fig), path, fig.width, fig.height);
     pushToast("success", `Exported ${basename(path)}`);
   } catch (e) {

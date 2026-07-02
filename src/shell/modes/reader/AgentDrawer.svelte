@@ -10,25 +10,13 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import "@xterm/xterm/css/xterm.css";
+  import { fileBridge } from "../../../lib/project/types";
 
   let { onClose }: { onClose?: () => void } = $props();
 
-  interface TermBridge {
-    create(opts?: {
-      cols?: number;
-      rows?: number;
-      cwd?: string;
-      command?: string;
-      args?: string[];
-      env?: Record<string, string>;
-    }): Promise<{ ok: true; id: string; shell: string; cwd: string; pid: number } | { ok: false; error: string }>;
-    write(id: string, data: string): void;
-    resize(id: string, cols: number, rows: number): void;
-    kill(id: string): Promise<boolean>;
-    onData(cb: (m: { id: string; data: string }) => void): () => void;
-    onExit(cb: (m: { id: string; exitCode: number; signal?: number }) => void): () => void;
-  }
-  const bridge = (): TermBridge | undefined => (window as unknown as { fig?: { term?: TermBridge } }).fig?.term;
+  // SHL-16: the PTY bridge is typed centrally on FileBridge (TermBridge); reach it through
+  // fileBridge() rather than an ad-hoc window cast.
+  const bridge = () => fileBridge()?.term;
 
   let host = $state<HTMLDivElement | undefined>();
   let status = $state<"connecting" | "running" | "exited" | "unavailable">("connecting");

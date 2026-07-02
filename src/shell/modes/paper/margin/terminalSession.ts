@@ -17,24 +17,12 @@ import { writable, type Writable } from "svelte/store";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { fileBridge } from "../../../../lib/project/types";
 
-// Local slice of the preload bridge — same convention as projectWatch.ts and
-// TitleBar.svelte: each feature declares the part of window.fig it needs, so the
-// web fallback type-checks straight through the optional chain.
-interface TermBridge {
-  create(opts?: { cols?: number; rows?: number; cwd?: string }): Promise<
-    | { ok: true; id: string; shell: string; cwd: string; pid: number }
-    | { ok: false; error: string }
-  >;
-  write(id: string, data: string): void;
-  resize(id: string, cols: number, rows: number): void;
-  kill(id: string): Promise<boolean>;
-  onData(cb: (msg: { id: string; data: string }) => void): () => void;
-  onExit(cb: (msg: { id: string; exitCode: number; signal?: number }) => void): () => void;
-}
-
-function bridge(): TermBridge | undefined {
-  return (window as unknown as { fig?: { term?: TermBridge } }).fig?.term;
+// SHL-16: the PTY bridge (window.fig.term) is now typed centrally on FileBridge; reach it
+// through fileBridge() so there's no ad-hoc window cast. Undefined under the web fallback.
+function bridge() {
+  return fileBridge()?.term;
 }
 
 export type TermStatus = "idle" | "connecting" | "running" | "exited" | "unavailable";

@@ -20,20 +20,11 @@ import { getAppContext } from "./appContext";
 import { dispatchCommand, type Command } from "./commands";
 import { touchActivityLock } from "./activityLock";
 import { flushById } from "../../shell/lifecycle";
-
-interface BridgeApi {
-  pushContext: (ctx: unknown) => void;
-  onDispatch: (cb: (msg: { id: number; command: Command }) => void) => () => void;
-  reply: (id: number, result?: unknown, error?: string) => void;
-}
-
-interface FigHost {
-  bridge?: BridgeApi;
-}
+import { fileBridge } from "../project/types";
 
 export function installBridge(): void {
-  const fig = (window as unknown as { fig?: FigHost }).fig;
-  const bridge = fig?.bridge;
+  // SHL-16: the live bridge (window.fig.bridge) is typed centrally on FileBridge (LiveBridge).
+  const bridge = fileBridge()?.bridge;
   if (!bridge) return; // only under Electron + the bridge preload
 
   // WS6/W3: hold the advisory "project" activity lock while the human is
@@ -71,7 +62,8 @@ export function installBridge(): void {
 
   bridge.onDispatch(async ({ id, command }) => {
     try {
-      const result = await dispatchCommand(command);
+      // `command` arrives as untyped JSON off the loopback wire; narrow it here.
+      const result = await dispatchCommand(command as Command);
       // AGT-10: a dispatched edit only reaches disk via the 700ms autosave, so an
       // agent's get_figure_image right after dispatch_command would read stale bytes.
       // Flush the figure subsystem now (no-op for selection-only commands / when the

@@ -5,16 +5,9 @@
   import { currentProject, goHome, view } from "./shellStore";
   import { dirtyPulse } from "../lib/autosave";
   import { anyDirty } from "./lifecycle";
+  import { fileBridge } from "../lib/project/types";
 
-  interface WinBridge {
-    minimize: () => void;
-    maximizeToggle: () => Promise<boolean> | void;
-    close: () => void;
-    isMaximized: () => Promise<boolean>;
-    onMaximizeChange: (cb: (v: boolean) => void) => () => void;
-    setDocumentEdited?: (edited: boolean) => void;
-  }
-  const fig = (window as unknown as { fig?: { win?: WinBridge; platform?: string } }).fig;
+  const fig = fileBridge();
   const win = fig?.win;
   // On macOS we defer to the native traffic-light controls (see main.cjs
   // titleBarStyle:"hidden"), so we hide our custom min/max/close buttons there.

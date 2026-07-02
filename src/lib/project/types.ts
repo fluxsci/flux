@@ -68,6 +68,46 @@ export interface LoadedProject {
   manifest: ProjectManifest;
 }
 
+// --- the preload sub-bridges (window.fig.{win,term,bridge}) ------------------
+// SHL-16: these were duplicated as component-local interfaces + reached via
+// `(window as unknown as {fig?:{…}}).fig` casts. They live here now so FileBridge
+// is the ONE typed contract for everything the Electron preload exposes.
+
+/** Custom-titlebar window controls (Electron only). */
+export interface WinBridge {
+  minimize: () => void;
+  maximizeToggle: () => Promise<boolean> | void;
+  close: () => void;
+  isMaximized: () => Promise<boolean>;
+  onMaximizeChange: (cb: (v: boolean) => void) => () => void;
+  setDocumentEdited?: (edited: boolean) => void;
+}
+
+/** Integrated-terminal (PTY) bridge (Electron only). */
+export interface TermBridge {
+  create(opts?: {
+    cols?: number;
+    rows?: number;
+    cwd?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+  }): Promise<{ ok: true; id: string; shell: string; cwd: string; pid: number } | { ok: false; error: string }>;
+  write(id: string, data: string): void;
+  resize(id: string, cols: number, rows: number): void;
+  kill(id: string): Promise<boolean>;
+  onData(cb: (m: { id: string; data: string }) => void): () => void;
+  onExit(cb: (m: { id: string; exitCode: number; signal?: number }) => void): () => void;
+}
+
+/** Live agent bridge (WS4) — renderer half of the loopback control server (Electron
+ *  only). `command` is untyped JSON off the wire; the consumer narrows it. */
+export interface LiveBridge {
+  pushContext: (ctx: unknown) => void;
+  onDispatch: (cb: (msg: { id: number; command: unknown }) => void) => () => void;
+  reply: (id: number, result?: unknown, error?: string) => void;
+}
+
 // --- the file bridge (window.fig, from the Electron preload) -----------------
 export interface FileBridge {
   mkdir(p: string): Promise<void>;
@@ -86,6 +126,8 @@ export interface FileBridge {
   openDirectory(title?: string): Promise<string | null>;
   openFiles(filters?: unknown[]): Promise<string[] | null>;
   save(defaultPath: string, filters?: unknown[]): Promise<string | null>;
+  // Figure PDF export (vector). Optional: web demo may not provide it.
+  exportPdf?(svg: string, outPath: string, w: number, h: number): Promise<boolean>;
   // Added for the Paper module (Flux_Paper_Plan.md). Optional: older bridges /
   // the web demo may not provide them.
   printPdf?(
@@ -184,6 +226,20 @@ export interface FileBridge {
     stdout?: string;
     stderr?: string;
   }>;
+  // SHL-16: the preload's non-fs sub-bridges + host info, folded in so this interface is
+  // the single contract. All optional (absent under the web/dev fallback).
+  platform?: string; // process.platform ("darwin" | "linux" | "win32")
+  win?: WinBridge;
+  term?: TermBridge;
+  bridge?: LiveBridge;
+}
+
+declare global {
+  // The one typed handle on the preload surface (replaces the old partial electron.d.ts).
+  // Non-optional to match how io.ts accesses it directly; guarded callers use fileBridge().
+  interface Window {
+    fig: FileBridge;
+  }
 }
 
 export function fileBridge(): FileBridge | undefined {
