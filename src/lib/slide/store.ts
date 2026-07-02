@@ -30,6 +30,10 @@ export const selection = writable<string[]>([]);
 /** Direct manipulation: the plot part last clicked on the stage (elId + semantic
  *  id), so the Animator can focus its X-ray row / track. Null clears the focus. */
 export const focusedPart = writable<{ elId: string; part: string } | null>(null);
+/** The animator's track selection (stable Track.ids). Store-level (not component
+ *  state) so it survives the Animator's component splits AND gets reconciled
+ *  against surviving tracks after undo/redo. The LAST entry is the "primary". */
+export const selTrackIds = writable<string[]>([]);
 
 /** The project root the live deck was loaded from. Lets SlideMode REUSE the
  *  in-memory deck across a mode round-trip (slide→figure→slide, same project)
@@ -145,7 +149,8 @@ export function redoDeck(): void {
 }
 
 /** After an undo/redo, keep the editor cursor valid: a live active slide, a
- *  selection of only still-existing elements, and an in-range beat. */
+ *  selection of only still-existing elements, an in-range beat, and a track
+ *  selection of only still-existing tracks. */
 function reconcileCursor(): void {
   const d = get(deck);
   if (!d) return;
@@ -154,6 +159,8 @@ function reconcileCursor(): void {
   const live = new Set(slide?.elements.map((e) => e.id) ?? []);
   selection.update((ids) => ids.filter((id) => live.has(id)));
   if (get(activeBeat) >= (slide?.beats.length ?? 1)) activeBeat.set(0);
+  const liveTracks = new Set(slide?.beats.flatMap((b) => b.tracks.map((t) => t.id)) ?? []);
+  selTrackIds.update((ids) => ids.filter((id) => liveTracks.has(id)));
 }
 
 // ---------------------------------------------------------------------------

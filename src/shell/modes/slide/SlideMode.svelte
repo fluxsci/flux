@@ -49,6 +49,8 @@
   import SlideStage from "./SlideStage.svelte";
   import Inspector from "./Inspector.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
+  import SlideXray from "./SlideXray.svelte";
+  import { slideXrayOpen } from "./animator/animatorState";
   import DeckPicker from "./DeckPicker.svelte";
   import PresentOverlay from "./PresentOverlay.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
@@ -193,7 +195,7 @@
   let player: Player | undefined;
   const pvScale = $derived(deck && pvW > 0 && pvH > 0 ? Math.min(pvW / deck.stage.width, pvH / deck.stage.height) : 1);
 
-  function startPreview() {
+  function startPreview(startBeat = 0) {
     const d = deck;
     const s = activeSlide;
     if (!d || !s || previewing) return;
@@ -212,14 +214,16 @@
       player = createPlayer(previewHost, d, opts);
       previewHost.style.transformOrigin = "center center";
       previewHost.style.transform = `scale(${pvScale})`;
-      player.goTo(si, 0);
+      // play-from-here: rest at the beat BEFORE the requested one, then advance.
+      const from = Math.max(0, Math.min(s.beats.length - 1, startBeat) - 1);
+      player.goTo(si, from);
       const nBeats = s.beats.length;
       player.on("beatEnd", () => {
         if (!player) return;
         if (player.state().beat >= nBeats - 1) setTimeout(stopPreview, 1100);
         else setTimeout(() => player?.next(), 480);
       });
-      if (nBeats <= 1) setTimeout(stopPreview, 900);
+      if (nBeats <= 1 || from >= nBeats - 1) setTimeout(stopPreview, 900);
       else setTimeout(() => player?.next(), 420);
     });
   }
@@ -551,6 +555,15 @@
       if (!$importerOpen) openPlotBrowser();
       return;
     }
+    // Alt+P opens the slide X-ray (per-part styles) for the selected plot —
+    // the same gesture as figure mode (keyboard.ts openXray).
+    if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyP") {
+      e.preventDefault();
+      if ($slideXrayOpen) { slideXrayOpen.set(null); return; }
+      const el = $selection.length === 1 && activeSlide ? activeSlide.elements.find((x) => x.id === $selection[0]) : null;
+      if (el && el.type === "plot") slideXrayOpen.set({ elId: el.id });
+      return;
+    }
     // F5 presents from the first slide; Shift+F5 from the current one (B22).
     if (e.key === "F5") {
       e.preventDefault();
@@ -720,6 +733,7 @@
           {/if}
         </div>
         <AnimatePanel onPreview={startPreview} />
+        <SlideXray />
       {:else if ready && deck}
         <div class="empty">This deck has no slides. <button class="btn" onclick={onAddSlide}>Add one</button></div>
       {:else}

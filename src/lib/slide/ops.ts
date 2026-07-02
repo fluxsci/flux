@@ -823,6 +823,21 @@ export function setBeat(
   if (patch.autoDelayMs != null) b.autoDelayMs = patch.autoDelayMs;
 }
 
+/** Deep-copy a beat (fresh beat + track ids), inserted right after the original.
+ *  Returns the new beat, or null. Beat 0 (the resting state) can't be duplicated. */
+export function duplicateBeat(deck: Deck, slideId: Id, beatId: Id): Beat | null {
+  const s = slideById(deck, slideId);
+  if (!s) return null;
+  const i = s.beats.findIndex((b) => b.id === beatId);
+  if (i <= 0) return null;
+  const copy = structuredClone(s.beats[i]);
+  copy.id = newId("beat");
+  if (copy.label) copy.label += " copy";
+  for (const t of copy.tracks) t.id = newId("track");
+  s.beats.splice(i + 1, 0, copy);
+  return copy;
+}
+
 /** Delete a beat (never removes the resting beat 0). */
 export function deleteBeat(deck: Deck, slideId: Id, beatId: Id): void {
   const s = slideById(deck, slideId);

@@ -265,12 +265,14 @@ const ELEMENT_EXIT: Record<string, { preset: PresetName; duration: number }> = {
  *  bullets reveal — unless `wholeBox` asks for one unit. */
 export function suggestElementTrack(
   el: SlideElement,
-  opts: { exit?: boolean; wholeBox?: boolean } = {},
+  opts: { exit?: boolean; wholeBox?: boolean; blocks?: Id[] } = {},
 ): Track {
   const kind = el.type;
   const def = (opts.exit ? ELEMENT_EXIT[kind] : undefined) ?? (opts.exit ? { preset: "fadeOut" as PresetName, duration: 300 } : ELEMENT_ENTER[kind] ?? { preset: "fade" as PresetName, duration: 350 });
   const track: Track = { id: newId("track"), target: el.id, preset: def.preset, duration: def.duration, start: 0 };
-  if (!opts.wholeBox && kind === "textBox" && el.blocks.length > 1) {
+  if (opts.blocks?.length && kind === "textBox") {
+    track.selector = { blocks: opts.blocks }; // specific line(s) of a text box
+  } else if (!opts.wholeBox && kind === "textBox" && el.blocks.length > 1) {
     track.selector = { blocks: "all" };
     track.stagger = { perMs: 120, by: "blocks", from: "start" };
   }
@@ -286,7 +288,7 @@ export function animateElement(
   deck: Deck,
   slideId: Id,
   elId: Id,
-  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; wholeBox?: boolean } = {},
+  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; wholeBox?: boolean; blocks?: Id[] } = {},
 ): { beatIndex: number; trackId: Id } | null {
   const slide = slideById(deck, slideId);
   const found = findElement(deck, elId);
