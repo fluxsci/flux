@@ -5,18 +5,29 @@
   import type { ChipTarget } from "../science/chipContext";
   import { resolveFigure, renderFigureSvg, figureRefs } from "./figures";
   import { bibEntry, bibEntries, type BibEntry } from "./bib";
+  import { pdfKeys, refreshPdfKeys, hasPdfIn } from "./pdfPresence";
 
   let {
     target,
     anchor,
     onenter,
     onleave,
+    onOpenRef,
+    onOpenPdf,
   }: {
     target: ChipTarget;
     anchor: HTMLElement;
     onenter?: () => void;
     onleave?: () => void;
+    /** Open this citekey in the References margin view (scrolled + untwirled). */
+    onOpenRef?: (key: string) => void;
+    /** Open this citekey's full-text PDF in FluxReader. */
+    onOpenPdf?: (key: string) => void;
   } = $props();
+
+  // The "Read PDF" pill only shows when the PDF actually exists (throttled
+  // stale-while-revalidate readdir — see pdfPresence).
+  refreshPdfKeys();
 
   let card = $state<HTMLDivElement>();
   let x = $state(0);
@@ -103,6 +114,16 @@
             {/if}
             <code class="hc-key">@{c.key}</code>
           </div>
+          {#if onOpenRef || onOpenPdf}
+            <div class="hc-actions">
+              {#if onOpenRef}
+                <button class="hc-pill" onclick={() => onOpenRef(c.key)}>References</button>
+              {/if}
+              {#if onOpenPdf && hasPdfIn($pdfKeys, c.key)}
+                <button class="hc-pill" onclick={() => onOpenPdf(c.key)}>Read PDF</button>
+              {/if}
+            </div>
+          {/if}
         </div>
       {/each}
     {:else}
@@ -195,16 +216,24 @@
     font-size: var(--ts-xs);
     line-height: 1.4;
   }
+  /* Both children are long unbroken mono tokens (DOI, citekey). Flex items
+     default to min-width:auto, so without min-width:0 + overflow-wrap the pair
+     can only overflow the card edge — wrap the row and break the tokens. */
   .hc-foot {
     display: flex;
-    align-items: center;
-    gap: var(--sp-2);
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px var(--sp-2);
     margin-top: var(--sp-2);
   }
   .hc-doi {
     background: none;
     border: none;
     padding: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: left;
     color: var(--c-accent-bright);
     font-family: var(--font-mono);
     font-size: var(--ts-xs);
@@ -213,8 +242,32 @@
   }
   .hc-key {
     margin-left: auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: right;
     color: var(--c-tx-faint);
     font-family: var(--font-mono);
     font-size: var(--ts-xs);
+  }
+  .hc-actions {
+    display: flex;
+    gap: var(--sp-2);
+    margin-top: var(--sp-2);
+  }
+  .hc-pill {
+    font: inherit;
+    font-size: var(--ts-xs);
+    line-height: 1.5;
+    padding: 1px 10px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-pill);
+    background: var(--c-surface);
+    color: var(--c-tx-2);
+    cursor: pointer;
+  }
+  .hc-pill:hover {
+    border-color: var(--c-accent);
+    color: var(--c-tx-hi);
   }
 </style>

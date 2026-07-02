@@ -21,7 +21,7 @@
   import { selectionWatcher } from "./toolbar/selectionState";
   import { formattingKeymap } from "./editing/keymap";
   import { vimCompartment, vimExtensions } from "./editing/vim";
-  import { paperVimMode } from "./editing/vimStore";
+  import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
   import { setEmbedWidth } from "./science/figureAttrs";
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
@@ -84,7 +84,8 @@
   import { scholarCompletion } from "./scholar/completions";
   import { doiPaste } from "./science/doiPaste";
   import { figRevision, bibRevision } from "../../scholar/revisions";
-  import { revealFigure } from "../../scholar/nav";
+  import { revealFigure, revealReader } from "../../scholar/nav";
+  import { requestRefReveal } from "./margin/refReveal";
   import HoverCard from "./scholar/HoverCard.svelte";
 
   let { focused = false }: { focused?: boolean } = $props();
@@ -606,6 +607,18 @@
     clearTimeout(hoverHideTimer);
     hoverHideTimer = setTimeout(() => (hover = null), 160);
   }
+  // Hover-card pills: jump to the reference in the margin (scrolled +
+  // untwirled), or open its full-text PDF in FluxReader (split pane).
+  function openRefFromHover(key: string) {
+    hover = null;
+    openMarginView("bibliography");
+    requestRefReveal(key);
+    view?.focus();
+  }
+  function openPdfFromHover(key: string) {
+    hover = null;
+    revealReader(key);
+  }
   function activateChip(target: ChipTarget, el?: HTMLElement) {
     if (target.kind === "figref") {
       const r = resolveFigure(target.label);
@@ -776,7 +789,7 @@
     return createEditorExtensions({
       // Vim must precede the WHOLE tree (keys claimed at the DOM level; its
       // plugin must init before the panel host) — see markdown-setup `first`.
-      first: [vimCompartment.of(vimExtensions(get(paperVimMode)))],
+      first: [vimCompartment.of(vimExtensions(get(paperVimFlavor)))],
       extra: [
         pageCompartment.of(themeFor(viewMode)),
         selectionWatcher,
@@ -873,9 +886,9 @@
     view?.focus();
   }
 
-  function setVim(on: boolean) {
-    paperVimMode.set(on);
-    view?.dispatch({ effects: vimCompartment.reconfigure(vimExtensions(on)) });
+  function setVimFlavor(f: VimFlavor) {
+    paperVimFlavor.set(f);
+    view?.dispatch({ effects: vimCompartment.reconfigure(vimExtensions(f)) });
     view?.focus();
   }
 
@@ -1103,10 +1116,16 @@
     window.addEventListener("pointermove", dmMove);
     window.addEventListener("pointerup", dmEnd);
   }
+  // The margin can grow until the editor column is down to ~420px — workspace-
+  // relative, not a fixed cap (620 stays the ceiling only on small windows).
+  function dmMaxW(): number {
+    const w = workEl?.getBoundingClientRect().width ?? 0;
+    return Math.max(620, w - 420);
+  }
   function dmMove(e: PointerEvent) {
     if (!dmDragging || !workEl) return;
     const r = workEl.getBoundingClientRect();
-    const w = Math.max(260, Math.min(620, r.right - e.clientX));
+    const w = Math.max(260, Math.min(dmMaxW(), r.right - e.clientX));
     paperLayout.update((s) => ({ ...s, dynMarginW: w }));
   }
   function dmEnd() {
@@ -1183,10 +1202,22 @@
     { id: "view-paginated", title: "Paginated view", hint: "View", keywords: "page sheets print", run: () => setView("paginated") },
     {
       id: "toggle-vim",
-      title: $paperVimMode ? "Disable Vim mode" : "Enable Vim mode",
+      title: $paperVimFlavor === "off" ? "Enable Vim mode" : "Disable Vim mode",
       hint: "Editor",
       keywords: "vim modal hjkl normal insert keyboard",
-      run: () => setVim(!$paperVimMode),
+      run: () => setVimFlavor($paperVimFlavor === "off" ? "vim" : "off"),
+    },
+    {
+      id: "toggle-flux-vim",
+      title:
+        $paperVimFlavor === "flux"
+          ? "Switch to plain Vim"
+          : $paperVimFlavor === "vim"
+            ? "Switch to flux-Vim (jj → Esc)"
+            : "Enable flux-Vim (jj → Esc)",
+      hint: "Editor",
+      keywords: "vim flux flavor jj escape insert normal modal",
+      run: () => setVimFlavor($paperVimFlavor === "flux" ? "vim" : "flux"),
     },
     { id: "insert-figure", title: "Insert figure…", hint: "Insert", keywords: "image panel embed", run: () => (pickerOpen = true) },
     ...[25, 50, 75, 100, null].map((pct) => ({
@@ -1201,9 +1232,9 @@
     })),
     {
       id: "toggle-outliner",
-      title: $paperLayout.outlinerOpen ? "Hide outliner" : "Show outliner",
+      title: $paperLayout.outlinerOpen ? "Hide left panel" : "Show left panel",
       hint: "Alt+O",
-      keywords: "outline toc headings sections",
+      keywords: "outline toc headings sections documents sidebar left panel",
       run: toggleOutliner,
     },
     { id: "toggle-margin", title: $paperLayout.dynMarginOpen ? "Hide dynamic margin" : "Show dynamic margin", hint: "Alt+F", keywords: "panel margin sidebar", run: toggleMargin },
@@ -1221,7 +1252,7 @@
     { id: "unfold-section", title: "Unfold section", hint: "⌃⇧]", keywords: "expand heading show section unfold", run: () => { if (view) { unfoldSection(view); view.focus(); } } },
     { id: "fold-all", title: "Fold all sections", hint: "Fold", keywords: "collapse everything outline overview", run: () => { if (view) { foldAll(view); view.focus(); } } },
     { id: "unfold-all", title: "Unfold all sections", hint: "Fold", keywords: "expand everything", run: () => { if (view) { unfoldAll(view); view.focus(); } } },
-    { id: "margin-wider", title: "Wider side panel", hint: "Layout", keywords: "margin panel resize grow", run: () => paperLayout.update((s) => ({ ...s, dynMarginOpen: true, dynMarginW: Math.min(620, s.dynMarginW + 40) })) },
+    { id: "margin-wider", title: "Wider side panel", hint: "Layout", keywords: "margin panel resize grow", run: () => paperLayout.update((s) => ({ ...s, dynMarginOpen: true, dynMarginW: Math.min(dmMaxW(), s.dynMarginW + 40) })) },
     { id: "margin-narrower", title: "Narrower side panel", hint: "Layout", keywords: "margin panel resize shrink", run: () => paperLayout.update((s) => ({ ...s, dynMarginW: Math.max(260, s.dynMarginW - 40) })) },
     { id: "export-pdf", title: "Export PDF", hint: "Export", keywords: "download print", run: () => doExport("pdf") },
     { id: "export-html", title: "Export HTML", hint: "Export", keywords: "download web", run: () => doExport("html") },
@@ -1242,7 +1273,15 @@
         toggleOutliner();
       } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyF") {
         e.preventDefault();
-        focusMarginSearch();
+        // A true round-trip, matching the close button's "(Alt+F)" tooltip:
+        // from the editor it opens the margin and focuses its search; pressed
+        // again while focus is IN the margin it closes it and hands focus back.
+        if (get(paperLayout).dynMarginOpen && document.activeElement?.closest(".dynmargin")) {
+          paperLayout.update((s) => ({ ...s, dynMarginOpen: false }));
+          view?.focus();
+        } else {
+          focusMarginSearch();
+        }
       } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyC") {
         e.preventDefault();
         editCitationAtCursor();
@@ -1429,7 +1468,9 @@
       target={hover.target}
       anchor={hover.anchor}
       onenter={() => clearTimeout(hoverHideTimer)}
-      onleave={hideHoverSoon} />
+      onleave={hideHoverSoon}
+      onOpenRef={openRefFromHover}
+      onOpenPdf={openPdfFromHover} />
   {/if}
 
   {#if doiStatus}

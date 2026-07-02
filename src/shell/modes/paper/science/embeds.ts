@@ -9,6 +9,9 @@
 // Quarto; the width attr is honored live (card width as % of the text column)
 // and by export, and is edited via the drag grip / hover buttons here or the
 // keyboard commands in editing/figureSize.ts.
+//
+// Part of the LOCKED editing-feel contract — see ../EDITING-FEEL.md. In
+// particular: never rebuild on selection, never add block atomicRanges.
 
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";

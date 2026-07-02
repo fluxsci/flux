@@ -1,22 +1,33 @@
-// The vim-mode preference — a user preference, persisted to localStorage
-// exactly like view-mode/paperViewStore.ts. Off by default.
+// The vim-flavor preference — persisted to localStorage exactly like
+// view-mode/paperViewStore.ts. Three states, off by default:
+//   "off"  — no vim
+//   "vim"  — plain vim (Obsidian/VSCode-vim behavior, untouched defaults)
+//   "flux" — flux-ViM: plain vim plus Flux's own opt-in tweaks (see
+//            editing/vim.ts `applyFluxFlavor` — first tweak: `jj` leaves
+//            insert mode).
 
 import { writable } from "svelte/store";
 
-const KEY = "flux.paper.vimMode";
+export type VimFlavor = "off" | "vim" | "flux";
 
-function load(): boolean {
+const KEY = "flux.paper.vimFlavor";
+// Pre-flavor boolean key ("1"/"0") — migrated on first load, never written.
+const LEGACY_KEY = "flux.paper.vimMode";
+
+function load(): VimFlavor {
   try {
-    return localStorage.getItem(KEY) === "1";
+    const v = localStorage.getItem(KEY);
+    if (v === "off" || v === "vim" || v === "flux") return v;
+    return localStorage.getItem(LEGACY_KEY) === "1" ? "vim" : "off";
   } catch {
-    return false;
+    return "off";
   }
 }
 
-export const paperVimMode = writable<boolean>(load());
-paperVimMode.subscribe((v) => {
+export const paperVimFlavor = writable<VimFlavor>(load());
+paperVimFlavor.subscribe((v) => {
   try {
-    localStorage.setItem(KEY, v ? "1" : "0");
+    localStorage.setItem(KEY, v);
   } catch {
     /* ignore */
   }

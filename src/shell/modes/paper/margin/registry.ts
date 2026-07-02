@@ -7,7 +7,6 @@ import StatsView from "./views/StatsView.svelte";
 import FigureView from "./views/FigureView.svelte";
 import BibliographyView from "./views/BibliographyView.svelte";
 import CommentsView from "./views/CommentsView.svelte";
-import PomodoroView from "./views/PomodoroView.svelte";
 import TerminalView from "./views/TerminalView.svelte";
 import ReferenceSearchPane from "./panes/ReferenceSearchPane.svelte";
 import CitationGroupPane from "./panes/CitationGroupPane.svelte";
@@ -32,7 +31,6 @@ export const VIEWS: ViewDescriptor[] = [
     component: CommentsView,
   },
   { id: "stats", title: "Statistics", icon: "hash", keywords: "word count stats length", component: StatsView },
-  { id: "pomodoro", title: "Timer", icon: "clock", keywords: "pomodoro focus timer", component: PomodoroView },
   {
     id: "terminal",
     title: "Terminal",

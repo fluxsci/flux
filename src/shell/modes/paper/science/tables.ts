@@ -7,6 +7,9 @@
 // caret movement never reflows the document — the decoration set is a pure
 // function of the document (docChanged/refreshChips only, never selection).
 // You edit the markdown source directly; the .qmd stays Quarto.
+//
+// Part of the LOCKED editing-feel contract — see ../EDITING-FEEL.md. In
+// particular: never rebuild on selection, never add block atomicRanges.
 
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";

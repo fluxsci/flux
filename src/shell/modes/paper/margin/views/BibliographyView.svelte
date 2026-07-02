@@ -1,14 +1,60 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { MarginHost, MarginApi } from "../types";
   import { bibError } from "../../scholar/bib";
   import { activeCitationGroup } from "../../scholar/activeCitation";
   import { citationOrdinals, citationStyle } from "../../scholar/citeNumbering";
+  import { refRevealReq } from "../refReveal";
+  import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../scholar/pdfPresence";
+  import { revealReader } from "../../../../scholar/nav";
+  import { fileBridge } from "../../../../../lib/project/types";
 
   let { host, margin }: { host: MarginHost; margin: MarginApi } = $props();
 
   let doi = $state("");
   let adding = $state(false);
   let failed = $state(false);
+
+  // ---- per-row twirl (expanded details) + hover-card reveal handshake ------
+  let rootEl = $state<HTMLDivElement>();
+  let expanded = $state<Set<string>>(new Set());
+  let flashKey = $state("");
+  let flashTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastRevealN = 0;
+
+  refreshPdfKeys();
+
+  function toggleExpand(key: string) {
+    const next = new Set(expanded);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    expanded = next;
+  }
+
+  // The hover card's "References" pill lands here: untwirl the row, scroll it
+  // to center, flash it. Guarded by the request counter so re-runs from our
+  // own `expanded` write are inert.
+  $effect(() => {
+    const req = $refRevealReq;
+    if (!req.n || req.n === lastRevealN || !req.key) return;
+    lastRevealN = req.n;
+    // Consume the request (same n, empty key) so a later manual visit to this
+    // view doesn't replay a stale reveal; the guard above makes this inert.
+    refRevealReq.set({ key: "", n: req.n });
+    expanded = new Set(expanded).add(req.key);
+    flashKey = req.key;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => (flashKey = ""), 1800);
+    void tick().then(() => {
+      rootEl
+        ?.querySelector(`[data-refkey="${CSS.escape(req.key)}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  });
+
+  function openDoi(d: string) {
+    fileBridge()?.openExternal?.("https://doi.org/" + d);
+  }
 
   const refs = $derived([...host.references].sort((a, b) => a.authors[0]?.localeCompare(b.authors[0] ?? "") ?? 0));
   const citedCount = $derived(refs.filter((r) => host.citedKeys.has(r.key)).length);
@@ -46,7 +92,7 @@
   }
 </script>
 
-<div class="bib">
+<div class="bib" bind:this={rootEl}>
   <div class="head">
     <span class="count">{refs.length} reference{refs.length === 1 ? "" : "s"}</span>
     <span class="cited">{citedCount} cited</span>
@@ -91,16 +137,33 @@
   {:else}
     <ul class="list">
       {#each refs as r (r.key)}
-        <li class="ref" class:on={host.citedKeys.has(r.key)}>
+        <li class="ref" class:on={host.citedKeys.has(r.key)} class:flash={flashKey === r.key} data-refkey={r.key}>
           <button class="dot" title={host.citedKeys.has(r.key) ? "Cited — click to remove" : "Click to cite"} onclick={() => toggle(r.key)} aria-label="Toggle citation"></button>
           <div class="body">
-            <div class="t">
+            <button class="t" onclick={() => toggleExpand(r.key)} aria-expanded={expanded.has(r.key)}>
+              <span class="tw" class:open={expanded.has(r.key)}>▸</span>
               {#if $citationStyle === "numeric" && $citationOrdinals.get(r.key) !== undefined}
                 <span class="ord">[{$citationOrdinals.get(r.key)}]</span>
               {/if}
               {r.title || r.key}
-            </div>
+            </button>
             <div class="m">{r.authors.slice(0, 3).join(", ")}{r.authors.length > 3 ? " et al." : ""}{r.year ? ` · ${r.year}` : ""}{r.container ? ` · ${r.container}` : ""}</div>
+            {#if expanded.has(r.key)}
+              <div class="detail">
+                {#if r.authors.length > 3}
+                  <div class="d-authors">{r.authors.join(", ")}</div>
+                {/if}
+                {#if r.doi}
+                  <button class="d-doi" onclick={() => openDoi(r.doi!)}>doi.org/{r.doi}</button>
+                {/if}
+                <div class="d-actions">
+                  {#if hasPdfIn($pdfKeys, r.key)}
+                    <button class="d-pill" onclick={() => revealReader(r.key)}>Read PDF</button>
+                  {/if}
+                  <code class="d-key">@{r.key}</code>
+                </div>
+              </div>
+            {/if}
           </div>
         </li>
       {/each}
@@ -278,6 +341,12 @@
     gap: var(--sp-2);
     padding: var(--sp-2) 4px;
     border-bottom: 1px solid var(--c-line);
+    border-radius: var(--r-1);
+    transition: background 600ms ease;
+  }
+  .ref.flash {
+    background: var(--c-accent-tint);
+    transition: none;
   }
   .dot {
     flex: 0 0 auto;
@@ -297,13 +366,88 @@
     min-width: 0;
   }
   .t {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
     font-size: var(--ts-sm);
     color: var(--c-tx);
     line-height: 1.35;
+  }
+  .tw {
+    display: inline-block;
+    width: 0.9em;
+    color: var(--c-tx-faint);
+    font-size: var(--ts-xs);
+    transition: transform var(--dur-quick, 120ms) ease;
+  }
+  .tw.open {
+    transform: rotate(90deg);
   }
   .m {
     font-size: var(--ts-xs);
     color: var(--c-tx-muted);
     margin-top: 2px;
+  }
+  .detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    margin-top: var(--sp-2);
+    padding: var(--sp-2) 0 2px var(--sp-2);
+    border-left: 2px solid var(--c-line);
+  }
+  .d-authors {
+    font-size: var(--ts-xs);
+    color: var(--c-tx-muted);
+    line-height: 1.4;
+  }
+  .d-doi {
+    background: none;
+    border: none;
+    padding: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: left;
+    color: var(--c-accent-bright);
+    font-family: var(--font-mono);
+    font-size: var(--ts-xs);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .d-actions {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 3px var(--sp-2);
+  }
+  .d-pill {
+    font: inherit;
+    font-size: var(--ts-xs);
+    line-height: 1.5;
+    padding: 1px 10px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-pill);
+    background: var(--c-surface);
+    color: var(--c-tx-2);
+    cursor: pointer;
+  }
+  .d-pill:hover {
+    border-color: var(--c-accent);
+    color: var(--c-tx-hi);
+  }
+  .d-key {
+    margin-left: auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    color: var(--c-tx-faint);
+    font-family: var(--font-mono);
+    font-size: var(--ts-xs);
   }
 </style>

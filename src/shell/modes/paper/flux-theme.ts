@@ -1,6 +1,11 @@
 // A CodeMirror 6 theme + markdown highlight style built from Flux tokens, so
 // the editor matches the shell (serif body, accent, dark) and re-themes for
 // free when tokens change.
+//
+// Part of the LOCKED editing-feel contract — see ./EDITING-FEEL.md. In
+// particular: the .cm-cursor 70ms transition (smooth caret) and the identical
+// active/inactive metrics of .cm-flux-embedsrc/.cm-flux-tablesrc are tuned
+// feel constants — do not change without an explicit user request.
 
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle } from "@codemirror/language";

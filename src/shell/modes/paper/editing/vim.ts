@@ -4,13 +4,35 @@
 // survive, same pattern as the page-view compartment). The compartment content
 // must sit BEFORE every other keymap in the extension tree — vim handles keys
 // at the DOM-event level and expects first claim.
+//
+// Part of the LOCKED editing-feel contract — see ../EDITING-FEEL.md before
+// changing anything here.
 
 import { Compartment, Prec, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { completionStatus, closeCompletion } from "@codemirror/autocomplete";
-import { vim } from "@replit/codemirror-vim";
+import { vim, Vim } from "@replit/codemirror-vim";
+import type { VimFlavor } from "./vimStore";
 
 export const vimCompartment = new Compartment();
+
+// flux-ViM — Flux's own flavor: plain vim plus a small set of opt-in tweaks.
+// Every flavor tweak lives HERE, in one place. The mappings are engine-global
+// state (Vim.map mutates the shared vim instance), so they are applied or
+// removed on every flavor (re)configure — plain "vim" must always get stock
+// behavior back.
+function applyFluxFlavor(on: boolean) {
+  try {
+    if (on) {
+      // Tweak 1: `jj` in rapid succession leaves insert mode (no reach for Esc).
+      Vim.map("jj", "<Esc>", "insert");
+    } else {
+      Vim.unmap("jj", "insert");
+    }
+  } catch {
+    /* unmapping a never-mapped key is a harmless no-op */
+  }
+}
 
 // VSCode/Obsidian Esc ordering: while the @/slash completion tooltip is open,
 // the FIRST Esc closes the tooltip and stays in insert mode; the SECOND Esc
@@ -54,6 +76,7 @@ const vimTheme = EditorView.theme({
   },
 });
 
-export function vimExtensions(on: boolean): Extension {
-  return on ? [escClosesCompletionFirst, vim({ status: true }), vimTheme] : [];
+export function vimExtensions(flavor: VimFlavor): Extension {
+  applyFluxFlavor(flavor === "flux");
+  return flavor === "off" ? [] : [escClosesCompletionFirst, vim({ status: true }), vimTheme];
 }

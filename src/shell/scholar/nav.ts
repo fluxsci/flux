@@ -6,6 +6,7 @@
 import { get, writable } from "svelte/store";
 import { panes, focusPane, splitWith } from "../paneStore";
 import { activeFigureId, activeCanvasId, project, viewport } from "../../lib/store";
+import { readerKey } from "../modes/reader/readerStore";
 
 export const pendingRevealFigureId = writable<string | null>(null);
 
@@ -30,4 +31,15 @@ export function revealFigure(figId: string) {
   pendingRevealFigureId.set(figId);
   // If the figure store is already loaded, jump immediately too.
   focusFigure(figId);
+}
+
+/** Open a paper's PDF in FluxReader without losing the current pane — same
+ *  split-or-focus behavior as revealFigure (ReaderMode reads readerKey
+ *  reactively, so setting it works whether the pane exists yet or not). */
+export function revealReader(citekey: string) {
+  const ps = get(panes);
+  const existing = ps.find((p) => p.mode === "reader");
+  if (existing) focusPane(existing.id);
+  else splitWith("reader");
+  readerKey.set(citekey);
 }
