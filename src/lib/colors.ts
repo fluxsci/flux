@@ -6,17 +6,8 @@ import * as ops from "./ops";
 // Whether palette clicks set fill or stroke.
 export const colorTarget = writable<"fill" | "stroke">("fill");
 
-// Quick keyboard-driven colour picker (opened with F / S).
-export const quickColor = writable<{ open: boolean; target: "fill" | "stroke" }>(
-  { open: false, target: "fill" },
-);
-export function openQuick(target: "fill" | "stroke") {
-  colorTarget.set(target);
-  quickColor.set({ open: true, target });
-}
-export function closeQuick() {
-  quickColor.update((q) => ({ ...q, open: false }));
-}
+// (FIG-15: the F/S "quick colour picker" store was dead — never wired to a key or a UI — and
+// F is actually the FluxFig property menu. Removed the store; Help.svelte corrected to match.)
 
 // Write a style override onto a specific plot PART or GROUP, keyed by its stable
 // semantic id (e.g. "control.line", or a group id like "axis.x.tick-labels").

@@ -23,7 +23,7 @@
         ["Drag empty", "Marquee select"],
         ["Shift + click", "Add to selection"],
         ["Double-click text", "Edit text inline"],
-        ["F / S", "Quick fill / stroke color picker"],
+        ["F", "Property menu for the selection"],
       ],
     },
     {
