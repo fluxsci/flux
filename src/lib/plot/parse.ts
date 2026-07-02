@@ -39,18 +39,29 @@ export function prefixIds(root: Element, elementId: string): void {
     el.setAttribute("id", neu);
   }
   const URL_ATTRS = ["clip-path", "mask", "filter", "fill", "stroke", "marker-start", "marker-mid", "marker-end"];
+  const rewriteUrls = (s: string) => s.replace(/url\(#([^)]+)\)/g, (_m, id) => `url(#${map.get(id) ?? id})`);
   for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
     for (const attr of URL_ATTRS) {
       const v = el.getAttribute(attr);
-      if (v && v.includes("url(#")) {
-        el.setAttribute(attr, v.replace(/url\(#([^)]+)\)/g, (_m, id) => `url(#${map.get(id) ?? id})`));
-      }
+      if (v && v.includes("url(#")) el.setAttribute(attr, rewriteUrls(v));
     }
+    // FIG-11: an inline `style="fill:url(#…)"` binds a gradient/clip/mask too — the
+    // attribute pass above misses it, so two placements of the same plot would resolve
+    // the SAME (unprefixed) id and collide (wrong fill/clip on one of them).
+    const style = el.getAttribute("style");
+    if (style && style.includes("url(#")) el.setAttribute("style", rewriteUrls(style));
     // plain href (SVG2) and namespaced xlink:href (matplotlib <use>)
     const href = el.getAttribute("href");
     if (href && href.startsWith("#")) el.setAttribute("href", "#" + (map.get(href.slice(1)) ?? href.slice(1)));
     const xh = el.getAttributeNS(XLINK, "href");
     if (xh && xh.startsWith("#")) el.setAttributeNS(XLINK, "xlink:href", "#" + (map.get(xh.slice(1)) ?? xh.slice(1)));
+  }
+  // FIG-11: <style> blocks reference gradients/clips by url(#…) as well (e.g. a CSS rule
+  // `.area{fill:url(#grad)}`) — rewrite those so a second placement's CSS points at ITS
+  // prefixed gradient, not the first placement's.
+  for (const st of Array.from(root.querySelectorAll("style"))) {
+    const css = st.textContent;
+    if (css && css.includes("url(#")) st.textContent = rewriteUrls(css);
   }
 }
 

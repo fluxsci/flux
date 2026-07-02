@@ -1,14 +1,18 @@
 <script lang="ts">
   import type { Element } from "./types";
   import { assetData } from "./assets";
-  import { arrowHeads } from "./geometry";
+  import { arrowHeads, elementBBox } from "./geometry";
   import PlotElement from "./PlotElement.svelte";
 
   export let element: Element;
 
   $: e = element;
-  $: cx = "width" in e ? e.x + e.width / 2 : 0;
-  $: cy = "height" in e ? e.y + e.height / 2 : 0;
+  // FIG-2: rotate/flip about the element's true bbox centre. Lines/arrows carry
+  // width/height 0 (their geometry is x1/y1→x2/y2), so `e.x + width/2` put the pivot on
+  // endpoint 1 — a rotated/flipped line swung about its end, wrong on screen AND in export.
+  $: bbox = elementBBox(e);
+  $: cx = bbox.x + bbox.w / 2;
+  $: cy = bbox.y + bbox.h / 2;
   $: transform = buildTransform(e, cx, cy);
 
   // Rotation + flip about the element centre, as an SVG transform list. Flip is

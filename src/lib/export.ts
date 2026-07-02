@@ -1,5 +1,5 @@
 import type { Element, Figure } from "./types";
-import { arrowHeads } from "./geometry";
+import { arrowHeads, elementBBox } from "./geometry";
 
 function esc(s: string): string {
   return s
@@ -15,8 +15,11 @@ function rot(e: Element, inner: string): string {
   const sx = e.flipX ? -1 : 1;
   const sy = e.flipY ? -1 : 1;
   if (!e.rotation && sx === 1 && sy === 1) return inner;
-  const cx = e.x + ("width" in e ? e.width / 2 : 0);
-  const cy = e.y + ("height" in e ? e.height / 2 : 0);
+  // FIG-2: pivot on the true bbox centre so a rotated/flipped line/arrow (width/height 0)
+  // swings about its centre, matching the on-canvas Element.svelte transform.
+  const bb = elementBBox(e);
+  const cx = bb.x + bb.w / 2;
+  const cy = bb.y + bb.h / 2;
   const parts: string[] = [];
   if (e.rotation) parts.push(`rotate(${e.rotation} ${cx} ${cy})`);
   if (sx !== 1 || sy !== 1)

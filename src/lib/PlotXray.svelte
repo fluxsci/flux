@@ -48,18 +48,22 @@
     regenMsg = "";
     try {
       const res = await fb.runRecipe(recipePath, (recipe?.params ?? {}) as Record<string, unknown>);
-      if (res.code !== 0) regenMsg = "recipe failed";
-      else if (res.svgText && res.manifestText) {
+      // FIG-14: surface the REAL failure instead of a bare "error" — the recipe's stderr on a
+      // non-zero exit, and the actual exception message if the output JSON won't parse.
+      if (res.code !== 0) {
+        const why = String(res.stderr ?? "").trim();
+        regenMsg = "recipe failed" + (why ? `: ${why.slice(-200)}` : ` (exit ${res.code})`);
+      } else if (res.svgText && res.manifestText) {
         reimportPlot(
           plotEl.assetId,
           res.svgText,
           JSON.parse(res.manifestText) as FluxPlotManifest,
-          JSON.parse(res.recipeText),
+          res.recipeText ? JSON.parse(res.recipeText) : undefined,
         );
         regenMsg = "regenerated ✓";
       } else regenMsg = "no output";
-    } catch {
-      regenMsg = "error";
+    } catch (e) {
+      regenMsg = "error: " + String((e as Error)?.message ?? e);
     }
     regenBusy = false;
   }

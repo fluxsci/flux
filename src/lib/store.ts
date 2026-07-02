@@ -330,6 +330,9 @@ function pruneSelection() {
     return n;
   });
   partSelection.update((ps) => (ps && live.has(ps.elementId) ? ps : null));
+  // FIG-13: a frame (figure) selection can also dangle after undo removes its figure —
+  // clear it so the frame HUD / resize handles don't render against a gone figure.
+  selectedFrameId.update((id) => (id && p.figures.some((f) => f.id === id) ? id : null));
 }
 
 // ---------------------------------------------------------------------------

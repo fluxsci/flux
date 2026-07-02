@@ -292,6 +292,9 @@ function paste() {
   const fig = activeFig();
   if (!fig) return;
   const newIds: string[] = [];
+  // FIG-3: remap group ids so pasted copies form a NEW group among themselves instead of
+  // staying linked to the originals (which made selecting/moving a paste drag the source).
+  const groupRemap = new Map<string, string>();
   commit((p) => {
     const f = p.figures.find((ff) => ff.id === fig.id)!;
     for (const e of clipboard) {
@@ -299,6 +302,14 @@ function paste() {
       c.id = newId(c.type);
       c.x += 20;
       c.y += 20;
+      if (c.groupId) {
+        let g = groupRemap.get(c.groupId);
+        if (!g) {
+          g = newId("grp");
+          groupRemap.set(c.groupId, g);
+        }
+        c.groupId = g;
+      }
       newIds.push(c.id);
       f.elements.push(c);
     }

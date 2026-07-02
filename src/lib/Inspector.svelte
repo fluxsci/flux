@@ -143,6 +143,9 @@
   // just before writing keeps it stable across a scrub (both stay in proportion).
   function setDim(el: Element, which: "w" | "h", v: number) {
     if (!("width" in el) || !("height" in el)) return;
+    // FIG-10: manually setting W/H on auto-width text switches it to a FIXED box. Otherwise
+    // applyAutoWidth immediately overwrote the value on the next render, so the fields were dead.
+    if (el.type === "text" && el.autoWidth) el.autoWidth = false;
     if (el.lockAspect) {
       if (which === "w") {
         const r = el.width > 0 ? el.height / el.width : 1;
