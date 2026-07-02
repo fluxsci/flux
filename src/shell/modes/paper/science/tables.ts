@@ -186,10 +186,27 @@ function build(state: EditorState): DecorationSet {
   return Decoration.set(deco, true);
 }
 
+// PAP-7: on a selection-only change the table decorations change ONLY if the caret moved onto
+// or off a table block. Test just the lines the old/new selections touch for table membership
+// — a pipe row, a `---` delimiter, a `{#tbl-}` caption, or the single blank line a caption may
+// sit below — instead of re-parsing every line of the document on each cursor move. This
+// over-approximates block membership (a stray `|` in prose triggers a harmless rebuild) but
+// never misses a line that could belong to a table, so the rendering stays correct.
+function tableInActive(state: EditorState): boolean {
+  for (const n of activeLines(state)) {
+    const t = state.doc.line(n).text;
+    if (t.includes("|") || CAPTION.test(t) || DELIM.test(t)) return true;
+    if (t.trim() === "" && n + 1 <= state.doc.lines && CAPTION.test(state.doc.line(n + 1).text))
+      return true;
+  }
+  return false;
+}
+
 export const scienceTables = StateField.define<DecorationSet>({
   create: (state) => build(state),
   update(value, tr) {
-    if (tr.docChanged || tr.selection || tr.effects.some((e) => e.is(refreshChips)))
+    if (tr.docChanged || tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
+    if (tr.selection && (tableInActive(tr.startState) || tableInActive(tr.state)))
       return build(tr.state);
     return value;
   },

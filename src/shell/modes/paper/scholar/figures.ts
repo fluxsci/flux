@@ -22,6 +22,16 @@ export interface FigureRef {
 
 export const figureRefs = writable<FigureRef[]>([]);
 
+// PAP-22: index refs by label so the cite/cross-ref chip widgets resolve in O(1) instead of a
+// linear `find` per chip per rebuild (chips rebuild on every keystroke/scroll over the visible
+// range). Kept in sync by subscribing to the store, so every set — load, seed — refreshes it.
+let refByLabel = new Map<string, FigureRef>();
+figureRefs.subscribe((refs) => {
+  const m = new Map<string, FigureRef>();
+  for (const r of refs) if (!m.has(r.label)) m.set(r.label, r); // first-match, mirrors find()
+  refByLabel = m;
+});
+
 let figuresById: Record<string, Figure> = {};
 let assetData: Record<string, string> = {};
 const renderCache = new Map<string, string>();
@@ -51,8 +61,7 @@ export async function loadFigures(root: string | null): Promise<void> {
 export function resolveFigure(
   label: string,
 ): { ref: FigureRef; number: string; panel?: string } | null {
-  const refs = get(figureRefs);
-  const exact = refs.find((r) => r.label === label);
+  const exact = refByLabel.get(label);
   if (exact) return { ref: exact, number: exact.number };
   // Table cross-refs are numbered inline (by the table renderer), not from the
   // figure project — resolve them against the numbering registry.
@@ -73,6 +82,7 @@ export function resolveFigure(
   //   @fig-x-a-c,e  → "1a–c,e"  (range + extra panel)
   // Match the LONGEST base figure label that is a prefix (figure ids can
   // themselves contain hyphens), then parse the remainder as the panel spec.
+  const refs = get(figureRefs); // panel-prefix match can't use the exact-label index
   let base: FigureRef | undefined;
   for (const r of refs) {
     if (label.startsWith(r.label + "-") && (!base || r.label.length > base.label.length)) {

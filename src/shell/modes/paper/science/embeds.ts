@@ -117,14 +117,23 @@ function build(state: EditorState): DecorationSet {
   return Decoration.set(deco, true);
 }
 
+// PAP-7: on a selection-only change (arrow keys, clicks) the decoration set changes ONLY if
+// an embed line entered or left the active "reveal-raw" set. Test just the handful of lines
+// the old/new selections touch instead of rescanning the whole document on every cursor move
+// (which, toward ~20k lines, starts eating the frame budget on pure navigation).
+function embedInActive(state: EditorState): boolean {
+  for (const n of activeLines(state)) {
+    const t = state.doc.line(n).text;
+    if (t.indexOf("![") >= 0 && EMBED_RE.test(t)) return true;
+  }
+  return false;
+}
+
 export const scienceEmbeds = StateField.define<DecorationSet>({
   create: (state) => build(state),
   update(value, tr) {
-    if (
-      tr.docChanged ||
-      tr.selection ||
-      tr.effects.some((e) => e.is(refreshChips))
-    )
+    if (tr.docChanged || tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
+    if (tr.selection && (embedInActive(tr.startState) || embedInActive(tr.state)))
       return build(tr.state);
     return value;
   },

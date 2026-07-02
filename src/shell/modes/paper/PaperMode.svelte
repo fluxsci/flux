@@ -85,6 +85,22 @@
   let latest = $state("");
   let view = $state<EditorView | undefined>(undefined);
   let outline = $state<OutlineItem[]>([]);
+  // PAP-7: a debounced mirror of `latest` for the whole-document passes that feed only
+  // cosmetic/occasional UI — the TOC (a full syntax-tree walk) and the cited-key red-dots
+  // (a regex over the whole document). These don't need to run on every keystroke; recompute
+  // them ~150ms after typing settles. On load / external reload we refresh synchronously
+  // (refreshIdleNow) so those UIs are correct immediately.
+  let latestIdle = $state("");
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleIdle(): void {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(refreshIdleNow, 150);
+  }
+  function refreshIdleNow(): void {
+    clearTimeout(idleTimer);
+    latestIdle = latest;
+    if (view) outline = getOutline(view.state);
+  }
   let paletteOpen = $state(false);
   // F4: the active document (project-relative path) + the project's document list.
   let activeDocPath = $state(pm?.manifest.manuscript.path ?? "manuscript/main.qmd");
@@ -283,7 +299,7 @@
     const set = new Set<string>();
     const re = /(?:\[@|(?:^|[\s([])@)([A-Za-z][\w:.-]*)/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(latest))) {
+    while ((m = re.exec(latestIdle))) {
       if (!/^(?:fig|tbl|sec|eq)-/.test(m[1])) set.add(m[1]);
     }
     return set;
@@ -572,15 +588,23 @@
   const status = $derived<"demo" | "saved" | "saving" | "error">(
     isDemo ? "demo" : $autosaveStatus === "error" ? "error" : saved ? "saved" : "saving",
   );
-  const bodyEmpty = $derived(stripFrontmatter(latest).trim().length === 0);
-
-  function stripFrontmatter(s: string): string {
+  // PAP-7: is there any non-whitespace after the front matter? Scanned in place (no slice +
+  // trim of the whole document per keystroke), and left on `latest` — NOT the debounced
+  // mirror — so the empty-doc hint stays instant. A non-empty doc bails at its first content
+  // character, so this is O(leading whitespace), not O(document).
+  const bodyEmpty = $derived.by(() => {
+    const s = latest;
+    let i = 0;
     if (s.startsWith("---")) {
       const end = s.indexOf("\n---", 3);
-      if (end >= 0) return s.slice(end + 4);
+      if (end >= 0) i = end + 4;
     }
-    return s;
-  }
+    for (; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c !== 32 && c !== 9 && c !== 10 && c !== 13) return false;
+    }
+    return true;
+  });
 
   onMount(async () => {
     if (pm) {
@@ -595,6 +619,7 @@
       isDemo = true;
     }
     latest = initialDoc;
+    latestIdle = initialDoc; // PAP-7: seed the debounced mirror so cited-keys are correct pre-mount
     diskBaseline = initialDoc; // W7: seed the conflict-guard baseline
     ready = true;
 
@@ -646,7 +671,7 @@
 
   function onReady(v: EditorView) {
     view = v;
-    outline = getOutline(v.state);
+    refreshIdleNow(); // seed latestIdle + the TOC synchronously on mount
     void loadComments(v);
   }
 
@@ -667,7 +692,7 @@
 
   function onChange(s: string) {
     latest = s;
-    if (view) outline = getOutline(view.state);
+    scheduleIdle(); // PAP-7: TOC + cited-key recompute settle ~150ms after typing stops
     syncRanges();
     if (threads.some((t) => !t.draft)) scheduleCommentSave();
     if (!pm) return;
@@ -740,7 +765,7 @@
     latest = text;
     diskBaseline = text; // W7: the newly-loaded document is our baseline
     saved = true; // the swap's own change event scheduled a save; isDirty=false makes it a no-op
-    outline = getOutline(view.state);
+    refreshIdleNow(); // load is immediate, not debounced
     syncRanges();
     await loadComments(view);
     view.focus();
@@ -769,7 +794,7 @@
     diskBaseline = text; // W7: disk is now our baseline
     saved = true;
     diskDiverged = false;
-    outline = getOutline(view.state);
+    refreshIdleNow(); // external reload is immediate, not debounced
     syncRanges();
   }
   // The active document's comments sidecar (mirrors flux-core commentsRel /
@@ -853,6 +878,7 @@
     unregComments();
     subs.forEach((u) => u());
     clearTimeout(hoverHideTimer);
+    clearTimeout(idleTimer);
   });
 
   // ---- dynamic margin -----------------------------------------------------

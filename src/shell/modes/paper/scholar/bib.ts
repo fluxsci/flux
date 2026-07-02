@@ -15,8 +15,18 @@ export const bibEntries = writable<BibEntry[]>([]);
 // corrupt file doesn't silently yield zero citations). null = no problem.
 export const bibError = writable<string | null>(null);
 
+// PAP-22: index entries by citekey so cite chips resolve in O(1) instead of a linear `find`
+// per key per chip per rebuild (chips rebuild on every keystroke over the visible range, and
+// a bib can hold the whole cited FluxLib subset). Subscribing keeps it current across every set.
+let entryByKey = new Map<string, BibEntry>();
+bibEntries.subscribe((entries) => {
+  const m = new Map<string, BibEntry>();
+  for (const e of entries) if (!m.has(e.key)) m.set(e.key, e); // first-match, mirrors find()
+  entryByKey = m;
+});
+
 export function bibEntry(key: string): BibEntry | undefined {
-  return get(bibEntries).find((e) => e.key === key);
+  return entryByKey.get(key);
 }
 
 /** "Smith" | "Smith & Jones" | "Smith et al." */
