@@ -40,7 +40,7 @@ export class FigRefWidget extends WidgetType {
     el.addEventListener("dblclick", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      chipHandlers.onActivate?.({ kind: "figref", label: this.label });
+      chipHandlers.onActivate?.({ kind: "figref", label: this.label }, el);
     });
     el.addEventListener("mouseenter", () =>
       chipHandlers.onHover?.({ kind: "figref", label: this.label }, el),
@@ -90,7 +90,7 @@ export class CiteWidget extends WidgetType {
     el.addEventListener("dblclick", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      chipHandlers.onActivate?.({ kind: "cite", keys: this.keys });
+      chipHandlers.onActivate?.({ kind: "cite", keys: this.keys }, el);
     });
     el.addEventListener("mouseenter", () =>
       chipHandlers.onHover?.({ kind: "cite", keys: this.keys }, el),

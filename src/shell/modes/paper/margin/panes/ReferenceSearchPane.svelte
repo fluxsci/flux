@@ -11,16 +11,17 @@
 
   let query = $state(untrack(() => initialQuery));
   let highlighted = $state(0);
-  // `marked` accumulates ACROSS searches — never cleared on query change.
-  let marked = $state<Set<string>>(new Set());
-  let editTarget = $state<{ from: number; to: number } | null>(null);
+  // `marked` accumulates ACROSS searches (never cleared on query change) and is
+  // an ORDERED array: the inserted group preserves the order you marked in.
+  // Editing an EXISTING group lives in CitationGroupPane (Alt-C / chip dblclick)
+  // — this pane is pure insert.
+  let marked = $state<string[]>([]);
   let inputEl = $state<HTMLInputElement | undefined>(undefined);
   let gridEl = $state<HTMLElement | undefined>(undefined);
 
   // Search the whole FluxLib (not just this project's cited subset) — you search to
   // find any paper to cite. Citing one materializes it into the project (writeCites).
   const results = $derived(runQuery(host.libraryReferences, query));
-  const markedList = $derived([...marked]);
 
   // Show the OpenAlex citation count when a FluxLib entry has been hydrated (enrich).
   function citedBy(r: unknown): string {
@@ -30,12 +31,6 @@
   }
 
   onMount(() => {
-    // Edit-the-citation-at-the-cursor: pre-seed the tray from the group the caret sits in.
-    const g = host.citationAtCaret();
-    if (g && g.keys.length) {
-      marked = new Set(g.keys);
-      editTarget = { from: g.from, to: g.to };
-    }
     inputEl?.focus();
   });
 
@@ -48,17 +43,14 @@
     return r ? `${r.authors[0] ?? key}${r.year ? ` ${r.year}` : ""}` : key;
   }
   function toggleMark(key: string) {
-    const next = new Set(marked);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    marked = next;
+    marked = marked.includes(key) ? marked.filter((k) => k !== key) : [...marked, key];
   }
   function toggleCite(key: string) {
     if (host.citedKeys.has(key)) host.removeCite(key);
     else host.writeCites([key]);
   }
   function confirm() {
-    if (marked.size || editTarget) host.writeCites([...marked], editTarget ?? undefined);
+    if (marked.length) host.writeCites(marked);
     margin.closePane();
   }
 
@@ -76,7 +68,7 @@
     } else if (e.key === "Backspace" || e.key === "Delete") {
       e.preventDefault();
       const r = results[highlighted];
-      if (r && marked.has(r.key)) toggleMark(r.key);
+      if (r && marked.includes(r.key)) toggleMark(r.key);
     } else if (e.key === "Enter") {
       e.preventDefault();
       confirm();
@@ -104,7 +96,7 @@
 
 <div class="rsp">
   <div class="head">
-    <span class="title">{editTarget ? "Edit citation" : "Reference Search"}</span>
+    <span class="title">Reference Search</span>
     <button class="x" onclick={() => margin.closePane()} aria-label="Close">✕</button>
   </div>
 
@@ -116,9 +108,9 @@
     spellcheck="false"
     autocomplete="off" />
 
-  {#if markedList.length}
+  {#if marked.length}
     <div class="tray">
-      {#each markedList as key (key)}
+      {#each marked as key (key)}
         <span class="chip">
           {labelFor(key)}
           <button onclick={() => toggleMark(key)} aria-label="Unmark">✕</button>
@@ -138,7 +130,7 @@
       <div
         class="grow"
         class:hl={i === highlighted}
-        class:marked={marked.has(r.key)}
+        class:marked={marked.includes(r.key)}
         onclick={() => {
           highlighted = i;
           toggleMark(r.key);
@@ -165,10 +157,10 @@
   </div>
 
   <div class="foot">
-    <span class="hint">Space marks · Enter {editTarget ? "replaces" : "inserts"} {marked.size || ""}</span>
+    <span class="hint">Space marks · Enter inserts {marked.length || ""}</span>
     <div class="btns">
       <button class="ghost" onclick={() => margin.closePane()}>Cancel</button>
-      <button class="primary" onclick={confirm}>{editTarget ? "Replace" : "Insert"}</button>
+      <button class="primary" onclick={confirm}>Insert</button>
     </div>
   </div>
 </div>

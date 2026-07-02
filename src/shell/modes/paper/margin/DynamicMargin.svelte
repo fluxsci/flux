@@ -10,11 +10,13 @@
     host,
     focusReq = 0,
     viewReq,
+    paneReq,
     onClose,
   }: {
     host: MarginHost;
     focusReq?: number;
     viewReq?: { id: string; n: number };
+    paneReq?: { id: string; n: number };
     onClose: () => void;
   } = $props();
 
@@ -27,6 +29,12 @@
     if (viewReq && viewReq.n > 0) {
       activeView = viewReq.id;
       openPanes = [];
+    }
+  });
+  // …and a specific pane (e.g. "citation-group" from chip dblclick / Alt-C).
+  $effect(() => {
+    if (paneReq && paneReq.n > 0) {
+      openPanes = [{ id: paneReq.id }];
     }
   });
 

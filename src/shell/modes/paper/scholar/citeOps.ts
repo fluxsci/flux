@@ -9,7 +9,8 @@ import type { EditorState } from "@codemirror/state";
 import type { CitationGroup } from "../margin/types";
 import { isCrossrefKey as isCrossref } from "../science/grammar";
 
-const KEY_RE = /@([A-Za-z][\w:.-]*)/g;
+// Mirrors grammar.ts KEY: never ends in punctuation ("@smith2020." cites smith2020).
+const KEY_RE = /@([A-Za-z](?:[\w:.-]*\w)?)/g;
 
 function keysIn(text: string): string[] {
   const out: string[] = [];
@@ -41,23 +42,28 @@ function bodyStart(doc: string): number {
   return 0;
 }
 
-/** Locate the citation enclosing `pos`: a `[@…]` group, else a bare `@key`. */
+/** Locate the citation enclosing `pos`: a `[@…]` group, else a bare `@key`.
+ *  LINE-LOCAL (citations never span lines) — O(line), cheap enough that the
+ *  active-citation watcher can call it on every caret move. */
 export function citationGroupAt(state: EditorState, pos: number): CitationGroup | null {
-  const doc = state.doc.toString();
+  const line = state.doc.lineAt(Math.min(Math.max(0, pos), state.doc.length));
+  const text = line.text;
+  const rel = pos - line.from;
   const bracket = /\[@[^\]]*\]/g;
   let m: RegExpExecArray | null;
-  while ((m = bracket.exec(doc))) {
+  while ((m = bracket.exec(text))) {
     const from = m.index;
     const to = m.index + m[0].length;
-    if (pos >= from && pos <= to) return { from, to, keys: keysIn(m[0]) };
+    if (rel >= from && rel <= to)
+      return { from: line.from + from, to: line.from + to, keys: keysIn(m[0]) };
   }
   KEY_RE.lastIndex = 0;
-  while ((m = KEY_RE.exec(doc))) {
+  while ((m = KEY_RE.exec(text))) {
     if (isCrossref(m[1])) continue;
     const from = m.index;
     const to = m.index + m[0].length;
-    if (pos >= from && pos <= to && !insideBracket(doc, from)) {
-      return { from, to, keys: [m[1]] };
+    if (rel >= from && rel <= to && !insideBracket(text, from)) {
+      return { from: line.from + from, to: line.from + to, keys: [m[1]] };
     }
   }
   return null;

@@ -26,11 +26,12 @@
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
   import { citationStyle, citationStyleOf } from "./scholar/citeNumbering";
+  import { activeCitationWatcher, resetActiveCitation } from "./scholar/activeCitation";
   import { pageCompartment, themeFor } from "./view-mode/pageView";
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
   import { scienceChips, refreshChips } from "./science/chips";
-  import { anyCiteRe, isCrossrefKey } from "./science/grammar";
+  import { anyCiteRe, crossrefRe, isCrossrefKey } from "./science/grammar";
   import { scienceEmbeds } from "./science/embeds";
   import { scienceTables } from "./science/tables";
   import {
@@ -599,12 +600,71 @@
     clearTimeout(hoverHideTimer);
     hoverHideTimer = setTimeout(() => (hover = null), 160);
   }
-  function activateChip(target: ChipTarget) {
+  function activateChip(target: ChipTarget, el?: HTMLElement) {
     if (target.kind === "figref") {
       const r = resolveFigure(target.label);
       if (r) revealFigure(r.ref.id);
+    } else if (target.kind === "cite") {
+      // Land the caret at the chip (its edge satisfies citationGroupAt's
+      // inclusive bounds) so the group editor tracks THIS group, then open it.
+      // isConnected guard: the first click of a double-click may have revealed
+      // the raw text and unmounted the chip — the caret is already there then.
+      if (view && el?.isConnected) {
+        const pos = view.posAtDOM(el);
+        view.dispatch({ selection: { anchor: pos } });
+      }
+      openMarginPane("citation-group");
     }
   }
+
+  function editCitationAtCursor() {
+    if (!view) return;
+    const g = citationGroupAt(view.state, view.state.selection.main.head);
+    openMarginPane(g ? "citation-group" : "reference-search");
+  }
+
+  // Double-click anywhere on a citation (chip OR revealed raw text) opens the
+  // group editor; on a cross-ref, jumps to the figure. Editor-level because
+  // the FIRST click of a double-click moves the caret onto the chip, which
+  // reveals its raw text and unmounts the widget — a widget-level dblclick
+  // listener dies with the element and never fires.
+  const chipDblClick = EditorView.domEventHandlers({
+    dblclick: (e, v) => {
+      // The click's coords can be stale by dblclick time: the first click put
+      // the caret on the chip, which revealed its raw text and RESIZED the
+      // line. So resolve at the coords AND at the selection head (where the
+      // first click reliably landed).
+      const coordPos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+      const candidates = [coordPos, v.state.selection.main.head].filter(
+        (p): p is number => p != null,
+      );
+      for (const pos of candidates) {
+        const g = citationGroupAt(v.state, pos);
+        if (g) {
+          v.dispatch({ selection: { anchor: g.from } });
+          openMarginPane("citation-group");
+          return true;
+        }
+      }
+      for (const pos of candidates) {
+        const line = v.state.doc.lineAt(pos);
+        const re = crossrefRe();
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(line.text))) {
+          const from = line.from + m.index;
+          const to = from + m[0].length;
+          if (pos >= from && pos <= to) {
+            const r = resolveFigure(m[0].slice(1));
+            if (r) {
+              revealFigure(r.ref.id);
+              return true;
+            }
+          }
+        }
+      }
+      return false; // plain prose — keep CodeMirror's word selection
+    },
+  });
 
   const status = $derived<"demo" | "saved" | "saving" | "error">(
     isDemo ? "demo" : $autosaveStatus === "error" ? "error" : saved ? "saved" : "saving",
@@ -712,6 +772,8 @@
         pageCompartment.of(themeFor(viewMode)),
         selectionWatcher,
         cursorWatcher,
+        activeCitationWatcher,
+        chipDblClick,
         formattingKeymap,
         citeNumberField, // before the chip plugin: ordinals publish first
         scienceChips,
@@ -968,17 +1030,23 @@
     subs.forEach((u) => u());
     clearTimeout(hoverHideTimer);
     clearTimeout(idleTimer);
+    resetActiveCitation();
   });
 
   // ---- dynamic margin -----------------------------------------------------
   let omniFocusN = $state(0);
   let viewReq = $state<{ id: string; n: number }>({ id: "figure", n: 0 });
+  let paneReq = $state<{ id: string; n: number }>({ id: "", n: 0 });
   let workEl = $state<HTMLDivElement | undefined>(undefined);
   let dmDragging = $state(false);
 
   function openMarginView(id: string) {
     paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
     viewReq = { id, n: viewReq.n + 1 };
+  }
+  function openMarginPane(id: string) {
+    paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
+    paneReq = { id, n: paneReq.n + 1 };
   }
   function focusMarginSearch() {
     paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
@@ -1095,6 +1163,7 @@
     },
     { id: "toggle-margin", title: $paperLayout.dynMarginOpen ? "Hide dynamic margin" : "Show dynamic margin", hint: "Alt+F", keywords: "panel margin sidebar", run: toggleMargin },
     { id: "margin-search", title: "Search references…", hint: "Margin", keywords: "find cite reference bibliography", run: focusMarginSearch },
+    { id: "edit-citation", title: "Edit citation at cursor", hint: "Alt+C", keywords: "citation group edit references multi cite", run: editCitationAtCursor },
     { id: "margin-references", title: "References", hint: "Margin", keywords: "bibliography citations library", run: () => openMarginView("bibliography") },
     { id: "add-doi-library", title: "Add DOI to FluxLib", hint: "Reference", keywords: "doi reference library fluxlib add paper crossref import", run: () => openDoiPrompt("library") },
     { id: "add-doi-cite", title: "Add DOI & cite here", hint: "Reference", keywords: "doi cite citation reference insert crossref", run: () => openDoiPrompt("cite") },
@@ -1122,6 +1191,9 @@
       } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyF") {
         e.preventDefault();
         focusMarginSearch();
+      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyC") {
+        e.preventDefault();
+        editCitationAtCursor();
       } else if (mod && !e.shiftKey && !e.altKey && e.code === "Backquote") {
         e.preventDefault();
         openMarginView("terminal");
@@ -1201,6 +1273,7 @@
           host={marginHost}
           focusReq={omniFocusN}
           {viewReq}
+          {paneReq}
           onClose={() => paperLayout.update((s) => ({ ...s, dynMarginOpen: false }))} />
       </div>
     {/if}

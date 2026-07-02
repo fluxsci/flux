@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { MarginHost, MarginApi } from "../types";
   import { bibError } from "../../scholar/bib";
+  import { activeCitationGroup } from "../../scholar/activeCitation";
+  import { citationOrdinals, citationStyle } from "../../scholar/citeNumbering";
 
   let { host, margin }: { host: MarginHost; margin: MarginApi } = $props();
 
@@ -10,10 +12,27 @@
 
   const refs = $derived([...host.references].sort((a, b) => a.authors[0]?.localeCompare(b.authors[0] ?? "") ?? 0));
   const citedCount = $derived(refs.filter((r) => host.citedKeys.has(r.key)).length);
+  // The live group under the caret — a passive card here; Alt-C / "Edit…"
+  // opens the full CitationGroupPane.
+  const group = $derived($activeCitationGroup);
+  const byKey = $derived(new Map(host.libraryReferences.map((r) => [r.key, r])));
+  function memberLabel(key: string): string {
+    const r = byKey.get(key);
+    if (!r) return key;
+    const who = r.authors.length > 2 ? `${r.authors[0]} et al.` : r.authors.join(" & ") || key;
+    return r.year ? `${who}, ${r.year}` : who;
+  }
 
   function toggle(key: string) {
     if (host.citedKeys.has(key)) host.removeCite(key);
     else host.writeCites([key]);
+  }
+  function removeFromGroup(key: string) {
+    if (!group) return;
+    host.writeCites(
+      group.keys.filter((k) => k !== key),
+      { from: group.from, to: group.to },
+    );
   }
   async function add() {
     const d = doi.trim();
@@ -35,6 +54,27 @@
   {#if $bibError}
     <div class="biberr" role="status">{$bibError}</div>
   {/if}
+
+  {#if group}
+    <div class="grpcard">
+      <div class="grphead">
+        <span>At cursor · {group.keys.length} ref{group.keys.length === 1 ? "" : "s"}</span>
+        <button class="grpedit" onclick={() => margin.openPane("citation-group")}>Edit… <kbd>Alt+C</kbd></button>
+      </div>
+      <div class="grpchips">
+        {#each group.keys as key (key)}
+          <span class="gchip">
+            {#if $citationStyle === "numeric"}
+              <b>[{$citationOrdinals.get(key) ?? "?"}]</b>
+            {/if}
+            {memberLabel(key)}
+            <button onclick={() => removeFromGroup(key)} aria-label="Remove {key} from group">✕</button>
+          </span>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
   <button class="search" onclick={() => margin.openPane("reference-search")}>Search references…</button>
 
   <div class="adddoi" class:failed>
@@ -54,7 +94,12 @@
         <li class="ref" class:on={host.citedKeys.has(r.key)}>
           <button class="dot" title={host.citedKeys.has(r.key) ? "Cited — click to remove" : "Click to cite"} onclick={() => toggle(r.key)} aria-label="Toggle citation"></button>
           <div class="body">
-            <div class="t">{r.title || r.key}</div>
+            <div class="t">
+              {#if $citationStyle === "numeric" && $citationOrdinals.get(r.key) !== undefined}
+                <span class="ord">[{$citationOrdinals.get(r.key)}]</span>
+              {/if}
+              {r.title || r.key}
+            </div>
             <div class="m">{r.authors.slice(0, 3).join(", ")}{r.authors.length > 3 ? " et al." : ""}{r.year ? ` · ${r.year}` : ""}{r.container ? ` · ${r.container}` : ""}</div>
           </div>
         </li>
@@ -93,6 +138,80 @@
     border-radius: var(--r-1);
     background: color-mix(in srgb, var(--c-danger) 12%, transparent);
     color: var(--c-tx);
+  }
+  .grpcard {
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-2);
+    padding: var(--sp-2) var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    background: var(--c-surface);
+  }
+  .grphead {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--ts-xs);
+    color: var(--c-tx-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .grpedit {
+    font: inherit;
+    font-size: var(--ts-xs);
+    text-transform: none;
+    letter-spacing: 0;
+    background: none;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
+    color: var(--c-tx-2);
+    padding: 2px 7px;
+    cursor: pointer;
+  }
+  .grpedit:hover {
+    border-color: var(--c-accent);
+    color: var(--c-tx-hi);
+  }
+  .grpedit kbd {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--c-tx-faint);
+  }
+  .grpchips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .gchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 4px 2px 9px;
+    font-size: var(--ts-xs);
+    background: var(--c-accent-tint);
+    color: var(--c-accent);
+    border-radius: var(--r-pill);
+  }
+  .gchip b {
+    font-variant-numeric: tabular-nums;
+  }
+  .gchip button {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.7;
+    font-size: 10px;
+    padding: 0 2px;
+  }
+  .gchip button:hover {
+    opacity: 1;
+  }
+  .ord {
+    color: var(--c-accent-bright);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
   }
   .search {
     font: inherit;

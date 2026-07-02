@@ -10,6 +10,7 @@ import CommentsView from "./views/CommentsView.svelte";
 import PomodoroView from "./views/PomodoroView.svelte";
 import TerminalView from "./views/TerminalView.svelte";
 import ReferenceSearchPane from "./panes/ReferenceSearchPane.svelte";
+import CitationGroupPane from "./panes/CitationGroupPane.svelte";
 import { isStructured } from "./panes/refQuery";
 
 export const VIEWS: ViewDescriptor[] = [
@@ -50,6 +51,12 @@ export const PANES: PaneDescriptor[] = [
     keywords: "search references cite insert",
     matchQuery: (q) => isStructured(q),
     component: ReferenceSearchPane,
+  },
+  {
+    id: "citation-group",
+    title: "Citation Group",
+    keywords: "edit citation group cite references multi",
+    component: CitationGroupPane,
   },
 ];
 

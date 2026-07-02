@@ -8,7 +8,10 @@ export type ChipTarget =
   | { kind: "cite"; keys: string[] };
 
 export interface ChipHandlers {
-  onActivate?: (t: ChipTarget) => void;
+  /** `anchor` = the chip's DOM element (resolve positions fresh via
+   *  view.posAtDOM — widget instances persist across rebuilds, so a captured
+   *  offset would go stale). */
+  onActivate?: (t: ChipTarget, anchor?: HTMLElement) => void;
   onHover?: (t: ChipTarget, anchor: HTMLElement) => void;
   onLeave?: () => void;
 }
