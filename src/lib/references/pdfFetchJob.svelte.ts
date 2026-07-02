@@ -37,6 +37,13 @@ class PdfFetchJob {
   note = $state("");
   cancelled = $state(false);
 
+  // LR-7: the summary of the most-recently FINISHED run, retained after completion so a Library
+  // that was unmounted mid-run (mode switch) can surface it when it next mounts. `runSeq` bumps
+  // once per finished run so a consumer can tell a fresh completion from a stale one it already
+  // showed. Neither is cleared by #reset() — only overwritten by the next #finish().
+  runSeq = $state(0);
+  lastSummary = $state<GuiFetchSummaryLite | null>(null);
+
   #ctrl: AbortController | null = null;
   #token = "";
 
@@ -199,6 +206,8 @@ class PdfFetchJob {
       needSignIn: this.needSignIn,
       cancelled: aborted || this.cancelled,
     };
+    this.lastSummary = summary;
+    this.runSeq++;
     this.running = false;
     this.phase = "";
     this.#ctrl = null;

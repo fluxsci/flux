@@ -96,6 +96,16 @@ export interface FetchFailure {
   lastError?: string; // human-readable last error (OA or proxy)
 }
 
+/** LR-7: the durable per-row outcome for a recorded failure — drives the Library's fetch pill.
+ *  (Environment failures — session-expired/cancelled — are never recorded per the note above,
+ *  so they stay "missing", not any of these.) */
+export type FetchOutcome = "no-id" | "no-oa" | "failed";
+export function fetchOutcome(f: FetchFailure): FetchOutcome {
+  if (f.oa === "no-id") return "no-id"; // no DOI/identifier to even attempt OA
+  if (f.oa === "no-oa") return "no-oa"; // no open-access copy; the publisher route also failed
+  return "failed"; // a route erred (wall / not-a-pdf / network) — see lastError
+}
+
 /** One row of the derived items index (.fluxlib/items.json) — a fast cache of
  *  "what's on disk", rebuildable by scanning items/. Never the source of truth. */
 export interface ItemStatus {

@@ -255,3 +255,32 @@ export async function listFailedKeys(): Promise<Set<string>> {
   );
   return out;
 }
+
+/** LR-7: like listFailedKeys, but reads each failure record so the Library can show a durable
+ *  per-row outcome pill (no DOI / no OA / failed) without expanding the row. Keyed NFC. Failures
+ *  are the minority (only attempted-and-failed papers have a record), so the extra reads are few. */
+export async function listFailures(): Promise<Record<string, FetchFailure>> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  const out: Record<string, FetchFailure> = {};
+  if (!fb || !lib) return out;
+  let entries: { name: string; dir: boolean }[];
+  try {
+    entries = (await fb.readdir?.(itemsBase(lib))) ?? [];
+  } catch {
+    return out;
+  }
+  await Promise.all(
+    entries
+      .filter((e) => e.dir)
+      .map(async ({ name }) => {
+        try {
+          const p = `${itemsBase(lib)}/${name}/${FETCH_FAILURE_JSON}`;
+          if (await fb.exists(p)) out[name.normalize("NFC")] = JSON.parse(await fb.readText(p)) as FetchFailure;
+        } catch {
+          /* a corrupt/racing record just omits its pill */
+        }
+      }),
+  );
+  return out;
+}

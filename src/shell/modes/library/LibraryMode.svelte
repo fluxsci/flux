@@ -1,3 +1,10 @@
+<script module lang="ts">
+  // LR-7: the run-seq of the last bulk-fetch whose summary we've already surfaced. Module-scoped
+  // so it persists across Library mount/unmount within one session — that's what lets us show the
+  // summary of a run that FINISHED while the user was in another mode, exactly once, on return.
+  let shownFetchSeq = 0;
+</script>
+
 <script lang="ts">
   // The Library mode — a full-window, searchable table over the WHOLE machine-global
   // FluxLib, showing OpenAlex enrichment (abstract, topics, keywords, citation count),
@@ -25,9 +32,9 @@
   import { BOOKMARKLET_HREF } from "./bookmarklet";
   import { openInReader } from "../reader/readerStore";
   import { fetchPdfForEntry, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
-  import { listPdfKeys, ingestPdfFile, listFailedKeys, readFetchFailure, clearFetchFailure } from "../../../lib/references/itemsBridge";
-  import { pdfFetchJob } from "../../../lib/references/pdfFetchJob.svelte";
-  import { safeKey, type FetchFailure } from "../../../lib/references/items";
+  import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure } from "../../../lib/references/itemsBridge";
+  import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
+  import { safeKey, fetchOutcome, type FetchFailure, type FetchOutcome } from "../../../lib/references/items";
 
   let { focused = true }: { focused?: boolean } = $props();
 
@@ -64,10 +71,13 @@
   // The bulk "Get all PDFs" run lives in a module-level job (pdfFetchJob) so it survives
   // navigating away from Library; these mirror it for this view's button/row states.
   const fetchingAll = $derived(pdfFetchJob.running);
-  // Keys with a recorded both-routes fetch failure (Part C) — drives the ⚠ chip + filter +
-  // the "failed N" count. Refreshed on reload and after a bulk run.
-  let failedKeys = $state.raw<Set<string>>(new Set());
-  let failureInfo = $state<Record<string, FetchFailure>>({}); // lazily loaded per expanded row
+  // LR-7: one eager map of every recorded fetch failure (keyed NFC) — the single source for
+  // the per-row outcome pill (no DOI / no OA / failed), the diagnostic banner, and the
+  // "failed N" filter. failedKeys derives from it so reload/refresh/clear stay in one place.
+  // Failures are the minority (only attempted-and-failed papers have a record), so reading
+  // each record on reload is a handful of extra file reads, not a per-row cost.
+  let failures = $state.raw<Record<string, FetchFailure>>({});
+  const failedKeys = $derived(new Set(Object.keys(failures)));
   let showFailedOnly = $state(false);
 
   // API keys panel — stored in ~/FluxLib/keys.json (machine-global, every project).
@@ -123,6 +133,29 @@
     queryTimer = setTimeout(() => (queryDebounced = q), 150);
   });
   const isFailed = (key: string) => failedKeys.has(nfc(key));
+  // LR-7: the durable, categorized per-row outcome pill (replaces the ambiguous ⚠). Environment
+  // failures (session-expired / cancelled) are never recorded, so they stay plain "missing".
+  const OUTCOME_PILL: Record<FetchOutcome, { label: string; tone: "danger" | "muted"; title: string }> = {
+    "no-id": {
+      label: "no DOI",
+      tone: "muted",
+      title: "No DOI/identifier on this entry, so no fetch route could be tried — add a DOI (↗), then retry.",
+    },
+    "no-oa": {
+      label: "no OA",
+      tone: "danger",
+      title: "No open-access copy exists and the library-proxy route didn't return a PDF — click for details.",
+    },
+    failed: {
+      label: "failed",
+      tone: "danger",
+      title: "A fetch route erred (paywall wall / not-a-PDF / network) — click for details.",
+    },
+  };
+  const outcomePill = (key: string) => {
+    const f = failures[nfc(key)];
+    return f ? OUTCOME_PILL[fetchOutcome(f)] : null;
+  };
   const results = $derived(
     showFailedOnly
       ? runQuery(enriched, queryDebounced).filter((r) => isFailed(r.key))
@@ -165,11 +198,11 @@
   }
 
   async function reload() {
-    [entries, enrichMap, pdfKeys, failedKeys] = await Promise.all([
+    [entries, enrichMap, pdfKeys, failures] = await Promise.all([
       loadFluxLib(),
       loadEnrichMap(),
       listPdfKeys(),
-      listFailedKeys(),
+      listFailures(),
     ]);
     loading = false;
   }
@@ -190,6 +223,23 @@
 
   $effect(() => {
     if (highlighted > results.length - 1) highlighted = Math.max(0, results.length - 1);
+  });
+
+  // LR-7: surface a finished bulk-run's summary from the job singleton — whether it completed
+  // while Library was open OR while the user was away in another mode (the old code only showed
+  // the summary via the awaited start() call, which resolved on a since-destroyed component and
+  // was silently lost). Fires once per run (guarded by the module-scoped shownFetchSeq), and
+  // re-lists coverage + failure pills since a run that finished while we were away changed disk.
+  $effect(() => {
+    if (pdfFetchJob.running) return;
+    const seq = pdfFetchJob.runSeq;
+    const sum = pdfFetchJob.lastSummary;
+    if (!sum || seq <= shownFetchSeq) return;
+    shownFetchSeq = seq;
+    showFetchSummary(sum);
+    void (async () => {
+      [pdfKeys, failures] = await Promise.all([listPdfKeys(), listFailures()]);
+    })();
   });
 
   async function toggleKeys() {
@@ -287,9 +337,8 @@
   async function dropFailure(key: string) {
     if (!isFailed(key)) return;
     await clearFetchFailure(key);
-    const next = new Set(failedKeys);
-    next.delete(nfc(key));
-    failedKeys = next;
+    const { [nfc(key)]: _dropped, ...rest } = failures;
+    failures = rest;
   }
 
   async function runEnrich() {
@@ -397,30 +446,28 @@
         if (!tickTimer) tickTimer = setTimeout(flushTicks, 250);
       }
     };
-    const sum = await pdfFetchJob.start(
-      entries,
-      enrichMap,
-      { proxyConfigured, proxySignedIn },
-      { retryFailed, onTick },
-    );
+    await pdfFetchJob.start(entries, enrichMap, { proxyConfigured, proxySignedIn }, { retryFailed, onTick });
     if (tickTimer) clearTimeout(tickTimer);
     tickBuf = [];
-    pdfKeys = await listPdfKeys();
-    failedKeys = await listFailedKeys();
-    if (!sum) return;
+    // The summary + coverage re-list are handled by the completion $effect above, so they also
+    // fire when a run finishes after the user leaves and returns to Library (not only here).
+  }
+
+  // LR-7: render a finished run's summary into the shared add/status pill. Called by the
+  // completion $effect for every run (whether or not Library was mounted when it finished).
+  function showFetchSummary(sum: GuiFetchSummaryLite) {
     if (sum.cancelled) {
-      addStatus = "added";
       addedTitle = `Stopped · ${sum.oaGot + sum.proxyGot} fetched so far`;
     } else {
       const parts = [`${sum.oaGot} open-access`];
       if (sum.proxyGot || proxySignedIn) parts.push(`${sum.proxyGot} via library`);
-      addStatus = "added";
       addedTitle =
         `Fetched ${sum.oaGot + sum.proxyGot} (${parts.join(" · ")})` +
         (sum.failedNew ? ` · ${sum.failedNew} failed` : "") +
         (sum.needSignIn ? ` · ${sum.needSignIn} need library sign-in` : "") +
         (sum.errors ? ` · ${sum.errors} error` : "");
     }
+    addStatus = "added";
     setTimeout(() => {
       if (addStatus === "added") addStatus = "";
     }, 5200);
@@ -466,12 +513,6 @@
   function toggleExpand(e: MouseEvent, key: string) {
     e.stopPropagation();
     expanded = expanded === key ? "" : key;
-    // Lazily load the failure record for the diagnostic banner when a failed row opens.
-    if (expanded === key && isFailed(key) && !failureInfo[key]) {
-      void readFetchFailure(key).then((f) => {
-        if (f) failureInfo = { ...failureInfo, [key]: f };
-      });
-    }
   }
   // Clear a paper's failure record so the next bulk run retries it (and drop the ⚠).
   async function clearFailure(e: MouseEvent, key: string) {
@@ -832,12 +873,15 @@
                   disabled={fetchingKey === r.key || fetchingAll}
                   onclick={(e) => getPdf(e, r)}>{fetchingKey === r.key ? "…" : "⬇"}</button>
               {/if}
-              {#if !hasPdf(r.key) && isFailed(r.key)}
-                <button
-                  class="ico failchip"
-                  title="Fetch failed both open-access and library routes — click for details"
-                  aria-label="Fetch failed"
-                  onclick={(e) => toggleExpand(e, r.key)}>⚠</button>
+              {#if !hasPdf(r.key)}
+                {@const pill = outcomePill(r.key)}
+                {#if pill}
+                  <button
+                    class="fpill t-{pill.tone}"
+                    title={pill.title}
+                    aria-label="Fetch outcome: {pill.label} — click for details"
+                    onclick={(e) => toggleExpand(e, r.key)}>{pill.label}</button>
+                {/if}
               {/if}
               {#if r.doi}
                 <button class="ico" title="Open DOI" aria-label="Open DOI" onclick={(e) => openDoi(e, r.doi)}
@@ -857,8 +901,8 @@
             {#if !hasPdf(r.key) && isFailed(r.key)}
               <div class="failbanner">
                 <span class="fbtag">⚠ PDF fetch failed</span>
-                {#if failureInfo[r.key]}
-                  {@const f = failureInfo[r.key]}
+                {#if failures[nfc(r.key)]}
+                  {@const f = failures[nfc(r.key)]}
                   <span class="fbwhy"
                     >{f.proxy?.reason || "no route"}{f.host ? ` · ${f.host}` : ""}{f.attempts > 1 ? ` · ${f.attempts}×` : ""}</span>
                   {#if f.proxy?.detail}<span class="fbdetail">{f.proxy.detail}</span>{/if}
@@ -1392,8 +1436,28 @@
   .ico.haspdf:hover {
     color: var(--c-accent-bright);
   }
-  .ico.failchip {
+  /* LR-7: durable per-row fetch-outcome pill (no DOI / no OA / failed). */
+  .fpill {
+    border: 1px solid;
+    background: none;
+    cursor: pointer;
+    font-size: var(--ts-xs);
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .fpill.t-danger {
     color: var(--c-danger);
+    border-color: color-mix(in srgb, var(--c-danger) 45%, transparent);
+    background: color-mix(in srgb, var(--c-danger) 8%, transparent);
+  }
+  .fpill.t-muted {
+    color: var(--c-tx-faint);
+    border-color: var(--c-line-strong);
+  }
+  .fpill:hover {
+    filter: brightness(1.15);
   }
   /* Failure diagnostic banner inside an expanded failed row. */
   .failbanner {
