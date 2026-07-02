@@ -22,6 +22,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, type TargetNode, type PresetCtx, type NodeAnim } from "./presets";
 import { createMorph, morphCompatible, type MorphController } from "./morph";
+import { createCountUp } from "./countup";
 import type { Deck, Slide, Track, EasingToken, Influence, StageSize, DeckTheme, TransitionKind } from "../types";
 
 /** A unified handle the sequencer awaits + can interrupt — a WAAPI Animation or
@@ -154,6 +155,11 @@ interface Spec {
   duration: number;
   easing: string;
   enter: boolean;
+  /** The authoring identity (target+part+selector) all of a track's node-specs
+   *  share. The RE-BASELINE window is computed per key, not per node, because an
+   *  enter and a re-enter of the same logical target may resolve to different
+   *  nodes (fade acts on the part's <g>, drawOn drills to its path). */
+  key: string;
   prep?: () => void;
   /** A `camera` track: its FROM keyframe must be re-read from the live layer at
    *  PLAY time (not this build time) so chained moves start from the current pose. */
@@ -173,6 +179,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       // A disabled track keeps its authored timing in the deck but is invisible
       // to play/static/export — the non-destructive Mask/Show substrate.
       if (track.disabled) continue;
+      const key = `${track.target}|${track.part ?? ""}|${JSON.stringify(track.selector ?? null)}`;
       // morph — a data-space driver over a plot element (not keyframe-based).
       if (track.preset === "morph") {
         const wrap = rendered.elements.get(track.target);
@@ -186,10 +193,26 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         // create a morph that silently mis-tweened; skip it instead so the element holds at A.
         if (wrap && A && B && morphCompatible(A, B)) {
           specs.push({
-            node: wrap, beatIndex: bi, keyframes: [], enter: false,
+            node: wrap, beatIndex: bi, keyframes: [], enter: false, key,
             delay: track.start ?? 0, duration: track.duration ?? 1200, easing: resolveEasing(track.easing ?? "smooth", track.influence),
             morph: createMorph(wrap, track.target, A, B),
             morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence),
+          });
+        }
+        continue;
+      }
+      // countUp — a number-tween driver sharing the morph plumbing (rAF play,
+      // static seek 0|1, reduced-motion snap). Targets the first resolved node
+      // (the text box, or one block via selector.blocks).
+      if (track.preset === "countUp") {
+        const node = resolveNodes(track, slide, rendered, cameraLayer, opts)[0];
+        if (node) {
+          specs.push({
+            node, beatIndex: bi, keyframes: [], enter: false, key,
+            delay: track.start ?? 0, duration: track.duration ?? 800,
+            easing: resolveEasing(track.easing ?? "standard", track.influence),
+            morph: createCountUp(node, track),
+            morphEase: resolveEasingFn(track.easing ?? "standard", track.influence),
           });
         }
         continue;
@@ -211,6 +234,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           duration: track.duration ?? DUR.gentle,
           easing: resolveEasing(track.easing, track.influence),
           enter: na.enter,
+          key,
           prep: na.prep,
           camera: track.preset === "camera",
         });
@@ -273,6 +297,20 @@ export function baseCameraTransform(slide: Slide, stage: StageSize): string {
 }
 
 export function applyStatic(specs: Spec[], beatIndex: number): void {
+  // RE-BASELINE windows, per authoring KEY (target+part+selector), not per node:
+  // an enter restarts its logical target's story, so everything that key did in
+  // earlier beats (an exit's hidden end-state, stale emphasis transforms) is
+  // superseded. Computed per key because an enter and a re-enter of the same
+  // target may resolve to DIFFERENT nodes (fade acts on a part's <g>; drawOn
+  // drills to its inner path) — a per-node window would leave the <g> hidden.
+  const windowStart = new Map<string, number>();
+  for (const s of specs) {
+    if (s.enter && s.beatIndex <= beatIndex) {
+      windowStart.set(s.key, Math.max(windowStart.get(s.key) ?? 0, s.beatIndex));
+    }
+  }
+  const superseded = (s: Spec) => s.beatIndex < (windowStart.get(s.key) ?? -1);
+
   const byNode = new Map<TargetNode, Spec[]>();
   for (const s of specs) {
     const list = byNode.get(s.node) ?? [];
@@ -293,12 +331,14 @@ export function applyStatic(specs: Spec[], beatIndex: number): void {
     for (const s of morphs) s.morph!.seek(s.beatIndex <= beatIndex ? 1 : 0);
     const kf = list.filter((s) => !s.morph);
     if (!kf.length) continue;
-    const past = kf.filter((s) => s.beatIndex <= beatIndex);
+    const past = kf.filter((s) => s.beatIndex <= beatIndex && !superseded(s));
     if (past.length) {
       // accumulate: non-transform props last-wins; transform composed by fn (B11)
       applyAccumulated(node, past);
-    } else if (kf[0].enter) {
-      applyKeyframe(node, kf[0].keyframes[0]); // hidden until its intro beat
+    } else if (kf[0].enter && kf[0].beatIndex > beatIndex) {
+      // hidden until its intro beat. (A node whose past was entirely superseded
+      // by a later re-enter on ANOTHER node of its key rests at the base look.)
+      applyKeyframe(node, kf[0].keyframes[0]);
     }
   }
 }
@@ -325,11 +365,41 @@ function runMorph(m: MorphController, duration: number, reduced: boolean, ease: 
   return { finished, cancel: () => { cancelled = true; if (raf) cancelAnimationFrame(raf); resolveFinished(); } };
 }
 
+const HIDE_PROPS: [prop: string, css: string[]][] = [
+  ["opacity", ["opacity"]],
+  ["transform", ["transform"]],
+  ["clipPath", ["clip-path"]],
+  ["strokeDashoffset", ["stroke-dashoffset", "stroke-dasharray"]],
+];
+/** A LIVE enter must re-baseline too: clear the hide-props its own keyframes do
+ *  NOT animate (a drawOn re-enter after a fadeOut would otherwise play invisibly
+ *  under the exit's inline opacity:0). Mirrors applyStatic's re-baseline rule. */
+function clearStaleHidesForEnter(s: Spec) {
+  const animated = new Set(s.keyframes.flatMap((k) => Object.keys(k)));
+  const st = (s.node as HTMLElement).style;
+  for (const [prop, css] of HIDE_PROPS) {
+    if (!animated.has(prop)) for (const c of css) st.removeProperty(c);
+  }
+}
+
 function playSpecs(specs: Spec[], lo: number, hi: number, reduced: boolean): Playable[] {
+  // A LIVE enter re-baselines its whole KEY, mirroring applyStatic: earlier-beat
+  // specs of the same key on OTHER nodes (an exit that hid the part's <g> while
+  // this re-enter drills to its path) are stale — reset those nodes so the
+  // re-enter is actually visible while it plays.
+  const enterKeys = new Set<string>();
+  for (const s of specs) if (s.beatIndex >= lo && s.beatIndex <= hi && s.enter) enterKeys.add(s.key);
+  if (enterKeys.size) {
+    const liveNodes = new Set(specs.filter((s) => s.beatIndex >= lo && s.beatIndex <= hi).map((s) => s.node));
+    for (const o of specs) {
+      if (o.beatIndex < lo && enterKeys.has(o.key) && !liveNodes.has(o.node)) clearAnimStyles(o.node);
+    }
+  }
   const out: Playable[] = [];
   for (const s of specs) {
     if (s.beatIndex < lo || s.beatIndex > hi) continue;
     s.prep?.();
+    if (s.enter) clearStaleHidesForEnter(s);
     if (s.morph) { out.push(runMorph(s.morph, s.duration, reduced, s.morphEase)); continue; }
     // Camera: start from the layer's LIVE transform so a second move continues from
     // the first's pose instead of snapping back to identity (B8).

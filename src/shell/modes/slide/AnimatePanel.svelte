@@ -78,7 +78,7 @@
   }
 
   // --- per-track editing (issue #5: many anims/beat + stagger + speed control) --
-  const EDIT_PRESETS: PresetName[] = ["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn", "highlight", "dim"];
+  const EDIT_PRESETS: PresetName[] = ["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn", "fadeOut", "popOut", "drawOff", "wipeOut", "highlight", "dim", "countUp"];
   const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
   // AE-style velocity presets (outgoing/incoming influence %). "ease" clears the
   // influence so the named easing applies again.
@@ -356,6 +356,8 @@
     drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
     growBaseline: "#d0a215", popIn: "#8b7ec8", writeOn: "#3aa99f", highlight: "#d0a215",
     dim: "#6f6e69", move: "#4385be", scale: "#4385be", rotate: "#4385be", morph: "#ce5d97", camera: "#a02f6f",
+    // exits render in the muted red family — visually "this leaves the stage"
+    fadeOut: "#af3029", popOut: "#af3029", drawOff: "#af3029", wipeOut: "#af3029", countUp: "#66800b",
   };
 </script>
 

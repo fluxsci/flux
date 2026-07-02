@@ -37,15 +37,28 @@ const num = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
 const each = (nodes: TargetNode[], fn: (node: TargetNode, index: number) => NodeAnim): NodeAnim[] =>
   nodes.map(fn);
 
+/** Inside a <defs> subtree? Such geometry is a shared TEMPLATE (fluxplot ticks
+ *  reference one defs path via <use> per tick) — dashing it would animate every
+ *  referencing instance at once. Never draw-on defs content. */
+function inDefs(el: Element): boolean {
+  for (let p: Element | null = el.parentElement ?? (el.parentNode as Element | null); p; p = p.parentElement ?? (p.parentNode as Element | null)) {
+    if (p.tagName?.toLowerCase() === "defs") return true;
+  }
+  return false;
+}
+
 /** The strokable geometry to draw-on for a target. FluxPlot wraps each part in a
  *  <g id="…"> and the real path/line lives inside, so a draw-on target is usually
- *  a group — drill to its path/line/polyline/polygon descendants (or the node
- *  itself if it already is one). Returns the node as-is if no geometry is found. */
+ *  a group — drill to its path/line/polyline/polygon descendants. <use> and
+ *  anything living in <defs> are NOT strokable here (a <use>'s length can't be
+ *  measured and its defs path is shared) — returns [] when nothing real is found
+ *  so callers pick an explicit fallback instead of silently no-oping. */
 function geometryEls(node: TargetNode): SVGElement[] {
-  const tag = (node as Element).tagName?.toLowerCase();
-  if (tag && /^(path|line|polyline|polygon)$/.test(tag)) return [node as SVGElement];
-  const found = Array.from((node as Element).querySelectorAll?.("path,line,polyline,polygon") ?? []) as SVGElement[];
-  return found.length ? found : [node as SVGElement];
+  const el = node as Element;
+  const tag = el.tagName?.toLowerCase();
+  if (tag && /^(path|line|polyline|polygon)$/.test(tag)) return inDefs(el) ? [] : [el as SVGElement];
+  const found = Array.from(el.querySelectorAll?.("path,line,polyline,polygon") ?? []) as SVGElement[];
+  return found.filter((g) => !inDefs(g));
 }
 
 export const PRESETS: Record<string, Preset> = {
@@ -84,10 +97,15 @@ export const PRESETS: Record<string, Preset> = {
 
   // Tier-2: the SVG self-draw. Drills through wrapper <g>s to the strokable
   // geometry, then dashes each child by its OWN length so the stroke draws itself
-  // on (dashing the empty <g> would do nothing / dot the children).
+  // on (dashing the empty <g> would do nothing / dot the children). A target with
+  // NO measurable geometry (<use>-based ticks in pre-regen fluxplot SVGs, a
+  // div-rendered rect/ellipse) falls back to a fade — never a silent no-op that
+  // leaves the part visible before its beat.
   drawOn: (nodes) =>
-    nodes.flatMap((node, index) =>
-      geometryEls(node).map((geo): NodeAnim => {
+    nodes.flatMap((node, index): NodeAnim[] => {
+      const geos = geometryEls(node);
+      if (!geos.length) return [{ node, index, enter: true, keyframes: [{ opacity: 0 }, { opacity: 1 }] }];
+      return geos.map((geo): NodeAnim => {
         let len = 1;
         try { len = (geo as SVGGeometryElement).getTotalLength?.() || 1; } catch { len = 1; }
         return {
@@ -95,8 +113,44 @@ export const PRESETS: Record<string, Preset> = {
           prep: () => { geo.style.strokeDasharray = `${len}`; },
           keyframes: [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
         };
-      }),
-    ),
+      });
+    }),
+
+  // --- exits (hidden AFTER their beat) --------------------------------------
+  fadeOut: (nodes) =>
+    each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0 }] })),
+
+  popOut: (nodes, t) => {
+    const to = num(t.params?.to, 0.92);
+    return each(nodes, (node, index) => ({
+      node, index, enter: false,
+      keyframes: [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: `scale(${to})` }],
+    }));
+  },
+
+  // Tier-2: writeOn's mirror — a right-to-left wipe via clip-path.
+  wipeOut: (nodes) =>
+    each(nodes, (node, index) => ({
+      node, index, enter: false,
+      keyframes: [{ clipPath: "inset(0 0 0 0)" }, { clipPath: "inset(0 100% 0 0)" }],
+    })),
+
+  // Tier-2: drawOn reversed — the stroke un-draws itself. Same geometry drill,
+  // same no-measurable-geometry fallback (a fade-out).
+  drawOff: (nodes) =>
+    nodes.flatMap((node, index): NodeAnim[] => {
+      const geos = geometryEls(node);
+      if (!geos.length) return [{ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0 }] }];
+      return geos.map((geo): NodeAnim => {
+        let len = 1;
+        try { len = (geo as SVGGeometryElement).getTotalLength?.() || 1; } catch { len = 1; }
+        return {
+          node: geo, index, enter: false,
+          prep: () => { geo.style.strokeDasharray = `${len}`; },
+          keyframes: [{ strokeDashoffset: 0 }, { strokeDashoffset: len }],
+        };
+      });
+    }),
 
   // --- transforms / emphasis (already-present elements) --------------------
   move: (nodes, t) => {
@@ -156,3 +210,8 @@ export const PRESETS: Record<string, Preset> = {
 /** Whether a preset name introduces its targets (hidden before its beat). Used
  *  by the player's static-state pass for nodes it hasn't computed specs for yet. */
 export const ENTER_PRESETS = new Set(["fade", "fadeRise", "popIn", "growBaseline", "writeOn", "drawOn", "stagger"]);
+
+/** The disappear family — targets are hidden AFTER their beat. A later enter
+ *  re-baselines the node (the player's static accumulation restarts at the last
+ *  enter), so enter → exit → re-enter sequences are deterministic + reversible. */
+export const EXIT_PRESETS = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"]);

@@ -87,7 +87,13 @@ assert(opacity(bullets.children[2] as unknown as HTMLElement) === "0", "back to 
 // A draw-on part must rest UNDRAWN (strokeDasharray set + strokeDashoffset=len)
 // before its beat — not fully drawn. Guards the prep()-after-clearAnimStyles
 // ordering in applyStatic (the bug: clear wiped prep's dash-array → drawn).
+// WS3: drawOn drills to REAL geometry only; a geometry-less target now falls
+// back to a fade (covered below + in verify-slide-exits) instead of dashing a div.
 const lineNode = el("ln_line");
+const svgNS = "http://www.w3.org/2000/svg";
+const linePath = document.createElementNS(svgNS, "path");
+linePath.setAttribute("d", "M 0 0 L 100 0");
+lineNode.appendChild(linePath);
 const drawSlide: Slide = {
   id: "s2",
   elements: [{ type: "textBox", id: "ln_line", x: 0, y: 0, width: 400, height: 100, rotation: 0, blocks: [{ id: "x", text: "line" }] }],
@@ -97,14 +103,27 @@ const drawSlide: Slide = {
   ],
 };
 const drawSpecs = computeSlideAnims(drawSlide, { elements: new Map([["ln_line", lineNode]]) }, camera, stage, opts);
+const geoNode = linePath as unknown as HTMLElement;
 const dash = (n: HTMLElement) => (n.style as unknown as { strokeDasharray?: string }).strokeDasharray ?? "";
 const offset = (n: HTMLElement) => (n.style as unknown as { strokeDashoffset?: string }).strokeDashoffset ?? "";
+assert(drawSpecs.some((s) => s.node === (linePath as never)), "drawOn drilled to the real path geometry");
 applyStatic(drawSpecs, 0);
-assert(dash(lineNode) !== "" && offset(lineNode) !== "" && offset(lineNode) !== "0", "beat 0: draw-on part rests UNDRAWN (dasharray set + offset=len) — the static-state fix");
+assert(dash(geoNode) !== "" && offset(geoNode) !== "" && offset(geoNode) !== "0", "beat 0: draw-on part rests UNDRAWN (dasharray set + offset=len) — the static-state fix");
 applyStatic(drawSpecs, 1);
-assert(offset(lineNode) === "0", "beat 1: draw-on part fully drawn (offset 0)");
+assert(offset(geoNode) === "0", "beat 1: draw-on part fully drawn (offset 0)");
 applyStatic(drawSpecs, 0);
-assert(offset(lineNode) !== "0" && offset(lineNode) !== "", "back to beat 0 re-hides the draw (reversible)");
+assert(offset(geoNode) !== "0" && offset(geoNode) !== "", "back to beat 0 re-hides the draw (reversible)");
+
+// geometry-less target → the fade fallback keeps enter semantics (never a no-op)
+const bareNode = el("ln_bare");
+const bareSpecs = computeSlideAnims(
+  { ...drawSlide, elements: [{ ...drawSlide.elements[0], id: "ln_bare" }], beats: [drawSlide.beats[0], { id: "d1", tracks: [{ target: "ln_bare", preset: "drawOn", duration: 800 }] }] } as Slide,
+  { elements: new Map([["ln_bare", bareNode]]) }, camera, stage, opts,
+);
+applyStatic(bareSpecs, 0);
+assert((bareNode.style as unknown as { opacity?: string }).opacity === "0", "geometry-less drawOn target rests HIDDEN before its beat (fade fallback)");
+applyStatic(bareSpecs, 1);
+assert((bareNode.style as unknown as { opacity?: string }).opacity === "1", "…and shown after (no silent visible-before-beat no-op)");
 
 // --- parts-tree group targeting (anim 1.1) -----------------------------------
 // track.part naming a GROUP id expands to ALL its leaf members via resolveTargets
