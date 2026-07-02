@@ -138,6 +138,7 @@
   // Equal-spacing snap dimension lines during a move (F7), figure-local.
   let spacing: { x1: number; y1: number; x2: number; y2: number; label: string }[] = [];
   let rotateTip = ""; // live angle readout during a rotate drag
+  let gRotDeg = 0; // FIG-1: live rotate delta (deg); drives a transient transform, committed on release
 
   function ensureCommitted() {
     if (!committed) {
@@ -1143,30 +1144,17 @@
       gNb = nb;
       liveBox = nb;
     } else if (g.kind === "rotate") {
+      // FIG-1: flicker-free rotate — accumulate the delta and apply a transient rotate transform
+      // to the selection's LIVE scene groups (composited), committing once on release. The old
+      // path mutate()'d the model every pointermove, re-running visibleByFig + re-diffing every
+      // visible element each frame (janky at 1–2k elements). Mirrors the move/resize path.
       const lp = localPoint(e.clientX, e.clientY, fig);
       let delta = (Math.atan2(lp.y - g.cy, lp.x - g.cx) * 180) / Math.PI - g.startAngle;
-      dragging = true;
-      ensureCommitted(); // first move captures the pre-rotation state (one undo)
-      mutate((p) => {
-        const f = p.figures.find((ff) => ff.id === g.figId);
-        if (!f) return;
-        const sel: Element[] = [];
-        for (const el of f.elements) {
-          const o = g.origs.get(el.id);
-          if (!o) continue;
-          el.x = o.x; // restore originals so the delta doesn't compound
-          el.y = o.y;
-          el.rotation = o.rotation;
-          sel.push(el);
-        }
-        if (e.shiftKey && sel.length) {
-          const base = g.origs.get(sel[0].id)?.rotation ?? 0;
-          delta = Math.round((base + delta) / 15) * 15 - base;
-        }
-        rotateAbout(sel, { x: g.cx, y: g.cy }, delta);
-        const a = ((((sel[0]?.rotation ?? 0) % 360) + 360) % 360);
-        rotateTip = `${Math.round(a)}°`;
-      });
+      const base = g.origs.get(gestureEls[0]?.id ?? "")?.rotation ?? 0;
+      if (e.shiftKey) delta = Math.round((base + delta) / 15) * 15 - base; // snap the primary to 15°
+      startDragging();
+      gRotDeg = delta;
+      rotateTip = `${Math.round((((base + delta) % 360) + 360) % 360)}°`;
     } else if (g.kind === "marquee") {
       const lp = localPoint(e.clientX, e.clientY, fig);
       const r: Rect = { x: Math.min(g.x0, lp.x), y: Math.min(g.y0, lp.y), w: Math.abs(lp.x - g.x0), h: Math.abs(lp.y - g.y0) };
@@ -1282,6 +1270,16 @@
           f.y = g.oy + fDY;
         }
       });
+    } else if (g.kind === "rotate" && dragging && gRotDeg !== 0) {
+      // FIG-1: commit the transient rotate once. The model is still at the pre-rotation state
+      // (we only showed a live transform), so a single rotateAbout with the accumulated delta —
+      // about the same figure-local pivot — yields the final orbit+spin, matching the preview.
+      ensureCommitted();
+      mutate((p) => {
+        const f = p.figures.find((ff) => ff.id === g.figId);
+        if (!f) return;
+        rotateAbout(f.elements.filter((el) => g.origs.has(el.id)), { x: g.cx, y: g.cy }, gRotDeg);
+      });
     }
 
     // Reset all transient state in one batch -> single clean scene render.
@@ -1293,6 +1291,7 @@
     rotateTip = "";
     gDX = 0;
     gDY = 0;
+    gRotDeg = 0;
     fDX = 0;
     fDY = 0;
     gNb = null;
@@ -1853,6 +1852,19 @@
       : (null as Set<string> | null);
   $: moveTransform = `translate3d(${gDX}px, ${gDY}px, 0)`;
 
+  // FIG-1 flicker-free rotate: the selection rotates about the shared figure-local pivot via a
+  // transient transform on each element's LIVE scene group. Expressed as a translate/rotate/
+  // translate list (not transform-origin) so it lives in the same figure-local user space the
+  // move transform already relies on (px == user unit under the ancestor scale(zoom)).
+  $: rotIds =
+    dragging && gesture?.kind === "rotate"
+      ? new Set(gestureEls.map((el) => el.id))
+      : (null as Set<string> | null);
+  $: rotTransform =
+    gesture?.kind === "rotate"
+      ? `translate(${gesture.cx}px, ${gesture.cy}px) rotate(${gRotDeg}deg) translate(${-gesture.cx}px, ${-gesture.cy}px)`
+      : "";
+
   // F8 frame move: the figure being moved + its transient GPU transform, plus
   // smart-guide lines (world-absolute, drawn full-viewport in the overlay).
   $: figMoveId = dragging && gesture?.kind === "figmove" ? gesture.figId : (null as string | null);
@@ -1931,8 +1943,8 @@
                   class="el"
                   class:editing-hidden={editingId === el.id}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
-                  style:transform={moveIds?.has(el.id) ? moveTransform : null}
-                  style:will-change={moveIds?.has(el.id) ? "transform" : null}
+                  style:transform={moveIds?.has(el.id) ? moveTransform : rotIds?.has(el.id) ? rotTransform : null}
+                  style:will-change={moveIds?.has(el.id) || rotIds?.has(el.id) ? "transform" : null}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
                   on:pointerenter={() => {
                     if (($activeTool === "select" || $activeTool === "scale") && !$captionOpen) hoverId.set(el.id);
