@@ -202,10 +202,13 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         continue;
       }
       // countUp — a number-tween driver sharing the morph plumbing (rAF play,
-      // static seek 0|1, reduced-motion snap). Targets the first resolved node
-      // (the text box, or one block via selector.blocks).
+      // static seek 0|1, reduced-motion snap). Targets the first resolved node;
+      // for a whole text box, drill to its first .sl-block so writing the tween
+      // text doesn't flatten the box's block structure.
       if (track.preset === "countUp") {
-        const node = resolveNodes(track, slide, rendered, cameraLayer, opts)[0];
+        let node = resolveNodes(track, slide, rendered, cameraLayer, opts)[0];
+        const block = (node as HTMLElement | undefined)?.querySelector?.(".sl-block");
+        if (block) node = block as HTMLElement;
         if (node) {
           specs.push({
             node, beatIndex: bi, keyframes: [], enter: false, key,
