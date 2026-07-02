@@ -817,7 +817,7 @@
   .dirty.on { opacity: 1; color: var(--c-accent); }
   .saveerr {
     font-size: 11px; font-weight: 600; color: var(--c-on-accent, #100f0f);
-    background: var(--c-de, #d14d41); border: none; border-radius: var(--r-1); padding: 2px 8px; cursor: pointer;
+    background: var(--c-danger, #d14d41); border: none; border-radius: var(--r-1); padding: 2px 8px; cursor: pointer;
   }
   .saveerr:hover { filter: brightness(1.08); }
   .tools {

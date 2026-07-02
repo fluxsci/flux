@@ -28,7 +28,7 @@ import { livePreview } from "./live-preview/livePreview";
 // dresses the panel in the manuscript surface's tokens so it doesn't look like a raw browser box.
 const searchPanelTheme = EditorView.theme({
   ".cm-panels": { background: "var(--c-surface)", color: "var(--c-tx)", borderColor: "var(--c-line-strong)" },
-  ".cm-panel.cm-search": { padding: "6px 8px", fontFamily: "var(--font-sans)", fontSize: "var(--ts-sm)" },
+  ".cm-panel.cm-search": { padding: "6px 8px", fontFamily: "system-ui, sans-serif", fontSize: "var(--ts-sm)" },
   ".cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label": { fontSize: "var(--ts-sm)" },
   ".cm-panel.cm-search input": {
     background: "var(--c-bg)", color: "var(--c-tx)",

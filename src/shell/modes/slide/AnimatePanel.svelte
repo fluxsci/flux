@@ -640,7 +640,7 @@
     border: none; background: none; color: var(--c-tx-3, #6f6e69); cursor: pointer; font-size: 9px; opacity: 0;
   }
   .col:hover .bx { opacity: 1; }
-  .bx:hover { color: var(--c-de, #d14d41); }
+  .bx:hover { color: var(--c-danger, #d14d41); }
   .track-editor {
     flex: 0 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     padding: 6px 8px; border: 1px solid var(--c-accent, #4385be); border-radius: 6px;
@@ -674,11 +674,11 @@
   .ichip:hover { color: var(--c-tx-hi, #cecdc3); border-color: var(--c-tx-3, #878580); }
   .ichip.on { color: var(--c-on-accent, #fff); background: var(--c-accent, #4385be); border-color: var(--c-accent, #4385be); }
   .del {
-    font-size: 11px; color: var(--c-de, #d14d41); background: none;
-    border: 1px solid color-mix(in oklab, var(--c-de, #d14d41) 50%, transparent);
+    font-size: 11px; color: var(--c-danger, #d14d41); background: none;
+    border: 1px solid color-mix(in oklab, var(--c-danger, #d14d41) 50%, transparent);
     border-radius: 4px; padding: 3px 9px; cursor: pointer;
   }
-  .del:hover { background: color-mix(in oklab, var(--c-de, #d14d41) 14%, transparent); }
+  .del:hover { background: color-mix(in oklab, var(--c-danger, #d14d41) 14%, transparent); }
   .closex { border: none; background: none; color: var(--c-tx-3, #6f6e69); cursor: pointer; font-size: 11px; padding: 2px; }
   .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--pc); flex: 0 0 auto; }
   .nm { color: var(--c-tx, #cecdc3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }

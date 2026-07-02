@@ -84,7 +84,7 @@
     color: var(--c-tx-hi);
   }
   .dp-item.active {
-    background: var(--c-accent-soft, var(--c-ui-hover));
+    background: var(--c-ui-hover);
     color: var(--c-tx-hi);
     font-weight: 600;
   }

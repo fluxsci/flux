@@ -2392,14 +2392,14 @@
   /* --- rulers / guides / grid (Feature 11) --- */
   .grid {
     fill: none;
-    stroke: var(--c-border, #888);
+    stroke: var(--c-tx-muted);
     stroke-width: 0.5;
     opacity: 0.28;
     pointer-events: none;
     vector-effect: non-scaling-stroke;
   }
   .guide-line {
-    stroke: #12b5cb;
+    stroke: var(--c-guide-2);
     stroke-width: 1;
     pointer-events: none;
   }
@@ -2413,22 +2413,22 @@
     pointer-events: stroke;
   }
   .ruler {
-    fill: var(--c-panel, #1e1e1e);
+    fill: var(--c-surface);
     opacity: 0.96;
     cursor: crosshair;
     pointer-events: all;
   }
   .ruler-corner {
-    fill: var(--c-panel, #1e1e1e);
+    fill: var(--c-surface);
     pointer-events: none;
   }
   .ruler-tick {
-    stroke: var(--c-tx-lo, #888);
+    stroke: var(--c-tx-muted);
     stroke-width: 1;
     pointer-events: none;
   }
   .ruler-label {
-    fill: var(--c-tx-lo, #999);
+    fill: var(--c-tx-muted);
     font-size: 9px;
     pointer-events: none;
   }

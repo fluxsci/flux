@@ -62,6 +62,18 @@
   --c-accent-glow:   color-mix(in oklab, var(--flx-blue-400) 42%, transparent);
   --c-on-accent:     var(--flx-paper);
 
+  /* ---- Numbered-scale aliases ------------------------------------------- */
+  /* Some components address the text/surface ramps numerically. These are ALIASES
+     (not new colours) onto the canonical tokens above — one source of truth is kept,
+     and because custom-property substitution happens at the use site, they resolve
+     correctly in every scope, including the .paper light override, with no per-scope
+     redefinition. (Kills the old undefined-token fallbacks; see verify-tokens.mjs.) */
+  --c-tx-1:  var(--c-tx);         /* primary  */
+  --c-tx-3:  var(--c-tx-muted);   /* tertiary */
+  --c-bg-1:  var(--c-bg-raised);
+  --c-bg-2:  var(--c-surface);
+  --c-bg-3:  var(--c-surface-2);
+
   /* ---- Status (functional feedback: toasts, error borders, save states) -- */
   /* Flexoki red/green/orange 400s — legible on the dark chrome; the .paper
      scope overrides them with 600-grade inks for AA on cream. */
@@ -78,6 +90,7 @@
   --c-canvas:        #2b2d31;
   --c-canvas-shadow: rgba(0, 0, 0, 0.18);  /* figure drop-shadow on the canvas */
   --c-guide:         #f43f8e;              /* smart-guide magenta (contrasts the blue selection) */
+  --c-guide-2:       #12b5cb;              /* manual ruler-drag guide (cyan; distinct from smart-guide) */
 
   /* ---- margin comments (paper module) ---------------------------------- */
   /* A warm Flexoki gold, used ONLY to mean "annotation" — a functional signal
