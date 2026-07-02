@@ -8,7 +8,6 @@ import {
   EditorView,
   keymap,
   drawSelection,
-  highlightActiveLine,
 } from "@codemirror/view";
 import {
   history,
@@ -56,7 +55,8 @@ export function createEditorExtensions(
   return [
     history(),
     drawSelection(),
-    highlightActiveLine(),
+    // PAP-23: no highlightActiveLine() — the theme intentionally paints .cm-activeLine
+    // transparent, so the extension only cost a per-keystroke line decoration for nothing.
     EditorView.lineWrapping,
     markdown({ extensions: [GFM] }),
     syntaxHighlighting(fluxHighlight),

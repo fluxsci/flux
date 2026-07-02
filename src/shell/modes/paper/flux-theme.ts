@@ -41,7 +41,6 @@ export const fluxTheme = EditorView.theme(
     "&.cm-focused .cm-selectionBackground": {
       backgroundColor: "var(--c-accent-tint) !important",
     },
-    ".cm-activeLine": { backgroundColor: "transparent" },
     ".cm-gutters": { display: "none" },
     ".cm-line": { padding: "0" },
 
