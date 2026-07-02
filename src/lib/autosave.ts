@@ -19,6 +19,10 @@ import { pushToast, dismissToast, errMsg } from "./toast";
 
 export type AutosaveStatus = "idle" | "pending" | "saving" | "error";
 
+/** SHL-12: a global counter bumped on every controller status change, so the shell's dirty
+ *  indicator can re-evaluate `anyDirty()` reactively (the flush registry is otherwise poll-only). */
+export const dirtyPulse = writable(0);
+
 /** Thrown by a save fn when the file changed on disk since it was loaded (W7).
  *  The controller stays dirty but does not retry or toast — the mode shows its
  *  own Reload / Keep mine / Overwrite affordance. */
@@ -50,6 +54,10 @@ export function createAutosave(opts: {
 }): AutosaveController {
   const status = writable<AutosaveStatus>("idle");
   const error = writable<string | null>(null);
+  const setStatus = (s: AutosaveStatus) => {
+    status.set(s);
+    dirtyPulse.update((n) => n + 1); // SHL-12: nudge the shell dirty indicator
+  };
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -73,10 +81,10 @@ export function createAutosave(opts: {
     if (timer) clearTimeout(timer);
     timer = undefined;
     if (!force && !opts.isDirty()) {
-      status.set("idle");
+      setStatus("idle");
       return;
     }
-    status.set("saving");
+    setStatus("saving");
     inflight = (async () => {
       try {
         await opts.save(force);
@@ -86,10 +94,10 @@ export function createAutosave(opts: {
           dismissToast(toastId);
           toastId = undefined;
         }
-        status.set(opts.isDirty() ? "pending" : "idle");
+        setStatus(opts.isDirty() ? "pending" : "idle");
       } catch (e) {
         error.set(errMsg(e));
-        status.set("error");
+        setStatus("error");
         if (!(e instanceof ConflictError)) {
           if (!failedOnce) {
             failedOnce = true;
@@ -117,7 +125,7 @@ export function createAutosave(opts: {
 
   function schedule(): void {
     if (disposed) return;
-    status.set("pending");
+    setStatus("pending");
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => void run(false), opts.delay);
   }

@@ -123,6 +123,8 @@ contextBridge.exposeInMainWorld("fig", {
       ipcRenderer.on("win:maximized", handler);
       return () => ipcRenderer.removeListener("win:maximized", handler);
     },
+    // SHL-12: mirror the app's dirty state to the OS window (macOS close-button dot).
+    setDocumentEdited: (edited) => ipcRenderer.send("win:setDocumentEdited", !!edited),
   },
 
   // Integrated terminal: drive a native shell (PTY) living in the main process.

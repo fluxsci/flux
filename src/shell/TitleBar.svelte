@@ -3,6 +3,8 @@
   import Logomark from "./Logomark.svelte";
   import Icon from "./Icon.svelte";
   import { currentProject, goHome, view } from "./shellStore";
+  import { dirtyPulse } from "../lib/autosave";
+  import { anyDirty } from "./lifecycle";
 
   interface WinBridge {
     minimize: () => void;
@@ -10,6 +12,7 @@
     close: () => void;
     isMaximized: () => Promise<boolean>;
     onMaximizeChange: (cb: (v: boolean) => void) => () => void;
+    setDocumentEdited?: (edited: boolean) => void;
   }
   const fig = (window as unknown as { fig?: { win?: WinBridge; platform?: string } }).fig;
   const win = fig?.win;
@@ -18,6 +21,15 @@
   const isMac = fig?.platform === "darwin";
 
   let maximized = $state(false);
+
+  // SHL-12: a dirty indicator. Re-evaluate the flush registry whenever any autosave controller
+  // changes status (dirtyPulse), and mirror it to the OS window (macOS close-button dot).
+  let dirty = $state(false);
+  $effect(() => {
+    void $dirtyPulse;
+    dirty = anyDirty();
+    win?.setDocumentEdited?.(dirty);
+  });
 
   onMount(() => {
     if (!win) return;
@@ -46,6 +58,7 @@
   {#if $view === "workspace" && $currentProject}
     <span class="divider" aria-hidden="true"></span>
     <span class="project">{$currentProject.name}</span>
+    {#if dirty}<span class="dirtydot" title="Unsaved changes" aria-label="Unsaved changes">●</span>{/if}
   {/if}
 
   <div class="spacer"></div>
@@ -121,6 +134,13 @@
     font-size: var(--ts-sm);
     color: var(--c-tx-muted);
     letter-spacing: 0.01em;
+  }
+  .dirtydot {
+    margin-left: 6px;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--c-warning, #d0a215);
+    transform: translateY(-1px);
   }
 
   .spacer {

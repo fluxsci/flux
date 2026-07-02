@@ -622,6 +622,11 @@ ipcMain.handle(
   "win:isMaximized",
   (e) => BrowserWindow.fromWebContents(e.sender)?.isMaximized() ?? false,
 );
+// SHL-12: reflect the app's unsaved state in the OS window chrome (macOS shows a dot in the
+// close button; a no-op elsewhere). Fire-and-forget from the renderer's dirty indicator.
+ipcMain.on("win:setDocumentEdited", (e, edited) => {
+  BrowserWindow.fromWebContents(e.sender)?.setDocumentEdited?.(!!edited);
+});
 
 // App / user paths (for the user-level config + reference library, etc.)
 ipcMain.handle("app:paths", () => ({
