@@ -87,7 +87,11 @@ function startBridge({ root, getContext, dispatch, noteWrite }) {
   server.listen(0, "127.0.0.1", () => {
     const port = server.address().port;
     try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
+      // W12 (SHL-8): bridge.json carries the bearer token in plaintext — write it
+      // owner-only (0600) inside an owner-only dir (0700), matching the proxy creds.
+      // chmod after the write too: writeFileSync's mode only applies on CREATE, so a
+      // pre-existing (looser) file from a prior run would otherwise keep its old perms.
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
       if (noteWrite) noteWrite(file);
       fs.writeFileSync(
         file,
@@ -96,7 +100,13 @@ function startBridge({ root, getContext, dispatch, noteWrite }) {
           null,
           2,
         ),
+        { mode: 0o600 },
       );
+      try {
+        fs.chmodSync(file, 0o600);
+      } catch {
+        /* best-effort on platforms without POSIX perms */
+      }
     } catch (e) {
       console.warn("[flux] bridge: could not write bridge.json:", e && e.message);
     }

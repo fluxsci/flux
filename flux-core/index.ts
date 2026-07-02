@@ -78,6 +78,17 @@ export function safeJoin(root: string, rel: string): string {
   return abs;
 }
 
+/** AGT-5: validate an id that becomes a path segment (figure/canvas ids from CLI/MCP
+ *  flags like `--id` / `--canvas`). Rejects path separators, null bytes, and a leading
+ *  dot so a crafted `--id ../../x` can't write outside the project tree — with a clear
+ *  message, before safeJoin's generic "escapes root" backstop would fire. */
+export function safeId(kind: string, id: string): string {
+  if (!id || /[\\/\x00]/.test(id) || id.startsWith(".")) {
+    throw new Error(`unsafe ${kind} id ${JSON.stringify(id)}: no path separators or leading dot`);
+  }
+  return id;
+}
+
 async function readJSON<T>(p: string): Promise<T> {
   return JSON.parse(await fs.readFile(p, "utf8")) as T;
 }
@@ -150,7 +161,7 @@ async function readCanvasFiles(
   const byId: Record<string, Figure> = {};
   const canvasOf: Record<string, string> = {};
   for (const cm of idx.canvases ?? []) {
-    const p = j(root, "fig", "canvases", `${cm.id}.json`);
+    const p = safeJoin(root, `fig/canvases/${cm.id}.json`);
     if (await exists(p)) {
       const cf = await readJSON<CanvasFile>(p);
       for (const f of cf.figures ?? []) {
@@ -260,7 +271,7 @@ async function saveFigModelUnlocked(
       name: canvasName.get(cid) ?? cid,
       figures: figs,
     };
-    await writeText(j(root, "fig", "canvases", `${cid}.json`), JSON.stringify(cf, null, 2) + "\n");
+    await writeText(safeJoin(root, `fig/canvases/${cid}.json`), JSON.stringify(cf, null, 2) + "\n");
   }
   const prevFig = new Map((index.figures ?? []).map((f) => [f.id, f] as const));
   index.figures = project.figures.map((f, i) => {
@@ -318,7 +329,7 @@ async function importPlotAsset(
   const tag = Date.now().toString(36) + Math.round(Math.random() * 1e6).toString(36);
   const assetId = `asset_${tag}`;
   const rel = `assets/${assetId}.svg`;
-  await atomicWrite(j(root, "fig", rel), svg);
+  await atomicWrite(safeJoin(root, `fig/${rel}`), svg);
   project.assets.push({ id: assetId, name: path.basename(abs), kind: "svg", path: rel, naturalWidth: w, naturalHeight: h });
   const base = abs.replace(/\.svg$/i, "");
   const manifest = base + ".fluxplot.json";
@@ -332,10 +343,10 @@ async function importPlotAsset(
     // also keeps the manifest in-root so headless render's group-override expansion
     // works even when the original plot lives outside the project. `source` still
     // records the original paths as provenance (used by rerun-plot regeneration).
-    await atomicWrite(j(root, "fig", "assets", `${assetId}.fluxplot.json`), await fs.readFile(manifest, "utf8"));
+    await atomicWrite(safeJoin(root, `fig/assets/${assetId}.fluxplot.json`), await fs.readFile(manifest, "utf8"));
     const hasRecipe = await exists(recipe);
     if (hasRecipe) {
-      await atomicWrite(j(root, "fig", "assets", `${assetId}.recipe.json`), await fs.readFile(recipe, "utf8"));
+      await atomicWrite(safeJoin(root, `fig/assets/${assetId}.recipe.json`), await fs.readFile(recipe, "utf8"));
     }
     source = {
       svgPath: path.relative(root, abs),
@@ -530,7 +541,7 @@ export async function setCaption(root: string, figId: string, md: string): Promi
     // read only those.
     fig.captions = { ...(fig.captions ?? {}), __figure__: trimmed };
     const composed = composeCaption(fig);
-    await writeText(j(root, "fig", "captions", `${figId}.md`), composed ? composed + "\n" : "");
+    await writeText(safeJoin(root, `fig/captions/${figId}.md`), composed ? composed + "\n" : "");
     const entry = index.figures.find((x) => x.id === figId);
     if (entry) entry.caption = composed.trim();
   });
@@ -575,14 +586,14 @@ export async function createFigure(
   opts: { id?: string; name?: string; canvasId?: string; width?: number; height?: number; background?: string } = {},
 ): Promise<{ figureId: string }> {
   return mutateFigModel(root, "create_figure", ({ project }) => {
-    let canvasId = opts.canvasId ?? project.canvases[0]?.id;
+    let canvasId = opts.canvasId ? safeId("canvas", opts.canvasId) : project.canvases[0]?.id;
     if (!canvasId) {
       canvasId = `canvas_${Date.now().toString(36)}`;
       project.canvases.push({ id: canvasId, name: "Canvas 1" });
     }
     const fig = ops.createFigure(project, {
       canvasId,
-      id: opts.id,
+      id: opts.id ? safeId("figure", opts.id) : undefined,
       name: opts.name,
       width: opts.width,
       height: opts.height,
@@ -619,14 +630,14 @@ export async function composeFigure(
 ): Promise<{ figureId: string; panels: string[]; width: number; height: number }> {
   if (!plotPaths.length) throw new Error("compose-figure needs at least one plot");
   const out = await mutateFigModel(root, "compose_figure", async ({ project }) => {
-    let canvasId = opts.canvasId ?? project.canvases[0]?.id;
+    let canvasId = opts.canvasId ? safeId("canvas", opts.canvasId) : project.canvases[0]?.id;
     if (!canvasId) {
       canvasId = `canvas_${Date.now().toString(36)}`;
       project.canvases.push({ id: canvasId, name: "Canvas 1" });
     }
     const first = plotPaths[0];
     const baseName = opts.name || path.basename(first, path.extname(first)) || "figure";
-    const figId = opts.id ?? slugify(baseName);
+    const figId = opts.id ? safeId("figure", opts.id) : slugify(baseName);
     const margin = opts.margin ?? 48;
     const fig = ops.createFigure(project, { canvasId, id: figId, name: opts.name ?? figId, width: 100, height: 100 });
 

@@ -128,12 +128,15 @@ function underDir(ab, dir) {
 function fsGuard(p) {
   if (!currentRoot) return; // nothing to protect before a project is open
   const ab = path.resolve(p);
+  // W12 (SHL-6): dropped app.getPath("home") — allowing the entire user home made
+  // the guard nearly a no-op. Imports/exports outside the project still work because
+  // a file dialog `approveDir`s the chosen directory. Roots: the project, the app's
+  // own dirs, the machine-global FluxLib, and dialog-approved dirs.
   const roots = [
     currentRoot,
     app.getPath("userData"),
     app.getPath("temp"),
-    app.getPath("home"),
-    getFluxLibRoot(), // the machine-global FluxLib (covers a relocated path outside $HOME)
+    getFluxLibRoot(),
     ...approvedDirs,
   ].filter(Boolean);
   if (roots.some((r) => underDir(ab, path.resolve(r)))) return;
@@ -432,6 +435,31 @@ function createWindow() {
   win.setMenuBarVisibility(false);
   mainWindow = win;
 
+  // W12 (SHL-3): lock the top frame to the app document. A stray navigation — a file
+  // dropped onto non-dropzone chrome, a clicked external link, window.open — would
+  // otherwise load a new origin INTO this window, and the preload re-injects window.fig
+  // (fs / spawn / keys) into whatever loads. Deny any in-window navigation that isn't the
+  // app itself, and route http(s) targets to the OS browser instead of a new Electron window.
+  const appUrl = DEV_URL || require("node:url").pathToFileURL(path.join(__dirname, "..", "dist", "index.html")).href;
+  const isAppDoc = (url) => {
+    try {
+      const u = new URL(url);
+      const a = new URL(appUrl);
+      return u.origin === a.origin && u.pathname === a.pathname; // ignore hash/query (SPA)
+    } catch {
+      return false;
+    }
+  };
+  win.webContents.on("will-navigate", (e, url) => {
+    if (isAppDoc(url)) return;
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+
   // Keep the renderer's custom maximize/restore button in sync.
   win.on("maximize", () => win.webContents.send("win:maximized", true));
   win.on("unmaximize", () => win.webContents.send("win:maximized", false));
@@ -550,12 +578,26 @@ app.on("before-quit", () => {
   quitting = true; // W6: the post-flush destroy re-issues app.quit() to finish the quit
   reapPtys();
   releaseAllGuiLocks(); // W3: never leave a stale "human" lock deferring agents
+  stopBridge(); // W12 (SHL-8): remove .meta/live/bridge.json (+ its token) on quit
   try {
     proxyEngine.dispose(); // tear down the reusable proxy capture window
   } catch {
     /* not created yet */
   }
 });
+
+// W12 (SHL-8): a kill / Ctrl-C / SIGTERM used to leave a live-looking bridge.json
+// (with its bearer token) on disk. Tear the bridge down + quit so the file is removed.
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    try {
+      stopBridge();
+    } catch {
+      /* already down */
+    }
+    app.quit();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // IPC: frameless window controls
@@ -657,6 +699,7 @@ ipcMain.handle("fs:mkdir", async (_e, p) => {
   await fs.promises.mkdir(p, { recursive: true });
 });
 ipcMain.handle("fs:exists", async (_e, p) => {
+  fsGuard(p); // W12 (SHL-6): was unguarded — an existence-probe of any path
   try {
     await fs.promises.access(p);
     return true;
@@ -665,6 +708,7 @@ ipcMain.handle("fs:exists", async (_e, p) => {
   }
 });
 ipcMain.handle("fs:readdir", async (_e, p) => {
+  fsGuard(p); // W12 (SHL-6): was unguarded — a directory-listing of any path
   try {
     const es = await fs.promises.readdir(p, { withFileTypes: true });
     return es.map((e) => ({ name: e.name, dir: e.isDirectory() }));
@@ -771,6 +815,11 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
 // explicit action). Returns the emitted SVG/manifest text so the renderer can
 // hot-swap it in place. Mirrors flux-core.runRecipe; persists merged params.
 ipcMain.handle("recipe:run", async (_e, { recipePath, params = {} }) => {
+  // W12 (SHL-6): the recipe file carries the command that gets spawned + is rewritten
+  // in place, so it must live under an allowed root — a planted recipe outside the
+  // project can't be pointed at here. (Regenerating a plot IS meant to run the user's
+  // configured command; containment is on the file paths, not the command itself.)
+  fsGuard(recipePath);
   const recipe = JSON.parse(await fs.promises.readFile(recipePath, "utf8"));
   const dir = path.dirname(recipePath);
   const merged = { ...(recipe.params || {}), ...params };
@@ -794,6 +843,7 @@ ipcMain.handle("recipe:run", async (_e, { recipePath, params = {} }) => {
   noteWrite(recipePath);
   await fs.promises.writeFile(recipePath, JSON.stringify(recipe, null, 2) + "\n");
   const outAbs = recipe.output ? path.resolve(dir, recipe.output) : null;
+  if (outAbs) fsGuard(outAbs); // W12: contain the plot output read to allowed roots
   let svgText = null;
   let manifestText = null;
   if (outAbs && fs.existsSync(outAbs)) {
@@ -827,6 +877,11 @@ function fluxCliArgs() {
 // Returns the written path.
 ipcMain.handle("slides:exportDeck", async (_e, { root, deckId }) => {
   if (!root || !deckId) return { ok: false, error: "missing root or deckId" };
+  // W12 (SHL-6): deckId is interpolated into the output path — reject separators / ".."
+  // so it can't escape <root>/exports/.
+  if (/[\\/\x00]/.test(String(deckId)) || String(deckId).startsWith(".")) {
+    return { ok: false, error: `unsafe deckId: ${deckId}` };
+  }
   const { appRoot, argv } = fluxCliArgs();
   const res = await new Promise((resolve) => {
     const child = spawn(
@@ -840,6 +895,7 @@ ipcMain.handle("slides:exportDeck", async (_e, { root, deckId }) => {
     child.on("close", (c) => resolve({ code: c ?? 0, stderr: err }));
   });
   const outPath = path.join(root, "exports", `${deckId}.html`);
+  fsGuard(outPath); // W12: keep the write inside allowed roots
   if (res.code !== 0 || !fs.existsSync(outPath)) {
     return { ok: false, error: (res.stderr || `export exited ${res.code}`).trim() };
   }
@@ -849,6 +905,7 @@ ipcMain.handle("slides:exportDeck", async (_e, { root, deckId }) => {
 
 // Render a standalone SVG to a vector PDF via Chromium's print engine.
 ipcMain.handle("export:pdf", async (_e, { svg, outPath, w, h }) => {
+  fsGuard(outPath); // W12 (SHL-6): was an unguarded write of any path
   const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
   const tmp = path.join(os.tmpdir(), `flux-${process.pid}-${Date.now()}.html`);
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0}</style></head><body>${svg}</body></html>`;
@@ -872,6 +929,7 @@ ipcMain.handle("export:pdf", async (_e, { svg, outPath, w, h }) => {
 // Render a full HTML document to a multi-page PDF. Unlike export:pdf (one page
 // sized to a figure), this lets CSS @page rules drive size + pagination.
 ipcMain.handle("print:pdf", async (_e, { html, outPath, opts = {} }) => {
+  fsGuard(outPath); // W12 (SHL-6): was an unguarded write of any path
   const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
   const tmp = path.join(os.tmpdir(), `flux-doc-${process.pid}-${Date.now()}.html`);
   try {
@@ -1352,7 +1410,8 @@ ipcMain.handle("keys:set", (_e, patch) => {
   try {
     fs.mkdirSync(fluxLibDir(), { recursive: true });
     const next = { ...readKeys(), ...(patch || {}) };
-    fs.writeFileSync(fluxKeysPath(), JSON.stringify(next, null, 2) + "\n");
+    // W12 (SHL-8): API keys are plaintext — write owner-only, like the proxy creds.
+    fs.writeFileSync(fluxKeysPath(), JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
     return next;
   } catch (err) {
     return { error: String((err && err.message) || err) };
