@@ -10,8 +10,13 @@ import {
   toggleQuote,
   toggleWrap,
 } from "./commands";
+import { stepEmbedWidth } from "./figureSize";
 
 export const formattingKeymap = keymap.of([
+  // Figure width stepping (zoom mnemonic). Only fires with the caret on an
+  // embed line — returns false elsewhere so the keys fall through.
+  { key: "Mod-Alt--", run: stepEmbedWidth(-1) },
+  { key: "Mod-Alt-=", run: stepEmbedWidth(1) },
   { key: "Mod-b", run: toggleWrap("**"), preventDefault: true },
   { key: "Mod-i", run: toggleWrap("*"), preventDefault: true },
   { key: "Mod-e", run: toggleWrap("`"), preventDefault: true },

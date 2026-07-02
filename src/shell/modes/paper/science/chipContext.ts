@@ -35,8 +35,16 @@ export function setSlashHandlers(h: SlashHandlers) {
 // Figure-embed block-widget actions (B2).
 export interface EmbedHandlers {
   onOpenFigure?: (figId: string) => void;
+  /**
+   * Write a width attr for the embed whose widget DOM is `el` (null clears
+   * it). The element — not a position — crosses the seam because widget
+   * instances persist across rebuilds and a captured offset would go stale;
+   * PaperMode resolves it fresh via view.posAtDOM(el).
+   */
+  onSetWidth?: (el: HTMLElement, width: string | null) => void;
 }
 export const embedHandlers: EmbedHandlers = {};
 export function setEmbedHandlers(h: EmbedHandlers) {
   embedHandlers.onOpenFigure = h.onOpenFigure;
+  embedHandlers.onSetWidth = h.onSetWidth;
 }

@@ -10,6 +10,7 @@ import { resolveFigure, renderFigureSvg } from "../scholar/figures";
 import { bibEntry, type BibEntry } from "../scholar/bib";
 import { journalCss } from "./journal";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "../science/grammar";
+import { EMBED_RE, parseEmbedAttrs, cssWidth } from "../science/figureAttrs";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let _md: any = null;
@@ -36,7 +37,10 @@ async function getYaml(): Promise<any> {
   return _yaml;
 }
 
-const FIG_EMBED = /^\s*!\[(.*?)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)[^}]*\}\s*$/;
+// One embed grammar with the editor (science/figureAttrs) — group 4 is the
+// attr tail; width= is honored in the emitted HTML (and Quarto DOCX reads the
+// .qmd attrs natively, so all exports agree).
+const FIG_EMBED = EMBED_RE;
 const TBL_CAPTION = /^\s*:\s+(.*?)\s*\{#(tbl-[A-Za-z0-9_-]+)\}\s*$/;
 // PAP-19: grammar shared with the editor chips (science/grammar). PAP-14: only fig/tbl resolve to
 // a number; @sec-/@eq- fall through to plain text but isCrossrefKey still lists sec|eq so they
@@ -185,13 +189,15 @@ function preprocess(body: string): { transformed: string; blocks: BlockSpec[]; c
       const r = resolveFigure(m[3]);
       const svg = r?.ref.id ? renderFigureSvg(r.ref.id) : undefined;
       const num = r ? r.number : "?";
+      const attrs = parseEmbedAttrs(m[4] ?? "");
+      const sized = attrs.width ? ` style="width:${esc(cssWidth(attrs.width))}"` : "";
       const token = `FLUXBLOCK${tok++}X`;
       out.push("");
       out.push(token);
       out.push("");
       blocks.push({
         token,
-        html: `<figure class="fig" id="${esc(m[3])}"><div class="art">${
+        html: `<figure class="fig" id="${esc(m[3])}"><div class="art${attrs.width ? " sized" : ""}"${sized}>${
           svg ?? "<em>missing figure</em>"
         }</div><figcaption><b>Figure ${num}.</b> __CAP${capStash.length}__</figcaption></figure>`,
       });

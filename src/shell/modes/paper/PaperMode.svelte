@@ -22,6 +22,8 @@
   import { formattingKeymap } from "./editing/keymap";
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimMode } from "./editing/vimStore";
+  import { setEmbedWidth } from "./science/figureAttrs";
+  import { setEmbedWidthPreset } from "./editing/figureSize";
   import { pageCompartment, themeFor } from "./view-mode/pageView";
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
@@ -648,7 +650,15 @@
       onHover: showHover,
       onLeave: hideHoverSoon,
     });
-    setEmbedHandlers({ onOpenFigure: (id) => revealFigure(id) });
+    setEmbedHandlers({
+      onOpenFigure: (id) => revealFigure(id),
+      // The widget hands over its DOM element; resolve the position fresh
+      // (widget instances persist across rebuilds — offsets would go stale).
+      onSetWidth: (el, width) => {
+        if (!view) return;
+        setEmbedWidth(view, view.posAtDOM(el), width);
+      },
+    });
     setSlashHandlers({ onInsertFigure: () => (pickerOpen = true) });
     await Promise.all([loadFigures(pm?.root ?? null), loadBib(pm?.root ?? null)]);
     const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
@@ -1054,6 +1064,16 @@
       run: () => setVim(!$paperVimMode),
     },
     { id: "insert-figure", title: "Insert figure…", hint: "Insert", keywords: "image panel embed", run: () => (pickerOpen = true) },
+    ...[25, 50, 75, 100, null].map((pct) => ({
+      id: `fig-width-${pct ?? "auto"}`,
+      title: pct ? `Figure width ${pct}%` : "Figure width auto",
+      hint: pct ? "⌘⌥− / ⌘⌥=" : "Figure",
+      keywords: "figure resize size width embed scale zoom",
+      run: () => {
+        if (!view || !setEmbedWidthPreset(view, pct))
+          pushToast("info", "Place the cursor on a figure embed line first.");
+      },
+    })),
     {
       id: "toggle-outliner",
       title: $paperLayout.outlinerOpen ? "Hide outliner" : "Show outliner",
