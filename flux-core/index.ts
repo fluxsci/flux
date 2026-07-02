@@ -629,6 +629,16 @@ export async function composeFigure(
   opts: ComposeFigureOpts = {},
 ): Promise<{ figureId: string; panels: string[]; width: number; height: number }> {
   if (!plotPaths.length) throw new Error("compose-figure needs at least one plot");
+  // AGT-12: pre-flight EVERY input before writing any asset. Previously a bad path
+  // partway through the loop left the earlier plots' asset files orphaned on disk (the
+  // model save never happened). Fail up front so a botched compose writes nothing.
+  for (const pp of plotPaths) {
+    try {
+      await fs.access(pp, fs.constants.R_OK);
+    } catch {
+      throw new Error(`compose-figure: plot not readable: ${pp}`);
+    }
+  }
   const out = await mutateFigModel(root, "compose_figure", async ({ project }) => {
     let canvasId = opts.canvasId ? safeId("canvas", opts.canvasId) : project.canvases[0]?.id;
     if (!canvasId) {

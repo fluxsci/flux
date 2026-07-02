@@ -415,17 +415,18 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
 
   // --- slide-to-slide transitions (§5.6): fade, or a directional slide/push -----
-  function slideTransition(kind: TransitionKind, forward: boolean) {
-    if (reduced || kind === "none") return;
+  // SLD-13: returns the animation (a Playable) so callers can register it in `active`
+  // and the next cancelActive() interrupts an in-flight transition on a rapid re-nav.
+  function slideTransition(kind: TransitionKind, forward: boolean): Playable | null {
+    if (reduced || kind === "none") return null;
     if (kind === "slide" || kind === "push") {
       const from = forward ? stage.width : -stage.width;
       // animate the whole mount (not the camera layer) so a per-slide camera pose
       // is untouched; the new slide travels in from the leading edge.
-      animate(mount, [{ transform: `translateX(${from}px)` }, { transform: "translateX(0px)" }],
+      return animate(mount, [{ transform: `translateX(${from}px)` }, { transform: "translateX(0px)" }],
         { duration: DUR.gentle, easing: EASE.enter });
-    } else {
-      animate(cameraLayer, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.gentle, easing: EASE.enter });
     }
+    return animate(cameraLayer, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.gentle, easing: EASE.enter });
   }
   const transitionOf = (si: number): TransitionKind => deck.slides[si]?.transition ?? deck.defaults?.transition ?? "fade";
 
@@ -464,7 +465,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       const forward = si >= slideIndex;
       applyStatic(specs, bi);
       slideIndex = si; beatIndex = bi;
-      if (slideChanged) slideTransition(transitionOf(si), forward);
+      if (slideChanged) {
+        const t = slideTransition(transitionOf(si), forward);
+        if (t) active.push(t); // SLD-13: track so a rapid re-nav can cancel it
+      }
       emit("change");
       maybeAuto(); // an auto beat right after the landing fires on entry/jump too (B9)
     }
@@ -521,12 +525,15 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function prevSlide() {
     if (slideIndex > 0) {
+      cancelActive(); // SLD-13: bump gen + stop the outgoing slide's beat anims, so a
+      // stale settle() can't fire beatEnd/maybeAuto against this newly-shown slide.
       const target = slideIndex - 1;
       buildSlide(target);
       slideIndex = target;
       beatIndex = deck.slides[target].beats.length - 1;
       applyStatic(specs, beatIndex);
-      slideTransition(transitionOf(target), false); // reverse: enters from the left
+      const t = slideTransition(transitionOf(target), false); // reverse: enters from the left
+      if (t) active.push(t);
       emit("change");
     }
   }

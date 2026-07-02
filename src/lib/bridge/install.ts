@@ -19,6 +19,7 @@ import {
 import { getAppContext } from "./appContext";
 import { dispatchCommand, type Command } from "./commands";
 import { touchActivityLock } from "./activityLock";
+import { flushById } from "../../shell/lifecycle";
 
 interface BridgeApi {
   pushContext: (ctx: unknown) => void;
@@ -71,6 +72,11 @@ export function installBridge(): void {
   bridge.onDispatch(async ({ id, command }) => {
     try {
       const result = await dispatchCommand(command);
+      // AGT-10: a dispatched edit only reaches disk via the 700ms autosave, so an
+      // agent's get_figure_image right after dispatch_command would read stale bytes.
+      // Flush the figure subsystem now (no-op for selection-only commands / when the
+      // editor isn't mounted) so the on-disk figure reflects the edit before we reply.
+      await flushById("figure");
       bridge.reply(id, result);
     } catch (e) {
       bridge.reply(id, undefined, String((e as Error)?.message ?? e));

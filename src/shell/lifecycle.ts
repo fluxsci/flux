@@ -68,6 +68,25 @@ export async function flushAll(): Promise<{ ok: boolean; failed: string[] }> {
   return { ok: failed.length === 0, failed };
 }
 
+/** W14 (AGT-10): flush a single subsystem now (matches its id + any sub-id, like
+ *  isDirtyById). Used after a live-bridge edit so a subsequent disk read — an agent's
+ *  get_figure_image right after dispatch_command — sees the change instead of the
+ *  pre-edit bytes the 700ms autosave hasn't written yet. Reuses the mode's autosave
+ *  controller (so W7 conflict handling still applies); a no-op if nothing is registered. */
+export async function flushById(prefix: string): Promise<void> {
+  await Promise.all(
+    [...registry.entries()]
+      .filter(([id]) => id === prefix || id.startsWith(prefix + "-"))
+      .map(async ([, f]) => {
+        try {
+          await f.flush();
+        } catch {
+          /* the autosave controller already surfaces/retries the failure */
+        }
+      }),
+  );
+}
+
 let installed = false;
 
 /** Wire the consolidated flush triggers once (Shell onMount). Idempotent. */
