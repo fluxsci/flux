@@ -1,0 +1,516 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="504pt" height="360pt" viewBox="0 0 504 360" version="1.1" data-fluxplot="1" data-plot-type="line">
+  <defs>
+    <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+  </defs>
+  <g id="figure" data-role="figure">
+    <g id="patch_1">
+      <path d="M 0 360  L 504 360  L 504 0  L 0 0  z " style="fill: #fffcf0"/>
+    </g>
+    <g id="plot-area" data-role="plot-area">
+      <g id="patch_2">
+        <path d="M 35.59024 319.99976  L 500.99976 319.99976  L 500.99976 46.57524  L 35.59024 46.57524  z " style="fill: #fffcf0"/>
+      </g>
+      <g id="axis.x" data-role="axis" data-axis="x">
+        <g id="xtick_1">
+          <g id="axis.x.gridline.1" data-role="gridline" data-axis="x" data-index="1">
+            <path d="M 46.167729 319.99976  L 46.167729 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.1" data-role="tick" data-axis="x" data-index="1">
+            <defs>
+              <path id="ma1a9dd1182" d="M 0 0  L 0 4.5  " style="stroke: #6f6e69"/>
+            </defs>
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="46.167729" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="46.167729" y="336.45226" transform="rotate(-0 46.167729 336.45226)">4.0</text>
+          </g>
+        </g>
+        <g id="xtick_2">
+          <g id="axis.x.gridline.2" data-role="gridline" data-axis="x" data-index="2">
+            <path d="M 99.055175 319.99976  L 99.055175 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.2" data-role="tick" data-axis="x" data-index="2">
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="99.055175" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="99.055175" y="336.45226" transform="rotate(-0 99.055175 336.45226)">4.5</text>
+          </g>
+        </g>
+        <g id="xtick_3">
+          <g id="axis.x.gridline.3" data-role="gridline" data-axis="x" data-index="3">
+            <path d="M 151.94262 319.99976  L 151.94262 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.3" data-role="tick" data-axis="x" data-index="3">
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="151.94262" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.3" data-role="tick-label" data-axis="x" data-index="3">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="151.94262" y="336.45226" transform="rotate(-0 151.94262 336.45226)">5.0</text>
+          </g>
+        </g>
+        <g id="xtick_4">
+          <g id="axis.x.gridline.4" data-role="gridline" data-axis="x" data-index="4">
+            <path d="M 204.830065 319.99976  L 204.830065 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.4" data-role="tick" data-axis="x" data-index="4">
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="204.830065" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.4" data-role="tick-label" data-axis="x" data-index="4">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="204.830065" y="336.45226" transform="rotate(-0 204.830065 336.45226)">5.5</text>
+          </g>
+        </g>
+        <g id="xtick_5">
+          <g id="axis.x.gridline.5" data-role="gridline" data-axis="x" data-index="5">
+            <path d="M 257.717511 319.99976  L 257.717511 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.5" data-role="tick" data-axis="x" data-index="5">
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="257.717511" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.5" data-role="tick-label" data-axis="x" data-index="5">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="257.717511" y="336.45226" transform="rotate(-0 257.717511 336.45226)">6.0</text>
+          </g>
+        </g>
+        <g id="xtick_6">
+          <g id="axis.x.gridline.6" data-role="gridline" data-axis="x" data-index="6">
+            <path d="M 310.604956 319.99976  L 310.604956 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.6" data-role="tick" data-axis="x" data-index="6">
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="310.604956" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.6" data-role="tick-label" data-axis="x" data-index="6">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="310.604956" y="336.45226" transform="rotate(-0 310.604956 336.45226)">6.5</text>
+          </g>
+        </g>
+        <g id="xtick_7">
+          <g id="axis.x.gridline.7" data-role="gridline" data-axis="x" data-index="7">
+            <path d="M 363.492402 319.99976  L 363.492402 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.7" data-role="tick" data-axis="x" data-index="7">
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="363.492402" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.7" data-role="tick-label" data-axis="x" data-index="7">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="363.492402" y="336.45226" transform="rotate(-0 363.492402 336.45226)">7.0</text>
+          </g>
+        </g>
+        <g id="xtick_8">
+          <g id="axis.x.gridline.8" data-role="gridline" data-axis="x" data-index="8">
+            <path d="M 416.379847 319.99976  L 416.379847 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.8" data-role="tick" data-axis="x" data-index="8">
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="416.379847" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.8" data-role="tick-label" data-axis="x" data-index="8">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="416.379847" y="336.45226" transform="rotate(-0 416.379847 336.45226)">7.5</text>
+          </g>
+        </g>
+        <g id="xtick_9">
+          <g id="axis.x.gridline.9" data-role="gridline" data-axis="x" data-index="9">
+            <path d="M 469.267293 319.99976  L 469.267293 46.57524  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.x.tick.9" data-role="tick" data-axis="x" data-index="9">
+            <g>
+              <use xlink:href="#ma1a9dd1182" x="469.267293" y="319.99976" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.x.ticklabel.9" data-role="tick-label" data-axis="x" data-index="9">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="469.267293" y="336.45226" transform="rotate(-0 469.267293 336.45226)">8.0</text>
+          </g>
+        </g>
+        <g id="axis.x.title" data-role="axis-title" data-axis="x">
+          <text style="font-size: 12.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="268.295" y="354.56226" transform="rotate(-0 268.295 354.56226)">Sepal length (cm)</text>
+        </g>
+      </g>
+      <g id="axis.y" data-role="axis" data-axis="y">
+        <g id="ytick_1">
+          <g id="axis.y.gridline.1" data-role="gridline" data-axis="y" data-index="1">
+            <path d="M 35.59024 313.379947  L 500.99976 313.379947  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.1" data-role="tick" data-axis="y" data-index="1">
+            <defs>
+              <path id="m12f3391071" d="M 0 0  L -4.5 0  " style="stroke: #6f6e69"/>
+            </defs>
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="313.379947" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="317.606197" transform="rotate(-0 27.59024 317.606197)">0</text>
+          </g>
+        </g>
+        <g id="ytick_2">
+          <g id="axis.y.gridline.2" data-role="gridline" data-axis="y" data-index="2">
+            <path d="M 35.59024 282.95046  L 500.99976 282.95046  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.2" data-role="tick" data-axis="y" data-index="2">
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="282.95046" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="287.17671" transform="rotate(-0 27.59024 287.17671)">1</text>
+          </g>
+        </g>
+        <g id="ytick_3">
+          <g id="axis.y.gridline.3" data-role="gridline" data-axis="y" data-index="3">
+            <path d="M 35.59024 252.520973  L 500.99976 252.520973  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.3" data-role="tick" data-axis="y" data-index="3">
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="252.520973" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="256.747223" transform="rotate(-0 27.59024 256.747223)">2</text>
+          </g>
+        </g>
+        <g id="ytick_4">
+          <g id="axis.y.gridline.4" data-role="gridline" data-axis="y" data-index="4">
+            <path d="M 35.59024 222.091486  L 500.99976 222.091486  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.4" data-role="tick" data-axis="y" data-index="4">
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="222.091486" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.4" data-role="tick-label" data-axis="y" data-index="4">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="226.317736" transform="rotate(-0 27.59024 226.317736)">3</text>
+          </g>
+        </g>
+        <g id="ytick_5">
+          <g id="axis.y.gridline.5" data-role="gridline" data-axis="y" data-index="5">
+            <path d="M 35.59024 191.661998  L 500.99976 191.661998  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.5" data-role="tick" data-axis="y" data-index="5">
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="191.661998" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.5" data-role="tick-label" data-axis="y" data-index="5">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="195.888248" transform="rotate(-0 27.59024 195.888248)">4</text>
+          </g>
+        </g>
+        <g id="ytick_6">
+          <g id="axis.y.gridline.6" data-role="gridline" data-axis="y" data-index="6">
+            <path d="M 35.59024 161.232511  L 500.99976 161.232511  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.6" data-role="tick" data-axis="y" data-index="6">
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="161.232511" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.6" data-role="tick-label" data-axis="y" data-index="6">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="165.458761" transform="rotate(-0 27.59024 165.458761)">5</text>
+          </g>
+        </g>
+        <g id="ytick_7">
+          <g id="axis.y.gridline.7" data-role="gridline" data-axis="y" data-index="7">
+            <path d="M 35.59024 130.803024  L 500.99976 130.803024  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.7" data-role="tick" data-axis="y" data-index="7">
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="130.803024" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.7" data-role="tick-label" data-axis="y" data-index="7">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="135.029274" transform="rotate(-0 27.59024 135.029274)">6</text>
+          </g>
+        </g>
+        <g id="ytick_8">
+          <g id="axis.y.gridline.8" data-role="gridline" data-axis="y" data-index="8">
+            <path d="M 35.59024 100.373537  L 500.99976 100.373537  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.8" data-role="tick" data-axis="y" data-index="8">
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="100.373537" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.8" data-role="tick-label" data-axis="y" data-index="8">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="104.599787" transform="rotate(-0 27.59024 104.599787)">7</text>
+          </g>
+        </g>
+        <g id="ytick_9">
+          <g id="axis.y.gridline.9" data-role="gridline" data-axis="y" data-index="9">
+            <path d="M 35.59024 69.94405  L 500.99976 69.94405  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #dad8ce; stroke-opacity: 0.9; stroke-width: 0.8; stroke-linecap: round"/>
+          </g>
+          <g id="axis.y.tick.9" data-role="tick" data-axis="y" data-index="9">
+            <g>
+              <use xlink:href="#m12f3391071" x="35.59024" y="69.94405" style="fill: #6f6e69; stroke: #6f6e69"/>
+            </g>
+          </g>
+          <g id="axis.y.ticklabel.9" data-role="tick-label" data-axis="y" data-index="9">
+            <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: end; fill: #100f0f" x="27.59024" y="74.1703" transform="rotate(-0 27.59024 74.1703)">8</text>
+          </g>
+        </g>
+        <g id="axis.y.title" data-role="axis-title" data-axis="y">
+          <text style="font-size: 12.5px; font-family: 'Lato'; text-anchor: middle; fill: #100f0f" x="13.06274" y="183.2875" transform="rotate(-90 13.06274 183.2875)">Petal length (cm)</text>
+        </g>
+      </g>
+      <g id="ci95.area" data-role="area" data-series="ci95">
+        <path d="M 56.745218 287.655549  L 56.745218 307.571373  L 58.871347 306.340972  L 60.997475 305.110775  L 63.123604 303.880788  L 65.249732 302.651016  L 67.37586 301.421467  L 69.501989 300.192146  L 71.628117 298.963061  L 73.754246 297.734218  L 75.880374 296.505625  L 78.006503 295.27729  L 80.132631 294.04922  L 82.25876 292.821424  L 84.384888 291.59391  L 86.511017 290.366687  L 88.637145 289.139765  L 90.763274 287.913152  L 92.889402 286.686859  L 95.01553 285.460896  L 97.141659 284.235275  L 99.267787 283.010005  L 101.393916 281.785099  L 103.520044 280.560569  L 105.646173 279.336428  L 107.772301 278.112688  L 109.89843 276.889363  L 112.024558 275.666468  L 114.150687 274.444016  L 116.276815 273.222024  L 118.402944 272.000508  L 120.529072 270.779484  L 122.6552 269.558969  L 124.781329 268.338981  L 126.907457 267.11954  L 129.033586 265.900665  L 131.159714 264.682376  L 133.285843 263.464694  L 135.411971 262.247642  L 137.5381 261.031242  L 139.664228 259.815518  L 141.790357 258.600495  L 143.916485 257.386199  L 146.042614 256.172657  L 148.168742 254.959896  L 150.29487 253.747946  L 152.420999 252.536837  L 154.547127 251.326599  L 156.673256 250.117266  L 158.799384 248.908872  L 160.925513 247.70145  L 163.051641 246.495037  L 165.17777 245.289671  L 167.303898 244.08539  L 169.430027 242.882233  L 171.556155 241.680243  L 173.682284 240.479461  L 175.808412 239.279932  L 177.93454 238.081699  L 180.060669 236.88481  L 182.186797 235.68931  L 184.312926 234.495249  L 186.439054 233.302676  L 188.565183 232.111641  L 190.691311 230.922194  L 192.81744 229.734388  L 194.943568 228.548274  L 197.069697 227.363905  L 199.195825 226.181334  L 201.321953 225.000613  L 203.448082 223.821796  L 205.57421 222.644935  L 207.700339 221.470081  L 209.826467 220.297284  L 211.952596 219.126595  L 214.078724 217.958062  L 216.204853 216.791731  L 218.330981 215.627647  L 220.45711 214.465851  L 222.583238 213.306384  L 224.709367 212.149282  L 226.835495 210.994578  L 228.961623 209.842302  L 231.087752 208.692482  L 233.21388 207.545139  L 235.340009 206.400292  L 237.466137 205.257956  L 239.592266 204.11814  L 241.718394 202.98085  L 243.844523 201.846087  L 245.970651 200.713847  L 248.09678 199.584123  L 250.222908 198.456901  L 252.349037 197.332167  L 254.475165 196.209899  L 256.601293 195.090071  L 258.727422 193.972657  L 260.85355 192.857623  L 262.979679 191.744935  L 265.105807 190.634554  L 267.231936 189.52644  L 269.358064 188.420548  L 271.484193 187.316834  L 273.610321 186.21525  L 275.73645 185.115747  L 277.862578 184.018275  L 279.988707 182.922782  L 282.114835 181.829217  L 284.240963 180.737526  L 286.367092 179.647658  L 288.49322 178.559559  L 290.619349 177.473177  L 292.745477 176.38846  L 294.871606 175.305354  L 296.997734 174.22381  L 299.123863 173.143777  L 301.249991 172.065205  L 303.37612 170.988045  L 305.502248 169.91225  L 307.628377 168.837773  L 309.754505 167.764568  L 311.880633 166.692592  L 314.006762 165.621802  L 316.13289 164.552155  L 318.259019 163.483612  L 320.385147 162.416133  L 322.511276 161.34968  L 324.637404 160.284216  L 326.763533 159.219707  L 328.889661 158.156117  L 331.01579 157.093414  L 333.141918 156.031566  L 335.268047 154.970543  L 337.394175 153.910314  L 339.520303 152.850852  L 341.646432 151.792129  L 343.77256 150.734119  L 345.898689 149.676796  L 348.024817 148.620137  L 350.150946 147.564117  L 352.277074 146.508715  L 354.403203 145.453909  L 356.529331 144.399678  L 358.65546 143.346002  L 360.781588 142.292862  L 362.907716 141.240239  L 365.033845 140.188117  L 367.159973 139.136478  L 369.286102 138.085306  L 371.41223 137.034584  L 373.538359 135.984299  L 375.664487 134.934436  L 377.790616 133.88498  L 379.916744 132.835918  L 382.042873 131.787239  L 384.169001 130.738928  L 386.29513 129.690975  L 388.421258 128.643368  L 390.547386 127.596096  L 392.673515 126.549149  L 394.799643 125.502516  L 396.925772 124.456188  L 399.0519 123.410155  L 401.178029 122.364409  L 403.304157 121.31894  L 405.430286 120.27374  L 407.556414 119.228801  L 409.682543 118.184116  L 411.808671 117.139677  L 413.9348 116.095476  L 416.060928 115.051507  L 418.187056 114.007763  L 420.313185 112.964238  L 422.439313 111.920926  L 424.565442 110.877819  L 426.69157 109.834914  L 428.817699 108.792203  L 430.943827 107.749682  L 433.069956 106.707345  L 435.196084 105.665188  L 437.322213 104.623205  L 439.448341 103.581392  L 441.57447 102.539745  L 443.700598 101.498258  L 445.826726 100.456928  L 447.952855 99.415751  L 450.078983 98.374723  L 452.205112 97.333839  L 454.33124 96.293096  L 456.457369 95.252491  L 458.583497 94.21202  L 460.709626 93.17168  L 462.835754 92.131467  L 464.961883 91.091378  L 467.088011 90.051411  L 469.21414 89.011562  L 471.340268 87.971829  L 473.466396 86.932208  L 475.592525 85.892697  L 477.718653 84.853294  L 479.844782 83.813995  L 479.844782 59.003627  L 479.844782 59.003627  L 477.718653 60.237742  L 475.592525 61.471752  L 473.466396 62.705655  L 471.340268 63.939448  L 469.21414 65.173128  L 467.088011 66.406693  L 464.961883 67.640139  L 462.835754 68.873464  L 460.709626 70.106665  L 458.583497 71.339738  L 456.457369 72.572681  L 454.33124 73.805489  L 452.205112 75.03816  L 450.078983 76.27069  L 447.952855 77.503075  L 445.826726 78.735311  L 443.700598 79.967395  L 441.57447 81.199322  L 439.448341 82.431088  L 437.322213 83.662688  L 435.196084 84.894119  L 433.069956 86.125376  L 430.943827 87.356453  L 428.817699 88.587345  L 426.69157 89.818048  L 424.565442 91.048556  L 422.439313 92.278863  L 420.313185 93.508964  L 418.187056 94.738852  L 416.060928 95.968522  L 413.9348 97.197967  L 411.808671 98.42718  L 409.682543 99.656154  L 407.556414 100.884882  L 405.430286 102.113357  L 403.304157 103.341571  L 401.178029 104.569516  L 399.0519 105.797183  L 396.925772 107.024563  L 394.799643 108.251649  L 392.673515 109.478429  L 390.547386 110.704896  L 388.421258 111.931037  L 386.29513 113.156844  L 384.169001 114.382305  L 382.042873 115.607408  L 379.916744 116.832142  L 377.790616 118.056494  L 375.664487 119.280452  L 373.538359 120.504002  L 371.41223 121.72713  L 369.286102 122.949822  L 367.159973 124.172063  L 365.033845 125.393838  L 362.907716 126.615129  L 360.781588 127.83592  L 358.65546 129.056194  L 356.529331 130.275932  L 354.403203 131.495114  L 352.277074 132.713721  L 350.150946 133.931733  L 348.024817 135.149127  L 345.898689 136.365881  L 343.77256 137.581972  L 341.646432 138.797375  L 339.520303 140.012066  L 337.394175 141.226017  L 335.268047 142.439202  L 333.141918 143.651592  L 331.01579 144.863158  L 328.889661 146.073869  L 326.763533 147.283692  L 324.637404 148.492596  L 322.511276 149.700546  L 320.385147 150.907507  L 318.259019 152.113441  L 316.13289 153.318312  L 314.006762 154.522079  L 311.880633 155.724702  L 309.754505 156.926139  L 307.628377 158.126349  L 305.502248 159.325285  L 303.37612 160.522903  L 301.249991 161.719157  L 299.123863 162.913998  L 296.997734 164.107379  L 294.871606 165.299248  L 292.745477 166.489556  L 290.619349 167.678252  L 288.49322 168.865284  L 286.367092 170.050599  L 284.240963 171.234144  L 282.114835 172.415867  L 279.988707 173.595716  L 277.862578 174.773636  L 275.73645 175.949577  L 273.610321 177.123488  L 271.484193 178.295317  L 269.358064 179.465017  L 267.231936 180.632539  L 265.105807 181.797838  L 262.979679 182.960871  L 260.85355 184.121596  L 258.727422 185.279976  L 256.601293 186.435975  L 254.475165 187.589562  L 252.349037 188.740707  L 250.222908 189.889386  L 248.09678 191.035578  L 245.970651 192.179268  L 243.844523 193.320441  L 241.718394 194.459092  L 239.592266 195.595215  L 237.466137 196.728813  L 235.340009 197.85989  L 233.21388 198.988457  L 231.087752 200.114527  L 228.961623 201.238121  L 226.835495 202.359259  L 224.709367 203.477968  L 222.583238 204.59428  L 220.45711 205.708226  L 218.330981 206.819844  L 216.204853 207.929173  L 214.078724 209.036256  L 211.952596 210.141136  L 209.826467 211.243861  L 207.700339 212.344478  L 205.57421 213.443037  L 203.448082 214.539589  L 201.321953 215.634186  L 199.195825 216.726879  L 197.069697 217.817722  L 194.943568 218.906766  L 192.81744 219.994066  L 190.691311 221.079673  L 188.565183 222.16364  L 186.439054 223.246018  L 184.312926 224.326858  L 182.186797 225.406211  L 180.060669 226.484125  L 177.93454 227.560649  L 175.808412 228.63583  L 173.682284 229.709714  L 171.556155 230.782346  L 169.430027 231.853769  L 167.303898 232.924027  L 165.17777 233.993159  L 163.051641 235.061206  L 160.925513 236.128207  L 158.799384 237.194199  L 156.673256 238.259218  L 154.547127 239.323298  L 152.420999 240.386475  L 150.29487 241.448779  L 148.168742 242.510242  L 146.042614 243.570895  L 143.916485 244.630767  L 141.790357 245.689884  L 139.664228 246.748275  L 137.5381 247.805964  L 135.411971 248.862978  L 133.285843 249.919339  L 131.159714 250.975071  L 129.033586 252.030195  L 126.907457 253.084734  L 124.781329 254.138706  L 122.6552 255.192132  L 120.529072 256.245031  L 118.402944 257.29742  L 116.276815 258.349317  L 114.150687 259.400739  L 112.024558 260.451701  L 109.89843 261.502219  L 107.772301 262.552308  L 105.646173 263.601982  L 103.520044 264.651254  L 101.393916 265.700137  L 99.267787 266.748645  L 97.141659 267.796789  L 95.01553 268.844581  L 92.889402 269.892032  L 90.763274 270.939153  L 88.637145 271.985954  L 86.511017 273.032445  L 84.384888 274.078635  L 82.25876 275.124535  L 80.132631 276.170152  L 78.006503 277.215496  L 75.880374 278.260574  L 73.754246 279.305395  L 71.628117 280.349966  L 69.501989 281.394294  L 67.37586 282.438387  L 65.249732 283.482251  L 63.123604 284.525893  L 60.997475 285.569319  L 58.871347 286.612536  L 56.745218 287.655549  z " clip-path="url(#p6bfda8d98c)" style="fill: #9f9d96; fill-opacity: 0.25"/>
+      </g>
+      <g id="setosa.points" data-series="Setosa">
+        <defs>
+          <path id="m5f33c77010" d="M 0 2.915476  C 0.773193 2.915476 1.514823 2.608283 2.061553 2.061553  C 2.608283 1.514823 2.915476 0.773193 2.915476 0  C 2.915476 -0.773193 2.608283 -1.514823 2.061553 -2.061553  C 1.514823 -2.608283 0.773193 -2.915476 0 -2.915476  C -0.773193 -2.915476 -1.514823 -2.608283 -2.061553 -2.061553  C -2.608283 -1.514823 -2.915476 -0.773193 -2.915476 0  C -2.915476 0.773193 -2.608283 1.514823 -2.061553 2.061553  C -1.514823 2.608283 -0.773193 2.915476 0 2.915476  z " style="stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5"/>
+        </defs>
+        <g clip-path="url(#p6bfda8d98c)">
+          <use xlink:href="#m5f33c77010" x="162.520109" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.0" data-role="point" data-series="Setosa" data-index="0" data-x="5.1" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="141.365131" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.1" data-role="point" data-series="Setosa" data-index="1" data-x="4.9" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="120.210153" y="273.821614" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.2" data-role="point" data-series="Setosa" data-index="2" data-x="4.7" data-y="1.3"/>
+          <use xlink:href="#m5f33c77010" x="109.632664" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.3" data-role="point" data-series="Setosa" data-index="3" data-x="4.6" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="151.94262" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.4" data-role="point" data-series="Setosa" data-index="4" data-x="5" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="194.252576" y="261.649819" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.5" data-role="point" data-series="Setosa" data-index="5" data-x="5.4" data-y="1.7"/>
+          <use xlink:href="#m5f33c77010" x="109.632664" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.6" data-role="point" data-series="Setosa" data-index="6" data-x="4.6" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="151.94262" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.7" data-role="point" data-series="Setosa" data-index="7" data-x="5" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="88.477685" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.8" data-role="point" data-series="Setosa" data-index="8" data-x="4.4" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="141.365131" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.9" data-role="point" data-series="Setosa" data-index="9" data-x="4.9" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="194.252576" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.10" data-role="point" data-series="Setosa" data-index="10" data-x="5.4" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="130.787642" y="264.692768" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.11" data-role="point" data-series="Setosa" data-index="11" data-x="4.8" data-y="1.6"/>
+          <use xlink:href="#m5f33c77010" x="130.787642" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.12" data-role="point" data-series="Setosa" data-index="12" data-x="4.8" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="77.900196" y="279.907511" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.13" data-role="point" data-series="Setosa" data-index="13" data-x="4.3" data-y="1.1"/>
+          <use xlink:href="#m5f33c77010" x="236.562533" y="276.864562" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.14" data-role="point" data-series="Setosa" data-index="14" data-x="5.8" data-y="1.2"/>
+          <use xlink:href="#m5f33c77010" x="225.985044" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.15" data-role="point" data-series="Setosa" data-index="15" data-x="5.7" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="194.252576" y="273.821614" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.16" data-role="point" data-series="Setosa" data-index="16" data-x="5.4" data-y="1.3"/>
+          <use xlink:href="#m5f33c77010" x="162.520109" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.17" data-role="point" data-series="Setosa" data-index="17" data-x="5.1" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="225.985044" y="261.649819" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.18" data-role="point" data-series="Setosa" data-index="18" data-x="5.7" data-y="1.7"/>
+          <use xlink:href="#m5f33c77010" x="162.520109" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.19" data-role="point" data-series="Setosa" data-index="19" data-x="5.1" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="194.252576" y="261.649819" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.20" data-role="point" data-series="Setosa" data-index="20" data-x="5.4" data-y="1.7"/>
+          <use xlink:href="#m5f33c77010" x="162.520109" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.21" data-role="point" data-series="Setosa" data-index="21" data-x="5.1" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="109.632664" y="282.95046" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.22" data-role="point" data-series="Setosa" data-index="22" data-x="4.6" data-y="1"/>
+          <use xlink:href="#m5f33c77010" x="162.520109" y="261.649819" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.23" data-role="point" data-series="Setosa" data-index="23" data-x="5.1" data-y="1.7"/>
+          <use xlink:href="#m5f33c77010" x="130.787642" y="255.563921" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.24" data-role="point" data-series="Setosa" data-index="24" data-x="4.8" data-y="1.9"/>
+          <use xlink:href="#m5f33c77010" x="151.94262" y="264.692768" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.25" data-role="point" data-series="Setosa" data-index="25" data-x="5" data-y="1.6"/>
+          <use xlink:href="#m5f33c77010" x="151.94262" y="264.692768" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.26" data-role="point" data-series="Setosa" data-index="26" data-x="5" data-y="1.6"/>
+          <use xlink:href="#m5f33c77010" x="173.097598" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.27" data-role="point" data-series="Setosa" data-index="27" data-x="5.2" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="173.097598" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.28" data-role="point" data-series="Setosa" data-index="28" data-x="5.2" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="120.210153" y="264.692768" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.29" data-role="point" data-series="Setosa" data-index="29" data-x="4.7" data-y="1.6"/>
+          <use xlink:href="#m5f33c77010" x="130.787642" y="264.692768" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.30" data-role="point" data-series="Setosa" data-index="30" data-x="4.8" data-y="1.6"/>
+          <use xlink:href="#m5f33c77010" x="194.252576" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.31" data-role="point" data-series="Setosa" data-index="31" data-x="5.4" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="173.097598" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.32" data-role="point" data-series="Setosa" data-index="32" data-x="5.2" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="204.830065" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.33" data-role="point" data-series="Setosa" data-index="33" data-x="5.5" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="141.365131" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.34" data-role="point" data-series="Setosa" data-index="34" data-x="4.9" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="151.94262" y="276.864562" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.35" data-role="point" data-series="Setosa" data-index="35" data-x="5" data-y="1.2"/>
+          <use xlink:href="#m5f33c77010" x="204.830065" y="273.821614" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.36" data-role="point" data-series="Setosa" data-index="36" data-x="5.5" data-y="1.3"/>
+          <use xlink:href="#m5f33c77010" x="141.365131" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.37" data-role="point" data-series="Setosa" data-index="37" data-x="4.9" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="88.477685" y="273.821614" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.38" data-role="point" data-series="Setosa" data-index="38" data-x="4.4" data-y="1.3"/>
+          <use xlink:href="#m5f33c77010" x="162.520109" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.39" data-role="point" data-series="Setosa" data-index="39" data-x="5.1" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="151.94262" y="273.821614" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.40" data-role="point" data-series="Setosa" data-index="40" data-x="5" data-y="1.3"/>
+          <use xlink:href="#m5f33c77010" x="99.055175" y="273.821614" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.41" data-role="point" data-series="Setosa" data-index="41" data-x="4.5" data-y="1.3"/>
+          <use xlink:href="#m5f33c77010" x="88.477685" y="273.821614" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.42" data-role="point" data-series="Setosa" data-index="42" data-x="4.4" data-y="1.3"/>
+          <use xlink:href="#m5f33c77010" x="151.94262" y="264.692768" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.43" data-role="point" data-series="Setosa" data-index="43" data-x="5" data-y="1.6"/>
+          <use xlink:href="#m5f33c77010" x="162.520109" y="255.563921" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.44" data-role="point" data-series="Setosa" data-index="44" data-x="5.1" data-y="1.9"/>
+          <use xlink:href="#m5f33c77010" x="130.787642" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.45" data-role="point" data-series="Setosa" data-index="45" data-x="4.8" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="162.520109" y="264.692768" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.46" data-role="point" data-series="Setosa" data-index="46" data-x="5.1" data-y="1.6"/>
+          <use xlink:href="#m5f33c77010" x="109.632664" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.47" data-role="point" data-series="Setosa" data-index="47" data-x="4.6" data-y="1.4"/>
+          <use xlink:href="#m5f33c77010" x="183.675087" y="267.735716" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.48" data-role="point" data-series="Setosa" data-index="48" data-x="5.3" data-y="1.5"/>
+          <use xlink:href="#m5f33c77010" x="151.94262" y="270.778665" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="setosa.point.49" data-role="point" data-series="Setosa" data-index="49" data-x="5" data-y="1.4"/>
+        </g>
+      </g>
+      <g id="versicolor.points" data-series="Versicolor">
+        <defs>
+          <path id="ma5e711e658" d="M 0 2.915476  C 0.773193 2.915476 1.514823 2.608283 2.061553 2.061553  C 2.608283 1.514823 2.915476 0.773193 2.915476 0  C 2.915476 -0.773193 2.608283 -1.514823 2.061553 -2.061553  C 1.514823 -2.608283 0.773193 -2.915476 0 -2.915476  C -0.773193 -2.915476 -1.514823 -2.608283 -2.061553 -2.061553  C -2.608283 -1.514823 -2.915476 -0.773193 -2.915476 0  C -2.915476 0.773193 -2.608283 1.514823 -2.061553 2.061553  C -1.514823 2.608283 -0.773193 2.915476 0 2.915476  z " style="stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5"/>
+        </defs>
+        <g clip-path="url(#p6bfda8d98c)">
+          <use xlink:href="#ma5e711e658" x="363.492402" y="170.361357" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.0" data-role="point" data-series="Versicolor" data-index="0" data-x="7" data-y="4.7"/>
+          <use xlink:href="#ma5e711e658" x="300.027467" y="176.447255" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.1" data-role="point" data-series="Versicolor" data-index="1" data-x="6.4" data-y="4.5"/>
+          <use xlink:href="#ma5e711e658" x="352.914913" y="164.27546" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.2" data-role="point" data-series="Versicolor" data-index="2" data-x="6.9" data-y="4.9"/>
+          <use xlink:href="#ma5e711e658" x="204.830065" y="191.661998" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.3" data-role="point" data-series="Versicolor" data-index="3" data-x="5.5" data-y="4"/>
+          <use xlink:href="#ma5e711e658" x="310.604956" y="173.404306" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.4" data-role="point" data-series="Versicolor" data-index="4" data-x="6.5" data-y="4.6"/>
+          <use xlink:href="#ma5e711e658" x="225.985044" y="176.447255" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.5" data-role="point" data-series="Versicolor" data-index="5" data-x="5.7" data-y="4.5"/>
+          <use xlink:href="#ma5e711e658" x="289.449978" y="170.361357" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.6" data-role="point" data-series="Versicolor" data-index="6" data-x="6.3" data-y="4.7"/>
+          <use xlink:href="#ma5e711e658" x="141.365131" y="212.962639" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.7" data-role="point" data-series="Versicolor" data-index="7" data-x="4.9" data-y="3.3"/>
+          <use xlink:href="#ma5e711e658" x="321.182445" y="173.404306" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.8" data-role="point" data-series="Versicolor" data-index="8" data-x="6.6" data-y="4.6"/>
+          <use xlink:href="#ma5e711e658" x="173.097598" y="194.704947" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.9" data-role="point" data-series="Versicolor" data-index="9" data-x="5.2" data-y="3.9"/>
+          <use xlink:href="#ma5e711e658" x="151.94262" y="206.876742" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.10" data-role="point" data-series="Versicolor" data-index="10" data-x="5" data-y="3.5"/>
+          <use xlink:href="#ma5e711e658" x="247.140022" y="185.576101" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.11" data-role="point" data-series="Versicolor" data-index="11" data-x="5.9" data-y="4.2"/>
+          <use xlink:href="#ma5e711e658" x="257.717511" y="191.661998" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.12" data-role="point" data-series="Versicolor" data-index="12" data-x="6" data-y="4"/>
+          <use xlink:href="#ma5e711e658" x="268.295" y="170.361357" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.13" data-role="point" data-series="Versicolor" data-index="13" data-x="6.1" data-y="4.7"/>
+          <use xlink:href="#ma5e711e658" x="215.407555" y="203.833793" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.14" data-role="point" data-series="Versicolor" data-index="14" data-x="5.6" data-y="3.6"/>
+          <use xlink:href="#ma5e711e658" x="331.759935" y="179.490204" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.15" data-role="point" data-series="Versicolor" data-index="15" data-x="6.7" data-y="4.4"/>
+          <use xlink:href="#ma5e711e658" x="215.407555" y="176.447255" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.16" data-role="point" data-series="Versicolor" data-index="16" data-x="5.6" data-y="4.5"/>
+          <use xlink:href="#ma5e711e658" x="236.562533" y="188.61905" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.17" data-role="point" data-series="Versicolor" data-index="17" data-x="5.8" data-y="4.1"/>
+          <use xlink:href="#ma5e711e658" x="278.872489" y="176.447255" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.18" data-role="point" data-series="Versicolor" data-index="18" data-x="6.2" data-y="4.5"/>
+          <use xlink:href="#ma5e711e658" x="215.407555" y="194.704947" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.19" data-role="point" data-series="Versicolor" data-index="19" data-x="5.6" data-y="3.9"/>
+          <use xlink:href="#ma5e711e658" x="247.140022" y="167.318409" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.20" data-role="point" data-series="Versicolor" data-index="20" data-x="5.9" data-y="4.8"/>
+          <use xlink:href="#ma5e711e658" x="268.295" y="191.661998" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.21" data-role="point" data-series="Versicolor" data-index="21" data-x="6.1" data-y="4"/>
+          <use xlink:href="#ma5e711e658" x="289.449978" y="164.27546" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.22" data-role="point" data-series="Versicolor" data-index="22" data-x="6.3" data-y="4.9"/>
+          <use xlink:href="#ma5e711e658" x="268.295" y="170.361357" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.23" data-role="point" data-series="Versicolor" data-index="23" data-x="6.1" data-y="4.7"/>
+          <use xlink:href="#ma5e711e658" x="300.027467" y="182.533152" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.24" data-role="point" data-series="Versicolor" data-index="24" data-x="6.4" data-y="4.3"/>
+          <use xlink:href="#ma5e711e658" x="321.182445" y="179.490204" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.25" data-role="point" data-series="Versicolor" data-index="25" data-x="6.6" data-y="4.4"/>
+          <use xlink:href="#ma5e711e658" x="342.337424" y="167.318409" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.26" data-role="point" data-series="Versicolor" data-index="26" data-x="6.8" data-y="4.8"/>
+          <use xlink:href="#ma5e711e658" x="331.759935" y="161.232511" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.27" data-role="point" data-series="Versicolor" data-index="27" data-x="6.7" data-y="5"/>
+          <use xlink:href="#ma5e711e658" x="257.717511" y="176.447255" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.28" data-role="point" data-series="Versicolor" data-index="28" data-x="6" data-y="4.5"/>
+          <use xlink:href="#ma5e711e658" x="225.985044" y="206.876742" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.29" data-role="point" data-series="Versicolor" data-index="29" data-x="5.7" data-y="3.5"/>
+          <use xlink:href="#ma5e711e658" x="204.830065" y="197.747896" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.30" data-role="point" data-series="Versicolor" data-index="30" data-x="5.5" data-y="3.8"/>
+          <use xlink:href="#ma5e711e658" x="204.830065" y="200.790845" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.31" data-role="point" data-series="Versicolor" data-index="31" data-x="5.5" data-y="3.7"/>
+          <use xlink:href="#ma5e711e658" x="236.562533" y="194.704947" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.32" data-role="point" data-series="Versicolor" data-index="32" data-x="5.8" data-y="3.9"/>
+          <use xlink:href="#ma5e711e658" x="257.717511" y="158.189563" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.33" data-role="point" data-series="Versicolor" data-index="33" data-x="6" data-y="5.1"/>
+          <use xlink:href="#ma5e711e658" x="194.252576" y="176.447255" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.34" data-role="point" data-series="Versicolor" data-index="34" data-x="5.4" data-y="4.5"/>
+          <use xlink:href="#ma5e711e658" x="257.717511" y="176.447255" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.35" data-role="point" data-series="Versicolor" data-index="35" data-x="6" data-y="4.5"/>
+          <use xlink:href="#ma5e711e658" x="331.759935" y="170.361357" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.36" data-role="point" data-series="Versicolor" data-index="36" data-x="6.7" data-y="4.7"/>
+          <use xlink:href="#ma5e711e658" x="289.449978" y="179.490204" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.37" data-role="point" data-series="Versicolor" data-index="37" data-x="6.3" data-y="4.4"/>
+          <use xlink:href="#ma5e711e658" x="215.407555" y="188.61905" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.38" data-role="point" data-series="Versicolor" data-index="38" data-x="5.6" data-y="4.1"/>
+          <use xlink:href="#ma5e711e658" x="204.830065" y="191.661998" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.39" data-role="point" data-series="Versicolor" data-index="39" data-x="5.5" data-y="4"/>
+          <use xlink:href="#ma5e711e658" x="204.830065" y="179.490204" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.40" data-role="point" data-series="Versicolor" data-index="40" data-x="5.5" data-y="4.4"/>
+          <use xlink:href="#ma5e711e658" x="268.295" y="173.404306" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.41" data-role="point" data-series="Versicolor" data-index="41" data-x="6.1" data-y="4.6"/>
+          <use xlink:href="#ma5e711e658" x="236.562533" y="191.661998" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.42" data-role="point" data-series="Versicolor" data-index="42" data-x="5.8" data-y="4"/>
+          <use xlink:href="#ma5e711e658" x="151.94262" y="212.962639" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.43" data-role="point" data-series="Versicolor" data-index="43" data-x="5" data-y="3.3"/>
+          <use xlink:href="#ma5e711e658" x="215.407555" y="185.576101" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.44" data-role="point" data-series="Versicolor" data-index="44" data-x="5.6" data-y="4.2"/>
+          <use xlink:href="#ma5e711e658" x="225.985044" y="185.576101" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.45" data-role="point" data-series="Versicolor" data-index="45" data-x="5.7" data-y="4.2"/>
+          <use xlink:href="#ma5e711e658" x="225.985044" y="185.576101" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.46" data-role="point" data-series="Versicolor" data-index="46" data-x="5.7" data-y="4.2"/>
+          <use xlink:href="#ma5e711e658" x="278.872489" y="182.533152" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.47" data-role="point" data-series="Versicolor" data-index="47" data-x="6.2" data-y="4.3"/>
+          <use xlink:href="#ma5e711e658" x="162.520109" y="222.091486" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.48" data-role="point" data-series="Versicolor" data-index="48" data-x="5.1" data-y="3"/>
+          <use xlink:href="#ma5e711e658" x="225.985044" y="188.61905" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="versicolor.point.49" data-role="point" data-series="Versicolor" data-index="49" data-x="5.7" data-y="4.1"/>
+        </g>
+      </g>
+      <g id="virginica.points" data-series="Virginica">
+        <defs>
+          <path id="m269ed0487e" d="M 0 2.915476  C 0.773193 2.915476 1.514823 2.608283 2.061553 2.061553  C 2.608283 1.514823 2.915476 0.773193 2.915476 0  C 2.915476 -0.773193 2.608283 -1.514823 2.061553 -2.061553  C 1.514823 -2.608283 0.773193 -2.915476 0 -2.915476  C -0.773193 -2.915476 -1.514823 -2.608283 -2.061553 -2.061553  C -2.608283 -1.514823 -2.915476 -0.773193 -2.915476 0  C -2.915476 0.773193 -2.608283 1.514823 -2.061553 2.061553  C -1.514823 2.608283 -0.773193 2.915476 0 2.915476  z " style="stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5"/>
+        </defs>
+        <g clip-path="url(#p6bfda8d98c)">
+          <use xlink:href="#m269ed0487e" x="289.449978" y="130.803024" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.0" data-role="point" data-series="Virginica" data-index="0" data-x="6.3" data-y="6"/>
+          <use xlink:href="#m269ed0487e" x="236.562533" y="158.189563" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.1" data-role="point" data-series="Virginica" data-index="1" data-x="5.8" data-y="5.1"/>
+          <use xlink:href="#m269ed0487e" x="374.069891" y="133.845973" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.2" data-role="point" data-series="Virginica" data-index="2" data-x="7.1" data-y="5.9"/>
+          <use xlink:href="#m269ed0487e" x="289.449978" y="142.974819" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.3" data-role="point" data-series="Virginica" data-index="3" data-x="6.3" data-y="5.6"/>
+          <use xlink:href="#m269ed0487e" x="310.604956" y="136.888922" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.4" data-role="point" data-series="Virginica" data-index="4" data-x="6.5" data-y="5.8"/>
+          <use xlink:href="#m269ed0487e" x="426.957336" y="112.545332" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.5" data-role="point" data-series="Virginica" data-index="5" data-x="7.6" data-y="6.6"/>
+          <use xlink:href="#m269ed0487e" x="141.365131" y="176.447255" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.6" data-role="point" data-series="Virginica" data-index="6" data-x="4.9" data-y="4.5"/>
+          <use xlink:href="#m269ed0487e" x="395.224869" y="121.674178" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.7" data-role="point" data-series="Virginica" data-index="7" data-x="7.3" data-y="6.3"/>
+          <use xlink:href="#m269ed0487e" x="331.759935" y="136.888922" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.8" data-role="point" data-series="Virginica" data-index="8" data-x="6.7" data-y="5.8"/>
+          <use xlink:href="#m269ed0487e" x="384.64738" y="127.760076" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.9" data-role="point" data-series="Virginica" data-index="9" data-x="7.2" data-y="6.1"/>
+          <use xlink:href="#m269ed0487e" x="310.604956" y="158.189563" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.10" data-role="point" data-series="Virginica" data-index="10" data-x="6.5" data-y="5.1"/>
+          <use xlink:href="#m269ed0487e" x="300.027467" y="152.103665" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.11" data-role="point" data-series="Virginica" data-index="11" data-x="6.4" data-y="5.3"/>
+          <use xlink:href="#m269ed0487e" x="342.337424" y="146.017768" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.12" data-role="point" data-series="Virginica" data-index="12" data-x="6.8" data-y="5.5"/>
+          <use xlink:href="#m269ed0487e" x="225.985044" y="161.232511" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.13" data-role="point" data-series="Virginica" data-index="13" data-x="5.7" data-y="5"/>
+          <use xlink:href="#m269ed0487e" x="236.562533" y="158.189563" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.14" data-role="point" data-series="Virginica" data-index="14" data-x="5.8" data-y="5.1"/>
+          <use xlink:href="#m269ed0487e" x="300.027467" y="152.103665" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.15" data-role="point" data-series="Virginica" data-index="15" data-x="6.4" data-y="5.3"/>
+          <use xlink:href="#m269ed0487e" x="310.604956" y="146.017768" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.16" data-role="point" data-series="Virginica" data-index="16" data-x="6.5" data-y="5.5"/>
+          <use xlink:href="#m269ed0487e" x="437.534825" y="109.502383" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.17" data-role="point" data-series="Virginica" data-index="17" data-x="7.7" data-y="6.7"/>
+          <use xlink:href="#m269ed0487e" x="437.534825" y="103.416486" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.18" data-role="point" data-series="Virginica" data-index="18" data-x="7.7" data-y="6.9"/>
+          <use xlink:href="#m269ed0487e" x="257.717511" y="161.232511" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.19" data-role="point" data-series="Virginica" data-index="19" data-x="6" data-y="5"/>
+          <use xlink:href="#m269ed0487e" x="352.914913" y="139.93187" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.20" data-role="point" data-series="Virginica" data-index="20" data-x="6.9" data-y="5.7"/>
+          <use xlink:href="#m269ed0487e" x="215.407555" y="164.27546" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.21" data-role="point" data-series="Virginica" data-index="21" data-x="5.6" data-y="4.9"/>
+          <use xlink:href="#m269ed0487e" x="437.534825" y="109.502383" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.22" data-role="point" data-series="Virginica" data-index="22" data-x="7.7" data-y="6.7"/>
+          <use xlink:href="#m269ed0487e" x="289.449978" y="164.27546" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.23" data-role="point" data-series="Virginica" data-index="23" data-x="6.3" data-y="4.9"/>
+          <use xlink:href="#m269ed0487e" x="331.759935" y="139.93187" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.24" data-role="point" data-series="Virginica" data-index="24" data-x="6.7" data-y="5.7"/>
+          <use xlink:href="#m269ed0487e" x="384.64738" y="130.803024" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.25" data-role="point" data-series="Virginica" data-index="25" data-x="7.2" data-y="6"/>
+          <use xlink:href="#m269ed0487e" x="278.872489" y="167.318409" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.26" data-role="point" data-series="Virginica" data-index="26" data-x="6.2" data-y="4.8"/>
+          <use xlink:href="#m269ed0487e" x="268.295" y="164.27546" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.27" data-role="point" data-series="Virginica" data-index="27" data-x="6.1" data-y="4.9"/>
+          <use xlink:href="#m269ed0487e" x="300.027467" y="142.974819" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.28" data-role="point" data-series="Virginica" data-index="28" data-x="6.4" data-y="5.6"/>
+          <use xlink:href="#m269ed0487e" x="384.64738" y="136.888922" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.29" data-role="point" data-series="Virginica" data-index="29" data-x="7.2" data-y="5.8"/>
+          <use xlink:href="#m269ed0487e" x="405.802358" y="127.760076" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.30" data-role="point" data-series="Virginica" data-index="30" data-x="7.4" data-y="6.1"/>
+          <use xlink:href="#m269ed0487e" x="458.689804" y="118.631229" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.31" data-role="point" data-series="Virginica" data-index="31" data-x="7.9" data-y="6.4"/>
+          <use xlink:href="#m269ed0487e" x="300.027467" y="142.974819" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.32" data-role="point" data-series="Virginica" data-index="32" data-x="6.4" data-y="5.6"/>
+          <use xlink:href="#m269ed0487e" x="289.449978" y="158.189563" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.33" data-role="point" data-series="Virginica" data-index="33" data-x="6.3" data-y="5.1"/>
+          <use xlink:href="#m269ed0487e" x="268.295" y="142.974819" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.34" data-role="point" data-series="Virginica" data-index="34" data-x="6.1" data-y="5.6"/>
+          <use xlink:href="#m269ed0487e" x="437.534825" y="127.760076" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.35" data-role="point" data-series="Virginica" data-index="35" data-x="7.7" data-y="6.1"/>
+          <use xlink:href="#m269ed0487e" x="289.449978" y="142.974819" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.36" data-role="point" data-series="Virginica" data-index="36" data-x="6.3" data-y="5.6"/>
+          <use xlink:href="#m269ed0487e" x="300.027467" y="146.017768" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.37" data-role="point" data-series="Virginica" data-index="37" data-x="6.4" data-y="5.5"/>
+          <use xlink:href="#m269ed0487e" x="257.717511" y="167.318409" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.38" data-role="point" data-series="Virginica" data-index="38" data-x="6" data-y="4.8"/>
+          <use xlink:href="#m269ed0487e" x="352.914913" y="149.060716" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.39" data-role="point" data-series="Virginica" data-index="39" data-x="6.9" data-y="5.4"/>
+          <use xlink:href="#m269ed0487e" x="331.759935" y="142.974819" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.40" data-role="point" data-series="Virginica" data-index="40" data-x="6.7" data-y="5.6"/>
+          <use xlink:href="#m269ed0487e" x="352.914913" y="158.189563" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.41" data-role="point" data-series="Virginica" data-index="41" data-x="6.9" data-y="5.1"/>
+          <use xlink:href="#m269ed0487e" x="236.562533" y="158.189563" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.42" data-role="point" data-series="Virginica" data-index="42" data-x="5.8" data-y="5.1"/>
+          <use xlink:href="#m269ed0487e" x="342.337424" y="133.845973" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.43" data-role="point" data-series="Virginica" data-index="43" data-x="6.8" data-y="5.9"/>
+          <use xlink:href="#m269ed0487e" x="331.759935" y="139.93187" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.44" data-role="point" data-series="Virginica" data-index="44" data-x="6.7" data-y="5.7"/>
+          <use xlink:href="#m269ed0487e" x="331.759935" y="155.146614" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.45" data-role="point" data-series="Virginica" data-index="45" data-x="6.7" data-y="5.2"/>
+          <use xlink:href="#m269ed0487e" x="289.449978" y="161.232511" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.46" data-role="point" data-series="Virginica" data-index="46" data-x="6.3" data-y="5"/>
+          <use xlink:href="#m269ed0487e" x="310.604956" y="155.146614" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.47" data-role="point" data-series="Virginica" data-index="47" data-x="6.5" data-y="5.2"/>
+          <use xlink:href="#m269ed0487e" x="278.872489" y="149.060716" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.48" data-role="point" data-series="Virginica" data-index="48" data-x="6.2" data-y="5.4"/>
+          <use xlink:href="#m269ed0487e" x="247.140022" y="158.189563" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5" id="virginica.point.49" data-role="point" data-series="Virginica" data-index="49" data-x="5.9" data-y="5.1"/>
+        </g>
+      </g>
+      <g id="axis.y.spine" data-role="spine" data-axis="y">
+        <path d="M 35.59024 319.99976  L 35.59024 46.57524  " style="fill: none; stroke: #6f6e69; stroke-width: 1.1; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="axis.x.spine" data-role="spine" data-axis="x">
+        <path d="M 35.59024 319.99976  L 500.99976 319.99976  " style="fill: none; stroke: #6f6e69; stroke-width: 1.1; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="fit.line" data-role="line" data-series="fit">
+        <path d="M 56.745218 297.613461  L 479.844782 71.408811  L 479.844782 71.408811  " clip-path="url(#p6bfda8d98c)" style="fill: none; stroke: #100f0f; stroke-width: 2; stroke-linecap: round"/>
+      </g>
+      <g id="annotation.0" data-role="annotation">
+        <g style="fill: #575653" transform="translate(54.206621 75.669956)">
+          <text>
+            <tspan x="0" y="-0.828125" style="font-style: oblique; font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">r</tspan>
+            <tspan x="6.665527" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">=</tspan>
+            <tspan x="18.025391" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">0</tspan>
+            <tspan x="25.023926" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">.</tspan>
+            <tspan x="28.520508" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">8</tspan>
+            <tspan x="35.519043" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">7</tspan>
+          </text>
+        </g>
+        <g style="fill: #575653" transform="translate(54.206621 88.869956)">
+          <text>
+            <tspan x="0" y="-0.828125" style="font-style: oblique; font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">y</tspan>
+            <tspan x="91.716797" y="-0.828125" style="font-style: oblique; font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">x</tspan>
+            <tspan x="8.652832" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">=</tspan>
+            <tspan x="20.012695" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">−</tspan>
+            <tspan x="29.229492" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">7</tspan>
+            <tspan x="36.228027" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">.</tspan>
+            <tspan x="39.724609" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">1</tspan>
+            <tspan x="46.723145" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">0</tspan>
+            <tspan x="55.864746" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">+</tspan>
+            <tspan x="67.224609" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">1</tspan>
+            <tspan x="74.223145" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">.</tspan>
+            <tspan x="77.719727" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">8</tspan>
+            <tspan x="84.718262" y="-0.828125" style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #575653">6</tspan>
+          </text>
+        </g>
+      </g>
+      <g id="subtitle.figure" data-role="subtitle" data-name="figure">
+        <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: start; fill: #878580" x="35.59024" y="34.52774" transform="rotate(-0 35.59024 34.52774)">OLS fit with 95% confidence band, by species</text>
+      </g>
+      <g id="figure.title" data-role="title">
+        <text style="font-weight: 500; font-size: 15px; font-family: 'Lato'; fill: #100f0f" transform="translate(35.59024 16.57524)">Petal allometry</text>
+        <text style="font-weight: 500; font-size: 15px; font-family: 'Lato'; fill: #100f0f" transform="translate(35.59024 34.57524)"/>
+      </g>
+      <g id="legend" data-role="legend">
+        <g id="legend.entry.0.swatch" data-role="legend-swatch" data-index="0">
+          <g>
+            <use xlink:href="#m5f33c77010" x="428.900854" y="274.24601" style="fill: #205ea6; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5"/>
+          </g>
+        </g>
+        <g id="legend.entry.0.label" data-role="legend-label" data-index="0">
+          <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: start; fill: #100f0f" x="445.700854" y="277.00226" transform="rotate(-0 445.700854 277.00226)">Setosa</text>
+        </g>
+        <g id="legend.entry.1.swatch" data-role="legend-swatch" data-index="1">
+          <g>
+            <use xlink:href="#ma5e711e658" x="428.900854" y="289.99601" style="fill: #bc5215; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5"/>
+          </g>
+        </g>
+        <g id="legend.entry.1.label" data-role="legend-label" data-index="1">
+          <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: start; fill: #100f0f" x="445.700854" y="292.75226" transform="rotate(-0 445.700854 292.75226)">Versicolor</text>
+        </g>
+        <g id="legend.entry.2.swatch" data-role="legend-swatch" data-index="2">
+          <g>
+            <use xlink:href="#m269ed0487e" x="428.900854" y="305.74601" style="fill: #66800b; fill-opacity: 0.85; stroke: #fffcf0; stroke-opacity: 0.85; stroke-width: 0.5"/>
+          </g>
+        </g>
+        <g id="legend.entry.2.label" data-role="legend-label" data-index="2">
+          <text style="font-size: 10.5px; font-family: 'Lato'; text-anchor: start; fill: #100f0f" x="445.700854" y="308.50226" transform="rotate(-0 445.700854 308.50226)">Virginica</text>
+        </g>
+      </g>
+    </g>
+  </g>
+  <defs>
+    <clipPath id="p6bfda8d98c">
+      <rect x="35.59024" y="46.57524" width="465.40952" height="273.42452"/>
+    </clipPath>
+  </defs>
+</svg>

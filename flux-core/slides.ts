@@ -306,19 +306,25 @@ function assetMime(kind: string): string {
 /** Gather everything a deck needs to render offline: deck-local media → data
  *  URIs, semantic plots (incl. morph targets) → inline SVG + manifest, project
  *  figures → standalone SVG (the headless figure render). Best-effort: a missing
- *  asset is simply absent (the element shows its placeholder). */
-export async function gatherDeckPayload(root: string, deckId: string): Promise<ExportPayload> {
+ *  asset is simply absent (the element shows its placeholder) — but every gap
+ *  that would make the export DIVERGE from the editor is reported in `warnings`
+ *  so the caller can surface it instead of shipping a silently-broken file. */
+export async function gatherDeckPayload(
+  root: string,
+  deckId: string,
+): Promise<{ payload: ExportPayload; warnings: string[] }> {
   const deck = await loadDeck(root, deckId);
   const assets: Record<string, string> = {};
   const plots: Record<string, { svg: string; manifest: FluxPlotManifest }> = {};
   const figures: Record<string, string> = {};
+  const warnings: string[] = [];
 
   for (const a of deck.assets ?? []) {
     if (!a.path) continue;
     try {
       const buf = await fs.readFile(safeJoin(root, j("slides", deck.id, a.path)));
       assets[a.id] = `data:${assetMime(a.kind)};base64,${buf.toString("base64")}`;
-    } catch { /* missing media */ }
+    } catch { warnings.push(`media asset "${a.id}" missing (${a.path}) — its element will show a placeholder`); }
   }
 
   const manifest = await loadManifest(root).catch(() => null);
@@ -326,29 +332,53 @@ export async function gatherDeckPayload(root: string, deckId: string): Promise<E
   const collectPlot = async (assetId: string, svgPath?: string, manifestPath?: string) => {
     if (plots[assetId]) return;
     const entry = plotIndex.find((p) => p.id === assetId);
-    const sp = svgPath ?? entry?.svgPath ?? entry?.path;
-    const mp = manifestPath ?? entry?.manifestPath;
-    if (!sp) return;
+    // Insertable plot ids ARE their path under plots/ minus ".svg", so the
+    // convention fallback makes bare-assetId references (morph targets) work.
+    const sp = svgPath ?? entry?.svgPath ?? entry?.path ?? j("plots", `${assetId}.svg`);
+    // Sibling convention: NN.svg ↔ NN.fluxplot.json — the SAME fallback the app's
+    // loadDeckAssets uses. Without it the export sees an empty manifest, group
+    // parts (ticks/points/gridlines) never expand, and animations silently no-op
+    // in the exported file while previewing fine in the editor.
+    const mp = manifestPath ?? entry?.manifestPath ?? sp.replace(/\.svg$/i, ".fluxplot.json");
     try {
       const svg = await fs.readFile(safeJoin(root, sp), "utf8");
       let m: FluxPlotManifest | undefined;
-      if (mp) try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* optional */ }
+      try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* optional sidecar */ }
       plots[assetId] = { svg, manifest: m ?? ({ axes: [], series: [] } as unknown as FluxPlotManifest) };
-    } catch { /* unreadable plot */ }
+    } catch { warnings.push(`plot "${assetId}" not found (${sp}) — it will be missing from the export`); }
   };
 
   for (const s of deck.slides) {
     for (const el of s.elements) {
       if (el.type === "plot") await collectPlot(el.assetId, el.source?.svgPath, el.source?.manifestPath);
       else if (el.type === "embedFigure") {
-        try { figures[el.figureId] = await renderFigureSvg(root, el.figureId); } catch { /* no figure */ }
+        try { figures[el.figureId] = await renderFigureSvg(root, el.figureId); } catch {
+          warnings.push(`figure "${el.figureId}" could not be rendered — its element will show a placeholder`);
+        }
       }
     }
     for (const b of s.beats) for (const t of b.tracks) {
       if (t.preset === "morph" && t.to?.assetId) await collectPlot(t.to.assetId);
     }
   }
-  return { deck, plots, figures, assets };
+
+  // Parity audit: a part-targeting track whose plot has no parts tree cannot
+  // resolve group parts in the export (resolveTargets falls back to the literal
+  // id). The editor may still have looked animated via a cached manifest.
+  const partWarned = new Set<string>();
+  for (const s of deck.slides) {
+    for (const b of s.beats) for (const t of b.tracks) {
+      if (!t.part) continue;
+      const el = s.elements.find((e) => e.id === t.target);
+      if (!el || el.type !== "plot" || partWarned.has(el.assetId)) continue;
+      const g = plots[el.assetId];
+      if (g && !(g.manifest as unknown as { parts?: unknown }).parts) {
+        partWarned.add(el.assetId);
+        warnings.push(`plot "${el.assetId}" has part-level animations but no parts tree in its manifest — those animations will not play in the export`);
+      }
+    }
+  }
+  return { payload: { deck, plots, figures, assets }, warnings };
 }
 
 /** export-deck: gather + emit the self-contained .html (defaults to
@@ -358,12 +388,12 @@ export async function exportDeck(
   deckId: string,
   opts: { out?: string } = {},
 ): Promise<{ path: string; bytes: number; warnings: string[] }> {
-  const payload = await gatherDeckPayload(root, deckId);
+  const { payload, warnings: gatherWarnings } = await gatherDeckPayload(root, deckId);
   const { html, bytes, warnings } = await exportDeckHtml(payload);
   const out = opts.out ?? safeJoin(root, j("exports", `${deckId}.html`));
   await writeText(out, html);
   await journal(root, { action: "export_deck", deck: deckId, bytes });
-  return { path: out, bytes, warnings };
+  return { path: out, bytes, warnings: [...gatherWarnings, ...warnings] };
 }
 
 export interface ValidateDeckResult {

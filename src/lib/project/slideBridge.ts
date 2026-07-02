@@ -310,6 +310,35 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
         /* unreadable plot — element shows a placeholder */
       }
     }
+
+    // 2b. morph TARGETS referenced only by tracks (to.assetId) — they never
+    // appear as elements, so without this the compat gate sees no manifest and
+    // the morph silently holds at A in preview while the export (which gathers
+    // them) would play it. One player, two hosts — both need the same inputs.
+    // Insertable plot ids ARE their path under plots/ minus ".svg", hence the
+    // convention fallback for targets picked from the project at large.
+    const morphIds = new Set<string>();
+    for (const s of deck.slides) for (const b of s.beats) for (const t of b.tracks) {
+      if (t.preset === "morph" && t.to?.assetId) morphIds.add(t.to.assetId);
+    }
+    for (const assetId of morphIds) {
+      if (hasPlotDom(assetId) && get(plotManifests)[assetId]) continue;
+      const el = plots.find((p) => p.assetId === assetId);
+      const svgPath = el?.source?.svgPath ?? `plots/${assetId}.svg`;
+      const manifestPath = el?.source?.manifestPath ?? svgPath.replace(/\.svg$/i, ".fluxplot.json");
+      try {
+        let manifest: FluxPlotManifest | undefined;
+        try { manifest = JSON.parse(await fig.readText(joinPath(root, manifestPath))) as FluxPlotManifest; } catch { /* no sidecar */ }
+        if (!hasPlotDom(assetId)) {
+          const svgText = await fig.readText(joinPath(root, svgPath));
+          cachePlot(assetId, svgText, manifest as FluxPlotManifest);
+        } else if (manifest) {
+          plotManifests.update((m) => ({ ...m, [assetId]: manifest as FluxPlotManifest }));
+        }
+      } catch {
+        /* unresolvable morph target — the player's compat gate holds at A */
+      }
+    }
   }
 
   // 3. project figures (for embedFigure) → standalone SVG via figureToSvg.

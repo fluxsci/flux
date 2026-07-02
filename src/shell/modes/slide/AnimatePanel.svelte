@@ -209,8 +209,12 @@
     if (animEl && animEl.contains(document.activeElement)) onAnimKey(e);
   }
 
-  // --- draggable top edge → the dock's max-height (C1). Drag up = taller dock.
+  // --- draggable top edge → the dock's max-height (C1). Drag up = taller dock —
+  // all the way to a near-full-window animator (the stage keeps an 80px sliver).
   let dockResize = $state(false);
+  const DOCK_DEFAULT_H = 300;
+  const dockMaxH = () => Math.max(150, window.innerHeight - 160);
+  let lastBigH = 0; // remembered across the ⇕ toggle (session-local)
   function startDockDrag(e: PointerEvent) {
     e.preventDefault();
     dockResize = true;
@@ -219,8 +223,18 @@
   }
   function moveDockDrag(e: PointerEvent) {
     if (!dockResize || !animEl) return;
-    const h = Math.max(150, Math.min(640, animEl.getBoundingClientRect().bottom - e.clientY));
+    const h = Math.max(150, Math.min(dockMaxH(), animEl.getBoundingClientRect().bottom - e.clientY));
     slideLayout.update((s) => ({ ...s, animatorH: Math.round(h) }));
+  }
+  /** Toggle default height ↔ the last tall height (or full) — dbl-click the gutter or the ⇕ button. */
+  function toggleDockSize() {
+    const cur = $slideLayout.animatorH;
+    if (cur > DOCK_DEFAULT_H + 40) {
+      lastBigH = cur;
+      slideLayout.update((s) => ({ ...s, animatorH: DOCK_DEFAULT_H }));
+    } else {
+      slideLayout.update((s) => ({ ...s, animatorH: Math.min(dockMaxH(), lastBigH || dockMaxH()) }));
+    }
   }
   function endDockDrag() {
     dockResize = false;
@@ -349,7 +363,7 @@
   <div class="animator" bind:this={animEl} tabindex="0" role="group" aria-label="Animation timeline" style={`--anim-h:${$slideLayout.animatorH}px`}>
     <!-- drag the top edge to resize the dock (C1) -->
     <div class="dock-gutter" class:active={dockResize} role="separator" aria-orientation="horizontal"
-      aria-label="Resize animator" onpointerdown={startDockDrag}><span class="grip"></span></div>
+      aria-label="Resize animator" onpointerdown={startDockDrag} ondblclick={toggleDockSize}><span class="grip"></span></div>
     <div class="bar">
       <strong class="ttl">Animation</strong>
       {#if selPlot}
@@ -387,6 +401,7 @@
         <button class="b play" onclick={() => onPreview?.()} title="Play this slide's build on the stage">▶ Preview</button>
       {/if}
       <span class="spacer"></span>
+      <button class="b" onclick={toggleDockSize} title="Toggle animator size (or double-click the top edge)">⇕</button>
       <span class="keyhint" title="When the Animator has focus (click a track first): arrows navigate, Enter edits, letters jump to fields">
         <kbd>←→</kbd>beat <kbd>↑↓</kbd>track <kbd>↵</kbd>edit
       </span>
@@ -509,7 +524,7 @@
     border-top: 1px solid var(--c-line, #282726);
     padding: 8px 10px 10px;
     background: var(--c-bg, #100f0f);
-    max-height: var(--anim-h, 300px);
+    max-height: min(var(--anim-h, 300px), calc(100vh - 160px));
     outline: none;
     position: relative;
   }

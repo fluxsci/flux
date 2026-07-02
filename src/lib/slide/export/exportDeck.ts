@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import type { ExportPayload } from "./runtime";
@@ -28,12 +29,17 @@ export interface ExportAssets {
   runtime: string;
   gelasio: string;
   katexCss: string;
+  /** Repo-relative source files the runtime bundle was built from (staleness guard). */
+  sources?: string[];
+  /** sha256 over the sorted (path, content) pairs of `sources` at bake time. */
+  sourcesHash?: string;
+  generatedAt?: string;
 }
 
 /** Bundle the export runtime (player + render + morph + presets + motion + KaTeX)
  *  into a single minified IIFE exposing `FluxSlideRuntime`. esbuild is imported
  *  dynamically so it stays out of the shipped CLI bundle (dev-only path). */
-async function computeRuntime(): Promise<string> {
+async function computeRuntime(): Promise<{ text: string; sources: string[] }> {
   const { build } = await import("esbuild");
   const out = await build({
     entryPoints: [runtimeEntry],
@@ -45,8 +51,25 @@ async function computeRuntime(): Promise<string> {
     minify: true,
     write: false,
     legalComments: "none",
+    metafile: true,
   });
-  return out.outputFiles[0].text;
+  const sources = Object.keys(out.metafile?.inputs ?? {})
+    .map((p) => path.relative(repoRoot, path.resolve(p)))
+    .filter((p) => !p.startsWith(".."))
+    .sort();
+  return { text: out.outputFiles[0].text, sources };
+}
+
+/** sha256 over the sorted (repo-relative path, content) pairs. */
+async function hashSources(rels: string[]): Promise<string> {
+  const h = createHash("sha256");
+  for (const rel of [...rels].sort()) {
+    h.update(rel);
+    h.update("\0");
+    h.update(await readFile(path.join(repoRoot, rel)));
+    h.update("\0");
+  }
+  return h.digest("hex");
 }
 
 const b64 = (buf: Buffer) => buf.toString("base64");
@@ -93,12 +116,17 @@ async function computeKatexCss(): Promise<string> {
 /** Build-time producer: compute every deck-independent asset from source.
  *  Called by scripts/gen-export-assets.ts to write the shipped sidecar. */
 export async function computeExportAssets(): Promise<ExportAssets> {
-  const [runtime, gelasio, katexCss] = await Promise.all([
+  const [rt, gelasio, katexCss] = await Promise.all([
     computeRuntime(),
     computeGelasio(),
     computeKatexCss(),
   ]);
-  return { runtime, gelasio, katexCss };
+  let sourcesHash = "";
+  try { sourcesHash = await hashSources(rt.sources); } catch { /* best-effort */ }
+  return {
+    runtime: rt.text, gelasio, katexCss,
+    sources: rt.sources, sourcesHash, generatedAt: new Date().toISOString(),
+  };
 }
 
 /** Candidate locations for the prebuilt sidecar, most-specific first:
@@ -111,19 +139,37 @@ function sidecarCandidates(): string[] {
   ];
 }
 
+/** Dev-only staleness guard: a sidecar baked from OLD player sources would ship
+ *  an old runtime in every export (preview ≠ export). If the runtime entry exists
+ *  on disk (dev checkout), re-hash the sidecar's recorded sources and compare; a
+ *  vanished listed source (rename) also counts as stale. In a packaged app the
+ *  sources are absent → the sidecar is authoritative (never stale). */
+async function sidecarStale(a: ExportAssets): Promise<boolean> {
+  if (!a.sources?.length || !a.sourcesHash) return false; // pre-guard sidecar: trust it
+  try { await readFile(runtimeEntry); } catch { return false; } // no src/ → packaged
+  try {
+    return (await hashSources(a.sources)) !== a.sourcesHash;
+  } catch {
+    return true; // dev, but a recorded source is gone → the bundle can't match
+  }
+}
+
 let _assets: ExportAssets | null = null;
 /** Export-time consumer: prefer the prebuilt sidecar (required in a packaged app,
- *  present in dev after a build); fall back to computing fresh (dev without build).
- *  Cached per process. */
+ *  present in dev after a build); fall back to computing fresh (dev without build,
+ *  or a stale sidecar). Cached per process. */
 async function loadExportAssets(): Promise<ExportAssets> {
   if (_assets) return _assets;
   for (const p of sidecarCandidates()) {
     try {
       const parsed = JSON.parse(await readFile(p, "utf8")) as ExportAssets;
-      if (parsed?.runtime) {
-        _assets = parsed;
-        return _assets;
+      if (!parsed?.runtime) continue;
+      if (await sidecarStale(parsed)) {
+        console.warn(`[flux-slide] stale ${p} — player sources changed since it was baked; recomputing fresh (run \`npm run build\` to refresh it).`);
+        continue;
       }
+      _assets = parsed;
+      return _assets;
     } catch {
       /* try the next candidate */
     }

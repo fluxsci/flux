@@ -83,7 +83,11 @@
   function applyZoom(nextZoom: number, anchorX?: number, anchorY?: number) {
     if (!interactive) return;
     const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, nextZoom));
-    if (z <= 1.0001) { resetStageView(); return; } // snap back to centered fit
+    // Soft magnetism: settle to exact centered fit when ARRIVING near 1 from
+    // elsewhere — but never trap a zoom-out that starts at fit (zoom < 1 is a
+    // real state now; ZOOM_MIN is reachable).
+    const cur = get(stageView).zoom;
+    if (cur !== 1 && Math.abs(z - 1) < 0.03) { resetStageView(); return; }
     if (!viewport || !scaledEl || fitScale <= 0) { stageView.update((v) => ({ ...v, zoom: z })); return; }
     const fr = viewport.getBoundingClientRect();
     const ax = anchorX ?? fr.left + fr.width / 2;

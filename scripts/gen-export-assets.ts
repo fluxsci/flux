@@ -20,5 +20,6 @@ await writeFile(outPath, JSON.stringify(assets));
 const kb = (s: string) => (Buffer.byteLength(s, "utf8") / 1024).toFixed(0);
 console.log(
   `✓ dist/slide-export-assets.json — runtime ${kb(assets.runtime)}kB, ` +
-    `gelasio ${kb(assets.gelasio)}kB, katex ${kb(assets.katexCss)}kB`,
+    `gelasio ${kb(assets.gelasio)}kB, katex ${kb(assets.katexCss)}kB, ` +
+    `${assets.sources?.length ?? 0} sources hashed (staleness guard)`,
 );

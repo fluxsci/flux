@@ -205,6 +205,9 @@
       const opts = {
         theme, assetUrl: resolvers.assetUrl, figureSvg: resolvers.figureSvg,
         plotGen: get(plotGen), mode: "present" as const, plotManifest: (id: string) => get(plotManifests)[id],
+        // A talk previews with motion regardless of the OS setting — matches
+        // Present and the exported runtime (which force it off too).
+        reducedMotion: false,
       };
       player = createPlayer(previewHost, d, opts);
       previewHost.style.transformOrigin = "center center";

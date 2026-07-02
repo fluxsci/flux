@@ -34,7 +34,8 @@ try {
   await slides.saveDeck(root, deck);
 
   // gather → assert the image was read off disk into a data URI
-  const payload = await slides.gatherDeckPayload(root, "talk");
+  const { payload, warnings: gatherWarnings } = await slides.gatherDeckPayload(root, "talk");
+  assert(gatherWarnings.length === 0, `no gather warnings for a complete deck (got: ${gatherWarnings.join("; ")})`);
   assert(payload.deck.id === "talk" && payload.deck.slides.length === 2, "payload carries the loaded deck");
   assert((payload.assets?.shot ?? "").startsWith("data:image/png;base64,"), "deck image asset gathered as a data URI off disk");
 
