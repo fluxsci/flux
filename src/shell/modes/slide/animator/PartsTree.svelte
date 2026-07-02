@@ -37,11 +37,17 @@
     node?: XrayNode;
     blockId?: string;
     expandable: boolean;
+    /** the collapse key + its EFFECTIVE state (user toggle over the default) */
+    ckey: string;
+    collapsed: boolean;
   }
 
-  let collapsed = $state(new Set<string>());
-  let initializedEls = $state(new Set<string>());
+  // Collapse = user toggles OVER defaults (elements open; part groups at depth
+  // ≥2 closed, so 100+ part trees start compact). Pure — the rows derived never
+  // mutates state (Svelte 5 forbids state writes inside $derived).
+  let toggled = $state(new Map<string, boolean>());
   let filter = $state("");
+  const isCollapsed = (ckey: string, def: boolean) => toggled.get(ckey) ?? def;
 
   function elLabel(el: SlideElement): string {
     if (el.type === "textBox") return el.blocks[0]?.text.replace(/\*/g, "").slice(0, 22) || "Text";
@@ -54,21 +60,6 @@
     return el.type;
   }
 
-  // pre-collapse a plot's deep groups the first time it renders (100+ part trees)
-  function ensureInit(elId: string, tree: XrayNode | null) {
-    if (!tree || initializedEls.has(elId)) return;
-    const next = new Set(collapsed);
-    const walk = (n: XrayNode, depth: number) => {
-      if (depth >= 2 && n.children.length) next.add(`${elId}|${n.id}`);
-      for (const c of n.children) walk(c, depth + 1);
-    };
-    walk(tree, 0);
-    const ini = new Set(initializedEls);
-    ini.add(elId);
-    initializedEls = ini;
-    collapsed = next;
-  }
-
   const rows = $derived.by(() => {
     const out: Row[] = [];
     const q = filter.trim().toLowerCase();
@@ -77,29 +68,33 @@
       const tree = isPlot ? buildPartTree(manifests[(el as { assetId: string }).assetId]) : null;
       const blocks = el.type === "textBox" ? el.blocks : null;
       const expandable = !!tree || (!!blocks && blocks.length > 1);
-      out.push({ key: el.id, kind: "element", depth: 0, label: elLabel(el), glyph: EL_GLYPH[el.type] ?? "▫", elId: el.id, el, expandable });
-      const open = q ? true : !collapsed.has(el.id);
+      const elCollapsed = isCollapsed(el.id, false);
+      out.push({ key: el.id, kind: "element", depth: 0, label: elLabel(el), glyph: EL_GLYPH[el.type] ?? "▫", elId: el.id, el, expandable, ckey: el.id, collapsed: elCollapsed });
+      const open = q ? true : !elCollapsed;
       if (!open || !expandable) continue;
       if (tree) {
-        ensureInit(el.id, tree);
         const walk = (n: XrayNode, depth: number) => {
-          out.push({ key: `${el.id}|${n.id}`, kind: "part", depth, label: n.label, elId: el.id, el, node: n, expandable: n.children.length > 0 });
-          if (n.children.length && (q || !collapsed.has(`${el.id}|${n.id}`))) for (const c of n.children) walk(c, depth + 1);
+          const ckey = `${el.id}|${n.id}`;
+          const def = depth >= 2 && n.children.length > 0; // deep groups start compact
+          const col = isCollapsed(ckey, def);
+          out.push({ key: ckey, kind: "part", depth, label: n.label, elId: el.id, el, node: n, expandable: n.children.length > 0, ckey, collapsed: col });
+          if (n.children.length && (q || !col)) for (const c of n.children) walk(c, depth + 1);
         };
         walk(tree, 1);
       } else if (blocks) {
         blocks.forEach((b, i) => {
-          out.push({ key: `${el.id}#${b.id}`, kind: "block", depth: 1, label: b.text.replace(/\*/g, "").slice(0, 24) || `line ${i + 1}`, elId: el.id, el, blockId: b.id, expandable: false });
+          const key = `${el.id}#${b.id}`;
+          out.push({ key, kind: "block", depth: 1, label: b.text.replace(/\*/g, "").slice(0, 24) || `line ${i + 1}`, elId: el.id, el, blockId: b.id, expandable: false, ckey: key, collapsed: false });
         });
       }
     }
     return q ? out.filter((r) => r.kind === "element" || r.label.toLowerCase().includes(q) || r.key.toLowerCase().includes(q)) : out;
   });
 
-  function toggleCollapse(key: string) {
-    const s = new Set(collapsed);
-    if (s.has(key)) s.delete(key); else s.add(key);
-    collapsed = s;
+  function toggleCollapse(r: Row) {
+    const m = new Map(toggled);
+    m.set(r.ckey, !r.collapsed);
+    toggled = m;
   }
 
   // --- row selection (multi, with shift ranges over the visible rows) -----------
@@ -236,8 +231,8 @@
         style={`padding-left:${r.depth * 11 + 2}px`}
         onclick={(e) => clickRow(e, r)}>
         {#if r.expandable}
-          <button class="tw" onclick={(e) => { e.stopPropagation(); toggleCollapse(r.kind === "element" ? r.elId : r.key); }} aria-label="collapse">
-            {collapsed.has(r.kind === "element" ? r.elId : r.key) ? "▸" : "▾"}
+          <button class="tw" onclick={(e) => { e.stopPropagation(); toggleCollapse(r); }} aria-label="collapse">
+            {r.collapsed ? "▸" : "▾"}
           </button>
         {:else}<span class="tw"></span>{/if}
         {#if r.glyph}<span class="gl">{r.glyph}</span>{/if}

@@ -144,9 +144,11 @@
         d.mode = d.zone === "edge" ? "dur" : "start";
       }
       if (d.mode === "start" || d.mode === "dur") {
-        // leaving the source column upgrades a body-drag to a move-to-beat
+        // a body-drag that reaches ANOTHER column (or leaves the timeline with
+        // real vertical intent) upgrades to a move-to-beat; edge (duration)
+        // drags never upgrade.
         const over = beatIndexAt(e.clientX, e.clientY);
-        if (d.mode === "start" && (over === null || over !== d.beatIndex) && Math.abs(dy) > 24) {
+        if (d.mode === "start" && ((over != null && over !== d.beatIndex) || (over === null && Math.abs(dy) > 30))) {
           d.mode = "move";
         } else {
           const raw = (d.mode === "start" ? d.primary.start : d.primary.duration) + dx / pxPerMs;

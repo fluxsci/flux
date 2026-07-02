@@ -75,16 +75,19 @@ export function autoPxPerMs(maxEndMs: number): number {
   return Math.max(0.04, Math.min(0.35, 260 / Math.max(1, maxEndMs)));
 }
 
-/** Snap a ms value to the 50ms grid + a set of magnet times (other tracks'
- *  boundaries), with a px-space threshold. Alt disables via `enabled:false`. */
+/** Snap a ms value: magnet-snap to other tracks' boundaries + the nearest 50ms
+ *  grid line within an 8-screen-px threshold; otherwise quantize to 10ms so
+ *  drags land on round numbers. Alt disables via `enabled:false`. */
 export function snapMs(ms: number, magnets: number[], pxPerMs: number, enabled: boolean): number {
   if (!enabled) return Math.max(0, Math.round(ms));
-  const thresholdMs = 4 / pxPerMs;
-  let best = Math.round(ms / 50) * 50;
-  let bestD = Math.abs(ms - best);
+  const thresholdMs = 8 / pxPerMs;
+  const grid = Math.round(ms / 50) * 50;
+  let best = grid;
+  let bestD = Math.abs(ms - grid);
   for (const m of magnets) {
     const d = Math.abs(ms - m);
     if (d < bestD) { best = m; bestD = d; }
   }
-  return Math.max(0, bestD <= thresholdMs ? best : Math.round(ms));
+  if (bestD <= thresholdMs) return Math.max(0, best);
+  return Math.max(0, Math.round(ms / 10) * 10);
 }

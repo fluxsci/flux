@@ -130,7 +130,9 @@
     if (!open) return;
     const tgt = e.target as HTMLElement;
     const inField = tgt && (tgt.tagName === "INPUT" || tgt.tagName === "SELECT");
-    if (e.key === "Escape" || (e.altKey && e.code === "KeyP")) {
+    // NOTE: Alt+P is owned by SlideMode's toggle — handling it here too would
+    // close the panel on the very event that opened it (same-event re-entry).
+    if (e.key === "Escape") {
       e.preventDefault();
       e.stopImmediatePropagation();
       if (inField) (tgt as HTMLInputElement).blur();

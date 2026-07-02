@@ -295,7 +295,10 @@
     border-top: 1px solid var(--c-line, #282726);
     padding: 8px 10px 10px;
     background: var(--c-bg, #100f0f);
-    max-height: min(var(--anim-h, 300px), calc(100vh - 160px));
+    /* FIXED height (not max): dragging the gutter up must actually GIVE the
+       animator that space — the tree/timeline/editor stretch into it (flex) —
+       all the way to a near-full-window editor. */
+    height: min(var(--anim-h, 300px), calc(100vh - 160px));
     outline: none;
     position: relative;
   }
