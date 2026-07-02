@@ -108,6 +108,9 @@ interface Session {
 }
 
 let session: Session | null = null;
+// The project root the live shell was started for. `undefined` = never observed (so the very
+// first syncRoot call doesn't kill anything); after that a change means a project switch.
+let sessionRoot: string | null | undefined = undefined;
 
 function ensure(): Session {
   if (session) return session;
@@ -246,4 +249,26 @@ export async function kill(): Promise<void> {
   s.ptyId = null;
   termInfo.set(null);
   setStatus("exited");
+}
+
+/**
+ * PAP-17: note the active project root. On a genuine change (not the first observation), kill the
+ * shell — it was spawned with the OLD project's cwd, so leaving it alive runs commands in the
+ * wrong directory. Reset to "idle" (not "exited") so the next attach() auto-starts a fresh shell
+ * in the new project's cwd. The main process derives cwd from the current file-watch root, so a
+ * new shell lands in the right place; we only need to retire the stale one.
+ */
+export async function syncRoot(root: string | null): Promise<void> {
+  const prev = sessionRoot;
+  sessionRoot = root;
+  if (prev === undefined || prev === root) return; // first observation, or same project
+  const s = session;
+  const br = bridge();
+  if (s?.ptyId && br) await br.kill(s.ptyId);
+  if (s) {
+    s.ptyId = null;
+    if (s.opened) s.term.reset();
+  }
+  termInfo.set(null);
+  setStatus("idle");
 }

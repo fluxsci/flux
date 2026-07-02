@@ -37,7 +37,10 @@ async function getYaml(): Promise<any> {
 
 const FIG_EMBED = /^\s*!\[(.*?)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)[^}]*\}\s*$/;
 const TBL_CAPTION = /^\s*:\s+(.*?)\s*\{#(tbl-[A-Za-z0-9_-]+)\}\s*$/;
-const CROSSREF = /@(fig|tbl|sec|eq)-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*/g;
+// PAP-14: only fig/tbl resolve to a number; @sec-/@eq- have no numbering, so they're not
+// cross-refs — they fall through to plain text (the BARE_CITE guard below keeps sec|eq so they
+// aren't mis-linked as citations either). Matches the editor chip grammar in science/chips.ts.
+const CROSSREF = /@(fig|tbl)-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*/g;
 const BRACKET_CITE = /\[(@[^\]]+?)\]/g;
 const BARE_CITE = /(^|[\s([])@([A-Za-z][\w:.-]*)/g;
 

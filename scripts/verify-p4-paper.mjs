@@ -45,6 +45,8 @@ const DOC = [
   "",
   `Prose [@smith2020] and code ${bt}[@smith2020]${bt} here.`,
   "",
+  "A section ref @sec-intro is not a real cross-ref.",
+  "",
 ].join("\n");
 
 const { browser, page } = await launch();
@@ -92,13 +94,23 @@ assert(
   "PAP-13: the prose [@smith2020] is still transformed into a citation link",
 );
 
+console.log("PAP-14 — @sec/@eq are no longer cross-refs; they render as inert plain text:");
+assert(html.includes("@sec-intro"), "PAP-14: @sec-intro survives as literal text");
+assert(!/href="#sec-intro"/.test(html), "PAP-14: @sec-intro is NOT linkified as a cross-ref");
+assert(!/#ref-sec/.test(html), "PAP-14: @sec-intro is NOT mis-linked as a citation");
+
 console.log("presence of the CM/DOM-bound fixes:");
 const read = (p) => fs.readFile(path.join(import.meta.dirname, "..", p), "utf8");
-const [paperMode, completions, commentsView] = await Promise.all([
-  read("src/shell/modes/paper/PaperMode.svelte"),
-  read("src/shell/modes/paper/scholar/completions.ts"),
-  read("src/shell/modes/paper/margin/views/CommentsView.svelte"),
-]);
+const [paperMode, completions, commentsView, chips, renderMs, paneStore, termSession] =
+  await Promise.all([
+    read("src/shell/modes/paper/PaperMode.svelte"),
+    read("src/shell/modes/paper/scholar/completions.ts"),
+    read("src/shell/modes/paper/margin/views/CommentsView.svelte"),
+    read("src/shell/modes/paper/science/chips.ts"),
+    read("src/shell/modes/paper/render/renderManuscript.ts"),
+    read("src/shell/paneStore.ts"),
+    read("src/shell/modes/paper/margin/terminalSession.ts"),
+  ]);
 assert(
   (paperMode.match(/reanchorComments\(\)/g) || []).length >= 2 &&
     /reanchorComments\(\);\s*\/\/\s*PAP-4/.test(paperMode),
@@ -115,6 +127,30 @@ assert(
 assert(
   /live \? makeAnchor\(doc, live\.from, live\.to\)/.test(paperMode),
   "PAP-9: resolveComment snapshots the live range into the anchor before removing the mark",
+);
+assert(
+  /newDocOpen = true/.test(paperMode) &&
+    /function submitNewDoc/.test(paperMode) &&
+    !/window\.prompt\(/.test(paperMode), // the call, not the explanatory comments
+  "PAP-3: new-document uses an in-app modal (no window.prompt, which is dead in Electron)",
+);
+assert(
+  /@\(\?:fig\|tbl\)-/.test(chips) && /@\(fig\|tbl\)-/.test(renderMs),
+  "PAP-14: both cross-ref grammars dropped sec|eq",
+);
+assert(
+  /function wouldDuplicatePaper/.test(paneStore) &&
+    (paneStore.match(/wouldDuplicatePaper\(/g) || []).length >= 3,
+  "PAP-16: paneStore gates a second Paper pane (splitWith + setFocusedMode)",
+);
+assert(
+  /export async function syncRoot/.test(termSession) &&
+    /terminalSession\.syncRoot\(/.test(paperMode),
+  "PAP-17: terminal session is retired on project switch (syncRoot)",
+);
+assert(
+  /lastSeenChangeN/.test(paperMode) && /chg\.n <= lastSeenChangeN/.test(paperMode),
+  "PAP-20: externalManuscriptChange ignores the replayed value on (re)mount",
 );
 
 if (errs.length) {

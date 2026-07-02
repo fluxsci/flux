@@ -36,6 +36,7 @@
   import type { FigureRef } from "./scholar/figures";
   import DynamicMargin from "./margin/DynamicMargin.svelte";
   import type { MarginHost } from "./margin/types";
+  import * as terminalSession from "./margin/terminalSession";
   import { writeCiteGroup, removeCite as removeCiteOp, citationGroupAt } from "./scholar/citeOps";
   import PreviewPane from "./render/PreviewPane.svelte";
   import { renderManuscript } from "./render/renderManuscript";
@@ -353,6 +354,10 @@
   let doiPromptMode = $state<"library" | "cite">("library");
   let doiPromptValue = $state("");
   let doiPromptError = $state("");
+  // PAP-3: "+ New document" — an in-app modal. window.prompt is disabled in Electron
+  // (returns null silently), so the shipped multi-document feature couldn't create anything.
+  let newDocOpen = $state(false);
+  let newDocValue = $state("");
   function openDoiPrompt(mode: "library" | "cite") {
     doiPromptMode = mode;
     doiPromptValue = "";
@@ -616,6 +621,9 @@
   });
 
   onMount(async () => {
+    // PAP-17: the integrated terminal is an app-lifetime singleton with a fixed cwd. Retire any
+    // shell left over from a different project so it can't run commands in the wrong directory.
+    void terminalSession.syncRoot(pm?.root ?? null);
     if (pm) {
       docs = await listDocuments(pm);
       // Restore the last active document if it still exists, else the main one.
@@ -646,7 +654,18 @@
     // Keep the shared FluxLib store current for the reference search + @-autocomplete
     // (fires immediately, then on any FluxLib change — add here, Library mode, capture).
     subs.push(fluxLibRevision.subscribe(() => void refreshFluxLib()));
-    subs.push(externalManuscriptChange.subscribe((chg) => void onExternalManuscript(chg)));
+    // PAP-20: externalManuscriptChange is a module-global store; subscribing replays its
+    // CURRENT value immediately, so a fresh mount (project switch, keep-alive re-entry) would
+    // re-process the last external edit as if it just happened. Gate on the monotonic `n`
+    // captured at mount — only strictly-newer changes are real.
+    let lastSeenChangeN = get(externalManuscriptChange)?.n ?? 0;
+    subs.push(
+      externalManuscriptChange.subscribe((chg) => {
+        if (!chg || chg.n <= lastSeenChangeN) return;
+        lastSeenChangeN = chg.n;
+        void onExternalManuscript(chg);
+      }),
+    );
     subs.push(figureRefs.subscribe(refresh));
     subs.push(bibEntries.subscribe(refresh));
 
@@ -798,13 +817,22 @@
     view.focus();
   }
 
-  async function newDocument() {
+  function newDocument() {
     if (!pm) return;
-    const name = window.prompt("New document name", "Untitled");
-    if (name == null) return;
-    const rel = await createDocument(pm, name.trim() || "Untitled");
-    docs = await listDocuments(pm);
-    await loadDocument(rel);
+    newDocValue = "";
+    newDocOpen = true;
+  }
+  async function submitNewDoc() {
+    if (!pm) return;
+    const name = newDocValue.trim() || "Untitled";
+    newDocOpen = false;
+    try {
+      const rel = await createDocument(pm, name);
+      docs = await listDocuments(pm);
+      await loadDocument(rel);
+    } catch (e) {
+      pushToast("error", "Couldn’t create the document", { detail: errMsg(e) });
+    }
   }
 
   // F1 live reload: an external (agent/script) edit to the *active* document.
@@ -1168,6 +1196,33 @@
                 ? "Add & cite"
                 : "Add to FluxLib"}
           </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if newDocOpen}
+    <div class="doi-prompt-backdrop">
+      <div class="doi-prompt" role="dialog" aria-label="New document">
+        <label for="new-doc-input">Name the new document</label>
+        <input
+          id="new-doc-input"
+          type="text"
+          placeholder="Untitled"
+          bind:value={newDocValue}
+          use:focusSelect
+          onkeydown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submitNewDoc();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              newDocOpen = false;
+            }
+          }} />
+        <div class="doi-prompt-actions">
+          <button class="ghost" onclick={() => (newDocOpen = false)}>Cancel</button>
+          <button onclick={submitNewDoc}>Create</button>
         </div>
       </div>
     </div>

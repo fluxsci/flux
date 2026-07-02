@@ -4,10 +4,23 @@
 
 import { writable, derived, get } from "svelte/store";
 import type { ModeId } from "./shellStore";
+import { pushToast } from "../lib/toast";
 
 export interface Pane {
   id: string;
   mode: ModeId;
+}
+
+// PAP-16: two Paper panes side-by-side would share the manuscript's module-global singletons
+// (table numbering, cursor position, the selection bubble), so `@tbl` numbers and the comment
+// bubble collide across panes. Rather than ship that broken, gate the split for V1: refuse to
+// leave two manuscript panes open and say why. (Removing this = keying those stores per-pane.)
+function wouldDuplicatePaper(kept: Pane[], incoming: ModeId): boolean {
+  if (incoming !== "paper" || !kept.some((p) => p.mode === "paper")) return false;
+  pushToast("info", "Two manuscript panes aren’t supported yet", {
+    detail: "Keep one pane on Paper; open the other as Figure, Slide, Library, or Reader.",
+  });
+  return true;
 }
 
 let counter = 0;
@@ -37,6 +50,7 @@ export function focusPane(id: string) {
 /** Set the focused pane's mode. */
 export function setFocusedMode(mode: ModeId) {
   const fid = get(focusedPaneId);
+  if (wouldDuplicatePaper(get(panes).filter((p) => p.id !== fid), mode)) return;
   panes.update((ps) => ps.map((p) => (p.id === fid ? { ...p, mode } : p)));
 }
 
@@ -48,9 +62,12 @@ export function splitWith(mode: ModeId) {
   const ps = get(panes);
   if (ps.length >= 2) {
     const fid = get(focusedPaneId);
+    const focused = ps.filter((p) => p.id === fid);
+    if (wouldDuplicatePaper(focused, mode)) return;
     panes.update((list) => list.map((p) => (p.id !== fid ? { ...p, mode } : p)));
     return;
   }
+  if (wouldDuplicatePaper(ps, mode)) return;
   const id = newId();
   panes.set([...ps, { id, mode }]);
   focusedPaneId.set(id);

@@ -29,7 +29,12 @@ function rangesTouch(state: EditorState, from: number, to: number, pad = 1): boo
 // A trailing `,a` / `,a-c` (comma immediately followed by a panel letter, no
 // space) extends the ref into a non-contiguous panel list; a prose ", and"
 // never matches because the comma must be followed directly by a letter.
-const CROSSREF = /@(?:fig|tbl|sec|eq)-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*/g;
+// PAP-14: only fig/tbl are real cross-refs — Flux has no section/equation numbering, so a
+// @sec-/@eq- chip could never resolve to a number and clicking it went nowhere. They're dropped
+// from the cross-ref grammar (here AND in renderManuscript) so they render as honest plain text
+// in the editor and the export alike. The citation guards below still list sec|eq so a bare
+// @sec-x isn't mis-parsed as a citation key.
+const CROSSREF = /@(?:fig|tbl)-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*/g;
 const BRACKET_CITE = /\[(@[^\]]+?)\]/g;
 const BARE_CITE = /(^|[\s([])@([A-Za-z][\w:.-]*)/g;
 
