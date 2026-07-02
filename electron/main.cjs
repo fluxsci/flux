@@ -378,10 +378,16 @@ ipcMain.handle("lock:release", (_e, { scope = "project", name }) => {
 // native Wayland (what the Figma desktop app uses on this machine) is stable.
 // `ozone-platform-hint=auto` picks Wayland when available, else X11 elsewhere.
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
-app.commandLine.appendSwitch("ignore-gpu-blocklist");
-app.commandLine.appendSwitch("enable-gpu-rasterization");
+// SHL-15: a stable V1 respects Chromium's GPU blocklist by default (it exists to avoid
+// crashes on known-bad driver combos) rather than forcing accel over it, and
+// enable-gpu-rasterization is the Chromium-130 default so it's dropped as redundant.
+// FORCEGPU=1 restores the old always-force behaviour where the blocklist is overly cautious.
+if (process.env.FORCEGPU === "1") {
+  app.commandLine.appendSwitch("ignore-gpu-blocklist");
+}
 
 // Escape hatches if a machine still has GPU trouble:
+//   FORCEGPU=1     ignore the GPU blocklist (force hardware acceleration)
 //   OZONE=x11      force XWayland
 //   NOSANDBOX=1    disable the GPU sandbox (can fix some NVIDIA segfaults)
 //   SOFTGPU=1      fall back to software rendering (always works, slower)

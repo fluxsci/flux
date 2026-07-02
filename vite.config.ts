@@ -60,6 +60,8 @@ export default defineConfig({
   // Produce relative asset paths so the bundled webview can load them.
   build: {
     target: "esnext",
-    sourcemap: false,
+    // SHL-20: hidden sourcemaps — emitted for crash triage / stack symbolication but NOT
+    // referenced from the bundle, so DevTools doesn't surface source by default in a shipped app.
+    sourcemap: "hidden",
   },
 });
