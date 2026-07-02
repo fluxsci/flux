@@ -7,9 +7,9 @@
 import type { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import type { CitationGroup } from "../margin/types";
+import { isCrossrefKey as isCrossref } from "../science/grammar";
 
 const KEY_RE = /@([A-Za-z][\w:.-]*)/g;
-const isCrossref = (k: string) => /^(?:fig|tbl|sec|eq)-/.test(k);
 
 function keysIn(text: string): string[] {
   const out: string[] = [];

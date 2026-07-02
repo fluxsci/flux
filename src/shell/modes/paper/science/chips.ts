@@ -14,6 +14,7 @@ import {
 import { syntaxTree } from "@codemirror/language";
 import { StateEffect, type EditorState, type Range } from "@codemirror/state";
 import { CiteWidget, FigRefWidget } from "./widgets";
+import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "./grammar";
 
 /** Dispatched when figure/bib data changes, to force a chip rebuild. */
 export const refreshChips = StateEffect.define<null>();
@@ -29,14 +30,12 @@ function rangesTouch(state: EditorState, from: number, to: number, pad = 1): boo
 // A trailing `,a` / `,a-c` (comma immediately followed by a panel letter, no
 // space) extends the ref into a non-contiguous panel list; a prose ", and"
 // never matches because the comma must be followed directly by a letter.
-// PAP-14: only fig/tbl are real cross-refs — Flux has no section/equation numbering, so a
-// @sec-/@eq- chip could never resolve to a number and clicking it went nowhere. They're dropped
-// from the cross-ref grammar (here AND in renderManuscript) so they render as honest plain text
-// in the editor and the export alike. The citation guards below still list sec|eq so a bare
-// @sec-x isn't mis-parsed as a citation key.
-const CROSSREF = /@(?:fig|tbl)-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*/g;
-const BRACKET_CITE = /\[(@[^\]]+?)\]/g;
-const BARE_CITE = /(^|[\s([])@([A-Za-z][\w:.-]*)/g;
+// PAP-19: grammar lives in ./grammar (shared with renderManuscript, PaperMode.citedKeys, and
+// citeOps). PAP-14 note: only fig/tbl are numbered cross-refs; @sec-/@eq- render as plain text
+// but isCrossrefKey still lists sec|eq so a bare @sec-x isn't mis-parsed as a citation.
+const CROSSREF = crossrefRe();
+const BRACKET_CITE = bracketCiteRe();
+const BARE_CITE = bareCiteRe();
 
 interface Tok {
   from: number;
@@ -82,7 +81,7 @@ function scanLine(lineFrom: number, text: string): Tok[] {
     const from = lineFrom + m.index + lead;
     const to = from + 1 + m[2].length;
     if (overlaps(from, to)) continue;
-    if (/^(?:fig|tbl|sec|eq)-/.test(m[2])) continue; // a cross-ref, handled above
+    if (isCrossrefKey(m[2])) continue; // a cross-ref, handled above
     toks.push({ from, to, widget: new CiteWidget([m[2]], "@" + m[2]) });
     taken.push([from, to]);
   }

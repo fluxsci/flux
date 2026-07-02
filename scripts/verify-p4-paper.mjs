@@ -101,7 +101,7 @@ assert(!/#ref-sec/.test(html), "PAP-14: @sec-intro is NOT mis-linked as a citati
 
 console.log("presence of the CM/DOM-bound fixes:");
 const read = (p) => fs.readFile(path.join(import.meta.dirname, "..", p), "utf8");
-const [paperMode, completions, commentsView, chips, renderMs, paneStore, termSession] =
+const [paperMode, completions, commentsView, chips, renderMs, paneStore, termSession, grammar] =
   await Promise.all([
     read("src/shell/modes/paper/PaperMode.svelte"),
     read("src/shell/modes/paper/scholar/completions.ts"),
@@ -110,6 +110,7 @@ const [paperMode, completions, commentsView, chips, renderMs, paneStore, termSes
     read("src/shell/modes/paper/render/renderManuscript.ts"),
     read("src/shell/paneStore.ts"),
     read("src/shell/modes/paper/margin/terminalSession.ts"),
+    read("src/shell/modes/paper/science/grammar.ts"),
   ]);
 assert(
   (paperMode.match(/reanchorComments\(\)/g) || []).length >= 2 &&
@@ -135,8 +136,12 @@ assert(
   "PAP-3: new-document uses an in-app modal (no window.prompt, which is dead in Electron)",
 );
 assert(
-  /@\(\?:fig\|tbl\)-/.test(chips) && /@\(fig\|tbl\)-/.test(renderMs),
-  "PAP-14: both cross-ref grammars dropped sec|eq",
+  // PAP-19: the cross-ref grammar is single-source now. grammar.ts drops sec|eq from the
+  // cross-ref regex (fig|tbl only), and both consumers draw from it instead of a local copy.
+  /crossrefRe = \(\): RegExp => \/@\(fig\|tbl\)-/.test(grammar) &&
+    /from "\.\/grammar"/.test(chips) &&
+    /from "\.\.\/science\/grammar"/.test(renderMs),
+  "PAP-14/19: cross-ref grammar is shared (grammar.crossrefRe drops sec|eq; chips + render import it)",
 );
 assert(
   /function wouldDuplicatePaper/.test(paneStore) &&

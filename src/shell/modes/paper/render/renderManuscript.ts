@@ -9,6 +9,7 @@
 import { resolveFigure, renderFigureSvg } from "../scholar/figures";
 import { bibEntry, type BibEntry } from "../scholar/bib";
 import { journalCss } from "./journal";
+import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "../science/grammar";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let _md: any = null;
@@ -37,12 +38,12 @@ async function getYaml(): Promise<any> {
 
 const FIG_EMBED = /^\s*!\[(.*?)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)[^}]*\}\s*$/;
 const TBL_CAPTION = /^\s*:\s+(.*?)\s*\{#(tbl-[A-Za-z0-9_-]+)\}\s*$/;
-// PAP-14: only fig/tbl resolve to a number; @sec-/@eq- have no numbering, so they're not
-// cross-refs — they fall through to plain text (the BARE_CITE guard below keeps sec|eq so they
-// aren't mis-linked as citations either). Matches the editor chip grammar in science/chips.ts.
-const CROSSREF = /@(fig|tbl)-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*/g;
-const BRACKET_CITE = /\[(@[^\]]+?)\]/g;
-const BARE_CITE = /(^|[\s([])@([A-Za-z][\w:.-]*)/g;
+// PAP-19: grammar shared with the editor chips (science/grammar). PAP-14: only fig/tbl resolve to
+// a number; @sec-/@eq- fall through to plain text but isCrossrefKey still lists sec|eq so they
+// aren't mis-linked as citations either.
+const CROSSREF = crossrefRe();
+const BRACKET_CITE = bracketCiteRe();
+const BARE_CITE = bareCiteRe();
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) =>
@@ -99,7 +100,7 @@ function transformProse(line: string, cited: Set<string>): string {
   });
   // bare @key citations
   line = line.replace(BARE_CITE, (full, lead: string, key: string) => {
-    if (/^(fig|tbl|sec|eq)-/.test(key)) return full;
+    if (isCrossrefKey(key)) return full;
     const e = bibEntry(key);
     if (e) cited.add(key);
     const who = e ? authorYear(e) : key;

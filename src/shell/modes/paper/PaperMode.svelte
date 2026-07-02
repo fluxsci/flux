@@ -24,6 +24,7 @@
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
   import { scienceChips, refreshChips } from "./science/chips";
+  import { anyCiteRe, isCrossrefKey } from "./science/grammar";
   import { scienceEmbeds } from "./science/embeds";
   import { scienceTables } from "./science/tables";
   import {
@@ -298,10 +299,10 @@
   // Citekeys actually referenced in the manuscript (the red-dot "cited" state).
   const citedKeys = $derived.by(() => {
     const set = new Set<string>();
-    const re = /(?:\[@|(?:^|[\s([])@)([A-Za-z][\w:.-]*)/g;
+    const re = anyCiteRe(); // PAP-19: shared grammar (science/grammar)
     let m: RegExpExecArray | null;
     while ((m = re.exec(latestIdle))) {
-      if (!/^(?:fig|tbl|sec|eq)-/.test(m[1])) set.add(m[1]);
+      if (!isCrossrefKey(m[1])) set.add(m[1]);
     }
     return set;
   });
