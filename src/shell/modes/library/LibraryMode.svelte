@@ -25,7 +25,7 @@
   import { BOOKMARKLET_HREF } from "./bookmarklet";
   import { openInReader } from "../reader/readerStore";
   import { fetchPdfForEntry, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
-  import { listPdfKeys, hasPdfIn, ingestPdfFile, listFailedKeys, readFetchFailure, clearFetchFailure } from "../../../lib/references/itemsBridge";
+  import { listPdfKeys, ingestPdfFile, listFailedKeys, readFetchFailure, clearFetchFailure } from "../../../lib/references/itemsBridge";
   import { pdfFetchJob } from "../../../lib/references/pdfFetchJob.svelte";
   import { safeKey, type FetchFailure } from "../../../lib/references/items";
 
@@ -103,6 +103,12 @@
   let lookupSource = $state<"openalex" | "s2">("openalex");
 
   const enriched = $derived(mergeEnrich(entries, enrichMap) as EnrichedEntry[]);
+  // LR-4: precompute each entry's PDF-dir key (safeKey → 3 regexes + trim, then a Unicode
+  // NFC normalize) ONCE per load. hasPdf()/isFailed() run 4–6× per row per render across
+  // every result row plus the coverage stats; without this they re-ran the whole regex+
+  // normalize chain each time, which dominated re-renders on a multi-thousand-item library.
+  const nfcOf = $derived(new Map(entries.map((e) => [e.key, safeKey(e.key).normalize("NFC")])));
+  const nfc = (key: string) => nfcOf.get(key) ?? safeKey(key).normalize("NFC");
   // Debounce the query: runQuery scans every entry's title+abstract (multi-MB over 1710
   // entries), so running it on each keystroke janks. Recompute ~150ms after typing stops.
   let queryDebounced = $state("");
@@ -116,7 +122,7 @@
     }
     queryTimer = setTimeout(() => (queryDebounced = q), 150);
   });
-  const isFailed = (key: string) => hasPdfIn(failedKeys, key);
+  const isFailed = (key: string) => failedKeys.has(nfc(key));
   const results = $derived(
     showFailedOnly
       ? runQuery(enriched, queryDebounced).filter((r) => isFailed(r.key))
@@ -126,7 +132,7 @@
     total: entries.length,
     hydrated: entries.filter((e) => enrichMap[e.key]).length,
   });
-  const hasPdf = (key: string) => hasPdfIn(pdfKeys, key);
+  const hasPdf = (key: string) => pdfKeys.has(nfc(key));
   const canFetch = (r: EnrichedEntry) => !!(r.doi || r.enrich?.openAccess?.url || r.enrich?.ids?.pmcid);
   const pdfCoverage = $derived({
     total: entries.length,
@@ -282,7 +288,7 @@
     if (!isFailed(key)) return;
     await clearFetchFailure(key);
     const next = new Set(failedKeys);
-    next.delete(safeKey(key).normalize("NFC"));
+    next.delete(nfc(key));
     failedKeys = next;
   }
 
@@ -371,12 +377,24 @@
     }
     if (fetchingKey || loading || !entries.length) return;
     // Optimistically tick the local PDF set as papers land, so coverage updates live while
-    // Library is mounted (the job also re-lists on completion).
+    // Library is mounted (the job also re-lists on completion). LR-4: coalesce the updates —
+    // the old code allocated a fresh Set and reassigned pdfKeys per landed PDF, re-rendering
+    // every row, so a 500-paper bulk fetch was O(N²). Buffer landed keys and fold them into
+    // ONE new Set at most every ~250ms.
+    let tickBuf: string[] = [];
+    let tickTimer: ReturnType<typeof setTimeout> | undefined;
+    const flushTicks = () => {
+      tickTimer = undefined;
+      if (!tickBuf.length) return;
+      const next = new Set(pdfKeys);
+      for (const k of tickBuf) next.add(nfc(k));
+      tickBuf = [];
+      pdfKeys = next;
+    };
     const onTick = (key: string, got: boolean) => {
       if (got && !hasPdf(key)) {
-        const next = new Set(pdfKeys);
-        next.add(safeKey(key).normalize("NFC"));
-        pdfKeys = next;
+        tickBuf.push(key);
+        if (!tickTimer) tickTimer = setTimeout(flushTicks, 250);
       }
     };
     const sum = await pdfFetchJob.start(
@@ -385,6 +403,8 @@
       { proxyConfigured, proxySignedIn },
       { retryFailed, onTick },
     );
+    if (tickTimer) clearTimeout(tickTimer);
+    tickBuf = [];
     pdfKeys = await listPdfKeys();
     failedKeys = await listFailedKeys();
     if (!sum) return;
