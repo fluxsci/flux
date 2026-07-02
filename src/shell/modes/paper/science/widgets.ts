@@ -31,6 +31,8 @@ export class FigRefWidget extends WidgetType {
     const el = document.createElement("span");
     el.className = "flux-chip flux-figref" + (this.resolved ? "" : " unresolved");
     el.textContent = this.display;
+    // PAP-22: double-click activation is otherwise undiscoverable — hint it natively.
+    el.title = this.resolved ? "Double-click to jump to this figure/table" : "Unresolved cross-reference";
     // A single click must place the caret (CodeMirror handles it; the chip is an
     // atomic range so the caret snaps to its edge) — that keeps cursor navigation
     // through prose native. The jump-to-figure action is a deliberate double-click.
@@ -71,6 +73,7 @@ export class CiteWidget extends WidgetType {
     const el = document.createElement("span");
     el.className = "flux-chip flux-cite" + (this.resolved ? "" : " unresolved");
     el.textContent = this.display;
+    el.title = this.resolved ? "Double-click to edit this citation" : "Unresolved citation — double-click to edit"; // PAP-22
     // Single click → caret placement (handled by CodeMirror); the caret lands at
     // the citation's edge, where `citationGroupAt` still matches, so alt-f opens
     // edit mode for it. Double-click triggers the chip action.
