@@ -71,6 +71,10 @@ const GROUP_LABEL: Record<string, string> = {
   gridline: "Gridlines",
   point: "Points",
   bar: "Bars",
+  // fluxplot's sweep of untagged-but-real artists (whiskers, glow layers, …)
+  extra: "Extras",
+  // Flux's own orphan defense — SVG content NO part covers (generator gaps)
+  unclassified: "Unclassified",
 };
 
 function inferRole(id: string): string {

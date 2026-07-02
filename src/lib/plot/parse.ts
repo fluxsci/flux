@@ -7,7 +7,7 @@
 // instance. The manifest keeps the canonical (unprefixed) ids; we recover the
 // semantic id from a clicked node by stripping the prefix.
 
-import type { FluxPlotManifest, PartInfo } from "./types";
+import type { FluxPlotManifest, PartInfo, PartNode } from "./types";
 import type { PartOverride } from "../types";
 import { resolveTargets } from "./tree";
 
@@ -109,6 +109,115 @@ export function applyOverrides(
 function cssEscape(s: string): string {
   // CSS.escape exists in Chromium (the app's runtime); fall back just in case.
   return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
+// Orphan defense: make UN-manifested SVG content addressable.
+//
+// A generator gap (a raw ax.plot() the tagger didn't sweep, a colorbar axis, an
+// old pre-regen SVG) leaves visible geometry with no manifest part — invisible
+// to the X-ray tree, unmaskable (applyOverrides only walks known ids), immune
+// even to a whole-figure mask (leavesUnder enumerates known leaves). This pass
+// runs at cachePlot time — the ONE seam shared by the app AND the export
+// runtime — and appends a synthetic "unclassified" group whose members are the
+// orphan ids, so they become maskable/animatable and ride figure-level masks.
+// ---------------------------------------------------------------------------
+const ORPHAN_SKIP = new Set(["defs", "clippath", "style", "metadata", "title", "desc"]);
+
+/** Append a synthetic `unclassified` parts group for id-carrying SVG content the
+ *  manifest doesn't cover. Pure DOM reads (linkedom-safe); returns the manifest
+ *  unchanged when there is no parts tree or nothing is orphaned, else a copy
+ *  with the group attached under the plot-area (or root) node. */
+export function augmentManifestOrphans(
+  svgRoot: Element,
+  manifest: FluxPlotManifest | undefined,
+): FluxPlotManifest | undefined {
+  const parts = manifest?.parts;
+  if (!manifest || !parts || !parts.role) return manifest;
+
+  // The ids the manifest addresses DIRECTLY (leaf coverage). Container/group
+  // names (figure, plot-area, axis.x, …) are deliberately NOT in this set —
+  // their coverage is "the enumerated leaves beneath them", so the walk must
+  // descend THROUGH them to find strays living alongside the covered leaves.
+  const covered = new Set<string>();
+  const walkPart = (n: PartNode) => {
+    const members = n.members ?? [];
+    const children = n.children ?? [];
+    for (const m of members) covered.add(m);
+    for (const c of children) walkPart(c);
+    if (!members.length && !children.length) {
+      const k = n.id ?? n.ref;
+      if (k) covered.add(k);
+    }
+  };
+  walkPart(parts);
+  for (const s of manifest.series ?? []) {
+    if (s.svg?.line) covered.add(s.svg.line);
+    if (s.svg?.points) covered.add(s.svg.points);
+    for (const pt of s.points ?? []) covered.add(pt.svgId);
+    const bars = s.svg?.bars;
+    if (Array.isArray(bars)) for (const b of bars) covered.add(b);
+  }
+  for (const o of manifest.overlays ?? []) covered.add(o.svgId);
+  for (const g of manifest.guides ?? []) if (g.svgId) covered.add(g.svgId);
+
+  // Which elements CONTAIN covered content (one pass, ancestors marked).
+  const hasCoveredDesc = new Set<Element>();
+  for (const el of Array.from(svgRoot.querySelectorAll("[id]"))) {
+    if (!covered.has(el.getAttribute("id") ?? "")) continue;
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      if (hasCoveredDesc.has(p)) break;
+      hasCoveredDesc.add(p);
+    }
+  }
+
+  // matplotlib's OWN backgrounds — the first patch_N child of the figure group
+  // and of each plot-area — are scaffolding, not content; orphaning them would
+  // put a permanent "Unclassified" row on every plot. (Real patch content, like
+  // streamplot arrowheads, is swept into tagged extras by the generator.)
+  const bgSkip = new Set<Element>();
+  const hosts = [svgRoot.querySelector('[id="figure"]'), ...Array.from(svgRoot.querySelectorAll('[id^="plot-area"]'))];
+  for (const host of hosts) {
+    if (!host) continue;
+    for (const c of Array.from(host.children)) {
+      if (/^patch_\d+$/.test((c as Element).getAttribute?.("id") ?? "")) {
+        bgSkip.add(c as Element);
+        break;
+      }
+    }
+  }
+
+  // DFS: a covered id ends its branch (already addressed); an uncovered id with
+  // NO covered descendant is one orphan (its whole subtree); otherwise descend —
+  // so wrappers like matplotlib's xtick_N or the figure root never match, while
+  // a stray line2d_N or a whole unaddressed colorbar axis matches ONCE.
+  const orphans: string[] = [];
+  const visit = (el: Element) => {
+    if (ORPHAN_SKIP.has(el.tagName?.toLowerCase() ?? "") || bgSkip.has(el)) return;
+    const id = el.getAttribute?.("id");
+    if (id && covered.has(id)) return;
+    if (id && !hasCoveredDesc.has(el)) {
+      orphans.push(id);
+      return;
+    }
+    for (const c of Array.from(el.children ?? [])) visit(c as Element);
+  };
+  for (const c of Array.from(svgRoot.children)) visit(c as Element);
+  if (!orphans.length) return manifest;
+
+  const cloned = structuredClone(parts) as PartNode;
+  const findRole = (n: PartNode, role: string): PartNode | null => {
+    if (n.role === role) return n;
+    for (const c of n.children ?? []) {
+      const f = findRole(c, role);
+      if (f) return f;
+    }
+    return null;
+  };
+  const host = findRole(cloned, "plot-area") ?? cloned;
+  host.children = host.children ?? [];
+  host.children.push({ id: "unclassified", role: "group", groupRole: "unclassified", members: orphans } as PartNode);
+  return { ...manifest, parts: cloned };
 }
 
 /** Flatten a manifest into a semantic-id → part lookup, for the inspector. */

@@ -5,7 +5,7 @@
 import { writable } from "svelte/store";
 import type { Id } from "../types";
 import type { FluxPlotManifest } from "./types";
-import { parsePlotSvg } from "./parse";
+import { parsePlotSvg, augmentManifestOrphans } from "./parse";
 
 export const plotManifests = writable<Record<Id, FluxPlotManifest>>({});
 export const plotRecipes = writable<Record<Id, unknown>>({});
@@ -18,7 +18,10 @@ export const plotDom = new Map<Id, SVGSVGElement>();
 // (regenerate) re-renders in place even though the element prop is unchanged.
 export const plotGen = writable<Record<Id, number>>({});
 
-/** Parse + cache a plot's SVG + manifest (+ recipe). Returns false if the SVG is malformed. */
+/** Parse + cache a plot's SVG + manifest (+ recipe). Returns false if the SVG is
+ *  malformed. The manifest is augmented with a synthetic `unclassified` parts
+ *  group for any SVG content it doesn't cover (orphan defense) — this is the one
+ *  seam shared by the app and the export runtime, so both see identical parts. */
 export function cachePlot(
   assetId: Id,
   svgText: string,
@@ -27,6 +30,7 @@ export function cachePlot(
 ): boolean {
   const root = parsePlotSvg(svgText);
   if (root) plotDom.set(assetId, root);
+  if (root && manifest) manifest = augmentManifestOrphans(root as unknown as Element, manifest) ?? manifest;
   plotManifests.update((m) => ({ ...m, [assetId]: manifest }));
   if (recipe !== undefined) plotRecipes.update((m) => ({ ...m, [assetId]: recipe }));
   plotGen.update((g) => ({ ...g, [assetId]: (g[assetId] ?? 0) + 1 }));
