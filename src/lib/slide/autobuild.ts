@@ -23,8 +23,9 @@
 
 import { buildPartTree, type XrayNode } from "../plot/tree";
 import type { FluxPlotManifest } from "../plot/types";
-import { slideById, addBeat, setAnimation, setPartVisibility } from "./ops";
-import type { Beat, Track, PresetName, Deck } from "./types";
+import { slideById, addBeat, setAnimation, setPartVisibility, findElement } from "./ops";
+import { morphCompatible } from "./player/morph";
+import type { Beat, Track, PresetName, Deck, SlideElement } from "./types";
 import type { Id } from "../types";
 import { newId } from "../ids";
 
@@ -205,21 +206,109 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
 }
 
 /** Make ONE part "animate in" (the X-ray "Animate" toggle): clear any mask and
- *  add a default reveal track on a build beat — never beat 0 (the resting state).
- *  `beatIndex` targets an existing build beat; otherwise the last build beat is
- *  used (creating beat 1 if the slide only has the resting beat). Returns the beat
- *  index the track landed on, or -1 if the slide is missing. */
+ *  ensure a reveal track exists on a build beat — never beat 0 (the resting
+ *  state). If the part ALREADY has tracks anywhere on the slide (e.g. it was
+ *  masked — which merely disabled them), they are re-enabled with their authored
+ *  timing intact and NO new track is added; only a track-less part gets the
+ *  suggested default. `beatIndex` targets an existing build beat; otherwise the
+ *  last build beat is used (creating beat 1 if the slide only has the resting
+ *  beat). Returns the beat index the track landed on, or -1 if the slide is
+ *  missing. */
 export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, manifest: FluxPlotManifest | undefined, beatIndex?: number): number {
   const slide = slideById(deck, slideId);
   if (!slide) return -1;
+  setPartVisibility(deck, elId, part, "animate"); // clear any mask, re-enable tracks
+  const existingAt = slide.beats.findIndex((b) => b.tracks.some((t) => t.target === elId && t.part === part));
+  if (existingAt > 0) return existingAt; // authored timing preserved — nothing to add
   let bi = beatIndex != null && beatIndex > 0 && beatIndex < slide.beats.length ? beatIndex : -1;
   if (bi < 0) {
     if (slide.beats.length <= 1) addBeat(deck, slideId, { label: "Beat 1", advance: "click" });
     bi = slide.beats.length - 1;
   }
-  setPartVisibility(deck, elId, part, "animate"); // clear any mask, keep tracks
   setAnimation(deck, slideId, slide.beats[bi].id, suggestTrack(manifest, elId, part));
   return bi;
+}
+
+// ---------------------------------------------------------------------------
+// Non-plot elements — the same one-click "animate this" for text/shapes/media
+// ---------------------------------------------------------------------------
+
+// per-kind enter defaults: what each element kind naturally does when it appears.
+// rect/ellipse render as CSS divs (no strokable geometry) → popIn, NOT drawOn;
+// line/path render as inline SVG → the self-draw reads beautifully.
+const ELEMENT_ENTER: Record<string, { preset: PresetName; duration: number }> = {
+  textBox: { preset: "fadeRise", duration: 380 },
+  text: { preset: "fadeRise", duration: 380 },
+  math: { preset: "writeOn", duration: 600 },
+  image: { preset: "fade", duration: 350 },
+  svg: { preset: "fade", duration: 350 },
+  video: { preset: "fade", duration: 350 },
+  embedFigure: { preset: "fade", duration: 400 },
+  rect: { preset: "popIn", duration: 300 },
+  ellipse: { preset: "popIn", duration: 300 },
+  line: { preset: "drawOn", duration: 500 },
+  path: { preset: "drawOn", duration: 600 },
+  plot: { preset: "fade", duration: 400 },
+};
+// per-kind exit defaults — the mirror family.
+const ELEMENT_EXIT: Record<string, { preset: PresetName; duration: number }> = {
+  math: { preset: "wipeOut", duration: 450 },
+  line: { preset: "drawOff", duration: 450 },
+  path: { preset: "drawOff", duration: 500 },
+  rect: { preset: "popOut", duration: 260 },
+  ellipse: { preset: "popOut", duration: 260 },
+};
+
+/** A sensible default Track for a WHOLE element (the analog of `suggestTrack`
+ *  for non-plot rows in the animator tree). `exit` flips to the disappear
+ *  family. A multi-block text box enters as a per-block stagger — the classic
+ *  bullets reveal — unless `wholeBox` asks for one unit. */
+export function suggestElementTrack(
+  el: SlideElement,
+  opts: { exit?: boolean; wholeBox?: boolean } = {},
+): Track {
+  const kind = el.type;
+  const def = (opts.exit ? ELEMENT_EXIT[kind] : undefined) ?? (opts.exit ? { preset: "fadeOut" as PresetName, duration: 300 } : ELEMENT_ENTER[kind] ?? { preset: "fade" as PresetName, duration: 350 });
+  const track: Track = { id: newId("track"), target: el.id, preset: def.preset, duration: def.duration, start: 0 };
+  if (!opts.wholeBox && kind === "textBox" && el.blocks.length > 1) {
+    track.selector = { blocks: "all" };
+    track.stagger = { perMs: 120, by: "blocks", from: "start" };
+  }
+  return track;
+}
+
+/** Give ONE element an enter (or exit) animation on a build beat — the non-plot
+ *  analog of `animatePart`, and the GUI's "Animate in / Animate out" quick
+ *  action. Adds to `beatIndex` when given (never 0), else the last build beat
+ *  (creating beat 1 if only the resting beat exists). Returns the beat index and
+ *  the track id, or null if the element/slide is missing. */
+export function animateElement(
+  deck: Deck,
+  slideId: Id,
+  elId: Id,
+  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; wholeBox?: boolean } = {},
+): { beatIndex: number; trackId: Id } | null {
+  const slide = slideById(deck, slideId);
+  const found = findElement(deck, elId);
+  if (!slide || !found) return null;
+  let bi = opts.beatIndex != null && opts.beatIndex > 0 && opts.beatIndex < slide.beats.length ? opts.beatIndex : -1;
+  if (bi < 0) {
+    if (slide.beats.length <= 1) addBeat(deck, slideId, { label: "Beat 1", advance: "click" });
+    bi = slide.beats.length - 1;
+  }
+  const track = suggestElementTrack(found.el as SlideElement, opts);
+  if (opts.preset) track.preset = opts.preset;
+  setAnimation(deck, slideId, slide.beats[bi].id, track);
+  return { beatIndex: bi, trackId: track.id! };
+}
+
+/** Which project plots can the selected plot morph into? One shared gate for
+ *  GUI menu + CLI/MCP so they never disagree with the player. */
+export function listMorphCandidates(
+  manifestA: FluxPlotManifest | undefined,
+  candidates: { assetId: Id; manifest: FluxPlotManifest | undefined }[],
+): { assetId: Id; compatible: boolean }[] {
+  return candidates.map((c) => ({ assetId: c.assetId, compatible: morphCompatible(manifestA, c.manifest) }));
 }
 
 /** The phase-order rank of a beat: the resting beat sorts first, auto phase beats

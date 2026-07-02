@@ -648,20 +648,27 @@ export function distributeElements(deck: Deck, slideId: Id, ids: Id[], axis: "h"
   }
 }
 
-/** Remove every track on a slide that targets one plot part (used when a part
- *  leaves the animated set — masked or shown-from-start). Matches by part id at
- *  the granularity the track was authored (group or leaf). */
-function removePartTracks(slide: Slide, elId: Id, part: string): void {
+/** Disable/enable every track on a slide that targets one plot part. Disabling
+ *  (NOT deleting) is what makes the S/A/M tri-state non-destructive: a masked or
+ *  shown-from-start part keeps its authored tracks (timing, stagger, easing) so
+ *  flipping back to Animate restores them intact. Matches by part id at the
+ *  granularity the track was authored (group or leaf). */
+function setPartTracksDisabled(slide: Slide, elId: Id, part: string, disabled: boolean): void {
   for (const beat of slide.beats) {
-    beat.tracks = beat.tracks.filter((t) => !(t.target === elId && t.part === part));
+    for (const t of beat.tracks) {
+      if (t.target !== elId || t.part !== part) continue;
+      if (disabled) t.disabled = true;
+      else delete t.disabled;
+    }
   }
 }
 
 /** The three resting states the X-ray GUI offers for a plot part (or part group):
- *   • "mask"    — hidden always (override hidden:true); drop its tracks.
- *   • "show"    — visible from beat 0 (clear hidden); drop its tracks (no anim).
- *   • "animate" — visible only once its build track plays (clear hidden, KEEP
- *                 tracks; the caller/autobuild owns adding the enter track).
+ *   • "mask"    — hidden always (override hidden:true); its tracks are DISABLED.
+ *   • "show"    — visible from beat 0 (clear hidden); tracks DISABLED (no anim).
+ *   • "animate" — visible only once its build track plays (clear hidden, tracks
+ *                 re-ENABLED; the caller/autobuild owns adding an enter track if
+ *                 none exists).
  *  The override key may be a leaf id or a group id ("axis.x") — applyOverrides
  *  re-resolves groups to their leaves every render, so masks survive regen. */
 export function setPartVisibility(deck: Deck, elId: Id, part: string, mode: "show" | "animate" | "mask"): void {
@@ -671,14 +678,38 @@ export function setPartVisibility(deck: Deck, elId: Id, part: string, mode: "sho
   const ov = (el.overrides = el.overrides ?? {});
   if (mode === "mask") {
     ov[part] = { ...(ov[part] ?? {}), hidden: true };
-    removePartTracks(found.slide, elId, part);
+    setPartTracksDisabled(found.slide, elId, part, true);
   } else {
     if (ov[part]) {
       delete ov[part].hidden;
       if (Object.keys(ov[part]).length === 0) delete ov[part];
     }
-    if (mode === "show") removePartTracks(found.slide, elId, part);
+    setPartTracksDisabled(found.slide, elId, part, mode !== "animate");
   }
+}
+
+/** Merge a style patch into one plot part's override (the slide-mode X-ray
+ *  cockpit's write path — stroke/fill/strokeWidth/opacity/fonts/hidden). A
+ *  `null` value deletes that key; an override left empty is removed entirely.
+ *  Keys may be leaf or group ids exactly like `setPartVisibility`. */
+export function setPartStyle(
+  deck: Deck,
+  elId: Id,
+  part: string,
+  patch: Record<string, string | number | boolean | null | undefined>,
+): void {
+  const found = findElement(deck, elId);
+  if (!found || found.el.type !== "plot") return;
+  const el = found.el as SemanticPlotElement;
+  const ov = (el.overrides = el.overrides ?? {});
+  const cur = { ...(ov[part] ?? {}) } as Record<string, string | number | boolean>;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v == null) delete cur[k];
+    else cur[k] = v;
+  }
+  if (Object.keys(cur).length === 0) delete ov[part];
+  else ov[part] = cur;
+  if (Object.keys(ov).length === 0) delete el.overrides;
 }
 
 // --- vector shapes (figure RectElement/EllipseElement/LineElement reused) -----
@@ -771,8 +802,9 @@ export function addBeat(deck: Deck, slideId: Id, opts: AddBeatOpts = {}): Beat |
   if (opts.label != null) beat.label = opts.label;
   if (opts.advance != null) beat.advance = opts.advance;
   if (opts.autoDelayMs != null) beat.autoDelayMs = opts.autoDelayMs;
-  const at = opts.at;
-  if (at != null && at >= 0 && at <= s.beats.length) s.beats.splice(at, 0, beat);
+  // Never insert before the resting beat 0 — it IS the slide's start state.
+  const at = opts.at != null ? Math.max(1, opts.at) : null;
+  if (at != null && at <= s.beats.length) s.beats.splice(at, 0, beat);
   else s.beats.push(beat);
   return beat;
 }
@@ -802,10 +834,14 @@ export function deleteBeat(deck: Deck, slideId: Id, beatId: Id): void {
 
 export function reorderBeats(deck: Deck, slideId: Id, order: Id[]): void {
   const s = slideById(deck, slideId);
-  if (!s) return;
-  const byId = new Map(s.beats.map((b) => [b.id, b] as const));
+  if (!s || !s.beats.length) return;
+  // Beat 0 (the resting state) is pinned: it never participates in the
+  // permutation, whatever the caller passed.
+  const rest = s.beats[0];
+  const movable = s.beats.slice(1);
+  const byId = new Map(movable.map((b) => [b.id, b] as const));
   const seen = new Set<Id>();
-  const next: Beat[] = [];
+  const next: Beat[] = [rest];
   for (const id of order) {
     const b = byId.get(id);
     if (b && !seen.has(id)) {
@@ -813,8 +849,116 @@ export function reorderBeats(deck: Deck, slideId: Id, order: Id[]): void {
       seen.add(id);
     }
   }
-  for (const b of s.beats) if (!seen.has(b.id)) next.push(b);
+  for (const b of movable) if (!seen.has(b.id)) next.push(b);
   s.beats = next;
+}
+
+// ---------------------------------------------------------------------------
+// Track-level ops — the timeline's direct-manipulation verbs
+// ---------------------------------------------------------------------------
+
+/** Locate a track by its stable id anywhere in the deck. */
+export function findTrack(deck: Deck, trackId: Id): { slide: Slide; beat: Beat; track: Track } | null {
+  for (const slide of deck.slides) {
+    for (const beat of slide.beats) {
+      const track = beat.tracks.find((t) => t.id === trackId);
+      if (track) return { slide, beat, track };
+    }
+  }
+  return null;
+}
+
+/** Move a track into another beat on the same slide (drag a chip across
+ *  columns). `at` places it at a lane index (default: append). Timing (start/
+ *  duration/stagger) travels untouched. */
+export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: Id, at?: number): boolean {
+  const s = slideById(deck, slideId);
+  if (!s) return false;
+  const to = beatById(s, toBeatId);
+  if (!to) return false;
+  for (const b of s.beats) {
+    const i = b.tracks.findIndex((t) => t.id === trackId);
+    if (i < 0) continue;
+    const [t] = b.tracks.splice(i, 1);
+    // Splicing out of the SAME beat shifts indices; recompute a safe insert point.
+    const j = at != null ? Math.max(0, Math.min(at, to.tracks.length)) : to.tracks.length;
+    to.tracks.splice(j, 0, t);
+    return true;
+  }
+  return false;
+}
+
+/** Deep-copy a track in place (inserted right after the original, fresh id). */
+export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id): Id | null {
+  const s = slideById(deck, slideId);
+  if (!s) return null;
+  for (const b of s.beats) {
+    const i = b.tracks.findIndex((t) => t.id === trackId);
+    if (i < 0) continue;
+    const copy = structuredClone(b.tracks[i]);
+    copy.id = newId("track");
+    b.tracks.splice(i + 1, 0, copy);
+    return copy.id;
+  }
+  return null;
+}
+
+/** Set one beat's track order to `order` (a permutation of its track ids —
+ *  unlisted tracks keep their relative order at the tail). Within-beat order is
+ *  presentational (tracks play concurrently) but drives the timeline lanes. */
+export function reorderTracks(deck: Deck, slideId: Id, beatId: Id, order: Id[]): void {
+  const s = slideById(deck, slideId);
+  const b = s && beatById(s, beatId);
+  if (!b) return;
+  const byId = new Map(b.tracks.map((t) => [t.id, t] as const));
+  const seen = new Set<Id>();
+  const next: Track[] = [];
+  for (const id of order) {
+    const t = byId.get(id);
+    if (t && t.id && !seen.has(t.id)) {
+      next.push(t);
+      seen.add(t.id);
+    }
+  }
+  for (const t of b.tracks) if (!t.id || !seen.has(t.id)) next.push(t);
+  b.tracks = next;
+}
+
+/** Enable/disable one track (disabled = invisible to the player, timing kept). */
+export function setTrackEnabled(deck: Deck, slideId: Id, trackId: Id, enabled: boolean): boolean {
+  const s = slideById(deck, slideId);
+  if (!s) return false;
+  for (const b of s.beats) {
+    const t = b.tracks.find((x) => x.id === trackId);
+    if (!t) continue;
+    if (enabled) delete t.disabled;
+    else t.disabled = true;
+    return true;
+  }
+  return false;
+}
+
+/** Author a data-space morph: plot element `plotElId` tweens into project plot
+ *  `toAssetId` on beat `beatId`. Pure model write — the caller gates
+ *  compatibility (see autobuild.listMorphCandidates); the player additionally
+ *  holds at A for incompatible pairs at play time. */
+export function setMorphTrack(
+  deck: Deck,
+  slideId: Id,
+  beatId: Id,
+  plotElId: Id,
+  toAssetId: Id,
+  opts: { duration?: number; easing?: import("./types").EasingToken; start?: number } = {},
+): boolean {
+  return setAnimation(deck, slideId, beatId, {
+    id: newId("track"),
+    target: plotElId,
+    preset: "morph",
+    to: { assetId: toAssetId },
+    duration: opts.duration ?? 1200,
+    easing: opts.easing ?? "smooth",
+    ...(opts.start != null ? { start: opts.start } : {}),
+  });
 }
 
 /** Two tracks "match" (and thus replace, rather than stack) when they target the

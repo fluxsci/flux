@@ -1666,6 +1666,18 @@ export {
   addEmbedFigureToSlide,
   addBeat,
   setAnimation,
+  // Slides overhaul WS2 — timeline + part-control verbs
+  setBeat,
+  reorderBeats,
+  moveTrack,
+  duplicateTrack,
+  reorderTracks,
+  setTrackEnabled,
+  setPartVisibility,
+  setPartStyle,
+  animatePartVerb,
+  animateElementVerb,
+  setMorph,
   type DeckSummary,
   type ValidateDeckResult,
 } from "./slides";

@@ -212,7 +212,9 @@ export interface EmbedFigureElement extends ElementBase {
 
 /** The preset catalog (§5.3). Each compiles a track → WAAPI keyframes (or a
  *  bespoke driver for `morph`/`countUp`). Tier-2 (paint) presets — drawOn,
- *  morph, countUp — are used on few paths while the scene is still (P5). */
+ *  drawOff, morph, countUp — are used on few paths while the scene is still (P5).
+ *  Three families: ENTERS (hidden before their beat), EXITS (hidden after —
+ *  fadeOut/popOut/drawOff/wipeOut), and emphasis/transform (always present). */
 export type PresetName =
   | "fade"
   | "fadeRise"
@@ -221,6 +223,10 @@ export type PresetName =
   | "growBaseline"
   | "stagger"
   | "writeOn"
+  | "fadeOut"
+  | "popOut"
+  | "drawOff"
+  | "wipeOut"
   | "highlight"
   | "dim"
   | "move"
@@ -306,6 +312,11 @@ export interface Track {
   to?: TrackTarget;
   /** Forward-compat full keyframes (preset optional when present). */
   keyframes?: Keyframe[];
+  /** A disabled track is invisible to the player/static-state/export but keeps
+   *  its authored timing — this is how Mask stays NON-destructive (masking a
+   *  part disables its tracks instead of deleting them, so Mask→Animate
+   *  round-trips lose nothing). */
+  disabled?: boolean;
 }
 
 /** A beat is one "advance" step. Entering it plays its `tracks` concurrently

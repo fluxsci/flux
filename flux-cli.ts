@@ -91,6 +91,17 @@ usage: flux <verb> [root] [args] [--flags]
   add-embed-figure <deckId> <slideId> <figureId> [--fit contain|cover|fill] [--x …]   embed a project figure
   add-beat <deckId> <slideId> [--label L]   append a build/advance step
   set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>']   animate
+  set-beat <deckId> <slideId> <beatId> [--label L --advance click|with-prev|auto --auto-delay ms]   patch a beat
+  reorder-beats <deckId> <slideId> --order b2,b1   set beat order (beat 0 pinned)
+  move-track <deckId> <slideId> <trackId> <toBeatId> [--at n]   move a track to another beat
+  duplicate-track <deckId> <slideId> <trackId>   deep-copy a track (prints the new id)
+  reorder-tracks <deckId> <slideId> <beatId> --order t2,t1   set a beat's lane order
+  set-track-enabled <deckId> <slideId> <trackId> true|false   disable = kept but not played
+  set-part-visibility <deckId> <elementId> <part> show|animate|mask   plot part tri-state (non-destructive)
+  set-part-style <deckId> <elementId> <part> --patch '<json>'   per-part style override (stroke/fill/…)
+  animate-part <deckId> <slideId> <elementId> <part> [--beat-index n]   default reveal for a plot part
+  animate-element <deckId> <slideId> <elementId> [--exit --preset P --beat-index n --whole-box]   enter/exit for text/shape/media
+  set-morph <deckId> <slideId> <beatId> <elementId> <toAssetId> [--duration ms --force]   data-space morph to any project plot
   validate-deck [deckId] [--root R]    validate a deck (or all decks)
   export-deck <deckId> [--out F] [--root R]   export a self-contained offline .html (default exports/<deckId>.html)
   help                                 this message
@@ -741,6 +752,87 @@ async function main() {
       if (!track.target) throw new Error("set-animation needs --target (an element id, or @camera/@stage)");
       await core.setAnimation(R(), _[0], _[1], _[2], track);
       console.error(`✓ set animation on beat ${_[2]} (${track.preset ?? "keyframes"} → ${track.target})`);
+      break;
+    }
+    case "set-beat": {
+      // flux set-beat <deck> <slide> <beat> [--label L] [--advance click|with-prev|auto] [--auto-delay ms]
+      const patch: Parameters<typeof core.setBeat>[4] = {};
+      if (typeof flags.label === "string") patch.label = flags.label;
+      if (typeof flags.advance === "string") patch.advance = flags.advance as "click" | "with-prev" | "auto";
+      if (num(flags["auto-delay"]) != null) patch.autoDelayMs = num(flags["auto-delay"]);
+      await core.setBeat(R(), _[0], _[1], _[2], patch);
+      console.error(`✓ set beat ${_[2]}`);
+      break;
+    }
+    case "reorder-beats": {
+      // flux reorder-beats <deck> <slide> --order b2,b1 (beat 0 is pinned)
+      const order = typeof flags.order === "string" ? flags.order.split(",") : _.slice(2);
+      await core.reorderBeats(R(), _[0], _[1], order);
+      console.error(`✓ reordered beats on ${_[1]}`);
+      break;
+    }
+    case "move-track": {
+      // flux move-track <deck> <slide> <track> <toBeat> [--at n]
+      await core.moveTrack(R(), _[0], _[1], _[2], _[3], num(flags.at));
+      console.error(`✓ moved track ${_[2]} → beat ${_[3]}`);
+      break;
+    }
+    case "duplicate-track": {
+      const r = await core.duplicateTrack(R(), _[0], _[1], _[2]);
+      console.error(`✓ duplicated track ${_[2]} → ${r.trackId}`);
+      console.log(r.trackId);
+      break;
+    }
+    case "reorder-tracks": {
+      // flux reorder-tracks <deck> <slide> <beat> --order t2,t1
+      const order = typeof flags.order === "string" ? flags.order.split(",") : _.slice(3);
+      await core.reorderTracks(R(), _[0], _[1], _[2], order);
+      console.error(`✓ reordered tracks on beat ${_[2]}`);
+      break;
+    }
+    case "set-track-enabled": {
+      // flux set-track-enabled <deck> <slide> <track> true|false
+      const enabled = String(flags.enabled ?? _[3]) !== "false";
+      await core.setTrackEnabled(R(), _[0], _[1], _[2], enabled);
+      console.error(`✓ track ${_[2]} ${enabled ? "enabled" : "disabled"}`);
+      break;
+    }
+    case "set-part-visibility": {
+      // flux set-part-visibility <deck> <element> <part> show|animate|mask
+      const mode = String(flags.mode ?? _[3]) as "show" | "animate" | "mask";
+      await core.setPartVisibility(R(), _[0], _[1], _[2], mode);
+      console.error(`✓ ${_[2]} → ${mode}`);
+      break;
+    }
+    case "set-part-style": {
+      // flux set-part-style <deck> <element> <part> --patch '{"stroke":"#bc5215","strokeWidth":2}'
+      if (typeof flags.patch !== "string") throw new Error("set-part-style needs --patch '<json>'");
+      await core.setPartStyle(R(), _[0], _[1], _[2], JSON.parse(flags.patch));
+      console.error(`✓ styled ${_[2]}`);
+      break;
+    }
+    case "animate-part": {
+      // flux animate-part <deck> <slide> <element> <part> [--beat-index n]
+      const r = await core.animatePartVerb(R(), _[0], _[1], _[2], _[3], num(flags["beat-index"]));
+      console.error(`✓ ${_[3]} animates on beat ${r.beatIndex}`);
+      break;
+    }
+    case "animate-element": {
+      // flux animate-element <deck> <slide> <element> [--exit] [--preset p] [--beat-index n] [--whole-box]
+      const r = await core.animateElementVerb(R(), _[0], _[1], _[2], {
+        beatIndex: num(flags["beat-index"]),
+        exit: !!flags.exit,
+        preset: typeof flags.preset === "string" ? (flags.preset as import("./src/lib/slide/types").PresetName) : undefined,
+        wholeBox: !!flags["whole-box"],
+      });
+      console.error(`✓ element ${_[2]} ${flags.exit ? "animates out" : "animates in"} on beat ${r.beatIndex}`);
+      console.log(r.trackId);
+      break;
+    }
+    case "set-morph": {
+      // flux set-morph <deck> <slide> <beat> <element> <toAssetId> [--duration ms] [--force]
+      await core.setMorph(R(), _[0], _[1], _[2], _[3], _[4], { duration: num(flags.duration), force: !!flags.force });
+      console.error(`✓ morph ${_[3]} → ${_[4]} on beat ${_[2]}`);
       break;
     }
     case "validate": {

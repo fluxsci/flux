@@ -14,6 +14,7 @@ import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
 import * as slideOps from "../src/lib/slide/ops";
+import { animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
@@ -288,6 +289,194 @@ export async function setAnimation(
   await mutateDeck(root, deckId, "set_animation", (deck) => {
     mustSlide(deck, slideId);
     const ok = slideOps.setAnimation(deck, slideId, beatId, track);
+    if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
+  });
+}
+
+/** set-beat: patch a beat's label / advance mode (click|with-prev|auto) / autoDelayMs. */
+export async function setBeat(
+  root: string,
+  deckId: string,
+  slideId: string,
+  beatId: string,
+  patch: { label?: string; advance?: "click" | "with-prev" | "auto"; autoDelayMs?: number },
+): Promise<void> {
+  await mutateDeck(root, deckId, "set_beat", (deck) => {
+    mustSlide(deck, slideId);
+    slideOps.setBeat(deck, slideId, beatId, patch);
+  });
+}
+
+/** reorder-beats: set a slide's beat order (beat 0, the resting state, is pinned). */
+export async function reorderBeats(root: string, deckId: string, slideId: string, order: string[]): Promise<void> {
+  await mutateDeck(root, deckId, "reorder_beats", (deck) => {
+    mustSlide(deck, slideId);
+    slideOps.reorderBeats(deck, slideId, order);
+  });
+}
+
+/** move-track: move a track (by id) into another beat on the same slide. */
+export async function moveTrack(
+  root: string,
+  deckId: string,
+  slideId: string,
+  trackId: string,
+  toBeatId: string,
+  at?: number,
+): Promise<void> {
+  await mutateDeck(root, deckId, "move_track", (deck) => {
+    mustSlide(deck, slideId);
+    const ok = slideOps.moveTrackToBeat(deck, slideId, trackId, toBeatId, at);
+    if (!ok) throw new Error(`track ${trackId} or beat ${toBeatId} not found on ${slideId}`);
+  });
+}
+
+/** duplicate-track: deep-copy a track in place. Returns the new track id. */
+export async function duplicateTrack(
+  root: string,
+  deckId: string,
+  slideId: string,
+  trackId: string,
+): Promise<{ trackId: string }> {
+  return mutateDeck(root, deckId, "duplicate_track", (deck) => {
+    mustSlide(deck, slideId);
+    const id = slideOps.duplicateTrack(deck, slideId, trackId);
+    if (!id) throw new Error(`track not found: ${trackId} on ${slideId}`);
+    return { trackId: id };
+  });
+}
+
+/** reorder-tracks: set one beat's track (lane) order. */
+export async function reorderTracks(
+  root: string,
+  deckId: string,
+  slideId: string,
+  beatId: string,
+  order: string[],
+): Promise<void> {
+  await mutateDeck(root, deckId, "reorder_tracks", (deck) => {
+    mustSlide(deck, slideId);
+    slideOps.reorderTracks(deck, slideId, beatId, order);
+  });
+}
+
+/** set-track-enabled: disable/enable a track (disabled = kept but not played). */
+export async function setTrackEnabled(
+  root: string,
+  deckId: string,
+  slideId: string,
+  trackId: string,
+  enabled: boolean,
+): Promise<void> {
+  await mutateDeck(root, deckId, "set_track_enabled", (deck) => {
+    mustSlide(deck, slideId);
+    const ok = slideOps.setTrackEnabled(deck, slideId, trackId, enabled);
+    if (!ok) throw new Error(`track not found: ${trackId} on ${slideId}`);
+  });
+}
+
+/** set-part-visibility: a plot part's resting tri-state — show | animate | mask.
+ *  Mask/show DISABLE the part's tracks (they survive for a later re-animate). */
+export async function setPartVisibility(
+  root: string,
+  deckId: string,
+  elementId: string,
+  part: string,
+  mode: "show" | "animate" | "mask",
+): Promise<void> {
+  await mutateDeck(root, deckId, "set_part_visibility", (deck) => {
+    slideOps.setPartVisibility(deck, elementId, part, mode);
+  });
+}
+
+/** set-part-style: merge a style patch (stroke/fill/strokeWidth/opacity/fontSize/
+ *  fontFamily/fontWeight/hidden…) into one plot part's override — the slide X-ray
+ *  cockpit's write path. Null values delete keys. */
+export async function setPartStyle(
+  root: string,
+  deckId: string,
+  elementId: string,
+  part: string,
+  patch: Record<string, string | number | boolean | null>,
+): Promise<void> {
+  await mutateDeck(root, deckId, "set_part_style", (deck) => {
+    slideOps.setPartStyle(deck, elementId, part, patch);
+  });
+}
+
+/** animate-part: ensure ONE plot part animates in — re-enables existing tracks
+ *  (preserving authored timing) or adds the plot's suggested default reveal.
+ *  Needs the plot's manifest to suggest well; resolved from the element's svg
+ *  sidecar like the export gatherer. Returns the beat index used. */
+export async function animatePartVerb(
+  root: string,
+  deckId: string,
+  slideId: string,
+  elementId: string,
+  part: string,
+  beatIndex?: number,
+): Promise<{ beatIndex: number }> {
+  return mutateDeck(root, deckId, "animate_part", async (deck) => {
+    mustSlide(deck, slideId);
+    const found = slideOps.findElement(deck, elementId);
+    if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
+    const el = found.el as { assetId: string; source?: { svgPath?: string; manifestPath?: string } };
+    let manifest: FluxPlotManifest | undefined;
+    const sp = el.source?.svgPath ?? j("plots", `${el.assetId}.svg`);
+    const mp = el.source?.manifestPath ?? sp.replace(/\.svg$/i, ".fluxplot.json");
+    try { manifest = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* suggest without hints */ }
+    const bi = animatePart(deck, slideId, elementId, part, manifest, beatIndex);
+    if (bi < 0) throw new Error(`slide not found: ${slideId}`);
+    return { beatIndex: bi };
+  });
+}
+
+/** animate-element: give a whole element (text box / shape / image / math /
+ *  line…) an enter or exit animation with per-kind defaults — the non-plot
+ *  analog of animate-part. Returns the beat index + track id. */
+export async function animateElementVerb(
+  root: string,
+  deckId: string,
+  slideId: string,
+  elementId: string,
+  opts: { beatIndex?: number; exit?: boolean; preset?: Track["preset"]; wholeBox?: boolean } = {},
+): Promise<{ beatIndex: number; trackId: string }> {
+  return mutateDeck(root, deckId, "animate_element", (deck) => {
+    mustSlide(deck, slideId);
+    const r = animateElement(deck, slideId, elementId, opts);
+    if (!r) throw new Error(`element not found: ${elementId} on ${slideId}`);
+    return r;
+  });
+}
+
+/** set-morph: author a data-space morph from a plot element to any project plot.
+ *  Refuses structurally-incompatible pairs (same gate the GUI + player use). */
+export async function setMorph(
+  root: string,
+  deckId: string,
+  slideId: string,
+  beatId: string,
+  elementId: string,
+  toAssetId: string,
+  opts: { duration?: number; force?: boolean } = {},
+): Promise<void> {
+  await mutateDeck(root, deckId, "set_morph", async (deck) => {
+    mustSlide(deck, slideId);
+    const found = slideOps.findElement(deck, elementId);
+    if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
+    if (!opts.force) {
+      const el = found.el as { assetId: string; source?: { svgPath?: string; manifestPath?: string } };
+      const readManifest = async (assetId: string, svgPath?: string, manifestPath?: string) => {
+        const sp = svgPath ?? j("plots", `${assetId}.svg`);
+        const mp = manifestPath ?? sp.replace(/\.svg$/i, ".fluxplot.json");
+        try { return JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { return undefined; }
+      };
+      const A = await readManifest(el.assetId, el.source?.svgPath, el.source?.manifestPath);
+      const B = await readManifest(toAssetId);
+      const [cand] = listMorphCandidates(A, [{ assetId: toAssetId, manifest: B }]);
+      if (!cand?.compatible) throw new Error(`morph ${el.assetId} → ${toAssetId}: structurally incompatible (no shared tweenable series). Pass force to author anyway.`);
+    }
+    const ok = slideOps.setMorphTrack(deck, slideId, beatId, elementId, toAssetId, { duration: opts.duration });
     if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
   });
 }

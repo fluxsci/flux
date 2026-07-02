@@ -170,6 +170,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   const ctx: PresetCtx = { theme: opts.theme, stage };
   slide.beats.forEach((beat, bi) => {
     for (const track of beat.tracks) {
+      // A disabled track keeps its authored timing in the deck but is invisible
+      // to play/static/export — the non-destructive Mask/Show substrate.
+      if (track.disabled) continue;
       // morph — a data-space driver over a plot element (not keyframe-based).
       if (track.preset === "morph") {
         const wrap = rendered.elements.get(track.target);

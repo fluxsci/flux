@@ -100,18 +100,22 @@ try {
   vslide.beats.push({ id: "vb1", label: "axes", tracks: [{ target: plot, part: "axis.x", preset: "drawOn", start: 0, duration: 400 }] });
   vslide.beats.push({ id: "vb2", label: "line", tracks: [{ target: plot, part: "series.line", preset: "drawOn", start: 0, duration: 400 }] });
   const povr = () => (slideOps.findElement(deck, plot)!.el as { overrides?: Record<string, { hidden?: boolean }> }).overrides;
-  const hasTrack = (part: string) => slideOps.slideById(deck, vsid)!.beats.some((b) => b.tracks.some((t) => t.part === part));
+  const partTracks = (part: string) => slideOps.slideById(deck, vsid)!.beats.flatMap((b) => b.tracks.filter((t) => t.part === part));
+  const liveTracks = (part: string) => partTracks(part).filter((t) => !t.disabled);
 
+  // WS2: the tri-state is NON-destructive — mask/show DISABLE the part's tracks
+  // (authored timing survives), animate re-enables them.
   slideOps.setPartVisibility(deck, plot, "axis.x", "mask");
   assert(povr()?.["axis.x"]?.hidden === true, "1.3 mask: overrides[axis.x].hidden = true");
-  assert(!hasTrack("axis.x"), "1.3 mask: the part's tracks are removed");
+  assert(partTracks("axis.x").length === 1 && liveTracks("axis.x").length === 0, "1.3 mask: the part's tracks are DISABLED, not deleted");
 
   slideOps.setPartVisibility(deck, plot, "series.line", "show");
   assert(!povr()?.["series.line"], "1.3 show: no hidden override for the part");
-  assert(!hasTrack("series.line"), "1.3 show: the part's tracks are removed (visible from start)");
+  assert(liveTracks("series.line").length === 0, "1.3 show: the part's tracks are disabled (visible from start)");
 
   slideOps.setPartVisibility(deck, plot, "axis.x", "animate");
   assert(!povr()?.["axis.x"], "1.3 animate: clears the prior mask (hidden override removed)");
+  assert(liveTracks("axis.x").length === 1 && partTracks("axis.x")[0].duration === 400, "1.3 animate: re-enables the surviving track with its authored timing");
 
   console.log("\nALL SLIDE-EDIT (P1) TESTS PASSED");
 } finally {

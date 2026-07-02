@@ -892,11 +892,10 @@ server.registerTool(
 // --- Flux Slide: author + animate decks headlessly (W11b / SLD-6) ------------
 // The whole Slides pillar had ZERO MCP tools; agents could not build a deck.
 
-// countUp is a declared PresetName but has no runtime driver yet (it silently
-// falls back to fade) — omit it from the agent-facing enum so it isn't offered.
 const PRESETS = [
   "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
-  "highlight", "dim", "move", "scale", "rotate", "camera", "morph",
+  "fadeOut", "popOut", "drawOff", "wipeOut",
+  "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "morph",
 ] as const;
 const LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
 const THEMES = ["flux-dark", "flux-light", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
@@ -1109,6 +1108,150 @@ server.registerTool(
     if (to) track.to = to;
     await core.setAnimation(ROOT, deckId, slideId, beatId, track);
     return ok(`set animation on beat ${beatId} (${preset ?? "keyframes"} → ${target})`);
+  },
+);
+
+server.registerTool(
+  "set_beat",
+  {
+    description: "Patch a beat: label, advance mode ('click' = manual step, 'with-prev' = chains onto the previous press, 'auto' = plays autoDelayMs after the previous beat finishes), autoDelayMs.",
+    inputSchema: {
+      deckId: z.string(), slideId: z.string(), beatId: z.string(),
+      label: z.string().optional(),
+      advance: z.enum(["click", "with-prev", "auto"]).optional(),
+      autoDelayMs: z.number().optional(),
+    },
+  },
+  async ({ deckId, slideId, beatId, ...patch }) => {
+    await core.setBeat(ROOT, deckId, slideId, beatId, patch);
+    return ok(`set beat ${beatId}`);
+  },
+);
+
+server.registerTool(
+  "reorder_beats",
+  {
+    description: "Set a slide's beat order to `order` (beat ids). Beat 0 — the resting state — is pinned and never moves.",
+    inputSchema: { deckId: z.string(), slideId: z.string(), order: z.array(z.string()) },
+  },
+  async ({ deckId, slideId, order }) => {
+    await core.reorderBeats(ROOT, deckId, slideId, order);
+    return ok(`reordered beats on ${slideId}`);
+  },
+);
+
+server.registerTool(
+  "move_track",
+  {
+    description: "Move an animation track (by id) into another beat on the same slide; timing travels untouched. `at` picks the lane index.",
+    inputSchema: { deckId: z.string(), slideId: z.string(), trackId: z.string(), toBeatId: z.string(), at: z.number().optional() },
+  },
+  async ({ deckId, slideId, trackId, toBeatId, at }) => {
+    await core.moveTrack(ROOT, deckId, slideId, trackId, toBeatId, at);
+    return ok(`moved track ${trackId} → beat ${toBeatId}`);
+  },
+);
+
+server.registerTool(
+  "duplicate_track",
+  {
+    description: "Deep-copy a track in place (fresh id, inserted after the original). Returns the new track id.",
+    inputSchema: { deckId: z.string(), slideId: z.string(), trackId: z.string() },
+  },
+  async ({ deckId, slideId, trackId }) => {
+    const r = await core.duplicateTrack(ROOT, deckId, slideId, trackId);
+    return ok(`duplicated track ${trackId} → ${r.trackId}`);
+  },
+);
+
+server.registerTool(
+  "reorder_tracks",
+  {
+    description: "Set one beat's track (lane) order to `order` (track ids). Order is presentational — tracks in a beat play concurrently.",
+    inputSchema: { deckId: z.string(), slideId: z.string(), beatId: z.string(), order: z.array(z.string()) },
+  },
+  async ({ deckId, slideId, beatId, order }) => {
+    await core.reorderTracks(ROOT, deckId, slideId, beatId, order);
+    return ok(`reordered tracks on beat ${beatId}`);
+  },
+);
+
+server.registerTool(
+  "set_track_enabled",
+  {
+    description: "Disable/enable a track. Disabled tracks keep their authored timing but are invisible to play/preview/export (the non-destructive Mask substrate).",
+    inputSchema: { deckId: z.string(), slideId: z.string(), trackId: z.string(), enabled: z.boolean() },
+  },
+  async ({ deckId, slideId, trackId, enabled }) => {
+    await core.setTrackEnabled(ROOT, deckId, slideId, trackId, enabled);
+    return ok(`track ${trackId} ${enabled ? "enabled" : "disabled"}`);
+  },
+);
+
+server.registerTool(
+  "set_part_visibility",
+  {
+    description: "A plot part's resting tri-state on a slide: 'show' (visible from beat 0), 'animate' (revealed by its track), 'mask' (always hidden). Mask/show DISABLE the part's tracks rather than deleting them.",
+    inputSchema: { deckId: z.string(), elementId: z.string(), part: z.string(), mode: z.enum(["show", "animate", "mask"]) },
+  },
+  async ({ deckId, elementId, part, mode }) => {
+    await core.setPartVisibility(ROOT, deckId, elementId, part, mode);
+    return ok(`${part} → ${mode}`);
+  },
+);
+
+server.registerTool(
+  "set_part_style",
+  {
+    description: "Merge a style patch into one plot part's override on a slide element — stroke, fill, strokeWidth, opacity, fontSize, fontFamily, fontWeight, hidden. Null deletes a key. Part may be a leaf ('fit.line') or group ('axis.x.ticks') id.",
+    inputSchema: { deckId: z.string(), elementId: z.string(), part: z.string(), patch: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])) },
+  },
+  async ({ deckId, elementId, part, patch }) => {
+    await core.setPartStyle(ROOT, deckId, elementId, part, patch);
+    return ok(`styled ${part}`);
+  },
+);
+
+server.registerTool(
+  "animate_part",
+  {
+    description: "Make ONE plot part animate in: re-enables its existing tracks (authored timing preserved) or adds the plot's suggested default reveal on a build beat. Returns the beat index used.",
+    inputSchema: { deckId: z.string(), slideId: z.string(), elementId: z.string(), part: z.string(), beatIndex: z.number().optional() },
+  },
+  async ({ deckId, slideId, elementId, part, beatIndex }) => {
+    const r = await core.animatePartVerb(ROOT, deckId, slideId, elementId, part, beatIndex);
+    return ok(`${part} animates on beat ${r.beatIndex}`);
+  },
+);
+
+server.registerTool(
+  "animate_element",
+  {
+    description: "Give a whole element (text box / shape / line / image / math / video) an enter or exit animation with sensible per-kind defaults (textBox→staggered bullet fadeRise, line→drawOn, math→writeOn; exits: fadeOut/popOut/drawOff/wipeOut). The non-plot analog of animate_part.",
+    inputSchema: {
+      deckId: z.string(), slideId: z.string(), elementId: z.string(),
+      exit: z.boolean().optional(), preset: z.enum(PRESETS).optional(),
+      beatIndex: z.number().optional(), wholeBox: z.boolean().optional(),
+    },
+  },
+  async ({ deckId, slideId, elementId, ...opts }) => {
+    const r = await core.animateElementVerb(ROOT, deckId, slideId, elementId, opts);
+    return ok(`element ${elementId} ${opts.exit ? "animates out" : "animates in"} on beat ${r.beatIndex} (track ${r.trackId})`);
+  },
+);
+
+server.registerTool(
+  "set_morph",
+  {
+    description: "Author the data-space morph: a plot element tweens into ANY project plot (by asset id) on a beat. Refuses structurally-incompatible pairs (no shared tweenable series) unless force.",
+    inputSchema: {
+      deckId: z.string(), slideId: z.string(), beatId: z.string(), elementId: z.string(), toAssetId: z.string(),
+      duration: z.number().optional(), force: z.boolean().optional(),
+    },
+  },
+  async ({ deckId, slideId, beatId, elementId, toAssetId, duration, force }) => {
+    await core.setMorph(ROOT, deckId, slideId, beatId, elementId, toAssetId, { duration, force });
+    return ok(`morph ${elementId} → ${toAssetId} on beat ${beatId}`);
   },
 );
 

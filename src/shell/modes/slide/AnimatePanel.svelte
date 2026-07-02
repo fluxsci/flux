@@ -57,12 +57,14 @@
     if (s.has(id)) s.delete(id); else s.add(id);
     collapsed = s;
   }
-  /** A part's resting state: masked (override hidden) → animated (has a track) → shown. */
+  /** A part's resting state: masked (override hidden) → animated (has a LIVE
+   *  track) → shown. Disabled tracks don't count — Mask/Show disable rather than
+   *  delete them (non-destructive tri-state), so only enabled tracks mean A. */
   function partState(part: string): "show" | "animate" | "mask" {
     const plot = selPlot;
     if (!plot || !slide) return "show";
     if ((plot.overrides as Record<string, { hidden?: boolean }> | undefined)?.[part]?.hidden) return "mask";
-    if (slide.beats.some((b) => b.tracks.some((t) => t.target === plot.id && t.part === part))) return "animate";
+    if (slide.beats.some((b) => b.tracks.some((t) => t.target === plot.id && t.part === part && !t.disabled))) return "animate";
     return "show";
   }
   function setVis(part: string, mode: "show" | "animate" | "mask") {
