@@ -4,8 +4,12 @@
   let { host }: { host: MarginHost; margin: MarginApi } = $props();
 
   const c = $derived(host.comments);
-  const anchored = $derived(c.threads.filter((t) => c.ranges.has(t.id) || t.draft));
-  const detached = $derived(c.threads.filter((t) => !c.ranges.has(t.id) && !t.draft));
+  // PAP-8: bucket by status, not by mark presence. A RESOLVED thread has no live range (its
+  // mark was removed on resolve) but is NOT detached — it belongs in the main list so its
+  // Reopen action is reachable. Only a thread that is unresolved, not a draft, and whose
+  // anchor no longer resolves in the text is genuinely detached (delete-only).
+  const anchored = $derived(c.threads.filter((t) => t.draft || t.resolved || c.ranges.has(t.id)));
+  const detached = $derived(c.threads.filter((t) => !t.draft && !t.resolved && !c.ranges.has(t.id)));
 
   let draftText = $state("");
   let replyingId = $state<string | null>(null);

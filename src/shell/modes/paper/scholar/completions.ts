@@ -51,7 +51,7 @@ function atSource(ctx: CompletionContext): CompletionResult | null {
       label: "@" + e.key,
       detail: `${who}${e.year ? " " + e.year : ""}`,
       info: e.title,
-      apply: "[@" + e.key + "]",
+      apply: applyCite(e.key),
       type: "reference",
     });
   }
@@ -64,6 +64,30 @@ function insert(text: string, cursor?: number) {
     view.dispatch({
       changes: { from, to, insert: text },
       selection: { anchor: from + (cursor ?? text.length) },
+      userEvent: "input.complete",
+    });
+    view.focus();
+  };
+}
+
+// PAP-5: apply a citation bracket-aware. Completing inside an existing group (`[@sm`, or a
+// multi-cite `[@a; @sm`) must insert a BARE `@key`, not another `[@key]` — the old
+// unconditional wrap produced `[[@key]`, which never parses into a chip. Add the closing `]`
+// only when the open group isn't already closed ahead of the cursor.
+function applyCite(key: string) {
+  return (view: EditorView, _c: Completion, from: number, to: number) => {
+    const doc = view.state.doc;
+    const line = doc.lineAt(from);
+    const pre = doc.sliceString(line.from, from);
+    const post = doc.sliceString(to, line.to);
+    const inGroup = pre.lastIndexOf("[") > pre.lastIndexOf("]");
+    const closeIdx = post.indexOf("]");
+    const openIdx = post.indexOf("[");
+    const closedAhead = closeIdx >= 0 && (openIdx < 0 || closeIdx < openIdx);
+    const text = !inGroup ? `[@${key}]` : closedAhead ? `@${key}` : `@${key}]`;
+    view.dispatch({
+      changes: { from, to, insert: text },
+      selection: { anchor: from + text.length },
       userEvent: "input.complete",
     });
     view.focus();

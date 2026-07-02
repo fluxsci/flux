@@ -460,7 +460,16 @@
     scheduleCommentSave();
   }
   function resolveComment(id: string) {
-    threads = threads.map((t) => (t.id === id ? { ...t, resolved: true } : t));
+    // PAP-9: snapshot the mark's LIVE range into the anchor before removing it. The debounced
+    // save reads live ranges to persist anchors; once the mark is gone it can't, so it would
+    // persist the stale creation-anchor and reopen would mis-anchor. Re-derive from cRanges now.
+    const live = cRanges.get(id);
+    const doc = view?.state.doc.toString() ?? "";
+    threads = threads.map((t) =>
+      t.id === id
+        ? { ...t, resolved: true, anchor: live ? makeAnchor(doc, live.from, live.to) : t.anchor }
+        : t,
+    );
     view?.dispatch({ effects: removeCommentMark.of(id) });
     syncRanges();
     scheduleCommentSave();
@@ -690,6 +699,24 @@
     syncRanges();
   }
 
+  // PAP-4: after a whole-document swap (external/agent reload of the .qmd), CodeMirror
+  // collapses the existing comment marks and commentField drops them — every thread would
+  // read "Detached" in exactly the agent-edits→human-reviews flow. Re-resolve each live
+  // thread's W3C text-quote anchor against the NEW text and re-add its mark (the threads
+  // themselves are in-memory + unchanged; only their editor marks were lost).
+  function reanchorComments() {
+    if (!view) return;
+    const doc = view.state.doc.toString();
+    const effects = [];
+    for (const t of threads) {
+      if (t.resolved) continue;
+      const r = resolveAnchor(doc, t.anchor);
+      if (r) effects.push(addCommentMark.of({ id: t.id, from: r.from, to: r.to }));
+    }
+    if (effects.length) view.dispatch({ effects });
+    syncRanges();
+  }
+
   function onChange(s: string) {
     latest = s;
     scheduleIdle(); // PAP-7: TOC + cited-key recompute settle ~150ms after typing stops
@@ -795,7 +822,7 @@
     saved = true;
     diskDiverged = false;
     refreshIdleNow(); // external reload is immediate, not debounced
-    syncRanges();
+    reanchorComments(); // PAP-4: re-attach comment marks to the new text (calls syncRanges)
   }
   // The active document's comments sidecar (mirrors flux-core commentsRel /
   // comments.ts commentsPath): main doc → comments.json, others → <base>.comments.json.

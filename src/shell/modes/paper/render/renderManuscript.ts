@@ -51,8 +51,25 @@ function refKindWord(prefix: string): string {
   return prefix === "tbl" ? "Table" : prefix === "sec" ? "Section" : prefix === "eq" ? "Eq." : "Figure";
 }
 
-/** Replace cross-refs + citations on a line with markdown links; collect cites. */
+/** Replace cross-refs + citations on a line with markdown links; collect cites. PAP-13: never
+ *  rewrite inside inline code — the editor's chips skip code spans, so transforming them here
+ *  diverged Preview/export from what the author sees. Split on backtick runs and only
+ *  transform the prose between them (the code span is emitted verbatim). */
 function transformInline(line: string, cited: Set<string>): string {
+  const CODE = /(`+)(?:.*?)\1/g; // n-backtick … n-backtick inline-code runs
+  let out = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = CODE.exec(line))) {
+    out += transformProse(line.slice(last, m.index), cited);
+    out += m[0]; // code span, untouched
+    last = m.index + m[0].length;
+  }
+  return out + transformProse(line.slice(last), cited);
+}
+
+/** The actual cross-ref + citation substitution, applied only to non-code prose. */
+function transformProse(line: string, cited: Set<string>): string {
   // [@a; @b] bracketed citations
   line = line.replace(BRACKET_CITE, (_full, inner: string) => {
     const keys = inner
@@ -172,9 +189,11 @@ function preprocess(body: string): { transformed: string; blocks: BlockSpec[]; c
         token,
         html: `<figure class="fig" id="${esc(m[3])}"><div class="art">${
           svg ?? "<em>missing figure</em>"
-        }</div><figcaption><b>Figure ${num}.</b> __CAP${blocks.length}__</figcaption></figure>`,
+        }</div><figcaption><b>Figure ${num}.</b> __CAP${capStash.length}__</figcaption></figure>`,
       });
-      // stash caption markdown for later inline render
+      // PAP-6: index the placeholder by the CAPTION counter (capStash.length), not blocks.length.
+      // Non-caption blocks (e.g. a callout) inflate blocks.length, so the old index pointed past
+      // the stashed caption → an empty/wrong caption in Preview AND in the PDF/HTML export.
       capStash.push(m[1]);
       continue;
     }
@@ -187,9 +206,9 @@ function preprocess(body: string): { transformed: string; blocks: BlockSpec[]; c
       out.push("");
       blocks.push({
         token,
-        html: `<p class="cap" id="${esc(m[2])}"><b>Table ${tableCount}.</b> __CAP${blocks.length}__</p>`,
+        html: `<p class="cap" id="${esc(m[2])}"><b>Table ${tableCount}.</b> __CAP${capStash.length}__</p>`,
       });
-      capStash.push(m[1]);
+      capStash.push(m[1]); // PAP-6: caption counter, not blocks.length (see the figure branch)
       continue;
     }
     out.push(transformInline(raw, cited));
