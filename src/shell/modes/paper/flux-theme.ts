@@ -60,6 +60,24 @@ export const fluxTheme = EditorView.theme(
       letterSpacing: "0 !important",
     },
 
+    /* Embed/table SOURCE lines: always present + navigable (the rendered
+       figure/table is a block widget below them). Metrics are identical whether
+       or not the caret is on the line — never a layout shift on navigation. */
+    ".cm-line.cm-flux-embedsrc, .cm-line.cm-flux-tablesrc": {
+      fontFamily: "var(--font-mono)",
+      fontSize: "12px",
+      lineHeight: "1.65",
+      color: "var(--c-tx-faint)",
+    },
+    ".cm-flux-embedsrc *, .cm-flux-tablesrc *": {
+      fontFamily: "var(--font-mono) !important",
+      fontSize: "12px !important",
+      fontWeight: "400 !important",
+      fontStyle: "normal !important",
+      color: "var(--c-tx-faint) !important",
+      letterSpacing: "0 !important",
+    },
+
     /* ---- live-preview decoration classes (livePreview.ts) ---------------- */
     ".cm-flux-link": {
       color: "var(--c-accent-bright)",
@@ -174,8 +192,10 @@ export const fluxTheme = EditorView.theme(
     /* ---- figure embeds (B2/B4) ------------------------------------------- */
     ".flux-embed": {
       position: "relative",
-      margin: "1.4em 0",
-      padding: "0",
+      // Padding, not margin: block-widget height measurement is stable with
+      // padding (margins can escape CodeMirror's widget measurement).
+      margin: "0",
+      padding: "0.7em 0 1.4em",
       userSelect: "none",
     },
     ".flux-embed-art": {
@@ -234,7 +254,7 @@ export const fluxTheme = EditorView.theme(
     },
 
     /* ---- tables (B3) ----------------------------------------------------- */
-    ".flux-tablewrap": { margin: "1.4em 0", userSelect: "none" },
+    ".flux-tablewrap": { margin: "0", padding: "0.7em 0 1.4em", userSelect: "none" },
     ".flux-table": {
       borderCollapse: "collapse",
       width: "100%",

@@ -1,9 +1,12 @@
-// Pipe tables render as clean journal tables in place (Flux_Paper_Plan.md B3,
-// basic tier). The renderer scans the doc for GFM pipe tables + an optional
-// Quarto `: Caption {#tbl-id}` line, records appearance-order numbers (so @tbl
-// chips resolve), and replaces each table block with a styled <table>. Cursor
-// entering the block reveals the raw markdown. Full in-cell editing is Phase 4;
-// today you edit the markdown source (reveal-on-cursor). The .qmd stays Quarto.
+// Pipe tables render as clean journal tables (Flux_Paper_Plan.md B3, basic
+// tier). The renderer scans the doc for GFM pipe tables + an optional Quarto
+// `: Caption {#tbl-id}` line, records appearance-order numbers (so @tbl chips
+// resolve), and places a styled <table> block widget AFTER the source block.
+// The source lines stay present and navigable (compact mono via
+// cm-flux-tablesrc), so every pipe row costs exactly one vertical keypress and
+// caret movement never reflows the document — the decoration set is a pure
+// function of the document (docChanged/refreshChips only, never selection).
+// You edit the markdown source directly; the .qmd stays Quarto.
 
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";
@@ -96,6 +99,12 @@ class TableWidget extends WidgetType {
   eq(o: TableWidget) {
     return o.key === this.key;
   }
+  // Row height ≈ 2×6px padding + 0.95em×1.5 line ≈ 36px; caption ≈ 32px; wrap
+  // vertical padding 2×1.4em ≈ 48px. Only an estimate for unrendered widgets —
+  // CodeMirror swaps in the measured height once visible.
+  get estimatedHeight() {
+    return 36 * (1 + this.t.body.length) + (this.t.caption ? 32 : 0) + 48;
+  }
   toDOM() {
     const wrap = document.createElement("div");
     wrap.className = "flux-tablewrap";
@@ -144,18 +153,7 @@ class TableWidget extends WidgetType {
   }
 }
 
-function activeLines(state: EditorState): Set<number> {
-  const lines = new Set<number>();
-  for (const r of state.selection.ranges) {
-    const a = state.doc.lineAt(r.from).number;
-    const b = state.doc.lineAt(r.to).number;
-    for (let n = a; n <= b; n++) lines.add(n);
-  }
-  return lines;
-}
-
 function build(state: EditorState): DecorationSet {
-  const active = activeLines(state);
   const deco: Range<Decoration>[] = [];
   const numbered: { label: string; number: number }[] = [];
   let count = 0;
@@ -170,48 +168,29 @@ function build(state: EditorState): DecorationSet {
     if (parsed.label) numbered.push({ label: parsed.label, number: count });
     const fromLine = state.doc.lineAt(parsed.from).number;
     const toLine = state.doc.lineAt(parsed.to).number;
-    let overlapsActive = false;
-    for (let i = fromLine; i <= toLine; i++) if (active.has(i)) overlapsActive = true;
-    if (!overlapsActive) {
-      deco.push(
-        Decoration.replace({ widget: new TableWidget(parsed, count), block: true }).range(
-          parsed.from,
-          parsed.to,
-        ),
-      );
+    for (let i = fromLine; i <= toLine; i++) {
+      deco.push(Decoration.line({ class: "cm-flux-tablesrc" }).range(state.doc.line(i).from));
     }
+    deco.push(
+      Decoration.widget({
+        widget: new TableWidget(parsed, count),
+        block: true,
+        side: 1, // a block AFTER the source block — the pipe rows stay navigable
+      }).range(parsed.to),
+    );
     n = toLine + 1;
   }
   setTableNumbers(numbered);
   return Decoration.set(deco, true);
 }
 
-// PAP-7: on a selection-only change the table decorations change ONLY if the caret moved onto
-// or off a table block. Test just the lines the old/new selections touch for table membership
-// — a pipe row, a `---` delimiter, a `{#tbl-}` caption, or the single blank line a caption may
-// sit below — instead of re-parsing every line of the document on each cursor move. This
-// over-approximates block membership (a stray `|` in prose triggers a harmless rebuild) but
-// never misses a line that could belong to a table, so the rendering stays correct.
-function tableInActive(state: EditorState): boolean {
-  for (const n of activeLines(state)) {
-    const t = state.doc.line(n).text;
-    if (t.includes("|") || CAPTION.test(t) || DELIM.test(t)) return true;
-    if (t.trim() === "" && n + 1 <= state.doc.lines && CAPTION.test(state.doc.line(n + 1).text))
-      return true;
-  }
-  return false;
-}
-
 export const scienceTables = StateField.define<DecorationSet>({
   create: (state) => build(state),
   update(value, tr) {
     if (tr.docChanged || tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
-    if (tr.selection && (tableInActive(tr.startState) || tableInActive(tr.state)))
-      return build(tr.state);
+    // Selection changes NEVER touch table decorations (see header comment) —
+    // and setTableNumbers stops firing on every caret move as a bonus.
     return value;
   },
-  provide: (f) => [
-    EditorView.decorations.from(f),
-    EditorView.atomicRanges.of((view) => view.state.field(f, false) ?? Decoration.none),
-  ],
+  provide: (f) => EditorView.decorations.from(f),
 });

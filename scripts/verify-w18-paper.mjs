@@ -1,20 +1,16 @@
-// W18 — Paper per-keystroke / per-caret-move hot paths (PAP-7, PAP-22). Driven through the
-// real editor on a 20k-line doc (the size the plan targets; m10 only covered 5k keystroke
-// rebuilds, never selection-only caret moves).
+// W18 — Paper per-keystroke / per-caret-move hot paths (PAP-7, PAP-22), updated for the
+// PaperNav rewrite. Driven through the real editor on a 20k-line doc.
 //
-// PAP-7 (the substantive change): the embeds + tables block-widget StateFields used to
-// re-scan the WHOLE document on every selection change (every arrow key). They now rebuild on
-// a caret move ONLY when the caret entered/left a block line. This verifies:
-//   • reveal-on-cursor still works — caret onto an embed line reveals its raw markdown, and
-//     onto the blank line that sits between a table and its caption reveals the table (the
-//     tricky multi-line / blank-in-block edge the cheap predicate has to get right);
-//   • a caret move between prose lines is now cheap on a 20k-line doc (the skip), where a full
-//     rescan would blow the frame budget.
+// PaperNav superseded PAP-7's reveal-on-cursor: embed/table decorations are now a pure
+// function of the DOCUMENT — block widgets sit after their always-visible source lines and
+// selection changes never rebuild the fields at all. This verifies:
+//   • decoration STABILITY — caret onto an embed line / a table's internal blank line leaves
+//     the rendered widget count unchanged (no reveal collapse, no reflow on navigation);
+//   • a caret move between prose lines stays cheap on a 20k-line doc (now a total skip).
 // PAP-7 (debounce): the TOC recomputes ~150ms after typing settles, not per keystroke — a
 // typed heading still shows up in the outline once it settles.
 //
-// PAP-22 (Map-indexed resolvers) is a pure find()→Map.get() equivalence covered by svelte-check;
-// the embed reveal here also exercises resolveFigure()'s new index path (miss case).
+// PAP-22 (Map-indexed resolvers) is a pure find()→Map.get() equivalence covered by svelte-check.
 //   Run (dev server on :1420 must be up): node scripts/verify-w18-paper.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
 
@@ -66,7 +62,7 @@ const res = await page.evaluate(async () => {
   }
   const tableBlankLine = captionLine - 1; // the blank between the body and the caption
 
-  // --- correctness: reveal-on-cursor (the rebuild MUST still fire when a block is touched) ---
+  // --- correctness: decoration STABILITY (caret onto a block line must NOT change widgets) ---
   const moveTo = async (line) => { view.dispatch({ selection: { anchor: posOfLine(line) } }); await raf(); await raf(); };
 
   const embedProse = embedLine + 2; // prose just below the block, shares the viewport with the embed
@@ -74,14 +70,14 @@ const res = await page.evaluate(async () => {
 
   await moveTo(embedProse); // embed is in-viewport, rendered as a widget
   const embedBefore = nEmbed();
-  await moveTo(embedLine); // caret onto the embed line → reveals raw
+  await moveTo(embedLine); // caret onto the embed source line → widget STAYS
   const embedOn = nEmbed();
-  await moveTo(embedProse); // back to prose → widget returns
+  await moveTo(embedProse);
   const embedBack = nEmbed();
 
   await moveTo(tableProse); // table is in-viewport, rendered as a widget
   const tableBefore = nTable();
-  await moveTo(tableBlankLine); // caret onto the blank-line-in-block → reveals the table raw
+  await moveTo(tableBlankLine); // caret onto the blank-line-in-block → widget STAYS
   const tableOn = nTable();
   await moveTo(tableProse);
   const tableBack = nTable();
@@ -125,9 +121,9 @@ const res = await page.evaluate(async () => {
   return {
     lineCount: doc().lines,
     embedLine, captionLine, tableBlankLine,
-    reveal: {
-      embed: { before: embedBefore, on: embedOn, back: embedBack, ok: embedOn === embedBefore - 1 && embedBack === embedBefore },
-      table: { before: tableBefore, on: tableOn, back: tableBack, ok: tableOn === tableBefore - 1 && tableBack === tableBefore },
+    stability: {
+      embed: { before: embedBefore, on: embedOn, back: embedBack, ok: embedOn === embedBefore && embedBack === embedBefore },
+      table: { before: tableBefore, on: tableOn, back: tableBack, ok: tableOn === tableBefore && tableBack === tableBefore },
     },
     perf: {
       proseNavMedianMs: med(nav),
@@ -147,8 +143,8 @@ console.log(JSON.stringify({ w18: res, errs }, null, 2));
 
 const ok =
   res && !res.error &&
-  res.reveal.embed.ok &&
-  res.reveal.table.ok &&
+  res.stability.embed.ok &&
+  res.stability.table.ok &&
   res.perf.navFast &&
   res.perf.navBeatsRebuild &&
   res.toc.afterSettle &&

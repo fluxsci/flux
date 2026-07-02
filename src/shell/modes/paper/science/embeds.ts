@@ -1,9 +1,11 @@
 // Inline figure embeds (Flux_Paper_Plan.md B2/B4). A canonical Quarto figure
-// line — `![Caption](../fig/renders/<id>.svg){#fig-<id>}` — renders in place as
-// the actual figure (live, from figureToSvg) with a numbered "Figure N." caption.
-// Cursor entering the line reveals the raw markdown (reveal-on-cursor), and the
-// `.qmd` on disk stays standard Quarto. Rebuilds on edit/scroll/selection and on
-// the shared refreshChips effect (so editing the figure re-renders the embed).
+// line — `![Caption](../fig/renders/<id>.svg){#fig-<id>}` — renders as the
+// actual figure (live, from figureToSvg) in a block widget placed AFTER the
+// source line. The source line itself stays present and navigable (styled as a
+// compact mono "source chip" via cm-flux-embedsrc), so vertical cursor motion
+// costs exactly one keypress per line and never reflows the document: the
+// decoration set is a pure function of the document (docChanged/refreshChips
+// only — never selection). The `.qmd` on disk stays standard Quarto.
 
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";
@@ -14,10 +16,21 @@ import { refreshChips } from "./chips";
 const EMBED_RE =
   /^\s*!\[(.*?)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)([^}]*)\}\s*$/;
 
+// The usable width of the art card: the 72ch/17px serif measure (~640px) minus
+// the card's own chrome (2×18px padding + borders). Only an ESTIMATE for
+// unrendered widgets — CodeMirror replaces it with the measured height once the
+// widget scrolls into view, and because widgets no longer unmount on
+// navigation, that measurement is stable for the rest of the session.
+const EST_COL_W = 604;
+const ART_CHROME = 38; // card padding + border
+const WRAP_PAD = 48; // .flux-embed vertical padding (2 × 1.4em @ 17px)
+const CAP_H = 32;
+
 class FigureEmbedWidget extends WidgetType {
   readonly number: string | null;
   readonly svg: string | undefined;
   readonly figId: string | undefined;
+  private readonly estH: number;
   constructor(
     readonly label: string,
     readonly caption: string,
@@ -27,6 +40,18 @@ class FigureEmbedWidget extends WidgetType {
     this.number = r ? r.number : null;
     this.figId = r?.ref.id;
     this.svg = this.figId ? renderFigureSvg(this.figId) : undefined;
+    const dims = this.svg && /width="([\d.]+)" height="([\d.]+)"/.exec(this.svg);
+    if (dims) {
+      const w = parseFloat(dims[1]);
+      const h = parseFloat(dims[2]);
+      const art = Math.min(440, h * Math.min(1, EST_COL_W / w));
+      this.estH = art + ART_CHROME + WRAP_PAD + (this.caption ? CAP_H : 0);
+    } else {
+      this.estH = 60 + ART_CHROME + WRAP_PAD; // "missing figure" placeholder
+    }
+  }
+  get estimatedHeight() {
+    return this.estH;
   }
   eq(o: FigureEmbedWidget) {
     return (
@@ -80,67 +105,41 @@ class FigureEmbedWidget extends WidgetType {
   }
 }
 
-function activeLines(state: EditorState): Set<number> {
-  const lines = new Set<number>();
-  for (const r of state.selection.ranges) {
-    const a = state.doc.lineAt(r.from).number;
-    const b = state.doc.lineAt(r.to).number;
-    for (let n = a; n <= b; n++) lines.add(n);
-  }
-  return lines;
-}
-
 // Block widgets must be supplied from a StateField (they affect layout/height),
 // so we scan the whole document. The `![` fast-bail makes non-embed lines O(1),
-// so this stays cheap — measured 2.6ms median / 4.5ms max per keystroke on a
-// 5k-line doc with 100 tables+embeds (well within the 60fps budget; M10). Widgets
-// still render lazily (CodeMirror only calls toDOM for the visible range), so a
-// viewport-scoped ViewPlugin would only save the parse scan — not worth the
-// block-widget scroll-jump risk here.
+// so this stays cheap — and since the set no longer depends on the selection,
+// pure navigation costs zero rebuilds (better than the old PAP-7 heuristics).
+// Widgets still render lazily (CodeMirror only calls toDOM for the visible
+// range); estimatedHeight keeps off-screen layout stable in the meantime.
 function build(state: EditorState): DecorationSet {
-  const active = activeLines(state);
   const deco: Range<Decoration>[] = [];
   for (let i = 1; i <= state.doc.lines; i++) {
     const line = state.doc.line(i);
-    if (line.length === 0 || active.has(line.number)) continue;
+    if (line.length === 0) continue;
     if (line.text.indexOf("![") < 0) continue; // fast-bail before the regex
     const m = EMBED_RE.exec(line.text);
     if (m) {
+      deco.push(Decoration.line({ class: "cm-flux-embedsrc" }).range(line.from));
       deco.push(
-        Decoration.replace({
+        Decoration.widget({
           widget: new FigureEmbedWidget(m[3], m[1]),
           block: true,
-        }).range(line.from, line.to),
+          side: 1, // a block AFTER the source line — never replaces text
+        }).range(line.to),
       );
     }
   }
   return Decoration.set(deco, true);
 }
 
-// PAP-7: on a selection-only change (arrow keys, clicks) the decoration set changes ONLY if
-// an embed line entered or left the active "reveal-raw" set. Test just the handful of lines
-// the old/new selections touch instead of rescanning the whole document on every cursor move
-// (which, toward ~20k lines, starts eating the frame budget on pure navigation).
-function embedInActive(state: EditorState): boolean {
-  for (const n of activeLines(state)) {
-    const t = state.doc.line(n).text;
-    if (t.indexOf("![") >= 0 && EMBED_RE.test(t)) return true;
-  }
-  return false;
-}
-
 export const scienceEmbeds = StateField.define<DecorationSet>({
   create: (state) => build(state),
   update(value, tr) {
     if (tr.docChanged || tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
-    if (tr.selection && (embedInActive(tr.startState) || embedInActive(tr.state)))
-      return build(tr.state);
+    // Selection changes NEVER touch embed decorations — the caret moving onto
+    // an embed line must not cause any layout shift (the old reveal-on-cursor
+    // replace-widget was the root cause of multi-line arrow jumps).
     return value;
   },
-  provide: (f) => [
-    EditorView.decorations.from(f),
-    EditorView.atomicRanges.of(
-      (view) => view.state.field(f, false) ?? Decoration.none,
-    ),
-  ],
+  provide: (f) => EditorView.decorations.from(f),
 });

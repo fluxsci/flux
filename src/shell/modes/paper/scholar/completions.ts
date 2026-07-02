@@ -167,6 +167,11 @@ function slashSource(ctx: CompletionContext): CompletionResult | null {
 export const scholarCompletion = autocompletion({
   override: [atSource, slashSource],
   icons: true,
+  // Arrow/Enter/Esc are owned by the list ONLY while it is open (the bindings
+  // are status-guarded), and activation requires typed @/slash input — plain
+  // navigation is never intercepted.
   defaultKeymap: true,
   activateOnTyping: true,
+  closeOnBlur: true,
+  maxRenderedOptions: 60, // FluxLib can be large; keep the tooltip DOM cheap
 });
