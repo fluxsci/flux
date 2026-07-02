@@ -20,6 +20,14 @@ export interface AnimOpts {
   delay?: number;
   easing?: string;
   fill?: FillMode;
+  /**
+   * Explicit reduced-motion decision. When omitted, falls back to the OS setting
+   * (`prefers-reduced-motion`). SLD-3: the slide player computes its OWN reduced flag
+   * (so Present/Export can force motion ON with the `M` toggle) and passes it here —
+   * otherwise this primitive would re-read the OS and zero the duration regardless,
+   * defeating the flag for every keyframe preset.
+   */
+  reduce?: boolean;
 }
 
 /**
@@ -33,7 +41,7 @@ export function animate(
   keyframes: Keyframe[] | PropertyIndexedKeyframes,
   opts: AnimOpts = {},
 ): Animation {
-  const reduce = prefersReducedMotion();
+  const reduce = opts.reduce ?? prefersReducedMotion();
   const node = el as HTMLElement;
   const anim = node.animate(keyframes, {
     duration: reduce ? 0 : opts.duration ?? DUR.quick,

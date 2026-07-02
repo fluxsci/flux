@@ -21,7 +21,7 @@ import { resolveTargets } from "../../plot/tree";
 import type { FluxPlotManifest } from "../../plot/types";
 import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, type TargetNode, type PresetCtx, type NodeAnim } from "./presets";
-import { createMorph, type MorphController } from "./morph";
+import { createMorph, morphCompatible, type MorphController } from "./morph";
 import type { Deck, Slide, Track, EasingToken, Influence, StageSize, DeckTheme, TransitionKind } from "../types";
 
 /** A unified handle the sequencer awaits + can interrupt — a WAAPI Animation or
@@ -178,7 +178,10 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         const toId = track.to?.assetId;
         const A = fromId ? opts.plotManifest?.(fromId) : undefined;
         const B = toId ? opts.plotManifest?.(toId) : undefined;
-        if (wrap && A && B) {
+        // SLD-8: only run the morph when the two plots are structurally compatible. An
+        // incompatible pair (disjoint series, or a non-point target like a bar chart) used to
+        // create a morph that silently mis-tweened; skip it instead so the element holds at A.
+        if (wrap && A && B && morphCompatible(A, B)) {
           specs.push({
             node: wrap, beatIndex: bi, keyframes: [], enter: false,
             delay: track.start ?? 0, duration: track.duration ?? 1200, easing: resolveEasing(track.easing ?? "smooth", track.influence),
@@ -254,6 +257,18 @@ function applyKeyframe(node: TargetNode, kf: Keyframe) {
 /** Apply the deterministic static (resting) look at `beatIndex`: every node gets
  *  the cumulative END state of all specs ≤ beatIndex; nodes whose first spec is
  *  an enter beyond beatIndex are hidden at that spec's start keyframe. */
+/** The transform for a slide's base camera pose (matches the `camera` preset's math), or
+ *  "" for no/identity camera. Applied at rest so slide.camera is honored (B14) — in the player
+ *  AND (SLD-11) in the editor stage, which previously reset the camera layer to identity. */
+export function baseCameraTransform(slide: Slide, stage: StageSize): string {
+  const c = slide.camera;
+  if (!c || (c.x === stage.width / 2 && c.y === stage.height / 2 && (c.zoom ?? 1) === 1)) return "";
+  const zoom = c.zoom ?? 1;
+  const tx = stage.width / 2 - c.x * zoom;
+  const ty = stage.height / 2 - c.y * zoom;
+  return `translate(${tx}px, ${ty}px) scale(${zoom})`;
+}
+
 export function applyStatic(specs: Spec[], beatIndex: number): void {
   const byNode = new Map<TargetNode, Spec[]>();
   for (const s of specs) {
@@ -319,7 +334,7 @@ function playSpecs(specs: Spec[], lo: number, hi: number, reduced: boolean): Pla
       const live = (s.node as HTMLElement).style.transform;
       if (live) s.keyframes[0] = { ...s.keyframes[0], transform: live };
     }
-    out.push(animate(s.node, s.keyframes, { delay: s.delay, duration: s.duration, easing: s.easing, fill: "both" }));
+    out.push(animate(s.node, s.keyframes, { delay: s.delay, duration: s.duration, easing: s.easing, fill: "both", reduce: reduced }));
   }
   return out;
 }
@@ -380,16 +395,6 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const s = state();
     for (const cb of listeners[ev]) cb(s);
   }
-  /** The transform for a base camera pose (matches the `camera` preset's math), or
-   *  "" for no/identity camera. Applied at rest so slide.camera is honored (B14). */
-  function baseCameraTransform(slide: Slide): string {
-    const c = slide.camera;
-    if (!c || (c.x === stage.width / 2 && c.y === stage.height / 2 && (c.zoom ?? 1) === 1)) return "";
-    const zoom = c.zoom ?? 1;
-    const tx = stage.width / 2 - c.x * zoom;
-    const ty = stage.height / 2 - c.y * zoom;
-    return `translate(${tx}px, ${ty}px) scale(${zoom})`;
-  }
   function buildSlide(si: number) {
     const slide = deck.slides[si];
     mount.style.background = slide.background ?? opts.theme.background;
@@ -397,7 +402,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     specs = computeSlideAnims(slide, rendered, cameraLayer, stage, opts);
     // Seed the resting camera to the slide's base pose; camera tracks animate from
     // here, and slides without a camera track stay parked at it (B14).
-    cameraLayer.style.transform = baseCameraTransform(slide);
+    cameraLayer.style.transform = baseCameraTransform(slide, stage);
     syncMedia();
   }
   // Bumped on every cancel/new run so a stale settle() (from a beat the presenter
@@ -424,9 +429,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       // animate the whole mount (not the camera layer) so a per-slide camera pose
       // is untouched; the new slide travels in from the leading edge.
       return animate(mount, [{ transform: `translateX(${from}px)` }, { transform: "translateX(0px)" }],
-        { duration: DUR.gentle, easing: EASE.enter });
+        { duration: DUR.gentle, easing: EASE.enter, reduce: reduced });
     }
-    return animate(cameraLayer, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.gentle, easing: EASE.enter });
+    return animate(cameraLayer, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.gentle, easing: EASE.enter, reduce: reduced });
   }
   const transitionOf = (si: number): TransitionKind => deck.slides[si]?.transition ?? deck.defaults?.transition ?? "fade";
 

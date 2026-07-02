@@ -466,6 +466,7 @@ export function duplicateElements(deck: Deck, slideId: Id, ids: Id[], dx = 24, d
   if (!s) return [];
   const set = new Set(ids);
   const groupRemap = new Map<Id, Id>();
+  const idRemap = new Map<Id, Id>(); // original element id → its copy's id
   const out: Id[] = [];
   for (const el of [...s.elements]) {
     if (!set.has(el.id)) continue;
@@ -480,17 +481,46 @@ export function duplicateElements(deck: Deck, slideId: Id, ids: Id[], dx = 24, d
     }
     if (copy.type === "textBox") for (const b of copy.blocks) b.id = newId("block");
     s.elements.push(copy);
+    idRemap.set(el.id, copy.id);
     out.push(copy.id);
   }
+  // SLD-10: carry each duplicated element's animation tracks onto its copy (same slide → beats
+  // align 1:1). Fresh track ids keep the stable-id contract; the copy animates like the original.
+  carryTracks(s, idRemap);
   return out;
 }
 
+/** Append, to every beat, a fresh-id retargeted copy of each track that targets an element in
+ *  `idRemap` (original id → new id). Same-slide only, so beats map 1:1. */
+function carryTracks(slide: Slide, idRemap: Map<Id, Id>): void {
+  if (!idRemap.size) return;
+  for (const beat of slide.beats) {
+    const add: Track[] = [];
+    for (const t of beat.tracks) {
+      const nt = idRemap.get(t.target);
+      if (nt) add.push({ ...structuredClone(t), id: newId("track"), target: nt });
+    }
+    beat.tracks.push(...add);
+  }
+}
+
 /** Clone external elements (from the clipboard) into a slide with fresh ids —
- *  the paste counterpart of duplicateElements. Returns the new ids. */
-export function pasteElements(deck: Deck, slideId: Id, els: SlideElement[], dx = 24, dy = 24): Id[] {
+ *  the paste counterpart of duplicateElements. Returns the new ids. SLD-10: optional `tracks`
+ *  (captured at copy time, tagged by beat index) are re-attached, retargeted to the copies, at
+ *  the same beat index when it exists in the target slide (dropped otherwise — beat structure
+ *  differs across slides), so pasting an animated element keeps its animation. */
+export function pasteElements(
+  deck: Deck,
+  slideId: Id,
+  els: SlideElement[],
+  dx = 24,
+  dy = 24,
+  tracks: { beatIndex: number; track: Track }[] = [],
+): Id[] {
   const s = slideById(deck, slideId);
   if (!s) return [];
   const groupRemap = new Map<Id, Id>();
+  const idRemap = new Map<Id, Id>(); // source element id → its copy's id
   const out: Id[] = [];
   for (const src of els) {
     const copy = structuredClone(src);
@@ -504,7 +534,13 @@ export function pasteElements(deck: Deck, slideId: Id, els: SlideElement[], dx =
     }
     if (copy.type === "textBox") for (const b of copy.blocks) b.id = newId("block");
     s.elements.push(copy);
+    idRemap.set(src.id, copy.id);
     out.push(copy.id);
+  }
+  for (const { beatIndex, track } of tracks) {
+    const nt = idRemap.get(track.target);
+    const beat = s.beats[beatIndex];
+    if (nt && beat) beat.tracks.push({ ...structuredClone(track), id: newId("track"), target: nt });
   }
   return out;
 }

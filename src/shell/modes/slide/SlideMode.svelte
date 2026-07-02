@@ -678,7 +678,9 @@
             onclick={() => selectSlide(s.id)}>
             <span class="n">{i + 1}</span>
             <div class="mini">
-              <SlideStage slide={s} {theme} stage={deck.stage} interactive={false} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
+              <!-- SLD-7: freeze the thumbnail at the LAST beat (fully built), not beat 0 —
+                   an auto-animated figure slide is blank at beat 0 (enter nodes hidden). -->
+              <SlideStage slide={s} {theme} stage={deck.stage} interactive={false} beat={Math.max(0, s.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
             </div>
             <span class="nm">{s.name ?? `Slide ${i + 1}`}</span>
             <div class="thumbacts">

@@ -10,12 +10,12 @@
   // preview live by mutating the rendered wrappers' geometry, and write the model
   // ONCE on pointer-up via a single commitDeck (no per-frame deck clone).
   import { renderSlide } from "../../../lib/slide/player/render";
-  import { computeSlideAnims, applyStatic } from "../../../lib/slide/player/player";
+  import { computeSlideAnims, applyStatic, baseCameraTransform } from "../../../lib/slide/player/player";
   import { plotGen, plotManifests } from "../../../lib/plot/store";
   import { get } from "svelte/store";
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
   import { resizeRemap } from "../../../lib/editing";
-  import { commitDeck, selection, focusedPart, sealHistory, getClipboard, setClipboard } from "../../../lib/slide/store";
+  import { commitDeck, selection, focusedPart, sealHistory, getClipboard, getClipboardTracks, setClipboard } from "../../../lib/slide/store";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import {
     setElementBox, deleteElements, findElement, setTextBoxText, setMathTex,
@@ -136,7 +136,10 @@
       cam.style.cssText = "position:absolute;inset:0;transform-origin:0 0;";
       stageEl.appendChild(cam);
     }
-    cam.style.transform = ""; // clean baseline; applyStatic re-applies camera if this beat has one
+    // SLD-11: seed the resting camera to the slide's base pose (matches the player's buildSlide),
+    // so an agent-authored zoomed slide looks the same while editing; applyStatic then re-applies
+    // any per-beat @camera move on top.
+    cam.style.transform = baseCameraTransform(slide, stage);
     const r = renderSlide(cam, slide, stage, opts);
     wrappers = r.elements;
     const specs = computeSlideAnims(slide, r, cam, stage, opts);
@@ -525,9 +528,10 @@
     if (mod && (e.key === "v" || e.key === "V")) {
       e.preventDefault();
       const clip = getClipboard();
+      const clipTracks = getClipboardTracks(); // SLD-10: carry the copied elements' animations
       if (sid && clip.length) {
         let ids: string[] = [];
-        commitDeck((d) => { ids = pasteElements(d, sid, clip); });
+        commitDeck((d) => { ids = pasteElements(d, sid, clip, 24, 24, clipTracks); });
         selection.set(ids);
       }
       return;
@@ -541,7 +545,14 @@
     }
     if (mod && (e.key === "c" || e.key === "C")) {
       e.preventDefault();
-      setClipboard(els.filter((el) => cur.includes(el.id)));
+      // SLD-10: capture the copied elements AND the animation tracks that target them (tagged by
+      // beat index) so paste/duplicate re-attach the animation, not just the static element.
+      const copiedIds = new Set(cur);
+      const tracks: { beatIndex: number; track: (typeof slide.beats)[number]["tracks"][number] }[] = [];
+      slide.beats.forEach((b, bi) => {
+        for (const t of b.tracks) if (copiedIds.has(t.target)) tracks.push({ beatIndex: bi, track: t });
+      });
+      setClipboard(els.filter((el) => copiedIds.has(el.id)), tracks);
       return;
     }
     if (mod && (e.key === "g" || e.key === "G")) {

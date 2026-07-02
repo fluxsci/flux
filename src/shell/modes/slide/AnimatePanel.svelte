@@ -9,6 +9,7 @@
   import { slideById, addBeat as addBeatOp, setPartVisibility, deleteBeat as deleteBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animatePart } from "../../../lib/slide/autobuild";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
+  import { morphCompatible } from "../../../lib/slide/player/morph";
   import { plotManifests } from "../../../lib/plot/store";
   import { slideLayout } from "./slideLayoutStore";
   import type { Track, PresetName, Stagger, Influence } from "../../../lib/slide/types";
@@ -263,12 +264,20 @@
 
   // --- camera + morph authoring (3.1) -----------------------------------------
   let morphOpen = $state(false);
-  // other plots on this slide = morph targets (a plot's data → another's, in place)
+  // other plots on this slide = morph targets (a plot's data → another's, in place). SLD-8: each
+  // carries a friendly label (P-tag + plotType, not the raw assetId) and a compatibility flag so
+  // the menu can disable structurally-incompatible targets instead of offering a silent mis-tween.
   const morphTargets = $derived.by(() => {
-    if (!selPlot || !slide) return [] as { id: string; assetId: string }[];
+    type MT = { id: string; assetId: string; label: string; compatible: boolean };
+    if (!selPlot || !slide) return [] as MT[];
     return slide.elements
       .filter((e) => e.type === "plot" && e.id !== selPlot.id)
-      .map((e) => ({ id: e.id, assetId: (e as { assetId: string }).assetId }));
+      .map((e): MT => {
+        const assetId = (e as { assetId: string }).assetId;
+        const m = manifests[assetId];
+        const label = [plotTags.get(e.id), m?.plotType].filter(Boolean).join(" · ") || assetId;
+        return { id: e.id, assetId, label, compatible: morphCompatible(selManifest, m) };
+      });
   });
 
   function addBeatWith(label: string, track: Track) {
@@ -360,7 +369,15 @@
           {#if morphOpen}
             <div class="morph-menu">
               {#each morphTargets as m (m.id)}
-                <button onclick={() => addMorph(m.assetId)}>→ {m.assetId}</button>
+                <button
+                  onclick={() => addMorph(m.assetId)}
+                  disabled={!m.compatible}
+                  class:incompat={!m.compatible}
+                  title={m.compatible
+                    ? `Morph this plot's data into ${m.label}`
+                    : `Incompatible structure — can't morph into ${m.label}`}>
+                  → {m.label}{#if !m.compatible} <span class="tag">incompatible</span>{/if}
+                </button>
               {/each}
             </div>
           {/if}
@@ -536,7 +553,13 @@
     text-align: left; border: none; background: none; color: var(--c-tx-2, #b7b5ac);
     border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px;
   }
-  .morph-menu button:hover { background: color-mix(in oklab, var(--c-accent, #4385be) 18%, transparent); color: var(--c-tx-hi, #fff); }
+  .morph-menu button:hover:not(:disabled) { background: color-mix(in oklab, var(--c-accent, #4385be) 18%, transparent); color: var(--c-tx-hi, #fff); }
+  .morph-menu button.incompat { color: var(--c-tx-faint, #6f6e69); cursor: default; }
+  .morph-menu .tag {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--c-tx-faint, #6f6e69); border: 1px solid var(--c-line, #282726);
+    border-radius: 3px; padding: 0 3px; margin-left: 4px;
+  }
 
   .dock-body { display: flex; gap: 10px; min-height: 0; flex: 1; }
   .parts {

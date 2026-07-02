@@ -9,8 +9,14 @@
 // ---------------------------------------------------------------------------
 
 import { writable, get } from "svelte/store";
-import type { Deck, SlideElement } from "./types";
+import type { Deck, SlideElement, Track } from "./types";
 import { ensureTrackIds } from "./ops";
+
+/** A copied animation track tagged with the beat it lived on (SLD-10). */
+export interface ClipTrack {
+  beatIndex: number;
+  track: Track;
+}
 
 /** The live deck being edited (null on the web/demo fallback or before load). */
 export const deck = writable<Deck | null>(null);
@@ -154,14 +160,20 @@ function reconcileCursor(): void {
 // Element clipboard (copy/paste, within the session — across slides + decks).
 // ---------------------------------------------------------------------------
 let _clipboard: SlideElement[] = [];
+let _clipboardTracks: ClipTrack[] = [];
 /** True when the clipboard holds elements (drives the paste enablement). */
 export const clipboardFull = writable<boolean>(false);
-export function setClipboard(els: SlideElement[]): void {
+export function setClipboard(els: SlideElement[], tracks: ClipTrack[] = []): void {
   _clipboard = structuredClone(els);
+  _clipboardTracks = structuredClone(tracks);
   clipboardFull.set(_clipboard.length > 0);
 }
 export function getClipboard(): SlideElement[] {
   return structuredClone(_clipboard);
+}
+/** SLD-10: the animation tracks copied alongside the elements, tagged by beat index. */
+export function getClipboardTracks(): ClipTrack[] {
+  return structuredClone(_clipboardTracks);
 }
 
 /** Clear the deck (on true project close — NOT on a mode switch; the live deck is

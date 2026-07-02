@@ -58,6 +58,25 @@ export function morphSeriesPixels(
   });
 }
 
+/** PURE (SLD-8): can A tween into B? A morph pairs series by stable id and interpolates points
+ *  in data space — so it's only meaningful when the two plots share structure. Compatible iff at
+ *  least one series id is present in BOTH and, for such a series, both sides carry tweenable
+ *  geometry (data points or a line path). A 10-point scatter → 4-bar chart (disjoint ids, or a
+ *  bar series with neither points nor a line) is INCOMPATIBLE — without this gate the morph
+ *  silently held/ignored mismatched parts and produced a wrong tween. Used by the editor to
+ *  disable bad targets and by the player to skip (rather than mis-run) an incompatible morph. */
+export function morphCompatible(A: FluxPlotManifest | undefined, B: FluxPlotManifest | undefined): boolean {
+  const ba = A?.series ?? [], bb = B?.series ?? [];
+  if (!ba.length || !bb.length) return false;
+  const bById = new Map(bb.map((s) => [s.id, s]));
+  const tweenable = (s: FluxPlotSeries) => (s.points?.length ?? 0) > 0 || !!s.svg?.line;
+  for (const sA of ba) {
+    const sB = bById.get(sA.id);
+    if (sB && tweenable(sA) && tweenable(sB)) return true;
+  }
+  return false;
+}
+
 export interface MorphController {
   /** Set the morph to time `t` ∈ [0,1] (0 = A, 1 = B). */
   seek(t: number): void;
