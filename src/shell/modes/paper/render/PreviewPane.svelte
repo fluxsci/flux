@@ -5,10 +5,15 @@
 
   let html = $state("<!doctype html><html><body></body></html>");
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let iframeEl = $state<HTMLIFrameElement | undefined>(undefined);
+  // Each srcdoc swap reloads the iframe from scratch; the LIVE_SCROLL script
+  // (renderManuscript opts.live) reports scrollY up via postMessage and we
+  // push it back down on load — edits no longer reset the preview scroll.
+  let lastScroll = 0;
 
   async function render() {
     try {
-      const r = await renderManuscript(src, { paginated });
+      const r = await renderManuscript(src, { paginated, live: true });
       html = r.full;
     } catch (e) {
       console.error("[flux] preview render failed", e);
@@ -22,10 +27,27 @@
     clearTimeout(timer);
     timer = setTimeout(render, 160);
   });
+
+  function onMessage(e: MessageEvent) {
+    if (e.source !== iframeEl?.contentWindow) return;
+    const y = (e.data as { fluxPreviewScroll?: number } | null)?.fluxPreviewScroll;
+    if (typeof y === "number") lastScroll = y;
+  }
+  function onLoad() {
+    // Sandboxed srcdoc has an opaque origin — "*" is required (scroll ints only).
+    if (lastScroll > 0) iframeEl?.contentWindow?.postMessage({ fluxScrollTo: lastScroll }, "*");
+  }
 </script>
 
+<svelte:window onmessage={onMessage} />
+
 <div class="preview">
-  <iframe title="Manuscript preview" sandbox="allow-scripts" srcdoc={html}></iframe>
+  <iframe
+    bind:this={iframeEl}
+    onload={onLoad}
+    title="Manuscript preview"
+    sandbox="allow-scripts"
+    srcdoc={html}></iframe>
 </div>
 
 <style>

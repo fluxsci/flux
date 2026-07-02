@@ -11,12 +11,17 @@ import {
   toggleWrap,
 } from "./commands";
 import { stepEmbedWidth } from "./figureSize";
+import { foldSection, unfoldSection } from "./folding";
 
 export const formattingKeymap = keymap.of([
   // Figure width stepping (zoom mnemonic). Only fires with the caret on an
   // embed line — returns false elsewhere so the keys fall through.
   { key: "Mod-Alt--", run: stepEmbedWidth(-1) },
   { key: "Mod-Alt-=", run: stepEmbedWidth(1) },
+  // Fold the section the caret is IN (supersedes foldCode on the same chord —
+  // foldKeymap's other bindings, incl. fold/unfold-all, still apply).
+  { key: "Ctrl-Shift-[", mac: "Cmd-Alt-[", run: foldSection },
+  { key: "Ctrl-Shift-]", mac: "Cmd-Alt-]", run: unfoldSection },
   { key: "Mod-b", run: toggleWrap("**"), preventDefault: true },
   { key: "Mod-i", run: toggleWrap("*"), preventDefault: true },
   { key: "Mod-e", run: toggleWrap("`"), preventDefault: true },

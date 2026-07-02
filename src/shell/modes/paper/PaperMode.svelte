@@ -27,6 +27,12 @@
   import { citeNumberField } from "./science/citeNumbers";
   import { citationStyle, citationStyleOf } from "./scholar/citeNumbering";
   import { activeCitationWatcher, resetActiveCitation } from "./scholar/activeCitation";
+  import { followAtCaret } from "./editing/caretActions";
+  import { foldSection, unfoldSection } from "./editing/folding";
+  import { foldAll, unfoldAll } from "@codemirror/language";
+  import { keymap } from "@codemirror/view";
+  import StatusBar from "./StatusBar.svelte";
+  import { wordCount } from "./margin/views/stats";
   import { pageCompartment, themeFor } from "./view-mode/pageView";
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
@@ -670,6 +676,9 @@
     isDemo ? "demo" : $autosaveStatus === "error" ? "error" : saved ? "saved" : "saving",
   );
 
+  // StatusBar word count — from the 150ms-debounced mirror, never per keystroke.
+  const statusWords = $derived(wordCount(latestIdle));
+
   // Front matter picks the citation style (citation-style: numeric | author-year).
   // The scan is O(front matter) per keystroke; the effect fires only when the
   // STYLE actually flips — every visible chip then relabels via refreshChips.
@@ -774,6 +783,26 @@
         cursorWatcher,
         activeCitationWatcher,
         chipDblClick,
+        // Mod-Enter follows whatever is under the caret (embed/chip → figure,
+        // citation → group editor); falls through on plain prose.
+        keymap.of([
+          {
+            key: "Mod-Enter",
+            run: followAtCaret({
+              openFigure: (id) => revealFigure(id),
+              editCitation: () => editCitationAtCursor(),
+            }),
+          },
+          {
+            // Keyboard path to commenting (the floating bubble is mouse-only).
+            key: "Mod-Alt-m",
+            run: (v) => {
+              if (v.state.selection.main.empty) return false;
+              startComment();
+              return true;
+            },
+          },
+        ]),
         formattingKeymap,
         citeNumberField, // before the chip plugin: ordinals publish first
         scienceChips,
@@ -934,13 +963,26 @@
   // F1 live reload: an external (agent/script) edit to the *active* document.
   // Reload silently if the editor is clean; if dirty, never clobber unsaved work —
   // surface a "reloaded from disk / keep mine" choice instead.
+  // Minimal single-span diff between the buffer and disk text, so an external
+  // reload dispatches a LOCAL change: CodeMirror then maps the selection,
+  // scroll anchor and comment marks through it instead of clobbering them
+  // (the old whole-doc replace collapsed all three and bloated undo).
+  function minimalDiff(a: string, b: string) {
+    let from = 0;
+    const maxF = Math.min(a.length, b.length);
+    while (from < maxF && a.charCodeAt(from) === b.charCodeAt(from)) from++;
+    let aTo = a.length;
+    let bTo = b.length;
+    while (aTo > from && bTo > from && a.charCodeAt(aTo - 1) === b.charCodeAt(bTo - 1)) {
+      aTo--;
+      bTo--;
+    }
+    return { from, to: aTo, insert: b.slice(from, bTo) };
+  }
+
   function applyDiskText(text: string) {
     if (!view) return;
-    const head = Math.min(view.state.selection.main.head, text.length);
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: text },
-      selection: { anchor: head },
-    });
+    view.dispatch({ changes: minimalDiff(view.state.doc.toString(), text) });
     latest = text;
     diskBaseline = text; // W7: disk is now our baseline
     saved = true;
@@ -1130,9 +1172,12 @@
     {
       id: "view-toggle",
       title: previewActive ? "Switch to Edit" : "Switch to Preview",
-      hint: "View",
+      hint: "⌘⇧E",
       keywords: "preview edit render",
-      run: () => (previewActive = !previewActive),
+      run: () => {
+        previewActive = !previewActive;
+        if (!previewActive) view?.focus();
+      },
     },
     { id: "view-continuous", title: "Continuous view", hint: "View", keywords: "scroll column", run: () => setView("continuous") },
     { id: "view-paginated", title: "Paginated view", hint: "View", keywords: "page sheets print", run: () => setView("paginated") },
@@ -1169,8 +1214,15 @@
     { id: "add-doi-cite", title: "Add DOI & cite here", hint: "Reference", keywords: "doi cite citation reference insert crossref", run: () => openDoiPrompt("cite") },
     { id: "margin-figures", title: "Figures", hint: "Margin", keywords: "image plot zoom panel", run: () => openMarginView("figure") },
     { id: "margin-comments", title: "Comments", hint: "Margin", keywords: "notes annotations review", run: () => openMarginView("comments") },
+    { id: "comment-selection", title: "Comment on selection", hint: "⌘⌥M", keywords: "annotate note review remark", run: startComment },
     { id: "margin-stats", title: "Statistics", hint: "Margin", keywords: "word count length", run: () => openMarginView("stats") },
     { id: "margin-terminal", title: "Terminal", hint: "Ctrl+`", keywords: "shell console command cli bash zsh run", run: () => openMarginView("terminal") },
+    { id: "fold-section", title: "Fold section", hint: "⌃⇧[", keywords: "collapse heading hide section fold", run: () => { if (view) { foldSection(view); view.focus(); } } },
+    { id: "unfold-section", title: "Unfold section", hint: "⌃⇧]", keywords: "expand heading show section unfold", run: () => { if (view) { unfoldSection(view); view.focus(); } } },
+    { id: "fold-all", title: "Fold all sections", hint: "Fold", keywords: "collapse everything outline overview", run: () => { if (view) { foldAll(view); view.focus(); } } },
+    { id: "unfold-all", title: "Unfold all sections", hint: "Fold", keywords: "expand everything", run: () => { if (view) { unfoldAll(view); view.focus(); } } },
+    { id: "margin-wider", title: "Wider side panel", hint: "Layout", keywords: "margin panel resize grow", run: () => paperLayout.update((s) => ({ ...s, dynMarginOpen: true, dynMarginW: Math.min(620, s.dynMarginW + 40) })) },
+    { id: "margin-narrower", title: "Narrower side panel", hint: "Layout", keywords: "margin panel resize shrink", run: () => paperLayout.update((s) => ({ ...s, dynMarginW: Math.max(260, s.dynMarginW - 40) })) },
     { id: "export-pdf", title: "Export PDF", hint: "Export", keywords: "download print", run: () => doExport("pdf") },
     { id: "export-html", title: "Export HTML", hint: "Export", keywords: "download web", run: () => doExport("html") },
     ...(quartoAvail
@@ -1197,6 +1249,15 @@
       } else if (mod && !e.shiftKey && !e.altKey && e.code === "Backquote") {
         e.preventDefault();
         openMarginView("terminal");
+      } else if (mod && e.shiftKey && !e.altKey && e.code === "KeyE") {
+        e.preventDefault();
+        previewActive = !previewActive;
+        if (!previewActive) view?.focus();
+      } else if (e.key === "Escape" && previewActive && !paletteOpen && !pickerOpen) {
+        // Preview must not be a keyboard trap.
+        e.preventDefault();
+        previewActive = false;
+        view?.focus();
       }
     };
     window.addEventListener("keydown", h);
@@ -1255,6 +1316,8 @@
         {/if}
         {#if previewActive}
           <PreviewPane src={latest} paginated={viewMode === "paginated"} />
+        {:else if !(bodyEmpty && !dismissedEmpty)}
+          <StatusBar words={statusWords} {status} onStats={() => openMarginView("stats")} />
         {/if}
       {/if}
     </div>
@@ -1282,7 +1345,7 @@
   <SelectionToolbar {view} onComment={startComment} />
 
   {#if paletteOpen}
-    <CommandPalette {commands} onClose={() => (paletteOpen = false)} />
+    <CommandPalette {commands} onClose={() => { paletteOpen = false; view?.focus(); }} />
   {/if}
 
   {#if doiPromptOpen}
@@ -1306,11 +1369,12 @@
             } else if (e.key === "Escape") {
               e.preventDefault();
               doiPromptOpen = false;
+              view?.focus();
             }
           }} />
         {#if doiPromptError}<div class="doi-prompt-err">{doiPromptError}</div>{/if}
         <div class="doi-prompt-actions">
-          <button class="ghost" onclick={() => (doiPromptOpen = false)}>Cancel</button>
+          <button class="ghost" onclick={() => { doiPromptOpen = false; view?.focus(); }}>Cancel</button>
           <button
             onclick={submitDoiPrompt}
             disabled={doiStatus === "fetching" || !doiPromptValue.trim()}>
@@ -1357,7 +1421,7 @@
       title={meta.title}
       authors={meta.authors}
       onSave={saveTitleAuthors}
-      onClose={() => (titleEditOpen = false)} />
+      onClose={() => { titleEditOpen = false; view?.focus(); }} />
   {/if}
 
   {#if hover}
@@ -1390,7 +1454,7 @@
     <FigurePicker
       figures={$figureRefs}
       onSelect={insertFigure}
-      onClose={() => (pickerOpen = false)} />
+      onClose={() => { pickerOpen = false; view?.focus(); }} />
   {/if}
 
   {#if exportOpen}

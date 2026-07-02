@@ -34,6 +34,23 @@ export const fluxTheme = EditorView.theme(
       borderLeftColor: "var(--c-accent)",
       borderLeftWidth: "2px",
     },
+    // Obsidian-signature smooth caret: drawSelection reuses the cursor node
+    // across moves, so a short position transition animates it. Kept brief so
+    // fast typing doesn't smear.
+    ".cm-cursor": {
+      transition: "left 70ms ease-out, top 70ms ease-out",
+    },
+    ".cm-foldPlaceholder": {
+      display: "inline-block",
+      padding: "0 0.5em",
+      margin: "0 0.2em",
+      borderRadius: "var(--r-pill)",
+      backgroundColor: "var(--c-accent-tint)",
+      color: "var(--c-accent-bright)",
+      border: "none",
+      cursor: "pointer",
+      fontFamily: "var(--font-serif)",
+    },
     "&.cm-focused": { outline: "none" },
     ".cm-selectionBackground": {
       backgroundColor: "var(--c-accent-tint) !important",

@@ -1,18 +1,11 @@
 <script lang="ts">
   import type { MarginHost, MarginApi } from "../types";
+  import { stripFrontMatter } from "./stats";
 
   let { host }: { host: MarginHost; margin: MarginApi } = $props();
 
-  function stripFm(s: string): string {
-    if (s.startsWith("---")) {
-      const e = s.indexOf("\n---", 3);
-      if (e >= 0) return s.slice(e + 4);
-    }
-    return s;
-  }
-
   const stats = $derived.by(() => {
-    const body = stripFm(host.latest);
+    const body = stripFrontMatter(host.latest);
     const words = (body.match(/\S+/g) ?? []).length;
     const sentences = (body.match(/[.!?]+(?:\s|$)/g) ?? []).length;
     const paras = body.split(/\n\s*\n/).filter((s) => s.trim() && !/^#{1,6}\s/.test(s.trim())).length;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
   import { renderFigureSvg, type FigureRef } from "./figures";
 
@@ -13,6 +14,13 @@
   } = $props();
 
   let query = $state("");
+  let sel = $state(0);
+  let gridEl = $state<HTMLElement | undefined>(undefined);
+  let inputEl = $state<HTMLInputElement | undefined>(undefined);
+
+  // The `autofocus` attribute is unreliable on dynamically-mounted content —
+  // without a real focus() the editor keeps the keyboard and eats Enter/arrows.
+  onMount(() => inputEl?.focus());
   const filtered = $derived(
     query.trim()
       ? figures.filter((f) =>
@@ -23,10 +31,46 @@
       : figures,
   );
 
+  // Focus stays in the search input; `sel` roves the grid (first cell pre-
+  // selected so plain Enter inserts immediately). Up/Down move by the LIVE
+  // column count; Left/Right join in when there's no query to edit.
+  $effect(() => {
+    void filtered;
+    sel = 0;
+  });
+  $effect(() => {
+    gridEl?.querySelector(`[data-i="${sel}"]`)?.scrollIntoView({ block: "nearest" });
+  });
+  function cols(): number {
+    if (!gridEl) return 1;
+    return getComputedStyle(gridEl).gridTemplateColumns.split(" ").length || 1;
+  }
+  function move(d: number) {
+    sel = Math.max(0, Math.min(filtered.length - 1, sel + d));
+  }
   function onkeydown(e: KeyboardEvent) {
+    // The keydown that OPENED the picker (e.g. Enter accepting the /figure
+    // completion) is still bubbling when this window listener mounts — anything
+    // already claimed upstream must not double-fire here.
+    if (e.defaultPrevented) return;
     if (e.key === "Escape") {
       e.stopPropagation();
       onClose();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      move(cols());
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      move(-cols());
+    } else if (e.key === "ArrowRight" && !query) {
+      e.preventDefault();
+      move(1);
+    } else if (e.key === "ArrowLeft" && !query) {
+      e.preventDefault();
+      move(-1);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (filtered[sel]) onSelect(filtered[sel]);
     }
   }
 </script>
@@ -39,20 +83,32 @@
   <div class="picker" onclick={(e) => e.stopPropagation()} transition:popIn>
     <header>
       <span class="ttl">Insert figure</span>
-      <!-- svelte-ignore a11y_autofocus -->
       <input
         class="search"
         placeholder="Search figures…"
+        bind:this={inputEl}
         bind:value={query}
-        autofocus />
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="figpicker-grid"
+        aria-activedescendant="figopt-{sel}" />
     </header>
 
     {#if filtered.length}
-      <div class="grid">
-        {#each filtered as f (f.id)}
+      <div class="grid" id="figpicker-grid" bind:this={gridEl} role="listbox" aria-label="Figures">
+        {#each filtered as f, i (f.id)}
           {@const svg = renderFigureSvg(f.id)}
-          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="cell" onclick={() => onSelect(f)}>
+          <!-- Focus stays in the search input (aria-activedescendant pattern):
+               options are highlighted, not focused. -->
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+          <div
+            class="cell"
+            class:sel={i === sel}
+            data-i={i}
+            id="figopt-{i}"
+            role="option"
+            aria-selected={i === sel}
+            onclick={() => onSelect(f)}>
             <div class="thumb">
               {#if svg}
                 <!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -144,6 +200,10 @@
   .cell:hover {
     border-color: var(--c-accent);
     transform: translateY(-2px);
+  }
+  .cell.sel {
+    border-color: var(--c-accent);
+    box-shadow: 0 0 0 1px var(--c-accent);
   }
   .thumb {
     height: 120px;

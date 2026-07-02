@@ -45,6 +45,9 @@
     setView: (id) => {
       activeView = id;
       openPanes = [];
+      // Keyboard flow: switching to a passive view hands focus back to the
+      // editor (the terminal grabs its own).
+      if (id !== "terminal") host.focusEditor();
     },
     openPane: (id, opts) => {
       openPanes = [...openPanes, { id, initialQuery: opts?.initialQuery }];
@@ -60,7 +63,18 @@
   const TopPane = $derived(topPane ? paneById(topPane.id)?.component : null);
 </script>
 
-<aside class="dynmargin" in:fadeRise={{ y: 8 }}>
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<aside
+  class="dynmargin"
+  in:fadeRise={{ y: 8 }}
+  onkeydown={(e) => {
+    // One consistent exit from anywhere in the margin: Escape → editor.
+    // Open panes own their Escape (closePane → focusEditor) — don't race them.
+    if (e.key === "Escape" && !topPane) {
+      e.preventDefault();
+      host.focusEditor();
+    }
+  }}>
   <div class="dm-head">
     <Omnibox {host} {margin} {focusReq} />
     <button class="close" onclick={onClose} title="Hide margin (Alt+F)" aria-label="Hide margin">

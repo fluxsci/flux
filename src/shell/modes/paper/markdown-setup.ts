@@ -18,7 +18,7 @@ import {
 import { search, searchKeymap } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
-import { syntaxHighlighting } from "@codemirror/language";
+import { syntaxHighlighting, codeFolding, foldKeymap } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { fluxTheme, fluxHighlight } from "./flux-theme";
 import { livePreview } from "./live-preview/livePreview";
@@ -74,8 +74,23 @@ export function createEditorExtensions(
     // PAP-11: native spellcheck on the editable content (off by default in CodeMirror). Grammar-
     // aware red squiggles + the OS/Electron suggestion menu, without correcting mid-word.
     EditorView.contentAttributes.of({ spellcheck: "true", autocapitalize: "off", autocorrect: "off" }),
+    // Section folding (lang-markdown ships the heading foldService; commands
+    // in editing/folding.ts). No gutter — the themed "⋯" pill is the marker.
+    codeFolding({
+      placeholderDOM(_view, onclick) {
+        const el = document.createElement("span");
+        el.className = "cm-foldPlaceholder";
+        el.textContent = "⋯";
+        el.title = "Folded section — click to unfold";
+        el.onclick = onclick;
+        return el;
+      },
+    }),
+    // Keep the caret clear of the viewport edges while arrowing (top clears
+    // the overlaying title pill).
+    EditorView.scrollMargins.of(() => ({ top: 84, bottom: 96 })),
     opts.livePreview === false ? [] : livePreview,
     opts.extra ?? [],
-    keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+    keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
   ];
 }

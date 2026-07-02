@@ -337,9 +337,13 @@ export interface RenderResult {
   title: string;
 }
 
+// In-app preview only (opts.live): report scroll up to the host and accept a
+// restore — exports stay script-free (beyond the paginator).
+const LIVE_SCROLL = `(function(){var t;addEventListener("scroll",function(){clearTimeout(t);t=setTimeout(function(){parent.postMessage({fluxPreviewScroll:scrollY},"*")},80)});addEventListener("message",function(e){var d=e.data;if(d&&typeof d.fluxScrollTo==="number")scrollTo(0,d.fluxScrollTo)});})();`;
+
 export async function renderManuscript(
   src: string,
-  opts: { paginated?: boolean } = {},
+  opts: { paginated?: boolean; live?: boolean } = {},
 ): Promise<RenderResult> {
   const md = await getMd();
   const yaml = await getYaml();
@@ -378,9 +382,10 @@ export async function renderManuscript(
   const inner = titleBlock(meta) + html + bibliographyHtml(ctx);
   const title = (meta.title && String(meta.title)) || "Manuscript";
   const bodyClass = opts.paginated ? "paginated" : "continuous";
+  const live = opts.live ? `<script>${LIVE_SCROLL}</script>` : "";
   const bodyInner = opts.paginated
-    ? `<div id="flux-src" style="position:absolute;left:-9999px;width:6.5in">${inner}</div><div id="flux-pages"></div><script>${PAGINATOR}</script>`
-    : `<div class="sheet">${inner}</div>`;
+    ? `<div id="flux-src" style="position:absolute;left:-9999px;width:6.5in">${inner}</div><div id="flux-pages"></div><script>${PAGINATOR}</script>${live}`
+    : `<div class="sheet">${inner}</div>${live}`;
   const full = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(
     title,
   )}</title><style>${journalCss}</style></head><body class="${bodyClass}">${bodyInner}</body></html>`;
