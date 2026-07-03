@@ -56,9 +56,11 @@
     onAnnotationHover,
     onCitePreview,
     onNavDepth,
+    onRegionPop,
     onOrphans,
     onPage,
     onScale,
+    initialView = null,
     scrollTo = null,
     find = null,
     onFind,
@@ -78,6 +80,10 @@
     onCitePreview?: (req: CitePreviewRequest | null) => void;
     /** R4: back-stack depth changed (link/outline jumps push; goBack pops). */
     onNavDepth?: (n: number) => void;
+    /** R5: alt+drag marquee finished — a page region in PDF units [x1,y1,x2,y2]. */
+    onRegionPop?: (req: { page: number; rect: [number, number, number, number] }) => void;
+    /** R5: restore a saved view (applied instead of the fit-width/page-1 defaults). */
+    initialView?: { page?: number; scaleValue?: string } | null;
     /** LR-13: ids whose quote no longer locates on their (rendered) page → the annotations
      *  panel flags them as orphaned instead of silently showing no highlight. */
     onOrphans?: (ids: string[]) => void;
@@ -417,6 +423,10 @@
     }
   }
   function onContainerClick(e: MouseEvent) {
+    if (skipNextClick) {
+      skipNextClick = false;
+      return; // the click that ends an alt+drag marquee
+    }
     if ((e.target as Element | null)?.closest?.(".annotationLayer a")) return; // handled in capture
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) return; // finishing a drag-selection, not a click
@@ -519,6 +529,79 @@
     pushNav();
     void linkSvc.goToDestination(dest as string);
   }
+  /** The restorable view state (persisted per paper by ReaderMode). */
+  export function getViewState(): { page: number; scaleValue: string } | null {
+    if (!viewer || status !== "ready") return null;
+    return { page: viewer.currentPageNumber, scaleValue: viewer.currentScaleValue };
+  }
+
+  // --- R5: alt+drag a page region → floating figure panel --------------------------
+  let marquee = $state<{ x: number; y: number; w: number; h: number } | null>(null);
+  let marqueeStart: { x: number; y: number; pageDiv: HTMLElement; page: number } | null = null;
+  let skipNextClick = false; // the mouseup that ends a marquee still fires a click
+  function onPointerDown(e: MouseEvent) {
+    if (!e.altKey || e.button !== 0) return;
+    const pageDiv = (e.target as Element | null)?.closest?.(".pdf-page") as HTMLElement | null;
+    if (!pageDiv) return;
+    e.preventDefault(); // no text selection while marqueeing
+    marqueeStart = { x: e.clientX, y: e.clientY, pageDiv, page: Number(pageDiv.dataset.page) };
+    marquee = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+  }
+  function onMarqueeMove(e: MouseEvent) {
+    if (!marqueeStart) return;
+    marquee = {
+      x: Math.min(marqueeStart.x, e.clientX),
+      y: Math.min(marqueeStart.y, e.clientY),
+      w: Math.abs(e.clientX - marqueeStart.x),
+      h: Math.abs(e.clientY - marqueeStart.y),
+    };
+  }
+  function onMarqueeUp() {
+    const start = marqueeStart;
+    const m = marquee;
+    marqueeStart = null;
+    marquee = null;
+    if (!start || !m || !viewer || m.w < 24 || m.h < 24) return;
+    skipNextClick = true;
+    const view = viewer.getPageView(start.page - 1);
+    const vp = view?.viewport;
+    if (!vp) return;
+    const pr = start.pageDiv.getBoundingClientRect();
+    const [ax, ay] = vp.convertToPdfPoint(m.x - pr.left, m.y - pr.top);
+    const [bx, by] = vp.convertToPdfPoint(m.x + m.w - pr.left, m.y + m.h - pr.top);
+    onRegionPop?.({
+      page: start.page,
+      rect: [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)],
+    });
+  }
+  /** Render a page region (PDF units) at 2× the given CSS width → PNG data URL. */
+  export async function renderRegion(
+    pageNo: number,
+    rect: [number, number, number, number],
+    cssWidth = 460,
+  ): Promise<string | null> {
+    if (!pdfDoc) return null;
+    const page = await pdfDoc.getPage(pageNo);
+    const [x1, y1, x2, y2] = rect;
+    const w = Math.max(1, x2 - x1);
+    const h = Math.max(1, y2 - y1);
+    const scale = (cssWidth * 2) / w;
+    const vp = page.getViewport({ scale });
+    const [vx, vy] = vp.convertToViewportPoint(x1, y2); // region's top-left in viewport space
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(w * scale);
+    canvas.height = Math.ceil(h * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    try {
+      await page.render({ canvas, canvasContext: ctx, viewport: vp, transform: [1, 0, 0, 1, -vx, -vy] }).promise;
+    } catch {
+      return null;
+    }
+    return canvas.toDataURL("image/png");
+  }
 
   // --- selection → highlight menu ------------------------------------------------
   function onMouseUp() {
@@ -589,11 +672,15 @@
 
     bus.on("pagesinit", () => {
       aliasPages();
-      pdfViewer.currentScaleValue = "page-width"; // the reader's home zoom
+      // Fit-width is the reader's home zoom; a saved per-paper view overrides it (R5).
+      pdfViewer.currentScaleValue = initialView?.scaleValue || "page-width";
     });
     bus.on("pagesloaded", (e: { pagesCount: number }) => {
       numPages = e.pagesCount;
       status = "ready";
+      if (initialView?.page && initialView.page > 1 && initialView.page <= e.pagesCount) {
+        pdfViewer.currentPageNumber = initialView.page;
+      }
       onPage?.(pdfViewer.currentPageNumber, e.pagesCount);
     });
     bus.on("pagerendered", () => {
@@ -669,7 +756,7 @@
   });
 </script>
 
-<svelte:window onmousedown={() => (menu = null)} />
+<svelte:window onmousedown={() => (menu = null)} onmousemove={onMarqueeMove} onmouseup={onMarqueeUp} />
 
 <div class="pdf-root" data-testid="pdf-root" data-pages={numPages} data-rendered={rendered} data-hl-blend={HL_BLEND ? "on" : "off"}>
   {#if status === "error"}
@@ -680,6 +767,7 @@
     class="pdf-scroll"
     bind:this={container}
     tabindex="-1"
+    onmousedown={onPointerDown}
     onmouseup={onMouseUp}
     onmousemove={onPointerMove}
     onmouseover={onOver}
@@ -689,6 +777,9 @@
     class:hidden={status === "error"}>
     <div class="pdfViewer" bind:this={viewerDiv}></div>
   </div>
+  {#if marquee}
+    <div class="marquee" style:left="{marquee.x}px" style:top="{marquee.y}px" style:width="{marquee.w}px" style:height="{marquee.h}px"></div>
+  {/if}
   {#if status === "loading"}
     <div class="msg loading">Loading…</div>
   {/if}
@@ -785,6 +876,15 @@
   :global(.pdf-page .textLayer .highlight) {
     --highlight-bg-color: rgb(255 214 110 / 0.55);
     --highlight-selected-bg-color: rgb(255 150 40 / 0.75);
+  }
+  /* R5: the alt+drag figure marquee. */
+  .marquee {
+    position: fixed;
+    z-index: 45;
+    pointer-events: none;
+    border: 1.5px dashed var(--c-accent);
+    background: var(--c-accent-tint-2, rgba(67, 133, 190, 0.08));
+    border-radius: 2px;
   }
   .msg {
     padding: 16px;

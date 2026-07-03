@@ -23,6 +23,7 @@
   import AgentDrawer from "./AgentDrawer.svelte";
   import HighlightPopover from "./HighlightPopover.svelte";
   import CitePreview from "./CitePreview.svelte";
+  import FigurePanel from "./FigurePanel.svelte";
 
   let { focused = true }: { focused?: boolean } = $props();
 
@@ -189,6 +190,10 @@
     sideTab = "outline";
     if (outline === null) outline = (await pdfView?.getOutline()) ?? [];
   }
+  // R5: click a reference row → expand its abstract/details in place.
+  let expandedRefId = $state("");
+  const toggleRef = (id: string) => (expandedRefId = expandedRefId === id ? "" : id);
+
   // "Show in sidebar" from the hover card: reveal + flash the matched reference row.
   let flashRefId = $state("");
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -202,6 +207,61 @@
     clearTimeout(flashTimer);
     flashTimer = setTimeout(() => (flashRefId = ""), 1600);
   }
+
+  // R5: floating figure panels (alt+drag a page region) — cleared on paper change.
+  let figPanels = $state<{ id: number; src: string; page: number; x: number; y: number; z: number }[]>([]);
+  let figSeq = 0;
+  let figZ = 70;
+  async function popRegion(req: { page: number; rect: [number, number, number, number] }) {
+    const src = await pdfView?.renderRegion(req.page, req.rect);
+    if (!src) return;
+    const n = ++figSeq;
+    figPanels = [...figPanels, { id: n, src, page: req.page, x: 140 + (n % 5) * 30, y: 110 + (n % 5) * 26, z: ++figZ }];
+  }
+  const raiseFig = (id: number) => {
+    figPanels = figPanels.map((f) => (f.id === id ? { ...f, z: ++figZ } : f));
+  };
+
+  // R5: per-paper view persistence (page/zoom/layout/sidebars) — localStorage, this
+  // machine's reading state, not FluxLib data.
+  const viewKey = (k: string) => `flux-reader-view:${k}`;
+  type SavedView = {
+    page?: number;
+    scaleValue?: string;
+    layout?: typeof layout;
+    showRefs?: boolean;
+    showAnnots?: boolean;
+  };
+  function loadView(k: string): SavedView | null {
+    try {
+      return JSON.parse(localStorage.getItem(viewKey(k)) ?? "null") as SavedView | null;
+    } catch {
+      return null;
+    }
+  }
+  let initialView = $state<{ page?: number; scaleValue?: string } | null>(null);
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let viewRestored = false; // don't persist the defaults that flash by before restore
+  $effect(() => {
+    const key = $readerKey;
+    void curPage;
+    void scalePct;
+    void layout;
+    void showRefs;
+    void showAnnots;
+    if (!key || !totalPages || !viewRestored) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const vs = pdfView?.getViewState();
+      if (!vs) return;
+      const saved: SavedView = { page: vs.page, scaleValue: vs.scaleValue, layout, showRefs, showAnnots };
+      try {
+        localStorage.setItem(viewKey(key), JSON.stringify(saved));
+      } catch {
+        /* storage full/blocked — reading state is best-effort */
+      }
+    }, 400);
+  });
 
   // Stamp of the on-disk PDF (source.json identity) so an external re-fetch/replace of
   // paper.pdf refreshes the open reader in place; bufferGen remounts PdfView.
@@ -224,6 +284,15 @@
     outline = null;
     navDepth = 0;
     cite = null;
+    figPanels = [];
+    // Restore this paper's saved view before the PDF mounts (R5).
+    viewRestored = false;
+    const saved = loadView(key);
+    initialView = saved ? { page: saved.page, scaleValue: saved.scaleValue } : null;
+    if (saved?.layout && saved.layout in LAYOUTS) layout = saved.layout;
+    else layout = "vertical";
+    if (typeof saved?.showRefs === "boolean") showRefs = saved.showRefs;
+    if (typeof saved?.showAnnots === "boolean") showAnnots = saved.showAnnots;
     loading = true;
     void Promise.all([readerPdfBytes(key), loadAnnotations(key), loadFluxLib(), readerSource(key)]).then(
       ([b, af, lib, src]) => {
@@ -486,18 +555,31 @@
             {:else}
               <ul class="reflist">
                 {#each refs as b (b.openalexId)}
-                  <li class="ref" id={`ref-${b.openalexId}`} class:flash={flashRefId === b.openalexId}>
+                  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+                  <li
+                    class="ref"
+                    id={`ref-${b.openalexId}`}
+                    class:flash={flashRefId === b.openalexId}
+                    class:expanded={expandedRefId === b.openalexId}
+                    onclick={() => toggleRef(b.openalexId)}>
                     <div class="rmeta">
                       <span class="rauth">{b.authors.slice(0, 2).join(", ")}{b.authors.length > 2 ? " et al." : ""}{b.year ? ` · ${b.year}` : ""}</span>
                       {#if b.citedByCount != null}<span class="rcite">{b.citedByCount.toLocaleString()}×</span>{/if}
                     </div>
-                    <div class="rtitle2" title={b.title}>{b.title}</div>
+                    <div class="rtitle2" class:unclamped={expandedRefId === b.openalexId} title={b.title}>{b.title}</div>
+                    {#if expandedRefId === b.openalexId}
+                      {#if b.container}<div class="rcontainer">{b.container}</div>{/if}
+                      {#if b.abstract}<div class="rabstract">{b.abstract}</div>{/if}
+                    {/if}
                     <div class="ractions">
                       {#if inLib(b)}
                         <span class="inlib">✓ in library</span>
                       {:else if b.doi}
-                        <button class="addbtn" disabled={addingId === b.openalexId} onclick={() => addRef(b)}
+                        <button class="addbtn" disabled={addingId === b.openalexId} onclick={(e) => { e.stopPropagation(); addRef(b); }}
                           >{addingId === b.openalexId ? "Adding…" : "+ FluxLib"}</button>
+                      {/if}
+                      {#if expandedRefId === b.openalexId && b.doi}
+                        <a class="rdoi" href={`https://doi.org/${bareDoi(b.doi)}`} target="_blank" rel="noreferrer" onclick={(e) => e.stopPropagation()}>DOI ↗</a>
                       {/if}
                     </div>
                   </li>
@@ -510,7 +592,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key `${$readerKey}#${bufferGen}`}
-              <PdfView bind:this={pdfView} {buffer} {annotations} {scrollTo} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
+              <PdfView bind:this={pdfView} {buffer} {annotations} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -522,6 +604,18 @@
             </div>
           {/if}
         </div>
+
+        {#each figPanels as f (f.id)}
+          <FigurePanel
+            src={f.src}
+            page={f.page}
+            x={f.x}
+            y={f.y}
+            z={f.z}
+            onClose={() => (figPanels = figPanels.filter((p) => p.id !== f.id))}
+            onJump={() => pdfView?.goToPage(f.page, { pushNav: true })}
+            onFocus={() => raiseFig(f.id)} />
+        {/each}
 
         {#if cite}
           <CitePreview
@@ -880,6 +974,37 @@
   .ref {
     padding: 8px 12px;
     border-bottom: 1px solid var(--c-line);
+    cursor: pointer;
+  }
+  .ref:hover {
+    background: var(--c-bg);
+  }
+  .rtitle2.unclamped {
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+  }
+  .rcontainer {
+    font-size: var(--ts-xs);
+    font-style: italic;
+    color: var(--c-tx-2);
+    margin-bottom: 3px;
+  }
+  .rabstract {
+    font-size: var(--ts-xs);
+    color: var(--c-tx-2);
+    line-height: 1.45;
+    margin: 2px 0 5px;
+    max-height: 14em;
+    overflow: auto;
+  }
+  .rdoi {
+    font-size: var(--ts-xs);
+    color: var(--c-accent);
+    text-decoration: none;
+    margin-left: 6px;
+  }
+  .rdoi:hover {
+    text-decoration: underline;
   }
   .rmeta {
     display: flex;
