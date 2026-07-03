@@ -36,6 +36,14 @@
   } from "../../../lib/references/annotations";
   import { hlPage, hlSwatch } from "../../../lib/references/annotationColors";
   import { mergeRectsIntoLines, hitTest, type HitEntry } from "../../../lib/pdf/highlightGeometry";
+  import {
+    extractBibEntryAt,
+    flattenOutline,
+    type TextItemLike,
+    type FlatOutlineItem,
+    type CitePreviewRequest,
+  } from "../../../lib/pdf/citePreview";
+  import type { PDFDocumentProxy } from "../../../lib/pdf/pdfjs";
 
   let {
     buffer,
@@ -46,6 +54,8 @@
     onAskSelection,
     onAnnotationClick,
     onAnnotationHover,
+    onCitePreview,
+    onNavDepth,
     onOrphans,
     onPage,
     onScale,
@@ -64,6 +74,10 @@
     /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
     onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
     onAnnotationHover?: (id: string | null) => void;
+    /** R4: a link annotation is hovered (null = pointer left it; parent debounces hide). */
+    onCitePreview?: (req: CitePreviewRequest | null) => void;
+    /** R4: back-stack depth changed (link/outline jumps push; goBack pops). */
+    onNavDepth?: (n: number) => void;
     /** LR-13: ids whose quote no longer locates on their (rendered) page → the annotations
      *  panel flags them as orphaned instead of silently showing no highlight. */
     onOrphans?: (ids: string[]) => void;
@@ -91,6 +105,8 @@
 
   let viewer: InstanceType<typeof PDFViewer> | undefined;
   let bus: InstanceType<typeof EventBus> | undefined;
+  let linkSvc: InstanceType<typeof PDFLinkService> | undefined;
+  let pdfDoc: PDFDocumentProxy | undefined;
 
   // Floating highlight menu shown on text selection (`below` = flipped under the
   // selection when it starts too close to the toolbar to fit the menu above).
@@ -319,8 +335,9 @@
     if (l.scroll) viewer.scrollMode = SCROLL[l.scroll];
     if (l.spread) viewer.spreadMode = SPREAD[l.spread];
   }
-  export function goToPage(n: number) {
+  export function goToPage(n: number, opts: { pushNav?: boolean } = {}) {
     if (!viewer || !numPages) return;
+    if (opts.pushNav) pushNav();
     viewer.currentPageNumber = Math.min(numPages, Math.max(1, Math.floor(n) || 1));
   }
   export function pageStep(dir: 1 | -1) {
@@ -390,11 +407,117 @@
       }
     });
   }
+  // A link-annotation click: record where we were (goBack restores it) — in the
+  // CAPTURE phase, because pdf.js's own handler on the <a> navigates synchronously
+  // for cached dests (by bubble time the scroll has already jumped).
+  function onClickCapture(e: MouseEvent) {
+    if ((e.target as Element | null)?.closest?.(".annotationLayer a")) {
+      pushNav();
+      onCitePreview?.(null);
+    }
+  }
   function onContainerClick(e: MouseEvent) {
+    if ((e.target as Element | null)?.closest?.(".annotationLayer a")) return; // handled in capture
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) return; // finishing a drag-selection, not a click
     const hit = hitAt(e.target as Element | null, e.clientX, e.clientY);
     if (hit) onAnnotationClick?.(hit);
+  }
+
+  // --- R4: citation hover preview + back-navigation ------------------------------
+  const annotsCache = new Map<number, Promise<{ id: string; url?: string; dest?: unknown }[]>>();
+  const itemsCache = new Map<number, Promise<TextItemLike[]>>();
+  const annotsFor = (p: number) => {
+    let hit = annotsCache.get(p);
+    if (!hit) {
+      hit = (async () => (pdfDoc ? await (await pdfDoc.getPage(p)).getAnnotations() : []))();
+      annotsCache.set(p, hit);
+    }
+    return hit;
+  };
+  const itemsFor = (p: number) => {
+    let hit = itemsCache.get(p);
+    if (!hit) {
+      hit = (async () => {
+        if (!pdfDoc) return [];
+        const tc = await (await pdfDoc.getPage(p)).getTextContent();
+        // `"str" in i` narrows TextItem | TextMarkedContent to the text items.
+        return tc.items.flatMap((i) => ("str" in i ? [{ str: i.str, x: i.transform[4], y: i.transform[5] }] : []));
+      })();
+      itemsCache.set(p, hit);
+    }
+    return hit;
+  };
+  let citeTimer: ReturnType<typeof setTimeout> | undefined;
+  let citeSeq = 0; // hover moved on before an async resolve landed → drop the stale one
+  function onOver(e: MouseEvent) {
+    const a = (e.target as Element | null)?.closest?.(".annotationLayer a") as HTMLAnchorElement | null;
+    if (!a || !onCitePreview) return;
+    clearTimeout(citeTimer);
+    const seq = ++citeSeq;
+    citeTimer = setTimeout(() => void openCitePreview(a, seq), 200);
+  }
+  function onOut(e: MouseEvent) {
+    if (!(e.target as Element | null)?.closest?.(".annotationLayer a")) return;
+    clearTimeout(citeTimer);
+    citeSeq++;
+    onCitePreview?.(null);
+  }
+  async function openCitePreview(aEl: HTMLAnchorElement, seq: number) {
+    if (!pdfDoc || !aEl.isConnected) return;
+    const section = aEl.closest("section") as HTMLElement | null;
+    const pageDiv = aEl.closest(".pdf-page") as HTMLElement | null;
+    const annId = section?.dataset.annotationId;
+    if (!annId || !pageDiv) return;
+    const ann = (await annotsFor(Number(pageDiv.dataset.page))).find((x) => x.id === annId);
+    if (!ann || seq !== citeSeq) return;
+    const rect = aEl.getBoundingClientRect();
+    if (ann.url) {
+      onCitePreview?.({ kind: "external", url: ann.url, rect });
+      return;
+    }
+    let dest = ann.dest;
+    if (typeof dest === "string") dest = await pdfDoc.getDestination(dest);
+    if (!Array.isArray(dest) || seq !== citeSeq) return;
+    let pageIndex: number;
+    try {
+      pageIndex = await pdfDoc.getPageIndex(dest[0]);
+    } catch {
+      return;
+    }
+    const kind = (dest[1] as { name?: string } | undefined)?.name;
+    const destY = kind === "XYZ" ? (dest[3] as number | null) : kind === "FitH" ? (dest[2] as number | null) : null;
+    const items = await itemsFor(pageIndex + 1);
+    if (seq !== citeSeq || !aEl.isConnected) return;
+    onCitePreview?.({ kind: "internal", text: extractBibEntryAt(items, destY), destPage: pageIndex + 1, rect });
+  }
+
+  const navStack: { left: number; top: number }[] = [];
+  function pushNav() {
+    if (!container) return;
+    navStack.push({ left: container.scrollLeft, top: container.scrollTop });
+    if (navStack.length > 50) navStack.shift();
+    onNavDepth?.(navStack.length);
+  }
+  export function goBack() {
+    const s = navStack.pop();
+    onNavDepth?.(navStack.length);
+    if (s) container?.scrollTo({ left: s.left, top: s.top, behavior: "smooth" });
+  }
+  /** Document outline, flattened for the sidebar (empty when the PDF has none). */
+  export async function getOutline(): Promise<FlatOutlineItem[]> {
+    if (!pdfDoc) return [];
+    try {
+      return flattenOutline(await pdfDoc.getOutline());
+    } catch {
+      return [];
+    }
+  }
+  /** Outline-panel jumps: push the back-stack, then let the link service navigate. */
+  export function goToDestination(dest: unknown) {
+    if (!linkSvc || dest == null) return;
+    pushNav();
+    void linkSvc.goToDestination(dest as string);
   }
 
   // --- selection → highlight menu ------------------------------------------------
@@ -461,6 +584,7 @@
       removePageBorders: true, // page box == border box → the %-box overlay geometry is exact
     });
     viewer = pdfViewer;
+    linkSvc = linkService;
     linkService.setViewer(pdfViewer);
 
     bus.on("pagesinit", () => {
@@ -505,6 +629,7 @@
       try {
         const pdf = await task.promise;
         if (cancelled) return;
+        pdfDoc = pdf;
         pdfViewer.setDocument(pdf);
         linkService.setDocument(pdf, null);
       } catch (e) {
@@ -519,8 +644,13 @@
       cancelled = true;
       host.removeEventListener("wheel", onWheel);
       if (hoverRaf) cancelAnimationFrame(hoverRaf);
+      clearTimeout(citeTimer);
       pageInfos.clear();
       hitMap.clear();
+      annotsCache.clear();
+      itemsCache.clear();
+      pdfDoc = undefined;
+      linkSvc = undefined;
       try {
         pdfViewer.setDocument(null as never);
         linkService.setDocument(null, null);
@@ -545,14 +675,17 @@
   {#if status === "error"}
     <div class="msg err">Couldn't render this PDF: {errMsg}</div>
   {/if}
-  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_no_noninteractive_tabindex -->
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_no_noninteractive_tabindex, a11y_mouse_events_have_key_events -->
   <div
     class="pdf-scroll"
     bind:this={container}
     tabindex="-1"
     onmouseup={onMouseUp}
     onmousemove={onPointerMove}
+    onmouseover={onOver}
+    onmouseout={onOut}
     onclick={onContainerClick}
+    onclickcapture={onClickCapture}
     class:hidden={status === "error"}>
     <div class="pdfViewer" bind:this={viewerDiv}></div>
   </div>

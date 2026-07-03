@@ -68,7 +68,7 @@ const page = (contentsRef, extra = "") =>
   `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents ${contentsRef}${extra} >>`;
 
 const objs = [];
-objs[1] = `<< /Type /Catalog /Pages 2 0 R >>`;
+objs[1] = `<< /Type /Catalog /Pages 2 0 R /Outlines 11 0 R >>`;
 objs[2] = `<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>`;
 objs[3] = page("4 0 R", " /Annots [10 0 R]");
 objs[4] = contents(stream1);
@@ -77,8 +77,14 @@ objs[6] = contents(stream2);
 objs[7] = page("8 0 R");
 objs[8] = contents(stream3);
 objs[9] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`;
-// "[1]" sits at x=330, y=420 (12pt) → clickable rect with a little padding.
-objs[10] = `<< /Type /Annot /Subtype /Link /Rect [326 414 356 434] /Border [0 0 0] /Dest [7 0 R /XYZ 50 740 null] >>`;
+// "[1]" sits at x=330, y=420 (12pt) → clickable rect with a little padding. The dest
+// points at the TOP of the "[1] Ward…" bibliography entry on page 3 (block starts at
+// y=720, entry is the 3rd line → baseline 688; XYZ y is the top of the target view).
+objs[10] = `<< /Type /Annot /Subtype /Link /Rect [326 414 356 434] /Border [0 0 0] /Dest [7 0 R /XYZ 50 694 null] >>`;
+// A 2-item document outline so the reader's outline panel has something real to show.
+objs[11] = `<< /Type /Outlines /First 12 0 R /Last 13 0 R /Count 2 >>`;
+objs[12] = `<< /Title (Introduction) /Parent 11 0 R /Next 13 0 R /Dest [3 0 R /XYZ 0 792 null] >>`;
+objs[13] = `<< /Title (References) /Parent 11 0 R /Prev 12 0 R /Dest [7 0 R /XYZ 0 792 null] >>`;
 
 let out = "%PDF-1.4\n";
 const offsets = [0];

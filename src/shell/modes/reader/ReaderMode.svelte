@@ -18,9 +18,11 @@
   import type { RefEntry } from "../../../lib/references/types";
   import type { Annotation, TextQuoteSelector } from "../../../lib/references/annotations";
   import type { ReaderContext } from "../../../lib/references/items";
+  import { matchRefToBriefs, type CitePreviewRequest, type FlatOutlineItem } from "../../../lib/pdf/citePreview";
   import PdfView from "./PdfView.svelte";
   import AgentDrawer from "./AgentDrawer.svelte";
   import HighlightPopover from "./HighlightPopover.svelte";
+  import CitePreview from "./CitePreview.svelte";
 
   let { focused = true }: { focused?: boolean } = $props();
 
@@ -132,6 +134,75 @@
   let pageHoverId = $state<string | null>(null);
   let sideHoverId = $state<string | null>(null);
 
+  // R4: citation hover card + left-sidebar tab (references | outline) + back-stack.
+  let cite = $state<
+    | null
+    | {
+        kind: "internal" | "external";
+        text?: string;
+        url?: string;
+        destPage?: number;
+        x: number;
+        y: number;
+        place: "above" | "below";
+        brief: WorldBrief | null;
+      }
+  >(null);
+  let citeHide: ReturnType<typeof setTimeout> | undefined;
+  function handleCitePreview(req: CitePreviewRequest | null) {
+    if (!req) {
+      // Debounced hide: moving from the link onto the card keeps it open.
+      clearTimeout(citeHide);
+      citeHide = setTimeout(() => (cite = null), 300);
+      return;
+    }
+    clearTimeout(citeHide);
+    const brief =
+      req.kind === "internal"
+        ? (req.text ? (matchRefToBriefs(req.text, refs)?.brief ?? null) : null)
+        : (refs.find((b) => {
+            const d = bareDoi(b.doi);
+            return !!d && (req.url ?? "").toLowerCase().includes(d);
+          }) ?? null);
+    const x = Math.min(Math.max(req.rect.left + req.rect.width / 2, 182), window.innerWidth - 182);
+    const below = req.rect.bottom + 230 < window.innerHeight;
+    cite = {
+      kind: req.kind,
+      text: req.text,
+      url: req.url,
+      destPage: req.destPage,
+      x,
+      y: below ? req.rect.bottom + 6 : req.rect.top - 6,
+      place: below ? "below" : "above",
+      brief,
+    };
+  }
+  const citeKeepOpen = () => clearTimeout(citeHide);
+  const citeClose = () => {
+    clearTimeout(citeHide);
+    cite = null;
+  };
+  let navDepth = $state(0);
+  let sideTab = $state<"refs" | "outline">("refs");
+  let outline = $state<FlatOutlineItem[] | null>(null); // null = not fetched yet
+  async function showOutline() {
+    sideTab = "outline";
+    if (outline === null) outline = (await pdfView?.getOutline()) ?? [];
+  }
+  // "Show in sidebar" from the hover card: reveal + flash the matched reference row.
+  let flashRefId = $state("");
+  let flashTimer: ReturnType<typeof setTimeout> | undefined;
+  async function showRefInSidebar(b: WorldBrief) {
+    showRefs = true;
+    sideTab = "refs";
+    citeClose();
+    await tick();
+    document.getElementById(`ref-${b.openalexId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    flashRefId = b.openalexId;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => (flashRefId = ""), 1600);
+  }
+
   // Stamp of the on-disk PDF (source.json identity) so an external re-fetch/replace of
   // paper.pdf refreshes the open reader in place; bufferGen remounts PdfView.
   let srcStamp: string | null = null;
@@ -150,6 +221,9 @@
     refsState = "idle";
     popover = null;
     if (!key) return;
+    outline = null;
+    navDepth = 0;
+    cite = null;
     loading = true;
     void Promise.all([readerPdfBytes(key), loadAnnotations(key), loadFluxLib(), readerSource(key)]).then(
       ([b, af, lib, src]) => {
@@ -340,6 +414,7 @@
           >☰ References{refs.length ? ` (${refs.length})` : ""}</button>
         <span class="rtitle" title={title}>{title}</span>
         <div class="rnav">
+          <button class="zbtn" title="Back (after a link/outline jump)" aria-label="Back" disabled={!navDepth} onclick={() => pdfView?.goBack()}>←</button>
           <button class="zbtn" title="Zoom out (−)" aria-label="Zoom out" onclick={() => pdfView?.zoomOut()}>−</button>
           <button class="zbtn zpct" title="Fit width (0)" onclick={() => pdfView?.zoomReset()}>{scalePct}%</button>
           <button class="zbtn" title="Zoom in (+)" aria-label="Zoom in" onclick={() => pdfView?.zoomIn()}>+</button>
@@ -383,8 +458,25 @@
       <div class="rbody">
         {#if showRefs}
           <aside class="side refs">
-            <div class="shead">References</div>
-            {#if refsState === "loading"}
+            <div class="shead stabs">
+              <button class="stab" class:on={sideTab === "refs"} onclick={() => (sideTab = "refs")}>References</button>
+              <button class="stab" class:on={sideTab === "outline"} onclick={() => void showOutline()}>Outline</button>
+            </div>
+            {#if sideTab === "outline"}
+              {#if outline === null}
+                <div class="smsg">Loading outline…</div>
+              {:else if outline.length === 0}
+                <div class="smsg">This PDF has no outline.</div>
+              {:else}
+                <ul class="outlist">
+                  {#each outline as o, i (i)}
+                    <li>
+                      <button class="outitem" style:padding-left="{12 + o.depth * 14}px" onclick={() => pdfView?.goToDestination(o.dest)}>{o.title}</button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            {:else if refsState === "loading"}
               <div class="smsg">Loading references…</div>
             {:else if refsState === "error"}
               <div class="smsg">Couldn’t load references.</div>
@@ -394,7 +486,7 @@
             {:else}
               <ul class="reflist">
                 {#each refs as b (b.openalexId)}
-                  <li class="ref">
+                  <li class="ref" id={`ref-${b.openalexId}`} class:flash={flashRefId === b.openalexId}>
                     <div class="rmeta">
                       <span class="rauth">{b.authors.slice(0, 2).join(", ")}{b.authors.length > 2 ? " et al." : ""}{b.year ? ` · ${b.year}` : ""}</span>
                       {#if b.citedByCount != null}<span class="rcite">{b.citedByCount.toLocaleString()}×</span>{/if}
@@ -418,7 +510,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key `${$readerKey}#${bufferGen}`}
-              <PdfView bind:this={pdfView} {buffer} {annotations} {scrollTo} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
+              <PdfView bind:this={pdfView} {buffer} {annotations} {scrollTo} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -430,6 +522,25 @@
             </div>
           {/if}
         </div>
+
+        {#if cite}
+          <CitePreview
+            kind={cite.kind}
+            text={cite.text}
+            url={cite.url}
+            destPage={cite.destPage}
+            brief={cite.brief}
+            x={cite.x}
+            y={cite.y}
+            place={cite.place}
+            inLib={cite.brief ? inLib(cite.brief) : false}
+            adding={cite.brief ? addingId === cite.brief.openalexId : false}
+            onAdd={() => cite?.brief && addRef(cite.brief)}
+            onShow={() => cite?.brief && void showRefInSidebar(cite.brief)}
+            onJump={() => { if (cite?.destPage) pdfView?.goToPage(cite.destPage, { pushNav: true }); citeClose(); }}
+            onEnter={citeKeepOpen}
+            onLeave={() => handleCitePreview(null)} />
+        {/if}
 
         {#if popover && popAnn}
           <HighlightPopover
@@ -676,6 +787,60 @@
     color: var(--c-tx-faint);
     background: var(--c-surface);
     border-bottom: 1px solid var(--c-line);
+  }
+  .stabs {
+    display: flex;
+    gap: 4px;
+    padding: 5px 8px;
+  }
+  .stab {
+    border: none;
+    background: transparent;
+    color: var(--c-tx-faint);
+    font: inherit;
+    font-size: var(--ts-xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 6px;
+    border-radius: var(--r-1);
+    cursor: pointer;
+  }
+  .stab.on {
+    color: var(--c-tx-1);
+    background: var(--c-bg);
+  }
+  .outlist {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+  }
+  .outitem {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: none;
+    color: var(--c-tx-1);
+    font: inherit;
+    font-size: var(--ts-sm);
+    line-height: 1.35;
+    padding: 5px 12px;
+    cursor: pointer;
+  }
+  .outitem:hover {
+    background: var(--c-bg);
+    color: var(--c-accent);
+  }
+  .ref.flash {
+    animation: refflash 1.6s ease-out;
+  }
+  @keyframes refflash {
+    0%, 40% {
+      background: var(--c-accent-tint);
+    }
+    100% {
+      background: transparent;
+    }
   }
   .smsg {
     padding: 12px;
