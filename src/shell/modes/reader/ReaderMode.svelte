@@ -7,8 +7,9 @@
   import { onMount, onDestroy } from "svelte";
   import { readerKey } from "./readerStore";
   import { fluxLibRevision } from "../../../lib/references/revision";
-  import { readerPdfBytes, writeReaderContext, clearReaderContext } from "../../../lib/references/itemsBridge";
-  import { loadAnnotations, addAnnotation, deleteAnnotation } from "../../../lib/references/annotationsBridge";
+  import { readerPdfBytes, readerSource, writeReaderContext, clearReaderContext } from "../../../lib/references/itemsBridge";
+  import { loadAnnotations, addAnnotation, updateAnnotation, deleteAnnotation } from "../../../lib/references/annotationsBridge";
+  import { hlSwatch } from "../../../lib/references/annotationColors";
   import { loadFluxLib } from "../../../lib/references/fluxlibBridge";
   import { referencedWorksByKey } from "../../../lib/references/enrichBridge";
   import { addDoiToLibrary } from "../paper/scholar/bibLoad";
@@ -19,6 +20,7 @@
   import type { ReaderContext } from "../../../lib/references/items";
   import PdfView from "./PdfView.svelte";
   import AgentDrawer from "./AgentDrawer.svelte";
+  import HighlightPopover from "./HighlightPopover.svelte";
 
   let { focused = true }: { focused?: boolean } = $props();
 
@@ -106,13 +108,19 @@
   let selPage = $state<number | undefined>(undefined);
   let ctxTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const HL: Record<string, string> = {
-    yellow: "rgba(255,221,51,0.75)",
-    green: "rgba(94,189,108,0.7)",
-    blue: "rgba(67,133,190,0.65)",
-    pink: "rgba(225,90,140,0.65)",
-    orange: "rgba(218,160,23,0.7)",
-  };
+  // Highlight popover (click a highlight on the page, or ✎ on a sidebar row).
+  let popover = $state<{ id: string; x: number; y: number; place: "above" | "below" } | null>(null);
+  const popAnn = $derived(popover ? (annotations.find((a) => a.id === popover!.id) ?? null) : null);
+  // Hover sync: page → sidebar row, sidebar row → page boxes.
+  let pageHoverId = $state<string | null>(null);
+  let sideHoverId = $state<string | null>(null);
+
+  // Stamp of the on-disk PDF (source.json identity) so an external re-fetch/replace of
+  // paper.pdf refreshes the open reader in place; bufferGen remounts PdfView.
+  let srcStamp: string | null = null;
+  let bufferGen = $state(0);
+  const stampOf = (s: Awaited<ReturnType<typeof readerSource>>, b: ArrayBuffer | null) =>
+    s ? `${s.sha256 ?? ""}:${s.bytes ?? ""}:${s.fetchedAt ?? ""}` : b ? "present" : "absent";
 
   $effect(() => {
     const key = $readerKey;
@@ -123,16 +131,20 @@
     entry = null;
     refs = [];
     refsState = "idle";
+    popover = null;
     if (!key) return;
     loading = true;
-    void Promise.all([readerPdfBytes(key), loadAnnotations(key), loadFluxLib()]).then(([b, af, lib]) => {
-      if (curKey !== key) return;
-      buffer = b;
-      annotations = af.annotations;
-      entry = lib.find((e) => e.key === key) ?? null;
-      libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
-      loading = false;
-    });
+    void Promise.all([readerPdfBytes(key), loadAnnotations(key), loadFluxLib(), readerSource(key)]).then(
+      ([b, af, lib, src]) => {
+        if (curKey !== key) return;
+        buffer = b;
+        annotations = af.annotations;
+        entry = lib.find((e) => e.key === key) ?? null;
+        libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
+        srcStamp = stampOf(src, b);
+        loading = false;
+      },
+    );
     // Reference list loads independently (network; needs the paper hydrated).
     refsState = "loading";
     void referencedWorksByKey(key).then((r) => {
@@ -145,17 +157,28 @@
   });
 
   // W10 (LR-3): an external FluxLib write (e.g. an agent's add_annotation, or a new
-  // paper) refreshes the open paper's annotations + library membership in place.
+  // paper) refreshes the open paper's annotations + library membership in place —
+  // and, if paper.pdf itself changed on disk (re-fetch, manual ingest), reloads the
+  // bytes and remounts the PDF view (bufferGen keys it) instead of rendering stale bytes.
   onMount(() => {
     let first = true;
     return fluxLibRevision.subscribe(() => {
       if (first) { first = false; return; }
       const key = curKey;
       if (!key) return;
-      void Promise.all([loadAnnotations(key), loadFluxLib()]).then(([af, lib]) => {
+      void Promise.all([loadAnnotations(key), loadFluxLib(), readerSource(key)]).then(async ([af, lib, src]) => {
         if (curKey !== key) return;
         annotations = af.annotations;
         libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
+        const b = buffer;
+        const stamp = stampOf(src, b);
+        if (stamp !== srcStamp) {
+          const fresh = await readerPdfBytes(key);
+          if (curKey !== key) return;
+          srcStamp = stampOf(src, fresh);
+          buffer = fresh;
+          bufferGen++;
+        }
       });
     });
   });
@@ -169,11 +192,36 @@
   async function handleDelete(id: string) {
     const key = $readerKey;
     if (!key) return;
+    if (popover?.id === id) popover = null;
     await deleteAnnotation(key, id);
     annotations = annotations.filter((a) => a.id !== id);
   }
+  // Patch note/color/tags. The patched object keeps its anchor reference, so PdfView's
+  // located-range cache stays hot — a recolor is a repaint, not a re-locate.
+  async function handleUpdate(id: string, patch: Partial<Annotation>) {
+    const key = $readerKey;
+    if (!key) return;
+    await updateAnnotation(key, id, patch);
+    annotations = annotations.map((a) => (a.id === id ? { ...a, ...patch } : a));
+  }
   function jumpTo(a: Annotation) {
     scrollTo = { id: a.id, page: a.page, nonce: ++nonce };
+  }
+  // Anchor the popover near a highlight's on-page rect (or a sidebar row's rect),
+  // clamped to the viewport, flipped above when there's no room below.
+  function openPopover(hit: { id: string; rect: DOMRect }) {
+    const W = 300;
+    const pad = 12;
+    const x = Math.min(Math.max(hit.rect.left + hit.rect.width / 2, W / 2 + pad), window.innerWidth - W / 2 - pad);
+    const below = hit.rect.bottom + 300 < window.innerHeight;
+    popover = { id: hit.id, x, y: below ? hit.rect.bottom + 8 : hit.rect.top - 8, place: below ? "below" : "above" };
+  }
+  function copyQuote(a: Annotation) {
+    navigator.clipboard?.writeText(a.anchor.quote).catch(() => {});
+  }
+  function askClaudeAbout(a: Annotation) {
+    void a; // the reader context already carries the highlights; Phase 3 injects a prompt
+    agentOpen = true;
   }
   async function addRef(b: WorldBrief) {
     if (!b.doi || addingId) return;
@@ -220,15 +268,17 @@
   });
 
   function onKey(e: KeyboardEvent) {
+    if (!focused) return; // kept-alive hidden panes must not react (inert blocks focus, not window listeners)
     if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
-      if (!focused || !$readerKey || !buffer) return; // only when this reader pane has a PDF open
+      if (!$readerKey || !buffer) return; // only when this reader pane has a PDF open
       e.preventDefault();
       openFind();
     } else if ((e.metaKey || e.ctrlKey) && (e.key === "j" || e.key === "J")) {
       e.preventDefault();
       agentOpen = !agentOpen;
     } else if (e.key === "Escape") {
-      if (findOpen) closeFind();
+      if (popover) popover = null;
+      else if (findOpen) closeFind();
       else if (agentOpen) agentOpen = false;
     }
   }
@@ -330,8 +380,8 @@
 
         <div class="pdfwrap">
           <div class="pdfarea">
-            {#key $readerKey}
-              <PdfView {buffer} documentId={$readerKey} {scale} {annotations} {scrollTo} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onOrphans={(ids) => (orphans = new Set(ids))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
+            {#key `${$readerKey}#${bufferGen}`}
+              <PdfView {buffer} documentId={$readerKey} {scale} {annotations} {scrollTo} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onOrphans={(ids) => (orphans = new Set(ids))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -340,6 +390,20 @@
             </div>
           {/if}
         </div>
+
+        {#if popover && popAnn}
+          <HighlightPopover
+            annotation={popAnn}
+            x={popover.x}
+            y={popover.y}
+            place={popover.place}
+            onSaveNote={(n) => handleUpdate(popAnn!.id, { note: n || undefined })}
+            onRecolor={(c) => handleUpdate(popAnn!.id, { color: c })}
+            onCopy={() => copyQuote(popAnn!)}
+            onAsk={() => askClaudeAbout(popAnn!)}
+            onDelete={() => handleDelete(popAnn!.id)}
+            onClose={() => (popover = null)} />
+        {/if}
 
         {#if showAnnots}
           <aside class="side annots">
@@ -350,13 +414,26 @@
               <ul class="annlist">
                 {#each orderedAnns as a (a.id)}
                   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-                  <li class="ann" class:orphan={orphans.has(a.id)} onclick={() => jumpTo(a)}>
-                    <span class="swatch" style:background={HL[a.color] ?? HL.yellow}></span>
-                    <span class="aquote" title={a.anchor.quote}>{a.anchor.quote}</span>
-                    {#if orphans.has(a.id)}<span class="odot" title="This highlight's text wasn't found on its page — the PDF may have changed.">detached</span>{/if}
-                    <span class="apage">p{a.page}</span>
-                    <button class="del" title="Delete highlight" aria-label="Delete highlight"
-                      onclick={(e) => { e.stopPropagation(); handleDelete(a.id); }}>×</button>
+                  <li
+                    class="ann"
+                    class:orphan={orphans.has(a.id)}
+                    class:pagehover={pageHoverId === a.id}
+                    onclick={() => jumpTo(a)}
+                    onmouseenter={() => (sideHoverId = a.id)}
+                    onmouseleave={() => (sideHoverId = null)}>
+                    <div class="arow">
+                      <span class="swatch" style:background={hlSwatch(a.color)}></span>
+                      <span class="aquote" title={a.anchor.quote}>{a.anchor.quote}</span>
+                      {#if orphans.has(a.id)}<span class="odot" title="This highlight's text wasn't found on its page — the PDF may have changed.">detached</span>{/if}
+                      <span class="apage">p{a.page}</span>
+                      <button class="edit" title="Comment / edit highlight" aria-label="Edit highlight"
+                        onclick={(e) => { e.stopPropagation(); openPopover({ id: a.id, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() }); }}>✎</button>
+                      <button class="del" title="Delete highlight" aria-label="Delete highlight"
+                        onclick={(e) => { e.stopPropagation(); handleDelete(a.id); }}>×</button>
+                    </div>
+                    {#if a.note}
+                      <div class="anote">{a.note}</div>
+                    {/if}
                   </li>
                 {/each}
               </ul>
@@ -624,14 +701,27 @@
   }
   .ann {
     display: flex;
-    align-items: baseline;
-    gap: 6px;
+    flex-direction: column;
+    gap: 3px;
     padding: 7px 12px;
     border-bottom: 1px solid var(--c-line);
     cursor: pointer;
   }
-  .ann:hover {
+  .ann:hover,
+  .ann.pagehover {
     background: var(--c-bg);
+  }
+  .arow {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .anote {
+    font-size: var(--ts-xs);
+    color: var(--c-tx-2);
+    line-height: 1.4;
+    padding-left: 15px; /* aligns under the quote, past the swatch */
+    white-space: pre-wrap;
   }
   .swatch {
     flex: 0 0 auto;
@@ -670,7 +760,8 @@
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }
-  .del {
+  .del,
+  .edit {
     flex: 0 0 auto;
     border: none;
     background: none;
@@ -680,8 +771,14 @@
     line-height: 1;
     padding: 0 2px;
   }
+  .edit {
+    font-size: var(--ts-sm);
+  }
   .del:hover {
     color: var(--c-danger);
+  }
+  .edit:hover {
+    color: var(--c-accent);
   }
   .empty {
     display: flex;

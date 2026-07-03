@@ -14,7 +14,7 @@ function pdfjsAssets(): Plugin {
     name: "flux-pdfjs-assets",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const m = req.url?.match(/^\/pdfjs\/(standard_fonts|cmaps|wasm)\/([^?]+)/);
+        const m = req.url?.match(/^\/pdfjs\/(standard_fonts|cmaps|wasm|iccs)\/([^?]+)/);
         if (!m || m[2].includes("..")) return next();
         fs.readFile(path.join(srcDir(m[1]), m[2]), (err, buf) => {
           if (err) {

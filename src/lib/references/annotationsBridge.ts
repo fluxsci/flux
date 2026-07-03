@@ -1,12 +1,42 @@
 // Renderer-side annotation persistence (the browser/Electron twin of flux-core/
 // annotate.ts) over window.fig. Reuses the pure model in annotations.ts + the items
 // path helpers. Annotations live in items/<citekey>/annotations.json.
+//
+// Write safety: every mutation is a read-modify-write of the whole file, so (a) a
+// per-citekey promise queue serializes this renderer's own ops (two quick highlights
+// no longer read the same stale file), and (b) the RMW runs under the FluxLib IPC
+// lock (libLock.ts) so an agent's flux-core write (same lock dir) can't interleave.
+// The main-process fs:writeText handler is already atomic (tmp+rename).
 import { fileBridge } from "../project/types";
 import { resolveFluxLibPath } from "./fluxlibBridge";
-import { annotationsPath, itemDir } from "./items";
+import { annotationsPath, itemDir, safeKey } from "./items";
+import { withIpcLock } from "./libLock";
+import { seededItem } from "./devSeed";
 import { emptyAnnotationFile, type Annotation, type AnnotationFile } from "./annotations";
 
+// Per-citekey op queue: each mutation waits for the previous one on that key,
+// success or failure, so RMW cycles never overlap within this renderer.
+const opTails = new Map<string, Promise<unknown>>();
+function enqueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const tail = opTails.get(key) ?? Promise.resolve();
+  const run = tail.then(fn, fn);
+  opTails.set(
+    key,
+    run.catch(() => undefined),
+  );
+  return run;
+}
+
+const locked = <T>(key: string, fn: () => Promise<T>): Promise<T> =>
+  enqueue(key, () => withIpcLock("fluxlib", `annotations-${safeKey(key)}`, fn));
+
+// Annotations are pure JSON; JSON round-trip (not structuredClone) so Svelte 5 $state
+// proxies passed in from components clone instead of throwing DataCloneError.
+const jsonClone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
 export async function loadAnnotations(key: string): Promise<AnnotationFile> {
+  const s = seededItem(key);
+  if (s) return jsonClone(s.annotations);
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return emptyAnnotationFile();
@@ -19,6 +49,11 @@ export async function loadAnnotations(key: string): Promise<AnnotationFile> {
 }
 
 export async function saveAnnotations(key: string, file: AnnotationFile): Promise<void> {
+  const s = seededItem(key);
+  if (s) {
+    s.annotations = jsonClone(file);
+    return;
+  }
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return;
@@ -30,27 +65,33 @@ export async function addAnnotation(
   key: string,
   partial: Omit<Annotation, "id" | "createdAt">,
 ): Promise<Annotation> {
-  const file = await loadAnnotations(key);
-  const ann: Annotation = {
-    ...partial,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-  file.annotations.push(ann);
-  await saveAnnotations(key, file);
-  return ann;
+  return locked(key, async () => {
+    const file = await loadAnnotations(key);
+    const ann: Annotation = {
+      ...partial,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
+    file.annotations.push(ann);
+    await saveAnnotations(key, file);
+    return ann;
+  });
 }
 
 export async function updateAnnotation(key: string, id: string, patch: Partial<Annotation>): Promise<void> {
-  const file = await loadAnnotations(key);
-  const a = file.annotations.find((x) => x.id === id);
-  if (!a) return;
-  Object.assign(a, patch);
-  await saveAnnotations(key, file);
+  return locked(key, async () => {
+    const file = await loadAnnotations(key);
+    const a = file.annotations.find((x) => x.id === id);
+    if (!a) return;
+    Object.assign(a, patch);
+    await saveAnnotations(key, file);
+  });
 }
 
 export async function deleteAnnotation(key: string, id: string): Promise<void> {
-  const file = await loadAnnotations(key);
-  file.annotations = file.annotations.filter((x) => x.id !== id);
-  await saveAnnotations(key, file);
+  return locked(key, async () => {
+    const file = await loadAnnotations(key);
+    file.annotations = file.annotations.filter((x) => x.id !== id);
+    await saveAnnotations(key, file);
+  });
 }

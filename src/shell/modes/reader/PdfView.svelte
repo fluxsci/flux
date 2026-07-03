@@ -19,6 +19,8 @@
     type Annotation,
     type TextQuoteSelector,
   } from "../../../lib/references/annotations";
+  import { hlPage, hlSwatch } from "../../../lib/references/annotationColors";
+  import { mergeRectsIntoLines, hitTest, type HitEntry } from "../../../lib/pdf/highlightGeometry";
   import { findMatchesInPages, stepIndex, type SearchMatch } from "../../../lib/pdf/search";
 
   pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
@@ -28,8 +30,11 @@
     documentId = "paper",
     scale = 1.35,
     annotations = [],
+    hoverId = null,
     onCreate,
     onSelect,
+    onAnnotationClick,
+    onAnnotationHover,
     onOrphans,
     onPage,
     scrollTo = null,
@@ -40,8 +45,13 @@
     documentId?: string;
     scale?: number;
     annotations?: Annotation[];
+    /** Externally-hovered annotation id (e.g. a sidebar row) → its on-page boxes glow. */
+    hoverId?: string | null;
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void;
     onSelect?: (text: string, page?: number) => void;
+    /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
+    onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
+    onAnnotationHover?: (id: string | null) => void;
     /** LR-13: ids whose quote no longer locates on their (rendered) page → the annotations
      *  panel flags them as orphaned instead of silently showing no highlight. */
     onOrphans?: (ids: string[]) => void;
@@ -54,15 +64,13 @@
     onFind?: (r: { total: number; index: number; page: number }) => void;
   } = $props();
 
-  // Highlighter colours — plain translucent rgba (NO mix-blend-mode: blending over a large
-  // HiDPI canvas triggers GPU-readback artifacts / smearing under memory pressure).
-  const HL: Record<string, string> = {
-    yellow: "rgba(255,214,10,0.38)",
-    green: "rgba(94,189,108,0.36)",
-    blue: "rgba(67,133,190,0.30)",
-    pink: "rgba(225,90,140,0.30)",
-    orange: "rgba(218,160,23,0.36)",
-  };
+  // Highlights paint with `mix-blend-mode: multiply` (marker look — the black canvas
+  // text stays crisp under the colour). An earlier pass avoided blending after seeing
+  // GPU-readback smearing over large HiDPI canvases; the fix is `isolation: isolate`
+  // on each .pdf-page (see styles), which scopes the blend group to one page's canvas.
+  // Escape hatch if artifacts ever reappear: flip HL_BLEND to false → merged-line
+  // translucent alpha (still far better than the old per-rect stacking).
+  const HL_BLEND = true;
 
   const DPR = Math.min(window.devicePixelRatio || 1, 2); // cap backing-store size
   const MAX_LIVE = 6; // rasterized pages kept in memory at once
@@ -90,8 +98,9 @@
   const pages = new Map<number, PageState>();
   let observer: IntersectionObserver | undefined;
 
-  // Floating highlight menu shown on text selection.
-  let menu = $state<{ x: number; y: number; page: number; anchor: TextQuoteSelector } | null>(null);
+  // Floating highlight menu shown on text selection (`below` = flipped under the
+  // selection when it starts too close to the toolbar to fit the menu above).
+  let menu = $state<{ x: number; y: number; below: boolean; page: number; anchor: TextQuoteSelector } | null>(null);
 
   // --- text ↔ DOM mapping for anchoring (unchanged logic) ---------------------
   function buildPageText(layer: HTMLElement): PageInfo {
@@ -155,28 +164,36 @@
     else orphanIds.add(a.id);
     return loc;
   }
+  // Per-page hit-test entries (id → merged line boxes in % of the page), rebuilt with
+  // each paint. The painted divs stay pointer-events:none so text selection through a
+  // highlight keeps working; hover/click resolve against this map instead.
+  const hitMap = new Map<number, HitEntry[]>();
   function drawHighlights(p: number) {
     const st = pages.get(p);
     if (!st || !st.done || !st.info || !st.hlLayer) return;
     st.hlLayer.replaceChildren();
     const pageRect = st.pageDiv.getBoundingClientRect();
+    const entries: HitEntry[] = [];
     for (const a of annotations) {
       if (a.page !== p) continue;
       const loc = locOf(st.info, a);
       if (!loc) continue;
       const r = rangeFor(st.info, loc.start, loc.end);
       if (!r) continue;
-      for (const rect of r.getClientRects()) {
+      // One box per text line (merged, % of page) — not one per raw client rect.
+      const boxes = mergeRectsIntoLines([...r.getClientRects()], pageRect, { bleedY: 1 });
+      if (!boxes.length) continue;
+      entries.push({ id: a.id, boxes });
+      for (const b of boxes) {
         const d = document.createElement("div");
         d.className = "annot-hl";
         d.dataset.id = a.id;
-        d.style.cssText =
-          `position:absolute;left:${rect.left - pageRect.left}px;top:${rect.top - pageRect.top}px;` +
-          `width:${rect.width}px;height:${rect.height}px;background:${HL[a.color] ?? HL.yellow};` +
-          `border-radius:1px;pointer-events:none;`;
+        d.style.cssText = `left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;background:${hlPage(a.color)};`;
         st.hlLayer.appendChild(d);
       }
     }
+    hitMap.set(p, entries);
+    applyHoverClasses();
   }
   function redrawAllLive() {
     // Prune cache/orphan entries for annotations that were deleted since the last pass.
@@ -231,12 +248,10 @@
       if (!loc) return;
       const r = rangeFor(st.info!, loc.start, loc.end);
       if (!r) return;
-      for (const rect of r.getClientRects()) {
+      for (const b of mergeRectsIntoLines([...r.getClientRects()], pageRect)) {
         const d = document.createElement("div");
         d.className = i === activeMatch ? "search-hl active" : "search-hl";
-        d.style.cssText =
-          `position:absolute;left:${rect.left - pageRect.left}px;top:${rect.top - pageRect.top}px;` +
-          `width:${rect.width}px;height:${rect.height}px;pointer-events:none;border-radius:1px;`;
+        d.style.cssText = `left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;`;
         st.sLayer!.appendChild(d);
       }
     });
@@ -402,6 +417,7 @@
     st.task = undefined;
     st.done = false;
     st.rendering = false;
+    hitMap.delete(p);
   }
   // Keep only MAX_LIVE rasterized pages — free the ones farthest from page `near`.
   function freeExcess(near: number) {
@@ -411,7 +427,56 @@
     for (const p of done.slice(0, done.length - MAX_LIVE)) freePage(p);
   }
 
-  // --- selection → highlight menu (unchanged) ---------------------------------
+  // --- highlight hover/click (hit-tested; boxes stay pointer-events:none) ------
+  let hoverAnnId: string | null = null; // pointer-derived (vs the external `hoverId` prop)
+  let hoverRaf = 0;
+  function applyHoverClasses() {
+    if (!container) return;
+    const want = hoverAnnId ?? hoverId ?? null;
+    for (const el of container.querySelectorAll(".annot-hl.hover")) el.classList.remove("hover");
+    if (want)
+      for (const el of container.querySelectorAll(`.annot-hl[data-id="${CSS.escape(want)}"]`))
+        el.classList.add("hover");
+    container.style.cursor = hoverAnnId ? "pointer" : "";
+  }
+  $effect(() => {
+    void hoverId;
+    applyHoverClasses();
+  });
+  function hitAt(target: Element | null, x: number, y: number): { id: string; page: number; rect: DOMRect } | null {
+    const pageDiv = (target as HTMLElement | null)?.closest?.(".pdf-page") as HTMLElement | null;
+    if (!pageDiv) return null;
+    const p = Number(pageDiv.dataset.page);
+    const entries = hitMap.get(p);
+    if (!entries?.length) return null;
+    const r = pageDiv.getBoundingClientRect();
+    const id = hitTest(((x - r.left) / r.width) * 100, ((y - r.top) / r.height) * 100, entries);
+    if (!id) return null;
+    const el = pageDiv.querySelector(`.annot-hl[data-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+    return { id, page: p, rect: el?.getBoundingClientRect() ?? new DOMRect(x, y, 0, 0) };
+  }
+  function onPointerMove(e: MouseEvent) {
+    if (hoverRaf) return;
+    const { clientX, clientY } = e;
+    const target = e.target as Element | null;
+    hoverRaf = requestAnimationFrame(() => {
+      hoverRaf = 0;
+      const id = hitAt(target, clientX, clientY)?.id ?? null;
+      if (id !== hoverAnnId) {
+        hoverAnnId = id;
+        applyHoverClasses();
+        onAnnotationHover?.(id);
+      }
+    });
+  }
+  function onContainerClick(e: MouseEvent) {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return; // finishing a drag-selection, not a click
+    const hit = hitAt(e.target as Element | null, e.clientX, e.clientY);
+    if (hit) onAnnotationClick?.(hit);
+  }
+
+  // --- selection → highlight menu ----------------------------------------------
   function onMouseUp() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
@@ -440,11 +505,15 @@
       return;
     }
     const rect = range.getBoundingClientRect();
-    menu = { x: rect.left + rect.width / 2, y: rect.top - 8, page, anchor };
+    // Clamp within the viewport; flip below the selection when the toolbar is too close.
+    const x = Math.min(Math.max(rect.left + rect.width / 2, 80), window.innerWidth - 80);
+    const below = rect.top < 140;
+    menu = { x, y: below ? rect.bottom + 10 : rect.top - 8, below, page, anchor };
     onSelect?.(anchor.quote, page);
   }
   function pick(color: string) {
-    if (menu) onCreate?.({ page: menu.page, anchor: menu.anchor, color });
+    // snapshot: menu is $state — hand callers a plain object, not a reactive proxy
+    if (menu) onCreate?.({ page: menu.page, anchor: $state.snapshot(menu.anchor), color });
     menu = null;
     window.getSelection()?.removeAllRanges();
   }
@@ -565,6 +634,7 @@
       cancelled = true;
       container?.removeEventListener("scroll", onScroll);
       if (pageRaf) cancelAnimationFrame(pageRaf);
+      if (hoverRaf) cancelAnimationFrame(hoverRaf);
       observer?.disconnect();
       for (const st of pages.values()) {
         try {
@@ -590,21 +660,27 @@
 
 <svelte:window onmousedown={() => (menu = null)} />
 
-<div class="pdf-root" data-testid="pdf-root" data-pages={numPages} data-rendered={rendered}>
+<div class="pdf-root" data-testid="pdf-root" data-pages={numPages} data-rendered={rendered} data-hl-blend={HL_BLEND ? "on" : "off"}>
   {#if status === "error"}
     <div class="msg err">Couldn't render this PDF: {errMsg}</div>
   {/if}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="pdf-scroll" bind:this={container} onmouseup={onMouseUp} class:hidden={status === "error"}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+  <div
+    class="pdf-scroll"
+    bind:this={container}
+    onmouseup={onMouseUp}
+    onmousemove={onPointerMove}
+    onclick={onContainerClick}
+    class:hidden={status === "error"}></div>
   {#if status === "loading"}
     <div class="msg loading">Loading…</div>
   {/if}
 
   {#if menu}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="hl-menu" style:left="{menu.x}px" style:top="{menu.y}px" onmousedown={(e) => e.stopPropagation()}>
+    <div class="hl-menu" class:below={menu.below} style:left="{menu.x}px" style:top="{menu.y}px" onmousedown={(e) => e.stopPropagation()}>
       {#each ANNOTATION_COLORS as c}
-        <button class="dot" style:background={HL[c]} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => pick(c)}></button>
+        <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => pick(c)}></button>
       {/each}
     </div>
   {/if}
@@ -632,30 +708,76 @@
     margin: 0 auto 14px;
     background: #fff;
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+    /* Scope the highlight layer's multiply blend to THIS page's stacking context.
+       Without it the blend group is the whole app — the source of the GPU-readback
+       smearing that made an earlier pass abandon mix-blend-mode entirely. */
+    isolation: isolate;
   }
   :global(.pdf-page .pdf-canvas) {
     display: block;
   }
-  /* highlight overlay sits above the canvas + text layer, never inside .textLayer */
+  /* The text layer is an invisible selection surface over the canvas: its glyphs must
+     stay transparent in EVERY state. The app-wide `::selection` (app.css) recolors
+     selected text with var(--c-tx-hi) — near-white in the dark theme — which painted
+     ghost glyphs over the canvas text ("corrupted" selections). Force transparency
+     here (the app rule is intentionally untouched — the paper editor depends on it)
+     and keep the wash as the only visible sign of selection. */
+  :global(.pdf-page .textLayer span),
+  :global(.pdf-page .textLayer br) {
+    color: transparent !important;
+  }
+  :global(.pdf-page .textLayer span::selection),
+  :global(.pdf-page .textLayer br::selection) {
+    color: transparent !important;
+    background: rgba(67, 133, 190, 0.28) !important; /* accent-blue wash tuned for white pages */
+  }
+  /* Highlight overlay sits above the canvas + text layer, never inside .textLayer.
+     The multiply blend lives on THIS wrapper, not the boxes: the wrapper's z-index
+     makes it a stacking context, and a child's mix-blend-mode would composite against
+     the wrapper's transparent backdrop instead of the canvas (opaque bars hiding the
+     text — verified in headless Chrome). Blending the layer as a group also means
+     overlapping highlights hand off cleanly instead of double-darkening. */
   :global(.pdf-page .hl-layer) {
     position: absolute;
     inset: 0;
     z-index: 3;
     pointer-events: none;
+    mix-blend-mode: multiply;
   }
-  /* LR-6: find-in-document matches, drawn above annotations so the active hit is always visible. */
+  /* Marker look: page × colour, canvas text stays crisp black underneath. Boxes are
+     merged per-line %-of-page rects (highlightGeometry.ts) — no stacking-alpha seams. */
+  :global(.pdf-page .hl-layer .annot-hl) {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 2px;
+  }
+  :global(.pdf-page .hl-layer .annot-hl.hover) {
+    filter: brightness(0.92) saturate(1.3);
+  }
+  /* HL_BLEND escape hatch — merged-line translucent alpha, no blending. */
+  :global(.pdf-root[data-hl-blend="off"] .hl-layer) {
+    mix-blend-mode: normal;
+  }
+  :global(.pdf-root[data-hl-blend="off"] .hl-layer .annot-hl) {
+    opacity: 0.35;
+  }
+  /* LR-6: find-in-document matches, drawn above annotations so the active hit is always
+     visible. Same wrapper-level blend as .hl-layer (same stacking-context constraint). */
   :global(.pdf-page .search-layer) {
     position: absolute;
     inset: 0;
     z-index: 4;
     pointer-events: none;
+    mix-blend-mode: multiply;
   }
-  :global(.pdf-page .search-hl) {
-    background: rgba(255, 170, 0, 0.32);
-    outline: 1px solid rgba(255, 170, 0, 0.5);
+  :global(.pdf-page .search-layer .search-hl) {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 2px;
+    background: #ffd9a1;
   }
-  :global(.pdf-page .search-hl.active) {
-    background: rgba(255, 138, 0, 0.55);
+  :global(.pdf-page .search-layer .search-hl.active) {
+    background: #ffb054;
     outline: 1.5px solid rgba(205, 88, 0, 0.95);
   }
   .msg {
@@ -685,6 +807,9 @@
     border-radius: var(--r-pill);
     box-shadow: var(--elev-2, 0 2px 8px rgba(0, 0, 0, 0.25));
     z-index: 50;
+  }
+  .hl-menu.below {
+    transform: translate(-50%, 0);
   }
   .dot {
     width: 16px;

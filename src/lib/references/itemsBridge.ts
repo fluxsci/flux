@@ -19,6 +19,7 @@ import {
   type ReaderContext,
 } from "./items";
 import { isPdfBytes } from "./pdfFinder";
+import { seededItem } from "./devSeed";
 
 /** Write the live reader context (what the human is reading) so the agent's
  *  get_reading_context MCP tool can see it. Fills in the on-disk paths. Best-effort,
@@ -134,6 +135,8 @@ export async function writePdfItem(
 
 /** Read a stored PDF's bytes (ArrayBuffer) for the reader, or null if absent. */
 export async function readerPdfBytes(key: string): Promise<ArrayBuffer | null> {
+  const s = seededItem(key);
+  if (s) return s.pdf.slice().buffer; // headless harness fixture (devSeed.ts)
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return null;
@@ -146,6 +149,7 @@ export async function readerPdfBytes(key: string): Promise<ArrayBuffer | null> {
 }
 
 export async function readerHasPdf(key: string): Promise<boolean> {
+  if (seededItem(key)) return true;
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return false;
