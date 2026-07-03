@@ -42,17 +42,24 @@
   let scrollTo = $state<{ id?: string; page?: number; nonce: number } | null>(null);
   // LR-13: ids whose quote no longer locates on their rendered page (PdfView reports them).
   let orphans = $state<Set<string>>(new Set());
-  // LR-6: reader zoom + page indicator/jump.
-  let scale = $state(1.35);
+  // LR-6: zoom/fit/layout/page-nav — PdfView (pdf.js PDFViewer) owns the mechanics; the
+  // toolbar drives it through the bound instance and reads the live scale back.
+  let pdfView = $state<PdfView | undefined>();
+  let scalePct = $state(100);
+  let layout = $state<"vertical" | "horizontal" | "wrapped" | "two-up">("vertical");
   let curPage = $state(1);
   let totalPages = $state(0);
-  function zoom(delta: number) {
-    scale = Math.min(3, Math.max(0.5, +(scale + delta).toFixed(2)));
+  const LAYOUTS: Record<string, { scroll: "vertical" | "horizontal" | "wrapped"; spread: "none" | "odd" }> = {
+    vertical: { scroll: "vertical", spread: "none" },
+    horizontal: { scroll: "horizontal", spread: "none" },
+    wrapped: { scroll: "wrapped", spread: "none" },
+    "two-up": { scroll: "vertical", spread: "odd" },
+  };
+  function applyLayout() {
+    pdfView?.setLayout(LAYOUTS[layout]);
   }
   function jumpToPage(n: number) {
-    if (!totalPages) return;
-    const p = Math.min(totalPages, Math.max(1, Math.floor(n) || 1));
-    scrollTo = { page: p, nonce: ++nonce };
+    pdfView?.goToPage(n);
   }
   let nonce = 0;
 
@@ -269,6 +276,8 @@
 
   function onKey(e: KeyboardEvent) {
     if (!focused) return; // kept-alive hidden panes must not react (inert blocks focus, not window listeners)
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    const typing = tag === "INPUT" || tag === "TEXTAREA";
     if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
       if (!$readerKey || !buffer) return; // only when this reader pane has a PDF open
       e.preventDefault();
@@ -280,6 +289,17 @@
       if (popover) popover = null;
       else if (findOpen) closeFind();
       else if (agentOpen) agentOpen = false;
+    } else if (!typing && buffer && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Reader nav keys (skipped while typing in find/note/page inputs).
+      if (e.key === "+" || e.key === "=") pdfView?.zoomIn();
+      else if (e.key === "-") pdfView?.zoomOut();
+      else if (e.key === "0") pdfView?.zoomReset();
+      else if (e.key === "PageDown") pdfView?.pageStep(1);
+      else if (e.key === "PageUp") pdfView?.pageStep(-1);
+      else if (e.key === "Home") pdfView?.goToPage(1);
+      else if (e.key === "End") pdfView?.goToPage(totalPages);
+      else return;
+      e.preventDefault();
     }
   }
 
@@ -310,9 +330,16 @@
           >☰ References{refs.length ? ` (${refs.length})` : ""}</button>
         <span class="rtitle" title={title}>{title}</span>
         <div class="rnav">
-          <button class="zbtn" title="Zoom out" aria-label="Zoom out" onclick={() => zoom(-0.15)}>−</button>
-          <button class="zbtn zpct" title="Reset zoom" onclick={() => (scale = 1.35)}>{Math.round((scale / 1.35) * 100)}%</button>
-          <button class="zbtn" title="Zoom in" aria-label="Zoom in" onclick={() => zoom(0.15)}>+</button>
+          <button class="zbtn" title="Zoom out (−)" aria-label="Zoom out" onclick={() => pdfView?.zoomOut()}>−</button>
+          <button class="zbtn zpct" title="Fit width (0)" onclick={() => pdfView?.zoomReset()}>{scalePct}%</button>
+          <button class="zbtn" title="Zoom in (+)" aria-label="Zoom in" onclick={() => pdfView?.zoomIn()}>+</button>
+          <button class="zbtn" title="Fit page height" aria-label="Fit page" onclick={() => pdfView?.setFit("page-fit")}>⤢</button>
+          <select class="zsel" title="Page layout" aria-label="Page layout" bind:value={layout} onchange={applyLayout}>
+            <option value="vertical">1-up</option>
+            <option value="two-up">2-up</option>
+            <option value="wrapped">Grid</option>
+            <option value="horizontal">Row</option>
+          </select>
           <span class="pgind">
             <input class="pgin" type="number" min="1" max={totalPages || 1} value={curPage}
               aria-label="Jump to page" onchange={(e) => jumpToPage(+e.currentTarget.value)} />
@@ -381,7 +408,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key `${$readerKey}#${bufferGen}`}
-              <PdfView {buffer} documentId={$readerKey} {scale} {annotations} {scrollTo} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onOrphans={(ids) => (orphans = new Set(ids))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
+              <PdfView bind:this={pdfView} {buffer} {annotations} {scrollTo} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -520,6 +547,19 @@
   .zpct {
     min-width: 42px;
     font-variant-numeric: tabular-nums;
+  }
+  .zsel {
+    border: 1px solid var(--c-line-strong);
+    background: var(--c-bg);
+    color: var(--c-tx-2);
+    border-radius: var(--r-1);
+    padding: 2px 4px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    cursor: pointer;
+  }
+  .zsel:hover {
+    border-color: var(--c-accent);
   }
   .pgind {
     display: inline-flex;

@@ -1,7 +1,9 @@
-// P5 — Reader find-in-document (LR-6 pt 2). The match-finding + navigation math is pure and gets
-// real unit tests; the PdfView/ReaderMode wiring (all-page text index, quote-anchored overlay,
-// search bar) is asserted against source because the reader needs real PDF bytes the headless
-// harness can't supply (the demo FluxLib entry has no paper.pdf).
+// P5 — Reader find-in-document (LR-6 pt 2). The pure match/step core (src/lib/pdf/search.ts,
+// still used by library-side search) gets real unit tests; the PdfView/ReaderMode wiring is
+// asserted against source. Since Reader R2 the in-PDF find is pdf.js's PDFFindController
+// (event-bus driven, highlight-all, in-text-layer match painting) behind the SAME nonce'd
+// `find` prop / onFind contract — the end-to-end behaviour is exercised for real by
+// scripts/verify-r2-viewer.mjs against a seeded fixture PDF.
 //   Run: npx tsx scripts/verify-p5-reader-find.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -52,17 +54,15 @@ assert(stepIndex(3, 2, "next") === 0, "next wraps at the end");
 assert(stepIndex(3, 0, "prev") === 2, "prev wraps at the start");
 assert(stepIndex(3, 1, "next") === 2 && stepIndex(3, 1, "prev") === 0, "next/prev step by one");
 
-console.log("\nLR-6 — PdfView wiring (source):");
+console.log("\nLR-6/R2 — PdfView wiring (source):");
 const pv = readFileSync(join(root, "src/shell/modes/reader/PdfView.svelte"), "utf8");
 assert(/find\?:\s*\{ query: string; nonce: number; dir:/.test(pv), "accepts a nonce-driven `find` prop");
 assert(/onFind\?:\s*\(r: \{ total: number; index: number; page: number \}\)/.test(pv), "reports {total,index,page} via onFind");
-assert(/import \{ findMatchesInPages, stepIndex/.test(pv), "uses the pure search core");
-assert(/async function ensureSearchText\(\)/.test(pv) && /getTextContent\(\)/.test(pv), "builds an all-page text index lazily via getTextContent");
-assert(/makeQuoteAnchor\(searchText\.get\(m\.page\)/.test(pv), "each match carries a quote anchor (same machinery as annotations)");
-assert(/locateQuote\(st\.info!\.text, m\.anchor\)/.test(pv), "matches are located on the rendered page via the fuzzy quote locator");
-assert(/sLayer\?: HTMLDivElement/.test(pv) && /className = "search-layer"/.test(pv), "a dedicated per-page search overlay (separate from annotations)");
-assert(/\.search-hl\.active/.test(pv), "the active match is styled distinctly");
-assert(/st\.sLayer\?\.remove\(\)/.test(pv), "freePage tears down the search overlay (no leak on virtualization)");
+assert(/PDFFindController/.test(pv), "R2: find is pdf.js's PDFFindController (hand-rolled index/overlay retired)");
+assert(/dispatch\("find",\s*\{/.test(pv) && /highlightAll: true/.test(pv), "drives the controller over the event bus with highlight-all");
+assert(/updatefindmatchescount/.test(pv) && /updatefindcontrolstate/.test(pv), "maps controller match counts back onto the onFind contract");
+assert(/findbarclose/.test(pv), "clearing the bar dispatches findbarclose (controller drops its highlights)");
+assert(/--highlight-selected-bg-color/.test(pv), "the active match is styled distinctly from highlight-all matches");
 
 console.log("\nLR-6 — ReaderMode search bar (source):");
 const rm = readFileSync(join(root, "src/shell/modes/reader/ReaderMode.svelte"), "utf8");
