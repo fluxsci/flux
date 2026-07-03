@@ -1,7 +1,7 @@
 // The shared manuscript renderer (Flux_Paper_Plan.md D1/D2): Quarto markdown →
 // journal HTML, used by both the in-app Preview and the PDF/HTML exports so what
 // you preview is what you ship. Front-matter via js-yaml; body via markdown-it
-// (html:false, footnotes/attrs/deflists); figures inlined as self-contained SVG
+// (html:false, footnotes/spans/attrs/deflists); figures inlined as self-contained SVG
 // (figureToSvg); @fig/@tbl cross-refs and [@cite] citations resolved + linked; a
 // References section built from the cited works. All heavy libs are dynamic-
 // imported on first render to stay off the editor hot path.
@@ -26,8 +26,12 @@ async function getMd(): Promise<any> {
     const footnote = (await import("markdown-it-footnote")).default;
     const attrs = (await import("markdown-it-attrs")).default;
     const deflist = (await import("markdown-it-deflist")).default;
+    const spans = (await import("markdown-it-bracketed-spans")).default;
     const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
     md.use(footnote);
+    // Pandoc spans `[text]{style="color: …"}` (the toolbar's text color) —
+    // bracketed-spans emits the <span>, attrs (below) attaches the {…} attrs.
+    md.use(spans);
     md.use(attrs);
     md.use(deflist);
     // Keep smart quotes but NOT the (c)/(tm)/dash text replacements — they mangle

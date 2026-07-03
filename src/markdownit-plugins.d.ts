@@ -15,3 +15,8 @@ declare module "markdown-it-attrs" {
   const plugin: any;
   export default plugin;
 }
+declare module "markdown-it-bracketed-spans" {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const plugin: any;
+  export default plugin;
+}

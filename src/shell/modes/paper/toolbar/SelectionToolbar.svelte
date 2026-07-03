@@ -6,6 +6,7 @@
   import {
     insertLink,
     setHeading,
+    setTextColor,
     toggleBulletList,
     toggleQuote,
     toggleWrap,
@@ -25,6 +26,24 @@
     { name: "listBullet", title: "Bullet list", run: toggleBulletList },
   ];
 
+  // Flexoki 600s — the text-grade inks tokens.css already uses on the cream
+  // paper, and equally legible on the white journal page in Preview/exports.
+  const SPAN_COLORS = [
+    { name: "Red", hex: "#af3029" },
+    { name: "Orange", hex: "#bc5215" },
+    { name: "Yellow", hex: "#ad8301" },
+    { name: "Green", hex: "#66800b" },
+    { name: "Cyan", hex: "#24837b" },
+    { name: "Blue", hex: "#205ea6" },
+    { name: "Purple", hex: "#5e409d" },
+    { name: "Magenta", hex: "#a02f6f" },
+  ];
+
+  let colorsOpen = $state(false);
+  $effect(() => {
+    if (!$bubble.visible) colorsOpen = false;
+  });
+
   function act(e: MouseEvent, run: Command) {
     e.preventDefault();
     e.stopPropagation();
@@ -42,6 +61,37 @@
         <Icon name={b.name} size={16} stroke={1.9} />
       </button>
     {/each}
+    <button
+      class="bbtn"
+      class:open={colorsOpen}
+      title="Text color"
+      onmousedown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        colorsOpen = !colorsOpen;
+      }}>
+      <Icon name="textColor" size={16} stroke={1.9} />
+    </button>
+    {#if colorsOpen}
+      <span class="bsep"></span>
+      {#each SPAN_COLORS as c (c.hex)}
+        <button
+          class="swatch"
+          title={c.name}
+          style="--swatch:{c.hex}"
+          onmousedown={(e) => {
+            act(e, setTextColor(c.hex));
+            colorsOpen = false;
+          }}></button>
+      {/each}
+      <button
+        class="swatch clear"
+        title="Clear color"
+        onmousedown={(e) => {
+          act(e, setTextColor(null));
+          colorsOpen = false;
+        }}></button>
+    {/if}
     {#if onComment}
       <span class="bsep"></span>
       <button
@@ -88,6 +138,40 @@
   .bbtn:hover {
     background: var(--c-ui-hover);
     color: var(--c-tx-hi);
+  }
+  .bbtn.open {
+    background: var(--c-ui-active);
+    color: var(--c-tx-hi);
+  }
+  .swatch {
+    width: 16px;
+    height: 16px;
+    align-self: center;
+    margin: 0 2px;
+    padding: 0;
+    border: 1px solid var(--c-line-strong);
+    border-radius: 50%;
+    background: var(--swatch);
+    cursor: pointer;
+    transition: transform var(--dur-instant) var(--ease-standard);
+  }
+  .swatch:hover {
+    transform: scale(1.2);
+    border-color: var(--c-tx-2);
+  }
+  .swatch.clear {
+    position: relative;
+    background: transparent;
+  }
+  .swatch.clear::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    top: 50%;
+    height: 1.5px;
+    background: var(--c-danger);
+    transform: rotate(-45deg);
   }
   .bsep {
     width: 1px;

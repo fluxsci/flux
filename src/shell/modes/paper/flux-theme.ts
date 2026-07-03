@@ -107,6 +107,13 @@ export const fluxTheme = EditorView.theme(
       textUnderlineOffset: "2px",
       cursor: "pointer",
     },
+    /* A color span parses as a shortcut link, so the highlighter's link tag
+       (accent + underline) lands on inner spans — the span's own inline color
+       must win inside. */
+    ".cm-flux-colorspan span": {
+      color: "inherit",
+      textDecoration: "none",
+    },
     ".cm-flux-quote": {
       borderLeft: "2px solid var(--c-accent-tint)",
       paddingLeft: "0.9em",

@@ -24,3 +24,6 @@ fluxplot/
 
 # TypeScript incremental build info (from `tsc -p` on composite configs)
 *.tsbuildinfo
+
+# Screenshot artifacts from scripts/verify-*.mjs runs
+test-results/

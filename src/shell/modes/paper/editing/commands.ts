@@ -60,6 +60,65 @@ export function toggleWrap(mark: string): Command {
   };
 }
 
+// Text color uses the Pandoc/Quarto span `[text]{style="color: #hex"}` — the
+// same shape the live-preview colorizes in place and the renderer emits as a
+// real <span>, so editor, Preview and exports all agree on one markup.
+const COLOR_TAIL_RE = /^\]\{style="color:\s*([^"}]*?)\s*"\}/;
+const COLOR_SPAN_RE = /^\[([\s\S]+)\]\{style="color:\s*([^"}]*?)\s*"\}$/;
+const colorTail = (color: string) => `]{style="color: ${color}"}`;
+
+/** Set (or, with `null` / the span's current color, clear) the selection's
+ *  text color. Retints in place when the selection is an existing span's inner
+ *  text or covers a whole span; otherwise wraps the selection. */
+export function setTextColor(color: string | null): Command {
+  return (view) => {
+    const { state } = view;
+    const tr = state.changeByRange((range) => {
+      const sel = state.sliceDoc(range.from, range.to);
+
+      // Selection is the inner text of an existing span → retint / unwrap.
+      const before = state.sliceDoc(range.from - 1, range.from);
+      const tail = COLOR_TAIL_RE.exec(state.sliceDoc(range.to, range.to + 48));
+      if (before === "[" && tail) {
+        if (color === null || color === tail[1]) {
+          return {
+            changes: [
+              { from: range.from - 1, to: range.from },
+              { from: range.to, to: range.to + tail[0].length },
+            ],
+            range: EditorSelection.range(range.from - 1, range.to - 1),
+          };
+        }
+        return {
+          changes: { from: range.to, to: range.to + tail[0].length, insert: colorTail(color) },
+          range: EditorSelection.range(range.from, range.to),
+        };
+      }
+
+      // Selection covers a whole span → retint / unwrap.
+      const cover = COLOR_SPAN_RE.exec(sel);
+      if (cover) {
+        const inner = cover[1];
+        const insert = color === null || color === cover[2] ? inner : `[${inner}${colorTail(color)}`;
+        return {
+          changes: { from: range.from, to: range.to, insert },
+          range: EditorSelection.range(range.from, range.from + insert.length),
+        };
+      }
+
+      // Plain text → wrap (selecting the inner text so a follow-up click retints).
+      if (color === null || !sel) return { range };
+      return {
+        changes: { from: range.from, to: range.to, insert: `[${sel}${colorTail(color)}` },
+        range: EditorSelection.range(range.from + 1, range.from + 1 + sel.length),
+      };
+    });
+    if (!tr.changes.empty) view.dispatch({ ...tr, scrollIntoView: true, userEvent: "input.format" });
+    view.focus();
+    return true;
+  };
+}
+
 /** Apply a per-line prefix toggle (headings, quote, lists) across the selection. */
 function eachSelectedLine(
   view: EditorView,
