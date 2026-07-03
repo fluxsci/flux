@@ -85,7 +85,7 @@ export class CiteWidget extends WidgetType {
     el.textContent = this.display;
     el.title = this.resolved ? "Double-click to edit this citation" : "Unresolved citation — double-click to edit"; // PAP-22
     // Single click → caret placement (handled by CodeMirror); the caret lands at
-    // the citation's edge, where `citationGroupAt` still matches, so alt-f opens
+    // the citation's edge, where `citationGroupAt` still matches, so Alt+C opens
     // edit mode for it. Double-click triggers the chip action.
     el.addEventListener("dblclick", (e) => {
       e.preventDefault();

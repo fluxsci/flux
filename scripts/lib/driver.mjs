@@ -10,15 +10,18 @@
 //   console.log(JSON.stringify({ errs: errors(page) }, null, 2));
 //   await browser.close();
 //
-// Screenshot dir defaults to the session scratchpad; override with FLUX_OUT.
+// Screenshot dir defaults to test-results/out in the repo (created on demand);
+// override with FLUX_OUT (e.g. a session scratchpad).
 
+import { mkdirSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 
 export const CHROME = process.env.FLUX_CHROME || "/usr/bin/google-chrome";
 export const APP_URL = process.env.FLUX_URL || "http://127.0.0.1:1420/";
-export const OUT =
-  process.env.FLUX_OUT ||
-  "/tmp/claude-1329238735/-home-driessen2-flux/e94eddd8-b1a7-4307-9148-adb4ab3daba6/scratchpad/out";
+export const OUT = process.env.FLUX_OUT || "test-results/out";
+try {
+  mkdirSync(OUT, { recursive: true });
+} catch {}
 
 const _errs = new WeakMap();
 

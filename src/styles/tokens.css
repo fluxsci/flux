@@ -32,6 +32,13 @@
   --flx-blue-400: #4385be;
   --flx-blue-500: #3171b2;
   --flx-blue-600: #205ea6;
+  /* text-grade 600 tones (legible on cream) — the dynamic panes' outlines */
+  --flx-cyan-600:    #24837b;
+  --flx-olive-600:   #66800b;
+  --flx-magenta-600: #a02f6f;
+  --flx-orange-600:  #bc5215;
+  --flx-purple-600:  #5e409d;
+  --flx-yellow-600:  #ad8301;
 
   /* ---- Semantic surfaces ------------------------------------------------ */
   --c-bg:        var(--flx-black);      /* app background           */

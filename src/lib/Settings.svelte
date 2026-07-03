@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
-  import { settings, settingsOpen, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim } from "./settings";
+  import { settings, settingsOpen, type Settings, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim } from "./settings";
 
   const sizes: { v: FluxFigMenuSize; l: string }[] = [
     { v: "sm", l: "Small" },
@@ -16,6 +16,13 @@
   const anims: { v: FluxFigMenuAnim; l: string }[] = [
     { v: "draw", l: "Draw-in" },
     { v: "fade", l: "Quick fade" },
+  ];
+  const marginScenes: { v: Settings["paperMarginScene"]; l: string }[] = [
+    { v: "harmonograph", l: "Harmonograph" },
+    { v: "neurons", l: "Neurons" },
+    { v: "inkwind", l: "Ink wind" },
+    { v: "loom", l: "Loom" },
+    { v: "vines", l: "Vines" },
   ];
 </script>
 
@@ -91,6 +98,34 @@
         Snap to pixel (round coords on commit — crisp export)
       </label>
 
+      <h3>Paper — dynamic margin background</h3>
+      <div class="seg scenes">
+        {#each marginScenes as m}
+          <button class:on={$settings.paperMarginScene === m.v} on:click={() => settings.update((v) => ({ ...v, paperMarginScene: m.v }))}>{m.l}</button>
+        {/each}
+      </div>
+
+      <h3>Paper — dynamic panes</h3>
+      <label class="chk num">
+        Max panes open at once
+        <input
+          type="number"
+          min="1"
+          max="6"
+          step="1"
+          value={$settings.paperMaxMarginPanes}
+          on:change={(e) => settings.update((v) => ({ ...v, paperMaxMarginPanes: Math.min(6, Math.max(1, Math.round(parseFloat(e.currentTarget.value) || 4))) }))}
+        />
+      </label>
+      <label class="chk">
+        <input
+          type="checkbox"
+          checked={$settings.paperCleanMargin}
+          on:change={(e) => settings.update((v) => ({ ...v, paperCleanMargin: e.currentTarget.checked }))}
+        />
+        Clean dynamic margin — close all panes when focus returns to the editor
+      </label>
+
       <p class="tip">Open the FluxFig Menu with <b>F</b> while objects are selected.</p>
       <button class="close" on:click={() => settingsOpen.set(false)}>Done</button>
     </div>
@@ -147,6 +182,14 @@
     background: var(--c-accent);
     border-color: var(--c-accent);
     color: var(--c-on-accent);
+  }
+  .seg.scenes {
+    flex-wrap: wrap;
+  }
+  .seg.scenes button {
+    flex: 1 1 30%;
+    font-size: 12px;
+    padding: 6px 4px;
   }
   input[type="range"] {
     width: 100%;

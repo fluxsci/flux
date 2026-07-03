@@ -8,18 +8,88 @@
   const figures = $derived(host.figures);
   const current = $derived(figures.find((f) => f.id === selId) ?? figures[0]);
   const svg = $derived(current ? renderFigureSvg(current.id) : undefined);
+
+  // Zoom/pan on the selected figure (wheel = zoom toward the cursor, drag =
+  // pan, double-click = reset) — pure transforms on the stage content, no
+  // layout. Same exp-zoom pattern as SlideStage.
+  const ZOOM_MIN = 0.25;
+  const ZOOM_MAX = 8;
+  let zoom = $state(1);
+  let panX = $state(0);
+  let panY = $state(0);
+  let stageEl = $state<HTMLDivElement | undefined>(undefined);
+  let dragging = $state(false);
+  let drag: { px: number; py: number; x0: number; y0: number } | null = null;
+
+  // A new figure gets a fresh view — the previous crop rarely fits it.
+  $effect(() => {
+    void current?.id;
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+  });
+
+  function onWheel(e: WheelEvent) {
+    e.preventDefault();
+    const r = stageEl?.getBoundingClientRect();
+    if (!r) return;
+    const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * Math.exp(-e.deltaY * 0.0015)));
+    // Keep the content point under the cursor fixed while the scale changes.
+    const cx = (e.clientX - r.left - panX) / zoom;
+    const cy = (e.clientY - r.top - panY) / zoom;
+    panX = e.clientX - r.left - cx * z;
+    panY = e.clientY - r.top - cy * z;
+    zoom = z;
+  }
+  function onPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    drag = { px: panX, py: panY, x0: e.clientX, y0: e.clientY };
+    dragging = true;
+  }
+  function onPointerMove(e: PointerEvent) {
+    if (!drag) return;
+    panX = drag.px + (e.clientX - drag.x0);
+    panY = drag.py + (e.clientY - drag.y0);
+  }
+  function onPointerUp() {
+    drag = null;
+    dragging = false;
+  }
+  function resetView() {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+  }
 </script>
 
 <div class="fv">
   {#if figures.length === 0}
     <p class="empty">No figures in this project yet.</p>
   {:else}
-    <div class="stage">
-      {#if svg}
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-        {@html svg}
-      {:else}
-        <div class="noprev">No preview</div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="stage"
+      class:dragging
+      bind:this={stageEl}
+      onwheel={onWheel}
+      onpointerdown={onPointerDown}
+      onpointermove={onPointerMove}
+      onpointerup={onPointerUp}
+      onpointercancel={onPointerUp}
+      ondblclick={resetView}>
+      <div class="zoomer" style="transform: translate3d({panX}px, {panY}px, 0) scale({zoom})">
+        {#if svg}
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+          {@html svg}
+        {:else}
+          <div class="noprev">No preview</div>
+        {/if}
+      </div>
+      {#if zoom !== 1 || panX !== 0 || panY !== 0}
+        <button class="zreset" onclick={resetView} title="Reset view (double-click)">
+          {Math.round(zoom * 100)}%
+        </button>
       {/if}
     </div>
     {#if current}
@@ -63,19 +133,53 @@
     text-align: center;
   }
   .stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 160px;
     background: var(--flx-paper);
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-2);
-    padding: var(--sp-4);
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+  }
+  .stage.dragging {
+    cursor: grabbing;
+  }
+  .zoomer {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 180px;
+    padding: var(--sp-4);
+    transform-origin: 0 0;
+    will-change: transform;
   }
   .stage :global(svg) {
     max-width: 100%;
-    max-height: 320px;
+    max-height: 100%;
     height: auto;
+    pointer-events: none;
+    user-select: none;
+  }
+  .zreset {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    font-variant-numeric: tabular-nums;
+    padding: 2px 8px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-pill);
+    background: color-mix(in oklab, var(--flx-paper) 82%, transparent);
+    color: var(--c-tx-muted);
+    cursor: pointer;
+  }
+  .zreset:hover {
+    color: var(--c-tx-hi);
+    border-color: var(--c-accent);
   }
   .noprev {
     color: var(--c-tx-faint);

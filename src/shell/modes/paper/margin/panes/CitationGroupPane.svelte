@@ -111,11 +111,8 @@
 <div class="cgp">
   <div class="head">
     <span class="title">
-      {members.length
-        ? `Citation group · ${members.length} ref${members.length === 1 ? "" : "s"}`
-        : "New citation"}
+      {members.length ? `${members.length} ref${members.length === 1 ? "" : "s"} at cursor` : "New citation"}
     </span>
-    <button class="x" onclick={() => margin.closePane()} aria-label="Close">✕</button>
   </div>
 
   <input
@@ -182,20 +179,8 @@
     align-items: center;
   }
   .title {
-    font-family: var(--font-serif);
-    font-style: italic;
-    font-size: var(--ts-md);
-    color: var(--c-accent-bright);
-  }
-  .x {
-    background: none;
-    border: none;
-    color: var(--c-tx-faint);
-    cursor: pointer;
-    font-size: var(--ts-sm);
-  }
-  .x:hover {
-    color: var(--c-tx-hi);
+    font-size: var(--ts-xs);
+    color: var(--c-tx-muted);
   }
   input {
     width: 100%;

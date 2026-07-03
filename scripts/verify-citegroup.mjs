@@ -145,9 +145,8 @@ if (chipBox) {
 await page.keyboard.press("Escape");
 await sleep(200);
 const cardOk = await page.evaluate(async () => {
-  // Switch the margin to References; caret is already inside the [@refc; @refd] group.
-  const btn = [...document.querySelectorAll("button")].find((b) => b.title?.includes("References"));
-  btn?.click();
+  // Summon the References pane; caret is already inside the [@refc; @refd] group.
+  window.__fluxMargin.summon("bibliography");
   await new Promise((r) => setTimeout(r, 300));
   const chips = [...document.querySelectorAll(".grpcard .gchip")].map((e) => e.textContent ?? "");
   return chips.length === 2 && chips[0].includes("Authorc");

@@ -105,7 +105,7 @@
     <div class="grpcard">
       <div class="grphead">
         <span>At cursor · {group.keys.length} ref{group.keys.length === 1 ? "" : "s"}</span>
-        <button class="grpedit" onclick={() => margin.openPane("citation-group")}>Edit… <kbd>Alt+C</kbd></button>
+        <button class="grpedit" onclick={() => margin.summon("citation-group")}>Edit… <kbd>Alt+C</kbd></button>
       </div>
       <div class="grpchips">
         {#each group.keys as key (key)}
@@ -121,7 +121,7 @@
     </div>
   {/if}
 
-  <button class="search" onclick={() => margin.openPane("reference-search")}>Search references…</button>
+  <button class="search" onclick={() => margin.summon("reference-search")}>Search references…</button>
 
   <div class="adddoi" class:failed>
     <input

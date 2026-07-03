@@ -11,9 +11,10 @@
     termInfo,
   } from "../terminalSession";
 
-  // The margin chrome (Omnibox + ViewRail) already wraps every view, so this is
-  // content-only: a slim context bar plus the xterm mount. The shell itself is
-  // owned by terminalSession (module scope) so it survives view switches.
+  // The pane frame provides the chrome, so this is content-only: a slim
+  // context bar plus the xterm mount. The shell itself is owned by
+  // terminalSession (module scope) so it survives pane close/reopen; the
+  // ResizeObserver refits it whenever the pane stack re-splits the height.
   let mountEl = $state<HTMLDivElement | undefined>(undefined);
   let ro: ResizeObserver | undefined;
   const available = isAvailable();

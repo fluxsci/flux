@@ -1,7 +1,8 @@
-// The Dynamic Margin's shared contract (Redesign v2). PaperMode builds a single
-// getter-backed `MarginHost` (stable identity, reactive field reads) and passes
-// it down; DynamicMargin owns the `MarginApi` (active view / pane stack). Views
-// and panes are declared in a registry so adding one later is a single entry.
+// The Dynamic Margin's shared contract. PaperMode builds a single getter-backed
+// `MarginHost` (stable identity, reactive field reads) and passes it down; the
+// pane stack itself lives in marginPanes.ts (module-scope stores, summonable
+// from anywhere). Every surface is a "dynamic pane" declared in registry.ts —
+// adding one later is a single entry.
 
 import type { Component } from "svelte";
 import type { EditorView } from "@codemirror/view";
@@ -54,31 +55,25 @@ export interface MarginHost {
   openFigure: (id: string) => void;
 }
 
+/** Per-pane-instance API handed to pane components: `closePane` closes THAT
+ *  pane (the frame binds it); `summon` opens-or-focuses any other pane. */
 export interface MarginApi {
-  readonly activeView: string;
-  setView: (id: string) => void;
-  openPane: (id: string, opts?: { initialQuery?: string }) => void;
+  summon: (id: string, opts?: { initialQuery?: string }) => void;
   closePane: () => void;
-}
-
-export interface ViewDescriptor {
-  id: string;
-  title: string;
-  icon: string;
-  keywords?: string;
-  enabled?: boolean;
-  badge?: (host: MarginHost) => string | number | null;
-  // Heterogeneous registry: each view reads the props it needs (host/margin),
-  // some none — so the stored type is permissive while each component stays
-  // strongly typed at its own definition.
-  component: Component<any>;
 }
 
 export interface PaneDescriptor {
   id: string;
   title: string;
-  keywords?: string;
-  /** True when a typed omnibox query should auto-route to this pane. */
-  matchQuery?: (q: string) => boolean;
+  /** The pane's outline/legend color (a `--flx-*-600` token, text-grade on cream). */
+  color: string;
+  /** Shown in ⌘K hints; the binding itself lives in PaperMode's keydown ladder. */
+  hotkey?: string;
+  badge?: (host: MarginHost) => string | number | null;
+  /** Focus-if-open behavior override (default: first input/textarea, else the frame). */
+  focus?: () => void;
+  // Heterogeneous registry: each pane reads the props it needs (host/margin),
+  // some none — so the stored type is permissive while each component stays
+  // strongly typed at its own definition.
   component: Component<any>;
 }

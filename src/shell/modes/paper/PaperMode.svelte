@@ -52,6 +52,9 @@
   import type { FigureRef } from "./scholar/figures";
   import DynamicMargin from "./margin/DynamicMargin.svelte";
   import type { MarginHost } from "./margin/types";
+  import { summonPane, closeActivePane, closeAllPanes } from "./margin/marginPanes";
+  import { BG_SOURCES, rerollBgSeed } from "./margin/bgSources";
+  import { settings } from "../../../lib/settings";
   import * as terminalSession from "./margin/terminalSession";
   import { writeCiteGroup, removeCite as removeCiteOp, citationGroupAt } from "./scholar/citeOps";
   import PreviewPane from "./render/PreviewPane.svelte";
@@ -367,7 +370,7 @@
     if (added.length) await loadBib(root);
   }
 
-  // One materialization path for ALL citing routes (margin search, omnibox,
+  // One materialization path for ALL citing routes (reference-search pane,
   // @-autocomplete, hand-typed [@key]): any cited key that lives in FluxLib but not
   // yet in this project's subset gets materialized. Converges — once materialized the
   // key joins `references`, so the next run finds nothing to do.
@@ -468,7 +471,7 @@
     if (!view) return;
     const sel = view.state.selection.main;
     if (sel.empty) return;
-    openMarginView("comments");
+    summonPane("comments");
     const id = newId();
     const doc = view.state.doc.toString();
     const anchor = makeAnchor(doc, sel.from, sel.to);
@@ -673,7 +676,7 @@
   // untwirled), or open its full-text PDF in FluxReader (split pane).
   function openRefFromHover(key: string) {
     hover = null;
-    openMarginView("bibliography");
+    summonPane("bibliography");
     requestRefReveal(key);
     view?.focus();
   }
@@ -694,14 +697,14 @@
         const pos = view.posAtDOM(el);
         view.dispatch({ selection: { anchor: pos } });
       }
-      openMarginPane("citation-group");
+      summonPane("citation-group");
     }
   }
 
   function editCitationAtCursor() {
     if (!view) return;
     const g = citationGroupAt(view.state, view.state.selection.main.head);
-    openMarginPane(g ? "citation-group" : "reference-search");
+    summonPane(g ? "citation-group" : "reference-search");
   }
 
   // Double-click anywhere on a citation (chip OR revealed raw text) opens the
@@ -723,7 +726,7 @@
         const g = citationGroupAt(v.state, pos);
         if (g) {
           v.dispatch({ selection: { anchor: g.from } });
-          openMarginPane("citation-group");
+          summonPane("citation-group");
           return true;
         }
       }
@@ -1163,26 +1166,21 @@
   });
 
   // ---- dynamic margin -----------------------------------------------------
-  let omniFocusN = $state(0);
-  let viewReq = $state<{ id: string; n: number }>({ id: "figure", n: 0 });
-  let paneReq = $state<{ id: string; n: number }>({ id: "", n: 0 });
+  // Pane summoning lives in margin/marginPanes.ts (summonPane opens the margin
+  // itself when needed); PaperMode only owns the show/hide toggle + resize.
   let workEl = $state<HTMLDivElement | undefined>(undefined);
   let dmDragging = $state(false);
 
-  function openMarginView(id: string) {
-    paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
-    viewReq = { id, n: viewReq.n + 1 };
-  }
-  function openMarginPane(id: string) {
-    paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
-    paneReq = { id, n: paneReq.n + 1 };
-  }
-  function focusMarginSearch() {
-    paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
-    omniFocusN += 1;
-  }
+  // Alt+D round-trip: hide returns focus to the editor only when focus was
+  // inside the margin; show never steals focus from where you're typing.
   function toggleMargin() {
-    paperLayout.update((s) => ({ ...s, dynMarginOpen: !s.dynMarginOpen }));
+    if (get(paperLayout).dynMarginOpen) {
+      const inside = !!document.activeElement?.closest(".dynmargin");
+      paperLayout.update((s) => ({ ...s, dynMarginOpen: false }));
+      if (inside) view?.focus();
+    } else {
+      paperLayout.update((s) => ({ ...s, dynMarginOpen: true }));
+    }
   }
   function startDmDrag(e: PointerEvent) {
     dmDragging = true;
@@ -1312,17 +1310,28 @@
       keywords: "outline toc headings sections documents sidebar left panel",
       run: toggleOutliner,
     },
-    { id: "toggle-margin", title: $paperLayout.dynMarginOpen ? "Hide dynamic margin" : "Show dynamic margin", hint: "Alt+F", keywords: "panel margin sidebar", run: toggleMargin },
-    { id: "margin-search", title: "Search references…", hint: "Margin", keywords: "find cite reference bibliography", run: focusMarginSearch },
+    { id: "toggle-margin", title: $paperLayout.dynMarginOpen ? "Hide dynamic margin" : "Show dynamic margin", hint: "Alt+D", keywords: "panel margin sidebar dynamic", run: toggleMargin },
+    { id: "margin-search", title: "Search references…", hint: "Alt+R", keywords: "find cite reference bibliography", run: () => summonPane("reference-search") },
     { id: "edit-citation", title: "Edit citation at cursor", hint: "Alt+C", keywords: "citation group edit references multi cite", run: editCitationAtCursor },
-    { id: "margin-references", title: "References", hint: "Margin", keywords: "bibliography citations library", run: () => openMarginView("bibliography") },
+    { id: "margin-citation-group", title: "Citation group", hint: "Margin", keywords: "edit citation group cite references multi", run: () => summonPane("citation-group") },
+    { id: "margin-references", title: "References", hint: "Margin", keywords: "bibliography citations library", run: () => summonPane("bibliography") },
     { id: "add-doi-library", title: "Add DOI to FluxLib", hint: "Reference", keywords: "doi reference library fluxlib add paper crossref import", run: () => openDoiPrompt("library") },
     { id: "add-doi-cite", title: "Add DOI & cite here", hint: "Reference", keywords: "doi cite citation reference insert crossref", run: () => openDoiPrompt("cite") },
-    { id: "margin-figures", title: "Figures", hint: "Margin", keywords: "image plot zoom panel", run: () => openMarginView("figure") },
-    { id: "margin-comments", title: "Comments", hint: "Margin", keywords: "notes annotations review", run: () => openMarginView("comments") },
+    { id: "margin-figures", title: "Figures", hint: "Alt+F", keywords: "image plot zoom panel", run: () => summonPane("figure") },
+    { id: "margin-comments", title: "Comments", hint: "Alt+A", keywords: "notes annotations review", run: () => summonPane("comments") },
     { id: "comment-selection", title: "Comment on selection", hint: "⌘⌥M", keywords: "annotate note review remark", run: startComment },
-    { id: "margin-stats", title: "Statistics", hint: "Margin", keywords: "word count length", run: () => openMarginView("stats") },
-    { id: "margin-terminal", title: "Terminal", hint: "Ctrl+`", keywords: "shell console command cli bash zsh run", run: () => openMarginView("terminal") },
+    { id: "margin-stats", title: "Statistics", hint: "Margin", keywords: "word count length", run: () => summonPane("stats") },
+    { id: "margin-terminal", title: "Terminal", hint: "Alt+T", keywords: "shell console command cli bash zsh run", run: () => summonPane("terminal") },
+    { id: "margin-close-pane", title: "Close margin pane", hint: "Alt+P", keywords: "dynamic pane close dismiss", run: () => { if (closeActivePane()) view?.focus(); } },
+    { id: "margin-close-all", title: "Clear dynamic margin", hint: "⌃Alt+P", keywords: "close all panes clear margin dismiss", run: () => { if (closeAllPanes()) view?.focus(); } },
+    ...BG_SOURCES.map((s) => ({
+      id: `margin-bg-${s.id}`,
+      title: `Background: ${s.label}`,
+      hint: "Margin",
+      keywords: "dynamic background ambient art scene switch",
+      run: () => settings.update((v) => ({ ...v, paperMarginScene: s.id as never })),
+    })),
+    { id: "margin-bg-seed", title: "New background seed", hint: "Margin", keywords: "dynamic background reroll shuffle random art", run: rerollBgSeed },
     { id: "fold-section", title: "Fold section", hint: "⌃⇧[", keywords: "collapse heading hide section fold", run: () => { if (view) { foldSection(view); view.focus(); } } },
     { id: "unfold-section", title: "Unfold section", hint: "⌃⇧]", keywords: "expand heading show section unfold", run: () => { if (view) { unfoldSection(view); view.focus(); } } },
     { id: "fold-all", title: "Fold all sections", hint: "Fold", keywords: "collapse everything outline overview", run: () => { if (view) { foldAll(view); view.focus(); } } },
@@ -1346,23 +1355,33 @@
       } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyO") {
         e.preventDefault();
         toggleOutliner();
+      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyD") {
+        e.preventDefault();
+        toggleMargin();
       } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyF") {
         e.preventDefault();
-        // A true round-trip, matching the close button's "(Alt+F)" tooltip:
-        // from the editor it opens the margin and focuses its search; pressed
-        // again while focus is IN the margin it closes it and hands focus back.
-        if (get(paperLayout).dynMarginOpen && document.activeElement?.closest(".dynmargin")) {
-          paperLayout.update((s) => ({ ...s, dynMarginOpen: false }));
-          view?.focus();
-        } else {
-          focusMarginSearch();
-        }
+        summonPane("figure");
+      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyR") {
+        e.preventDefault();
+        summonPane("reference-search");
+      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyT") {
+        e.preventDefault();
+        summonPane("terminal");
+      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyA") {
+        e.preventDefault();
+        summonPane("comments");
+      } else if (e.altKey && mod && !e.shiftKey && e.code === "KeyP") {
+        e.preventDefault();
+        if (closeAllPanes()) view?.focus();
+      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyP") {
+        e.preventDefault();
+        if (closeActivePane()) view?.focus();
       } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyC") {
         e.preventDefault();
         editCitationAtCursor();
       } else if (mod && !e.shiftKey && !e.altKey && e.code === "Backquote") {
         e.preventDefault();
-        openMarginView("terminal");
+        summonPane("terminal");
       } else if (mod && e.shiftKey && !e.altKey && e.code === "KeyE") {
         e.preventDefault();
         previewActive = !previewActive;
@@ -1431,7 +1450,7 @@
         {#if previewActive}
           <PreviewPane src={latest} paginated={viewMode === "paginated"} rev={figRefsRev} />
         {:else if !(bodyEmpty && !dismissedEmpty)}
-          <StatusBar words={statusWords} {status} onStats={() => openMarginView("stats")} />
+          <StatusBar words={statusWords} {status} onStats={() => summonPane("stats")} />
         {/if}
       {/if}
     </div>
@@ -1446,12 +1465,7 @@
           onpointerdown={startDmDrag}>
           <span class="bar"></span>
         </div>
-        <DynamicMargin
-          host={marginHost}
-          focusReq={omniFocusN}
-          {viewReq}
-          {paneReq}
-          onClose={() => paperLayout.update((s) => ({ ...s, dynMarginOpen: false }))} />
+        <DynamicMargin host={marginHost} />
       </div>
     {/if}
   </div>

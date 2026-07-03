@@ -16,6 +16,10 @@ export interface Settings {
   gridSize: number; // world units
   snapGrid: boolean; // snap moves/resizes to the grid
   snapPixel: boolean; // round committed coords to whole pixels (crisp export)
+  // Paper — the dynamic margin.
+  paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
+  paperMaxMarginPanes: number; // max dynamic panes open at once
+  paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
 }
 
 const KEY = "flux.settings";
@@ -30,6 +34,9 @@ const DEFAULTS: Settings = {
   gridSize: 8,
   snapGrid: false,
   snapPixel: false,
+  paperMarginScene: "harmonograph",
+  paperMaxMarginPanes: 4,
+  paperCleanMargin: false,
 };
 
 // Migrate legacy "forgery*" keys (the FluxFig Menu was formerly "The Forgery", M6)

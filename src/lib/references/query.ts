@@ -1,7 +1,7 @@
 // Structured reference-search query (`author:smith year:2020 journal:nature`)
 // over RefEntry[]. Pure + unit-testable; the single implementation behind the GUI
-// Reference Search pane, the omnibox auto-route, and the agent `search_references`
-// tool / `flux search` CLI verb — so all three share identical semantics.
+// Reference Search pane and the agent `search_references` tool / `flux search`
+// CLI verb — so all of them share identical semantics.
 import type { RefEntry, EnrichEntry } from "./types";
 
 export type Field = "author" | "year" | "journal" | "title" | "doi" | "abstract" | "keyword" | "topic" | "any";

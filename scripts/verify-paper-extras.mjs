@@ -2,10 +2,10 @@
 // Verifies: flux-ViM flavor (jj in insert mode → normal, and switching to
 // plain vim removes the mapping); the reference hover card never overflows
 // its own edge even with a long citekey, and its "References" pill opens the
-// bibliography view with the row untwirled; the pomodoro timer is gone from
-// the margin rail; Alt+O hides/shows the whole left panel; Alt+F round-trips
-// (editor → margin search focused → close + back to editor); the dynamic
-// margin can be dragged wider than the old 620px cap.
+// bibliography pane with the row untwirled; the pomodoro timer is gone from
+// the margin; Alt+D hides/shows the dynamic margin (never stealing focus from
+// the editor — the dynamic-margin contract); the margin can be dragged wider
+// than the old 620px cap.
 //   Run (dev server on :1420 must be up): node scripts/verify-paper-extras.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
 
@@ -188,32 +188,33 @@ await sleep(300);
 const leftBack = await page.evaluate(() => !!document.querySelector(".leftrail"));
 const altOOk = leftBefore && leftHidden && leftBack;
 
-// --- Alt+F round-trip: search focused → close + focus back in editor ------------
+// --- Alt+D round-trip: hide + show, editor keeps focus both ways -----------------
 await page.evaluate(() => window.__fluxView.focus());
+const altDBefore = await page.evaluate(() => !!document.querySelector(".dynmargin"));
 await page.keyboard.down("Alt");
-await page.keyboard.press("KeyF");
+await page.keyboard.press("KeyD");
 await page.keyboard.up("Alt");
 await sleep(350);
-const altFOpen = await page.evaluate(() => ({
-  margin: !!document.querySelector(".dynmargin"),
-  searchFocused: !!document.activeElement?.closest(".dynmargin"),
-}));
-await page.keyboard.down("Alt");
-await page.keyboard.press("KeyF");
-await page.keyboard.up("Alt");
-await sleep(350);
-const altFClosed = await page.evaluate(() => ({
+const altDClosed = await page.evaluate(() => ({
   margin: !!document.querySelector(".dynmargin"),
   editorFocused: !!document.activeElement?.closest(".cm-content"),
 }));
-const altFOk = altFOpen.margin && altFOpen.searchFocused && !altFClosed.margin && altFClosed.editorFocused;
-
-// --- margin drags wider than the old 620px cap -----------------------------------
-// Reopen the margin first (Alt+F closed it above).
 await page.keyboard.down("Alt");
-await page.keyboard.press("KeyF");
+await page.keyboard.press("KeyD");
 await page.keyboard.up("Alt");
 await sleep(350);
+const altDOpen = await page.evaluate(() => ({
+  margin: !!document.querySelector(".dynmargin"),
+  editorFocused: !!document.activeElement?.closest(".cm-content"),
+}));
+const altDOk =
+  altDBefore &&
+  !altDClosed.margin &&
+  altDClosed.editorFocused &&
+  altDOpen.margin &&
+  altDOpen.editorFocused;
+
+// --- margin drags wider than the old 620px cap -----------------------------------
 const grip = await page.evaluate(() => {
   const g = document.querySelector(".dm-grip");
   if (!g) return null;
@@ -252,7 +253,7 @@ const res = {
   pdfPillAbsent,
   revealOk,
   altOOk,
-  altFOk,
+  altDOk,
   dragOk,
 };
 console.log(JSON.stringify({ extras: res, errs }, null, 2));

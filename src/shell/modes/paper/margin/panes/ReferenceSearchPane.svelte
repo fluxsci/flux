@@ -95,11 +95,6 @@
 </script>
 
 <div class="rsp">
-  <div class="head">
-    <span class="title">Reference Search</span>
-    <button class="x" onclick={() => margin.closePane()} aria-label="Close">✕</button>
-  </div>
-
   <input
     bind:this={inputEl}
     bind:value={query}
@@ -172,27 +167,6 @@
     height: 100%;
     padding: var(--sp-3);
     gap: var(--sp-2);
-  }
-  .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .title {
-    font-family: var(--font-serif);
-    font-style: italic;
-    font-size: var(--ts-md);
-    color: var(--c-accent-bright);
-  }
-  .x {
-    background: none;
-    border: none;
-    color: var(--c-tx-faint);
-    cursor: pointer;
-    font-size: var(--ts-sm);
-  }
-  .x:hover {
-    color: var(--c-tx-hi);
   }
   input {
     width: 100%;

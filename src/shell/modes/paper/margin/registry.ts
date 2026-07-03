@@ -1,8 +1,11 @@
-// The Dynamic Margin's view + pane registry (Redesign v2). Adding a context view
-// or a conjurable pane is a single entry here. Views are mutually exclusive (the
-// ViewRail switches them); panes stack on top and pop on Escape.
+// The Dynamic Margin's pane registry. Every surface is a "dynamic pane" —
+// summoned by hotkey or ⌘K, stacked vertically in the margin, splitting its
+// height equally. Adding a pane is a single entry here (plus a hotkey branch
+// in PaperMode if it earns one). Colors are the pane's outline/legend ink,
+// matching the owner's color-coding: search blue, terminal green, comments
+// magenta, figures cyan.
 
-import type { ViewDescriptor, PaneDescriptor } from "./types";
+import type { PaneDescriptor } from "./types";
 import StatsView from "./views/StatsView.svelte";
 import FigureView from "./views/FigureView.svelte";
 import BibliographyView from "./views/BibliographyView.svelte";
@@ -10,83 +13,61 @@ import CommentsView from "./views/CommentsView.svelte";
 import TerminalView from "./views/TerminalView.svelte";
 import ReferenceSearchPane from "./panes/ReferenceSearchPane.svelte";
 import CitationGroupPane from "./panes/CitationGroupPane.svelte";
-import { isStructured } from "./panes/refQuery";
-
-export const VIEWS: ViewDescriptor[] = [
-  { id: "figure", title: "Figures", icon: "image", keywords: "figure plot zoom panel", component: FigureView },
-  {
-    id: "bibliography",
-    title: "References",
-    icon: "bookOpen",
-    keywords: "bibliography citations refs library",
-    badge: (h) => h.citedKeys.size || null,
-    component: BibliographyView,
-  },
-  {
-    id: "comments",
-    title: "Comments",
-    icon: "message",
-    keywords: "notes annotations review",
-    badge: (h) => h.comments.count || null,
-    component: CommentsView,
-  },
-  { id: "stats", title: "Statistics", icon: "hash", keywords: "word count stats length", component: StatsView },
-  {
-    id: "terminal",
-    title: "Terminal",
-    icon: "terminal",
-    keywords: "terminal shell console command cli bash zsh prompt run",
-    component: TerminalView,
-  },
-  // M13: the "Reference PDF" view was a disabled "Coming soon" stub — removed
-  // until it's a real feature (no dead/placeholder rail entries).
-];
+import { focus as focusTerminal } from "./terminalSession";
 
 export const PANES: PaneDescriptor[] = [
   {
     id: "reference-search",
     title: "Reference Search",
-    keywords: "search references cite insert",
-    matchQuery: (q) => isStructured(q),
+    color: "var(--flx-blue-600)",
+    hotkey: "Alt+R",
     component: ReferenceSearchPane,
+  },
+  {
+    id: "terminal",
+    title: "Terminal",
+    color: "var(--flx-olive-600)",
+    hotkey: "Alt+T",
+    focus: focusTerminal,
+    component: TerminalView,
+  },
+  {
+    id: "comments",
+    title: "Comments",
+    color: "var(--flx-magenta-600)",
+    hotkey: "Alt+A",
+    badge: (h) => h.comments.count || null,
+    component: CommentsView,
+  },
+  {
+    id: "figure",
+    title: "Figures",
+    color: "var(--flx-cyan-600)",
+    hotkey: "Alt+F",
+    component: FigureView,
+  },
+  {
+    id: "bibliography",
+    title: "References",
+    color: "var(--flx-purple-600)",
+    badge: (h) => h.citedKeys.size || null,
+    component: BibliographyView,
   },
   {
     id: "citation-group",
     title: "Citation Group",
-    keywords: "edit citation group cite references multi",
+    color: "var(--flx-orange-600)",
+    hotkey: "Alt+C",
     component: CitationGroupPane,
+  },
+  {
+    id: "stats",
+    title: "Statistics",
+    color: "var(--flx-yellow-600)",
+    component: StatsView,
   },
 ];
 
-export function viewById(id: string): ViewDescriptor | undefined {
-  return VIEWS.find((v) => v.id === id);
-}
 export function paneById(id: string): PaneDescriptor | undefined {
   return PANES.find((p) => p.id === id);
-}
-
-export interface Launchable {
-  kind: "view" | "pane";
-  id: string;
-  title: string;
-}
-
-export function searchLaunchables(q: string): Launchable[] {
-  const t = q.trim().toLowerCase();
-  const rows = [
-    ...VIEWS.filter((v) => v.enabled !== false).map((v) => ({
-      kind: "view" as const,
-      id: v.id,
-      title: v.title,
-      kw: v.keywords ?? "",
-    })),
-    ...PANES.map((p) => ({ kind: "pane" as const, id: p.id, title: p.title, kw: p.keywords ?? "" })),
-  ];
-  return rows
-    .filter((x) => !t || `${x.title} ${x.kw}`.toLowerCase().includes(t))
-    .map(({ kind, id, title }) => ({ kind, id, title }));
-}
-
-export function routePaneForQuery(q: string): PaneDescriptor | undefined {
-  return PANES.find((p) => p.matchQuery?.(q));
 }
