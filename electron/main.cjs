@@ -1503,6 +1503,34 @@ function reapPtys(pred) {
   }
 }
 
+// R3 (FluxReader "Ask Claude"): how a `claude` session should launch the flux MCP
+// server for the open project. The renderer embeds this in `claude --mcp-config`;
+// claude then spawns the server itself (cwd = its own, so every path here must be
+// absolute). Dev: the repo's tsx bin runs flux-mcp.ts. Packaged: a bundled
+// dist/flux-mcp.mjs (asar-unpacked, like flux-cli.mjs) on Electron-as-Node.
+ipcMain.handle("agent:mcpSpec", () => {
+  const appRoot = path.resolve(__dirname, "..");
+  const projectRoot = currentRoot && fs.existsSync(currentRoot) ? currentRoot : app.getPath("home");
+  const bundled = app.isPackaged
+    ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "flux-mcp.mjs")
+    : path.join(appRoot, "dist", "flux-mcp.mjs");
+  if (fs.existsSync(bundled)) {
+    return {
+      ok: true,
+      projectRoot,
+      command: process.execPath,
+      args: [bundled, projectRoot],
+      env: { ELECTRON_RUN_AS_NODE: "1" },
+    };
+  }
+  const tsxBin = path.join(appRoot, "node_modules", ".bin", "tsx");
+  const entry = path.join(appRoot, "flux-mcp.ts");
+  if (!app.isPackaged && fs.existsSync(tsxBin) && fs.existsSync(entry)) {
+    return { ok: true, projectRoot, command: tsxBin, args: [entry, projectRoot] };
+  }
+  return { ok: false, projectRoot };
+});
+
 ipcMain.handle("pty:create", (e, opts = {}) => {
   if (!nodePty) return { ok: false, error: "Terminal backend unavailable (node-pty not loaded)." };
   const wc = e.sender;

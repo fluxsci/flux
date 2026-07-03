@@ -1,9 +1,14 @@
 <script lang="ts">
   // The FluxReader agent drawer — a bottom panel running Claude Code (`claude`) in an
-  // xterm, spawned via the pty bridge (electron/main.cjs pty:create, extended to accept
-  // a command). It runs in the open PROJECT root so the flux MCP server is available, so
-  // the agent can call get_reading_context / get_paper_text / search_annotations to SEE
-  // the paper the human is reading (written to ~/FluxLib/.fluxlib/reader-context.json).
+  // xterm, spawned via the pty bridge (electron/main.cjs pty:create) in the open
+  // PROJECT root. R3 makes the session actually SEE the paper: it launches with
+  // `--mcp-config` registering the flux MCP server (agent:mcpSpec resolves the
+  // absolute command — projects don't carry a .mcp.json), pre-allows those tools,
+  // and opens with an initial prompt naming the paper + telling it to call
+  // get_reading_context (live page/selection/highlights; falls back to reading
+  // ~/FluxLib/.fluxlib/reader-context.json directly when no MCP spec resolves).
+  // ask(text) prefills a question into the session (popover "Ask Claude", ✦ on the
+  // selection menu) — typed, not submitted, so the human finishes the thought.
   // Self-contained (its own xterm + pty) so it's independent of the Paper module's
   // singleton terminal. With no desktop bridge it shows a notice.
   import { onMount, onDestroy } from "svelte";
@@ -12,7 +17,13 @@
   import "@xterm/xterm/css/xterm.css";
   import { fileBridge } from "../../../lib/project/types";
 
-  let { onClose }: { onClose?: () => void } = $props();
+  let {
+    paper = null,
+    onClose,
+  }: {
+    paper?: { citekey: string; title?: string } | null;
+    onClose?: () => void;
+  } = $props();
 
   // SHL-16: the PTY bridge is typed centrally on FileBridge (TermBridge); reach it through
   // fileBridge() rather than an ad-hoc window cast.
@@ -37,11 +48,47 @@
     }
   };
 
+  // Questions injected before claude is ready queue up and flush shortly after boot
+  // (the TUI needs a beat before it accepts input).
+  const pendingAsks: string[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  function flushAsks() {
+    const br = bridge();
+    if (!ptyId || !br) return;
+    while (pendingAsks.length) br.write(ptyId, pendingAsks.shift()!);
+    term?.focus();
+  }
+  /** Prefill a question into the running session (no submit — the human finishes it). */
+  export function ask(text: string) {
+    const t = text.replace(/\s+/g, " ").trim();
+    if (!t) return;
+    pendingAsks.push(t + " ");
+    if (status === "running") flushAsks();
+  }
+
+  function initialPrompt(hasMcp: boolean): string {
+    const t = paper?.title ? `“${paper.title}”` : "a paper";
+    const k = paper?.citekey ? ` (citekey: ${paper.citekey})` : "";
+    return hasMcp
+      ? `I'm reading ${t}${k} in FluxReader. First call the flux MCP tool get_reading_context to see my live page, selection, and highlights (get_paper_text returns the full text; search_annotations finds my notes). Confirm in one line which paper you can see, then wait for my question.`
+      : `I'm reading ${t}${k} in FluxReader. My live reading context (page, selection, highlights, pdfPath) is the JSON at ~/FluxLib/.fluxlib/reader-context.json — read it first, confirm in one line which paper you can see, then wait for my question.`;
+  }
+
   async function boot() {
     const br = bridge();
     if (!term || !br) return;
     status = "connecting";
-    const res = await br.create({ command: "claude", cols: term.cols, rows: term.rows });
+    // Register the flux MCP server (projects have no .mcp.json) + pre-allow its tools
+    // so get_reading_context runs without a permission prompt.
+    const spec = await fileBridge()?.agentMcpSpec?.()?.catch(() => undefined);
+    const args: string[] = [];
+    if (spec?.ok && spec.command) {
+      const server: Record<string, unknown> = { command: spec.command, args: spec.args ?? [] };
+      if (spec.env) server.env = spec.env;
+      args.push("--mcp-config", JSON.stringify({ mcpServers: { flux: server } }), "--allowedTools", "mcp__flux");
+    }
+    args.push(initialPrompt(!!spec?.ok));
+    const res = await br.create({ command: "claude", args, cols: term.cols, rows: term.rows });
     if (res.ok) {
       ptyId = res.id;
       info = { cwd: res.cwd, pid: res.pid };
@@ -53,6 +100,8 @@
         /* not laid out */
       }
       term.focus();
+      clearTimeout(flushTimer);
+      flushTimer = setTimeout(flushAsks, 1800); // let the TUI paint its input box first
     } else {
       status = "exited";
       term.write(`\r\n\x1b[31m${res.error}\x1b[0m\r\n\x1b[90mIs \`claude\` (Claude Code) installed and on your PATH?\x1b[0m\r\n`);
@@ -120,6 +169,7 @@
   });
 
   onDestroy(() => {
+    clearTimeout(flushTimer);
     ro?.disconnect();
     offData?.();
     offExit?.();

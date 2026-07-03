@@ -4,7 +4,7 @@
   // flanked by a reference sidebar (the paper's OpenAlex referenced_works → add to
   // FluxLib) and an annotations panel (this paper's highlights → click to scroll,
   // delete). Highlights persist to items/<citekey>/annotations.json.
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { readerKey } from "./readerStore";
   import { fluxLibRevision } from "../../../lib/references/revision";
   import { readerPdfBytes, readerSource, writeReaderContext, clearReaderContext } from "../../../lib/references/itemsBridge";
@@ -111,9 +111,19 @@
 
   // Agent drawer (Claude Code) + the human's live text selection (pushed to the agent).
   let agentOpen = $state(false);
+  let agentDrawer = $state<AgentDrawer | undefined>();
   let selection = $state("");
   let selPage = $state<number | undefined>(undefined);
   let ctxTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // R3: open the drawer (if needed) and prefill a question about a passage. The quote
+  // grounds the agent; the live context file / MCP tools carry the full state.
+  async function askAgent(prefix: string, quote: string) {
+    agentOpen = true;
+    await tick(); // mount the drawer before asking (it queues until claude is ready)
+    const q = quote.length > 220 ? quote.slice(0, 220) + "…" : quote;
+    agentDrawer?.ask(`${prefix} "${q}" —`);
+  }
 
   // Highlight popover (click a highlight on the page, or ✎ on a sidebar row).
   let popover = $state<{ id: string; x: number; y: number; place: "above" | "below" } | null>(null);
@@ -227,8 +237,8 @@
     navigator.clipboard?.writeText(a.anchor.quote).catch(() => {});
   }
   function askClaudeAbout(a: Annotation) {
-    void a; // the reader context already carries the highlights; Phase 3 injects a prompt
-    agentOpen = true;
+    const note = a.note ? ` (my note: ${a.note})` : "";
+    void askAgent(`About my highlight on p${a.page}${note}:`, a.anchor.quote);
   }
   async function addRef(b: WorldBrief) {
     if (!b.doi || addingId) return;
@@ -408,12 +418,15 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key `${$readerKey}#${bufferGen}`}
-              <PdfView bind:this={pdfView} {buffer} {annotations} {scrollTo} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
+              <PdfView bind:this={pdfView} {buffer} {annotations} {scrollTo} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; }} />
             {/key}
           </div>
           {#if agentOpen}
             <div class="agentpane">
-              <AgentDrawer onClose={() => (agentOpen = false)} />
+              <AgentDrawer
+                bind:this={agentDrawer}
+                paper={$readerKey ? { citekey: $readerKey, title: entry?.title } : null}
+                onClose={() => (agentOpen = false)} />
             </div>
           {/if}
         </div>

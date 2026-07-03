@@ -43,6 +43,7 @@
     hoverId = null,
     onCreate,
     onSelect,
+    onAskSelection,
     onAnnotationClick,
     onAnnotationHover,
     onOrphans,
@@ -58,6 +59,8 @@
     hoverId?: string | null;
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void;
     onSelect?: (text: string, page?: number) => void;
+    /** ✦ on the selection menu — ask Claude about the selected passage (R3). */
+    onAskSelection?: (text: string, page: number) => void;
     /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
     onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
     onAnnotationHover?: (id: string | null) => void;
@@ -435,6 +438,11 @@
     menu = null;
     window.getSelection()?.removeAllRanges();
   }
+  function askSelection() {
+    if (menu) onAskSelection?.(menu.anchor.quote, menu.page);
+    menu = null;
+    window.getSelection()?.removeAllRanges();
+  }
 
   onMount(() => {
     let cancelled = false;
@@ -558,6 +566,10 @@
       {#each ANNOTATION_COLORS as c}
         <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => pick(c)}></button>
       {/each}
+      {#if onAskSelection}
+        <span class="mdiv"></span>
+        <button class="mask" title="Ask Claude about this passage" aria-label="Ask Claude about this passage" onclick={askSelection}>✦</button>
+      {/if}
     </div>
   {/if}
 </div>
@@ -681,6 +693,24 @@
     padding: 0;
   }
   .dot:hover {
+    transform: scale(1.15);
+  }
+  .mdiv {
+    width: 1px;
+    align-self: stretch;
+    background: var(--c-line);
+    margin: 0 1px;
+  }
+  .mask {
+    border: none;
+    background: none;
+    color: var(--c-accent);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 3px;
+  }
+  .mask:hover {
     transform: scale(1.15);
   }
 </style>

@@ -127,6 +127,11 @@ contextBridge.exposeInMainWorld("fig", {
     setDocumentEdited: (edited) => ipcRenderer.send("win:setDocumentEdited", !!edited),
   },
 
+  // R3 (FluxReader "Ask Claude"): how to launch the flux MCP server for the open
+  // project — embedded by the agent drawer in `claude --mcp-config` so the spawned
+  // session can see the paper (get_reading_context / get_paper_text / annotations).
+  agentMcpSpec: () => ipcRenderer.invoke("agent:mcpSpec"),
+
   // Integrated terminal: drive a native shell (PTY) living in the main process.
   // write/resize are fire-and-forget; onData/onExit return an unsubscribe fn and
   // carry the session id so the renderer can filter. Mirrors onFsChanged's shape.

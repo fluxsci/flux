@@ -232,6 +232,15 @@ export interface FileBridge {
   win?: WinBridge;
   term?: TermBridge;
   bridge?: LiveBridge;
+  /** R3 (FluxReader): how `claude` should launch the flux MCP server for the open
+   *  project (absolute command/args — claude spawns it from its own cwd). */
+  agentMcpSpec?(): Promise<{
+    ok: boolean;
+    projectRoot?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+  }>;
 }
 
 declare global {
