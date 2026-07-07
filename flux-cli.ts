@@ -75,6 +75,9 @@ usage: flux <verb> [root] [args] [--flags]
   search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
   annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
                                        --key K --md: export the paper's notes as Markdown
+  tag <citekey> <tag…> [--remove]      add/remove an organization tag on a paper
+  set-status <citekey> <status>        set reading status (unread|reading|read)
+  collection <citekey> <name…> [--remove]  add/remove a paper from a collection
   add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
   comments [--root R] [--doc rel] [--all]   list review comments (open by default)
@@ -644,6 +647,37 @@ async function main() {
         console.log(JSON.stringify(hits, null, 2));
         console.error(`✓ ${hits.length} annotation(s) library-wide`);
       }
+      break;
+    }
+    // 3.3 library organization
+    case "tag": {
+      const key = String(_[0] ?? "");
+      const tag = _.slice(1).join(" ").trim();
+      if (!key || !tag) throw new Error("tag needs <citekey> <tag…>  (--remove to drop it)");
+      const org = await core.loadOrganize();
+      const cur = org.items[key]?.tags ?? [];
+      const next = flags.remove ? cur.filter((t) => t.toLowerCase() !== tag.toLowerCase()) : [...cur, tag];
+      const d = await core.organizeSetTags(key, next);
+      console.error(`✓ ${key} tags: ${(d.items[key]?.tags ?? []).join(", ") || "(none)"}`);
+      break;
+    }
+    case "set-status": {
+      const key = String(_[0] ?? "");
+      const status = String(_[1] ?? "");
+      if (!key || !["unread", "reading", "read"].includes(status)) throw new Error("set-status needs <citekey> <unread|reading|read>");
+      await core.organizeSetStatus(key, status as "unread" | "reading" | "read");
+      console.error(`✓ ${key} status: ${status}`);
+      break;
+    }
+    case "collection": {
+      const key = String(_[0] ?? "");
+      const name = _.slice(1).join(" ").trim();
+      if (!key || !name) throw new Error("collection needs <citekey> <name…>  (--remove to drop it)");
+      const org = await core.loadOrganize();
+      const cur = org.items[key]?.collections ?? [];
+      const next = flags.remove ? cur.filter((c) => c.toLowerCase() !== name.toLowerCase()) : [...cur, name];
+      const d = await core.organizeSetCollections(key, next);
+      console.error(`✓ ${key} collections: ${(d.items[key]?.collections ?? []).join(", ") || "(none)"}`);
       break;
     }
     case "add-annotation": {

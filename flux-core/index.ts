@@ -68,6 +68,8 @@ export async function annotationsMarkdown(key: string): Promise<string> {
 // API keys (machine-global ~/FluxLib/keys.json + env), shared by CLI/MCP/GUI.
 export { loadKeys, saveKeys, getSecret } from "./fluxlib";
 export type { FluxKeys } from "./fluxlib";
+// 3.3 library organization (tags / status / collections) sidecar.
+export { loadOrganize, organizeSetTags, organizeSetStatus, organizeSetCollections } from "./fluxlib";
 
 // WS6 — client identity, stamped on every journal entry and used as lock owner.
 // The CLI sets "cli", the MCP server "mcp"; the GUI writes as "human" and the

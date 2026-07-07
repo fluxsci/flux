@@ -895,6 +895,35 @@ server.registerTool(
 );
 
 server.registerTool(
+  "organize_paper",
+  {
+    description:
+      "Set library organization on a paper (keyed by citekey): add/remove tags, set reading status (unread|reading|read), and/or set its collections. Persisted to .fluxlib/organize.json and searchable via search_references with `tag:`, `status:`, `collection:`. Citekeys are immutable so this metadata never detaches.",
+    inputSchema: {
+      key: z.string(),
+      addTags: z.array(z.string()).optional(),
+      removeTags: z.array(z.string()).optional(),
+      status: z.enum(["unread", "reading", "read"]).optional(),
+      collections: z.array(z.string()).optional(),
+    },
+  },
+  async ({ key, addTags, removeTags, status, collections }) => {
+    const org = await core.loadOrganize();
+    let tags = org.items[key]?.tags ?? [];
+    if (addTags?.length) tags = [...tags, ...addTags];
+    if (removeTags?.length) {
+      const rm = new Set(removeTags.map((t) => t.toLowerCase()));
+      tags = tags.filter((t) => !rm.has(t.toLowerCase()));
+    }
+    if (addTags || removeTags) await core.organizeSetTags(key, tags);
+    if (status) await core.organizeSetStatus(key, status);
+    if (collections) await core.organizeSetCollections(key, collections);
+    const e = (await core.loadOrganize()).items[key];
+    return ok(`Organized @${key} — tags: ${(e?.tags ?? []).join(", ") || "none"} · status: ${e?.status ?? "unread"} · collections: ${(e?.collections ?? []).join(", ") || "none"}`);
+  },
+);
+
+server.registerTool(
   "search_annotations",
   {
     description:

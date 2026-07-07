@@ -4,7 +4,19 @@
 // CLI verb — so all of them share identical semantics.
 import type { RefEntry, EnrichEntry } from "./types";
 
-export type Field = "author" | "year" | "journal" | "title" | "doi" | "abstract" | "keyword" | "topic" | "any";
+export type Field =
+  | "author"
+  | "year"
+  | "journal"
+  | "title"
+  | "doi"
+  | "abstract"
+  | "keyword"
+  | "topic"
+  | "tag"
+  | "status"
+  | "collection"
+  | "any";
 
 export interface Clause {
   field: Field;
@@ -29,11 +41,19 @@ const FIELD_ALIASES: Record<string, Field> = {
   keywords: "keyword",
   kw: "keyword",
   topic: "topic",
+  // 3.3 library organization
+  tag: "tag",
+  tags: "tag",
+  status: "status",
+  read: "status",
+  collection: "collection",
+  collections: "collection",
+  coll: "collection",
 };
 
 /** True when the text reads as a structured query (has a known `field:` token). */
 export function isStructured(q: string): boolean {
-  return /(?:^|\s)(?:author|authors|au|year|yr|journal|venue|container|title|ti|doi):/i.test(q);
+  return /(?:^|\s)(?:author|authors|au|year|yr|journal|venue|container|title|ti|doi|tag|tags|status|read|collection|collections|coll):/i.test(q);
 }
 
 // 2.3 Full-text search lives OUTSIDE the metadata grammar: `fulltext:`/`ft:`/`text:`
@@ -58,9 +78,11 @@ export function extractFulltext(q: string): { fulltext: string; rest: string } {
   return { fulltext: q.slice(valueStart).trim(), rest: q.slice(0, m.index).trim() };
 }
 
-/** Split on whitespace (quote-aware); each token splits on its first ":". */
+/** Split on whitespace (quote-aware); each token splits on its first ":". A quoted value
+ *  may follow a field prefix (`collection:"to read"`, `journal:"nature neuroscience"`) or
+ *  stand alone (`"exact phrase"`) — both keep their internal spaces as one token. */
 export function parseQuery(q: string): Clause[] {
-  const tokens = q.match(/"[^"]*"|\S+/g) ?? [];
+  const tokens = q.match(/[^\s:"]+:"[^"]*"|"[^"]*"|\S+/g) ?? [];
   const clauses: Clause[] = [];
   for (const raw of tokens) {
     const tok = raw.replace(/"/g, "");
@@ -85,9 +107,17 @@ function clauseMatches(e: RefEntry, c: Clause): boolean {
   // hydrated — see EnrichEntry. Absent on a bare RefEntry; accessed structurally so
   // runQuery stays generic over plain or enriched entries.
   const en = (e as { enrich?: EnrichEntry }).enrich;
+  // 3.3: organize data (tags/status/collections) merged onto the entry when present.
+  const org = (e as { organize?: { tags?: string[]; status?: string; collections?: string[] } }).organize;
   const topicText = () =>
     [en?.primaryTopic?.name, ...(en?.topics ?? []).map((t) => t.name)].filter(Boolean).join(" ");
   switch (c.field) {
+    case "tag":
+      return (org?.tags ?? []).some((t) => t.toLowerCase() === v || t.toLowerCase().includes(v));
+    case "status":
+      return (org?.status ?? "unread").toLowerCase() === v;
+    case "collection":
+      return (org?.collections ?? []).some((cl) => cl.toLowerCase() === v || cl.toLowerCase().includes(v));
     case "author":
       return e.authors.join(" ").toLowerCase().includes(v);
     case "journal":

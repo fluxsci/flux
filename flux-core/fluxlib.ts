@@ -21,6 +21,7 @@ export type { AddResult };
 import { runQuery } from "../src/lib/references/query";
 import { enrichCoverage } from "../src/lib/references/enrich";
 import { planAdds, appendedBib } from "../src/lib/references/addPlan";
+import { normalizeOrganize, setTags, setStatus, setCollections, mergeOrganize, type OrganizeData, type ReadingStatus } from "../src/lib/references/organize";
 import { atomicWrite, quarantineCorrupt } from "./fsx";
 import { withLockAt, withLock, fluxlibLockDir, getLockClient } from "./locks";
 import { splitBibEntries, lightEntry, bibtexKey } from "../src/lib/references/bibtex";
@@ -219,7 +220,12 @@ export async function loadIndex(libPath?: string): Promise<LibraryIndex> {
 /** search_references / `flux search`: structured query over the FluxLib index. */
 export async function searchReferences(query: string, libPath?: string): Promise<RefEntry[]> {
   const idx = await loadIndex(libPath);
-  return runQuery(Object.values(idx.entries), query);
+  let entries: RefEntry[] = Object.values(idx.entries);
+  // 3.3: only pay the organize.json read when the query actually filters on it.
+  if (/(?:^|\s)(?:tag|tags|status|read|collection|collections|coll):/i.test(query)) {
+    entries = mergeOrganize(entries, await loadOrganize(libPath));
+  }
+  return runQuery(entries, query);
 }
 
 // --------------------------------------------------------------------------
@@ -308,6 +314,45 @@ export async function fluxLibInfo(
   const cov = enrichCoverage(entries, await loadEnrich(lib));
   return { path: lib, entries, hydrated: cov.hydrated, withAbstract: cov.withAbstract };
 }
+
+// --------------------------------------------------------------------------
+// 3.3 Library organization — tags / reading-status / collections, stored in a
+// citekey-keyed sidecar (.fluxlib/organize.json). Mutations are locked RMWs under
+// the "library" lock (concurrent GUI/CLI/MCP edits merge, never clobber).
+// --------------------------------------------------------------------------
+const libOrganizePath = (lib: string) => path.join(lib, ".fluxlib", "organize.json");
+
+export async function loadOrganize(libPath?: string): Promise<OrganizeData> {
+  const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
+  try {
+    return normalizeOrganize(JSON.parse(await fs.readFile(libOrganizePath(lib), "utf8")));
+  } catch {
+    return { version: 1, items: {} };
+  }
+}
+
+async function mutateOrganize(fn: (d: OrganizeData) => OrganizeData, libPath?: string): Promise<OrganizeData> {
+  const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
+  await fs.mkdir(path.join(lib, ".fluxlib"), { recursive: true });
+  return withLockAt(
+    fluxlibLockDir(lib),
+    "library",
+    getLockClient(),
+    async () => {
+      const next = fn(await loadOrganize(lib));
+      await atomicWrite(libOrganizePath(lib), JSON.stringify(next, null, 2) + "\n");
+      return next;
+    },
+    { retries: 8 },
+  );
+}
+
+export const organizeSetTags = (key: string, tags: string[], libPath?: string): Promise<OrganizeData> =>
+  mutateOrganize((d) => setTags(d, key, tags), libPath);
+export const organizeSetStatus = (key: string, status: ReadingStatus | undefined, libPath?: string): Promise<OrganizeData> =>
+  mutateOrganize((d) => setStatus(d, key, status), libPath);
+export const organizeSetCollections = (key: string, collections: string[], libPath?: string): Promise<OrganizeData> =>
+  mutateOrganize((d) => setCollections(d, key, collections), libPath);
 
 // --------------------------------------------------------------------------
 // API keys / secrets — machine-global (shared across every project) in ~/FluxLib

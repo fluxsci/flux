@@ -37,6 +37,7 @@
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",
       "verify-import-plan.ts",
+      "verify-organize.ts",
       "verify-paper-refnums.ts",
       "verify-pdfidentify.ts",
       "verify-r1-hlgeom.ts",
@@ -105,6 +106,7 @@
       "verify-f1-watch.mjs",
       "verify-w7-fig.mjs",
       "verify-lib-actions.mjs",
+      "verify-lib-organize.mjs",
       "verify-fig-esc.mjs"
     ],
     "ui-extra": [

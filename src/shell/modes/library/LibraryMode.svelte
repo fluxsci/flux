@@ -50,6 +50,8 @@
   import { parseQueryTerms } from "../../../lib/references/textFold";
   import { loadAnnotations } from "../../../lib/references/annotationsBridge";
   import { saveAnnotationsMarkdown } from "../../../lib/io";
+  import { loadOrganize, organizeSetTags, organizeSetStatus, organizeBulkAddTag } from "../../../lib/references/organizeBridge";
+  import { mergeOrganize, organizeOf, allTags, allCollections, emptyOrganize, READING_STATUSES, type OrganizeData, type ReadingStatus } from "../../../lib/references/organize";
   import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
   import { assignJob, countInbox } from "../../../lib/references/assignJob.svelte";
   import { safeKey, fetchOutcome, type FetchFailure, type FetchOutcome } from "../../../lib/references/items";
@@ -61,6 +63,8 @@
   // load is what made the Library crawl. .raw keeps them plain objects.
   let entries = $state.raw<RefEntry[]>([]);
   let enrichMap = $state.raw<EnrichMap>({});
+  // 3.3 library organization (tags / reading-status / collections), keyed by citekey.
+  let organizeData = $state.raw<OrganizeData>(emptyOrganize());
   let loading = $state(true);
   let query = $state("");
   let scope = $state<"library" | "world">("library");
@@ -140,7 +144,7 @@
   let lookupCtx = $state<{ kind: "citing" | "author" | "similar"; key: string; label: string } | null>(null);
   let lookupSource = $state<"openalex" | "s2">("openalex");
 
-  const enriched = $derived(mergeEnrich(entries, enrichMap) as EnrichedEntry[]);
+  const enriched = $derived(mergeOrganize(mergeEnrich(entries, enrichMap), organizeData) as EnrichedEntry[]);
   // LR-4: precompute each entry's PDF-dir key (safeKey → 3 regexes + trim, then a Unicode
   // NFC normalize) ONCE per load. hasPdf()/isFailed() run 4–6× per row per render across
   // every result row plus the coverage stats; without this they re-ran the whole regex+
@@ -390,11 +394,12 @@
   }
 
   async function reload() {
-    [entries, enrichMap, pdfKeys, failures] = await Promise.all([
+    [entries, enrichMap, pdfKeys, failures, organizeData] = await Promise.all([
       loadFluxLib(),
       loadEnrichMap(),
       listPdfKeys(),
       listFailures(),
+      loadOrganize(),
     ]);
     loading = false;
   }
@@ -634,6 +639,44 @@
     const af = await loadAnnotations(r.key);
     await saveAnnotationsMarkdown(r.key, af.annotations, { title: r.title, authors: r.authors, year: r.year, doi: r.doi });
   }
+  // 3.3 organization: reading-status cycle, tag add/remove, and bulk-tag the selection.
+  const orgOf = (key: string) => organizeOf(organizeData, key);
+  const STATUS_NEXT: Record<string, ReadingStatus | undefined> = { unread: "reading", reading: "read", read: undefined };
+  const STATUS_DOT: Record<string, { label: string; title: string }> = {
+    unread: { label: "○", title: "Unread — click to mark reading" },
+    reading: { label: "◐", title: "Reading — click to mark read" },
+    read: { label: "●", title: "Read — click to clear" },
+  };
+  async function cycleStatus(e: MouseEvent, key: string) {
+    e.stopPropagation();
+    const cur = orgOf(key).status ?? "unread";
+    organizeData = await organizeSetStatus(key, STATUS_NEXT[cur]);
+  }
+  async function addTagToValue(key: string, value: string) {
+    const t = value.trim();
+    if (!t) return;
+    organizeData = await organizeSetTags(key, [...orgOf(key).tags, t]);
+  }
+  async function removeTagFrom(key: string, tag: string) {
+    organizeData = await organizeSetTags(key, orgOf(key).tags.filter((x) => x.toLowerCase() !== tag.toLowerCase()));
+  }
+  let bulkTagDraft = $state("");
+  async function bulkTagSelected() {
+    const t = bulkTagDraft.trim();
+    if (!t || !selected.size) return;
+    organizeData = await organizeBulkAddTag([...selected], t);
+    bulkTagDraft = "";
+  }
+  // Facets: the distinct tags / collections in the library, for one-click filtering.
+  const facetTags = $derived(allTags(organizeData));
+  const facetCollections = $derived(allCollections(organizeData));
+  // Append (or toggle) a `field:value` clause on the search query.
+  function toggleFacet(field: "tag" | "status" | "collection", value: string) {
+    const clause = value.includes(" ") ? `${field}:"${value}"` : `${field}:${value}`;
+    const has = query.includes(clause);
+    query = has ? query.replace(clause, "").replace(/\s{2,}/g, " ").trim() : (query ? `${query} ${clause}` : clause);
+  }
+  let facetsOpen = $state(false);
   // Ctrl+Shift+click: open the PDF in the reader, fetching it first if it isn't on disk —
   // open-access routes, then (if configured) the library proxy. Failures surface in the
   // shared error toast with the reason.
@@ -987,6 +1030,19 @@
     addedIds = new Set(addedIds).add(b.openalexId);
   }
 
+  // A text-entry target: a field where single keystrokes mean "type text", not "trigger a
+  // shortcut / grid nav". Checkboxes/radios/buttons are inputs but NOT typing — focus lands
+  // on them right after a click and the chords/nav must still work there.
+  function isTypingTarget(t: EventTarget | null): boolean {
+    const el = t as HTMLElement | null;
+    return (
+      !!el &&
+      (el.tagName === "TEXTAREA" ||
+        el.isContentEditable ||
+        (el.tagName === "INPUT" && !["checkbox", "radio", "button"].includes((el as HTMLInputElement).type)))
+    );
+  }
+
   function onWinKey(e: KeyboardEvent) {
     if (!focused) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -996,16 +1052,9 @@
       return;
     }
     // Library-scope Alt-chords. Never fire while typing in a text field (Alt+Backspace is
-    // "delete word" there), and stay off Ctrl/Meta combos. Checkboxes aren't "typing" —
-    // focus lands on them right after clicking one, and the chords must still work then.
+    // "delete word" there), and stay off Ctrl/Meta combos.
     if (scope !== "library" || !e.altKey || e.metaKey || e.ctrlKey) return;
-    const t = e.target as HTMLElement | null;
-    const typing =
-      !!t &&
-      (t.tagName === "TEXTAREA" ||
-        t.isContentEditable ||
-        (t.tagName === "INPUT" && !["checkbox", "radio", "button"].includes((t as HTMLInputElement).type)));
-    if (typing) return;
+    if (isTypingTarget(e.target)) return;
     if (e.key === "Delete" || e.key === "Backspace") {
       // Alt+Del: delete the checked rows, else the highlighted row.
       e.preventDefault();
@@ -1019,6 +1068,10 @@
   }
   function gridKey(e: KeyboardEvent) {
     if (scope !== "library") return;
+    // The grid contains focusable text fields (the per-row tag editor). Their keystrokes
+    // bubble here — don't treat them as grid nav / type-to-search, or the first character
+    // typed into a tag would steal focus back to the search box.
+    if (isTypingTarget(e.target)) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       highlighted = Math.min(results.length - 1, highlighted + 1);
@@ -1270,12 +1323,50 @@
           disabled={fetchingAll || preflightBusy || fetchingKey !== ""}
           title="Fetch PDFs for the checked references — open access first, then your library proxy (Alt+F)"
           onclick={fetchSelectedPdfs}>⬇ Get {selected.size} PDF{selected.size === 1 ? "" : "s"}</button>
+        <input
+          class="bulktag"
+          bind:value={bulkTagDraft}
+          placeholder="Tag {selected.size}…"
+          onkeydown={(e) => e.key === "Enter" && void bulkTagSelected()}
+          title="Type a tag and press Enter to apply it to all selected references" />
         <button
           class="seldel"
           disabled={deleting}
           title="Delete the checked references from FluxLib (Alt+Del) — Undo stays available for a few seconds"
           onclick={() => deleteRefs([...selected])}>Delete {selected.size}</button>
         <button class="selclear" onclick={() => (selected = new Set())}>Clear</button>
+      </div>
+    {/if}
+    {#if facetTags.length || facetCollections.length}
+      <div class="facets">
+        <button class="facettoggle" onclick={() => (facetsOpen = !facetsOpen)} title="Filter by tag, status, or collection"
+          >{facetsOpen ? "▾" : "▸"} Filters</button>
+        {#if facetsOpen}
+          <div class="facetgroups">
+            <div class="facetgroup">
+              <span class="facetlbl">Status</span>
+              {#each READING_STATUSES as s}
+                <button class="facet" class:on={query.includes(`status:${s}`)} onclick={() => toggleFacet("status", s)}>{s}</button>
+              {/each}
+            </div>
+            {#if facetTags.length}
+              <div class="facetgroup">
+                <span class="facetlbl">Tags</span>
+                {#each facetTags as t}
+                  <button class="facet" class:on={query.includes(`tag:${t}`) || query.includes(`tag:"${t}"`)} onclick={() => toggleFacet("tag", t)}>{t}</button>
+                {/each}
+              </div>
+            {/if}
+            {#if facetCollections.length}
+              <div class="facetgroup">
+                <span class="facetlbl">Collections</span>
+                {#each facetCollections as c}
+                  <button class="facet coll" class:on={query.includes(`collection:${c}`) || query.includes(`collection:"${c}"`)} onclick={() => toggleFacet("collection", c)}>{c}</button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
     {/if}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_static_element_interactions -->
@@ -1333,6 +1424,7 @@
           <span class="gt" title={r.enrich?.abstract || r.title}>
             {r.title}
             {#if r.enrich?.primaryTopic?.name}<span class="topic">{r.enrich.primaryTopic.name}</span>{/if}
+            {#each orgOf(r.key).tags as t}<span class="rtag">{t}</span>{/each}
           </span>
           <span class="gj">{r.container ?? ""}</span>
           <span class="gy">{r.year}</span>
@@ -1341,6 +1433,8 @@
             {#if copied === r.key}
               <span class="copied">✓</span>
             {:else}
+              {@const st = orgOf(r.key).status ?? "unread"}
+              <button class="statusdot s-{st}" title={STATUS_DOT[st].title} aria-label="Reading status: {st}" onclick={(e) => cycleStatus(e, r.key)}>{STATUS_DOT[st].label}</button>
               {#if hasPdf(r.key)}
                 <button class="ico haspdf" title="Read PDF" aria-label="Read PDF" onclick={(e) => readPaper(e, r.key)}
                   >▦</button>
@@ -1421,6 +1515,20 @@
                 {#each r.enrich.keywords.slice(0, 10) as k}<span class="chip kw">{k}</span>{/each}
               </div>
             {/if}
+            <div class="dchips"><span class="clbl">Tags</span>
+              {#each orgOf(r.key).tags as t}
+                <span class="chip tag">{t}<button class="tagx" title="Remove tag" aria-label="Remove {t}" onclick={() => void removeTagFrom(r.key, t)}>×</button></span>
+              {/each}
+              <input
+                class="taginput"
+                placeholder="+ tag"
+                onkeydown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const el = e.currentTarget;
+                  void addTagToValue(r.key, el.value);
+                  el.value = "";
+                }} />
+            </div>
             <div class="dbtns">
               {#if hasPdf(r.key)}
                 <button class="prim" onclick={(e) => readPaper(e, r.key)}>Read PDF →</button>
@@ -2011,6 +2119,124 @@
     border-radius: var(--r-pill);
     padding: 1px 7px;
     white-space: nowrap;
+  }
+  /* 3.3 library organization */
+  .rtag {
+    flex: 0 0 auto;
+    font-size: 10px;
+    color: var(--c-tx-muted);
+    background: var(--c-bg);
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-pill);
+    padding: 0 7px;
+    white-space: nowrap;
+  }
+  .statusdot {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 3px;
+    color: var(--c-tx-faint);
+  }
+  .statusdot.s-reading {
+    color: var(--c-accent);
+  }
+  .statusdot.s-read {
+    color: var(--c-success);
+  }
+  .facets {
+    margin-bottom: 8px;
+    font-size: var(--ts-sm);
+  }
+  .facettoggle {
+    border: none;
+    background: none;
+    color: var(--c-tx-muted);
+    cursor: pointer;
+    font-size: var(--ts-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 0;
+  }
+  .facetgroups {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 0 2px;
+  }
+  .facetgroup {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+  }
+  .facetlbl {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--c-tx-faint);
+    min-width: 66px;
+  }
+  .facet {
+    font-size: var(--ts-xs);
+    color: var(--c-tx-2);
+    background: var(--c-bg);
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-pill);
+    padding: 1px 9px;
+    cursor: pointer;
+    text-transform: capitalize;
+  }
+  .facet:hover {
+    border-color: var(--c-accent);
+  }
+  .facet.on {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+    color: var(--c-bg);
+  }
+  .facet.coll {
+    text-transform: none;
+    border-style: dashed;
+  }
+  .bulktag {
+    width: 120px;
+    padding: 3px 8px;
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-1);
+    background: var(--c-bg);
+    color: var(--c-tx);
+    font-size: var(--ts-sm);
+  }
+  .chip.tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--c-tx-2);
+    border-style: solid;
+  }
+  .tagx {
+    border: none;
+    background: none;
+    color: var(--c-tx-faint);
+    cursor: pointer;
+    padding: 0;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .tagx:hover {
+    color: var(--c-danger, #c0392b);
+  }
+  .taginput {
+    width: 70px;
+    padding: 1px 7px;
+    border: 1px dashed var(--c-line);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--c-tx);
+    font-size: var(--ts-xs);
   }
   .gj {
     color: var(--c-tx-muted);
