@@ -6,6 +6,7 @@
 import { fileBridge } from "../project/types";
 import { runWaterfall, isPdfBytes, bareDoi, type PdfInputs, type FetchDeps } from "./pdfFinder";
 import { writePdfItem, readerHasPdf } from "./itemsBridge";
+import { sharedLimiter, getLimiter, hostGroup, doiGroup, interleaveByGroup, abortableSleep, GET_COST, CAPTURE_COST } from "./hostLimiter";
 import type { RefEntry, EnrichEntry } from "./types";
 
 function b64ToU8(b64: string): Uint8Array {
@@ -15,25 +16,51 @@ function b64ToU8(b64: string): Uint8Array {
   return u8;
 }
 
+/** A netGet error is TRANSIENT (timeout / network / aborted — retry later) vs DEFINITIVE
+ *  (an `HTTP <status>` — the server answered, so it's a real no-OA). Only definitive failures
+ *  should ever become a recorded "no-OA" miss; a transient one must not (it would falsely
+ *  suppress the paper for the ledger's 30-day TTL). Mirrors scripts/oa-bulk-run.ts. */
+const isTransientErr = (err?: string): boolean => !!err && !/^HTTP \d/.test(err);
+
 /** FetchDeps backed by main's pdf:netGet (no CORS); errors collapse to null/`` so the
- *  waterfall just moves to the next resolver. */
-function bridgeDeps(email?: string): FetchDeps {
+ *  waterfall just moves to the next resolver. Candidate-PDF GETs go through the shared
+ *  per-publisher limiter — these are the session-creating hits that got the IP blocked at
+ *  Cell Press (">90 sessions in 5 minutes"). An abort during the wait throws AbortError,
+ *  which the waterfall swallows to null — callers must re-check the signal (see
+ *  fetchPdfForEntry) so a cancel isn't misread as "no OA copy". `onTransient` fires when a
+ *  candidate fetch fails at the transport level, so the caller can avoid recording a false miss. */
+function bridgeDeps(email?: string, signal?: AbortSignal, onTransient?: () => void): FetchDeps {
   const fb = fileBridge();
   const ng = (url: string, mode: "json" | "text" | "bytes") => fb!.netGet!(url, mode);
   return {
     email,
     getJson: async (url) => {
       const r = await ng(url, "json");
-      return r && !r.error ? r.json : null;
+      if (r && !r.error) return r.json;
+      if (isTransientErr(r?.error)) onTransient?.();
+      return null;
     },
     getText: async (url) => {
       const r = await ng(url, "text");
-      return r && !r.error ? (r.text ?? null) : null;
+      if (r && !r.error) return r.text ?? null;
+      if (isTransientErr(r?.error)) onTransient?.();
+      return null;
     },
     getBytes: async (url) => {
+      // Cookie-jar GETs → getLimiter (generous default; the elsevier group is capped at 45/5min
+      // as the load-bearing ban backstop). Proxy captures below still use sharedLimiter.
+      const group = hostGroup(url);
+      if (group) await getLimiter.acquire(group, GET_COST, signal);
       const r = await ng(url, "bytes");
-      if (!r || r.error || !r.bytesB64) return null;
-      return { bytes: b64ToU8(r.bytesB64), finalUrl: r.finalUrl ?? url, contentType: r.contentType ?? "" };
+      if (!r || r.error || !r.bytesB64) {
+        if (isTransientErr(r?.error)) onTransient?.();
+        return null;
+      }
+      const finalUrl = r.finalUrl ?? url;
+      // A redirect that landed on a DIFFERENT publisher spent a session there too.
+      const landed = hostGroup(finalUrl);
+      if (landed && landed !== group) getLimiter.record(landed, GET_COST);
+      return { bytes: b64ToU8(r.bytesB64), finalUrl, contentType: r.contentType ?? "" };
     },
   };
 }
@@ -72,16 +99,26 @@ export interface GuiFetchResult {
   diag?: { landedUrl?: string; host?: string; affordancesFound?: string[]; detail?: string };
   via?: string;
   target?: string; // the URL we attempted (for the failure record)
+  group?: string; // publisher rate-limit group (proxy phase — feeds the circuit breaker)
+  /** A candidate fetch failed at the transport level (timeout/network), so a null waterfall
+   *  result is NOT a reliable "no-OA" — the bulk job must not record it as a miss. */
+  transient?: boolean;
+  /** OA copies exist but ALL are on a publisher bulk avoids downloading from directly
+   *  (Elsevier/Cell Press — see BULK_AVOID_GROUPS); the paper is left to the real-browser
+   *  proxy route. */
+  publisherOnly?: boolean;
 }
 
-/** Environment/session failures that must NOT be recorded as a paper's fetch failure. */
-export const ENV_REASONS = new Set(["session-expired", "cancelled", "not-configured"]);
+/** Environment/session failures that must NOT be recorded as a paper's fetch failure.
+ *  "publisher-blocked" = the per-publisher circuit breaker tripped this run (looks like a
+ *  temporary IP block / wall) — those papers stay merely "missing" and retry next run. */
+export const ENV_REASONS = new Set(["session-expired", "cancelled", "not-configured", "publisher-blocked"]);
 
 /** Acquire the OA PDF for one entry (skips if present unless refresh). */
 export async function fetchPdfForEntry(
   entry: RefEntry,
   en: EnrichEntry | undefined,
-  opts: { refresh?: boolean; email?: string } = {},
+  opts: { refresh?: boolean; email?: string; signal?: AbortSignal; bulkMode?: boolean } = {},
 ): Promise<GuiFetchResult> {
   const fb = fileBridge();
   if (!fb?.netGet) return { key: entry.key, status: "error", error: "The desktop app is required to fetch PDFs." };
@@ -90,8 +127,26 @@ export async function fetchPdfForEntry(
   if (!x.doi && !x.openAccessUrl && !x.pmcid) return { key: entry.key, status: "no-id" };
   const email = opts.email ?? (await readEmail());
   try {
-    const r = await runWaterfall(x, bridgeDeps(email));
-    if (!r) return { key: entry.key, status: "no-oa" };
+    let filtered = 0;
+    let transient = false;
+    const r = await runWaterfall(
+      x,
+      bridgeDeps(email, opts.signal, () => {
+        transient = true;
+      }),
+      {
+        bulkMode: opts.bulkMode,
+        onFiltered: () => filtered++,
+      },
+    );
+    if (!r) {
+      // The waterfall collapses an abort (thrown mid-rate-limit-wait) to null — don't let a
+      // cancel masquerade as a genuine "no OA copy" (it would poison the OA-miss ledger).
+      if (opts.signal?.aborted) return { key: entry.key, status: "error", error: "cancelled", reason: "cancelled" };
+      // A transport-level failure (timeout/network) makes "no-oa" unreliable — flag it so the
+      // bulk job doesn't record a false miss; the paper stays missing and retries next run.
+      return { key: entry.key, status: "no-oa", publisherOnly: filtered > 0 || undefined, transient: transient || undefined };
+    }
     await writePdfItem(entry.key, r.bytes, {
       source: r.source,
       url: r.url,
@@ -140,6 +195,9 @@ export interface GuiFetchSummary {
   noId: number;
   error: number;
   results: GuiFetchResult[];
+  /** Publisher groups whose circuit breaker tripped this run (proxy phase) — papers in
+   *  these groups must NOT get a durable failure record (the wall is likely temporary). */
+  blockedGroups?: string[];
 }
 
 const summarize = (results: GuiFetchResult[], total: number): GuiFetchSummary => ({
@@ -152,25 +210,16 @@ const summarize = (results: GuiFetchResult[], total: number): GuiFetchSummary =>
   results,
 });
 
-/** A sleep that resolves early (and rejects with AbortError) when `signal` aborts, so a
- *  cancel doesn't wait out the full inter-item politeness delay. */
-function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(new DOMException("aborted", "AbortError"));
-    const t = setTimeout(() => {
-      signal?.removeEventListener("abort", onA);
-      resolve();
-    }, ms);
-    const onA = () => {
-      clearTimeout(t);
-      reject(new DOMException("aborted", "AbortError"));
-    };
-    signal?.addEventListener("abort", onA, { once: true });
-  });
-}
-
 /** Acquire OA PDFs for many entries — polite + sequential, with progress. Stops promptly
- *  when `signal` aborts (checked at the loop top + during the delay). */
+ *  when `signal` aborts (checked at the loop top + during the delay). Items are interleaved
+ *  across publishers so the per-publisher rate limiter throttles only its own papers.
+ *  BULK downloads from repositories AND ordinary/gold-OA publishers (MDPI, Frontiers, PLOS,
+ *  Wiley-OA, institutional repos, …) — it only SKIPS the publishers that IP-block on volume
+ *  (Elsevier/Cell Press — BULK_AVOID_GROUPS, the source of the "90 sessions in 5 minutes"
+ *  blocks). Those papers are reported `publisherOnly` and left to the real-browser proxy
+ *  phase. The cookie-jar netGet + per-publisher limiter + circuit breaker keep even this
+ *  broadened sweep under the ban threshold. The per-row single fetch (user-initiated, one
+ *  paper) has no restriction and tries every candidate. */
 export async function fetchPdfsForEntries(
   items: { entry: RefEntry; enrich?: EnrichEntry }[],
   opts: {
@@ -180,13 +229,20 @@ export async function fetchPdfsForEntries(
   } = {},
 ): Promise<GuiFetchSummary> {
   const email = await readEmail();
+  const ordered = interleaveByGroup(items, (it) => doiGroup(bareDoi(it.entry.doi || it.enrich?.doi)));
   const results: GuiFetchResult[] = [];
   let done = 0;
-  for (const it of items) {
+  for (const it of ordered) {
     if (opts.signal?.aborted) break;
-    const r = await fetchPdfForEntry(it.entry, it.enrich, { refresh: opts.refresh, email });
+    const r = await fetchPdfForEntry(it.entry, it.enrich, {
+      refresh: opts.refresh,
+      email,
+      signal: opts.signal,
+      bulkMode: true,
+    });
     results.push(r);
     opts.onProgress?.(++done, items.length, r);
+    if (done === ordered.length) break; // no politeness delay after the last item
     try {
       await abortableSleep(120, opts.signal);
     } catch {
@@ -196,10 +252,18 @@ export async function fetchPdfsForEntries(
   return summarize(results, items.length);
 }
 
+/** Consecutive genuine failures for one publisher group before we stop attempting that
+ *  group for the rest of the run. A publisher that has (temporarily) walled/blocked us
+ *  fails every paper the same way — grinding on burns rate budget, risks extending the
+ *  block, and would wrongly skip-list every paper behind a transient wall. */
+const PUBLISHER_TRIP_COUNT = 3;
+
 /** Acquire paywalled PDFs via the library proxy for many entries — sequential (the main
- *  process serializes proxy windows anyway), politely throttled with adaptive backoff on
- *  errors, cancellable, and self-halting if the library session drops. Only call after OA
- *  has failed for these entries. `onProgress(done,total,last)` ticks per item. */
+ *  process serializes proxy windows anyway), interleaved across publishers, rate-limited
+ *  per publisher (a capture is a multi-navigation session burst), politely throttled with
+ *  adaptive backoff on errors, cancellable, self-halting if the library session drops, and
+ *  per-publisher circuit-broken after repeated failures. Only call after OA has failed for
+ *  these entries. `onProgress(done,total,last)` ticks per item. */
 export async function fetchViaProxyForEntries(
   items: { entry: RefEntry; enrich?: EnrichEntry }[],
   opts: {
@@ -209,13 +273,40 @@ export async function fetchViaProxyForEntries(
     onProgress?: (done: number, total: number, last: GuiFetchResult) => void;
   } = {},
 ): Promise<GuiFetchSummary> {
+  const groupOf = (it: { entry: RefEntry; enrich?: EnrichEntry }): string | null => {
+    const doi = bareDoi(it.entry.doi || it.enrich?.doi);
+    return doiGroup(doi) ?? hostGroup(it.enrich?.openAccess?.url || it.entry.url);
+  };
+  const ordered = interleaveByGroup(items, groupOf);
   const results: GuiFetchResult[] = [];
+  const consecFail = new Map<string, number>(); // group → consecutive genuine failures
+  const blockedGroups = new Set<string>();
   let done = 0;
   let delay = opts.delayMs ?? 1500; // politeness; grows on errors so we don't hammer a publisher
   let sessionDead = 0; // consecutive "session isn't active" → bail (re-auth needed)
-  for (const it of items) {
+  for (const it of ordered) {
     if (opts.signal?.aborted) break;
+    const group = groupOf(it) ?? undefined;
+
+    // Circuit breaker: this publisher failed PUBLISHER_TRIP_COUNT papers in a row — skip
+    // its remaining papers (env-reason, never recorded; they retry next run).
+    if (group && blockedGroups.has(group)) {
+      const r: GuiFetchResult = { key: it.entry.key, status: "no-oa", reason: "publisher-blocked", group };
+      results.push(r);
+      opts.onProgress?.(++done, items.length, r);
+      continue; // no network touched — no delay needed
+    }
+
+    // A capture is a burst of publisher navigations — budget it against the group's window.
+    if (group) {
+      try {
+        await sharedLimiter.acquire(group, CAPTURE_COST, opts.signal);
+      } catch {
+        break; // aborted while waiting for rate-limit room
+      }
+    }
     const r = await fetchViaProxyForEntry(it.entry, it.enrich, { token: opts.token });
+    if (group) r.group = group;
     results.push(r);
     opts.onProgress?.(++done, items.length, r);
 
@@ -224,15 +315,22 @@ export async function fetchViaProxyForEntries(
     } else {
       sessionDead = 0;
     }
+    if (group) {
+      const genuineFail = r.status !== "got" && r.status !== "have" && !(r.reason && ENV_REASONS.has(r.reason));
+      const n = genuineFail ? (consecFail.get(group) ?? 0) + 1 : 0;
+      consecFail.set(group, n);
+      if (n >= PUBLISHER_TRIP_COUNT) blockedGroups.add(group);
+    }
     // Adaptive backoff: slow down after a genuine failure, speed back up after a success.
     if (r.status === "got") delay = Math.max(opts.delayMs ?? 1500, delay / 1.5);
     else if (r.status === "error" || r.status === "no-oa") delay = Math.min(8000, delay * 1.5);
 
+    if (done === ordered.length) break; // no politeness delay after the last item
     try {
       await abortableSleep(delay, opts.signal);
     } catch {
       break;
     }
   }
-  return summarize(results, items.length);
+  return { ...summarize(results, items.length), blockedGroups: [...blockedGroups] };
 }

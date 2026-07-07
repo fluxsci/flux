@@ -6,6 +6,7 @@ const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
 const { parseFluxUrl, fluxUrlFromArgv } = require("./fluxUrl.cjs");
 const { createProxyEngine } = require("./proxyFetch.cjs");
+const { createNetGet } = require("./netFetch.cjs");
 
 // chokidar is ESM-only (v5); this file is CommonJS, so it must be loaded via a
 // dynamic import() — a require() throws ERR_REQUIRE_ESM, which (when swallowed)
@@ -1027,43 +1028,12 @@ ipcMain.handle("cite:s2", async (_e, url) => {
 // Generic PDF-acquisition fetch (FluxFinder GUI). The renderer runs the resolver
 // waterfall (src/lib/references/pdfFinder.ts) and routes every fetch (metadata JSON +
 // the PDF bytes) here to dodge renderer CORS — mirroring the flux-core/acquire.ts Node
-// path so both share one waterfall. http(s)-only + private-range blocked (SSRF guard);
-// always user-initiated ("Get PDF" / "Get PDFs"). mode ∈ json | text | bytes.
-function publicHttpUrl(raw) {
-  let u;
-  try {
-    u = new URL(String(raw || ""));
-  } catch {
-    return null;
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-  const h = u.hostname.toLowerCase();
-  if (h === "localhost" || h === "::1" || /\.local$/.test(h)) return null;
-  if (/^(127\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(h)) return null;
-  return u.toString();
-}
-ipcMain.handle("pdf:netGet", async (_e, url, mode = "bytes") => {
-  const safe = publicHttpUrl(url);
-  if (!safe) return { error: "blocked: non-public http(s) URL" };
-  const mailto = getKey("mailto") || "flux";
-  const UA = `Flux/0.1 (PDF acquisition; mailto:${mailto})`;
-  try {
-    const accept = mode === "json" ? "application/json" : mode === "text" ? "text/*,*/*" : "application/pdf,*/*";
-    const res = await fetch(safe, { redirect: "follow", headers: { "User-Agent": UA, Accept: accept } });
-    if (!res.ok) return { error: `HTTP ${res.status}`, status: res.status };
-    if (mode === "json") return { json: await res.json() };
-    if (mode === "text") return { text: await res.text() };
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 80 * 1024 * 1024) return { error: "too large" };
-    return {
-      bytesB64: buf.toString("base64"),
-      contentType: res.headers.get("content-type") || "",
-      finalUrl: res.url || safe,
-    };
-  } catch (err) {
-    return { error: String((err && err.message) || err) };
-  }
-});
+// path so both share one waterfall. Backed by electron/netFetch.cjs: Chromium net stack
+// on a persistent cookie-jar partition (one server-side session per publisher, not one
+// per request/redirect-hop — the multiplier behind the Cell Press IP blocks), SSRF
+// guard, per-mode timeouts. Always user-initiated ("Get PDF" / "Get PDFs").
+const netGet = createNetGet({ session, getKey });
+ipcMain.handle("pdf:netGet", (_e, url, mode = "bytes") => netGet(url, mode));
 
 // --- Library proxy (EZProxy) — user-initiated paywalled access, last resort -----
 // A persistent, isolated session partition ("persist:fluxproxy") holds the user's

@@ -96,6 +96,45 @@ export interface FetchFailure {
   lastError?: string; // human-readable last error (OA or proxy)
 }
 
+// --- OA-miss ledger ---------------------------------------------------------------
+// ONE aggregated file (<lib>/.fluxlib/oa-misses.json) remembering every paper whose OA
+// waterfall came up empty, so a bulk run never re-grinds the whole library's open-access
+// checks. Deliberately NOT per-item files: the ledger is read once at run start (1 read)
+// and throttle-saved during the run — minimal and fast at any library size. A miss is
+// only honored while it is FRESH: same identifier signature (a new DOI / OA URL / PMCID
+// from enrichment invalidates it) and younger than the TTL (papers become OA over time —
+// PMC embargoes lapse). "Retry failed" bypasses the ledger entirely.
+
+export const OA_MISSES_JSON = "oa-misses.json";
+export const oaMissesPath = (lib: string): string => j(lib, ".fluxlib", OA_MISSES_JSON);
+
+/** Re-check a missed paper after this long even if nothing changed (embargoes lapse). */
+export const OA_MISS_TTL_MS = 30 * 24 * 3600_000;
+
+export interface OaMiss {
+  at: string; // ISO of the last OA attempt
+  attempts: number; // accumulates across runs
+  sig: string; // identifier signature at attempt time (see oaSig)
+}
+export type OaMissMap = Record<string, OaMiss>; // keyed by safeKey(key).normalize("NFC")
+export interface OaMissFile {
+  version: 1;
+  misses: OaMissMap;
+}
+
+/** The identifiers the OA waterfall would use — when these change (enrichment found a new
+ *  DOI/OA URL/PMCID), a recorded miss is stale and the paper is re-checked. */
+export function oaSig(x: { doi?: string; openAccessUrl?: string; pmcid?: string }): string {
+  return [(x.doi ?? "").trim().toLowerCase(), x.openAccessUrl ?? "", x.pmcid ?? ""].join("|");
+}
+
+/** True if `miss` still applies: same identifiers and younger than the TTL. */
+export function isFreshOaMiss(miss: OaMiss | undefined, sig: string, now = Date.now()): boolean {
+  if (!miss || miss.sig !== sig) return false;
+  const at = Date.parse(miss.at);
+  return Number.isFinite(at) && now - at < OA_MISS_TTL_MS;
+}
+
 /** LR-7: the durable per-row outcome for a recorded failure — drives the Library's fetch pill.
  *  (Environment failures — session-expired/cancelled — are never recorded per the note above,
  *  so they stay "missing", not any of these.) */

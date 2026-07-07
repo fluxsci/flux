@@ -15,10 +15,13 @@ import {
   fulltextPath,
   annotationsPath,
   readerContextPath,
+  oaMissesPath,
   type SourceInfo,
   type ItemStatus,
   type ItemsIndex,
   type ReaderContext,
+  type OaMissMap,
+  type OaMissFile,
 } from "../src/lib/references/items";
 
 const libItemsIndexPath = (lib: string) => path.join(lib, ".fluxlib", "items.json");
@@ -42,6 +45,29 @@ async function exists(p: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Load the OA-miss ledger (Node twin of itemsBridge.loadOaMisses — one aggregated file
+ *  remembering papers with no open-access copy, so bulk runs skip re-checking them). */
+export async function loadOaMisses(libPath?: string): Promise<OaMissMap> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(oaMissesPath(await lib(libPath)), "utf8")) as OaMissFile;
+    return parsed && typeof parsed.misses === "object" && parsed.misses ? parsed.misses : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Persist the OA-miss ledger (best-effort — a lost save just means a re-check later). */
+export async function saveOaMisses(misses: OaMissMap, libPath?: string): Promise<void> {
+  try {
+    const p = oaMissesPath(await lib(libPath));
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    const file: OaMissFile = { version: 1, misses };
+    await atomicWrite(p, JSON.stringify(file, null, 2) + "\n");
+  } catch {
+    /* best-effort */
   }
 }
 

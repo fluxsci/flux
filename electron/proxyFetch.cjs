@@ -30,6 +30,60 @@ const hostOf = (u) => {
   }
 };
 
+// --- Cell Press cell.com hop -------------------------------------------------------
+// Cell Press journal DOIs (10.1016/j.<token>.…) resolve, via doi.org, to ScienceDirect,
+// whose anti-bot (PerimeterX / "There was a problem providing the content you requested")
+// serves a block page to our automated window — even though the user's real browser (and
+// the same institutional IP) gets the article. The IDENTICAL article is also on Cell
+// Press's OWN site cell.com, which is NOT bot-walled and exposes a real citation_pdf_url /
+// journal-agnostic /action/showPdf?pii=… endpoint. So when we detect a ScienceDirect PII
+// for a Cell Press paper, we hop to cell.com and capture the PDF there. `showPdf` needs no
+// journal name, so one URL shape covers every Cell Press title. (Verified live: Neuron
+// 10.1016/j.neuron.2021.06.030 → complete 3.87 MB PDF.)
+const CELL_PRESS_TOKENS = new Set([
+  // Cell Press research journals (DOI j.<token>)
+  "cell", "neuron", "immuni", "molcel", "devcel", "ccell", "celrep", "cmet", "stem", "cub",
+  "str", "chempr", "chembiol", "chom", "cels", "isci", "joule", "matt", "medj", "oneear",
+  "patter", "xcrm", "xgen", "xcrp", "crmeth", "xpro", "biophysj", "ajhg", "hgg",
+  // Trends reviews family (also Cell Press, also on cell.com)
+  "tics", "tins", "tcb", "tig", "tem", "tibs", "tree", "tips", "tim", "molmed", "it", "pt",
+  "tibtech", "tplants", "trechm",
+]);
+
+/** True if `doi` is a Cell Press journal DOI (10.1016/j.<token>.…) — the ones on cell.com. */
+function isCellPressDoi(doi) {
+  const m = String(doi || "").toLowerCase().match(/^10\.1016\/j\.([a-z]+)\d*\./);
+  return !!(m && CELL_PRESS_TOKENS.has(m[1]));
+}
+
+/** Compact ScienceDirect PII (S + 16 SICI chars) → Cell Press hyphenated form used by
+ *  cell.com, e.g. S0896627321004955 → S0896-6273(21)00495-5. null if not PII-shaped. */
+function hyphenatePii(compact) {
+  const m = String(compact || "").match(/^S([0-9X]{16})$/i);
+  if (!m) return null;
+  const d = m[1];
+  return `S${d.slice(0, 4)}-${d.slice(4, 8)}(${d.slice(8, 10)})${d.slice(10, 15)}-${d.slice(15)}`;
+}
+
+/** Rewrite an absolute publisher URL into EZProxy's host-rewrite form (dots→dashes,
+ *  existing dashes doubled), so a hop to another publisher host stays inside the
+ *  authenticated proxied session. Node twin of scrapeCandidates' in-page `rp()`. */
+function rewriteToProxyHost(u, prefixHost) {
+  try {
+    const x = new URL(u);
+    if (x.hostname === prefixHost || x.hostname.endsWith("." + prefixHost)) return u;
+    const rw = x.hostname.replace(/-/g, "--").replace(/\./g, "-") + "." + prefixHost;
+    return x.protocol + "//" + rw + x.pathname + x.search + x.hash;
+  } catch {
+    return u;
+  }
+}
+
+/** Extract the first DOI in a string (target may be a doi.org URL or a landing URL). */
+function doiFromTarget(t) {
+  return (String(t || "").match(/10\.\d{4,9}\/[^\s?#"']+/) || [""])[0];
+}
+
 function createProxyEngine(deps) {
   const { session, BrowserWindow, ezproxyPrefix, proxiedUrl, isProxyLoginUrl, PROXY_PARTITION, path, fs, os } = deps;
   const log = typeof deps.log === "function" ? deps.log : () => {}; // optional step tracer (harness/debug)
@@ -243,6 +297,34 @@ function createProxyEngine(deps) {
     const navigate = (u, ms = 30000) =>
       Promise.race([wc.loadURL(u).catch(() => {}), new Promise((res) => setTimeout(res, ms))]);
 
+    // Cell Press → cell.com hop (see the CELL_PRESS_TOKENS note at top of file). Reads the
+    // ScienceDirect PII off the current URL, converts it to cell.com's hyphenated form, and
+    // navigates to cell.com's journal-agnostic showPdf endpoint (inside the proxied session),
+    // then captures via the same net (CDP / will-download / in-page grab). `force` attempts it
+    // for ANY ScienceDirect PII (used as a last resort before giving up), not just DOIs whose
+    // token we recognize as Cell Press. Returns { buf, finalUrl, via } | null. Safe for
+    // non-Cell-Press papers: cell.com returns a non-PDF and the completeness gate rejects it.
+    const doi = doiFromTarget(target);
+    const cellHopTried = new Set();
+    const tryCellPressHop = async (force) => {
+      const cur = wc.getURL();
+      const pii = (cur.match(/\/pii\/(S[0-9X]+)/i) || [])[1];
+      if (!pii) return null;
+      if (!force && !isCellPressDoi(doi)) return null;
+      const hyph = hyphenatePii(pii);
+      if (!hyph || cellHopTried.has(hyph)) return null;
+      cellHopTried.add(hyph);
+      const cellUrl = rewriteToProxyHost("https://www.cell.com/action/showPdf?pii=" + encodeURIComponent(hyph), prefixHost);
+      log("cellpress-hop: " + cellUrl);
+      await navigate(cellUrl);
+      throwIfAborted();
+      if (isProxyLoginUrl(wc.getURL())) return null; // session bounce — caller handles SESSION
+      const hit = await raceHit(5000); // CDP/forced-download may capture it
+      if (hit) return hit;
+      const grabbed = await grab(wc.getURL()); // else same-origin full GET on cell.com
+      return grabbed ? { ...grabbed, via: "cellpress" } : null;
+    };
+
     // Layer 1: CDP network interception.
     const pending = new Map(); // requestId -> { url, ranged }
     const onCdp = (_e, method, params) => {
@@ -347,11 +429,28 @@ function createProxyEngine(deps) {
       const direct = await grab(wc.getURL());
       if (direct) return ok({ ...direct, via: "grab" });
 
+      // Cell Press hop FIRST for recognized Cell Press DOIs: their ScienceDirect landing is
+      // usually an anti-bot block page with no affordances, but cell.com serves the PDF.
+      if (isCellPressDoi(doi)) {
+        const cellGot = await tryCellPressHop(false);
+        if (cellGot) return ok(cellGot);
+        if (isProxyLoginUrl(wc.getURL())) return SESSION;
+        await navigate(proxiedUrl(target)); // hop missed — restore the article page for the normal flow
+        await sleep(600);
+      }
+
       // Gather affordances (PDF links/buttons) from the article page.
       const candidates = await scrapeCandidates(wc, prefixHost);
       const affordancesFound = [...new Set(candidates.map((c) => c.kind))];
       log("candidates(" + candidates.length + "): " + JSON.stringify(candidates.slice(0, 8)));
-      if (!candidates.length) return fail("no-affordances", wc.getURL(), affordancesFound, "no citation_pdf_url / pdf link / pdf button on the page");
+      if (!candidates.length) {
+        // Last resort before giving up: if the page exposes a ScienceDirect PII (even one whose
+        // journal token we don't recognize), try the cell.com hop unconditionally.
+        const cellGot = await tryCellPressHop(true);
+        if (cellGot) return ok(cellGot);
+        if (isProxyLoginUrl(wc.getURL())) return SESSION;
+        return fail("no-affordances", wc.getURL(), affordancesFound, "no citation_pdf_url / pdf link / pdf button on the page");
+      }
 
       // Known anti-bot challenge endpoints (Elsevier /pdfft) MUST be reached by real
       // navigation so Chromium solves the JS challenge; an XHR to them poisons the session
@@ -469,4 +568,4 @@ function createProxyEngine(deps) {
   return { capturePdfViaBrowser, checkSignedIn, dispose };
 }
 
-module.exports = { createProxyEngine, isPdfBuf, isCompletePdf };
+module.exports = { createProxyEngine, isPdfBuf, isCompletePdf, hyphenatePii, isCellPressDoi, rewriteToProxyHost, doiFromTarget };

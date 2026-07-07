@@ -52,8 +52,13 @@ const CASES = [
   ["Wiley (b)", "10.1111/ejn.12084"],
   ["AAAS / Science", "10.1126/science.aap8586"],
   ["PNAS", "10.1073/pnas.1402773111"],
-  ["Elsevier / ScienceDirect (bot-block)", "10.1016/j.tics.2016.09.006", { wall: true }],
+  // Cell Press (Trends in Cognitive Sciences): doi.org lands on the ScienceDirect anti-bot
+  // block, but the engine now hops to cell.com and captures the PDF — a REQUIRED pass.
+  ["Cell Press (SD block → cell.com)", "10.1016/j.tics.2016.09.006"],
   ["Nature", "10.1038/s41586-020-2731-9"],
+  // Plain (non-Cell-Press) Elsevier/ScienceDirect: no cell.com mirror, still anti-bot-walled.
+  // Accepted limit — covered by OA/PMC + manual add. Reported, non-blocking.
+  ["Elsevier / ScienceDirect (plain, walled)", "10.1016/j.neuroimage.2019.116081", { wall: true }],
 ];
 
 const isPdf = (b) => b && b.length > 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46;

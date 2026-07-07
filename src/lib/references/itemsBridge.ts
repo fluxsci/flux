@@ -12,11 +12,14 @@ import {
   failurePath,
   safeKey,
   readerContextPath,
+  oaMissesPath,
   PAPER_PDF,
   FETCH_FAILURE_JSON,
   type SourceInfo,
   type FetchFailure,
   type ReaderContext,
+  type OaMissMap,
+  type OaMissFile,
 } from "./items";
 import { isPdfBytes } from "./pdfFinder";
 import { seededItem } from "./devSeed";
@@ -168,6 +171,37 @@ export async function readerSource(key: string): Promise<SourceInfo | null> {
     return JSON.parse(await fb.readText(sourcePath(lib, key))) as SourceInfo;
   } catch {
     return null;
+  }
+}
+
+// --- OA-miss ledger (single aggregated file — see items.ts) ----------------------
+
+/** Load the OA-miss ledger (one read). Missing/corrupt file → empty map. */
+export async function loadOaMisses(): Promise<OaMissMap> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return {};
+  try {
+    const p = oaMissesPath(lib);
+    if (!(await fb.exists(p))) return {};
+    const parsed = JSON.parse(await fb.readText(p)) as OaMissFile;
+    return parsed && typeof parsed.misses === "object" && parsed.misses ? parsed.misses : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Persist the OA-miss ledger. Best-effort (a lost save just means a re-check later). */
+export async function saveOaMisses(misses: OaMissMap): Promise<void> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return;
+  try {
+    if (fb.mkdir) await fb.mkdir(`${lib}/.fluxlib`);
+    const file: OaMissFile = { version: 1, misses };
+    await fb.writeText(oaMissesPath(lib), JSON.stringify(file, null, 2) + "\n");
+  } catch {
+    /* best-effort */
   }
 }
 

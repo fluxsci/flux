@@ -9,7 +9,16 @@
 // in memory and RESUMABLE across restarts (re-running rebuilds the todo from what's on disk).
 // Genuine both-routes-failed papers get a Part C failure record so the next run skips them.
 import { fetchPdfsForEntries, fetchViaProxyForEntries, ENV_REASONS, type GuiFetchResult } from "./pdfFinderBridge";
-import { listPdfKeys, hasPdfIn, listFailedKeys, writeFetchFailure, clearFetchFailure } from "./itemsBridge";
+import {
+  listPdfKeys,
+  hasPdfIn,
+  listFailedKeys,
+  writeFetchFailure,
+  clearFetchFailure,
+  loadOaMisses,
+  saveOaMisses,
+} from "./itemsBridge";
+import { safeKey, oaSig, isFreshOaMiss, type OaMissMap } from "./items";
 import { mergeEnrich, type EnrichMap, type EnrichedEntry } from "./enrich";
 import type { RefEntry } from "./types";
 import { fileBridge } from "../project/types";
@@ -34,6 +43,9 @@ class PdfFetchJob {
   errors = $state(0);
   failedNew = $state(0); // papers newly recorded as both-routes-failed this run
   needSignIn = $state(0); // still-missing papers we couldn't proxy because not signed in
+  oaSkipped = $state(0); // papers skipped by the OA-miss ledger (known no-OA, fresh)
+  blockedSkipped = $state(0); // papers skipped because their publisher's circuit breaker tripped
+  publisherOnly = $state(0); // papers whose OA copies are all publisher-hosted (left to the proxy route)
   note = $state("");
   cancelled = $state(false);
 
@@ -82,6 +94,40 @@ class PdfFetchJob {
     const failedSkip = opts.retryFailed ? new Set<string>() : await listFailedKeys();
     const skip = (r: EnrichedEntry) => hasPdfIn(failedSkip, r.key);
 
+    // OA-miss ledger: one aggregated file remembering which papers had NO open-access copy
+    // (and under which identifiers), so Phase A only re-checks new/changed/expired papers
+    // instead of grinding the whole library's OA waterfall every run. Updated in memory as
+    // results land and throttle-saved, so even a cancelled run keeps its progress.
+    const misses: OaMissMap = await loadOaMisses();
+    const missKey = (key: string) => safeKey(key).normalize("NFC");
+    const sigOf = (r: EnrichedEntry) =>
+      oaSig({ doi: r.doi || r.enrich?.doi, openAccessUrl: r.enrich?.openAccess?.url, pmcid: r.enrich?.ids?.pmcid });
+    const sigByKey = new Map(enriched.map((r) => [r.key, sigOf(r)]));
+    let missDirty = 0; // ledger changes since the last save
+    let saveChain: Promise<void> = Promise.resolve(); // serialize snapshot writes
+    const flushMisses = () => {
+      if (!missDirty) return saveChain;
+      missDirty = 0;
+      const snapshot = { ...misses };
+      return (saveChain = saveChain.then(() => saveOaMisses(snapshot)));
+    };
+    // `record` = this result came from an actual OA attempt (Phase A). Phase B results reuse
+    // status "no-oa" for proxy failures — those must only CLEAR a miss (on success), never
+    // record/refresh one (the OA route wasn't re-checked, so the TTL must keep aging).
+    const noteOaMiss = (r: GuiFetchResult, aborted: boolean, record: boolean) => {
+      const mk = missKey(r.key);
+      // `!r.transient`: a transport-level failure (timeout/network) is not a reliable "no-OA",
+      // so it must never be recorded as a miss (it would falsely suppress the paper for 30 days).
+      if (record && r.status === "no-oa" && !r.transient && !aborted && !this.cancelled) {
+        misses[mk] = { at: new Date().toISOString(), attempts: (misses[mk]?.attempts ?? 0) + 1, sig: sigByKey.get(r.key) ?? "" };
+        missDirty++;
+      } else if ((r.status === "got" || r.status === "have") && misses[mk]) {
+        delete misses[mk];
+        missDirty++;
+      }
+      if (missDirty >= 12) void flushMisses();
+    };
+
     try {
       const ctrl = new AbortController();
       this.#ctrl = ctrl;
@@ -89,9 +135,11 @@ class PdfFetchJob {
 
       // --- Phase A: open access ---------------------------------------------------------
       const pdfKeys0 = await listPdfKeys();
-      const todoA = enriched
-        .filter((r) => !hasPdfIn(pdfKeys0, r.key) && canFetch(r) && !skip(r))
+      const fetchable = enriched.filter((r) => !hasPdfIn(pdfKeys0, r.key) && canFetch(r) && !skip(r));
+      const todoA = fetchable
+        .filter((r) => opts.retryFailed || !isFreshOaMiss(misses[missKey(r.key)], sigByKey.get(r.key) ?? ""))
         .map((r) => ({ entry: r as RefEntry, enrich: enrichMap[r.key] }));
+      this.oaSkipped = fetchable.length - todoA.length;
 
       this.phase = "oa";
       this.total = todoA.length;
@@ -103,12 +151,15 @@ class PdfFetchJob {
           onProgress: (done, _t, last) => {
             this.done = done;
             if (last.status === "got") this.oaGot++;
+            if (last.publisherOnly) this.publisherOnly++;
             oaByKey.set(last.key, last);
+            noteOaMiss(last, ctrl.signal.aborted, true);
             opts.onTick?.(last.key, last.status === "got" || last.status === "have");
           },
         });
         for (const r of sumA.results) oaByKey.set(r.key, r);
       }
+      await flushMisses();
       if (ctrl.signal.aborted) return this.#finish(true);
 
       // --- Phase B: library proxy (only for what's still missing) ------------------------
@@ -120,6 +171,7 @@ class PdfFetchJob {
       // and it self-reports "session-expired" + early-stops after 2 in a row if truly signed
       // out. We deliberately don't hard-gate on the (sometimes-false-negative) signed-in probe.
       let proxyByKey = new Map<string, GuiFetchResult>();
+      let blockedGroups = new Set<string>();
       if (gate.proxyConfigured && missing.length) {
         const todoB = missing.map((r) => ({ entry: r as RefEntry, enrich: enrichMap[r.key] }));
         this.phase = "proxy";
@@ -132,10 +184,13 @@ class PdfFetchJob {
             this.done = done;
             if (last.status === "got") this.proxyGot++;
             proxyByKey.set(last.key, last);
+            noteOaMiss(last, ctrl.signal.aborted, false); // clear-on-success only — no recording
             opts.onTick?.(last.key, last.status === "got");
           },
         });
         for (const r of sumB.results) proxyByKey.set(r.key, r);
+        blockedGroups = new Set(sumB.blockedGroups ?? []);
+        this.blockedSkipped = [...proxyByKey.values()].filter((r) => r.reason === "publisher-blocked").length;
         // If the session is genuinely down, the phase bails after 2 session-expired results;
         // count how many still-missing papers were blocked that way so the toast can say so.
         const sessionDead = [...proxyByKey.values()].some((r) => r.reason === "session-expired");
@@ -149,22 +204,30 @@ class PdfFetchJob {
       }
 
       // --- Part C: record / clear per-paper failure history -----------------------------
-      await this.#reconcileFailures(enriched, oaByKey, proxyByKey);
+      await this.#reconcileFailures(enriched, oaByKey, proxyByKey, blockedGroups);
 
-      this.errors = [...oaByKey.values(), ...proxyByKey.values()].filter((r) => r.status === "error").length;
+      // ENV failures (cancelled mid-item, publisher breaker) aren't errors of the paper.
+      this.errors = [...oaByKey.values(), ...proxyByKey.values()].filter(
+        (r) => r.status === "error" && !(r.reason && ENV_REASONS.has(r.reason)),
+      ).length;
       return this.#finish(ctrl.signal.aborted);
     } catch (e) {
       this.note = (e as Error)?.message || "PDF fetch failed.";
       return this.#finish(true);
+    } finally {
+      await flushMisses(); // persist ledger progress even on cancel/throw (best-effort)
     }
   }
 
   /** Write a failure record for papers that genuinely exhausted BOTH routes; clear records
-   *  for papers that succeeded. Never records environment failures (session/cancel). */
+   *  for papers that succeeded. Never records environment failures (session/cancel), and
+   *  never for papers whose publisher circuit breaker tripped this run — including the few
+   *  failures that TRIPPED it (a temporary publisher block must not skip-list papers). */
   async #reconcileFailures(
     enriched: EnrichedEntry[],
     oaByKey: Map<string, GuiFetchResult>,
     proxyByKey: Map<string, GuiFetchResult>,
+    blockedGroups: Set<string>,
   ) {
     const pdfKeys = await listPdfKeys();
     for (const r of enriched) {
@@ -180,6 +243,7 @@ class PdfFetchJob {
       // environment failure (session-expired / cancelled / not-configured).
       if (!proxy || proxy.status === "got") continue;
       if (proxy.reason && ENV_REASONS.has(proxy.reason)) continue;
+      if (proxy.group && blockedGroups.has(proxy.group)) continue; // publisher wall, likely temporary
       if (this.cancelled) continue; // a cancelled run didn't truly exhaust routes
       this.failedNew++;
       await writeFetchFailure(key, {
@@ -204,6 +268,9 @@ class PdfFetchJob {
       errors: this.errors,
       failedNew: this.failedNew,
       needSignIn: this.needSignIn,
+      oaSkipped: this.oaSkipped,
+      blockedSkipped: this.blockedSkipped,
+      publisherOnly: this.publisherOnly,
       cancelled: aborted || this.cancelled,
     };
     this.lastSummary = summary;
@@ -223,6 +290,9 @@ class PdfFetchJob {
     this.errors = 0;
     this.failedNew = 0;
     this.needSignIn = 0;
+    this.oaSkipped = 0;
+    this.blockedSkipped = 0;
+    this.publisherOnly = 0;
     this.note = "";
     this.cancelled = false;
   }
@@ -234,6 +304,9 @@ export interface GuiFetchSummaryLite {
   errors: number;
   failedNew: number;
   needSignIn: number;
+  oaSkipped: number; // skipped by the OA-miss ledger (known no-OA, fresh)
+  blockedSkipped: number; // skipped because their publisher's circuit breaker tripped
+  publisherOnly: number; // OA exists but publisher-hosted only (deferred to the proxy route)
   cancelled: boolean;
 }
 

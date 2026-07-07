@@ -785,7 +785,9 @@ server.registerTool(
     const s = await core.fetchPdfs({ keys, refresh });
     const got = s.results.filter((r) => r.status === "got").map((r) => `  ✓ ${r.key} (${r.source})`);
     return ok(
-      `PDFs: ${s.got} fetched, ${s.have} already had, ${s.noOa} no open-access copy, ${s.noId} no DOI/PMCID (of ${s.total}).` +
+      `PDFs: ${s.got} fetched, ${s.have} already had, ${s.noOa} no open-access copy, ${s.noId} no DOI/PMCID` +
+        (s.skipped ? `, ${s.skipped} skipped (cached no-OA; refresh to re-check)` : "") +
+        ` (of ${s.total}).` +
         (got.length ? "\n" + got.join("\n") : ""),
     );
   },

@@ -528,7 +528,9 @@ async function main() {
       });
       process.stderr.write("\n");
       console.error(
-        `✓ PDFs: ${r.got} fetched, ${r.have} already present, ${r.noOa} no-OA, ${r.noId} no-id (of ${r.total})`,
+        `✓ PDFs: ${r.got} fetched, ${r.have} already present, ${r.noOa} no-OA, ${r.noId} no-id` +
+          (r.skipped ? `, ${r.skipped} skipped (known no-OA — use --refresh to re-check)` : "") +
+          ` (of ${r.total})`,
       );
       for (const g of r.results.filter((x) => x.status === "got").slice(0, 25))
         console.error(`  + ${g.key}  (${g.source})`);

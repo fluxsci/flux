@@ -96,6 +96,7 @@
   let proxyConfigured = $state(false);
   let proxySignedIn = $state(false);
   let proxyBusy = $state(false);
+  let preflightBusy = $state(false); // bulk-fetch pre-flight auth probe in progress
   // Stored (OS-keychain) proxy credentials for seamless auto-login.
   let proxyUser = $state("");
   let proxyPass = $state("");
@@ -461,7 +462,27 @@
       pdfFetchJob.cancel();
       return;
     }
-    if (fetchingKey || loading || !entries.length) return;
+    if (fetchingKey || loading || !entries.length || preflightBusy) return;
+    // PRE-FLIGHT: re-probe library authentication at click time (ground truth — a real
+    // proxied navigation in main, not the possibly-stale pill state). If the proxy is
+    // configured but the session is dead, START NOTHING: a bulk run would burn the whole
+    // library phase on session-expired bounces. The OA phase avoids the ban-prone
+    // publishers and needs no auth — it's gated here only when the user has a proxy
+    // configured and expects the paywalled route to work.
+    preflightBusy = true;
+    try {
+      await refreshProxy();
+      if (proxyConfigured && !proxySignedIn) {
+        addStatus = "error";
+        addError = "Library session inactive — nothing started. Sign in via ⚙ Keys → Sign in, then run Get PDFs again.";
+        setTimeout(() => {
+          if (addStatus === "error") addStatus = "";
+        }, 6000);
+        return;
+      }
+    } finally {
+      preflightBusy = false;
+    }
     // Optimistically tick the local PDF set as papers land, so coverage updates live while
     // Library is mounted (the job also re-lists on completion). LR-4: coalesce the updates —
     // the old code allocated a fresh Set and reassigned pdfKeys per landed PDF, re-rendering
@@ -502,6 +523,9 @@
         `Fetched ${sum.oaGot + sum.proxyGot} (${parts.join(" · ")})` +
         (sum.failedNew ? ` · ${sum.failedNew} failed` : "") +
         (sum.needSignIn ? ` · ${sum.needSignIn} need library sign-in` : "") +
+        (sum.oaSkipped ? ` · ${sum.oaSkipped} known no-OA skipped` : "") +
+        (sum.blockedSkipped ? ` · ${sum.blockedSkipped} deferred (publisher blocking)` : "") +
+        (sum.publisherOnly && !proxyConfigured ? ` · ${sum.publisherOnly} publisher-hosted (need library proxy)` : "") +
         (sum.errors ? ` · ${sum.errors} error` : "");
     }
     addStatus = "added";
@@ -752,13 +776,15 @@
       </button>
       <button
         class="enrich getpdfs"
-        class:busy={fetchingAll}
+        class:busy={fetchingAll || preflightBusy}
         onclick={() => getAllPdfs(false)}
-        disabled={(fetchingKey !== "" && !fetchingAll) || loading || coverage.total === 0}
+        disabled={(fetchingKey !== "" && !fetchingAll) || loading || coverage.total === 0 || preflightBusy}
         title={fetchingAll
           ? "Click to stop the running fetch"
-          : "Find & download PDFs for your whole library: open-access first, then your library proxy for the rest. Runs in the background — keep working."}>
-        {#if fetchingAll}
+          : "Find & download PDFs for your whole library: open repositories first (PMC · Europe PMC · arXiv · bioRxiv), then your library proxy for the rest. Never hits publisher sites directly. Runs in the background — keep working."}>
+        {#if preflightBusy}
+          Checking sign-in…
+        {:else if fetchingAll}
           {pdfFetchJob.phase === "proxy" ? "Library" : "OA"} {pdfFetchJob.done}/{pdfFetchJob.total} ✕
         {:else if pdfCoverage.have === 0}
           Get PDFs
