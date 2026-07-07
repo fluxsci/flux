@@ -3,9 +3,10 @@
 // free when tokens change.
 //
 // Part of the LOCKED editing-feel contract — see ./EDITING-FEEL.md. In
-// particular: the .cm-cursor 70ms transition (smooth caret) and the identical
-// active/inactive metrics of .cm-flux-embedsrc/.cm-flux-tablesrc are tuned
-// feel constants — do not change without an explicit user request.
+// particular: the .cm-cursor smooth-caret transition (its duration is the
+// user-tunable --flux-caret-ms, default 70ms) and the identical active/inactive
+// metrics of .cm-flux-embedsrc/.cm-flux-tablesrc are tuned feel constants — do
+// not change without an explicit user request.
 
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle } from "@codemirror/language";
@@ -40,10 +41,12 @@ export const fluxTheme = EditorView.theme(
       borderLeftWidth: "2px",
     },
     // Obsidian-signature smooth caret: drawSelection reuses the cursor node
-    // across moves, so a short position transition animates it. Kept brief so
-    // fast typing doesn't smear.
+    // across moves, so a short position transition animates it. The duration is
+    // user-tunable via --flux-caret-ms (Settings › Paper › caret glide; set on
+    // section.paper), defaulting to the tuned 70ms; kept brief so fast typing
+    // doesn't smear, and 0ms yields an instant (non-animated) caret.
     ".cm-cursor": {
-      transition: "left 70ms ease-out, top 70ms ease-out",
+      transition: "left var(--flux-caret-ms, 70ms) ease-out, top var(--flux-caret-ms, 70ms) ease-out",
     },
     ".cm-foldPlaceholder": {
       display: "inline-block",

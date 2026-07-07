@@ -210,6 +210,17 @@
         Clean dynamic margin — close all panes when focus returns to the editor
       </label>
 
+      <h3>Paper — caret glide ({$settings.paperCaretMs === 0 ? "instant" : `${$settings.paperCaretMs} ms`})</h3>
+      <input
+        type="range"
+        min="0"
+        max="140"
+        step="10"
+        value={$settings.paperCaretMs}
+        on:input={(e) => settings.update((v) => ({ ...v, paperCaretMs: Math.round(parseFloat(e.currentTarget.value) || 0) }))}
+      />
+      <p class="hint">How smoothly the caret glides between positions. 70&nbsp;ms is the Flux default; lower feels snappier and 0 is instant (no glide).</p>
+
       <p class="tip">Open the FluxFig Menu with <b>F</b> while objects are selected.</p>
       <button class="close" on:click={() => settingsOpen.set(false)}>Done</button>
     </div>

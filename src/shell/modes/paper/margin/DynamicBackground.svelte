@@ -19,9 +19,9 @@
   import { makeRng, type Rng } from "../../../../lib/ambient/core/prng";
   import { bgSourceById, type BgField, type BgRect } from "./bgSources";
 
-  // `paused` = the whole PANE is hidden (keep-alive keeps hidden modes mounted, and
-  // hidden elements still get rAF ticks) — nobody can stare into a hidden margin, so
-  // the loop stops cold and resumes with a fresh timestamp (no dt jump / fast-forward).
+  // `paused` = the whole PANE is hidden (keep-alive keeps hidden modes mounted, and the
+  // loop would otherwise keep ticking) — nobody can stare into a hidden margin, so the
+  // loop stops cold and resumes with a fresh timestamp (no dt jump / fast-forward).
   // This is UNRELATED to reduce-motion, which deliberately never stills this canvas
   // (see the loop comment below).
   let { sourceId, seed, paused = false }: { sourceId: string; seed: string; paused?: boolean } = $props();
@@ -61,7 +61,7 @@
   let retryAt = 0;
   let schedRng: Rng = makeRng("init");
   let ghost: { off: HTMLCanvasElement; w: number; h: number; age: number } | null = null;
-  let raf = 0;
+  let timer: ReturnType<typeof setTimeout> | 0 = 0; // the ambient loop's setTimeout handle
   let startLoop = () => {};
   let stopLoop = () => {};
   $effect(() => {
@@ -70,7 +70,7 @@
   });
 
   // Dev-only perf rings, read by scripts/verify-margin-bg.mjs.
-  const frames: number[] = []; // rAF-to-rAF deltas (ms)
+  const frames: number[] = []; // tick-to-tick deltas (ms)
   const spawns: number[] = []; // trySpawn durations (ms)
 
   function resetField(): void {
@@ -254,9 +254,18 @@
     // still tames the UI transitions (pane materialize, fadeRise); it must
     // never still this canvas. The tick never lets one bad frame kill the
     // loop: errors are logged once and the chain continues.
+    // PACING — setTimeout, NOT requestAnimationFrame. On Chromium 150 (Electron 43) a
+    // continuous main-thread rAF loop pulls the page into a deep frame pipeline that adds
+    // ~50ms of input→paint latency to every keystroke in the editor beside this margin
+    // (measured 88ms rAF vs 40ms setTimeout; scripts/perf/writer-latency.mjs). setTimeout
+    // runs the same draw OUTSIDE the rAF lifecycle, so the editor's input paints stay
+    // shallow/instant while this animation still runs always-on at ~60fps. (An OffscreenCanvas
+    // worker was tried and measured WORSE — its continuous commits re-deepen the compositor
+    // pipeline.) The loop is dt-driven, so setTimeout jitter never changes the motion's speed.
     let last = performance.now();
     let warned = false;
-    const tick = (now: number) => {
+    const tick = () => {
+      const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       if (import.meta.env.DEV) {
@@ -273,16 +282,16 @@
           console.error("[dynmargin] background frame failed (loop continues):", err);
         }
       }
-      raf = requestAnimationFrame(tick);
+      timer = setTimeout(tick, 16);
     };
     stopLoop = () => {
-      cancelAnimationFrame(raf);
-      raf = 0;
+      clearTimeout(timer);
+      timer = 0;
     };
     startLoop = () => {
-      if (raf) return;
+      if (timer) return;
       last = performance.now(); // resume without a dt jump
-      raf = requestAnimationFrame(tick);
+      timer = setTimeout(tick, 16);
     };
     if (!paused) startLoop();
 
@@ -302,11 +311,18 @@
         }),
         seek: (s: number) => seekSeconds(s),
         sow: () => sow(),
+        // Dev-only loop control for the input-latency probe + gate
+        // (scripts/perf/writer-latency.mjs, scripts/verify-writer-latency.cjs):
+        // measure keystroke INP with this ambient loop paused vs running, so the
+        // gate can assert the ambient background adds ~no input latency (the
+        // Chromium-150 rAF-coupling regression this file's pacing note guards).
+        pause: () => stopLoop(),
+        resume: () => startLoop(),
       };
     }
 
     return () => {
-      cancelAnimationFrame(raf);
+      clearTimeout(timer);
       ro.disconnect();
       if (import.meta.env.DEV) {
         const w = window as unknown as { __fluxMargin?: Record<string, unknown> };

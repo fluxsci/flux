@@ -20,6 +20,7 @@ export interface Settings {
   paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
   paperMaxMarginPanes: number; // max dynamic panes open at once
   paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
+  paperCaretMs: number; // caret glide duration in ms (0 = instant). 70 = the tuned "smooth caret".
   // App — updates.
   updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
@@ -39,6 +40,7 @@ const DEFAULTS: Settings = {
   paperMarginScene: "harmonograph",
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,
+  paperCaretMs: 70,
   updateCheck: true,
 };
 

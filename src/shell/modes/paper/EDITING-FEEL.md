@@ -45,8 +45,13 @@ specific change.
 6. **Feel constants — do not tweak without an explicit user request:**
    - `EditorView.scrollMargins` top 84 / bottom 96 (caret never hugs the
      viewport edge) in `markdown-setup.ts`.
-   - `.cm-cursor { transition: left 70ms ease-out, top 70ms ease-out }` in
-     `flux-theme.ts` (the smooth caret the user loves).
+   - `.cm-cursor { transition: left var(--flux-caret-ms, 70ms) … }` in
+     `flux-theme.ts` (the smooth caret the user loves). The **default is 70ms**
+     (the loved feel — keep it as the default); the duration is user-tunable via
+     Settings › Paper › caret glide, which sets `--flux-caret-ms` on
+     `section.paper` (0ms = instant). Unlocked for configurability July 2026 at
+     the owner's request — the *default* stays the invariant, the value is the
+     knob.
    - The 150ms `latestIdle` debounce for TOC/stats (typing is never taxed
      per-keystroke).
 
