@@ -45,7 +45,6 @@ class PdfFetchJob {
   needSignIn = $state(0); // still-missing papers we couldn't proxy because not signed in
   oaSkipped = $state(0); // papers skipped by the OA-miss ledger (known no-OA, fresh)
   blockedSkipped = $state(0); // papers skipped because their publisher's circuit breaker tripped
-  publisherOnly = $state(0); // papers whose OA copies are all publisher-hosted (left to the proxy route)
   note = $state("");
   cancelled = $state(false);
 
@@ -151,7 +150,6 @@ class PdfFetchJob {
           onProgress: (done, _t, last) => {
             this.done = done;
             if (last.status === "got") this.oaGot++;
-            if (last.publisherOnly) this.publisherOnly++;
             oaByKey.set(last.key, last);
             noteOaMiss(last, ctrl.signal.aborted, true);
             opts.onTick?.(last.key, last.status === "got" || last.status === "have");
@@ -270,7 +268,6 @@ class PdfFetchJob {
       needSignIn: this.needSignIn,
       oaSkipped: this.oaSkipped,
       blockedSkipped: this.blockedSkipped,
-      publisherOnly: this.publisherOnly,
       cancelled: aborted || this.cancelled,
     };
     this.lastSummary = summary;
@@ -292,7 +289,6 @@ class PdfFetchJob {
     this.needSignIn = 0;
     this.oaSkipped = 0;
     this.blockedSkipped = 0;
-    this.publisherOnly = 0;
     this.note = "";
     this.cancelled = false;
   }
@@ -306,7 +302,6 @@ export interface GuiFetchSummaryLite {
   needSignIn: number;
   oaSkipped: number; // skipped by the OA-miss ledger (known no-OA, fresh)
   blockedSkipped: number; // skipped because their publisher's circuit breaker tripped
-  publisherOnly: number; // OA exists but publisher-hosted only (deferred to the proxy route)
   cancelled: boolean;
 }
 

@@ -729,7 +729,6 @@
         (sum.needSignIn ? ` · ${sum.needSignIn} need library sign-in` : "") +
         (sum.oaSkipped ? ` · ${sum.oaSkipped} known no-OA skipped` : "") +
         (sum.blockedSkipped ? ` · ${sum.blockedSkipped} deferred (publisher blocking)` : "") +
-        (sum.publisherOnly && !proxyConfigured ? ` · ${sum.publisherOnly} publisher-hosted (need library proxy)` : "") +
         (sum.errors ? ` · ${sum.errors} error` : "");
     }
     addStatus = "added";

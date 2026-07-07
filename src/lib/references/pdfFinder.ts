@@ -189,14 +189,11 @@ async function candidatesFor(id: ResolverId, x: PdfInputs, deps: FetchDeps): Pro
 }
 
 export interface WaterfallOpts {
-  /** Bulk mode: download from repositories AND ordinary/gold-OA publishers, but skip the
-   *  few publishers that IP-block on volume (BULK_AVOID_GROUPS — Elsevier/Cell Press).
-   *  Their copies are captured via the real-browser proxy route instead. Single per-row
-   *  fetches leave this off and try every candidate. */
+  /** Bulk mode: tunes resolver ORDER/SET for a polite sweep (e.g. Crossref links are
+   *  dropped). There is deliberately NO per-publisher candidate filtering anymore —
+   *  ban-safety comes from the cookie-jar netGet + the per-publisher GET caps + the
+   *  circuit breaker (see the comment inside runWaterfall). */
   bulkMode?: boolean;
-  /** Called for each candidate skipped by bulkMode (lets callers report "an OA copy exists
-   *  but it's on a publisher we avoid downloading from in bulk"). */
-  onFiltered?: (url: string) => void;
 }
 
 /** Run the OA waterfall: first magic-byte-valid PDF wins. */

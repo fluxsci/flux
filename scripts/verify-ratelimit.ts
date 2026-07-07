@@ -6,7 +6,6 @@ import {
   hostGroup,
   doiGroup,
   isRepositoryUrl,
-  isBulkAvoidUrl,
   interleaveByGroup,
   abortableSleep,
   SESSION_BUDGET,
@@ -56,22 +55,9 @@ ok(isRepositoryUrl("https://www.biorxiv.org/content/10.1101/x.full.pdf"), "bioRx
 ok(isRepositoryUrl("https://zenodo.org/record/1/files/x.pdf"), "Zenodo → repository");
 ok(!isRepositoryUrl("https://www.cell.com/article/S0/pdf"), "cell.com → NOT repository");
 
-// --- bulk-avoid classifier (now INERT — retained pending a follow-up delete) ----------
-// The bulk sweep no longer consults isBulkAvoidUrl: since the paths were unified it fetches
-// EVERY OA candidate exactly like the single ⬇ button (repository-first ordering still
-// PREFERS a repo copy when one exists — it just never SKIPS the publisher copy). These
-// assertions only pin the classifier's grouping so its removal is a clean delete rather than
-// a behavior change; nothing in the fetch path branches on them anymore.
-ok(isBulkAvoidUrl("https://www.cell.com/action/showPdf?pii=S0"), "cell.com → bulk-avoid (Elsevier)");
-ok(isBulkAvoidUrl("https://www.sciencedirect.com/science/article/pii/S0/pdfft?md5=x"), "sciencedirect → bulk-avoid");
-ok(isBulkAvoidUrl("https://doi.org/10.1016/j.neuron.1"), "doi.org/10.1016 → bulk-avoid (lands on Elsevier)");
-ok(!isBulkAvoidUrl("https://www.mdpi.com/x/pdf"), "MDPI (gold OA) → bulk-safe");
-ok(!isBulkAvoidUrl("https://www.frontiersin.org/articles/10.3389/x/pdf"), "Frontiers → bulk-safe");
-ok(!isBulkAvoidUrl("https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/x"), "Wiley → bulk-safe (not a volume-banner)");
-ok(!isBulkAvoidUrl("https://escholarship.org/content/x.pdf"), "eScholarship (institutional repo) → bulk-safe");
-ok(!isBulkAvoidUrl("https://hdl.handle.net/2027/x"), "HDL handle → bulk-safe");
-ok(!isBulkAvoidUrl("https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1/pdf"), "PMC → bulk-safe");
-ok(!isBulkAvoidUrl("https://some-university-repo.example.edu/x.pdf"), "unknown host → bulk-safe (default allow)");
+// (The old isBulkAvoidUrl classifier was deleted with the rest of the retired
+// bulk-avoid rule — ban-safety is the per-group GET caps, whose grouping the
+// hostGroup/doiGroup assertions above already pin.)
 
 // --- PMCID extracted from a PMC landing/article URL (so the PMC resolvers can fire) -----
 ok(pmcidFromUrl("https://www.ncbi.nlm.nih.gov/pmc/articles/5581692") === "PMC5581692", "PMC id from bare-number article URL");

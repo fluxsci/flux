@@ -86,10 +86,6 @@ export interface FetchOneResult {
   /** A candidate fetch failed at the transport level (timeout/network) — a null result is not
    *  a reliable "no-OA", so the bulk sweep must not record it as a miss. */
   transient?: boolean;
-  /** OA copies exist but all are on a publisher bulk avoids downloading from directly
-   *  (Elsevier/Cell Press — BULK_AVOID_GROUPS); use the GUI's library-proxy fetch or a
-   *  single-key fetch for these. */
-  publisherOnly?: boolean;
 }
 
 function inputsFor(key: string, lib: any[], enrich: Record<string, any>): PdfInputs {
@@ -106,8 +102,8 @@ function inputsFor(key: string, lib: any[], enrich: Record<string, any>): PdfInp
 
 /** Acquire the OA PDF for one citekey (skips if present unless refresh). `preloaded` lets a
  *  bulk caller share one library/enrich load instead of re-reading both files per key.
- *  `bulkMode` (bulk) downloads from repositories and normal/gold-OA publishers but skips the
- *  ban-prone ones (Elsevier/Cell Press); a single-key fetch leaves it off. */
+ *  `bulkMode` tunes the resolver set for a polite sweep (ban-safety = per-publisher caps
+ *  + circuit breaker, not candidate filtering); a single-key fetch leaves it off. */
 export async function fetchPdfForKey(
   key: string,
   opts: {
@@ -124,14 +120,13 @@ export async function fetchPdfForKey(
   const x = inputsFor(key, lib, enrich);
   if (!x.doi && !x.openAccessUrl && !x.pmcid) return { key, status: "no-id" };
   const email = (await getSecret("mailto")) || undefined;
-  let filtered = 0;
   let transient = false;
   const r = await runWaterfall(
     x,
     nodeDeps(email, () => {
       transient = true;
     }),
-    { bulkMode: opts.bulkMode, onFiltered: () => filtered++ },
+    { bulkMode: opts.bulkMode },
   );
   if (r) {
     await writePdf(
@@ -150,7 +145,7 @@ export async function fetchPdfForKey(
     }
     return { key, status: "got", source: r.source, url: r.url };
   }
-  return { key, status: "no-oa", publisherOnly: filtered > 0 || undefined, transient: transient || undefined };
+  return { key, status: "no-oa", transient: transient || undefined };
 }
 
 /** Manually ingest a hand-downloaded PDF into items/<key>/ (the fallback for paywalled

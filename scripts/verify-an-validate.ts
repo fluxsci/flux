@@ -39,11 +39,24 @@ try {
   res = await core.validate(root, "fig/index.json");
   assert(res.ok && res.checked === 1, "single-file validate (fig/index.json) ok");
 
-  // corrupt a canvas file: drop an element's required `id` → must be caught
+  // corrupt a canvas file: drop an element's required `id` → must be caught.
+  // (The consolidated scaffold seeds an EMPTY canvas-1 — target the canvas that
+  // actually holds the composed figure's elements.)
   const canvasFiles = await fs.readdir(path.join(root, "fig", "canvases"));
-  const cpath = path.join(root, "fig", "canvases", canvasFiles[0]);
-  const cf = JSON.parse(await fs.readFile(cpath, "utf8"));
-  delete cf.figures[0].elements[0].id;
+  let cpath = "";
+  let cf: any = null;
+  for (const name of canvasFiles) {
+    const p = path.join(root, "fig", "canvases", name);
+    const parsed = JSON.parse(await fs.readFile(p, "utf8"));
+    if (parsed.figures?.some((f: any) => f.elements?.length)) {
+      cpath = p;
+      cf = parsed;
+      break;
+    }
+  }
+  assert(!!cf, "found the canvas holding the composed figure");
+  const target = cf.figures.find((f: any) => f.elements?.length);
+  delete target.elements[0].id;
   await fs.writeFile(cpath, JSON.stringify(cf, null, 2));
   res = await core.validate(root);
   assert(!res.ok && res.errors.some((e) => /canvases/.test(e) && /id/.test(e)),

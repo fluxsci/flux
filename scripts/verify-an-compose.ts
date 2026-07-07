@@ -81,10 +81,15 @@ try {
   assert(JSON.stringify(entry?.panels) === JSON.stringify(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]),
     "listProject reports panels a..j");
 
-  // A second figure stacks below (createFigure placement) and reindex keeps order.
+  // Another figure stacks below (createFigure placement) and reindex keeps order.
+  // (The consolidated scaffold seeds "Figure 1", so the project holds seed + growth + summary.)
+  const before = list.figures.length;
   await core.createFigure(root, { id: "summary", name: "Summary" });
   const list2 = await core.listProject(root);
-  assert(list2.figures.length === 2 && list2.figures[1].id === "summary", "second figure appended + reindexed");
+  assert(
+    list2.figures.length === before + 1 && list2.figures[list2.figures.length - 1].id === "summary",
+    "new figure appended last + reindexed",
+  );
 
   console.log("\nALL COMPOSE ACCEPTANCE TESTS PASSED");
 } finally {

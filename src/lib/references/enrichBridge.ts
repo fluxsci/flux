@@ -122,18 +122,23 @@ export async function hydrateFluxLib(
       lastBatchErr = e;
     }
     done++;
-    opts.onProgress?.(done, urls.length);
+    // Entry-based progress (batches are 50 DOIs each) — "150/1713" is honest;
+    // the old batch counts ("3/35") read like entries and undersold a hydrate.
+    opts.onProgress?.(Math.min(done * 50, targets.length), targets.length);
   }
   if (urls.length > 0 && failedBatches === urls.length) {
     const detail = lastBatchErr instanceof Error ? lastBatchErr.message : String(lastBatchErr);
     throw new Error(`Enrichment failed — all ${urls.length} OpenAlex batches errored (${detail})`);
   }
 
-  // CrossRef abstract backfill (reuse the existing fetchDoi bridge).
+  // CrossRef abstract backfill (reuse the existing fetchDoi bridge). Paced at 60ms
+  // between calls like the flux-core twin — a first hydrate of a 1,700-entry library
+  // must not hammer api.crossref.org back-to-back.
   let crossrefBackfill = 0;
   for (const e of targets) {
     const en = map[e.key];
     if (en && !en.abstract && e.doi && fb.fetchDoi) {
+      await new Promise((r) => setTimeout(r, 60));
       try {
         const r = (await fb.fetchDoi(e.doi)) as any;
         const ab = r?.message?.abstract;

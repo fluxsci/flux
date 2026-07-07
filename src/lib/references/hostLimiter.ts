@@ -99,21 +99,12 @@ const REPOSITORY_DOMAINS = new Set([
   "semanticscholar.org", // pdfs.semanticscholar.org mirror
 ]);
 
-/** Publisher rate-limit GROUPS the bulk OA phase must not download from directly — the
- *  ones that IP-block an address for opening too many sessions too fast. `elsevier`
- *  (Cell Press / ScienceDirect: cell.com, sciencedirect.com, linkinghub.elsevier.com,
- *  DOI 10.1016/10.1006/10.1053) is the confirmed cause of the "90 sessions in 5 minutes"
- *  bulk IP blocks; its papers are captured via the real-browser proxy route instead
- *  (cookie-carrying single session + the cell.com hop).
- *
- *  Everything NOT in this set is bulk-safe to download directly: open repositories AND
- *  ordinary/gold-OA publishers (MDPI, Frontiers, PLOS, Hindawi, Wiley-OA, institutional
- *  repositories, eScholarship, HDL handles, …). The cookie-jar netGet (one session per
- *  host) + the per-publisher sliding-window limiter + the circuit breaker bound the
- *  volume, so a blanket "repositories only" rule is unnecessary and was starving bulk of
- *  the vast majority of genuinely-open PDFs. Keep this set MINIMAL — only add a publisher
- *  here once it has actually IP-blocked us. */
-export const BULK_AVOID_GROUPS = new Set(["elsevier"]);
+// NOTE (history): a BULK_AVOID_GROUPS "never download Elsevier in bulk" rule used to
+// live here. It was deliberately retired — it starved bulk of ~180 Cell Press OA papers
+// the per-row button fetched fine — in favor of throughput CAPS: the cookie-jar netGet
+// (one session per host) + the per-group sliding-window GET budgets below (elsevier
+// ≤45/5min, the observed "90 sessions in 5 minutes" ban threshold halved) + the
+// circuit breaker. Ban-safety is rate, not avoidance.
 
 const registrableDomain = (host: string): string => host.split(".").slice(-2).join(".");
 // ebi.ac.uk / core.ac.uk / hal.archives-ouvertes.fr need three labels to be meaningful.
@@ -158,16 +149,6 @@ export function doiGroup(doi: string | undefined): string | null {
   const m = doi?.match(/^(10\.\d{4,9})\//);
   if (!m) return null;
   return DOI_PREFIX_GROUPS[m[1]] ?? `doi:${m[1]}`;
-}
-
-/** True if `url` belongs to a publisher the bulk OA phase must NOT download from directly
- *  (it IP-blocks on volume — see BULK_AVOID_GROUPS). Such candidates are left to the
- *  real-browser proxy route instead. Everything else — repositories and ordinary/gold-OA
- *  publishers alike — is bulk-safe. Uses the same grouping as the rate limiter, so a
- *  doi.org link is judged by the DOI's publisher, not by "doi.org". */
-export function isBulkAvoidUrl(url: string | undefined): boolean {
-  const g = hostGroup(url);
-  return g != null && BULK_AVOID_GROUPS.has(g);
 }
 
 /** A sleep that rejects with AbortError as soon as `signal` aborts, so a cancel never

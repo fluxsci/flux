@@ -4,6 +4,8 @@
 // bundle past electron-builder's node_modules carve-out) and no network except the
 // injected fetch. Shared by the in-app paste box, Cmd-K, and flux:// web capture.
 
+const { publicHttpUrl } = require("./netFetch.cjs");
+
 /** Extract a clean DOI from a string (a bare DOI, a doi.org URL, a "doi:" prefix,
  *  or DOI-bearing text), or null. Trims trailing sentence punctuation. */
 function cleanDoi(s) {
@@ -62,8 +64,12 @@ async function resolveToDoi(input, fetchImpl) {
     if (d) return { doi: d };
   }
   if (typeof fetchImpl !== "function") return { error: "URL resolution needs the desktop app." };
+  // Same SSRF guard as pdf:netGet — this fetch runs in main with the machine's
+  // network position; localhost/private ranges are not resolvable "papers".
+  const safe = publicHttpUrl(u);
+  if (!safe) return { error: "Only public http(s) URLs can be resolved." };
   try {
-    const res = await fetchImpl(u, {
+    const res = await fetchImpl(safe, {
       headers: {
         "User-Agent": "Flux/0.1 (manuscript editor)",
         Accept: "text/html,application/xhtml+xml",

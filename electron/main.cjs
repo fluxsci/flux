@@ -1416,13 +1416,34 @@ ipcMain.handle("proxy:cancel", (_e, token) => {
 // API-key store (machine-global ~/FluxLib/keys.json). keys:get returns the raw map
 // for the settings form (the user's own machine); keys:set merge-writes it.
 ipcMain.handle("keys:get", () => readKeys());
-ipcMain.handle("keys:set", (_e, patch) => {
+ipcMain.handle("keys:set", async (_e, patch) => {
+  // The read-modify-write runs under the FluxLib "keys" lock (flux-core's saveKeys
+  // takes the same one) and the write is atomic — a concurrent `flux keys --…` can
+  // no longer lose a field or tear the file.
+  const lockDir = lockDirFor("fluxlib");
+  const lockPath = path.join(lockDir, "keys.json");
   try {
-    fs.mkdirSync(fluxLibDir(), { recursive: true });
-    const next = { ...readKeys(), ...(patch || {}) };
-    // W12 (SHL-8): API keys are plaintext — write owner-only, like the proxy creds.
-    fs.writeFileSync(fluxKeysPath(), JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-    return next;
+    try {
+      const info = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+      const t = Date.parse(info?.ts);
+      if (Number.isFinite(t) && Date.now() - t < LOCK_TTL_MS && info.client !== "human") {
+        return { error: `keys.json is being written by ${info.client} — retry in a moment` };
+      }
+    } catch {
+      /* absent/corrupt lock — treat as free */
+    }
+    writeLockFile(lockPath);
+    try {
+      fs.mkdirSync(fluxLibDir(), { recursive: true });
+      const next = { ...readKeys(), ...(patch || {}) };
+      // W12 (SHL-8): API keys are plaintext — write owner-only, like the proxy creds.
+      await atomicWriteMain(fluxKeysPath(), JSON.stringify(next, null, 2) + "\n");
+      await fs.promises.chmod(fluxKeysPath(), 0o600).catch(() => {});
+      return next;
+    } finally {
+      noteWrite(lockPath);
+      fs.rmSync(lockPath, { force: true });
+    }
   } catch (err) {
     return { error: String((err && err.message) || err) };
   }

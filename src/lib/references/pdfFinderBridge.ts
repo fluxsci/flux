@@ -103,10 +103,6 @@ export interface GuiFetchResult {
   /** A candidate fetch failed at the transport level (timeout/network), so a null waterfall
    *  result is NOT a reliable "no-OA" — the bulk job must not record it as a miss. */
   transient?: boolean;
-  /** OA copies exist but ALL are on a publisher bulk avoids downloading from directly
-   *  (Elsevier/Cell Press — see BULK_AVOID_GROUPS); the paper is left to the real-browser
-   *  proxy route. */
-  publisherOnly?: boolean;
 }
 
 /** Environment/session failures that must NOT be recorded as a paper's fetch failure.
@@ -127,17 +123,13 @@ export async function fetchPdfForEntry(
   if (!x.doi && !x.openAccessUrl && !x.pmcid) return { key: entry.key, status: "no-id" };
   const email = opts.email ?? (await readEmail());
   try {
-    let filtered = 0;
     let transient = false;
     const r = await runWaterfall(
       x,
       bridgeDeps(email, opts.signal, () => {
         transient = true;
       }),
-      {
-        bulkMode: opts.bulkMode,
-        onFiltered: () => filtered++,
-      },
+      { bulkMode: opts.bulkMode },
     );
     if (!r) {
       // The waterfall collapses an abort (thrown mid-rate-limit-wait) to null — don't let a
@@ -145,7 +137,7 @@ export async function fetchPdfForEntry(
       if (opts.signal?.aborted) return { key: entry.key, status: "error", error: "cancelled", reason: "cancelled" };
       // A transport-level failure (timeout/network) makes "no-oa" unreliable — flag it so the
       // bulk job doesn't record a false miss; the paper stays missing and retries next run.
-      return { key: entry.key, status: "no-oa", publisherOnly: filtered > 0 || undefined, transient: transient || undefined };
+      return { key: entry.key, status: "no-oa", transient: transient || undefined };
     }
     await writePdfItem(entry.key, r.bytes, {
       source: r.source,
@@ -214,12 +206,11 @@ const summarize = (results: GuiFetchResult[], total: number): GuiFetchSummary =>
  *  when `signal` aborts (checked at the loop top + during the delay). Items are interleaved
  *  across publishers so the per-publisher rate limiter throttles only its own papers.
  *  BULK downloads from repositories AND ordinary/gold-OA publishers (MDPI, Frontiers, PLOS,
- *  Wiley-OA, institutional repos, …) — it only SKIPS the publishers that IP-block on volume
- *  (Elsevier/Cell Press — BULK_AVOID_GROUPS, the source of the "90 sessions in 5 minutes"
- *  blocks). Those papers are reported `publisherOnly` and left to the real-browser proxy
- *  phase. The cookie-jar netGet + per-publisher limiter + circuit breaker keep even this
- *  broadened sweep under the ban threshold. The per-row single fetch (user-initiated, one
- *  paper) has no restriction and tries every candidate. */
+ *  Wiley-OA, institutional repos, …) AND the volume-sensitive publishers (Elsevier/Cell
+ *  Press, the source of the "90 sessions in 5 minutes" blocks) — there is no candidate
+ *  filtering; ban-safety is the cookie-jar netGet (one session per host) + the
+ *  per-publisher GET caps (elsevier ≤45/5min) + the circuit breaker. The per-row single
+ *  fetch (user-initiated, one paper) runs the same candidate set. */
 export async function fetchPdfsForEntries(
   items: { entry: RefEntry; enrich?: EnrichEntry }[],
   opts: {
