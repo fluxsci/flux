@@ -36,14 +36,106 @@ export function unionRect(rects: Rect[]): Rect | null {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
+// --- rotation-aware bounds (FIG-4) ------------------------------------------------
+// `rotation` visually spins an element about its bbox centre (Element.svelte /
+// export.ts pivot), but elementBBox above deliberately stays the UNROTATED box (the
+// stored x/y/w/h — what resize/ops mutate). These helpers give the ROTATED shape's
+// geometry for everything user-facing: the selection box that should hug the shape,
+// marquee hit-testing that shouldn't catch the empty corners of a tilted element's
+// AABB, and culling that must not hide a partially-visible rotated element.
+
+const rotationOf = (e: Element): number => ("rotation" in e ? ((e as { rotation?: number }).rotation ?? 0) : 0);
+
+/** The element's four bbox corners AFTER its rotation (figure-local coords). */
+export function rotatedCorners(e: Element): { x: number; y: number }[] {
+  const b = elementBBox(e);
+  const pts = [
+    { x: b.x, y: b.y },
+    { x: b.x + b.w, y: b.y },
+    { x: b.x + b.w, y: b.y + b.h },
+    { x: b.x, y: b.y + b.h },
+  ];
+  const rot = rotationOf(e);
+  if (!rot) return pts;
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  const rad = (rot * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return pts.map((p) => ({
+    x: cx + (p.x - cx) * cos - (p.y - cy) * sin,
+    y: cy + (p.x - cx) * sin + (p.y - cy) * cos,
+  }));
+}
+
+/** AABB of the ROTATED shape — the box a selection outline should enclose. */
+export function rotatedAABB(e: Element): Rect {
+  if (!rotationOf(e)) return elementBBox(e);
+  const pts = rotatedCorners(e);
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const p of pts) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+/** Box around a selection that HUGS rotated members (display/snap/resize frame). */
 export function selectionBBox(els: Element[]): Rect | null {
-  return unionRect(els.map(elementBBox));
+  return unionRect(els.map(rotatedAABB));
 }
 
 export function rectsIntersect(a: Rect, b: Rect): boolean {
   return (
     a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
   );
+}
+
+/** Convex-polygon overlap via the separating-axis theorem (both polys' edge normals). */
+function polysIntersect(a: { x: number; y: number }[], b: { x: number; y: number }[]): boolean {
+  for (const poly of [a, b]) {
+    for (let i = 0; i < poly.length; i++) {
+      const p1 = poly[i];
+      const p2 = poly[(i + 1) % poly.length];
+      const nx = p2.y - p1.y;
+      const ny = p1.x - p2.x;
+      let minA = Infinity,
+        maxA = -Infinity,
+        minB = Infinity,
+        maxB = -Infinity;
+      for (const p of a) {
+        const d = p.x * nx + p.y * ny;
+        minA = Math.min(minA, d);
+        maxA = Math.max(maxA, d);
+      }
+      for (const p of b) {
+        const d = p.x * nx + p.y * ny;
+        minB = Math.min(minB, d);
+        maxB = Math.max(maxB, d);
+      }
+      if (maxA < minB || maxB < minA) return false; // separating axis found
+    }
+  }
+  return true;
+}
+
+/** rect ∩ element honoring rotation — a marquee no longer catches the empty AABB
+ *  corners of a tilted element (unrotated elements keep the cheap rect test). */
+export function rectIntersectsElement(r: Rect, e: Element): boolean {
+  if (!rotationOf(e)) return rectsIntersect(elementBBox(e), r);
+  const quad = rotatedCorners(e);
+  const rectPts = [
+    { x: r.x, y: r.y },
+    { x: r.x + r.w, y: r.y },
+    { x: r.x + r.w, y: r.y + r.h },
+    { x: r.x, y: r.y + r.h },
+  ];
+  return polysIntersect(rectPts, quad);
 }
 
 // Edge-to-edge gap between two rects, per axis (Feature 3 caliper). `dx`/`dy` are

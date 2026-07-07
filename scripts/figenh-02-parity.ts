@@ -43,11 +43,11 @@ try {
   }
 
   // group rotate: members orbit + each rotation increments
-  const beforeG = await core.loadFigModel(root).then((m) => m.project.figures[0].elements.map((e) => ({ id: e.id, x: e.x, y: e.y, r: e.rotation })));
+  const beforeG = await core.loadFigModel(root).then((m) => m.project.figures.find((ff) => ff.id === figureId)!.elements.map((e) => ({ id: e.id, x: e.x, y: e.y, r: e.rotation })));
   await core.rotateElements(root, ["r1", "r2", "r3"], 90);
   {
     const { project } = await core.loadFigModel(root);
-    const els = project.figures[0].elements;
+    const els = project.figures.find((ff) => ff.id === figureId)!.elements;
     const eachInc = els.every((e) => { const b = beforeG.find((z) => z.id === e.id)!; return near(e.rotation, b.r + 90); });
     const orbited = els.some((e) => { const b = beforeG.find((z) => z.id === e.id)!; return Math.abs(e.x - b.x) > 1 || Math.abs(e.y - b.y) > 1; });
     assert(eachInc, "flux-core group rotate: every member rotation += 90");
@@ -55,10 +55,10 @@ try {
   }
 
   // CLI binary: rotate r2 by 30° more
-  const before2 = await core.loadFigModel(root).then((m) => m.project.figures[0].elements.find((e) => e.id === "r2")!.rotation);
+  const before2 = await core.loadFigModel(root).then((m) => m.project.figures.find((ff) => ff.id === figureId)!.elements.find((e) => e.id === "r2")!.rotation);
   try {
     execFileSync("npx", ["tsx", "flux-cli.ts", "rotate", "r2", "--deg", "30", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
-    const after2 = await core.loadFigModel(root).then((m) => m.project.figures[0].elements.find((e) => e.id === "r2")!.rotation);
+    const after2 = await core.loadFigModel(root).then((m) => m.project.figures.find((ff) => ff.id === figureId)!.elements.find((e) => e.id === "r2")!.rotation);
     assert(near(after2, before2 + 30), `CLI rotate r2 +30 → ${after2}`);
   } catch (e) {
     assert(false, `CLI rotate failed: ${(e as Error).message.split("\n")[0]}`);

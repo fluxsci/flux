@@ -23,6 +23,7 @@ import {
   arrange,
   lastArrangeRows,
   rollbackGesture,
+  gestureCancelHook,
   xrayOpen,
   importerOpen,
   embeddedProjectRoot,
@@ -611,6 +612,12 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
   if (e.key === "Escape") {
+    // FIG-12: an in-flight drag/resize/rotate aborts FIRST — the selection (and the
+    // element's pre-gesture position) survive; a second Esc then clears as before.
+    if (gestureCancelHook.fn?.()) {
+      e.preventDefault();
+      return;
+    }
     clearSelection();
     activeTool.set("select");
     return;

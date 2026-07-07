@@ -26,6 +26,18 @@ import {
 } from "./items";
 import { isPdfBytes } from "./pdfFinder";
 import { seededItem, seededSupplements } from "./devSeed";
+import { pushToast } from "../toast";
+
+/** Manual ingest has no size ceiling (unlike netGet's 80MB fetch cap) — warn on huge
+ *  scans so the memory cost of opening them isn't a surprise. Never blocks the ingest. */
+function warnHugePdf(bytes: Uint8Array, what: string): void {
+  const MB = 1024 * 1024;
+  if (bytes.length > 80 * MB) {
+    pushToast("info", `That ${what} is ${Math.round(bytes.length / MB)}MB`, {
+      detail: "It will open, but the reader holds the whole file in memory while it's open — very large scans read slowly.",
+    });
+  }
+}
 
 /** Write the live reader context (what the human is reading) so the agent's
  *  get_reading_context MCP tool can see it. Fills in the on-disk paths. Best-effort,
@@ -66,6 +78,7 @@ export async function ingestPdfFile(key: string, filePath: string): Promise<bool
   if (!buf) return false;
   const bytes = new Uint8Array(buf);
   if (!isPdfBytes(bytes)) return false;
+  warnHugePdf(bytes, "PDF");
   return writePdfItem(key, bytes, { source: "ingest", url: filePath, finalUrl: filePath });
 }
 
@@ -245,6 +258,7 @@ export async function ingestSupplementFile(key: string, filePath: string): Promi
   if (!buf) return null;
   const bytes = new Uint8Array(buf);
   if (!isPdfBytes(bytes)) return null;
+  warnHugePdf(bytes, "supplement");
   if (fb.mkdir) await fb.mkdir(supplementsDir(lib, key));
   let name = safeSupplementName(filePath);
   if (!/\.pdf$/i.test(name)) name += ".pdf";

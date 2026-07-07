@@ -36,7 +36,7 @@ try {
   const r = await core.duplicateElements(root, figureId, ["m"], { dx: 50, dy: 0, count: 4 });
   {
     const { project } = await core.loadFigModel(root);
-    const els = project.figures[0].elements;
+    const els = project.figures.find((ff) => ff.id === figureId)!.elements;
     assert(els.length === 5, `count:4 → 5 elements total (${els.length})`);
     const xs = els.map((e) => e.x).sort((a, b) => a - b);
     const diffs = xs.slice(1).map((x, i) => x - xs[i]);
@@ -49,7 +49,7 @@ try {
   try {
     execFileSync("npx", ["tsx", "flux-cli.ts", "duplicate", figureId, "m", "--dx", "0", "--dy", "70", "--count", "2", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
-    assert(project.figures[0].elements.length === 7, `CLI duplicate count:2 → 7 total (${project.figures[0].elements.length})`);
+    assert(project.figures.find((ff) => ff.id === figureId)!.elements.length === 7, `CLI duplicate count:2 → 7 total (${project.figures.find((ff) => ff.id === figureId)!.elements.length})`);
   } catch (e) {
     assert(false, `CLI duplicate failed: ${(e as Error).message.split("\n")[0]}`);
   }

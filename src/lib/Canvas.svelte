@@ -13,6 +13,8 @@
     selectFrame,
     selectedFrameId,
     beginGesture,
+    rollbackGesture,
+    gestureCancelHook,
     mutate,
     expandGroups,
     newId,
@@ -26,9 +28,12 @@
   import { commitArrange } from "./keyboard";
   import type { Element, Figure, PathElement, VectorNode } from "./types";
   import { get } from "svelte/store";
+  import { onMount } from "svelte";
   import { applyAutoWidth } from "./text";
   import {
     elementBBox,
+    rotatedAABB,
+    rectIntersectsElement,
     selectionBBox,
     rectsIntersect,
     rotateAbout,
@@ -243,8 +248,10 @@
     if (dragging && gesture?.kind === "figmove" && gesture.figId === fig.id)
       return fig.elements.filter((el) => !el.hidden);
     const lr: Rect = { x: cullRect.x - fig.x, y: cullRect.y - fig.y, w: cullRect.w, h: cullRect.h };
+    // FIG-4: cull by the ROTATED bounds — a tilted element near the viewport edge must
+    // not vanish while its spun corners are still visible (unrotated = same fast path).
     return fig.elements.filter(
-      (el) => !el.hidden && ($selection.has(el.id) || rectsIntersect(elementBBox(el), lr)),
+      (el) => !el.hidden && ($selection.has(el.id) || rectsIntersect(rotatedAABB(el), lr)),
     );
   }
   // Precompute the per-figure visible element lists keyed off the (stable-within-a-
@@ -1160,8 +1167,9 @@
       const r: Rect = { x: Math.min(g.x0, lp.x), y: Math.min(g.y0, lp.y), w: Math.abs(lp.x - g.x0), h: Math.abs(lp.y - g.y0) };
       marquee = r;
       const hit = new Set(g.add);
+      // FIG-4: honor rotation — the empty AABB corners of a tilted element don't count.
       for (const el of fig.elements)
-        if (!el.locked && !el.hidden && rectsIntersect(elementBBox(el), r)) hit.add(el.id);
+        if (!el.locked && !el.hidden && rectIntersectsElement(r, el)) hit.add(el.id);
       // FIG-1: dragging the marquee re-ran expandGroups + every selection-dependent
       // reactive (handles, inspector, bbox) on EACH pointermove even when the hit set
       // hadn't changed. Only push a new selection when the result actually differs.
@@ -1283,6 +1291,15 @@
     }
 
     // Reset all transient state in one batch -> single clean scene render.
+    resetGestureTransients();
+    try {
+      hostEl.releasePointerCapture(e.pointerId);
+    } catch {}
+  }
+
+  /** Drop every piece of in-flight gesture state (shared by pointer-up commit and
+   *  Esc-cancel) — one batch → a single clean scene render. */
+  function resetGestureTransients() {
     preview = null;
     marquee = null;
     guides = [];
@@ -1302,10 +1319,28 @@
     gestureAltDup = false;
     pendingShiftToggle = null;
     gesture = null;
-    try {
-      hostEl.releasePointerCapture(e.pointerId);
-    } catch {}
   }
+
+  /** FIG-12: abort the in-flight gesture (Esc). Transient kinds (move/resize/
+   *  figmove/rotate/marquee/pan/draw) never touched the model — dropping the
+   *  transients IS the cancel. Alt-drag-copy duplicated the model at first move
+   *  (one beginGesture entry) → roll that back. The eventual pointerup finds
+   *  gesture === null and no-ops; capture releases implicitly with it. */
+  function cancelGesture(): boolean {
+    if (!gesture) return false;
+    if (gestureAltDup) rollbackGesture(); // removes the copies minted at first move
+    if (gesture.kind === "draw") activeTool.set("select");
+    resetGestureTransients();
+    return true;
+  }
+
+  // FIG-12: expose the abort to the global Esc handler while this canvas is mounted.
+  onMount(() => {
+    gestureCancelHook.fn = cancelGesture;
+    return () => {
+      if (gestureCancelHook.fn === cancelGesture) gestureCancelHook.fn = null;
+    };
+  });
 
   function computeResizeBox(ob: Rect, h: Handle, lp: { x: number; y: number }, shift: boolean): Rect {
     let x = ob.x,

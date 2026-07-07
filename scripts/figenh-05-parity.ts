@@ -36,7 +36,7 @@ try {
   await core.scaleElements(root, ["r1"], 0.5);
   {
     const { project } = await core.loadFigModel(root);
-    const r = project.figures[0].elements.find((e) => e.id === "r1") as RectElement;
+    const r = project.figures.find((ff) => ff.id === figureId)!.elements.find((e) => e.id === "r1") as RectElement;
     assert(near(r.width, 100) && near(r.height, 50) && near(r.strokeWidth, 4) && near(r.cornerRadius, 8), `flux-core scale 0.5 → w100 h50 sw4 r8 (w=${r.width} sw=${r.strokeWidth} r=${r.cornerRadius})`);
     // scaled about centre → centre unchanged (x shifts inward by quarter width)
     assert(near(r.x, 150) && near(r.y, 125), `scaled about bbox centre (x=${r.x}, y=${r.y})`);
@@ -46,7 +46,7 @@ try {
   try {
     execFileSync("npx", ["tsx", "flux-cli.ts", "scale", "r1", "--factor", "2", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
-    const r = project.figures[0].elements.find((e) => e.id === "r1") as RectElement;
+    const r = project.figures.find((ff) => ff.id === figureId)!.elements.find((e) => e.id === "r1") as RectElement;
     assert(near(r.width, 200) && near(r.strokeWidth, 8), `CLI scale 2× restored (w=${r.width} sw=${r.strokeWidth})`);
   } catch (e) {
     assert(false, `CLI scale failed: ${(e as Error).message.split("\n")[0]}`);

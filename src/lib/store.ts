@@ -245,6 +245,13 @@ export function redo() {
   markEdited();
 }
 
+// FIG-12: the mounted Canvas registers its in-flight-gesture abort here so the
+// global Esc (keyboard.ts) can cancel a live drag/resize/rotate FIRST — returns
+// true when a gesture was aborted (Esc then stops there instead of clearing the
+// selection). A hook (not an import) because keyboard.ts is module-global while
+// the gesture state lives inside the Canvas component.
+export const gestureCancelHook: { fn: (() => boolean) | null } = { fn: null };
+
 // Discard the most recent gesture: restore its captured pre-state and leave no
 // redo. Used to cancel a live, in-progress gesture (e.g. Esc out of Arrange
 // mode) whose pre-state was captured with beginGesture().

@@ -42,7 +42,7 @@ try {
   await core.distributeFigure(root, figureId, "h", 24);
   {
     const { project } = await core.loadFigModel(root);
-    const els = project.figures[0].elements as { x: number; width: number }[];
+    const els = project.figures.find((ff) => ff.id === figureId)!.elements as { x: number; width: number }[];
     const g = gapsOf(els);
     assert(g.every((x) => near(x, 24)), `flux-core distribute gap:24 → gutters ${g.join(",")}`);
   }
@@ -51,7 +51,7 @@ try {
   try {
     execFileSync("npx", ["tsx", "flux-cli.ts", "distribute", figureId, "--gap", "40", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
-    const g = gapsOf(project.figures[0].elements as { x: number; width: number }[]);
+    const g = gapsOf(project.figures.find((ff) => ff.id === figureId)!.elements as { x: number; width: number }[]);
     assert(g.every((x) => near(x, 40)), `CLI distribute --gap 40 → gutters ${g.join(",")}`);
   } catch (e) {
     assert(false, `CLI distribute failed: ${(e as Error).message.split("\n")[0]}`);

@@ -34,14 +34,14 @@ try {
   // reload again from disk (fresh) to prove it round-trips through project.json
   {
     const { project } = await core.loadFigModel(root);
-    assert(project.figures[0].guides?.x?.includes(408), "guide x=408 survives save/load");
+    assert(project.figures.find((ff) => ff.id === figureId)!.guides?.x?.includes(408), "guide x=408 survives save/load");
   }
 
   // CLI set-guides
   try {
     execFileSync("npx", ["tsx", "flux-cli.ts", "set-guides", figureId, "--x", "200,600", "--y", "120", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
-    const g = project.figures[0].guides;
+    const g = project.figures.find((ff) => ff.id === figureId)!.guides;
     assert(eq(g?.x, [200, 600]) && eq(g?.y, [120]), `CLI set-guides → x=${JSON.stringify(g?.x)} y=${JSON.stringify(g?.y)}`);
   } catch (e) {
     assert(false, `CLI set-guides failed: ${(e as Error).message.split("\n")[0]}`);

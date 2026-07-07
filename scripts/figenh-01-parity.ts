@@ -51,7 +51,7 @@ try {
   await core.editPath(root, id, { closed: true });
   {
     const { project } = await core.loadFigModel(root);
-    const p = project.figures[0].elements.find((e) => e.id === id) as PathElement;
+    const p = project.figures.find((ff) => ff.id === figureId)!.elements.find((e) => e.id === id) as PathElement;
     assert(p.closed === true && p.d.trim().endsWith("Z"), "edit-path close → closed + d ends with Z");
   }
 
@@ -59,7 +59,7 @@ try {
   try {
     execFileSync("npx", ["tsx", "flux-cli.ts", "add-path", figureId, "--nodes", JSON.stringify(NODES), "--stroke", "#07c", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
-    const paths = project.figures[0].elements.filter((e) => e.type === "path");
+    const paths = project.figures.find((ff) => ff.id === figureId)!.elements.filter((e) => e.type === "path");
     assert(paths.length === 2, `CLI add-path created a 2nd path (${paths.length} total)`);
   } catch (e) {
     assert(false, `CLI add-path failed: ${(e as Error).message.split("\n")[0]}`);
