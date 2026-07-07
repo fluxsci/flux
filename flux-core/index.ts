@@ -16,6 +16,10 @@ import { parsePlotSvg, prefixIds, applyOverrides, buildPartIndex } from "../src/
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { withLock, setLockClient } from "./locks";
 import * as fluxlib from "./fluxlib";
+import { writePdf, writeFulltext } from "./items";
+import { extractFulltext } from "./fulltext";
+import { sniffFormat, risToBibtex } from "../src/lib/references/ris";
+import { bibPdfAttachments } from "../src/lib/references/zoteroFiles";
 import { mergeEnrich } from "../src/lib/references/enrich";
 // Reference hydration + whole-world lookups (OpenAlex) — see flux-core/enrich.ts.
 export {
@@ -565,6 +569,85 @@ export async function addReference(root: string, bibtex: string): Promise<void> 
  *  the add_to_library MCP tool / the "Add DOI to FluxLib" command. */
 export async function addToLibrary(bibtex: string): Promise<fluxlib.AddResult> {
   return fluxlib.addToFluxLib(bibtex, { source: "bibtex" });
+}
+
+export interface ImportReport {
+  format: "bibtex" | "ris" | "unknown";
+  added: string[]; // new citekeys
+  deduped: string[]; // merged onto existing keys
+  attached: { key: string; path: string }[]; // PDFs copied into items/<key>/
+  attachFailed: { key: string; path: string; error: string }[];
+}
+
+/** Resolve a Better-BibTeX `file` path to something on disk: absolute as-is, else tried
+ *  under baseDir (the .bib's own folder) then zoteroDir (+ its `storage/`). First hit wins. */
+async function resolveAttachPath(p: string, baseDir?: string, zoteroDir?: string): Promise<string | null> {
+  const candidates: string[] = [];
+  if (path.isAbsolute(p)) candidates.push(p);
+  else {
+    if (baseDir) candidates.push(path.resolve(baseDir, p));
+    if (zoteroDir) {
+      candidates.push(path.resolve(zoteroDir, p));
+      candidates.push(path.resolve(zoteroDir, "storage", p));
+    }
+  }
+  for (const c of candidates) {
+    try {
+      if ((await fs.stat(c)).isFile()) return c;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+/** Bulk-import a .bib or .ris file's references into FluxLib. RIS is normalized to BibTeX
+ *  up front so it shares the ONE dedupe/rekey path (planAdds). With `attachFiles`, the PDF
+ *  named in each new entry's Better-BibTeX `file` field is copied into items/<key>/ and
+ *  text-extracted (the Zotero "bring the PDFs in too" path) — paths resolved against baseDir
+ *  then zoteroDir. Only NEW entries are attached (merged dups keep their existing PDF). */
+export async function importReferences(
+  text: string,
+  opts: { attachFiles?: boolean; baseDir?: string; zoteroDir?: string; libPath?: string } = {},
+): Promise<ImportReport> {
+  const format = sniffFormat(text);
+  const bib = format === "ris" ? risToBibtex(text) : text;
+  const res = await fluxlib.addToFluxLib(bib, { source: "bibtex" });
+  const report: ImportReport = {
+    format,
+    added: res.added.map((e) => e.key),
+    deduped: res.deduped.map((e) => e.key),
+    attached: [],
+    attachFailed: [],
+  };
+  if (!opts.attachFiles) return report;
+  for (const entry of res.added) {
+    if (!entry.raw) continue;
+    const atts = bibPdfAttachments(entry.raw);
+    if (!atts.length) continue;
+    // Attach the first resolvable PDF as the main paper.pdf (Zotero entries carry one full
+    // text almost always); extra PDFs are reported but not filed, keeping import lossless-ish.
+    const att = atts[0];
+    const resolved = await resolveAttachPath(att.path, opts.baseDir, opts.zoteroDir);
+    if (!resolved) {
+      report.attachFailed.push({ key: entry.key, path: att.path, error: "file not found" });
+      continue;
+    }
+    try {
+      const buf = await fs.readFile(resolved);
+      // pdf.js rejects a Node Buffer; hand extractFulltext a standalone Uint8Array (a
+      // fresh copy, so a fake-worker transfer can't touch Node's pooled buffer memory).
+      const bytes = new Uint8Array(buf.byteLength);
+      bytes.set(buf);
+      await writePdf(entry.key, bytes, { source: "ingest", url: resolved }, opts.libPath);
+      const ft = await extractFulltext(bytes);
+      if (ft.text) await writeFulltext(entry.key, ft.text, opts.libPath);
+      report.attached.push({ key: entry.key, path: resolved });
+    } catch (e) {
+      report.attachFailed.push({ key: entry.key, path: resolved, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return report;
 }
 
 /** add-panel: import an SVG file as a panel on a figure — a semantic FluxPlot

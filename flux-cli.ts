@@ -59,6 +59,8 @@ usage: flux <verb> [root] [args] [--flags]
   search <query…>                      search FluxLib (e.g. author:smith year:2020)
   lib                                  show the FluxLib path + entry count
   lib-add <doi|bibtex…|--file f>       add to FluxLib only (no project cite)
+                                       --file f: bulk-import a .bib/.ris file
+                                       --attach-files [--zotero-dir d]: pull its PDFs
   reconcile [--root R]                 sync this project's library.bib with FluxLib
   hydrate [--refresh] [--key K]        enrich FluxLib with OpenAlex (abstracts, topics, citations)
   discover <query…> [--semantic] [--sort cites|date]   search ALL of OpenAlex (--semantic = by meaning)
@@ -442,8 +444,19 @@ async function main() {
       const arg = _.join(" ").trim();
       const isDoi = /^(https?:\/\/(dx\.)?doi\.org\/)?10\.\d{4,9}\//i.test(arg);
       if (flags.file) {
-        const r = await core.addToLibrary(await fs.readFile(String(flags.file), "utf8"));
-        console.error(`✓ FluxLib: +${r.added.length} added, ${r.deduped.length} already present`);
+        // 2.4 bulk import: sniff .bib vs .ris (RIS is normalized to BibTeX), and with
+        // --attach-files pull the PDFs named in each entry's Better-BibTeX `file` field.
+        const fp = String(flags.file);
+        const text = await fs.readFile(fp, "utf8");
+        const r = await core.importReferences(text, {
+          attachFiles: !!flags["attach-files"],
+          baseDir: path.dirname(path.resolve(fp)),
+          zoteroDir: typeof flags["zotero-dir"] === "string" ? flags["zotero-dir"] : undefined,
+        });
+        console.error(
+          `✓ FluxLib (${r.format}): +${r.added.length} added, ${r.deduped.length} already present` +
+            (flags["attach-files"] ? ` · ${r.attached.length} PDF(s) attached${r.attachFailed.length ? `, ${r.attachFailed.length} not found` : ""}` : ""),
+        );
       } else if (isDoi && !flags.bibtex) {
         const r = await core.addDoiToLibrary(arg);
         console.error(`✓ FluxLib += [@${r.result.keys.join("; @")}]`);

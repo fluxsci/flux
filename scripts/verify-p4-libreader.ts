@@ -61,9 +61,10 @@ await fs.rm(lib, { recursive: true, force: true });
 // --- presence of the bridge-twin / DOM / network / main-process fixes ----------------------
 console.log("presence of the bridge/DOM/network/main-process fixes:");
 const read = (p: string) => fs.readFile(path.join(import.meta.dirname, "..", p), "utf8");
-const [bridge, core, pdfView, reader, proxy, mainCjs, enrichBridge, fulltext] = await Promise.all([
+const [bridge, core, addPlan, pdfView, reader, proxy, mainCjs, enrichBridge, fulltext] = await Promise.all([
   read("src/lib/references/fluxlibBridge.ts"),
   read("flux-core/fluxlib.ts"),
+  read("src/lib/references/addPlan.ts"),
   read("src/shell/modes/reader/PdfView.svelte"),
   read("src/shell/modes/reader/ReaderMode.svelte"),
   read("electron/proxyFetch.cjs"),
@@ -71,8 +72,10 @@ const [bridge, core, pdfView, reader, proxy, mainCjs, enrichBridge, fulltext] = 
   read("src/lib/references/enrichBridge.ts"),
   read("flux-core/fulltext.ts"),
 ]);
-assert(/sigToKey/.test(bridge) && /dupeSignature/.test(bridge), "LR-9: renderer bridge applies the signature dedup too (no engine drift)");
-assert(/sigToKey/.test(core), "LR-9: flux-core applies the signature dedup");
+// LR-9 / 2.4: the dedupe+rekey decision now lives in ONE shared pure planner (addPlan.ts)
+// that BOTH engines call — stronger than the old byte-identical copies (preview == outcome).
+assert(/planAdds/.test(bridge) && /planAdds/.test(core), "LR-9: both engines add via the SHARED planner — no engine drift");
+assert(/sigToKey/.test(addPlan) && /dupeSignature/.test(addPlan), "LR-9: the shared planner applies the title+year+author signature dedup");
 assert(/const locCache = new Map/.test(pdfView) && /onOrphans\?\.\(/.test(pdfView), "LR-13: PdfView caches located ranges + reports orphans");
 assert(/onOrphans=\{/.test(reader) && /class:orphan=/.test(reader), "LR-13: ReaderMode surfaces orphaned highlights in the panel");
 assert(/g\.len === g\.contentLength/.test(proxy) && /const whole =/.test(proxy), "LR-14: the proxy grab accepts a whole (length==Content-Length) download");

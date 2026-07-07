@@ -43,6 +43,7 @@
   import { addUrlOrDoiToLibrary } from "../paper/scholar/bibLoad";
   import { fileBridge } from "../../../lib/project/types";
   import { BOOKMARKLET_HREF } from "./bookmarklet";
+  import ImportDialog from "./ImportDialog.svelte";
   import { openInReader } from "../reader/readerStore";
   import { fetchPdfForEntry, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
   import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
@@ -102,6 +103,8 @@
   // survives query/scope changes; the Clear action + select-all operate on the currently-shown rows.
   let selected = $state.raw<Set<string>>(new Set());
 
+  // 2.4 bulk-import modal (.bib/.ris → FluxLib, optional Zotero PDF attach).
+  let importOpen = $state(false);
   // API keys panel — stored in ~/FluxLib/keys.json (machine-global, every project).
   let keysOpen = $state(false);
   let keyOpenAlex = $state("");
@@ -1100,6 +1103,12 @@
           PDFs ✓
         {/if}
       </button>
+      <button
+        class="enrich"
+        onclick={() => (importOpen = true)}
+        title="Bulk-import references from a .bib or .ris file (Zotero, EndNote, Mendeley, BibTeX) — with an optional pull of their attached PDFs">
+        Import…
+      </button>
       {#if inboxCount > 0 || assigning}
         <button
           class="enrich assignpdfs"
@@ -1544,6 +1553,10 @@
     <div class="toast" class:err={addStatus === "error"} role="status">
       {addStatus === "added" ? `${addedTitle} ✓` : addError || "Couldn't add that."}
     </div>
+  {/if}
+
+  {#if importOpen}
+    <ImportDialog onClose={() => (importOpen = false)} onImported={() => void reload()} />
   {/if}
 </div>
 

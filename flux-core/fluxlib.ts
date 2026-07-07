@@ -18,17 +18,12 @@ import * as path from "node:path";
 import type { RefEntry, AddResult, EnrichEntry } from "../src/lib/references/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 export type { AddResult };
-import { makeCitekey, dupeSignature } from "../src/lib/references/citekey";
 import { runQuery } from "../src/lib/references/query";
 import { enrichCoverage } from "../src/lib/references/enrich";
+import { planAdds, appendedBib } from "../src/lib/references/addPlan";
 import { atomicWrite, quarantineCorrupt } from "./fsx";
 import { withLockAt, withLock, fluxlibLockDir, getLockClient } from "./locks";
-import {
-  splitBibEntries,
-  lightEntry,
-  bibtexKey,
-  rekeyBibtex,
-} from "../src/lib/references/bibtex";
+import { splitBibEntries, lightEntry, bibtexKey } from "../src/lib/references/bibtex";
 
 const SCHEMA_VERSION = "0.1.0";
 
@@ -405,61 +400,14 @@ async function addToFluxLibLocked(
   source: "doi" | "bibtex",
 ): Promise<AddResult> {
   const curText = await fs.readFile(libBib(lib), "utf8");
-
-  const taken = new Set<string>();
-  const doiToKey = new Map<string, string>();
-  const sigToKey = new Map<string, string>(); // LR-9: title+year+author dedup when DOI absent
-  for (const r of splitBibEntries(curText)) {
-    const k = bibtexKey(r);
-    if (k) taken.add(k);
-    const e = lightEntry(r);
-    if (e.doi) doiToKey.set(e.doi.toLowerCase(), k || e.key);
-    const sig = dupeSignature(e);
-    if (sig && !sigToKey.has(sig)) sigToKey.set(sig, k || e.key);
-  }
-
-  const added: RefEntry[] = [];
-  const deduped: RefEntry[] = [];
-  const keys: string[] = [];
-  const appendBuf: string[] = [];
-
-  for (const raw of splitBibEntries(bibtex)) {
-    const e = lightEntry(raw);
-    const doi = e.doi?.toLowerCase();
-    if (doi && doiToKey.has(doi)) {
-      const k = doiToKey.get(doi) as string;
-      deduped.push({ ...e, key: k });
-      keys.push(k);
-      continue;
-    }
-    // LR-9: no DOI match — fall back to a normalized title+year+author signature so a paper
-    // added without a DOI and re-added with one (or vice-versa) collapses to one citekey.
-    const sig = dupeSignature(e);
-    if (sig && sigToKey.has(sig)) {
-      const k = sigToKey.get(sig) as string;
-      if (doi) doiToKey.set(doi, k);
-      deduped.push({ ...e, key: k });
-      keys.push(k);
-      continue;
-    }
-    const orig = bibtexKey(raw);
-    const key = source === "bibtex" && orig && !taken.has(orig) ? orig : makeCitekey(e, taken);
-    const outRaw = rekeyBibtex(raw, key);
-    taken.add(key);
-    if (doi) doiToKey.set(doi, key);
-    if (sig && !sigToKey.has(sig)) sigToKey.set(sig, key);
-    const entry: RefEntry = { ...e, key, raw: outRaw };
-    added.push(entry);
-    keys.push(key);
-    appendBuf.push(outRaw);
-  }
-
-  if (appendBuf.length) {
-    const sep = curText && !curText.endsWith("\n") ? "\n" : "";
-    await atomicWrite(libBib(lib), curText + sep + appendBuf.join("\n\n") + "\n");
+  // The dedupe/rekey decision (DOI, then title+year+author signature, incl. intra-batch)
+  // lives in the shared pure planner so preview == outcome; this twin only does the write.
+  const plan = planAdds(curText, bibtex, source);
+  if (plan.appendText) {
+    await atomicWrite(libBib(lib), appendedBib(curText, plan));
     await buildIndex(lib);
   }
-  return { added, deduped, keys };
+  return { added: plan.added, deduped: plan.deduped, keys: plan.keys };
 }
 
 /**

@@ -7,8 +7,8 @@
 // FluxLib-wide search UI is future. The agent search tool lives in flux-core.)
 import { fileBridge, joinPath, type ProjectManifest } from "../project/types";
 import type { RefEntry, AddResult } from "./types";
-import { makeCitekey, dupeSignature } from "./citekey";
-import { splitBibEntries, lightEntry, bibtexKey, rekeyBibtex } from "./bibtex";
+import { splitBibEntries, lightEntry, bibtexKey } from "./bibtex";
+import { planAdds, appendedBib } from "./addPlan";
 import { bumpFluxLib, fluxLibEntries } from "./revision";
 import { mergeEnrich, type EnrichMap } from "./enrich";
 import { createEnrichCache } from "./enrichStore";
@@ -112,6 +112,16 @@ export async function ensureFluxLib(): Promise<string | null> {
   return lib;
 }
 
+/** The current machine-global library.bib text (for an import preview via planAdds).
+ *  Empty string when there's no bridge/library yet. */
+export async function readLibraryBibText(): Promise<string> {
+  const fb = fileBridge();
+  if (!fb) return "";
+  const lib = await resolveFluxLibPath();
+  if (!lib) return "";
+  return readTextSafe(libBib(lib));
+}
+
 /** Add BibTeX to FluxLib, deduping by DOI. Mirrors flux-core/fluxlib.ts addToFluxLib.
  *  W3: the read→dedupe→append→write runs under the FluxLib "library" lock, so a
  *  concurrent CLI/MCP lib-add can no longer race this into a lost entry. */
@@ -135,58 +145,14 @@ async function addToFluxLibLocked(
   source: "doi" | "bibtex",
 ): Promise<AddResult> {
   const curText = await readTextSafe(libBib(lib));
-  const taken = new Set<string>();
-  const doiToKey = new Map<string, string>();
-  const sigToKey = new Map<string, string>(); // LR-9: title+year+author dedup when DOI absent
-  for (const r of splitBibEntries(curText)) {
-    const k = bibtexKey(r);
-    if (k) taken.add(k);
-    const e = lightEntry(r);
-    if (e.doi) doiToKey.set(e.doi.toLowerCase(), k || e.key);
-    const sig = dupeSignature(e);
-    if (sig && !sigToKey.has(sig)) sigToKey.set(sig, k || e.key);
-  }
-
-  const added: RefEntry[] = [];
-  const deduped: RefEntry[] = [];
-  const keys: string[] = [];
-  const appendBuf: string[] = [];
-  for (const raw of splitBibEntries(bibtex)) {
-    const e = lightEntry(raw);
-    const doi = e.doi?.toLowerCase();
-    if (doi && doiToKey.has(doi)) {
-      const k = doiToKey.get(doi) as string;
-      deduped.push({ ...e, key: k });
-      keys.push(k);
-      continue;
-    }
-    // LR-9: no DOI match — fall back to a normalized title+year+author signature, so a paper
-    // added without a DOI and re-added with one (or vice-versa) collapses to one citekey.
-    const sig = dupeSignature(e);
-    if (sig && sigToKey.has(sig)) {
-      const k = sigToKey.get(sig) as string;
-      if (doi) doiToKey.set(doi, k);
-      deduped.push({ ...e, key: k });
-      keys.push(k);
-      continue;
-    }
-    const orig = bibtexKey(raw);
-    const key = source === "bibtex" && orig && !taken.has(orig) ? orig : makeCitekey(e, taken);
-    const outRaw = rekeyBibtex(raw, key);
-    taken.add(key);
-    if (doi) doiToKey.set(doi, key);
-    if (sig && !sigToKey.has(sig)) sigToKey.set(sig, key);
-    const entry: RefEntry = { ...e, key, raw: outRaw };
-    added.push(entry);
-    keys.push(key);
-    appendBuf.push(outRaw);
-  }
-  if (appendBuf.length) {
-    const sep = curText && !curText.endsWith("\n") ? "\n" : "";
-    await fb.writeText(libBib(lib), curText + sep + appendBuf.join("\n\n") + "\n");
+  // The dedupe/rekey decision (DOI, then title+year+author signature, incl. intra-batch)
+  // lives in the shared pure planner so preview == outcome; this twin only does the write.
+  const plan = planAdds(curText, bibtex, source);
+  if (plan.appendText) {
+    await fb.writeText(libBib(lib), appendedBib(curText, plan));
     bumpFluxLib();
   }
-  return { added, deduped, keys };
+  return { added: plan.added, deduped: plan.deduped, keys: plan.keys };
 }
 
 /** Remove entries from FluxLib by citekey. Each entry's raw block is spliced out of
