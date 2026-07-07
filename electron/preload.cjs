@@ -68,6 +68,10 @@ contextBridge.exposeInMainWorld("fig", {
   // Global preferences (<userData>/preferences.json — holds the FluxLib path).
   prefsGet: () => ipcRenderer.invoke("prefs:get"),
   prefsSet: (patch) => ipcRenderer.invoke("prefs:set", patch),
+  // 5.3 update check: packaged-only, ≤1/day. Main owns the throttle + GitHub fetch;
+  // resolves to { version, url } when a newer release exists, else null. The renderer
+  // gates the call on settings.updateCheck and toasts the result.
+  checkForUpdate: () => ipcRenderer.invoke("update:check"),
 
   // File-watch live reload (F1): register the open project root, and subscribe to
   // external (agent/script) changes mapped to a subsystem ("fig"|"plots"|

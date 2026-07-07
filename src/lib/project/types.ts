@@ -237,6 +237,9 @@ export interface FileBridge {
   // <userData>/preferences.json — holds the FluxLib path). Optional: Electron only.
   prefsGet?(): Promise<Record<string, unknown>>;
   prefsSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+  // 5.3 update check (packaged app only): resolves to a newer release's
+  // { version, url } or null. Main owns the ≤1/day throttle + GitHub fetch.
+  checkForUpdate?(): Promise<{ version: string; url: string } | null>;
   // F2: re-run a plot's recipe (regenerate). Electron only.
   runRecipe?(
     recipePath: string,

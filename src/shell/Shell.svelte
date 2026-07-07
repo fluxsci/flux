@@ -7,8 +7,10 @@
   import Toasts from "./Toasts.svelte";
   import { view } from "./shellStore";
   import { DUR } from "../lib/motion/tokens";
+  import { get } from "svelte/store";
   import { fileBridge } from "../lib/project/types";
   import { pushToast, type ToastLevel } from "../lib/toast";
+  import { settings } from "../lib/settings";
   import { installLifecycle } from "./lifecycle";
   import { warmModes, ALL_MODES } from "./modeRegistry";
   import { addUrlOrDoiToLibrary } from "./modes/paper/scholar/bibLoad";
@@ -35,6 +37,23 @@
     else showCapture("ok", `Added “${r.title || r.key}” to FluxLib ✓`, 3200);
   }
 
+  // 5.3 update check: packaged builds ping GitHub for a newer release at most once a
+  // day; the opt-out lives here (settings.updateCheck), main owns the throttle/fetch.
+  // Best-effort — a sticky info toast with a Download action, never blocks startup.
+  async function maybeCheckForUpdate() {
+    try {
+      if (!get(settings).updateCheck) return; // user opted out in Settings
+      const u = await fileBridge()?.checkForUpdate?.();
+      if (!u) return; // dev / non-packaged / throttled / already current
+      pushToast("info", `Flux ${u.version} is available`, {
+        ttl: 0, // sticky: the daily throttle + newer-only guard mean it won't nag
+        action: { label: "Download", run: () => void fileBridge()?.openExternal?.(u.url) },
+      });
+    } catch {
+      /* update check is best-effort; swallow everything */
+    }
+  }
+
   // W15: the workspace opens in paper mode — warm its chunk while the user is
   // still on Home so the first entry is instant; once the workspace is showing,
   // prefetch the remaining modes during idle time.
@@ -59,6 +78,7 @@
         unsubErr = fb.onAppError?.((p: { level?: string; msg: string; detail?: string }) =>
           pushToast((p.level as ToastLevel) || "error", p.msg, { detail: p.detail }),
         );
+        void maybeCheckForUpdate(); // packaged-only, throttled; no-op in dev
       } else if (tries++ < 40) {
         setTimeout(attach, 100);
       }

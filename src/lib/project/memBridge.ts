@@ -212,6 +212,9 @@ export function createMemBridge(): FileBridge & {
     async openExternal() {
       /* no-op in the fixture */
     },
+    async checkForUpdate() {
+      return null; // never self-checks in the dev fixture (packaged-only feature)
+    },
     async quartoAvailable() {
       return { installed: false };
     },

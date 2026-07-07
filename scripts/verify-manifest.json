@@ -69,6 +69,7 @@
       "verify-slide-trackid.ts",
       "verify-slide-w7.ts",
       "verify-supplement.ts",
+      "verify-update-check.ts",
       "verify-w11-slides.ts",
       "verify-w11-verbs.ts",
       "verify-w12-security.ts",

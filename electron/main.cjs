@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
+const { pickRelease } = require("./updateCheck.cjs");
 const { parseFluxUrl, fluxUrlFromArgv } = require("./fluxUrl.cjs");
 const { createProxyEngine } = require("./proxyFetch.cjs");
 const { createNetGet } = require("./netFetch.cjs");
@@ -156,6 +157,11 @@ function readPrefs() {
   } catch {
     return { schemaVersion: "0.1.0" };
   }
+}
+function writePrefs(next) {
+  fs.mkdirSync(path.dirname(prefsFile()), { recursive: true });
+  noteWrite(prefsFile());
+  fs.writeFileSync(prefsFile(), JSON.stringify(next, null, 2) + "\n");
 }
 let fluxLibRoot; // undefined = not yet resolved from prefs; null = use default (~/FluxLib, under $HOME)
 function getFluxLibRoot() {
@@ -649,13 +655,43 @@ ipcMain.handle("prefs:get", () => ({ ...readPrefs(), fluxLibResolved: fluxLibDir
 ipcMain.handle("prefs:set", (_e, patch) => {
   const cur = readPrefs();
   const next = { ...cur, ...(patch || {}), schemaVersion: cur.schemaVersion || "0.1.0" };
-  fs.mkdirSync(path.dirname(prefsFile()), { recursive: true });
-  noteWrite(prefsFile());
-  fs.writeFileSync(prefsFile(), JSON.stringify(next, null, 2) + "\n");
+  writePrefs(next);
   if (typeof next.fluxLibPath === "string" && next.fluxLibPath.trim()) {
     fluxLibRoot = path.resolve(next.fluxLibPath); // refresh the fsGuard allowlist
   }
   return next;
+});
+
+// ---------------------------------------------------------------------------
+// Update check (5.3). Packaged builds only, at most once per day: ask GitHub for
+// the latest release and, if its tag is newer than app.getVersion(), hand the
+// renderer { version, url } to toast. The renderer owns the user opt-out
+// (settings.updateCheck) and the toast; main owns the packaged-only guard, the
+// daily throttle (prefs.lastUpdateCheck), and the fetch (no renderer CORS/UA
+// issues). Best-effort — any failure resolves to null (never nags, never errors).
+// ---------------------------------------------------------------------------
+const RELEASES_API = "https://api.github.com/repos/kortdriessen/flux/releases/latest";
+const RELEASES_PAGE = "https://github.com/kortdriessen/flux/releases/latest";
+const UPDATE_THROTTLE_MS = 24 * 60 * 60 * 1000;
+
+ipcMain.handle("update:check", async () => {
+  try {
+    if (!app.isPackaged) return null; // dev / electron:dev never self-check
+    const prefs = readPrefs();
+    const last = Number(prefs.lastUpdateCheck) || 0;
+    if (Date.now() - last < UPDATE_THROTTLE_MS) return null; // ≤1/day
+    // Record the attempt up front so repeated launches in a day don't re-hit GitHub.
+    writePrefs({ ...prefs, lastUpdateCheck: Date.now(), schemaVersion: prefs.schemaVersion || "0.1.0" });
+    const res = await fetch(RELEASES_API, {
+      headers: { "User-Agent": "Flux/0.1 (update check)", Accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    // pickRelease (updateCheck.cjs) owns the parse + newer-than-current decision.
+    return pickRelease(await res.json(), app.getVersion(), RELEASES_PAGE);
+  } catch {
+    return null; // offline / rate-limited / malformed — silently skip
+  }
 });
 
 // ---------------------------------------------------------------------------
