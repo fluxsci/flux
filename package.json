@@ -27,6 +27,7 @@
     "test:pure": "node scripts/run-verifies.mjs --tier pure",
     "test:ui": "node scripts/run-verifies.mjs --tier ui",
     "test:all": "npm run check && node scripts/run-verifies.mjs --tier pure,ui",
+    "release:check": "node scripts/release-check.mjs",
     "flux": "tsx flux-cli.ts",
     "flux:mcp": "tsx flux-mcp.ts",
     "electron:dev": "concurrently -k -n vite,electron \"npm run dev\" \"wait-on tcp:127.0.0.1:1420 && VITE_DEV_SERVER_URL=http://127.0.0.1:1420 electron .\"",

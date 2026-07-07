@@ -208,6 +208,13 @@ macOS + Linux installers are built in CI on a version tag — push a `vX.Y.Z` ta
 matching `package.json` `version` and `.github/workflows/release.yml` attaches the
 DMGs / AppImage / deb to a **draft** GitHub Release.
 
+Before tagging, run the pre-release gate locally: `npm run release:check` does a
+clean build, asserts the three `dist/` artifacts exist, runs the CLI + MCP bundle
+handshakes, then packs the app and drives the **unpacked** CLI from an unrelated
+directory (proving the packaged agent surface works outside the repo). Add
+`--skip-pack` for a fast check that skips the minutes-long `electron-builder` step,
+and set `RELEASE_TAG=vX.Y.Z` to also assert the tag matches `package.json`.
+
 ## Agents & automation
 
 A Flux project is a plain folder, and **the file is the API**: a CLI, an MCP server,
