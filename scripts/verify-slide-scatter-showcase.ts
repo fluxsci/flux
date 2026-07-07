@@ -7,6 +7,8 @@
 // scatter points HIDDEN until the Data beat then SHOWN. Run:
 //   npx tsx scripts/verify-slide-scatter-showcase.ts
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseHTML, DOMParser } from "linkedom";
 
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
@@ -28,7 +30,8 @@ function assert(cond: unknown, msg: string) {
 const style = (el: Element | null, prop: string): string =>
   el ? ((el as unknown as { style: Record<string, string> }).style?.[prop] ?? "") : "<no-node>";
 
-const base = "/home/driessen2/KDFLUX1/plots/example_set/06_scatter_regression";
+// Fixture vendored in-repo (was read from the author's now-deleted ~/KDFLUX1).
+const base = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "pre-regen", "06_scatter_regression");
 const svg = await fs.readFile(base + ".svg", "utf8");
 const manifest = JSON.parse(await fs.readFile(base + ".fluxplot.json", "utf8"));
 

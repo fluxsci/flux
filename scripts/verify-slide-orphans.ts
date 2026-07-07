@@ -34,7 +34,6 @@ function assert(cond: unknown, msg: string) {
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const FIX = path.join(here, "fixtures", "pre-regen");
-const REGEN = "/home/driessen2/fluxv1/plots/example_plots";
 
 // --- OLD ecdf: orphans detected + addressable ---------------------------------
 const oldSvg = await fs.readFile(path.join(FIX, "08_ecdf.svg"), "utf8");
@@ -87,21 +86,13 @@ assert((first.style as unknown as { opacity?: string }).opacity === "0", "orphan
 applyStatic(specs, 1);
 assert((first.style as unknown as { opacity?: string }).opacity === "1", "…and revealed after");
 
-// --- REGENERATED ecdf: no orphans (fp.reference_line medians are real parts) ---
-const newSvg = await fs.readFile(path.join(REGEN, "08_ecdf.svg"), "utf8");
-const newManifest = JSON.parse(await fs.readFile(path.join(REGEN, "08_ecdf.fluxplot.json"), "utf8"));
-assert(cachePlot("new_ecdf", newSvg, newManifest), "regenerated ecdf caches");
-const m2 = get(plotManifests)["new_ecdf"];
-assert(resolveTargets(m2, "unclassified").join(",") === "unclassified", "regenerated ecdf has NO unclassified group (all content covered)");
-const t2 = buildPartTree(m2)!;
-assert(!!findNode(t2, "reference-line.median-setosa"), "vertical medians are first-class parts now");
-
-// --- regenerated scatter: ticks are real paths + a drawOn track drills to them --
-const scSvg = await fs.readFile(path.join(REGEN, "06_scatter_regression.svg"), "utf8");
-const scManifest = JSON.parse(await fs.readFile(path.join(REGEN, "06_scatter_regression.fluxplot.json"), "utf8"));
-cachePlot("new_scatter", scSvg, scManifest);
-const scDom = plotDom.get("new_scatter")!;
-const tickGroups = Array.from((scDom as unknown as Element).querySelectorAll('[data-role="tick"]'));
-assert(tickGroups.length > 0 && tickGroups.every((g) => !g.querySelector("use") && !!g.querySelector("path")), "regenerated ticks carry REAL per-tick paths (no <use>)");
+// NOTE: this test used to have a second half asserting the REGENERATED plots
+// (fluxplot's post-regen output) have zero orphans + real per-tick paths. Those
+// fixtures lived in the author's ~/fluxv1 plot library, which was deleted and
+// never vendored — so that half is dropped (the assertions were about fluxplot's
+// output, not Flux's orphan-defense logic, which is fully exercised above on the
+// vendored pre-regen fixture). To restore it, vendor the regenerated
+// 08_ecdf.{svg,fluxplot.json} + 06_scatter_regression.{svg,fluxplot.json} into
+// scripts/fixtures/regen/ and re-add the reference-line / real-tick-path checks.
 
 console.log("\nSLIDE ORPHAN DEFENSE (WS4) TESTS PASSED");

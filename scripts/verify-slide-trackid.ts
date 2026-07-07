@@ -4,6 +4,8 @@
 // autobuild), preserved across a replace, and backfilled for legacy decks.
 //   npx tsx scripts/verify-slide-trackid.ts
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseHTML, DOMParser } from "linkedom";
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
@@ -34,7 +36,8 @@ const t1b = slideOps.slideById(deck, sid)!.beats.find((b) => b.id === beat.id)!.
 assert(t1b.id === origId && t1b.preset === "drawOn", "replacing a matched track preserves its id (selection survives edits)");
 
 // 3. autoAnimatePlot tracks all have ids (planToTrack path, bypasses setAnimation)
-const base = "/home/driessen2/KDFLUX1/plots/example_set/06_scatter_regression";
+// Fixture vendored in-repo (was read from the author's now-deleted ~/KDFLUX1).
+const base = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "pre-regen", "06_scatter_regression");
 cachePlot("scatter", await fs.readFile(base + ".svg", "utf8"), JSON.parse(await fs.readFile(base + ".fluxplot.json", "utf8")));
 const manifest = JSON.parse(await fs.readFile(base + ".fluxplot.json", "utf8"));
 const pid = slideOps.addPlotToSlide(deck, sid, { assetId: "scatter", x: 0, y: 0, width: 800, height: 500 })!;

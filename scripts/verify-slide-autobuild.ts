@@ -5,6 +5,8 @@
 // their own step, the fit line draws itself as the points stagger in left→right,
 // legend last. Run: npx tsx scripts/verify-slide-autobuild.ts
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as slideOps from "../src/lib/slide/ops";
 import { autoAnimatePlot, applyAutoAnimation } from "../src/lib/slide/autobuild";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
@@ -14,7 +16,9 @@ function assert(cond: unknown, msg: string) {
   console.log("  ok:", msg);
 }
 
-const M = "/home/driessen2/KDFLUX1/plots/example_set/06_scatter_regression.fluxplot.json";
+// The fixture is vendored in-repo (scripts/fixtures/pre-regen/) — the tests used to
+// read it from the author's ~/KDFLUX1 plot library, which no longer exists.
+const M = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "pre-regen", "06_scatter_regression.fluxplot.json");
 const manifest = JSON.parse(await fs.readFile(M, "utf8")) as FluxPlotManifest;
 const beats = autoAnimatePlot(manifest, "plot1");
 

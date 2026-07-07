@@ -5,6 +5,8 @@
 // target element's own tracks and MERGES the new build into the shared phase beats,
 // idempotently. Run: npx tsx scripts/verify-slide-multiplot.ts
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as slideOps from "../src/lib/slide/ops";
 import { applyAutoAnimation } from "../src/lib/slide/autobuild";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
@@ -14,8 +16,12 @@ function assert(cond: unknown, msg: string) {
   console.log("  ok:", msg);
 }
 const load = async (p: string) => JSON.parse(await fs.readFile(p, "utf8")) as FluxPlotManifest;
-const mA = await load("/home/driessen2/KDFLUX1/plots/example_set/06_scatter_regression.fluxplot.json");
-const mB = await load("/home/driessen2/KDFLUX1/plots/example_set/01_grouped_bars.fluxplot.json");
+// Fixtures vendored in-repo (were read from the author's now-deleted ~/KDFLUX1).
+// Plot B was 01_grouped_bars there; 08_ecdf (also vendored) serves equally — this
+// test only needs two DISTINCT plots to prove their timelines stay independent.
+const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "pre-regen");
+const mA = await load(path.join(FIX, "06_scatter_regression.fluxplot.json"));
+const mB = await load(path.join(FIX, "08_ecdf.fluxplot.json"));
 
 const deck = slideOps.createDeck({ id: "mp", title: "Multiplot" });
 const sid = slideOps.addSlide(deck, { name: "S", layout: "blank" }).id;
