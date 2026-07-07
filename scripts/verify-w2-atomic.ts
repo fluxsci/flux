@@ -141,6 +141,19 @@ const work = await fs.mkdtemp(path.join(os.tmpdir(), "flux-w2-"));
   else fail(`quarantine failed (map=${Object.keys(map).length} keys, q=${q}, originalGone=${gone})`);
 }
 
-await fs.rm(work, { recursive: true, force: true });
+// Teardown with retries: the kill-mid-write children can land a final write while
+// rm walks the tree (ENOTEMPTY race). Teardown litter must never fail the suite.
+for (let i = 0; ; i++) {
+  try {
+    await fs.rm(work, { recursive: true, force: true });
+    break;
+  } catch (e) {
+    if (i >= 4) {
+      console.warn(`teardown: leaving temp dir behind (${work}): ${String(e)}`);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
 console.log(failures ? "W2 VERIFY: FAIL" : "W2 VERIFY: PASS");
 process.exit(failures ? 1 : 0);

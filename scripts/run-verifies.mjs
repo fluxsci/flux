@@ -175,10 +175,19 @@ console.log(`Running ${run.length} verify script(s)…\n`);
 const results = [];
 for (const name of run) {
   process.stdout.write(`  … ${name}`);
-  const r = await runScript(name);
+  let r = await runScript(name);
+  // Timing-gated scripts (frame budgets, perf medians) get ONE retry — a shared-server
+  // suite run can spike them. A genuine regression fails twice.
+  let retried = false;
+  if (r.code !== 0 && manifest.retryOnce?.includes(name)) {
+    retried = true;
+    r = await runScript(name);
+  }
   results.push(r);
   const secs = (r.ms / 1000).toFixed(1);
-  process.stdout.write(`\r${r.code === 0 ? "  ✓" : "  ✗"} ${name} (${secs}s)${r.code === 0 ? "" : ` — exit ${r.code}`}\n`);
+  process.stdout.write(
+    `\r${r.code === 0 ? "  ✓" : "  ✗"} ${name} (${secs}s)${retried ? " [retried]" : ""}${r.code === 0 ? "" : ` — exit ${r.code}`}\n`,
+  );
   if (r.code !== 0) {
     const tail = r.out.trimEnd().split("\n").slice(-40).join("\n");
     console.log(`    ┄┄ output tail ┄┄\n${tail.replace(/^/gm, "    ")}\n`);

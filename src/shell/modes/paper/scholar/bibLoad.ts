@@ -8,7 +8,7 @@
 import { fileBridge, joinPath } from "../../../../lib/project/types";
 import { bibEntries, bibError, type BibEntry } from "./bib";
 import { bumpBibRevision } from "../../../scholar/revisions";
-import { getCite, cslToEntry } from "../../../../lib/references/bibtex";
+import { getCite, cslToEntry, lightEntry } from "../../../../lib/references/bibtex";
 import { addToFluxLib, materializeIntoProject } from "../../../../lib/references/fluxlibBridge";
 
 const BIB_PATH = ["references", "library.bib"];
@@ -120,17 +120,26 @@ function toBibtex(key: string, msg: any, entry: BibEntry): string {
   return `\n@${type}{${key},\n${body},\n}\n`;
 }
 
-/** Fetch a DOI's CrossRef metadata and turn it into a BibTeX string (temp key). */
+/** Fetch a DOI's CrossRef metadata and turn it into a BibTeX string (temp key).
+ *  A Crossref 404/410 falls back to doi.org content negotiation, which serves BibTeX
+ *  for EVERY registrar — this is what makes DataCite DOIs (arXiv 10.48550/*, Zenodo,
+ *  theses) addable instead of looping "Not found". */
 async function doiToBibtex(
   doi: string,
 ): Promise<{ bibtex: string; entry: BibEntry } | { error: string }> {
   const fb = fileBridge();
   if (!fb?.fetchDoi) return { error: "DOI lookup needs the desktop app." };
   const res = await fb.fetchDoi(doi);
-  if (!res || res.error || !res.message) return { error: res?.error || "Not found" };
-  const msg = res.message as any;
-  const entry = msgToEntry(msg, doi);
-  return { bibtex: toBibtex("ref", msg, entry), entry };
+  if (res?.message) {
+    const msg = res.message as any;
+    const entry = msgToEntry(msg, doi);
+    return { bibtex: toBibtex("ref", msg, entry), entry };
+  }
+  if (/^HTTP (404|410)$/.test(res?.error ?? "") && fb.fetchDoiBibtex) {
+    const alt = await fb.fetchDoiBibtex(doi);
+    if (alt?.bibtex) return { bibtex: alt.bibtex, entry: lightEntry(alt.bibtex) };
+  }
+  return { error: res?.error || "Not found" };
 }
 
 /**

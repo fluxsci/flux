@@ -10,6 +10,7 @@
       "verify-an-render.ts",
       "verify-an-validate-plot.ts",
       "verify-an-validate.ts",
+      "verify-assign-hardening.ts",
       "verify-citenum.ts",
       "verify-f1-core.ts",
       "verify-f1-mcp.ts",
@@ -147,6 +148,13 @@
       "verify-w18-paper.mjs"
     ]
   },
+  "retryOnce": [
+    "verify-w18-paper.mjs",
+    "verify-w17-rotate-perf.mjs",
+    "verify-m10-perf.mjs",
+    "verify-f5-drag.mjs",
+    "verify-m15-motion.mjs"
+  ],
   "timeouts": {
     "verify-slide-export-parity.ts": 300000,
     "verify-slide-export-core.ts": 300000,

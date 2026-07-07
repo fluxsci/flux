@@ -136,6 +136,9 @@ export interface FileBridge {
     opts?: { margins?: Record<string, number> },
   ): Promise<boolean>;
   fetchDoi?(doi: string): Promise<{ message?: unknown; error?: string }>;
+  // DOI → raw BibTeX via doi.org content negotiation (registrar-agnostic; rescues
+  // DataCite DOIs that Crossref 404s). { bibtex } or { error: "HTTP 404" | … }.
+  fetchDoiBibtex?(doi: string): Promise<{ bibtex?: string; error?: string }>;
   // Resolve a paper URL (or DOI) to a DOI by fetching + scraping the page in main.
   resolveUrl?(url: string): Promise<{ doi?: string; error?: string }>;
   // Fetch an OpenAlex API URL (built by src/lib/references/openalex.ts) in main to
@@ -188,7 +191,10 @@ export interface FileBridge {
   quartoRender?(
     root: string,
     to: string,
-  ): Promise<{ ok: boolean; code?: number; log: string }>;
+    docPath?: string,
+  ): Promise<{ ok: boolean; code?: number; log: string; outPath?: string }>;
+  // Reveal an exported file in the OS file manager (fsGuard'd in main).
+  revealPath?(p: string): Promise<boolean>;
   // F1 file-watch live reload. Optional: only the Electron bridge (and the dev
   // fixture) provide them.
   watchRoot?(root: string | null): Promise<boolean> | boolean;

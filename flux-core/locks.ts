@@ -120,6 +120,38 @@ export async function releaseLockAt(dir: string, name: string, client?: string):
   await fs.rm(lockFileAt(dir, name), { force: true }).catch(() => {});
 }
 
+/** The shared acquisition loop behind withLockAt / withHeartbeatLockAt. Throws the
+ *  standard "deferred" error when the lock stays contended. */
+async function acquireOrDefer(
+  dir: string,
+  name: string,
+  client: string,
+  opts: { retries?: number; delayMs?: number } = {},
+): Promise<void> {
+  const retries = opts.retries ?? 0;
+  const delayMs = opts.delayMs ?? 250;
+  let attempt = 0;
+  for (;;) {
+    const blocker = await tryAcquireAt(dir, name, client, true);
+    if (!blocker) return;
+    if (blocker === CLEARED) continue; // cleared a stale lock — retry is free
+    if (blocker.client === "human" || attempt >= retries) {
+      const who =
+        blocker.client === "human" ? "a human edit is in progress" : `held by ${blocker.client}`;
+      throw new Error(`deferred: "${name}" is locked (${who}). Re-run in a moment.`);
+    }
+    attempt++;
+    await sleep(delayMs);
+  }
+}
+
+/** Release only our own lock (client+pid) — never a contender's fresh one. */
+async function releaseOwn(dir: string, name: string, client: string): Promise<void> {
+  const info = await readLockAt(dir, name);
+  if (!info || (info.client === client && info.pid === process.pid))
+    await fs.rm(lockFileAt(dir, name), { force: true }).catch(() => {});
+}
+
 /** Run `fn` while holding `name` in `dir`. Acquisition is atomic (exclusive
  *  create). A human-held lock defers immediately (activity locks last 10s+);
  *  another agent's ms-scale lock is retried `retries` times before deferring. */
@@ -130,28 +162,42 @@ export async function withLockAt<T>(
   fn: () => Promise<T>,
   opts: { retries?: number; delayMs?: number } = {},
 ): Promise<T> {
-  const retries = opts.retries ?? 0;
-  const delayMs = opts.delayMs ?? 250;
-  let attempt = 0;
-  for (;;) {
-    const blocker = await tryAcquireAt(dir, name, client, true);
-    if (!blocker) break;
-    if (blocker === CLEARED) continue; // cleared a stale lock — retry is free
-    if (blocker.client === "human" || attempt >= retries) {
-      const who =
-        blocker.client === "human" ? "a human edit is in progress" : `held by ${blocker.client}`;
-      throw new Error(`deferred: "${name}" is locked (${who}). Re-run in a moment.`);
-    }
-    attempt++;
-    await sleep(delayMs);
-  }
+  await acquireOrDefer(dir, name, client, opts);
   try {
     return await fn();
   } finally {
-    // release only our own lock (client+pid) — never a contender's fresh one
+    await releaseOwn(dir, name, client);
+  }
+}
+
+/** withLockAt for operations that can OUTLIVE the 30s TTL (an assign-inbox scan, a
+ *  long import): the held lock is restamped every `heartbeatMs` so a contender never
+ *  sees it stale mid-operation, and the restamp only rewrites while the file is still
+ *  ours (a stall past the TTL where someone legitimately cleared+took it is not
+ *  clobbered). Interval is injectable for tests. */
+export async function withHeartbeatLockAt<T>(
+  dir: string,
+  name: string,
+  client: string,
+  fn: () => Promise<T>,
+  opts: { retries?: number; delayMs?: number; heartbeatMs?: number } = {},
+): Promise<T> {
+  await acquireOrDefer(dir, name, client, opts);
+  const heartbeatMs = opts.heartbeatMs ?? 10_000;
+  const restamp = async () => {
     const info = await readLockAt(dir, name);
-    if (!info || (info.client === client && info.pid === process.pid))
-      await fs.rm(lockFileAt(dir, name), { force: true }).catch(() => {});
+    if (info && info.client === client && info.pid === process.pid) {
+      const payload = JSON.stringify({ client, pid: process.pid, ts: new Date().toISOString() });
+      await fs.writeFile(lockFileAt(dir, name), payload).catch(() => {});
+    }
+  };
+  const timer = setInterval(() => void restamp(), heartbeatMs);
+  (timer as { unref?: () => void }).unref?.();
+  try {
+    return await fn();
+  } finally {
+    clearInterval(timer);
+    await releaseOwn(dir, name, client);
   }
 }
 

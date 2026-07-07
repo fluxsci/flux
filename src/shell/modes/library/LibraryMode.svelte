@@ -39,7 +39,7 @@
     s2CitingByKey,
   } from "../../../lib/references/enrichBridge";
   import type { WorldBrief } from "../../../lib/references/openalex";
-  import { fluxLibRevision } from "../../../lib/references/revision";
+  import { fluxLibRevision, assignInboxRevision } from "../../../lib/references/revision";
   import { addUrlOrDoiToLibrary } from "../paper/scholar/bibLoad";
   import { fileBridge } from "../../../lib/project/types";
   import { BOOKMARKLET_HREF } from "./bookmarklet";
@@ -330,22 +330,37 @@
       .catch(() => (loading = false));
     void refreshProxy();
     // Startup scan: on the first Library mount of the session, auto-process anything already in
-    // the watched inbox. Re-mounts only re-scan if new files arrived (processed files are removed).
+    // the watched inbox — but never offline (a network blink must not defer the whole inbox).
+    // Re-mounts only re-scan if new files arrived (processed files are removed).
     void countInbox().then((n) => {
       inboxCount = n;
-      if (n > 0 && !assignAutoScanned && !assignJob.running) {
+      if (n > 0 && !assignAutoScanned && !assignJob.running && navigator.onLine !== false) {
         assignAutoScanned = true;
         void runAssign();
       }
     });
     let first = true;
-    return fluxLibRevision.subscribe(() => {
+    const unsubLib = fluxLibRevision.subscribe(() => {
       if (first) {
         first = false;
         return;
       }
       void reload();
     });
+    // A PDF landed in the drop-inbox (watcher) — refresh the button count live. The
+    // assignJob module owns the debounced auto-scan; this is display-only.
+    let firstInbox = true;
+    const unsubInbox = assignInboxRevision.subscribe(() => {
+      if (firstInbox) {
+        firstInbox = false;
+        return;
+      }
+      void countInbox().then((n) => (inboxCount = n));
+    });
+    return () => {
+      unsubLib();
+      unsubInbox();
+    };
   });
 
   $effect(() => {
@@ -378,9 +393,19 @@
     const r = assignJob.lastResults;
     if (r.length) {
       const a = assignJob.attached + assignJob.added;
-      const bits = [a ? `${a} filed` : "", assignJob.discarded ? `${assignJob.discarded} already had a PDF` : "", assignJob.unresolved ? `${assignJob.unresolved} unresolved` : ""].filter(Boolean);
+      const bits = [
+        a ? `${a} filed` : "",
+        assignJob.discarded ? `${assignJob.discarded} duplicate${assignJob.discarded === 1 ? "" : "s"} kept in supplements` : "",
+        assignJob.unresolved ? `${assignJob.unresolved} unresolved` : "",
+        assignJob.deferred ? `${assignJob.deferred} deferred (network)` : "",
+      ].filter(Boolean);
+      const suffix = assignJob.offline
+        ? " — network unavailable; files left in the inbox to retry"
+        : assignJob.unresolved
+          ? " — see pdfs_to_assign/_unresolved/"
+          : "";
       pushToast(assignJob.unresolved ? "error" : "success", `Assigned ${r.length} PDF${r.length === 1 ? "" : "s"}`, {
-        detail: bits.join(" · ") + (assignJob.unresolved ? " — see pdfs_to_assign/_unresolved/" : ""),
+        detail: bits.join(" · ") + suffix,
         ttl: 6000,
       });
     }

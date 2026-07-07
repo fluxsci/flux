@@ -46,9 +46,12 @@ export interface SearchHit {
 }
 
 export interface IdentifyDeps {
-  /** DOI → canonical metadata, or null if it doesn't resolve. */
+  /** DOI → canonical metadata, or null if the DOI DEFINITIVELY does not resolve (404/410).
+   *  MUST THROW on transient failures (offline / timeout / 429 / 5xx) — identify() then
+   *  returns a `retryable` unresolved result so the caller leaves the PDF in the inbox
+   *  instead of quarantining a perfectly good paper because the network blinked. */
   resolveDoi: (doi: string) => Promise<PaperMeta | null>;
-  /** Free-text title query → ranked hits (best first). */
+  /** Free-text title query → ranked hits (best first). Same contract: throw = transient. */
   searchTitle: (query: string) => Promise<SearchHit[]>;
 }
 
@@ -61,13 +64,18 @@ export interface IdDiagnostics {
 
 export type IdResult =
   | { status: "identified"; doi: string; meta: PaperMeta; method: string; confidence: "high" }
-  | { status: "unresolved"; reason: string; diagnostics: IdDiagnostics };
+  | { status: "unresolved"; reason: string; retryable?: boolean; diagnostics: IdDiagnostics };
 
 type DoiSource = "embedded" | "page1" | "refs";
 
 // Tunables (pinned constants so the dry-run over real PDFs can calibrate them).
 export const TAU = 0.8; // title-containment floor for a DOI found in text
 export const SIM = 0.9; // title-similarity floor for the fuzzy fallback
+/** Resolution budget per PDF: only the first N DOI candidates are resolved. A references
+ *  section can carry dozens of DOIs — resolving them all hammers Crossref (and the 429s
+ *  come back as failures). Candidates are source-ranked (embedded → page1 → refs) before
+ *  the cap, so the paper's own DOI is virtually always inside the budget. */
+export const MAX_RESOLVES = 4;
 
 // --- DOI + title primitives (pure, exported for tests) ----------------------------
 
@@ -214,9 +222,15 @@ const firstLine = (text: string): string | undefined =>
 
 // --- the pipeline -----------------------------------------------------------------
 
-export async function identify(sig: PdfSignals, deps: IdentifyDeps): Promise<IdResult> {
+export async function identify(
+  sig: PdfSignals,
+  deps: IdentifyDeps,
+  opts: { maxResolves?: number } = {},
+): Promise<IdResult> {
   const page1 = sig.page1Text || "";
   const rejected: string[] = [];
+  const maxResolves = opts.maxResolves ?? MAX_RESOLVES;
+  let sawTransient = false; // a dep threw (network) — the verdict below is not definitive
 
   // 1. Gather DOI candidates, tagged by where they came from.
   const cands: { doi: string; source: DoiSource }[] = [];
@@ -233,11 +247,18 @@ export async function identify(sig: PdfSignals, deps: IdentifyDeps): Promise<IdR
   const rank: Record<DoiSource, number> = { embedded: 0, page1: 1, refs: 2 };
   cands.sort((a, b) => rank[a.source] - rank[b.source]);
 
-  // 2. Tier 1 — resolve each DOI candidate. Embedded (publisher-set) DOIs are authoritative;
-  //    a DOI found in TEXT must also title-match page 1 (position on the page is NOT a reliable
-  //    signal — a short report can print reference DOIs high up).
-  for (const c of cands) {
-    const meta = await deps.resolveDoi(c.doi);
+  // 2. Tier 1 — resolve DOI candidates (capped — see MAX_RESOLVES). Embedded (publisher-set)
+  //    DOIs are authoritative; a DOI found in TEXT must also title-match page 1 (position on
+  //    the page is NOT a reliable signal — a short report can print reference DOIs high up).
+  for (const c of cands.slice(0, maxResolves)) {
+    let meta: PaperMeta | null;
+    try {
+      meta = await deps.resolveDoi(c.doi);
+    } catch (e) {
+      sawTransient = true;
+      rejected.push(`${c.doi} (${c.source}): network error (retryable): ${String((e as Error)?.message || e)}`);
+      continue;
+    }
     if (!meta) {
       rejected.push(`${c.doi} (${c.source}): did not resolve`);
       continue;
@@ -248,12 +269,19 @@ export async function identify(sig: PdfSignals, deps: IdentifyDeps): Promise<IdR
     }
     rejected.push(`${c.doi} (${c.source}): title match ${contain.toFixed(2)} < ${TAU}`);
   }
+  for (const c of cands.slice(maxResolves)) rejected.push(`${c.doi} (${c.source}): not attempted (candidate cap ${maxResolves})`);
 
   // 3. Tier 2 — no trustworthy DOI: fuzzy title search, strictly gated.
   const query = firstText(sig.xmpTitle, sig.infoTitle, sig.titleGuess, firstLine(page1));
   const topHits: IdDiagnostics["topHits"] = [];
   if (query) {
-    const hits = (await deps.searchTitle(query)).slice(0, 5);
+    let hits: SearchHit[] = [];
+    try {
+      hits = (await deps.searchTitle(query)).slice(0, 5);
+    } catch (e) {
+      sawTransient = true;
+      rejected.push(`title search: network error (retryable): ${String((e as Error)?.message || e)}`);
+    }
     const yrs = yearsIn(page1);
     const p1lower = page1.toLowerCase();
     for (const h of hits) {
@@ -279,6 +307,16 @@ export async function identify(sig: PdfSignals, deps: IdentifyDeps): Promise<IdR
     }
   }
 
+  // A transient failure anywhere means this verdict is NOT definitive: the caller must
+  // leave the PDF where it is and retry later, never quarantine on it.
+  if (sawTransient) {
+    return {
+      status: "unresolved",
+      reason: "network issue while identifying — left to retry",
+      retryable: true,
+      diagnostics: { candidates: cands, rejected, query, topHits },
+    };
+  }
   return {
     status: "unresolved",
     reason: cands.length ? "no DOI passed cross-validation" : query ? "no confident title match" : "no DOI or title in PDF",

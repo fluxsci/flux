@@ -767,6 +767,11 @@ function fluxLibSubsystemFor(libRoot, abs) {
   if (rel === "library.bib" || rel === ".fluxlib/enrich.json" || rel.startsWith("items/")) {
     return "fluxlib";
   }
+  // The drop-inbox: only landed PDFs count — sidecar notes and our own _unresolved/
+  // filing must not re-trigger a scan (awaitWriteFinish already debounces mid-copy).
+  if (rel.startsWith("pdfs_to_assign/")) {
+    return !rel.includes("_unresolved/") && /\.pdf$/i.test(rel) ? "assign-inbox" : null;
+  }
   return null;
 }
 
@@ -797,6 +802,8 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     path.join(libRoot, "library.bib"),
     path.join(libRoot, ".fluxlib", "enrich.json"),
     path.join(libRoot, "items"),
+    // The assign drop-inbox — a landed PDF triggers a scan in the open app.
+    path.join(libRoot, "pdfs_to_assign"),
   ];
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
@@ -974,6 +981,26 @@ ipcMain.handle("cite:fetchDoi", async (_e, doi) => {
     if (!res.ok) return { error: `HTTP ${res.status}` };
     const json = await res.json();
     return { message: json.message };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+});
+
+// DOI → raw BibTeX via doi.org content negotiation. Registrar-agnostic — this is
+// how entry creation rescues DataCite DOIs (arXiv 10.48550/*, Zenodo, theses) that
+// Crossref's works API 404s. Returns { bibtex } or { error: "HTTP <status>" | msg }.
+ipcMain.handle("cite:fetchDoiBibtex", async (_e, doi) => {
+  const clean = String(doi || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
+  if (!/^10\.\d{4,9}\/\S+$/.test(clean)) return { error: "not a DOI" };
+  try {
+    const res = await fetch("https://doi.org/" + encodeURIComponent(clean), {
+      headers: { Accept: "application/x-bibtex", "User-Agent": "Flux/0.1 (manuscript editor)" },
+      redirect: "follow",
+    });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    const bibtex = (await res.text()).trim();
+    if (!bibtex.startsWith("@")) return { error: "DOI did not return BibTeX" };
+    return { bibtex };
   } catch (err) {
     return { error: String((err && err.message) || err) };
   }
@@ -1422,11 +1449,19 @@ ipcMain.handle("quarto:available", async () => {
   });
 });
 
-ipcMain.handle("quarto:render", async (e, { root, to }) => {
+ipcMain.handle("quarto:render", async (e, { root, to, docPath }) => {
+  // Render the ACTIVE document, not always main.qmd. Containment: the doc must be
+  // a .qmd resolving under the project root (no traversal via a crafted docPath).
+  const rootAbs = path.resolve(String(root || ""));
+  const rel = typeof docPath === "string" && docPath.trim() ? docPath : "manuscript/main.qmd";
+  const docAbs = path.resolve(rootAbs, rel);
+  if (!underDir(docAbs, rootAbs) || !/\.qmd$/i.test(docAbs)) {
+    return { ok: false, log: `invalid document path: ${rel}` };
+  }
   return new Promise((resolve) => {
     try {
-      const p = spawn("quarto", ["render", "manuscript/main.qmd", "--to", to || "pdf"], {
-        cwd: root,
+      const p = spawn("quarto", ["render", rel, "--to", to || "pdf"], {
+        cwd: rootAbs,
       });
       let log = "";
       const send = (s) => {
@@ -1436,11 +1471,30 @@ ipcMain.handle("quarto:render", async (e, { root, to }) => {
       p.stdout.on("data", (d) => send(String(d)));
       p.stderr.on("data", (d) => send(String(d)));
       p.on("error", (err) => resolve({ ok: false, log: String(err.message) }));
-      p.on("close", (code) => resolve({ ok: code === 0, code, log }));
+      p.on("close", (code) => {
+        // Verify the artifact actually landed (a _quarto.yml output-dir moves it —
+        // report what we found so the renderer can Reveal the real file).
+        const ext = String(to || "pdf").toLowerCase();
+        const candidates = [
+          docAbs.replace(/\.qmd$/i, `.${ext}`),
+          path.join(rootAbs, "_output", path.basename(docAbs).replace(/\.qmd$/i, `.${ext}`)),
+        ];
+        const outPath = candidates.find((c) => fs.existsSync(c));
+        resolve({ ok: code === 0 && !!outPath, code, log: outPath ? log : log + "\n(no output file found)", outPath });
+      });
     } catch (err) {
       resolve({ ok: false, log: String(err) });
     }
   });
+});
+
+// Reveal an exported file in the OS file manager (fsGuard'd — project/app roots +
+// dialog-approved dirs only).
+ipcMain.handle("shell:showItemInFolder", (_e, p) => {
+  const abs = path.resolve(String(p || ""));
+  fsGuard(abs);
+  shell.showItemInFolder(abs);
+  return true;
 });
 
 // ---------------------------------------------------------------------------

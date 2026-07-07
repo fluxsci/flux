@@ -73,6 +73,8 @@ export async function ensureFluxLib(): Promise<string | null> {
   const lib = await resolveFluxLibPath();
   if (!lib) return null;
   await fb.mkdir(joinPath(lib, ".fluxlib"));
+  // The watched drop-inbox must exist for anyone to drop PDFs into it.
+  await fb.mkdir(joinPath(lib, "pdfs_to_assign"));
   if (!(await fb.exists(libBib(lib)))) {
     let seed = "";
     try {

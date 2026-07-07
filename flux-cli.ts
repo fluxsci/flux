@@ -560,13 +560,17 @@ async function main() {
       const verb = dryRun ? "would " : "";
       for (const it of r.results) {
         if (it.action === "unresolved") console.error(`  ? ${it.file}  UNRESOLVED — ${it.reason}`);
-        else if (it.action === "discarded") console.error(`  = ${it.file}  ${verb}discard (kept ${it.key}, already has PDF)  ${it.doi}`);
+        else if (it.action === "deferred") console.error(`  ~ ${it.file}  deferred (left in inbox) — ${it.reason}`);
+        else if (it.action === "discarded")
+          console.error(`  = ${it.file}  ${verb}duplicate of ${it.key}${it.keptAs ? ` — kept as supplements/${it.keptAs}` : " (byte-identical, dropped)"}  ${it.doi}`);
         else if (it.action === "attached") console.error(`  + ${it.file}  ${verb}attach → ${it.key}  [${it.method}] ${it.doi}`);
         else console.error(`  ★ ${it.file}  ${verb}add+attach${it.key ? ` → ${it.key}` : ""}  [${it.method}] ${it.doi}`);
       }
       console.error(
         `\n${dryRun ? "DRY RUN — " : "✓ "}${r.total} PDF(s) in ${r.dir}: ` +
-          `${r.attached} attach, ${r.addedAttached} add+attach, ${r.discarded} discard, ${r.unresolved} unresolved` +
+          `${r.attached} attach, ${r.addedAttached} add+attach, ${r.discarded} duplicate, ${r.unresolved} unresolved` +
+          (r.deferred ? `, ${r.deferred} deferred (network — left in inbox)` : "") +
+          (r.abortedOffline ? " — ABORTED: network unavailable" : "") +
           (dryRun ? " (nothing changed)" : ""),
       );
       break;

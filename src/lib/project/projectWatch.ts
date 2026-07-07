@@ -12,7 +12,7 @@
 
 import { writable } from "svelte/store";
 import { bumpFigRevision, bumpBibRevision, bumpDeckRevision } from "../../shell/scholar/revisions";
-import { bumpFluxLib } from "../references/revision";
+import { bumpFluxLib, bumpAssignInbox } from "../references/revision";
 
 export interface FsChange {
   subsystem: string;
@@ -40,6 +40,7 @@ export function startProjectWatch(root: string | null): void {
     else if (info.subsystem === "manuscript") externalManuscriptChange.set({ ...info, n: ++mn });
     else if (info.subsystem === "slides") bumpDeckRevision(); // W10 (SLD-1)
     else if (info.subsystem === "fluxlib") bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
+    else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
   });
 }
 

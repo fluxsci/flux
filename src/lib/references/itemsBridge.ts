@@ -106,7 +106,10 @@ export const hasPdfIn = (pdfKeys: Set<string>, key: string): boolean =>
   pdfKeys.has(safeKey(key).normalize("NFC"));
 
 /** File a fetched PDF into items/<key>/ + write source.json provenance (renderer twin
- *  of flux-core writePdf). Computes a SHA-256 via WebCrypto for parity. */
+ *  of flux-core writePdf). Computes a SHA-256 via WebCrypto for parity, and extracts
+ *  fulltext.txt best-effort — this is the ONE place every GUI acquisition path funnels
+ *  through (bulk fetch, proxy capture, manual ingest, assign), so GUI-acquired papers
+ *  are full-text-searchable exactly like Node-acquired ones. */
 export async function writePdfItem(
   key: string,
   bytes: Uint8Array,
@@ -136,6 +139,15 @@ export async function writePdfItem(
     license: info.license,
   };
   await fb.writeText(sourcePath(lib, key), JSON.stringify(source, null, 2) + "\n");
+  // Fulltext parity with flux-core attach/acquire (dynamic import keeps pdf.js out of
+  // the Library chunk until a PDF actually lands; scanned PDFs simply yield no text).
+  try {
+    const { extractFulltextText } = await import("../pdf/pdfFulltext");
+    const ft = await extractFulltextText(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
+    if (ft.chars > 0) await fb.writeText(fulltextPath(lib, key), ft.text);
+  } catch {
+    /* best-effort — paper.pdf is filed regardless */
+  }
   return true;
 }
 

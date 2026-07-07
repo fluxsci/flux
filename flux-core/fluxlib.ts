@@ -127,6 +127,8 @@ const projectBibPath = (root: string, m?: ProjectManifest | null) =>
 export async function ensureFluxLib(libPath?: string): Promise<string> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
   await fs.mkdir(path.join(lib, ".fluxlib"), { recursive: true });
+  // The watched drop-inbox must exist for anyone to drop PDFs into it.
+  await fs.mkdir(path.join(lib, "pdfs_to_assign"), { recursive: true });
   if (!(await exists(libBib(lib)))) {
     let seed = "";
     const legacy = path.join(userDataDir(), "references", "library.bib");

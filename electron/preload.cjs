@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld("fig", {
 
   // Citation metadata fetch (CrossRef) — runs in main to avoid CORS.
   fetchDoi: (doi) => ipcRenderer.invoke("cite:fetchDoi", doi),
+  // DOI → BibTeX via doi.org content negotiation (registrar-agnostic: rescues
+  // DataCite DOIs — arXiv 10.48550/*, Zenodo — that Crossref 404s).
+  fetchDoiBibtex: (doi) => ipcRenderer.invoke("cite:fetchDoiBibtex", doi),
   // Resolve a paper URL (or DOI) to a DOI by fetching + scraping the page in main.
   resolveUrl: (url) => ipcRenderer.invoke("cite:resolveUrl", url),
   // Fetch an OpenAlex API URL (built by src/lib/references/openalex.ts) in main —
@@ -49,7 +52,9 @@ contextBridge.exposeInMainWorld("fig", {
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
   // Optional external tools.
   quartoAvailable: () => ipcRenderer.invoke("quarto:available"),
-  quartoRender: (root, to) => ipcRenderer.invoke("quarto:render", { root, to }),
+  quartoRender: (root, to, docPath) => ipcRenderer.invoke("quarto:render", { root, to, docPath }),
+  // Reveal an exported file in the OS file manager (Finder/Files).
+  revealPath: (p) => ipcRenderer.invoke("shell:showItemInFolder", p),
 
   // Host platform ("darwin" | "linux" | "win32") — lets the renderer adapt its chrome
   // (e.g. defer to the native macOS traffic lights instead of custom window buttons).

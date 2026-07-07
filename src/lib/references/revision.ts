@@ -15,3 +15,11 @@ export const fluxLibEntries = writable<RefEntry[]>([]);
 export function bumpFluxLib(): void {
   fluxLibRevision.update((n) => n + 1);
 }
+
+// Bumped when a PDF lands in the watched drop-inbox (~/FluxLib/pdfs_to_assign/) —
+// the assign job auto-scans on it and the Library refreshes its inbox count.
+export const assignInboxRevision = writable(0);
+
+export function bumpAssignInbox(): void {
+  assignInboxRevision.update((n) => n + 1);
+}
