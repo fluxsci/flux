@@ -79,6 +79,10 @@ contextBridge.exposeInMainWorld("fig", {
   // (esbuild + fs run in main, via the flux-cli verb). Returns { ok, path } |
   // { ok:false, error }. The renderer gates its Export button on this existing.
   exportDeck: (root, deckId) => ipcRenderer.invoke("slides:exportDeck", { root, deckId }),
+  // 2.3 Full-text search: scan every stored PDF's extracted text (items/*/fulltext.txt)
+  // in the main process (spawns the bundled `flux search-text --json`, W13 pattern) so
+  // the renderer never blocks on disk I/O. Returns the FulltextResult JSON | { error }.
+  searchFulltext: (query, opts) => ipcRenderer.invoke("fulltext:search", { query, opts }),
   onFsChanged: (cb) => {
     const handler = (_e, info) => cb(info);
     ipcRenderer.on("fs:changed", handler);

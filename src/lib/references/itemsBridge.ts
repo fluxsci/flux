@@ -395,6 +395,57 @@ export async function listFailedKeys(): Promise<Set<string>> {
 /** LR-7: like listFailedKeys, but reads each failure record so the Library can show a durable
  *  per-row outcome pill (no DOI / no OA / failed) without expanding the row. Keyed NFC. Failures
  *  are the minority (only attempted-and-failed papers have a record), so the extra reads are few. */
+// 2.3 Full-text search over items/*/fulltext.txt. The scan is a Node streaming job
+// (flux-core/fulltextSearch.ts) run in the main process via the bundled CLI, so the
+// renderer stays jank-free even over a 1k-paper library. Mirrors FulltextResult; a
+// missing bridge (web/demo) or an error yields an empty result rather than throwing.
+export interface FulltextSnippet {
+  page: number;
+  text: string;
+}
+export interface FulltextHit {
+  key: string;
+  count: number;
+  snippets: FulltextSnippet[];
+}
+export interface FulltextResult {
+  hits: FulltextHit[];
+  scanned: number;
+  missingText: string[];
+  truncated: boolean;
+  elapsedMs: number;
+  error?: string;
+}
+
+const EMPTY_FT: FulltextResult = { hits: [], scanned: 0, missingText: [], truncated: false, elapsedMs: 0 };
+
+export async function searchFulltext(
+  query: string,
+  opts?: { limit?: number; keys?: string[] },
+): Promise<FulltextResult> {
+  // DEV/test seam: a headless harness (no Electron bridge) injects results here to
+  // exercise the Library's full-text UI. Mirrors __fluxSeedBib / __fluxSeedFigures.
+  if (import.meta.env?.DEV && typeof window !== "undefined") {
+    const hook = (window as unknown as { __fluxFulltextHook?: (q: string, o?: unknown) => Partial<FulltextResult> }).__fluxFulltextHook;
+    if (typeof hook === "function") return { ...EMPTY_FT, ...hook(query, opts) };
+  }
+  const fb = fileBridge() as { searchFulltext?: (q: string, o?: unknown) => Promise<Partial<FulltextResult>> } | null;
+  if (!fb?.searchFulltext || !query.trim()) return EMPTY_FT;
+  try {
+    const r = await fb.searchFulltext(query, opts);
+    return {
+      hits: r.hits ?? [],
+      scanned: r.scanned ?? 0,
+      missingText: r.missingText ?? [],
+      truncated: r.truncated ?? false,
+      elapsedMs: r.elapsedMs ?? 0,
+      error: r.error,
+    };
+  } catch (e) {
+    return { ...EMPTY_FT, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function listFailures(): Promise<Record<string, FetchFailure>> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();

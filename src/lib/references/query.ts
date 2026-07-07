@@ -36,6 +36,28 @@ export function isStructured(q: string): boolean {
   return /(?:^|\s)(?:author|authors|au|year|yr|journal|venue|container|title|ti|doi):/i.test(q);
 }
 
+// 2.3 Full-text search lives OUTSIDE the metadata grammar: `fulltext:`/`ft:`/`text:`
+// can't be answered from a RefEntry — it needs a disk scan of items/*/fulltext.txt.
+// The prefix switches the Library into full-text mode; everything after it is the
+// full-text query (handed verbatim to flux-core parseQueryTerms — quotes ⇒ phrases,
+// bare words ⇒ AND terms), and any metadata clauses BEFORE it (`author:smith ft:…`)
+// restrict the scan's scope. Positional-tail capture keeps the common
+// "which papers mention X Y" case prefix-once, not prefix-per-word.
+const FULLTEXT_PREFIX = /(?:^|\s)(?:fulltext|ft|text):/i;
+
+/** True when the query requests a full-text scan (`ft:` / `fulltext:` / `text:`). */
+export function hasFulltext(q: string): boolean {
+  return FULLTEXT_PREFIX.test(q);
+}
+
+/** Split a raw query into its full-text tail and the leading metadata scope. */
+export function extractFulltext(q: string): { fulltext: string; rest: string } {
+  const m = FULLTEXT_PREFIX.exec(q);
+  if (!m) return { fulltext: "", rest: q };
+  const valueStart = m.index + m[0].length;
+  return { fulltext: q.slice(valueStart).trim(), rest: q.slice(0, m.index).trim() };
+}
+
 /** Split on whitespace (quote-aware); each token splits on its first ":". */
 export function parseQuery(q: string): Clause[] {
   const tokens = q.match(/"[^"]*"|\S+/g) ?? [];

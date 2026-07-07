@@ -14,8 +14,8 @@
   // FluxLib, showing OpenAlex enrichment (abstract, topics, keywords, citation count),
   // plus a "World" scope that searches ALL of OpenAlex — by keyword OR by meaning
   // (semantic) — with one-click add + per-entry citing / similar / author lookups.
-  import { onMount } from "svelte";
-  import { runQuery } from "../../../lib/references/query";
+  import { onMount, untrack } from "svelte";
+  import { runQuery, extractFulltext, hasFulltext } from "../../../lib/references/query";
   import type { RefEntry } from "../../../lib/references/types";
   import { mergeEnrich, type EnrichMap, type EnrichedEntry } from "../../../lib/references/enrich";
   import {
@@ -45,7 +45,8 @@
   import { BOOKMARKLET_HREF } from "./bookmarklet";
   import { openInReader } from "../reader/readerStore";
   import { fetchPdfForEntry, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
-  import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure } from "../../../lib/references/itemsBridge";
+  import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
+  import { parseQueryTerms } from "../../../lib/references/textFold";
   import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
   import { assignJob, countInbox } from "../../../lib/references/assignJob.svelte";
   import { safeKey, fetchOutcome, type FetchFailure, type FetchOutcome } from "../../../lib/references/items";
@@ -154,6 +155,69 @@
     }
     queryTimer = setTimeout(() => (queryDebounced = q), 150);
   });
+
+  // 2.3 Full-text search. A `ft:`/`fulltext:`/`text:` prefix switches the Library into
+  // full-text mode: the tail is scanned against every stored PDF's extracted text
+  // (items/*/fulltext.txt) in the main process (bundled CLI, W13), and any leading
+  // metadata clauses restrict the scan's scope. Results show only matched papers, ranked
+  // by hit count, with page-numbered snippets that jump into the reader at the term.
+  const ftMode = $derived(scope === "library" && hasFulltext(queryDebounced));
+  let ftSeq = 0;
+  let ftHits = $state.raw<Map<string, FulltextHit>>(new Map());
+  let ftBusy = $state(false);
+  let ftError = $state("");
+  let ftScanned = $state(0);
+  let ftMissing = $state(0);
+  let ftTruncated = $state(false);
+  let ftTerm = $state(""); // the extracted full-text query (drives the reader jump + status)
+  $effect(() => {
+    const q = queryDebounced;
+    const active = scope === "library" && hasFulltext(q);
+    if (!active) {
+      if (ftHits.size || ftBusy || ftError) {
+        ftHits = new Map();
+        ftBusy = false;
+        ftError = "";
+        ftTerm = "";
+      }
+      return;
+    }
+    const { fulltext, rest } = extractFulltext(q);
+    ftTerm = fulltext;
+    if (!fulltext) {
+      ftHits = new Map();
+      ftBusy = false;
+      ftError = "";
+      return;
+    }
+    // A leading metadata query (`author:smith ft:…`) restricts the scan to those keys.
+    // Read `enriched` untracked so hydration bumps don't re-fire the scan mid-typing.
+    const scopeKeys = rest.trim() ? untrack(() => runQuery(enriched, rest)).map((e) => e.key) : undefined;
+    const seq = ++ftSeq;
+    ftBusy = true;
+    ftError = "";
+    void searchFulltext(fulltext, { keys: scopeKeys, limit: 200 }).then((r) => {
+      if (seq !== ftSeq) return; // a newer query superseded this scan
+      ftBusy = false;
+      ftError = r.error ?? "";
+      ftScanned = r.scanned;
+      ftMissing = r.missingText.length;
+      ftTruncated = r.truncated;
+      ftHits = new Map(r.hits.map((h) => [nfc(h.key), h]));
+    });
+  });
+  // The term handed to the reader's find-in-document on a snippet click — the primary
+  // needle (first phrase, else first term) of the full-text query. pdf.js find is
+  // case/diacritic-insensitive, so the folded needle locates the original text.
+  function ftReaderTerm(): string {
+    const { terms, phrases } = parseQueryTerms(ftTerm);
+    return phrases[0] ?? terms[0] ?? ftTerm.trim();
+  }
+  function openSnippet(e: MouseEvent, key: string) {
+    e.stopPropagation();
+    openInReader(key, { find: ftReaderTerm() });
+  }
+
   const isFailed = (key: string) => failedKeys.has(nfc(key));
   // LR-7: the durable, categorized per-row outcome pill (replaces the ambiguous ⚠). Environment
   // failures (session-expired / cancelled) are never recorded, so they stay plain "missing".
@@ -203,18 +267,23 @@
             ? parseInt(r.year, 10) || 0
             : (r.enrich?.citedByCount ?? -1);
   const results = $derived.by(() => {
-    const base = showFailedOnly
-      ? runQuery(enriched, queryDebounced).filter((r) => isFailed(r.key))
-      : runQuery(enriched, queryDebounced);
-    if (!sortCol) return base;
-    const col = sortCol;
-    const dir = sortDir;
-    return [...base].sort((a, b) => {
-      const va = sortVal(a, col);
-      const vb = sortVal(b, col);
-      const c = typeof va === "number" ? va - (vb as number) : va.localeCompare(vb as string);
-      return dir * c;
-    });
+    // Full-text mode: show only papers whose stored text matched (from the async scan);
+    // otherwise the metadata query. showFailedOnly narrows either.
+    let base = ftMode ? enriched.filter((r) => ftHits.has(nfc(r.key))) : runQuery(enriched, queryDebounced);
+    if (showFailedOnly) base = base.filter((r) => isFailed(r.key));
+    if (sortCol) {
+      const col = sortCol;
+      const dir = sortDir;
+      return [...base].sort((a, b) => {
+        const va = sortVal(a, col);
+        const vb = sortVal(b, col);
+        const c = typeof va === "number" ? va - (vb as number) : va.localeCompare(vb as string);
+        return dir * c;
+      });
+    }
+    // Default full-text ranking: most hits first (an explicit column sort overrides above).
+    if (ftMode) return [...base].sort((a, b) => (ftHits.get(nfc(b.key))?.count ?? 0) - (ftHits.get(nfc(a.key))?.count ?? 0));
+    return base;
   });
   // LR-U2: selection helpers + the "add N to the open project" bulk action. materializeIntoProject
   // is idempotent and lock-guarded ("references"), so re-adding already-cited keys is a no-op.
@@ -1135,7 +1204,7 @@
       bind:value={query}
       onkeydown={searchKey}
       placeholder={scope === "library"
-        ? "Search your library  ·  author:smith  abstract:dopamine  topic:reward"
+        ? "Search your library  ·  author:smith  topic:reward  ·  ft:optogenetic silencing (full text)"
         : worldMode === "semantic"
           ? "Search OpenAlex by meaning — press Enter"
           : "Keyword-search all of OpenAlex — press Enter"}
@@ -1155,6 +1224,19 @@
   </div>
 
   {#if scope === "library"}
+    {#if ftMode && ftTerm}
+      <div class="ftbar" class:err={!!ftError}>
+        {#if ftError}
+          <span class="ftlbl">Full-text search failed</span><span class="ftmeta">{ftError}</span>
+        {:else if ftBusy}
+          <span class="ftlbl">Searching stored PDF text…</span>
+        {:else}
+          <span class="ftlbl">Full text</span>
+          <span class="ftmeta"
+            >{results.length} paper{results.length === 1 ? "" : "s"} match “{ftTerm}” · scanned {ftScanned} text{ftScanned === 1 ? "" : "s"}{ftTruncated ? " · showing the top matches — refine to narrow" : ""}{ftMissing ? ` · ${ftMissing} PDF${ftMissing === 1 ? "" : "s"} not yet text-extracted` : ""}</span>
+        {/if}
+      </div>
+    {/if}
     {#if selected.size > 0}
       <div class="selbar">
         <span class="selcount">{selected.size} selected</span>
@@ -1275,6 +1357,22 @@
             {/if}
           </span>
         </div>
+        {#if ftMode}
+          {@const hit = ftHits.get(nfc(r.key))}
+          {#if hit}
+            <div class="ftsnips">
+              {#each hit.snippets as s}
+                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                <button class="ftsnip" title={hasPdf(r.key) ? "Open in reader and jump to this match" : "PDF not on disk — fetch it to jump to the match"} onclick={(e) => openSnippet(e, r.key)}>
+                  <span class="ftpage">p{s.page}</span><span class="fttext">{s.text}</span>
+                </button>
+              {/each}
+              {#if hit.count > hit.snippets.length}
+                <span class="ftmore">+{hit.count - hit.snippets.length} more match{hit.count - hit.snippets.length === 1 ? "" : "es"}</span>
+              {/if}
+            </div>
+          {/if}
+        {/if}
         {#if expanded === r.key}
           <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
           <div class="detail" onclick={(e) => e.stopPropagation()}>
@@ -1342,7 +1440,13 @@
       {/each}
       {#if !loading && results.length === 0}
         <div class="none">
-          {entries.length ? "No matches." : "Your FluxLib is empty — paste a DOI or URL above."}
+          {#if ftMode && ftTerm && !ftBusy && !ftError}
+            No stored PDF text matches “{ftTerm}”.{ftMissing ? ` ${ftMissing} PDF${ftMissing === 1 ? " has" : "s have"} no extracted text yet — open ${ftMissing === 1 ? "it" : "them"} once in the reader to index.` : ""}
+          {:else if ftMode && ftBusy}
+            Searching…
+          {:else}
+            {entries.length ? "No matches." : "Your FluxLib is empty — paste a DOI or URL above."}
+          {/if}
         </div>
       {/if}
     </div>
@@ -2001,6 +2105,79 @@
   .copied {
     color: var(--c-accent-bright);
     font-size: var(--ts-xs);
+  }
+  /* 2.3 Full-text search: status bar + per-row snippet strip. */
+  .ftbar {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    padding: 6px 12px;
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-1);
+    background: color-mix(in srgb, var(--c-accent) 8%, transparent);
+    margin-bottom: 8px;
+    font-size: var(--ts-sm);
+  }
+  .ftbar.err {
+    border-color: var(--c-danger, #c0392b);
+    background: color-mix(in srgb, var(--c-danger, #c0392b) 8%, transparent);
+  }
+  .ftbar .ftlbl {
+    font-weight: 600;
+    color: var(--c-tx);
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: 0.05em;
+  }
+  .ftbar .ftmeta {
+    color: var(--c-tx-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ftsnips {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 14px 8px 40px;
+    border-bottom: 1px solid var(--c-line);
+    background: var(--c-surface);
+  }
+  .ftsnip {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    text-align: left;
+    width: 100%;
+    padding: 3px 8px;
+    border: none;
+    border-left: 2px solid transparent;
+    border-radius: var(--r-1);
+    background: none;
+    color: var(--c-tx-2);
+    font-size: var(--ts-sm);
+    line-height: 1.5;
+    cursor: pointer;
+  }
+  .ftsnip:hover {
+    background: var(--c-bg);
+    border-left-color: var(--c-accent);
+  }
+  .ftsnip .ftpage {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    font-size: var(--ts-xs);
+    color: var(--c-tx-faint);
+    min-width: 2.4em;
+  }
+  .ftsnip .fttext {
+    color: var(--c-tx-2);
+  }
+  .ftmore {
+    padding: 1px 8px 0 10px;
+    font-size: var(--ts-xs);
+    color: var(--c-tx-faint);
+    font-style: italic;
   }
   .detail {
     padding: 10px 14px 12px;

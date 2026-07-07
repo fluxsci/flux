@@ -38,6 +38,9 @@ export { assignPdfs } from "./assign";
 export type { AssignSummary, AssignItemResult, AssignAction } from "./assign";
 export { hasPdf, readPdf, readSource, writePdf, readFulltext, writeFulltext, loadItemsIndex, rebuildItemsIndex, itemStatus, readReaderContext } from "./items";
 export { extractFulltext, getOrExtractFulltext } from "./fulltext";
+// 2.3: full-text search across every stored PDF's extracted text.
+export { searchFulltext } from "./fulltextSearch";
+export type { FulltextResult, FulltextHit, FulltextSnippet } from "./fulltextSearch";
 // FluxReader annotations (highlights/notes; searchable library-wide).
 export { loadAnnotations, addAnnotation, deleteAnnotation, listAnnotations, searchAnnotations } from "./annotate";
 export type { AnnotationHit } from "./annotate";

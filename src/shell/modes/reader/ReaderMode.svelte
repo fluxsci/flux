@@ -5,7 +5,7 @@
   // FluxLib) and an annotations panel (this paper's highlights → click to scroll,
   // delete). Highlights persist to items/<citekey>/annotations.json.
   import { onMount, onDestroy, tick } from "svelte";
-  import { readerKey } from "./readerStore";
+  import { readerKey, readerFind } from "./readerStore";
   import { fluxLibRevision } from "../../../lib/references/revision";
   import {
     readerPdfBytes,
@@ -122,6 +122,24 @@
     findDir = dir;
     findNonce++;
   }
+  // 2.3: a full-text hit in the Library opens the reader here AND jumps to the term.
+  // openInReader bumps readerFind; we mirror it into the find bar. PdfView's find effect
+  // waits for `status==="ready"`, so setting this before the new PDF loads is safe — it
+  // fires once the pages mount. `term:""` (a plain open) closes any transient search.
+  let lastFindOpenNonce = -1;
+  $effect(() => {
+    const f = $readerFind;
+    if (f.nonce === lastFindOpenNonce) return;
+    lastFindOpenNonce = f.nonce;
+    if (!f.term) {
+      if (findOpen) closeFind();
+      return;
+    }
+    findOpen = true;
+    findQuery = f.term;
+    findDir = "first";
+    findNonce++;
+  });
   function findKey(e: KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();

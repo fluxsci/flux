@@ -867,6 +867,33 @@ server.registerTool(
 );
 
 server.registerTool(
+  "search_fulltext",
+  {
+    description:
+      "Full-text search across the extracted text of EVERY stored PDF in FluxLib (items/<key>/fulltext.txt) — 'which of my papers mention optogenetic silencing?'. AND semantics over terms; quote a phrase for verbatim matching. Returns per-paper hit counts + page-numbered snippets. Contrast: search_references matches metadata/abstracts; get_paper_text reads ONE paper.",
+    inputSchema: {
+      query: z.string(),
+      limit: z.number().optional(),
+      keys: z.array(z.string()).optional(),
+    },
+  },
+  async ({ query, limit, keys }) => {
+    const r = await core.searchFulltext(query, { limit, keys });
+    if (!r.hits.length) {
+      return ok(
+        `No stored PDF text matches "${query}" (scanned ${r.scanned}).` +
+          (r.missingText.length ? ` ${r.missingText.length} PDF(s) have no extracted text yet — get_paper_text extracts on demand.` : ""),
+      );
+    }
+    const lines = r.hits.map((h) => `@${h.key} (${h.count})\n` + h.snippets.map((s) => `  p${s.page}: ${s.text}`).join("\n"));
+    return ok(
+      `${r.hits.length} paper(s) match "${query}" (scanned ${r.scanned} in ${r.elapsedMs}ms${r.truncated ? "; hit limit" : ""}):\n` +
+        lines.join("\n"),
+    );
+  },
+);
+
+server.registerTool(
   "search_annotations",
   {
     description:

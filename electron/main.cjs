@@ -933,6 +933,38 @@ ipcMain.handle("slides:exportDeck", async (_e, { root, deckId }) => {
   return { ok: true, path: outPath };
 });
 
+// 2.3 Full-text search: run `flux search-text <query> --json` in the bundled CLI
+// (ELECTRON_RUN_AS_NODE, W13 pattern) so the streaming disk scan never touches the
+// renderer thread. One engine (flux-core/fulltextSearch.ts) behind CLI, MCP, and here.
+// Read-only; no fsGuard needed (the child only reads FluxLib). Returns the parsed
+// FulltextResult, or { error } — never throws into the renderer.
+ipcMain.handle("fulltext:search", async (_e, { query, opts }) => {
+  const q = String(query ?? "").trim();
+  if (!q) return { hits: [], scanned: 0, missingText: [], truncated: false, elapsedMs: 0 };
+  const { appRoot, argv } = fluxCliArgs();
+  const args = [...argv, "search-text", q, "--json"];
+  if (opts && Number.isFinite(opts.limit)) args.push("--limit", String(opts.limit));
+  if (opts && Array.isArray(opts.keys) && opts.keys.length) args.push("--keys", opts.keys.join(","));
+  const res = await new Promise((resolve) => {
+    const child = spawn(process.execPath, args, {
+      cwd: appRoot,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", (e2) => resolve({ code: -1, out: "", err: String(e2) }));
+    child.on("close", (c) => resolve({ code: c ?? 0, out, err }));
+  });
+  if (res.code !== 0) return { error: (res.err || `search exited ${res.code}`).trim() };
+  try {
+    return JSON.parse(res.out);
+  } catch {
+    return { error: "could not parse search output" };
+  }
+});
+
 // Render a standalone SVG to a vector PDF via Chromium's print engine.
 // SHL-14: ONE reusable hidden window serves every PDF export (figure + document) —
 // creating+destroying a BrowserWindow per call paid full window setup each export

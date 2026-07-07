@@ -70,6 +70,7 @@ usage: flux <verb> [root] [args] [--flags]
   fetch-pdfs [--refresh] [--key K]     download OA PDFs into ~/FluxLib/items/<citekey>/
   ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
   assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in ~/FluxLib/pdfs_to_assign/
+  search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
   annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
   add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
@@ -583,6 +584,30 @@ async function main() {
           (r.abortedOffline ? " — ABORTED: network unavailable" : "") +
           (dryRun ? " (nothing changed)" : ""),
       );
+      break;
+    }
+    case "search-text": {
+      // 2.3: full-text search over items/*/fulltext.txt. --json for machine use
+      // (the GUI's fulltext: filter spawns this bundle); human output = snippets.
+      const q = _.join(" ");
+      if (!q.trim()) throw new Error("search-text needs a query");
+      const r = await core.searchFulltext(q, {
+        limit: num(flags.limit) ?? 50,
+        keys: typeof flags.keys === "string" ? String(flags.keys).split(",").filter(Boolean) : undefined,
+      });
+      if (flags.json) {
+        console.log(JSON.stringify(r));
+      } else {
+        for (const h of r.hits) {
+          console.log(`@${h.key}  (${h.count} hit${h.count === 1 ? "" : "s"})`);
+          for (const s of h.snippets) console.log(`   p${s.page}: ${s.text}`);
+        }
+        console.error(
+          `✓ ${r.hits.length} paper(s) matched · scanned ${r.scanned} texts in ${r.elapsedMs}ms` +
+            (r.truncated ? " (hit limit — refine the query)" : "") +
+            (r.missingText.length ? ` · ${r.missingText.length} PDF(s) have no extracted text yet` : ""),
+        );
+      }
       break;
     }
     case "annotations": {
