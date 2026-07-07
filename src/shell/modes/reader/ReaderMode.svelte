@@ -252,6 +252,7 @@
     layout?: typeof layout;
     showRefs?: boolean;
     showAnnots?: boolean;
+    at?: number; // last-saved stamp (drives the LRU trim)
   };
   function loadView(k: string): SavedView | null {
     try {
@@ -275,14 +276,37 @@
     saveTimer = setTimeout(() => {
       const vs = pdfView?.getViewState();
       if (!vs) return;
-      const saved: SavedView = { page: vs.page, scaleValue: vs.scaleValue, layout, showRefs, showAnnots };
+      const saved: SavedView = { page: vs.page, scaleValue: vs.scaleValue, layout, showRefs, showAnnots, at: Date.now() };
       try {
         localStorage.setItem(viewKey(key), JSON.stringify(saved));
+        trimViewStates();
       } catch {
         /* storage full/blocked — reading state is best-effort */
       }
     }, 400);
   });
+
+  // LRU cap: one entry per paper ever opened grows without bound over a library's
+  // lifetime — keep the ~50 most recently read (entries predating the `at` stamp
+  // count as oldest). Runs on the debounced save only.
+  function trimViewStates(max = 50) {
+    const prefix = "flux-reader-view:";
+    const entries: { k: string; at: number }[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k?.startsWith(prefix)) continue;
+      let at = 0;
+      try {
+        at = (JSON.parse(localStorage.getItem(k) ?? "{}") as SavedView).at ?? 0;
+      } catch {
+        /* unparseable → treat as oldest */
+      }
+      entries.push({ k, at });
+    }
+    if (entries.length <= max) return;
+    entries.sort((a, b) => a.at - b.at);
+    for (const e of entries.slice(0, entries.length - max)) localStorage.removeItem(e.k);
+  }
 
   // Stamp of the on-disk PDF (source.json identity) so an external re-fetch/replace of
   // paper.pdf refreshes the open reader in place; bufferGen remounts PdfView.

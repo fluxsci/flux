@@ -116,6 +116,9 @@ export interface FileBridge {
   readFile(p: string): Promise<ArrayBuffer>;
   writeFile(p: string, data: Uint8Array): Promise<void>;
   exists(p: string): Promise<boolean>;
+  // File identity (mtime+size) for cache keying (the enrich parse cache); null when
+  // absent. Optional: older bridges / the web demo may not provide it.
+  stat?(p: string): Promise<{ mtimeMs: number; size: number } | null>;
   // List a directory's entries (files + subdirs). Optional: older bridges / the
   // web demo may not provide it. Used by the Plot Importer to browse plots/.
   readdir?(p: string): Promise<{ name: string; dir: boolean }[]>;

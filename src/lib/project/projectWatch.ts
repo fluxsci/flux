@@ -13,6 +13,7 @@
 import { writable } from "svelte/store";
 import { bumpFigRevision, bumpBibRevision, bumpDeckRevision } from "../../shell/scholar/revisions";
 import { bumpFluxLib, bumpAssignInbox } from "../references/revision";
+import { invalidateEnrichCache } from "../references/fluxlibBridge";
 
 export interface FsChange {
   subsystem: string;
@@ -39,8 +40,13 @@ export function startProjectWatch(root: string | null): void {
     else if (info.subsystem === "references") bumpBibRevision();
     else if (info.subsystem === "manuscript") externalManuscriptChange.set({ ...info, n: ++mn });
     else if (info.subsystem === "slides") bumpDeckRevision(); // W10 (SLD-1)
-    else if (info.subsystem === "fluxlib") bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
-    else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
+    else if (info.subsystem === "fluxlib") {
+      // An external write to enrich.json (CLI hydrate, second window) must drop the
+      // parse cache BEFORE consumers react to the revision bump (the mtime key would
+      // catch it anyway — this makes the refresh immediate, not next-stat).
+      if (info.path.endsWith("enrich.json")) invalidateEnrichCache();
+      bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
+    } else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
   });
 }
 

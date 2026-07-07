@@ -12,6 +12,7 @@
       "verify-an-validate.ts",
       "verify-assign-hardening.ts",
       "verify-citenum.ts",
+      "verify-enrich-cache.ts",
       "verify-f1-core.ts",
       "verify-f1-mcp.ts",
       "verify-f2-recipe.ts",

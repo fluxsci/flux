@@ -4,7 +4,7 @@
 // builders in ./openalex are used on both sides so they can't drift. CrossRef
 // abstract backfill reuses the existing fetchDoi bridge.
 import { fileBridge, joinPath } from "../project/types";
-import { resolveFluxLibPath, loadFluxLib, loadEnrichMap } from "./fluxlibBridge";
+import { resolveFluxLibPath, loadFluxLib, loadEnrichMap, loadEnrichMapFresh, invalidateEnrichCache } from "./fluxlibBridge";
 import { withIpcLock } from "./libLock";
 import { bumpFluxLib } from "./revision";
 import type { EnrichMap } from "./enrich";
@@ -162,11 +162,13 @@ export async function hydrateFluxLib(
   // whatever another process (CLI hydrate, a second window) enriched meanwhile.
   if (Object.keys(delta).length) {
     await withIpcLock("fluxlib", "enrich", async () => {
-      const freshMap = await loadEnrichMap();
+      // Fresh read INSIDE the lock (never the mtime cache), invalidate after writing.
+      const freshMap = await loadEnrichMapFresh();
       await fb.writeText(
         joinPath(lib, ".fluxlib", "enrich.json"),
         JSON.stringify({ ...freshMap, ...delta }, null, 2) + "\n",
       );
+      invalidateEnrichCache();
     });
   }
   bumpFluxLib(); // refresh editor surfaces with the enrichment

@@ -101,7 +101,9 @@
       }
       term.focus();
       clearTimeout(flushTimer);
-      flushTimer = setTimeout(flushAsks, 1800); // let the TUI paint its input box first
+      // Fallback only — the onData quiet-period handler flushes as soon as the TUI
+      // actually painted; this catches a claude that produces no output at all.
+      flushTimer = setTimeout(flushAsks, 4000);
     } else {
       status = "exited";
       term.write(`\r\n\x1b[31m${res.error}\x1b[0m\r\n\x1b[90mIs \`claude\` (Claude Code) installed and on your PATH?\x1b[0m\r\n`);
@@ -140,7 +142,16 @@
       if (ptyId) br.write(ptyId, d);
     });
     offData = br.onData((m) => {
-      if (m.id === ptyId) term?.write(m.data);
+      if (m.id === ptyId) {
+        term?.write(m.data);
+        // Readiness = the TUI painted and went quiet, not a fixed 1.8s guess (a slow
+        // `claude` boot used to swallow prefilled questions): (re)arm the flush 400ms
+        // after the LAST output chunk while asks are pending.
+        if (status === "running" && pendingAsks.length) {
+          clearTimeout(flushTimer);
+          flushTimer = setTimeout(flushAsks, 400);
+        }
+      }
     });
     offExit = br.onExit((m) => {
       if (m.id === ptyId) {

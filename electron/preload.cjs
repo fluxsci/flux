@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("fig", {
   writeText: (p, text) => ipcRenderer.invoke("fs:writeText", p, text),
   mkdir: (p) => ipcRenderer.invoke("fs:mkdir", p),
   exists: (p) => ipcRenderer.invoke("fs:exists", p),
+  // File identity (mtime+size) for cache keying — null when absent.
+  stat: (p) => ipcRenderer.invoke("fs:stat", p),
   readdir: (p) => ipcRenderer.invoke("fs:readdir", p),
   remove: (p) => ipcRenderer.invoke("fs:remove", p),
   exportPdf: (svg, outPath, w, h) => ipcRenderer.invoke("export:pdf", { svg, outPath, w, h }),

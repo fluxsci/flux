@@ -11,6 +11,7 @@ import { makeCitekey, dupeSignature } from "./citekey";
 import { splitBibEntries, lightEntry, bibtexKey, rekeyBibtex } from "./bibtex";
 import { bumpFluxLib, fluxLibEntries } from "./revision";
 import { mergeEnrich, type EnrichMap } from "./enrich";
+import { createEnrichCache } from "./enrichStore";
 import { pushToast } from "../toast";
 import { withIpcLock } from "./libLock";
 
@@ -218,9 +219,10 @@ export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: 
   });
   if (removed.length) {
     // Drop the sidecar rows under the enrich lock (best-effort — the sidecar is derived).
+    // Fresh read INSIDE the lock (never the cache), invalidate after the write.
     try {
       await withIpcLock("fluxlib", "enrich", async () => {
-        const map = await loadEnrichMap();
+        const map = await loadEnrichMapFresh();
         let dirty = false;
         for (const e of removed) {
           if (map[e.key]) {
@@ -228,7 +230,10 @@ export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: 
             dirty = true;
           }
         }
-        if (dirty) await fb.writeText(libEnrich(lib), JSON.stringify(map, null, 2) + "\n");
+        if (dirty) {
+          await fb.writeText(libEnrich(lib), JSON.stringify(map, null, 2) + "\n");
+          invalidateEnrichCache();
+        }
       });
     } catch {
       /* stale sidecar rows are harmless — mergeEnrich joins by existing keys only */
@@ -252,11 +257,14 @@ export async function loadFluxLib(): Promise<RefEntry[]> {
 
 const libEnrich = (lib: string) => joinPath(lib, ".fluxlib", "enrich.json");
 
-/** Load the enrichment sidecar (`<lib>/.fluxlib/enrich.json`); `{}` if absent / no bridge.
+/** Read + parse the enrichment sidecar FRESH from disk (`{}` if absent / no bridge).
  *  Derived + rebuildable — the renderer twin of fluxlib.ts loadEnrich.
  *  W2: an unparseable file is quarantined as `.corrupt-<ts>` + toasted — never
- *  silently treated as empty (which used to wipe the cache on the next write). */
-export async function loadEnrichMap(): Promise<EnrichMap> {
+ *  silently treated as empty (which used to wipe the cache on the next write).
+ *  Use this ONLY inside a locked read-modify-write (freshest bytes under the lock,
+ *  then invalidateEnrichCache() after writing); every read path goes through the
+ *  cached loadEnrichMap() below. */
+export async function loadEnrichMapFresh(): Promise<EnrichMap> {
   const lib = await resolveFluxLibPath();
   if (!lib) return {};
   const p = libEnrich(lib);
@@ -277,6 +285,34 @@ export async function loadEnrichMap(): Promise<EnrichMap> {
     });
     return {};
   }
+}
+
+// The shared mtime-keyed parse cache (B1): one resident map, one parse per actual
+// file change, shared by the Library grid, per-key lookups (reader references,
+// citing/similar/author), and the editor's fluxLibEntries refresh.
+const enrichCache = createEnrichCache({
+  path: async () => {
+    const lib = await resolveFluxLibPath();
+    return lib ? libEnrich(lib) : null;
+  },
+  stat: async (p) => {
+    const fb = fileBridge();
+    if (!fb?.stat) return null;
+    return fb.stat(p);
+  },
+  load: loadEnrichMapFresh,
+});
+
+/** The enrichment map, served from the mtime-keyed cache (a parse happens only when
+ *  enrich.json actually changed). Same signature/behavior as the old direct loader. */
+export function loadEnrichMap(): Promise<EnrichMap> {
+  return enrichCache.get();
+}
+
+/** Drop the cached map — call after ANY write to enrich.json (hydrate merge, entry
+ *  removal) and on watcher events for it, so the next read re-parses. */
+export function invalidateEnrichCache(): void {
+  enrichCache.invalidate();
 }
 
 /** Refresh the shared `fluxLibEntries` store from disk, joined with enrichment (so the

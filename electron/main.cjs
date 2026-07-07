@@ -721,6 +721,15 @@ ipcMain.handle("fs:exists", async (_e, p) => {
     return !!(err && err.code && err.code !== "ENOENT");
   }
 });
+ipcMain.handle("fs:stat", async (_e, p) => {
+  fsGuard(p);
+  try {
+    const st = await fs.promises.stat(p);
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null; // absent (or blocked) — callers treat null as "no cacheable identity"
+  }
+});
 ipcMain.handle("fs:readdir", async (_e, p) => {
   fsGuard(p); // W12 (SHL-6): was unguarded — a directory-listing of any path
   try {
@@ -925,48 +934,81 @@ ipcMain.handle("slides:exportDeck", async (_e, { root, deckId }) => {
 });
 
 // Render a standalone SVG to a vector PDF via Chromium's print engine.
+// SHL-14: ONE reusable hidden window serves every PDF export (figure + document) —
+// creating+destroying a BrowserWindow per call paid full window setup each export
+// (the proxy engine proved the reuse pattern). Serialized: loadFile/printToPDF on a
+// shared window must not interleave. Lazily created, recreated if it ever dies,
+// blanked after each print so the last export's DOM doesn't sit resident.
+let printWin = null;
+let printChain = Promise.resolve();
+function runPrintExclusive(fn) {
+  const run = printChain.then(fn, fn);
+  printChain = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
+}
+function getPrintWin() {
+  if (!printWin || printWin.isDestroyed()) {
+    printWin = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+  }
+  return printWin;
+}
+app.on("before-quit", () => {
+  try {
+    if (printWin && !printWin.isDestroyed()) printWin.destroy();
+  } catch {
+    /* already gone */
+  }
+});
+async function printHtmlToPdf(html, outPath, pdfOpts, tmpTag) {
+  const tmp = path.join(os.tmpdir(), `flux-${tmpTag}-${process.pid}-${Date.now()}.html`);
+  return runPrintExclusive(async () => {
+    const win = getPrintWin();
+    try {
+      await fs.promises.writeFile(tmp, html, "utf8");
+      await win.loadFile(tmp);
+      const data = await win.webContents.printToPDF(pdfOpts);
+      await fs.promises.writeFile(outPath, data);
+    } finally {
+      win.loadURL("about:blank").catch(() => {});
+      fs.promises.unlink(tmp).catch(() => {});
+    }
+    return true;
+  });
+}
+
 ipcMain.handle("export:pdf", async (_e, { svg, outPath, w, h }) => {
   fsGuard(outPath); // W12 (SHL-6): was an unguarded write of any path
-  const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
-  const tmp = path.join(os.tmpdir(), `flux-${process.pid}-${Date.now()}.html`);
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0}</style></head><body>${svg}</body></html>`;
-  try {
-    await fs.promises.writeFile(tmp, html, "utf8");
-    await win.loadFile(tmp);
-    const microns = (px) => Math.round((px / 96) * 25400);
-    const data = await win.webContents.printToPDF({
+  const microns = (px) => Math.round((px / 96) * 25400);
+  return printHtmlToPdf(
+    html,
+    outPath,
+    {
       printBackground: true,
       margins: { top: 0, bottom: 0, left: 0, right: 0 },
       pageSize: { width: microns(w), height: microns(h) },
-    });
-    await fs.promises.writeFile(outPath, data);
-  } finally {
-    win.destroy();
-    fs.promises.unlink(tmp).catch(() => {});
-  }
-  return true;
+    },
+    "fig",
+  );
 });
 
 // Render a full HTML document to a multi-page PDF. Unlike export:pdf (one page
 // sized to a figure), this lets CSS @page rules drive size + pagination.
 ipcMain.handle("print:pdf", async (_e, { html, outPath, opts = {} }) => {
   fsGuard(outPath); // W12 (SHL-6): was an unguarded write of any path
-  const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
-  const tmp = path.join(os.tmpdir(), `flux-doc-${process.pid}-${Date.now()}.html`);
-  try {
-    await fs.promises.writeFile(tmp, html, "utf8");
-    await win.loadFile(tmp);
-    const data = await win.webContents.printToPDF({
+  return printHtmlToPdf(
+    html,
+    outPath,
+    {
       printBackground: true,
       preferCSSPageSize: true,
       ...(opts.margins ? { margins: opts.margins } : {}),
-    });
-    await fs.promises.writeFile(outPath, data);
-  } finally {
-    win.destroy();
-    fs.promises.unlink(tmp).catch(() => {});
-  }
-  return true;
+    },
+    "doc",
+  );
 });
 
 // Citation metadata via CrossRef (main process has global fetch in Electron 33;
@@ -1317,15 +1359,35 @@ ipcMain.handle("proxy:status", async () => {
   // real browser navigation (the same window that actually fetches), serialized via the mutex.
   let signedIn = await probeProxySignedIn();
   if (!signedIn) {
-    try {
-      const r = await runProxyExclusive(() => proxyEngine.checkSignedIn({ target: PROXY_AUTH_TARGET }));
-      signedIn = !!(r && r.signedIn);
-    } catch {
-      /* keep the net.request result */
+    const cachedFresh = Date.now() - lastProxyOkAt < PROXY_STATUS_TTL_MS;
+    if (cachedFresh) {
+      // A capture/check confirmed the session recently — the probe's false negative loses.
+      signedIn = true;
+    } else if (proxyPending > 0) {
+      // A bulk capture owns the window. NEVER queue a status ping behind a ~30s capture
+      // (the pill used to lag half a minute during exactly the "is my session alive?"
+      // moment) — answer from what we know now; the pill refreshes after the run.
+      signedIn = false;
+    } else {
+      try {
+        const r = await runProxyExclusive(() => proxyEngine.checkSignedIn({ target: PROXY_AUTH_TARGET }));
+        signedIn = !!(r && r.signedIn);
+        if (signedIn) lastProxyOkAt = Date.now();
+      } catch {
+        /* keep the net.request result */
+      }
     }
+  } else {
+    lastProxyOkAt = Date.now();
   }
   return { configured: true, signedIn };
 });
+
+// Last moment the proxy session was POSITIVELY confirmed (a probe/check success or a
+// successful capture). Lets proxy:status answer instantly during bulk runs instead of
+// queueing a real navigation behind every in-flight capture.
+let lastProxyOkAt = 0;
+const PROXY_STATUS_TTL_MS = 5 * 60_000;
 
 // The publisher-agnostic capture engine (electron/proxyFetch.cjs). Instead of scraping a
 // PDF link and fetching it (fragile per-publisher; blocked by anti-bot; broken by viewer
@@ -1350,12 +1412,18 @@ const proxyEngine = createProxyEngine({
 // a stray manual "Get via library" click) through a single queue. A cancelled *queued*
 // call is rejected before it ever creates a window.
 let proxyChain = Promise.resolve();
+let proxyPending = 0; // how many exclusive users are queued/running (busy signal for proxy:status)
 function runProxyExclusive(fn) {
+  proxyPending++;
   const run = proxyChain.then(fn, fn);
   // Keep the chain alive regardless of this call's outcome (never let a rejection break it).
   proxyChain = run.then(
-    () => {},
-    () => {},
+    () => {
+      proxyPending--;
+    },
+    () => {
+      proxyPending--;
+    },
   );
   return run;
 }
@@ -1387,10 +1455,14 @@ ipcMain.handle("pdf:fetchViaProxy", async (_e, target, token) => {
     proxyCalls.set(token, ctrl);
   }
   try {
-    return await runProxyExclusive(() => {
+    const r = await runProxyExclusive(() => {
       if (ctrl.signal.aborted) return { error: "Cancelled.", reason: "cancelled" };
       return proxyEngine.capturePdfViaBrowser({ target, signal: ctrl.signal });
     });
+    // A successful capture proves the session is alive — keep the status pill honest
+    // during bulk runs without ever queueing a real status navigation behind them.
+    if (r && r.bytesB64) lastProxyOkAt = Date.now();
+    return r;
   } catch (e) {
     if (e && e.name === "AbortError") return { error: "Cancelled.", reason: "cancelled" };
     return { error: String((e && e.message) || e), reason: "error" };

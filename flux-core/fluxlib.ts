@@ -234,16 +234,36 @@ export async function searchReferences(query: string, libPath?: string): Promise
 /** Load the enrichment sidecar (`<lib>/.fluxlib/enrich.json`); `{}` if absent.
  *  W2: an unparseable file is quarantined as `.corrupt-<ts>` and reported —
  *  never silently treated as empty (which used to wipe the cache on next write). */
+// mtime-keyed parse cache (B1 parity with the renderer's enrichStore): the resident
+// MCP server serves many lookups per session — parse the ~12MB sidecar once per
+// actual file change, not per verb. One-shot CLI runs are unaffected.
+const enrichCache = new Map<string, { key: string; map: Record<string, EnrichEntry> }>();
+
 export async function loadEnrich(libPath?: string): Promise<Record<string, EnrichEntry>> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
-  let text: string;
+  const p = libEnrichPath(lib);
+  let st: { mtimeMs: number; size: number } | null = null;
   try {
-    text = await fs.readFile(libEnrichPath(lib), "utf8");
+    const s = await fs.stat(p);
+    st = { mtimeMs: s.mtimeMs, size: s.size };
   } catch {
+    enrichCache.delete(lib);
     return {}; // genuinely absent
   }
+  const key = `${st.mtimeMs}:${st.size}`;
+  const hit = enrichCache.get(lib);
+  if (hit && hit.key === key) return hit.map;
+  let text: string;
   try {
-    return JSON.parse(text) as Record<string, EnrichEntry>;
+    text = await fs.readFile(p, "utf8");
+  } catch {
+    enrichCache.delete(lib);
+    return {}; // vanished between stat and read
+  }
+  try {
+    const map = JSON.parse(text) as Record<string, EnrichEntry>;
+    enrichCache.set(lib, { key, map });
+    return map;
   } catch {
     const q = await quarantineCorrupt(libEnrichPath(lib));
     console.error(
