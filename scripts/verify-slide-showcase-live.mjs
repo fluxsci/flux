@@ -12,13 +12,23 @@
 // Run AFTER scripts/build-showcase-deck.ts. Run: node scripts/verify-slide-showcase-live.mjs
 import puppeteer from "puppeteer-core";
 import * as fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as url from "node:url";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const SHOTS = path.join(here, "..", "test-results");
 await fs.mkdir(SHOTS, { recursive: true });
-const EXPORT = "/home/driessen2/fluxv1/exports/showcase.html";
+// The exported showcase.html is BUILT by scripts/build-showcase-deck.ts against a
+// plot library (default was the author's ~/fluxv1, now deleted — and the morph
+// plot 19_morph_scatter_a was never vendored). This is a post-build acceptance
+// test, so skip cleanly when the artifact isn't present. Set FLUX_SHOWCASE_EXPORT
+// to a rebuilt export to run it.
+const EXPORT = process.env.FLUX_SHOWCASE_EXPORT || "/home/driessen2/fluxv1/exports/showcase.html";
+if (!existsSync(EXPORT)) {
+  console.log(`WS7 showcase export not present at ${EXPORT} — build it via scripts/build-showcase-deck.ts (or set FLUX_SHOWCASE_EXPORT). Skipping.`);
+  process.exit(0);
+}
 
 let passed = 0;
 function ok(cond, msg) {

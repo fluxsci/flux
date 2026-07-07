@@ -26,7 +26,8 @@ function ok(cond, msg) {
   console.log("  ok:", msg);
 }
 
-const PLOTS_DIR = "/home/driessen2/fluxv1/plots/example_plots";
+// Fixtures vendored in-repo (were read from the author's now-deleted ~/fluxv1).
+const PLOTS_DIR = path.join(here, "fixtures", "pre-regen");
 const readPlot = async (name) => ({
   id: `example_plots/${name}`,
   svg: await fs.readFile(path.join(PLOTS_DIR, `${name}.svg`), "utf8"),
