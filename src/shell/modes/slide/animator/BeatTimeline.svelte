@@ -472,7 +472,7 @@
   .col:hover { border-color: var(--c-line-strong, #343331); }
   .col.cur { border-color: var(--c-accent, #4385be); box-shadow: inset 0 0 0 1px var(--c-accent, #4385be); }
   .col.chain { border-left-style: dashed; }
-  .col.drop { border-color: var(--c-accent-2, #3aa99f); box-shadow: inset 0 0 0 1px var(--c-accent-2, #3aa99f); }
+  .col.drop { border-color: var(--c-guide-2); box-shadow: inset 0 0 0 1px var(--c-guide-2); }
   .col.beat-over { outline: 2px dashed var(--c-accent, #4385be); outline-offset: 1px; }
   .between {
     flex: 0 0 8px; align-self: stretch; display: flex; align-items: center; justify-content: center;
@@ -541,7 +541,7 @@
     pointer-events: none;
   }
   .trk .edge { position: absolute; right: -2px; top: 0; width: 8px; height: 100%; cursor: ew-resize; }
-  .lane-ins { position: absolute; left: 4px; right: 4px; height: 2px; background: var(--c-accent-2, #3aa99f); border-radius: 1px; z-index: 4; }
+  .lane-ins { position: absolute; left: 4px; right: 4px; height: 2px; background: var(--c-guide-2); border-radius: 1px; z-index: 4; }
   .marquee {
     position: fixed; z-index: 60; pointer-events: none;
     border: 1px solid var(--c-accent, #4385be);

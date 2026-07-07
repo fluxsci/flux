@@ -129,7 +129,7 @@
     user-select: none;
   }
   .badge {
-    font-family: var(--font-sans, inherit);
+    font-family: system-ui, sans-serif;
     font-style: normal;
     font-size: var(--ts-xs);
     line-height: 1;

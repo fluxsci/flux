@@ -37,6 +37,9 @@ asarUnpack:
   # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.
   - dist/flux-cli.mjs
   - dist/slide-export-assets.json
+  # Same constraint for the MCP server: agent:mcpSpec hands `claude` this path
+  # (Electron-as-Node child), so the packaged Reader "Ask Claude" needs it unpacked.
+  - dist/flux-mcp.mjs
 
 # NOTE (macOS universal/dual-arch): the prebuilt binary is delivered as a
 # per-platform optional dependency, so `npm install` only fetches the host's
