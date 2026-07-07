@@ -6,7 +6,7 @@
   // preview), the resizable top edge, and the keyboard cockpit.
   import { deck as deckStore, activeSlideId, activeBeat, selection, commitDeck, focusedPart, selTrackIds } from "../../../lib/slide/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
-  import { applyAutoAnimation } from "../../../lib/slide/autobuild";
+  import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
   import { morphCompatible } from "../../../lib/slide/player/morph";
   import { plotManifests } from "../../../lib/plot/store";
   import { slideLayout } from "./slideLayoutStore";
@@ -154,15 +154,25 @@
     if (!sid || !plot) return;
     const manifest = manifests[plot.assetId];
     let added = 0;
-    commitDeck((d) => { added = applyAutoAnimation(d, sid, plot.id, manifest); });
-    if (added) {
-      activeBeat.set(1);
-      queueMicrotask(() => {
-        const first = slide?.beats[1]?.tracks.find((t) => t.target === plot.id) ?? slide?.beats[1]?.tracks[0];
-        selTrackIds.set(first?.id ? [first.id] : []);
-        focusDock();
-      });
-    }
+    // Held in an object so TS keeps the union type across the commitDeck closure.
+    const hold: { fb: { beatIndex: number; trackId: string } | null } = { fb: null };
+    commitDeck((d) => {
+      added = applyAutoAnimation(d, sid, plot.id, manifest);
+      // Pre-0.2.0 plots have no parts tree → applyAutoAnimation adds nothing.
+      // Fall back to a whole-element fade so the button always animates something.
+      if (!added) hold.fb = animateElement(d, sid, plot.id, {});
+    });
+    const fb = hold.fb;
+    const bi = added ? 1 : fb?.beatIndex ?? null;
+    if (bi == null) return;
+    activeBeat.set(bi);
+    queueMicrotask(() => {
+      const b = slide?.beats[bi];
+      const first = b?.tracks.find((t) => t.target === plot.id) ?? b?.tracks[0];
+      const id = first?.id ?? fb?.trackId;
+      selTrackIds.set(id ? [id] : []);
+      focusDock();
+    });
   }
 
   // --- camera + morph authoring --------------------------------------------------

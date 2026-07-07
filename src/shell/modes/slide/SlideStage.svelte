@@ -23,6 +23,7 @@
     bringToFront, sendToBack, raiseElements, lowerElements,
   } from "../../../lib/slide/ops";
   import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
+  import { slideXrayOpen } from "./animator/animatorState";
   import type { Element as FigElement } from "../../../lib/types";
   import type { Slide, SlideElement, DeckTheme, StageSize } from "../../../lib/slide/types";
 
@@ -511,6 +512,7 @@
   // --- keyboard: delete + nudge (only when this stage has a selection) ---------
   function onKey(e: KeyboardEvent) {
     if (!interactive || !focused) return;
+    if (get(slideXrayOpen)) return; // the Plot X-ray owns arrows/Esc while it's open
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
     // zoom keys work regardless of selection

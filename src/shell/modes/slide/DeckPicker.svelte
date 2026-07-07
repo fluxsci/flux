@@ -11,6 +11,7 @@
     onNew,
     onDuplicate,
     onDelete,
+    busy = false,
   }: {
     decks: DeckListItem[];
     activeId: string | null;
@@ -18,6 +19,7 @@
     onNew: () => void;
     onDuplicate: (id: string) => void;
     onDelete: (id: string) => void;
+    busy?: boolean;
   } = $props();
 </script>
 
@@ -32,7 +34,7 @@
             <span class="dp-count">{d.slides}</span>
           </button>
           <span class="dp-actions">
-            <button class="dp-act" title="Duplicate deck" aria-label="Duplicate deck"
+            <button class="dp-act" title="Duplicate deck" aria-label="Duplicate deck" disabled={busy}
               onclick={(e) => { e.stopPropagation(); onDuplicate(d.id); }}>⧉</button>
             {#if decks.length > 1}
               <button class="dp-act dp-del" title="Remove deck from project" aria-label="Remove deck"
@@ -42,7 +44,7 @@
         </li>
       {/each}
     </ul>
-    <button class="dp-new" onclick={onNew}>+ New deck</button>
+    <button class="dp-new" onclick={onNew} disabled={busy}>{busy ? "Working…" : "+ New deck"}</button>
   </aside>
 {/if}
 
@@ -95,4 +97,5 @@
     border-radius: var(--r-1); padding: 5px 7px; color: var(--c-tx-muted); font: inherit; font-size: 12px; cursor: pointer;
   }
   .dp-new:hover { color: var(--c-tx-hi); border-color: var(--c-accent); }
+  .dp-new:disabled, .dp-act:disabled { opacity: 0.5; cursor: default; }
 </style>

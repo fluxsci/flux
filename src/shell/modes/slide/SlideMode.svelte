@@ -99,11 +99,13 @@
   let resolvers = $state<DeckAssetResolvers>({ assetUrl: () => undefined, figureSvg: () => undefined });
   let insertables = $state<Insertables>({ figures: [], plots: [], images: [] });
   let insertOpen = $state(false);
+  let insertWrapEl = $state<HTMLElement | null>(null);
+  let deckBusy = $state(false); // guards new/duplicate deck against double-submit
   let presentOpen = $state(false);
   let presentFromStart = $state(false);
   let dragOver = $state(false);
   function launchPresent(fromStart: boolean) {
-    if (!deck) return;
+    if (!deck?.slides.length) return; // nothing to present — don't latch presentOpen
     presentFromStart = fromStart;
     presentOpen = true;
   }
@@ -140,42 +142,72 @@
    *  loadDocument), so no edits race the swap. */
   async function switchDeck(id: string) {
     if (!pm || id === activeDeckId) return;
-    await autosave.flush();
-    await loadDeckInto(pm.root, id);
-    activeDeckId = get(deckStore)?.id ?? id;
-    rememberDeck(pm.root, activeDeckId);
-    loadedProjectRoot.set(pm.root);
-    await refreshAssets();
-    resetCursorAndView();
-    decks = await listProjectDecks(pm.root);
+    try {
+      await autosave.flush();
+      const loaded = await loadDeckInto(pm.root, id);
+      if (!loaded) {
+        flashExport(false, "Couldn't open that deck — its file may be missing or corrupt.");
+        return;
+      }
+      activeDeckId = get(deckStore)?.id ?? id;
+      rememberDeck(pm.root, activeDeckId);
+      loadedProjectRoot.set(pm.root);
+      await refreshAssets();
+      resetCursorAndView();
+      decks = await listProjectDecks(pm.root);
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "Couldn't open that deck.");
+    }
   }
   /** Create a fresh deck in the project, then switch to it. */
   async function newDeck() {
-    if (!pm) return;
-    await autosave.flush();
-    const d = await createDeckInProject(pm.root, { title: `Deck ${decks.length + 1}`, theme: get(deckStore)?.theme });
-    activeDeckId = d.id;
-    rememberDeck(pm.root, d.id);
-    loadedProjectRoot.set(pm.root);
-    decks = await listProjectDecks(pm.root);
-    await refreshAssets();
-    resetCursorAndView();
+    if (!pm || deckBusy) return;
+    deckBusy = true;
+    try {
+      await autosave.flush();
+      const d = await createDeckInProject(pm.root, { title: `Deck ${decks.length + 1}`, theme: get(deckStore)?.theme });
+      activeDeckId = d.id;
+      rememberDeck(pm.root, d.id);
+      loadedProjectRoot.set(pm.root);
+      decks = await listProjectDecks(pm.root);
+      await refreshAssets();
+      resetCursorAndView();
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "Couldn't create the deck.");
+    } finally {
+      deckBusy = false;
+    }
   }
   async function duplicateDeck(id: string) {
-    if (!pm) return;
-    await autosave.flush(); // flush the source first if it's live
-    const newId = await duplicateDeckBridge(pm.root, id);
-    decks = await listProjectDecks(pm.root);
-    if (newId) await switchDeck(newId);
+    if (!pm || deckBusy) return;
+    deckBusy = true;
+    try {
+      await autosave.flush(); // flush the source first if it's live
+      const newId = await duplicateDeckBridge(pm.root, id);
+      decks = await listProjectDecks(pm.root);
+      if (newId) await switchDeck(newId);
+      else flashExport(false, "Couldn't duplicate that deck.");
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "Couldn't duplicate that deck.");
+    } finally {
+      deckBusy = false;
+    }
   }
   async function deleteDeck(id: string) {
     if (!pm || decks.length <= 1) return;
     if (typeof window !== "undefined" && !window.confirm("Remove this deck from the project? Its file stays on disk.")) return;
     const wasActive = id === activeDeckId;
-    const ok = await deleteDeckBridge(pm.root, id);
-    if (!ok) return;
-    decks = await listProjectDecks(pm.root);
-    if (wasActive && decks[0]) await switchDeck(decks[0].id);
+    try {
+      const ok = await deleteDeckBridge(pm.root, id);
+      if (!ok) {
+        flashExport(false, "Couldn't remove that deck.");
+        return;
+      }
+      decks = await listProjectDecks(pm.root);
+      if (wasActive && decks[0]) await switchDeck(decks[0].id);
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "Couldn't remove that deck.");
+    }
   }
   // Plots get their own always-on `Plot…` browser button; Insert ▾ is for the
   // (typically short) figure + image lists.
@@ -404,6 +436,8 @@
           assetId, x: Math.round((d.stage.width - w) / 2), y: Math.round((d.stage.height - h) / 2), width: w, height: h,
         });
       });
+    } catch (e) {
+      flashExport(false, e instanceof Error ? `Couldn't import that image: ${e.message}` : "Couldn't import that image.");
     } finally {
       importBusy = false;
     }
@@ -546,6 +580,7 @@
   // Slide nav with arrows — only when no element is selected (else the stage nudges).
   function onKey(e: KeyboardEvent) {
     if (!focused || !deck) return;
+    if (presentOpen) return; // the presenter overlay owns the keyboard while it's up
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
     // Alt+I opens the plot importer (mirrors Figure mode's keyboard.ts:461) — works
@@ -595,6 +630,25 @@
       if (n) selectSlide(n.id);
     }
   }
+
+  // Dismiss the Insert ▾ dropdown on an outside click or Escape (mirrors
+  // TimelineMenu). Escape is captured so it closes the menu without also
+  // reaching the stage's deselect handler.
+  $effect(() => {
+    if (!insertOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (insertWrapEl && !insertWrapEl.contains(e.target as Node)) insertOpen = false;
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); insertOpen = false; }
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onEsc, true);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onEsc, true);
+    };
+  });
 </script>
 
 <svelte:window onkeydown={onKey} onpaste={onStagePaste} />
@@ -623,7 +677,7 @@
           <button class="zb" onclick={() => stepZoom(1.2)} disabled={$stageView.zoom >= ZOOM_MAX} aria-label="Zoom in">+</button>
         </div>
       {/if}
-      <button class="btn" onclick={() => launchPresent(false)} disabled={!deck} title="Present from the current slide · F5 from the start, ⇧F5 from here">Present ▶</button>
+      <button class="btn" onclick={() => launchPresent(false)} disabled={!deck?.slides.length} title="Present from the current slide · F5 from the start, ⇧F5 from here">Present ▶</button>
       <button class="btn ghost" onclick={onExport} disabled={!deck || !canExport || exporting}
         title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
         {exporting ? "Exporting…" : "Export"}
@@ -652,7 +706,7 @@
     <button class="tool" onclick={addLine} disabled={!activeSlide}>Line</button>
     {#if hasInsertables}
       <span class="div"></span>
-      <div class="insert-wrap">
+      <div class="insert-wrap" bind:this={insertWrapEl}>
         <button class="tool" onclick={() => (insertOpen = !insertOpen)} disabled={!activeSlide} aria-haspopup="menu" aria-expanded={insertOpen}>Insert ▾</button>
         {#if insertOpen}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -679,7 +733,7 @@
     <!-- filmstrip -->
     <aside class="filmstrip">
       {#if pm}
-        <DeckPicker {decks} activeId={activeDeckId} onSelect={switchDeck} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} />
+        <DeckPicker {decks} activeId={activeDeckId} onSelect={switchDeck} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} busy={deckBusy} />
       {/if}
       {#if deck}
         {#each deck.slides as s, i (s.id)}
@@ -693,7 +747,7 @@
             ondragend={() => { dragIdx = null; dropIdx = null; }}
             onclick={() => selectSlide(s.id)}>
             <span class="n">{i + 1}</span>
-            <div class="mini">
+            <div class="mini" style="aspect-ratio: {deck.stage.width} / {deck.stage.height}">
               <!-- SLD-7: freeze the thumbnail at the LAST beat (fully built), not beat 0 —
                    an auto-animated figure slide is blank at beat 0 (enter nodes hidden). -->
               <SlideStage slide={s} {theme} stage={deck.stage} interactive={false} beat={Math.max(0, s.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
@@ -724,7 +778,7 @@
       {#if importBusy}<div class="import-toast">Importing image…</div>{/if}
       {#if ready && deck && activeSlide}
         <div class="stage-viewport" bind:clientWidth={pvW} bind:clientHeight={pvH}>
-          <SlideStage slide={activeSlide} {theme} stage={deck.stage} interactive={true} {focused} beat={Math.min($activeBeat, activeSlide.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
+          <SlideStage slide={activeSlide} {theme} stage={deck.stage} interactive={true} focused={focused && !presentOpen} beat={Math.min($activeBeat, activeSlide.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
           {#if previewing}
             <div class="preview-overlay">
               <div class="preview-host" bind:this={previewHost}></div>
@@ -885,7 +939,7 @@
   .thumb.dropbefore { box-shadow: inset 0 2px 0 0 var(--c-accent); }
   .thumb.dropafter { box-shadow: inset 0 -2px 0 0 var(--c-accent); }
   .thumb .n { grid-row: 1 / span 2; font-size: 11px; color: var(--c-tx-muted); text-align: right; font-variant-numeric: tabular-nums; }
-  .mini { aspect-ratio: 16 / 9; border: 1px solid var(--c-line); border-radius: 3px; overflow: hidden; position: relative; background: #000; }
+  .mini { aspect-ratio: 16 / 9; /* fallback; the real deck ratio is set inline */ border: 1px solid var(--c-line); border-radius: 3px; overflow: hidden; position: relative; background: #000; }
   .nm { font-size: 11px; color: var(--c-tx-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .thumbacts { position: absolute; top: 2px; right: 2px; display: flex; gap: 2px; opacity: 0; }
   .thumb:hover .thumbacts { opacity: 1; }
