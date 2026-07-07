@@ -20,6 +20,8 @@ export interface Settings {
   paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
   paperMaxMarginPanes: number; // max dynamic panes open at once
   paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
+  // App — updates.
+  updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
 
 const KEY = "flux.settings";
@@ -37,6 +39,7 @@ const DEFAULTS: Settings = {
   paperMarginScene: "harmonograph",
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,
+  updateCheck: true,
 };
 
 // Migrate legacy "forgery*" keys (the FluxFig Menu was formerly "The Forgery", M6)
@@ -74,3 +77,4 @@ settings.subscribe((v) => {
 // Transient UI state.
 export const settingsOpen = writable(false);
 export const fluxFigMenuOpen = writable(false);
+export const helpOpen = writable(false); // shell-global keyboard-shortcut reference

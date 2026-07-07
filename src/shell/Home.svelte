@@ -6,6 +6,8 @@
     newProject,
     openProject,
     openRecent,
+    forgetRecent,
+    clearRecents,
     projectError,
     type RecentProject,
   } from "./shellStore";
@@ -51,10 +53,13 @@
 
     {#if $recents.length}
       <div class="recents">
-        <h2 class="recents-title">Recent</h2>
+        <div class="recents-head">
+          <h2 class="recents-title">Recent</h2>
+          <button class="clear-recents" onclick={clearRecents} title="Clear all recent projects">Clear</button>
+        </div>
         <ul class="recents-list">
           {#each $recents as r (r.path ?? r.name)}
-            <li>
+            <li class="recent-row">
               <button class="recent" onclick={() => openRecent(r)}>
                 <span class="ricon"><Icon name="folder" size={16} stroke={1.6} /></span>
                 <span class="rmeta">
@@ -67,6 +72,11 @@
                 </span>
                 <span class="rgo"><Icon name="arrow" size={15} stroke={1.7} /></span>
               </button>
+              <button
+                class="forget"
+                title="Remove from recents"
+                aria-label={`Remove ${r.name} from recents`}
+                onclick={() => forgetRecent(r)}>×</button>
             </li>
           {/each}
         </ul>
@@ -176,8 +186,15 @@
     width: 100%;
     max-width: 460px;
   }
-  .recents-title {
+  .recents-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: var(--sp-3);
     margin: 0 0 var(--sp-3);
+  }
+  .recents-title {
+    margin: 0;
     font-family: var(--font-serif);
     font-size: var(--ts-sm);
     font-weight: 600;
@@ -186,6 +203,26 @@
     color: var(--c-tx-faint);
     text-align: center;
   }
+  .clear-recents {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: var(--font-serif);
+    font-size: var(--ts-xs);
+    color: var(--c-tx-faint);
+    opacity: 0;
+    cursor: pointer;
+    transition:
+      opacity var(--dur-instant) var(--ease-standard),
+      color var(--dur-instant) var(--ease-standard);
+  }
+  .recents:hover .clear-recents {
+    opacity: 0.7;
+  }
+  .clear-recents:hover {
+    opacity: 1;
+    color: var(--c-tx);
+  }
   .recents-list {
     list-style: none;
     margin: 0;
@@ -193,6 +230,9 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-1);
+  }
+  .recent-row {
+    position: relative;
   }
   .recent {
     width: 100%;
@@ -212,6 +252,36 @@
   .recent:hover {
     background: var(--c-surface);
     border-color: var(--c-line);
+  }
+  .forget {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--r-1);
+    color: var(--c-tx-faint);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity var(--dur-instant) var(--ease-standard),
+      background var(--dur-instant) var(--ease-standard),
+      color var(--dur-instant) var(--ease-standard);
+  }
+  .recent-row:hover .forget {
+    opacity: 0.65;
+  }
+  .forget:hover {
+    opacity: 1;
+    background: var(--c-ui-hover);
+    color: var(--c-tx);
   }
   .ricon {
     display: grid;

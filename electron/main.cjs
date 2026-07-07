@@ -643,7 +643,9 @@ ipcMain.handle("app:paths", () => ({
 }));
 
 // Global preferences (FluxLib path, etc.) — see prefsFile()/readPrefs() above.
-ipcMain.handle("prefs:get", () => readPrefs());
+// `fluxLibResolved` is the absolute path actually in use (default ~/FluxLib when
+// unset), so the Settings UI can display + reveal it without knowing $HOME.
+ipcMain.handle("prefs:get", () => ({ ...readPrefs(), fluxLibResolved: fluxLibDir() }));
 ipcMain.handle("prefs:set", (_e, patch) => {
   const cur = readPrefs();
   const next = { ...cur, ...(patch || {}), schemaVersion: cur.schemaVersion || "0.1.0" };

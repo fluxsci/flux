@@ -19,10 +19,8 @@
   import Sidebar from "../../../lib/Sidebar.svelte";
   import Canvas from "../../../lib/Canvas.svelte";
   import Inspector from "../../../lib/Inspector.svelte";
-  import Help from "../../../lib/Help.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
-  import Settings from "../../../lib/Settings.svelte";
   import PlotXray from "../../../lib/PlotXray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import { handleKey } from "../../../lib/keyboard";
@@ -144,13 +142,12 @@
   <Toolbar />
   <div class="body">
     <Sidebar />
-    <main class="canvas-wrap"><Canvas /><Help /><ArrangeHud /></main>
+    <main class="canvas-wrap"><Canvas /><ArrangeHud /></main>
     <!-- The Inspector steps aside while the caption editor is open, giving the
          caption page room (and keeping the figure read-only / distraction-free). -->
     {#if !$captionOpen}<Inspector />{/if}
   </div>
   <FluxFigMenu />
-  <Settings />
   <PlotXray />
   <PlotImporter />
 

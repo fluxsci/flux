@@ -2,6 +2,7 @@
   import Icon from "./Icon.svelte";
   import { goHome, type ModeId } from "./shellStore";
   import { focusedMode, setFocusedMode, splitWith } from "./paneStore";
+  import { helpOpen, settingsOpen } from "../lib/settings";
 
   const modes: { id: ModeId; label: string; icon: string }[] = [
     { id: "figure", label: "Figure", icon: "figure" },
@@ -40,6 +41,15 @@
       </button>
     {/each}
   </div>
+
+  <span class="grow" aria-hidden="true"></span>
+
+  <button class="item foot" title="Settings" aria-label="Settings" onclick={() => settingsOpen.set(true)}>
+    <Icon name="settings" size={19} />
+  </button>
+  <button class="item foot" title="Keyboard shortcuts  (?)" aria-label="Keyboard shortcuts" onclick={() => helpOpen.set(true)}>
+    <span class="qmark">?</span>
+  </button>
 </nav>
 
 <style>
@@ -60,6 +70,21 @@
     height: 1px;
     background: var(--c-line-strong);
     margin: var(--sp-2) 0;
+  }
+
+  .grow {
+    flex: 1 1 auto;
+  }
+  .item.foot {
+    width: 40px;
+    height: 40px;
+    color: var(--c-tx-faint);
+  }
+  .qmark {
+    font-family: var(--font-serif);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
   }
 
   .modes {

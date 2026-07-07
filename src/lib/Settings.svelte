@@ -1,6 +1,62 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { settings, settingsOpen, type Settings, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim } from "./settings";
+  import { fileBridge } from "./project/types";
+
+  // --- FluxLib location (desktop app only) ----------------------------------
+  let libPath = "";
+  let libNotice = "";
+  let libBusy = false;
+  let modalEl: HTMLDivElement | null = null;
+
+  async function loadLib() {
+    try {
+      const p = await fileBridge()?.prefsGet?.();
+      libPath = ((p?.fluxLibResolved ?? p?.fluxLibPath) as string) ?? "";
+    } catch {
+      libPath = "";
+    }
+  }
+
+  async function revealLib() {
+    if (libPath) await fileBridge()?.revealPath?.(libPath);
+  }
+
+  async function changeLib() {
+    const fb = fileBridge();
+    if (!fb?.openDirectory) {
+      libNotice = "Changing the library folder needs the desktop app.";
+      return;
+    }
+    libBusy = true;
+    try {
+      const dir = await fb.openDirectory("Choose your FluxLib folder");
+      if (!dir) return;
+      await fb.prefsSet?.({ fluxLibPath: dir });
+      libPath = dir;
+      libNotice = "Restart Flux to load references from the new location.";
+    } catch (e) {
+      libNotice = `Couldn't set the folder: ${(e as Error).message}`;
+    } finally {
+      libBusy = false;
+    }
+  }
+
+  // Refresh the displayed path and move focus in whenever the panel opens; clear
+  // the transient notice on close.
+  $: if ($settingsOpen) {
+    void loadLib();
+    queueMicrotask(() => modalEl?.focus());
+  } else {
+    libNotice = "";
+  }
+
+  function onKey(e: KeyboardEvent) {
+    if ($settingsOpen && e.key === "Escape") {
+      e.preventDefault();
+      settingsOpen.set(false);
+    }
+  }
 
   const sizes: { v: FluxFigMenuSize; l: string }[] = [
     { v: "sm", l: "Small" },
@@ -26,12 +82,40 @@
   ];
 </script>
 
+<svelte:window on:keydown={onKey} />
+
 {#if $settingsOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
   <div class="bk" transition:fade={{ duration: 120 }} on:click={() => settingsOpen.set(false)}>
     <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-    <div class="modal" transition:scale={{ duration: 150, start: 0.96 }} on:click|stopPropagation>
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      tabindex="-1"
+      bind:this={modalEl}
+      transition:scale={{ duration: 150, start: 0.96 }}
+      on:click|stopPropagation>
       <h2>Settings</h2>
+
+      <h3>Library folder</h3>
+      <div class="libpath" title={libPath}>{libPath || "—"}</div>
+      <div class="libbtns">
+        <button class="ghost" on:click={revealLib} disabled={!libPath}>Reveal</button>
+        <button class="ghost" on:click={changeLib} disabled={libBusy}>{libBusy ? "Choosing…" : "Change folder…"}</button>
+      </div>
+      {#if libNotice}<p class="hint">{libNotice}</p>{/if}
+
+      <h3>Updates</h3>
+      <label class="chk">
+        <input
+          type="checkbox"
+          checked={$settings.updateCheck}
+          on:change={(e) => settings.update((v) => ({ ...v, updateCheck: e.currentTarget.checked }))}
+        />
+        Check for a newer version on launch (desktop app)
+      </label>
 
       <h3>FluxFig Menu — size</h3>
       <div class="seg">
@@ -206,6 +290,43 @@
   }
   .chk.num input {
     width: 64px;
+  }
+  .libpath {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--c-tx-muted);
+    background: var(--c-bg-raised);
+    border: 1px solid var(--c-line);
+    border-radius: 6px;
+    padding: 6px 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .libbtns {
+    display: flex;
+    gap: 6px;
+    margin-top: 7px;
+  }
+  .ghost {
+    background: var(--c-ui);
+    border: 1px solid var(--c-line-strong);
+    color: var(--c-tx);
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .ghost:hover:not(:disabled) {
+    background: var(--c-ui-hover);
+  }
+  .ghost:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .modal:focus {
+    outline: none;
   }
   .tip {
     font-size: 12px;

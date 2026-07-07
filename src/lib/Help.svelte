@@ -1,95 +1,286 @@
 <script lang="ts">
-  let open = false;
+  // Shell-global keyboard reference. Mounted once (Workspace); opened with `?`
+  // from anywhere or the rail's help button (the `helpOpen` store). Tabs cover
+  // every mode; opening jumps to the mode you're focused on.
+  import { helpOpen } from "./settings";
+  import { focusedMode } from "../shell/paneStore";
 
-  const groups: { title: string; items: [string, string][] }[] = [
+  type Row = [string, string];
+  type Group = { title: string; items: Row[] };
+  type Section = { id: string; label: string; groups: Group[] };
+
+  const SECTIONS: Section[] = [
     {
-      title: "Tools",
-      items: [
-        ["V", "Select"],
-        ["H", "Pan / hand"],
-        ["T", "Text"],
-        ["R", "Rectangle"],
-        ["O", "Ellipse"],
-        ["L / A", "Line / Arrow"],
-        ["P", "Pen (Enter or dbl-click to finish)"],
+      id: "global",
+      label: "Global",
+      groups: [
+        {
+          title: "Everywhere",
+          items: [
+            ["?", "Show / hide this reference"],
+            ["Esc", "Close menus & overlays"],
+            ["Click a rail icon", "Switch mode"],
+            ["Alt / ⌘-click rail", "Open a mode in a split pane"],
+            ["Home icon", "Back to the start screen"],
+            ["⚙", "Settings"],
+          ],
+        },
       ],
     },
     {
-      title: "Canvas",
-      items: [
-        ["Scroll", "Pan"],
-        ["Ctrl/⌘ + Scroll", "Zoom"],
-        ["Space + drag", "Pan"],
-        ["Drag empty", "Marquee select"],
-        ["Shift + click", "Add to selection"],
-        ["Double-click text", "Edit text inline"],
-        ["F", "Property menu for the selection"],
+      id: "paper",
+      label: "Paper",
+      groups: [
+        {
+          title: "Editing & view",
+          items: [
+            ["⌘K", "Command palette (everything is here)"],
+            ["⌘⇧E", "Toggle edit / preview"],
+            ["Esc", "Exit preview"],
+            ["⌃⇧[ / ⌃⇧]", "Fold / unfold section"],
+          ],
+        },
+        {
+          title: "Panels",
+          items: [
+            ["Alt+O", "Left panel — outline & documents"],
+            ["Alt+D", "Dynamic margin"],
+            ["Alt+R", "Reference search"],
+            ["Alt+F", "Figures"],
+            ["Alt+A", "Comments"],
+            ["Alt+T / ⌘`", "Terminal"],
+            ["Alt+P / ⌃Alt+P", "Close pane / clear all"],
+          ],
+        },
+        {
+          title: "References & figures",
+          items: [
+            ["Alt+C", "Edit citation at cursor"],
+            ["⌘⌥M", "Comment on selection"],
+            ["⌘⌥− / ⌘⌥=", "Figure width down / up"],
+            ["⌘K → Export", "PDF · HTML · Word"],
+          ],
+        },
       ],
     },
     {
-      title: "Arrange",
-      items: [
-        ["Alt + A / W / S / D", "Align L / T / B / R"],
-        ["Alt + H / V", "Center horizontally / vertically"],
-        ["Alt + G", "Arrange mode: snap selection into a grid"],
-        ["a / g", "(in mode) row·column toggle / balanced grid"],
-        ["d / f", "(in mode) more / fewer rows · ↵ apply · esc cancel"],
-        ["Arrows", "Nudge (Shift = ×10)"],
-        ["Ctrl + [ / ]", "Send back / bring forward"],
-        ["Ctrl + Shift + [ / ]", "To back / front"],
-        ["Ctrl + G / Shift + G", "Group / ungroup"],
-        ["Shift (resize)", "Lock aspect ratio"],
-        ["Alt (move)", "Disable snapping"],
+      id: "figure",
+      label: "Figure",
+      groups: [
+        {
+          title: "Tools",
+          items: [
+            ["V", "Select"],
+            ["H", "Pan / hand"],
+            ["T", "Text"],
+            ["R", "Rectangle"],
+            ["O", "Ellipse"],
+            ["L / A", "Line / Arrow"],
+            ["P", "Pen (Enter or dbl-click to finish)"],
+            ["K", "Scale"],
+          ],
+        },
+        {
+          title: "Canvas",
+          items: [
+            ["Scroll", "Pan"],
+            ["⌘ + Scroll", "Zoom"],
+            ["Space + drag", "Pan"],
+            ["Drag empty", "Marquee select"],
+            ["Shift + click", "Add to selection"],
+            ["Double-click text", "Edit text inline"],
+            ["F", "Property menu for the selection"],
+            ["Shift + R", "Toggle rulers"],
+          ],
+        },
+        {
+          title: "Arrange",
+          items: [
+            ["Alt + A / W / S / D", "Align L / T / B / R"],
+            ["Alt + H / V", "Center horizontally / vertically"],
+            ["Shift + H / V", "Flip horizontal / vertical"],
+            ["Alt + G", "Arrange mode: snap into a grid"],
+            ["Arrows", "Nudge (Shift = ×10)"],
+            ["⌃ + [ / ]", "Send back / bring forward"],
+            ["⌃ + Shift + [ / ]", "To back / front"],
+            ["⌃ + G / Shift + G", "Group / ungroup"],
+            ["Shift (resize)", "Lock aspect ratio"],
+            ["Alt (move)", "Disable snapping"],
+          ],
+        },
+        {
+          title: "Edit & file",
+          items: [
+            ["⌃ + Z / Shift + Z", "Undo / redo"],
+            ["⌃ + D", "Duplicate"],
+            ["⌃ + C / V", "Copy / paste"],
+            ["⌘⌥C / ⌘⌥V", "Copy / paste style"],
+            ["⌘⇧L", "Lock / unlock selection"],
+            ["Delete", "Delete selection"],
+            ["Alt + C / L", "Edit caption / mark panel label"],
+            ["Alt + I / P", "Plot importer / X-ray"],
+            ["⌃ + S / Shift + S", "Save / save as"],
+          ],
+        },
       ],
     },
     {
-      title: "Edit & file",
-      items: [
-        ["Ctrl + Z / Shift + Z", "Undo / redo"],
-        ["Ctrl + D", "Duplicate"],
-        ["Ctrl + C / V", "Copy / paste"],
-        ["Ctrl + A", "Select all in figure"],
-        ["Delete", "Delete selection"],
-        ["Ctrl + S / Shift + S", "Save / save as"],
-        ["Ctrl + O / I", "Open / import assets"],
+      id: "reader",
+      label: "Reader",
+      groups: [
+        {
+          title: "Navigate",
+          items: [
+            ["PageUp / PageDown", "Previous / next page"],
+            ["Home / End", "First / last page"],
+          ],
+        },
+        {
+          title: "Zoom",
+          items: [
+            ["+ / −", "Zoom in / out"],
+            ["0", "Fit width"],
+          ],
+        },
+        {
+          title: "Actions",
+          items: [
+            ["⌘F", "Find in the PDF"],
+            ["⌘J", "Ask Claude about this paper"],
+            ["Esc", "Close find / popover"],
+          ],
+        },
+      ],
+    },
+    {
+      id: "library",
+      label: "Library",
+      groups: [
+        {
+          title: "Search & navigate",
+          items: [
+            ["⌘K", "Jump to the add box"],
+            ["↑ / ↓", "Move through results"],
+            ["Type", "Jump to search"],
+            ["Enter", "Copy the citekey"],
+            ["Space", "Select / deselect the row"],
+            ["Esc", "Back to search"],
+          ],
+        },
+        {
+          title: "Actions",
+          items: [
+            ["Alt+F", "Fetch PDFs for the checked rows"],
+            ["Alt+Del", "Delete checked (or highlighted) rows"],
+          ],
+        },
+      ],
+    },
+    {
+      id: "slide",
+      label: "Slide",
+      groups: [
+        {
+          title: "Stage",
+          items: [
+            ["+ / −", "Zoom in / out"],
+            ["0", "Reset view"],
+            ["F5", "Start presenting"],
+          ],
+        },
+        {
+          title: "Arrange",
+          items: [
+            ["⌘A", "Select all"],
+            ["⌘C / ⌘V", "Copy / paste"],
+            ["⌘D", "Duplicate"],
+            ["⌘G", "Group"],
+            ["Arrows", "Nudge · Delete removes · Esc deselects"],
+          ],
+        },
+        {
+          title: "Animate",
+          items: [
+            ["⌘D", "Duplicate tracks"],
+            ["Alt+← / →", "Nudge start"],
+            ["Alt+Shift+← / →", "Change duration"],
+          ],
+        },
       ],
     },
   ];
 
+  let tab = $state("global");
+  let modalEl = $state<HTMLDivElement | null>(null);
+  let prevFocus: HTMLElement | null = null;
+
+  const section = $derived(SECTIONS.find((s) => s.id === tab) ?? SECTIONS[0]);
+
+  // When the overlay opens, jump to the mode you're working in and move focus
+  // into the dialog; restore focus to wherever it was on close.
+  $effect(() => {
+    if ($helpOpen) {
+      prevFocus = document.activeElement as HTMLElement | null;
+      const fm = $focusedMode;
+      tab = SECTIONS.some((s) => s.id === fm) ? fm : "global";
+      queueMicrotask(() => modalEl?.focus());
+    } else if (prevFocus) {
+      prevFocus.focus?.();
+      prevFocus = null;
+    }
+  });
+
+  function isTyping(t: EventTarget | null): boolean {
+    const el = t as HTMLElement | null;
+    return (
+      !!el &&
+      (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)
+    );
+  }
+
   function onKey(e: KeyboardEvent) {
-    const t = e.target as HTMLElement;
-    if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
+    if ($helpOpen && e.key === "Escape") {
+      e.preventDefault();
+      helpOpen.set(false);
+      return;
+    }
+    if (isTyping(e.target)) return; // never hijack "?" typed into an editor/field
     if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
-      open = !open;
-    } else if (e.key === "Escape") {
-      open = false;
+      e.preventDefault();
+      helpOpen.set(!$helpOpen);
     }
   }
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window onkeydown={onKey} />
 
-<button class="help-btn" title="Keyboard shortcuts (?)" on:click={() => (open = true)}>?</button>
-
-{#if open}
-  <div
-    class="backdrop"
-    role="button"
-    tabindex="0"
-    on:click={() => (open = false)}
-    on:keydown={(e) => e.key === "Enter" && (open = false)}
-  >
+{#if $helpOpen}
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+  <div class="backdrop" onclick={() => helpOpen.set(false)}>
     <div
       class="modal"
       role="dialog"
-      tabindex="-1"
+      aria-modal="true"
       aria-label="Keyboard shortcuts"
-      on:click|stopPropagation
-      on:keydown|stopPropagation
-    >
-      <h2>Keyboard shortcuts</h2>
+      tabindex="-1"
+      bind:this={modalEl}
+      onclick={(e) => e.stopPropagation()}>
+      <div class="head">
+        <h2>Keyboard shortcuts</h2>
+        <div class="tabs" role="tablist" aria-label="Modes">
+          {#each SECTIONS as s (s.id)}
+            <button
+              class="tab"
+              class:on={tab === s.id}
+              role="tab"
+              aria-selected={tab === s.id}
+              onclick={() => (tab = s.id)}>{s.label}</button>
+          {/each}
+        </div>
+      </div>
+
       <div class="cols">
-        {#each groups as g}
+        {#each section.groups as g (g.title)}
           <div class="grp">
             <h3>{g.title}</h3>
             {#each g.items as [k, d]}
@@ -98,29 +289,16 @@
           </div>
         {/each}
       </div>
-      <button class="close" on:click={() => (open = false)}>Close</button>
+
+      <div class="foot">
+        <span class="legend">⌘ = Ctrl on Windows/Linux · Alt = Option</span>
+        <button class="close" onclick={() => helpOpen.set(false)}>Close</button>
+      </div>
     </div>
   </div>
 {/if}
 
 <style>
-  .help-btn {
-    position: absolute;
-    right: 12px;
-    bottom: 12px;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: var(--c-ui);
-    color: var(--c-tx);
-    border: 1px solid var(--c-line-strong);
-    cursor: pointer;
-    font-size: 15px;
-    z-index: 20;
-  }
-  .help-btn:hover {
-    background: var(--c-ui-hover);
-  }
   .backdrop {
     position: fixed;
     inset: 0;
@@ -128,25 +306,65 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 100;
+    z-index: 300;
   }
   .modal {
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
     border-radius: 10px;
-    padding: 20px 24px;
-    max-width: 720px;
+    padding: 18px 22px 16px;
+    width: min(760px, 92vw);
+    max-height: 86vh;
+    overflow: auto;
     color: var(--c-tx);
     box-shadow: var(--elev-3);
   }
+  .modal:focus {
+    outline: none;
+  }
+  .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
   h2 {
-    margin: 0 0 14px;
+    margin: 0;
     font-size: 16px;
+  }
+  .tabs {
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--c-tx-muted);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    transition:
+      background var(--dur-instant) var(--ease-standard),
+      color var(--dur-instant) var(--ease-standard);
+  }
+  .tab:hover {
+    background: var(--c-ui-hover);
+    color: var(--c-tx);
+  }
+  .tab.on {
+    background: var(--c-accent-tint-2);
+    color: var(--c-accent-bright);
+    border-color: var(--c-accent);
   }
   .cols {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 18px 28px;
+    gap: 16px 28px;
   }
   h3 {
     font-size: 11px;
@@ -169,15 +387,26 @@
     padding: 2px 6px;
     font-family: inherit;
     font-size: 11px;
-    min-width: 96px;
+    min-width: 104px;
     text-align: center;
     white-space: nowrap;
+    flex: 0 0 auto;
   }
   .row span {
     opacity: 0.85;
   }
+  .foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .legend {
+    font-size: 11px;
+    opacity: 0.5;
+  }
   .close {
-    margin-top: 16px;
     background: var(--c-accent);
     color: var(--c-on-accent);
     border: none;

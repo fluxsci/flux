@@ -70,6 +70,18 @@ function removeRecent(path: string | null) {
   recents.update((list) => list.filter((r) => r.path !== path));
 }
 
+/** Forget a single recent (by path, or by name for unsaved in-memory projects). */
+export function forgetRecent(r: RecentProject) {
+  recents.update((list) =>
+    list.filter((x) => !(r.path ? x.path === r.path : x.path === null && x.name === r.name)),
+  );
+}
+
+/** Clear the entire recents list. */
+export function clearRecents() {
+  recents.set([]);
+}
+
 // --- navigation -------------------------------------------------------------
 function enterLoaded(loaded: LoadedProject) {
   projectModel.set(loaded);

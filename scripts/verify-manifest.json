@@ -107,6 +107,7 @@
       "verify-w7-fig.mjs",
       "verify-lib-actions.mjs",
       "verify-lib-organize.mjs",
+      "verify-shell-complete.mjs",
       "verify-fig-esc.mjs"
     ],
     "ui-extra": [

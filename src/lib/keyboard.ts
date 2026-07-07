@@ -42,7 +42,7 @@ import {
   type AlignKind,
 } from "./geometry";
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
-import { fluxFigMenuOpen, settingsOpen } from "./settings";
+import { fluxFigMenuOpen, settingsOpen, helpOpen } from "./settings";
 import * as ops from "./ops";
 
 let clipboard: Element[] = [];
@@ -439,8 +439,8 @@ function openXray() {
 }
 
 export function handleKey(e: KeyboardEvent) {
-  // the FluxFig Menu / Settings / X-Ray / Importer own all keys while open.
-  if (get(fluxFigMenuOpen) || get(settingsOpen) || get(xrayOpen) || get(importerOpen)) return;
+  // the FluxFig Menu / Settings / Help / X-Ray / Importer own all keys while open.
+  if (get(fluxFigMenuOpen) || get(settingsOpen) || get(helpOpen) || get(xrayOpen) || get(importerOpen)) return;
 
   // Node-edit mode (Feature 1) owns the keyboard: Canvas.svelte handles
   // Enter/Esc/Delete/Tab on the vector nodes. Yield everything so Delete doesn't

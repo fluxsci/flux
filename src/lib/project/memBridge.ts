@@ -220,10 +220,13 @@ export function createMemBridge(): FileBridge & {
     },
     async prefsGet() {
       const p = norm("/home/demo/.config/Flux/preferences.json");
+      const resolved = { fluxLibResolved: "/home/demo/FluxLib" };
       try {
-        return files.has(p) ? JSON.parse(new TextDecoder().decode(files.get(p)!)) : {};
+        return files.has(p)
+          ? { ...resolved, ...JSON.parse(new TextDecoder().decode(files.get(p)!)) }
+          : resolved;
       } catch {
-        return {};
+        return resolved;
       }
     },
     async prefsSet(patch) {
