@@ -54,8 +54,8 @@
 
   <div class="sep"></div>
   <div class="group">
-    <button on:click={undo} title="Undo (Ctrl+Z)">↶</button>
-    <button on:click={redo} title="Redo (Ctrl+Shift+Z)">↷</button>
+    <button on:click={undo} title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+    <button on:click={redo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
     <button
       class:active={$settings.showRulers}
       title="Rulers (Shift+R)"
@@ -70,9 +70,9 @@
     <span class="path">{$projectDir ?? "unsaved"}</span>
   {/if}
   <div class="group zoom">
-    <button on:click={() => setZoom(Math.max(0.05, $viewport.zoom / 1.25))}>−</button>
+    <button title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(Math.max(0.05, $viewport.zoom / 1.25))}>−</button>
     <span class="zoomval">{Math.round($viewport.zoom * 100)}%</span>
-    <button on:click={() => setZoom(Math.min(16, $viewport.zoom * 1.25))}>+</button>
+    <button title="Zoom in" aria-label="Zoom in" on:click={() => setZoom(Math.min(16, $viewport.zoom * 1.25))}>+</button>
     <button on:click={() => setZoom(1)}>100%</button>
   </div>
   <button class="gear" title="Settings" on:click={() => settingsOpen.set(true)}>⚙</button>

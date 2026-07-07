@@ -45,6 +45,7 @@
   import * as ops from "./ops";
   import { settings } from "./settings";
   import { importDroppedFiles } from "./io";
+  import { pushToast, errMsg } from "./toast";
   import { semanticIdFromNode } from "./plot/parse";
   import ElementView from "./Element.svelte";
   import CaptionEditor from "./CaptionEditor.svelte";
@@ -1486,7 +1487,16 @@
     const fig = figureAt(e.clientX, e.clientY);
     dropFigId = null;
     const files = [...(e.dataTransfer?.files ?? [])];
-    if (fig && files.length) importDroppedFiles(files, fig.id);
+    if (!files.length) return;
+    // No silent failures: a drop that misses every figure used to vanish, and the
+    // fire-and-forget import swallowed read/decode errors.
+    if (!fig) {
+      pushToast("info", "Drop onto a figure to import");
+      return;
+    }
+    importDroppedFiles(files, fig.id).catch((err) =>
+      pushToast("error", "Import failed", { detail: errMsg(err) }),
+    );
   }
 
   const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -1972,6 +1982,20 @@
               <path class="grid" d={gridD} clip-path={`url(#clip-${fig.id})`} />
             {/if}
             <g clip-path={`url(#clip-${fig.id})`}>
+              {#if fig.elements.length === 0}
+                <!-- Empty-figure affordance: point at the three import paths. Constant
+                     screen size (÷zoom, like .figure-label); pointer-events:none so it
+                     never blocks canvas gestures or the drop target. -->
+                <text
+                  class="empty-hint"
+                  x={fig.width / 2}
+                  y={fig.height / 2}
+                  font-size={12 / $viewport.zoom}
+                >
+                  <tspan x={fig.width / 2} dy={-5 / $viewport.zoom}>Drop PNG/SVG plots here</tspan>
+                  <tspan x={fig.width / 2} dy={18 / $viewport.zoom}>Ctrl+I import · Alt+I plot importer</tspan>
+                </text>
+              {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <g
@@ -2374,6 +2398,11 @@
     fill: var(--c-tx-2);
     font-family: var(--font-serif);
     dominant-baseline: text-after-edge;
+    pointer-events: none;
+  }
+  .empty-hint {
+    fill: var(--c-tx-muted);
+    text-anchor: middle;
     pointer-events: none;
   }
   .el {

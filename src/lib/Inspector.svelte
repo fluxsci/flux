@@ -1,7 +1,7 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { project, selection, partSelection, activeFigureId, commit, mutate, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
-  import type { Element } from "./types";
+  import type { Element, Figure } from "./types";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
@@ -97,6 +97,20 @@
   }
 
   let dpi = 300;
+  // Export pending state: a journal TIFF at 600–1200 dpi runs getImageData + a
+  // synchronous encode on the UI thread for seconds. Disable all export buttons
+  // while one runs (no double-submit) and label the running one "Exporting…".
+  let exporting: string | null = null;
+  async function runExport(kind: string, fn: (f: Figure) => Promise<void>) {
+    const target = fig;
+    if (!target || exporting) return;
+    exporting = kind;
+    try {
+      await fn(target);
+    } finally {
+      exporting = null;
+    }
+  }
   // 3.1 journal-spec export: physical width (mm) + dpi + transparency.
   let widthPresetId = "double"; // matches JOURNAL_PRESETS Generic → double (190 mm)
   let customMm = 90;
@@ -174,17 +188,20 @@
   <!-- ALIGN -->
   <section>
     <h4>Align</h4>
+    {#if sel.length === 0}
+      <p class="note">Select elements to edit</p>
+    {/if}
     <div class="grid6">
-      <button title="Left (Alt+A)" on:click={() => doAlign("left")}>⊢</button>
-      <button title="Center H (Alt+H)" on:click={() => doAlign("centerH")}>↔</button>
-      <button title="Right (Alt+D)" on:click={() => doAlign("right")}>⊣</button>
-      <button title="Top (Alt+W)" on:click={() => doAlign("top")}>⊤</button>
-      <button title="Middle V (Alt+V)" on:click={() => doAlign("centerV")}>↕</button>
-      <button title="Bottom (Alt+S)" on:click={() => doAlign("bottom")}>⊥</button>
+      <button title="Left (Alt+A)" aria-label="Align left" disabled={sel.length < 2} on:click={() => doAlign("left")}>⊢</button>
+      <button title="Center H (Alt+H)" aria-label="Align horizontal centers" disabled={sel.length < 2} on:click={() => doAlign("centerH")}>↔</button>
+      <button title="Right (Alt+D)" aria-label="Align right" disabled={sel.length < 2} on:click={() => doAlign("right")}>⊣</button>
+      <button title="Top (Alt+W)" aria-label="Align top" disabled={sel.length < 2} on:click={() => doAlign("top")}>⊤</button>
+      <button title="Middle V (Alt+V)" aria-label="Align vertical middles" disabled={sel.length < 2} on:click={() => doAlign("centerV")}>↕</button>
+      <button title="Bottom (Alt+S)" aria-label="Align bottom" disabled={sel.length < 2} on:click={() => doAlign("bottom")}>⊥</button>
     </div>
     <div class="row">
-      <button on:click={() => doDistribute("h")}>Distribute H</button>
-      <button on:click={() => doDistribute("v")}>Distribute V</button>
+      <button disabled={sel.length < 2} on:click={() => doDistribute("h")}>Distribute H</button>
+      <button disabled={sel.length < 2} on:click={() => doDistribute("v")}>Distribute V</button>
     </div>
     {#if sel.length >= 2}
       <div class="row gaprow">
@@ -448,9 +465,9 @@
     <section>
       <h4>Export “{fig.name}”</h4>
       <div class="row">
-        <button on:click={() => exportFigurePng(fig, dpi / 96)} title="Quick PNG at {dpi} dpi (design px × {(dpi / 96).toFixed(1)})">PNG</button>
-        <button on:click={() => exportFigureSvg(fig)} title="Vector SVG">SVG</button>
-        <button on:click={() => exportFigurePdf(fig)} title="Vector PDF">PDF</button>
+        <button disabled={!!exporting} on:click={() => runExport("png", (f) => exportFigurePng(f, dpi / 96))} title="Quick PNG at {dpi} dpi (design px × {(dpi / 96).toFixed(1)})">{exporting === "png" ? "Exporting…" : "PNG"}</button>
+        <button disabled={!!exporting} on:click={() => runExport("svg", (f) => exportFigureSvg(f))} title="Vector SVG">{exporting === "svg" ? "Exporting…" : "SVG"}</button>
+        <button disabled={!!exporting} on:click={() => runExport("pdf", (f) => exportFigurePdf(f))} title="Vector PDF">{exporting === "pdf" ? "Exporting…" : "PDF"}</button>
       </div>
 
       <h4 class="sub">Journal-spec raster</h4>
@@ -479,8 +496,8 @@
         <p class="sizeread">{describeSize(journalPlan.pxWidth, journalPlan.pxHeight, journalDpi)} · {journalPlan.pxWidth}×{journalPlan.pxHeight} px</p>
       {/if}
       <div class="row">
-        <button class="prim" on:click={() => exportFigureJournal(fig, { format: "tiff", mm: selectedMm, dpi: journalDpi, transparent: transparentBg })}>TIFF</button>
-        <button class="prim" on:click={() => exportFigureJournal(fig, { format: "png", mm: selectedMm, dpi: journalDpi, transparent: transparentBg })}>PNG</button>
+        <button class="prim" disabled={!!exporting} on:click={() => runExport("tiff", (f) => exportFigureJournal(f, { format: "tiff", mm: selectedMm, dpi: journalDpi, transparent: transparentBg }))}>{exporting === "tiff" ? "Exporting…" : "TIFF"}</button>
+        <button class="prim" disabled={!!exporting} on:click={() => runExport("jpng", (f) => exportFigureJournal(f, { format: "png", mm: selectedMm, dpi: journalDpi, transparent: transparentBg }))}>{exporting === "jpng" ? "Exporting…" : "PNG"}</button>
       </div>
     </section>
   {/if}
@@ -617,6 +634,16 @@
   }
   button:hover {
     background: var(--c-ui-hover);
+  }
+  button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  button:disabled:hover {
+    background: var(--c-ui);
+  }
+  button.prim:disabled:hover {
+    background: var(--c-accent);
   }
   .fig-act {
     width: 100%;

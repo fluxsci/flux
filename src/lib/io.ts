@@ -41,6 +41,7 @@ import { cachePlot, clearPlots, plotManifests, plotRecipes } from "./plot/store"
 import { plotToSvgMarkup } from "./plot/export";
 import type { FluxPlotManifest } from "./plot/types";
 import { pushToast, errMsg } from "./toast";
+import { flushById } from "../shell/lifecycle";
 
 // Every user-initiated open/import/save/export below surfaces its failure as a
 // toast (V1 review, W1) — these previously rejected silently into the void.
@@ -229,7 +230,11 @@ export async function importDroppedFiles(files: File[], figId: string) {
   const accepted = all.filter(
     (f) => /\.(png|svg)$/i.test(f.name || "") || /(png|svg)/i.test(f.type),
   );
-  if (!accepted.length) return;
+  if (!accepted.length) {
+    // A dropped JPEG/PDF/TIFF/… previously did NOTHING — say why (no silent failures).
+    pushToast("info", "Only PNG/SVG can be imported here");
+    return;
+  }
   const incoming: Incoming[] = [];
   for (const file of accepted) {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -344,15 +349,23 @@ export async function saveProject() {
 }
 
 export async function saveProjectAs() {
-  const root = get(embeddedProjectRoot);
-  if (root) return saveFigFrom(root); // embedded → no separate "save as"
-  const p = get(project);
-  const path = await window.fig.save(`${p.name || "Untitled"}.flux`, [
-    { name: "Flux project", extensions: ["flux"] },
-  ]);
-  if (!path) return;
-  await writeProjectTo(path);
-  projectDir.set(path);
+  try {
+    const root = get(embeddedProjectRoot);
+    // Embedded → no separate "save as". Route through the figure autosave flush
+    // (W5 registry) instead of a bare saveFigFrom: a ConflictError then raises
+    // FigureMode's diverged-on-disk banner (W7), and other failures get the
+    // controller's retry + sticky toast rather than an unhandled rejection.
+    if (root) return await flushById("figure");
+    const p = get(project);
+    const path = await window.fig.save(`${p.name || "Untitled"}.flux`, [
+      { name: "Flux project", extensions: ["flux"] },
+    ]);
+    if (!path) return;
+    await writeProjectTo(path);
+    projectDir.set(path);
+  } catch (e) {
+    pushToast("error", "Save failed", { detail: errMsg(e) });
+  }
 }
 
 async function writeProjectTo(dir: string) {
