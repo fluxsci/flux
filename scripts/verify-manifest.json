@@ -80,6 +80,7 @@
       "verify-w3-locks.ts",
       "verify-w4-autosave.ts",
       "verify-w9-roundtrip.ts",
+      "verify-writer-latency.ts",
       "verify-tokens.mjs"
     ],
     "net": ["verify-enrich-live.ts", "verify-openalex.ts", "verify-s2.ts"],
@@ -173,7 +174,8 @@
       "verify-w6-flush.cjs",
       "verify-cellpress.cjs",
       "verify-netget.cjs",
-      "verify-proxy-capture.cjs"
+      "verify-proxy-capture.cjs",
+      "verify-writer-latency-inp.mjs"
     ]
   },
   "groups": {
@@ -206,6 +208,7 @@
     "verify-slide-export-core.ts": 300000,
     "verify-slide-showcase-live.mjs": 300000,
     "verify-w13-cli.mjs": 300000,
-    "verify-startup.mjs": 300000
+    "verify-startup.mjs": 300000,
+    "verify-writer-latency-inp.mjs": 200000
   }
 }

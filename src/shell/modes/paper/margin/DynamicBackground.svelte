@@ -312,7 +312,7 @@
         seek: (s: number) => seekSeconds(s),
         sow: () => sow(),
         // Dev-only loop control for the input-latency probe + gate
-        // (scripts/perf/writer-latency.mjs, scripts/verify-writer-latency.cjs):
+        // (scripts/perf/writer-latency.mjs, scripts/verify-writer-latency-inp.mjs):
         // measure keystroke INP with this ambient loop paused vs running, so the
         // gate can assert the ambient background adds ~no input latency (the
         // Chromium-150 rAF-coupling regression this file's pacing note guards).
