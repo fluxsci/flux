@@ -17,6 +17,7 @@
     ingestSupplementFile,
   } from "../../../lib/references/itemsBridge";
   import { fileBridge } from "../../../lib/project/types";
+  import { pushToast, errMsg } from "../../../lib/toast";
   import { loadAnnotations, addAnnotation, updateAnnotation, deleteAnnotation } from "../../../lib/references/annotationsBridge";
   import { saveAnnotationsMarkdown } from "../../../lib/io";
   import { hlSwatch } from "../../../lib/references/annotationColors";
@@ -85,6 +86,16 @@
   }
   function jumpToPage(n: number) {
     pdfView?.goToPage(n);
+  }
+  // A cleared/garbled page input must not coerce to 0 and warp to page 1 — restore
+  // the current page instead of navigating.
+  function jumpFromInput(e: Event & { currentTarget: EventTarget & HTMLInputElement }) {
+    const v = Number(e.currentTarget.value);
+    if (!Number.isInteger(v) || v < 1) {
+      e.currentTarget.value = String(curPage);
+      return;
+    }
+    jumpToPage(v);
   }
   let nonce = 0;
 
@@ -225,11 +236,21 @@
   };
   let navDepth = $state(0);
   let sideTab = $state<"refs" | "outline">("refs");
-  let outline = $state<FlatOutlineItem[] | null>(null); // null = not fetched yet
+  let outline = $state<FlatOutlineItem[] | null>(null); // null = not fetched yet (or doc not ready)
   async function showOutline() {
     sideTab = "outline";
-    if (outline === null) outline = (await pdfView?.getOutline()) ?? [];
+    if (outline !== null) return;
+    const o = await pdfView?.getOutline();
+    // null/undefined = the document is still parsing — keep the "Loading outline…"
+    // state (the effect below retries once pages exist) instead of caching a false
+    // "This PDF has no outline".
+    if (o) outline = o;
   }
+  // Retry a too-early outline fetch: totalPages flips 0 → N when a (re)mounted
+  // document finishes loading, so a click that landed mid-parse resolves itself.
+  $effect(() => {
+    if (sideTab === "outline" && outline === null && totalPages > 0) void showOutline();
+  });
   // R5: click a reference row → expand its abstract/details in place.
   let expandedRefId = $state("");
   const toggleRef = (id: string) => (expandedRefId = expandedRefId === id ? "" : id);
@@ -351,6 +372,7 @@
     switchOpen = false;
     if (!key) return;
     outline = null;
+    totalPages = 0; // the page count belongs to the outgoing doc; onPage re-sets it
     navDepth = 0;
     cite = null;
     figPanels = [];
@@ -378,6 +400,11 @@
       srcStamp = stampOf(src, b);
       supplements = sup;
       loading = false;
+    }).catch((e) => {
+      // A rejected IPC/bridge call must not strand the pane on "Loading…" forever.
+      if (curKey !== key) return;
+      loading = false;
+      pushToast("error", "Couldn't load this paper", { detail: errMsg(e) });
     });
     // Reference list loads independently (network; needs the paper hydrated).
     refsState = "loading";
@@ -411,7 +438,11 @@
           if (curKey !== key) return;
           srcStamp = stampOf(src, fresh);
           buffer = fresh;
-          if (activePdf.kind === "main") bufferGen++;
+          if (activePdf.kind === "main") {
+            bufferGen++;
+            outline = null; // new bytes → the cached outline belongs to the old doc
+            totalPages = 0;
+          }
         }
         // R6: reflect supplements added/removed on disk; if the shown one vanished, fall back.
         const sup = await listSupplements(key);
@@ -430,6 +461,8 @@
     if (activePdf.kind === "main") return;
     activePdf = { kind: "main" };
     suppBuffer = null;
+    outline = null; // the outline sidebar tracks the VISIBLE document
+    totalPages = 0;
     bufferGen++;
   }
   async function showSupplement(name: string) {
@@ -438,9 +471,15 @@
     if (!key) return;
     if (activePdf.kind === "supp" && activePdf.name === name) return;
     const b = await readerSupplementBytes(key, name);
-    if (curKey !== key || !b) return;
+    if (curKey !== key) return;
+    if (!b) {
+      pushToast("error", `Couldn't open ${name} — it may have been moved`);
+      return;
+    }
     suppBuffer = b;
     activePdf = { kind: "supp", name };
+    outline = null; // the outline sidebar tracks the VISIBLE document
+    totalPages = 0;
     bufferGen++;
   }
   // Attach a PDF (OS picker) into this paper's supplements/ folder, then show it.
@@ -454,34 +493,56 @@
     attaching = true;
     try {
       const name = await ingestSupplementFile(key, file);
-      if (curKey !== key || !name) return;
+      if (curKey !== key) return;
+      if (!name) {
+        pushToast("error", "That file isn't a readable PDF");
+        return;
+      }
       supplements = await listSupplements(key);
       await showSupplement(name);
+    } catch (e) {
+      pushToast("error", "Couldn't attach the PDF", { detail: errMsg(e) });
     } finally {
       attaching = false;
     }
   }
 
-  async function handleCreate(a: { page: number; anchor: TextQuoteSelector; color: string }) {
+  // Returns false when nothing was persisted — PdfView then keeps the text selection
+  // alive so the user can retry the highlight without re-selecting.
+  async function handleCreate(a: { page: number; anchor: TextQuoteSelector; color: string }): Promise<boolean> {
     const key = $readerKey;
-    if (!key || onSupplement) return; // highlights anchor to the MAIN text only
-    const ann = await addAnnotation(key, { page: a.page, anchor: a.anchor, color: a.color });
-    annotations = [...annotations, ann];
+    if (!key || onSupplement) return false; // highlights anchor to the MAIN text only
+    try {
+      const ann = await addAnnotation(key, { page: a.page, anchor: a.anchor, color: a.color });
+      annotations = [...annotations, ann];
+      return true;
+    } catch (e) {
+      pushToast("error", "Couldn't save highlight", { detail: errMsg(e) });
+      return false;
+    }
   }
   async function handleDelete(id: string) {
     const key = $readerKey;
     if (!key) return;
     if (popover?.id === id) popover = null;
-    await deleteAnnotation(key, id);
-    annotations = annotations.filter((a) => a.id !== id);
+    try {
+      await deleteAnnotation(key, id);
+      annotations = annotations.filter((a) => a.id !== id);
+    } catch (e) {
+      pushToast("error", "Couldn't delete highlight", { detail: errMsg(e) });
+    }
   }
   // Patch note/color/tags. The patched object keeps its anchor reference, so PdfView's
   // located-range cache stays hot — a recolor is a repaint, not a re-locate.
   async function handleUpdate(id: string, patch: Partial<Annotation>) {
     const key = $readerKey;
     if (!key) return;
-    await updateAnnotation(key, id, patch);
-    annotations = annotations.map((a) => (a.id === id ? { ...a, ...patch } : a));
+    try {
+      await updateAnnotation(key, id, patch);
+      annotations = annotations.map((a) => (a.id === id ? { ...a, ...patch } : a));
+    } catch (e) {
+      pushToast("error", "Couldn't update highlight", { detail: errMsg(e) });
+    }
   }
   function jumpTo(a: Annotation) {
     scrollTo = { id: a.id, page: a.page, nonce: ++nonce };
@@ -495,8 +556,11 @@
     const below = hit.rect.bottom + 300 < window.innerHeight;
     popover = { id: hit.id, x, y: below ? hit.rect.bottom + 8 : hit.rect.top - 8, place: below ? "below" : "above" };
   }
-  function copyQuote(a: Annotation) {
-    navigator.clipboard?.writeText(a.anchor.quote).catch(() => {});
+  /** Returns the clipboard promise — the popover shows "Copied ✓" only on resolve. */
+  function copyQuote(a: Annotation): Promise<void> {
+    return navigator.clipboard
+      ? navigator.clipboard.writeText(a.anchor.quote)
+      : Promise.reject(new Error("Clipboard unavailable"));
   }
   function askClaudeAbout(a: Annotation) {
     const note = a.note ? ` (my note: ${a.note})` : "";
@@ -507,7 +571,10 @@
     addingId = b.openalexId;
     try {
       const r = await addDoiToLibrary(b.doi);
-      if (!("error" in r)) libDois = new Set(libDois).add(bareDoi(b.doi)!);
+      if ("error" in r) pushToast("error", "Couldn't add to FluxLib", { detail: r.error });
+      else libDois = new Set(libDois).add(bareDoi(b.doi)!);
+    } catch (e) {
+      pushToast("error", "Couldn't add to FluxLib", { detail: errMsg(e) });
     } finally {
       addingId = "";
     }
@@ -622,7 +689,7 @@
           </select>
           <span class="pgind">
             <input class="pgin" type="number" min="1" max={totalPages || 1} value={curPage}
-              aria-label="Jump to page" onchange={(e) => jumpToPage(+e.currentTarget.value)} />
+              aria-label="Jump to page" onchange={jumpFromInput} />
             <span class="pgtot">/ {totalPages || "…"}</span>
           </span>
         </div>
@@ -747,7 +814,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key `${$readerKey}#${bufferGen}`}
-              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -792,16 +859,19 @@
         {/if}
 
         {#if popover && popAnn}
+          <!-- {@const} pins the annotation for the callbacks: the popover's destroy-time
+               note flush fires AFTER `popover` is nulled, when `popAnn` is already gone. -->
+          {@const ann = popAnn}
           <HighlightPopover
-            annotation={popAnn}
+            annotation={ann}
             x={popover.x}
             y={popover.y}
             place={popover.place}
-            onSaveNote={(n) => handleUpdate(popAnn!.id, { note: n || undefined })}
-            onRecolor={(c) => handleUpdate(popAnn!.id, { color: c })}
-            onCopy={() => copyQuote(popAnn!)}
-            onAsk={() => askClaudeAbout(popAnn!)}
-            onDelete={() => handleDelete(popAnn!.id)}
+            onSaveNote={(n) => void handleUpdate(ann.id, { note: n || undefined })}
+            onRecolor={(c) => void handleUpdate(ann.id, { color: c })}
+            onCopy={() => copyQuote(ann)}
+            onAsk={() => askClaudeAbout(ann)}
+            onDelete={() => void handleDelete(ann.id)}
             onClose={() => (popover = null)} />
         {/if}
 

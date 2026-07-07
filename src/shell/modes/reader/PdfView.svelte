@@ -48,6 +48,7 @@
   let {
     buffer,
     annotations = [],
+    canHighlight = true,
     hoverId = null,
     onCreate,
     onSelect,
@@ -67,9 +68,14 @@
   }: {
     buffer: ArrayBuffer;
     annotations?: Annotation[];
+    /** False on a supplement PDF — highlights anchor to the main paper only, so the
+     *  selection menu hides its colour dots (✦ Ask Claude stays available). */
+    canHighlight?: boolean;
     /** Externally-hovered annotation id (e.g. a sidebar row) → its on-page boxes glow. */
     hoverId?: string | null;
-    onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void;
+    /** Return/resolve `false` (or reject) when the create failed to persist — the
+     *  selection is then kept alive so the user can retry. */
+    onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void | boolean | Promise<void | boolean>;
     onSelect?: (text: string, page?: number) => void;
     /** ✦ on the selection menu — ask Claude about the selected passage (R3). */
     onAskSelection?: (text: string, page: number) => void;
@@ -105,6 +111,7 @@
   let container = $state<HTMLDivElement | undefined>();
   let viewerDiv = $state<HTMLDivElement | undefined>();
   let status = $state<"loading" | "ready" | "error">("loading");
+  let loadNote = $state(""); // big-PDF ingest progress, e.g. "42% of 96 MB"
   let errMsg = $state("");
   let numPages = $state(0);
   let rendered = $state(0); // monotonic count of page renders (a "did it draw" signal)
@@ -514,9 +521,11 @@
     onNavDepth?.(navStack.length);
     if (s) container?.scrollTo({ left: s.left, top: s.top, behavior: "smooth" });
   }
-  /** Document outline, flattened for the sidebar (empty when the PDF has none). */
-  export async function getOutline(): Promise<FlatOutlineItem[]> {
-    if (!pdfDoc) return [];
+  /** Document outline, flattened for the sidebar. Empty array = the PDF really has
+   *  none; `null` = the document hasn't finished loading yet (callers must NOT cache
+   *  it as "no outline" — retry once the doc is ready). */
+  export async function getOutline(): Promise<FlatOutlineItem[] | null> {
+    if (!pdfDoc) return null;
     try {
       return flattenOutline(await pdfDoc.getOutline());
     } catch {
@@ -638,11 +647,18 @@
     menu = { x, y: below ? rect.bottom + 10 : rect.top - 8, below, page, anchor };
     onSelect?.(anchor.quote, page);
   }
-  function pick(color: string) {
+  async function pick(color: string) {
+    if (!menu) return;
     // snapshot: menu is $state — hand callers a plain object, not a reactive proxy
-    if (menu) onCreate?.({ page: menu.page, anchor: $state.snapshot(menu.anchor), color });
+    const req = { page: menu.page, anchor: $state.snapshot(menu.anchor), color };
     menu = null;
-    window.getSelection()?.removeAllRanges();
+    try {
+      const ok = await onCreate?.(req);
+      if (ok === false) return; // create failed — keep the selection so a retry is one gesture
+      window.getSelection()?.removeAllRanges();
+    } catch {
+      /* rejected create — same: keep the selection (the parent surfaces the error) */
+    }
   }
   function askSelection() {
     if (menu) onAskSelection?.(menu.anchor.quote, menu.page);
@@ -711,6 +727,14 @@
       // keeps rendering deterministic across machines (missing font → Symbol → Greek).
       useSystemFonts: false,
     });
+    // Big-PDF feedback: fold the loading task's progress into the "Loading…" message.
+    if ("onProgress" in task) {
+      task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => {
+        if (cancelled || !total || !Number.isFinite(total)) return;
+        const mb = total / 1048576;
+        loadNote = `${Math.min(100, Math.round((loaded / total) * 100))}% of ${mb >= 10 ? mb.toFixed(0) : mb.toFixed(1)} MB`;
+      };
+    }
 
     (async () => {
       try {
@@ -781,17 +805,19 @@
     <div class="marquee" style:left="{marquee.x}px" style:top="{marquee.y}px" style:width="{marquee.w}px" style:height="{marquee.h}px"></div>
   {/if}
   {#if status === "loading"}
-    <div class="msg loading">Loading…</div>
+    <div class="msg loading">Loading…{loadNote ? ` ${loadNote}` : ""}</div>
   {/if}
 
-  {#if menu}
+  {#if menu && (canHighlight || onAskSelection)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="hl-menu" class:below={menu.below} style:left="{menu.x}px" style:top="{menu.y}px" onmousedown={(e) => e.stopPropagation()}>
-      {#each ANNOTATION_COLORS as c}
-        <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => pick(c)}></button>
-      {/each}
+      {#if canHighlight}
+        {#each ANNOTATION_COLORS as c}
+          <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
+        {/each}
+      {/if}
       {#if onAskSelection}
-        <span class="mdiv"></span>
+        {#if canHighlight}<span class="mdiv"></span>{/if}
         <button class="mask" title="Ask Claude about this passage" aria-label="Ask Claude about this passage" onclick={askSelection}>✦</button>
       {/if}
     </div>

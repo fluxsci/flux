@@ -111,6 +111,12 @@
   }
 
   async function restart() {
+    // In-flight guard: a second ↻ while (re)booting would spawn a second `claude`
+    // pty and orphan one. Set connecting eagerly — the kill await below yields, and
+    // boot() only flips status after its own bridge check. Unavailable = no pty
+    // bridge at all; restarting can never succeed there.
+    if (status === "connecting" || status === "unavailable") return;
+    status = "connecting";
     const br = bridge();
     if (ptyId && br) await br.kill(ptyId);
     ptyId = null;
@@ -195,7 +201,7 @@
     <span class="atitle">Claude Code</span>
     <span class="astatus" class:run={status === "running"}>{status}{info ? ` · pid ${info.pid}` : ""}</span>
     <span class="spacer"></span>
-    <button class="ab" title="Restart claude" aria-label="Restart" onclick={restart}>↻</button>
+    <button class="ab" title="Restart claude" aria-label="Restart" disabled={status === "connecting"} onclick={restart}>↻</button>
     <button class="ab" title="Close (Esc)" aria-label="Close" onclick={() => onClose?.()}>✕</button>
   </div>
   <div class="aterm" bind:this={host}></div>
@@ -243,8 +249,12 @@
     padding: 2px 5px;
     border-radius: var(--r-1);
   }
-  .ab:hover {
+  .ab:hover:not(:disabled) {
     color: var(--c-accent-bright);
+  }
+  .ab:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   .aterm {
     flex: 1 1 auto;

@@ -2,7 +2,10 @@
   // Click-a-highlight popover: comment, recolor, copy, ask Claude, delete. Anchored
   // at fixed viewport coords computed by ReaderMode (clamped; `place` flips it above/
   // below the highlight). A dirty note is saved on ANY close path (outside click,
-  // explicit ✕, Save) so a half-typed comment never silently vanishes.
+  // explicit ✕, Save, Esc/teardown — the onDestroy flush) so a half-typed comment
+  // never silently vanishes.
+  import { onMount, onDestroy } from "svelte";
+  import { pushToast } from "../../../lib/toast";
   import { ANNOTATION_COLORS, type Annotation } from "../../../lib/references/annotations";
   import { hlSwatch } from "../../../lib/references/annotationColors";
 
@@ -24,42 +27,59 @@
     place?: "above" | "below";
     onSaveNote?: (note: string) => void;
     onRecolor?: (color: string) => void;
-    onCopy?: () => void;
+    /** Returns the clipboard promise — "Copied ✓" shows only when it resolves. */
+    onCopy?: () => void | Promise<void>;
     onAsk?: () => void;
     onDelete?: () => void;
     onClose?: () => void;
   } = $props();
 
   let note = $state("");
+  let noteEl = $state<HTMLTextAreaElement | undefined>();
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Re-seed the draft when the popover is pointed at a DIFFERENT annotation (the
   // component instance is reused across highlight clicks) — but not when the same
   // annotation's note updates underneath a save (the draft is already current).
+  // `lastSaved` is the persisted baseline: it makes the destroy-time flush below
+  // idempotent with save() (no double-save when ✕/outside-click already saved).
   let seededFor: string | null = null;
+  let lastSaved = $state("");
   $effect(() => {
     if (seededFor !== annotation.id) {
       seededFor = annotation.id;
       note = annotation.note ?? "";
+      lastSaved = note;
     }
   });
 
-  const dirty = $derived(note !== (annotation.note ?? ""));
+  const dirty = $derived(note !== lastSaved);
 
   function save() {
     note = note.trim();
-    if (note !== (annotation.note ?? "")) onSaveNote?.(note);
+    if (note !== lastSaved) {
+      lastSaved = note;
+      onSaveNote?.(note);
+    }
   }
   function requestClose() {
     save();
     onClose?.();
   }
   function copy() {
-    onCopy?.();
-    copied = true;
-    clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => (copied = false), 1200);
+    void Promise.resolve(onCopy?.()).then(
+      () => {
+        copied = true;
+        clearTimeout(copiedTimer);
+        copiedTimer = setTimeout(() => (copied = false), 1200);
+      },
+      () => pushToast("error", "Copy failed"),
+    );
+  }
+  function del() {
+    skipDestroySave = true; // the highlight is going away — don't flush a note onto it
+    onDelete?.();
   }
   function noteKey(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -68,16 +88,33 @@
     }
   }
 
+  onMount(() => noteEl?.focus());
+
+  // The contract above holds by construction: close paths that bypass requestClose
+  // (Esc in ReaderMode just sets popover = null) land here and flush a dirty draft.
+  let skipDestroySave = false;
+  onDestroy(() => {
+    if (skipDestroySave) return;
+    const t = note.trim();
+    if (t !== lastSaved) {
+      lastSaved = t;
+      onSaveNote?.(t);
+    }
+  });
+
   $effect(() => () => clearTimeout(copiedTimer));
 </script>
 
 <svelte:window onmousedown={requestClose} />
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions, a11y_no_noninteractive_element_interactions -->
 <div
   class="hl-pop"
   class:above={place === "above"}
   data-testid="hl-popover"
+  role="dialog"
+  aria-label="Edit highlight"
+  tabindex="-1"
   style:left="{x}px"
   style:top="{y}px"
   onmousedown={(e) => e.stopPropagation()}>
@@ -101,6 +138,7 @@
 
   <textarea
     class="pnote"
+    bind:this={noteEl}
     bind:value={note}
     rows="3"
     placeholder="Add a comment… (⌘/Ctrl-Enter to save)"
@@ -114,7 +152,7 @@
     {#if dirty}
       <button class="pbtn save" onclick={save}>Save</button>
     {/if}
-    <button class="pbtn danger" title="Delete highlight" onclick={() => onDelete?.()}>Delete</button>
+    <button class="pbtn danger" title="Delete highlight" onclick={del}>Delete</button>
   </div>
 </div>
 
