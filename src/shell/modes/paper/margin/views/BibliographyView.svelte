@@ -96,6 +96,20 @@
   <div class="head">
     <span class="count">{refs.length} reference{refs.length === 1 ? "" : "s"}</span>
     <span class="cited">{citedCount} cited</span>
+    <!-- 2.2: citation-style toggle — writes `citation-style:` into the front
+         matter (single-line dispatch); chips + References re-render live. -->
+    <span class="style-toggle" role="group" aria-label="Citation style">
+      <button
+        class="stbtn"
+        class:on={$citationStyle !== "numeric"}
+        title="Author–year citations: (Smith et al., 2021)"
+        onclick={() => host.setCitationStyle("author-year")}>Au–Yr</button>
+      <button
+        class="stbtn"
+        class:on={$citationStyle === "numeric"}
+        title="Numbered (Vancouver) citations: [1], [2–4]"
+        onclick={() => host.setCitationStyle("numeric")}>[1]</button>
+    </span>
   </div>
   {#if $bibError}
     <div class="biberr" role="status">{$bibError}</div>
@@ -184,7 +198,27 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+    gap: 8px;
     font-size: var(--ts-sm);
+  }
+  .style-toggle {
+    display: inline-flex;
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-pill);
+    overflow: hidden;
+  }
+  .stbtn {
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: var(--ts-xs);
+    color: var(--c-tx-faint);
+    padding: 1px 8px;
+    cursor: pointer;
+  }
+  .stbtn.on {
+    background: var(--c-ui-hover);
+    color: var(--c-tx);
   }
   .count {
     color: var(--c-tx);

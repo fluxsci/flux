@@ -13,6 +13,7 @@ import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "../science
 import { EMBED_RE, parseEmbedAttrs, cssWidth } from "../science/figureAttrs";
 import { scanRefNumbers, TBL_CAPTION_RE, type RefNumbers } from "../science/refNumbers";
 import { findInlineMath, MathBlockTracker } from "../science/mathGrammar";
+import { formatReference, inTextAuthorYear } from "../../../../lib/references/format";
 import {
   buildCitationOrdinals,
   collapseOrdinals,
@@ -216,11 +217,10 @@ function transformProse(line: string, ctx: CiteCtx): string {
   return line;
 }
 
-function authorYear(e: BibEntry): string {
-  const a = e.authors;
-  const who = !a.length ? e.key : a.length === 1 ? a[0] : a.length === 2 ? `${a[0]} & ${a[1]}` : `${a[0]} et al.`;
-  return e.year ? `${who}, ${e.year}` : who;
-}
+// 2.2: ONE in-text author-year rule (references/format.ts) — the editor chips
+// (scholar/bib.ts resolveCite) delegate to the same function, so what a chip shows
+// is byte-identical to what the export prints.
+const authorYear = inTextAuthorYear;
 
 interface BlockSpec {
   token: string;
@@ -375,18 +375,25 @@ function bibliographyHtml(ctx: CiteCtx): string {
           .filter((e): e is BibEntry => !!e)
           .sort((a, b) => (a.authors[0] ?? a.key).localeCompare(b.authors[0] ?? b.key));
   if (!entries.length) return "";
+  // 2.2: the ONE formatter (references/format.ts) — initials, volume(issue), pages.
   const items = entries
     .map((e) => {
+      const f = formatReference(e, ctx.style === "numeric" ? "numeric" : "author-year");
       const num =
         ctx.style === "numeric"
           ? `<span class="ref-num">${ctx.ordinals.get(e.key) ?? "?"}.</span> `
           : "";
-      const authors = e.authors.length ? e.authors.join(", ") : e.key;
-      const venue = e.container ? ` <span class="ref-venue">${esc(e.container)}</span>.` : "";
-      const doi = e.doi ? ` <a href="https://doi.org/${esc(e.doi)}">doi.org/${esc(e.doi)}</a>` : "";
-      return `<p class="ref" id="ref-${esc(e.key)}">${num}${esc(authors)}${
-        e.year ? ` (${esc(e.year)})` : ""
-      }. ${esc(e.title)}.${venue}${doi}</p>`;
+      const venue = f.venue ? ` <span class="ref-venue">${esc(f.venue)}</span>${ctx.style === "numeric" ? "." : ","}` : "";
+      const doi = f.doi ? ` <a href="https://doi.org/${esc(f.doi)}">doi.org/${esc(f.doi)}</a>` : "";
+      if (ctx.style === "numeric") {
+        const yl = [f.year, f.locator].filter(Boolean).join(";");
+        return `<p class="ref" id="ref-${esc(e.key)}">${num}${esc(f.authors)}. ${esc(f.title)}.${venue}${
+          yl ? ` ${esc(yl)}.` : ""
+        }${doi}</p>`;
+      }
+      return `<p class="ref" id="ref-${esc(e.key)}">${esc(f.authors)}${
+        f.year ? ` (${esc(f.year)})` : ""
+      }. ${esc(f.title)}.${venue}${f.locator ? ` ${esc(f.locator)}.` : ""}${doi}</p>`;
     })
     .join("\n");
   return `<section class="references"><h2>References</h2>${items}</section>`;

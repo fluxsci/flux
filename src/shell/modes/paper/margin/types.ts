@@ -39,6 +39,9 @@ export interface MarginHost {
   /** The 150ms-debounced mirror of `latest` (PAP-7) — anything that runs whole-doc
    *  regexes (Stats, TOC-ish views) reads THIS, never the per-keystroke `latest`. */
   readonly latestIdle: string;
+  /** 2.2: write `citation-style:` into the front matter (single-line dispatch);
+   *  the derived style store re-labels every chip + the References list live. */
+  setCitationStyle(style: "author-year" | "numeric"): void;
   readonly citedKeys: Set<string>;
   readonly figures: FigureRef[];
   /** The project's cited subset (references/library.bib) — the bibliography. */

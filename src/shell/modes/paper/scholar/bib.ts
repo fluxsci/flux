@@ -4,6 +4,7 @@
 
 import { get, writable } from "svelte/store";
 import type { RefEntry } from "../../../../lib/references/types";
+import { inTextAuthorYear } from "../../../../lib/references/format";
 
 // The scholar UI's entry type IS the shared reference entry — one definition
 // across the editor, FluxLib, and flux-core (CLI/MCP).
@@ -38,14 +39,13 @@ function authorLabel(e: BibEntry): string {
   return `${a[0]} et al.`;
 }
 
-/** Format an in-text citation for one or more keys: "(Smith et al., 2021)". */
+/** Format an in-text citation for one or more keys: "(Smith et al., 2021)".
+ *  2.2: delegates to the ONE in-text rule (references/format.ts) shared with the
+ *  export — a chip and the printed PDF can never disagree. */
 export function resolveCite(keys: string[]): string | null {
   const entries = keys.map((k) => bibEntry(k)).filter(Boolean) as BibEntry[];
   if (entries.length === 0) return null;
-  const inner = entries
-    .map((e) => `${authorLabel(e)}${e.year ? ", " + e.year : ""}`)
-    .join("; ");
-  return `(${inner})`;
+  return `(${entries.map(inTextAuthorYear).join("; ")})`;
 }
 
 export function citeAuthorLabel(e: BibEntry): string {

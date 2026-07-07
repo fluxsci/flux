@@ -5,12 +5,21 @@
 export interface RefEntry {
   key: string;
   title: string;
-  authors: string[]; // family names, in order
+  authors: string[]; // family names, in order (labels/sorting — unchanged consumers)
   year: string;
   container?: string; // journal / venue
   doi?: string;
   url?: string;
   raw?: string; // the original BibTeX entry text
+  // 2.2 — the fields a submittable reference list needs (all optional; both
+  // parsers — cslToEntry and lightEntry — fill them in lockstep, and the
+  // CrossRef msgToEntry path fills them for just-added DOIs):
+  volume?: string;
+  issue?: string;
+  pages?: string;
+  publisher?: string;
+  /** Full names when known — `authors` (family-only) stays the label/sort key. */
+  authorsFull?: { family: string; given?: string }[];
 }
 
 /** Result of adding BibTeX to FluxLib (shared by the Node engine + renderer adapter). */

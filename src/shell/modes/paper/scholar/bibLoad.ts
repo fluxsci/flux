@@ -82,6 +82,9 @@ function crossrefYear(msg: any): string {
 /** Build a BibEntry (no key yet — FluxLib assigns it) from CrossRef metadata. */
 function msgToEntry(msg: any, fallbackDoi?: string): BibEntry {
   const doi = msg.DOI || fallbackDoi?.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
+  const full = crossrefAuthors(msg)
+    .filter((a) => a.family)
+    .map((a) => ({ family: a.family as string, given: a.given || undefined }));
   return {
     key: "",
     title: first<string>(msg.title) ?? "",
@@ -92,6 +95,12 @@ function msgToEntry(msg: any, fallbackDoi?: string): BibEntry {
     container: first<string>(msg["container-title"]) || undefined,
     doi: doi || undefined,
     url: msg.URL || undefined,
+    // 2.2: a just-added DOI formats fully in the References list without a reload.
+    volume: msg.volume != null ? String(msg.volume) : undefined,
+    issue: msg.issue != null ? String(msg.issue) : undefined,
+    pages: first<string>(msg.page) || undefined,
+    publisher: msg.publisher || undefined,
+    authorsFull: full.length ? full : undefined,
   };
 }
 

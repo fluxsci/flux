@@ -22,6 +22,9 @@ export function cslToEntry(c: any): RefEntry {
   const authors: string[] = (c.author ?? [])
     .map((a: any) => a.family || a.literal || a.name || a.given || "")
     .filter(Boolean);
+  const authorsFull = (c.author ?? [])
+    .map((a: any) => ({ family: a.family || a.literal || a.name || "", given: a.given || undefined }))
+    .filter((a: { family: string }) => a.family);
   const year =
     c.issued?.["date-parts"]?.[0]?.[0]?.toString() ??
     c.issued?.year?.toString() ??
@@ -37,6 +40,11 @@ export function cslToEntry(c: any): RefEntry {
     container: container || undefined,
     doi: c.DOI || undefined,
     url: c.URL || undefined,
+    volume: c.volume != null ? String(c.volume) : undefined,
+    issue: c.issue != null ? String(c.issue) : undefined,
+    pages: c.page != null ? String(c.page) : undefined,
+    publisher: c.publisher || undefined,
+    authorsFull: authorsFull.length ? authorsFull : undefined,
   };
 }
 
@@ -131,12 +139,24 @@ function bibField(raw: string, name: string): string {
  */
 export function lightEntry(raw: string): RefEntry {
   const authorRaw = bibField(raw, "author");
-  const authors = authorRaw
-    ? authorRaw
-        .split(/\s+and\s+/i)
-        .map((a) => (a.includes(",") ? a.split(",")[0] : a.trim().split(/\s+/).pop() || a).trim())
-        .filter(Boolean)
-    : [];
+  const tokens = authorRaw ? authorRaw.split(/\s+and\s+/i).filter((t) => t.trim()) : [];
+  const authors = tokens
+    .map((a) => (a.includes(",") ? a.split(",")[0] : a.trim().split(/\s+/).pop() || a).trim())
+    .filter(Boolean);
+  // 2.2: full names for the reference-list formatter. "Family, Given" splits
+  // exactly; "Given Family" takes the last word as family, the rest as given.
+  const authorsFull = tokens
+    .map((a) => {
+      const t = a.trim();
+      if (t.includes(",")) {
+        const [family, ...rest] = t.split(",");
+        return { family: family.trim(), given: rest.join(",").trim() || undefined };
+      }
+      const words = t.split(/\s+/);
+      const family = words.pop() ?? "";
+      return { family, given: words.join(" ") || undefined };
+    })
+    .filter((a) => a.family);
   const year = bibField(raw, "year") || (bibField(raw, "date").match(/\d{4}/)?.[0] ?? "");
   const doi = (bibField(raw, "doi") || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
   return {
@@ -147,6 +167,11 @@ export function lightEntry(raw: string): RefEntry {
     container: bibField(raw, "journal") || bibField(raw, "booktitle") || undefined,
     doi: doi || undefined,
     url: bibField(raw, "url") || undefined,
+    volume: bibField(raw, "volume") || undefined,
+    issue: bibField(raw, "number") || bibField(raw, "issue") || undefined,
+    pages: bibField(raw, "pages") || undefined,
+    publisher: bibField(raw, "publisher") || undefined,
+    authorsFull: authorsFull.length ? authorsFull : undefined,
     raw,
   };
 }

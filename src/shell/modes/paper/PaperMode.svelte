@@ -26,6 +26,7 @@
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
   import { citationStyle, citationStyleOf } from "./scholar/citeNumbering";
+  import { setFrontMatterKey } from "./scholar/frontMatter";
   import { activeCitationWatcher, resetActiveCitation } from "./scholar/activeCitation";
   import { followAtCaret } from "./editing/caretActions";
   import { foldSection, unfoldSection } from "./editing/folding";
@@ -1263,6 +1264,10 @@
     get latestIdle() {
       return latestIdle;
     },
+    setCitationStyle(style) {
+      if (view) setFrontMatterKey(view, "citation-style", style);
+      view?.focus();
+    },
     get citedKeys() {
       return citedKeys;
     },
@@ -1320,6 +1325,20 @@
     },
     { id: "view-continuous", title: "Continuous view", hint: "View", keywords: "scroll column", run: () => setView("continuous") },
     { id: "view-paginated", title: "Paginated view", hint: "View", keywords: "page sheets print", run: () => setView("paginated") },
+    {
+      id: "cite-style-numeric",
+      title: "Citation style: numbered (Vancouver)",
+      hint: "References",
+      keywords: "citation numeric vancouver brackets [1] style",
+      run: () => marginHost.setCitationStyle("numeric"),
+    },
+    {
+      id: "cite-style-authoryear",
+      title: "Citation style: author–year",
+      hint: "References",
+      keywords: "citation author year apa harvard style",
+      run: () => marginHost.setCitationStyle("author-year"),
+    },
     {
       id: "toggle-vim",
       title: $paperVimFlavor === "off" ? "Enable Vim mode" : "Disable Vim mode",
