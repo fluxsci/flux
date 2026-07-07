@@ -13,8 +13,10 @@ import {
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { StateEffect, type EditorState, type Range } from "@codemirror/state";
-import { CiteWidget, FigRefWidget } from "./widgets";
+import { CiteWidget, FigRefWidget, MathWidget } from "./widgets";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "./grammar";
+import { findInlineMath } from "./mathGrammar";
+import { ensureKatex, katexReady } from "./katexLoader";
 
 /** Dispatched when figure/bib data changes, to force a chip rebuild. */
 export const refreshChips = StateEffect.define<null>();
@@ -40,7 +42,7 @@ const BARE_CITE = bareCiteRe();
 interface Tok {
   from: number;
   to: number;
-  widget: FigRefWidget | CiteWidget;
+  widget: FigRefWidget | CiteWidget | MathWidget;
 }
 
 function keysFrom(inner: string): string[] {
@@ -50,17 +52,30 @@ function keysFrom(inner: string): string[] {
     .filter(Boolean);
 }
 
-function scanLine(lineFrom: number, text: string): Tok[] {
+function scanLine(lineFrom: number, text: string, allowMath: boolean): Tok[] {
   const toks: Tok[] = [];
   const taken: [number, number][] = [];
   const overlaps = (a: number, b: number) =>
     taken.some(([x, y]) => a < y && b > x);
   let m: RegExpExecArray | null;
 
+  // Inline math FIRST (2.1): a `$…$` span claims its range so a cite/cross-ref
+  // lookalike INSIDE the TeX ($x_{[@key]}$) can never chip — mirroring the
+  // renderer, which extracts math before its transforms.
+  if (allowMath && text.indexOf("$") >= 0) {
+    for (const s of findInlineMath(text)) {
+      const from = lineFrom + s.from;
+      const to = lineFrom + s.to;
+      toks.push({ from, to, widget: new MathWidget(s.tex) });
+      taken.push([from, to]);
+    }
+  }
+
   BRACKET_CITE.lastIndex = 0;
   while ((m = BRACKET_CITE.exec(text))) {
     const from = lineFrom + m.index;
     const to = from + m[0].length;
+    if (overlaps(from, to)) continue;
     const keys = keysFrom(m[1]);
     if (keys.length) {
       toks.push({ from, to, widget: new CiteWidget(keys, m[0]) });
@@ -93,11 +108,27 @@ function build(view: EditorView): DecorationSet {
   const deco: Range<Decoration>[] = [];
   const tree = syntaxTree(state);
 
+  // Front-matter end: `$`-bearing YAML values must not chip as math (2.1). Line
+  // walk, capped — build runs per keystroke, so no whole-doc toString here.
+  let fmEnd = 0;
+  if (state.doc.lines > 1 && state.doc.line(1).text.trim() === "---") {
+    const cap = Math.min(state.doc.lines, 100);
+    for (let i = 2; i <= cap; i++) {
+      const l = state.doc.line(i);
+      if (l.text.trim() === "---") {
+        fmEnd = l.to + 1;
+        break;
+      }
+    }
+  }
+  let pendingMath = false;
+
   for (const { from, to } of view.visibleRanges) {
     let pos = from;
     while (pos <= to) {
       const line = state.doc.lineAt(pos);
-      for (const tk of scanLine(line.from, line.text)) {
+      for (const tk of scanLine(line.from, line.text, line.from >= fmEnd)) {
+        if (tk.widget instanceof MathWidget && tk.widget.rendered == null) pendingMath = true;
         // F6: reveal a chip's raw text only when a selection touches THAT chip
         // (± 1 char) — not when the caret is merely somewhere on the line. This is
         // what stops a click elsewhere on the line from expanding every chip and
@@ -110,6 +141,11 @@ function build(view: EditorView): DecorationSet {
       if (line.to + 1 > to) break;
       pos = line.to + 1;
     }
+  }
+  // First math seen before KaTeX loaded: load it, then refresh so raw-TeX chips
+  // re-render (idempotent — ensureKatex caches the module + in-flight promise).
+  if (pendingMath && !katexReady()) {
+    void ensureKatex().then(() => view.dispatch({ effects: refreshChips.of(null) }));
   }
   return Decoration.set(deco, true);
 }

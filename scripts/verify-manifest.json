@@ -32,6 +32,7 @@
       "verify-p4-libreader.ts",
       "verify-p4-slide.ts",
       "verify-p5-library.ts",
+      "verify-paper-mathgrammar.ts",
       "verify-paper-refnums.ts",
       "verify-pdfidentify.ts",
       "verify-r1-hlgeom.ts",
@@ -85,6 +86,7 @@
       "verify-figref.mjs",
       "verify-w18-paper.mjs",
       "verify-paper-export.mjs",
+      "verify-paper-math.mjs",
       "verify-p4-paper.mjs",
       "verify-keepalive.mjs",
       "verify-fixture.mjs",
@@ -171,12 +173,14 @@
       "verify-figref.mjs",
       "verify-figname.ts",
       "verify-citenum.ts",
-      "verify-w18-paper.mjs"
+      "verify-w18-paper.mjs",
+      "verify-paper-math.mjs"
     ]
   },
   "retryOnce": [
     "figenh-06-layers.ts",
     "verify-w3-locks.ts",
+    "verify-paper-extras.mjs",
     "verify-w18-paper.mjs",
     "verify-w17-rotate-perf.mjs",
     "verify-m10-perf.mjs",

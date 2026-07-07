@@ -11,6 +11,7 @@
 
 import { get, writable } from "svelte/store";
 import { anyCiteRe, isCrossrefKey } from "../science/grammar";
+import { maskInlineMath, MathBlockTracker } from "../science/mathGrammar";
 
 export type CitationStyle = "author-year" | "numeric";
 
@@ -38,11 +39,12 @@ export interface OrdinalScan {
 
 /**
  * Appearance-order ordinals over a manuscript. Masks YAML front matter,
- * fenced code and inline code spans — the SAME regions the renderer skips
- * (renderManuscript preprocess/transformInline), or numeric mode would number
- * keys that never reach the References list. Cross-ref keys (@fig-…) are
- * ignored; keys failing `isNumbered` (not in the bib) get no ordinal so the
- * References stay contiguous 1..N; repeat cites keep their first number.
+ * fenced code, inline code spans, AND math (inline `$…$` + `$$` display
+ * blocks) — the SAME regions the renderer skips (renderManuscript
+ * preprocess/transformInline), or numeric mode would number keys that never
+ * reach the References list. Cross-ref keys (@fig-…) are ignored; keys
+ * failing `isNumbered` (not in the bib) get no ordinal so the References
+ * stay contiguous 1..N; repeat cites keep their first number.
  */
 export function buildCitationOrdinals(
   src: string,
@@ -60,32 +62,41 @@ export function buildCitationOrdinals(
 
   let pos = bodyStart;
   let inFence = false;
+  const math = new MathBlockTracker(); // display math masks whole lines (2.1 parity)
+  let lineNo = 0;
   while (pos <= src.length) {
     let nl = src.indexOf("\n", pos);
     if (nl < 0) nl = src.length;
-    const line = src.slice(pos, nl);
-    if (/^\s*(```|~~~)/.test(line)) {
+    const rawLine = src.slice(pos, nl);
+    lineNo++;
+    if (/^\s*(```|~~~)/.test(rawLine)) {
       inFence = !inFence;
     } else if (!inFence) {
-      // Mask inline code spans (n-backtick runs), then scan the prose between.
-      const CODE = /(`+)(?:.*?)\1/g;
-      let last = 0;
-      let cm: RegExpExecArray | null;
-      const scan = (seg: string, base: number) => {
-        const re = anyCiteRe();
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(seg))) {
-          const key = m[1];
-          if (isCrossrefKey(key)) continue;
-          ranges.push({ from: base + m.index, to: base + m.index + m[0].length });
-          if (!map.has(key) && isNumbered(key)) map.set(key, next++);
+      const wasInMath = math.inMath;
+      const closed = math.feed(lineNo, rawLine);
+      if (!wasInMath && !math.inMath && !closed) {
+        // Prose line: mask inline math (length-preserving), then mask inline code
+        // spans (n-backtick runs), then scan the prose between.
+        const line = maskInlineMath(rawLine);
+        const CODE = /(`+)(?:.*?)\1/g;
+        let last = 0;
+        let cm: RegExpExecArray | null;
+        const scan = (seg: string, base: number) => {
+          const re = anyCiteRe();
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(seg))) {
+            const key = m[1];
+            if (isCrossrefKey(key)) continue;
+            ranges.push({ from: base + m.index, to: base + m.index + m[0].length });
+            if (!map.has(key) && isNumbered(key)) map.set(key, next++);
+          }
+        };
+        while ((cm = CODE.exec(line))) {
+          scan(line.slice(last, cm.index), pos + last);
+          last = cm.index + cm[0].length;
         }
-      };
-      while ((cm = CODE.exec(line))) {
-        scan(line.slice(last, cm.index), pos + last);
-        last = cm.index + cm[0].length;
+        scan(line.slice(last), pos + last);
       }
-      scan(line.slice(last), pos + last);
     }
     pos = nl + 1;
   }

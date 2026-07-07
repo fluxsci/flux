@@ -126,6 +126,12 @@ const SLASH: Completion[] = [
     ),
   },
   {
+    label: "/equation",
+    detail: "Numbered display equation ($$ … $$ {#eq-…})",
+    type: "keyword",
+    apply: insert("$$\n\n$$ {#eq-}\n", 3),
+  },
+  {
     label: "/citation",
     detail: "Cite a reference",
     type: "reference",

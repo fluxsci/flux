@@ -77,7 +77,10 @@ node scripts/verify-figref.mjs           # @@ picker, panel refs, live renumber/
 npx tsx scripts/verify-figname.ts        # name-derived designations ("Figure 3" → "3") + panel specs
 npx tsx scripts/verify-citenum.ts        # citation numbering (pure)
 node scripts/verify-w18-paper.mjs        # decoration stability on selection-only txns
+node scripts/verify-paper-math.mjs       # math (2.1): nav through $$ blocks, reveal-on-touch, export parity
 ```
+
+(Or run the whole list at once: `node scripts/run-verifies.mjs --group paper-gate`.)
 
 `verify-paper-nav.mjs` is the canary for the feel itself: it asserts that N
 ArrowDowns advance exactly one line each through embeds and tables, that

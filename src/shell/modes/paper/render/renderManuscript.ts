@@ -12,6 +12,7 @@ import { journalCss } from "./journal";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "../science/grammar";
 import { EMBED_RE, parseEmbedAttrs, cssWidth } from "../science/figureAttrs";
 import { scanRefNumbers, TBL_CAPTION_RE, type RefNumbers } from "../science/refNumbers";
+import { findInlineMath, MathBlockTracker } from "../science/mathGrammar";
 import {
   buildCitationOrdinals,
   collapseOrdinals,
@@ -47,6 +48,18 @@ async function getYaml(): Promise<any> {
   if (!_yaml) _yaml = await import("js-yaml");
   return _yaml;
 }
+// KaTeX loads lazily and ONLY for documents that contain a `$` (2.1): preprocess
+// renders math synchronously, so renderManuscript awaits this before preprocess
+// when the body could hold math.
+let _katex: any = null;
+async function getKatex(): Promise<any> {
+  if (!_katex) _katex = (await import("katex")).default;
+  return _katex;
+}
+const katexHtml = (tex: string, display: boolean): string =>
+  _katex
+    ? _katex.renderToString(tex, { displayMode: display, throwOnError: false, output: "html" })
+    : esc(tex);
 
 // One embed grammar with the editor (science/figureAttrs) — group 4 is the
 // attr tail; width= is honored in the emitted HTML (and Quarto DOCX reads the
@@ -85,16 +98,20 @@ interface CiteCtx {
   keyOf: Map<number, string>;
   /** Appearance-order numbers for labeled tables/equations (shared editor rule). */
   refNums: RefNumbers;
+  /** Inline-math TeX extracted as FLUXMATH<i>X placeholders (restored post-render);
+   *  `display` flips when a `$$` block rendered — together they gate the KaTeX CSS. */
+  math: { stash: string[]; display: boolean };
 }
 
 function makeCiteCtx(style: CitationStyle, body: string): CiteCtx {
   const cited = new Set<string>();
   const refNums = scanRefNumbers(body);
-  if (style !== "numeric") return { cited, style, ordinals: new Map(), keyOf: new Map(), refNums };
+  const math = { stash: [] as string[], display: false };
+  if (style !== "numeric") return { cited, style, ordinals: new Map(), keyOf: new Map(), refNums, math };
   const { map } = buildCitationOrdinals(body, (k) => !!bibEntry(k));
   const keyOf = new Map<number, string>();
   for (const [k, n] of map) keyOf.set(n, k);
-  return { cited, style, ordinals: map, keyOf, refNums };
+  return { cited, style, ordinals: map, keyOf, refNums, math };
 }
 
 /** Numeric in-text form for a key group: `[3,5,9–14]` (outer brackets literal,
@@ -137,6 +154,23 @@ function transformInline(line: string, ctx: CiteCtx): string {
 /** The actual cross-ref + citation substitution, applied only to non-code prose. */
 function transformProse(line: string, ctx: CiteCtx): string {
   const { cited } = ctx;
+  // Inline math FIRST (2.1): extract `$…$` spans as bare-alphanumeric placeholders
+  // BEFORE the cite/cross-ref regexes and markdown emphasis can corrupt the TeX
+  // (`@`, `[`, `_`, `*` are all TeX-legal); restored as KaTeX after md.render.
+  // Placeholders are immune to typographer too (replacements are disabled anyway).
+  {
+    const spans = findInlineMath(line);
+    if (spans.length) {
+      let rebuilt = "";
+      let at = 0;
+      for (const s of spans) {
+        rebuilt += line.slice(at, s.from) + `FLUXMATH${ctx.math.stash.length}X`;
+        ctx.math.stash.push(s.tex);
+        at = s.to;
+      }
+      line = rebuilt + line.slice(at);
+    }
+  }
   // [@a; @b] bracketed citations
   line = line.replace(BRACKET_CITE, (_full, inner: string) => {
     const keys = inner
@@ -161,6 +195,10 @@ function transformProse(line: string, ctx: CiteCtx): string {
     if (prefix === "tbl") {
       const n = ctx.refNums.tbl.get(label);
       return n != null ? `[Table ${n}](#${label})` : full;
+    }
+    if (prefix === "eq") {
+      const n = ctx.refNums.eq.get(label);
+      return n != null ? `[Eq. ${n}](#${label})` : full;
     }
     const r = resolveFigure(label);
     const word = refKindWord(prefix);
@@ -202,6 +240,8 @@ function preprocess(body: string, ctx: CiteCtx): { transformed: string; blocks: 
   let calloutType = "";
   let calloutLines: string[] = [];
   let tok = 0;
+  const mathTracker = new MathBlockTracker();
+  let mathLine = 0;
 
   for (const raw of lines) {
     if (/^\s*(```|~~~)/.test(raw)) {
@@ -245,6 +285,32 @@ function preprocess(body: string, ctx: CiteCtx): { transformed: string; blocks: 
       }
       calloutLines.push(raw);
       continue;
+    }
+
+    // Display math (2.1): consume `$$` blocks into KaTeX FLUXBLOCKs. Labeled
+    // equations ({#eq-id} on the closing line) get their appearance number from
+    // the shared pre-scan (ctx.refNums.eq) so @eq references agree by construction.
+    // Math inside callouts stays a documented v1 limitation.
+    {
+      const wasInMath = mathTracker.inMath;
+      const done = mathTracker.feed(++mathLine, raw);
+      if (done) {
+        ctx.math.display = true;
+        const n = done.label ? ctx.refNums.eq.get(done.label) : undefined;
+        const token = `FLUXBLOCK${tok++}X`;
+        out.push("");
+        out.push(token);
+        out.push("");
+        blocks.push({
+          token,
+          html: `<div class="eq-block"${done.label ? ` id="${esc(done.label)}"` : ""}>${katexHtml(
+            done.tex,
+            true,
+          )}${n != null ? `<span class="eq-num">(${n})</span>` : ""}</div>`,
+        });
+        continue;
+      }
+      if (wasInMath || mathTracker.inMath) continue; // line swallowed by an open block
     }
 
     let m = FIG_EMBED.exec(raw);
@@ -382,6 +448,9 @@ export async function renderManuscript(
 
   capStash = [];
   const ctx = makeCiteCtx(parseCitationStyle(meta["citation-style"]), body);
+  // KaTeX loads only when the body could hold math (`$` is a safe superset) —
+  // preprocess/transformProse then render math synchronously via the module ref.
+  if (body.includes("$")) await getKatex();
   const { transformed, blocks } = preprocess(body, ctx);
   let html = md.render(transformed);
 
@@ -397,6 +466,13 @@ export async function renderManuscript(
     void i;
   });
 
+  // Restore inline math LAST (after block/caption substitution, so math inside
+  // captions renders too): the bare-alphanumeric placeholders came through
+  // markdown untouched; each becomes its KaTeX span here.
+  if (ctx.math.stash.length) {
+    html = html.replace(/FLUXMATH(\d+)X/g, (_m: string, i: string) => katexHtml(ctx.math.stash[Number(i)] ?? "", false));
+  }
+
   const inner = titleBlock(meta) + html + bibliographyHtml(ctx);
   const title = (meta.title && String(meta.title)) || "Manuscript";
   const bodyClass = opts.paginated ? "paginated" : "continuous";
@@ -404,9 +480,15 @@ export async function renderManuscript(
   const bodyInner = opts.paginated
     ? `<div id="flux-src" style="position:absolute;left:-9999px;width:6.5in">${inner}</div><div id="flux-pages"></div><script>${PAGINATOR}</script>${live}`
     : `<div class="sheet">${inner}</div>${live}`;
+  // Self-contained KaTeX CSS (fonts inlined) rides along ONLY when the doc has math —
+  // the export must render identically as a srcdoc preview and under printToPDF.
+  const katexStyle =
+    ctx.math.stash.length || ctx.math.display
+      ? `<style>${(await import("./katexAssets")).katexCssInlined}</style>`
+      : "";
   const full = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(
     title,
-  )}</title><style>${journalCss}</style></head><body class="${bodyClass}">${bodyInner}</body></html>`;
+  )}</title><style>${journalCss}</style>${katexStyle}</head><body class="${bodyClass}">${bodyInner}</body></html>`;
 
   return { full, inner, title };
 }

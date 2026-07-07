@@ -13,12 +13,14 @@
  *  sentence punctuation: "@smith2020." must cite smith2020, not the key "smith2020.". */
 const KEY = "[A-Za-z](?:[\\w:.-]*\\w)?";
 
-/** Cross-reference types that resolve to a NUMBER (fig/tbl). sec/eq are recognised as cross-refs
- *  — so they're never mistaken for citations — but carry no numbering and render verbatim. */
-export const NUMBERED_CROSSREF = ["fig", "tbl"] as const;
+/** Cross-reference types that resolve to a NUMBER (fig/tbl/eq — eq landed with 2.1 math:
+ *  labeled `$$ … $$ {#eq-id}` equations number by appearance via science/refNumbers). sec is
+ *  recognised as a cross-ref — so it's never mistaken for a citation — but carries no
+ *  numbering and renders verbatim. */
+export const NUMBERED_CROSSREF = ["fig", "tbl", "eq"] as const;
 
-/** `@fig-…` / `@tbl-…` cross-reference (+ an optional `,panel` list). Group 1 = the type. */
-export const crossrefRe = (): RegExp => /@(fig|tbl)-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*/g;
+/** `@fig-…` / `@tbl-…` / `@eq-…` cross-reference (+ an optional `,panel` list). Group 1 = the type. */
+export const crossrefRe = (): RegExp => /@(fig|tbl|eq)-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*/g;
 /** A bracketed citation group `[@a; @b …]`. Group 1 = the inner `@…` text. */
 export const bracketCiteRe = (): RegExp => /\[(@[^\]]+?)\]/g;
 /** A bare `@key` outside brackets. Group 1 = the leading boundary char, group 2 = the key. */

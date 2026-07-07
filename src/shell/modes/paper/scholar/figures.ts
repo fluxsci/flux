@@ -9,7 +9,7 @@ import { figureToSvg } from "../../../../lib/export";
 import { readFigSource } from "../../../../lib/project/figbridge";
 import { fileBridge } from "../../../../lib/project/types";
 import { EMBED_RE } from "../science/figureAttrs";
-import { tableNumber } from "./numbering";
+import { tableNumber, eqNumber } from "./numbering";
 import { designationFromName } from "./figText";
 
 export { panelSpec, figRefText, designationFromName, nameIsDesignation } from "./figText";
@@ -76,6 +76,19 @@ export function resolveFigure(
   // figure project — resolve them against the numbering registry.
   if (label.startsWith("tbl-")) {
     const n = tableNumber(label);
+    if (n != null) {
+      return {
+        ref: { id: "", label, name: "", order: n, number: String(n), canvas: "", caption: "", panels: [] },
+        number: String(n),
+      };
+    }
+    return null;
+  }
+  // Equation cross-refs (2.1): labeled `$$ … $$ {#eq-id}` blocks number by
+  // appearance (science/math.ts publishes the registry; the export scans the
+  // same rule via science/refNumbers).
+  if (label.startsWith("eq-")) {
+    const n = eqNumber(label);
     if (n != null) {
       return {
         ref: { id: "", label, name: "", order: n, number: String(n), canvas: "", caption: "", panels: [] },

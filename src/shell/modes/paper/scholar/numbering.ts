@@ -15,3 +15,17 @@ export function setTableNumbers(pairs: { label: string; number: number }[]): voi
 export function tableNumber(label: string): number | undefined {
   return tableNums.get(label);
 }
+
+// Equation numbering (2.1) — same appearance-order registry pattern: the display-
+// math field (science/math.ts) records labeled equations as it scans, @eq chips
+// read the numbers back. One shared rule with the export (science/refNumbers.ts).
+export const eqNums = new Map<string, number>();
+
+export function setEqNumbers(pairs: { label: string; number: number }[]): void {
+  eqNums.clear();
+  for (const p of pairs) eqNums.set(p.label, p.number);
+}
+
+export function eqNumber(label: string): number | undefined {
+  return eqNums.get(label);
+}

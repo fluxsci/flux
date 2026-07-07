@@ -85,19 +85,57 @@ export const fluxTheme = EditorView.theme(
     /* Embed/table SOURCE lines: always present + navigable (the rendered
        figure/table is a block widget below them). Metrics are identical whether
        or not the caret is on the line — never a layout shift on navigation. */
-    ".cm-line.cm-flux-embedsrc, .cm-line.cm-flux-tablesrc": {
+    ".cm-line.cm-flux-embedsrc, .cm-line.cm-flux-tablesrc, .cm-line.cm-flux-mathsrc": {
       fontFamily: "var(--font-mono)",
       fontSize: "12px",
       lineHeight: "1.65",
       color: "var(--c-tx-faint)",
     },
-    ".cm-flux-embedsrc *, .cm-flux-tablesrc *": {
+    ".cm-flux-embedsrc *, .cm-flux-tablesrc *, .cm-flux-mathsrc *": {
       fontFamily: "var(--font-mono) !important",
       fontSize: "12px !important",
       fontWeight: "400 !important",
       fontStyle: "normal !important",
       color: "var(--c-tx-faint) !important",
       letterSpacing: "0 !important",
+    },
+
+    /* ---- math (2.1): inline chips + the display block widget ---------------- */
+    ".flux-math": {
+      /* Inherits the prose serif metrics; KaTeX brings its own inner fonts. The
+         chip must not change the line's height — no padding/border. */
+      display: "inline",
+    },
+    ".flux-math.pending": {
+      fontFamily: "var(--font-mono)",
+      fontSize: "0.85em",
+      color: "var(--c-tx-faint)",
+    },
+    ".flux-mathblock": {
+      position: "relative",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "10px 44px",
+      margin: "2px 0 10px",
+      borderRadius: "6px",
+      background: "color-mix(in srgb, var(--c-surface) 55%, transparent)",
+    },
+    ".flux-mathblock .mb-body.pending": {
+      fontFamily: "var(--font-mono)",
+      fontSize: "12px",
+      color: "var(--c-tx-faint)",
+      whiteSpace: "pre-wrap",
+    },
+    ".flux-mathblock .mb-num": {
+      position: "absolute",
+      right: "12px",
+      color: "var(--c-tx-faint)",
+      fontVariantNumeric: "tabular-nums",
+      fontSize: "0.9em",
+    },
+    ".flux-mathblock .katex-display": {
+      margin: "0",
     },
 
     /* ---- live-preview decoration classes (livePreview.ts) ---------------- */

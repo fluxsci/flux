@@ -44,6 +44,9 @@ a:hover { text-decoration: underline; }
 .title-block .affil { color: var(--faint); font-size: 0.9em; font-style: italic; margin-top: 0.3em; }
 .abstract { background: #f4f0e8; border-radius: 6px; padding: 0.9em 1.2em; margin: 1.4em 0; font-size: 0.96em; }
 .abstract .lbl { font-weight: 700; font-variant: small-caps; letter-spacing: 0.04em; color: var(--muted); }
+.eq-block { position: relative; display: flex; align-items: center; justify-content: center; margin: 1.2em 0; page-break-inside: avoid; break-inside: avoid; }
+.eq-block .eq-num { position: absolute; right: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.eq-block .katex-display { margin: 0; }
 figure.fig { margin: 1.6em 0; text-align: center; page-break-inside: avoid; break-inside: avoid; }
 figure.fig .art { display: inline-block; max-width: 100%; }
 figure.fig .art svg { max-width: 100%; height: auto; }

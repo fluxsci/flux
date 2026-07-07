@@ -40,6 +40,7 @@
   import { anyCiteRe, crossrefRe, isCrossrefKey } from "./science/grammar";
   import { scienceEmbeds } from "./science/embeds";
   import { scienceTables } from "./science/tables";
+  import { scienceMathBlocks, trackMathView } from "./science/math";
   import {
     setChipHandlers,
     setEmbedHandlers,
@@ -936,6 +937,7 @@
         scienceChips,
         scienceEmbeds,
         scienceTables,
+        scienceMathBlocks, // 2.1: $$ display math (block widget AFTER source lines)
         scholarCompletion,
         doiPaste(handleDoi),
         commentField,
@@ -946,10 +948,13 @@
 
   function onReady(v: EditorView) {
     view = v;
+    untrackMath?.();
+    untrackMath = trackMathView(v); // 2.1: KaTeX-loaded → refresh math decorations
     refreshIdleNow(); // seed latestIdle + the TOC synchronously on mount
     void loadComments(v);
     syncEmbedCaptions(); // figures may have loaded before the editor mounted
   }
+  let untrackMath: (() => void) | null = null;
 
   async function loadComments(v: EditorView) {
     if (!pm) return;
@@ -1196,6 +1201,7 @@
     void flush();
     void flushComments();
     autosave.dispose();
+    untrackMath?.();
     unregFlush();
     unregComments();
     subs.forEach((u) => u());

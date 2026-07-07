@@ -7,7 +7,36 @@ import { WidgetType } from "@codemirror/view";
 import { resolveFigure } from "../scholar/figures";
 import { resolveCite } from "../scholar/bib";
 import { getCitationStyle, citeOrdinal, formatNumericLabel } from "../scholar/citeNumbering";
+import { renderTexCached } from "./katexLoader";
 import { chipHandlers } from "./chipContext";
+
+/** Inline `$…$` math (2.1) — an atomic inline chip like cites/cross-refs: rendered
+ *  KaTeX in place, raw TeX revealed when the selection touches it (chips.ts owns
+ *  the reveal). Until KaTeX loads, the raw TeX shows styled as pending; the loader
+ *  kick refreshes chips once ready. */
+export class MathWidget extends WidgetType {
+  readonly rendered: string | null;
+  constructor(readonly tex: string) {
+    super();
+    this.rendered = renderTexCached(tex, false);
+  }
+  eq(o: MathWidget) {
+    return o.tex === this.tex && o.rendered === this.rendered;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "flux-math";
+    if (this.rendered != null) el.innerHTML = this.rendered;
+    else {
+      el.classList.add("pending");
+      el.textContent = this.tex;
+    }
+    return el;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
 
 export class FigRefWidget extends WidgetType {
   readonly display: string;
