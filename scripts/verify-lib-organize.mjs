@@ -84,6 +84,19 @@ const afterFacet = await page.evaluate(() => ({
 ok(clickedFacet && /tag:cpg/.test(afterFacet.q), `clicking the tag facet sets the query (${afterFacet.q})`);
 ok(afterFacet.rows === 1, "facet filter narrows the grid");
 
+// --- facet boundary: a prefix-overlapping value must not falsely activate (D1) ---
+// "status:reading" must NOT light up the "read" facet (its clause is a substring).
+await page.evaluate(() => {
+  const el = document.querySelector(".search");
+  el.value = "status:reading";
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+});
+await sleep(250);
+const readFacetOn = await page.evaluate(() =>
+  [...document.querySelectorAll(".facet")].some((b) => (b.textContent || "").trim() === "read" && b.classList.contains("on")),
+);
+ok(!readFacetOn, "the ‘read’ facet is not falsely active while status:reading is set (prefix-overlap)");
+
 // clear the facet
 await page.evaluate(() => {
   const el = document.querySelector(".search");

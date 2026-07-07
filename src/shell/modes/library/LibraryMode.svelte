@@ -66,6 +66,7 @@
   // 3.3 library organization (tags / reading-status / collections), keyed by citekey.
   let organizeData = $state.raw<OrganizeData>(emptyOrganize());
   let loading = $state(true);
+  let loadError = $state(""); // non-empty when the FluxLib read failed (vs. genuinely empty)
   let query = $state("");
   let scope = $state<"library" | "world">("library");
   let worldMode = $state<"lexical" | "semantic">("lexical");
@@ -312,20 +313,28 @@
   }
   const projectRoot = $derived($currentProject?.path ?? null);
   const projectName = $derived($currentProject?.name ?? "project");
+  let addingToProject = $state(false);
   async function addSelectedToProject() {
     const root = projectRoot;
-    if (!root || !selected.size) return;
+    if (!root || !selected.size || addingToProject) return;
+    addingToProject = true;
     const keys = [...selected];
-    const { added } = await materializeIntoProject(root, keys);
-    addStatus = "added";
-    addedTitle = added.length
-      ? `Added ${added.length} to ${projectName}` +
-        (added.length < keys.length ? ` · ${keys.length - added.length} already there` : "")
-      : `All ${keys.length} already in ${projectName}`;
-    selected = new Set();
-    setTimeout(() => {
-      if (addStatus === "added") addStatus = "";
-    }, 5200);
+    try {
+      const { added } = await materializeIntoProject(root, keys);
+      addStatus = "added";
+      addedTitle = added.length
+        ? `Added ${added.length} to ${projectName}` +
+          (added.length < keys.length ? ` · ${keys.length - added.length} already there` : "")
+        : `All ${keys.length} already in ${projectName}`;
+      selected = new Set();
+      setTimeout(() => {
+        if (addStatus === "added") addStatus = "";
+      }, 5200);
+    } catch (e) {
+      pushToast("error", "Couldn't add to the project", { detail: e instanceof Error ? e.message : String(e) });
+    } finally {
+      addingToProject = false;
+    }
   }
   // Delete references from FluxLib — the checked rows, or the highlighted row (Alt+Del).
   // No confirm dialog: the toast offers Undo (re-adds the exact raw BibTeX under the same
@@ -349,12 +358,26 @@
         {
           ttl: 8000,
           action: raws.length
-            ? { label: "Undo", run: () => void addToFluxLib(raws.join("\n\n"), { source: "bibtex" }) }
+            ? { label: "Undo", run: () => void undoDelete(raws.join("\n\n")) }
             : undefined,
         },
       );
+    } catch (e) {
+      pushToast("error", "Couldn't delete from FluxLib", { detail: e instanceof Error ? e.message : String(e) });
     } finally {
       deleting = false;
+    }
+  }
+  // The Undo action must actually confirm the re-add before claiming success —
+  // addToFluxLib can throw on lock contention just like the delete did.
+  async function undoDelete(raw: string) {
+    try {
+      await addToFluxLib(raw, { source: "bibtex" });
+      pushToast("success", "Restored");
+    } catch (e) {
+      pushToast("error", "Couldn't restore — the references are still deleted", {
+        detail: e instanceof Error ? e.message : String(e),
+      });
     }
   }
   const coverage = $derived({
@@ -394,19 +417,37 @@
   }
 
   async function reload() {
-    [entries, enrichMap, pdfKeys, failures, organizeData] = await Promise.all([
-      loadFluxLib(),
-      loadEnrichMap(),
-      listPdfKeys(),
-      listFailures(),
-      loadOrganize(),
-    ]);
-    loading = false;
+    try {
+      [entries, enrichMap, pdfKeys, failures, organizeData] = await Promise.all([
+        loadFluxLib(),
+        loadEnrichMap(),
+        listPdfKeys(),
+        listFailures(),
+        loadOrganize(),
+      ]);
+      loadError = "";
+    } catch (e) {
+      // A read failure must NOT masquerade as "your library is empty".
+      loadError = e instanceof Error ? e.message : String(e);
+      pushToast("error", "Couldn't read your FluxLib", {
+        detail: loadError,
+        action: { label: "Retry", run: () => void reload() },
+      });
+    } finally {
+      loading = false;
+    }
   }
   onMount(() => {
     void ensureFluxLib()
       .then(reload)
-      .catch(() => (loading = false));
+      .catch((e) => {
+        loadError = e instanceof Error ? e.message : String(e);
+        loading = false;
+        pushToast("error", "Couldn't open your FluxLib", {
+          detail: loadError,
+          action: { label: "Retry", run: () => void reload() },
+        });
+      });
     void refreshProxy();
     // Startup scan: on the first Library mount of the session, auto-process anything already in
     // the watched inbox — but never offline (a network blink must not defer the whole inbox).
@@ -537,21 +578,29 @@
     setTimeout(() => (credSaved = false), 2000);
   }
   async function clearCredentials() {
-    await fileBridge()?.proxyClearCredentials?.();
-    proxyUser = "";
-    proxyPass = "";
-    credHasPass = false;
+    try {
+      await fileBridge()?.proxyClearCredentials?.();
+      proxyUser = "";
+      proxyPass = "";
+      credHasPass = false;
+    } catch (e) {
+      pushToast("error", "Couldn't clear the saved credentials", { detail: e instanceof Error ? e.message : String(e) });
+    }
   }
   async function saveKeysPanel() {
-    await fileBridge()?.keysSet?.({
-      openAlexKey: keyOpenAlex.trim(),
-      s2Key: keyS2.trim(),
-      mailto: keyMailto.trim(),
-      ezproxyPrefix: keyEzproxy.trim(),
-    });
-    keysSaved = true;
-    setTimeout(() => (keysSaved = false), 2000);
-    void refreshProxy();
+    try {
+      await fileBridge()?.keysSet?.({
+        openAlexKey: keyOpenAlex.trim(),
+        s2Key: keyS2.trim(),
+        mailto: keyMailto.trim(),
+        ezproxyPrefix: keyEzproxy.trim(),
+      });
+      keysSaved = true;
+      setTimeout(() => (keysSaved = false), 2000);
+      void refreshProxy();
+    } catch (e) {
+      pushToast("error", "Couldn't save API keys", { detail: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   async function refreshProxy() {
@@ -647,34 +696,69 @@
     reading: { label: "◐", title: "Reading — click to mark read" },
     read: { label: "●", title: "Read — click to clear" },
   };
+  // Organize writes go through a cross-writer lock (CLI/MCP/agents write too), so
+  // they can legitimately reject with "library is busy" — surface that, never swallow.
+  const orgErr = (e: unknown) => pushToast("error", "Couldn't update the library", { detail: e instanceof Error ? e.message : String(e) });
   async function cycleStatus(e: MouseEvent, key: string) {
     e.stopPropagation();
     const cur = orgOf(key).status ?? "unread";
-    organizeData = await organizeSetStatus(key, STATUS_NEXT[cur]);
+    try {
+      organizeData = await organizeSetStatus(key, STATUS_NEXT[cur]);
+    } catch (err) {
+      orgErr(err);
+    }
   }
-  async function addTagToValue(key: string, value: string) {
+  // Returns true only if the tag was actually persisted — the caller clears the
+  // input on success so a failed write doesn't silently lose what was typed.
+  async function addTagToValue(key: string, value: string): Promise<boolean> {
     const t = value.trim();
-    if (!t) return;
-    organizeData = await organizeSetTags(key, [...orgOf(key).tags, t]);
+    if (!t) return false;
+    try {
+      organizeData = await organizeSetTags(key, [...orgOf(key).tags, t]);
+      return true;
+    } catch (err) {
+      orgErr(err);
+      return false;
+    }
   }
   async function removeTagFrom(key: string, tag: string) {
-    organizeData = await organizeSetTags(key, orgOf(key).tags.filter((x) => x.toLowerCase() !== tag.toLowerCase()));
+    try {
+      organizeData = await organizeSetTags(key, orgOf(key).tags.filter((x) => x.toLowerCase() !== tag.toLowerCase()));
+    } catch (err) {
+      orgErr(err);
+    }
   }
   let bulkTagDraft = $state("");
   async function bulkTagSelected() {
     const t = bulkTagDraft.trim();
     if (!t || !selected.size) return;
-    organizeData = await organizeBulkAddTag([...selected], t);
-    bulkTagDraft = "";
+    try {
+      organizeData = await organizeBulkAddTag([...selected], t);
+      bulkTagDraft = ""; // clear only after the write lands
+    } catch (err) {
+      orgErr(err);
+    }
   }
   // Facets: the distinct tags / collections in the library, for one-click filtering.
   const facetTags = $derived(allTags(organizeData));
   const facetCollections = $derived(allCollections(organizeData));
-  // Append (or toggle) a `field:value` clause on the search query.
+  // Match a `field:value` clause on a whole-token boundary so prefix-overlapping
+  // values can't collide (status:read vs status:reading; tag:neuro vs neuroscience).
+  function facetClause(field: "tag" | "status" | "collection", value: string): string {
+    return value.includes(" ") ? `${field}:"${value}"` : `${field}:${value}`;
+  }
+  function facetActive(field: "tag" | "status" | "collection", value: string): boolean {
+    const esc = facetClause(field, value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|\\s)${esc}(?=\\s|$)`).test(query);
+  }
+  // Append (or toggle off) a `field:value` clause on the search query.
   function toggleFacet(field: "tag" | "status" | "collection", value: string) {
-    const clause = value.includes(" ") ? `${field}:"${value}"` : `${field}:${value}`;
-    const has = query.includes(clause);
-    query = has ? query.replace(clause, "").replace(/\s{2,}/g, " ").trim() : (query ? `${query} ${clause}` : clause);
+    const clause = facetClause(field, value);
+    const esc = clause.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(^|\\s)${esc}(?=\\s|$)`);
+    query = re.test(query)
+      ? query.replace(re, " ").replace(/\s{2,}/g, " ").trim()
+      : (query ? `${query} ${clause}` : clause);
   }
   let facetsOpen = $state(false);
   // Ctrl+Shift+click: open the PDF in the reader, fetching it first if it isn't on disk —
@@ -841,7 +925,11 @@
   // LR-7: render a finished run's summary into the shared add/status pill. Called by the
   // completion $effect for every run (whether or not Library was mounted when it finished).
   function showFetchSummary(sum: GuiFetchSummaryLite) {
-    if (sum.cancelled) {
+    if (sum.errorNote) {
+      // The run threw — surface it as a real error, not a "you stopped it" summary.
+      pushToast("error", "PDF fetch stopped on an error", { detail: sum.errorNote });
+      addedTitle = `Stopped on an error · ${sum.oaGot + sum.proxyGot} fetched first`;
+    } else if (sum.cancelled) {
       addedTitle = `Stopped · ${sum.oaGot + sum.proxyGot} fetched so far`;
     } else {
       const parts = [`${sum.oaGot} open-access`];
@@ -865,21 +953,30 @@
     if (!v || addStatus === "fetching") return;
     addError = "";
     addStatus = "fetching";
-    const r = await addUrlOrDoiToLibrary(v);
-    if ("error" in r) {
+    try {
+      const r = await addUrlOrDoiToLibrary(v);
+      if ("error" in r) {
+        addStatus = "error";
+        addError = r.error;
+        setTimeout(() => {
+          if (addStatus === "error") addStatus = "";
+        }, 3200);
+        return;
+      }
+      addStatus = "added";
+      addedTitle = r.title || r.key;
+      addValue = "";
+      setTimeout(() => {
+        if (addStatus === "added") addStatus = "";
+      }, 2600);
+    } catch (e) {
+      // A thrown add (IPC reject, lock contention) must not strand the spinner.
       addStatus = "error";
-      addError = r.error;
+      addError = e instanceof Error ? e.message : String(e);
       setTimeout(() => {
         if (addStatus === "error") addStatus = "";
       }, 3200);
-      return;
     }
-    addStatus = "added";
-    addedTitle = r.title || r.key;
-    addValue = "";
-    setTimeout(() => {
-      if (addStatus === "added") addStatus = "";
-    }, 2600);
   }
 
   async function copyKey(key: string) {
@@ -1312,12 +1409,12 @@
         <span class="selcount">{selected.size} selected</span>
         <button
           class="selact"
-          disabled={!projectRoot}
+          disabled={!projectRoot || addingToProject}
           title={projectRoot
             ? `Add ${selected.size} reference(s) to ${projectName}'s library.bib`
             : "Open a project first to add references to it"}
           onclick={addSelectedToProject}
-          >+ Add to {projectRoot ? projectName : "project"}{projectRoot ? "" : " (none open)"}</button>
+          >{addingToProject ? "Adding…" : `+ Add to ${projectRoot ? projectName : "project"}${projectRoot ? "" : " (none open)"}`}</button>
         <button
           class="selfetch"
           disabled={fetchingAll || preflightBusy || fetchingKey !== ""}
@@ -1346,14 +1443,14 @@
             <div class="facetgroup">
               <span class="facetlbl">Status</span>
               {#each READING_STATUSES as s}
-                <button class="facet" class:on={query.includes(`status:${s}`)} onclick={() => toggleFacet("status", s)}>{s}</button>
+                <button class="facet" class:on={facetActive("status", s)} onclick={() => toggleFacet("status", s)}>{s}</button>
               {/each}
             </div>
             {#if facetTags.length}
               <div class="facetgroup">
                 <span class="facetlbl">Tags</span>
                 {#each facetTags as t}
-                  <button class="facet" class:on={query.includes(`tag:${t}`) || query.includes(`tag:"${t}"`)} onclick={() => toggleFacet("tag", t)}>{t}</button>
+                  <button class="facet" class:on={facetActive("tag", t)} onclick={() => toggleFacet("tag", t)}>{t}</button>
                 {/each}
               </div>
             {/if}
@@ -1361,7 +1458,7 @@
               <div class="facetgroup">
                 <span class="facetlbl">Collections</span>
                 {#each facetCollections as c}
-                  <button class="facet coll" class:on={query.includes(`collection:${c}`) || query.includes(`collection:"${c}"`)} onclick={() => toggleFacet("collection", c)}>{c}</button>
+                  <button class="facet coll" class:on={facetActive("collection", c)} onclick={() => toggleFacet("collection", c)}>{c}</button>
                 {/each}
               </div>
             {/if}
@@ -1522,11 +1619,10 @@
               <input
                 class="taginput"
                 placeholder="+ tag"
-                onkeydown={(e) => {
+                onkeydown={async (e) => {
                   if (e.key !== "Enter") return;
                   const el = e.currentTarget;
-                  void addTagToValue(r.key, el.value);
-                  el.value = "";
+                  if (await addTagToValue(r.key, el.value)) el.value = ""; // keep the text if the write failed
                 }} />
             </div>
             <div class="dbtns">
@@ -1564,7 +1660,15 @@
           </div>
         {/if}
       {/each}
-      {#if !loading && results.length === 0}
+      {#if loading}
+        <div class="none">Loading your library…</div>
+      {:else if loadError}
+        <div class="none err">
+          <div>Couldn't read your FluxLib.</div>
+          <div class="submuted">{loadError}</div>
+          <button class="retry" onclick={() => { loading = true; void reload(); }}>Retry</button>
+        </div>
+      {:else if results.length === 0}
         <div class="none">
           {#if ftMode && ftTerm && !ftBusy && !ftError}
             No stored PDF text matches “{ftTerm}”.{ftMissing ? ` ${ftMissing} PDF${ftMissing === 1 ? " has" : "s have"} no extracted text yet — open ${ftMissing === 1 ? "it" : "them"} once in the reader to index.` : ""}
@@ -1673,7 +1777,7 @@
   {/if}
 
   {#if importOpen}
-    <ImportDialog onClose={() => (importOpen = false)} onImported={() => void reload()} />
+    <ImportDialog onClose={() => (importOpen = false)} onImported={() => void reload()} onEnrich={() => void runEnrich()} />
   {/if}
 </div>
 
@@ -2549,6 +2653,34 @@
     font-style: italic;
     font-size: var(--ts-sm);
   }
+  .none.err {
+    color: var(--c-danger);
+    font-style: normal;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  .none .submuted {
+    color: var(--c-tx-faint);
+    font-size: var(--ts-xs);
+    font-family: var(--font-mono);
+    max-width: 80%;
+    word-break: break-word;
+  }
+  .none .retry {
+    background: var(--c-ui);
+    border: 1px solid var(--c-line-strong);
+    color: var(--c-tx);
+    border-radius: 6px;
+    padding: 5px 14px;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--ts-sm);
+  }
+  .none .retry:hover {
+    background: var(--c-ui-hover);
+  }
   .loadmore {
     display: block;
     width: 100%;
@@ -2648,9 +2780,11 @@
     font-size: var(--ts-sm);
     box-shadow: var(--elev-2);
     max-width: 80%;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* Wrap up to a few lines so an actionable error tail isn't clipped (P10). */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+    line-height: 1.35;
   }
   .toast.err {
     border-color: var(--c-danger);

@@ -14,7 +14,19 @@
   import type { RefEntry } from "../../../lib/references/types";
   import { pushToast } from "../../../lib/toast";
 
-  let { onClose, onImported }: { onClose: () => void; onImported: (keys: string[]) => void } = $props();
+  let {
+    onClose,
+    onImported,
+    onEnrich,
+  }: { onClose: () => void; onImported: (keys: string[]) => void; onEnrich?: () => void } = $props();
+
+  let cardEl = $state<HTMLElement | null>(null);
+  // Restore focus to whatever opened the dialog when it closes.
+  const prevFocus = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+  function close() {
+    prevFocus?.focus?.();
+    onClose();
+  }
 
   type Phase = "pick" | "preview" | "importing" | "done" | "error";
   let phase = $state<Phase>("pick");
@@ -35,7 +47,6 @@
   let attachFailed = $state(0);
   let cancelled = $state(false);
   let importedKeys = $state<string[]>([]);
-  let hydrating = $state(false);
 
   const isAbsolute = (p: string) => /^([A-Za-z]:[\\/]|[\\/]|\\\\)/.test(p);
 
@@ -56,7 +67,7 @@
       }
       const paths = await fb.openFiles([{ name: "References", extensions: ["bib", "ris", "txt"] }]);
       if (!paths?.length) {
-        onClose();
+        close();
         return;
       }
       const p = paths[0];
@@ -162,25 +173,36 @@
     phase = "done";
   }
 
-  async function hydrateNow() {
-    hydrating = true;
-    try {
-      await hydrateFluxLib({});
-      pushToast("info", "Enrichment started for the imported references.");
-    } catch {
-      pushToast("error", "Couldn't start enrichment.");
+  function hydrateNow() {
+    // Delegate to the Library's own Enrich pipeline (its progress bar + concurrency
+    // guard) when available; otherwise run a background hydrate. Either way, close
+    // immediately instead of blocking the dialog on the whole (minutes-long) run.
+    if (onEnrich) {
+      onEnrich();
+    } else {
+      pushToast("info", "Enriching the imported references…");
+      void hydrateFluxLib({})
+        .then(() => pushToast("success", "Enrichment finished."))
+        .catch((e) => pushToast("error", "Enrichment failed.", { detail: e instanceof Error ? e.message : String(e) }));
     }
-    hydrating = false;
-    onClose();
+    close();
   }
 
   // Kick off the file picker as soon as the modal mounts.
   void pickFile();
 
+  // Move focus into the dialog when a keyboard-interactive phase renders, so Tab and
+  // Enter act on the modal rather than the toolbar behind the backdrop.
+  $effect(() => {
+    if ((phase === "preview" || phase === "done" || phase === "error") && cardEl) {
+      queueMicrotask(() => cardEl?.querySelector<HTMLButtonElement>(".if .prim, .if button")?.focus());
+    }
+  });
+
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape" && phase !== "importing") {
       e.stopPropagation();
-      onClose();
+      close();
     }
   }
 </script>
@@ -188,9 +210,9 @@
 <svelte:window onkeydown={onKey} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="backdrop" onclick={() => phase !== "importing" && onClose()}>
+<div class="backdrop" onclick={() => phase !== "importing" && close()}>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="card" role="dialog" aria-modal="true" aria-label="Import references" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+  <div class="card" role="dialog" aria-modal="true" aria-label="Import references" tabindex="-1" bind:this={cardEl} onclick={(e) => e.stopPropagation()}>
     <header class="ih">
       <span class="ihh">Import references</span>
       {#if fileName}<span class="ihf">{fileName} · {format.toUpperCase()}</span>{/if}
@@ -200,7 +222,7 @@
       <div class="body"><p class="muted">Choose a .bib or .ris file…</p></div>
     {:else if phase === "error"}
       <div class="body"><p class="err">{error}</p></div>
-      <footer class="if"><button class="prim" onclick={onClose}>Close</button></footer>
+      <footer class="if"><button class="prim" onclick={close}>Close</button></footer>
     {:else if phase === "preview" && plan}
       <div class="body">
         <div class="counts">
@@ -233,7 +255,7 @@
         {/if}
       </div>
       <footer class="if">
-        <button class="ghost" onclick={onClose}>Cancel</button>
+        <button class="ghost" onclick={close}>Cancel</button>
         <button class="prim" disabled={!plan.counts.new} onclick={doImport}>
           Import {plan.counts.new} reference{plan.counts.new === 1 ? "" : "s"}
         </button>
@@ -257,8 +279,8 @@
         {/if}
       </div>
       <footer class="if">
-        <button class="ghost" onclick={onClose}>Close</button>
-        <button class="prim" disabled={hydrating} onclick={hydrateNow}>{hydrating ? "Starting…" : "Enrich them now"}</button>
+        <button class="ghost" onclick={close}>Close</button>
+        <button class="prim" onclick={hydrateNow}>Enrich them now</button>
       </footer>
     {/if}
   </div>

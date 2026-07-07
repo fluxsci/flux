@@ -210,8 +210,10 @@ class PdfFetchJob {
       ).length;
       return this.#finish(ctrl.signal.aborted);
     } catch (e) {
-      this.note = (e as Error)?.message || "PDF fetch failed.";
-      return this.#finish(true);
+      const msg = (e as Error)?.message || "PDF fetch failed.";
+      this.note = msg;
+      // A crash is NOT a user cancel — carry the note so the summary can toast it.
+      return this.#finish(true, msg);
     } finally {
       await flushMisses(); // persist ledger progress even on cancel/throw (best-effort)
     }
@@ -259,7 +261,7 @@ class PdfFetchJob {
     }
   }
 
-  #finish(aborted: boolean): GuiFetchSummaryLite {
+  #finish(aborted: boolean, errorNote?: string): GuiFetchSummaryLite {
     const summary: GuiFetchSummaryLite = {
       oaGot: this.oaGot,
       proxyGot: this.proxyGot,
@@ -269,6 +271,7 @@ class PdfFetchJob {
       oaSkipped: this.oaSkipped,
       blockedSkipped: this.blockedSkipped,
       cancelled: aborted || this.cancelled,
+      errorNote,
     };
     this.lastSummary = summary;
     this.runSeq++;
@@ -303,6 +306,7 @@ export interface GuiFetchSummaryLite {
   oaSkipped: number; // skipped by the OA-miss ledger (known no-OA, fresh)
   blockedSkipped: number; // skipped because their publisher's circuit breaker tripped
   cancelled: boolean;
+  errorNote?: string; // set when the run threw (vs. a user cancel) — surfaced as an error toast
 }
 
 /** Non-crypto token generator (renderer runtime — Date.now/Math.random are fine here). */
