@@ -9,17 +9,19 @@
     status,
     onStats,
     onExport,
+    exporting = false,
   }: {
     words: number;
     status: "demo" | "saved" | "saving" | "error";
     onStats: () => void;
     onExport: () => void;
+    exporting?: boolean;
   } = $props();
 </script>
 
 <div class="statusbar">
-  <button class="seg" onclick={onExport} title="Export — PDF · HTML · Word (also in ⌘K)">
-    Export
+  <button class="seg" onclick={onExport} disabled={exporting} title="Export — PDF · HTML · Word (also in ⌘K)">
+    {exporting ? "Exporting…" : "Export"}
   </button>
   <button class="seg" onclick={onStats} title="Statistics (⌘K → Statistics)">
     {words.toLocaleString()} words
@@ -60,9 +62,13 @@
     cursor: pointer;
     font-variant-numeric: tabular-nums;
   }
-  .seg:hover {
+  .seg:hover:not(:disabled) {
     color: var(--c-tx-2);
     background: var(--c-surface);
+  }
+  .seg:disabled {
+    opacity: 0.55;
+    cursor: default;
   }
   .state {
     cursor: default;

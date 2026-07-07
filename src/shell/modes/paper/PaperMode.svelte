@@ -555,9 +555,13 @@
   let quartoAvail = $state(false);
 
   async function doExport(kind: "pdf" | "html" | "docx") {
+    if (exportBusy) return; // one export at a time (a second Quarto render would race)
     exportOpen = false;
     const fb = fileBridge();
-    if (!fb) return;
+    if (!fb) {
+      pushToast("error", "Export needs the desktop app");
+      return;
+    }
     exportBusy = true;
     try {
       if (kind === "docx") {
@@ -613,8 +617,20 @@
         exportBusy = false;
         return;
       }
-      if (kind === "pdf") await fb.printPdf?.(full, out, {});
-      else await fb.writeText(out, full);
+      if (kind === "pdf") {
+        if (!fb.printPdf) {
+          pushToast("error", "PDF export needs the desktop app");
+          exportBusy = false;
+          return;
+        }
+        // printPdf resolves false when the render/write didn't happen — don't claim success.
+        const okPdf = await fb.printPdf(full, out, {});
+        if (!okPdf) {
+          pushToast("error", "PDF export failed", { detail: "the PDF could not be written" });
+          exportBusy = false;
+          return;
+        }
+      } else await fb.writeText(out, full);
       exportBusy = false;
       exportDone = true;
       setTimeout(() => (exportDone = false), 2600);
@@ -1174,17 +1190,26 @@
   }
   async function forceReloadFromDisk() {
     if (!pm) return;
-    applyDiskText((await readManuscript(pm, activeDocPath)) || "");
+    try {
+      applyDiskText((await readManuscript(pm, activeDocPath)) || "");
+    } catch (e) {
+      // Leave the banner up so the choice is still available.
+      pushToast("error", "Couldn't reload from disk", { detail: errMsg(e) });
+    }
   }
   // W7: resolve a divergence by making the editor's version win — write it over
   // disk and adopt it as the new baseline so the guard stops firing.
   async function overwriteDisk() {
     if (!pm) return;
     const snapshot = latest;
-    await writeManuscript(pm, snapshot, activeDocPath);
-    diskBaseline = snapshot;
-    if (latest === snapshot) saved = true;
-    diskDiverged = false;
+    try {
+      await writeManuscript(pm, snapshot, activeDocPath);
+      diskBaseline = snapshot;
+      if (latest === snapshot) saved = true;
+      diskDiverged = false;
+    } catch (e) {
+      pushToast("error", "Couldn't overwrite the file on disk", { detail: errMsg(e) });
+    }
   }
   // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
   const unregFlush = registerFlushable({
@@ -1453,8 +1478,25 @@
         e.preventDefault();
         previewActive = !previewActive;
         if (!previewActive) view?.focus();
-      } else if (e.key === "Escape" && previewActive && !paletteOpen && !pickerOpen && !figRefPickerOpen) {
-        // Preview must not be a keyboard trap.
+      } else if (e.key === "Escape" && exportOpen) {
+        // The export menu is not mouse-only — Esc closes it and returns to the editor.
+        e.preventDefault();
+        exportOpen = false;
+        view?.focus();
+      } else if (
+        e.key === "Escape" &&
+        previewActive &&
+        !e.defaultPrevented &&
+        !paletteOpen &&
+        !pickerOpen &&
+        !figRefPickerOpen &&
+        !doiPromptOpen &&
+        !newDocOpen &&
+        !titleEditOpen &&
+        !exportOpen
+      ) {
+        // Preview must not be a keyboard trap — but one Esc must peel only ONE layer,
+        // so bail if any overlay is open or already consumed this key.
         e.preventDefault();
         previewActive = false;
         view?.focus();
@@ -1520,6 +1562,7 @@
           <StatusBar
             words={statusWords}
             {status}
+            exporting={exportBusy}
             onStats={() => summonPane("stats")}
             onExport={() => (exportOpen = true)} />
         {/if}
@@ -1605,10 +1648,11 @@
             } else if (e.key === "Escape") {
               e.preventDefault();
               newDocOpen = false;
+              view?.focus(); // return focus to the editor (feel invariant #7)
             }
           }} />
         <div class="doi-prompt-actions">
-          <button class="ghost" onclick={() => (newDocOpen = false)}>Cancel</button>
+          <button class="ghost" onclick={() => { newDocOpen = false; view?.focus(); }}>Cancel</button>
           <button onclick={submitNewDoc}>Create</button>
         </div>
       </div>

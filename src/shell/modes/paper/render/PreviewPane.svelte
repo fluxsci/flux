@@ -21,12 +21,17 @@
   // push it back down on load — edits no longer reset the preview scroll.
   let lastScroll = 0;
 
+  let error = $state("");
   async function render() {
     try {
       const r = await renderManuscript(src, { paginated, live: true });
       html = r.full;
+      error = "";
     } catch (e) {
+      // Keep the last good render visible, but say so — a silently stale preview
+      // reads as "your edit rendered fine".
       console.error("[flux] preview render failed", e);
+      error = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -53,6 +58,9 @@
 <svelte:window onmessage={onMessage} />
 
 <div class="preview">
+  {#if error}
+    <div class="prev-err" title={error}>⚠ Preview failed to update — showing the last good render.</div>
+  {/if}
   <iframe
     bind:this={iframeEl}
     onload={onLoad}
@@ -73,5 +81,19 @@
     height: 100%;
     border: none;
     display: block;
+  }
+  .prev-err {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    padding: 5px 12px;
+    font-size: var(--ts-xs);
+    color: var(--c-on-accent, #fff);
+    background: var(--c-danger, #c0392b);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

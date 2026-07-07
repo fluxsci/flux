@@ -7,6 +7,7 @@
   let q = $state("");
   let sel = $state(0);
   let inputEl = $state<HTMLInputElement | undefined>(undefined);
+  let listEl = $state<HTMLUListElement | undefined>(undefined);
 
   const filtered = $derived.by(() => {
     const t = q.trim().toLowerCase();
@@ -25,6 +26,12 @@
     inputEl?.focus();
   });
 
+  // Keep the keyboard-selected row visible as it moves (43 commands overflow the list).
+  $effect(() => {
+    sel;
+    listEl?.querySelector<HTMLElement>("li.sel")?.scrollIntoView({ block: "nearest" });
+  });
+
   function run(c: Command | undefined) {
     if (!c) return;
     onClose();
@@ -40,9 +47,13 @@
       sel = Math.max(0, sel - 1);
     } else if (e.key === "Enter") {
       e.preventDefault();
+      e.stopPropagation();
       run(filtered[sel]);
     } else if (e.key === "Escape") {
+      // Stop the Escape from also reaching PaperMode's window handler (which would
+      // otherwise exit preview in the same keypress).
       e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   }
@@ -58,7 +69,7 @@
     placeholder="Type a command…"
     spellcheck="false"
     autocomplete="off" />
-  <ul>
+  <ul bind:this={listEl}>
     {#each filtered as c, i (c.id)}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
       <li
