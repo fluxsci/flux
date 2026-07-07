@@ -86,7 +86,7 @@ for (const s of run)
 
 // ---------- shared dev server (ui tiers) ----------
 const APP_URL = process.env.FLUX_URL || "http://127.0.0.1:1420/";
-const needsServer = run.some((s) => ["ui", "ui-extra"].includes(tierOf.get(s)));
+const needsServer = run.some((s) => ["ui", "ui-extra", "scale"].includes(tierOf.get(s)));
 const needsBuild = run.filter((s) => ["bundle", "startup"].includes(tierOf.get(s)));
 let ownedServer = null;
 

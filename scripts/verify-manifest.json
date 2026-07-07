@@ -128,6 +128,7 @@
       "verify-w5-lifecycle.mjs",
       "verify-slide-export.ts"
     ],
+    "scale": ["verify-scale-library.mjs", "verify-scale-reader.mjs"],
     "bundle": ["verify-w13-cli.mjs"],
     "startup": ["verify-startup.mjs"],
     "electron": [
