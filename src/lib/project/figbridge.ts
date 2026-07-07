@@ -247,11 +247,15 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
   // only derive a label for figures that don't have one yet (F7 label stability —
   // otherwise renaming a figure would silently break its @fig-… references).
   const prevLabels: Record<string, string> = {};
+  const prevKinds: Record<string, "main" | "supplementary"> = {};
   try {
     const ip = joinPath(root, SUB, "index.json");
     if (await fig.exists(ip)) {
       const prev = JSON.parse(await fig.readText(ip)) as FigIndexFile;
-      for (const pf of prev.figures ?? []) if (pf.label) prevLabels[pf.id] = pf.label;
+      for (const pf of prev.figures ?? []) {
+        if (pf.label) prevLabels[pf.id] = pf.label;
+        if (pf.kind === "main" || pf.kind === "supplementary") prevKinds[pf.id] = pf.kind;
+      }
     }
   } catch {
     /* no prior index — derive fresh labels below */
@@ -266,7 +270,9 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
       name: f.name,
       label: prevLabels[f.id] ?? `fig-${slugify(f.name || f.id)}`,
       order: i + 1,
-      kind: "main",
+      // An agent can mark a figure supplementary (flux-core preserves it) — the
+      // GUI save must not silently revert it to "main".
+      kind: prevKinds[f.id] ?? "main",
       canvas: f.canvasId,
       caption: captionById[f.id] ?? "",
     })),

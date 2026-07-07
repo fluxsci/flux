@@ -23,6 +23,7 @@
       "verify-p4-slide.ts",
       "verify-p5-library.ts",
       "verify-p5-reader-find.ts",
+      "verify-paper-refnums.ts",
       "verify-pdfidentify.ts",
       "verify-r1-hlgeom.ts",
       "verify-r3-agent.ts",

@@ -24,7 +24,7 @@
     closeAllPanes,
   } from "./marginPanes";
 
-  let { host }: { host: MarginHost } = $props();
+  let { host, paused = false }: { host: MarginHost; paused?: boolean } = $props();
 
   let rootEl = $state<HTMLElement | undefined>(undefined);
 
@@ -115,7 +115,7 @@
       host.focusEditor();
     }
   }}>
-  <DynamicBackground sourceId={$settings.paperMarginScene} seed={$bgSeed} />
+  <DynamicBackground sourceId={$settings.paperMarginScene} seed={$bgSeed} {paused} />
   {#if $openPanes.length}
     <div class="stack" onfocusin={trackActive}>
       {#each $openPanes as p (p.key)}

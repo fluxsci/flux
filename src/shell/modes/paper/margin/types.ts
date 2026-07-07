@@ -36,6 +36,9 @@ export interface CitationGroup {
 export interface MarginHost {
   readonly view: EditorView | undefined;
   readonly latest: string;
+  /** The 150ms-debounced mirror of `latest` (PAP-7) — anything that runs whole-doc
+   *  regexes (Stats, TOC-ish views) reads THIS, never the per-keystroke `latest`. */
+  readonly latestIdle: string;
   readonly citedKeys: Set<string>;
   readonly figures: FigureRef[];
   /** The project's cited subset (references/library.bib) — the bibliography. */

@@ -11,6 +11,7 @@ import { bibEntry, type BibEntry } from "../scholar/bib";
 import { journalCss } from "./journal";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "../science/grammar";
 import { EMBED_RE, parseEmbedAttrs, cssWidth } from "../science/figureAttrs";
+import { scanRefNumbers, TBL_CAPTION_RE, type RefNumbers } from "../science/refNumbers";
 import {
   buildCitationOrdinals,
   collapseOrdinals,
@@ -51,7 +52,11 @@ async function getYaml(): Promise<any> {
 // attr tail; width= is honored in the emitted HTML (and Quarto DOCX reads the
 // .qmd attrs natively, so all exports agree).
 const FIG_EMBED = EMBED_RE;
-const TBL_CAPTION = /^\s*:\s+(.*?)\s*\{#(tbl-[A-Za-z0-9_-]+)\}\s*$/;
+// One numbering rule with the editor (science/refNumbers): only labeled tables
+// number, in appearance order, resolved from THIS text's own pre-scan — so the
+// exported caption and the exported @tbl text can never disagree, and a headless
+// render (agent, no editor open) numbers identically.
+const TBL_CAPTION = TBL_CAPTION_RE;
 // PAP-19: grammar shared with the editor chips (science/grammar). PAP-14: only fig/tbl resolve to
 // a number; @sec-/@eq- fall through to plain text but isCrossrefKey still lists sec|eq so they
 // aren't mis-linked as citations either.
@@ -78,15 +83,18 @@ interface CiteCtx {
   ordinals: Map<string, number>;
   /** ordinal → key (for linking collapsed segments to their first entry). */
   keyOf: Map<number, string>;
+  /** Appearance-order numbers for labeled tables/equations (shared editor rule). */
+  refNums: RefNumbers;
 }
 
 function makeCiteCtx(style: CitationStyle, body: string): CiteCtx {
   const cited = new Set<string>();
-  if (style !== "numeric") return { cited, style, ordinals: new Map(), keyOf: new Map() };
+  const refNums = scanRefNumbers(body);
+  if (style !== "numeric") return { cited, style, ordinals: new Map(), keyOf: new Map(), refNums };
   const { map } = buildCitationOrdinals(body, (k) => !!bibEntry(k));
   const keyOf = new Map<number, string>();
   for (const [k, n] of map) keyOf.set(n, k);
-  return { cited, style, ordinals: map, keyOf };
+  return { cited, style, ordinals: map, keyOf, refNums };
 }
 
 /** Numeric in-text form for a key group: `[3,5,9–14]` (outer brackets literal,
@@ -150,6 +158,10 @@ function transformProse(line: string, ctx: CiteCtx): string {
   line = line.replace(CROSSREF, (full) => {
     const label = full.slice(1);
     const prefix = label.slice(0, label.indexOf("-"));
+    if (prefix === "tbl") {
+      const n = ctx.refNums.tbl.get(label);
+      return n != null ? `[Table ${n}](#${label})` : full;
+    }
     const r = resolveFigure(label);
     const word = refKindWord(prefix);
     return r ? `[${word} ${r.number}](#${label})` : full;
@@ -189,7 +201,6 @@ function preprocess(body: string, ctx: CiteCtx): { transformed: string; blocks: 
   let inCallout = false;
   let calloutType = "";
   let calloutLines: string[] = [];
-  let tableCount = 0;
   let tok = 0;
 
   for (const raw of lines) {
@@ -261,14 +272,17 @@ function preprocess(body: string, ctx: CiteCtx): { transformed: string; blocks: 
     }
     m = TBL_CAPTION.exec(raw);
     if (m) {
-      tableCount++;
+      // Numbered from the shared pre-scan (labeled + attached-to-a-table only) so the
+      // caption and every @tbl reference in the same export agree by construction. A
+      // stray caption line (no table above it) renders unnumbered.
+      const n = ctx.refNums.tbl.get(m[2]);
       const token = `FLUXBLOCK${tok++}X`;
       out.push("");
       out.push(token);
       out.push("");
       blocks.push({
         token,
-        html: `<p class="cap" id="${esc(m[2])}"><b>Table ${tableCount}.</b> __CAP${capStash.length}__</p>`,
+        html: `<p class="cap" id="${esc(m[2])}">${n != null ? `<b>Table ${n}.</b> ` : ""}__CAP${capStash.length}__</p>`,
       });
       capStash.push(m[1]); // PAP-6: caption counter, not blocks.length (see the figure branch)
       continue;

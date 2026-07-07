@@ -167,8 +167,14 @@ function build(state: EditorState): DecorationSet {
       n++;
       continue;
     }
-    count++;
-    if (parsed.label) numbered.push({ label: parsed.label, number: count });
+    // Quarto semantics (shared rule — science/refNumbers.ts): only LABELED tables
+    // participate in numbering. The export counts the same way, so a doc mixing
+    // plain layout tables with formal `: Caption {#tbl-…}` tables can no longer
+    // show one number in the editor and another in the exported caption.
+    if (parsed.label) {
+      count++;
+      numbered.push({ label: parsed.label, number: count });
+    }
     const fromLine = state.doc.lineAt(parsed.from).number;
     const toLine = state.doc.lineAt(parsed.to).number;
     for (let i = fromLine; i <= toLine; i++) {

@@ -19,7 +19,12 @@
   import { makeRng, type Rng } from "../../../../lib/ambient/core/prng";
   import { bgSourceById, type BgField, type BgRect } from "./bgSources";
 
-  let { sourceId, seed }: { sourceId: string; seed: string } = $props();
+  // `paused` = the whole PANE is hidden (keep-alive keeps hidden modes mounted, and
+  // hidden elements still get rAF ticks) — nobody can stare into a hidden margin, so
+  // the loop stops cold and resumes with a fresh timestamp (no dt jump / fast-forward).
+  // This is UNRELATED to reduce-motion, which deliberately never stills this canvas
+  // (see the loop comment below).
+  let { sourceId, seed, paused = false }: { sourceId: string; seed: string; paused?: boolean } = $props();
 
   interface Sprite {
     off: HTMLCanvasElement;
@@ -57,6 +62,12 @@
   let schedRng: Rng = makeRng("init");
   let ghost: { off: HTMLCanvasElement; w: number; h: number; age: number } | null = null;
   let raf = 0;
+  let startLoop = () => {};
+  let stopLoop = () => {};
+  $effect(() => {
+    if (paused) stopLoop();
+    else startLoop();
+  });
 
   // Dev-only perf rings, read by scripts/verify-margin-bg.mjs.
   const frames: number[] = []; // rAF-to-rAF deltas (ms)
@@ -264,7 +275,16 @@
       }
       raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
+    stopLoop = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    startLoop = () => {
+      if (raf) return;
+      last = performance.now(); // resume without a dt jump
+      raf = requestAnimationFrame(tick);
+    };
+    if (!paused) startLoop();
 
     if (import.meta.env.DEV) {
       const w = window as unknown as { __fluxMargin?: Record<string, unknown> };

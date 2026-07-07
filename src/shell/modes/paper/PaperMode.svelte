@@ -22,7 +22,7 @@
   import { formattingKeymap } from "./editing/keymap";
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
-  import { setEmbedWidth, EMBED_RE } from "./science/figureAttrs";
+  import { setEmbedWidth, EMBED_RE, escapeEmbedCaption } from "./science/figureAttrs";
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
   import { citationStyle, citationStyleOf } from "./scholar/citeNumbering";
@@ -93,7 +93,9 @@
   import { requestRefReveal } from "./margin/refReveal";
   import HoverCard from "./scholar/HoverCard.svelte";
 
-  let { focused = false }: { focused?: boolean } = $props();
+  // `active` (W16): false when this pane is kept-alive but hidden — the ambient
+  // margin background pauses (a hidden canvas still gets rAF ticks otherwise).
+  let { focused = false, active = true }: { focused?: boolean; active?: boolean } = $props();
 
   const SEED = `# Introduction\n\nStart writing…\n`;
   const pm = get(projectModel);
@@ -626,7 +628,7 @@
     if (!view) return;
     const pos = view.state.selection.main.head;
     const line = view.state.doc.lineAt(pos);
-    const cap = ref.caption || ref.name || "";
+    const cap = escapeEmbedCaption(ref.caption || ref.name || "");
     const embed = `![${cap}](../fig/renders/${ref.id}.svg){#${ref.label}}`;
     let from: number, to: number, insert: string, anchor: number;
     if (line.text.trim() === "") {
@@ -673,7 +675,9 @@
       if (!m) continue;
       const r = resolveFigure(m[3]);
       if (!r) continue;
-      const want = r.ref.caption || r.ref.name || "";
+      // Compare/write the ESCAPED form — the raw group is what sits in the line, and
+      // writing unescaped text would both loop (never equal) and re-break EMBED_RE.
+      const want = escapeEmbedCaption(r.ref.caption || r.ref.name || "");
       if (want === m[1]) continue;
       const lead = /^\s*/.exec(line.text)![0].length;
       const from = line.from + lead + 2; // just past "!["
@@ -1250,6 +1254,9 @@
     get latest() {
       return latest;
     },
+    get latestIdle() {
+      return latestIdle;
+    },
     get citedKeys() {
       return citedKeys;
     },
@@ -1504,7 +1511,7 @@
           onpointerdown={startDmDrag}>
           <span class="bar"></span>
         </div>
-        <DynamicMargin host={marginHost} />
+        <DynamicMargin host={marginHost} paused={!active} />
       </div>
     {/if}
   </div>

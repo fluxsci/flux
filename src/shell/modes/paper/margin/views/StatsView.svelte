@@ -5,7 +5,9 @@
   let { host }: { host: MarginHost; margin: MarginApi } = $props();
 
   const stats = $derived.by(() => {
-    const body = stripFrontMatter(host.latest);
+    // latestIdle (the 150ms PAP-7 mirror), NOT latest: with this pane open, five
+    // whole-doc regexes per keystroke would tax the typing hot path.
+    const body = stripFrontMatter(host.latestIdle);
     const words = (body.match(/\S+/g) ?? []).length;
     const sentences = (body.match(/[.!?]+(?:\s|$)/g) ?? []).length;
     const paras = body.split(/\n\s*\n/).filter((s) => s.trim() && !/^#{1,6}\s/.test(s.trim())).length;

@@ -18,7 +18,7 @@ import { StateField, type EditorState, type Range } from "@codemirror/state";
 import { resolveFigure, renderFigureSvg } from "../scholar/figures";
 import { embedHandlers } from "./chipContext";
 import { refreshChips } from "./chips";
-import { EMBED_RE, parseEmbedAttrs, widthFraction, cssWidth } from "./figureAttrs";
+import { EMBED_RE, parseEmbedAttrs, widthFraction, cssWidth, unescapeEmbedCaption } from "./figureAttrs";
 
 // The usable width of the art card: the 72ch/17px serif measure (~640px) minus
 // the card's own chrome (2×18px padding + borders). Only an ESTIMATE for
@@ -239,7 +239,8 @@ function build(state: EditorState): DecorationSet {
       deco.push(Decoration.line({ class: "cm-flux-embedsrc" }).range(line.from));
       deco.push(
         Decoration.widget({
-          widget: new FigureEmbedWidget(m[3], m[1], m[4]),
+          // The caption group carries escaped `\[ \] \\` — display the real text.
+          widget: new FigureEmbedWidget(m[3], unescapeEmbedCaption(m[1]), m[4]),
           block: true,
           side: 1, // a block AFTER the source line — never replaces text
         }).range(line.to),
