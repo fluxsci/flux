@@ -133,7 +133,9 @@ assert(/export function ask\(/.test(ad) && /pendingAsks/.test(ad), "exposes ask(
 console.log("\nR3 — ReaderMode/PdfView routing (source):");
 const rm = read("src/shell/modes/reader/ReaderMode.svelte");
 assert(/async function askAgent\(/.test(rm) && /agentDrawer\?\.ask\(/.test(rm), "askAgent opens the drawer and prefills the question");
-assert(/onAsk=\{\(\) => askClaudeAbout\(popAnn!\)\}/.test(rm), "popover Ask Claude routes the highlight into the session");
+// The popover annotation may be passed as `popAnn!` or a pinned `{@const ann}` — either
+// wires the highlight into askClaudeAbout; assert the routing, not the variable name.
+assert(/onAsk=\{\(\) => askClaudeAbout\(\w+!?\)\}/.test(rm), "popover Ask Claude routes the highlight into the session");
 assert(/onAskSelection=\{\(text, page\)/.test(rm), "selection ✦ routes the passage into the session");
 assert(/paper=\{\$readerKey \? \{ citekey: \$readerKey, title: entry\?\.title \} : null\}/.test(rm), "drawer receives the open paper");
 const pv = read("src/shell/modes/reader/PdfView.svelte");
