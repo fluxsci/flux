@@ -3,6 +3,10 @@
   // so it persists across Library mount/unmount within one session — that's what lets us show the
   // summary of a run that FINISHED while the user was in another mode, exactly once, on return.
   let shownFetchSeq = 0;
+  // The run-seq of the last assign-inbox scan whose summary we've surfaced (module-scoped, same
+  // rationale as shownFetchSeq). Also gates the once-per-session auto-scan on Library mount.
+  let shownAssignSeq = 0;
+  let assignAutoScanned = false;
 </script>
 
 <script lang="ts">
@@ -43,6 +47,7 @@
   import { fetchPdfForEntry, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
   import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure } from "../../../lib/references/itemsBridge";
   import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
+  import { assignJob, countInbox } from "../../../lib/references/assignJob.svelte";
   import { safeKey, fetchOutcome, type FetchFailure, type FetchOutcome } from "../../../lib/references/items";
 
   let { focused = true }: { focused?: boolean } = $props();
@@ -77,6 +82,10 @@
   // PDF acquisition (FluxFinder) — which keys have a PDF on disk + fetch progress.
   let pdfKeys = $state.raw<Set<string>>(new Set());
   let fetchingKey = $state(""); // citekey currently fetching (per-row)
+  // "Assign PDFs" watched inbox (~/FluxLib/pdfs_to_assign/) — count of pending files + the
+  // module-level scan job (survives mode switches, mirrors pdfFetchJob).
+  let inboxCount = $state(0);
+  const assigning = $derived(assignJob.running);
   // The bulk "Get all PDFs" run lives in a module-level job (pdfFetchJob) so it survives
   // navigating away from Library; these mirror it for this view's button/row states.
   const fetchingAll = $derived(pdfFetchJob.running);
@@ -320,6 +329,15 @@
       .then(reload)
       .catch(() => (loading = false));
     void refreshProxy();
+    // Startup scan: on the first Library mount of the session, auto-process anything already in
+    // the watched inbox. Re-mounts only re-scan if new files arrived (processed files are removed).
+    void countInbox().then((n) => {
+      inboxCount = n;
+      if (n > 0 && !assignAutoScanned && !assignJob.running) {
+        assignAutoScanned = true;
+        void runAssign();
+      }
+    });
     let first = true;
     return fluxLibRevision.subscribe(() => {
       if (first) {
@@ -350,6 +368,38 @@
       [pdfKeys, failures] = await Promise.all([listPdfKeys(), listFailures()]);
     })();
   });
+
+  // Assign-inbox scan finished (here or while away) → surface a summary + re-list disk/library.
+  $effect(() => {
+    if (assignJob.running) return;
+    const seq = assignJob.runSeq;
+    if (seq <= shownAssignSeq) return;
+    shownAssignSeq = seq;
+    const r = assignJob.lastResults;
+    if (r.length) {
+      const a = assignJob.attached + assignJob.added;
+      const bits = [a ? `${a} filed` : "", assignJob.discarded ? `${assignJob.discarded} already had a PDF` : "", assignJob.unresolved ? `${assignJob.unresolved} unresolved` : ""].filter(Boolean);
+      pushToast(assignJob.unresolved ? "error" : "success", `Assigned ${r.length} PDF${r.length === 1 ? "" : "s"}`, {
+        detail: bits.join(" · ") + (assignJob.unresolved ? " — see pdfs_to_assign/_unresolved/" : ""),
+        ttl: 6000,
+      });
+    }
+    void (async () => {
+      inboxCount = await countInbox();
+      await reload();
+    })();
+  });
+
+  /** Kick a scan of the watched inbox (or cancel a running one). */
+  async function runAssign() {
+    if (assignJob.running) {
+      assignJob.cancel();
+      return;
+    }
+    inboxCount = await countInbox();
+    if (inboxCount === 0) return;
+    await assignJob.start();
+  }
 
   async function toggleKeys() {
     if (!keysOpen) {
@@ -957,6 +1007,21 @@
           PDFs ✓
         {/if}
       </button>
+      {#if inboxCount > 0 || assigning}
+        <button
+          class="enrich assignpdfs"
+          class:busy={assigning}
+          onclick={() => void runAssign()}
+          title={assigning
+            ? "Click to stop the running scan"
+            : `Identify each PDF in ~/FluxLib/pdfs_to_assign/ from its content and file it into the matching reference (add the reference if it's new). ${inboxCount} waiting.`}>
+          {#if assigning}
+            Assigning {assignJob.done}/{assignJob.total} ✕
+          {:else}
+            Assign PDFs ({inboxCount})
+          {/if}
+        </button>
+      {/if}
       {#if failedKeys.size > 0 && !fetchingAll}
         <button
           class="enrich retryfailed"

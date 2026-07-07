@@ -13,6 +13,7 @@
   import { warmModes, ALL_MODES } from "./modeRegistry";
   import { addUrlOrDoiToLibrary } from "./modes/paper/scholar/bibLoad";
   import { pdfFetchJob } from "../lib/references/pdfFetchJob.svelte";
+  import { assignJob } from "../lib/references/assignJob.svelte";
 
   // Web capture (flux://): the main process delivers { doi?, url? } here regardless
   // of the active mode/view — we add it to the global FluxLib and toast the result.
@@ -112,6 +113,15 @@
         >{pdfFetchJob.phase === "proxy" ? "Library PDFs" : "PDFs"}
         {pdfFetchJob.done}/{pdfFetchJob.total}</span>
       <button class="fc-cancel" title="Stop fetching" onclick={() => pdfFetchJob.cancel()}>✕</button>
+    </div>
+  {/if}
+
+  <!-- Global "Assign PDFs" progress chip — the inbox scan is also a module-level job. -->
+  {#if assignJob.running}
+    <div class="fetch-chip" role="status" transition:fade={{ duration: DUR.quick }}>
+      <span class="fc-spin" aria-hidden="true"></span>
+      <span class="fc-label">Assigning {assignJob.done}/{assignJob.total}</span>
+      <button class="fc-cancel" title="Stop assigning" onclick={() => assignJob.cancel()}>✕</button>
     </div>
   {/if}
 </div>

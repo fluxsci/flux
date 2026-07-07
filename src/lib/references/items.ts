@@ -39,6 +39,13 @@ export function safeKey(key: string): string {
 
 export const itemsBase = (lib: string): string => j(lib, ITEMS_DIR);
 
+/** The "watched inbox": drop a full-text PDF here and `assignPdfs` identifies the paper and
+ *  files it into items/<key>/paper.pdf. `_unresolved/` holds PDFs that couldn't be identified
+ *  with confidence (+ a sidecar note), quarantined for manual handling. */
+export const ASSIGN_INBOX = "pdfs_to_assign";
+export const assignInboxDir = (lib: string): string => j(lib, ASSIGN_INBOX);
+export const assignUnresolvedDir = (lib: string): string => j(lib, ASSIGN_INBOX, "_unresolved");
+
 /** Live FluxReader context (what the human is reading right now) — written by the
  *  reader, read by the get_reading_context MCP tool so an agent can "see" the paper,
  *  page, selection, and highlights. Transient (derived), under .fluxlib/. */
@@ -87,7 +94,7 @@ export const supplementFilePath = (lib: string, key: string, name: string): stri
 /** Provenance for a stored PDF — written alongside it as source.json. */
 export interface SourceInfo {
   key: string; // citekey
-  source: string; // resolver that produced it: "openalex-oa" | "unpaywall" | "europepmc" | "pmc-oa" | "arxiv" | "biorxiv" | "crossref" | "proxy" | "ingest"
+  source: string; // resolver that produced it: "openalex-oa" | "unpaywall" | "europepmc" | "pmc-oa" | "arxiv" | "biorxiv" | "crossref" | "proxy" | "ingest" | "assigned"
   url?: string; // the URL we requested
   finalUrl?: string; // after redirects
   fetchedAt: string; // ISO

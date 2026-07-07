@@ -68,6 +68,7 @@ usage: flux <verb> [root] [args] [--flags]
   keys [--openalex K] [--s2 K] [--mailto M]   show/set API keys (~/FluxLib/keys.json)
   fetch-pdfs [--refresh] [--key K]     download OA PDFs into ~/FluxLib/items/<citekey>/
   ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
+  assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in ~/FluxLib/pdfs_to_assign/
   annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
   add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
@@ -546,6 +547,28 @@ async function main() {
       }
       const r = await core.ingestPdf(file, { key });
       console.error(`✓ ingested ${file} → items/${r.key}/paper.pdf`);
+      break;
+    }
+    case "assign-pdfs": {
+      const dryRun = !!flags["dry-run"];
+      const r = await core.assignPdfs({
+        dryRun,
+        dir: typeof flags.dir === "string" ? flags.dir : undefined,
+        onProgress: (d, t, f) => process.stderr.write(`\r  ${d}/${t}  ${f.slice(0, 48)}`),
+      });
+      process.stderr.write("\n");
+      const verb = dryRun ? "would " : "";
+      for (const it of r.results) {
+        if (it.action === "unresolved") console.error(`  ? ${it.file}  UNRESOLVED — ${it.reason}`);
+        else if (it.action === "discarded") console.error(`  = ${it.file}  ${verb}discard (kept ${it.key}, already has PDF)  ${it.doi}`);
+        else if (it.action === "attached") console.error(`  + ${it.file}  ${verb}attach → ${it.key}  [${it.method}] ${it.doi}`);
+        else console.error(`  ★ ${it.file}  ${verb}add+attach${it.key ? ` → ${it.key}` : ""}  [${it.method}] ${it.doi}`);
+      }
+      console.error(
+        `\n${dryRun ? "DRY RUN — " : "✓ "}${r.total} PDF(s) in ${r.dir}: ` +
+          `${r.attached} attach, ${r.addedAttached} add+attach, ${r.discarded} discard, ${r.unresolved} unresolved` +
+          (dryRun ? " (nothing changed)" : ""),
+      );
       break;
     }
     case "annotations": {

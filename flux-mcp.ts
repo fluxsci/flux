@@ -807,6 +807,33 @@ server.registerTool(
 );
 
 server.registerTool(
+  "assign_pdfs",
+  {
+    description:
+      "Scan the watched inbox ~/FluxLib/pdfs_to_assign/ and file each PDF by identifying it from its OWN content (DOI-first, cross-validated against the paper's title — never the filename): attach to an existing reference lacking a PDF, discard if that reference already has one, or add the reference then attach. PDFs that can't be identified with confidence are moved to pdfs_to_assign/_unresolved/ with a note (never guessed). Pass dryRun:true to report the planned action per file WITHOUT changing anything — recommended first.",
+    inputSchema: { dryRun: z.boolean().optional() },
+  },
+  async ({ dryRun }) => {
+    const s = await core.assignPdfs({ dryRun });
+    const verb = dryRun ? "would " : "";
+    const lines = s.results.map((it) =>
+      it.action === "unresolved"
+        ? `  ? ${it.file} — UNRESOLVED: ${it.reason}`
+        : it.action === "discarded"
+          ? `  = ${it.file} — ${verb}discard (kept ${it.key}, already has a PDF) [${it.doi}]`
+          : it.action === "attached"
+            ? `  + ${it.file} — ${verb}attach → ${it.key} [${it.method}] ${it.doi}`
+            : `  ★ ${it.file} — ${verb}add+attach${it.key ? ` → ${it.key}` : ""} [${it.method}] ${it.doi}`,
+    );
+    return ok(
+      `${dryRun ? "DRY RUN — " : ""}${s.total} PDF(s) in ${s.dir}: ${s.attached} attach, ${s.addedAttached} add+attach, ${s.discarded} discard, ${s.unresolved} unresolved` +
+        (dryRun ? " (nothing changed)" : "") +
+        (lines.length ? "\n" + lines.join("\n") : ""),
+    );
+  },
+);
+
+server.registerTool(
   "get_paper_text",
   {
     description:

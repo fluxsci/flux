@@ -42,4 +42,23 @@ if (import.meta.env?.DEV && typeof window !== "undefined") {
   const w = window as unknown as Record<string, unknown>;
   w.__fluxSeedReaderItem = seedReaderItem;
   w.__fluxSeedReaderSupplement = seedReaderSupplement;
+  // Verify hook: run the renderer's real pdf.js signal extraction over a base64 PDF and
+  // return a serializable summary, so scripts/verify-assign.mjs can prove the in-browser
+  // extractPdfSignals path (getMetadata + text) works — the one piece the Node CLI run can't cover.
+  w.__fluxExtractSignals = async (b64: string) => {
+    const { extractPdfSignals } = await import("../pdf/pdfSignals");
+    const s = await extractPdfSignals(b64ToBytes(b64));
+    return {
+      xmpDoi: s.xmpDoi,
+      infoDoi: s.infoDoi,
+      xmpTitle: s.xmpTitle,
+      infoTitle: s.infoTitle,
+      titleGuess: s.titleGuess,
+      arxivId: s.arxivId,
+      numPages: s.numPages,
+      page1Len: s.page1Text.length,
+      tailLen: s.tailText.length,
+      page1Head: s.page1Text.slice(0, 300),
+    };
+  };
 }
