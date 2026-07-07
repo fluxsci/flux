@@ -31,6 +31,9 @@ import {
   intrinsicSize,
 } from "./assets";
 import { figureToSvg } from "./export";
+import { encodeTiff } from "./figure/tiff";
+import { injectPngDpi } from "./figure/pngDpi";
+import { planExport, describeSize } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
 import { cachePlot, clearPlots, plotManifests, plotRecipes } from "./plot/store";
 import { plotToSvgMarkup } from "./plot/export";
@@ -443,8 +446,11 @@ export async function exportFigureSvg(fig: Figure) {
   }
 }
 
-// Rasterize the figure's SVG to PNG at the chosen scale via an offscreen canvas.
-async function svgToPng(svg: string, w: number, h: number, scale: number): Promise<Uint8Array> {
+// Rasterize a figure's SVG to an offscreen canvas at explicit pixel dimensions. When
+// `transparent`, the background rect is dropped and the canvas keeps its alpha; otherwise
+// it's flood-filled (the figure's background, or white) so the raster is opaque.
+async function rasterizeFigure(fig: Figure, pxW: number, pxH: number, transparent: boolean): Promise<HTMLCanvasElement> {
+  const svg = transparent ? buildSvg({ ...fig, background: "transparent" }) : buildSvg(fig);
   const blob = new Blob([svg], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   try {
@@ -455,27 +461,71 @@ async function svgToPng(svg: string, w: number, h: number, scale: number): Promi
       img.src = url;
     });
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(w * scale));
-    canvas.height = Math.max(1, Math.round(h * scale));
+    canvas.width = Math.max(1, Math.round(pxW));
+    canvas.height = Math.max(1, Math.round(pxH));
     const ctx = canvas.getContext("2d")!;
+    if (!transparent) {
+      ctx.fillStyle = fig.background && fig.background !== "transparent" ? fig.background : "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const out = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
-    if (!out) throw new Error("PNG encode failed");
-    return new Uint8Array(await out.arrayBuffer());
+    return canvas;
   } finally {
     URL.revokeObjectURL(url);
   }
 }
 
+async function canvasToPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
+  const out = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+  if (!out) throw new Error("PNG encode failed");
+  return new Uint8Array(await out.arrayBuffer());
+}
+
+// Quick PNG export (⌘K) — a plain pixel multiple, no physical sizing.
 export async function exportFigurePng(fig: Figure, scale = 4) {
   const path = await window.fig.save(`${fig.name}.png`, [{ name: "PNG", extensions: ["png"] }]);
   if (!path) return;
   try {
-    const bytes = await svgToPng(buildSvg(fig), fig.width, fig.height, scale);
-    await window.fig.writeFile(path, bytes);
+    const canvas = await rasterizeFigure(fig, fig.width * scale, fig.height * scale, false);
+    await window.fig.writeFile(path, await canvasToPng(canvas));
     pushToast("success", `Exported ${basename(path)}`);
   } catch (e) {
     pushToast("error", "PNG export failed", { detail: errMsg(e) });
+  }
+}
+
+export interface JournalExportOpts {
+  format: "png" | "tiff";
+  mm: number; // physical width
+  dpi: number;
+  transparent?: boolean;
+}
+
+// 3.1 Journal-spec raster: render at the physical width (mm) × dpi the publisher asks for,
+// resolution embedded (PNG pHYs / TIFF XResolution) so the placed figure prints at exactly
+// that column width. TIFF (uncompressed baseline) is the format most journals require. This
+// half produces the bytes (pure of any dialog/disk) so it's browser-testable directly.
+export async function renderFigureBytes(fig: Figure, opts: JournalExportOpts): Promise<Uint8Array> {
+  const plan = planExport(fig.width, fig.height, opts.mm, opts.dpi);
+  const canvas = await rasterizeFigure(fig, plan.pxWidth, plan.pxHeight, !!opts.transparent);
+  if (opts.format === "tiff") {
+    const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    return encodeTiff(data, canvas.width, canvas.height, { dpi: opts.dpi, alpha: !!opts.transparent });
+  }
+  return injectPngDpi(await canvasToPng(canvas), opts.dpi);
+}
+
+export async function exportFigureJournal(fig: Figure, opts: JournalExportOpts) {
+  const ext = opts.format;
+  const path = await window.fig.save(`${fig.name}.${ext}`, [{ name: ext.toUpperCase(), extensions: [ext] }]);
+  if (!path) return;
+  try {
+    const plan = planExport(fig.width, fig.height, opts.mm, opts.dpi);
+    const bytes = await renderFigureBytes(fig, opts);
+    await window.fig.writeFile(path, bytes);
+    pushToast("success", `Exported ${basename(path)} · ${describeSize(plan.pxWidth, plan.pxHeight, opts.dpi)}`);
+  } catch (e) {
+    pushToast("error", `${ext.toUpperCase()} export failed`, { detail: errMsg(e) });
   }
 }
 

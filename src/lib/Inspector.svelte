@@ -5,7 +5,8 @@
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
-  import { exportFigurePng, exportFigureSvg, exportFigurePdf } from "./io";
+  import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
+  import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize } from "./figure/journalSizing";
   import { applyAutoWidth } from "./text";
   import { applyPartStyle } from "./colors";
   import { plotManifests } from "./plot/store";
@@ -96,6 +97,14 @@
   }
 
   let dpi = 300;
+  // 3.1 journal-spec export: physical width (mm) + dpi + transparency.
+  let widthPresetId = "double"; // matches JOURNAL_PRESETS Generic → double (190 mm)
+  let customMm = 90;
+  let journalDpi = 300;
+  let transparentBg = false;
+  const ALL_WIDTHS = JOURNAL_PRESETS.flatMap((g) => g.widths);
+  $: selectedMm = widthPresetId === "custom" ? Math.max(1, customMm) : (ALL_WIDTHS.find((w) => w.id === widthPresetId)?.mm ?? 190);
+  $: journalPlan = fig ? planExport(fig.width, fig.height, selectedMm, journalDpi) : null;
 
   function updateSelected(fn: (e: Element) => void) {
     const ids = get(selection);
@@ -438,17 +447,40 @@
     <!-- EXPORT -->
     <section>
       <h4>Export “{fig.name}”</h4>
-      <label class="full">PNG resolution
-        <select bind:value={dpi}>
-          <option value={150}>150 dpi</option>
-          <option value={300}>300 dpi</option>
-          <option value={600}>600 dpi</option>
+      <div class="row">
+        <button on:click={() => exportFigurePng(fig, dpi / 96)} title="Quick PNG at {dpi} dpi (design px × {(dpi / 96).toFixed(1)})">PNG</button>
+        <button on:click={() => exportFigureSvg(fig)} title="Vector SVG">SVG</button>
+        <button on:click={() => exportFigurePdf(fig)} title="Vector PDF">PDF</button>
+      </div>
+
+      <h4 class="sub">Journal-spec raster</h4>
+      <label class="full">Width
+        <select bind:value={widthPresetId}>
+          {#each JOURNAL_PRESETS as g}
+            <optgroup label={g.family}>
+              {#each g.widths as w}<option value={w.id}>{w.label}</option>{/each}
+            </optgroup>
+          {/each}
+          <option value="custom">Custom…</option>
         </select>
       </label>
+      {#if widthPresetId === "custom"}
+        <label class="full">Width (mm)
+          <input type="number" min="1" step="1" bind:value={customMm} />
+        </label>
+      {/if}
+      <label class="full">Resolution
+        <select bind:value={journalDpi}>
+          {#each DPI_CHOICES as d}<option value={d}>{d} dpi</option>{/each}
+        </select>
+      </label>
+      <label class="chk"><input type="checkbox" bind:checked={transparentBg} /> Transparent background</label>
+      {#if journalPlan}
+        <p class="sizeread">{describeSize(journalPlan.pxWidth, journalPlan.pxHeight, journalDpi)} · {journalPlan.pxWidth}×{journalPlan.pxHeight} px</p>
+      {/if}
       <div class="row">
-        <button on:click={() => exportFigurePng(fig, dpi / 96)}>PNG</button>
-        <button on:click={() => exportFigureSvg(fig)}>SVG</button>
-        <button on:click={() => exportFigurePdf(fig)}>PDF</button>
+        <button class="prim" on:click={() => exportFigureJournal(fig, { format: "tiff", mm: selectedMm, dpi: journalDpi, transparent: transparentBg })}>TIFF</button>
+        <button class="prim" on:click={() => exportFigureJournal(fig, { format: "png", mm: selectedMm, dpi: journalDpi, transparent: transparentBg })}>PNG</button>
       </div>
     </section>
   {/if}
@@ -474,6 +506,21 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     opacity: 0.6;
+  }
+  h4.sub {
+    margin-top: 12px;
+    font-size: 10px;
+  }
+  .sizeread {
+    margin: 2px 0 6px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    opacity: 0.6;
+  }
+  button.prim {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+    color: var(--c-on-accent);
   }
   .row {
     display: flex;

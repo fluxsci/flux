@@ -1,0 +1,129 @@
+// 3.1 gate (pure) — journal-spec figure export core: the baseline TIFF encoder (structure
+// + resolution tags + pixel round-trip), the PNG pHYs DPI stamp, and the mm↔px sizing.
+//   Run: npx tsx scripts/verify-figure-export.ts
+import { encodeTiff } from "../src/lib/figure/tiff";
+import { injectPngDpi } from "../src/lib/figure/pngDpi";
+import { mmToPx, planExport, describeSize, MM_PER_INCH } from "../src/lib/figure/journalSizing";
+
+let fails = 0;
+const ok = (c: boolean, name: string, extra = "") => {
+  console.log(`${c ? "✓" : "✗"} ${name}${c || !extra ? "" : ` — ${extra}`}`);
+  if (!c) fails++;
+};
+
+// --- a tiny hand TIFF-decoder (little-endian baseline) for the round-trip -----------------
+function decodeTiff(b: Uint8Array) {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const LE = dv.getUint16(0, true) === 0x4949;
+  const magic = dv.getUint16(2, LE);
+  const ifd = dv.getUint32(4, LE);
+  const n = dv.getUint16(ifd, LE);
+  const tags: Record<number, { type: number; count: number; value: number }> = {};
+  for (let i = 0; i < n; i++) {
+    const p = ifd + 2 + i * 12;
+    tags[dv.getUint16(p, LE)] = { type: dv.getUint16(p + 2, LE), count: dv.getUint32(p + 4, LE), value: dv.getUint32(p + 8, LE) };
+  }
+  const rational = (off: number) => dv.getUint32(off, LE) / dv.getUint32(off + 4, LE);
+  return { LE, magic, tags, rational, dv };
+}
+
+// --- TIFF: opaque RGB round-trip ---------------------------------------------------------
+{
+  const w = 2;
+  const h = 2;
+  // 4 distinct pixels; alpha varies (should be dropped in opaque mode).
+  const rgba = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 255, 10, 20, 30, 0]);
+  const tif = encodeTiff(rgba, w, h, { dpi: 300 });
+  const d = decodeTiff(tif);
+  ok(d.LE && d.magic === 42, "TIFF little-endian header + magic 42");
+  ok(d.tags[256].value === w && d.tags[257].value === h, "ImageWidth/Length correct");
+  ok(d.tags[259].value === 1, "Compression = none");
+  ok(d.tags[262].value === 2, "Photometric = RGB");
+  ok(d.tags[277].value === 3, "SamplesPerPixel = 3 (opaque drops alpha)");
+  ok(d.tags[296].value === 2, "ResolutionUnit = inch");
+  ok(d.rational(d.tags[282].value) === 300 && d.rational(d.tags[283].value) === 300, "X/YResolution = 300");
+  ok(d.tags[338] === undefined, "no ExtraSamples when opaque");
+  // pixel round-trip (RGB only)
+  const strip = d.tags[273].value;
+  const got = [...tif.slice(strip, strip + w * h * 3)];
+  const want = [255, 0, 0, 0, 255, 0, 0, 0, 255, 10, 20, 30];
+  ok(JSON.stringify(got) === JSON.stringify(want), "RGB pixels round-trip", JSON.stringify(got));
+}
+
+// --- TIFF: transparent RGBA ---------------------------------------------------------------
+{
+  const rgba = new Uint8Array([1, 2, 3, 200, 4, 5, 6, 100]);
+  const tif = encodeTiff(rgba, 2, 1, { dpi: 600, alpha: true });
+  const d = decodeTiff(tif);
+  ok(d.tags[277].value === 4, "SamplesPerPixel = 4 with alpha");
+  ok(d.tags[338]?.value === 2, "ExtraSamples = unassociated alpha");
+  ok(d.rational(d.tags[282].value) === 600, "XResolution = 600");
+  const strip = d.tags[273].value;
+  ok(JSON.stringify([...tif.slice(strip, strip + 8)]) === JSON.stringify([1, 2, 3, 200, 4, 5, 6, 100]), "RGBA pixels round-trip");
+}
+
+// --- PNG pHYs injection ------------------------------------------------------------------
+function findPhys(png: Uint8Array): { ppmX: number; ppmY: number; unit: number; count: number } | null {
+  const dv = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  let p = 8;
+  let found: { ppmX: number; ppmY: number; unit: number } | null = null;
+  let count = 0;
+  let afterIhdr = false;
+  let physRightAfterIhdr = false;
+  while (p + 8 <= png.length) {
+    const len = dv.getUint32(p);
+    const type = String.fromCharCode(png[p + 4], png[p + 5], png[p + 6], png[p + 7]);
+    if (type === "pHYs") {
+      count++;
+      if (afterIhdr && found === null) physRightAfterIhdr = true;
+      found = { ppmX: dv.getUint32(p + 8), ppmY: dv.getUint32(p + 12), unit: png[p + 16] };
+    }
+    if (type === "IHDR") afterIhdr = true;
+    else if (type !== "pHYs") afterIhdr = false;
+    if (type === "IEND") break;
+    p += 12 + len;
+  }
+  return found ? { ...found, count, ...(physRightAfterIhdr ? {} : {}) } : null;
+}
+// A minimal valid PNG: signature + IHDR (1x1) + IDAT (empty-ish) + IEND. We don't need it to
+// be decodable — injectPngDpi only walks chunk headers.
+function fakePng(): Uint8Array {
+  const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  const chunk = (type: string, data: number[]) => {
+    const t = [...type].map((c) => c.charCodeAt(0));
+    const len = data.length;
+    return [(len >>> 24) & 255, (len >>> 16) & 255, (len >>> 8) & 255, len & 255, ...t, ...data, 0, 0, 0, 0];
+  };
+  return new Uint8Array([...sig, ...chunk("IHDR", [0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]), ...chunk("IDAT", [1, 2, 3]), ...chunk("IEND", [])]);
+}
+{
+  const png = fakePng();
+  const out = injectPngDpi(png, 300);
+  const phys = findPhys(out);
+  const expectPpm = Math.round(300 / 0.0254);
+  ok(!!phys, "pHYs chunk present after injection");
+  ok(phys?.ppmX === expectPpm && phys?.ppmY === expectPpm, `ppm = round(dpi/0.0254) = ${expectPpm} (${phys?.ppmX})`);
+  ok(phys?.unit === 1, "pHYs unit = metre");
+  // Re-injection replaces, not duplicates.
+  const out2 = injectPngDpi(out, 600);
+  const phys2 = findPhys(out2);
+  ok(phys2?.count === 1, "re-inject replaces the existing pHYs (no duplicate)");
+  ok(phys2?.ppmX === Math.round(600 / 0.0254), "re-inject updates the dpi");
+  // Non-PNG passthrough.
+  const notPng = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  ok(injectPngDpi(notPng, 300) === notPng, "non-PNG returned unchanged");
+}
+
+// --- sizing ------------------------------------------------------------------------------
+{
+  ok(mmToPx(90, 300) === Math.round((90 / MM_PER_INCH) * 300), `mmToPx(90,300) = ${mmToPx(90, 300)}`);
+  ok(mmToPx(MM_PER_INCH, 300) === 300, "1 inch @ 300 dpi = 300 px");
+  const plan = planExport(800, 600, 90, 300);
+  ok(plan.pxWidth === mmToPx(90, 300), "planExport width = mmToPx");
+  ok(Math.abs(plan.pxHeight / plan.pxWidth - 600 / 800) < 0.01, "planExport preserves aspect ratio");
+  ok(Math.abs(plan.scale - plan.pxWidth / 800) < 1e-9, "planExport scale = pxWidth / designWidth");
+  ok(/@ 300 dpi/.test(describeSize(plan.pxWidth, plan.pxHeight, 300)), "describeSize reports dpi");
+}
+
+console.log(fails ? `\n${fails} FAILED` : "\nall green");
+process.exit(fails ? 1 : 0);
