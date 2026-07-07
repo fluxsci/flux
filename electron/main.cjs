@@ -387,7 +387,7 @@ ipcMain.handle("lock:release", (_e, { scope = "project", name }) => {
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
 // SHL-15: a stable V1 respects Chromium's GPU blocklist by default (it exists to avoid
 // crashes on known-bad driver combos) rather than forcing accel over it, and
-// enable-gpu-rasterization is the Chromium-130 default so it's dropped as redundant.
+// enable-gpu-rasterization is a modern-Chromium default so it's dropped as redundant.
 // FORCEGPU=1 restores the old always-force behaviour where the blocklist is overly cautious.
 if (process.env.FORCEGPU === "1") {
   app.commandLine.appendSwitch("ignore-gpu-blocklist");

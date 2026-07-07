@@ -77,7 +77,7 @@ Not yet packaged — planned for a later release.
 
 Build and run Flux from source. The **macOS** walkthrough below takes a clean
 machine all the way to a running app — follow it top to bottom. **Linux** is the
-same, minus the macOS-only notes (skip `xcode-select`; install Node 20 your way).
+same, minus the macOS-only notes (skip `xcode-select`; install Node 22 your way).
 
 ### Build & run locally on macOS
 
@@ -93,8 +93,9 @@ Xcode Command Line Tools (`git`, `codesign`, compilers):
 xcode-select --install
 ```
 
-**Node.js 20 LTS** — important: Flux targets Node 20, and newer "Current" releases
-(23, 24, 26, …) break Electron's binary install. Manage it with
+**Node.js 22 LTS** — important: Flux's build toolchain (Electron 43 + electron-builder)
+requires Node **≥ 22.12**, so use the Node 22 LTS line; older Node (20 and below) can't
+package the app, and odd/non-LTS "Current" releases aren't tested. Manage it with
 [nvm](https://github.com/nvm-sh/nvm). If you don't have nvm yet, install it, then
 **close and reopen Terminal**:
 
@@ -109,19 +110,19 @@ git clone https://github.com/kortdriessen/flux.git
 cd flux
 ```
 
-**2 · Select Node 20** (the repo ships an `.nvmrc`, so this picks 20 automatically):
+**2 · Select Node 22** (the repo ships an `.nvmrc`, so this picks 22 automatically):
 
 ```sh
-nvm install 20      # installs Node 20 if you don't have it
-nvm use 20
-node -v             # must print v20.x — NOT v23/24/26
+nvm install 22      # installs Node 22 if you don't have it
+nvm use 22
+node -v             # must print v22.x (≥ v22.12)
 ```
 
 **3 · Install dependencies + confirm Electron**
 
 ```sh
 npm install
-npx electron --version     # must print v33.x.x
+npx electron --version     # must print v43.x.x
 ```
 
 `npm install` also downloads the Electron app binary; the `electron --version`
@@ -133,7 +134,7 @@ check confirms it landed. A harmless `EBADENGINE` warning during install is fine
 > node node_modules/electron/install.js
 > npx electron --version
 > ```
-> If it still fails, make sure `node -v` is **v20.x**, then
+> If it still fails, make sure `node -v` is **v22.x**, then
 > `rm -rf node_modules && npm install`.
 
 **4 · Run it — live-reload dev loop**
@@ -168,8 +169,8 @@ all that's needed to launch locally. If macOS blocks a built app, right-click �
 
 | Symptom | Fix |
 | --- | --- |
-| `Electron failed to install correctly` | Make sure `node -v` is v20.x, then `node node_modules/electron/install.js` (or `rm -rf node_modules && npm install`) |
-| `node -v` shows 23 / 24 / 26 | `nvm use 20` (run `nvm install 20` first if needed) — newer Node breaks Electron's install |
+| `Electron failed to install correctly` | Make sure `node -v` is v22.x, then `node node_modules/electron/install.js` (or `rm -rf node_modules && npm install`) |
+| `EBADENGINE` / `node -v` is v20 or below | `nvm use 22` (run `nvm install 22` first if needed) — Electron 43's toolchain needs Node ≥ 22.12 |
 | `npm run electron:dev` shows only `[vite]` lines, no window | Make sure you're on a current clone (`git pull`); the dev server is pinned to `127.0.0.1` to fix a macOS hang |
 | `codesign: command not found` | `xcode-select --install` |
 | Built app won't open ("damaged" / unidentified) | `xattr -dr com.apple.quarantine release/mac-arm64/Flux.app`, or right-click → **Open** |
