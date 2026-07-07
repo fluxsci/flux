@@ -12,16 +12,34 @@ export interface SeededItem {
 }
 
 const seeded = new Map<string, SeededItem>();
+// R6: seeded supplements (key → filename → bytes) so the Switch-PDF flow is drivable headlessly.
+const seededSupps = new Map<string, Map<string, Uint8Array>>();
 
 export const seededItem = (key: string): SeededItem | undefined => seeded.get(key);
+export const seededSupplements = (key: string): Map<string, Uint8Array> | undefined => seededSupps.get(key);
 
-export function seedReaderItem(key: string, pdfBase64: string, annotations?: AnnotationFile): void {
-  const bin = atob(pdfBase64);
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  seeded.set(key, { pdf: bytes, annotations: annotations ?? emptyAnnotationFile() });
+  return bytes;
+}
+
+export function seedReaderItem(key: string, pdfBase64: string, annotations?: AnnotationFile): void {
+  seeded.set(key, { pdf: b64ToBytes(pdfBase64), annotations: annotations ?? emptyAnnotationFile() });
+}
+
+export function seedReaderSupplement(key: string, name: string, pdfBase64: string): void {
+  let m = seededSupps.get(key);
+  if (!m) {
+    m = new Map();
+    seededSupps.set(key, m);
+  }
+  m.set(name, b64ToBytes(pdfBase64));
 }
 
 if (import.meta.env?.DEV && typeof window !== "undefined") {
-  (window as unknown as Record<string, unknown>).__fluxSeedReaderItem = seedReaderItem;
+  const w = window as unknown as Record<string, unknown>;
+  w.__fluxSeedReaderItem = seedReaderItem;
+  w.__fluxSeedReaderSupplement = seedReaderSupplement;
 }

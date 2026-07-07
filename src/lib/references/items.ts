@@ -3,7 +3,9 @@
 //
 //   <lib>/items/<citekey>/
 //     paper.pdf            the main PDF (the filesystem IS the source of truth)
-//     supplement-N.<ext>   supplementary materials
+//     supplements/         optional supplementary PDFs (any filename); the reader's
+//                          "Switch PDF" dropdown lists them beside the main paper
+//     supplement-N.<ext>   legacy flat supplementary materials (still counted)
 //     source.json          provenance (where/how the PDF was obtained)
 //     fulltext.txt         extracted text (full-text search + agent context)
 //     annotations.json     highlights/notes (anchored to text; see annotations.ts)
@@ -14,6 +16,7 @@
 
 export const ITEMS_DIR = "items";
 export const PAPER_PDF = "paper.pdf";
+export const SUPPLEMENTS_DIR = "supplements";
 export const SOURCE_JSON = "source.json";
 export const FULLTEXT_TXT = "fulltext.txt";
 export const ANNOTATIONS_JSON = "annotations.json";
@@ -61,6 +64,25 @@ export const annotationsPath = (lib: string, key: string): string => j(itemDir(l
 export const failurePath = (lib: string, key: string): string => j(itemDir(lib, key), FETCH_FAILURE_JSON);
 export const supplementPath = (lib: string, key: string, n: number, ext: string): string =>
   j(itemDir(lib, key), `supplement-${n}.${ext.replace(/^\./, "")}`);
+
+/** The optional per-item supplements folder — arbitrary supplementary PDFs the reader can
+ *  switch to. Populated by hand (attach), the mis-stored-supplement repair, or a future
+ *  auto-capture. */
+export const supplementsDir = (lib: string, key: string): string => j(itemDir(lib, key), SUPPLEMENTS_DIR);
+
+/** Reduce an attached/captured filename to a safe basename inside supplements/ (no path
+ *  separators, no traversal). Keeps the extension so the dropdown can label + filter by type. */
+export function safeSupplementName(name: string): string {
+  const base = String(name || "")
+    .replace(/^.*[\\/]/, "") // drop any directory part
+    .replace(/\.{2,}/g, ".") // no ".." traversal
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f]/g, "") // strip control chars (keep spaces/hyphens for readable labels)
+    .trim();
+  return base || "supplement.pdf";
+}
+export const supplementFilePath = (lib: string, key: string, name: string): string =>
+  j(supplementsDir(lib, key), safeSupplementName(name));
 
 /** Provenance for a stored PDF — written alongside it as source.json. */
 export interface SourceInfo {

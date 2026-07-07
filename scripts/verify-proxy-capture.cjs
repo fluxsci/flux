@@ -13,7 +13,7 @@ const { app, session, BrowserWindow } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
-const { createProxyEngine } = require("../electron/proxyFetch.cjs");
+const { createProxyEngine, isSupplementUrl } = require("../electron/proxyFetch.cjs");
 
 const PROXY_PARTITION = "persist:fluxproxy";
 const keysPath = path.join(os.homedir(), "FluxLib", "keys.json");
@@ -50,7 +50,9 @@ const CASES = [
   ["OUP / Silverchair", "10.1093/cercor/bhv146"],
   ["Wiley (a)", "10.1002/ana.24779"],
   ["Wiley (b)", "10.1111/ejn.12084"],
-  ["AAAS / Science", "10.1126/science.aap8586"],
+  // AAAS/Science: the engine must capture the MAIN TEXT, never the supplement. `notSupp`
+  // asserts the captured finalUrl isn't a downloadSupplement/_sm.pdf link (the fixed bug).
+  ["AAAS / Science", "10.1126/science.aap8586", { notSupp: true }],
   ["PNAS", "10.1073/pnas.1402773111"],
   // Cell Press (Trends in Cognitive Sciences): doi.org lands on the ScienceDirect anti-bot
   // block, but the engine now hops to cell.com and captures the PDF — a REQUIRED pass.
@@ -88,8 +90,10 @@ async function main() {
       const secs = ((Date.now() - t0) / 1000).toFixed(1);
       if (r && r.bytesB64) {
         const buf = Buffer.from(r.bytesB64, "base64");
-        ok = isPdf(buf) && buf.length > 5 * 1024;
-        line = `${ok ? "PASS" : "FAIL"}  ${label.padEnd(38)} ${ok ? (buf.length / 1024 / 1024).toFixed(2) + " MB" : "not-a-pdf/" + buf.length + "B"}  via=${r.via}  ${secs}s`;
+        const supp = meta.notSupp && isSupplementUrl(r.finalUrl); // captured the supplement, not the article
+        ok = isPdf(buf) && buf.length > 5 * 1024 && !supp;
+        const why = !isPdf(buf) || buf.length <= 5 * 1024 ? "not-a-pdf/" + buf.length + "B" : "SUPPLEMENT:" + r.finalUrl;
+        line = `${ok ? "PASS" : "FAIL"}  ${label.padEnd(38)} ${ok ? (buf.length / 1024 / 1024).toFixed(2) + " MB" : why}  via=${r.via}  ${secs}s`;
       } else {
         const diag = r && r.diag ? ` [host=${r.diag.host} affordances=${JSON.stringify(r.diag.affordancesFound)}]` : "";
         const tag = meta.wall ? "WALL" : "FAIL";

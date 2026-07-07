@@ -13,6 +13,9 @@ import {
   safeKey,
   readerContextPath,
   oaMissesPath,
+  supplementsDir,
+  supplementFilePath,
+  safeSupplementName,
   PAPER_PDF,
   FETCH_FAILURE_JSON,
   type SourceInfo,
@@ -22,7 +25,7 @@ import {
   type OaMissFile,
 } from "./items";
 import { isPdfBytes } from "./pdfFinder";
-import { seededItem } from "./devSeed";
+import { seededItem, seededSupplements } from "./devSeed";
 
 /** Write the live reader context (what the human is reading) so the agent's
  *  get_reading_context MCP tool can see it. Fills in the on-disk paths. Best-effort,
@@ -169,6 +172,75 @@ export async function readerSource(key: string): Promise<SourceInfo | null> {
   if (!fb || !lib) return null;
   try {
     return JSON.parse(await fb.readText(sourcePath(lib, key))) as SourceInfo;
+  } catch {
+    return null;
+  }
+}
+
+// --- supplements (items/<key>/supplements/) --------------------------------------
+// Optional supplementary PDFs the reader's "Switch PDF" dropdown lists beside paper.pdf.
+// The folder is populated by hand (attach), the mis-stored-supplement repair, or a future
+// auto-capture — never required for a paper to be readable.
+
+/** List the supplement PDFs for `key` (bare filenames, sorted). Empty if the folder is
+ *  absent. Only .pdf files are returned — the reader can only display PDFs. */
+export async function listSupplements(key: string): Promise<string[]> {
+  const s = seededSupplements(key);
+  if (s) return [...s.keys()].sort((a, b) => a.localeCompare(b)); // headless harness fixture
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib || !fb.readdir) return [];
+  try {
+    const ents = await fb.readdir(supplementsDir(lib, key));
+    return ents
+      .filter((e) => !e.dir && /\.pdf$/i.test(e.name))
+      .map((e) => e.name)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return []; // no supplements/ folder
+  }
+}
+
+/** Read a supplement PDF's bytes for the reader, or null if absent. `name` is a bare
+ *  filename (re-sanitized to stay inside the folder). */
+export async function readerSupplementBytes(key: string, name: string): Promise<ArrayBuffer | null> {
+  const seed = seededSupplements(key)?.get(name);
+  if (seed) return seed.slice().buffer; // headless harness fixture
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return null;
+  const p = supplementFilePath(lib, key, name);
+  try {
+    return (await fb.exists(p)) ? await fb.readFile(p) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Copy a hand-picked PDF into items/<key>/supplements/. Validates the %PDF header. Returns
+ *  the stored filename (suffixed -2, -3, … on a name collision so nothing is overwritten),
+ *  or null if the file isn't a readable PDF. */
+export async function ingestSupplementFile(key: string, filePath: string): Promise<string | null> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return null;
+  let buf: ArrayBuffer | null;
+  try {
+    buf = await fb.readFile(filePath);
+  } catch {
+    return null;
+  }
+  if (!buf) return null;
+  const bytes = new Uint8Array(buf);
+  if (!isPdfBytes(bytes)) return null;
+  if (fb.mkdir) await fb.mkdir(supplementsDir(lib, key));
+  let name = safeSupplementName(filePath);
+  if (!/\.pdf$/i.test(name)) name += ".pdf";
+  const base = name.replace(/\.pdf$/i, "");
+  for (let i = 2; await fb.exists(supplementFilePath(lib, key, name)); i++) name = `${base}-${i}.pdf`;
+  try {
+    await fb.writeFile(supplementFilePath(lib, key, name), bytes);
+    return name;
   } catch {
     return null;
   }

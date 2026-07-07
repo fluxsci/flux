@@ -56,6 +56,24 @@ function isCellPressDoi(doi) {
   return !!(m && CELL_PRESS_TOKENS.has(m[1]));
 }
 
+/** True if `doi` is an AAAS DOI (10.1126/… — Science, Sci. Adv., Sci. Transl. Med., …).
+ *  Every AAAS journal is served on science.org, whose main-text PDF is the fixed shape
+ *  /doi/pdf/<doi> — so we can synthesize it directly instead of hoping the page links it. */
+function isAaasDoi(doi) {
+  return /^10\.1126\//i.test(String(doi || ""));
+}
+
+// A supplementary-materials URL — the supporting-information file, NEVER the article itself.
+// The scraper happily finds these (Atypon/Wiley `downloadSupplement`, Elsevier `mmcN`, Springer
+// `/esm/`, AAAS `_sm.pdf`, ACS/RSC `_si.pdf`), and a supplement frequently downloads more readily
+// than the paywalled main text — so without this guard the capture gate stored the SUPPLEMENT as
+// paper.pdf (the "Science paper is actually the supplement" bug). Used to keep supplements out of
+// the main-PDF slot; they belong under items/<key>/supplements/, not as the article.
+const rxSupplement = /downloadsupplement|supplement|supporting[-_ ]?info|\/esm\/|(^|[-_/])mmc\d+\b|_sm\.pdf|_si\.pdf/i;
+function isSupplementUrl(u) {
+  return rxSupplement.test(String(u || ""));
+}
+
 /** Compact ScienceDirect PII (S + 16 SICI chars) → Cell Press hyphenated form used by
  *  cell.com, e.g. S0896627321004955 → S0896-6273(21)00495-5. null if not PII-shaped. */
 function hyphenatePii(compact) {
@@ -338,7 +356,10 @@ function createProxyEngine(deps) {
           const dispPdf = /pdf|\.pdf|attachment/i.test(cd);
           const urlPdfish = /\.pdf(\?|#|$)|\/pdf\b|\/pdfft\b|\/epdf\b|\/doi\/pdf\b|pdfdirect/i.test(url);
           const octet = /^(application\/octet-stream|binary\/octet-stream|application\/download)$/.test(mime);
-          if (mime === "application/pdf" || (octet && (urlPdfish || dispPdf))) pending.set(params.requestId, { url, ranged: r.status === 206 });
+          // Skip supplement responses — a page may stream the supporting-information PDF as a
+          // subresource, and we must never let that win the gate as the main article (paper.pdf).
+          if ((mime === "application/pdf" || (octet && (urlPdfish || dispPdf))) && !isSupplementUrl(url))
+            pending.set(params.requestId, { url, ranged: r.status === 206 });
         } else if (method === "Network.loadingFinished") {
           const p = pending.get(params.requestId);
           if (!p) return;
@@ -440,7 +461,19 @@ function createProxyEngine(deps) {
       }
 
       // Gather affordances (PDF links/buttons) from the article page.
-      const candidates = await scrapeCandidates(wc, prefixHost);
+      let candidates = await scrapeCandidates(wc, prefixHost);
+      // Never let a supplementary-materials file win the main-PDF slot (the Science-supplement
+      // bug): drop supplement affordances outright. paper.pdf must be the article; supplements
+      // live under items/<key>/supplements/. Buttons without a URL can't be judged — keep them
+      // (a "Download PDF" button is the main text).
+      candidates = candidates.filter((c) => !(c.url && isSupplementUrl(c.url)));
+      // AAAS/Science (10.1126/…): the article page frequently exposes only an ePDF viewer or the
+      // supplement download, but the main text is always at the fixed /doi/pdf/<doi> on
+      // science.org — synthesize it and try it FIRST (mirrors the Cell Press cell.com hop).
+      if (isAaasDoi(doi)) {
+        const sci = rewriteToProxyHost("https://www.science.org/doi/pdf/" + doi, prefixHost);
+        if (!candidates.some((c) => c.url === sci)) candidates.unshift({ url: sci, kind: "aaas-doi-pdf" });
+      }
       const affordancesFound = [...new Set(candidates.map((c) => c.kind))];
       log("candidates(" + candidates.length + "): " + JSON.stringify(candidates.slice(0, 8)));
       if (!candidates.length) {
@@ -568,4 +601,4 @@ function createProxyEngine(deps) {
   return { capturePdfViaBrowser, checkSignedIn, dispose };
 }
 
-module.exports = { createProxyEngine, isPdfBuf, isCompletePdf, hyphenatePii, isCellPressDoi, rewriteToProxyHost, doiFromTarget };
+module.exports = { createProxyEngine, isPdfBuf, isCompletePdf, hyphenatePii, isCellPressDoi, isAaasDoi, isSupplementUrl, rewriteToProxyHost, doiFromTarget };

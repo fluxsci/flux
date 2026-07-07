@@ -16,6 +16,7 @@ import {
   annotationsPath,
   readerContextPath,
   oaMissesPath,
+  supplementsDir,
   type SourceInfo,
   type ItemStatus,
   type ItemsIndex,
@@ -139,12 +140,22 @@ async function annotationCount(L: string, key: string): Promise<number> {
   }
 }
 async function countSupplements(L: string, key: string): Promise<number> {
+  let n = 0;
   try {
+    // Legacy flat supplement-N.<ext> files sitting directly in the item dir.
     const names = await fs.readdir(itemDir(L, key));
-    return names.filter((n) => /^supplement-/.test(n)).length;
+    n += names.filter((x) => /^supplement-/.test(x)).length;
   } catch {
-    return 0;
+    /* no item dir */
   }
+  try {
+    // The supplements/ folder (arbitrary filenames) — count regular, non-hidden files.
+    const ents = await fs.readdir(supplementsDir(L, key), { withFileTypes: true });
+    n += ents.filter((e) => e.isFile() && !e.name.startsWith(".")).length;
+  } catch {
+    /* no supplements/ folder */
+  }
+  return n;
 }
 
 /** Per-entry status by scanning the item dir. */

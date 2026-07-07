@@ -14,7 +14,15 @@
   import { runQuery } from "../../../lib/references/query";
   import type { RefEntry } from "../../../lib/references/types";
   import { mergeEnrich, type EnrichMap, type EnrichedEntry } from "../../../lib/references/enrich";
-  import { loadFluxLib, ensureFluxLib, loadEnrichMap, materializeIntoProject } from "../../../lib/references/fluxlibBridge";
+  import {
+    loadFluxLib,
+    ensureFluxLib,
+    loadEnrichMap,
+    materializeIntoProject,
+    removeFromFluxLib,
+    addToFluxLib,
+  } from "../../../lib/references/fluxlibBridge";
+  import { pushToast } from "../../../lib/toast";
   import { currentProject } from "../../shellStore";
   import {
     hydrateFluxLib,
@@ -161,11 +169,44 @@
     const f = failures[nfc(key)];
     return f ? OUTCOME_PILL[fetchOutcome(f)] : null;
   };
-  const results = $derived(
-    showFailedOnly
+  // Column sorting (library scope): click a header to sort by it, click it again to
+  // reverse. "" = the library's natural (file) order. Numeric columns start descending
+  // (newest / most-cited first); text columns start ascending.
+  type SortCol = "" | "authors" | "title" | "journal" | "year" | "cited";
+  let sortCol = $state<SortCol>("");
+  let sortDir = $state<1 | -1>(1);
+  function setSort(col: Exclude<SortCol, "">) {
+    if (sortCol === col) {
+      sortDir = sortDir === 1 ? -1 : 1;
+    } else {
+      sortCol = col;
+      sortDir = col === "year" || col === "cited" ? -1 : 1;
+    }
+  }
+  const sortVal = (r: EnrichedEntry, col: SortCol): string | number =>
+    col === "authors"
+      ? (r.authors[0] ?? "").toLowerCase()
+      : col === "title"
+        ? r.title.toLowerCase()
+        : col === "journal"
+          ? (r.container ?? "").toLowerCase()
+          : col === "year"
+            ? parseInt(r.year, 10) || 0
+            : (r.enrich?.citedByCount ?? -1);
+  const results = $derived.by(() => {
+    const base = showFailedOnly
       ? runQuery(enriched, queryDebounced).filter((r) => isFailed(r.key))
-      : runQuery(enriched, queryDebounced),
-  );
+      : runQuery(enriched, queryDebounced);
+    if (!sortCol) return base;
+    const col = sortCol;
+    const dir = sortDir;
+    return [...base].sort((a, b) => {
+      const va = sortVal(a, col);
+      const vb = sortVal(b, col);
+      const c = typeof va === "number" ? va - (vb as number) : va.localeCompare(vb as string);
+      return dir * c;
+    });
+  });
   // LR-U2: selection helpers + the "add N to the open project" bulk action. materializeIntoProject
   // is idempotent and lock-guarded ("references"), so re-adding already-cited keys is a no-op.
   const isSel = (key: string) => selected.has(key);
@@ -198,6 +239,36 @@
     setTimeout(() => {
       if (addStatus === "added") addStatus = "";
     }, 5200);
+  }
+  // Delete references from FluxLib — the checked rows, or the highlighted row (Alt+Del).
+  // No confirm dialog: the toast offers Undo (re-adds the exact raw BibTeX under the same
+  // keys). items/<key>/ (PDF, notes) stays on disk either way, so undo loses nothing.
+  let deleting = $state(false);
+  async function deleteRefs(keys: string[]) {
+    if (!keys.length || deleting) return;
+    deleting = true;
+    try {
+      const { removed } = await removeFromFluxLib(keys);
+      if (!removed.length) return;
+      const gone = new Set(removed.map((r) => r.key));
+      // Update the local list immediately (the revision bump re-reads from disk right after).
+      entries = entries.filter((e) => !gone.has(e.key));
+      selected = new Set([...selected].filter((k) => !gone.has(k)));
+      if (gone.has(expanded)) expanded = "";
+      const raws = removed.map((r) => r.raw).filter(Boolean) as string[];
+      pushToast(
+        "success",
+        `Deleted ${removed.length} reference${removed.length === 1 ? "" : "s"} from FluxLib`,
+        {
+          ttl: 8000,
+          action: raws.length
+            ? { label: "Undo", run: () => void addToFluxLib(raws.join("\n\n"), { source: "bibtex" }) }
+            : undefined,
+        },
+      );
+    } finally {
+      deleting = false;
+    }
   }
   const coverage = $derived({
     total: entries.length,
@@ -408,6 +479,51 @@
     e.stopPropagation();
     openInReader(key);
   }
+  // Ctrl+Shift+click: open the PDF in the reader, fetching it first if it isn't on disk —
+  // open-access routes, then (if configured) the library proxy. Failures surface in the
+  // shared error toast with the reason.
+  async function readOrFetch(entry: EnrichedEntry) {
+    if (hasPdf(entry.key)) {
+      openInReader(entry.key);
+      return;
+    }
+    if (fetchingKey || fetchingAll) return;
+    fetchingKey = entry.key;
+    try {
+      const oa = await fetchPdfForEntry(entry, enrichMap[entry.key]);
+      let got = oa.status === "got" || oa.status === "have";
+      let err = "";
+      if (!got) {
+        if (oa.status === "no-id") {
+          err = "No DOI / PMCID on this entry — Enrich it first.";
+        } else if (oa.status === "error") {
+          err = oa.error || "PDF fetch failed.";
+        } else if (proxyConfigured) {
+          const p = await fetchViaProxyForEntry(entry, enrichMap[entry.key]);
+          got = p.status === "got";
+          if (!got)
+            err = `No open-access copy, and the library proxy didn’t return a PDF${
+              p.error ? ` (${p.error})` : proxySignedIn ? "" : " (are you signed in? ⚙ Keys)"
+            }.`;
+        } else {
+          err = "No open-access PDF found — set a library proxy in ⚙ Keys for paywalled access.";
+        }
+      }
+      if (got) {
+        pdfKeys = await listPdfKeys();
+        await dropFailure(entry.key);
+        openInReader(entry.key);
+      } else {
+        addStatus = "error";
+        addError = err;
+        setTimeout(() => {
+          if (addStatus === "error") addStatus = "";
+        }, 5200);
+      }
+    } finally {
+      fetchingKey = "";
+    }
+  }
   async function getPdf(e: MouseEvent, entry: EnrichedEntry) {
     e.stopPropagation();
     if (fetchingKey || fetchingAll) return;
@@ -462,7 +578,20 @@
       pdfFetchJob.cancel();
       return;
     }
-    if (fetchingKey || loading || !entries.length || preflightBusy) return;
+    await runFetch(entries, retryFailed);
+  }
+  // Alt+F / selection-bar action: the same two-phase pipeline over just the checked rows.
+  // Explicitly-picked papers bypass the failure skip-list + OA-miss ledger (retryFailed) —
+  // checking a box IS the retry gesture.
+  async function fetchSelectedPdfs() {
+    if (pdfFetchJob.running || !selected.size) return;
+    await runFetch(
+      entries.filter((e) => selected.has(e.key)),
+      true,
+    );
+  }
+  async function runFetch(list: RefEntry[], retryFailed: boolean) {
+    if (fetchingKey || loading || !list.length || preflightBusy) return;
     // PRE-FLIGHT: re-probe library authentication at click time (ground truth — a real
     // proxied navigation in main, not the possibly-stale pill state). If the proxy is
     // configured but the session is dead, START NOTHING: a bulk run would burn the whole
@@ -504,7 +633,7 @@
         if (!tickTimer) tickTimer = setTimeout(flushTicks, 250);
       }
     };
-    await pdfFetchJob.start(entries, enrichMap, { proxyConfigured, proxySignedIn }, { retryFailed, onTick });
+    await pdfFetchJob.start(list, enrichMap, { proxyConfigured, proxySignedIn }, { retryFailed, onTick });
     if (tickTimer) clearTimeout(tickTimer);
     tickBuf = [];
     // The summary + coverage re-list are handled by the completion $effect above, so they also
@@ -570,6 +699,18 @@
   function openDoi(e: MouseEvent, doi?: string) {
     e.stopPropagation();
     if (doi) void fileBridge()?.openExternal?.("https://doi.org/" + doi);
+  }
+  // Alt+click on a row: open the DOI in the default browser (toast if there isn't one).
+  function openDoiOrWarn(e: MouseEvent, doi?: string) {
+    if (doi) {
+      openDoi(e, doi);
+      return;
+    }
+    addStatus = "error";
+    addError = "No DOI on this entry — Enrich it or add one first.";
+    setTimeout(() => {
+      if (addStatus === "error") addStatus = "";
+    }, 3600);
   }
   function toggleExpand(e: MouseEvent, key: string) {
     e.stopPropagation();
@@ -698,6 +839,28 @@
       e.preventDefault();
       addEl?.focus();
       addEl?.select();
+      return;
+    }
+    // Library-scope Alt-chords. Never fire while typing in a text field (Alt+Backspace is
+    // "delete word" there), and stay off Ctrl/Meta combos. Checkboxes aren't "typing" —
+    // focus lands on them right after clicking one, and the chords must still work then.
+    if (scope !== "library" || !e.altKey || e.metaKey || e.ctrlKey) return;
+    const t = e.target as HTMLElement | null;
+    const typing =
+      !!t &&
+      (t.tagName === "TEXTAREA" ||
+        t.isContentEditable ||
+        (t.tagName === "INPUT" && !["checkbox", "radio", "button"].includes((t as HTMLInputElement).type)));
+    if (typing) return;
+    if (e.key === "Delete" || e.key === "Backspace") {
+      // Alt+Del: delete the checked rows, else the highlighted row.
+      e.preventDefault();
+      const r = results[highlighted];
+      void deleteRefs(selected.size ? [...selected] : r ? [r.key] : []);
+    } else if (e.code === "KeyF") {
+      // Alt+F: run the PDF-fetch pipeline (OA → library proxy) over the checked rows.
+      e.preventDefault();
+      void fetchSelectedPdfs();
     }
   }
   function gridKey(e: KeyboardEvent) {
@@ -722,7 +885,7 @@
       e.preventDefault();
       const r = results[highlighted];
       if (r) toggleSel(r.key);
-    } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+    } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
       searchEl?.focus();
     }
   }
@@ -914,6 +1077,16 @@
             : "Open a project first to add references to it"}
           onclick={addSelectedToProject}
           >+ Add to {projectRoot ? projectName : "project"}{projectRoot ? "" : " (none open)"}</button>
+        <button
+          class="selfetch"
+          disabled={fetchingAll || preflightBusy || fetchingKey !== ""}
+          title="Fetch PDFs for the checked references — open access first, then your library proxy (Alt+F)"
+          onclick={fetchSelectedPdfs}>⬇ Get {selected.size} PDF{selected.size === 1 ? "" : "s"}</button>
+        <button
+          class="seldel"
+          disabled={deleting}
+          title="Delete the checked references from FluxLib (Alt+Del) — Undo stays available for a few seconds"
+          onclick={() => deleteRefs([...selected])}>Delete {selected.size}</button>
         <button class="selclear" onclick={() => (selected = new Set())}>Clear</button>
       </div>
     {/if}
@@ -927,8 +1100,20 @@
             onchange={toggleSelectAll}
             aria-label="Select all shown"
             title="Select all shown" /></span>
-        <span>Authors</span><span>Title</span><span>Journal</span><span class="gy">Year</span><span
-          class="gc">Cited</span><span class="gx"></span>
+        {#snippet sortArrow(col: string)}
+          {#if sortCol === col}<span class="sarr">{sortDir === 1 ? "▲" : "▼"}</span>{/if}
+        {/snippet}
+        <button class="hcol" title="Sort by first author" onclick={() => setSort("authors")}
+          >Authors{@render sortArrow("authors")}</button>
+        <button class="hcol" title="Sort by title" onclick={() => setSort("title")}
+          >Title{@render sortArrow("title")}</button>
+        <button class="hcol" title="Sort by journal" onclick={() => setSort("journal")}
+          >Journal{@render sortArrow("journal")}</button>
+        <button class="hcol gy" title="Sort by year" onclick={() => setSort("year")}
+          >Year{@render sortArrow("year")}</button>
+        <button class="hcol gc" title="Sort by citation count" onclick={() => setSort("cited")}
+          >Cited{@render sortArrow("cited")}</button>
+        <span class="gx"></span>
       </div>
       {#each results as r, i (r.key)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -936,10 +1121,18 @@
           class="grow selectable"
           class:hl={i === highlighted}
           class:sel={isSel(r.key)}
-          title={`Click to copy @${r.key}`}
-          onclick={() => {
+          title={`Click to copy @${r.key} · Ctrl+click: details · Ctrl+Shift+click: read PDF · Alt+click: open DOI`}
+          onclick={(e) => {
             highlighted = i;
-            void copyKey(r.key);
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+              void readOrFetch(r);
+            } else if (e.ctrlKey || e.metaKey) {
+              expanded = expanded === r.key ? "" : r.key;
+            } else if (e.altKey) {
+              openDoiOrWarn(e, r.doi);
+            } else {
+              void copyKey(r.key);
+            }
           }}>
           <span class="gsel"
             ><input
@@ -1446,6 +1639,31 @@
     z-index: 1;
     content-visibility: visible; /* header is always on-screen */
   }
+  /* Sortable column headers — plain-text buttons that inherit the .ghead look. */
+  .hcol {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .hcol:hover {
+    color: var(--c-tx-hi);
+  }
+  .hcol.gy,
+  .hcol.gc {
+    text-align: right;
+  }
+  .sarr {
+    margin-left: 3px;
+    font-size: 8px;
+    color: var(--c-accent);
+  }
   .grow.hl {
     background: var(--c-accent-tint-2);
   }
@@ -1506,6 +1724,40 @@
     background: none;
     color: var(--c-tx-2);
     cursor: pointer;
+  }
+  /* Bulk fetch-PDFs for the checked rows (Alt+F). */
+  .selfetch {
+    padding: 4px 12px;
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-1);
+    background: none;
+    color: var(--c-accent);
+    cursor: pointer;
+  }
+  .selfetch:hover:not(:disabled) {
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+  }
+  .selfetch:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  /* Bulk delete of the checked rows (Alt+Del) — danger tone, Undo via toast. */
+  .seldel {
+    padding: 4px 12px;
+    border: 1px solid var(--c-danger);
+    border-radius: var(--r-1);
+    background: none;
+    color: var(--c-danger);
+    cursor: pointer;
+  }
+  .seldel:hover:not(:disabled) {
+    background: var(--c-danger);
+    color: var(--c-on-accent);
+  }
+  .seldel:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .ga {
     color: var(--c-tx);

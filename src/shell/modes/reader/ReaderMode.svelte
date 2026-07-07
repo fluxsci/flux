@@ -7,7 +7,16 @@
   import { onMount, onDestroy, tick } from "svelte";
   import { readerKey } from "./readerStore";
   import { fluxLibRevision } from "../../../lib/references/revision";
-  import { readerPdfBytes, readerSource, writeReaderContext, clearReaderContext } from "../../../lib/references/itemsBridge";
+  import {
+    readerPdfBytes,
+    readerSource,
+    writeReaderContext,
+    clearReaderContext,
+    listSupplements,
+    readerSupplementBytes,
+    ingestSupplementFile,
+  } from "../../../lib/references/itemsBridge";
+  import { fileBridge } from "../../../lib/project/types";
   import { loadAnnotations, addAnnotation, updateAnnotation, deleteAnnotation } from "../../../lib/references/annotationsBridge";
   import { hlSwatch } from "../../../lib/references/annotationColors";
   import { loadFluxLib } from "../../../lib/references/fluxlibBridge";
@@ -27,10 +36,22 @@
 
   let { focused = true }: { focused?: boolean } = $props();
 
-  let buffer = $state<ArrayBuffer | null>(null);
+  let buffer = $state<ArrayBuffer | null>(null); // the MAIN paper.pdf bytes (source of truth)
   let annotations = $state<Annotation[]>([]);
   let loading = $state(false);
   let curKey = $state<string | null>(null);
+
+  // R6: multiple PDFs per paper. paper.pdf is the main text; items/<key>/supplements/ holds
+  // optional supplementary PDFs. A "Switch PDF" dropdown lets the reader view any of them.
+  // The main buffer is never overwritten (so annotations / re-fetch stay anchored to it); a
+  // supplement is loaded into suppBuffer and the viewer renders whichever is active.
+  let supplements = $state<string[]>([]);
+  let activePdf = $state<{ kind: "main" } | { kind: "supp"; name: string }>({ kind: "main" });
+  let suppBuffer = $state<ArrayBuffer | null>(null);
+  let switchOpen = $state(false);
+  let attaching = $state(false);
+  const onSupplement = $derived(activePdf.kind === "supp");
+  const viewBuffer = $derived(activePdf.kind === "main" ? buffer : suppBuffer);
   let entry = $state<RefEntry | null>(null);
   let libDois = $state<Set<string>>(new Set());
 
@@ -280,6 +301,11 @@
     refs = [];
     refsState = "idle";
     popover = null;
+    // R6: reset the PDF switcher to the main paper for the newly-opened key.
+    supplements = [];
+    activePdf = { kind: "main" };
+    suppBuffer = null;
+    switchOpen = false;
     if (!key) return;
     outline = null;
     navDepth = 0;
@@ -294,17 +320,22 @@
     if (typeof saved?.showRefs === "boolean") showRefs = saved.showRefs;
     if (typeof saved?.showAnnots === "boolean") showAnnots = saved.showAnnots;
     loading = true;
-    void Promise.all([readerPdfBytes(key), loadAnnotations(key), loadFluxLib(), readerSource(key)]).then(
-      ([b, af, lib, src]) => {
-        if (curKey !== key) return;
-        buffer = b;
-        annotations = af.annotations;
-        entry = lib.find((e) => e.key === key) ?? null;
-        libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
-        srcStamp = stampOf(src, b);
-        loading = false;
-      },
-    );
+    void Promise.all([
+      readerPdfBytes(key),
+      loadAnnotations(key),
+      loadFluxLib(),
+      readerSource(key),
+      listSupplements(key),
+    ]).then(([b, af, lib, src, sup]) => {
+      if (curKey !== key) return;
+      buffer = b;
+      annotations = af.annotations;
+      entry = lib.find((e) => e.key === key) ?? null;
+      libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
+      srcStamp = stampOf(src, b);
+      supplements = sup;
+      loading = false;
+    });
     // Reference list loads independently (network; needs the paper hydrated).
     refsState = "loading";
     void referencedWorksByKey(key).then((r) => {
@@ -337,15 +368,60 @@
           if (curKey !== key) return;
           srcStamp = stampOf(src, fresh);
           buffer = fresh;
-          bufferGen++;
+          if (activePdf.kind === "main") bufferGen++;
         }
+        // R6: reflect supplements added/removed on disk; if the shown one vanished, fall back.
+        const sup = await listSupplements(key);
+        if (curKey !== key) return;
+        supplements = sup;
+        if (activePdf.kind === "supp" && !sup.includes(activePdf.name)) showMain();
       });
     });
   });
 
+  // R6: PDF switcher. Show the main paper (its already-loaded buffer) or a supplement
+  // (loaded on demand into suppBuffer). bufferGen remounts PdfView with the new bytes.
+  const suppLabel = (n: string) => n.replace(/\.pdf$/i, "");
+  function showMain() {
+    switchOpen = false;
+    if (activePdf.kind === "main") return;
+    activePdf = { kind: "main" };
+    suppBuffer = null;
+    bufferGen++;
+  }
+  async function showSupplement(name: string) {
+    switchOpen = false;
+    const key = curKey;
+    if (!key) return;
+    if (activePdf.kind === "supp" && activePdf.name === name) return;
+    const b = await readerSupplementBytes(key, name);
+    if (curKey !== key || !b) return;
+    suppBuffer = b;
+    activePdf = { kind: "supp", name };
+    bufferGen++;
+  }
+  // Attach a PDF (OS picker) into this paper's supplements/ folder, then show it.
+  async function attachSupplement() {
+    const key = curKey;
+    if (!key || attaching) return;
+    switchOpen = false;
+    const picked = await fileBridge()?.openFiles?.([{ name: "PDF", extensions: ["pdf"] }]);
+    const file = picked?.[0];
+    if (!file) return;
+    attaching = true;
+    try {
+      const name = await ingestSupplementFile(key, file);
+      if (curKey !== key || !name) return;
+      supplements = await listSupplements(key);
+      await showSupplement(name);
+    } finally {
+      attaching = false;
+    }
+  }
+
   async function handleCreate(a: { page: number; anchor: TextQuoteSelector; color: string }) {
     const key = $readerKey;
-    if (!key) return;
+    if (!key || onSupplement) return; // highlights anchor to the MAIN text only
     const ann = await addAnnotation(key, { page: a.page, anchor: a.anchor, color: a.color });
     annotations = [...annotations, ann];
   }
@@ -439,7 +515,8 @@
       e.preventDefault();
       agentOpen = !agentOpen;
     } else if (e.key === "Escape") {
-      if (popover) popover = null;
+      if (switchOpen) switchOpen = false;
+      else if (popover) popover = null;
       else if (findOpen) closeFind();
       else if (agentOpen) agentOpen = false;
     } else if (!typing && buffer && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -456,13 +533,19 @@
     }
   }
 
+  // R6: dismiss the PDF-switch dropdown on any pointerdown outside it.
+  let switchEl = $state<HTMLElement | undefined>();
+  function onWinPointer(e: PointerEvent) {
+    if (switchOpen && switchEl && !switchEl.contains(e.target as Node)) switchOpen = false;
+  }
+
   onDestroy(() => {
     clearTimeout(ctxTimer);
     void clearReaderContext();
   });
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onpointerdown={onWinPointer} />
 
 <div class="reader">
   {#if !$readerKey}
@@ -519,6 +602,35 @@
         {:else}
           <button class="tgl" title="Find in document (⌘/Ctrl-F)" aria-label="Find in document" onclick={openFind}>🔍</button>
         {/if}
+        <div class="pdfswitch" bind:this={switchEl}>
+          <button
+            class="tgl pdfswbtn"
+            class:on={switchOpen || onSupplement}
+            class:muted={!supplements.length && !onSupplement}
+            data-testid="pdf-switch"
+            aria-haspopup="menu"
+            aria-expanded={switchOpen}
+            title={supplements.length ? "Switch between the paper and its supplements" : "Attach a supplementary PDF"}
+            onclick={() => (switchOpen = !switchOpen)}>
+            {#if activePdf.kind === "supp"}⇄ {suppLabel(activePdf.name)}{:else if supplements.length}⇄ Paper ({supplements.length + 1}){:else}⧉ PDF{/if} ▾
+          </button>
+          {#if switchOpen}
+            <div class="pdfmenu" role="menu" data-testid="pdf-menu">
+              <button class="pdfitem" class:sel={activePdf.kind === "main"} role="menuitem" onclick={showMain}>
+                <span class="pdfic">📄</span><span class="pdfnm">Main paper</span>{#if activePdf.kind === "main"}<span class="pdfck">✓</span>{/if}
+              </button>
+              {#each supplements as s (s)}
+                <button class="pdfitem" class:sel={activePdf.kind === "supp" && activePdf.name === s} role="menuitem" onclick={() => showSupplement(s)}>
+                  <span class="pdfic">📎</span><span class="pdfnm" title={s}>{suppLabel(s)}</span>{#if activePdf.kind === "supp" && activePdf.name === s}<span class="pdfck">✓</span>{/if}
+                </button>
+              {/each}
+              <div class="pdfsep"></div>
+              <button class="pdfitem add" role="menuitem" disabled={attaching} onclick={attachSupplement}>
+                <span class="pdfic">＋</span><span class="pdfnm">{attaching ? "Adding…" : "Add supplement…"}</span>
+              </button>
+            </div>
+          {/if}
+        </div>
         <button class="tgl" class:on={showAnnots} onclick={() => (showAnnots = !showAnnots)} title="Toggle annotations"
           >Notes ({annotations.length}) ✎</button>
         <button class="tgl agentbtn" class:on={agentOpen} onclick={() => (agentOpen = !agentOpen)}
@@ -592,7 +704,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key `${$readerKey}#${bufferGen}`}
-              <PdfView bind:this={pdfView} {buffer} {annotations} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -736,6 +848,85 @@
   .tgl.on {
     border-color: var(--c-accent);
     color: var(--c-accent);
+  }
+  /* R6: PDF switcher (paper.pdf + items/<key>/supplements/) */
+  .pdfswitch {
+    position: relative;
+    flex: 0 0 auto;
+  }
+  .pdfswbtn {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pdfswbtn.muted {
+    color: var(--c-tx-3);
+    border-color: var(--c-line);
+  }
+  .pdfmenu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 80;
+    min-width: 212px;
+    max-width: 340px;
+    padding: 4px;
+    background: var(--c-bg-raised);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-2);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .pdfitem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: var(--c-tx-1);
+    border-radius: var(--r-1);
+    padding: 6px 8px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    cursor: pointer;
+  }
+  .pdfitem:hover:not(:disabled) {
+    background: var(--c-surface-2);
+  }
+  .pdfitem.sel {
+    color: var(--c-accent);
+  }
+  .pdfitem:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .pdfitem.add {
+    color: var(--c-tx-2);
+  }
+  .pdfic {
+    flex: 0 0 auto;
+    width: 16px;
+    text-align: center;
+    opacity: 0.85;
+  }
+  .pdfnm {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pdfck {
+    flex: 0 0 auto;
+    color: var(--c-accent);
+  }
+  .pdfsep {
+    height: 1px;
+    margin: 4px 2px;
+    background: var(--c-line);
   }
   /* LR-6: zoom + page-jump group */
   .rnav {

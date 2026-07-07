@@ -186,6 +186,56 @@ async function addToFluxLibLocked(
   return { added, deduped, keys };
 }
 
+/** Remove entries from FluxLib by citekey. Each entry's raw block is spliced out of
+ *  library.bib verbatim (preserving the header comment and any other text), under the
+ *  same "library" lock as addToFluxLib. The keys' enrich-sidecar rows are dropped too
+ *  (rebuildable), but items/<key>/ (PDF, notes, annotations) is deliberately left on
+ *  disk — re-adding the paper under the same key re-attaches it. Returns the removed
+ *  entries (with their raw BibTeX) so callers can offer Undo via addToFluxLib. */
+export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: RefEntry[] }> {
+  const fb = fileBridge();
+  if (!fb || !citekeys.length) return { removed: [] };
+  const lib = await ensureFluxLib();
+  if (!lib) return { removed: [] };
+  const want = new Set(citekeys);
+  const removed = await withIpcLock("fluxlib", "library", async () => {
+    let text = await readTextSafe(libBib(lib));
+    const out: RefEntry[] = [];
+    for (const raw of splitBibEntries(text)) {
+      const k = bibtexKey(raw);
+      if (!k || !want.has(k)) continue;
+      const at = text.indexOf(raw);
+      if (at < 0) continue;
+      let end = at + raw.length; // swallow the blank line the removal leaves behind
+      while (end < text.length && (text[end] === "\n" || text[end] === "\r")) end++;
+      text = text.slice(0, at) + text.slice(end);
+      out.push(lightEntry(raw));
+    }
+    if (out.length) await fb.writeText(libBib(lib), text);
+    return out;
+  });
+  if (removed.length) {
+    // Drop the sidecar rows under the enrich lock (best-effort — the sidecar is derived).
+    try {
+      await withIpcLock("fluxlib", "enrich", async () => {
+        const map = await loadEnrichMap();
+        let dirty = false;
+        for (const e of removed) {
+          if (map[e.key]) {
+            delete map[e.key];
+            dirty = true;
+          }
+        }
+        if (dirty) await fb.writeText(libEnrich(lib), JSON.stringify(map, null, 2) + "\n");
+      });
+    } catch {
+      /* stale sidecar rows are harmless — mergeEnrich joins by existing keys only */
+    }
+    bumpFluxLib();
+  }
+  return { removed };
+}
+
 /** Load every FluxLib entry as RefEntry[] for the Library window. Uses the cheap,
  *  dependency-free lightEntry path (the SAME one addToFluxLib/reconcile use), so the
  *  window and the writers can't drift. Returns [] without a bridge. */
