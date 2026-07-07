@@ -7,6 +7,8 @@ import { get, writable } from "svelte/store";
 import type { Figure } from "../../../../lib/types";
 import { figureToSvg } from "../../../../lib/export";
 import { readFigSource } from "../../../../lib/project/figbridge";
+import { fileBridge } from "../../../../lib/project/types";
+import { EMBED_RE } from "../science/figureAttrs";
 import { tableNumber } from "./numbering";
 import { designationFromName } from "./figText";
 
@@ -135,6 +137,52 @@ export function renderFigureSvg(id: string): string | undefined {
 
 export function figureById(id: string): Figure | undefined {
   return figuresById[id];
+}
+
+/** Write fig/renders/<id>.svg for every figure embedded in `docText`. Quarto (the DOCX
+ *  export — and any bare `quarto render`) reads these from DISK; the in-app preview/PDF
+ *  inline from memory, and W8 deliberately keeps MB-scale renders OFF the autosave path —
+ *  so exports regenerate them just-in-time from the live figure model. flux-core has a
+ *  headless twin (materializeRenders in flux-core/index.ts) for agents/CI. */
+export async function materializeRenders(
+  root: string,
+  docText: string,
+): Promise<{ wrote: number; failed: string[] }> {
+  const fb = fileBridge();
+  let wrote = 0;
+  const failed: string[] = [];
+  if (!root || !fb) return { wrote, failed };
+  const ids = new Set<string>();
+  for (const line of docText.split("\n")) {
+    const m = EMBED_RE.exec(line);
+    if (!m) continue;
+    const fromPath = /fig\/renders\/([A-Za-z0-9_-]+)\.svg$/.exec(m[2]);
+    if (fromPath) ids.add(fromPath[1]);
+    else {
+      const r = resolveFigure(m[3]);
+      if (r && r.ref.id) ids.add(r.ref.id);
+    }
+  }
+  if (!ids.size) return { wrote, failed };
+  try {
+    await fb.mkdir(`${root}/fig/renders`);
+  } catch {
+    /* exists */
+  }
+  for (const id of ids) {
+    const svg = renderFigureSvg(id);
+    if (!svg) {
+      failed.push(id);
+      continue;
+    }
+    try {
+      await fb.writeText(`${root}/fig/renders/${id}.svg`, svg);
+      wrote++;
+    } catch {
+      failed.push(id);
+    }
+  }
+  return { wrote, failed };
 }
 
 // Dev-only seed so the headless harness can exercise chips/hover without a

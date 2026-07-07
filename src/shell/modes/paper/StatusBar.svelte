@@ -8,14 +8,19 @@
     words,
     status,
     onStats,
+    onExport,
   }: {
     words: number;
     status: "demo" | "saved" | "saving" | "error";
     onStats: () => void;
+    onExport: () => void;
   } = $props();
 </script>
 
 <div class="statusbar">
+  <button class="seg" onclick={onExport} title="Export — PDF · HTML · Word (also in ⌘K)">
+    Export
+  </button>
   <button class="seg" onclick={onStats} title="Statistics (⌘K → Statistics)">
     {words.toLocaleString()} words
   </button>

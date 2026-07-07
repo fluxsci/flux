@@ -81,7 +81,7 @@
     newId,
     type CommentThread,
   } from "./comments/comments";
-  import { loadFigures, figureRefs, resolveFigure } from "./scholar/figures";
+  import { loadFigures, figureRefs, resolveFigure, materializeRenders } from "./scholar/figures";
   import { bibEntries, type BibEntry } from "./scholar/bib";
   import { loadBib, addDoiToBib, addUrlOrDoiToBib, addUrlOrDoiToLibrary } from "./scholar/bibLoad";
   import { materializeIntoProject, refreshFluxLib } from "../../../lib/references/fluxlibBridge";
@@ -557,10 +557,45 @@
     exportBusy = true;
     try {
       if (kind === "docx") {
-        if (pm && fb.quartoRender) await fb.quartoRender(pm.root, "docx");
+        if (!pm || !fb.quartoRender) {
+          exportBusy = false;
+          return;
+        }
+        // Quarto reads DISK — flush the debounced autosave first or it renders stale text.
+        try {
+          await autosave.flush();
+        } catch (e) {
+          if (e instanceof ConflictError) {
+            exportBusy = false;
+            pushToast("error", "Word export blocked", {
+              detail: "the document changed on disk — resolve the Reload / Keep-mine banner first",
+            });
+            return;
+          }
+          throw e;
+        }
+        const renders = await materializeRenders(pm.root, latest);
+        const r = await fb.quartoRender(pm.root, "docx", activeDocPath);
         exportBusy = false;
+        if (!r?.ok) {
+          pushToast("error", "Word export failed", {
+            detail: (r?.log || "quarto did not run").trimEnd().split("\n").slice(-14).join("\n"),
+          });
+          return;
+        }
+        if (renders.failed.length) {
+          pushToast("info", `${renders.failed.length} figure render(s) missing from the export`, {
+            detail: renders.failed.join(", "),
+          });
+        }
         exportDone = true;
         setTimeout(() => (exportDone = false), 2600);
+        const out = r.outPath;
+        pushToast(
+          "success",
+          `Exported ${activeDocPath.replace(/\.qmd$/i, ".docx")}`,
+          out && fb.revealPath ? { action: { label: "Reveal", run: () => void fb.revealPath!(out) } } : {},
+        );
         return;
       }
       const { full, title } = await renderManuscript(latest, {
@@ -1450,7 +1485,11 @@
         {#if previewActive}
           <PreviewPane src={latest} paginated={viewMode === "paginated"} rev={figRefsRev} />
         {:else if !(bodyEmpty && !dismissedEmpty)}
-          <StatusBar words={statusWords} {status} onStats={() => summonPane("stats")} />
+          <StatusBar
+            words={statusWords}
+            {status}
+            onStats={() => summonPane("stats")}
+            onExport={() => (exportOpen = true)} />
         {/if}
       {/if}
     </div>
@@ -1600,7 +1639,7 @@
 
   {#if exportOpen}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="menu-scrim" onclick={() => (exportOpen = false)}></div>
+    <div class="menu-scrim" onclick={() => { exportOpen = false; view?.focus(); }}></div>
     <div class="export-menu" transition:popIn>
       <button onclick={() => doExport("pdf")}>PDF</button>
       <button onclick={() => doExport("html")}>HTML</button>
@@ -1843,8 +1882,9 @@
     z-index: 65;
   }
   .export-menu {
+    /* Pops from its trigger — the StatusBar's Export segment, bottom-right. */
     position: absolute;
-    top: 78px;
+    bottom: 44px;
     right: 12px;
     z-index: 66;
     min-width: 150px;

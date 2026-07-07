@@ -1325,9 +1325,55 @@ export async function reconcile(
   return fluxlib.reconcileProject(root);
 }
 
+/** Write fig/renders/<id>.svg for every figure embedded in `docPath` (or every project
+ *  figure when the doc can't be read). Quarto reads these from DISK — the GUI preview
+ *  and in-app PDF inline from memory, so nothing else keeps renders/ fresh (gitignored
+ *  derived state; W8 deliberately keeps MB-scale renders off the autosave path). */
+export async function materializeRenders(
+  root: string,
+  docPath?: string,
+): Promise<{ wrote: number; failed: string[] }> {
+  const failed: string[] = [];
+  let wrote = 0;
+  const index = await readFigIndex(root);
+  if (!index) return { wrote, failed };
+  const known = new Set(index.figures.map((f) => f.id));
+  let ids = new Set<string>(known);
+  if (docPath) {
+    try {
+      const src = await fs.readFile(safeJoin(root, docPath), "utf8");
+      const embedded = new Set<string>();
+      const re = /^\s*!\[.*?\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)[^}]*\}\s*$/;
+      for (const line of src.split("\n")) {
+        const m = re.exec(line);
+        if (!m) continue;
+        const fromPath = /fig\/renders\/([A-Za-z0-9_-]+)\.svg$/.exec(m[1]);
+        if (fromPath && known.has(fromPath[1])) embedded.add(fromPath[1]);
+      }
+      if (embedded.size) ids = embedded;
+    } catch {
+      /* unreadable doc → render all known figures (safe superset) */
+    }
+  }
+  await fs.mkdir(safeJoin(root, "fig/renders"), { recursive: true });
+  for (const id of ids) {
+    try {
+      const svg = await renderFigureSvg(root, id);
+      await atomicWrite(safeJoin(root, `fig/renders/${id}.svg`), svg);
+      wrote++;
+    } catch {
+      failed.push(id);
+    }
+  }
+  return { wrote, failed };
+}
+
 /** compile the manuscript via Quarto (pdf|html|docx). Requires `quarto` on PATH. */
 export async function compile(root: string, to = "pdf"): Promise<{ code: number; log: string }> {
   const m = await loadManifest(root);
+  // Figures embed as ../fig/renders/<id>.svg — materialize them so a bare quarto
+  // render (agent/CI, no app open) gets real images instead of broken links.
+  const renders = await materializeRenders(root, m.manuscript.path).catch(() => ({ wrote: 0, failed: [] as string[] }));
   const { code, log } = await new Promise<{ code: number; log: string }>((resolve, reject) => {
     const child = spawn("quarto", ["render", m.manuscript.path, "--to", to], { cwd: root });
     let log = "";
@@ -1337,7 +1383,8 @@ export async function compile(root: string, to = "pdf"): Promise<{ code: number;
     child.on("close", (c) => resolve({ code: c ?? 0, log }));
   });
   await journal(root, { action: "compile", to, code });
-  return { code, log };
+  const note = renders.failed.length ? `\n(figure renders failed: ${renders.failed.join(", ")})` : "";
+  return { code, log: log + note };
 }
 
 // --------------------------------------------------------------------------

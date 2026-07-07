@@ -16,6 +16,7 @@ usage: flux <verb> [root] [args] [--flags]
   reindex [root]                       rebuild project.json.figures[] from fig/
   list [root]                          print project overview (JSON)
   render-figure [root] <id> [--out f]  render a figure to SVG (stdout or --out)
+  render-figures [root] [--doc p.qmd]  write fig/renders/<id>.svg for embedded figures (bare-quarto prep)
   caption [root] <id>                  print a figure's composed caption
   set-caption [root] <id> <md…|--file f>   write fig/captions/<id>.md
   add-reference [root] <bibtex…|--file f>   append a BibTeX entry to library.bib
@@ -185,6 +186,15 @@ async function main() {
           console.error(`✓ wrote ${flags.out}`);
         } else process.stdout.write(svg);
       }
+      break;
+    }
+    case "render-figures": {
+      // Materialize fig/renders/<id>.svg for the figures the manuscript embeds (or all,
+      // without a readable doc) — what `quarto render` needs on disk. compile() does this
+      // automatically; this verb serves "I'll run quarto myself".
+      const r = await core.materializeRenders(root(), typeof flags.doc === "string" ? flags.doc : undefined);
+      console.error(`✓ wrote ${r.wrote} render(s) to fig/renders/` + (r.failed.length ? ` — failed: ${r.failed.join(", ")}` : ""));
+      if (r.failed.length) process.exitCode = 1;
       break;
     }
     case "caption": {

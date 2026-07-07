@@ -73,6 +73,7 @@
       "verify-paper-extras.mjs",
       "verify-figref.mjs",
       "verify-w18-paper.mjs",
+      "verify-paper-export.mjs",
       "verify-p4-paper.mjs",
       "verify-keepalive.mjs",
       "verify-fixture.mjs",
