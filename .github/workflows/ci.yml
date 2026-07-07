@@ -1,0 +1,69 @@
+name: ci
+
+# Correctness gate on every push/PR to main. The blocking `test` job is fully
+# headless (no browser, no network): type-check → hermetic pure verify tier →
+# build (which proves BOTH the Vite bundle and the CLI+MCP node bundles) →
+# CLI/MCP stdio handshakes against the built bundles. A broken commit can't reach
+# a release tag (release.yml runs the same gate first).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Type-check (svelte-check must be 0 errors)
+        run: npm run check
+      - name: Pure verify tier (hermetic — no network, no dev server)
+        run: npm run test:pure
+      - name: Build (Vite bundle + dist/flux-cli.mjs + dist/flux-mcp.mjs)
+        run: npm run build
+      - name: Assert the packaged bundles were emitted
+        run: |
+          for f in dist/flux-cli.mjs dist/flux-mcp.mjs dist/slide-export-assets.json; do
+            test -f "$f" || { echo "::error::missing build artifact $f"; exit 1; }
+          done
+      - name: Bundle handshakes (CLI + MCP over stdio against the built bundles)
+        run: node scripts/run-verifies.mjs --tier bundle
+
+  # Non-blocking browser smoke — kept out of the required gate until observed
+  # stable in CI (see the plan: promote to blocking only after it stops flaking).
+  ui-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+      - name: Start the dev server
+        run: npm run dev &
+      - name: Wait for the dev server on :1420
+        run: npx wait-on tcp:127.0.0.1:1420 --timeout 120000
+      - name: Stable UI subset
+        env:
+          FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          node scripts/verify-fixture.mjs
+          node scripts/verify-shell-complete.mjs
