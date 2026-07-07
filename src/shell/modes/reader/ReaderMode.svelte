@@ -18,6 +18,7 @@
   } from "../../../lib/references/itemsBridge";
   import { fileBridge } from "../../../lib/project/types";
   import { loadAnnotations, addAnnotation, updateAnnotation, deleteAnnotation } from "../../../lib/references/annotationsBridge";
+  import { saveAnnotationsMarkdown } from "../../../lib/io";
   import { hlSwatch } from "../../../lib/references/annotationColors";
   import { loadFluxLib } from "../../../lib/references/fluxlibBridge";
   import { referencedWorksByKey } from "../../../lib/references/enrichBridge";
@@ -806,7 +807,15 @@
 
         {#if showAnnots}
           <aside class="side annots">
-            <div class="shead">Annotations</div>
+            <div class="shead">
+              Annotations
+              {#if annotations.length}
+                <button
+                  class="expnotes"
+                  title="Export these highlights & notes as Markdown"
+                  onclick={() => void saveAnnotationsMarkdown($readerKey ?? "", annotations, { title: entry?.title, authors: entry?.authors, year: entry?.year, doi: entry?.doi })}>Export notes…</button>
+              {/if}
+            </div>
             {#if orderedAnns.length === 0}
               <div class="smsg">Select text in the PDF and pick a colour to add a highlight.</div>
             {:else}
@@ -1107,6 +1116,10 @@
   .shead {
     position: sticky;
     top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     padding: 8px 12px;
     font-size: var(--ts-xs);
     letter-spacing: 0.06em;
@@ -1114,6 +1127,21 @@
     color: var(--c-tx-faint);
     background: var(--c-surface);
     border-bottom: 1px solid var(--c-line);
+  }
+  .expnotes {
+    border: 1px solid var(--c-line);
+    background: var(--c-bg);
+    color: var(--c-tx-2);
+    border-radius: var(--r-1);
+    padding: 2px 8px;
+    font-size: var(--ts-xs);
+    letter-spacing: 0;
+    text-transform: none;
+    cursor: pointer;
+  }
+  .expnotes:hover {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
   }
   .stabs {
     display: flex;

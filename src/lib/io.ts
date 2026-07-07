@@ -31,6 +31,8 @@ import {
   intrinsicSize,
 } from "./assets";
 import { figureToSvg } from "./export";
+import { annotationsToMarkdown, type AnnotationMdMeta } from "./references/annotationsMarkdown";
+import type { Annotation } from "./references/annotations";
 import { encodeTiff } from "./figure/tiff";
 import { injectPngDpi } from "./figure/pngDpi";
 import { planExport, describeSize } from "./figure/journalSizing";
@@ -433,6 +435,24 @@ function buildSvg(fig: Figure): string {
     (id) => data[id],
     (el) => (el.type === "plot" ? (plotToSvgMarkup(el) ?? undefined) : undefined),
   );
+}
+
+// 3.2: save one paper's highlights/notes as a Markdown digest via the OS save dialog.
+// Callers pass the already-loaded annotations + entry metadata (reader/library both have them).
+export async function saveAnnotationsMarkdown(citekey: string, annotations: Annotation[], meta: AnnotationMdMeta = {}) {
+  if (!annotations.length) {
+    pushToast("info", "No highlights to export yet.");
+    return;
+  }
+  const md = annotationsToMarkdown(citekey, annotations, { ...meta, exportedAt: new Date().toISOString().slice(0, 10) });
+  const path = await window.fig.save(`${citekey}-notes.md`, [{ name: "Markdown", extensions: ["md"] }]);
+  if (!path) return;
+  try {
+    await window.fig.writeText(path, md);
+    pushToast("success", `Exported ${basename(path)}`);
+  } catch (e) {
+    pushToast("error", "Notes export failed", { detail: errMsg(e) });
+  }
 }
 
 export async function exportFigureSvg(fig: Figure) {

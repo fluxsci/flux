@@ -48,6 +48,8 @@
   import { fetchPdfForEntry, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
   import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
   import { parseQueryTerms } from "../../../lib/references/textFold";
+  import { loadAnnotations } from "../../../lib/references/annotationsBridge";
+  import { saveAnnotationsMarkdown } from "../../../lib/io";
   import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
   import { assignJob, countInbox } from "../../../lib/references/assignJob.svelte";
   import { safeKey, fetchOutcome, type FetchFailure, type FetchOutcome } from "../../../lib/references/items";
@@ -625,6 +627,12 @@
   function readPaper(e: MouseEvent, key: string) {
     e.stopPropagation();
     openInReader(key);
+  }
+  // 3.2: export a paper's highlights/notes as Markdown (loads them on demand).
+  async function exportNotes(e: MouseEvent, r: EnrichedEntry) {
+    e.stopPropagation();
+    const af = await loadAnnotations(r.key);
+    await saveAnnotationsMarkdown(r.key, af.annotations, { title: r.title, authors: r.authors, year: r.year, doi: r.doi });
   }
   // Ctrl+Shift+click: open the PDF in the reader, fetching it first if it isn't on disk —
   // open-access routes, then (if configured) the library proxy. Failures surface in the
@@ -1416,6 +1424,7 @@
             <div class="dbtns">
               {#if hasPdf(r.key)}
                 <button class="prim" onclick={(e) => readPaper(e, r.key)}>Read PDF →</button>
+                <button onclick={(e) => void exportNotes(e, r)} title="Export this paper's highlights & notes as Markdown">Export notes…</button>
               {:else}
                 <button
                   disabled={fetchingKey === r.key || fetchingAll || !canFetch(r)}

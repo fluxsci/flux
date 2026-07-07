@@ -74,6 +74,7 @@ usage: flux <verb> [root] [args] [--flags]
   assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in ~/FluxLib/pdfs_to_assign/
   search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
   annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
+                                       --key K --md: export the paper's notes as Markdown
   add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
   comments [--root R] [--doc rel] [--all]   list review comments (open by default)
@@ -631,6 +632,9 @@ async function main() {
         });
         console.log(JSON.stringify(hits, null, 2));
         console.error(`✓ ${hits.length} match(es)`);
+      } else if (typeof flags.key === "string" && flags.md) {
+        // 3.2: a Markdown digest of this paper's highlights/notes (for a notebook/manuscript).
+        process.stdout.write(await core.annotationsMarkdown(flags.key));
       } else if (typeof flags.key === "string") {
         const list = await core.listAnnotations(flags.key);
         console.log(JSON.stringify(list, null, 2));

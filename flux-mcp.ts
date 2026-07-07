@@ -856,10 +856,11 @@ server.registerTool(
   "list_annotations",
   {
     description:
-      "List the highlights/notes a human has made on a paper (items/<citekey>/annotations.json) — each with its anchored quote, page, color, and note. `key` is the citekey.",
-    inputSchema: { key: z.string() },
+      "List the highlights/notes a human has made on a paper (items/<citekey>/annotations.json) — each with its anchored quote, page, color, and note. `key` is the citekey. Set `markdown:true` for a formatted digest (title header + page-grouped blockquotes) ready to paste into notes or a manuscript.",
+    inputSchema: { key: z.string(), markdown: z.boolean().optional() },
   },
-  async ({ key }) => {
+  async ({ key, markdown }) => {
+    if (markdown) return ok(await core.annotationsMarkdown(key));
     const anns = await core.listAnnotations(key);
     if (!anns.length) return ok(`No annotations on ${key}.`);
     return ok(anns.map((a) => `p${a.page} [${a.color}] "${a.anchor.quote}"${a.note ? ` — ${a.note}` : ""}`).join("\n"));

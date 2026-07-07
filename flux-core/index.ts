@@ -48,6 +48,23 @@ export type { FulltextResult, FulltextHit, FulltextSnippet } from "./fulltextSea
 // FluxReader annotations (highlights/notes; searchable library-wide).
 export { loadAnnotations, addAnnotation, deleteAnnotation, listAnnotations, searchAnnotations } from "./annotate";
 export type { AnnotationHit } from "./annotate";
+import { listAnnotations as _listAnnotations } from "./annotate";
+import { annotationsToMarkdown } from "../src/lib/references/annotationsMarkdown";
+
+/** 3.2: one paper's highlights/notes as a Markdown digest (citekey/title header, page-
+ *  grouped blockquotes + notes + colours). Backs `flux annotations --md`, the MCP
+ *  list_annotations `markdown` param, and (via the bridge twin) the GUI "Export notes…". */
+export async function annotationsMarkdown(key: string): Promise<string> {
+  const [anns, entries] = await Promise.all([_listAnnotations(key), fluxlib.loadLibrary()]);
+  const e = entries.find((x) => x.key === key);
+  return annotationsToMarkdown(key, anns, {
+    title: e?.title,
+    authors: e?.authors,
+    year: e?.year,
+    doi: e?.doi,
+    exportedAt: new Date().toISOString().slice(0, 10),
+  });
+}
 // API keys (machine-global ~/FluxLib/keys.json + env), shared by CLI/MCP/GUI.
 export { loadKeys, saveKeys, getSecret } from "./fluxlib";
 export type { FluxKeys } from "./fluxlib";
