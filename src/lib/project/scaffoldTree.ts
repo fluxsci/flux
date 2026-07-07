@@ -175,9 +175,13 @@ bridge*).
 (build timeline + presets incl. the data-space \`morph\`), \`validate-deck\`, \`export-deck\`. Every
 one is also an MCP tool. A deck is \`slides/<id>/deck.json\`.
 
-**Library / reader (machine-global FluxLib):** \`fetch-pdfs\` / \`ingest-pdf\` (store a PDF for a
-citekey), \`assign-pdfs\` (identify + file everything in ~/FluxLib/pdfs_to_assign/),
-\`add-annotation\` (highlight/note), \`annotations\` (list/search) — MCP mirrors these.
+**Library / reader (machine-global FluxLib):** \`lib-add <refs.bib> [--attach-files]\` (bulk-import
+BibTeX/RIS, with Zotero PDF attachments), \`fetch-pdfs\` / \`ingest-pdf\` (store a PDF for a citekey),
+\`assign-pdfs\` (identify + file everything in ~/FluxLib/pdfs_to_assign/), \`search-text <query>\` /
+\`search_fulltext\` (scan the full text of every stored PDF), \`add-annotation\` (highlight/note),
+\`annotations [--md]\` / \`list_annotations\` (list, or export a paper's highlights as Markdown),
+\`tag\` / \`set-status\` / \`collection\` / \`organize_paper\` (tags, reading status, collections) —
+MCP mirrors these.
 
 **Manuscript / refs:** \`manuscript\` / \`get_manuscript\`, \`set-manuscript\` /
 \`set_manuscript\`, \`docs\` / \`list_documents\`, \`new-doc\` / \`create_document\`,

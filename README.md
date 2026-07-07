@@ -1,8 +1,9 @@
 # Flux
 
 A local-first desktop app for assembling scientific figures, papers, and slides —
-join plots into figures, figures into papers, and build slide decks, entirely
-offline and on your own machine.
+join plots into figures, figures into papers, build slide decks, and manage a
+full reference library (with a built-in PDF reader, full-text search, and
+citations) — entirely offline and on your own machine.
 
 ![Flux](brand/flux_main_page.png)
 
@@ -223,9 +224,16 @@ beat later.
 - **CLI** — `npm run flux -- list`, plus `compose-figure`, `create-figure`, `arrange`,
   `auto-label`, `restyle`, `set-caption`, `add-reference`, `cite-doi`, `compile`,
   `validate`, `validate-plot`, `rerun-plot`, `new <dir>`. Full verb list: `npm run flux -- help`.
+- **The reference library (FluxLib)** — a machine-global library the CLI drives too:
+  `lib-add refs.bib --attach-files` bulk-imports BibTeX/RIS (with Zotero PDF attachments),
+  `search-text "membrane potential"` scans the full text of every stored PDF, `fetch-pdfs`
+  runs the open-access → library-proxy acquisition waterfall, `annotations --key K --md`
+  exports a paper's highlights as Markdown, and `tag` / `set-status` / `collection` organize
+  entries. `hydrate` backfills metadata from OpenAlex/CrossRef.
 - **MCP server** — `npm run flux:mcp -- /path/to/project` exposes the same surface
   (`compose_figure`, `restyle_part`, `auto_label`, `get_figure_image` → a PNG so a vision
-  agent can SEE its work, `validate_project`, `validate_plot`, `compile`, …) to an MCP assistant.
+  agent can SEE its work, `search_fulltext`, `list_annotations`, `organize_paper`,
+  `validate_project`, `validate_plot`, `compile`, …) to an MCP assistant.
 - **Live bridge — act on what the human is doing.** While the app is open, the MCP tools
   `get_app_context`, `dispatch_command`, and `act_on_selection` let an agent read the live UI
   state (the current selection / drilled-in plot part / active figure) and act on it — over a
