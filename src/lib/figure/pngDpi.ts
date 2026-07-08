@@ -39,6 +39,28 @@ function physChunk(dpi: number): Uint8Array {
   return chunk;
 }
 
+/** Read the physical resolution (dpi) a PNG declares in its pHYs chunk, or null when
+ *  absent / non-metric (unit 0 = aspect-only) / not a PNG. The import path uses this to
+ *  place a raster at its true physical size instead of 1 image px = 1 canvas px. */
+export function readPngDpi(png: Uint8Array): number | null {
+  for (let i = 0; i < 8; i++) if (png[i] !== PNG_SIG[i]) return null;
+  const dv = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  let p = 8;
+  while (p + 12 <= png.length) {
+    const len = dv.getUint32(p);
+    const type = String.fromCharCode(png[p + 4], png[p + 5], png[p + 6], png[p + 7]);
+    if (type === "pHYs" && len === 9) {
+      if (png[p + 16] !== 1) return null; // unit 0 = pixel aspect ratio only, no physical size
+      const ppmX = dv.getUint32(p + 8);
+      if (!ppmX) return null;
+      return ppmX * 0.0254; // pixels-per-metre → pixels-per-inch
+    }
+    if (type === "IDAT" || type === "IEND") return null; // pHYs must precede IDAT
+    p += 12 + len;
+  }
+  return null;
+}
+
 /** Return a copy of `png` with a pHYs chunk declaring `dpi` (any existing pHYs replaced).
  *  If the input isn't a PNG, it's returned unchanged (best-effort — the PNG still exports). */
 export function injectPngDpi(png: Uint8Array, dpi: number): Uint8Array {

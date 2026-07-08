@@ -27,6 +27,7 @@ export const JOURNAL_PRESETS: { family: string; widths: WidthPreset[] }[] = [
     widths: [
       { id: "nat-single", label: "Nature single (89 mm)", mm: 89 },
       { id: "nat-double", label: "Nature double (183 mm)", mm: 183 },
+      { id: "nat-page", label: "Nature full page (180 mm)", mm: 180 },
     ],
   },
   {

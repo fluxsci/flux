@@ -309,12 +309,15 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       if (!assetId) throw new Error("add_plot: assetId required (an already-imported plot asset)");
       let nid: string | null = null;
       store.commit((p) => {
+        // Default to the asset's true physical size (canvas px @ 96/inch) — same
+        // contract as GUI import; 320×240 only if the asset is somehow unsized.
+        const phys = ops.assetDisplaySize(p, assetId);
         nid = ops.addPlotPanel(p, f, {
           assetId,
           x: num(c.x) ?? 0,
           y: num(c.y) ?? 0,
-          width: num(c.width) ?? 320,
-          height: num(c.height) ?? 240,
+          width: num(c.width) ?? phys?.width ?? 320,
+          height: num(c.height) ?? phys?.height ?? 240,
         });
       });
       if (nid) store.selectOnly(nid);
@@ -328,13 +331,14 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       if (!assetId) throw new Error("add_image: assetId required (an already-imported image asset)");
       let nid: string | null = null;
       store.commit((p) => {
+        const phys = ops.assetDisplaySize(p, assetId);
         nid = ops.addImagePanel(p, f, {
           assetId,
           kind: c.kind === "svg" ? "svg" : "image",
           x: num(c.x) ?? 0,
           y: num(c.y) ?? 0,
-          width: num(c.width) ?? 320,
-          height: num(c.height) ?? 240,
+          width: num(c.width) ?? phys?.width ?? 320,
+          height: num(c.height) ?? phys?.height ?? 240,
         });
       });
       if (nid) store.selectOnly(nid);

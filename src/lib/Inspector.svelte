@@ -6,7 +6,7 @@
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
-  import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize } from "./figure/journalSizing";
+  import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
   import { applyAutoWidth } from "./text";
   import { applyPartStyle } from "./colors";
   import { plotManifests } from "./plot/store";
@@ -23,6 +23,27 @@
   })();
   $: single = sel.length === 1 ? sel[0] : null;
   $: fig = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
+
+  // Physical-size truth (canvas px are 96/inch): the mm readout under W/H, and a
+  // reset back to an asset's true physical size after a manual/legacy rescale.
+  const mmStr = (px: number) => ((px / 96) * MM_PER_INCH).toFixed(1);
+  $: physSize = single && "assetId" in single ? ops.assetDisplaySize($project, single.assetId) : null;
+  $: atPhys =
+    !!physSize &&
+    !!single &&
+    "width" in single &&
+    Math.abs(single.width - physSize.width) < 0.5 &&
+    Math.abs(single.height - physSize.height) < 0.5;
+  function resetToPhysical() {
+    const ps = physSize;
+    if (!ps) return;
+    updateSelected((el) => {
+      if ("width" in el && "height" in el) {
+        el.width = ps.width;
+        el.height = ps.height;
+      }
+    });
+  }
 
   // Lock / hide state across the selection (F6): all-on drives the checkbox,
   // some-on shows the indeterminate dash.
@@ -309,6 +330,13 @@
             on:commit={(e) => updateSelected((el) => setDim(el, "h", e.detail))}
             on:scrub={(e) => scrubSelected((el) => setDim(el, "h", e.detail))} />
         </div>
+        <p class="note phys">
+          {mmStr(single.width)} × {mmStr(single.height)} mm
+          {#if physSize && !atPhys}
+            <span class="off-phys">· {Math.round((single.width / physSize.width) * 100)}% of true size</span>
+            <button class="true-size" title="Reset to the source's true physical size ({mmStr(physSize.width)} × {mmStr(physSize.height)} mm)" on:click={resetToPhysical}>True size</button>
+          {/if}
+        </p>
       {/if}
       <div class="row">
         <NumberField label="Rotation°" value={single.rotation} step={1}
@@ -357,9 +385,13 @@
         on:input={(e) => updateSelected((el) => { if (el.type === "text") el.text = e.currentTarget.value; })}
       ></textarea>
       <div class="row">
-        <NumberField label="Size" value={single.fontSize} min={1}
-          on:commit={(e) => updateSelected((el) => { if (el.type === "text") el.fontSize = e.detail; })}
-          on:scrub={(e) => scrubSelected((el) => { if (el.type === "text") el.fontSize = e.detail; })} />
+        <!-- Font size is EDITED IN POINTS (1 pt = 1/72 in — the unit journal specs use;
+             type 7 → true 7 pt in print) but STORED in canvas px (1/96 in): px = pt × 4/3.
+             Storage is untouched so old documents render identically. -->
+        <NumberField label="Size (pt)" value={single.fontSize * 0.75} min={1} step={0.5}
+          title="Font size in points, as printed (journals typically want 5–8 pt)"
+          on:commit={(e) => updateSelected((el) => { if (el.type === "text") el.fontSize = e.detail * (4 / 3); })}
+          on:scrub={(e) => scrubSelected((el) => { if (el.type === "text") el.fontSize = e.detail * (4 / 3); })} />
         <label>Weight
           <select value={single.fontWeight} on:change={(e) => updateSelected((el) => { if (el.type === "text") el.fontWeight = parseInt(e.currentTarget.value); })}>
             <option value="400">Regular</option>
@@ -454,6 +486,7 @@
           on:commit={(e) => updateFigure((f) => (f.height = e.detail))}
           on:scrub={(e) => scrubFigure((f) => (f.height = e.detail))} />
       </div>
+      <p class="note">= {mmStr(fig.width)} × {mmStr(fig.height)} mm</p>
       <label class="full">Background
         <input type="color" value={fig.background === "transparent" ? "#ffffff" : fig.background} on:change={(e) => updateFigure((f) => (f.background = e.currentTarget.value))} />
       </label>
@@ -581,6 +614,21 @@
     font-size: 10px;
     font-family: var(--font-mono);
     opacity: 0.5;
+  }
+  .note.phys {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .note.phys .off-phys {
+    color: var(--warn, #c77d00);
+    opacity: 0.9;
+  }
+  .note.phys .true-size {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 1px 7px;
   }
   .note {
     margin: 6px 0 0;

@@ -145,7 +145,8 @@
     // Text
     if (primary.type === "text") {
       F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => (primary as any).text, apply: (v) => upd((e) => { if (e.type === "text") e.text = String(v); }) });
-      num("e", "font size", "Text", () => (primary as any).fontSize, (e, v) => { if (e.type === "text") e.fontSize = Math.max(1, v); });
+      // Font size in POINTS (stored px × 0.75; see Inspector) — same unit as journal specs.
+      num("e", "font size (pt)", "Text", () => Math.round((primary as any).fontSize * 0.75 * 10) / 10, (e, v) => { if (e.type === "text") e.fontSize = Math.max(1, v) * (4 / 3); }, 0.5);
       F.push({ key: "b", label: "weight", group: "Text", kind: "select", options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }], get: () => String((primary as any).fontWeight), apply: (v) => upd((e) => { if (e.type === "text") e.fontWeight = Number(v); }) });
       F.push({ key: "m", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => (primary as any).fontFamily, apply: (v) => upd((e) => { if (e.type === "text") e.fontFamily = String(v); }) });
       F.push({ key: "a", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => (primary as any).align, apply: (v) => upd((e) => { if (e.type === "text") e.align = v as "left" | "center" | "right"; }) });

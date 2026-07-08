@@ -9,6 +9,7 @@
 
 import { PROJECT_SCHEMA_VERSION, slugify, type ProjectManifest } from "./types";
 import { SCHEMAS, SCHEMA_FILENAMES } from "./schemas";
+import { BLANK_FIGURE } from "../ops";
 import type { Deck } from "../slide/types";
 
 export interface ScaffoldOptions {
@@ -282,9 +283,9 @@ function figCanvas(): string {
             canvasId: "canvas-1",
             x: 0,
             y: 0,
-            width: 816,
-            height: 1056,
-            background: "#ffffff",
+            width: BLANK_FIGURE.width,
+            height: BLANK_FIGURE.height,
+            background: BLANK_FIGURE.background,
             elements: [],
           },
         ],

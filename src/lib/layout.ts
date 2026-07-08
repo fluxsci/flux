@@ -12,9 +12,10 @@ export interface Sized {
   h: number;
 }
 
-// Arrange items at (close to) their natural size into `region`, packing along
-// one axis and wrapping. Items are NEVER enlarged; the group is only uniformly
-// shrunk if an item is bigger than the region's cross-axis so it can fit.
+// Arrange items at EXACTLY their given size into `region`, packing along one
+// axis and wrapping. Items are never rescaled — size is the physical-size
+// contract (an item larger than the region simply overflows it, Figma-style;
+// the user resizes deliberately or regenerates the plot at the right size).
 //   "rows" — flow left→right (a horizontal row), wrap downward.
 //   "cols" — flow top→bottom (a vertical stack), wrap rightward.
 export function gridLayout(
@@ -27,10 +28,7 @@ export function gridLayout(
   if (n === 0) return [];
 
   if (orientation === "rows") {
-    // Only downscale if the widest item exceeds the region width.
-    const maxW = Math.max(...items.map((it) => it.w));
-    const k = Math.min(1, maxW > 0 ? region.w / maxW : 1);
-    const sized = items.map((it) => ({ w: it.w * k, h: it.h * k }));
+    const sized = items.map((it) => ({ w: it.w, h: it.h }));
     const out: Placed[] = new Array(n);
     let x = region.x;
     let y = region.y;
@@ -53,9 +51,7 @@ export function gridLayout(
   }
 
   // cols
-  const maxH = Math.max(...items.map((it) => it.h));
-  const k = Math.min(1, maxH > 0 ? region.h / maxH : 1);
-  const sized = items.map((it) => ({ w: it.w * k, h: it.h * k }));
+  const sized = items.map((it) => ({ w: it.w, h: it.h }));
   const out: Placed[] = new Array(n);
   let x = region.x;
   let y = region.y;

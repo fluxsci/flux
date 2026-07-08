@@ -34,8 +34,8 @@ import { figureToSvg } from "./export";
 import { annotationsToMarkdown, type AnnotationMdMeta } from "./references/annotationsMarkdown";
 import type { Annotation } from "./references/annotations";
 import { encodeTiff } from "./figure/tiff";
-import { injectPngDpi } from "./figure/pngDpi";
-import { planExport, describeSize } from "./figure/journalSizing";
+import { injectPngDpi, readPngDpi } from "./figure/pngDpi";
+import { planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
 import { cachePlot, clearPlots, plotManifests, plotRecipes } from "./plot/store";
 import { plotToSvgMarkup } from "./plot/export";
@@ -82,11 +82,11 @@ function kindOf(name: string): "png" | "svg" {
   return name.toLowerCase().endsWith(".svg") ? "svg" : "png";
 }
 
+// `el.width/height` arrive already set to the asset's TRUE physical size in canvas
+// px (96/inch) — placement must never rescale them (see placeIncoming).
 interface Incoming {
   asset: Asset;
   el: ImageElement | SvgElement | SemanticPlotElement;
-  natW: number;
-  natH: number;
 }
 
 // Sidecars discovered next to an imported `X.svg`: the FluxPlot manifest
@@ -129,7 +129,16 @@ async function buildIncoming(
 ): Promise<Incoming> {
   const kind = kindOf(name);
   const dataUrl = bytesToDataUrl(bytes, mimeFor(kind));
-  const { width, height } = await intrinsicSize(dataUrl);
+  const { width: natW, height: natH } = await intrinsicSize(dataUrl);
+  // Physical size in canvas px (96/inch) — the size the element is PLACED at.
+  // SVG: the browser already converted declared pt/mm/in units to CSS px (×96/72
+  // for matplotlib's pt), so natural size IS physical. PNG: honor a pHYs DPI
+  // declaration (e.g. a 300-dpi export places at ×96/300 of its pixel count);
+  // a raster with no declared DPI keeps 1 image px = 1 canvas px.
+  const declaredDpi = kind === "png" ? readPngDpi(bytes) : null;
+  const k = declaredDpi && declaredDpi > 0 ? 96 / declaredDpi : 1;
+  const width = natW * k;
+  const height = natH * k;
   const id = newId("asset");
   const asset: Asset = {
     id,
@@ -140,8 +149,9 @@ async function buildIncoming(
     // path-less asset would be rewritten every debounce. With the path fixed at
     // import, the dirty flag alone decides whether the bytes are (re)written.
     path: `assets/${id}.${kind}`,
-    naturalWidth: width,
-    naturalHeight: height,
+    naturalWidth: natW,
+    naturalHeight: natH,
+    ...(declaredDpi ? { dpi: declaredDpi } : {}),
   };
   setAssetData(asset.id, dataUrl); // also serves as the <image> fallback (spec P4)
   markAssetDirty(asset.id); // W8: newly imported bytes → write on next save
@@ -165,7 +175,7 @@ async function buildIncoming(
         manifestRef: { specVersion: manifest.schemaVersion },
         overrides: {},
       };
-      return { asset, el, natW: width, natH: height };
+      return { asset, el };
     } catch {
       /* malformed manifest — fall through to an opaque svg (graceful) */
     }
@@ -181,7 +191,7 @@ async function buildIncoming(
     height,
     rotation: 0,
   };
-  return { asset, el, natW: width, natH: height };
+  return { asset, el };
 }
 
 export async function importAssets() {
@@ -257,7 +267,13 @@ export async function importDroppedFiles(files: File[], figId: string) {
 }
 
 // Position incoming placements (one centered; many auto-arranged into a grid),
-// then commit assets + elements and select the new group.
+// then commit assets + elements and select the new group. Everything is placed
+// at its TRUE physical size (Figma-style) — never fit-scaled to the frame. A
+// plot that doesn't fit overflows the frame and the toast says so: the user
+// either resizes deliberately in Flux or fixes the plot's figsize at the source.
+// (The old 70%-fit rule silently rescaled each import by a different factor, so
+// same-pt fonts landed at different apparent sizes — the one thing a journal
+// figure tool must never do.)
 function placeIncoming(incoming: Incoming[], figId?: string) {
   if (!incoming.length) return;
   const p = get(project);
@@ -267,13 +283,22 @@ function placeIncoming(incoming: Incoming[], figId?: string) {
 
   if (incoming.length === 1) {
     const it = incoming[0];
-    const s = Math.min(1, (fig.width * 0.7) / it.natW, (fig.height * 0.7) / it.natH);
-    it.el.width = it.natW * s;
-    it.el.height = it.natH * s;
     it.el.x = (fig.width - it.el.width) / 2;
     it.el.y = (fig.height - it.el.height) / 2;
   } else {
     autoArrange(fig, incoming);
+  }
+  const mm = (px: number) => ((px / 96) * MM_PER_INCH).toFixed(1);
+  const over = incoming.filter(
+    (it) => it.el.x < 0 || it.el.y < 0 || it.el.x + it.el.width > fig.width || it.el.y + it.el.height > fig.height,
+  );
+  if (over.length) {
+    const one = over.length === 1 ? over[0].el : null;
+    pushToast("info", "Placed at true physical size — larger than the frame", {
+      detail: one
+        ? `${mm(one.width)} × ${mm(one.height)} mm vs frame ${mm(fig.width)} × ${mm(fig.height)} mm. Resize it here, or regenerate the plot at the size it should print.`
+        : `${over.length} of ${incoming.length} imports exceed the ${mm(fig.width)} × ${mm(fig.height)} mm frame. Resize them here, or regenerate the plots at the size they should print.`,
+    });
   }
 
   commit((proj) => {
@@ -305,11 +330,11 @@ function autoArrange(fig: Figure, incoming: Incoming[]) {
 
   // Tall/narrow plots → side by side in a horizontal row; wide plots → stacked
   // vertically. (Decided from the average aspect ratio.)
-  const aspects = incoming.map((it) => (it.natH > 0 ? it.natW / it.natH : 1));
+  const aspects = incoming.map((it) => (it.el.height > 0 ? it.el.width / it.el.height : 1));
   const meanAspect = aspects.reduce((a, b) => a + b, 0) / aspects.length;
   const orientation = meanAspect < 1 ? "rows" : "cols";
 
-  const sizes = incoming.map((it) => ({ w: it.natW, h: it.natH }));
+  const sizes = incoming.map((it) => ({ w: it.el.width, h: it.el.height }));
   const placed = gridLayout(sizes, region, gap, orientation);
   incoming.forEach((it, i) => {
     const pl = placed[i];

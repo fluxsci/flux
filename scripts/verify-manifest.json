@@ -1,5 +1,5 @@
 {
-  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) — this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the EDITING-FEEL contract). New verify scripts MUST be added here to join the gate.",
+  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the EDITING-FEEL contract). New verify scripts MUST be added here to join the gate.",
   "tiers": {
     "pure": [
       "verify-an-bridge.ts",
@@ -83,7 +83,11 @@
       "verify-writer-latency.ts",
       "verify-tokens.mjs"
     ],
-    "net": ["verify-enrich-live.ts", "verify-openalex.ts", "verify-s2.ts"],
+    "net": [
+      "verify-enrich-live.ts",
+      "verify-openalex.ts",
+      "verify-s2.ts"
+    ],
     "ui": [
       "verify-paper-nav.mjs",
       "verify-paper-vim.mjs",
@@ -98,6 +102,8 @@
       "verify-refbib.mjs",
       "verify-fulltext-gui.mjs",
       "verify-import-gui.mjs",
+      "verify-import-physical.mjs",
+      "verify-font-pt.mjs",
       "verify-figure-export-gui.mjs",
       "verify-p4-paper.mjs",
       "verify-keepalive.mjs",
@@ -167,9 +173,16 @@
       "verify-w5-lifecycle.mjs",
       "verify-slide-export.ts"
     ],
-    "scale": ["verify-scale-library.mjs", "verify-scale-reader.mjs"],
-    "bundle": ["verify-w13-cli.mjs"],
-    "startup": ["verify-startup.mjs"],
+    "scale": [
+      "verify-scale-library.mjs",
+      "verify-scale-reader.mjs"
+    ],
+    "bundle": [
+      "verify-w13-cli.mjs"
+    ],
+    "startup": [
+      "verify-startup.mjs"
+    ],
     "electron": [
       "verify-w6-flush.cjs",
       "verify-cellpress.cjs",

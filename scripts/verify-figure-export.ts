@@ -1,9 +1,12 @@
 // 3.1 gate (pure) — journal-spec figure export core: the baseline TIFF encoder (structure
-// + resolution tags + pixel round-trip), the PNG pHYs DPI stamp, and the mm↔px sizing.
+// + resolution tags + pixel round-trip), the PNG pHYs DPI stamp (write + read), the mm↔px
+// sizing, and the physical-size placement contract (assetDisplaySize / BLANK_FIGURE).
 //   Run: npx tsx scripts/verify-figure-export.ts
 import { encodeTiff } from "../src/lib/figure/tiff";
-import { injectPngDpi } from "../src/lib/figure/pngDpi";
+import { injectPngDpi, readPngDpi } from "../src/lib/figure/pngDpi";
 import { mmToPx, planExport, describeSize, MM_PER_INCH } from "../src/lib/figure/journalSizing";
+import { assetDisplaySize, BLANK_FIGURE } from "../src/lib/ops";
+import type { Project } from "../src/lib/types";
 
 let fails = 0;
 const ok = (c: boolean, name: string, extra = "") => {
@@ -112,6 +115,49 @@ function fakePng(): Uint8Array {
   // Non-PNG passthrough.
   const notPng = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   ok(injectPngDpi(notPng, 300) === notPng, "non-PNG returned unchanged");
+}
+
+// --- PNG pHYs read-back (the import side of physical sizing) ------------------------------
+{
+  const png = fakePng();
+  ok(readPngDpi(png) === null, "no pHYs → null (bare raster: 1 px = 1 canvas px)");
+  const dpi = readPngDpi(injectPngDpi(png, 300));
+  ok(dpi !== null && Math.abs(dpi - 300) < 0.01, `inject 300 → read ${dpi} (ppm rounding < 0.01)`);
+  const dpi600 = readPngDpi(injectPngDpi(png, 600));
+  ok(dpi600 !== null && Math.abs(dpi600 - 600) < 0.01, "inject 600 → read 600");
+  ok(readPngDpi(new Uint8Array([1, 2, 3])) === null, "non-PNG → null");
+  // A unit-0 pHYs (aspect-ratio only, no physical meaning) must NOT be read as a dpi.
+  const stamped = injectPngDpi(png, 300);
+  const unit0 = new Uint8Array(stamped);
+  for (let p = 8; p + 8 <= unit0.length; ) {
+    const len = (unit0[p] << 24) | (unit0[p + 1] << 16) | (unit0[p + 2] << 8) | unit0[p + 3];
+    const type = String.fromCharCode(unit0[p + 4], unit0[p + 5], unit0[p + 6], unit0[p + 7]);
+    if (type === "pHYs") unit0[p + 16] = 0;
+    p += 12 + len;
+  }
+  ok(readPngDpi(unit0) === null, "unit-0 pHYs (aspect only) → null");
+}
+
+// --- physical-size placement contract ------------------------------------------------------
+{
+  // The default frame IS 180 × 225 mm expressed at 96 px/inch (within half-px rounding).
+  ok(Math.abs((BLANK_FIGURE.width / 96) * MM_PER_INCH - 180) < 0.15, "BLANK_FIGURE width ≡ 180 mm");
+  ok(Math.abs((BLANK_FIGURE.height / 96) * MM_PER_INCH - 225) < 0.15, "BLANK_FIGURE height ≡ 225 mm");
+  const proj = {
+    assets: [
+      { id: "svg1", name: "a.svg", kind: "svg", path: "assets/svg1.svg", naturalWidth: 570, naturalHeight: 198 },
+      { id: "png1", name: "b.png", kind: "png", path: "assets/png1.png", naturalWidth: 2126, naturalHeight: 2657, dpi: 300 },
+      { id: "png2", name: "c.png", kind: "png", path: "assets/png2.png", naturalWidth: 800, naturalHeight: 600 },
+    ],
+  } as unknown as Project;
+  const svg = assetDisplaySize(proj, "svg1");
+  ok(!!svg && svg.width === 570 && svg.height === 198, "svg: natural CSS px ARE physical (no rescale)");
+  const png = assetDisplaySize(proj, "png1");
+  ok(!!png && Math.abs(png.width - 2126 * (96 / 300)) < 1e-9, "png with pHYs: ×96/dpi (300-dpi full-pager → 680.3 px)");
+  ok(!!png && Math.abs((png.width / 96) * MM_PER_INCH - 180) < 0.05, "…which is 180 mm on the canvas");
+  const bare = assetDisplaySize(proj, "png2");
+  ok(!!bare && bare.width === 800, "bare png: 1 image px = 1 canvas px");
+  ok(assetDisplaySize(proj, "missing") === null, "unknown asset → null");
 }
 
 // --- sizing ------------------------------------------------------------------------------

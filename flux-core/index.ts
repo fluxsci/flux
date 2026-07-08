@@ -333,15 +333,25 @@ async function saveFigModelUnlocked(
   await reindex(root);
 }
 
-/** Best-effort intrinsic size of an SVG (viewBox, else width/height attrs). */
+/** Intrinsic size of an SVG in CSS px (96/inch), matching how the BROWSER sizes it on
+ *  GUI import: the width/height attributes with their units converted (matplotlib
+ *  writes pt → ×96/72), falling back to the viewBox (unitless user units = px).
+ *  Physical size is the placement contract — a plot must land at the same true size
+ *  whether it arrives via the GUI, the CLI, or an agent. (The old version preferred
+ *  the unitless viewBox, silently placing pt-sized SVGs at 0.75× physical.) */
 function svgIntrinsicSize(svg: string): { w: number; h: number } {
   const m = /<svg\b[^>]*>/i.exec(svg);
   const tag = m ? m[0] : svg.slice(0, 600);
-  const vb = /viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)/i.exec(tag);
+  const PX_PER: Record<string, number> = { px: 1, pt: 96 / 72, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 };
+  const dim = (name: string): number | null => {
+    const d = new RegExp(`\\b${name}="\\s*([\\d.]+)\\s*(px|pt|pc|mm|cm|in)?\\s*"`, "i").exec(tag);
+    return d ? +d[1] * PX_PER[(d[2] || "px").toLowerCase()] : null; // "100%" etc. → null
+  };
+  const w = dim("width");
+  const h = dim("height");
+  if (w && h) return { w, h };
+  const vb = /viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(tag);
   if (vb) return { w: +vb[1], h: +vb[2] };
-  const w = /\bwidth="([\d.]+)/i.exec(tag);
-  const h = /\bheight="([\d.]+)/i.exec(tag);
-  if (w && h) return { w: +w[1], h: +h[1] };
   return { w: 240, h: 180 };
 }
 
@@ -776,7 +786,8 @@ export async function composeFigure(
         const el = fig.elements.find((e) => e.id === pid);
         if (!el) continue;
         const b = elementBBox(el);
-        ops.addPanelLabel(project, fig.id, { text: "?", x: b.x, y: Math.max(0, b.y - 34), fontSize: 28 });
+        // 8 pt bold (32/3 canvas px) — the journal-standard panel-letter size.
+        ops.addPanelLabel(project, fig.id, { text: "?", x: b.x, y: Math.max(0, b.y - 16), fontSize: 32 / 3 });
       }
       ops.autoLetterPanels(project, fig.id);
     }

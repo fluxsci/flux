@@ -45,15 +45,30 @@ import {
 import { scaleRemap } from "./editing";
 import { figurePanels } from "./captions";
 
-// Default frame size (US Letter @ 96dpi) — the single source for a blank figure
-// (store.ts `blankFigure` reuses these so the GUI and agents agree).
-export const BLANK_FIGURE = { width: 816, height: 1056, background: "#ffffff" } as const;
+// Default frame size — a full-page journal figure, 180 × 225 mm (the Nature-family
+// maximum figure size), expressed in the canvas's 96 dpi design px: 180/25.4×96 ≈ 680,
+// 225/25.4×96 ≈ 850 (exactly 4:5). The physical size binds at export — "180 mm @
+// 300 dpi" rasterizes to 2126 px wide via journalSizing.planExport. The single source
+// for a blank figure (store.ts `blankFigure` and scaffoldTree reuse these so the GUI,
+// CLI, and agents agree).
+export const BLANK_FIGURE = { width: 680, height: 850, background: "#ffffff" } as const;
 
 // ---------------------------------------------------------------------------
 // Lookups / helpers
 // ---------------------------------------------------------------------------
 export function figById(p: Project, figId: Id): Figure | null {
   return p.figures.find((f) => f.id === figId) ?? null;
+}
+
+/** An asset's true physical size in canvas px (96/inch). SVG naturalWidth is already
+ *  CSS px (physical); a PNG with a declared dpi (pHYs) is converted; a bare raster
+ *  falls back to 1 image px = 1 canvas px. Placement/reset must use THIS, never a
+ *  fit-to-frame rescale — physical size is the contract (WYSIWYG at export). */
+export function assetDisplaySize(p: Project, assetId: Id): { width: number; height: number } | null {
+  const a = p.assets.find((x) => x.id === assetId);
+  if (!a || !(a.naturalWidth > 0) || !(a.naturalHeight > 0)) return null;
+  const k = a.kind === "png" && a.dpi && a.dpi > 0 ? 96 / a.dpi : 1;
+  return { width: a.naturalWidth * k, height: a.naturalHeight * k };
 }
 
 /** Resolve a target element set within a figure (defaults to all), then expand
@@ -237,7 +252,9 @@ export function makeText(text: string, b: Box, style: TextStyle = {}, panelLabel
     ...g,
     rotation: 0,
     fontFamily: style.fontFamily ?? "Arial",
-    fontSize: style.fontSize ?? 24,
+    // Defaults are journal-spec: 7 pt body text, 8 pt bold panel letters — stored in
+    // canvas px (pt × 4/3; the UI edits in pt). Callers passing fontSize pass px.
+    fontSize: style.fontSize ?? (panelLabel ? 32 / 3 : 28 / 3),
     fontWeight: style.fontWeight ?? (panelLabel ? 700 : 400),
     fontStyle: style.fontStyle ?? "normal",
     align: style.align ?? "left",

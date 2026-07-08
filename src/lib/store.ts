@@ -45,7 +45,9 @@ export const drawStyle = writable<DrawStyle>({
   strokeWidth: 2,
   textColor: "#222222",
   fontFamily: "Arial",
-  fontSize: 24,
+  // 7 pt — the standard journal figure text size — in stored canvas px (pt × 4/3).
+  // The UI edits font sizes in pt (Inspector "Size (pt)"); storage stays px.
+  fontSize: 28 / 3,
   fontWeight: 400,
 });
 

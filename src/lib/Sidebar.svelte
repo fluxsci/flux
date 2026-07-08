@@ -24,7 +24,7 @@
       const active = p.figures.find((f) => f.id === $activeFigureId && f.canvasId === cid);
       // New figures stack vertically: directly below the lowest figure on the
       // canvas, left-aligned with the active figure (M1 / F8). The default size
-      // lives only in blankFigure() (816×1056) so figure sizes never drift.
+      // lives only in blankFigure() (680×850 = 180×225 mm) so figure sizes never drift.
       const gap = 80;
       const maxBottom = onCanvas.reduce((m, f) => Math.max(m, f.y + f.height), 0);
       const fig: Figure = {

@@ -32,7 +32,7 @@ await sleep(200);
 const after = await read();
 
 // Assertions: all same size; each subsequent figure strictly below the prior; x aligned.
-const allSameSize = after.every((f) => f.w === 816 && f.h === 1056);
+const allSameSize = after.every((f) => f.w === 680 && f.h === 850);
 const stackedBelow = after.every((f, i) => i === 0 || f.y > after[i - 1].y + after[i - 1].h - 1);
 const leftAligned = after.every((f) => f.x === after[0].x);
 

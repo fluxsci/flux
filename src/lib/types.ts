@@ -66,8 +66,14 @@ export interface Asset {
   // Relative path inside the project dir, e.g. "assets/plot1.svg".
   path: string;
   // Intrinsic dimensions in px (used to seed placement size / aspect ratio).
+  // For SVG these are CSS px (the browser converts pt/mm/in at 96 px/inch), so they
+  // ARE the declared physical size in canvas units. For PNG they are raw pixels.
   naturalWidth: number;
   naturalHeight: number;
+  // Physical resolution a PNG declared via its pHYs chunk (px/inch), captured at
+  // import. Physical size in canvas px = natural × 96/dpi. Absent for SVG (already
+  // physical) and for rasters that declare nothing (screenshots: 1 px = 1 canvas px).
+  dpi?: number;
 }
 
 // Common transform/style fields shared by every element. Exported so the Flux
