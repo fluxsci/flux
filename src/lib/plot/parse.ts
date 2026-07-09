@@ -10,7 +10,7 @@
 import type { FluxPlotManifest, PartInfo, PartNode } from "./types";
 import type { PartOverride } from "../types";
 import { resolveTargets, inferRole, labelForPart } from "./tree";
-import { normalizeSvgForParts, isDrawableTag, insideDefs } from "./derive";
+import { normalizeSvgForParts, deriveManifestFromSvg, isDrawableTag, insideDefs } from "./derive";
 
 const XLINK = "http://www.w3.org/1999/xlink";
 const SEP = "__";
@@ -309,10 +309,10 @@ export function preparePlot(
   const root = parsePlotSvg(svgText);
   if (!root) return { root: null, manifest };
   normalizeSvgForParts(root as unknown as Element);
-  // Phase 4 (vanilla pipeline) adds: if (!manifest) manifest = deriveManifestFromSvg(root)
-  if (manifest) {
-    manifest = augmentManifestOrphans(root as unknown as Element, manifest) ?? manifest;
-  }
+  // No sidecar manifest (a "vanilla" svg) → synthesize one from the DOM so ANY
+  // svg is x-rayable/part-editable. NEVER persisted (see plot/derive.ts).
+  if (!manifest) manifest = deriveManifestFromSvg(root as unknown as Element);
+  manifest = augmentManifestOrphans(root as unknown as Element, manifest) ?? manifest;
   return { root, manifest };
 }
 

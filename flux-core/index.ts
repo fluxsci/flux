@@ -779,9 +779,14 @@ export async function importPlots(
     const panels: { assetId: string; elementId: string }[] = [];
     infos.forEach((it, i) => {
       const box = { x: placed[i].x, y: placed[i].y, width: placed[i].w, height: placed[i].h };
-      const elementId = it.source
-        ? ops.addPlotPanel(project, figId, { assetId: it.assetId, source: it.source, ...box })
-        : ops.addImagePanel(project, figId, { assetId: it.assetId, kind: "svg", ...box });
+      // figure-v1 P4 parity: EVERY svg is a semantic plot (the GUI derives a
+      // manifest for sidecar-less files at cachePlot; headless render derives
+      // inside preparePlot) — vanilla svgs must not fall back to <image>.
+      const elementId = ops.addPlotPanel(project, figId, {
+        assetId: it.assetId,
+        source: it.source ?? { svgPath: path.relative(root, path.resolve(plotPaths[i])) },
+        ...box,
+      });
       if (elementId) panels.push({ assetId: it.assetId, elementId });
     });
     return { panels };

@@ -27,13 +27,15 @@ export const plotGen = writable<Record<Id, number>>({});
 export function cachePlot(
   assetId: Id,
   svgText: string,
-  manifest: FluxPlotManifest,
+  manifest?: FluxPlotManifest,
   recipe?: unknown,
 ): boolean {
   const prepared = preparePlot(svgText, manifest);
   if (prepared.root) plotDom.set(assetId, prepared.root);
   if (prepared.manifest !== undefined) manifest = prepared.manifest;
-  plotManifests.update((m) => ({ ...m, [assetId]: manifest }));
+  // manifest is always present when the svg parsed (derived if no sidecar);
+  // only a parse failure leaves it undefined — don't store that.
+  if (manifest !== undefined) plotManifests.update((m) => ({ ...m, [assetId]: manifest as FluxPlotManifest }));
   if (recipe !== undefined) plotRecipes.update((m) => ({ ...m, [assetId]: recipe }));
   plotGen.update((g) => ({ ...g, [assetId]: (g[assetId] ?? 0) + 1 }));
   return !!prepared.root;

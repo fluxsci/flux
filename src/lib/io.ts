@@ -4,7 +4,6 @@ import type {
   Figure,
   ImageElement,
   Project,
-  SvgElement,
   SemanticPlotElement,
 } from "./types";
 import {
@@ -38,6 +37,7 @@ import { injectPngDpi, readPngDpi } from "./figure/pngDpi";
 import { planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
 import { cachePlot, clearPlots, plotManifests, plotRecipes } from "./plot/store";
+import { isDerivedManifest } from "./plot/derive";
 import { plotToSvgMarkup } from "./plot/export";
 import type { FluxPlotManifest } from "./plot/types";
 import { pushToast, errMsg } from "./toast";
@@ -86,11 +86,12 @@ function kindOf(name: string): "png" | "svg" {
 // px (96/inch) — placement must never rescale them (see placeIncoming).
 interface Incoming {
   asset: Asset;
-  el: ImageElement | SvgElement | SemanticPlotElement;
+  el: ImageElement | SemanticPlotElement;
 }
 
-// Sidecars discovered next to an imported `X.svg`: the FluxPlot manifest
-// (`X.fluxplot.json`) makes it a SEMANTIC plot rather than an opaque image.
+// Sidecars discovered next to an imported `X.svg`: a FluxPlot manifest
+// (`X.fluxplot.json`) supplies real semantics; without one the svg still goes
+// through the plot pipeline with a DERIVED manifest (plot/derive.ts).
 interface Siblings {
   svgPath?: string;
   manifestPath?: string;
@@ -156,33 +157,46 @@ async function buildIncoming(
   setAssetData(asset.id, dataUrl); // also serves as the <image> fallback (spec P4)
   markAssetDirty(asset.id); // W8: newly imported bytes → write on next save
 
-  // A semantic FluxPlot = an svg with a parseable manifest sidecar.
-  if (kind === "svg" && sib.manifestText) {
-    try {
-      const manifest = JSON.parse(sib.manifestText) as FluxPlotManifest;
-      const recipe = sib.recipeText ? JSON.parse(sib.recipeText) : undefined;
-      cachePlot(asset.id, new TextDecoder().decode(bytes), manifest, recipe);
-      const el: SemanticPlotElement = {
-        type: "plot",
-        id: newId("plot"),
-        assetId: asset.id,
-        x: 0,
-        y: 0,
-        width,
-        height,
-        rotation: 0,
-        source: { svgPath: sib.svgPath ?? name, manifestPath: sib.manifestPath, recipePath: sib.recipePath },
-        manifestRef: { specVersion: manifest.schemaVersion },
-        overrides: {},
-      };
-      return { asset, el };
-    } catch {
-      /* malformed manifest — fall through to an opaque svg (graceful) */
+  // EVERY svg goes through the semantic-plot pipeline: a fluxplot sidecar gives
+  // the real manifest; anything else gets a DERIVED one at cachePlot (via
+  // preparePlot) — so vanilla SVGs are inline live DOM (real text, crisp,
+  // x-rayable, part-editable) instead of an opaque <image>.
+  if (kind === "svg") {
+    let manifest: FluxPlotManifest | undefined;
+    let recipe: unknown;
+    if (sib.manifestText) {
+      try {
+        manifest = JSON.parse(sib.manifestText) as FluxPlotManifest;
+        recipe = sib.recipeText ? JSON.parse(sib.recipeText) : undefined;
+      } catch {
+        manifest = undefined; // malformed sidecar → treated as vanilla (derived)
+      }
     }
+    cachePlot(asset.id, new TextDecoder().decode(bytes), manifest, recipe);
+    const el: SemanticPlotElement = {
+      type: "plot",
+      id: newId("plot"),
+      assetId: asset.id,
+      x: 0,
+      y: 0,
+      width,
+      height,
+      rotation: 0,
+      source: {
+        svgPath: sib.svgPath ?? name,
+        // Only record sidecar paths that actually exist (a real fluxplot) — the
+        // fluxplot/vanilla discriminator is sidecar presence.
+        manifestPath: manifest ? sib.manifestPath : undefined,
+        recipePath: manifest ? sib.recipePath : undefined,
+      },
+      ...(manifest ? { manifestRef: { specVersion: manifest.schemaVersion } } : {}),
+      overrides: {},
+    };
+    return { asset, el };
   }
 
-  const el: ImageElement | SvgElement = {
-    type: kind === "svg" ? "svg" : "image",
+  const el: ImageElement = {
+    type: "image",
     id: newId(kind),
     assetId: asset.id,
     x: 0,
@@ -432,8 +446,12 @@ async function writeProjectTo(dir: string) {
     await window.fig.writeFile(joinPath(dir, rel), dataUrlToBytes(url));
     // Cache a semantic plot's sidecars alongside its bytes so the project stays
     // self-contained (the authoritative copy lives in the user's plots/ dir).
+    // NEVER persist a DERIVED manifest: sidecar presence is the fluxplot/vanilla
+    // discriminator, and re-deriving at every load keeps deriver improvements
+    // retroactive (a written derived sidecar would freeze it and misclassify
+    // the vanilla svg as a fluxplot on the next load).
     const man = manifests[asset.id];
-    if (man) {
+    if (man && !isDerivedManifest(man)) {
       await window.fig.writeText(joinPath(dir, `assets/${asset.id}.fluxplot.json`), JSON.stringify(man, null, 2));
       const rec = recipes[asset.id];
       if (rec !== undefined)
@@ -465,17 +483,19 @@ export async function openProject() {
       if (!asset.path) continue;
       const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
       fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
-      // Re-attach a semantic plot's manifest (+ recipe) by assetId, so its inlined
-      // rendering + part overrides (stored on the element) reconnect on reload.
+      // Cache EVERY svg's DOM (+ manifest/recipe when sidecars exist; a vanilla
+      // svg gets a derived manifest inside cachePlot) so inlined rendering +
+      // part overrides reconnect on reload.
       if (asset.kind === "svg") {
+        let manifest: FluxPlotManifest | undefined;
+        let recipe: unknown;
         const mpath = joinPath(dir, `assets/${asset.id}.fluxplot.json`);
         if (await window.fig.exists(mpath)) {
-          const manifest = JSON.parse(await window.fig.readText(mpath)) as FluxPlotManifest;
-          let recipe: unknown;
+          manifest = JSON.parse(await window.fig.readText(mpath)) as FluxPlotManifest;
           const rpath = joinPath(dir, `assets/${asset.id}.recipe.json`);
           if (await window.fig.exists(rpath)) recipe = JSON.parse(await window.fig.readText(rpath));
-          cachePlot(asset.id, new TextDecoder().decode(bytes), manifest, recipe);
         }
+        cachePlot(asset.id, new TextDecoder().decode(bytes), manifest, recipe);
       }
     }
     assetData.set(fresh);

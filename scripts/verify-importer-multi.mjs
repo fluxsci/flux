@@ -53,6 +53,9 @@ const snap = () =>
         w: e.width,
         h: e.height,
         asset: p.assets.find((a) => a.id === e.assetId)?.name ?? null,
+        // fluxplot vs vanilla discriminator (figure-v1 P4: ALL svgs are plots;
+        // a real sidecar shows up as manifestRef + source.manifestPath)
+        semantic: !!(e.manifestRef && e.source?.manifestPath),
       })),
       selection: [...F.get(F.fig.selection)],
     };
@@ -137,8 +140,17 @@ ok(
   "placement order = pick order",
   added.map((e) => e.asset).join(","),
 );
+// figure-v1 P4: EVERY svg imports as an inline semantic plot (vanilla svgs get
+// a derived manifest); the fluxplot/vanilla discriminator is the sidecar refs.
 const bravo = added.find((e) => e.asset === "bravo.svg");
-ok(bravo?.type === "plot" && added.filter((e) => e.type === "svg").length === 3, `sidecar resolution intact through the batch (bravo → ${bravo?.type})`);
+ok(
+  added.every((e) => e.type === "plot"),
+  `all svgs import as inline plots (${added.map((e) => e.type).join(",")})`,
+);
+ok(
+  bravo?.semantic === true && added.filter((e) => e.semantic).length === 1,
+  `sidecar resolution intact through the batch (only bravo carries manifestRef)`,
+);
 ok(
   added.every((e) => Math.abs(e.w - 96) <= 0.5 && Math.abs(e.h - 96) <= 0.5),
   "batch lands at TRUE physical size (72pt → 96px each)",

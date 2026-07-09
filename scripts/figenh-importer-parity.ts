@@ -69,7 +69,9 @@ try {
     assert(sidecar, "FluxPlot manifest copied as an asset-local sidecar (GUI reconnect contract)");
   }
 
-  // --- 1b. batch import → vanilla svg elements, grid-packed like the GUI ------
+  // --- 1b. batch import → inline plot elements, grid-packed like the GUI ------
+  // (figure-v1 P4: EVERY svg is a semantic plot; vanilla files get a DERIVED
+  // manifest at prepare time and carry source.svgPath but no manifestPath.)
   const two = await core.importPlots(root, figureId, [path.join(plots, "t2.svg"), path.join(plots, "t3.svg")]);
   assert(two.panels.length === 2, "importPlots([t2, t3]) → 2 panels");
   {
@@ -81,8 +83,13 @@ try {
       y: number;
       width: number;
       height: number;
+      source?: { svgPath?: string; manifestPath?: string };
     }>;
-    assert(els.every((e) => e?.type === "svg"), `vanilla svgs import as svg elements (got ${els.map((e) => e?.type).join(",")})`);
+    assert(els.every((e) => e?.type === "plot"), `vanilla svgs import as inline plots (got ${els.map((e) => e?.type).join(",")})`);
+    assert(
+      els.every((e) => e?.source?.svgPath && !e?.source?.manifestPath),
+      "vanilla plots carry svgPath provenance but NO manifestPath (the fluxplot discriminator)",
+    );
     assert(near(els[0].width, 192) && near(els[0].height, 288) && near(els[1].width, 192), "batch keeps TRUE physical sizes (192×288, 192×192) — never fit-scaled");
 
     // Placement parity: recompute what the GUI's placeIncoming/autoArrange does
