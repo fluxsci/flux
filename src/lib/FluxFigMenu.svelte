@@ -318,6 +318,22 @@
     num("r", "rotation", "Geometry", () => Math.round(primary.rotation), (e, v) => (e.rotation = v));
     num("o", "opacity", "Geometry", () => primary.opacity ?? 1, (e, v) => (e.opacity = Math.min(1, Math.max(0, v))), 0.05);
 
+    // Reset crop (P5): an action for cropped image/plot elements — one commit
+    // through ops.setCrop(null): the box returns to the full content at its
+    // current scale (content pinned), and this field disappears with the crop.
+    const croppedEl = els.find((e) => (e.type === "image" || e.type === "plot") && e.crop);
+    if (croppedEl) {
+      const cid = croppedEl.id;
+      F.push({
+        key: "v",
+        label: "reset crop (show full content)",
+        group: "Geometry",
+        kind: "toggle",
+        get: () => true,
+        apply: () => commit((proj) => ops.setCrop(proj, cid, null)),
+      });
+    }
+
     // Fill
     if (shapeEl) {
       F.push({ key: "c", label: "fill color", group: "Fill", kind: "color", target: "fill", get: () => (shapeEl as any).fill, apply: () => {} });

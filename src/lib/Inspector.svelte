@@ -40,16 +40,21 @@
 
   // Physical-size truth (canvas px are 96/inch): the mm readout under W/H, and a
   // reset back to an asset's true physical size after a manual/legacy rescale.
+  // For a CROPPED element (P5) the reference is the crop WINDOW's intrinsic
+  // dims (crop px are assetDisplaySize units, i.e. already physical): "true
+  // size" means the visible window renders 1:1, not the full content.
   const mmStr = (px: number) => ((px / 96) * MM_PER_INCH).toFixed(1);
   $: physSize = single && "assetId" in single ? ops.assetDisplaySize($project, single.assetId) : null;
+  $: elCrop = single && (single.type === "image" || single.type === "plot") ? (single.crop ?? null) : null;
+  $: physRef = elCrop ? { width: elCrop.width, height: elCrop.height } : physSize;
   $: atPhys =
-    !!physSize &&
+    !!physRef &&
     !!single &&
     "width" in single &&
-    Math.abs(single.width - physSize.width) < 0.5 &&
-    Math.abs(single.height - physSize.height) < 0.5;
+    Math.abs(single.width - physRef.width) < 0.5 &&
+    Math.abs(single.height - physRef.height) < 0.5;
   function resetToPhysical() {
-    const ps = physSize;
+    const ps = physRef;
     if (!ps) return;
     updateSelected((el) => {
       if ("width" in el && "height" in el) {
@@ -57,6 +62,13 @@
         el.height = ps.height;
       }
     });
+  }
+  // Remove the crop: the box returns to the FULL content at its current
+  // content scale (ops.setCrop null — the gesture's inverse, content pinned).
+  function resetCrop() {
+    const id = single?.id;
+    if (!id) return;
+    commit((p) => ops.setCrop(p, id, null));
   }
 
   // Lock / hide state across the selection (F6): all-on drives the checkbox,
@@ -441,11 +453,17 @@
         </div>
         <p class="note phys">
           {mmStr(single.width)} × {mmStr(single.height)} mm
-          {#if physSize && !atPhys}
-            <span class="off-phys">· {Math.round((single.width / physSize.width) * 100)}% of true size</span>
-            <button class="true-size" title="Reset to the source's true physical size ({mmStr(physSize.width)} × {mmStr(physSize.height)} mm)" on:click={resetToPhysical}>True size</button>
+          {#if physRef && !atPhys}
+            <span class="off-phys">· {Math.round((single.width / physRef.width) * 100)}% of true size</span>
+            <button class="true-size" title="Reset to the {elCrop ? 'crop window' : 'source'}'s true physical size ({mmStr(physRef.width)} × {mmStr(physRef.height)} mm)" on:click={resetToPhysical}>True size</button>
           {/if}
         </p>
+        {#if elCrop && physSize}
+          <p class="note phys">
+            cropped from {mmStr(physSize.width)} × {mmStr(physSize.height)} mm
+            <button class="true-size" title="Remove the crop — show the full content at its current scale" on:click={resetCrop}>Reset crop</button>
+          </p>
+        {/if}
         {#if single.type === "plot"}
           <!-- The K/Scale tool's persisted geometric factor: plain resize keeps
                text/strokes pt-true; content scale multiplies glyphs + strokes. -->

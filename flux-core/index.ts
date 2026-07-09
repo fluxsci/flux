@@ -549,8 +549,10 @@ export async function renderFigureSvg(root: string, id: string): Promise<string>
   if (!fig) throw new Error(`figure not found: ${id}`);
   // Same migration every loader runs (legacy type:"svg" → semantic plot, …):
   // this reads canvas files directly, so unmigrated on-disk docs must still
-  // render through the current element union.
-  migrateProject({
+  // render through the current element union. The pseudo-project also feeds
+  // ops.assetDisplaySize below (crop rendering for <image>-backed elements),
+  // so its assets keep the pHYs dpi.
+  const renderProject: Project = {
     version: 2,
     name: "",
     canvases: [],
@@ -562,9 +564,11 @@ export async function renderFigureSvg(root: string, id: string): Promise<string>
       path: a.path ?? "",
       naturalWidth: a.naturalWidth ?? 0,
       naturalHeight: a.naturalHeight ?? 0,
+      ...(a.dpi != null ? { dpi: a.dpi } : {}),
     })),
     palette: [],
-  });
+  };
+  migrateProject(renderProject);
 
   const assetCache: Record<string, string> = {};
   const assetPath: Record<string, string> = {};
@@ -623,6 +627,9 @@ export async function renderFigureSvg(root: string, id: string): Promise<string>
     fig,
     (aid) => assetCache[aid],
     (e) => plotMarkup.get(e.id),
+    // Crop rendering for <image>-backed elements: same intrinsic-size source
+    // as the GUI (assetDisplaySize over the index's asset dims + dpi).
+    (aid) => ops.assetDisplaySize(renderProject, aid) ?? undefined,
   );
 }
 
@@ -1177,6 +1184,21 @@ export async function setElementStyle(
 ): Promise<void> {
   await mutateFigModel(root, "set_style", ({ project }) => {
     ops.setElementStyle(project, ids, patch);
+  });
+}
+
+/** set/clear an image/plot element's crop window (figure-v1 P5). Figma
+ *  semantics via ops.setCrop: the content→canvas mapping is preserved (content
+ *  pinned) — the element box follows the window; `null` resets to the full
+ *  content at the current content scale. crop is in intrinsic content px
+ *  (assetDisplaySize units). */
+export async function setCrop(
+  root: string,
+  id: string,
+  crop: { x: number; y: number; width: number; height: number } | null,
+): Promise<void> {
+  await mutateFigModel(root, "set_crop", ({ project }) => {
+    if (!ops.setCrop(project, id, crop)) throw new Error(`element not found (or not image/plot): ${id}`);
   });
 }
 

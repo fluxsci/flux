@@ -30,6 +30,7 @@ import {
   intrinsicSize,
 } from "./assets";
 import { figureToSvg } from "./export";
+import { assetDisplaySize } from "./ops";
 import { annotationsToMarkdown, type AnnotationMdMeta } from "./references/annotationsMarkdown";
 import type { Annotation } from "./references/annotations";
 import { encodeTiff } from "./figure/tiff";
@@ -510,10 +511,14 @@ export async function openProject() {
 // ---------------------------------------------------------------------------
 function buildSvg(fig: Figure): string {
   const data = get(assetData);
+  const p = get(project);
   return figureToSvg(
     fig,
     (id) => data[id],
     (el) => (el.type === "plot" ? (plotToSvgMarkup(el) ?? undefined) : undefined),
+    // Crop rendering for <image>-backed elements (P5): intrinsic content size
+    // in assetDisplaySize units — the crop window's own coordinate space.
+    (id) => assetDisplaySize(p, id) ?? undefined,
   );
 }
 

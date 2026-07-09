@@ -46,6 +46,24 @@ export function unionRect(rects: Rect[]): Rect | null {
 
 const rotationOf = (e: Element): number => ("rotation" in e ? ((e as { rotation?: number }).rotation ?? 0) : 0);
 
+/** Rotate a point about a centre by `deg` degrees (the same convention the
+ *  element transforms use). Shared by rotatedCorners and the crop gesture's
+ *  pointer→local-frame mapping (editing.ts cropRemap inverse-rotates with -deg). */
+export function rotatePoint(
+  p: { x: number; y: number },
+  c: { x: number; y: number },
+  deg: number,
+): { x: number; y: number } {
+  if (!deg) return { x: p.x, y: p.y };
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return {
+    x: c.x + (p.x - c.x) * cos - (p.y - c.y) * sin,
+    y: c.y + (p.x - c.x) * sin + (p.y - c.y) * cos,
+  };
+}
+
 /** The element's four bbox corners AFTER its rotation (figure-local coords). */
 export function rotatedCorners(e: Element): { x: number; y: number }[] {
   const b = elementBBox(e);

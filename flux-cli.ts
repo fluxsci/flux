@@ -47,6 +47,9 @@ usage: flux <verb> [root] [args] [--flags]
             [--italic|--no-italic] [--underline|--no-underline]
             [--line-height n] [--sizing auto|auto-h|fixed] [--align a]
             [--hidden|--show] [--locked|--unlock] [--name N]   set element style
+  set-crop <id> --x n --y n --width n --height n [--root R]   crop an image/plot to a
+            window (intrinsic content px; content stays pinned — the box follows)
+  reset-crop <id> [--root R]           remove a crop (full content at current scale)
   toggle-text-style <bold|italic|underline> <id…> [--root R]   B/I/U toggle on texts
   add-fig-text <figId> "text…" [--x --y --width --height --size-pt n --weight n
             --font F --color c --align a --sizing m] [--root R]   add a figure text
@@ -394,6 +397,22 @@ async function main() {
     case "set-style": {
       await core.setElementStyle(R(), _, styleFromFlags());
       console.error(`✓ styled ${_.length} element(s)`);
+      break;
+    }
+    case "set-crop": {
+      const x = num(flags.x);
+      const y = num(flags.y);
+      const w = num(flags.width);
+      const h = num(flags.height);
+      if ([x, y, w, h].some((v) => v == null || Number.isNaN(v)))
+        throw new Error("set-crop: need numeric --x --y --width --height (intrinsic content px)");
+      await core.setCrop(R(), _[0], { x: x!, y: y!, width: w!, height: h! });
+      console.error(`✓ cropped ${_[0]} to ${w}×${h} @ ${x},${y}`);
+      break;
+    }
+    case "reset-crop": {
+      await core.setCrop(R(), _[0], null);
+      console.error(`✓ reset crop on ${_[0]}`);
       break;
     }
     case "toggle-text-style": {

@@ -1,7 +1,7 @@
-import type { Element } from "./types";
+import type { CropRect, Element } from "./types";
 import type { DrawStyle, Tool } from "./store";
 import { newId } from "./ids";
-import { elementBBox, type Rect } from "./geometry";
+import { elementBBox, rotatePoint, type Rect } from "./geometry";
 import { applyTextLayout } from "./text";
 import { scaleNodes, nodesToPath, pathToNodes, constrain45 } from "./path";
 
@@ -120,6 +120,180 @@ export function createTextElement(p: Pt, style: DrawStyle): Element {
   };
   applyTextLayout(el);
   return el;
+}
+
+// ---------------------------------------------------------------------------
+// Crop (figure-v1 P5) — ctrl/meta-drag on a resize handle crops an image/plot
+// exactly like Figma: the dragged edge moves the element BOX, and the crop
+// window follows so the content stays PINNED on the canvas. Pure per-frame
+// math; the gesture commits the result once on pointer-up (ops.setCrop).
+// ---------------------------------------------------------------------------
+
+export type CropHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+export interface CropMods {
+  /** Shift — the box keeps its original aspect ratio (computeResizeBox rules). */
+  shift?: boolean;
+  /** Alt — edges move symmetrically about the box centre. */
+  alt?: boolean;
+}
+
+/** The one-commit result: the element's new box + its crop window (intrinsic
+ *  content px, assetDisplaySize units). */
+export interface CropRemapResult {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  crop: CropRect;
+}
+
+/**
+ * Per-frame crop math. `orig` is the element as it was at pointer-down (the
+ * gesture snapshot — NEVER the live element), `localPt` the pointer in
+ * figure-local coords, `disp` the intrinsic content size in CSS px
+ * (ops.assetDisplaySize — passed in so this module stays a pure leaf).
+ *
+ * Invariant: the content→canvas mapping is held FIXED for the whole gesture,
+ * so the content stays pinned while the window moves. Unflipped, content
+ * pixel u renders at Ox + u·kx (kx = orig.width / cropW0, Ox = orig.x −
+ * crop0.x·kx). A flip mirrors the mapping about the box — flipX means
+ * screenX(u) = Sx − u·kx with Sx = (orig.x + orig.width) + crop0.x·kx. The
+ * dragged edge moves the BOX (which follows the pointer directly — a flip
+ * maps the box onto itself, so box edges never remap); the crop window is the
+ * box read back through the fixed (flip-aware) mapping. That read-back IS the
+ * plan's "flip remaps handle roles": cropping from the visually-right edge of
+ * a flipX'd element eats the LOW-content-x side.
+ *
+ * Rotation: the pointer is inverse-rotated into the unrotated local frame
+ * about the bbox centre (the element's render pivot; flip needs no pointer
+ * un-mirroring for the reason above). Clamps: the window never leaves the
+ * content ([0,disp]) and never collapses below max(1 intrinsic px, 1 canvas
+ * px). NO grid/pixel snapping — ever.
+ */
+export function cropRemap(
+  orig: Element,
+  handle: CropHandle,
+  localPt: Pt,
+  mods: CropMods,
+  disp: { width: number; height: number },
+): CropRemapResult | null {
+  if (orig.type !== "image" && orig.type !== "plot") return null;
+  const dispW = disp.width;
+  const dispH = disp.height;
+  if (!(dispW > 0) || !(dispH > 0) || !(orig.width > 0) || !(orig.height > 0)) return null;
+  const crop0: CropRect = orig.crop ?? { x: 0, y: 0, width: dispW, height: dispH };
+  if (!(crop0.width > 0) || !(crop0.height > 0)) return null;
+
+  // The fixed content→canvas mapping (per axis, flip-aware).
+  const kx = orig.width / crop0.width;
+  const ky = orig.height / crop0.height;
+  const Ox = orig.x - crop0.x * kx; // unflipped content origin on canvas
+  const Oy = orig.y - crop0.y * ky;
+  const Sx = orig.x + orig.width + crop0.x * kx; // flipped-mapping anchor
+  const Sy = orig.y + orig.height + crop0.y * ky;
+
+  // Pointer → the unrotated local frame, about the current bbox centre.
+  const cx = orig.x + orig.width / 2;
+  const cy = orig.y + orig.height / 2;
+  let p: Pt = { x: localPt.x, y: localPt.y };
+  if (orig.rotation) p = rotatePoint(p, { x: cx, y: cy }, -orig.rotation);
+
+  const hx = handle.includes("e") ? 1 : handle.includes("w") ? -1 : 0;
+  const hy = handle.includes("s") ? 1 : handle.includes("n") ? -1 : 0;
+
+  // Drag the edges (Alt mirrors the moved edge about the centre).
+  let L = orig.x;
+  let R = orig.x + orig.width;
+  let T = orig.y;
+  let B = orig.y + orig.height;
+  if (hx === 1) R = p.x;
+  else if (hx === -1) L = p.x;
+  if (hy === 1) B = p.y;
+  else if (hy === -1) T = p.y;
+  if (mods.alt) {
+    if (hx === 1) L = 2 * cx - R;
+    else if (hx === -1) R = 2 * cx - L;
+    if (hy === 1) T = 2 * cy - B;
+    else if (hy === -1) B = 2 * cy - T;
+  }
+
+  // Shift: keep the ORIGINAL box aspect (same rule as computeResizeBox — the
+  // dominant ratio wins; min-edges re-anchor at their opposite edge, or about
+  // the centre with Alt). Clamping below may break the aspect at the content
+  // bounds — accepted (matches resize-at-min behavior).
+  if (mods.shift) {
+    const s = Math.max((R - L) / orig.width, (B - T) / orig.height);
+    const w = orig.width * s;
+    const h = orig.height * s;
+    if (mods.alt) {
+      L = cx - w / 2;
+      R = cx + w / 2;
+      T = cy - h / 2;
+      B = cy + h / 2;
+    } else {
+      if (hx === -1) L = R - w;
+      else R = L + w;
+      if (hy === -1) T = B - h;
+      else B = T + h;
+    }
+  }
+
+  // Clamp: the window may never leave the content (bounds mirror with flip)...
+  const CL = orig.flipX ? Sx - dispW * kx : Ox;
+  const CR = orig.flipX ? Sx : Ox + dispW * kx;
+  const CT = orig.flipY ? Sy - dispH * ky : Oy;
+  const CB = orig.flipY ? Sy : Oy + dispH * ky;
+  L = Math.min(Math.max(L, CL), CR);
+  R = Math.min(Math.max(R, CL), CR);
+  T = Math.min(Math.max(T, CT), CB);
+  B = Math.min(Math.max(B, CT), CB);
+  // ...nor collapse below max(1 intrinsic px, 1 canvas px). The MOVED edge
+  // yields (Alt: both edges yield symmetrically, re-clamped into the content).
+  const minW = Math.max(kx, 1);
+  const minH = Math.max(ky, 1);
+  if (R - L < minW) {
+    if (mods.alt && hx !== 0) {
+      const c = (L + R) / 2;
+      L = Math.min(Math.max(c - minW / 2, CL), CR - minW);
+      R = L + minW;
+    } else if (hx === -1) L = Math.max(R - minW, CL);
+    else R = Math.min(L + minW, CR);
+    if (R - L < minW) {
+      // pinned against a content edge — push the other edge out
+      if (R >= CR) L = R - minW;
+      else R = L + minW;
+    }
+  }
+  if (B - T < minH) {
+    if (mods.alt && hy !== 0) {
+      const c = (T + B) / 2;
+      T = Math.min(Math.max(c - minH / 2, CT), CB - minH);
+      B = T + minH;
+    } else if (hy === -1) T = Math.max(B - minH, CT);
+    else B = Math.min(T + minH, CB);
+    if (B - T < minH) {
+      if (B >= CB) T = B - minH;
+      else B = T + minH;
+    }
+  }
+
+  // Read the crop back through the fixed mapping (flip mirrors which content
+  // edge each box edge shows) + FP-noise clamp so the stored window is EXACTLY
+  // inside [0,disp].
+  const cw = Math.min((R - L) / kx, dispW);
+  const ch = Math.min((B - T) / ky, dispH);
+  const rawCx = orig.flipX ? (Sx - R) / kx : (L - Ox) / kx;
+  const rawCy = orig.flipY ? (Sy - B) / ky : (T - Oy) / ky;
+  const cxp = Math.min(Math.max(rawCx, 0), dispW - cw);
+  const cyp = Math.min(Math.max(rawCy, 0), dispH - ch);
+  return {
+    x: L,
+    y: T,
+    width: R - L,
+    height: B - T,
+    crop: { x: cxp, y: cyp, width: cw, height: ch },
+  };
 }
 
 // Proportional SCALE remap (Feature 5, the K tool): like resizeRemap, but also

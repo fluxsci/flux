@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Element } from "./types";
   import { assetData } from "./assets";
+  import { project } from "./store";
+  import { assetDisplaySize } from "./ops";
   import { arrowHeads, elementBBox } from "./geometry";
   import { visualLines, lineH } from "./text";
   import PlotElement from "./PlotElement.svelte";
@@ -8,6 +10,11 @@
   export let element: Element;
 
   $: e = element;
+  // Crop rendering for `<image>`-backed rasters (P5): the crop window lives in
+  // intrinsic content px (assetDisplaySize units), shown via a nested-svg
+  // viewport — viewBox = the window, the image drawn at full display size
+  // inside it. Falls back to the uncropped image when the asset is unsized.
+  $: imgDisp = e.type === "image" && e.crop ? assetDisplaySize($project, e.assetId) : null;
   // FIG-2: rotate/flip about the element's true bbox centre. Lines/arrows carry
   // width/height 0 (their geometry is x1/y1→x2/y2), so `e.x + width/2` put the pivot on
   // endpoint 1 — a rotated/flipped line swung about its end, wrong on screen AND in export.
@@ -34,14 +41,35 @@
     <PlotElement element={e} />
   {:else if e.type === "image"}
     {#if $assetData[e.assetId]}
-      <image
-        x={e.x}
-        y={e.y}
-        width={e.width}
-        height={e.height}
-        preserveAspectRatio="none"
-        href={$assetData[e.assetId]}
-      />
+      {#if e.crop && imgDisp}
+        <svg
+          x={e.x}
+          y={e.y}
+          width={e.width}
+          height={e.height}
+          viewBox={`${e.crop.x} ${e.crop.y} ${e.crop.width} ${e.crop.height}`}
+          preserveAspectRatio="none"
+          style="overflow:hidden"
+        >
+          <image
+            x="0"
+            y="0"
+            width={imgDisp.width}
+            height={imgDisp.height}
+            preserveAspectRatio="none"
+            href={$assetData[e.assetId]}
+          />
+        </svg>
+      {:else}
+        <image
+          x={e.x}
+          y={e.y}
+          width={e.width}
+          height={e.height}
+          preserveAspectRatio="none"
+          href={$assetData[e.assetId]}
+        />
+      {/if}
     {:else}
       <rect
         x={e.x}

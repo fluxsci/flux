@@ -1,4 +1,4 @@
-import type { Element, Figure } from "./types";
+import type { Element, Figure, ImageElement } from "./types";
 import { arrowHeads, elementBBox } from "./geometry";
 import { visualLines, lineH } from "./text";
 
@@ -32,11 +32,35 @@ function op(e: Element): string {
   return e.opacity != null && e.opacity < 1 ? ` opacity="${e.opacity}"` : "";
 }
 
+/** Intrinsic content size (assetDisplaySize units) for crop rendering of
+ *  `<image>`-backed elements. Callers wire it to ops.assetDisplaySize (GUI) or
+ *  the fig index's asset dims (flux-core). Optional — without it a cropped
+ *  raster degrades to the uncropped full image. */
+export type AssetSizeFn = (id: string) => { width: number; height: number } | undefined | null;
+
+// A cropped `<image>` element: nested-svg viewport — viewBox = the crop window
+// (intrinsic px), the image drawn at full display size inside it. Same window
+// semantics as the inline plot's viewBox sub-rect (cropViewBoxValue).
+function croppedImage(
+  e: Element & { type: "image" | "plot"; crop: NonNullable<ImageElement["crop"]> },
+  href: string,
+  disp: { width: number; height: number },
+): string {
+  return (
+    `<svg x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
+    `viewBox="${e.crop.x} ${e.crop.y} ${e.crop.width} ${e.crop.height}" ` +
+    `preserveAspectRatio="none" overflow="hidden"${op(e)}>` +
+    `<image x="0" y="0" width="${disp.width}" height="${disp.height}" ` +
+    `preserveAspectRatio="none" href="${href}"/></svg>`
+  );
+}
+
 // Serialize a single element to SVG markup in figure-local coordinates.
 export function elementToSvg(
   e: Element,
   assetUrl: (id: string) => string | undefined,
   plotMarkup?: (e: Element) => string | undefined,
+  assetSize?: AssetSizeFn,
 ): string {
   switch (e.type) {
     case "plot": {
@@ -46,6 +70,9 @@ export function elementToSvg(
       if (markup) return rot(e, markup);
       const href = assetUrl(e.assetId);
       if (!href) return "";
+      const disp = e.crop ? assetSize?.(e.assetId) : undefined;
+      if (e.crop && disp)
+        return rot(e, croppedImage(e as Element & { type: "plot"; crop: NonNullable<typeof e.crop> }, href, disp));
       return rot(
         e,
         `<image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
@@ -55,6 +82,9 @@ export function elementToSvg(
     case "image": {
       const href = assetUrl(e.assetId);
       if (!href) return "";
+      const disp = e.crop ? assetSize?.(e.assetId) : undefined;
+      if (e.crop && disp)
+        return rot(e, croppedImage(e as Element & { type: "image"; crop: NonNullable<typeof e.crop> }, href, disp));
       return rot(
         e,
         `<image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
@@ -135,10 +165,11 @@ export function figureToSvg(
   fig: Figure,
   assetUrl: (id: string) => string | undefined,
   plotMarkup?: (e: Element) => string | undefined,
+  assetSize?: AssetSizeFn,
 ): string {
   const body = fig.elements
     .filter((e) => !e.hidden) // Layers eye: hidden elements are omitted from export
-    .map((e) => elementToSvg(e, assetUrl, plotMarkup))
+    .map((e) => elementToSvg(e, assetUrl, plotMarkup, assetSize))
     .filter(Boolean)
     .join("\n  ");
   const bg =

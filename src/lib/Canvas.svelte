@@ -26,7 +26,7 @@
     arrange,
   } from "./store";
   import { commitArrange } from "./keyboard";
-  import type { Element, Figure, PathElement, VectorNode } from "./types";
+  import type { Element, Figure, ImageElement, PathElement, SemanticPlotElement, VectorNode } from "./types";
   import { get } from "svelte/store";
   import { onMount } from "svelte";
   import { applyTextLayout, lineH, visualLines } from "./text";
@@ -40,7 +40,7 @@
     gapBetween,
     type Rect,
   } from "./geometry";
-  import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers } from "./editing";
+  import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, type CropRemapResult } from "./editing";
   import { nodesToPath, pathToNodes, constrain45 } from "./path";
   import * as ops from "./ops";
   import { settings } from "./settings";
@@ -99,6 +99,12 @@
         ob: Rect;
         origs: Map<string, Element>;
         scale?: boolean; // Scale tool (F5): also scales stroke/corner/font
+        // figure-v1 P5: ctrl/meta-drag on a handle = CROP (exactly one unlocked
+        // image/plot with a sized asset). The snapshot pins the content→canvas
+        // mapping for the whole gesture; everything stays transient until the
+        // single pointer-up commit (ops.setCrop). Esc rides the normal
+        // transient-only cancel.
+        crop?: { orig: ImageElement | SemanticPlotElement; disp: { width: number; height: number } };
       }
     | { kind: "marquee"; figId: string; x0: number; y0: number; add: Set<string> }
     | { kind: "draw"; figId: string; x0: number; y0: number }
@@ -169,6 +175,11 @@
   let spacing: { x1: number; y1: number; x2: number; y2: number; label: string }[] = [];
   let rotateTip = ""; // live angle readout during a rotate drag
   let gRotDeg = 0; // FIG-1: live rotate delta (deg); drives a transient transform, committed on release
+  // Crop gesture transients (figure-v1 P5): the last cropRemap result (drives
+  // the ghost/clip overlay + the one-shot commit) and the "Crop" chip anchor
+  // (host-relative screen px, near the pointer — rotateTip precedent).
+  let cropRes: CropRemapResult | null = null;
+  let cropChip: { x: number; y: number } | null = null;
 
   function ensureCommitted() {
     if (!committed) {
@@ -1069,7 +1080,19 @@
     const sel = selectedEls(fig);
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
-    gesture = { kind: "resize", figId: fig.id, handle, ob: { ...overlayBox }, origs, scale: $activeTool === "scale" };
+    // figure-v1 P5: ctrl/meta + drag on a resize handle CROPS (Figma parity) —
+    // only for exactly ONE unlocked image/plot whose asset has a known
+    // intrinsic size; anything else (multi-select, Scale tool, unsized asset)
+    // falls back to a plain resize so the modifier never dead-ends.
+    let crop: { orig: ImageElement | SemanticPlotElement; disp: { width: number; height: number } } | undefined;
+    if ((e.ctrlKey || e.metaKey) && $activeTool !== "scale" && sel.length === 1) {
+      const el = sel[0];
+      if ((el.type === "image" || el.type === "plot") && !el.locked) {
+        const disp = ops.assetDisplaySize($project, el.assetId);
+        if (disp) crop = { orig: structuredClone(el), disp };
+      }
+    }
+    gesture = { kind: "resize", figId: fig.id, handle, ob: { ...overlayBox }, origs, scale: $activeTool === "scale", crop };
     gestureFig = fig;
     gestureEls = sel;
     committed = false;
@@ -1267,6 +1290,21 @@
       liveBox = { x: g.ob.x + dx, y: g.ob.y + dy, w: g.ob.w, h: g.ob.h };
     } else if (g.kind === "resize") {
       const lp = localPoint(e.clientX, e.clientY, fig);
+      if (g.crop) {
+        // Crop mode: pure per-frame math against the pointer-down snapshot —
+        // NO snapping of any kind. The selection box + handles track the live
+        // window (liveBox); the ghost/clip overlay draws the content.
+        const res = cropRemap(g.crop.orig, g.handle, lp, { shift: e.shiftKey, alt: e.altKey }, g.crop.disp);
+        if (res) {
+          startDragging();
+          cropRes = res;
+          gNb = { x: res.x, y: res.y, w: res.width, h: res.height };
+          liveBox = gNb;
+          const hr = hostEl.getBoundingClientRect();
+          cropChip = { x: e.clientX - hr.left, y: e.clientY - hr.top };
+        }
+        return;
+      }
       // The Scale tool always scales uniformly; a single locked-aspect element does
       // too (no Shift needed).
       const forceAspect = g.scale || (gestureEls.length === 1 && !!gestureEls[0].lockAspect);
@@ -1364,6 +1402,15 @@
           return n;
         });
       }
+    } else if (g.kind === "resize" && g.crop && dragging && cropRes) {
+      // Crop: ONE commit writing {x,y,width,height,crop} through the shared
+      // pure op (content-pinned — reproduces cropRes exactly from the same
+      // fixed mapping). No snapPixel: rounding the box without re-deriving the
+      // window would unpin the content.
+      const res = cropRes;
+      const targetId = g.crop.orig.id;
+      ensureCommitted();
+      mutate((p) => ops.setCrop(p, targetId, res.crop));
     } else if (g.kind === "resize" && gNb && dragging) {
       const nb = gNb;
       ensureCommitted();
@@ -1450,6 +1497,8 @@
     pDX = 0;
     pDY = 0;
     partMoveBox = null;
+    cropRes = null;
+    cropChip = null;
     gNb = null;
     gestureEls = [];
     gestureFig = null;
@@ -2030,6 +2079,48 @@
     return base;
   })();
 
+  // Crop overlay (figure-v1 P5): a GHOST of the full content at 0.35 opacity +
+  // a full-opacity copy clipped to the live window (= the cropped preview —
+  // identical pixels, since the content→canvas mapping is fixed) + the window
+  // outline. Both copies are CONSTANT for the whole gesture (the mapping is
+  // pinned), so plots mount once — only the clip rect moves per frame. The
+  // synthetic elements carry distinct ids (no DOM-id collision with the hidden
+  // scene original). Flip flags STAY on the ghost (a full-content element
+  // flipped about its own centre reproduces the element's mirrored mapping
+  // exactly — see cropRemap); only the ROTATION moves to the wrapper, about
+  // the LIVE box centre (the mid-gesture render pivot).
+  $: cropOverlay = (() => {
+    if (!(dragging && gesture?.kind === "resize" && gesture.crop && gestureFig && cropRes)) return null;
+    const o = gesture.crop.orig;
+    const d = gesture.crop.disp;
+    const crop0 = o.crop ?? { x: 0, y: 0, width: d.width, height: d.height };
+    const kx = o.width / crop0.width;
+    const ky = o.height / crop0.height;
+    // Full-content box under the fixed (flip-aware) mapping.
+    const gx = o.flipX ? o.x + o.width + crop0.x * kx - d.width * kx : o.x - crop0.x * kx;
+    const gy = o.flipY ? o.y + o.height + crop0.y * ky - d.height * ky : o.y - crop0.y * ky;
+    const ghost: Element = {
+      ...o,
+      id: `${o.id}-cropghost`,
+      x: gx,
+      y: gy,
+      width: d.width * kx,
+      height: d.height * ky,
+      rotation: 0,
+      opacity: 1,
+    };
+    delete (ghost as ImageElement | SemanticPlotElement).crop;
+    const live: Element = { ...ghost, id: `${o.id}-croplive` };
+    const ccx = cropRes.x + cropRes.width / 2;
+    const ccy = cropRes.y + cropRes.height / 2;
+    return {
+      ghost,
+      live,
+      wrap: o.rotation ? `rotate(${o.rotation} ${ccx} ${ccy})` : null,
+      clip: { x: cropRes.x, y: cropRes.y, w: cropRes.width, h: cropRes.height },
+    };
+  })();
+
   // F5 flicker-free move: the set of element ids being moved + the transient GPU
   // transform applied to their LIVE scene groups (Tier-1, composited). gDX/gDY are
   // figure-local world units; on an SVG <g> a CSS px == one user unit, so the
@@ -2185,12 +2276,43 @@
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
   <svg class="overlay-svg" xmlns="http://www.w3.org/2000/svg">
     <!-- resized element preview (a move uses a live scene transform instead — F5) -->
-    {#if dragging && gestureFig && gesture?.kind === "resize"}
+    {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">
         {#each gestureEls as el (el.id)}
           <ElementView element={el} />
         {/each}
       </g>
+    {/if}
+
+    <!-- crop gesture (P5): full-content ghost + live window (clipped copy) + outline + chip -->
+    {#if cropOverlay && gestureFig}
+      <g transform={drawPreviewTransform}>
+        <g transform={cropOverlay.wrap}>
+          <clipPath id="flux-crop-live">
+            <rect
+              x={cropOverlay.clip.x}
+              y={cropOverlay.clip.y}
+              width={cropOverlay.clip.w}
+              height={cropOverlay.clip.h}
+            />
+          </clipPath>
+          <g opacity="0.35"><ElementView element={cropOverlay.ghost} /></g>
+          <g clip-path="url(#flux-crop-live)"><ElementView element={cropOverlay.live} /></g>
+          <rect
+            class="crop-outline"
+            x={cropOverlay.clip.x}
+            y={cropOverlay.clip.y}
+            width={cropOverlay.clip.w}
+            height={cropOverlay.clip.h}
+            fill="none"
+            vector-effect="non-scaling-stroke"
+          />
+        </g>
+      </g>
+      {#if cropChip}
+        <rect class="crop-chip-bg" x={cropChip.x + 14} y={cropChip.y - 26} width="44" height="18" rx="4" />
+        <text class="crop-chip" x={cropChip.x + 36} y={cropChip.y - 17} text-anchor="middle" dominant-baseline="central">Crop</text>
+      {/if}
     {/if}
 
     <!-- draw preview -->
@@ -2692,6 +2814,24 @@
     stroke-width: 1;
     pointer-events: none;
   }
+  /* crop gesture (P5): window outline + pointer chip */
+  .crop-outline {
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    paint-order: stroke;
+    pointer-events: none;
+  }
+  .crop-chip-bg {
+    fill: var(--c-accent);
+    pointer-events: none;
+  }
+  .crop-chip {
+    fill: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
   .measure-bg {
     fill: #e5484d;
     pointer-events: none;

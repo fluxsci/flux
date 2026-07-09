@@ -21,6 +21,7 @@ import type {
   Figure,
   Element,
   Id,
+  CropRect,
   ImageElement,
   TextElement,
   TextStyle,
@@ -714,6 +715,64 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
         if (e.type === "rect" && patch.cornerRadius != null) e.cornerRadius = patch.cornerRadius;
       }
     }
+}
+
+/** Set or clear an element's crop window (image/plot), Figma-style: the
+ *  content→canvas mapping is PRESERVED (content stays pinned on the canvas) —
+ *  the element box follows the window. `crop` is in intrinsic content px
+ *  (assetDisplaySize units: SVG CSS px, PNG natural×96/dpi); it is clamped
+ *  inside the content, floored at 1 px, and NORMALIZED (a full-content window
+ *  is stored as "no crop"). `null` resets: the box returns to the full content
+ *  at the current content scale (x=Ox, width=dispW·kx — the gesture's inverse).
+ *  Backs the ctrl-drag gesture commit, the Inspector/FluxFigMenu Reset crop,
+ *  and the set_crop bridge/CLI/MCP verbs. Returns true when a target was found. */
+export function setCrop(p: Project, id: Id, crop: CropRect | null): boolean {
+  for (const f of p.figures)
+    for (const e of f.elements) {
+      if (e.id !== id || (e.type !== "image" && e.type !== "plot")) continue;
+      const disp = assetDisplaySize(p, e.assetId);
+      if (!disp) {
+        // Unsized/missing asset: no mapping to preserve — raw write (degraded).
+        if (crop) e.crop = { ...crop };
+        else delete e.crop;
+        return true;
+      }
+      const crop0: CropRect = e.crop ?? { x: 0, y: 0, width: disp.width, height: disp.height };
+      const kx = crop0.width > 0 ? e.width / crop0.width : 1;
+      const ky = crop0.height > 0 ? e.height / crop0.height : 1;
+      // Content position on canvas, per axis (flip mirrors the mapping about
+      // the box — editing.ts cropRemap doc): unflipped screenX(u) = ox + u·kx;
+      // flipX screenX(u) = sx − u·kx. Window [x, x+w] ⇒ box left edge:
+      const ox = e.x - crop0.x * kx;
+      const oy = e.y - crop0.y * ky;
+      const sx = e.x + e.width + crop0.x * kx;
+      const sy = e.y + e.height + crop0.y * ky;
+      const leftFor = (x: number, w: number) => (e.flipX ? sx - (x + w) * kx : ox + x * kx);
+      const topFor = (y: number, h: number) => (e.flipY ? sy - (y + h) * ky : oy + y * ky);
+      if (crop) {
+        const w = Math.min(Math.max(crop.width, 1), disp.width);
+        const h = Math.min(Math.max(crop.height, 1), disp.height);
+        const x = Math.min(Math.max(crop.x, 0), disp.width - w);
+        const y = Math.min(Math.max(crop.y, 0), disp.height - h);
+        const EPS = 1e-6;
+        const full = x <= EPS && y <= EPS && w >= disp.width - EPS && h >= disp.height - EPS;
+        e.x = leftFor(x, w);
+        e.y = topFor(y, h);
+        e.width = w * kx;
+        e.height = h * ky;
+        if (full) delete e.crop;
+        else e.crop = { x, y, width: w, height: h };
+      } else {
+        if (!e.crop) return true; // already showing the full content
+        e.x = leftFor(0, disp.width);
+        e.y = topFor(0, disp.height);
+        e.width = disp.width * kx;
+        e.height = disp.height * ky;
+        delete e.crop;
+      }
+      return true;
+    }
+  return false;
 }
 
 /** Write a per-part override onto a semantic plot, keyed by stable semantic id

@@ -50,6 +50,8 @@ export const ALLOWED_COMMANDS = [
   "set_caption",
   // figure-v1 P0b: batch-import plots by path (the GUI Alt+I multi-insert).
   "import_plots",
+  // figure-v1 P5: set/clear an image/plot crop window (content-pinned).
+  "set_crop",
   // figure-v1 P3: text system — B/I/U toggle + named text styles.
   "toggle_text_style",
   "create_text_style",
@@ -99,6 +101,27 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
         reflowTexts(p, list);
       });
       return { styled: list.length };
+    }
+
+    case "set_crop": {
+      // {id?, crop: {x,y,width,height} | null} — id defaults to the selection.
+      // Same pure op as the ctrl-drag gesture commit / Inspector Reset crop:
+      // content stays pinned, the element box follows the window; null resets.
+      const id = typeof c.id === "string" ? c.id : ids(c)[0];
+      if (!id) throw new Error("set_crop: no target element (select one or pass id)");
+      const cr = c.crop as { x?: number; y?: number; width?: number; height?: number } | null | undefined;
+      let crop: { x: number; y: number; width: number; height: number } | null = null;
+      if (cr && typeof cr === "object") {
+        if ([cr.x, cr.y, cr.width, cr.height].some((v) => typeof v !== "number"))
+          throw new Error("set_crop: crop needs numeric {x,y,width,height} (intrinsic content px) — or null to reset");
+        crop = { x: cr.x!, y: cr.y!, width: cr.width!, height: cr.height! };
+      }
+      let found = false;
+      store.commit((p) => {
+        found = ops.setCrop(p, id, crop);
+      });
+      if (!found) throw new Error(`set_crop: element not found (or not image/plot): ${id}`);
+      return { id, crop };
     }
 
     case "toggle_text_style": {

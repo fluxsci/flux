@@ -407,6 +407,25 @@ server.registerTool(
 );
 
 server.registerTool(
+  "set_crop",
+  {
+    description:
+      "Crop an image/plot element to a window, or reset it. `crop` is {x,y,width,height} in INTRINSIC content px (the asset's display size: SVG CSS px, PNG px × 96/dpi); omit it (or pass null) to remove the crop. Figma semantics: the content stays pinned on the canvas — the element box moves/resizes to frame exactly the window; reset returns the box to the full content at its current scale.",
+    inputSchema: {
+      id: z.string(),
+      crop: z
+        .object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() })
+        .nullable()
+        .optional(),
+    },
+  },
+  async ({ id, crop }) => {
+    await core.setCrop(ROOT, id, crop ?? null);
+    return ok(crop ? `cropped ${id} to ${crop.width}×${crop.height} @ ${crop.x},${crop.y}` : `reset crop on ${id}`);
+  },
+);
+
+server.registerTool(
   "toggle_text_style",
   {
     description:
@@ -1542,7 +1561,7 @@ server.registerTool(
   "dispatch_command",
   {
     description:
-      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'toggle_text_style',which:'bold'}, {type:'apply_text_style',styleId:'ts-panel-label'}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select, clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group, ungroup, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption, import_plots (batch {type:'import_plots',paths:['/abs/plot.svg',…]} into the active figure), toggle_text_style {which:'bold'|'italic'|'underline'}, create_text_style {name, fromElementId?|style?}, update_text_style {styleId, patch}, delete_text_style {styleId}, apply_text_style {styleId, ids?}, list_text_styles {global?}.",
+      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'toggle_text_style',which:'bold'}, {type:'apply_text_style',styleId:'ts-panel-label'}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select, clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group, ungroup, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption, import_plots (batch {type:'import_plots',paths:['/abs/plot.svg',…]} into the active figure), toggle_text_style {which:'bold'|'italic'|'underline'}, create_text_style {name, fromElementId?|style?}, update_text_style {styleId, patch}, delete_text_style {styleId}, apply_text_style {styleId, ids?}, list_text_styles {global?}, set_crop {id?, crop:{x,y,width,height}|null — intrinsic content px; content-pinned; null resets}.",
     inputSchema: { command: z.record(z.any()) },
   },
   async ({ command }) => ok("dispatched: " + JSON.stringify(await live.dispatchCommand(ROOT, command))),

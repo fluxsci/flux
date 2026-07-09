@@ -656,6 +656,15 @@ export function handleKey(e: KeyboardEvent) {
     }
   }
 
+  // Esc aborts an in-flight gesture REGARDLESS of held modifiers — a crop drag
+  // (P5) naturally holds ctrl/meta the whole time, and FIG-12 must still fire.
+  // Without a live gesture this falls through (plain Esc keeps its two-stage
+  // clear below; mod+Esc otherwise does nothing, as before).
+  if (e.key === "Escape" && gestureCancelHook.fn?.()) {
+    e.preventDefault();
+    return;
+  }
+
   if (mod) {
     const k = e.key.toLowerCase();
     // Alt-modified: F9 select-same-fill (Shift = whole project), F10 copy/paste style.
