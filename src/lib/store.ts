@@ -4,6 +4,7 @@ import { FLEXOKI } from "./flexoki";
 import { settings } from "./settings";
 import { newId } from "./ids";
 import { migrateProject, DEFAULT_TEXT_STYLES } from "./migrate";
+import { membersDeep, unitOf } from "./groups";
 import * as ops from "./ops";
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,12 @@ export interface PartSelection {
   partId: string;
 }
 export const partSelection = writable<PartSelection | null>(null);
+
+// The group the user has ENTERED (figure-v1 P7; the double-click UX lands with
+// the Canvas wave). While set, clicks select child units OF this group
+// (expandGroups' `scope`), Figma-style. Null = top level. Cleared with the
+// selection; pruned when the group disappears (undo/delete/ungroup).
+export const enteredGroupId = writable<Id | null>(null);
 
 // Plot X-Ray viewer (Alt+P): a floating cockpit listing every part of the
 // selected semantic plot, with per-part/group hide-show + property editing.
@@ -302,6 +309,7 @@ export function clearSelection() {
   selection.set(new Set());
   partSelection.set(null);
   selectedFrameId.set(null);
+  enteredGroupId.set(null);
 }
 
 // Frame-as-object selection (F8): select a whole figure for move/duplicate/nudge.
@@ -347,6 +355,9 @@ function pruneSelection() {
   // FIG-13: a frame (figure) selection can also dangle after undo removes its figure —
   // clear it so the frame HUD / resize handles don't render against a gone figure.
   selectedFrameId.update((id) => (id && p.figures.some((f) => f.id === id) ? id : null));
+  // P7: an entered-group scope dangles the same way when its registry def goes
+  // (undo / delete / ungroup) — drop back to top level.
+  enteredGroupId.update((id) => (id && p.figures.some((f) => f.groups?.[id]) ? id : null));
 }
 
 // ---------------------------------------------------------------------------
@@ -368,17 +379,29 @@ export function findElement(
   return null;
 }
 
-// Expand a set of element ids to include all members of any group they touch.
-export function expandGroups(p: Project, ids: Set<Id>): Set<Id> {
-  const groups = new Set<Id>();
-  for (const f of p.figures)
-    for (const e of f.elements)
-      if (ids.has(e.id) && e.groupId) groups.add(e.groupId);
-  if (groups.size === 0) return new Set(ids);
+// Expand a set of element ids to whole selection UNITS (figure-v1 P7): without
+// `scope`, an id inside any registered group pulls in its TOP-level group's
+// members DEEP (nested groups select as one — identical to the old flat
+// behavior on flat docs); with `scope` (an entered group id — the Canvas wave
+// passes it), expansion stops at the child unit directly below that scope.
+// Elements sharing a DANGLING groupId (no registry def — e.g. alt-drag copies
+// until the Canvas wave adopts cloneGroupsFor) still co-expand by raw id.
+export function expandGroups(p: Project, ids: Set<Id>, scope?: Id | null): Set<Id> {
   const out = new Set(ids);
-  for (const f of p.figures)
-    for (const e of f.elements)
-      if (e.groupId && groups.has(e.groupId)) out.add(e.id);
+  for (const f of p.figures) {
+    if (!f.elements.some((e) => ids.has(e.id))) continue;
+    const defs = f.groups ?? {};
+    const units = new Set<Id>();
+    let dangling: Set<Id> | null = null;
+    for (const e of f.elements) {
+      if (!ids.has(e.id)) continue;
+      const u = unitOf(f, e, scope ?? null);
+      if (u.groupId) units.add(u.groupId);
+      else if (e.groupId && !defs[e.groupId]) (dangling ??= new Set()).add(e.groupId);
+    }
+    for (const gid of units) for (const m of membersDeep(f, gid)) out.add(m.id);
+    if (dangling) for (const e of f.elements) if (e.groupId && dangling.has(e.groupId)) out.add(e.id);
+  }
   return out;
 }
 

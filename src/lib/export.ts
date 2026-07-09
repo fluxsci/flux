@@ -1,5 +1,6 @@
 import type { Element, Figure, ImageElement } from "./types";
 import { arrowHeads, elementBBox } from "./geometry";
+import { effectiveHidden } from "./groups";
 import { visualLines, lineH } from "./text";
 
 function esc(s: string): string {
@@ -168,7 +169,11 @@ export function figureToSvg(
   assetSize?: AssetSizeFn,
 ): string {
   const body = fig.elements
-    .filter((e) => !e.hidden) // Layers eye: hidden elements are omitted from export
+    // Layers eyes: an element hidden itself OR by any ancestor GROUP's eye
+    // (P7 registry, groups.ts) is omitted from export. NOTE the live canvas
+    // applies group eyes with the Canvas interaction wave — until then the
+    // Sidebar dims members and export/render honor the eye here.
+    .filter((e) => !effectiveHidden(fig, e))
     .map((e) => elementToSvg(e, assetUrl, plotMarkup, assetSize))
     .filter(Boolean)
     .join("\n  ");

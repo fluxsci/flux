@@ -20,6 +20,7 @@ import type {
   Project,
   Figure,
   Element,
+  GroupDef,
   Id,
   CropRect,
   ImageElement,
@@ -31,6 +32,18 @@ import type {
   PartOverride,
 } from "./types";
 import { newId } from "./ids";
+import {
+  ancestorsOf,
+  chainOf,
+  cloneGroupsFor,
+  gcGroups,
+  groupDefs,
+  membersDeep,
+  nextGroupName,
+  topGroupOf,
+  unitKeyOf,
+  unitOf,
+} from "./groups";
 import { refitPath, pathToNodes } from "./path";
 import {
   arrangeGrid,
@@ -73,14 +86,27 @@ export function assetDisplaySize(p: Project, assetId: Id): { width: number; heig
 }
 
 /** Resolve a target element set within a figure (defaults to all), then expand
- *  to whole groups (mirrors the GUI, which group-expands before arrange/align). */
+ *  to whole groups (mirrors the GUI, which group-expands before arrange/align).
+ *  Group-aware (P7): a member id pulls in its TOP-level group's members deep;
+ *  elements sharing a dangling groupId (no registry def) still co-expand. */
 function targetEls(fig: Figure, ids?: Id[]): Element[] {
   const base = ids && ids.length ? fig.elements.filter((e) => ids.includes(e.id)) : fig.elements;
-  const groups = new Set<Id>();
-  for (const e of base) if (e.groupId) groups.add(e.groupId);
-  if (!groups.size) return base;
+  const defs = groupDefs(fig);
+  const tops = new Set<Id>();
+  const dangling = new Set<Id>();
+  for (const e of base) {
+    if (!e.groupId) continue;
+    const top = topGroupOf(fig, e.groupId);
+    if (top) tops.add(top);
+    else if (!defs[e.groupId]) dangling.add(e.groupId);
+  }
+  if (!tops.size && !dangling.size) return base;
   const out = new Set(base);
-  for (const e of fig.elements) if (e.groupId && groups.has(e.groupId)) out.add(e);
+  for (const e of fig.elements) {
+    if (!e.groupId) continue;
+    if (dangling.has(e.groupId)) out.add(e);
+    else if (ancestorsOf(fig, e.groupId).some((g) => tops.has(g))) out.add(e);
+  }
   return [...out];
 }
 
@@ -152,15 +178,14 @@ export function duplicateFigure(p: Project, figId: Id): Id | null {
   const onCanvas = p.figures.filter((f) => f.canvasId === src.canvasId);
   const maxBottom = onCanvas.reduce((m, f) => Math.max(m, f.y + f.height), 0);
   const idRemap = new Map<Id, Id>();
+  // Shared group-clone core: fresh group ids with names/nesting/state preserved.
   const grpRemap = new Map<Id, Id>();
+  const clonedGroups = cloneGroupsFor(src.groups, src.elements, grpRemap);
   const elements: Element[] = structuredClone(src.elements).map((el) => {
     const nid = newId(el.type);
     idRemap.set(el.id, nid);
     el.id = nid;
-    if (el.groupId) {
-      if (!grpRemap.has(el.groupId)) grpRemap.set(el.groupId, newId("grp"));
-      el.groupId = grpRemap.get(el.groupId)!;
-    }
+    if (el.groupId) el.groupId = grpRemap.get(el.groupId) ?? el.groupId;
     return el;
   });
   let captions: Record<Id, string> | undefined;
@@ -179,6 +204,7 @@ export function duplicateFigure(p: Project, figId: Id): Id | null {
     background: src.background,
     elements,
     captions,
+    ...(Object.keys(clonedGroups).length ? { groups: clonedGroups } : {}),
   };
   p.figures.push(copy);
   return copy.id;
@@ -470,14 +496,110 @@ export function removeGuide(p: Project, figId: Id, axis: "x" | "y", pos: number,
 }
 
 // ---------------------------------------------------------------------------
-// Grouping / z-order / delete (extracted from keyboard.ts so they're shared)
+// Grouping / z-order / delete — registry-backed named nestable groups (P7).
+// The pure tree/ancestry helpers live in groups.ts; the ops here are the only
+// writers of Figure.groups + the z-contiguity invariant.
 // ---------------------------------------------------------------------------
-export function group(p: Project, ids: Id[]): Id | null {
-  const set = new Set(ids);
-  if (set.size < 2) return null;
+
+/** Splice the given members into ONE contiguous z-run anchored at the TOPMOST
+ *  member's index (Figma: a new group assumes its topmost member's z), with
+ *  relative order preserved. Under the invariant the insertion point is always
+ *  a run boundary of any other group (a foreign run can't straddle a member). */
+function spliceContiguous(f: Figure, memberIds: Set<Id>): void {
+  const idx: number[] = [];
+  f.elements.forEach((e, i) => {
+    if (memberIds.has(e.id)) idx.push(i);
+  });
+  if (idx.length < 2) return;
+  const top = idx[idx.length - 1];
+  const block = f.elements.filter((e) => memberIds.has(e.id));
+  const rest = f.elements.filter((e) => !memberIds.has(e.id));
+  rest.splice(top - (idx.length - 1), 0, ...block);
+  f.elements = rest;
+}
+
+export interface GroupOpts {
+  /** Group name; defaults to "Group N" (N unique among the figure's defaults). */
+  name?: string;
+  /** Create the group nested under this existing group, and resolve the
+   *  selection's units within that scope (grouping inside an entered group —
+   *  the Canvas wave's caller). Ignored when unregistered. */
+  parentId?: Id;
+}
+
+/** Group ≥2 top-level units — loose elements and/or WHOLE top groups — of one
+ *  figure into a new named registry group. Figma ⌘G semantics: selected top
+ *  groups NEST (their def gains parentId = the new gid) instead of dissolving;
+ *  a partial member selection pulls in its whole group. Members are spliced
+ *  into one contiguous z-run at the topmost member's index. Returns the new
+ *  group id, or null when there is nothing to group. */
+export function group(p: Project, ids: Id[], opts: GroupOpts = {}): Id | null {
+  const idSet = new Set(ids);
+  const f = p.figures.find((ff) => ff.elements.some((e) => idSet.has(e.id)));
+  if (!f) return null;
+  const scope = opts.parentId && groupDefs(f)[opts.parentId] ? opts.parentId : undefined;
+  // Resolve the selection to distinct units at the scope level.
+  const unitGroups: Id[] = [];
+  const unitEls: Element[] = [];
+  const seenG = new Set<Id>();
+  for (const e of f.elements) {
+    if (!idSet.has(e.id)) continue;
+    // With a scope, only members of that scope participate.
+    if (scope && !ancestorsOf(f, e.groupId).includes(scope)) continue;
+    const u = unitOf(f, e, scope ?? null);
+    if (u.groupId) {
+      if (!seenG.has(u.groupId)) {
+        seenG.add(u.groupId);
+        unitGroups.push(u.groupId);
+      }
+    } else {
+      unitEls.push(e);
+    }
+  }
+  if (unitGroups.length + unitEls.length < 2) return null;
   const gid = newId("grp");
-  for (const f of p.figures) for (const e of f.elements) if (set.has(e.id)) e.groupId = gid;
+  const def: GroupDef = { id: gid, name: opts.name?.trim() || nextGroupName(f) };
+  if (scope) def.parentId = scope;
+  f.groups = f.groups ?? {};
+  f.groups[gid] = def;
+  for (const cg of unitGroups) f.groups[cg].parentId = gid; // nest whole child groups
+  for (const e of unitEls) e.groupId = gid; // loose elements join directly
+  spliceContiguous(f, new Set(membersDeep(f, gid).map((e) => e.id)));
   return gid;
+}
+
+/** Rename a registry group. Returns false when the id is unknown. */
+export function renameGroup(p: Project, groupId: Id, name: string): boolean {
+  const nm = name.trim();
+  if (!nm) return false;
+  for (const f of p.figures) {
+    const g = f.groups?.[groupId];
+    if (g) {
+      g.name = nm;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Set a group's own hidden/locked flags (the Layers panel group eye/padlock).
+ *  Members keep their individual flags; renderers combine via groups.ts
+ *  effectiveHidden/effectiveLocked. Returns false when the id is unknown. */
+export function setGroupState(p: Project, groupId: Id, patch: { hidden?: boolean; locked?: boolean }): boolean {
+  for (const f of p.figures) {
+    const g = f.groups?.[groupId];
+    if (!g) continue;
+    if (patch.hidden != null) {
+      if (patch.hidden) g.hidden = true;
+      else delete g.hidden;
+    }
+    if (patch.locked != null) {
+      if (patch.locked) g.locked = true;
+      else delete g.locked;
+    }
+    return true;
+  }
+  return false;
 }
 
 // Select-all-with-same (Feature 9). The comparable value of an element for a given
@@ -557,15 +679,19 @@ export function duplicateElements(
   const count = Math.max(1, Math.floor(opts.count ?? 1));
   let lastStamp: Id[] = [];
   for (let k = 1; k <= count; k++) {
+    // Fresh remap per stamp: each stamp gets its own cloned group defs (names/
+    // nesting preserved, independent identity) via the shared cloneGroupsFor.
     const grpRemap = new Map<Id, Id>();
+    const cloned = cloneGroupsFor(f.groups, originals, grpRemap);
+    if (Object.keys(cloned).length) {
+      f.groups = f.groups ?? {};
+      Object.assign(f.groups, cloned);
+    }
     const stamp: Id[] = [];
     const copies = originals.map((e) => {
       const c = structuredClone(e);
       c.id = newId(c.type);
-      if (c.groupId) {
-        if (!grpRemap.has(c.groupId)) grpRemap.set(c.groupId, newId("grp"));
-        c.groupId = grpRemap.get(c.groupId);
-      }
+      if (c.groupId) c.groupId = grpRemap.get(c.groupId) ?? c.groupId;
       c.x += dx * k;
       c.y += dy * k;
       stamp.push(c.id);
@@ -577,51 +703,224 @@ export function duplicateElements(
   return lastStamp;
 }
 
+/** Dissolve groups, one level per call (Figma ⌘⇧G). Each id may be an ELEMENT
+ *  id — its TOP-level group dissolves — or a GROUP id — that exact group
+ *  dissolves. Dissolving moves the group's immediate element members to its
+ *  parent group (or loose at top level) and reparents its child groups the
+ *  same way; nested memberships inside surviving child groups are untouched.
+ *  Elements with a dangling flat groupId (no registry def) simply drop it.
+ *  Ends with a registry GC. */
 export function ungroup(p: Project, ids: Id[]): void {
   const set = new Set(ids);
-  for (const f of p.figures) for (const e of f.elements) if (set.has(e.id)) delete e.groupId;
+  for (const f of p.figures) {
+    const defs = f.groups ?? {};
+    const dissolve = new Set<Id>();
+    for (const id of set) if (defs[id]) dissolve.add(id);
+    let touched = dissolve.size > 0;
+    for (const e of f.elements) {
+      if (!set.has(e.id) || !e.groupId) continue;
+      const top = topGroupOf(f, e.groupId);
+      if (top) {
+        dissolve.add(top);
+        touched = true;
+      } else {
+        delete e.groupId; // dangling flat id — legacy behavior
+        touched = true;
+      }
+    }
+    if (!touched) continue;
+    for (const gid of dissolve) {
+      const pid = defs[gid]?.parentId;
+      const parent = pid && defs[pid] ? pid : undefined;
+      for (const e of f.elements)
+        if (e.groupId === gid) {
+          if (parent) e.groupId = parent;
+          else delete e.groupId;
+        }
+      for (const g of Object.values(defs))
+        if (g.parentId === gid) {
+          if (parent) g.parentId = parent;
+          else delete g.parentId;
+        }
+      delete defs[gid];
+    }
+    gcGroups(f);
+  }
 }
 
 export type ZOrder = "front" | "back" | "forward" | "backward";
 
-/** Re-order elements within their figure. front/back move to the very ends;
- *  forward/backward bump one step (collision-aware, like the GUI's bump). */
+// The moving/sibling structure setZOrder operates on: the selection resolved
+// to whole UNITS among their siblings at one nesting level (see resolveZScope).
+interface ZUnit {
+  key: string;
+  els: Element[];
+  selected: boolean;
+}
+
+/** Resolve a selection to the nesting level it moves at: `scope` = the group
+ *  whose children the selected units are (null = top level), plus the unit
+ *  keys that count as selected. A selection covering ALL of one group moves
+ *  that GROUP among its own siblings; a partial selection inside one group
+ *  moves the touched child units within it; anything else moves top units. */
+function resolveZScope(f: Figure, sel: Set<Id>): { scope: Id | null; selKeys: Set<string> } {
+  const targets = f.elements.filter((e) => sel.has(e.id));
+  let common: Id[] | null = null;
+  for (const e of targets) {
+    const chain = chainOf(f, e);
+    if (common === null) common = chain;
+    else {
+      let k = 0;
+      while (k < common.length && k < chain.length && common[k] === chain[k]) k++;
+      common = common.slice(0, k);
+    }
+    if (!common.length) break;
+  }
+  let scope: Id | null = common && common.length ? common[common.length - 1] : null;
+  const selKeys = new Set<string>();
+  if (scope && membersDeep(f, scope).every((e) => sel.has(e.id))) {
+    // the whole deepest common group is selected — IT is the moving unit
+    const pid = groupDefs(f)[scope].parentId;
+    selKeys.add("g:" + scope);
+    scope = pid && groupDefs(f)[pid] ? pid : null;
+  } else {
+    for (const e of targets) selKeys.add(unitKeyOf(f, e, scope));
+  }
+  return { scope, selKeys };
+}
+
+/** The contiguous slice of `f.elements` the scope's children occupy (whole
+ *  array at top level), partitioned into sibling unit blocks in z-order. */
+function zUnitsIn(f: Figure, scope: Id | null): { start: number; units: ZUnit[] } {
+  let start = 0;
+  let range = f.elements;
+  if (scope) {
+    const idx: number[] = [];
+    f.elements.forEach((e, i) => {
+      if (ancestorsOf(f, e.groupId).includes(scope)) idx.push(i);
+    });
+    if (!idx.length) return { start: 0, units: [] };
+    start = idx[0];
+    range = f.elements.slice(idx[0], idx[idx.length - 1] + 1);
+  }
+  const units: ZUnit[] = [];
+  let last: ZUnit | null = null;
+  for (const e of range) {
+    const key = unitKeyOf(f, e, scope);
+    if (last && last.key === key) {
+      last.els.push(e);
+      continue;
+    }
+    last = { key, els: [e], selected: false };
+    units.push(last);
+  }
+  return { start, units };
+}
+
+/** Re-order elements within their figure, group-aware (P7): the selection
+ *  resolves to whole UNITS (top-level groups + loose elements — or one group's
+ *  child units when the ids all live inside it) and units move as intact
+ *  blocks among their siblings, so no group's contiguous run ever fragments.
+ *  front/back move to the ends of the sibling range; forward/backward bump one
+ *  sibling step (collision-aware, like the GUI's bump). */
 export function setZOrder(p: Project, figId: Id, ids: Id[], where: ZOrder): void {
   const f = figById(p, figId);
   if (!f) return;
   const sel = new Set(ids);
+  if (!f.elements.some((e) => sel.has(e.id))) return;
+  const { scope, selKeys } = resolveZScope(f, sel);
+  const { start, units } = zUnitsIn(f, scope);
+  if (!units.length) return;
+  for (const u of units) u.selected = selKeys.has(u.key);
+  let ordered: ZUnit[];
   if (where === "front" || where === "back") {
-    const picked = f.elements.filter((e) => sel.has(e.id));
-    const rest = f.elements.filter((e) => !sel.has(e.id));
-    f.elements = where === "front" ? [...rest, ...picked] : [...picked, ...rest];
-    return;
+    const picked = units.filter((u) => u.selected);
+    const rest = units.filter((u) => !u.selected);
+    ordered = where === "front" ? [...rest, ...picked] : [...picked, ...rest];
+  } else {
+    ordered = [...units];
+    const forward = where === "forward";
+    const order = forward ? [...ordered.keys()].reverse() : [...ordered.keys()];
+    for (const i of order) {
+      const jj = forward ? i + 1 : i - 1;
+      if (jj < 0 || jj >= ordered.length) continue;
+      if (ordered[i].selected && !ordered[jj].selected) [ordered[i], ordered[jj]] = [ordered[jj], ordered[i]];
+    }
   }
-  const forward = where === "forward";
-  const arr = f.elements;
-  const order = forward ? [...arr.keys()].reverse() : [...arr.keys()];
-  for (const i of order) {
-    const jj = forward ? i + 1 : i - 1;
-    if (jj < 0 || jj >= arr.length) continue;
-    if (sel.has(arr[i].id) && !sel.has(arr[jj].id)) [arr[i], arr[jj]] = [arr[jj], arr[i]];
-  }
+  const flat = ordered.flatMap((u) => u.els);
+  f.elements.splice(start, flat.length, ...flat);
 }
 
 export function deleteElements(p: Project, ids: Id[]): void {
   const set = new Set(ids);
-  for (const f of p.figures) f.elements = f.elements.filter((e) => !set.has(e.id));
+  for (const f of p.figures) {
+    const before = f.elements.length;
+    f.elements = f.elements.filter((e) => !set.has(e.id));
+    if (f.elements.length !== before) gcGroups(f); // drop now-empty group defs
+  }
 }
 
-/** Move one element to an absolute z-index within its figure's `elements` array
- *  (0 = bottom). Backs the Layers panel drag-reorder + the `reorder` bridge/CLI
- *  verb; standard remove-then-insert semantics (toIndex is a post-removal slot). */
+/** Move one element — or a whole GROUP (pass its registry id) — to an absolute
+ *  z-index within its figure (0 = bottom; post-removal slot, as before). Backs
+ *  the Layers panel drag-reorder + the `reorder` bridge/CLI verb. Group-aware
+ *  (P7): a group id moves its entire contiguous run as one block; an element
+ *  stays inside its own group's run; and the requested index SNAPS to the
+ *  nearest slot that keeps every group's run contiguous — a foreign element
+ *  can never land inside another group's run. */
 export function reorderElement(p: Project, figId: Id, id: Id, toIndex: number): void {
   const f = figById(p, figId);
   if (!f) return;
-  const from = f.elements.findIndex((e) => e.id === id);
-  if (from < 0) return;
-  const [el] = f.elements.splice(from, 1);
-  const idx = Math.max(0, Math.min(f.elements.length, Math.round(toIndex)));
-  f.elements.splice(idx, 0, el);
+  const defs = groupDefs(f);
+  let block: Element[];
+  let containerId: Id | undefined; // the moving unit's immediate parent group
+  if (defs[id]) {
+    block = membersDeep(f, id);
+    const pid = defs[id].parentId;
+    containerId = pid && defs[pid] ? pid : undefined;
+  } else {
+    const el = f.elements.find((e) => e.id === id);
+    if (!el) return;
+    block = [el];
+    containerId = el.groupId && defs[el.groupId] ? el.groupId : undefined;
+  }
+  if (!block.length) return;
+  const moving = new Set(block.map((e) => e.id));
+  const rest = f.elements.filter((e) => !moving.has(e.id));
+  // groups the insertion slot MUST stay inside (the moving unit's ancestors)
+  const need = new Set(ancestorsOf(f, containerId));
+  // every registered group's remaining deep-member span within `rest`
+  const spans = new Map<Id, { a: number; b: number }>();
+  rest.forEach((e, i) => {
+    for (const gid of ancestorsOf(f, e.groupId)) {
+      const s = spans.get(gid);
+      if (!s) spans.set(gid, { a: i, b: i });
+      else s.b = i;
+    }
+  });
+  const valid = (s: number): boolean => {
+    for (const [gid, r] of spans) {
+      if (need.has(gid)) {
+        if (s < r.a || s > r.b + 1) return false; // must stay inside own container
+      } else if (s > r.a && s <= r.b) {
+        return false; // would split a foreign run
+      }
+    }
+    return true;
+  };
+  const want = Math.max(0, Math.min(rest.length, Math.round(toIndex)));
+  let slot = -1;
+  for (let d = 0; d <= rest.length && slot < 0; d++) {
+    for (const cand of d === 0 ? [want] : [want - d, want + d]) {
+      if (cand < 0 || cand > rest.length) continue;
+      if (valid(cand)) {
+        slot = cand;
+        break;
+      }
+    }
+  }
+  if (slot < 0) return; // no legal slot (degenerate registry) — leave as-is
+  rest.splice(slot, 0, ...block);
+  f.elements = rest;
 }
 
 // ---------------------------------------------------------------------------

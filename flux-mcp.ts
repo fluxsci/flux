@@ -729,11 +729,12 @@ server.registerTool(
 server.registerTool(
   "group_elements",
   {
-    description: "Group ≥2 elements (in the same figure) into one movable/selectable unit. Returns the new group id.",
-    inputSchema: { ids: z.array(z.string()) },
+    description:
+      "Group ≥2 units (elements and/or whole existing groups, same figure) into one NAMED movable/selectable group (default name 'Group N'). Existing top-level groups NEST inside the new one (Figma ⌘G); members are made z-contiguous. Optional parentId nests the new group under an existing group. Returns the new group id.",
+    inputSchema: { ids: z.array(z.string()), name: z.string().optional(), parentId: z.string().optional() },
   },
-  async ({ ids }) => {
-    const r = await core.groupElements(ROOT, ids);
+  async ({ ids, name, parentId }) => {
+    const r = await core.groupElements(ROOT, ids, { name, parentId });
     return ok(`grouped ${ids.length} element(s) → ${r.groupId}`);
   },
 );
@@ -741,12 +742,54 @@ server.registerTool(
 server.registerTool(
   "ungroup_elements",
   {
-    description: "Ungroup elements — dissolve their group membership.",
+    description:
+      "Ungroup — dissolve each element id's TOP-level group (or pass a group id to dissolve exactly that group). Members drop to the parent group or go loose; nested child groups survive one level up.",
     inputSchema: { ids: z.array(z.string()) },
   },
   async ({ ids }) => {
     await core.ungroupElements(ROOT, ids);
-    return ok(`ungrouped ${ids.length} element(s)`);
+    return ok(`ungrouped ${ids.length} id(s)`);
+  },
+);
+
+server.registerTool(
+  "rename_group",
+  {
+    description: "Rename a figure group (the Layers panel name).",
+    inputSchema: { groupId: z.string(), name: z.string() },
+  },
+  async ({ groupId, name }) => {
+    await core.renameGroup(ROOT, groupId, name);
+    return ok(`renamed ${groupId} → "${name}"`);
+  },
+);
+
+server.registerTool(
+  "set_group_state",
+  {
+    description:
+      "Set a group's hidden/locked flags (the Layers panel group eye/padlock). Hidden groups drop out of rendered/exported figures (members inherit via effectiveHidden); members keep their own flags.",
+    inputSchema: { groupId: z.string(), hidden: z.boolean().optional(), locked: z.boolean().optional() },
+  },
+  async ({ groupId, hidden, locked }) => {
+    const patch: { hidden?: boolean; locked?: boolean } = {};
+    if (hidden != null) patch.hidden = hidden;
+    if (locked != null) patch.locked = locked;
+    await core.setGroupState(ROOT, groupId, patch);
+    return ok(`group ${groupId} state ${JSON.stringify(patch)}`);
+  },
+);
+
+server.registerTool(
+  "list_groups",
+  {
+    description:
+      "List the figure groups (id, name, parentId nesting, hidden/locked state, member element ids — deep), across the project or one figure.",
+    inputSchema: { figureId: z.string().optional() },
+  },
+  async ({ figureId }) => {
+    const r = await core.listGroups(ROOT, figureId);
+    return ok(JSON.stringify(r.groups, null, 2));
   },
 );
 
@@ -1561,7 +1604,7 @@ server.registerTool(
   "dispatch_command",
   {
     description:
-      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'toggle_text_style',which:'bold'}, {type:'apply_text_style',styleId:'ts-panel-label'}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select, clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group, ungroup, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption, import_plots (batch {type:'import_plots',paths:['/abs/plot.svg',…]} into the active figure), toggle_text_style {which:'bold'|'italic'|'underline'}, create_text_style {name, fromElementId?|style?}, update_text_style {styleId, patch}, delete_text_style {styleId}, apply_text_style {styleId, ids?}, list_text_styles {global?}, set_crop {id?, crop:{x,y,width,height}|null — intrinsic content px; content-pinned; null resets}.",
+      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'toggle_text_style',which:'bold'}, {type:'apply_text_style',styleId:'ts-panel-label'}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select (also {groupId} — selects a group's members), clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group {ids?, name?, parentId?} → named nestable group, ungroup, rename_group {groupId, name}, set_group_state {groupId, hidden?, locked?}, list_groups {figureId?}, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption, import_plots (batch {type:'import_plots',paths:['/abs/plot.svg',…]} into the active figure), toggle_text_style {which:'bold'|'italic'|'underline'}, create_text_style {name, fromElementId?|style?}, update_text_style {styleId, patch}, delete_text_style {styleId}, apply_text_style {styleId, ids?}, list_text_styles {global?}, set_crop {id?, crop:{x,y,width,height}|null — intrinsic content px; content-pinned; null resets}.",
     inputSchema: { command: z.record(z.any()) },
   },
   async ({ command }) => ok("dispatched: " + JSON.stringify(await live.dispatchCommand(ROOT, command))),

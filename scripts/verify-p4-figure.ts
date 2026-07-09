@@ -53,7 +53,10 @@ const [keyboard, inspector, parse, store, xray] = await Promise.all([
   read("src/lib/store.ts"),
   read("src/lib/PlotXray.svelte"),
 ]);
-assert(/groupRemap/.test(keyboard) && /paste/.test(keyboard), "FIG-3: paste() remaps group ids");
+// (P7: the hand-rolled groupRemap loop became the shared groups.ts
+// cloneGroupsFor — same FIG-3 contract, one core; behavior covered for real in
+// figenh-16-groups.ts / figenh-16-parity.ts.)
+assert(/cloneGroupsFor\(clipboardGroups, clipboard, remap\)/.test(keyboard) && /paste/.test(keyboard), "FIG-3: paste() remaps group ids (via cloneGroupsFor)");
 // FIG-10 (v2, figure-v1 P3): sizing modes replaced autoWidth — a manual W on a
 // hugging box switches it to wrap ("auto-h"), a manual H pins it "fixed";
 // otherwise applyTextLayout would re-hug and overwrite the typed value.

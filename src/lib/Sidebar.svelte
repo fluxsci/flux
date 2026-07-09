@@ -14,8 +14,9 @@
     setActiveCanvas,
     figuresOnCanvas,
   } from "./store";
-  import type { Element, Figure } from "./types";
+  import type { Element, Figure, GroupDef } from "./types";
   import * as ops from "./ops";
+  import { buildRenderTree, membersDeep, type RenderNode } from "./groups";
 
   function addFigure() {
     const cid = $activeCanvasId;
@@ -51,9 +52,9 @@
 
   // M11: inline rename (no blocking native window.prompt). Double-click a row to
   // edit; Enter / blur commits, Esc cancels.
-  let editing: { kind: "canvas" | "figure" | "layer"; id: string } | null = null;
+  let editing: { kind: "canvas" | "figure" | "layer" | "group"; id: string } | null = null;
   let editVal = "";
-  function startRename(kind: "canvas" | "figure" | "layer", id: string, current: string) {
+  function startRename(kind: "canvas" | "figure" | "layer" | "group", id: string, current: string) {
     editing = { kind, id };
     editVal = current;
   }
@@ -70,6 +71,8 @@
       } else if (kind === "figure") {
         const f = p.figures.find((f) => f.id === id);
         if (f) f.name = name;
+      } else if (kind === "group") {
+        ops.renameGroup(p, id, name);
       } else {
         ops.setElementStyle(p, [id], { name });
       }
@@ -90,62 +93,155 @@
   // Figures on the active canvas only.
   $: canvasFigures = $project.figures.filter((f) => f.canvasId === $activeCanvasId);
   $: activeFig = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
-  // top-most element first in the layers list (z-order = array order, reversed)
-  $: layers = activeFig ? [...activeFig.elements].reverse() : [];
 
-  function labelFor(type: string, i: number) {
-    return `${type} ${i}`;
+  // --- Layers = the derived group tree (groups.ts buildRenderTree), flattened
+  // top-z first with depth indents. Collapse state is LOCAL UI state (not
+  // model); a collapsed group still drags/toggles as a whole. ---
+  type LayerRow =
+    | { kind: "el"; key: string; el: Element; depth: number; zTop: number; zBottom: number; dim: boolean }
+    | {
+        kind: "group";
+        key: string;
+        def: GroupDef;
+        depth: number;
+        zTop: number;
+        zBottom: number;
+        memberIds: string[];
+        collapsed: boolean;
+        dim: boolean;
+      };
+  let collapsed: Record<string, boolean> = {};
+  function toggleCollapsed(gid: string) {
+    collapsed = { ...collapsed, [gid]: !collapsed[gid] };
   }
 
-  // --- Layer visibility / lock toggles (shared op, one undo each) ---
+  function buildRows(fig: Figure, collapsedSet: Record<string, boolean>): LayerRow[] {
+    const out: LayerRow[] = [];
+    const zIndex = new Map(fig.elements.map((e, i) => [e.id, i]));
+    const walk = (nodes: RenderNode[], depth: number, ancestorHidden: boolean) => {
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const n = nodes[i];
+        if (n.kind === "element") {
+          const z = zIndex.get(n.el.id) ?? 0;
+          out.push({
+            kind: "el",
+            key: "e:" + n.el.id,
+            el: n.el,
+            depth,
+            zTop: z,
+            zBottom: z,
+            dim: ancestorHidden || !!n.el.hidden, // effectiveHidden dimming
+          });
+          continue;
+        }
+        const members = membersDeep(fig, n.def.id);
+        const zs = members.map((m) => zIndex.get(m.id) ?? 0);
+        const dim = ancestorHidden || !!n.def.hidden;
+        const isCollapsed = !!collapsedSet[n.def.id];
+        out.push({
+          kind: "group",
+          key: "g:" + n.def.id,
+          def: n.def,
+          depth,
+          zTop: zs.length ? Math.max(...zs) : 0,
+          zBottom: zs.length ? Math.min(...zs) : 0,
+          memberIds: members.map((m) => m.id),
+          collapsed: isCollapsed,
+          dim,
+        });
+        if (!isCollapsed) walk(n.children, depth + 1, dim);
+      }
+    };
+    walk(buildRenderTree(fig), 0, false);
+    return out;
+  }
+  $: rows = activeFig ? buildRows(activeFig, collapsed) : [];
+
+  function labelFor(el: Element) {
+    if (el.name) return el.name;
+    const z = activeFig ? activeFig.elements.findIndex((e) => e.id === el.id) : -1;
+    return `${el.type} ${z + 1}`;
+  }
+
+  // Select a group row = select its members deep (same as clicking it on canvas).
+  function selectGroup(gid: string) {
+    if (!activeFig) return;
+    const members = membersDeep(activeFig, gid).map((e) => e.id);
+    if (!members.length) return;
+    selectOnly(members[0]); // clears part/frame selection
+    selection.set(new Set(members));
+  }
+  function groupSelected(row: LayerRow): boolean {
+    if (row.kind !== "group") return false;
+    return row.memberIds.length > 0 && row.memberIds.every((id) => $selection.has(id));
+  }
+
+  // --- Layer visibility / lock toggles (shared ops, one undo each) ---
   function toggleHidden(el: Element) {
     commit((p) => ops.setElementStyle(p, [el.id], { hidden: !el.hidden }));
   }
   function toggleLocked(el: Element) {
     commit((p) => ops.setElementStyle(p, [el.id], { locked: !el.locked }));
   }
+  function toggleGroupHidden(def: GroupDef) {
+    commit((p) => ops.setGroupState(p, def.id, { hidden: !def.hidden }));
+  }
+  function toggleGroupLocked(def: GroupDef) {
+    commit((p) => ops.setGroupState(p, def.id, { locked: !def.locked }));
+  }
 
   // --- Drag-to-reorder (z-order). Grip pointerdown starts a drag; moving over a
-  // row reorders live (one deferred beginGesture → one undo for the whole drag). ---
-  let dragId: string | null = null;
+  // row reorders live (one deferred beginGesture → one undo for the whole drag).
+  // Group rows move their WHOLE contiguous run (ops.reorderElement is group-
+  // aware and snaps any slot that would fragment a run). ---
+  let dragKey: string | null = null;
   let dragBegan = false;
   let layersUl: HTMLUListElement;
 
-  function startLayerDrag(e: PointerEvent, el: Element) {
+  function startLayerDrag(e: PointerEvent, row: LayerRow) {
     e.preventDefault();
     e.stopPropagation();
-    dragId = el.id;
+    dragKey = row.key;
     dragBegan = false;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
   function onLayerDragMove(e: PointerEvent) {
-    if (!dragId || !layersUl) return;
-    const rows = [...layersUl.querySelectorAll("li.layer")] as HTMLElement[];
-    let to = rows.length - 1;
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i].getBoundingClientRect();
+    if (!dragKey || !layersUl) return;
+    const rowEls = [...layersUl.querySelectorAll("li.layer")] as HTMLElement[];
+    let to = rowEls.length - 1;
+    for (let i = 0; i < rowEls.length; i++) {
+      const r = rowEls[i].getBoundingClientRect();
       if (e.clientY < r.top + r.height / 2) {
         to = i;
         break;
       }
     }
-    const cur = layers.findIndex((l) => l.id === dragId);
-    if (cur < 0 || to === cur) return;
+    const cur = rows.findIndex((r) => r.key === dragKey);
+    if (cur < 0 || to < 0 || to >= rows.length || to === cur) return;
+    const moved = rows[cur];
+    const anchor = rows[to];
+    // Never drop a group onto one of its own (displayed) descendants.
+    if (moved.kind === "group" && anchor.zBottom >= moved.zBottom && anchor.zTop <= moved.zTop) return;
+    const k = moved.kind === "group" ? moved.memberIds.length : 1;
+    // Display index → post-removal model slot: moving UP places the block just
+    // above the anchor row (its indices shift down by k after removal); moving
+    // DOWN places it just below (anchor indices unaffected). Flat lists reduce
+    // to the old `layers.length - 1 - to` mapping exactly.
+    const target = to < cur ? anchor.zTop - k + 1 : anchor.zBottom;
     if (!dragBegan) {
       beginGesture();
       dragBegan = true;
     }
     const fid = $activeFigureId;
-    const id = dragId;
-    // display index `to` (0 = top) → array index (0 = bottom)
-    mutate((p) => ops.reorderElement(p, fid!, id, layers.length - 1 - to));
+    const id = moved.kind === "group" ? moved.def.id : moved.el.id;
+    mutate((p) => ops.reorderElement(p, fid!, id, target));
   }
   function endLayerDrag(e: PointerEvent) {
-    if (!dragId) return;
+    if (!dragKey) return;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {}
-    dragId = null;
+    dragKey = null;
     dragBegan = false;
   }
 </script>
@@ -215,71 +311,143 @@
   <section class="layers">
     <h4>Layers</h4>
     <ul bind:this={layersUl}>
-      {#each layers as el, i (el.id)}
-        <li
-          class="layer"
-          class:active={$selection.has(el.id)}
-          class:dragging={dragId === el.id}
-          class:isHidden={el.hidden}
-        >
-          <button
-            class="grip"
-            title="Drag to reorder z-position"
-            aria-label="Drag to reorder"
-            on:pointerdown={(e) => startLayerDrag(e, el)}
-            on:pointermove={onLayerDragMove}
-            on:pointerup={endLayerDrag}
-            on:pointercancel={endLayerDrag}
-            on:click|preventDefault>⠿</button
+      {#each rows as row (row.key)}
+        {#if row.kind === "group"}
+          <li
+            class="layer grp"
+            data-gid={row.def.id}
+            class:active={groupSelected(row)}
+            class:dragging={dragKey === row.key}
+            class:isHidden={row.dim}
+            style={`padding-left:${row.depth * 12}px`}
           >
-          <button
-            class="tog"
-            class:muted={el.hidden}
-            title={el.hidden ? "Show" : "Hide"}
-            aria-label="Toggle visibility"
-            on:click={() => toggleHidden(el)}
-          >
-            {#if el.hidden}
-              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.1" /><line x1="3" y1="13" x2="13" y2="3" stroke="currentColor" stroke-width="1.2" /></svg>
-            {:else}
-              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.1" /><circle cx="8" cy="8" r="1.9" fill="currentColor" /></svg>
-            {/if}
-          </button>
-          <button
-            class="tog"
-            class:on={el.locked}
-            title={el.locked ? "Unlock" : "Lock"}
-            aria-label="Toggle lock"
-            on:click={() => toggleLocked(el)}
-          >
-            {#if el.locked}
-              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1" fill="currentColor" /><path d="M5.3 7V5.3a2.7 2.7 0 0 1 5.4 0V7" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
-            {:else}
-              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.2" /><path d="M5.3 7V5.3a2.7 2.7 0 0 1 5.4 0" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
-            {/if}
-          </button>
-          {#if editing && editing.kind === "layer" && editing.id === el.id}
-            <input
-              class="rename"
-              bind:value={editVal}
-              use:focusSelect
-              on:keydown={onRenameKey}
-              on:blur={commitRename} />
-          {:else}
             <button
-              class="item"
-              on:click={() => selectOnly(el.id)}
-              on:dblclick={() => startRename("layer", el.id, el.name ?? labelFor(el.type, layers.length - i))}
-              title="Click to select · double-click to rename">
-              {el.name ?? labelFor(el.type, layers.length - i)}
+              class="grip"
+              title="Drag to reorder the whole group"
+              aria-label="Drag to reorder group"
+              on:pointerdown={(e) => startLayerDrag(e, row)}
+              on:pointermove={onLayerDragMove}
+              on:pointerup={endLayerDrag}
+              on:pointercancel={endLayerDrag}
+              on:click|preventDefault>⠿</button
+            >
+            <button
+              class="caret"
+              title={row.collapsed ? "Expand" : "Collapse"}
+              aria-label="Toggle group contents"
+              on:click={() => toggleCollapsed(row.def.id)}>{row.collapsed ? "▸" : "▾"}</button
+            >
+            <button
+              class="tog"
+              class:muted={row.def.hidden}
+              title={row.def.hidden ? "Show group" : "Hide group"}
+              aria-label="Toggle group visibility"
+              on:click={() => toggleGroupHidden(row.def)}
+            >
+              {#if row.def.hidden}
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.1" /><line x1="3" y1="13" x2="13" y2="3" stroke="currentColor" stroke-width="1.2" /></svg>
+              {:else}
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.1" /><circle cx="8" cy="8" r="1.9" fill="currentColor" /></svg>
+              {/if}
             </button>
-          {/if}
-          {#if el.type === "text" && el.panelLabel}
-            <span class="plabel" title="Panel label (caption block)">{el.text.trim().slice(0, 3) || "¶"}</span>
-          {/if}
-        </li>
+            <button
+              class="tog"
+              class:on={row.def.locked}
+              title={row.def.locked ? "Unlock group" : "Lock group"}
+              aria-label="Toggle group lock"
+              on:click={() => toggleGroupLocked(row.def)}
+            >
+              {#if row.def.locked}
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1" fill="currentColor" /><path d="M5.3 7V5.3a2.7 2.7 0 0 1 5.4 0V7" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+              {:else}
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.2" /><path d="M5.3 7V5.3a2.7 2.7 0 0 1 5.4 0" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+              {/if}
+            </button>
+            {#if editing && editing.kind === "group" && editing.id === row.def.id}
+              <input
+                class="rename"
+                bind:value={editVal}
+                use:focusSelect
+                on:keydown={onRenameKey}
+                on:blur={commitRename} />
+            {:else}
+              <button
+                class="item gname"
+                on:click={() => selectGroup(row.def.id)}
+                on:dblclick={() => startRename("group", row.def.id, row.def.name)}
+                title="Click to select the group · double-click to rename">
+                {row.def.name}
+              </button>
+            {/if}
+            <span class="gcount" title="Members (deep)">{row.memberIds.length}</span>
+          </li>
+        {:else}
+          <li
+            class="layer"
+            class:active={$selection.has(row.el.id)}
+            class:dragging={dragKey === row.key}
+            class:isHidden={row.dim}
+            style={`padding-left:${row.depth * 12}px`}
+          >
+            <button
+              class="grip"
+              title="Drag to reorder z-position"
+              aria-label="Drag to reorder"
+              on:pointerdown={(e) => startLayerDrag(e, row)}
+              on:pointermove={onLayerDragMove}
+              on:pointerup={endLayerDrag}
+              on:pointercancel={endLayerDrag}
+              on:click|preventDefault>⠿</button
+            >
+            <button
+              class="tog"
+              class:muted={row.el.hidden}
+              title={row.el.hidden ? "Show" : "Hide"}
+              aria-label="Toggle visibility"
+              on:click={() => toggleHidden(row.el)}
+            >
+              {#if row.el.hidden}
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.1" /><line x1="3" y1="13" x2="13" y2="3" stroke="currentColor" stroke-width="1.2" /></svg>
+              {:else}
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.1" /><circle cx="8" cy="8" r="1.9" fill="currentColor" /></svg>
+              {/if}
+            </button>
+            <button
+              class="tog"
+              class:on={row.el.locked}
+              title={row.el.locked ? "Unlock" : "Lock"}
+              aria-label="Toggle lock"
+              on:click={() => toggleLocked(row.el)}
+            >
+              {#if row.el.locked}
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1" fill="currentColor" /><path d="M5.3 7V5.3a2.7 2.7 0 0 1 5.4 0V7" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+              {:else}
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.2" /><path d="M5.3 7V5.3a2.7 2.7 0 0 1 5.4 0" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+              {/if}
+            </button>
+            {#if editing && editing.kind === "layer" && editing.id === row.el.id}
+              <input
+                class="rename"
+                bind:value={editVal}
+                use:focusSelect
+                on:keydown={onRenameKey}
+                on:blur={commitRename} />
+            {:else}
+              <button
+                class="item"
+                on:click={() => selectOnly(row.el.id)}
+                on:dblclick={() => startRename("layer", row.el.id, labelFor(row.el))}
+                title="Click to select · double-click to rename">
+                {labelFor(row.el)}
+              </button>
+            {/if}
+            {#if row.el.type === "text" && row.el.panelLabel}
+              <span class="plabel" title="Panel label (caption block)">{row.el.text.trim().slice(0, 3) || "¶"}</span>
+            {/if}
+          </li>
+        {/if}
       {/each}
-      {#if layers.length === 0}
+      {#if rows.length === 0}
         <li class="empty">No elements yet</li>
       {/if}
     </ul>
@@ -468,5 +636,42 @@
   li.active .plabel {
     border-color: var(--c-on-accent);
     color: var(--c-on-accent);
+  }
+  /* P7 group rows: collapse caret, bold name, member count badge. */
+  .caret {
+    flex: 0 0 auto;
+    background: transparent;
+    border: none;
+    color: var(--c-tx-muted);
+    cursor: pointer;
+    padding: 2px 1px;
+    font-size: 10px;
+    line-height: 1;
+    width: 14px;
+  }
+  .caret:hover {
+    color: var(--c-tx-hi);
+  }
+  .gname {
+    font-weight: 600;
+  }
+  .gcount {
+    flex: none;
+    margin-right: 6px;
+    font-size: 9px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: var(--c-surface-2);
+    color: var(--c-tx-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  li.active .gcount {
+    background: transparent;
+    color: var(--c-on-accent);
+  }
+  li.grp.isHidden .gname {
+    opacity: 0.5;
+    font-style: italic;
   }
 </style>

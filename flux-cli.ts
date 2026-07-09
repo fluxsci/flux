@@ -66,8 +66,14 @@ usage: flux <verb> [root] [args] [--flags]
   delete-figure <figId> [--root R]     delete a whole figure
   duplicate-figure <figId> [--root R]  duplicate a whole figure (fresh ids)
   align <figId> <left|right|top|bottom|centerH|centerV> [--ids a,b,c] [--root R]   align elements
-  group <id…> [--root R]               group ≥2 elements → one unit
-  ungroup <id…> [--root R]             dissolve group membership
+  group <id…> [--name N] [--parent G] [--root R]   group ≥2 units → one NAMED
+            nestable group (whole top groups nest instead of dissolving)
+  ungroup <id…> [--root R]             dissolve each id's top-level group
+                                       (a group id dissolves exactly that group)
+  rename-group <groupId> <name…> [--root R]   rename a group
+  set-group-state <groupId> [--hide|--show] [--lock|--unlock] [--root R]
+                                       group eye/padlock (exports honor it)
+  list-groups [--figure F] [--root R]  list groups (name/nesting/state/members)
   set-figure-layout <figId> [--x n --y n --width n --height n --background c --name N] [--root R]   set a figure's frame
   set-z <figId> <front|back|forward|backward> --ids a,b,c [--root R]   change stacking order
   manuscript [--root R] [--doc rel]    print a manuscript document (.qmd)
@@ -510,7 +516,10 @@ async function main() {
       break;
     }
     case "group": {
-      const r = await core.groupElements(R(), _);
+      const r = await core.groupElements(R(), _, {
+        name: typeof flags.name === "string" ? flags.name : undefined,
+        parentId: typeof flags.parent === "string" ? flags.parent : undefined,
+      });
       console.error(`✓ grouped ${_.length} element(s) → ${r.groupId}`);
       console.log(r.groupId);
       break;
@@ -518,6 +527,30 @@ async function main() {
     case "ungroup": {
       await core.ungroupElements(R(), _);
       console.error(`✓ ungrouped ${_.length} element(s)`);
+      break;
+    }
+    case "rename-group": {
+      const name = _.slice(1).join(" ");
+      if (!_[0] || !name) throw new Error("usage: rename-group <groupId> <name…>");
+      await core.renameGroup(R(), _[0], name);
+      console.error(`✓ renamed ${_[0]} → "${name}"`);
+      break;
+    }
+    case "set-group-state": {
+      const patch: { hidden?: boolean; locked?: boolean } = {};
+      if (flags.hide) patch.hidden = true;
+      if (flags.show) patch.hidden = false;
+      if (flags.lock) patch.locked = true;
+      if (flags.unlock) patch.locked = false;
+      if (patch.hidden == null && patch.locked == null)
+        throw new Error("usage: set-group-state <groupId> [--hide|--show] [--lock|--unlock]");
+      await core.setGroupState(R(), _[0], patch);
+      console.error(`✓ group ${_[0]} state ${JSON.stringify(patch)}`);
+      break;
+    }
+    case "list-groups": {
+      const r = await core.listGroups(R(), typeof flags.figure === "string" ? flags.figure : undefined);
+      console.log(JSON.stringify(r.groups, null, 2));
       break;
     }
     case "set-figure-layout": {

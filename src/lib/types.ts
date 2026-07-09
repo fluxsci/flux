@@ -63,6 +63,22 @@ export interface ColorGroup {
   swatches: ColorSwatch[];
 }
 
+// A named group of elements (figure-v1 P7). Groups are a derived OVERLAY on the
+// flat z-ordered `Figure.elements` array: elements name their IMMEDIATE group
+// via `groupId`, and this registry holds each group's name / nesting / state.
+// Nesting lives on the defs (`parentId`), never on elements — the render tree
+// is derived (src/lib/groups.ts buildRenderTree).
+export interface GroupDef {
+  id: Id;
+  name: string;
+  // Immediate parent group (nesting). Absent = top-level.
+  parentId?: Id;
+  // Group-level eye/padlock (Layers panel). Members keep their own flags;
+  // consumers combine via groups.ts effectiveHidden/effectiveLocked.
+  hidden?: boolean;
+  locked?: boolean;
+}
+
 export interface Figure {
   id: Id;
   name: string;
@@ -75,6 +91,12 @@ export interface Figure {
   height: number;
   background: string; // CSS colour or "transparent"
   elements: Element[];
+  // Group registry (figure-v1 P7): groupId → GroupDef. INVARIANT: a group's
+  // members (deep) occupy one CONTIGUOUS run of `elements` — ops.group splices
+  // it so, the group-aware reorder/z-order ops preserve it, and migrate.ts
+  // heals legacy docs once on load. An element groupId with no def here is
+  // tolerated (treated as loose by the derived tree; see groups.ts).
+  groups?: Record<Id, GroupDef>;
   // Per-panel caption text, keyed by the panel-label element's id (see
   // captions.ts / CaptionEditor.svelte). Edited via the caption editor (Alt+C).
   captions?: Record<Id, string>;
@@ -128,7 +150,10 @@ export interface ElementBase {
   // canvas corner-resize is forced uniform (no Shift needed).
   lockAspect?: boolean;
   opacity?: number; // 0..1
-  // Elements sharing a groupId are selected and moved together.
+  // The element's IMMEDIATE group (Figure.groups registry key). Nesting is on
+  // the GroupDefs (parentId), never chained here. Members of one group (deep)
+  // are kept z-contiguous in Figure.elements (see Figure.groups invariant),
+  // and are selected / moved together.
   groupId?: Id;
 }
 

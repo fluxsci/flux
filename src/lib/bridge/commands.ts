@@ -8,6 +8,7 @@
 import { get } from "svelte/store";
 import * as store from "../store";
 import * as ops from "../ops";
+import { membersDeep } from "../groups";
 import { reflowTexts } from "../text";
 import { flipElements } from "../geometry";
 import type { AlignKind } from "../geometry";
@@ -31,6 +32,10 @@ export const ALLOWED_COMMANDS = [
   "auto_label",
   "group",
   "ungroup",
+  // figure-v1 P7: named nestable groups (registry verbs).
+  "rename_group",
+  "set_group_state",
+  "list_groups",
   "set_z",
   "add_path",
   "edit_path",
@@ -64,11 +69,18 @@ export const ALLOWED_COMMANDS = [
 export async function dispatchCommand(c: Command): Promise<unknown> {
   switch (c.type) {
     case "select": {
-      const list = Array.isArray(c.ids) ? (c.ids as string[]) : [];
+      // {ids} and/or {groupId} sugar — a group id selects its members (deep).
+      let list = Array.isArray(c.ids) ? (c.ids as string[]) : [];
+      if (typeof c.groupId === "string") {
+        const p = get(store.project);
+        const f = p.figures.find((ff) => ff.groups?.[c.groupId as string]);
+        if (!f) throw new Error(`select: unknown group ${c.groupId}`);
+        list = [...list, ...membersDeep(f, c.groupId).map((e) => e.id)];
+      }
       store.selection.set(new Set(list));
       store.partSelection.set(null);
       store.selectedFrameId.set(null);
-      return { selected: list.length };
+      return { selected: new Set(list).size };
     }
     case "clear_selection":
       store.clearSelection();
@@ -253,10 +265,15 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
     }
 
     case "group": {
+      // {ids?, name?, parentId?} → a NAMED registry group (nests whole top
+      // groups, splices members z-contiguous). Defaults to the selection.
       const list = ids(c);
       let gid: string | null = null;
       store.commit((p) => {
-        gid = ops.group(p, list);
+        gid = ops.group(p, list, {
+          name: typeof c.name === "string" ? c.name : undefined,
+          parentId: typeof c.parentId === "string" ? c.parentId : undefined,
+        });
       });
       return { groupId: gid };
     }
@@ -264,6 +281,50 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       const list = ids(c);
       store.commit((p) => ops.ungroup(p, list));
       return { ungrouped: list.length };
+    }
+
+    case "rename_group": {
+      const gid = typeof c.groupId === "string" ? c.groupId : "";
+      const name = typeof c.name === "string" ? c.name.trim() : "";
+      if (!gid || !name) throw new Error("rename_group: groupId + name required");
+      if (!get(store.project).figures.some((f) => f.groups?.[gid]))
+        throw new Error(`rename_group: unknown group ${gid}`);
+      store.commit((p) => ops.renameGroup(p, gid, name));
+      return { groupId: gid, name };
+    }
+
+    case "set_group_state": {
+      // {groupId, hidden?, locked?} — the Layers panel group eye/padlock.
+      const gid = typeof c.groupId === "string" ? c.groupId : "";
+      if (!gid) throw new Error("set_group_state: groupId required");
+      if (!get(store.project).figures.some((f) => f.groups?.[gid]))
+        throw new Error(`set_group_state: unknown group ${gid}`);
+      const patch: { hidden?: boolean; locked?: boolean } = {};
+      if (typeof c.hidden === "boolean") patch.hidden = c.hidden;
+      if (typeof c.locked === "boolean") patch.locked = c.locked;
+      if (patch.hidden == null && patch.locked == null)
+        throw new Error("set_group_state: pass hidden and/or locked (boolean)");
+      store.commit((p) => ops.setGroupState(p, gid, patch));
+      return { groupId: gid, ...patch };
+    }
+
+    case "list_groups": {
+      // Read-only: the registry (name/nesting/state) + member ids, per figure
+      // (all figures, or one via {figureId}).
+      const p = get(store.project);
+      const figs = typeof c.figureId === "string" ? p.figures.filter((f) => f.id === c.figureId) : p.figures;
+      const groups = figs.flatMap((f) =>
+        Object.values(f.groups ?? {}).map((g) => ({
+          figureId: f.id,
+          id: g.id,
+          name: g.name,
+          ...(g.parentId ? { parentId: g.parentId } : {}),
+          ...(g.hidden ? { hidden: true } : {}),
+          ...(g.locked ? { locked: true } : {}),
+          members: membersDeep(f, g.id).map((e) => e.id),
+        })),
+      );
+      return { groups };
     }
 
     case "set_z": {

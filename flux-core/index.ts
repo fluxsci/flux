@@ -10,6 +10,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
+import { membersDeep } from "../src/lib/groups";
 import { composeCaption, panelLetters } from "../src/lib/captions";
 import { elementBBox, unionRect } from "../src/lib/geometry";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
@@ -1358,20 +1359,75 @@ export async function alignFigure(
   });
 }
 
-/** group elements into one movable unit. Returns the new group id. */
-export async function groupElements(root: string, ids: string[]): Promise<{ groupId: string }> {
+/** group elements/whole top groups into one NAMED, nestable unit (P7 registry;
+ *  members spliced z-contiguous). Returns the new group id. */
+export async function groupElements(
+  root: string,
+  ids: string[],
+  opts: { name?: string; parentId?: string } = {},
+): Promise<{ groupId: string }> {
   return mutateFigModel(root, "group", ({ project }) => {
-    const gid = ops.group(project, ids);
-    if (!gid) throw new Error("group needs ≥2 elements in the same figure");
+    const gid = ops.group(project, ids, opts);
+    if (!gid) throw new Error("group needs ≥2 top-level units in the same figure");
     return { groupId: gid };
   });
 }
 
-/** ungroup elements (dissolve their group membership). */
+/** ungroup: dissolve each id's TOP-level group (element ids) or the exact
+ *  group (group ids) — members drop to the parent group or go loose. */
 export async function ungroupElements(root: string, ids: string[]): Promise<void> {
   await mutateFigModel(root, "ungroup", ({ project }) => {
     ops.ungroup(project, ids);
   });
+}
+
+/** rename a registry group. */
+export async function renameGroup(root: string, groupId: string, name: string): Promise<void> {
+  await mutateFigModel(root, "rename_group", ({ project }) => {
+    if (!ops.renameGroup(project, groupId, name)) throw new Error(`group not found: ${groupId}`);
+  });
+}
+
+/** set a group's hidden/locked flags (the Layers panel group eye/padlock);
+ *  members render/export via effectiveHidden, so hiding a group empties it
+ *  from renderFigureSvg too. */
+export async function setGroupState(
+  root: string,
+  groupId: string,
+  patch: { hidden?: boolean; locked?: boolean },
+): Promise<void> {
+  await mutateFigModel(root, "set_group_state", ({ project }) => {
+    if (!ops.setGroupState(project, groupId, patch)) throw new Error(`group not found: ${groupId}`);
+  });
+}
+
+export interface GroupInfo {
+  figureId: string;
+  id: string;
+  name: string;
+  parentId?: string;
+  hidden?: boolean;
+  locked?: boolean;
+  members: string[];
+}
+
+/** read-only: list the group registry (name/nesting/state + member ids, deep),
+ *  across the project or one figure. */
+export async function listGroups(root: string, figId?: string): Promise<{ groups: GroupInfo[] }> {
+  const { project } = await loadFigModel(root);
+  const figs = figId ? project.figures.filter((f) => f.id === figId) : project.figures;
+  const groups: GroupInfo[] = figs.flatMap((f) =>
+    Object.values(f.groups ?? {}).map((g) => ({
+      figureId: f.id,
+      id: g.id,
+      name: g.name,
+      ...(g.parentId ? { parentId: g.parentId } : {}),
+      ...(g.hidden ? { hidden: true } : {}),
+      ...(g.locked ? { locked: true } : {}),
+      members: membersDeep(f, g.id).map((e) => e.id),
+    })),
+  );
+  return { groups };
 }
 
 /** set a figure's frame (x/y/width/height/background/name). */

@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------------------
-// Project model migration — pure, idempotent, dependency-light (types only).
+// Project model migration — pure, idempotent, dependency-light (types + the
+// pure groups helpers only).
 //
 // Every loader runs this on the parsed model so old documents open in the
 // current shape: the GUI via store.normalizeProject, flux-core via
@@ -9,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Project, SemanticPlotElement, TextStyle } from "./types";
+import { enforceZContiguity, gcGroups, nextGroupName } from "./groups";
 
 // Seeded once per project when it has no textStyles at all (absent ≠ emptied:
 // a user who deleted every style keeps their empty list). Fixed ids so
@@ -29,6 +31,10 @@ export const DEFAULT_TEXT_STYLES: TextStyle[] = [
  *    SvgElement never had one.
  *  - text `autoWidth` (v1 boolean) → `sizing` ("auto" | "fixed"); the legacy
  *    key is deleted. Already-migrated elements pass through untouched.
+ *  - legacy FLAT groupIds (pre-P7, no registry entry) get a GroupDef
+ *    synthesized ("Group N" by first-seen z-order), dangling parentIds are
+ *    cleared, empty defs GC'd, and the z-contiguity invariant is enforced
+ *    once per figure (groups.ts enforceZContiguity — stable, idempotent).
  *  - seeds the default named text styles when the project has none. */
 export function migrateProject(p: Project): Project {
   for (const f of p.figures ?? []) {
@@ -48,6 +54,17 @@ export function migrateProject(p: Project): Project {
         e.sizing = legacy.autoWidth === false ? "fixed" : "auto";
       }
       delete legacy.autoWidth;
+    }
+    // figure-v1 P7: group registry migration.
+    for (const e of f.elements ?? []) {
+      if (!e.groupId || f.groups?.[e.groupId]) continue;
+      f.groups = f.groups ?? {};
+      f.groups[e.groupId] = { id: e.groupId, name: nextGroupName(f) };
+    }
+    if (f.groups) {
+      for (const g of Object.values(f.groups)) if (g.parentId && !f.groups[g.parentId]) delete g.parentId;
+      gcGroups(f);
+      enforceZContiguity(f);
     }
   }
   if (!Array.isArray(p.textStyles)) p.textStyles = structuredClone(DEFAULT_TEXT_STYLES);

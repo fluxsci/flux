@@ -31,7 +31,8 @@ import {
   projectDir,
   type Tool,
 } from "./store";
-import type { Element } from "./types";
+import type { Element, GroupDef } from "./types";
+import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf } from "./groups";
 import {
   alignElements,
   distributeElements,
@@ -50,6 +51,9 @@ import { partKind, partNode, readPartStyle } from "./plot/partStyle";
 import * as ops from "./ops";
 
 let clipboard: Element[] = [];
+// Group defs snapshotted with the copy (chains of the copied elements), so a
+// paste can clone names/nesting even after the source figure changes.
+let clipboardGroups: Record<string, GroupDef> = {};
 
 function activeFig() {
   const p = get(project);
@@ -378,6 +382,10 @@ function copySelected() {
   const fig = activeFig();
   if (!fig) return;
   clipboard = fig.elements.filter((e) => sel.has(e.id)).map((e) => structuredClone(e));
+  clipboardGroups = {};
+  for (const e of clipboard)
+    for (const gid of ancestorsOf(fig, e.groupId))
+      if (!clipboardGroups[gid]) clipboardGroups[gid] = structuredClone(groupDefs(fig)[gid]);
 }
 
 function paste() {
@@ -385,24 +393,23 @@ function paste() {
   const fig = activeFig();
   if (!fig) return;
   const newIds: string[] = [];
-  // FIG-3: remap group ids so pasted copies form a NEW group among themselves instead of
-  // staying linked to the originals (which made selecting/moving a paste drag the source).
-  const groupRemap = new Map<string, string>();
+  // FIG-3 → P7: cloneGroupsFor remaps group identity so pasted copies form NEW
+  // groups (same names/nesting) instead of staying linked to the originals
+  // (which made selecting/moving a paste drag the source).
+  const remap = new Map<string, string>();
   commit((p) => {
     const f = p.figures.find((ff) => ff.id === fig.id)!;
+    const cloned = cloneGroupsFor(clipboardGroups, clipboard, remap);
+    if (Object.keys(cloned).length) {
+      f.groups = f.groups ?? {};
+      Object.assign(f.groups, cloned);
+    }
     for (const e of clipboard) {
       const c = structuredClone(e);
       c.id = newId(c.type);
       c.x += 20;
       c.y += 20;
-      if (c.groupId) {
-        let g = groupRemap.get(c.groupId);
-        if (!g) {
-          g = newId("grp");
-          groupRemap.set(c.groupId, g);
-        }
-        c.groupId = g;
-      }
+      if (c.groupId) c.groupId = remap.get(c.groupId) ?? c.groupId;
       newIds.push(c.id);
       f.elements.push(c);
     }
@@ -410,23 +417,35 @@ function paste() {
   selection.set(new Set(newIds));
 }
 
+// ⌘G — one shared op (ops.group): named registry group, nesting, z-splice.
+// Pre-checks the unit count so a no-op chord doesn't burn an undo entry, and
+// re-selects the new group's members deep (a partial selection pulls in its
+// whole group, so the selection must widen to match the model).
 function groupSelected() {
   const sel = get(selection);
-  if (sel.size < 2) return;
-  const gid = newId("grp");
+  const fig = activeFig();
+  if (!fig || sel.size === 0) return;
+  const keys = new Set<string>();
+  for (const e of fig.elements) if (sel.has(e.id)) keys.add(unitKeyOf(fig, e, null));
+  if (keys.size < 2) return;
+  let gid: string | null = null;
   commit((p) => {
-    for (const f of p.figures)
-      for (const e of f.elements) if (sel.has(e.id)) e.groupId = gid;
+    gid = ops.group(p, [...sel]);
   });
+  if (gid) {
+    const f2 = activeFig();
+    if (f2) selection.set(new Set(membersDeep(f2, gid).map((e) => e.id)));
+  }
 }
 
+// ⌘⇧G — dissolve the selection's top-level groups via the shared ops.ungroup
+// (members → parent group or loose; child groups reparent; registry GC'd).
 function ungroupSelected() {
   const sel = get(selection);
-  if (sel.size === 0) return;
-  commit((p) => {
-    for (const f of p.figures)
-      for (const e of f.elements) if (sel.has(e.id)) delete e.groupId;
-  });
+  const fig = activeFig();
+  if (!fig || sel.size === 0) return;
+  if (!fig.elements.some((e) => sel.has(e.id) && e.groupId)) return;
+  commit((p) => ops.ungroup(p, [...sel]));
 }
 
 function selectAll() {
