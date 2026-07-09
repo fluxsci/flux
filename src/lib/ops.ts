@@ -941,6 +941,12 @@ export interface ElementStylePatch {
   sizing?: "auto" | "auto-h" | "fixed";
   align?: "left" | "center" | "right";
   cornerRadius?: number;
+  // line/arrow (figure-v1: Figma-parity stroke controls)
+  cap?: "butt" | "round" | "square";
+  arrowStart?: boolean;
+  arrowEnd?: boolean;
+  arrowStyle?: "filled" | "vee";
+  arrowSize?: number;
   rotation?: number;
   flipX?: boolean;
   flipY?: boolean;
@@ -1007,6 +1013,11 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
       } else if (e.type === "line") {
         if (patch.stroke != null) e.stroke = patch.stroke;
         if (patch.strokeWidth != null) e.strokeWidth = patch.strokeWidth;
+        if (patch.cap != null) e.cap = patch.cap;
+        if (patch.arrowStart != null) e.arrowStart = patch.arrowStart;
+        if (patch.arrowEnd != null) e.arrowEnd = patch.arrowEnd;
+        if (patch.arrowStyle != null) e.arrowStyle = patch.arrowStyle;
+        if (patch.arrowSize != null) e.arrowSize = Math.max(0.5, patch.arrowSize);
       } else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
         if (patch.fill != null) e.fill = patch.fill;
         if (patch.stroke != null) e.stroke = patch.stroke;

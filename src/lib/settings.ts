@@ -1,8 +1,9 @@
 import { writable } from "svelte/store";
 
 export type FluxFigMenuSize = "sm" | "md" | "lg";
-export type FluxFigMenuPos = "center" | "top" | "left" | "right";
+export type FluxFigMenuPos = "center" | "top" | "left" | "right"; // "top" is legacy → treated as center
 export type FluxFigMenuAnim = "draw" | "fade"; // self-drawing line vs. quick fade
+export type XrayPos = "above" | "below"; // which side of the FluxFig menu the X-ray docks to
 
 export interface Settings {
   fluxFigMenuSize: FluxFigMenuSize;
@@ -11,9 +12,7 @@ export interface Settings {
   fluxFigMenuDy: number; // px nudge from the preset position (+ = down)
   fluxFigMenuAnim: FluxFigMenuAnim;
   fluxFigMenuOpacity: number; // 0.6 .. 1
-  xrayPos: FluxFigMenuPos; // X-Ray panel position preset + nudge, same scheme
-  xrayDx: number;
-  xrayDy: number;
+  xrayPos: XrayPos; // the X-ray docks above/below the FluxFig menu's spot
   flexokiDefault: boolean; // ship the Flexoki palette in new projects
   // Feature 11 — rulers / guides / grid.
   showRulers: boolean; // H/V rulers along the canvas edges (Shift+R)
@@ -38,9 +37,7 @@ const DEFAULTS: Settings = {
   fluxFigMenuDy: 0,
   fluxFigMenuAnim: "draw",
   fluxFigMenuOpacity: 0.94,
-  xrayPos: "right",
-  xrayDx: 0,
-  xrayDy: 0,
+  xrayPos: "above",
   flexokiDefault: true,
   showRulers: false,
   showGrid: false,
@@ -68,6 +65,13 @@ function migrate(raw: Record<string, unknown>): Record<string, unknown> {
     if (legacy in out && !(current in out)) out[current] = out[legacy];
     delete out[legacy];
   }
+  // figure-v1: the X-ray docks above/below the FluxFig menu now (it briefly had
+  // its own preset + nudge), and the "top" menu preset folded into "center"
+  // (vertical placement is the Y-nudge's job).
+  if (out.xrayPos !== "above" && out.xrayPos !== "below") delete out.xrayPos;
+  delete out.xrayDx;
+  delete out.xrayDy;
+  if (out.fluxFigMenuPos === "top") out.fluxFigMenuPos = "center";
   return out;
 }
 
@@ -85,6 +89,49 @@ settings.subscribe((v) => {
     localStorage.setItem(KEY, JSON.stringify(v));
   } catch {}
 });
+
+// ---------------------------------------------------------------------------
+// Popup layout: the FluxFig menu is placed by preset (horizontal) + px nudge,
+// and the X-ray docks to it across a fixed horizontal boundary line (above by
+// default). Growth is deterministic — each panel expands AWAY from the
+// boundary (X-ray above grows upward, the menu grows downward) — so a
+// user-tuned position never shifts as content expands. Both panels consume
+// this one helper; keep them in lockstep.
+export const FLUXFIG_WIDTHS: Record<FluxFigMenuSize, number> = { sm: 420, md: 560, lg: 720 };
+const POPUP_GAP = 6; // px each panel keeps from the boundary line
+
+export function popupLayout(s: Settings): {
+  width: number; // shared panel width (px)
+  menuWrap: string; // style for the FluxFig menu's fixed full-screen wrapper
+  menuMax: string; // max-height for the menu panel
+  xrayWrap: string; // style for the X-ray's fixed full-screen wrapper
+  xrayMax: string; // max-height for the X-ray panel
+} {
+  const dx = s.fluxFigMenuDx || 0;
+  const dy = s.fluxFigMenuDy || 0;
+  const width = FLUXFIG_WIDTHS[s.fluxFigMenuSize];
+  const xAlign =
+    s.fluxFigMenuPos === "left"
+      ? "justify-content:flex-start; padding-left:28px;"
+      : s.fluxFigMenuPos === "right"
+        ? "justify-content:flex-end; padding-right:28px;"
+        : "justify-content:center;";
+  // The boundary line the two panels stack around (a CSS length expression).
+  const A = `calc(50vh + ${dy}px)`;
+  const shift = ` transform:translate3d(${dx}px, 0, 0);`;
+  const below = `align-items:flex-start; padding-top:max(8px, calc(${A} + ${POPUP_GAP}px));`;
+  const above = `align-items:flex-end; padding-bottom:max(8px, calc(100vh - ${A} + ${POPUP_GAP}px));`;
+  const belowMax = `calc(100vh - ${A} - ${POPUP_GAP + 8}px)`;
+  const aboveMax = `calc(${A} - ${POPUP_GAP + 8}px)`;
+  const xrayAbove = s.xrayPos !== "below";
+  return {
+    width,
+    menuWrap: xAlign + (xrayAbove ? below : above) + shift,
+    menuMax: `min(78vh, ${xrayAbove ? belowMax : aboveMax})`,
+    xrayWrap: xAlign + (xrayAbove ? above : below) + shift,
+    xrayMax: `min(82vh, ${xrayAbove ? aboveMax : belowMax})`,
+  };
+}
 
 // Transient UI state.
 export const settingsOpen = writable(false);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
-  import { settings, settingsOpen, type Settings, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim } from "./settings";
+  import { settings, settingsOpen, type Settings, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim, type XrayPos } from "./settings";
   import { fileBridge } from "./project/types";
 
   // --- FluxLib location (desktop app only) ----------------------------------
@@ -65,16 +65,19 @@
   ];
   const positions: { v: FluxFigMenuPos; l: string }[] = [
     { v: "center", l: "Center" },
-    { v: "top", l: "Top" },
     { v: "left", l: "Left" },
     { v: "right", l: "Right" },
+  ];
+  const xrayPositions: { v: XrayPos; l: string }[] = [
+    { v: "above", l: "Above the menu" },
+    { v: "below", l: "Below the menu" },
   ];
   const anims: { v: FluxFigMenuAnim; l: string }[] = [
     { v: "draw", l: "Draw-in" },
     { v: "fade", l: "Quick fade" },
   ];
 
-  function setNum(key: "fluxFigMenuDx" | "fluxFigMenuDy" | "xrayDx" | "xrayDy", raw: string) {
+  function setNum(key: "fluxFigMenuDx" | "fluxFigMenuDy", raw: string) {
     const n = parseFloat(raw);
     settings.update((v) => ({ ...v, [key]: Number.isFinite(n) ? Math.round(n) : 0 }));
   }
@@ -150,29 +153,15 @@
           <button class="ghost" on:click={() => settings.update((v) => ({ ...v, fluxFigMenuDx: 0, fluxFigMenuDy: 0 }))}>Reset</button>
         {/if}
       </div>
-      <p class="hint">Fine-tune from the preset: +X moves right, +Y moves down. Type an exact value or use the arrows (steps of 5).</p>
+      <p class="hint">Fine-tune the spot: +X moves right, +Y moves down. Type an exact value or use the arrows (steps of 5).</p>
 
       <h3>X-Ray — position</h3>
       <div class="seg">
-        {#each positions as p}
+        {#each xrayPositions as p}
           <button class:on={$settings.xrayPos === p.v} on:click={() => settings.update((v) => ({ ...v, xrayPos: p.v }))}>{p.l}</button>
         {/each}
       </div>
-      <div class="nudge">
-        <label class="chk num">
-          Nudge X
-          <input type="number" step="5" value={$settings.xrayDx} on:input={(e) => setNum("xrayDx", e.currentTarget.value)} />
-          px
-        </label>
-        <label class="chk num">
-          Nudge Y
-          <input type="number" step="5" value={$settings.xrayDy} on:input={(e) => setNum("xrayDy", e.currentTarget.value)} />
-          px
-        </label>
-        {#if $settings.xrayDx || $settings.xrayDy}
-          <button class="ghost" on:click={() => settings.update((v) => ({ ...v, xrayDx: 0, xrayDy: 0 }))}>Reset</button>
-        {/if}
-      </div>
+      <p class="hint">The X-ray docks to the FluxFig menu's spot at the same width. Above: the X-ray grows upward and the menu downward from that spot (and vice&nbsp;versa).</p>
 
       <h3>FluxFig Menu — appearance</h3>
       <div class="seg">

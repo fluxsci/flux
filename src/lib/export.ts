@@ -1,5 +1,5 @@
 import type { Element, Figure, ImageElement } from "./types";
-import { arrowHeads, elementBBox } from "./geometry";
+import { lineRender, elementBBox } from "./geometry";
 import { buildRenderTree, effectiveHidden, type RenderNode } from "./groups";
 import { visualLines, lineH } from "./text";
 
@@ -107,17 +107,20 @@ export function elementToSvg(
           `stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${op(e)}/>`,
       );
     case "line": {
-      const x1 = e.x + e.x1;
-      const y1 = e.y + e.y1;
-      const x2 = e.x + e.x2;
-      const y2 = e.y + e.y2;
+      const lr = lineRender(e);
       let s =
-        `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ` +
+        `<line x1="${e.x + lr.x1}" y1="${e.y + lr.y1}" x2="${e.x + lr.x2}" y2="${e.y + lr.y2}" ` +
         `stroke="${e.stroke}" stroke-width="${e.strokeWidth}" ` +
-        `stroke-linecap="round"/>`;
-      for (const tri of arrowHeads(e)) {
+        `stroke-linecap="${lr.cap}"/>`;
+      for (const tri of lr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s += `<polygon points="${pts}" fill="${e.stroke}"/>`;
+      }
+      for (const v of lr.vees) {
+        const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
+        s +=
+          `<polyline points="${pts}" fill="none" stroke="${e.stroke}" ` +
+          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
       }
       return rot(e, s);
     }

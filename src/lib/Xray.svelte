@@ -29,7 +29,7 @@
   import { halfFrame, drawForge as forge } from "./motion/selfDraw";
   import { reimportPlot } from "./io";
   import { fileBridge } from "./project/types";
-  import { fluxFigMenuOpen, settings } from "./settings";
+  import { fluxFigMenuOpen, settings, popupLayout } from "./settings";
   import type { FluxPlotManifest } from "./plot/types";
 
   // --- the pinned root + its tree -----------------------------------------
@@ -367,16 +367,10 @@
   $: pathR = halfFrame(frameW, frameH, true);
   $: pathL = halfFrame(frameW, frameH, false);
 
-  // Panel position: preset alignment + px nudge, both from Settings. Lives on
-  // the wrapper (like FluxFigMenu) so it never fights the panel's transition.
-  $: xwrapStyle =
-    {
-      center: "align-items:center; justify-content:center;",
-      top: "align-items:flex-start; justify-content:center; padding-top:64px;",
-      left: "align-items:center; justify-content:flex-start; padding-left:26px;",
-      right: "align-items:center; justify-content:flex-end; padding-right:26px;",
-    }[$settings.xrayPos] +
-    ` transform:translate3d(${$settings.xrayDx || 0}px, ${$settings.xrayDy || 0}px, 0);`;
+  // Panel position: docked above/below the FluxFig menu's configured spot
+  // (popupLayout — one helper keeps the pair in lockstep). Lives on the
+  // wrapper (like FluxFigMenu) so it never fights the panel's transition.
+  $: layout = popupLayout($settings);
 </script>
 
 <svelte:window on:keydown={onWin} />
@@ -384,7 +378,7 @@
 {#if $xrayOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="xbackdrop" transition:fade={{ duration: 110 }} on:pointerdown={close}></div>
-  <div class="xwrap" style={xwrapStyle}>
+  <div class="xwrap" style={layout.xrayWrap}>
     <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_static_element_interactions -->
     <div
       class="xray"
@@ -392,6 +386,7 @@
       bind:clientWidth={frameW}
       bind:clientHeight={frameH}
       tabindex="-1"
+      style={`width:${layout.width}px; max-height:${layout.xrayMax};`}
       transition:forge
       on:pointerdown|stopPropagation
     >

@@ -185,32 +185,71 @@ export function pointInRect(px: number, py: number, r: Rect): boolean {
   return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
 }
 
-// Arrowhead polygons (in element-local coords) for a line's enabled ends.
-// Returned as arrays of [x,y] triangles so they render identically on the
-// canvas and in exported SVG/PDF (no reliance on SVG markers).
-export function arrowHeads(e: LineElement): number[][][] {
-  const size = Math.max(6, e.strokeWidth * 3.2);
-  const heads: number[][][] = [];
-  const make = (tipX: number, tipY: number, fromX: number, fromY: number) => {
-    const dx = tipX - fromX;
-    const dy = tipY - fromY;
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len;
-    const uy = dy / len;
-    const px = -uy;
-    const py = ux;
-    const baseX = tipX - ux * size;
-    const baseY = tipY - uy * size;
-    const half = size * 0.42;
-    heads.push([
-      [tipX, tipY],
-      [baseX + px * half, baseY + py * half],
-      [baseX - px * half, baseY - py * half],
-    ]);
+// Everything needed to draw a line/arrow, in element-local coords, computed
+// once and shared by the canvas AND SVG export (no reliance on SVG markers).
+// The visible stroke is pulled back to a FILLED head's base so the tip sits
+// EXACTLY on the model endpoint — a stroke running on through the head is
+// what made arrows look broken. V-style heads are stroked chevrons through
+// the endpoint, so the line keeps its full length there.
+export interface LineRender {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number; // visible stroke endpoints
+  cap: "butt" | "round" | "square";
+  polys: number[][][]; // filled triangle heads (tip first)
+  vees: number[][][]; // open-V heads as 3-point polylines (leg, tip, leg)
+}
+
+export function lineRender(e: LineElement): LineRender {
+  const cap = e.cap ?? "round";
+  const filled = (e.arrowStyle ?? "filled") === "filled";
+  const sw = Math.max(e.strokeWidth, 0.5);
+  const dx = e.x2 - e.x1;
+  const dy = e.y2 - e.y1;
+  const len = Math.hypot(dx, dy) || 1;
+  // Head length: a user-tunable multiple of the stroke width. ≥1.2·sw keeps
+  // the stroke's cap hidden inside a filled head; heads shrink to fit short
+  // lines so a double-headed arrow never inverts.
+  const headCount = (e.arrowStart ? 1 : 0) + (e.arrowEnd ? 1 : 0);
+  let head = Math.max(6, sw * 1.2, sw * (e.arrowSize ?? 4));
+  if (headCount) head = Math.min(head, (len * 0.9) / headCount);
+  const ux = dx / len;
+  const uy = dy / len;
+  const out: LineRender = { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, cap, polys: [], vees: [] };
+  // sx/sy = direction from the line body toward this end's tip.
+  const make = (tipX: number, tipY: number, sx: number, sy: number, end: "start" | "end") => {
+    const px = -sy;
+    const py = sx;
+    if (filled) {
+      const bx = tipX - sx * head;
+      const by = tipY - sy * head;
+      const half = head * 0.42;
+      out.polys.push([
+        [tipX, tipY],
+        [bx + px * half, by + py * half],
+        [bx - px * half, by - py * half],
+      ]);
+      if (end === "end") {
+        out.x2 = bx;
+        out.y2 = by;
+      } else {
+        out.x1 = bx;
+        out.y1 = by;
+      }
+    } else {
+      const c = 0.85; // ~32° half-opening, legs the full head length
+      const s = 0.53;
+      out.vees.push([
+        [tipX - (sx * c - px * s) * head, tipY - (sy * c - py * s) * head],
+        [tipX, tipY],
+        [tipX - (sx * c + px * s) * head, tipY - (sy * c + py * s) * head],
+      ]);
+    }
   };
-  if (e.arrowEnd) make(e.x2, e.y2, e.x1, e.y1);
-  if (e.arrowStart) make(e.x1, e.y1, e.x2, e.y2);
-  return heads;
+  if (e.arrowEnd) make(e.x2, e.y2, ux, uy, "end");
+  if (e.arrowStart) make(e.x1, e.y1, -ux, -uy, "start");
+  return out;
 }
 
 // ---------------------------------------------------------------------------

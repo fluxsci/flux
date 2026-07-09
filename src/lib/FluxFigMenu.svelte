@@ -20,7 +20,7 @@
   import { evalExpr } from "./num";
   import { scrub } from "./scrub";
   import { nameForHex } from "./colors";
-  import { fluxFigMenuOpen, settings } from "./settings";
+  import { fluxFigMenuOpen, settings, popupLayout } from "./settings";
   import { halfFrame, drawForge } from "./motion/selfDraw";
   import { prefersReducedMotion } from "./motion/motion";
   import ColorSearch from "./ColorSearch.svelte";
@@ -348,8 +348,14 @@
       num("d", "stroke width", "Stroke", () => (strokeEl as any).strokeWidth, (e, v) => { if ("strokeWidth" in e) e.strokeWidth = Math.max(0, v); });
     }
     if (lineEl) {
-      F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => (lineEl as any).arrowStart, apply: () => upd((e) => { if (e.type === "line") e.arrowStart = !e.arrowStart; }) });
-      F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => (lineEl as any).arrowEnd, apply: () => upd((e) => { if (e.type === "line") e.arrowEnd = !e.arrowEnd; }) });
+      const ln = lineEl as Element & { type: "line" };
+      F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => ln.arrowStart, apply: () => upd((e) => { if (e.type === "line") e.arrowStart = !e.arrowStart; }) });
+      F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => ln.arrowEnd, apply: () => upd((e) => { if (e.type === "line") e.arrowEnd = !e.arrowEnd; }) });
+      F.push({ key: "l", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => ln.cap ?? "round", apply: (v) => upd((e) => { if (e.type === "line") e.cap = v as "butt" | "round" | "square"; }) });
+      if (ln.arrowStart || ln.arrowEnd) {
+        F.push({ key: "z", label: "arrowhead", group: "Stroke", kind: "select", options: [{ value: "filled", label: "Filled" }, { value: "vee", label: "V-line" }], get: () => ln.arrowStyle ?? "filled", apply: (v) => upd((e) => { if (e.type === "line") e.arrowStyle = v as "filled" | "vee"; }) });
+        num("e", "arrowhead size (× width)", "Stroke", () => ln.arrowSize ?? 4, (e, v) => { if (e.type === "line") e.arrowSize = Math.max(1, v); }, 0.5);
+      }
     }
 
     // Text
@@ -526,17 +532,12 @@
     }
   }
 
-  // panel geometry from settings. Centering lives on the wrapper (NOT a
-  // transform on the panel) so it can never fight the scale transition.
-  $: width = { sm: 420, md: 560, lg: 720 }[$settings.fluxFigMenuSize];
-  $: wrapStyle =
-    {
-      center: "align-items:center; justify-content:center;",
-      top: "align-items:flex-start; justify-content:center; padding-top:64px;",
-      left: "align-items:center; justify-content:flex-start; padding-left:28px;",
-      right: "align-items:center; justify-content:flex-end; padding-right:28px;",
-    }[$settings.fluxFigMenuPos] +
-    ` transform:translate3d(${$settings.fluxFigMenuDx || 0}px, ${$settings.fluxFigMenuDy || 0}px, 0);`;
+  // panel geometry from settings (shared with the X-ray — popupLayout keeps
+  // the pair docked). Placement lives on the wrapper (NOT a transform on the
+  // panel) so it can never fight the scale transition.
+  $: layout = popupLayout($settings);
+  $: width = layout.width;
+  $: wrapStyle = layout.menuWrap;
   $: bgAlpha = $settings.fluxFigMenuOpacity;
 
   function colorDisplay(f: Field): { hex: string; name: string } {
@@ -558,7 +559,7 @@
       bind:clientWidth={frameW}
       bind:clientHeight={frameH}
       tabindex="-1"
-      style={`width:${width}px; --fa:${bgAlpha};`}
+      style={`width:${width}px; --fa:${bgAlpha}; max-height:${layout.menuMax};`}
       transition:forge
       on:pointerdown|stopPropagation
     >

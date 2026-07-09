@@ -233,6 +233,12 @@ export interface LineElement extends ElementBase {
   strokeWidth: number;
   arrowStart: boolean;
   arrowEnd: boolean;
+  /** stroke-linecap; round is the Flux default for lines & arrows. */
+  cap?: "butt" | "round" | "square";
+  /** Arrowhead shape: solid triangle, or an open V stroked like the line. */
+  arrowStyle?: "filled" | "vee";
+  /** Arrowhead length in multiples of the stroke width (default 4). */
+  arrowSize?: number;
 }
 
 // A bezier vector node (Feature 1). Element-local coords; handles are relative

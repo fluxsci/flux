@@ -3,7 +3,7 @@
   import { assetData } from "./assets";
   import { project } from "./store";
   import { assetDisplaySize } from "./ops";
-  import { arrowHeads, elementBBox } from "./geometry";
+  import { lineRender, elementBBox } from "./geometry";
   import { visualLines, lineH } from "./text";
   import PlotElement from "./PlotElement.svelte";
 
@@ -102,7 +102,8 @@
       stroke-width={e.strokeWidth}
     />
   {:else if e.type === "line"}
-    <!-- wide invisible hit area for easy selection -->
+    {@const lr = lineRender(e)}
+    <!-- wide invisible hit area for easy selection (full model endpoints) -->
     <line
       x1={e.x + e.x1}
       y1={e.y + e.y1}
@@ -112,18 +113,28 @@
       stroke-width={Math.max(12, e.strokeWidth + 8)}
     />
     <line
-      x1={e.x + e.x1}
-      y1={e.y + e.y1}
-      x2={e.x + e.x2}
-      y2={e.y + e.y2}
+      x1={e.x + lr.x1}
+      y1={e.y + lr.y1}
+      x2={e.x + lr.x2}
+      y2={e.y + lr.y2}
       stroke={e.stroke}
       stroke-width={e.strokeWidth}
-      stroke-linecap="round"
+      stroke-linecap={lr.cap}
     />
-    {#each arrowHeads(e) as tri}
+    {#each lr.polys as tri}
       <polygon
         points={tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
         fill={e.stroke}
+      />
+    {/each}
+    {#each lr.vees as v}
+      <polyline
+        points={v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
+        fill="none"
+        stroke={e.stroke}
+        stroke-width={e.strokeWidth}
+        stroke-linecap="round"
+        stroke-linejoin="round"
       />
     {/each}
   {:else if e.type === "path"}
