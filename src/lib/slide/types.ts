@@ -204,6 +204,10 @@ export interface EmbedFigureElement extends ElementBase {
   type: "embedFigure";
   /** A figure id from the project's `fig/` subsystem. */
   figureId: string;
+  /** Scope the live embed to ONE named group inside the figure (figure-v1
+   *  group insertables): only that group's subtree renders, viewBox tight on
+   *  its bbox. Absent = the whole figure. */
+  groupId?: string;
   fit?: "contain" | "cover" | "fill";
 }
 

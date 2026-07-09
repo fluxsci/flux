@@ -556,8 +556,13 @@ export async function gatherDeckPayload(
     for (const el of s.elements) {
       if (el.type === "plot") await collectPlot(el.assetId, el.source?.svgPath, el.source?.manifestPath);
       else if (el.type === "embedFigure") {
-        try { figures[el.figureId] = await renderFigureSvg(root, el.figureId); } catch {
-          warnings.push(`figure "${el.figureId}" could not be rendered — its element will show a placeholder`);
+        // Group-scoped embeds are keyed "fid::gid" — the SAME convention the
+        // live loadDeckAssets cache and the export runtime resolver use.
+        const key = el.groupId ? `${el.figureId}::${el.groupId}` : el.figureId;
+        if (!figures[key]) {
+          try { figures[key] = await renderFigureSvg(root, el.figureId, el.groupId ? { groupId: el.groupId } : undefined); } catch {
+            warnings.push(`figure "${el.figureId}" could not be rendered — its element will show a placeholder`);
+          }
         }
       }
     }

@@ -20,7 +20,7 @@
     deck: Deck;
     theme: DeckTheme;
     assetUrl?: (id: string) => string | undefined;
-    figureSvg?: (id: string) => string | undefined;
+    figureSvg?: (id: string, groupId?: string) => string | undefined;
     start?: { slide: number; beat: number };
     onClose: () => void;
   } = $props();

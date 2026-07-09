@@ -20,7 +20,7 @@ export interface ExportPayload {
   deck: Deck;
   /** assetId → { inline plot SVG, its manifest } (semantic parts stay live). */
   plots?: Record<string, { svg: string; manifest: FluxPlotManifest }>;
-  /** figureId → standalone SVG markup (embedFigure). */
+  /** figureId (or "figureId::groupId" for group-scoped embeds) → standalone SVG markup. */
   figures?: Record<string, string>;
   /** assetId → data: URI (images/video). */
   assets?: Record<string, string>;
@@ -75,7 +75,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       mode: "export",
       theme,
       assetUrl: (id) => payload.assets?.[id],
-      figureSvg: (id) => payload.figures?.[id],
+      figureSvg: (id, gid) => payload.figures?.[gid ? `${id}::${gid}` : id],
       plotManifest: (id) => get(plotManifests)[id],
       reducedMotion, // default OFF: a talk is meant to animate regardless of OS setting (C15)
     });
@@ -114,7 +114,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       const inner = document.createElement("div");
       inner.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;`;
       nextScaled.appendChild(inner);
-      try { renderStaticAt(inner, deck.slides[nextIdx], deck.stage, Math.max(0, deck.slides[nextIdx].beats.length - 1), { mode: "export", theme, assetUrl: (id) => payload.assets?.[id], figureSvg: (id) => payload.figures?.[id], plotManifest: (id) => get(plotManifests)[id] }); } catch (_e) { /* preview best-effort */ }
+      try { renderStaticAt(inner, deck.slides[nextIdx], deck.stage, Math.max(0, deck.slides[nextIdx].beats.length - 1), { mode: "export", theme, assetUrl: (id) => payload.assets?.[id], figureSvg: (id, gid) => payload.figures?.[gid ? `${id}::${gid}` : id], plotManifest: (id) => get(plotManifests)[id] }); } catch (_e) { /* preview best-effort */ }
       frame.appendChild(nextScaled);
       panel.appendChild(frame);
     }

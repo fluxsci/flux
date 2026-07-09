@@ -397,6 +397,8 @@ export function makeVideo(opts: VideoOpts): VideoElement {
 
 export interface EmbedFigureOpts extends Box {
   figureId: string;
+  /** Scope to one named group inside the figure (group insertables). */
+  groupId?: string;
   fit?: EmbedFigureElement["fit"];
 }
 export function makeEmbedFigure(opts: EmbedFigureOpts): EmbedFigureElement {
@@ -408,6 +410,7 @@ export function makeEmbedFigure(opts: EmbedFigureOpts): EmbedFigureElement {
     rotation: 0,
     figureId: opts.figureId,
   };
+  if (opts.groupId != null) el.groupId = opts.groupId;
   if (opts.fit != null) el.fit = opts.fit;
   return el;
 }

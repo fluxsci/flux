@@ -114,6 +114,30 @@ assert(
 }
 
 // ---------------------------------------------------------------------------
+console.log("1b) figureToSvg group SCOPE (group insertables: embed ONE group)");
+// ---------------------------------------------------------------------------
+{
+  const scoped = figureToSvg(grouped, () => undefined, undefined, undefined, { groupId: "gA" });
+  assert(scoped.includes('id="figX__group:gA"'), "scoped render keeps the group's own wrapper (tracks on it still resolve)");
+  assert(scoped.includes("#d62728") && scoped.includes("#2ca02c") && scoped.includes('id="figX__group:gB"'), "members + nested subgroup render");
+  assert(!scoped.includes("#1f77b4") && !scoped.includes("group:gH"), "siblings outside the group are NOT in the markup");
+  // viewBox tight on the members' bbox, padded by the max stroke width:
+  // r1 (10..110) + r2 (120..220) × y 20..100, stroke 2 → pad 2.
+  assert(scoped.includes('viewBox="8 18 214 84"'), `viewBox = group bbox + stroke pad (got ${/viewBox="([^"]*)"/.exec(scoped)?.[1]})`);
+  assert(!scoped.includes('<rect x="0" y="0" width="800"'), "no figure background in a scoped render");
+
+  const inner = figureToSvg(grouped, () => undefined, undefined, undefined, { groupId: "gB" });
+  assert(inner.includes("#2ca02c") && !inner.includes("#d62728"), "scoping to a NESTED group renders just its subtree");
+
+  const full = figureToSvg(grouped, () => undefined);
+  assert(figureToSvg(grouped, () => undefined, undefined, undefined, { groupId: "nope" }) === full, "unknown groupId falls back to the FULL figure (live embed survives a deleted group)");
+  assert(figureToSvg(grouped, () => undefined, undefined, undefined, { groupId: "gH" }) === full, "a hidden group scopes to the full-figure fallback (not an empty svg)");
+
+  const el = slideOps.makeEmbedFigure({ figureId: "figX", groupId: "gA", x: 0, y: 0, width: 300, height: 200 });
+  assert(el.groupId === "gA", "makeEmbedFigure carries groupId into the deck element");
+}
+
+// ---------------------------------------------------------------------------
 console.log("2) player: Track {target: embedFigure, part: 'group:<gid>'}");
 // ---------------------------------------------------------------------------
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
@@ -218,6 +242,8 @@ console.log("4) export parity: gatherDeckPayload figureSvg carries the wrappers"
     const deck = slideOps.createDeck({ id: "p9deck", title: "P9" });
     const sid = slideOps.addSlide(deck, { name: "Fig" }).id;
     slideOps.addElement(deck, sid, { type: "embedFigure", id: "embX", figureId, x: 100, y: 80, width: 800, height: 500, rotation: 0 } as never);
+    // group-SCOPED embed alongside (figure-v1 group insertables)
+    slideOps.addElement(deck, sid, { type: "embedFigure", id: "embG", figureId, groupId: g.groupId, x: 100, y: 620, width: 400, height: 200, rotation: 0 } as never);
     const beat = slideOps.addBeat(deck, sid, { label: "build" })!;
     slideOps.setAnimation(deck, sid, beat.id, { id: "tg", target: "embX", part: `group:${g.groupId}`, preset: "fade", duration: 300 } as never);
     await slides.saveDeck(TMP, deck);
@@ -241,10 +267,19 @@ console.log("4) export parity: gatherDeckPayload figureSvg carries the wrappers"
     applyStatic(sp, 1);
     assert(((node.style as unknown as { opacity?: string }).opacity ?? "") === "1", "…revealed on its build beat");
 
+    // group-scoped embed: the payload carries a SECOND, "fid::gid"-keyed svg —
+    // the exact key the export runtime resolver (and live loadDeckAssets) reads.
+    const scopedKey = `${figureId}::${g.groupId}`;
+    const scopedSvg = payload.figures?.[scopedKey] ?? "";
+    assert(!!scopedSvg, "payload gathers a scoped entry per (figure, group) embed");
+    assert(scopedSvg.includes(`id="${figureId}__group:${g.groupId}"`), "scoped payload svg keeps the group wrapper");
+    assert(scopedSvg !== figSvg && !/viewBox="0 0 /.test(scopedSvg), "scoped svg is the tight-bbox render, not the whole figure");
+
     // figure-side group eye still wins: hide the group, re-gather, wrapper gone
     await core.setGroupState(TMP, g.groupId, { hidden: true });
     const g2 = await slides.gatherDeckPayload(TMP, "p9deck");
     assert(!(g2.payload.figures?.[figureId] ?? "").includes(`group:${g.groupId}`), "figure-side group eye excludes the group from the slide payload too");
+    assert(!(g2.payload.figures?.[scopedKey] ?? "").includes(`group:${g.groupId}`), "…and the scoped embed falls back to the (group-less) full figure");
   } finally {
     await fs.rm(TMP, { recursive: true, force: true });
   }

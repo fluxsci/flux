@@ -543,7 +543,7 @@ function buildPlotMarkup(
 /** render-figure → a standalone SVG string (reuses the GUI's figureToSvg). For
  *  semantic plots the per-part overrides are baked in (faithful to the GUI);
  *  image/svg assets are inlined as data URLs. */
-export async function renderFigureSvg(root: string, id: string): Promise<string> {
+export async function renderFigureSvg(root: string, id: string, opts?: { groupId?: string }): Promise<string> {
   const index = await readFigIndex(root);
   if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
   const { byId } = await readCanvasFiles(root, index);
@@ -632,6 +632,7 @@ export async function renderFigureSvg(root: string, id: string): Promise<string>
     // Crop rendering for <image>-backed elements: same intrinsic-size source
     // as the GUI (assetDisplaySize over the index's asset dims + dpi).
     (aid) => ops.assetDisplaySize(renderProject, aid) ?? undefined,
+    opts,
   );
 }
 

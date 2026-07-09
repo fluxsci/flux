@@ -16,7 +16,8 @@ import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { readFigSource } from "./figbridge";
 import { figureToSvg } from "../export";
-import { figureGroupTree, type FigureGroupNode } from "../groups";
+import { figureGroupTree, membersDeep, effectiveHidden, type FigureGroupNode } from "../groups";
+import { elementBBox } from "../geometry";
 import { bytesToDataUrl } from "../assets";
 
 export interface DeckListItem {
@@ -176,7 +177,14 @@ export async function exportDeck(root: string, deckId: string): Promise<string> 
 
 // --- insertables (what the editor's Insert menu can drop on a slide) ---------
 export interface Insertables {
-  figures: { id: string; title: string }[];
+  figures: {
+    id: string;
+    title: string;
+    /** Named groups inside the figure, insertable as their own live embeds
+     *  (figure-v1). label carries the nesting breadcrumb; w/h = the group's
+     *  bbox in figure units, for aspect-true placement. */
+    groups: { id: string; label: string; w: number; h: number }[];
+  }[];
   plots: { id: string; title: string; svgPath?: string; manifestPath?: string }[];
   images: { id: string; kind: string; path: string }[];
 }
@@ -200,7 +208,37 @@ export async function listInsertables(root: string): Promise<Insertables> {
     figures = src.indexFigures
       .slice()
       .sort((a, b) => a.order - b.order)
-      .map((f) => ({ id: f.id, title: f.name ?? f.id }));
+      .map((f) => {
+        // Named groups → insertable rows (breadcrumb label, bbox for sizing).
+        const groups: Insertables["figures"][number]["groups"] = [];
+        const figure = src.figures[f.id];
+        if (figure) {
+          const walk = (nodes: FigureGroupNode[], crumb: string[]) => {
+            for (const g of nodes) {
+              const members = membersDeep(figure, g.id).filter((e) => !effectiveHidden(figure, e));
+              if (members.length) {
+                let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+                for (const e of members) {
+                  const b = elementBBox(e);
+                  x0 = Math.min(x0, b.x);
+                  y0 = Math.min(y0, b.y);
+                  x1 = Math.max(x1, b.x + b.w);
+                  y1 = Math.max(y1, b.y + b.h);
+                }
+                groups.push({
+                  id: g.id,
+                  label: [...crumb, g.name].join(" › "),
+                  w: Math.max(1, x1 - x0),
+                  h: Math.max(1, y1 - y0),
+                });
+              }
+              walk(g.groups, [...crumb, g.name]);
+            }
+          };
+          walk(figureGroupTree(figure), []);
+        }
+        return { id: f.id, title: f.name ?? f.id, groups };
+      });
   } catch {
     /* no fig/ dir — no figures to insert */
   }
@@ -257,7 +295,8 @@ function mimeForKind(kind: string): string {
 
 export interface DeckAssetResolvers {
   assetUrl: (assetId: string) => string | undefined;
-  figureSvg: (figureId: string) => string | undefined;
+  /** groupId scopes the markup to one named group (group embeds). */
+  figureSvg: (figureId: string, groupId?: string) => string | undefined;
 }
 
 /** Preload the assets a deck needs to render: deck-local media → data URLs,
@@ -375,6 +414,17 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
         figSvgCache[fid] = figureToSvg(f, (aid) => src.assetData[aid]);
         figGroupTrees[fid] = figureGroupTree(f);
       }
+      // Group-scoped embeds (figure-v1): pre-render each (figure, group) pair
+      // the deck actually uses, keyed "fid::gid" (same convention as the
+      // offline-export payload in flux-core gatherDeckPayload).
+      for (const s of deck.slides)
+        for (const el of s.elements) {
+          if (el.type !== "embedFigure" || !el.groupId) continue;
+          const key = `${el.figureId}::${el.groupId}`;
+          const f = src.figures[el.figureId];
+          if (f && !figSvgCache[key])
+            figSvgCache[key] = figureToSvg(f, (aid) => src.assetData[aid], undefined, undefined, { groupId: el.groupId });
+        }
     } catch {
       /* no fig/ — embedFigure shows a placeholder */
     }
@@ -383,7 +433,7 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
 
   return {
     assetUrl: (id) => assetData[id],
-    figureSvg: (fid) => figSvgCache[fid],
+    figureSvg: (fid, gid) => figSvgCache[gid ? `${fid}::${gid}` : fid],
   };
 }
 

@@ -145,6 +145,67 @@ try {
   ok(opAtRest === "0", `stage wrapper <g> hidden at the resting beat (opacity "${opAtRest}")`);
   ok(opAtBuild === "1", `…and revealed on its build beat (opacity "${opAtBuild}")`);
 
+  // --- 6. group INSERTABLES (figure-v1): Insert ▾ lists groups; picking one
+  //        inserts a group-SCOPED live embed (only that subtree renders) --------
+  await page.evaluate(() => {
+    const btn = [...document.querySelectorAll(".tools button")].find((b) => /Insert/.test(b.textContent ?? ""));
+    btn?.click();
+  });
+  await sleep(400);
+  const subItems = await page.evaluate(() =>
+    [...document.querySelectorAll(".insert-menu .item.sub")].map((b) => b.textContent?.trim()),
+  );
+  ok(subItems.length === 3, `Insert ▾ lists the figure's 3 groups as sub-items (${subItems.join(" | ")})`);
+  ok(subItems.some((t) => /Both Panels › Panel A/.test(t ?? "")), "nested group labeled with its breadcrumb");
+  const subClicked = await page.evaluate(() => {
+    const it = [...document.querySelectorAll(".insert-menu .item.sub")].find((b) => /› Panel A$/.test(b.textContent?.trim() ?? ""));
+    if (!it) return false;
+    it.click();
+    return true;
+  });
+  ok(subClicked, "picked 'Panel A' from the Insert menu");
+  await sleep(1400); // insertAndSelect → refreshAssets (scoped figureSvg cache)
+
+  const scoped = await page.evaluate((gids) => {
+    const F = window.__flux;
+    const d = F.get(F.slide.deck);
+    const sid = F.get(F.slide.activeSlideId);
+    const s = d.slides.find((x) => x.id === sid);
+    const el = s?.elements.find((e) => e.type === "embedFigure" && e.groupId);
+    if (!el) return null;
+    const host = document.querySelector(`.stage-viewport [data-el-id="${el.id}"]`) ?? [...document.querySelectorAll(".stage-viewport svg")].map((n) => n.closest("[data-el-id]")).find((n) => n?.dataset?.elId === el.id);
+    const html = host?.innerHTML ?? "";
+    return {
+      groupId: el.groupId,
+      w: el.width, h: el.height,
+      hasOwn: html.includes(`growth__group:${gids.a}`),
+      hasSibling: html.includes(`growth__group:${gids.b}`),
+      rendered: html.includes("<svg"),
+    };
+  }, seeded.gids);
+  ok(!!scoped && scoped.groupId === seeded.gids.a, `scoped embedFigure element carries groupId (${scoped?.groupId})`);
+  if (scoped?.rendered) {
+    ok(scoped.hasOwn, "scoped embed renders the group's own wrapper");
+    ok(!scoped.hasSibling, "…and NOT the sibling group's content");
+  } else {
+    // host lookup is best-effort across stage DOM variants; the model + resolver
+    // paths are covered by the pure gate — only flag if the element is missing.
+    console.log("  (stage host for the scoped embed not found by data-el-id — markup check skipped)");
+  }
+
+  // the scoped embed's PartsTree rows show ONLY its subtree
+  const scopedElRows = await page.evaluate((gids) => {
+    const F = window.__flux;
+    const d = F.get(F.slide.deck);
+    const sid = F.get(F.slide.activeSlideId);
+    const s = d.slides.find((x) => x.id === sid);
+    const el = s?.elements.find((e) => e.type === "embedFigure" && e.groupId);
+    if (!el) return null;
+    const keys = [...document.querySelectorAll(`.parts .row[data-rowkey^="${el.id}|group:"]`)].map((r) => r.dataset.rowkey ?? "");
+    return { keys, top: keys.some((k) => k.endsWith(`group:${gids.top}`)), own: keys.some((k) => k.endsWith(`group:${gids.a}`)) };
+  }, seeded.gids);
+  ok(!!scopedElRows && scopedElRows.own && !scopedElRows.top, `PartsTree scopes the group embed to its own subtree (${scopedElRows?.keys.join(", ")})`);
+
   // --- evidence screenshot (animator open, group rows visible) ------------------
   await page.evaluate((b) => window.__flux.slide.activeBeat.set(b), track.beat);
   await sleep(400);

@@ -398,6 +398,16 @@
   }
   const insertFigure = (figureId: string) =>
     insertAndSelect((d, sid) => slideOps.addEmbedFigure(d, sid, { figureId, x: 360, y: 150, width: 600, height: 420, fit: "contain" }));
+  // A named figure GROUP as its own live embed — sized aspect-true from the
+  // group's bbox into the same 600×420 default footprint.
+  const insertFigureGroup = (figureId: string, g: Insertables["figures"][number]["groups"][number]) => {
+    const s = Math.min(600 / g.w, 420 / g.h);
+    const w = Math.max(40, Math.round(g.w * s));
+    const h = Math.max(40, Math.round(g.h * s));
+    return insertAndSelect((d, sid) =>
+      slideOps.addEmbedFigure(d, sid, { figureId, groupId: g.id, x: 360, y: 150, width: w, height: h, fit: "contain" }),
+    );
+  };
   const insertImage = (img: Insertables["images"][number]) =>
     insertAndSelect((d, sid) => slideOps.addImageToSlide(d, sid, { assetId: img.id, x: 360, y: 150, width: 600, height: 420 }));
 
@@ -730,6 +740,9 @@
               <div class="grp">Figures</div>
               {#each insertables.figures as f (f.id)}
                 <button class="item" role="menuitem" onclick={() => insertFigure(f.id)}>{f.title}</button>
+                {#each f.groups as g (g.id)}
+                  <button class="item sub" role="menuitem" title="Insert just this group (live)" onclick={() => insertFigureGroup(f.id, g)}>❖ {g.label}</button>
+                {/each}
               {/each}
             {/if}
             {#if insertables.images.length}
@@ -931,6 +944,8 @@
     border-radius: var(--r-1); padding: 5px 8px; cursor: pointer; font-size: var(--ts-sm);
   }
   .insert-menu .item:hover { background: var(--c-accent-tint); color: var(--c-tx-hi); }
+  .insert-menu .item.sub { padding-left: 22px; font-size: var(--ts-xs); color: var(--c-tx-muted); }
+  .insert-menu .item.sub:hover { color: var(--c-tx-hi); }
   .body { display: flex; flex: 1; min-height: 0; }
   .filmstrip {
     flex: 0 0 var(--film-w, 172px); overflow-y: auto; border-right: 1px solid var(--c-line);

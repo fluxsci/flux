@@ -75,8 +75,20 @@
       const isPlot = el.type === "plot";
       const tree = isPlot ? buildPartTree(manifests[(el as { assetId: string }).assetId]) : null;
       const blocks = el.type === "textBox" ? el.blocks : null;
-      // P9: an embedFigure expands into its figure's named group tree
-      const groups = el.type === "embedFigure" ? figGroups[el.figureId] ?? [] : [];
+      // P9: an embedFigure expands into its figure's named group tree; a
+      // group-SCOPED embed (figure-v1 group insertables) shows only its own
+      // subtree — sibling groups aren't in the rendered markup, so a track
+      // targeting them could never resolve.
+      const scopeGroups = (nodes: FigureGroupNode[], gid: string): FigureGroupNode[] => {
+        for (const n of nodes) {
+          if (n.id === gid) return [n];
+          const hit = scopeGroups(n.groups, gid);
+          if (hit.length) return hit;
+        }
+        return [];
+      };
+      const fullGroups = el.type === "embedFigure" ? figGroups[el.figureId] ?? [] : [];
+      const groups = el.type === "embedFigure" && el.groupId ? scopeGroups(fullGroups, el.groupId) : fullGroups;
       const expandable = !!tree || (!!blocks && blocks.length > 1) || groups.length > 0;
       const elCollapsed = isCollapsed(el.id, false);
       out.push({ key: el.id, kind: "element", depth: 0, label: elLabel(el), glyph: EL_GLYPH[el.type] ?? "▫", elId: el.id, el, expandable, ckey: el.id, collapsed: elCollapsed });

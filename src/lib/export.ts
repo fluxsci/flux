@@ -1,6 +1,6 @@
 import type { Element, Figure, ImageElement } from "./types";
 import { lineRender, elementBBox } from "./geometry";
-import { buildRenderTree, effectiveHidden, type RenderNode } from "./groups";
+import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
 import { visualLines, lineH } from "./text";
 
 function esc(s: string): string {
@@ -180,6 +180,13 @@ export function figureToSvg(
   assetUrl: (id: string) => string | undefined,
   plotMarkup?: (e: Element) => string | undefined,
   assetSize?: AssetSizeFn,
+  opts?: {
+    /** Render ONLY this named group's subtree, viewBox tight on its bbox —
+     *  the slides "insert a figure group" substrate. Unknown/hidden group
+     *  falls back to the full figure (a live embed must show SOMETHING when
+     *  the group is later deleted in figure mode). */
+    groupId?: string;
+  },
 ): string {
   const nodeToSvg = (n: RenderNode): string => {
     if (n.kind === "element")
@@ -196,7 +203,46 @@ export function figureToSvg(
       `${inner}\n  </g>`
     );
   };
-  const body = buildRenderTree(fig).map(nodeToSvg).filter(Boolean).join("\n  ");
+  const tree = buildRenderTree(fig);
+
+  // Scoped render: just the group's wrapper subtree, no figure background,
+  // viewBox tight on the visible members' bbox (padded for stroke overhang).
+  if (opts?.groupId) {
+    const find = (nodes: RenderNode[]): RenderNode | null => {
+      for (const n of nodes) {
+        if (n.kind === "group") {
+          if (n.def.id === opts.groupId) return n;
+          const hit = find(n.children);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+    const node = find(tree);
+    const members = node ? membersDeep(fig, opts.groupId).filter((e) => !effectiveHidden(fig, e)) : [];
+    const body = node ? nodeToSvg(node) : "";
+    if (body && members.length) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, pad = 2;
+      for (const e of members) {
+        const b = elementBBox(e);
+        x0 = Math.min(x0, b.x);
+        y0 = Math.min(y0, b.y);
+        x1 = Math.max(x1, b.x + b.w);
+        y1 = Math.max(y1, b.y + b.h);
+        if ("strokeWidth" in e && typeof e.strokeWidth === "number") pad = Math.max(pad, e.strokeWidth);
+      }
+      const vx = x0 - pad, vy = y0 - pad, vw = x1 - x0 + 2 * pad, vh = y1 - y0 + 2 * pad;
+      return (
+        `<svg xmlns="http://www.w3.org/2000/svg" ` +
+        `xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+        `width="${vw}" height="${vh}" ` +
+        `viewBox="${vx} ${vy} ${vw} ${vh}">\n  ${body}\n</svg>`
+      );
+    }
+    // group gone / fully hidden → full-figure fallback below
+  }
+
+  const body = tree.map(nodeToSvg).filter(Boolean).join("\n  ");
   const bg =
     fig.background && fig.background !== "transparent"
       ? `<rect x="0" y="0" width="${fig.width}" height="${fig.height}" fill="${fig.background}"/>\n  `

@@ -28,8 +28,8 @@ export interface SlideRenderCtx {
   theme: DeckTheme;
   /** asset id → URL or data: URI (image/video). */
   assetUrl?: (assetId: string) => string | undefined;
-  /** figure id → standalone SVG markup (embedFigure; from figureToSvg). */
-  figureSvg?: (figureId: string) => string | undefined;
+  /** figure id (+ optional group scope) → standalone SVG markup (embedFigure; from figureToSvg). */
+  figureSvg?: (figureId: string, groupId?: string) => string | undefined;
   /** per-plot generation (bumped on regenerate) — folds into the re-render. */
   plotGen?: Record<string, number>;
   mode?: "edit" | "present" | "export";
@@ -198,7 +198,7 @@ function fillEmbedFigure(
   el: Extract<SlideElement, { type: "embedFigure" }>,
   ctx: SlideRenderCtx,
 ): void {
-  const svg = ctx.figureSvg?.(el.figureId);
+  const svg = ctx.figureSvg?.(el.figureId, el.groupId);
   if (!svg) {
     w.classList.add("sl-missing");
     w.textContent = `figure: ${el.figureId}`;

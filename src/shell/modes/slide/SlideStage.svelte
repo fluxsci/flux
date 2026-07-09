@@ -45,7 +45,7 @@
     /** Freeze the stage at this beat's static (build) state for preview. */
     beat?: number;
     assetUrl?: (id: string) => string | undefined;
-    figureSvg?: (id: string) => string | undefined;
+    figureSvg?: (id: string, groupId?: string) => string | undefined;
   } = $props();
 
   type Rect = { x: number; y: number; w: number; h: number };
