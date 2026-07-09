@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
 import { composeCaption, panelLetters } from "../src/lib/captions";
 import { elementBBox, unionRect } from "../src/lib/geometry";
+import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { parsePlotSvg, prefixIds, applyOverrides, buildPartIndex } from "../src/lib/plot/parse";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { withLock, setLockClient } from "./locks";
@@ -695,6 +696,64 @@ export async function addPanel(
       ? ops.addPlotPanel(project, figId, { assetId, source, ...box })!
       : ops.addImagePanel(project, figId, { assetId, kind: "svg", ...box })!;
     return { assetId, elementId };
+  });
+}
+
+/** import-plots: batch-import N SVG plots onto an EXISTING figure — the headless
+ *  mirror of the GUI's Alt+I multi-insert (Ctrl+Enter in the Plot Importer). Each
+ *  file resolves its FluxPlot sidecars (semantic when X.fluxplot.json exists) and
+ *  lands at TRUE physical size (never fit-scaled). Placement mirrors the GUI's
+ *  io.placeIncoming exactly: one plot centers in the frame; several pack at real
+ *  size into the figure's largest empty region via the same gridLayout/emptyRegion.
+ *  (compose-figure builds a NEW figure instead.) */
+export async function importPlots(
+  root: string,
+  figId: string,
+  plotPaths: string[],
+): Promise<{ panels: { assetId: string; elementId: string }[] }> {
+  if (!plotPaths.length) throw new Error("import-plots needs at least one plot");
+  // AGT-12 pattern: pre-flight EVERY input before writing any asset, so a bad
+  // path partway through can't leave earlier plots' asset files orphaned.
+  for (const pp of plotPaths) {
+    try {
+      await fs.access(pp, fs.constants.R_OK);
+    } catch {
+      throw new Error(`import-plots: plot not readable: ${pp}`);
+    }
+  }
+  return mutateFigModel(root, "import_plots", async ({ project }) => {
+    const fig = ops.figById(project, figId);
+    if (!fig) throw new Error(`figure not found: ${figId}`);
+    const infos: Awaited<ReturnType<typeof importPlotAsset>>[] = [];
+    // Compute the batch placement BEFORE appending elements (occupied = what the
+    // figure already holds), exactly like the GUI's placeIncoming/autoArrange.
+    const occupied = unionRect(fig.elements.map(elementBBox));
+    for (const pp of plotPaths) infos.push(await importPlotAsset(root, project, pp));
+    let placed: { x: number; y: number; w: number; h: number }[];
+    if (infos.length === 1) {
+      const it = infos[0];
+      placed = [{ x: (fig.width - it.w) / 2, y: (fig.height - it.h) / 2, w: it.w, h: it.h }];
+    } else {
+      const minDim = Math.min(fig.width, fig.height);
+      const margin = minDim * 0.04;
+      const gap = minDim * 0.02;
+      const inner = { x: margin, y: margin, w: fig.width - 2 * margin, h: fig.height - 2 * margin };
+      const region = emptyRegion(inner, occupied, minDim * 0.03);
+      // Tall/narrow plots → side by side in a row; wide plots → stacked (same
+      // mean-aspect rule as the GUI's autoArrange).
+      const aspects = infos.map((it) => (it.h > 0 ? it.w / it.h : 1));
+      const meanAspect = aspects.reduce((a, b) => a + b, 0) / aspects.length;
+      placed = gridLayout(infos.map((it) => ({ w: it.w, h: it.h })), region, gap, meanAspect < 1 ? "rows" : "cols");
+    }
+    const panels: { assetId: string; elementId: string }[] = [];
+    infos.forEach((it, i) => {
+      const box = { x: placed[i].x, y: placed[i].y, width: placed[i].w, height: placed[i].h };
+      const elementId = it.source
+        ? ops.addPlotPanel(project, figId, { assetId: it.assetId, source: it.source, ...box })
+        : ops.addImagePanel(project, figId, { assetId: it.assetId, kind: "svg", ...box });
+      if (elementId) panels.push({ assetId: it.assetId, elementId });
+    });
+    return { panels };
   });
 }
 

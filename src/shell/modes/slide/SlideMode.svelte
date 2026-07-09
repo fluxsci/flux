@@ -55,6 +55,7 @@
   import PresentOverlay from "./PresentOverlay.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import { importerOpen } from "../../../lib/store";
+  import { pushToast } from "../../../lib/toast";
   import { slideLayout } from "./slideLayoutStore";
   import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
   import "katex/dist/katex.min.css";
@@ -456,18 +457,32 @@
     if (file) { e.preventDefault(); void importImageFile(file); }
   }
 
-  // Reuse Figure mode's Plot Importer (the searchable plots/ browser) to drop a
-  // plot onto the active slide. `rel` is the path under plots/ (e.g.
-  // "example_set/01_bars.svg"); strip .svg for the stable id + source paths.
+  // Reuse Figure mode's Plot Importer (the searchable plots/ browser) to drop
+  // plots onto the active slide. Each pick's `rel` is the path under plots/
+  // (e.g. "example_set/01_bars.svg"); strip .svg for the stable id + source
+  // paths. Multi-insert = ONE commitDeck (single undo step) placing every pick
+  // staggered +24px from the 360/150 base, ONE asset refresh, then select all.
   const openPlotBrowser = () => importerOpen.set(true);
-  async function onPickPlot({ rel, semantic }: { abs: string; rel: string; semantic: boolean }) {
-    const base = rel.replace(/\.svg$/i, "");
-    await insertAndSelect((d, sid) =>
-      slideOps.addPlotToSlide(d, sid, {
-        assetId: base, x: 360, y: 150, width: 600, height: 420,
-        source: { svgPath: `plots/${base}.svg`, manifestPath: semantic ? `plots/${base}.fluxplot.json` : undefined },
-      }),
-    );
+  async function onPickPlot(picks: Array<{ abs: string; rel: string; semantic: boolean }>) {
+    if (!picks.length) return;
+    const sid = $activeSlideId ?? activeSlide?.id;
+    if (!sid) {
+      pushToast("info", "Add a slide first — plots insert onto the active slide.");
+      return;
+    }
+    const ids: string[] = [];
+    commitDeck((d) => {
+      picks.forEach((p, i) => {
+        const base = p.rel.replace(/\.svg$/i, "");
+        const id = slideOps.addPlotToSlide(d, sid, {
+          assetId: base, x: 360 + 24 * i, y: 150 + 24 * i, width: 600, height: 420,
+          source: { svgPath: `plots/${base}.svg`, manifestPath: p.semantic ? `plots/${base}.fluxplot.json` : undefined },
+        });
+        if (id) ids.push(id);
+      });
+    });
+    await refreshAssets();
+    if (ids.length) selection.set(ids);
   }
 
   function onAddSlide() {

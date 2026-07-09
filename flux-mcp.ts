@@ -235,6 +235,25 @@ server.registerTool(
 );
 
 server.registerTool(
+  "import_plots",
+  {
+    description:
+      "Batch-import multiple SVG plots onto an EXISTING figure (the headless mirror of the GUI's Alt+I multi-insert): each plot resolves its FluxPlot sidecars (semantic when a .fluxplot.json sits next to it), lands at TRUE physical size, and the batch grid-packs into the figure's largest empty region (a single plot centers). Use compose_figure to build a NEW figure instead.",
+    inputSchema: {
+      id: z.string(),
+      plotPaths: z.array(z.string()),
+    },
+  },
+  async ({ id, plotPaths }) => {
+    const r = await core.importPlots(ROOT, id, plotPaths);
+    return ok(
+      `imported ${r.panels.length} plot(s) onto ${id}: ` +
+        r.panels.map((p) => `${p.elementId} (asset ${p.assetId})`).join(", "),
+    );
+  },
+);
+
+server.registerTool(
   "compose_figure",
   {
     description:
@@ -1385,7 +1404,7 @@ server.registerTool(
   "dispatch_command",
   {
     description:
-      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select, clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group, ungroup, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption.",
+      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select, clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group, ungroup, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption, import_plots (batch {type:'import_plots',paths:['/abs/plot.svg',…]} into the active figure).",
     inputSchema: { command: z.record(z.any()) },
   },
   async ({ command }) => ok("dispatched: " + JSON.stringify(await live.dispatchCommand(ROOT, command))),

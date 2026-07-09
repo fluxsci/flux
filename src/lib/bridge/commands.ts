@@ -47,6 +47,8 @@ export const ALLOWED_COMMANDS = [
   "add_image",
   "flip",
   "set_caption",
+  // figure-v1 P0b: batch-import plots by path (the GUI Alt+I multi-insert).
+  "import_plots",
 ] as const;
 
 export async function dispatchCommand(c: Command): Promise<unknown> {
@@ -357,6 +359,23 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
         flipElements(figure.elements.filter((e) => sel.has(e.id)), axis);
       });
       return { figureId: f, flipped: list.length, axis };
+    }
+
+    case "import_plots": {
+      // Batch-import plots into the active figure by absolute path — the same
+      // io.importPlotsFromPaths the GUI's Alt+I multi-insert runs (sidecar
+      // resolution, physical-size placement, grid auto-arrange, ONE undo step,
+      // per-file failure toast). Dynamically imported: io.ts is a GUI-runtime
+      // module (browser Image/window.fig), and a static import would drag it
+      // into every headless consumer of this command table.
+      const paths = Array.isArray(c.paths) ? (c.paths as unknown[]).filter((p): p is string => typeof p === "string") : [];
+      if (!paths.length) throw new Error("import_plots: paths[] required (absolute plot paths)");
+      if (typeof window === "undefined" || !window.fig)
+        throw new Error("import_plots: no file bridge (GUI runtime import — requires the running app)");
+      const io = await import("../io");
+      await io.importPlotsFromPaths(paths);
+      // placeIncoming selects exactly the new elements — report those ids.
+      return { requested: paths.length, ids: [...get(store.selection)] };
     }
 
     case "set_caption": {

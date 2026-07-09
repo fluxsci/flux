@@ -21,6 +21,9 @@ usage: flux <verb> [root] [args] [--flags]
   set-caption [root] <id> <md…|--file f>   write fig/captions/<id>.md
   add-reference [root] <bibtex…|--file f>   append a BibTeX entry to library.bib
   add-panel [root] <id> <svg> [--x --y --width --height]   import an SVG panel
+  import-plots <figId> <plot.svg…> [--root R]   batch-import plots onto an EXISTING
+                                       figure (GUI Alt+I multi-insert parity: true
+                                       physical size, grid-packed; one plot centers)
   create-figure [--root R] [--id slug] [--name N] [--canvas C] [--width --height]
                                        add a blank figure
   compose-figure <plot.svg…> [--root R] [--id slug] [--name N] [--rows N]
@@ -229,6 +232,13 @@ async function main() {
         height: num(flags.height),
       });
       console.error(`✓ added panel ${res.elementId} (asset ${res.assetId})`);
+      break;
+    }
+    case "import-plots": {
+      if (_.length < 2) throw new Error("import-plots needs a figure id and at least one plot path");
+      const r = await core.importPlots(R(), _[0], _.slice(1).map((p) => path.resolve(p)));
+      console.error(`✓ imported ${r.panels.length} plot(s) onto ${_[0]}`);
+      console.log(JSON.stringify(r.panels, null, 2));
       break;
     }
     case "create-figure": {

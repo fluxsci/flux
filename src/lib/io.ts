@@ -210,18 +210,40 @@ export async function importAssets() {
   }
 }
 
-// Import a single plot/asset by absolute path (the Plot Importer, Alt+I). Reuses
-// the same pipeline as importAssets so a FluxPlot svg arrives with its manifest +
-// recipe sidecars resolved and placed in the active figure.
-export async function importPlotFromPath(absPath: string) {
-  if (!window.fig) return;
-  try {
-    const bytes = new Uint8Array(await window.fig.readFile(absPath));
-    const sib = await resolveSiblingsFromFs(absPath);
-    placeIncoming([await buildIncoming(basename(absPath), bytes, sib)]);
-  } catch (e) {
-    pushToast("error", "Plot import failed", { detail: `${basename(absPath)}: ${errMsg(e)}` });
+// Batch-import plots/assets by absolute path (the Plot Importer's multi-insert,
+// Ctrl+Enter). Reuses the same pipeline as importAssets so each FluxPlot svg
+// arrives with its manifest + recipe sidecars resolved. Per-file failures never
+// abort the batch: the good files still import, and the failures surface in ONE
+// error toast listing each basename (no silent failures). All placements go
+// through a single placeIncoming call — one undo step, grid auto-arrange for
+// N>1, the physical-size contract, and select-all-new.
+export async function importPlotsFromPaths(absPaths: string[]) {
+  if (!window.fig || !absPaths.length) return;
+  const incoming: Incoming[] = [];
+  const failed: string[] = [];
+  for (const absPath of absPaths) {
+    try {
+      const bytes = new Uint8Array(await window.fig.readFile(absPath));
+      const sib = await resolveSiblingsFromFs(absPath);
+      incoming.push(await buildIncoming(basename(absPath), bytes, sib));
+    } catch (e) {
+      failed.push(`${basename(absPath)}: ${errMsg(e)}`);
+    }
   }
+  placeIncoming(incoming);
+  if (failed.length) {
+    pushToast(
+      "error",
+      failed.length === 1 ? "Plot import failed" : `${failed.length} of ${absPaths.length} plot imports failed`,
+      { detail: failed.join("\n") },
+    );
+  }
+}
+
+// Import a single plot/asset by absolute path (the Plot Importer, Alt+I) — the
+// one-file case of the batch importer above.
+export async function importPlotFromPath(absPath: string) {
+  return importPlotsFromPaths([absPath]);
 }
 
 // Files dropped from the OS file explorer onto a specific figure. A dropped svg

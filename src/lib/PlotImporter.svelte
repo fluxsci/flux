@@ -1,20 +1,30 @@
+<script lang="ts" context="module">
+  /** One picked plot, handed to `onPick` hosts in insertion (= placement) order. */
+  export interface PlotPick {
+    abs: string;
+    rel: string;
+    semantic: boolean;
+  }
+</script>
+
 <script lang="ts">
   // Plot Importer (Alt+I): a quick-open window over the project's plots/ dir.
-  // Type to fuzzy-search every plot by name/path, or browse folder-by-folder;
-  // Enter imports the chosen FluxPlot svg (manifest + recipe sidecars resolved)
-  // into the active figure via the normal import pipeline.
+  // Type to fuzzy-search every plot by name/path, or browse folder-by-folder.
+  // Multi-select: Enter (or Space with an empty search box, or a click) TOGGLES
+  // a plot into the picked set (✓); Ctrl/Cmd+Enter inserts everything picked —
+  // or just the highlighted plot when nothing is picked. The picked set survives
+  // folder navigation and browse↔search, so cross-folder picking is the point.
   import { fade, scale } from "svelte/transition";
   import { importerOpen, embeddedProjectRoot, projectDir } from "./store";
-  import { fileBridge, joinPath, basename } from "./project/types";
-  import { importPlotFromPath } from "./io";
+  import { fileBridge, joinPath } from "./project/types";
+  import { importPlotsFromPaths } from "./io";
 
-  // Reuse beyond Figure mode: when `onPick` is provided (e.g. Slide mode), a chosen
-  // plot is handed to it (abs path + project-relative `rel` under plots/ + whether
-  // it's semantic) instead of being imported into the active figure. `title` lets
-  // a host relabel the header. Defaults preserve the original figure-import behavior.
-  export let onPick:
-    | ((p: { abs: string; rel: string; semantic: boolean }) => void | Promise<void>)
-    | undefined = undefined;
+  // Reuse beyond Figure mode: when `onPick` is provided (e.g. Slide mode), the
+  // chosen plots are handed to it as an ARRAY of picks (abs path + project-relative
+  // `rel` under plots/ + whether each is semantic) instead of being imported into
+  // the active figure. Single-plot inserts arrive as a one-element array. `title`
+  // lets a host relabel the header. Defaults preserve figure-import behavior.
+  export let onPick: ((picks: PlotPick[]) => void | Promise<void>) | undefined = undefined;
   export let title = "Import plot";
   // Host can pin the project root (Slide mode passes its own pm.root so the
   // browsed plots/ matches the path its loadDeckAssets reads). Falls back to the
@@ -48,6 +58,11 @@
   let truncated = false;
   let listEl: HTMLDivElement;
   let inputEl: HTMLInputElement;
+  // The multi-select: keyed by ABSOLUTE path (stable across browse↔search rows and
+  // immune to scan caps); insertion order = placement order. `rel` is normalized
+  // to the plots/-relative path at toggle time (browse rows carry bare names).
+  let picked = new Map<string, PlotPick>();
+  $: pickedCount = picked.size;
 
   let prevOpen = false;
   $: {
@@ -60,20 +75,27 @@
     all = [];
     scanned = false;
     truncated = false;
+    picked = new Map();
     cwd = plotsRoot;
     await loadDir(cwd);
     void scan(); // warm the search cache in the background
     requestAnimationFrame(() => inputEl?.focus());
   }
 
+  // Manifest sidecars present in the CURRENT folder — kept from the raw listing
+  // (entries filters them out), so browse rows can flag semantic plots. Search
+  // rows get the same flag from scan()'s own raw listings.
+  let manifestNames = new Set<string>();
   async function loadDir(dir: string) {
     const fig = fileBridge();
     if (!fig?.readdir || !dir) {
       entries = [];
+      manifestNames = new Set();
       return;
     }
     loading = true;
     const es = await fig.readdir(dir);
+    manifestNames = new Set(es.filter((e) => !e.dir && /\.fluxplot\.json$/i.test(e.name)).map((e) => e.name));
     // dirs first, then files, each alphabetical; only show dirs + .svg plots.
     entries = es
       .filter((e) => e.dir || /\.svg$/i.test(e.name))
@@ -122,7 +144,6 @@
     }
     const out: Row[] = [];
     if (cwd && cwd !== plotsRoot) out.push({ kind: "up", name: ".." });
-    const names = new Set(entries.map((e) => e.name));
     for (const e of entries) {
       if (e.dir) out.push({ kind: "dir", name: e.name });
       else
@@ -131,7 +152,9 @@
           name: e.name,
           abs: joinPath(cwd, e.name),
           rel: e.name,
-          semantic: names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")),
+          // entries drops non-svg files, so the sidecar check reads the raw
+          // listing's manifest names (a browse row was NEVER semantic before).
+          semantic: manifestNames.has(e.name.replace(/\.svg$/i, ".fluxplot.json")),
         });
     }
     return out;
@@ -151,26 +174,53 @@
     requestAnimationFrame(() => listEl?.querySelector(`[data-i="${index}"]`)?.scrollIntoView({ block: "nearest" }));
   }
 
-  async function activate(r: Row) {
-    if (r.kind === "up") return up();
-    if (r.kind === "dir") {
-      cwd = joinPath(cwd, r.name);
-      index = 0;
-      await loadDir(cwd);
-      return;
-    }
-    if (r.abs) {
-      if (onPick) {
-        // hand back a stable project-relative path under plots/ (consistent across
-        // search vs. browse rows, where r.rel differs)
-        const rel = plotsRoot && r.abs.startsWith(plotsRoot) ? r.abs.slice(plotsRoot.length).replace(/^\/+/, "") : (r.rel ?? r.name);
-        await onPick({ abs: r.abs, rel, semantic: !!r.semantic });
-      } else {
-        await importPlotFromPath(r.abs);
-      }
-      importerOpen.set(false);
-    }
+  // A row's stable project-relative path under plots/ (consistent across search
+  // vs. browse rows, where r.rel differs) — normalized once, at toggle time.
+  function relFor(r: Row): string {
+    return plotsRoot && r.abs && r.abs.startsWith(plotsRoot)
+      ? r.abs.slice(plotsRoot.length).replace(/^\/+/, "")
+      : (r.rel ?? r.name);
   }
+
+  /** Toggle a file row in/out of the picked set (no close, no insert). */
+  function toggle(r: Row) {
+    if (r.kind !== "file" || !r.abs) return;
+    if (picked.has(r.abs)) picked.delete(r.abs);
+    else picked.set(r.abs, { abs: r.abs, rel: relFor(r), semantic: !!r.semantic });
+    picked = picked; // Map mutation → invalidate
+  }
+
+  /** Descend into a dir row (or ascend on the ".." row). Selection survives. */
+  async function descend(r: Row) {
+    if (r.kind === "up") return up();
+    if (r.kind !== "dir") return;
+    cwd = joinPath(cwd, r.name);
+    index = 0;
+    await loadDir(cwd);
+  }
+
+  /** Hand the picks off (host callback or figure batch import), then close. */
+  async function insertPicks(picks: PlotPick[]) {
+    if (!picks.length) return;
+    if (onPick) await onPick(picks);
+    else await importPlotsFromPaths(picks.map((p) => p.abs));
+    importerOpen.set(false);
+  }
+
+  /** Insert just this file row (the nothing-picked Ctrl+Enter / legacy path). */
+  async function insertOne(r: Row) {
+    if (r.kind !== "file" || !r.abs) return;
+    await insertPicks([{ abs: r.abs, rel: relFor(r), semantic: !!r.semantic }]);
+  }
+
+  /** Insert everything picked, in pick order; falls back to the highlighted file
+   *  when nothing is picked (no-op if that row is a dir / ".."). */
+  async function insertPicked() {
+    if (picked.size) return insertPicks([...picked.values()]);
+    const r = rows[index];
+    if (r) await insertOne(r);
+  }
+
   async function up() {
     if (!cwd || cwd === plotsRoot) return;
     cwd = cwd.replace(/\/[^/]+$/, "");
@@ -179,6 +229,27 @@
   }
   function close() {
     importerOpen.set(false);
+  }
+
+  // Row clicks: toggle files, descend dirs — then RETURN FOCUS to the search input
+  // (all keyboard handling is bound there; a click would otherwise strand it).
+  // `e.detail > 1` = the second click of a double-click: ignore it so dblclick
+  // doesn't toggle the file back off (files) or hit a row in the freshly-loaded
+  // listing (dirs).
+  function onRowClick(e: MouseEvent, r: Row) {
+    if (e.detail > 1) return;
+    if (r.kind === "file") toggle(r);
+    else void descend(r);
+    requestAnimationFrame(() => inputEl?.focus());
+  }
+
+  // Double-click a file = insert the selection plus that file (just that file
+  // when nothing else is picked — the single click already toggled it in).
+  async function onRowDblClick(r: Row) {
+    if (r.kind !== "file" || !r.abs) return;
+    const picks = [...picked.values()];
+    if (!picked.has(r.abs)) picks.push({ abs: r.abs, rel: relFor(r), semantic: !!r.semantic });
+    await insertPicks(picks);
   }
 
   function onKey(e: KeyboardEvent) {
@@ -190,9 +261,21 @@
       e.preventDefault();
       index = Math.max(0, index - 1);
       ensureVisible();
+    } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void insertPicked();
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (rows[index]) void activate(rows[index]);
+      const r = rows[index];
+      if (!r) return;
+      if (r.kind === "file") toggle(r); // toggle, don't close — Ctrl+Enter inserts
+      else void descend(r);
+    } else if (e.key === " " && !search) {
+      // Space toggles ONLY while the search box is empty — otherwise it types
+      // (plot filenames contain spaces).
+      e.preventDefault();
+      const r = rows[index];
+      if (r) toggle(r);
     } else if (e.key === "Escape") {
       e.preventDefault();
       if (q) search = "";
@@ -211,7 +294,10 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="importer" transition:scale={{ duration: 150, start: 0.97 }} on:pointerdown|stopPropagation>
       <div class="ihead">
-        <span class="ttl">{title}</span>
+        <span class="ttlwrap">
+          <span class="ttl">{title}</span>
+          {#if pickedCount > 0}<span class="pickpill">{pickedCount} selected</span>{/if}
+        </span>
         <span class="path">
           plots{relDir ? "/" : ""}<span class="cur">{relDir}</span>
           {#if !q && cwd && cwd !== plotsRoot}<button class="upbtn" on:click={up}>↑ up</button>{/if}
@@ -246,11 +332,15 @@
             <div
               class="row"
               class:sel={i === index}
+              class:picked={r.kind === "file" && !!r.abs && picked.has(r.abs)}
               data-i={i}
               on:pointerenter={() => (index = i)}
-              on:click={() => activate(r)}
+              on:click={(e) => onRowClick(e, r)}
+              on:dblclick={() => onRowDblClick(r)}
             >
-              <span class="ic">{r.kind === "dir" ? "📁" : r.kind === "up" ? "↩" : r.semantic ? "◆" : "◇"}</span>
+              <span class="ic"
+                >{r.kind === "dir" ? "📁" : r.kind === "up" ? "↩" : r.abs && picked.has(r.abs) ? "✓" : r.semantic ? "◆" : "◇"}</span
+              >
               <span class="nm">{r.kind === "file" ? r.name.replace(/\.svg$/i, "") : r.name}</span>
               {#if q && r.rel && r.rel !== r.name}<span class="rel">{r.rel.replace(/\/[^/]+$/, "")}</span>{/if}
               {#if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
@@ -261,10 +351,14 @@
       </div>
 
       <div class="foot">
-        <span><b>↑↓</b> navigate</span>
-        <span><b>↵</b> open / import</span>
-        <span><b>⌫</b> up a folder</span>
+        <span><b>↵</b> select</span>
+        <span><b>space</b> select</span>
+        <span><b>ctrl+↵</b> insert {pickedCount > 0 ? pickedCount : 1}</span>
+        <span><b>⌫</b> up</span>
         <span><b>esc</b> close</span>
+        {#if pickedCount > 0}
+          <button class="insbtn" on:click={() => void insertPicked()}>Insert {pickedCount}</button>
+        {/if}
       </div>
     </div>
   </div>
@@ -315,6 +409,22 @@
   .ttl {
     font-size: 18px;
     color: var(--c-tx-hi);
+  }
+  .ttlwrap {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex: 0 0 auto;
+  }
+  .pickpill {
+    font-size: 11.5px;
+    letter-spacing: 0.3px;
+    color: var(--c-accent-bright);
+    border: 1px solid var(--c-accent);
+    background: var(--c-accent-tint);
+    border-radius: 999px;
+    padding: 1px 8px;
+    white-space: nowrap;
   }
   .path {
     font-size: 12px;
@@ -378,6 +488,16 @@
     background: var(--c-accent);
     color: var(--c-on-accent);
   }
+  /* Picked (multi-selected) rows: accent tint + an inset accent bar — visually
+     distinct from `.sel` (the highlight cursor); a row can be both at once. */
+  .row.picked {
+    background: var(--c-accent-tint);
+    box-shadow: inset 3px 0 0 var(--c-accent);
+  }
+  .row.picked.sel {
+    background: var(--c-accent);
+    box-shadow: inset 3px 0 0 var(--c-accent-bright);
+  }
   .ic {
     width: 18px;
     flex: 0 0 18px;
@@ -438,5 +558,19 @@
   }
   .foot b {
     color: var(--c-accent-bright);
+  }
+  .insbtn {
+    margin-left: auto;
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 3px 12px;
+  }
+  .insbtn:hover {
+    background: var(--c-accent-bright);
   }
 </style>

@@ -27,6 +27,7 @@
       "figenh-11-parity.ts",
       "figenh-13-partstyle.ts",
       "figenh-17-derive.ts",
+      "figenh-importer-parity.ts",
       "verify-compensate.ts",
       "verify-fetchflow.ts",
       "verify-figname.ts",
@@ -120,7 +121,8 @@
       "verify-lib-organize.mjs",
       "verify-shell-complete.mjs",
       "verify-slide-polish.mjs",
-      "verify-fig-esc.mjs"
+      "verify-fig-esc.mjs",
+      "verify-importer-multi.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -168,6 +170,7 @@
       "verify-slide-present-live.mjs",
       "verify-slide-richness-live.mjs",
       "verify-slide-showcase-live.mjs",
+      "verify-importer-slide.mjs",
       "verify-w1-toast.mjs",
       "verify-w10-matrix.mjs",
       "verify-w17-gestures.mjs",
@@ -210,6 +213,8 @@
     ]
   },
   "retryOnce": [
+    "verify-importer-multi.mjs",
+    "verify-importer-slide.mjs",
     "figenh-06-layers.ts",
     "verify-w3-locks.ts",
     "verify-paper-extras.mjs",
