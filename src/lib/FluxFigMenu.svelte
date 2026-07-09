@@ -529,12 +529,14 @@
   // panel geometry from settings. Centering lives on the wrapper (NOT a
   // transform on the panel) so it can never fight the scale transition.
   $: width = { sm: 420, md: 560, lg: 720 }[$settings.fluxFigMenuSize];
-  $: wrapStyle = {
-    center: "align-items:center; justify-content:center;",
-    top: "align-items:flex-start; justify-content:center; padding-top:64px;",
-    left: "align-items:center; justify-content:flex-start; padding-left:28px;",
-    right: "align-items:center; justify-content:flex-end; padding-right:28px;",
-  }[$settings.fluxFigMenuPos];
+  $: wrapStyle =
+    {
+      center: "align-items:center; justify-content:center;",
+      top: "align-items:flex-start; justify-content:center; padding-top:64px;",
+      left: "align-items:center; justify-content:flex-start; padding-left:28px;",
+      right: "align-items:center; justify-content:flex-end; padding-right:28px;",
+    }[$settings.fluxFigMenuPos] +
+    ` transform:translate3d(${$settings.fluxFigMenuDx || 0}px, ${$settings.fluxFigMenuDy || 0}px, 0);`;
   $: bgAlpha = $settings.fluxFigMenuOpacity;
 
   function colorDisplay(f: Field): { hex: string; name: string } {

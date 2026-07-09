@@ -73,6 +73,11 @@
     { v: "draw", l: "Draw-in" },
     { v: "fade", l: "Quick fade" },
   ];
+
+  function setNum(key: "fluxFigMenuDx" | "fluxFigMenuDy" | "xrayDx" | "xrayDy", raw: string) {
+    const n = parseFloat(raw);
+    settings.update((v) => ({ ...v, [key]: Number.isFinite(n) ? Math.round(n) : 0 }));
+  }
   const marginScenes: { v: Settings["paperMarginScene"]; l: string }[] = [
     { v: "harmonograph", l: "Harmonograph" },
     { v: "neurons", l: "Neurons" },
@@ -129,6 +134,44 @@
         {#each positions as p}
           <button class:on={$settings.fluxFigMenuPos === p.v} on:click={() => settings.update((v) => ({ ...v, fluxFigMenuPos: p.v }))}>{p.l}</button>
         {/each}
+      </div>
+      <div class="nudge">
+        <label class="chk num">
+          Nudge X
+          <input type="number" step="5" value={$settings.fluxFigMenuDx} on:input={(e) => setNum("fluxFigMenuDx", e.currentTarget.value)} />
+          px
+        </label>
+        <label class="chk num">
+          Nudge Y
+          <input type="number" step="5" value={$settings.fluxFigMenuDy} on:input={(e) => setNum("fluxFigMenuDy", e.currentTarget.value)} />
+          px
+        </label>
+        {#if $settings.fluxFigMenuDx || $settings.fluxFigMenuDy}
+          <button class="ghost" on:click={() => settings.update((v) => ({ ...v, fluxFigMenuDx: 0, fluxFigMenuDy: 0 }))}>Reset</button>
+        {/if}
+      </div>
+      <p class="hint">Fine-tune from the preset: +X moves right, +Y moves down. Type an exact value or use the arrows (steps of 5).</p>
+
+      <h3>X-Ray — position</h3>
+      <div class="seg">
+        {#each positions as p}
+          <button class:on={$settings.xrayPos === p.v} on:click={() => settings.update((v) => ({ ...v, xrayPos: p.v }))}>{p.l}</button>
+        {/each}
+      </div>
+      <div class="nudge">
+        <label class="chk num">
+          Nudge X
+          <input type="number" step="5" value={$settings.xrayDx} on:input={(e) => setNum("xrayDx", e.currentTarget.value)} />
+          px
+        </label>
+        <label class="chk num">
+          Nudge Y
+          <input type="number" step="5" value={$settings.xrayDy} on:input={(e) => setNum("xrayDy", e.currentTarget.value)} />
+          px
+        </label>
+        {#if $settings.xrayDx || $settings.xrayDy}
+          <button class="ghost" on:click={() => settings.update((v) => ({ ...v, xrayDx: 0, xrayDy: 0 }))}>Reset</button>
+        {/if}
       </div>
 
       <h3>FluxFig Menu — appearance</h3>
@@ -301,6 +344,12 @@
   }
   .chk.num input {
     width: 64px;
+  }
+  .nudge {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 7px;
   }
   .libpath {
     font-family: var(--font-mono);

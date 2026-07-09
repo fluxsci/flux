@@ -7,8 +7,13 @@ export type FluxFigMenuAnim = "draw" | "fade"; // self-drawing line vs. quick fa
 export interface Settings {
   fluxFigMenuSize: FluxFigMenuSize;
   fluxFigMenuPos: FluxFigMenuPos;
+  fluxFigMenuDx: number; // px nudge from the preset position (+ = right)
+  fluxFigMenuDy: number; // px nudge from the preset position (+ = down)
   fluxFigMenuAnim: FluxFigMenuAnim;
   fluxFigMenuOpacity: number; // 0.6 .. 1
+  xrayPos: FluxFigMenuPos; // X-Ray panel position preset + nudge, same scheme
+  xrayDx: number;
+  xrayDy: number;
   flexokiDefault: boolean; // ship the Flexoki palette in new projects
   // Feature 11 — rulers / guides / grid.
   showRulers: boolean; // H/V rulers along the canvas edges (Shift+R)
@@ -29,8 +34,13 @@ const KEY = "flux.settings";
 const DEFAULTS: Settings = {
   fluxFigMenuSize: "md",
   fluxFigMenuPos: "center",
+  fluxFigMenuDx: 0,
+  fluxFigMenuDy: 0,
   fluxFigMenuAnim: "draw",
   fluxFigMenuOpacity: 0.94,
+  xrayPos: "right",
+  xrayDx: 0,
+  xrayDy: 0,
   flexokiDefault: true,
   showRulers: false,
   showGrid: false,
