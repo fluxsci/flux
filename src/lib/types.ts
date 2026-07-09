@@ -106,14 +106,30 @@ export interface ElementBase {
   groupId?: Id;
 }
 
+// Crop window in INTRINSIC content px (assetDisplaySize units: SVG natural px,
+// PNG natural×96/dpi). Rendering shows exactly this sub-rect stretched into the
+// element box (inline svg → viewBox sub-rect; <image> → nested-svg viewport).
+// Ctrl-drag on a resize handle edits it Figma-style (content pinned).
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ImageElement extends ElementBase {
   type: "image";
   assetId: Id;
+  crop?: CropRect;
 }
 
 export interface SvgElement extends ElementBase {
   type: "svg";
   assetId: Id;
+  crop?: CropRect;
+  // Geometric content scale persisted by the K/Scale tool (pt-true resize
+  // compensation multiplies by this — see plot/compensate.ts). Default 1.
+  contentScale?: number;
 }
 
 export interface TextElement extends ElementBase {
@@ -209,6 +225,11 @@ export interface SemanticPlotElement extends ElementBase {
   // Per-part style overrides, keyed by STABLE semantic id (e.g. "control.line").
   // Because ids are deterministic, these survive plot regeneration (recipe rerun).
   overrides?: Record<string, PartOverride>;
+  // Crop window (intrinsic px) — rendered as a viewBox sub-rect.
+  crop?: CropRect;
+  // Geometric content scale persisted by the K/Scale tool. Plain resize keeps
+  // text/strokes pt-true (plot/compensate.ts); K multiplies this instead.
+  contentScale?: number;
 }
 
 // A style override for one semantic part. Open-ended; each key maps to a

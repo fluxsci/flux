@@ -27,6 +27,7 @@
       "figenh-11-parity.ts",
       "figenh-13-partstyle.ts",
       "figenh-17-derive.ts",
+      "verify-compensate.ts",
       "verify-fetchflow.ts",
       "verify-figname.ts",
       "verify-ops.ts",

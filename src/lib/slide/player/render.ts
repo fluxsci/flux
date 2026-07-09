@@ -18,6 +18,7 @@ import { get } from "svelte/store";
 import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
 import { prefixIds, applyOverrides } from "../../plot/parse";
+import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import type { Slide, SlideElement, StageSize, DeckTheme, TextBlock } from "../types";
 import { themeCssVars } from "../theme";
 
@@ -213,7 +214,10 @@ function fillEmbedFigure(
 }
 
 /** Mount a semantic plot into the wrapper as an inline <svg>, keeping its parts
- *  addressable (id-prefixed by element id) for the P2 player + P3 morph. */
+ *  addressable (id-prefixed by element id) for the P2 player + P3 morph.
+ *  pt-true compensation matches the figure editor: resizing the plot element
+ *  rescales geometry while text/glyph/stroke sizes stay at true points (the
+ *  stage's own fit-scale above this is uniform CSS — unaffected). */
 function fillPlot(w: HTMLElement, el: Extract<SlideElement, { type: "plot" }>): void {
   const cached = plotDom.get(el.assetId);
   if (!cached) {
@@ -221,14 +225,27 @@ function fillPlot(w: HTMLElement, el: Extract<SlideElement, { type: "plot" }>): 
     w.textContent = "plot not loaded";
     return;
   }
+  const intrinsic = svgIntrinsicPx(cached);
   const inst = document.importNode(cached, true) as SVGSVGElement;
   prefixIds(inst, el.id);
   inst.setAttribute("width", "100%");
   inst.setAttribute("height", "100%");
   inst.setAttribute("preserveAspectRatio", "none");
-  inst.style.overflow = "visible";
+  if (el.crop) {
+    inst.setAttribute("viewBox", cropViewBoxValue(cached.getAttribute("viewBox"), intrinsic, el.crop));
+    inst.style.overflow = "hidden";
+  } else {
+    inst.style.overflow = "visible";
+  }
   // applyOverrides needs the live manifest; `get` from svelte/store is framework-neutral.
   applyOverrides(inst, el.overrides, el.id, get(plotManifests)[el.assetId]);
+  compensatePtTrue(inst, {
+    elW: el.width,
+    elH: el.height,
+    crop: el.crop ?? null,
+    contentScale: el.contentScale,
+    intrinsic,
+  });
   w.appendChild(inst);
 }
 

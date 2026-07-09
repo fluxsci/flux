@@ -156,6 +156,12 @@ function inlineDefUses(root: Element): void {
       if (attr.name.startsWith("data-")) replacement.setAttribute(attr.name, attr.value);
     }
 
+    // Mark the clone as a GLYPH: a fixed-size symbol (tick mark, scatter
+    // marker) whose size is in points, not data units. pt-true resize
+    // compensation (plot/compensate.ts) keys off this to counter-scale the
+    // glyph's geometry about its translate anchor — matplotlib semantics
+    // (markersize/tick length in points).
+    replacement.setAttribute("data-flux-glyph", "1");
     use.replaceWith(replacement);
     inlinedDefIds.add(refId);
   }
@@ -230,8 +236,6 @@ export function isDerivedManifest(m: FluxPlotManifest | undefined): boolean {
 
 const MAX_DERIVE_DEPTH = 8;
 const MAX_DERIVE_NODES = 800;
-
-const UNIT_TO_PX: Record<string, number> = { px: 1, pt: 4 / 3, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 };
 
 function sizeOf(root: Element): { width: number; height: number; unit: string } {
   const parse = (v: string | null): { n: number; unit: string } | null => {
