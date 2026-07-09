@@ -407,6 +407,18 @@ if (process.env.NOSANDBOX === "1") {
 if (process.env.SOFTGPU === "1") {
   app.commandLine.appendSwitch("disable-gpu");
 }
+// TILEMEM=<mb> raises the compositor's GPU memory budget (tile memory), e.g.
+// TILEMEM=1024. Diagnostic escape hatch ONLY — deliberately NOT a default:
+// the "tile memory limits exceeded" spam came from the figure canvas's
+// permanently composited .scene layer growing as content-bounds × zoom², and
+// the real fix is the will-change lifecycle + one-repaint-per-zoom-gesture in
+// src/lib/Canvas.svelte (figure-v1 P6). Raising the budget by default would
+// mask any regression of that fix. Use it on a monitor-attached GPU to test
+// whether residual warnings during deep-zoom gestures are budget-bound (see
+// notes/Flux_Electron_Compositor_Notes.md for the count protocol).
+if (process.env.TILEMEM) {
+  app.commandLine.appendSwitch("force-gpu-mem-available-mb", process.env.TILEMEM);
+}
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 

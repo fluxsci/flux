@@ -188,3 +188,124 @@ an on-monitor session can trace it.
 - Side effect (documented): the Electron leg seeded diagnosis elements into
   `~/Master_flux_test` figures[0] (project is disposable per plan; elements are
   `diag-`/`bg-`-prefixed and are cleaned/re-seeded idempotently by re-runs).
+
+---
+
+# Phase 6 closure — the fix, post-fix numbers, and the owner's on-monitor protocol
+
+**Date:** 2026-07-09 · **Branch:** `feat/figure-v1-upgrade` · same no-monitor caveat as §0.
+
+## 7. What was fixed (src/lib/Canvas.svelte, figure-v1 P6)
+
+Exactly the two pre-designed parts, both validated by the §5 decision inputs:
+
+- **A — one repaint per zoom gesture.** `renderZoom` is the scale baked into the
+  scene SVG (`<g transform="scale(renderZoom)">`); the `.scene` wrapper carries
+  `translate3d(pan) scale(zoom/renderZoom)` — a compositor-only residual while a
+  wheel burst is live. `ZOOM_SETTLE_MS = 180` after the last zoom change the fold
+  sets `renderZoom = zoom` (the ONE content repaint) and the residual returns to
+  exactly 1. Every scene-internal `$viewport.zoom` read moved to `renderZoom`
+  (empty-hint, figure titlebar, figure label); culling keys off `renderZoom` and
+  freezes while unsettled; any gesture pointerdown folds immediately (capture
+  phase), and the settle timer never folds while an interaction is in flight.
+- **B — will-change lifecycle.** The permanent `will-change: transform` on
+  `.scene` is REMOVED (that promotion carried the raster-scale cap, §2/§4).
+  Promotion is inline-only while `sceneHot` (gesture / guide drag / node drag /
+  unsettled zoom / wheel pan, + a 200 ms trailing window); at idle the layer
+  DEMOTES → full-quality re-raster + tile allocation released. `contain: paint`
+  is forbidden (clips panned content). Fallback B′ (pulse) was NOT needed — see
+  the budget numbers below.
+- **C — Electron.** `TILEMEM=<mb>` env hatch in electron/main.cjs
+  (`force-gpu-mem-available-mb`), diagnostic-only, NOT a default (a raised budget
+  would mask regressions of A/B). No other flag changes.
+
+Gates: `scripts/verify-crisp.mjs` (ui-extra + retryOnce, own DSF-2 launch) +
+`scripts/verify-crisp-source.ts` (pure tripwires) — both registered in
+scripts/verify-manifest.json.
+
+## 8. Post-fix headless numbers (same box, same protocol, DSF 2)
+
+| metric | pre-fix (02649f6) | post-fix |
+|---|---|---|
+| scene zoom-`<g>` transform mutations per 20-tick ctrl-wheel burst | 20 (one per tick) | **1** (the settle fold) |
+| `.scene` computed will-change at rest | `transform` (permanent) | **`auto`** (demoted) |
+| wrapper residual scale at rest | n/a | **exactly 1** |
+| mid-burst | n/a | will-change `transform`, residual ≠ 1 (compositor path) |
+| settled sharpness @zoom 3.32 (Laplacian) | 16.286 | **24.458** (+50%) |
+| settled / will-change-demoted reference | 0.666 (soft) | **1.000** (settled IS demoted) |
+| forced-promote control | 16.286 | 16.286 (defect still reproducible when forced — metric has teeth) |
+| evidence @zoom 4.0, settled vs forced demote | — | 20.786 vs 20.786 (bit-identical; flux_figure_upgrades_fixes/evidence-crisp.png) |
+| pan keeps rendered .el set | 138 → 138 | 138 → 138 |
+| wheel-burst rAF p95, 1600-el fixture | 16.7 ms (vsync floor) | 16.7 ms |
+| f5-cull drag median / p95 / max | 16.7 / 16.7 / 16.8 ms | 16.7 / 16.8 / **33.3** ms |
+
+The single f5-cull `max` bump (16.8 → 33.3 ms, one frame) is the promotion
+raster at gesture start — inherent to any demote-at-idle lifecycle (the layer
+must re-raster once when promoted). Median/p95 stay at the vsync floor, so the
+60 fps budget holds and fallback B′ (which pays MORE — an extra off→on raster
+pulse per zoom fold) stays unused.
+
+## 9. Owner's on-monitor protocol (the only remaining leg)
+
+This box logs **0** `tile_manager.cc` and **0** `Frame latency` lines before AND
+after (§3 — the software/clamped-bounds path never hits the budget), so the
+before/after log comparison can only be completed on a monitor-attached GPU.
+Steps (≈5 min):
+
+```sh
+# 0) dev server up (npm run dev, :1420), then BEFORE numbers on main:
+git checkout main
+VITE_DEV_SERVER_URL="http://127.0.0.1:1420/" npx electron . --enable-logging=stderr 2> /tmp/flux-el-before.log
+#    ... open a real project, zoom a heavy figure to 8–16x with ctrl+wheel,
+#    pan around ~60s, quit.
+grep -c tile_manager.cc /tmp/flux-el-before.log
+grep -ci "frame latency" /tmp/flux-el-before.log
+
+# 1) AFTER numbers on the branch:
+git checkout feat/figure-v1-upgrade
+VITE_DEV_SERVER_URL="http://127.0.0.1:1420/" npx electron . --enable-logging=stderr 2> /tmp/flux-el-after.log
+#    ... same ~60s session, quit.
+grep -c tile_manager.cc /tmp/flux-el-after.log
+grep -ci "frame latency" /tmp/flux-el-after.log
+
+# 2) also confirm the feel: zoom a text-heavy figure to 4x, hands off the mouse
+#    ~0.5s → text must snap crisp WITHOUT dragging anything.
+
+# 3) if (and only if) tile warnings persist during deep-zoom gestures:
+TILEMEM=1024 VITE_DEV_SERVER_URL="http://127.0.0.1:1420/" npx electron . --enable-logging=stderr 2> /tmp/flux-el-tilemem.log
+#    count again — if the warnings vanish only with TILEMEM, they are genuinely
+#    budget-bound and we can DISCUSS a default; otherwise leave the hatch as-is.
+```
+
+Expected: the after-count drops to ~0 at rest (the idle demotion releases the
+layer's tile allocation, and the residual-zoom path stops re-rastering
+gigapixel bounds per tick). Warnings that appear ONLY mid-gesture at ≥8× on
+multi-MB projects are acceptable per the benign criteria below.
+
+## 10. Benign-criteria ruling for the two log lines (per plan)
+
+- **`tile memory limits exceeded` (tile_manager.cc)** — post-fix, residual
+  warnings are ruled BENIGN iff they occur only DURING ≥8× zoom/pan gestures on
+  multi-MB projects (the layer is legitimately promoted then) AND at-rest
+  screenshots are crisp (verify-crisp's settled==demoted invariant). A warning
+  at REST would mean the demotion regressed — that is a bug, gate-caught by
+  verify-crisp (will-change==auto at rest).
+- **`Frame latency is negative`** — could not be emitted on this box (0 lines;
+  it needs real presentation-feedback timing, which needs a display). Source
+  reading (§5) stands: it is a bare LOG(ERROR) on presentation-feedback skew,
+  with no corrective action attached. Ruling stays PROVISIONAL until the owner's
+  on-monitor pass: treat as benign iff (a) it does not correlate with visible
+  dropped frames, and (b) its rate is unchanged between main and this branch
+  (i.e. it is ambient platform noise, not something the figure canvas causes).
+  If (b) fails on-monitor, reopen with a trace (chrome://tracing,
+  viz.frame_sinks category) before touching any flags.
+
+## 11. Phase 6 artifacts
+
+- Fix: src/lib/Canvas.svelte (P6 rationale block near ZOOM_SETTLE_MS documents
+  the contract; verify-crisp-source.ts asserts it survives).
+- Hatch: electron/main.cjs `TILEMEM` (diagnostic only).
+- Gates: scripts/verify-crisp.mjs (+ CRISP_EVIDENCE mode regenerates the
+  evidence PNG), scripts/verify-crisp-source.ts.
+- Evidence: flux_figure_upgrades_fixes/evidence-crisp.png (settled@4x vs forced
+  demote — identical), IMPLEMENTATION_NOTES.md "### Phase 6" (numbers + calls).

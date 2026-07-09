@@ -54,13 +54,18 @@
   // ===========================================================================
   // Rendering architecture (performance-critical):
   //  - The "scene" holds all committed content. Panning is a CSS transform on
-  //    its wrapper (GPU-composited, NO repaint). Zoom changes an internal scale
-  //    (one repaint per wheel tick — fine, it's discrete).
+  //    its wrapper (compositor-only, NO repaint). Zooming is compositor-only
+  //    too while the wheel burst lasts (a residual scale on the wrapper); the
+  //    content repaints ONCE per zoom gesture, when the settle fold bakes the
+  //    zoom into the scene SVG (renderZoom — see the P6 rationale block below).
   //  - ALL live interaction (dragged-element previews, selection box + handles,
   //    marquee, guides, draw/pen previews) renders on a separate screen-space
   //    overlay. During a drag/resize the scene is frozen (originals hidden) and
   //    only the small overlay updates, so cost is independent of window size /
   //    resolution. The scene repaints exactly once, on pointer-up.
+  //  - The scene wrapper is promoted (will-change) ONLY while interacting; at
+  //    idle it demotes, releasing its tile allocation and re-rastering at full
+  //    quality — crisp at rest without any interaction (P6 blur fix).
   // ===========================================================================
 
   let hostEl: HTMLDivElement;
@@ -255,12 +260,16 @@
   let cullRect: Rect = { x: -1e9, y: -1e9, w: 2e9, h: 2e9 };
   let cullKey = "";
   $: {
-    const z = $viewport.zoom;
+    // P6: the cull keys off renderZoom (the scale baked into the scene), not the
+    // live zoom — recomputing per wheel tick would re-diff the scene content
+    // mid-gesture. While the zoom is unsettled the visible set is FROZEN (the
+    // key is skipped); the fold flips zoomUnsettled off and re-culls once.
+    const z = renderZoom;
     const ready = hostW > 0 && hostH > 0;
     const qx = ready ? Math.round($viewport.panX / CULL_STEP) * CULL_STEP : 0;
     const qy = ready ? Math.round($viewport.panY / CULL_STEP) * CULL_STEP : 0;
     const key = ready ? `${hostW}x${hostH}@${z}:${qx},${qy}` : "all";
-    if (key !== cullKey) {
+    if (!zoomUnsettled && key !== cullKey) {
       cullKey = key;
       cullRect = ready
         ? {
@@ -311,9 +320,114 @@
     return selectionBBox(fig.elements.filter((e) => $selection.has(e.id)));
   })();
 
+  // --- one repaint per zoom gesture + will-change lifecycle (figure-v1 P6) ---
+  //
+  // RATIONALE (diagnosis: notes/Flux_Electron_Compositor_Notes.md, Phase 0a):
+  // the .scene layer's raster area grows as content-bounds × zoom², and a
+  // PERMANENTLY promoted (will-change) layer of that size gets budget-limited
+  // tiles — content rendered soft at rest (reproduced at DSF 2) and Electron
+  // logged "tile memory limits exceeded". Only DEMOTING the layer releases the
+  // full-quality raster; plain repaints re-raster at the same capped scale
+  // (no-op commit and a real 1px mutation were both bit-identical). On top of
+  // that, the old <g scale($viewport.zoom)> made EVERY wheel tick a full
+  // content repaint. Contract:
+  //  1. renderZoom is the scale BAKED into the scene SVG (<g scale(renderZoom)>).
+  //     $viewport.zoom stays the live truth for overlay/rulers/hit-testing; the
+  //     scene wrapper carries a compositor-only residual scale(zoom/renderZoom)
+  //     mid-gesture, so a zoom burst costs ONE content repaint — the settle
+  //     fold (ZOOM_SETTLE_MS after the last zoom change) sets renderZoom = zoom
+  //     and the residual returns to exactly 1. The world→screen mapping is
+  //     pan + zoom·w at ALL times (renderZoom cancels out), so gesture math,
+  //     hit-testing, getBoundingClientRect and getScreenCTM captures stay exact
+  //     mid-residual too (zoom-about-cursor is unchanged).
+  //  2. Scene-INTERNAL screen-constant sizes (empty-hint, figure titlebar,
+  //     figure label) divide by renderZoom, NOT $viewport.zoom — one live-zoom
+  //     read inside the scene template silently reintroduces per-tick repaints.
+  //     (They scale with the residual mid-burst and snap crisp on the fold.)
+  //  3. Culling keys off renderZoom and is frozen while the zoom is unsettled
+  //     (an uncovered margin for ≤ ZOOM_SETTLE_MS on zoom-out is accepted);
+  //     pan-quantized re-culling is unchanged.
+  //  4. Any gesture pointerdown folds IMMEDIATELY (foldZoomNow, capture phase):
+  //     a gesture must never run on a residual-scaled scene where a later
+  //     settle fold would repaint under its feet (partmove holds a captured CTM
+  //     and a transient DOM transform on a live node). The settle timer
+  //     likewise never folds while an interaction is in flight — it re-checks
+  //     until idle. Programmatic viewport.set is covered by the settle timer
+  //     (verify scripts sleep ≥ 250ms > ZOOM_SETTLE_MS).
+  //  5. will-change lifecycle: .scene has NO permanent will-change (neither in
+  //     CSS nor inline). style:will-change promotes it only while sceneHot —
+  //     an interaction is live (gesture / guideDrag / nodeDrag / unsettled
+  //     zoom / wheel pan) or ended less than SCENE_COOL_MS ago — and drops to
+  //     null at idle. The idle demotion IS the blur fix: the layer re-rasters
+  //     at full quality and its tile allocation is released. `contain: paint`
+  //     is FORBIDDEN on .scene (it clips panned content — verified).
+  const ZOOM_SETTLE_MS = 180; // fold delay after the last zoom change
+  const SCENE_COOL_MS = 200; // will-change demotion delay after the last interaction
+  let renderZoom = get(viewport).zoom;
+  let zoomUnsettled = false;
+  let zoomSettleTimer: ReturnType<typeof setTimeout> | null = null;
+  let sceneHot = false;
+  let sceneCoolTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Promote the scene layer NOW (same event turn as the interaction start);
+   *  demote SCENE_COOL_MS after the last call once nothing is live. One timer,
+   *  coalesced — long interactions stay hot via the re-check loop. */
+  function keepSceneHot() {
+    sceneHot = true;
+    if (sceneCoolTimer) clearTimeout(sceneCoolTimer);
+    sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS);
+  }
+  function maybeCoolScene() {
+    sceneCoolTimer = null;
+    if (gesture || guideDrag || nodeDrag || zoomUnsettled) {
+      sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS); // still busy — re-check
+    } else {
+      sceneHot = false; // idle demotion → full-quality re-raster + tile release
+    }
+  }
+
+  /** Arm/refresh the settle fold — runs (reactively) on every zoom change, from
+   *  any writer: wheel, Toolbar zoom buttons, scripts' viewport.set. */
+  function scheduleZoomFold() {
+    zoomUnsettled = true;
+    keepSceneHot();
+    if (zoomSettleTimer) clearTimeout(zoomSettleTimer);
+    zoomSettleTimer = setTimeout(foldZoom, ZOOM_SETTLE_MS);
+  }
+  function foldZoom() {
+    zoomSettleTimer = null;
+    if (gesture || guideDrag || nodeDrag) {
+      // Never fold under an in-flight interaction (contract §4) — re-check.
+      zoomSettleTimer = setTimeout(foldZoom, ZOOM_SETTLE_MS);
+      return;
+    }
+    zoomUnsettled = false;
+    renderZoom = get(viewport).zoom; // THE one content repaint of the gesture
+  }
+  /** Immediate fold at gesture pointerdown (contract §4). The screen mapping is
+   *  residual-invariant, so handlers in this same event turn (including the
+   *  partmove getScreenCTM capture) read correct values whether or not the DOM
+   *  flush has landed yet. */
+  function foldZoomNow() {
+    if (zoomSettleTimer) {
+      clearTimeout(zoomSettleTimer);
+      zoomSettleTimer = null;
+    }
+    if (zoomUnsettled || renderZoom !== get(viewport).zoom) {
+      zoomUnsettled = false;
+      renderZoom = get(viewport).zoom;
+    }
+  }
+  $: if ($viewport.zoom !== renderZoom) scheduleZoomFold();
+  // Gesture starts promote in the same event turn their pointerdown runs
+  // (Svelte flushes this before the frame paints); guide/node drags reassign
+  // per-move, which just refreshes the cool timer.
+  $: if (gesture !== null || guideDrag !== null || nodeDrag !== null) keepSceneHot();
+
   // --- pan / zoom ---
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    keepSceneHot(); // promote in the same event turn the pan/zoom burst starts
     const r = hostEl.getBoundingClientRect();
     const px = e.clientX - r.left;
     const py = e.clientY - r.top;
@@ -2175,6 +2289,7 @@
   role="application"
   aria-label="Figure canvas"
   on:wheel={onWheel}
+  on:pointerdown|capture={foldZoomNow}
   on:pointerdown={onCanvasDown}
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
@@ -2185,10 +2300,19 @@
   on:dragleave={onDragLeave}
   on:drop={onDrop}
 >
-  <!-- SCENE: panned via cheap CSS transform; only repaints on data/zoom change -->
-  <div class="scene" style={`transform: translate3d(${$viewport.panX}px, ${$viewport.panY}px, 0);`}>
+  <!-- SCENE: panned via cheap CSS transform; zoom rides the compositor-only
+       residual scale(zoom/renderZoom) mid-gesture and folds into the SVG's
+       scale(renderZoom) on settle — ONE content repaint per zoom gesture.
+       will-change only while sceneHot: the idle demotion is the crisp-at-rest
+       fix (P6 rationale block in the script; the residual is the ONLY live-zoom
+       read allowed inside the scene). -->
+  <div
+    class="scene"
+    style={`transform: translate3d(${$viewport.panX}px, ${$viewport.panY}px, 0) scale(${$viewport.zoom / renderZoom});`}
+    style:will-change={sceneHot ? "transform" : null}
+  >
     <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg">
-      <g transform={`scale(${$viewport.zoom})`}>
+      <g transform={`scale(${renderZoom})`}>
         {#each visibleFigures as fig (fig.id)}
           <g
             style:transform={figMoveId === fig.id ? frameTransform : null}
@@ -2218,16 +2342,17 @@
             <g clip-path={`url(#clip-${fig.id})`}>
               {#if fig.elements.length === 0}
                 <!-- Empty-figure affordance: point at the three import paths. Constant
-                     screen size (÷zoom, like .figure-label); pointer-events:none so it
-                     never blocks canvas gestures or the drop target. -->
+                     screen size (÷renderZoom — NEVER live zoom inside the scene, P6;
+                     like .figure-label); pointer-events:none so it never blocks canvas
+                     gestures or the drop target. -->
                 <text
                   class="empty-hint"
                   x={fig.width / 2}
                   y={fig.height / 2}
-                  font-size={12 / $viewport.zoom}
+                  font-size={12 / renderZoom}
                 >
-                  <tspan x={fig.width / 2} dy={-5 / $viewport.zoom}>Drop PNG/SVG plots here</tspan>
-                  <tspan x={fig.width / 2} dy={18 / $viewport.zoom}>Ctrl+Shift+K import · Alt+I plot importer</tspan>
+                  <tspan x={fig.width / 2} dy={-5 / renderZoom}>Drop PNG/SVG plots here</tspan>
+                  <tspan x={fig.width / 2} dy={18 / renderZoom}>Ctrl+Shift+K import · Alt+I plot importer</tspan>
                 </text>
               {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
@@ -2260,12 +2385,12 @@
             <rect
               class="figure-titlebar"
               x="0"
-              y={-22 / $viewport.zoom}
-              width={Math.max(fig.width, 120 / $viewport.zoom)}
-              height={18 / $viewport.zoom}
+              y={-22 / renderZoom}
+              width={Math.max(fig.width, 120 / renderZoom)}
+              height={18 / renderZoom}
               on:pointerdown={(e) => startFigMove(e, fig)}
             />
-            <text class="figure-label" x="0" y={-8 / $viewport.zoom} font-size={13 / $viewport.zoom}>{fig.name}</text>
+            <text class="figure-label" x="0" y={-8 / renderZoom} font-size={13 / renderZoom}>{fig.name}</text>
           </g>
           </g>
         {/each}
@@ -2632,8 +2757,12 @@
   .scene {
     position: absolute;
     inset: 0;
-    transform-origin: 0 0;
-    will-change: transform;
+    transform-origin: 0 0; /* residual zoom scale composes about the pan origin */
+    /* P6: NO permanent will-change here — promotion is inline-only while
+       sceneHot (a permanently promoted layer gets budget-limited tiles at high
+       zoom ⇒ blurry at rest + Electron tile-memory spam; see the rationale
+       block in the script). `contain: paint` is likewise FORBIDDEN: it clips
+       panned content outside the host box. */
   }
   .scene-svg {
     position: absolute;

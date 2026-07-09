@@ -35,6 +35,7 @@
       "figenh-crop-parity.ts",
       "verify-text-wrap.ts",
       "verify-compensate.ts",
+      "verify-crisp-source.ts",
       "verify-fetchflow.ts",
       "verify-figname.ts",
       "verify-ops.ts",
@@ -150,6 +151,7 @@
       "figenh-14-partui.mjs",
       "figenh-15-partmove.mjs",
       "verify-crop.mjs",
+      "verify-crisp.mjs",
       "verify-assign.mjs",
       "verify-color-span.mjs",
       "verify-f2-hotswap.mjs",
@@ -227,6 +229,7 @@
   },
   "retryOnce": [
     "verify-crop.mjs",
+    "verify-crisp.mjs",
     "verify-importer-multi.mjs",
     "verify-importer-slide.mjs",
     "figenh-06-layers.ts",
