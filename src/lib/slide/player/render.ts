@@ -151,7 +151,7 @@ function fillMath(w: HTMLElement, el: Extract<SlideElement, { type: "math" }>): 
 
 function fillImage(
   w: HTMLElement,
-  el: Extract<SlideElement, { type: "image" | "svg" }>,
+  el: Extract<SlideElement, { type: "image" }>,
   ctx: SlideRenderCtx,
 ): void {
   const url = ctx.assetUrl?.(el.assetId);
@@ -342,7 +342,6 @@ export function renderSlide(
         fillEmbedFigure(w, el, ctx);
         break;
       case "image":
-      case "svg":
         fillImage(w, el, ctx);
         break;
       case "plot":

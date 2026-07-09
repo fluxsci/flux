@@ -127,6 +127,7 @@
       "verify-slide-polish.mjs",
       "verify-fig-esc.mjs",
       "verify-importer-multi.mjs",
+      "verify-vanilla-inline.mjs",
       "verify-text-resize.mjs",
       "verify-text-biu.mjs",
       "verify-text-styles.mjs"

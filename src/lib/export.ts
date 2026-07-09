@@ -52,8 +52,7 @@ export function elementToSvg(
           `preserveAspectRatio="none" href="${href}"${op(e)}/>`,
       );
     }
-    case "image":
-    case "svg": {
+    case "image": {
       const href = assetUrl(e.assetId);
       if (!href) return "";
       return rot(

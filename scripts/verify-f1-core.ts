@@ -77,9 +77,9 @@ const ap = await core.addPanel(TMP, "growth", path.join(TMP, "panel.svg"), { x: 
 const canvasAfter = JSON.parse(await fs.readFile(path.join(TMP, "fig/canvases/canvas-1.json"), "utf8"));
 const idxAfter = JSON.parse(await fs.readFile(path.join(TMP, "fig/index.json"), "utf8"));
 results.addPanel = {
-  // An imported .svg is now a correctly-typed `svg` element (matches the GUI's
-  // SvgElement); previously flux-core mistyped it as `image`.
-  elementAdded: canvasAfter.figures[0].elements.some((e: any) => e.id === ap.elementId && e.type === "svg"),
+  // figure-v1 P4: EVERY imported .svg is a semantic `plot` element (a vanilla
+  // file gets a DERIVED manifest at render/cache time — never an opaque image).
+  elementAdded: canvasAfter.figures[0].elements.some((e: any) => e.id === ap.elementId && e.type === "plot" && e.source?.svgPath),
   assetRegistered: idxAfter.assets.some((a: any) => a.id === ap.assetId),
 };
 

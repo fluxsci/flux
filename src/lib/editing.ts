@@ -124,7 +124,7 @@ export function createTextElement(p: Pt, style: DrawStyle): Element {
 
 // Proportional SCALE remap (Feature 5, the K tool): like resizeRemap, but also
 // multiplies the "weight" properties — strokeWidth, cornerRadius, fontSize (the
-// EXPLICIT geometric scaler; plain resize never touches fonts) — and a plot/svg
+// EXPLICIT geometric scaler; plain resize never touches fonts) — and a plot
 // element's contentScale (plot/compensate.ts consumes it, so K scales a plot's
 // glyphs/strokes geometrically while plain resize stays pt-true). The Scale tool
 // forces a uniform box, so sx == sy; we use s = nb.w/ob.w (falls back to the
@@ -148,7 +148,7 @@ export function scaleRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
   }
   if ("strokeWidth" in e && "strokeWidth" in orig) e.strokeWidth = Math.max(0, orig.strokeWidth * s);
   if (e.type === "rect" && orig.type === "rect") e.cornerRadius = Math.max(0, orig.cornerRadius * s);
-  if ((e.type === "svg" || e.type === "plot") && (orig.type === "svg" || orig.type === "plot")) {
+  if (e.type === "plot" && orig.type === "plot") {
     e.contentScale = Math.max(0.01, (orig.contentScale ?? 1) * s);
   }
 }

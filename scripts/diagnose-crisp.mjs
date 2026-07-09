@@ -90,8 +90,9 @@ function seedScene({ growthSvg, growthManifest, growthRecipe, eegSvg }) {
   const F = window.__flux;
   // Semantic plot: cachePlot via reimportPlot (also sets assetData → <image> fallback).
   F.io.reimportPlot("diag-growth", growthSvg, growthManifest, growthRecipe);
-  // eeg is rendered by a type:"svg" element = opaque <image> path (Element.svelte);
-  // reimportPlot is just the headless-callable seam that feeds assetData.
+  // eeg: figure-v1 P4 removed the opaque type:"svg" <image> path entirely —
+  // every svg is an inline semantic plot now, so the heavy trace strip below
+  // exercises the INLINE path (the only one that exists).
   F.io.reimportPlot("diag-eeg", eegSvg, { specVersion: "diag/0", axes: [], series: [], guides: [] });
 
   const T = { x: 260, y: 560 }; // sharpness-target centre, figure-local
@@ -113,8 +114,8 @@ function seedScene({ growthSvg, growthManifest, growthRecipe, eegSvg }) {
     const els = fig.elements;
     // 1 semantic plot (inline DOM: text + hairlines + paths)
     els.push({ type: "plot", id: "diag-plot", assetId: "diag-growth", x: 40, y: 40, width: 480, height: 360, rotation: 0 });
-    // 1 large <image>-rendered svg asset (895pt-wide trace strip)
-    els.push({ type: "svg", id: "diag-eeg-el", assetId: "diag-eeg", x: 560, y: 60, width: 1200, height: 74, rotation: 0 });
+    // 1 large trace-strip svg (895pt wide) — inline plot (P4: type:"svg" is gone)
+    els.push({ type: "plot", id: "diag-eeg-el", assetId: "diag-eeg", x: 560, y: 60, width: 1200, height: 74, rotation: 0 });
     // Sharpness target: 8 rows of 9px text interleaved with 0.5px hairlines,
     // plus a fine-stroke rect strip — the clip below must be full of ink edges.
     for (let i = 0; i < 8; i++) {

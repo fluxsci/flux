@@ -10,7 +10,7 @@
 
 import { writable, get } from "svelte/store";
 import type { Deck, SlideElement, Track } from "./types";
-import { ensureTrackIds } from "./ops";
+import { ensureTrackIds, migrateDeck } from "./ops";
 
 /** A copied animation track tagged with the beat it lived on (SLD-10). */
 export interface ClipTrack {
@@ -44,6 +44,7 @@ export const loadedProjectRoot = writable<string | null>(null);
 
 /** Replace the live deck (on load) and reset editor cursor + dirty. */
 export function loadDeckModel(d: Deck): void {
+  migrateDeck(d); // legacy type:"svg" elements → semantic plots (figure-v1 P4)
   ensureTrackIds(d); // backfill stable track ids for decks predating Track.id
   deck.set(d);
   activeSlideId.set(d.slides[0]?.id ?? null);

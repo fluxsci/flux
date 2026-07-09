@@ -753,7 +753,7 @@ export function addImageToSlide(
   slideId: Id,
   opts: { assetId: Id } & Box,
 ): Id | null {
-  return addElement(deck, slideId, makeImagePanel(opts.assetId, "image", opts) as Element);
+  return addElement(deck, slideId, makeImagePanel(opts.assetId, opts) as Element);
 }
 
 /** Update an element's geometry/transform (drag/resize/rotate from the editor). */
@@ -1002,6 +1002,31 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
  *  tracks reliably. Mutates in place + returns the deck. */
 export function ensureTrackIds(deck: Deck): Deck {
   for (const s of deck.slides) for (const b of s.beats) for (const t of b.tracks) if (!t.id) t.id = newId("track");
+  return deck;
+}
+
+/** Bring a loaded deck up to the current element model (mirrors src/lib/
+ *  migrate.ts — decks are separate JSON, not covered by migrateProject).
+ *  `type:"svg"` elements (deleted from the union, figure-v1 P4) become
+ *  semantic plots: same id/geometry, `overrides:{}`, `source.svgPath`
+ *  best-effort from the deck-local asset entry (PROJECT-relative, so
+ *  loadDeckAssets/gatherDeckPayload can read it) — no manifestPath (sidecar
+ *  presence is the fluxplot/vanilla discriminator; the manifest derives at
+ *  cachePlot). Idempotent; called at every deck-load seam (GUI loadDeckModel,
+ *  flux-core loadDeck). Mutates in place + returns the deck. */
+export function migrateDeck(deck: Deck): Deck {
+  for (const s of deck.slides ?? []) {
+    for (const e of s.elements ?? []) {
+      if ((e as { type: string }).type !== "svg") continue;
+      const el = e as unknown as SemanticPlotElement;
+      (el as { type: string }).type = "plot";
+      if (!el.overrides) el.overrides = {};
+      if (!el.source) {
+        const a = (deck.assets ?? []).find((x) => x.id === el.assetId);
+        el.source = { svgPath: a?.path ? `slides/${deck.id}/${a.path}` : "" };
+      }
+    }
+  }
   return deck;
 }
 

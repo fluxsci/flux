@@ -472,9 +472,10 @@ function mimeFor(kind: string): string {
 
 // Headless DOM (linkedom) so we can reuse the GUI's pure plot functions
 // (preparePlot/prefixIds/applyOverrides/compensatePtTrue) — exactly like the
-// in-app plotToSvgMarkup, one source of truth.
+// in-app plotToSvgMarkup, one source of truth. Exported for slides.ts
+// (gatherDeckPayload derives manifests for vanilla plots through the same seam).
 let domReady = false;
-async function ensureDom(): Promise<void> {
+export async function ensureDom(): Promise<void> {
   if (domReady) return;
   const { DOMParser } = await import("linkedom");
   const g = globalThis as unknown as { DOMParser?: unknown };
@@ -546,6 +547,24 @@ export async function renderFigureSvg(root: string, id: string): Promise<string>
   const { byId } = await readCanvasFiles(root, index);
   const fig = byId[id];
   if (!fig) throw new Error(`figure not found: ${id}`);
+  // Same migration every loader runs (legacy type:"svg" → semantic plot, …):
+  // this reads canvas files directly, so unmigrated on-disk docs must still
+  // render through the current element union.
+  migrateProject({
+    version: 2,
+    name: "",
+    canvases: [],
+    figures: [fig],
+    assets: (index.assets ?? []).map((a) => ({
+      id: a.id,
+      name: a.name ?? a.id,
+      kind: a.kind,
+      path: a.path ?? "",
+      naturalWidth: a.naturalWidth ?? 0,
+      naturalHeight: a.naturalHeight ?? 0,
+    })),
+    palette: [],
+  });
 
   const assetCache: Record<string, string> = {};
   const assetPath: Record<string, string> = {};
@@ -730,8 +749,9 @@ export async function importReferences(
   return report;
 }
 
-/** add-panel: import an SVG file as a panel on a figure — a semantic FluxPlot
- *  (if a .fluxplot.json sidecar is present) or an opaque SVG image otherwise. */
+/** add-panel: import an SVG file as a panel on a figure. EVERY svg is a
+ *  semantic plot (figure-v1 P4): a .fluxplot.json sidecar supplies the real
+ *  manifest; a vanilla file gets a DERIVED one at render/cache time. */
 export async function addPanel(
   root: string,
   figId: string,
@@ -742,9 +762,11 @@ export async function addPanel(
     if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
     const { assetId, w, h, source } = await importPlotAsset(root, project, svgFile);
     const box = { x: opts.x ?? 20, y: opts.y ?? 20, width: opts.width ?? w, height: opts.height ?? h };
-    const elementId = source
-      ? ops.addPlotPanel(project, figId, { assetId, source, ...box })!
-      : ops.addImagePanel(project, figId, { assetId, kind: "svg", ...box })!;
+    const elementId = ops.addPlotPanel(project, figId, {
+      assetId,
+      source: source ?? { svgPath: path.relative(root, path.resolve(svgFile)) },
+      ...box,
+    })!;
     return { assetId, elementId };
   });
 }
@@ -887,9 +909,13 @@ export async function composeFigure(
     for (const pp of plotPaths) {
       const { assetId, w, h, source } = await importPlotAsset(root, project, pp);
       const box = { x: margin, y: margin, width: w, height: h };
-      const pid = source
-        ? ops.addPlotPanel(project, fig.id, { assetId, source, ...box })
-        : ops.addImagePanel(project, fig.id, { assetId, kind: "svg", ...box });
+      // figure-v1 P4 parity: EVERY svg is a semantic plot — vanilla files get a
+      // derived manifest at render/cache time, never an opaque <image>.
+      const pid = ops.addPlotPanel(project, fig.id, {
+        assetId,
+        source: source ?? { svgPath: path.relative(root, path.resolve(pp)) },
+        ...box,
+      });
       if (pid) panelIds.push(pid);
     }
 

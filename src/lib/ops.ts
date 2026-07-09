@@ -22,7 +22,6 @@ import type {
   Element,
   Id,
   ImageElement,
-  SvgElement,
   TextElement,
   TextStyle,
   SemanticPlotElement,
@@ -216,9 +215,10 @@ const box = (b: Box, dw: number, dh: number) => ({
   height: b.height ?? dh,
 });
 
-export function makeImagePanel(assetId: Id, kind: "image" | "svg", b: Box = {}): ImageElement | SvgElement {
+// PNG-only (figure-v1 P4): every SVG is a semantic plot — use makePlotPanel.
+export function makeImagePanel(assetId: Id, b: Box = {}): ImageElement {
   const g = box(b, 240, 180);
-  return { type: kind, id: newId(kind === "svg" ? "svg" : "img"), assetId, ...g, rotation: 0 };
+  return { type: "image", id: newId("img"), assetId, ...g, rotation: 0 };
 }
 
 export function makePlotPanel(
@@ -282,12 +282,8 @@ export function addElement(p: Project, figId: Id, el: Element): Id | null {
   return el.id;
 }
 
-export function addImagePanel(
-  p: Project,
-  figId: Id,
-  opts: { assetId: Id; kind?: "image" | "svg" } & Box,
-): Id | null {
-  return addElement(p, figId, makeImagePanel(opts.assetId, opts.kind ?? "image", opts));
+export function addImagePanel(p: Project, figId: Id, opts: { assetId: Id } & Box): Id | null {
+  return addElement(p, figId, makeImagePanel(opts.assetId, opts));
 }
 
 export function addPlotPanel(

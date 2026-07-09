@@ -83,7 +83,8 @@ export interface Figure {
   guides?: { x?: number[]; y?: number[] };
 }
 
-// An imported source file, stored once and referenced by `image`/`svg` elements.
+// An imported source file, stored once and referenced by `image` (png) /
+// `plot` (svg — every svg is a semantic plot) elements.
 export interface Asset {
   id: Id;
   name: string;
@@ -142,19 +143,12 @@ export interface CropRect {
   height: number;
 }
 
+// A raster (PNG) placement. SVGs never take this shape — every svg asset is a
+// SemanticPlotElement (inline live DOM), with `<image>` only as its fallback.
 export interface ImageElement extends ElementBase {
   type: "image";
   assetId: Id;
   crop?: CropRect;
-}
-
-export interface SvgElement extends ElementBase {
-  type: "svg";
-  assetId: Id;
-  crop?: CropRect;
-  // Geometric content scale persisted by the K/Scale tool (pt-true resize
-  // compensation multiplies by this — see plot/compensate.ts). Default 1.
-  contentScale?: number;
 }
 
 export interface TextElement extends ElementBase {
@@ -245,12 +239,15 @@ export interface PathElement extends ElementBase {
   nodes?: VectorNode[];
 }
 
-// A FluxPlot semantic plot. Unlike SvgElement (an opaque <image>), this is
+// A semantic plot — EVERY imported SVG is one (figure-v1 P4; the old opaque
+// `type:"svg"` <image> kind is gone, migrate.ts converts legacy docs). It is
 // rendered INLINE so its tagged nodes (data-role / semantic ids like
 // "control.point.3") are live, hit-testable DOM that can be addressed and
-// restyled part-by-part. The plot's geometry stays authoritative in the SVG;
-// the sidecar manifest (loaded separately, keyed by assetId) holds the data /
-// coordinate mapping / build order. See Flux_SemanticSVG_Spec.md.
+// restyled part-by-part. A fluxplot ships a real sidecar manifest; a vanilla
+// SVG gets a DERIVED one at cachePlot (plot/derive.ts — never persisted). The
+// plot's geometry stays authoritative in the SVG; the manifest (loaded
+// separately, keyed by assetId) holds the data / coordinate mapping / build
+// order. See Flux_SemanticSVG_Spec.md.
 export interface SemanticPlotElement extends ElementBase {
   type: "plot";
   // The .svg bytes, stored as an Asset (reuses asset storage → free <image>
@@ -300,7 +297,6 @@ export interface PartOverride {
 
 export type Element =
   | ImageElement
-  | SvgElement
   | TextElement
   | RectElement
   | EllipseElement

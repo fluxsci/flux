@@ -379,7 +379,7 @@
         <label class="full">Color<input type="color" value={colorValue(el.color, theme.text)}
           onchange={(e) => { const v = e.currentTarget.value; commitEl(el.id, (x) => { if (x.type === "text") x.color = v; }); }} /></label>
       </section>
-    {:else if el.type === "image" || el.type === "svg" || el.type === "plot"}
+    {:else if el.type === "image" || el.type === "plot"}
       <section>
         <h4>{el.type}</h4>
         <div class="ref">{el.type} · {el.assetId}</div>

@@ -28,8 +28,10 @@ import {
   clearAllAssetsDirty,
 } from "../assets";
 import { plotManifests, plotRecipes, cachePlot, clearPlots } from "../plot/store";
+import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { FLEXOKI } from "../flexoki";
+import { migrateProject } from "../migrate";
 import { settings } from "../settings";
 import { composeCaption, panelLetters } from "../captions";
 import { fileBridge, joinPath, slugify } from "./types";
@@ -140,17 +142,20 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     try {
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
       data[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
-      // Re-attach a semantic plot's manifest (+ recipe) by assetId, so the
-      // inlined rendering + part overrides reconnect on reload.
+      // Cache EVERY svg's DOM (+ manifest/recipe when the asset-local sidecar
+      // exists; a vanilla svg gets a DERIVED manifest inside cachePlot), so the
+      // inlined rendering + part overrides reconnect on reload — mirrors
+      // io.ts openProject exactly (figure-v1 P4).
       if (a.kind === "svg") {
+        let manifest: FluxPlotManifest | undefined;
+        let recipe: unknown;
         const mpath = joinPath(root, SUB, "assets", `${a.id}.fluxplot.json`);
         if (await fig.exists(mpath)) {
-          const manifest = JSON.parse(await fig.readText(mpath)) as FluxPlotManifest;
-          let recipe: unknown;
+          manifest = JSON.parse(await fig.readText(mpath)) as FluxPlotManifest;
           const rpath = joinPath(root, SUB, "assets", `${a.id}.recipe.json`);
           if (await fig.exists(rpath)) recipe = JSON.parse(await fig.readText(rpath));
-          cachePlot(a.id, new TextDecoder().decode(bytes), manifest, recipe);
         }
+        cachePlot(a.id, new TextDecoder().decode(bytes), manifest, recipe);
       }
     } catch {
       /* missing asset bytes — skip */
@@ -211,8 +216,12 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
     if (isNew) a.path = `assets/${a.id}.${a.kind}`; // ensure a path for the index
     if (!isNew && !isAssetDirty(a.id)) continue; // unchanged → skip the byte write
     await fig.writeFile(joinPath(root, SUB, a.path), dataUrlToBytes(url));
+    // NEVER persist a DERIVED manifest (same guard as io.ts writeProjectTo):
+    // sidecar presence is the fluxplot/vanilla discriminator, and re-deriving
+    // at every load keeps deriver improvements retroactive — a written derived
+    // sidecar would freeze it and misclassify the vanilla svg as a fluxplot.
     const man = manifests[a.id];
-    if (man) {
+    if (man && !isDerivedManifest(man)) {
       await fig.writeText(joinPath(root, SUB, "assets", `${a.id}.fluxplot.json`), JSON.stringify(man, null, 2));
       const rec = recipes[a.id];
       if (rec !== undefined)
@@ -357,6 +366,17 @@ export async function readFigSource(root: string): Promise<FigSource> {
       /* skip unreadable canvas */
     }
   }
+  // Same migration every loader runs (legacy type:"svg" → plot, …) — this is a
+  // read-only view for the Paper module / slide embedFigure, so unmigrated
+  // on-disk docs must still render through the current element union.
+  migrateProject({
+    version: 2,
+    name: "",
+    canvases: [],
+    figures: Object.values(figures),
+    assets: index.assets ?? [],
+    palette: [],
+  });
 
   const assetData: Record<string, string> = {};
   for (const a of index.assets ?? []) {

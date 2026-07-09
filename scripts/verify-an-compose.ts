@@ -46,7 +46,7 @@ try {
   // Inspect the saved model: 10 panels + 10 labels; grid = 5 cols × 2 rows.
   const { project } = await core.loadFigModel(root);
   const fig = project.figures.find((f) => f.id === "growth")!;
-  const panels = fig.elements.filter((e) => e.type === "plot" || e.type === "svg");
+  const panels = fig.elements.filter((e) => e.type === "plot"); // P4: every svg IS a plot
   const labels = fig.elements.filter((e) => e.type === "text" && (e as { panelLabel?: boolean }).panelLabel);
   assert(panels.length === 10, `10 plot panels on the figure (got ${panels.length})`);
   assert(labels.length === 10, `10 panel labels (got ${labels.length})`);
@@ -54,23 +54,34 @@ try {
   const ys = new Set(panels.map((e) => Math.round(e.y))).size;
   assert(xs === 5 && ys === 2, `grid is 5 cols × 2 rows (got ${xs}×${ys})`);
 
-  // The sidecar'd plot is a SEMANTIC panel carrying its source (for regenerate).
-  const semantic = panels.find((e) => e.type === "plot") as { source?: { manifestPath?: string } } | undefined;
-  assert(semantic?.source?.manifestPath?.endsWith("p0.fluxplot.json"), "plot 0 imported as a semantic panel with source");
+  // The sidecar'd plot carries its manifest source (for regenerate); the other
+  // nine are vanilla plots — svgPath provenance only, no manifestPath (the
+  // fluxplot/vanilla discriminator).
+  const withManifest = panels.filter((e) => !!(e as { source?: { manifestPath?: string } }).source?.manifestPath);
+  assert(
+    withManifest.length === 1 && (withManifest[0] as { source?: { manifestPath?: string } }).source?.manifestPath?.endsWith("p0.fluxplot.json"),
+    "exactly plot 0 imported as a FLUXPLOT panel (manifestPath source)",
+  );
+  assert(
+    panels.every((e) => !!(e as { source?: { svgPath?: string } }).source?.svgPath),
+    "every panel (vanilla included) records svgPath provenance",
+  );
 
   // Figure sized to content (10 × 300-wide panels won't fit in a default page).
   assert(fig.width > 300 && fig.height > 220, `figure sized to content (${fig.width}×${fig.height})`);
 
-  // Render faithfully: all 10 panels present in the standalone SVG. The 9 plain
-  // panels are <image>; the 1 semantic panel (plot 0) is INLINED as a nested
-  // <svg> with prefixed ids so its per-part overrides bake in (WS3 fidelity).
+  // Render faithfully: all 10 panels present in the standalone SVG — and ALL
+  // inlined as nested <svg> with prefixed ids (figure-v1 P4: vanilla svgs are
+  // semantic plots with derived manifests; ZERO <image> for svg content — real
+  // text/vectors end-to-end).
   const svg = await core.renderFigureSvg(root, "growth");
   const imgs = (svg.match(/<image/g) || []).length;
   const inlined = (svg.match(/<svg/g) || []).length - 1; // minus the outer figure <svg>
   assert(
-    imgs === 9 && inlined === 1 && imgs + inlined === 10,
-    `render contains all 10 panels (${imgs} <image> + ${inlined} inlined semantic)`,
+    imgs === 0 && inlined === 10,
+    `render inlines all 10 panels as vectors (${imgs} <image> + ${inlined} inlined)`,
   );
+  assert(/<text[^>]*>plot 0<\/text>/.test(svg) || svg.includes(">plot 0<"), "vanilla panel text stays REAL <text> in the render");
 
   // Caption stub written + reindexed manifest sees the figure with its panels.
   const cap = await core.captionFor(root, "growth");

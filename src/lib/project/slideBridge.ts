@@ -12,6 +12,7 @@ import type { Deck, SlideElement } from "../slide/types";
 import { createDeck as createDeckModel } from "../slide/ops";
 import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen } from "../slide/store";
 import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
+import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { readFigSource } from "./figbridge";
 import { figureToSvg } from "../export";
@@ -265,13 +266,20 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
   const fig = fileBridge();
   const assetData: Record<string, string> = {};
 
-  // 1. deck-local media (slides/<id>/assets/*) → data URLs.
+  // 1. deck-local media (slides/<id>/assets/*) → data URLs. Every svg asset is
+  // ALSO cached as an inline semantic plot (derived manifest inside cachePlot),
+  // so a plot element referencing a deck-local svg (incl. legacy `type:"svg"`
+  // elements converted at load) renders live DOM instead of a placeholder —
+  // the slide mirror of io.ts openProject / figbridge loadFigInto (P4).
   if (fig) {
     for (const a of deck.assets ?? []) {
       if (!a.path) continue;
       try {
         const bytes = new Uint8Array(await fig.readFile(joinPath(root, "slides", deck.id, a.path)));
         assetData[a.id] = bytesToDataUrl(bytes, mimeForKind(a.kind));
+        if (a.kind === "svg" && !hasPlotDom(a.id)) {
+          cachePlot(a.id, new TextDecoder().decode(bytes));
+        }
       } catch {
         /* missing media — element shows a placeholder */
       }
@@ -280,11 +288,19 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
 
   // 2. semantic plots referenced by plot elements → the plot cache.
   if (fig) {
+    // A DERIVED manifest (synthesized at cachePlot for a manifest-less svg)
+    // does not count as "have" here: the real .fluxplot.json sidecar must
+    // still be found + backfilled over it, or a plot cached before its
+    // manifest loaded would never heal (Auto-animate stays disabled).
+    const haveReal = (assetId: string) => {
+      const m = get(plotManifests)[assetId];
+      return !!m && !isDerivedManifest(m);
+    };
     const plots = deck.slides.flatMap((s) => s.elements).filter((e): e is Extract<SlideElement, { type: "plot" }> => e.type === "plot");
     for (const el of plots) {
       if (!el.source?.svgPath) continue;
       const haveDom = hasPlotDom(el.assetId);
-      const haveManifest = !!get(plotManifests)[el.assetId];
+      const haveManifest = haveReal(el.assetId);
       if (haveDom && haveManifest) continue; // fully cached — nothing to do
       try {
         // Prefer an explicit manifestPath; otherwise fall back to the
@@ -322,7 +338,7 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
       if (t.preset === "morph" && t.to?.assetId) morphIds.add(t.to.assetId);
     }
     for (const assetId of morphIds) {
-      if (hasPlotDom(assetId) && get(plotManifests)[assetId]) continue;
+      if (hasPlotDom(assetId) && haveReal(assetId)) continue;
       const el = plots.find((p) => p.assetId === assetId);
       const svgPath = el?.source?.svgPath ?? `plots/${assetId}.svg`;
       const manifestPath = el?.source?.manifestPath ?? svgPath.replace(/\.svg$/i, ".fluxplot.json");

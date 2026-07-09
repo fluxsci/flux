@@ -299,16 +299,16 @@
     await saveStyleToLibrary(st);
   }
 
-  // --- content scale (svg/plot): the K tool's persisted geometric factor.
+  // --- content scale (plot): the K tool's persisted geometric factor.
   // Plain resize keeps text/strokes pt-true; this is the explicit escape hatch.
   function setContentScale(v: number) {
     updateSelected((el) => {
-      if (el.type === "svg" || el.type === "plot") el.contentScale = Math.max(0.01, v);
+      if (el.type === "plot") el.contentScale = Math.max(0.01, v);
     });
   }
   function resetContentScale() {
     updateSelected((el) => {
-      if (el.type === "svg" || el.type === "plot") delete el.contentScale;
+      if (el.type === "plot") delete el.contentScale;
     });
   }
 </script>
@@ -446,14 +446,14 @@
             <button class="true-size" title="Reset to the source's true physical size ({mmStr(physSize.width)} × {mmStr(physSize.height)} mm)" on:click={resetToPhysical}>True size</button>
           {/if}
         </p>
-        {#if single.type === "svg" || single.type === "plot"}
+        {#if single.type === "plot"}
           <!-- The K/Scale tool's persisted geometric factor: plain resize keeps
                text/strokes pt-true; content scale multiplies glyphs + strokes. -->
           <div class="row wh">
             <NumberField label="Content scale" value={single.contentScale ?? 1} min={0.01} step={0.05}
               title="Geometric scale of the plot's text/strokes (the K tool writes this; 1 = true point sizes)"
               on:commit={(e) => setContentScale(e.detail)}
-              on:scrub={(e) => scrubSelected((el) => { if (el.type === "svg" || el.type === "plot") el.contentScale = Math.max(0.01, e.detail); })} />
+              on:scrub={(e) => scrubSelected((el) => { if (el.type === "plot") el.contentScale = Math.max(0.01, e.detail); })} />
             {#if (single.contentScale ?? 1) !== 1}
               <button class="true-size" title="Reset content scale to 1 (true point sizes)" on:click={resetContentScale}>1×</button>
             {/if}

@@ -430,9 +430,10 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       let nid: string | null = null;
       store.commit((p) => {
         const phys = ops.assetDisplaySize(p, assetId);
+        // PNG-only (figure-v1 P4): the old `kind:"svg"` variant is gone — an
+        // svg asset is a semantic plot, placed via add_plot.
         nid = ops.addImagePanel(p, f, {
           assetId,
-          kind: c.kind === "svg" ? "svg" : "image",
           x: num(c.x) ?? 0,
           y: num(c.y) ?? 0,
           width: num(c.width) ?? phys?.width ?? 320,

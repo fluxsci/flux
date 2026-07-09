@@ -32,7 +32,7 @@
 <g {transform} opacity={e.opacity ?? 1}>
   {#if e.type === "plot"}
     <PlotElement element={e} />
-  {:else if e.type === "image" || e.type === "svg"}
+  {:else if e.type === "image"}
     {#if $assetData[e.assetId]}
       <image
         x={e.x}

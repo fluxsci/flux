@@ -9,10 +9,11 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import Ajv from "ajv";
-import { safeJoin, journal, loadManifest, getClient, renderFigureSvg } from "./index";
+import { safeJoin, journal, loadManifest, getClient, renderFigureSvg, ensureDom } from "./index";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
+import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
 import { animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
@@ -81,11 +82,13 @@ export async function listDecks(root: string): Promise<DeckSummary[]> {
   return out;
 }
 
-/** loadDeck: read slides/<deckId>/deck.json. */
+/** loadDeck: read slides/<deckId>/deck.json (migrated to the current element
+ *  model — legacy `type:"svg"` elements become semantic plots, same seam the
+ *  GUI's loadDeckModel runs; any mutateDeck round-trip persists it). */
 export async function loadDeck(root: string, deckId: string): Promise<Deck> {
   const p = await resolveDeckPath(root, deckId);
   if (!(await exists(p))) throw new Error(`deck not found: ${deckId} (${path.relative(root, p)})`);
-  return readJSON<Deck>(p);
+  return slideOps.migrateDeck(await readJSON<Deck>(p));
 }
 
 /** Ensure a deck is registered in project.json.slides[] (id/path/title/order). */
@@ -533,6 +536,15 @@ export async function gatherDeckPayload(
       const svg = await fs.readFile(safeJoin(root, sp), "utf8");
       let m: FluxPlotManifest | undefined;
       try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* optional sidecar */ }
+      // The SAME preparePlot seam the app's cachePlot (and the export runtime's
+      // boot) runs: a sidecar-less vanilla svg gets a DERIVED manifest, a real
+      // one gets orphan augmentation — so the payload manifest matches what the
+      // runtime will compute, and the parity audit below sees the truth. The
+      // export snapshot MAY carry a derived manifest (the never-persist rule is
+      // about project sidecars, not this self-contained payload; the runtime
+      // re-derives identically from the same bytes anyway).
+      await ensureDom();
+      m = preparePlot(svg, m).manifest ?? m;
       plots[assetId] = { svg, manifest: m ?? ({ axes: [], series: [] } as unknown as FluxPlotManifest) };
     } catch { warnings.push(`plot "${assetId}" not found (${sp}) — it will be missing from the export`); }
   };
@@ -551,9 +563,18 @@ export async function gatherDeckPayload(
     }
   }
 
-  // Parity audit: a part-targeting track whose plot has no parts tree cannot
-  // resolve group parts in the export (resolveTargets falls back to the literal
-  // id). The editor may still have looked animated via a cached manifest.
+  // Parity audit: a part-targeting track whose part id the gathered manifest
+  // does not cover cannot resolve to real nodes in the export (resolveTargets
+  // falls back to the literal id). Every gathered plot HAS a manifest now
+  // (derived when the sidecar is gone), so the honest check is id coverage:
+  // e.g. a fluxplot deck whose .fluxplot.json vanished derives a manifest
+  // WITHOUT the manifest-only group ids (axis.x.ticks, …) its tracks target —
+  // the editor may still have looked animated via a cached manifest.
+  const partIdx = new Map<string, Record<string, unknown>>();
+  const coveredPart = (assetId: string, part: string): boolean => {
+    if (!partIdx.has(assetId)) partIdx.set(assetId, buildPartIndex(plots[assetId]?.manifest));
+    return part in partIdx.get(assetId)!;
+  };
   const partWarned = new Set<string>();
   for (const s of deck.slides) {
     for (const b of s.beats) for (const t of b.tracks) {
@@ -561,9 +582,9 @@ export async function gatherDeckPayload(
       const el = s.elements.find((e) => e.id === t.target);
       if (!el || el.type !== "plot" || partWarned.has(el.assetId)) continue;
       const g = plots[el.assetId];
-      if (g && !(g.manifest as unknown as { parts?: unknown }).parts) {
+      if (g && !coveredPart(el.assetId, t.part)) {
         partWarned.add(el.assetId);
-        warnings.push(`plot "${el.assetId}" has part-level animations but no parts tree in its manifest — those animations will not play in the export`);
+        warnings.push(`plot "${el.assetId}" has part-level animations (e.g. "${t.part}") its manifest does not cover — no parts tree for them, so those animations will not play in the export (is the .fluxplot.json sidecar missing?)`);
       }
     }
   }

@@ -8,7 +8,7 @@
 // migrated or hand-edited files.
 // ---------------------------------------------------------------------------
 
-import type { Project, TextStyle } from "./types";
+import type { Project, SemanticPlotElement, TextStyle } from "./types";
 
 // Seeded once per project when it has no textStyles at all (absent ≠ emptied:
 // a user who deleted every style keeps their empty list). Fixed ids so
@@ -20,12 +20,28 @@ export const DEFAULT_TEXT_STYLES: TextStyle[] = [
 ];
 
 /** Bring a loaded project up to model version 2. Mutates and returns `p`.
+ *  - `type:"svg"` elements (the v1 opaque-`<image>` kind, deleted from the
+ *    union) → `type:"plot"`: every SVG is a semantic plot now (figure-v1 P4 —
+ *    a vanilla file gets a DERIVED manifest at cachePlot). Geometry/id/flags
+ *    are untouched; `source.svgPath` is best-effort from the asset entry
+ *    (provenance only — rendering keys off assetId); NO manifestPath, since
+ *    sidecar presence is the fluxplot/vanilla discriminator and a legacy
+ *    SvgElement never had one.
  *  - text `autoWidth` (v1 boolean) → `sizing` ("auto" | "fixed"); the legacy
  *    key is deleted. Already-migrated elements pass through untouched.
  *  - seeds the default named text styles when the project has none. */
 export function migrateProject(p: Project): Project {
   for (const f of p.figures ?? []) {
     for (const e of f.elements ?? []) {
+      if ((e as { type: string }).type === "svg") {
+        const el = e as unknown as SemanticPlotElement;
+        (el as { type: string }).type = "plot";
+        if (!el.overrides) el.overrides = {};
+        if (!el.source) {
+          const asset = (p.assets ?? []).find((a) => a.id === el.assetId);
+          el.source = { svgPath: asset?.path ?? "" };
+        }
+      }
       if (e.type !== "text") continue;
       const legacy = e as unknown as { autoWidth?: boolean; sizing?: unknown };
       if (legacy.sizing !== "auto" && legacy.sizing !== "auto-h" && legacy.sizing !== "fixed") {

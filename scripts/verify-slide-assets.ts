@@ -4,6 +4,10 @@
 // `manifestPath` — decks authored before manifestPath was persisted. The manifest
 // is found via the `.fluxplot.json` SIBLING of the SVG. Reproduces the user's
 // KDFLUX1 bug ("no build manifest" on a plot whose sidecar sits right next to it).
+// figure-v1 P4 update: a sidecar-less svg is no longer manifest-less — cachePlot
+// DERIVES one (spec "fluxplot-derived/1", isDerivedManifest) — so the invariants
+// are: bare svg ⇒ derived manifest; real sidecar ⇒ real manifest, and it must
+// backfill OVER a derived one (a derived manifest never blocks the heal).
 // Self-contained: a temp project with one synthetic semantic plot + one bare SVG.
 //   npx tsx scripts/verify-slide-assets.ts
 import * as fs from "node:fs/promises";
@@ -23,6 +27,7 @@ const fig = {
 (globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
 
 const { plotManifests, plotDom, cachePlot, clearPlots } = await import("../src/lib/plot/store");
+const { isDerivedManifest } = await import("../src/lib/plot/derive");
 const slideOps = await import("../src/lib/slide/ops");
 const { loadDeckAssets } = await import("../src/lib/project/slideBridge");
 const { get } = await import("svelte/store");
@@ -35,7 +40,7 @@ const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g id="
 const MANIFEST = { spec: "fluxplot", schemaVersion: "0.2.0", parts: { id: "figure", role: "figure", children: [] }, build: { order: ["axis.x"], presets: { axis: { animation: "draw-on", durationMs: 400 } } } };
 await fs.writeFile(`${ROOT}/plots/semantic.svg`, SVG);
 await fs.writeFile(`${ROOT}/plots/semantic.fluxplot.json`, JSON.stringify(MANIFEST));
-await fs.writeFile(`${ROOT}/plots/bare.svg`, SVG); // no sidecar → non-semantic
+await fs.writeFile(`${ROOT}/plots/bare.svg`, SVG); // no sidecar → derived manifest (P4)
 
 // a deck whose plot elements carry ONLY svgPath (the pre-manifestPath shape)
 const deck = slideOps.createDeck({ id: "d", title: "d" });
@@ -51,16 +56,23 @@ await loadDeckAssets(ROOT, deck);
 assert(plotDom.has("semantic"), "semantic plot's SVG is cached (it renders)");
 assert(!!get(plotManifests)["semantic"], "its manifest is loaded via the .fluxplot.json SIBLING → Auto-animate ENABLED");
 assert((get(plotManifests)["semantic"] as typeof MANIFEST)?.build?.order?.length === 1, "the loaded manifest carries the build hints");
+assert(!isDerivedManifest(get(plotManifests)["semantic"]), "…and it is the REAL sidecar, not a derived stand-in");
 assert(plotDom.has("bare"), "the non-semantic plot still renders");
-assert(!get(plotManifests)["bare"], "the non-semantic plot has no manifest (correctly — no sidecar)");
+// figure-v1 P4: EVERY svg is a semantic plot — a sidecar-less file gets a
+// DERIVED manifest at cachePlot (spec marker), so it is x-rayable/animatable.
+assert(!!get(plotManifests)["bare"], "the sidecar-less plot has a manifest too (derived at cachePlot)");
+assert(isDerivedManifest(get(plotManifests)["bare"]), "…carrying the derived spec marker (fluxplot-derived/1) — never a fake fluxplot");
+assert(!!(get(plotManifests)["bare"] as { parts?: { id?: string } }).parts, "…with a parts tree synthesized from the DOM");
 
-// 2. heal: a plot whose dom was cached WITHOUT a manifest (a live broken session)
-//    gets its manifest backfilled on the next loadDeckAssets — no restart needed.
+// 2. heal: a plot whose dom was cached WITHOUT its sidecar (a live broken
+//    session) now carries a DERIVED manifest — the next loadDeckAssets must
+//    still find the real sibling and backfill it over the derived one.
 clearPlots();
-cachePlot("semantic", SVG, undefined as never); // dom present, manifest missing — the reported state
-assert(plotDom.has("semantic") && !get(plotManifests)["semantic"], "broken state reproduced: dom cached, manifest missing");
+cachePlot("semantic", SVG); // dom cached sidecar-less — manifest is DERIVED, not the real one
+assert(plotDom.has("semantic") && isDerivedManifest(get(plotManifests)["semantic"]), "broken state reproduced: dom cached, only a derived manifest");
 await loadDeckAssets(ROOT, deck);
-assert(!!get(plotManifests)["semantic"], "in-app reload BACKFILLS the missing manifest (heals without re-parsing the SVG)");
+assert(!!get(plotManifests)["semantic"] && !isDerivedManifest(get(plotManifests)["semantic"]), "in-app reload BACKFILLS the real manifest over the derived one (heals without re-parsing the SVG)");
+assert((get(plotManifests)["semantic"] as typeof MANIFEST)?.build?.order?.length === 1, "…and the healed manifest carries the build hints");
 
 // 3. idempotent
 const before = get(plotManifests)["semantic"];

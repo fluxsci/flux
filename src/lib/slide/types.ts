@@ -131,10 +131,11 @@ export interface Slide {
 // ---------------------------------------------------------------------------
 
 /** A slide element is the figure `Element` union (text|rect|ellipse|line|path|
- *  image|svg|plot — reused verbatim, so a plot is the same addressable
- *  `SemanticPlotElement`) PLUS four slide-only types. All extend `ElementBase`,
- *  so position/size/rotation/opacity/group + the editor's drag/resize/snap are
- *  uniform across every kind. */
+ *  image|plot — reused verbatim, so a plot is the same addressable
+ *  `SemanticPlotElement`; every svg IS a plot since figure-v1 P4, and
+ *  migrateDeck converts legacy `type:"svg"` on load) PLUS four slide-only
+ *  types. All extend `ElementBase`, so position/size/rotation/opacity/group +
+ *  the editor's drag/resize/snap are uniform across every kind. */
 export type SlideElement =
   | Element
   | TextBoxElement
