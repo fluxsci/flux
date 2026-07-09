@@ -206,6 +206,49 @@ try {
   }, seeded.gids);
   ok(!!scopedElRows && scopedElRows.own && !scopedElRows.top, `PartsTree scopes the group embed to its own subtree (${scopedElRows?.keys.join(", ")})`);
 
+  // --- 7. member addressing (figure-v1): group members are their own rows;
+  //        ⊕ authors Track {part: "el:<memberId>"} that resolves on the stage ---
+  const memberRowKey = `${embId}|el:el-a-rect`;
+  const memberRow = await page.evaluate((k) => {
+    const r = document.querySelector(`.parts .row[data-rowkey="${k}"]`);
+    return r ? { label: r.querySelector(".pl")?.textContent?.trim() } : null;
+  }, memberRowKey);
+  ok(!!memberRow, `group member has its own PartsTree row (${memberRowKey} → ${memberRow?.label})`);
+
+  await page.hover(`.parts .row[data-rowkey="${memberRowKey}"]`);
+  await sleep(150);
+  await page.click(`.parts .row[data-rowkey="${memberRowKey}"] .qa button`); // ⊕ in
+  await sleep(400);
+  const memberTrack = await page.evaluate((emb) => {
+    const F = window.__flux;
+    const d = F.get(F.slide.deck);
+    const sid = F.get(F.slide.activeSlideId);
+    const s = d.slides.find((x) => x.id === sid);
+    let found = null;
+    s.beats.forEach((b, bi) => {
+      for (const t of b.tracks) if (t.target === emb && t.part?.startsWith("el:")) found = { part: t.part, preset: t.preset, beat: bi };
+    });
+    return found;
+  }, embId);
+  ok(
+    !!memberTrack && memberTrack.part === "el:el-a-rect" && memberTrack.preset === "fade" && memberTrack.beat > 0,
+    `⊕ on a member row authored Track {part: "el:<memberId>"} (${JSON.stringify(memberTrack)})`,
+  );
+
+  const memberSel = '[id="growth__el:el-a-rect"]';
+  const memberOpAt = async (beat) => {
+    await page.evaluate((b) => window.__flux.slide.activeBeat.set(b), beat);
+    await sleep(450);
+    return page.evaluate((sel) => {
+      const n = document.querySelector(`.stage-viewport ${sel}`) ?? document.querySelector(sel);
+      return n ? n.style.opacity : null;
+    }, memberSel);
+  };
+  const mRest = await memberOpAt(0);
+  const mBuild = await memberOpAt(memberTrack.beat);
+  ok(mRest === "0", `member wrapper hidden at the resting beat (opacity "${mRest}")`);
+  ok(mBuild === "1", `…and revealed on its build beat (opacity "${mBuild}")`);
+
   // --- evidence screenshot (animator open, group rows visible) ------------------
   await page.evaluate((b) => window.__flux.slide.activeBeat.set(b), track.beat);
   await sleep(400);

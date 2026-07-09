@@ -20,6 +20,7 @@
     redoDeck,
     canUndo,
     canRedo,
+    figureMembers,
   } from "../../../lib/slide/store";
   import {
     listProjectDecks,
@@ -239,7 +240,7 @@
       if (!previewHost) { previewing = false; return; }
       const opts = {
         theme, assetUrl: resolvers.assetUrl, figureSvg: resolvers.figureSvg,
-        plotGen: get(plotGen), mode: "present" as const, plotManifest: (id: string) => get(plotManifests)[id],
+        plotGen: get(plotGen), mode: "present" as const, plotManifest: (id: string) => get(plotManifests)[id], figureMember: (fid: string, mid: string) => get(figureMembers)[fid]?.[mid],
         // A talk previews with motion regardless of the OS setting — matches
         // Present and the exported runtime (which force it off too).
         reducedMotion: false,

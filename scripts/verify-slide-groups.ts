@@ -101,7 +101,7 @@ assert(
   const f = baseFig({ id: "flat", elements: [rect("a", 10, "#d62728"), rect("b", 120, "#2ca02c"), { ...rect("c", 240, "#1f77b4"), hidden: true } as Element], background: "#fffcf0" });
   const body = f.elements
     .filter((e) => !e.hidden)
-    .map((e) => elementToSvg(e, () => undefined))
+    .map((e) => `<g id="flat__el:${e.id}">${elementToSvg(e, () => undefined)}</g>`)
     .filter(Boolean)
     .join("\n  ");
   const expected =
@@ -110,7 +110,7 @@ assert(
     `width="${f.width}" height="${f.height}" ` +
     `viewBox="0 0 ${f.width} ${f.height}">\n  ` +
     `<rect x="0" y="0" width="${f.width}" height="${f.height}" fill="#fffcf0"/>\n  ${body}\n</svg>`;
-  assert(figureToSvg(f, () => undefined) === expected, "ungrouped figure: tree render is BYTE-identical to the flat render");
+  assert(figureToSvg(f, () => undefined) === expected, "ungrouped figure: tree render = flat render + per-element `el:` wrappers, byte-exact");
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +135,15 @@ console.log("1b) figureToSvg group SCOPE (group insertables: embed ONE group)");
 
   const el = slideOps.makeEmbedFigure({ figureId: "figX", groupId: "gA", x: 0, y: 0, width: 300, height: 200 });
   assert(el.groupId === "gA", "makeEmbedFigure carries groupId into the deck element");
+}
+
+// ---------------------------------------------------------------------------
+console.log("1c) member addressing: every element gets an `el:` wrapper id");
+// ---------------------------------------------------------------------------
+{
+  assert(svg.includes('id="figX__el:r1"') && svg.includes('id="figX__el:r2"'), "group members carry per-element wrapper ids");
+  assert(svg.includes('id="figX__el:r3"'), "loose elements are addressable too");
+  assert(!svg.includes('id="figX__el:r4"'), "hidden-group members get no wrapper (not in the markup at all)");
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +195,79 @@ assert(op() === "0", "back to beat 0 re-hides (reversible / O(1) nav)");
   const s2: Slide = { ...slide, beats: [slide.beats[0], { id: "u1", tracks: [{ target: "emb", part: "group:missing", preset: "fade", duration: 200 }] }] };
   const sp = computeSlideAnims(s2, rendered, camera, stage, opts);
   assert(sp.length === 0, "a track on an unknown group id resolves to nothing (no crash)");
+}
+
+// member addressing through the player: "el:<mid>" and "el:<mid>/<partId>"
+{
+  const s4: Slide = {
+    ...slide,
+    beats: [slide.beats[0], { id: "m1", label: "arrow in", tracks: [{ target: "emb", part: "el:r1", preset: "fade", start: 0, duration: 200 }] }],
+  };
+  const sp = computeSlideAnims(s4, rendered, camera, stage, opts);
+  const r1Node = wrap.querySelector('[id="figX__el:r1"]') as unknown as HTMLElement;
+  assert(sp.length === 1 && sp[0].node === (r1Node as never), '"el:<memberId>" resolves the per-element wrapper');
+  applyStatic(sp, 0);
+  assert(((r1Node.style as unknown as { opacity?: string }).opacity ?? "") === "0", "member hidden before its beat");
+  applyStatic(sp, 1);
+  assert(((r1Node.style as unknown as { opacity?: string }).opacity ?? "") === "1", "member revealed on its beat");
+}
+{
+  // a member PLOT: figure markup carries `<mid>__<partId>` ids (plot markup is
+  // prefixed by its figure ELEMENT id); container part ids fan out through the
+  // member plot's manifest via opts.figureMember + opts.plotManifest.
+  const figP = baseFig({
+    id: "figP",
+    elements: [
+      { type: "plot", id: "px", x: 10, y: 10, width: 300, height: 200, rotation: 0, assetId: "pa", overrides: {}, groupId: "gP" } as unknown as Element,
+      rect("ar1", 320, "#100f0f", "gP"),
+    ],
+    groups: { gP: { id: "gP", name: "f1a_spectrum" } },
+  });
+  const pSvg = figureToSvg(figP, () => undefined, (e) =>
+    e.type === "plot" ? '<g id="px__axis.x.spine"><path d="M0 0h1"/></g><g id="px__s.line"><path d="M0 0h2"/></g><g id="px__s.pts"><path d="M0 0h3"/></g>' : undefined,
+  );
+  const MINI = { parts: { id: "figure", children: [
+    { id: "axis.x.spine" },
+    { id: "series.main", role: "group", members: ["s.line", "s.pts"] },
+  ] } } as never;
+  const pWrap = document.createElement("div") as unknown as HTMLElement;
+  pWrap.innerHTML = pSvg;
+  const embP = { type: "embedFigure", id: "embP", figureId: "figP", groupId: "gP", x: 0, y: 0, width: 600, height: 420, rotation: 0 } as unknown as Slide["elements"][number];
+  const sP: Slide = {
+    id: "sp1",
+    elements: [embP],
+    beats: [
+      { id: "b0", tracks: [] },
+      { id: "b1", label: "axes", tracks: [{ target: "embP", part: "el:px/axis.x.spine", preset: "fade", start: 0, duration: 200 }] },
+      { id: "b2", label: "data", tracks: [{ target: "embP", part: "el:px/series.main", preset: "fade", start: 0, duration: 200 }] },
+      { id: "b3", label: "arrow", tracks: [{ target: "embP", part: "el:ar1", preset: "fade", start: 0, duration: 200 }] },
+    ],
+  };
+  const optsP = {
+    ...opts,
+    plotManifest: (aid: string) => (aid === "pa" ? (MINI as never) : undefined),
+    figureMember: (fid: string, mid: string) => (fid === "figP" && mid === "px" ? { assetId: "pa" } : undefined),
+  } as never;
+  const spP = computeSlideAnims(sP, { elements: new Map([["embP", pWrap]]) }, camera, stage, optsP);
+  assert(spP.length === 4, `axes(1) + data-fanout(2) + arrow(1) specs (${spP.length})`);
+  const idOf = (n: unknown) => (n as { getAttribute(a: string): string | null }).getAttribute?.("id");
+  assert(spP.some((x) => idOf(x.node) === "px__axis.x.spine"), '"el:px/axis.x.spine" resolves the plot part (leaf)');
+  assert(spP.filter((x) => ["px__s.line", "px__s.pts"].includes(idOf(x.node) ?? "")).length === 2, 'container part id ("series.main") fans out to leaves via the member manifest');
+  assert(spP.some((x) => idOf(x.node) === "figP__el:ar1"), "the arrow member resolves alongside, on its own beat");
+  const nodes = {
+    spine: pWrap.querySelector('[id="px__axis.x.spine"]'),
+    line: pWrap.querySelector('[id="px__s.line"]'),
+    ar: pWrap.querySelector('[id="figP__el:ar1"]'),
+  } as Record<string, HTMLElement | null>;
+  const opAt = (n: HTMLElement | null) => ((n?.style as unknown as { opacity?: string })?.opacity ?? "");
+  applyStatic(spP, 0);
+  assert(opAt(nodes.spine) === "0" && opAt(nodes.line) === "0" && opAt(nodes.ar) === "0", "beat 0: axes, data, arrow all pre-reveal");
+  applyStatic(spP, 1);
+  assert(opAt(nodes.spine) === "1" && opAt(nodes.line) === "0" && opAt(nodes.ar) === "0", "beat 1: axes in, data + arrow still hidden");
+  applyStatic(spP, 2);
+  assert(opAt(nodes.line) === "1" && opAt(nodes.ar) === "0", "beat 2: data in, arrow still hidden");
+  applyStatic(spP, 3);
+  assert(opAt(nodes.ar) === "1", "beat 3: the arrow lands last — the owner's exact scenario");
 }
 
 // regression: plot-part targeting is untouched by the embedFigure branch
@@ -274,6 +356,10 @@ console.log("4) export parity: gatherDeckPayload figureSvg carries the wrappers"
     assert(!!scopedSvg, "payload gathers a scoped entry per (figure, group) embed");
     assert(scopedSvg.includes(`id="${figureId}__group:${g.groupId}"`), "scoped payload svg keeps the group wrapper");
     assert(scopedSvg !== figSvg && !/viewBox="0 0 /.test(scopedSvg), "scoped svg is the tight-bbox render, not the whole figure");
+
+    // member metadata rides the payload (offline "el:" resolution)
+    const pm = (payload as { figureMembers?: Record<string, Record<string, { type: string }>> }).figureMembers?.[figureId];
+    assert(!!pm && pm.r1?.type === "rect" && pm.r2?.type === "rect", "payload.figureMembers carries member metadata per figure");
 
     // figure-side group eye still wins: hide the group, re-gather, wrapper gone
     await core.setGroupState(TMP, g.groupId, { hidden: true });

@@ -10,7 +10,7 @@ import { get } from "svelte/store";
 import { fileBridge, joinPath, type ProjectManifest } from "./types";
 import type { Deck, SlideElement } from "../slide/types";
 import { createDeck as createDeckModel } from "../slide/ops";
-import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen, figureGroups } from "../slide/store";
+import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen, figureGroups, figureMembers, type FigureMemberInfo } from "../slide/store";
 import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
@@ -406,6 +406,7 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
   // the present player, AND the offline export without further plumbing.
   let figSvgCache: Record<string, string> = {};
   const figGroupTrees: Record<string, FigureGroupNode[]> = {};
+  const figMemberInfo: Record<string, Record<string, FigureMemberInfo>> = {};
   const needsFigures = deck.slides.some((s) => s.elements.some((e) => e.type === "embedFigure"));
   if (needsFigures && fig) {
     try {
@@ -413,6 +414,33 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
       for (const [fid, f] of Object.entries(src.figures)) {
         figSvgCache[fid] = figureToSvg(f, (aid) => src.assetData[aid]);
         figGroupTrees[fid] = figureGroupTree(f);
+        // Member metadata + member plot MANIFESTS: the PartsTree lists a
+        // group's members and expands member plots into their part trees;
+        // "el:<mid>/<partId>" tracks fan out through the manifest. Don't
+        // clobber a live figure-mode cache (hasPlotDom) — just fill gaps.
+        const members: Record<string, FigureMemberInfo> = {};
+        for (const e of f.elements) {
+          const info: FigureMemberInfo = { type: e.type };
+          if (e.name) info.name = e.name;
+          if (e.type === "plot") {
+            info.assetId = e.assetId;
+            if (!hasPlotDom(e.assetId)) {
+              try {
+                const sp = joinPath(root, "fig", "assets", `${e.assetId}.svg`);
+                if (await fig.exists(sp)) {
+                  let manifest: FluxPlotManifest | undefined;
+                  try {
+                    const mp = joinPath(root, "fig", "assets", `${e.assetId}.fluxplot.json`);
+                    if (await fig.exists(mp)) manifest = JSON.parse(await fig.readText(mp)) as FluxPlotManifest;
+                  } catch { /* sidecar optional — cachePlot derives */ }
+                  cachePlot(e.assetId, await fig.readText(sp), manifest);
+                }
+              } catch { /* member plot cache is best-effort */ }
+            }
+          }
+          members[e.id] = info;
+        }
+        figMemberInfo[fid] = members;
       }
       // Group-scoped embeds (figure-v1): pre-render each (figure, group) pair
       // the deck actually uses, keyed "fid::gid" (same convention as the
@@ -430,6 +458,7 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
     }
   }
   figureGroups.set(figGroupTrees);
+  figureMembers.set(figMemberInfo);
 
   return {
     assetUrl: (id) => assetData[id],

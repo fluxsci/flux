@@ -189,12 +189,18 @@ export function figureToSvg(
   },
 ): string {
   const nodeToSvg = (n: RenderNode): string => {
-    if (n.kind === "element")
+    if (n.kind === "element") {
       // Layers eyes: an element hidden itself OR by any ancestor GROUP's eye
       // (P7 registry, groups.ts) is omitted from export. effectiveHidden (not
       // just the walk's group skip) also covers stragglers/dangling ids the
       // tree renders LOOSE outside their (hidden) group's wrapper.
-      return effectiveHidden(fig, n.el) ? "" : elementToSvg(n.el, assetUrl, plotMarkup, assetSize);
+      if (effectiveHidden(fig, n.el)) return "";
+      const markup = elementToSvg(n.el, assetUrl, plotMarkup, assetSize);
+      // Per-element wrapper id: makes every member individually addressable
+      // from slides (Track part "el:<elementId>" — same grammar family as the
+      // group wrappers). Plot PARTS inside keep their own <elId>__<partId> ids.
+      return markup ? `<g id="${esc(fig.id)}__el:${esc(n.el.id)}">${markup}</g>` : "";
+    }
     if (n.def.hidden) return ""; // hidden group: whole subtree omitted, no empty wrapper
     const inner = n.children.map(nodeToSvg).filter(Boolean).join("\n  ");
     if (!inner) return ""; // every member hidden → no wrapper either

@@ -9,7 +9,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import Ajv from "ajv";
-import { safeJoin, journal, loadManifest, getClient, renderFigureSvg, ensureDom } from "./index";
+import { safeJoin, journal, loadManifest, getClient, renderFigureSvg, figureMembersOf, ensureDom } from "./index";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
@@ -512,6 +512,7 @@ export async function gatherDeckPayload(
   const assets: Record<string, string> = {};
   const plots: Record<string, { svg: string; manifest: FluxPlotManifest }> = {};
   const figures: Record<string, string> = {};
+  const figureMembers: Record<string, Record<string, { type: string; name?: string; assetId?: string }>> = {};
   const warnings: string[] = [];
 
   for (const a of deck.assets ?? []) {
@@ -564,6 +565,27 @@ export async function gatherDeckPayload(
             warnings.push(`figure "${el.figureId}" could not be rendered — its element will show a placeholder`);
           }
         }
+        // Member metadata + member plot manifests: "el:<mid>" / "el:<mid>/<partId>"
+        // tracks need them offline. Member plots live under fig/assets/ (their
+        // svg is already inside the figure markup — the manifest is what the
+        // player's part fan-out reads, keyed by assetId in payload.plots).
+        if (!figureMembers[el.figureId]) {
+          try {
+            const members = await figureMembersOf(root, el.figureId);
+            figureMembers[el.figureId] = members;
+            for (const m of Object.values(members)) {
+              if (!m.assetId || plots[m.assetId]) continue;
+              try {
+                const svg = await fs.readFile(safeJoin(root, j("fig", "assets", `${m.assetId}.svg`)), "utf8");
+                let man: FluxPlotManifest | undefined;
+                try { man = JSON.parse(await fs.readFile(safeJoin(root, j("fig", "assets", `${m.assetId}.fluxplot.json`)), "utf8")) as FluxPlotManifest; } catch { /* optional sidecar */ }
+                await ensureDom();
+                man = preparePlot(svg, man).manifest ?? man;
+                plots[m.assetId] = { svg, manifest: man ?? ({ axes: [], series: [] } as unknown as FluxPlotManifest) };
+              } catch { /* member plot manifest is best-effort */ }
+            }
+          } catch { /* member metadata is best-effort */ }
+        }
       }
     }
     for (const b of s.beats) for (const t of b.tracks) {
@@ -596,7 +618,7 @@ export async function gatherDeckPayload(
       }
     }
   }
-  return { payload: { deck, plots, figures, assets }, warnings };
+  return { payload: { deck, plots, figures, assets, ...(Object.keys(figureMembers).length ? { figureMembers } : {}) }, warnings };
 }
 
 /** export-deck: gather + emit the self-contained .html (defaults to

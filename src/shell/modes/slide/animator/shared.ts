@@ -4,7 +4,7 @@
 import type { Slide, Track, PresetName } from "../../../../lib/slide/types";
 import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { resolveTargets } from "../../../../lib/plot/tree";
-import { figureGroupName } from "../../../../lib/slide/store";
+import { figureGroupName, figureMemberName } from "../../../../lib/slide/store";
 
 export const PRESET_COLOR: Record<string, string> = {
   drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
@@ -44,6 +44,16 @@ export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, s
     const el = slide?.elements.find((e) => e.id === t.target);
     const name = el?.type === "embedFigure" ? figureGroupName(el.figureId, t.part.slice(6)) : null;
     return pre + (name ?? "group");
+  }
+  if (t.part?.startsWith("el:")) {
+    // a figure MEMBER (or a part inside a member plot): "el:<mid>[/<partId>]"
+    const el = slide?.elements.find((e) => e.id === t.target);
+    const slash = t.part.indexOf("/");
+    const mid = slash === -1 ? t.part.slice(3) : t.part.slice(3, slash);
+    const partId = slash === -1 ? null : t.part.slice(slash + 1);
+    const name = el?.type === "embedFigure" ? figureMemberName(el.figureId, mid) : null;
+    const tail = partId ? ` · ${partId.split(".").slice(-2).join(".")}` : "";
+    return pre + (name ?? "member") + tail;
   }
   if (t.part) return pre + t.part.split(".").slice(-2).join(".");
   if (t.selector?.blocks) return pre + (t.selector.blocks === "all" ? "bullets" : `block ${String(t.selector.blocks[0] ?? "")}`);

@@ -7,6 +7,7 @@
   import { get } from "svelte/store";
   import { createPlayer, renderStaticAt, type Player, type PlayerState, type PlayerOpts } from "../../../lib/slide/player/player";
   import { plotManifests } from "../../../lib/plot/store";
+  import { figureMembers } from "../../../lib/slide/store";
   import type { Deck, DeckTheme } from "../../../lib/slide/types";
 
   let {
@@ -54,7 +55,7 @@
   const nextScale = $derived(NEXT_W / deck.stage.width);
 
   function playerOpts(): PlayerOpts {
-    return { mode: "present", theme, assetUrl, figureSvg, plotManifest: (id) => get(plotManifests)[id], reducedMotion };
+    return { mode: "present", theme, assetUrl, figureSvg, plotManifest: (id) => get(plotManifests)[id], figureMember: (fid, mid) => get(figureMembers)[fid]?.[mid], reducedMotion };
   }
   function buildPlayer(at: { slide: number; beat: number }) {
     if (!mount) return;
@@ -77,6 +78,7 @@
     try {
       renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), {
         mode: "present", theme, assetUrl, figureSvg, plotManifest: (id) => get(plotManifests)[id],
+        figureMember: (fid, mid) => get(figureMembers)[fid]?.[mid],
       });
     } catch { /* a missing asset preview is non-fatal */ }
   }

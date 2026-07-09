@@ -543,6 +543,30 @@ function buildPlotMarkup(
 /** render-figure → a standalone SVG string (reuses the GUI's figureToSvg). For
  *  semantic plots the per-part overrides are baked in (faithful to the GUI);
  *  image/svg assets are inlined as data URLs. */
+/** Member metadata for one figure (elementId → {type, name?, plot assetId}) —
+ *  the slides export payload carries it so "el:<mid>/<partId>" tracks resolve
+ *  offline through the member plot's manifest. */
+export async function figureMembersOf(
+  root: string,
+  id: string,
+): Promise<Record<string, { type: string; name?: string; assetId?: string }>> {
+  const index = await readFigIndex(root);
+  if (!index) return {};
+  const { byId } = await readCanvasFiles(root, index);
+  const fig = byId[id];
+  if (!fig) return {};
+  // Same migration every loader runs (legacy type:"svg" → plot, …).
+  migrateProject({ version: 2, name: "", canvases: [], figures: [fig], assets: [], palette: [] });
+  const out: Record<string, { type: string; name?: string; assetId?: string }> = {};
+  for (const e of fig.elements) {
+    const info: { type: string; name?: string; assetId?: string } = { type: e.type };
+    if (e.name) info.name = e.name;
+    if (e.type === "plot") info.assetId = (e as { assetId: string }).assetId;
+    out[e.id] = info;
+  }
+  return out;
+}
+
 export async function renderFigureSvg(root: string, id: string, opts?: { groupId?: string }): Promise<string> {
   const index = await readFigIndex(root);
   if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");

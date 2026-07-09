@@ -15,7 +15,7 @@
   import { get } from "svelte/store";
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
   import { resizeRemap } from "../../../lib/editing";
-  import { commitDeck, selection, focusedPart, sealHistory, getClipboard, getClipboardTracks, setClipboard } from "../../../lib/slide/store";
+  import { commitDeck, selection, focusedPart, sealHistory, getClipboard, getClipboardTracks, setClipboard, figureMembers } from "../../../lib/slide/store";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
   import {
     setElementBox, deleteElements, findElement, setTextBoxText, setMathTex,
@@ -129,7 +129,7 @@
   $effect(() => {
     const gen = $plotGen; // subscribe so plot hot-swaps re-render
     if (!stageEl) return;
-    const opts = { theme, assetUrl, figureSvg, plotGen: gen, mode: "edit" as const, plotManifest: (id: string) => get(plotManifests)[id] };
+    const opts = { theme, assetUrl, figureSvg, plotGen: gen, mode: "edit" as const, plotManifest: (id: string) => get(plotManifests)[id], figureMember: (fid: string, mid: string) => get(figureMembers)[fid]?.[mid] };
     // Render into a dedicated camera layer inside the (fit-scaled) .stage so an
     // @camera move's transform zooms the content WITHOUT clobbering the stage's
     // own scale. The layer is at inset:0, so element model coords are unchanged —

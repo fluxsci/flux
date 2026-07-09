@@ -35,6 +35,10 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   theme: DeckTheme;
   /** assetId → its plot manifest (for role/series/index part targeting). */
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
+  /** (figureId, memberElementId) → the member's plot assetId, when it is a
+   *  semantic plot — lets "el:<mid>/<partId>" tracks fan a container part id
+   *  (e.g. "axis.x") out to leaves via that plot's manifest. */
+  figureMember?: (figureId: string, elementId: string) => { assetId?: string } | undefined;
   reducedMotion?: boolean;
 }
 
@@ -132,6 +136,21 @@ function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, camer
     // Animating the wrapper <g> animates the whole group (children inherit).
     const el = slide.elements.find((e) => e.id === track.target);
     if (el?.type === "embedFigure") {
+      // "el:<memberId>/<partId>": a semantic part INSIDE a member plot — the
+      // figure markup already carries `<memberId>__<partId>` ids (plot markup
+      // is id-prefixed by its figure ELEMENT id), so fan the part id out via
+      // that plot's manifest (container ids → leaves; no manifest → literal).
+      const m = /^el:([^/]+)\/(.+)$/.exec(track.part);
+      if (m) {
+        const manifest = opts.figureMember?.(el.figureId, m[1])?.assetId
+          ? opts.plotManifest?.(opts.figureMember(el.figureId, m[1])!.assetId!)
+          : undefined;
+        return resolveTargets(manifest, m[2])
+          .map((id) => wrap.querySelector<SVGElement>(`[id="${m[1]}${SEP}${id}"]`))
+          .filter((n): n is SVGElement => !!n);
+      }
+      // "group:<gid>" (P9 wrapper) or "el:<memberId>" (per-element wrapper):
+      // both live on `<figureId>__…` ids in the mounted figure markup.
       const node = wrap.querySelector<SVGElement>(`[id="${el.figureId}${SEP}${track.part}"]`);
       return node ? [node] : [];
     }

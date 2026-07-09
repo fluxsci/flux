@@ -12,7 +12,7 @@
   // Rows multi-select (ctrl/shift + range) with a bulk S/A/M bar, and the S/A/M
   // buttons PAINT: press one and sweep down the column to set a whole run of
   // parts at once (one undo step).
-  import { selection, activeBeat, commitDeck, sealHistory, focusedPart, selTrackIds, figureGroups } from "../../../../lib/slide/store";
+  import { selection, activeBeat, commitDeck, sealHistory, focusedPart, selTrackIds, figureGroups, figureMembers } from "../../../../lib/slide/store";
   import { setPartVisibility } from "../../../../lib/slide/ops";
   import { animatePart, animateElement } from "../../../../lib/slide/autobuild";
   import { buildPartTree, type XrayNode } from "../../../../lib/plot/tree";
@@ -33,7 +33,7 @@
   type Vis = "show" | "animate" | "mask";
   interface Row {
     key: string; // element id, or `${elId}|${partId}`, or `${elId}#${blockId}`
-    kind: "element" | "part" | "block" | "group";
+    kind: "element" | "part" | "block" | "group" | "member";
     depth: number;
     label: string;
     glyph?: string;
@@ -43,6 +43,9 @@
     blockId?: string;
     /** a figure GROUP row inside an embedFigure (P9) — the registry gid */
     groupId?: string;
+    /** a figure MEMBER row (or a part row INSIDE a member plot) — the figure
+     *  element id; tracks address it as "el:<mid>" / "el:<mid>/<partId>" */
+    memberId?: string;
     expandable: boolean;
     /** the collapse key + its EFFECTIVE state (user toggle over the default) */
     ckey: string;
@@ -104,12 +107,32 @@
         };
         walk(tree, 1);
       } else if (groups.length) {
+        const members = el.type === "embedFigure" ? $figureMembers[el.figureId] ?? {} : {};
+        const walkMemberPlot = (mid: string, n: XrayNode, depth: number) => {
+          const ckey = `${el.id}|el:${mid}/${n.id}`;
+          const col = isCollapsed(ckey, depth >= 3 && n.children.length > 0);
+          out.push({ key: ckey, kind: "part", depth, label: n.label, elId: el.id, el, node: n, memberId: mid, expandable: n.children.length > 0, ckey, collapsed: col });
+          if (n.children.length && (q || !col)) for (const c of n.children) walkMemberPlot(mid, c, depth + 1);
+        };
         const walkG = (nodes: FigureGroupNode[], depth: number) => {
           for (const g of nodes) {
             const ckey = `${el.id}|group:${g.id}`;
             const col = isCollapsed(ckey, false);
-            out.push({ key: ckey, kind: "group", depth, label: g.name, glyph: "❖", elId: el.id, el, groupId: g.id, expandable: g.groups.length > 0, ckey, collapsed: col });
-            if (g.groups.length && (q || !col)) walkG(g.groups, depth + 1);
+            out.push({ key: ckey, kind: "group", depth, label: g.name, glyph: "❖", elId: el.id, el, groupId: g.id, expandable: g.groups.length > 0 || g.elementIds.length > 0, ckey, collapsed: col });
+            if (q || !col) {
+              // individual MEMBERS: arrows/text/shapes ⊕-able alone; member
+              // PLOTS expand into their semantic part tree (manifest-driven)
+              for (const mid of g.elementIds) {
+                const m = members[mid];
+                if (!m) continue;
+                const mkey = `${el.id}|el:${mid}`;
+                const tree = m.assetId ? buildPartTree(manifests[m.assetId]) : null;
+                const mcol = isCollapsed(mkey, true);
+                out.push({ key: mkey, kind: "member", depth: depth + 1, label: m.name ?? m.type, glyph: EL_GLYPH[m.type] ?? "▫", elId: el.id, el, memberId: mid, expandable: !!tree && tree.children.length > 0, ckey: mkey, collapsed: mcol });
+                if (tree && tree.children.length && (q || !mcol)) for (const c of tree.children) walkMemberPlot(mid, c, depth + 2);
+              }
+              if (g.groups.length) walkG(g.groups, depth + 1);
+            }
           }
         };
         walkG(groups, 1);
@@ -224,6 +247,8 @@
         beatIndex: $activeBeat > 0 ? $activeBeat : undefined,
         ...(r.kind === "block" && r.blockId ? { blocks: [r.blockId] } : {}),
         ...(r.kind === "group" && r.groupId ? { part: `group:${r.groupId}` } : {}),
+        ...(r.kind === "member" && r.memberId ? { part: `el:${r.memberId}` } : {}),
+        ...(r.kind === "part" && r.memberId && r.node ? { part: `el:${r.memberId}/${r.node.id}` } : {}),
       });
       if (res) { trackId = res.trackId; bi = res.beatIndex; }
     });
@@ -274,7 +299,7 @@
         {#if r.glyph}<span class="gl" class:grp={r.kind === "group"}>{r.glyph}</span>{/if}
         <span class="pl" title={r.kind === "group" ? `group:${r.groupId}` : r.node?.id ?? r.key}>{r.label}</span>
         {#if r.kind === "group"}<span class="badge">group</span>{/if}
-        {#if r.kind === "part" && r.node && r.el}
+        {#if r.kind === "part" && r.node && r.el && !r.memberId}
           {@const st = partStateFor(r.el, r.node.id)}
           <button class="paint" title="Edit this part's style (color, width, opacity) — Alt+P" onclick={(e) => { e.stopPropagation(); openXray(r); }}>🎨</button>
           <span class="tri">
@@ -282,7 +307,7 @@
             <button class:on={st === "animate"} title="Animate in on the current beat (press + sweep to paint many)" onpointerdown={(e) => paintStart(e, r, "animate")}>A</button>
             <button class:on={st === "mask"} title="Mask — hide entirely (press + sweep to paint many)" onpointerdown={(e) => paintStart(e, r, "mask")}>M</button>
           </span>
-        {:else if r.kind === "element" || r.kind === "block" || r.kind === "group"}
+        {:else if r.kind === "element" || r.kind === "block" || r.kind === "group" || r.kind === "member" || (r.kind === "part" && r.memberId)}
           <span class="qa">
             <button title="Animate IN on the current beat" onclick={(e) => { e.stopPropagation(); quickAnimate(r, false); }}>⊕ in</button>
             <button title="Animate OUT (disappear) on the current beat" onclick={(e) => { e.stopPropagation(); quickAnimate(r, true); }}>⊖ out</button>

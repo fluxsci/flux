@@ -45,6 +45,24 @@ export const selTrackIds = writable<string[]>([]);
  *  svg (player.ts resolveNodes). */
 export const figureGroups = writable<Record<string, FigureGroupNode[]>>({});
 
+/** Per-figure MEMBER metadata (elementId → label/type/plot assetId), loaded by
+ *  loadDeckAssets alongside figureGroups. Lets the PartsTree list a group's
+ *  individual members (arrows, member plots + their part trees) and the player
+ *  resolve "el:<mid>/<partId>" via the member plot's manifest. */
+export interface FigureMemberInfo {
+  type: string;
+  name?: string;
+  /** set when the member is a semantic plot */
+  assetId?: string;
+}
+export const figureMembers = writable<Record<string, Record<string, FigureMemberInfo>>>({});
+
+/** Member label lookup ("el:<mid>" chip labels). */
+export function figureMemberName(figureId: string, elementId: string): string | null {
+  const m = get(figureMembers)[figureId]?.[elementId];
+  return m ? (m.name ?? m.type) : null;
+}
+
 /** Group NAME lookup over the figureGroups store ("group:<gid>" chip labels).
  *  Null when the figure/group isn't loaded (caller falls back to a generic). */
 export function figureGroupName(figureId: string, groupId: string): string | null {
