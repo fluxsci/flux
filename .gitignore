@@ -27,3 +27,5 @@ fluxplot/
 
 # Screenshot artifacts from scripts/verify-*.mjs runs
 test-results/
+
+flux_figure_upgrades_fixes/
