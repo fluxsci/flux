@@ -20,6 +20,7 @@ import {
   captionOpen,
   nodeEditId,
   expandGroups,
+  enteredGroupId,
   getActiveFigure,
   arrange,
   lastArrangeRows,
@@ -754,6 +755,25 @@ export function handleKey(e: KeyboardEvent) {
     // element's pre-gesture position) survive; a second Esc then clears as before.
     if (gestureCancelHook.fn?.()) {
       e.preventDefault();
+      return;
+    }
+    // P7 groups: with a group ENTERED (double-click, Canvas), Esc steps the
+    // scope OUT one level (group → parent group → top) and re-resolves the
+    // selection to units at the new scope — the group just left reads as
+    // selected, Figma's Esc ladder. This is a NEW stage BEFORE the existing
+    // clear-selection; only the final Esc, with no scope left, clears. Flat
+    // documents (no entered group) keep the exact two-stage contract
+    // (cancel-gesture → clear) — verify-fig-esc.mjs unchanged.
+    const eg = get(enteredGroupId);
+    if (eg) {
+      e.preventDefault();
+      const p = get(project);
+      const owner = p.figures.find((f) => f.groups?.[eg]);
+      const parent = owner?.groups?.[eg]?.parentId ?? null;
+      enteredGroupId.set(parent && owner?.groups?.[parent] ? parent : null);
+      const sel = get(selection);
+      if (sel.size) selection.set(expandGroups(p, sel, get(enteredGroupId)));
+      partSelection.set(null); // a widened selection can't keep a part drill
       return;
     }
     clearSelection();

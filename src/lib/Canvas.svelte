@@ -6,6 +6,7 @@
     activeCanvasId,
     selection,
     partSelection,
+    enteredGroupId,
     activeTool,
     drawStyle,
     selectOnly,
@@ -25,6 +26,7 @@
     nodeEditId,
     arrange,
   } from "./store";
+  import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
   import { commitArrange } from "./keyboard";
   import type { Element, Figure, ImageElement, PathElement, SemanticPlotElement, VectorNode } from "./types";
   import { get } from "svelte/store";
@@ -111,7 +113,18 @@
         // transient-only cancel.
         crop?: { orig: ImageElement | SemanticPlotElement; disp: { width: number; height: number } };
       }
-    | { kind: "marquee"; figId: string; x0: number; y0: number; add: Set<string> }
+    | {
+        kind: "marquee";
+        figId: string;
+        x0: number;
+        y0: number;
+        add: Set<string>;
+        // P7: the pointerdown deselected (no shift) — if the gesture ends as a
+        // plain CLICK (no real drag), pointer-up also exits the entered-group
+        // scope entirely (Figma: background click = full exit; a real marquee
+        // keeps the scope it selected within).
+        bgClick: boolean;
+      }
     | { kind: "draw"; figId: string; x0: number; y0: number }
     | {
         kind: "rotate";
@@ -248,6 +261,30 @@
   // Only the active canvas's figures are rendered / hit-tested.
   $: canvasFigures = $project.figures.filter((f) => f.canvasId === $activeCanvasId);
 
+  // P7 groups: effective hidden/locked = own flag OR any ancestor GROUP's
+  // eye/padlock (registry state). Precomputed ONCE per project change for every
+  // element on the active canvas (the plan's perf note) — the render filter,
+  // hit-testing, hover preview and marquee all consult this map instead of
+  // re-walking ancestor chains per element per event/frame.
+  $: effState = (() => {
+    const m = new Map<string, { hidden: boolean; locked: boolean }>();
+    for (const f of canvasFigures)
+      for (const el of f.elements)
+        m.set(el.id, { hidden: effectiveHidden(f, el), locked: effectiveLocked(f, el) });
+    return m;
+  })();
+  const effHidden = (el: Element) => effState.get(el.id)?.hidden ?? !!el.hidden;
+  const effLocked = (el: Element) => effState.get(el.id)?.locked ?? !!el.locked;
+
+  // P7: a live commit can delete/dissolve the ENTERED group (⌘⇧G, bridge verb,
+  // member delete) — store.pruneSelection only covers undo/redo paths. Drop the
+  // scope the moment its registry def disappears so clicks never resolve
+  // against a stale scope.
+  $: {
+    const eg = $enteredGroupId;
+    if (eg && !$project.figures.some((f) => f.groups?.[eg])) enteredGroupId.set(null);
+  }
+
   // F5 viewport culling: render only figures/elements intersecting the viewport
   // (+ a generous buffer). The pan is QUANTIZED so the visible set's identity only
   // changes every CULL_STEP px of pan — preserving the cheap CSS-transform pan
@@ -289,14 +326,15 @@
   function visibleEls(fig: Figure): Element[] {
     // The frame being moved renders all its elements: its world position is stale
     // until commit, so culling by the stale bbox would drop elements as it travels.
-    // Hidden elements (Layers eye) are never rendered — so also never hit-testable.
+    // Hidden elements (Layers eye — the element's own OR an ancestor group's,
+    // via effectiveHidden/effState, P7) are never rendered — so never hit-testable.
     if (dragging && gesture?.kind === "figmove" && gesture.figId === fig.id)
-      return fig.elements.filter((el) => !el.hidden);
+      return fig.elements.filter((el) => !effHidden(el));
     const lr: Rect = { x: cullRect.x - fig.x, y: cullRect.y - fig.y, w: cullRect.w, h: cullRect.h };
     // FIG-4: cull by the ROTATED bounds — a tilted element near the viewport edge must
     // not vanish while its spun corners are still visible (unrotated = same fast path).
     return fig.elements.filter(
-      (el) => !el.hidden && ($selection.has(el.id) || rectsIntersect(rotatedAABB(el), lr)),
+      (el) => !effHidden(el) && ($selection.has(el.id) || rectsIntersect(rotatedAABB(el), lr)),
     );
   }
   // Precompute the per-figure visible element lists keyed off the (stable-within-a-
@@ -308,6 +346,7 @@
     void $project;
     void dragging;
     void gesture;
+    void effState; // P7: group eyes change the visible set (effHidden reads it)
     const m = new Map<string, Element[]>();
     for (const f of visibleFigures) m.set(f.id, visibleEls(f));
     return m;
@@ -460,6 +499,7 @@
   }
 
   function onCanvasDown(e: PointerEvent) {
+    lastDownEl = null; // background pointerdown — no element under a dblclick
     if (startPanIfNeeded(e)) return;
     if (get(arrange)?.active) {
       e.stopPropagation();
@@ -472,6 +512,7 @@
   }
 
   function onFigureDown(e: PointerEvent, fig: Figure) {
+    lastDownEl = null; // figure-background pointerdown (also the locked/tool fallthrough)
     if (startPanIfNeeded(e)) return;
     if (get(arrange)?.active) {
       e.stopPropagation();
@@ -488,8 +529,15 @@
     const lp = localPoint(e.clientX, e.clientY, fig);
 
     if ($activeTool === "select" || $activeTool === "scale") {
-      if (!e.shiftKey) clearSelection();
-      gesture = { kind: "marquee", figId: fig.id, x0: lp.x, y0: lp.y, add: new Set(e.shiftKey ? $selection : []) };
+      // P7: deselect on pointerdown (Figma), but DON'T exit the entered-group
+      // scope yet — a marquee drag started on the figure background must keep
+      // selecting within the scope; only a plain background CLICK (no drag)
+      // exits it entirely (the marquee branch of onPointerUp).
+      if (!e.shiftKey) {
+        selection.set(new Set());
+        partSelection.set(null);
+      }
+      gesture = { kind: "marquee", figId: fig.id, x0: lp.x, y0: lp.y, add: new Set(e.shiftKey ? $selection : []), bgClick: !e.shiftKey };
       gestureFig = fig;
       marquee = { x: lp.x, y: lp.y, w: 0, h: 0 };
       lastMarqueeKey = "\0"; // force the first hit-set of this marquee to apply
@@ -857,23 +905,41 @@
       onFigureDown(e, fig);
       return;
     }
-    // Locked elements can't be selected/moved via the canvas (only from the Layers
-    // panel). Treat a click on one like a click on the figure (marquee / clear).
-    if (el.locked) {
+    // Locked elements (own padlock OR an ancestor GROUP's, P7) can't be
+    // selected/moved via the canvas (only from the Layers panel). Treat a click
+    // on one like a click on the figure (marquee / clear).
+    if (effLocked(el)) {
       onFigureDown(e, fig);
       return;
     }
     e.stopPropagation();
     activeFigureId.set(fig.id);
     selectedFrameId.set(null);
+    // P7: record the element under this pointerdown — beginMove takes pointer
+    // capture, which retargets the compatibility dblclick to the HOST, so the
+    // host dblclick handler resolves "which element was double-clicked" from
+    // this record (same trap the node-edit capture comment documents).
+    lastDownEl = { id: el.id, t: performance.now() };
+    // P7: clicks resolve to selection UNITS bounded by the entered-group scope
+    // (Figma). Clicking an element OUTSIDE the entered group exits the scope
+    // entirely first (like a background click), so a stale scope never
+    // redirects what a click selects.
+    let scope = $enteredGroupId;
+    if (scope && !chainOf(fig, el).includes(scope)) {
+      enteredGroupId.set(null);
+      scope = null;
+    }
+    const unit = unitOf(fig, el, scope);
     // Drill into a semantic plot: clicking an ALREADY-selected plot selects the
     // part under the cursor (its prefixed DOM id → canonical semantic id) and —
     // for a REAL part — arms a part-move gesture, so a drag moves the part
     // itself (an id-keyed {dx,dy} override). SCAFFOLD parts (figure/plot-area/
     // background patches/axis containers) clear the part selection and fall
     // through to the normal whole-plot move — else the plot would be
-    // un-draggable by its own background.
-    if (el.type === "plot" && $selection.has(el.id)) {
+    // un-draggable by its own background. P7: only when the plot is its OWN
+    // unit at the current scope — a plot inside a selected GROUP moves the
+    // group; double-click enters the group first (Figma), then clicks drill.
+    if (el.type === "plot" && unit.groupId === null && $selection.has(el.id)) {
       // (DOM Element is shadowed by the figure-model Element import → cast via unknown)
       const pid = resolvePartId($plotManifests[el.assetId], e.target as unknown as globalThis.Element, el.id);
       const scaffold = !pid || isScaffoldPart($plotManifests[el.assetId], pid);
@@ -887,7 +953,7 @@
     } else {
       partSelection.set(null);
     }
-    const grp = expandGroups($project, new Set([el.id]));
+    const grp = expandGroups($project, new Set([el.id]), scope);
     // Shift has two meanings on an element: shift-CLICK toggles its selection,
     // but shift-DRAG constrains the move to one axis. We can't tell which at
     // pointer-down, so for an already-selected element we DEFER the toggle to
@@ -1007,6 +1073,10 @@
   // FIG-9: materialize the alt-drag copies on the first real move. Clones the
   // originals in place, makes the copies the moved set (re-keying origs + snap
   // targets), and opens one history entry covering the duplicate + the drag.
+  // P7: group identity clones through the shared cloneGroupsFor (this was the
+  // last hand-rolled remap minting DANGLING groupIds) — copies of grouped
+  // elements land in NEW GroupDefs with the same names/nesting and fresh ids,
+  // exactly like ops.duplicateElements (Ctrl+D) and paste.
   function performAltDup(fig: Figure) {
     const g = gesture;
     if (!g || g.kind !== "move") return;
@@ -1019,13 +1089,15 @@
     mutate((p) => {
       const f = p.figures.find((ff) => ff.id === fig.id);
       if (!f) return;
+      const cloned = cloneGroupsFor(f.groups, originals, grpRemap);
+      if (Object.keys(cloned).length) {
+        f.groups = f.groups ?? {};
+        Object.assign(f.groups, cloned);
+      }
       const copies = originals.map((el) => {
         const c = structuredClone(el);
         c.id = newId(c.type);
-        if (c.groupId) {
-          if (!grpRemap.has(c.groupId)) grpRemap.set(c.groupId, newId("grp"));
-          c.groupId = grpRemap.get(c.groupId);
-        }
+        if (c.groupId) c.groupId = grpRemap.get(c.groupId) ?? c.groupId;
         newIds.push(c.id);
         return c;
       });
@@ -1052,6 +1124,7 @@
     e.stopPropagation();
     if ($captionOpen) return;
     selectFrame(fig.id);
+    enteredGroupId.set(null); // P7: frame selection is a full scope exit
     activeFigureId.set(fig.id);
     const xs: number[] = [];
     const ys: number[] = [];
@@ -1444,12 +1517,14 @@
       marquee = r;
       const hit = new Set(g.add);
       // FIG-4: honor rotation — the empty AABB corners of a tilted element don't count.
+      // P7: group-locked/-hidden members (effective state) don't marquee-select.
       for (const el of fig.elements)
-        if (!el.locked && !el.hidden && rectIntersectsElement(r, el)) hit.add(el.id);
+        if (!effLocked(el) && !effHidden(el) && rectIntersectsElement(r, el)) hit.add(el.id);
       // FIG-1: dragging the marquee re-ran expandGroups + every selection-dependent
       // reactive (handles, inspector, bbox) on EACH pointermove even when the hit set
       // hadn't changed. Only push a new selection when the result actually differs.
-      const expanded = expandGroups($project, hit);
+      // P7: expansion is bounded by the entered-group scope — marquee == click.
+      const expanded = expandGroups($project, hit, $enteredGroupId);
       const key = [...expanded].sort().join(",");
       if (key !== lastMarqueeKey) {
         lastMarqueeKey = key;
@@ -1508,8 +1583,8 @@
         lastDupOffset.set({ dx: gDX, dy: gDY });
       } else if (pendingShiftToggle) {
         // It was a shift-CLICK (no real drag) on an already-selected element:
-        // now apply the deferred toggle (deselect it / its group).
-        const grp = expandGroups($project, new Set([pendingShiftToggle]));
+        // now apply the deferred toggle (deselect it / its unit at the scope).
+        const grp = expandGroups($project, new Set([pendingShiftToggle]), $enteredGroupId);
         selection.update((s) => {
           const n = new Set(s);
           for (const id of grp) n.delete(id);
@@ -1585,6 +1660,12 @@
         if (!f) return;
         rotateAbout(f.elements.filter((el) => g.origs.has(el.id)), { x: g.cx, y: g.cy }, gRotDeg);
       });
+    } else if (g.kind === "marquee") {
+      // P7: a plain background CLICK (no real marquee — the box never grew past
+      // click slop) exits the entered-group scope entirely (Figma: background
+      // click = full exit). A real marquee drag keeps the scope it selected in.
+      const moved = marquee && (marquee.w * $viewport.zoom > 3 || marquee.h * $viewport.zoom > 3);
+      if (g.bgClick && !moved) enteredGroupId.set(null);
     }
 
     // Reset all transient state in one batch -> single clean scene render.
@@ -1751,12 +1832,25 @@
     prevTool = $activeTool;
   }
 
-  function onDblClick() {
+  // P7: the element under the last pointerdown (nulled by background downs).
+  // Pointer capture (beginMove captures on every element pointerdown) retargets
+  // real-mouse click/dblclick compatibility events to the HOST — a per-element
+  // on:dblclick never fires from a real mouse — so the host handler resolves
+  // the double-clicked element from this record instead.
+  let lastDownEl: { id: string; t: number } | null = null;
+
+  function onDblClick(e: MouseEvent) {
     if ($captionOpen) return; // read-only while the caption editor is open
     if (editPathId) return; // node markers/segments handle their own dblclicks
     if (penNodes.length >= 2) {
       finishPen(false);
       return;
+    }
+    // P7: group-enter / member drill for real-mouse double-clicks (the second
+    // click's pointerdown recorded the element; see lastDownEl above).
+    if (lastDownEl && performance.now() - lastDownEl.t < 600) {
+      const f = findElement($project, lastDownEl.id);
+      if (f && onElementDblClick(e, f.element, f.figure)) return;
     }
     // Double-click to edit: text → inline editor; path → node-edit mode.
     const ids = [...$selection];
@@ -1765,6 +1859,37 @@
       if (f && f.element.type === "text") startEdit(f.element, true);
       else if (f && f.element.type === "path" && !f.element.locked) enterNodeEdit(ids[0]);
     }
+  }
+
+  // P7: double-click on an element descends the group hierarchy ONE level
+  // (Figma "enter group"). The hit element's UNIT at the current scope decides:
+  //  - a GROUP unit → enter it (enteredGroupId) and select the next-level unit
+  //    under the cursor — nested groups drill progressively, one dblclick per
+  //    level;
+  //  - the element itself → text starts the inline edit here (as before);
+  //    plots already part-drilled on the second pointerdown (onElementDown);
+  //    paths keep the selection-based node-edit entry in onDblClick.
+  // Returns true when it consumed the double-click. Called from the host
+  // handler (real mice, via lastDownEl) AND from the per-element on:dblclick
+  // (synthetic dispatches in tests) — stopPropagation keeps the two disjoint.
+  function onElementDblClick(e: MouseEvent, el: Element, fig: Figure): boolean {
+    if ($captionOpen || editPathId) return false;
+    if ($activeTool !== "select" && $activeTool !== "scale") return false;
+    if (effLocked(el)) return false;
+    const unit = unitOf(fig, el, $enteredGroupId);
+    if (unit.groupId && !e.shiftKey && !e.altKey) {
+      e.stopPropagation();
+      enteredGroupId.set(unit.groupId);
+      selection.set(expandGroups($project, new Set([el.id]), unit.groupId));
+      partSelection.set(null);
+      return true;
+    }
+    if (el.type === "text" && unit.groupId === null) {
+      e.stopPropagation();
+      startEdit(el, true);
+      return true;
+    }
+    return false;
   }
 
   // --- OS file drag-and-drop (from the file explorer) ---
@@ -1835,11 +1960,12 @@
 
   // A selection made entirely of locked elements (only reachable via the Layers
   // panel) shows its box but NO resize/rotate handles — locked elements can't be
-  // transformed on the canvas.
+  // transformed on the canvas. P7: an ancestor group's padlock counts.
   $: selLocked = (() => {
     if (!af) return false;
+    void effState;
     const els = af.elements.filter((e) => $selection.has(e.id));
-    return els.length > 0 && els.every((e) => e.locked);
+    return els.length > 0 && els.every((e) => effLocked(e));
   })();
 
   // Figma-style hover outline: a thin accent box around whatever a click would
@@ -1860,9 +1986,12 @@
       return null;
     const found = findElement($project, $hoverId);
     if (!found) return null;
-    // Don't preview-outline a locked/hidden element — a click won't select it.
-    if (found.element.locked || found.element.hidden) return null;
-    const grp = expandGroups($project, new Set([$hoverId]));
+    // Don't preview-outline a locked/hidden element (own flag OR an ancestor
+    // group's, P7) — a click won't select it.
+    void effState;
+    if (effLocked(found.element) || effHidden(found.element)) return null;
+    // P7: preview the unit a click would select — bounded by the entered scope.
+    const grp = expandGroups($project, new Set([$hoverId]), $enteredGroupId);
     const b = selectionBBox(found.figure.elements.filter((e) => grp.has(e.id)));
     if (!b) return null;
     // Outset ~1.5px (screen) so the outline sits just outside the element's own
@@ -2370,12 +2499,7 @@
                   on:pointerleave={() => {
                     if ($hoverId === el.id) hoverId.set(null);
                   }}
-                  on:dblclick={(e) => {
-                    if (el.type === "text") {
-                      e.stopPropagation();
-                      startEdit(el, true);
-                    }
-                  }}
+                  on:dblclick={(e) => onElementDblClick(e, el, fig)}
                 >
                   <ElementView element={el} />
                 </g>

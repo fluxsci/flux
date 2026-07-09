@@ -153,6 +153,7 @@
       "figenh-12-modifiers.ts",
       "figenh-14-partui.mjs",
       "figenh-15-partmove.mjs",
+      "figenh-16-groups-ui.mjs",
       "verify-crop.mjs",
       "verify-crisp.mjs",
       "verify-assign.mjs",
@@ -233,6 +234,7 @@
   "retryOnce": [
     "verify-crop.mjs",
     "verify-crisp.mjs",
+    "figenh-16-groups-ui.mjs",
     "verify-importer-multi.mjs",
     "verify-importer-slide.mjs",
     "figenh-06-layers.ts",
