@@ -10,6 +10,7 @@
 import type { FluxPlotManifest, PartInfo, PartNode } from "./types";
 import type { PartOverride } from "../types";
 import { resolveTargets } from "./tree";
+import { normalizeSvgForParts, isDrawableTag, insideDefs } from "./derive";
 
 const XLINK = "http://www.w3.org/1999/xlink";
 const SEP = "__";
@@ -77,6 +78,40 @@ export function semanticIdFromNode(node: Element | null, elementId: string): str
   return null;
 }
 
+// --- override application -------------------------------------------------
+//
+// The semantic id usually sits on a <g> WRAPPER while the generator (matplotlib)
+// puts explicit inline styles on the child drawables (`<text style="font-size:
+// 5px; fill:#100f0f">`, `<path style="stroke:#dad8ce">`). An inline style on a
+// child always beats a style inherited from the wrapper, so wrapper-level writes
+// silently did nothing for paint/font properties (only display:none and opacity
+// — which composite rather than inherit — worked). The fix: structural props
+// (hidden/opacity/dx/dy) stay on the wrapper; paint/font props are DRILLED to
+// the drawable descendants and written as inline style there, which wins.
+
+/** The wrapper itself if drawable, else its drawable descendants — excluding
+ *  anything inside a <defs> subtree (template content). */
+export function drawablesUnder(el: Element): Element[] {
+  if (isDrawableTag(el.tagName)) return [el];
+  const out: Element[] = [];
+  for (const d of Array.from(el.querySelectorAll("text,tspan,path,line,polyline,polygon,rect,circle,ellipse,image,use"))) {
+    if (!insideDefs(d)) out.push(d);
+  }
+  return out;
+}
+
+const TEXTY = new Set(["text", "tspan"]);
+
+/** A drawable's OWN declared fill (inline style or presentation attribute), or
+ *  null when it declares nothing. Used to avoid filling `fill:none` line paths
+ *  when a group-level fill override fans out to mixed leaves. Linkedom-safe. */
+function declaredFill(el: Element): string | null {
+  const style = el.getAttribute("style") ?? "";
+  const m = style.match(/(?:^|;)\s*fill\s*:\s*([^;]+)/i);
+  if (m) return m[1].trim();
+  return el.getAttribute("fill");
+}
+
 /** Apply per-part style overrides to the inlined DOM. A key may be a leaf semantic
  * id (`control.point.3`) or a group/container id (`axis.x.tick-labels`, `axis.x`),
  * which the manifest resolves to its current leaf members — so a group edit survives
@@ -93,15 +128,55 @@ export function applyOverrides(
     for (const tid of resolveTargets(manifest, partId)) {
       const el = root.querySelector(`[id="${cssEscape(p + tid)}"]`) as SVGElement | null;
       if (!el) continue;
+
+      // Wrapper-level: visibility, compositing opacity, translation.
       const s = el.style;
       if (ov.hidden != null) s.display = ov.hidden ? "none" : "";
-      if (ov.stroke != null) s.stroke = String(ov.stroke);
-      if (ov.fill != null) s.fill = String(ov.fill);
-      if (ov.strokeWidth != null) s.strokeWidth = String(ov.strokeWidth);
       if (ov.opacity != null) s.opacity = String(ov.opacity);
-      if (ov.fontSize != null) s.fontSize = `${ov.fontSize}px`;
-      if (ov.fontFamily != null) s.fontFamily = String(ov.fontFamily);
-      if (ov.fontWeight != null) s.fontWeight = String(ov.fontWeight);
+      if (ov.dx != null || ov.dy != null) {
+        const dx = Number(ov.dx ?? 0) || 0;
+        const dy = Number(ov.dy ?? 0) || 0;
+        // The clone is pristine per application, so the attribute present here
+        // IS the node's original transform — a plain prepend is idempotent.
+        const orig = el.getAttribute("transform") ?? "";
+        const t = [`translate(${dx} ${dy})`, orig].filter(Boolean).join(" ");
+        el.setAttribute("transform", t);
+      }
+
+      // Drawable-level: paint + font properties (inline style on the drawable
+      // itself wins over its generator-declared inline values — we overwrite
+      // the same declaration).
+      const hasPaint =
+        ov.stroke != null ||
+        ov.fill != null ||
+        ov.strokeWidth != null ||
+        ov.fontSize != null ||
+        ov.fontFamily != null ||
+        ov.fontWeight != null ||
+        ov.fontStyle != null ||
+        ov.textDecoration != null;
+      if (!hasPaint) continue;
+
+      for (const d of drawablesUnder(el)) {
+        const ds = (d as SVGElement).style;
+        if (ov.stroke != null) ds.stroke = String(ov.stroke);
+        if (ov.strokeWidth != null) ds.strokeWidth = String(ov.strokeWidth);
+        if (ov.fill != null) {
+          // Don't fill shapes that explicitly opt out (line paths) unless the
+          // override targets exactly this node (leaf-level intent is explicit).
+          const own = declaredFill(d);
+          const leafIntent = d === el;
+          if (leafIntent || own == null || own.toLowerCase() !== "none") ds.fill = String(ov.fill);
+        }
+        const texty = TEXTY.has(d.tagName?.toLowerCase() ?? "");
+        if (texty) {
+          if (ov.fontSize != null) ds.fontSize = `${ov.fontSize}px`;
+          if (ov.fontFamily != null) ds.fontFamily = String(ov.fontFamily);
+          if (ov.fontWeight != null) ds.fontWeight = String(ov.fontWeight);
+          if (ov.fontStyle != null) ds.fontStyle = String(ov.fontStyle);
+          if (ov.textDecoration != null) ds.textDecoration = String(ov.textDecoration);
+        }
+      }
     }
   }
 }
@@ -218,6 +293,27 @@ export function augmentManifestOrphans(
   host.children = host.children ?? [];
   host.children.push({ id: "unclassified", role: "group", groupRole: "unclassified", members: orphans } as PartNode);
   return { ...manifest, parts: cloned };
+}
+
+// ---------------------------------------------------------------------------
+// The ONE preparation seam. Every consumer of a plot DOM — app cache
+// (plot/store.ts cachePlot → renderer + exporter clones) and flux-core's
+// headless exporter (buildPlotMarkup) — must go through this, so normalization
+// (sanitize / <use>-inline / id stamping) and orphan augmentation behave
+// identically in-app and headless. Parsing bytes directly elsewhere is a bug.
+// ---------------------------------------------------------------------------
+export function preparePlot(
+  svgText: string,
+  manifest?: FluxPlotManifest,
+): { root: SVGSVGElement | null; manifest?: FluxPlotManifest } {
+  const root = parsePlotSvg(svgText);
+  if (!root) return { root: null, manifest };
+  normalizeSvgForParts(root as unknown as Element);
+  // Phase 4 (vanilla pipeline) adds: if (!manifest) manifest = deriveManifestFromSvg(root)
+  if (manifest) {
+    manifest = augmentManifestOrphans(root as unknown as Element, manifest) ?? manifest;
+  }
+  return { root, manifest };
 }
 
 /** Flatten a manifest into a semantic-id → part lookup, for the inspector. */

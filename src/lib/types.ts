@@ -212,7 +212,13 @@ export interface SemanticPlotElement extends ElementBase {
 }
 
 // A style override for one semantic part. Open-ended; each key maps to a
-// presentation attribute applied to the matching inlined node.
+// presentation property applied to the matching inlined node(s).
+//
+// Application rules (see plot/parse.ts applyOverrides): `hidden`, `opacity`,
+// and the `dx`/`dy` translation apply to the id-carrying wrapper node; paint
+// and font properties are drilled down to the DRAWABLE descendants (text/path/
+// use/…) because generators like matplotlib put explicit inline styles on
+// those children, which would defeat styles inherited from the wrapper.
 export interface PartOverride {
   stroke?: string;
   fill?: string;
@@ -221,6 +227,13 @@ export interface PartOverride {
   fontSize?: number;
   fontFamily?: string;
   fontWeight?: number;
+  fontStyle?: "normal" | "italic";
+  textDecoration?: string; // "underline" | "none"
+  // Part translation in PLOT-LOCAL user units (survives regeneration — id-keyed
+  // like every other override). Composed as a `translate(dx dy)` prepended to
+  // the wrapper's own transform attribute.
+  dx?: number;
+  dy?: number;
   hidden?: boolean; // hide/show the part (display:none)
   [prop: string]: string | number | boolean | undefined;
 }

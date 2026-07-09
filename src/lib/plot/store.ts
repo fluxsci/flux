@@ -5,7 +5,7 @@
 import { writable } from "svelte/store";
 import type { Id } from "../types";
 import type { FluxPlotManifest } from "./types";
-import { parsePlotSvg, augmentManifestOrphans } from "./parse";
+import { preparePlot } from "./parse";
 
 export const plotManifests = writable<Record<Id, FluxPlotManifest>>({});
 export const plotRecipes = writable<Record<Id, unknown>>({});
@@ -19,22 +19,24 @@ export const plotDom = new Map<Id, SVGSVGElement>();
 export const plotGen = writable<Record<Id, number>>({});
 
 /** Parse + cache a plot's SVG + manifest (+ recipe). Returns false if the SVG is
- *  malformed. The manifest is augmented with a synthetic `unclassified` parts
- *  group for any SVG content it doesn't cover (orphan defense) — this is the one
- *  seam shared by the app and the export runtime, so both see identical parts. */
+ *  malformed. Runs the shared preparePlot seam: DOM normalization (sanitize /
+ *  shared-<use> inlining / deterministic id stamping — the pass that makes
+ *  per-part styling possible at all) + orphan-defense manifest augmentation.
+ *  flux-core's headless exporter runs the SAME seam, so app and export see
+ *  identical parts and identical DOM. */
 export function cachePlot(
   assetId: Id,
   svgText: string,
   manifest: FluxPlotManifest,
   recipe?: unknown,
 ): boolean {
-  const root = parsePlotSvg(svgText);
-  if (root) plotDom.set(assetId, root);
-  if (root && manifest) manifest = augmentManifestOrphans(root as unknown as Element, manifest) ?? manifest;
+  const prepared = preparePlot(svgText, manifest);
+  if (prepared.root) plotDom.set(assetId, prepared.root);
+  if (prepared.manifest !== undefined) manifest = prepared.manifest;
   plotManifests.update((m) => ({ ...m, [assetId]: manifest }));
   if (recipe !== undefined) plotRecipes.update((m) => ({ ...m, [assetId]: recipe }));
   plotGen.update((g) => ({ ...g, [assetId]: (g[assetId] ?? 0) + 1 }));
-  return !!root;
+  return !!prepared.root;
 }
 
 export function hasPlotDom(assetId: Id): boolean {

@@ -25,6 +25,7 @@
       "figenh-06-parity.ts",
       "figenh-07-parity.ts",
       "figenh-11-parity.ts",
+      "figenh-13-partstyle.ts",
       "verify-fetchflow.ts",
       "verify-figname.ts",
       "verify-ops.ts",
