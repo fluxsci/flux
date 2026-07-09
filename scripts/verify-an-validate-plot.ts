@@ -20,6 +20,14 @@ let r = await core.validatePlot(fixture);
 assert(r.ok, `reference fixture validates (${r.matched}/${r.references} ids matched)`);
 assert(r.references >= 10 && r.matched === r.references, "every manifest id is present in the SVG");
 
+// 1b. Regression (figure-v1 P11): manifest-only ORGANIZATIONAL node ids — group
+// nodes ("axis.x.ticks"), series wrappers ("setosa"), legend entries — must NOT
+// false-positive. Addressability = resolveTargets leaf fan-out, and the real
+// WS1-era fixture carries all three shapes (it flagged 14 phantom problems when
+// validatePlot naively checked every whole-tree-indexed id).
+r = await core.validatePlot(path.join(REPO, "scripts", "fixtures", "pre-regen", "06_scatter_regression.svg"));
+assert(r.ok, `group/series/legend-entry manifest nodes don't false-positive (${r.matched}/${r.references})`);
+
 // 2. a manifest id with no matching SVG element is caught.
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-plot-"));
 try {

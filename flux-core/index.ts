@@ -15,6 +15,7 @@ import { composeCaption, panelLetters } from "../src/lib/captions";
 import { elementBBox, unionRect } from "../src/lib/geometry";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { preparePlot, prefixIds, applyOverrides, buildPartIndex } from "../src/lib/plot/parse";
+import { resolveTargets } from "../src/lib/plot/tree";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../src/lib/plot/compensate";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { withLock, setLockClient } from "./locks";
@@ -1878,8 +1879,13 @@ export async function validate(root: string, file?: string): Promise<ValidateRes
 }
 
 /** Validate a FluxPlot output (the WS7 contract): the manifest is schema-valid AND
- *  every svg id the manifest references actually exists in the .svg — i.e. the plot
- *  is genuinely part-addressable. This is what the external `fluxplot` lib targets. */
+ *  every svg id the manifest can ADDRESS actually exists in the .svg — i.e. the plot
+ *  is genuinely part-addressable. Addressability is what resolveTargets fans an
+ *  override key to: a group/container key resolves to its leaf members, so the
+ *  DOM-expected set is the union of resolved leaves — NOT every indexed node id
+ *  (group nodes like "axis.x.tick-labels", series wrappers like "setosa", and
+ *  "legend.entry.N" are manifest-only organizational constructs by design; the
+ *  whole-tree buildPartIndex would flag them as false positives). */
 export async function validatePlot(svgPath: string): Promise<ValidateResult & { references: number; matched: number }> {
   const abs = path.resolve(svgPath);
   const manifestPath = abs.replace(/\.svg$/i, ".fluxplot.json");
@@ -1893,13 +1899,14 @@ export async function validatePlot(svgPath: string): Promise<ValidateResult & { 
   const v = ajv.compile(SCHEMAS.manifest);
   if (!v(manifest)) for (const e of v.errors ?? []) errors.push(`manifest: ${e.instancePath || "(root)"} ${e.message ?? "invalid"}`);
 
-  const referenced = Object.keys(buildPartIndex(manifest));
+  const indexed = Object.keys(buildPartIndex(manifest));
+  const domExpected = [...new Set(indexed.flatMap((id) => resolveTargets(manifest, id)))];
   let matched = 0;
-  for (const id of referenced) {
+  for (const id of domExpected) {
     if (svg.includes(`id="${id}"`)) matched++;
     else errors.push(`manifest references id "${id}" but the SVG has no element with that id`);
   }
-  return { ok: errors.length === 0, checked: 1, references: referenced.length, matched, errors };
+  return { ok: errors.length === 0, checked: 1, references: domExpected.length, matched, errors };
 }
 
 // --------------------------------------------------------------------------
