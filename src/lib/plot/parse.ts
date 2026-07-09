@@ -9,7 +9,7 @@
 
 import type { FluxPlotManifest, PartInfo, PartNode } from "./types";
 import type { PartOverride } from "../types";
-import { resolveTargets } from "./tree";
+import { resolveTargets, inferRole, labelForPart } from "./tree";
 import { normalizeSvgForParts, isDrawableTag, insideDefs } from "./derive";
 
 const XLINK = "http://www.w3.org/1999/xlink";
@@ -316,10 +316,32 @@ export function preparePlot(
   return { root, manifest };
 }
 
-/** Flatten a manifest into a semantic-id → part lookup, for the inspector. */
+/** Flatten a manifest into a semantic-id → part lookup, for the inspector /
+ *  part-property UIs. Base layer = the ENTIRE parts tree (containers, groups,
+ *  and their member leaves — so ticklabel/axis-title/gridline ids resolve to a
+ *  real role + label instead of the "part" fallback); the series/overlays/
+ *  guides entries are written after and OVERWRITE — they're richer (series id,
+ *  point index, data coords). */
 export function buildPartIndex(m: FluxPlotManifest | undefined): Record<string, PartInfo> {
   const idx: Record<string, PartInfo> = {};
   if (!m) return idx;
+  const parts = m.parts as PartNode | undefined;
+  if (parts && parts.role) {
+    const walk = (n: PartNode) => {
+      const k = n.id ?? n.ref;
+      if (k && !idx[k]) {
+        const role = n.role === "group" ? (n.groupRole ?? "group") : (n.role ?? inferRole(k));
+        idx[k] = { id: k, role, label: labelForPart(n) };
+      }
+      for (const member of n.members ?? []) {
+        if (!idx[member]) {
+          idx[member] = { id: member, role: inferRole(member), label: labelForPart({ id: member }) };
+        }
+      }
+      for (const c of n.children ?? []) walk(c);
+    };
+    walk(parts);
+  }
   for (const s of m.series ?? []) {
     if (s.svg?.line) idx[s.svg.line] = { id: s.svg.line, role: "line", series: s.id };
     if (s.svg?.points) idx[s.svg.points] = { id: s.svg.points, role: "point", series: s.id };

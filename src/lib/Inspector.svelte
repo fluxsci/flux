@@ -8,9 +8,10 @@
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
   import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
   import { applyAutoWidth } from "./text";
-  import { applyPartStyle } from "./colors";
   import { plotManifests } from "./plot/store";
   import { buildPartIndex } from "./plot/parse";
+  import { partBreadcrumb } from "./plot/partStyle";
+  import { fluxFigMenuOpen } from "./settings";
   import ColorPalette from "./ColorPalette.svelte";
   import NumberField from "./NumberField.svelte";
 
@@ -85,26 +86,20 @@
     const idx = buildPartIndex($plotManifests[plotEl.assetId]);
     return idx[ps.partId] ?? { id: ps.partId, role: "part" };
   })();
+  // Display label: the extended part index's human label, a composed
+  // role · series · #index for data entries, the raw id last.
   $: partLabel = partInfo
-    ? [partInfo.role, partInfo.series, partInfo.index !== undefined ? `#${partInfo.index}` : null]
+    ? (partInfo.label ??
+      ([partInfo.role, partInfo.series, partInfo.index !== undefined ? `#${partInfo.index}` : null]
         .filter(Boolean)
-        .join(" · ")
+        .join(" · ") ||
+        partInfo.id))
     : "";
-  $: partColor = (() => {
-    const ps = $partSelection;
-    if (!ps || !plotEl || plotEl.type !== "plot") return "#cc0000";
-    const ov = plotEl.overrides?.[ps.partId];
-    return (ov?.fill as string) || (ov?.stroke as string) || "#cc0000";
-  })();
-
-  const TEXT_ROLES = new Set(["axis-title", "tick-label", "title", "label", "legend-label"]);
-  const LINE_ROLES = new Set(["line", "reference-line", "axis", "gridline", "spine", "errorbar"]);
-  function recolorPart(hex: string) {
-    const role = partInfo?.role ?? "";
-    if (TEXT_ROLES.has(role)) applyPartStyle({ fill: hex });
-    else if (LINE_ROLES.has(role)) applyPartStyle({ stroke: hex });
-    else applyPartStyle({ fill: hex, stroke: hex });
-  }
+  // Hierarchy breadcrumb (parts-tree root → this part); empty without a tree.
+  $: partCrumb =
+    plotEl && plotEl.type === "plot" && $partSelection
+      ? partBreadcrumb($plotManifests[plotEl.assetId], $partSelection.partId).join(" › ")
+      : "";
 
   // Panel-label (caption) state across the selected text elements.
   $: textSel = sel.filter((e) => e.type === "text");
@@ -286,13 +281,14 @@
     <section class="part">
       <h4>Plot part</h4>
       <div class="part-id">{partLabel}</div>
+      {#if partCrumb}
+        <p class="crumb">{partCrumb}</p>
+      {/if}
       {#if partInfo.x !== undefined && partInfo.y !== undefined}
         <p class="note">data: x = {partInfo.x}, y = {partInfo.y}</p>
       {/if}
-      <label class="full">Colour
-        <input type="color" value={partColor} on:change={(e) => recolorPart(e.currentTarget.value)} />
-      </label>
-      <p class="note">override <code>{partInfo.id}</code> — survives regeneration</p>
+      <button class="fig-act" title="Open the property menu for this part (f)" on:click={() => fluxFigMenuOpen.set(true)}>Show properties</button>
+      <p class="note">edits write override <code>{partInfo.id}</code> — they survive regeneration</p>
     </section>
   {/if}
 
@@ -642,6 +638,12 @@
     color: var(--c-accent-bright);
     margin-bottom: 4px;
     word-break: break-all;
+  }
+  .crumb {
+    margin: 0 0 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    opacity: 0.65;
   }
   code {
     font-family: var(--font-mono);

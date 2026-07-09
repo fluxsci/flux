@@ -2,6 +2,7 @@ import { get } from "svelte/store";
 import {
   project,
   selection,
+  partSelection,
   activeFigureId,
   activeTool,
   undo,
@@ -194,6 +195,51 @@ function nudge(dx: number, dy: number) {
       e.y += dy;
     }
   });
+}
+
+// Nudge the drilled-in plot PART instead of the element: increments the
+// id-keyed {dx,dy} override. NOTE the step is in PLOT-LOCAL user units (the
+// SVG's own coordinate space), not canvas px — the same units a part-move drag
+// commits, so nudges and drags compose. One undo entry per keypress.
+function nudgePart(ddx: number, ddy: number): boolean {
+  const ps = get(partSelection);
+  if (!ps) return false;
+  commit((p) => {
+    for (const f of p.figures)
+      for (const e of f.elements) {
+        if (e.id !== ps.elementId || e.type !== "plot") continue;
+        const ov = e.overrides?.[ps.partId];
+        const dx = (Number(ov?.dx ?? 0) || 0) + ddx;
+        const dy = (Number(ov?.dy ?? 0) || 0) + ddy;
+        ops.setPartOverride(p, ps.elementId, ps.partId, { dx, dy });
+      }
+  });
+  return true;
+}
+
+// 'x': toggle hidden. A drilled part toggles its override; else the selected
+// elements toggle together (all-visible → hide all; any-hidden → show all).
+function toggleHiddenX(): boolean {
+  const ps = get(partSelection);
+  if (ps) {
+    commit((p) => {
+      for (const f of p.figures)
+        for (const e of f.elements) {
+          if (e.id !== ps.elementId || e.type !== "plot") continue;
+          const cur = Boolean(e.overrides?.[ps.partId]?.hidden);
+          ops.setPartOverride(p, ps.elementId, ps.partId, { hidden: !cur });
+        }
+    });
+    return true;
+  }
+  const sel = get(selection);
+  if (sel.size === 0) return false;
+  const p0 = get(project);
+  let anyHidden = false;
+  for (const f of p0.figures)
+    for (const e of f.elements) if (sel.has(e.id) && e.hidden) anyHidden = true;
+  commit((p) => ops.setElementStyle(p, [...sel], { hidden: !anyHidden }));
+  return true;
 }
 
 function deleteSelected() {
@@ -623,6 +669,13 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
   const step = e.shiftKey ? 10 : 1;
+  // A drilled-in plot part captures the arrows (before the element nudge).
+  if (get(partSelection)) {
+    if (e.key === "ArrowLeft") return e.preventDefault(), void nudgePart(-step, 0);
+    if (e.key === "ArrowRight") return e.preventDefault(), void nudgePart(step, 0);
+    if (e.key === "ArrowUp") return e.preventDefault(), void nudgePart(0, -step);
+    if (e.key === "ArrowDown") return e.preventDefault(), void nudgePart(0, step);
+  }
   if (frameSelected()) {
     if (e.key === "ArrowLeft") return e.preventDefault(), nudgeFrame(-step, 0);
     if (e.key === "ArrowRight") return e.preventDefault(), nudgeFrame(step, 0);
@@ -644,6 +697,15 @@ export function handleKey(e: KeyboardEvent) {
     e.preventDefault();
     if (get(selection).size > 0) fluxFigMenuOpen.set(true);
     return;
+  }
+
+  // X toggles hidden: the drilled plot part, else the selected elements
+  // (matches the X-Ray's 'x'; plain key — 'x' is free of tool bindings).
+  if (lk === "x" && !e.shiftKey && !e.altKey) {
+    if (toggleHiddenX()) {
+      e.preventDefault();
+      return;
+    }
   }
 
   // Tool shortcuts are unmodified single keys (Shift+R is the ruler toggle, etc.).

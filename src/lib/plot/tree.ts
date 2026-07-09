@@ -77,7 +77,10 @@ const GROUP_LABEL: Record<string, string> = {
   unclassified: "Unclassified",
 };
 
-function inferRole(id: string): string {
+/** Best-effort role from a semantic id's shape (fluxplot's deterministic id
+ *  grammar). Used for ids that appear only as group MEMBERS in the manifest
+ *  (ticklabels, gridlines, points…) — they carry no PartNode of their own. */
+export function inferRole(id: string): string {
   if (/\.point\.\d+$/.test(id)) return "point";
   if (/\.bar\.\d+$/.test(id)) return "bar";
   if (/\.gridline\.\d+$/.test(id)) return "gridline";
@@ -148,6 +151,19 @@ function labelFor(node: PartNode, role: string): string {
       return LEAF_LABEL[role] ?? id ?? role;
     }
   }
+}
+
+/** Human label for one manifest node (or a synthesized `{id}` for a member
+ *  leaf). Same labels the X-Ray tree shows; a trailing numeric index in the id
+ *  is appended when the generic label lacks one ("Tick label 3"). Shared by
+ *  buildPartIndex and partStyle.partBreadcrumb so names never drift. */
+export function labelForPart(node: PartNode): string {
+  const id = key(node) ?? "";
+  const role = node.role ?? inferRole(id);
+  let label = labelFor(node, role);
+  const ix = lastIndex(id);
+  if (ix && !/\d/.test(label)) label = `${label} ${ix}`;
+  return label;
 }
 
 /** Build the X-Ray tree from a manifest, or null if it has no parts tree (pre-0.2.0). */

@@ -11,6 +11,7 @@
   import type { PartOverride, SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes } from "./plot/store";
   import { buildPartTree, type XrayNode } from "./plot/tree";
+  import { partKindFromRole } from "./plot/partStyle";
   import { applyPartStyleTo } from "./colors";
   import { halfFrame, drawForge as forge } from "./motion/selfDraw";
   import ColorSearch from "./ColorSearch.svelte";
@@ -137,18 +138,9 @@
   // override map for the selected node (reactive on the element's overrides)
   $: ov = (plotEl && selectedId ? plotEl.overrides?.[selectedId] : undefined) ?? ({} as PartOverride);
 
-  const TEXT = new Set(["axis-title", "title", "tick-label", "legend-label"]);
-  const LINEY = new Set(["line", "reference-line", "gridline", "spine", "errorbar", "tick", "axis"]);
-  const CONTAINER = new Set(["series", "plot-area", "figure", "legend", "legend-entry"]);
-  $: kind = !selNode
-    ? "none"
-    : TEXT.has(selNode.role)
-      ? "text"
-      : CONTAINER.has(selNode.role)
-        ? "container"
-        : LINEY.has(selNode.role)
-          ? "line"
-          : "shape";
+  // Kind inference lives in plot/partStyle.ts now (shared with the FluxFig
+  // Menu's part fields and the canvas part-move scaffold check).
+  $: kind = !selNode ? "none" : partKindFromRole(selNode.role);
 
   function select(n: XrayNode) {
     selectedId = n.id;

@@ -4,10 +4,17 @@
   import {
     project,
     selection,
+    partSelection,
     beginGesture,
+    commit,
     mutate,
+    type PartSelection,
   } from "./store";
-  import type { Element, Project } from "./types";
+  import type { Element, PartOverride, Project, SemanticPlotElement } from "./types";
+  import type { FluxPlotManifest } from "./plot/types";
+  import { plotManifests } from "./plot/store";
+  import { partKind, partNode, readPartStyle } from "./plot/partStyle";
+  import * as ops from "./ops";
   import { applyAutoWidth } from "./text";
   import { evalExpr } from "./num";
   import { scrub } from "./scrub";
@@ -41,8 +48,9 @@
   let frameW = 0; // measured panel box, for the self-drawing outline
   let frameH = 0;
 
-  // (Re)build the field list whenever the selection or its data changes.
-  $: fields = $fluxFigMenuOpen ? buildFields($project, $selection) : [];
+  // (Re)build the field list whenever the selection / part selection or its
+  // data changes.
+  $: fields = $fluxFigMenuOpen ? buildFields($project, $selection, $partSelection, $plotManifests) : [];
   $: groups = groupFields(fields);
   $: sQ = search.trim().toLowerCase();
   $: sResults = sQ
@@ -78,7 +86,111 @@
     return out;
   }
 
-  function buildFields(p: Project, sel: Set<string>): Field[] {
+  // --- Plot-part fields -------------------------------------------------
+  // When a part is drilled (partSelection), the menu edits THAT part like the
+  // equivalent native object: a tick label gets the text fields, a gridline
+  // the stroke fields. Reads = effective values (override → live DOM →
+  // pristine cache); writes = id-keyed overrides (survive regeneration).
+  // Number/text/select fields ride activate()'s beginGesture → apply via
+  // mutate (one undo per field activation); the visible toggle commits itself
+  // (activate() short-circuits toggles without opening a gesture).
+  const PART_FONTS = ["Lato", "Latin Modern Roman", "Arial", "Helvetica", "Georgia", "Times New Roman", "DejaVu Sans"];
+
+  function buildPartFields(el: SemanticPlotElement, partId: string, manifest?: FluxPlotManifest): Field[] {
+    const kind = partKind(manifest, partId, partNode(el, partId));
+    const read = () => readPartStyle(el, partId, manifest);
+    const patch = (q: PartOverride) => mutate((proj) => ops.setPartOverride(proj, el.id, partId, q));
+    const F: Field[] = [];
+    const G = "Plot part";
+    const pnum = (key: string, label: string, prop: string, step = 1, clamp?: (n: number) => number) =>
+      F.push({
+        key,
+        label,
+        group: G,
+        kind: "number",
+        step,
+        get: () => {
+          const v = read()[prop];
+          return typeof v === "number" ? Math.round(v * 100) / 100 : 0;
+        },
+        apply: (v) => {
+          let n = Number(v);
+          if (!Number.isFinite(n)) return;
+          if (clamp) n = clamp(n);
+          patch({ [prop]: n });
+        },
+      });
+    const color = (key: string, label: string, target: "fill" | "stroke") =>
+      // ColorSearch retargets to the part itself (colors.ts applyColor routes
+      // through applyPartStyle while partSelection is set) — apply is a no-op.
+      F.push({ key, label, group: G, kind: "color", target, get: () => String(read()[target] ?? "#000000"), apply: () => {} });
+    const visible = () =>
+      F.push({
+        key: "v",
+        label: "visible",
+        group: G,
+        kind: "toggle",
+        get: () => !read().hidden,
+        apply: () =>
+          commit((proj) =>
+            ops.setPartOverride(proj, el.id, partId, { hidden: !Boolean(el.overrides?.[partId]?.hidden) }),
+          ),
+      });
+
+    if (kind === "container") visible();
+    if (kind === "text") {
+      // Part font size is in PLOT UNITS (the SVG's own user units), not pt.
+      pnum("e", "size", "fontSize", 0.5, (n) => Math.max(0.5, n));
+      F.push({
+        key: "b",
+        label: "weight",
+        group: G,
+        kind: "select",
+        options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }],
+        get: () => String(read().fontWeight ?? 400),
+        apply: (v) => patch({ fontWeight: Number(v) }),
+      });
+      F.push({
+        key: "m",
+        label: "font",
+        group: G,
+        kind: "select",
+        options: (() => {
+          const cur = String(read().fontFamily ?? "");
+          const list = cur && !PART_FONTS.includes(cur) ? [cur, ...PART_FONTS] : PART_FONTS;
+          return list.map((x) => ({ value: x, label: x }));
+        })(),
+        get: () => String(read().fontFamily ?? ""),
+        apply: (v) => patch({ fontFamily: String(v) }),
+      });
+      color("c", "text colour", "fill");
+    } else if (kind === "line") {
+      color("k", "stroke colour", "stroke");
+      pnum("d", "stroke width", "strokeWidth", 0.25, (n) => Math.max(0, n));
+    } else if (kind === "shape") {
+      color("c", "fill colour", "fill");
+      color("k", "stroke colour", "stroke");
+      pnum("d", "stroke width", "strokeWidth", 0.25, (n) => Math.max(0, n));
+    }
+    pnum("o", "opacity", "opacity", 0.05, (n) => Math.min(1, Math.max(0, n)));
+    pnum("x", "dx (plot units)", "dx", 1);
+    pnum("y", "dy (plot units)", "dy", 1);
+    if (kind !== "container") visible();
+    return F;
+  }
+
+  function buildFields(
+    p: Project,
+    sel: Set<string>,
+    ps: PartSelection | null,
+    manifests: Record<string, FluxPlotManifest>,
+  ): Field[] {
+    if (ps) {
+      for (const f of p.figures)
+        for (const e of f.elements)
+          if (e.id === ps.elementId && e.type === "plot")
+            return buildPartFields(e, ps.partId, manifests[e.assetId]);
+    }
     const els: Element[] = [];
     for (const f of p.figures)
       for (const e of f.elements) if (sel.has(e.id)) els.push(e);
@@ -114,43 +226,59 @@
         apply: (v) => upd((e) => a(e, Number(v))),
       });
 
-    // Geometry (all element types)
+    // Union-by-presence (multi-type selections): a section renders when ANY
+    // selected element is of that family. `get` reads from the FIRST matching
+    // element; every applier stays type-guarded per element (mirrors
+    // ops.setElementStyle), so a mixed apply only touches valid targets.
+    const textEl = els.find((e) => e.type === "text");
+    const shapeEl = els.find((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path");
+    const strokeEl = els.find(
+      (e) => e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line",
+    );
+    const rectEl = els.find((e) => e.type === "rect");
+    const lineEl = els.find((e) => e.type === "line");
+    const boxEl = els.find((e) => "width" in e && e.type !== "line");
+
+    // Geometry (all element types; position reads the primary)
     num("x", "x position", "Geometry", () => Math.round(primary.x), (e, v) => (e.x = v));
     num("y", "y position", "Geometry", () => Math.round(primary.y), (e, v) => (e.y = v));
-    if ("width" in primary && primary.type !== "line") {
-      num("w", "width", "Geometry", () => Math.round((primary as any).width), (e, v) => { if ("width" in e) e.width = Math.max(1, v); });
-      num("h", "height", "Geometry", () => Math.round((primary as any).height), (e, v) => { if ("height" in e) e.height = Math.max(1, v); });
+    if (boxEl) {
+      num("w", "width", "Geometry", () => Math.round((boxEl as any).width), (e, v) => { if ("width" in e) e.width = Math.max(1, v); });
+      num("h", "height", "Geometry", () => Math.round((boxEl as any).height), (e, v) => { if ("height" in e) e.height = Math.max(1, v); });
     }
     num("r", "rotation", "Geometry", () => Math.round(primary.rotation), (e, v) => (e.rotation = v));
     num("o", "opacity", "Geometry", () => primary.opacity ?? 1, (e, v) => (e.opacity = Math.min(1, Math.max(0, v))), 0.05);
 
     // Fill
-    if (primary.type === "rect" || primary.type === "ellipse" || primary.type === "path") {
-      F.push({ key: "c", label: "fill color", group: "Fill", kind: "color", target: "fill", get: () => (primary as any).fill, apply: () => {} });
+    if (shapeEl) {
+      F.push({ key: "c", label: "fill color", group: "Fill", kind: "color", target: "fill", get: () => (shapeEl as any).fill, apply: () => {} });
     }
-    if (primary.type === "rect") {
-      num("u", "corner radius", "Fill", () => (primary as any).cornerRadius, (e, v) => { if (e.type === "rect") e.cornerRadius = Math.max(0, v); });
+    if (rectEl) {
+      num("u", "corner radius", "Fill", () => (rectEl as any).cornerRadius, (e, v) => { if (e.type === "rect") e.cornerRadius = Math.max(0, v); });
     }
 
     // Stroke
-    if (primary.type === "rect" || primary.type === "ellipse" || primary.type === "path" || primary.type === "line") {
-      F.push({ key: "k", label: "stroke color", group: "Stroke", kind: "color", target: "stroke", get: () => (primary as any).stroke, apply: () => {} });
-      num("d", "stroke width", "Stroke", () => (primary as any).strokeWidth, (e, v) => { if ("strokeWidth" in e) e.strokeWidth = Math.max(0, v); });
+    if (strokeEl) {
+      F.push({ key: "k", label: "stroke color", group: "Stroke", kind: "color", target: "stroke", get: () => (strokeEl as any).stroke, apply: () => {} });
+      num("d", "stroke width", "Stroke", () => (strokeEl as any).strokeWidth, (e, v) => { if ("strokeWidth" in e) e.strokeWidth = Math.max(0, v); });
     }
-    if (primary.type === "line") {
-      F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => (primary as any).arrowStart, apply: () => upd((e) => { if (e.type === "line") e.arrowStart = !e.arrowStart; }) });
-      F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => (primary as any).arrowEnd, apply: () => upd((e) => { if (e.type === "line") e.arrowEnd = !e.arrowEnd; }) });
+    if (lineEl) {
+      F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => (lineEl as any).arrowStart, apply: () => upd((e) => { if (e.type === "line") e.arrowStart = !e.arrowStart; }) });
+      F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => (lineEl as any).arrowEnd, apply: () => upd((e) => { if (e.type === "line") e.arrowEnd = !e.arrowEnd; }) });
     }
 
     // Text
-    if (primary.type === "text") {
-      F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => (primary as any).text, apply: (v) => upd((e) => { if (e.type === "text") e.text = String(v); }) });
+    if (textEl) {
+      // 'c' stays text colour for text-only selections (muscle memory); it
+      // yields to the Fill section's fill colour in mixed selections.
+      const tcKey = shapeEl ? "n" : "c";
+      F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => (textEl as any).text, apply: (v) => upd((e) => { if (e.type === "text") e.text = String(v); }) });
       // Font size in POINTS (stored px × 0.75; see Inspector) — same unit as journal specs.
-      num("e", "font size (pt)", "Text", () => Math.round((primary as any).fontSize * 0.75 * 10) / 10, (e, v) => { if (e.type === "text") e.fontSize = Math.max(1, v) * (4 / 3); }, 0.5);
-      F.push({ key: "b", label: "weight", group: "Text", kind: "select", options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }], get: () => String((primary as any).fontWeight), apply: (v) => upd((e) => { if (e.type === "text") e.fontWeight = Number(v); }) });
-      F.push({ key: "m", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => (primary as any).fontFamily, apply: (v) => upd((e) => { if (e.type === "text") e.fontFamily = String(v); }) });
-      F.push({ key: "a", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => (primary as any).align, apply: (v) => upd((e) => { if (e.type === "text") e.align = v as "left" | "center" | "right"; }) });
-      F.push({ key: "c", label: "text color", group: "Text", kind: "color", target: "fill", get: () => (primary as any).color, apply: () => {} });
+      num("e", "font size (pt)", "Text", () => Math.round((textEl as any).fontSize * 0.75 * 10) / 10, (e, v) => { if (e.type === "text") e.fontSize = Math.max(1, v) * (4 / 3); }, 0.5);
+      F.push({ key: "b", label: "weight", group: "Text", kind: "select", options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }], get: () => String((textEl as any).fontWeight), apply: (v) => upd((e) => { if (e.type === "text") e.fontWeight = Number(v); }) });
+      F.push({ key: "m", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => (textEl as any).fontFamily, apply: (v) => upd((e) => { if (e.type === "text") e.fontFamily = String(v); }) });
+      F.push({ key: "a", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => (textEl as any).align, apply: (v) => upd((e) => { if (e.type === "text") e.align = v as "left" | "center" | "right"; }) });
+      F.push({ key: tcKey, label: "text color", group: "Text", kind: "color", target: "fill", get: () => (textEl as any).color, apply: () => {} });
     }
 
     return F;

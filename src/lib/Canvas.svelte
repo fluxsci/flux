@@ -46,7 +46,8 @@
   import { settings } from "./settings";
   import { importDroppedFiles } from "./io";
   import { pushToast, errMsg } from "./toast";
-  import { semanticIdFromNode } from "./plot/parse";
+  import { isScaffoldPart, resolvePartId } from "./plot/partStyle";
+  import { plotManifests } from "./plot/store";
   import ElementView from "./Element.svelte";
   import CaptionEditor from "./CaptionEditor.svelte";
 
@@ -118,6 +119,23 @@
         oy: number;
         xs: number[];
         ys: number[];
+      }
+    | {
+        // Move one PART of a semantic plot (drag writes an id-keyed {dx,dy}
+        // override in PLOT-LOCAL units on release; the drag itself is a
+        // transient DOM transform — the model stays frozen until commit).
+        kind: "partmove";
+        figId: string;
+        elementId: string;
+        partId: string;
+        node: SVGGraphicsElement; // the live mounted node (prefixed id)
+        inv: DOMMatrix; // screen → plot-local, captured at pointerdown
+        sx: number; // client coords at down
+        sy: number;
+        baseDx: number; // existing override translation (or 0)
+        baseDy: number;
+        baseTransform: string; // node's transform attribute at down (restored on Esc)
+        restTransform: string; // baseTransform minus the override's translate prefix
       };
 
   let gesture: Gesture = null;
@@ -135,6 +153,12 @@
   let gDY = 0;
   let fDX = 0; // live frame-move delta, world units (F8)
   let fDY = 0;
+  let pDX = 0; // live part-move translation, PLOT-LOCAL units (dx/dy override)
+  let pDY = 0;
+  // Transient highlight for the moving part (screen px). The reactive
+  // partBoxScreen suppresses itself during gestures, so the drag draws its own
+  // box from the live node's bounding rect each frame.
+  let partMoveBox: { x: number; y: number; w: number; h: number } | null = null;
   let gNb: Rect | null = null;
   let liveBox: Rect | null = null;
   let marquee: Rect | null = null; // figure-local
@@ -706,12 +730,23 @@
     activeFigureId.set(fig.id);
     selectedFrameId.set(null);
     // Drill into a semantic plot: clicking an ALREADY-selected plot selects the
-    // part under the cursor (its prefixed DOM id → canonical semantic id);
-    // otherwise clear any part selection. The whole-plot drag still proceeds.
+    // part under the cursor (its prefixed DOM id → canonical semantic id) and —
+    // for a REAL part — arms a part-move gesture, so a drag moves the part
+    // itself (an id-keyed {dx,dy} override). SCAFFOLD parts (figure/plot-area/
+    // background patches/axis containers) clear the part selection and fall
+    // through to the normal whole-plot move — else the plot would be
+    // un-draggable by its own background.
     if (el.type === "plot" && $selection.has(el.id)) {
       // (DOM Element is shadowed by the figure-model Element import → cast via unknown)
-      const pid = semanticIdFromNode(e.target as unknown as SVGElement, el.id);
-      partSelection.set(pid ? { elementId: el.id, partId: pid } : null);
+      const pid = resolvePartId($plotManifests[el.assetId], e.target as unknown as globalThis.Element, el.id);
+      const scaffold = !pid || isScaffoldPart($plotManifests[el.assetId], pid);
+      partSelection.set(pid && !scaffold ? { elementId: el.id, partId: pid } : null);
+      // Plain select-tool click on a real part → part move (shift keeps the
+      // deferred selection toggle; alt keeps duplicate-drag; scale tool keeps
+      // whole-plot semantics).
+      if (pid && !scaffold && $activeTool === "select" && !e.shiftKey && !e.altKey) {
+        if (beginPartMove(e, fig, el.id, pid)) return;
+      }
     } else {
       partSelection.set(null);
     }
@@ -775,6 +810,61 @@
     gDY = 0;
     liveBox = ob;
     hostEl.setPointerCapture(e.pointerId);
+  }
+
+  // Arm a part-move gesture on the live mounted node. Returns false when the
+  // node/CTM isn't available (unmounted asset, <image> fallback) — the caller
+  // then falls through to the normal whole-plot move.
+  function beginPartMove(e: PointerEvent, fig: Figure, elementId: string, partId: string): boolean {
+    const found = findElement($project, elementId);
+    if (!found || found.element.type !== "plot") return false;
+    const node = document.getElementById(`${elementId}__${partId}`) as unknown as SVGGraphicsElement | null;
+    if (!node || typeof node.getScreenCTM !== "function") return false;
+    // The override translate is PREPENDED to the node's transform list, so it
+    // operates in the space where that list begins — the PARENT's user space.
+    // Deltas must be measured there (the node's own CTM would fold in its own
+    // rotate/scale, e.g. a rotated y-axis title, and the drag would shear).
+    const parent = node.parentNode as SVGGraphicsElement | null;
+    const raw = parent && typeof parent.getScreenCTM === "function" ? parent.getScreenCTM() : node.getScreenCTM();
+    if (!raw) return false;
+    // getScreenCTM may hand back a legacy SVGMatrix (no transformPoint) —
+    // normalize to a real DOMMatrix so the move handler can map points.
+    const ctm = new DOMMatrix([raw.a, raw.b, raw.c, raw.d, raw.e, raw.f]);
+    const ov = found.element.overrides?.[partId];
+    const baseDx = Number(ov?.dx ?? 0) || 0;
+    const baseDy = Number(ov?.dy ?? 0) || 0;
+    const baseTransform = node.getAttribute("transform") ?? "";
+    // applyOverrides prepends exactly `translate(${dx} ${dy})` when the
+    // override carried dx/dy — strip that prefix so the live transform composes
+    // the NEW translation with the node's original transform, never both.
+    let restTransform = baseTransform;
+    if (ov?.dx != null || ov?.dy != null) {
+      const prefix = `translate(${baseDx} ${baseDy})`;
+      if (baseTransform.startsWith(prefix)) restTransform = baseTransform.slice(prefix.length).trimStart();
+    }
+    gesture = {
+      kind: "partmove",
+      figId: fig.id,
+      elementId,
+      partId,
+      node,
+      inv: ctm.inverse(),
+      sx: e.clientX,
+      sy: e.clientY,
+      baseDx,
+      baseDy,
+      baseTransform,
+      restTransform,
+    };
+    gestureFig = fig;
+    gestureEls = [];
+    committed = false;
+    dragging = false;
+    pDX = baseDx;
+    pDY = baseDy;
+    partMoveBox = null;
+    hostEl.setPointerCapture(e.pointerId);
+    return true;
   }
 
   // FIG-9: materialize the alt-drag copies on the first real move. Clones the
@@ -1050,6 +1140,27 @@
       viewport.update((v) => ({ ...v, panX: g.panX + (e.clientX - g.sx), panY: g.panY + (e.clientY - g.sy) }));
       return;
     }
+
+    // Part move — handled before the figure lookup / main branches (mirrors the
+    // early modal drags): a pure transient DOM transform, no model mutation.
+    if (g.kind === "partmove") {
+      // 2px client threshold: below it this stays a click (selection only).
+      if (!dragging && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 2) return;
+      startDragging();
+      const p0 = g.inv.transformPoint(new DOMPoint(g.sx, g.sy));
+      const p1 = g.inv.transformPoint(new DOMPoint(e.clientX, e.clientY));
+      pDX = g.baseDx + (p1.x - p0.x);
+      pDY = g.baseDy + (p1.y - p0.y);
+      const t = [`translate(${pDX} ${pDY})`, g.restTransform].filter(Boolean).join(" ");
+      g.node.setAttribute("transform", t);
+      // live highlight from the moving node's real bounds
+      const r = g.node.getBoundingClientRect();
+      const h = hostEl.getBoundingClientRect();
+      const O = 2;
+      partMoveBox = { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
+      return;
+    }
+
     const fig = $project.figures.find((f) => f.id === g.figId);
     if (!fig) return;
 
@@ -1279,6 +1390,15 @@
           f.y = g.oy + fDY;
         }
       });
+    } else if (g.kind === "partmove") {
+      if (dragging) {
+        // ONE undo step. The mount signature includes overrides, so the commit
+        // re-clones the plot once — replacing the transiently-mutated node with
+        // a pristine clone carrying the new translate. Below the threshold this
+        // was a click: selection only, DOM untouched.
+        ensureCommitted();
+        mutate((p) => ops.setPartOverride(p, g.elementId, g.partId, { dx: pDX, dy: pDY }));
+      }
     } else if (g.kind === "rotate" && dragging && gRotDeg !== 0) {
       // FIG-1: commit the transient rotate once. The model is still at the pre-rotation state
       // (we only showed a live transform), so a single rotateAbout with the accumulated delta —
@@ -1312,6 +1432,9 @@
     gRotDeg = 0;
     fDX = 0;
     fDY = 0;
+    pDX = 0;
+    pDY = 0;
+    partMoveBox = null;
     gNb = null;
     gestureEls = [];
     gestureFig = null;
@@ -1331,6 +1454,11 @@
     if (!gesture) return false;
     if (gestureAltDup) rollbackGesture(); // removes the copies minted at first move
     if (gesture.kind === "draw") activeTool.set("select");
+    // Part move mutated the live node's transform transiently — put it back.
+    if (gesture.kind === "partmove" && dragging) {
+      if (gesture.baseTransform) gesture.node.setAttribute("transform", gesture.baseTransform);
+      else gesture.node.removeAttribute("transform");
+    }
     resetGestureTransients();
     return true;
   }
@@ -2159,6 +2287,18 @@
         y={partBoxScreen.y}
         width={partBoxScreen.w}
         height={partBoxScreen.h}
+        fill="none"
+      />
+    {/if}
+
+    <!-- part being MOVED (partBoxScreen suppresses itself during gestures) -->
+    {#if partMoveBox}
+      <rect
+        class="part-box"
+        x={partMoveBox.x}
+        y={partMoveBox.y}
+        width={partMoveBox.w}
+        height={partMoveBox.h}
         fill="none"
       />
     {/if}
