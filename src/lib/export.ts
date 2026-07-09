@@ -1,6 +1,6 @@
 import type { Element, Figure, ImageElement } from "./types";
 import { arrowHeads, elementBBox } from "./geometry";
-import { effectiveHidden } from "./groups";
+import { buildRenderTree, effectiveHidden, type RenderNode } from "./groups";
 import { visualLines, lineH } from "./text";
 
 function esc(s: string): string {
@@ -162,21 +162,38 @@ export function elementToSvg(
 }
 
 // Serialize a whole figure to a standalone, self-contained SVG document.
+// P9: iterates the derived render tree (groups.ts buildRenderTree — z-ordered,
+// straggler/dangling tolerant) so every registered group becomes a real nested
+// `<g data-flux-group="<name>" id="<figId>__group:<gid>">` wrapper around its
+// members (nested groups nest). Element markup and paint order are UNCHANGED —
+// an ungrouped figure's output is byte-identical to the old flat render (the
+// tree degenerates to the same element sequence). The wrappers are the slides
+// handshake: a deck Track {target: <embedFigureEl>, part: "group:<gid>"}
+// resolves to this node inside the mounted figure svg (player.ts resolveNodes),
+// so any figure group is animatable from Flux Slide. flux-core renderFigureSvg
+// and gatherDeckPayload reuse this one function and inherit the wrappers.
 export function figureToSvg(
   fig: Figure,
   assetUrl: (id: string) => string | undefined,
   plotMarkup?: (e: Element) => string | undefined,
   assetSize?: AssetSizeFn,
 ): string {
-  const body = fig.elements
-    // Layers eyes: an element hidden itself OR by any ancestor GROUP's eye
-    // (P7 registry, groups.ts) is omitted from export. NOTE the live canvas
-    // applies group eyes with the Canvas interaction wave — until then the
-    // Sidebar dims members and export/render honor the eye here.
-    .filter((e) => !effectiveHidden(fig, e))
-    .map((e) => elementToSvg(e, assetUrl, plotMarkup, assetSize))
-    .filter(Boolean)
-    .join("\n  ");
+  const nodeToSvg = (n: RenderNode): string => {
+    if (n.kind === "element")
+      // Layers eyes: an element hidden itself OR by any ancestor GROUP's eye
+      // (P7 registry, groups.ts) is omitted from export. effectiveHidden (not
+      // just the walk's group skip) also covers stragglers/dangling ids the
+      // tree renders LOOSE outside their (hidden) group's wrapper.
+      return effectiveHidden(fig, n.el) ? "" : elementToSvg(n.el, assetUrl, plotMarkup, assetSize);
+    if (n.def.hidden) return ""; // hidden group: whole subtree omitted, no empty wrapper
+    const inner = n.children.map(nodeToSvg).filter(Boolean).join("\n  ");
+    if (!inner) return ""; // every member hidden → no wrapper either
+    return (
+      `<g data-flux-group="${esc(n.def.name)}" id="${esc(fig.id)}__group:${esc(n.def.id)}">\n  ` +
+      `${inner}\n  </g>`
+    );
+  };
+  const body = buildRenderTree(fig).map(nodeToSvg).filter(Boolean).join("\n  ");
   const bg =
     fig.background && fig.background !== "transparent"
       ? `<rect x="0" y="0" width="${fig.width}" height="${fig.height}" fill="${fig.background}"/>\n  `

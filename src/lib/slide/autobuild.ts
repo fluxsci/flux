@@ -262,11 +262,25 @@ const ELEMENT_EXIT: Record<string, { preset: PresetName; duration: number }> = {
 /** A sensible default Track for a WHOLE element (the analog of `suggestTrack`
  *  for non-plot rows in the animator tree). `exit` flips to the disappear
  *  family. A multi-block text box enters as a per-block stagger — the classic
- *  bullets reveal — unless `wholeBox` asks for one unit. */
+ *  bullets reveal — unless `wholeBox` asks for one unit. `part` narrows the
+ *  track to a named node INSIDE the element — P9: a figure group inside an
+ *  embedFigure, addressed "group:<groupId>" — with simple deterministic
+ *  defaults (enter fade / exit fadeOut; the target is one wrapper <g>, so the
+ *  fade family always reads correctly regardless of what the group holds). */
 export function suggestElementTrack(
   el: SlideElement,
-  opts: { exit?: boolean; wholeBox?: boolean; blocks?: Id[] } = {},
+  opts: { exit?: boolean; wholeBox?: boolean; blocks?: Id[]; part?: string } = {},
 ): Track {
+  if (opts.part) {
+    return {
+      id: newId("track"),
+      target: el.id,
+      part: opts.part,
+      preset: opts.exit ? "fadeOut" : "fade",
+      duration: opts.exit ? 300 : 400,
+      start: 0,
+    };
+  }
   const kind = el.type;
   const def = (opts.exit ? ELEMENT_EXIT[kind] : undefined) ?? (opts.exit ? { preset: "fadeOut" as PresetName, duration: 300 } : ELEMENT_ENTER[kind] ?? { preset: "fade" as PresetName, duration: 350 });
   const track: Track = { id: newId("track"), target: el.id, preset: def.preset, duration: def.duration, start: 0 };
@@ -282,13 +296,15 @@ export function suggestElementTrack(
 /** Give ONE element an enter (or exit) animation on a build beat — the non-plot
  *  analog of `animatePart`, and the GUI's "Animate in / Animate out" quick
  *  action. Adds to `beatIndex` when given (never 0), else the last build beat
- *  (creating beat 1 if only the resting beat exists). Returns the beat index and
- *  the track id, or null if the element/slide is missing. */
+ *  (creating beat 1 if only the resting beat exists). `part` narrows to a named
+ *  node inside the element (P9: an embedFigure's figure group, "group:<gid>").
+ *  Returns the beat index and the track id, or null if the element/slide is
+ *  missing. */
 export function animateElement(
   deck: Deck,
   slideId: Id,
   elId: Id,
-  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; wholeBox?: boolean; blocks?: Id[] } = {},
+  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; wholeBox?: boolean; blocks?: Id[]; part?: string } = {},
 ): { beatIndex: number; trackId: Id } | null {
   const slide = slideById(deck, slideId);
   const found = findElement(deck, elId);

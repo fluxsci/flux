@@ -200,6 +200,14 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
     el.id = nid;
     // Remap group membership so the copy's elements group with each OTHER, not
     // with the originals (same stable-id-contract concern as track ids below).
+    // NOTE (figure-v1 P7/P9): this flat remap is DELIBERATELY not the figure
+    // editor's groups.ts cloneGroupsFor — slide decks have no GroupDef registry
+    // (no Slide.groups; a slide groupId is pure co-selection, never named or
+    // nested), so a fresh shared id per source group is the complete, correct
+    // semantics here. Do not port the registry to slides without a model
+    // decision. (The named-group trees a slide CAN animate live inside
+    // embedFigure elements and belong to the FIGURE, addressed via
+    // Track.part = "group:<gid>" — see player.ts resolveNodes.)
     if (el.groupId) {
       let g = groupRemap.get(el.groupId);
       if (!g) { g = newId("grp"); groupRemap.set(el.groupId, g); }

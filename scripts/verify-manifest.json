@@ -70,6 +70,7 @@
       "verify-slide-export-core.ts",
       "verify-slide-export-parity.ts",
       "verify-slide-export-w6.ts",
+      "verify-slide-groups.ts",
       "verify-slide-model.ts",
       "verify-slide-morph.ts",
       "verify-slide-multiplot.ts",
@@ -136,7 +137,8 @@
       "verify-text-resize.mjs",
       "verify-text-biu.mjs",
       "verify-text-styles.mjs",
-      "verify-groups-layers.mjs"
+      "verify-groups-layers.mjs",
+      "verify-slide-groups-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",

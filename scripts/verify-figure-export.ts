@@ -1,12 +1,15 @@
 // 3.1 gate (pure) — journal-spec figure export core: the baseline TIFF encoder (structure
 // + resolution tags + pixel round-trip), the PNG pHYs DPI stamp (write + read), the mm↔px
 // sizing, and the physical-size placement contract (assetDisplaySize / BLANK_FIGURE).
+// P9: + figureToSvg group WRAPPERS (nested data-flux-group <g>s, escaped names, hidden
+// groups omitted, z-order preserved) — the slides-animation handshake substrate.
 //   Run: npx tsx scripts/verify-figure-export.ts
 import { encodeTiff } from "../src/lib/figure/tiff";
 import { injectPngDpi, readPngDpi } from "../src/lib/figure/pngDpi";
 import { mmToPx, planExport, describeSize, MM_PER_INCH } from "../src/lib/figure/journalSizing";
 import { assetDisplaySize, BLANK_FIGURE } from "../src/lib/ops";
-import type { Project } from "../src/lib/types";
+import { figureToSvg } from "../src/lib/export";
+import type { Element, Figure, Project } from "../src/lib/types";
 
 let fails = 0;
 const ok = (c: boolean, name: string, extra = "") => {
@@ -158,6 +161,38 @@ function fakePng(): Uint8Array {
   const bare = assetDisplaySize(proj, "png2");
   ok(!!bare && bare.width === 800, "bare png: 1 image px = 1 canvas px");
   ok(assetDisplaySize(proj, "missing") === null, "unknown asset → null");
+}
+
+// --- figureToSvg group wrappers (P9 — the groups→slides export substrate) -----------------
+{
+  const rect = (id: string, x: number, fill: string, groupId?: string): Element =>
+    ({ type: "rect", id, x, y: 20, width: 100, height: 80, rotation: 0, fill, stroke: "#222222", strokeWidth: 2, cornerRadius: 0, ...(groupId ? { groupId } : {}) }) as Element;
+  const fig: Figure = {
+    id: "figW", name: "W", canvasId: "c1", x: 0, y: 0, width: 800, height: 500, background: "transparent",
+    elements: [
+      rect("a", 10, "#d62728", "gA"),
+      rect("b", 120, "#2ca02c", "gB"), // nested: gB inside gA
+      rect("c", 240, "#1f77b4"), // loose
+      rect("d", 360, "#9467bd", "gH"), // hidden group
+    ],
+    groups: {
+      gA: { id: "gA", name: 'A "quoted" & <named>' },
+      gB: { id: "gB", name: "Inner", parentId: "gA" },
+      gH: { id: "gH", name: "Off", hidden: true },
+    },
+  } as Figure;
+  const svg = figureToSvg(fig, () => undefined);
+  ok(svg.includes('id="figW__group:gA"') && svg.includes('id="figW__group:gB"'), "group wrappers emitted (<figId>__group:<gid>)");
+  ok(svg.includes('data-flux-group="A &quot;quoted&quot; &amp; &lt;named&gt;"'), "group name escaped in data-flux-group");
+  const iA = svg.indexOf('id="figW__group:gA"');
+  const iB = svg.indexOf('id="figW__group:gB"');
+  const closeB = svg.indexOf("</g>", iB);
+  ok(iA >= 0 && iB > iA && svg.indexOf("</g>", closeB + 1) > closeB, "nested group's wrapper opens inside its parent's (nesting nests)");
+  ok(!svg.includes("#9467bd") && !svg.includes("group:gH"), "hidden group omitted — members and wrapper");
+  ok(svg.indexOf("#d62728") < svg.indexOf("#2ca02c") && svg.indexOf("#2ca02c") < svg.indexOf("#1f77b4"), "z-order preserved through the tree render");
+  const flat: Figure = { ...fig, id: "flat", elements: fig.elements.map((e) => { const c = { ...e } as Element & { groupId?: string }; delete c.groupId; return c; }) } as Figure;
+  delete (flat as { groups?: unknown }).groups;
+  ok(!figureToSvg(flat, () => undefined).includes("data-flux-group"), "ungrouped figure exports with no wrappers (flat degenerate case)");
 }
 
 // --- sizing ------------------------------------------------------------------------------

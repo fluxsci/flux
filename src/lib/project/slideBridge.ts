@@ -10,12 +10,13 @@ import { get } from "svelte/store";
 import { fileBridge, joinPath, type ProjectManifest } from "./types";
 import type { Deck, SlideElement } from "../slide/types";
 import { createDeck as createDeckModel } from "../slide/ops";
-import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen } from "../slide/store";
+import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen, figureGroups } from "../slide/store";
 import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { readFigSource } from "./figbridge";
 import { figureToSvg } from "../export";
+import { figureGroupTree, type FigureGroupNode } from "../groups";
 import { bytesToDataUrl } from "../assets";
 
 export interface DeckListItem {
@@ -357,19 +358,28 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
     }
   }
 
-  // 3. project figures (for embedFigure) → standalone SVG via figureToSvg.
+  // 3. project figures (for embedFigure) → standalone SVG via figureToSvg,
+  // PLUS each figure's group tree into the figureGroups store (P9) so the
+  // animator's PartsTree can expand an embedFigure into its named groups —
+  // the same one-refresh flow that seeds plotManifests for plot parts. The
+  // exported svg already carries the matching `<g id="<figId>__group:<gid>">`
+  // wrappers (export.ts), so a group row's track resolves in the live stage,
+  // the present player, AND the offline export without further plumbing.
   let figSvgCache: Record<string, string> = {};
+  const figGroupTrees: Record<string, FigureGroupNode[]> = {};
   const needsFigures = deck.slides.some((s) => s.elements.some((e) => e.type === "embedFigure"));
   if (needsFigures && fig) {
     try {
       const src = await readFigSource(root);
       for (const [fid, f] of Object.entries(src.figures)) {
         figSvgCache[fid] = figureToSvg(f, (aid) => src.assetData[aid]);
+        figGroupTrees[fid] = figureGroupTree(f);
       }
     } catch {
       /* no fig/ — embedFigure shows a placeholder */
     }
   }
+  figureGroups.set(figGroupTrees);
 
   return {
     assetUrl: (id) => assetData[id],

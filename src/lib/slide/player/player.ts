@@ -123,6 +123,18 @@ function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, camer
   // member, in tree order. This is the only path that reaches axis parts (spine/
   // ticks/labels/gridlines live in the parts tree, not the series part-index).
   if (track.part) {
+    // A named FIGURE GROUP inside an embedFigure (P9): the mounted figureSvg
+    // carries the export wrapper `<g data-flux-group id="<figureId>__group:<gid>">`
+    // (figureToSvg), so part = "group:<gid>" resolves by the same
+    // `${prefix}${SEP}${semanticId}` grammar — with the FIGURE id as the prefix
+    // (one shared markup per figure). Scoping the query to THIS element's
+    // wrapper keeps the same figure embedded twice resolving per instance.
+    // Animating the wrapper <g> animates the whole group (children inherit).
+    const el = slide.elements.find((e) => e.id === track.target);
+    if (el?.type === "embedFigure") {
+      const node = wrap.querySelector<SVGElement>(`[id="${el.figureId}${SEP}${track.part}"]`);
+      return node ? [node] : [];
+    }
     const ids = resolveTargets(manifestFor(track.target, slide, opts), track.part);
     return ids
       .map((id) => wrap.querySelector<SVGElement>(`[id="${track.target}${SEP}${id}"]`))

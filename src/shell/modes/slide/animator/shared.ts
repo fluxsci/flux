@@ -4,6 +4,7 @@
 import type { Slide, Track, PresetName } from "../../../../lib/slide/types";
 import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { resolveTargets } from "../../../../lib/plot/tree";
+import { figureGroupName } from "../../../../lib/slide/store";
 
 export const PRESET_COLOR: Record<string, string> = {
   drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
@@ -38,6 +39,12 @@ export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, s
   if (t.target.startsWith("@")) return t.target.slice(1);
   const tag = plotTags.get(t.target);
   const pre = tag ? `${tag} · ` : "";
+  if (t.part?.startsWith("group:")) {
+    // a figure group inside an embedFigure (P9) — show its NAME when loaded
+    const el = slide?.elements.find((e) => e.id === t.target);
+    const name = el?.type === "embedFigure" ? figureGroupName(el.figureId, t.part.slice(6)) : null;
+    return pre + (name ?? "group");
+  }
   if (t.part) return pre + t.part.split(".").slice(-2).join(".");
   if (t.selector?.blocks) return pre + (t.selector.blocks === "all" ? "bullets" : `block ${String(t.selector.blocks[0] ?? "")}`);
   const el = slide?.elements.find((e) => e.id === t.target);

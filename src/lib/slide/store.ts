@@ -10,6 +10,7 @@
 
 import { writable, get } from "svelte/store";
 import type { Deck, SlideElement, Track } from "./types";
+import type { FigureGroupNode } from "../groups";
 import { ensureTrackIds, migrateDeck } from "./ops";
 
 /** A copied animation track tagged with the beat it lived on (SLD-10). */
@@ -34,6 +35,29 @@ export const focusedPart = writable<{ elId: string; part: string } | null>(null)
  *  state) so it survives the Animator's component splits AND gets reconciled
  *  against surviving tracks after undo/redo. The LAST entry is the "primary". */
 export const selTrackIds = writable<string[]>([]);
+
+/** P9 — group trees of the project figures referenced by embedFigure elements
+ *  (figureId → figureGroupTree), refreshed by slideBridge.loadDeckAssets right
+ *  next to the figureSvg cache (the same flow that feeds plotManifests for plot
+ *  parts). The animator's PartsTree expands an embedFigure row from this; a
+ *  group is addressed by Track.part = "group:<groupId>" and resolves to the
+ *  export wrapper `<g id="<figureId>__group:<gid>">` inside the mounted figure
+ *  svg (player.ts resolveNodes). */
+export const figureGroups = writable<Record<string, FigureGroupNode[]>>({});
+
+/** Group NAME lookup over the figureGroups store ("group:<gid>" chip labels).
+ *  Null when the figure/group isn't loaded (caller falls back to a generic). */
+export function figureGroupName(figureId: string, groupId: string): string | null {
+  const find = (nodes: FigureGroupNode[]): string | null => {
+    for (const n of nodes) {
+      if (n.id === groupId) return n.name;
+      const inner = find(n.groups);
+      if (inner) return inner;
+    }
+    return null;
+  };
+  return find(get(figureGroups)[figureId] ?? []);
+}
 
 /** The project root the live deck was loaded from. Lets SlideMode REUSE the
  *  in-memory deck across a mode round-trip (slide→figure→slide, same project)

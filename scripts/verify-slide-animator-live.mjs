@@ -300,13 +300,22 @@ try {
     if (styledKey) {
       const node = document.querySelector(`.stage-viewport [id="${plot.id}__${styledKey}"]`) ??
         document.querySelector(`[id="${plot.id}__${styledKey}"]`);
-      const st = node?.style;
-      domHit = !!st && (st.stroke === "rgb(209, 77, 65)" || st.stroke === "#d14d41" || st.fill === "rgb(209, 77, 65)" || st.fill === "#d14d41");
+      // figure-v1 P1 drill contract: paint/font overrides are written to the
+      // DRAWABLE descendants (inline style there beats matplotlib's generator
+      // inline styles) — not to the wrapper <g>. Accept the style on the node
+      // itself (already-drawable targets) or any drawable under it.
+      const carriers = node
+        ? [node, ...node.querySelectorAll("text,tspan,path,line,polyline,polygon,rect,circle,ellipse,use")]
+        : [];
+      domHit = carriers.some((c) => {
+        const st = c.style;
+        return !!st && (st.stroke === "rgb(209, 77, 65)" || st.stroke === "#d14d41" || st.fill === "rgb(209, 77, 65)" || st.fill === "#d14d41");
+      });
     }
     return { styledKey, domHit };
   });
   ok(!!xrayResult.styledKey, `swatch click landed in overrides (${styled} → ${xrayResult.styledKey})`);
-  ok(xrayResult.domHit, "…and the LIVE stage SVG node carries the style");
+  ok(xrayResult.domHit, "…and the LIVE stage SVG carries the style on the drilled drawable (P1 contract)");
   await page.keyboard.press("Escape");
 
   // --- zoom OUT below fit + dock beyond the old 640px cap ---------------------------------

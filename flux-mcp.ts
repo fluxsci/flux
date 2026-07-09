@@ -1391,7 +1391,7 @@ server.registerTool(
   "set_animation",
   {
     description:
-      "Add (or replace) an animation track on a beat — the general mechanism behind every preset. `target` is an element id, or '@camera'/'@stage'. `preset` picks the motion (fade, fadeRise, popIn, drawOn, stagger, writeOn, highlight, dim, move, scale, rotate, camera, morph, …). `part` targets one plot semantic id; `to` is the destination for morph (to.assetId = a second same-structure plot) / camera (to.{x,y,zoom}). `start`/`duration` are ms within the beat.",
+      "Add (or replace) an animation track on a beat — the general mechanism behind every preset. `target` is an element id, or '@camera'/'@stage'. `preset` picks the motion (fade, fadeRise, popIn, drawOn, stagger, writeOn, highlight, dim, move, scale, rotate, camera, morph, …). `part` targets one plot semantic id — or, on an embedFigure element, one of the figure's named groups as 'group:<groupId>' (group ids from the figure-side list_groups / groups digest; the group animates as one unit). `to` is the destination for morph (to.assetId = a second same-structure plot) / camera (to.{x,y,zoom}). `start`/`duration` are ms within the beat.",
     inputSchema: {
       deckId: z.string(),
       slideId: z.string(),
@@ -1536,11 +1536,12 @@ server.registerTool(
 server.registerTool(
   "animate_element",
   {
-    description: "Give a whole element (text box / shape / line / image / math / video) an enter or exit animation with sensible per-kind defaults (textBox→staggered bullet fadeRise, line→drawOn, math→writeOn; exits: fadeOut/popOut/drawOff/wipeOut). The non-plot analog of animate_part.",
+    description: "Give a whole element (text box / shape / line / image / math / video) an enter or exit animation with sensible per-kind defaults (textBox→staggered bullet fadeRise, line→drawOn, math→writeOn; exits: fadeOut/popOut/drawOff/wipeOut). The non-plot analog of animate_part. `part` narrows to a named node inside the element — on an embedFigure, 'group:<groupId>' animates one of the figure's named groups (enter fade / exit fadeOut).",
     inputSchema: {
       deckId: z.string(), slideId: z.string(), elementId: z.string(),
       exit: z.boolean().optional(), preset: z.enum(PRESETS).optional(),
       beatIndex: z.number().optional(), wholeBox: z.boolean().optional(),
+      part: z.string().optional(),
     },
   },
   async ({ deckId, slideId, elementId, ...opts }) => {

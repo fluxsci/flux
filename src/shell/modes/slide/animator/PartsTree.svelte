@@ -2,16 +2,21 @@
   // The animator's tree of EVERYTHING on the slide — no longer plot-parts-only.
   // Top level = every element in z-order (¶ text, ▭ shapes, ∑ math, ▤ plots…);
   // a plot expands into its X-ray parts tree (S/A/M tri-state per part, 🎨 opens
-  // the style cockpit), a text box expands into its blocks. Every element row
-  // has one-click "animate in / animate out" quick actions — the fix for
-  // "text boxes and shapes can't be animated at all". Rows multi-select
-  // (ctrl/shift + range) with a bulk S/A/M bar, and the S/A/M buttons PAINT:
-  // press one and sweep down the column to set a whole run of parts at once
-  // (one undo step).
-  import { selection, activeBeat, commitDeck, sealHistory, focusedPart, selTrackIds } from "../../../../lib/slide/store";
+  // the style cockpit), a text box expands into its blocks, and an embedFigure
+  // expands into the figure's NAMED GROUP tree (P9 — via figureGroupTree,
+  // loaded into the figureGroups store by loadDeckAssets): a group row's
+  // ⊕in/⊖out quick actions author Track {target: elId, part: "group:<gid>"},
+  // which the player resolves to the export wrapper inside the mounted figure
+  // svg. Every element row has one-click "animate in / animate out" quick
+  // actions — the fix for "text boxes and shapes can't be animated at all".
+  // Rows multi-select (ctrl/shift + range) with a bulk S/A/M bar, and the S/A/M
+  // buttons PAINT: press one and sweep down the column to set a whole run of
+  // parts at once (one undo step).
+  import { selection, activeBeat, commitDeck, sealHistory, focusedPart, selTrackIds, figureGroups } from "../../../../lib/slide/store";
   import { setPartVisibility } from "../../../../lib/slide/ops";
   import { animatePart, animateElement } from "../../../../lib/slide/autobuild";
   import { buildPartTree, type XrayNode } from "../../../../lib/plot/tree";
+  import type { FigureGroupNode } from "../../../../lib/groups";
   import type { Slide, SlideElement } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
   import { EL_GLYPH } from "./shared";
@@ -28,7 +33,7 @@
   type Vis = "show" | "animate" | "mask";
   interface Row {
     key: string; // element id, or `${elId}|${partId}`, or `${elId}#${blockId}`
-    kind: "element" | "part" | "block";
+    kind: "element" | "part" | "block" | "group";
     depth: number;
     label: string;
     glyph?: string;
@@ -36,6 +41,8 @@
     el?: SlideElement;
     node?: XrayNode;
     blockId?: string;
+    /** a figure GROUP row inside an embedFigure (P9) — the registry gid */
+    groupId?: string;
     expandable: boolean;
     /** the collapse key + its EFFECTIVE state (user toggle over the default) */
     ckey: string;
@@ -63,11 +70,14 @@
   const rows = $derived.by(() => {
     const out: Row[] = [];
     const q = filter.trim().toLowerCase();
+    const figGroups = $figureGroups;
     for (const el of slide.elements) {
       const isPlot = el.type === "plot";
       const tree = isPlot ? buildPartTree(manifests[(el as { assetId: string }).assetId]) : null;
       const blocks = el.type === "textBox" ? el.blocks : null;
-      const expandable = !!tree || (!!blocks && blocks.length > 1);
+      // P9: an embedFigure expands into its figure's named group tree
+      const groups = el.type === "embedFigure" ? figGroups[el.figureId] ?? [] : [];
+      const expandable = !!tree || (!!blocks && blocks.length > 1) || groups.length > 0;
       const elCollapsed = isCollapsed(el.id, false);
       out.push({ key: el.id, kind: "element", depth: 0, label: elLabel(el), glyph: EL_GLYPH[el.type] ?? "▫", elId: el.id, el, expandable, ckey: el.id, collapsed: elCollapsed });
       const open = q ? true : !elCollapsed;
@@ -81,6 +91,16 @@
           if (n.children.length && (q || !col)) for (const c of n.children) walk(c, depth + 1);
         };
         walk(tree, 1);
+      } else if (groups.length) {
+        const walkG = (nodes: FigureGroupNode[], depth: number) => {
+          for (const g of nodes) {
+            const ckey = `${el.id}|group:${g.id}`;
+            const col = isCollapsed(ckey, false);
+            out.push({ key: ckey, kind: "group", depth, label: g.name, glyph: "❖", elId: el.id, el, groupId: g.id, expandable: g.groups.length > 0, ckey, collapsed: col });
+            if (g.groups.length && (q || !col)) walkG(g.groups, depth + 1);
+          }
+        };
+        walkG(groups, 1);
       } else if (blocks) {
         blocks.forEach((b, i) => {
           const key = `${el.id}#${b.id}`;
@@ -179,7 +199,10 @@
     window.removeEventListener("pointerup", paintEnd);
   }
 
-  // --- element quick actions: animate in / out ----------------------------------------
+  // --- element/block/group quick actions: animate in / out -----------------------------
+  // A group row narrows the track to its figure group ("group:<gid>") — the P9
+  // slides handshake; defaults come from suggestElementTrack (enter fade /
+  // exit fadeOut, deterministic for a wrapper <g>).
   function quickAnimate(r: Row, exit: boolean) {
     let trackId: string | null = null;
     let bi = -1;
@@ -188,6 +211,7 @@
         exit,
         beatIndex: $activeBeat > 0 ? $activeBeat : undefined,
         ...(r.kind === "block" && r.blockId ? { blocks: [r.blockId] } : {}),
+        ...(r.kind === "group" && r.groupId ? { part: `group:${r.groupId}` } : {}),
       });
       if (res) { trackId = res.trackId; bi = res.beatIndex; }
     });
@@ -235,8 +259,9 @@
             {r.collapsed ? "▸" : "▾"}
           </button>
         {:else}<span class="tw"></span>{/if}
-        {#if r.glyph}<span class="gl">{r.glyph}</span>{/if}
-        <span class="pl" title={r.node?.id ?? r.key}>{r.label}</span>
+        {#if r.glyph}<span class="gl" class:grp={r.kind === "group"}>{r.glyph}</span>{/if}
+        <span class="pl" title={r.kind === "group" ? `group:${r.groupId}` : r.node?.id ?? r.key}>{r.label}</span>
+        {#if r.kind === "group"}<span class="badge">group</span>{/if}
         {#if r.kind === "part" && r.node && r.el}
           {@const st = partStateFor(r.el, r.node.id)}
           <button class="paint" title="Edit this part's style (color, width, opacity) — Alt+P" onclick={(e) => { e.stopPropagation(); openXray(r); }}>🎨</button>
@@ -245,7 +270,7 @@
             <button class:on={st === "animate"} title="Animate in on the current beat (press + sweep to paint many)" onpointerdown={(e) => paintStart(e, r, "animate")}>A</button>
             <button class:on={st === "mask"} title="Mask — hide entirely (press + sweep to paint many)" onpointerdown={(e) => paintStart(e, r, "mask")}>M</button>
           </span>
-        {:else if r.kind === "element" || r.kind === "block"}
+        {:else if r.kind === "element" || r.kind === "block" || r.kind === "group"}
           <span class="qa">
             <button title="Animate IN on the current beat" onclick={(e) => { e.stopPropagation(); quickAnimate(r, false); }}>⊕ in</button>
             <button title="Animate OUT (disappear) on the current beat" onclick={(e) => { e.stopPropagation(); quickAnimate(r, true); }}>⊖ out</button>
@@ -294,6 +319,12 @@
     cursor: pointer; font-size: 8px; padding: 0; line-height: 1;
   }
   .gl { flex: 0 0 auto; font-size: 10px; color: var(--c-tx-3, #878580); width: 13px; text-align: center; }
+  .gl.grp { color: var(--c-accent, #4385be); }
+  .badge {
+    flex: 0 0 auto; font-size: 8px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--c-accent, #4385be); border: 1px solid color-mix(in oklab, var(--c-accent, #4385be) 45%, transparent);
+    border-radius: 3px; padding: 0 3px; line-height: 1.3;
+  }
   .pl { flex: 1; color: var(--c-tx, #cecdc3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .tri { display: inline-flex; gap: 2px; flex: 0 0 auto; }
   .tri button {

@@ -135,7 +135,7 @@ usage: flux <verb> [root] [args] [--flags]
   set-part-visibility <deckId> <elementId> <part> show|animate|mask   plot part tri-state (non-destructive)
   set-part-style <deckId> <elementId> <part> --patch '<json>'   per-part style override (stroke/fill/…)
   animate-part <deckId> <slideId> <elementId> <part> [--beat-index n]   default reveal for a plot part
-  animate-element <deckId> <slideId> <elementId> [--exit --preset P --beat-index n --whole-box]   enter/exit for text/shape/media
+  animate-element <deckId> <slideId> <elementId> [--exit --preset P --beat-index n --whole-box --part group:<gid>]   enter/exit for text/shape/media (+ figure groups inside an embedFigure)
   set-morph <deckId> <slideId> <beatId> <elementId> <toAssetId> [--duration ms --force]   data-space morph to any project plot
   validate-deck [deckId] [--root R]    validate a deck (or all decks)
   export-deck <deckId> [--out F] [--root R]   export a self-contained offline .html (default exports/<deckId>.html)
@@ -1109,12 +1109,13 @@ async function main() {
       break;
     }
     case "animate-element": {
-      // flux animate-element <deck> <slide> <element> [--exit] [--preset p] [--beat-index n] [--whole-box]
+      // flux animate-element <deck> <slide> <element> [--exit] [--preset p] [--beat-index n] [--whole-box] [--part group:<gid>]
       const r = await core.animateElementVerb(R(), _[0], _[1], _[2], {
         beatIndex: num(flags["beat-index"]),
         exit: !!flags.exit,
         preset: typeof flags.preset === "string" ? (flags.preset as import("./src/lib/slide/types").PresetName) : undefined,
         wholeBox: !!flags["whole-box"],
+        part: typeof flags.part === "string" ? flags.part : undefined,
       });
       console.error(`✓ element ${_[2]} ${flags.exit ? "animates out" : "animates in"} on beat ${r.beatIndex}`);
       console.log(r.trackId);

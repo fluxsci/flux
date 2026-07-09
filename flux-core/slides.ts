@@ -436,13 +436,16 @@ export async function animatePartVerb(
 
 /** animate-element: give a whole element (text box / shape / image / math /
  *  line…) an enter or exit animation with per-kind defaults — the non-plot
- *  analog of animate-part. Returns the beat index + track id. */
+ *  analog of animate-part. `part` narrows to a named node inside the element:
+ *  on an embedFigure, "group:<groupId>" targets one of the figure's named
+ *  groups (ids via the figure-side list_groups / groups digest) with the P9
+ *  defaults (enter fade / exit fadeOut). Returns the beat index + track id. */
 export async function animateElementVerb(
   root: string,
   deckId: string,
   slideId: string,
   elementId: string,
-  opts: { beatIndex?: number; exit?: boolean; preset?: Track["preset"]; wholeBox?: boolean } = {},
+  opts: { beatIndex?: number; exit?: boolean; preset?: Track["preset"]; wholeBox?: boolean; part?: string } = {},
 ): Promise<{ beatIndex: number; trackId: string }> {
   return mutateDeck(root, deckId, "animate_element", (deck) => {
     mustSlide(deck, slideId);
