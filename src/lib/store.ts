@@ -5,6 +5,7 @@ import { settings } from "./settings";
 import { newId } from "./ids";
 import { migrateProject, DEFAULT_TEXT_STYLES } from "./migrate";
 import { membersDeep, unitOf } from "./groups";
+import type { XrayTarget } from "./xray/buildXrayTree";
 import * as ops from "./ops";
 
 // ---------------------------------------------------------------------------
@@ -123,15 +124,26 @@ export const partSelection = writable<PartSelection | null>(null);
 // selection; pruned when the group disappears (undo/delete/ungroup).
 export const enteredGroupId = writable<Id | null>(null);
 
-// Plot X-Ray viewer (Alt+P): a floating cockpit listing every part of the
-// selected semantic plot, with per-part/group hide-show + property editing.
+// X-Ray viewer (Alt+P): a floating radiograph listing the structure of a plot
+// element OR a group (figure-v1 P8), with per-row show/hide + Show Properties.
 export const xrayOpen = writable<boolean>(false);
+
+// What the open X-ray is ROOTED on (an element or a group in one figure) —
+// pinned by openXray, re-pointed by ctrl-click re-rooting inside the panel.
+// Pruned when its target disappears (undo/delete/ungroup) and cleared on
+// figure switch. Type lives in xray/buildXrayTree.ts (the pure tree builder).
+export const xrayRoot = writable<XrayTarget | null>(null);
 
 // Plot Importer (Alt+I): a quick-open window to search/browse the project's
 // plots/ dir and import a FluxPlot plot.
 export const importerOpen = writable<boolean>(false);
 
 export const activeFigureId = writable<Id | null>(get(project).figures[0]?.id ?? null);
+// P8: the X-ray root pins a target inside ONE figure — actually switching
+// figures (sidebar click, frame delete, project load) invalidates it. A
+// same-value set does not notify (primitive store), so openXray's own flow
+// (which never changes the active figure) is unaffected.
+activeFigureId.subscribe(() => xrayRoot.set(null));
 // The figure (frame) selected as a whole object — distinct from element selection
 // — so a frame can be moved/duplicated/nudged on the canvas (F8). Set by clicking
 // a figure's title label; cleared when elements are (re)selected.
@@ -358,6 +370,15 @@ function pruneSelection() {
   // P7: an entered-group scope dangles the same way when its registry def goes
   // (undo / delete / ungroup) — drop back to top level.
   enteredGroupId.update((id) => (id && p.figures.some((f) => f.groups?.[id]) ? id : null));
+  // P8: the X-ray root dangles identically (its element deleted / group
+  // dissolved by an undo or an agent command while the panel is open).
+  xrayRoot.update((r) => {
+    if (!r) return r;
+    const f = p.figures.find((ff) => ff.id === r.figId);
+    if (!f) return null;
+    if (r.kind === "element") return f.elements.some((e) => e.id === r.elementId) ? r : null;
+    return f.groups?.[r.groupId] ? r : null;
+  });
 }
 
 // ---------------------------------------------------------------------------

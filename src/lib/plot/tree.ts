@@ -1,4 +1,4 @@
-// Build the navigable parts tree (for the Plot X-Ray) and resolve a node id to
+// Build the navigable parts tree (for the X-Ray) and resolve a node id to
 // the concrete leaf semantic ids it controls.
 //
 // FluxPlot >=0.2.0 emits a `parts` tree of container nodes ({id|ref, role,
@@ -123,6 +123,10 @@ const LEAF_LABEL: Record<string, string> = {
 };
 
 function labelFor(node: PartNode, role: string): string {
+  // Authored display label wins outright — DERIVED manifests (plot/derive.ts)
+  // carry them ("X tick 3", "Text “hello”") so vanilla SVGs read friendly in
+  // the X-ray instead of falling back to raw node ids.
+  if (node.label) return node.label;
   const id = key(node) ?? "";
   switch (role) {
     case "figure":
@@ -158,6 +162,7 @@ function labelFor(node: PartNode, role: string): string {
  *  is appended when the generic label lacks one ("Tick label 3"). Shared by
  *  buildPartIndex and partStyle.partBreadcrumb so names never drift. */
 export function labelForPart(node: PartNode): string {
+  if (node.label) return node.label; // authored labels are complete — no index suffix
   const id = key(node) ?? "";
   const role = node.role ?? inferRole(id);
   let label = labelFor(node, role);

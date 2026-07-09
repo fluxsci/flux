@@ -99,6 +99,22 @@
   --c-guide:         #f43f8e;              /* smart-guide magenta (contrasts the blue selection) */
   --c-guide-2:       #12b5cb;              /* manual ruler-drag guide (cyan; distinct from smart-guide) */
 
+  /* ---- X-Ray radiograph (figure-v1 P8) ---------------------------------- */
+  /* The X-Ray panel is an actual x-ray SCREEN: a near-black blue-teal tube lit
+     by phosphor. Deliberately its own ramp (Flexoki cyan 400/300), consumed
+     directly — never remapped by the .paper light scope: an x-ray screen is
+     dark by nature, in every theme. */
+  --xr-bg:      #04090d;                                        /* dead tube glass    */
+  --xr-bg-2:    #081419;                                        /* lit field          */
+  --xr-phos:    #3aa99f;                                        /* phosphor (cyan-400) */
+  --xr-phos-hi: #5abdac;                                        /* bright phosphor (cyan-300) */
+  --xr-tx:      #cfe9e3;                                        /* readout text (~11:1 on bg) */
+  --xr-tx-dim:  color-mix(in oklab, #cfe9e3 55%, transparent);  /* dim readout        */
+  --xr-line:    color-mix(in oklab, var(--xr-phos) 30%, transparent);
+  --xr-glow:    color-mix(in oklab, var(--xr-phos) 45%, transparent);
+  --xr-tint:    color-mix(in oklab, var(--xr-phos) 16%, transparent);
+  --xr-tint-2:  color-mix(in oklab, var(--xr-phos) 8%, transparent);
+
   /* ---- margin comments (paper module) ---------------------------------- */
   /* A warm Flexoki gold, used ONLY to mean "annotation" — a functional signal
      colour outside the brand blue, the same way --c-guide is. Reads as

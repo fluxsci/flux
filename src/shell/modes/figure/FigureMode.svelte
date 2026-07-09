@@ -21,7 +21,7 @@
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
-  import PlotXray from "../../../lib/PlotXray.svelte";
+  import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import { handleKey } from "../../../lib/keyboard";
   import { dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
@@ -148,7 +148,7 @@
     {#if !$captionOpen}<Inspector />{/if}
   </div>
   <FluxFigMenu />
-  <PlotXray />
+  <Xray />
   <PlotImporter />
 
   {#if figDiverged}

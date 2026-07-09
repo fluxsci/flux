@@ -27,13 +27,14 @@ import {
   rollbackGesture,
   gestureCancelHook,
   xrayOpen,
+  xrayRoot,
   importerOpen,
   embeddedProjectRoot,
   projectDir,
   type Tool,
 } from "./store";
 import type { Element, GroupDef } from "./types";
-import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf } from "./groups";
+import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf, unitOf } from "./groups";
 import {
   alignElements,
   distributeElements,
@@ -544,17 +545,52 @@ const TOOL_KEYS: Record<string, Tool> = {
   p: "pen",
 };
 
-// Open the Plot X-Ray for a single selected semantic plot.
+// Open the unified X-Ray (figure-v1 P8), pinning its root target:
+//   1. a drilled part → its OWNING PLOT element;
+//   2. a single selected plot element → that element;
+//   3. a selection entirely under ONE group unit (respecting the entered-group
+//      scope) → that group — covers "click a group, Alt+P" (members expand to
+//      the whole set) and any member subset of a single group.
+// Loose non-plot selections keep today's no-op (nothing x-rayable).
 function openXray() {
-  const sel = get(selection);
-  if (sel.size !== 1) return;
   const p = get(project);
-  for (const f of p.figures)
-    for (const el of f.elements)
-      if (sel.has(el.id) && el.type === "plot") {
+  const ps = get(partSelection);
+  if (ps) {
+    for (const f of p.figures) {
+      const el = f.elements.find((e) => e.id === ps.elementId);
+      if (el && el.type === "plot") {
+        xrayRoot.set({ kind: "element", figId: f.id, elementId: el.id });
         xrayOpen.set(true);
         return;
       }
+    }
+  }
+  const sel = get(selection);
+  if (sel.size === 0) return;
+  const fig = p.figures.find((f) => f.elements.some((e) => sel.has(e.id)));
+  if (!fig) return;
+  const els = fig.elements.filter((e) => sel.has(e.id));
+  if (els.length === 1 && els[0].type === "plot") {
+    xrayRoot.set({ kind: "element", figId: fig.id, elementId: els[0].id });
+    xrayOpen.set(true);
+    return;
+  }
+  const scope = get(enteredGroupId);
+  let gid: string | null = null;
+  for (const e of els) {
+    // Unit at the current scope; a DIRECT member of the entered group is its
+    // own unit (groupId null) — those root on the entered group itself, so
+    // Alt+P inside a group still x-rays "the group I'm standing in".
+    const u = unitOf(fig, e, scope);
+    const g = u.groupId ?? (scope && ancestorsOf(fig, e.groupId).includes(scope) ? scope : null);
+    if (!g) return; // a loose element in the mix — nothing to root on
+    if (gid === null) gid = g;
+    else if (gid !== g) return; // spans two units
+  }
+  if (gid) {
+    xrayRoot.set({ kind: "group", figId: fig.id, groupId: gid });
+    xrayOpen.set(true);
+  }
 }
 
 export function handleKey(e: KeyboardEvent) {
@@ -628,7 +664,7 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Alt+P: open the Plot X-Ray cockpit for the selected semantic plot.
+  // Alt+P: open the X-Ray for the selected plot / group / drilled part.
   if (e.altKey && !mod && e.code === "KeyP") {
     e.preventDefault();
     openXray();

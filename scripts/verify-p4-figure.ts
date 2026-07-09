@@ -51,7 +51,9 @@ const [keyboard, inspector, parse, store, xray] = await Promise.all([
   read("src/lib/Inspector.svelte"),
   read("src/lib/plot/parse.ts"),
   read("src/lib/store.ts"),
-  read("src/lib/PlotXray.svelte"),
+  // P8: PlotXray.svelte became the unified Xray.svelte — the FIG-14 regenerate
+  // contract (real stderr / parse error surfaced) moved with it, unchanged.
+  read("src/lib/Xray.svelte"),
 ]);
 // (P7: the hand-rolled groupRemap loop became the shared groups.ts
 // cloneGroupsFor — same FIG-3 contract, one core; behavior covered for real in
