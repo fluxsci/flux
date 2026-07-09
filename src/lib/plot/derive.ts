@@ -17,6 +17,8 @@
 //  - Derived-manifest ids (Phase 4) must be deterministic across sessions, so
 //    unlabeled structural nodes get stable DFS-position ids stamped here.
 
+import type { FluxPlotManifest, PartNode } from "./types";
+
 const DRAWABLE_TAGS = new Set([
   "text",
   "tspan",
@@ -203,4 +205,146 @@ export function normalizeSvgForParts(root: Element): void {
   sanitize(root);
   inlineDefUses(root);
   stampIds(root);
+}
+
+// ---------------------------------------------------------------------------
+// Derived manifests — make ANY svg x-rayable.
+//
+// A fluxplot ships a real manifest; every other SVG gets one synthesized from
+// its own DOM structure here. matplotlib's native id vocabulary (figure_1,
+// axes_1, xtick_3, line2d_7, text_2 …) maps to friendly roles/labels; anything
+// else falls back to the tag of its first drawable. Ids are whatever the file
+// carries plus the deterministic stamps from normalizeSvgForParts, so override
+// keys are stable for files that never regenerate.
+//
+// NEVER PERSIST a derived manifest to disk: sidecar presence is the fluxplot/
+// vanilla discriminator, and re-deriving on every load keeps deriver
+// improvements retroactive. (io/figbridge save paths skip isDerivedManifest.)
+// ---------------------------------------------------------------------------
+
+export const DERIVED_SPEC = "fluxplot-derived/1";
+
+export function isDerivedManifest(m: FluxPlotManifest | undefined): boolean {
+  return m?.spec === DERIVED_SPEC;
+}
+
+const MAX_DERIVE_DEPTH = 8;
+const MAX_DERIVE_NODES = 800;
+
+const UNIT_TO_PX: Record<string, number> = { px: 1, pt: 4 / 3, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 };
+
+function sizeOf(root: Element): { width: number; height: number; unit: string } {
+  const parse = (v: string | null): { n: number; unit: string } | null => {
+    const m = (v ?? "").match(/^\s*([\d.]+)\s*(px|pt|pc|mm|cm|in)?\s*$/);
+    return m ? { n: parseFloat(m[1]), unit: m[2] ?? "px" } : null;
+  };
+  const w = parse(root.getAttribute("width"));
+  const h = parse(root.getAttribute("height"));
+  if (w && h) return { width: w.n, height: h.n, unit: w.unit };
+  const vb = (root.getAttribute("viewBox") ?? "").split(/[\s,]+/).map(Number);
+  if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) return { width: vb[2], height: vb[3], unit: "px" };
+  return { width: 0, height: 0, unit: "px" };
+}
+
+function textPreview(el: Element): string {
+  const t = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+  return t.length > 18 ? t.slice(0, 17) + "…" : t;
+}
+
+function firstDrawableTag(el: Element): string | null {
+  if (isDrawableTag(el.tagName)) return el.tagName.toLowerCase();
+  for (const d of Array.from(
+    el.querySelectorAll("text,tspan,path,line,polyline,polygon,rect,circle,ellipse,image,use"),
+  )) {
+    if (!insideDefs(d)) return d.tagName.toLowerCase();
+  }
+  return null;
+}
+
+/** matplotlib-aware role + label for one id-carrying node. */
+function classify(el: Element, id: string): { role: string; label: string; axis?: string } {
+  let m: RegExpMatchArray | null;
+  if (/^figure(_\d+)?$/.test(id)) return { role: "figure", label: "Figure" };
+  if ((m = id.match(/^axes_(\d+)$/))) return { role: "plot-area", label: `Plot area ${m[1]}` };
+  if (/^plot-area/.test(id)) return { role: "plot-area", label: "Plot area" };
+  if (/^matplotlib\.axis_\d+$/.test(id)) {
+    // x or y from the tick ids beneath
+    const isY = !!el.querySelector('[id^="ytick_"]');
+    return { role: "axis", axis: isY ? "y" : "x", label: isY ? "Y axis" : "X axis" };
+  }
+  if ((m = id.match(/^xtick_(\d+)$/))) return { role: "tick", label: `X tick ${m[1]}` };
+  if ((m = id.match(/^ytick_(\d+)$/))) return { role: "tick", label: `Y tick ${m[1]}` };
+  if ((m = id.match(/^text_(\d+)$/))) {
+    const preview = textPreview(el);
+    return { role: "text", label: preview ? `Text “${preview}”` : `Text ${m[1]}` };
+  }
+  if ((m = id.match(/^line2d_(\d+)$/))) return { role: "line", label: `Line ${m[1]}` };
+  if ((m = id.match(/^patch_(\d+)$/))) return { role: "shape", label: `Patch ${m[1]}` };
+  if (/^legend(_\d+)?$/.test(id)) return { role: "legend", label: "Legend" };
+  if ((m = id.match(/^PathCollection_(\d+)$/))) return { role: "points", label: `Points ${m[1]}` };
+  if ((m = id.match(/^LineCollection_(\d+)$/))) return { role: "line", label: `Lines ${m[1]}` };
+  if ((m = id.match(/^(Quad|Poly)\w*_(\d+)$/))) return { role: "shape", label: `${m[1]} mesh ${m[2]}` };
+
+  // Generic: kind from content.
+  const tag = firstDrawableTag(el);
+  if (tag === "text" || tag === "tspan") {
+    const preview = textPreview(el);
+    return { role: "text", label: preview ? `Text “${preview}”` : id };
+  }
+  if (tag === "path" || tag === "line" || tag === "polyline") return { role: "line", label: id };
+  if (tag) return { role: "shape", label: id };
+  return { role: "container", label: id };
+}
+
+/** Synthesize a manifest for a non-fluxplot SVG from its (normalized) DOM. */
+export function deriveManifestFromSvg(root: Element): FluxPlotManifest {
+  let count = 0;
+
+  // An id-carrying <g>/drawable becomes a part; un-id'd wrappers are descended
+  // through transparently so their id'd children attach to the nearest part.
+  const partChildrenOf = (el: Element, depth: number): PartNode[] => {
+    const out: PartNode[] = [];
+    for (const c of Array.from(el.children ?? []) as Element[]) {
+      const tag = c.tagName?.toLowerCase() ?? "";
+      if (STRUCTURAL_SKIP.has(tag)) continue;
+      const id = c.getAttribute("id");
+      if (id && (tag === "g" || isDrawableTag(tag))) {
+        if (count >= MAX_DERIVE_NODES) return out; // cap: parents become leaves
+        count++;
+        const { role, label, axis } = classify(c, id);
+        const node: PartNode = { id, role, label };
+        if (axis) node.axis = axis;
+        // Depth/node caps make this node a LEAF addressing its whole subtree —
+        // overrides drill to descendants anyway, so it stays fully functional.
+        if (depth < MAX_DERIVE_DEPTH) {
+          const kids = partChildrenOf(c, depth + 1);
+          if (kids.length) node.children = kids;
+        }
+        out.push(node);
+      } else {
+        out.push(...partChildrenOf(c, depth));
+      }
+    }
+    return out;
+  };
+
+  const top = partChildrenOf(root, 1);
+  // matplotlib shape: one figure_N root — promote it. Anything else gets a
+  // synthetic figure-role root so augmentManifestOrphans/buildPartTree work.
+  const parts: PartNode =
+    top.length === 1 && top[0].role === "figure"
+      ? top[0]
+      : { id: "svg", role: "figure", label: "SVG", children: top };
+
+  return {
+    spec: DERIVED_SPEC,
+    schemaVersion: "0",
+    generator: { name: "flux-derived", version: "1" },
+    plotType: "svg",
+    svg: "",
+    size: sizeOf(root),
+    axes: [],
+    series: [],
+    parts,
+  };
 }

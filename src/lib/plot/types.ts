@@ -64,6 +64,10 @@ export interface PartNode {
   role?: string;
   axis?: string;
   groupRole?: string;
+  // Authored display label. fluxplot doesn't emit one (labels derive from role);
+  // DERIVED manifests (plot/derive.ts, for non-fluxplot SVGs) set it so the
+  // X-ray shows "X tick 3" instead of the raw "xtick_3" node id.
+  label?: string;
   members?: string[];
   children?: PartNode[];
 }
