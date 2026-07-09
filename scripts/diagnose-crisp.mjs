@@ -122,7 +122,7 @@ function seedScene({ growthSvg, growthManifest, growthRecipe, eegSvg }) {
         type: "text", id: `diag-t${i}`, x: T.x - 120, y: T.y - 54 + i * 13, width: 260, height: 12, rotation: 0,
         text: `sharpness ${i} · Ijk 0.017 uV/mm2 fine hairline row ${i}${i}${i}`,
         fontFamily: "sans-serif", fontSize: 9, fontWeight: 400, fontStyle: "normal",
-        align: "left", color: "#111111", autoWidth: true,
+        align: "left", color: "#111111", sizing: "auto",
       });
       els.push({
         type: "line", id: `diag-l${i}`, x: T.x - 120, y: T.y - 45 + i * 13, width: 0, height: 0,
@@ -151,7 +151,7 @@ function seedScene({ growthSvg, growthManifest, growthRecipe, eegSvg }) {
         else if (k === 2)
           els.push({ type: "line", id: `bg-${n}`, x, y, width: 0, height: 0, x1: 0, y1: 0, x2: 110, y2: 34, stroke: "#666666", strokeWidth: 1, arrowStart: false, arrowEnd: true, rotation: 0 });
         else
-          els.push({ type: "text", id: `bg-${n}`, x, y, width: 90, height: 16, rotation: 0, text: `bg label ${n}`, fontFamily: "sans-serif", fontSize: 12, fontWeight: 400, fontStyle: "normal", align: "left", color: "#222222", autoWidth: true });
+          els.push({ type: "text", id: `bg-${n}`, x, y, width: 90, height: 16, rotation: 0, text: `bg label ${n}`, fontFamily: "sans-serif", fontSize: 12, fontWeight: 400, fontStyle: "normal", align: "left", color: "#222222", sizing: "auto" });
         n++;
       }
     // Drag handle: OUTSIDE the measured clip (world +92,+64 from T ⇒ ~+330,+230

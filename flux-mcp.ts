@@ -362,7 +362,7 @@ server.registerTool(
   "set_style",
   {
     description:
-      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize, plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
+      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize (canvas px = pt × 4/3), text props (fontFamily/fontWeight/fontStyle/underline/lineHeight/sizing/align), plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
     inputSchema: {
       ids: z.array(z.string()),
       fill: z.string().optional(),
@@ -371,12 +371,19 @@ server.registerTool(
       opacity: z.number().optional(),
       color: z.string().optional(),
       fontSize: z.number().optional(),
+      fontFamily: z.string().optional(),
+      fontWeight: z.number().optional(),
+      fontStyle: z.enum(["normal", "italic"]).optional(),
+      underline: z.boolean().optional(),
+      lineHeight: z.number().optional(),
+      sizing: z.enum(["auto", "auto-h", "fixed"]).optional(),
+      align: z.enum(["left", "center", "right"]).optional(),
       hidden: z.boolean().optional(),
       locked: z.boolean().optional(),
       name: z.string().optional(),
     },
   },
-  async ({ ids, fill, stroke, strokeWidth, opacity, color, fontSize, hidden, locked, name }) => {
+  async ({ ids, fill, stroke, strokeWidth, opacity, color, fontSize, fontFamily, fontWeight, fontStyle, underline, lineHeight, sizing, align, hidden, locked, name }) => {
     const patch: Record<string, string | number | boolean> = {};
     if (fill != null) patch.fill = fill;
     if (stroke != null) patch.stroke = stroke;
@@ -384,11 +391,142 @@ server.registerTool(
     if (opacity != null) patch.opacity = opacity;
     if (color != null) patch.color = color;
     if (fontSize != null) patch.fontSize = fontSize;
+    if (fontFamily != null) patch.fontFamily = fontFamily;
+    if (fontWeight != null) patch.fontWeight = fontWeight;
+    if (fontStyle != null) patch.fontStyle = fontStyle;
+    if (underline != null) patch.underline = underline;
+    if (lineHeight != null) patch.lineHeight = lineHeight;
+    if (sizing != null) patch.sizing = sizing;
+    if (align != null) patch.align = align;
     if (hidden != null) patch.hidden = hidden;
     if (locked != null) patch.locked = locked;
     if (name != null) patch.name = name;
     await core.setElementStyle(ROOT, ids, patch);
     return ok(`styled ${ids.length} element(s)`);
+  },
+);
+
+server.registerTool(
+  "toggle_text_style",
+  {
+    description:
+      "Toggle bold/italic/underline across TEXT elements (Figma semantics: if every text already has it, turn it off everywhere; else on everywhere).",
+    inputSchema: { ids: z.array(z.string()), which: z.enum(["bold", "italic", "underline"]) },
+  },
+  async ({ ids, which }) => {
+    await core.toggleTextStyle(ROOT, ids, which);
+    return ok(`toggled ${which} on ${ids.length} element(s)`);
+  },
+);
+
+server.registerTool(
+  "add_fig_text",
+  {
+    description:
+      "Add a text element to a FIGURE (fontSize in canvas px = pt × 4/3; sizing auto = box hugs text, auto-h = wrap at width, fixed = pinned box).",
+    inputSchema: {
+      figureId: z.string(),
+      text: z.string(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+      fontSize: z.number().optional(),
+      fontWeight: z.number().optional(),
+      fontFamily: z.string().optional(),
+      color: z.string().optional(),
+      align: z.enum(["left", "center", "right"]).optional(),
+      sizing: z.enum(["auto", "auto-h", "fixed"]).optional(),
+    },
+  },
+  async ({ figureId, text, ...rest }) => {
+    const r = await core.addFigText(ROOT, figureId, { text, ...rest });
+    return ok(`added text ${r.id} to ${figureId}`);
+  },
+);
+
+server.registerTool(
+  "list_text_styles",
+  {
+    description:
+      "List named text styles: the project's (default) or the machine-global library (global: true). Library styles are reusable definitions — applying one copies it into the project.",
+    inputSchema: { global: z.boolean().optional() },
+  },
+  async ({ global: g }) => {
+    const styles = g ? await core.listGlobalTextStyles() : await core.listTextStyles(ROOT);
+    return ok(JSON.stringify(styles, null, 2));
+  },
+);
+
+server.registerTool(
+  "create_text_style",
+  {
+    description:
+      "Create a named text style — from an element's current look (fromElementId, which also links that element) or from explicit props. fontSize in canvas px (pt × 4/3).",
+    inputSchema: {
+      name: z.string(),
+      fromElementId: z.string().optional(),
+      fontFamily: z.string().optional(),
+      fontSize: z.number().optional(),
+      fontWeight: z.number().optional(),
+      fontStyle: z.enum(["normal", "italic"]).optional(),
+      underline: z.boolean().optional(),
+      lineHeight: z.number().optional(),
+      color: z.string().optional(),
+      align: z.enum(["left", "center", "right"]).optional(),
+    },
+  },
+  async (def) => {
+    const r = await core.createTextStyle(ROOT, def);
+    return ok(`created text style ${r.style.id} ("${r.style.name}")`);
+  },
+);
+
+server.registerTool(
+  "update_text_style",
+  {
+    description:
+      "Patch a named text style (name renames) — LIVE: re-applies to every linked text element.",
+    inputSchema: {
+      styleId: z.string(),
+      name: z.string().optional(),
+      fontFamily: z.string().optional(),
+      fontSize: z.number().optional(),
+      fontWeight: z.number().optional(),
+      fontStyle: z.enum(["normal", "italic"]).optional(),
+      underline: z.boolean().optional(),
+      lineHeight: z.number().optional(),
+      color: z.string().optional(),
+      align: z.enum(["left", "center", "right"]).optional(),
+    },
+  },
+  async ({ styleId, ...patch }) => {
+    await core.updateTextStyle(ROOT, styleId, patch);
+    return ok(`updated text style ${styleId}`);
+  },
+);
+
+server.registerTool(
+  "delete_text_style",
+  {
+    description: "Delete a named text style. Linked text elements keep their current look and drop the link.",
+    inputSchema: { styleId: z.string() },
+  },
+  async ({ styleId }) => {
+    await core.deleteTextStyle(ROOT, styleId);
+    return ok(`deleted text style ${styleId}`);
+  },
+);
+
+server.registerTool(
+  "apply_text_style",
+  {
+    description: "Apply a named text style to text elements (sets the style's defined props + links styleId).",
+    inputSchema: { styleId: z.string(), ids: z.array(z.string()) },
+  },
+  async ({ styleId, ids }) => {
+    const r = await core.applyTextStyle(ROOT, ids, styleId);
+    return ok(`applied ${styleId} to ${r.applied} text element(s)`);
   },
 );
 
@@ -1404,7 +1542,7 @@ server.registerTool(
   "dispatch_command",
   {
     description:
-      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select, clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group, ungroup, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption, import_plots (batch {type:'import_plots',paths:['/abs/plot.svg',…]} into the active figure).",
+      "Apply an allow-listed command to the LIVE Flux app — the SAME undoable edit a human makes (Ctrl+Z reverts it). Defaults to the human's current selection / active figure. Examples: {type:'restyle_part',partId:'control.line',patch:{stroke:'#1b9e77'}}, {type:'add_text',text:'n.s.',x:120,y:40}, {type:'toggle_text_style',which:'bold'}, {type:'apply_text_style',styleId:'ts-panel-label'}, {type:'flip',ids:['el_…'],axis:'h'}, {type:'arrange',rows:2}, {type:'auto_label'}, {type:'align',kind:'left'}. Types: select, clear_selection, restyle_part, set_style, rotate, arrange, align, distribute, auto_label, group, ungroup, set_z, add_path, edit_path, set_guides, duplicate, scale, select_matching, delete, set_figure_layout, duplicate_figure, create_figure, add_text, add_plot, add_image, flip, set_caption, import_plots (batch {type:'import_plots',paths:['/abs/plot.svg',…]} into the active figure), toggle_text_style {which:'bold'|'italic'|'underline'}, create_text_style {name, fromElementId?|style?}, update_text_style {styleId, patch}, delete_text_style {styleId}, apply_text_style {styleId, ids?}, list_text_styles {global?}.",
     inputSchema: { command: z.record(z.any()) },
   },
   async ({ command }) => ok("dispatched: " + JSON.stringify(await live.dispatchCommand(ROOT, command))),

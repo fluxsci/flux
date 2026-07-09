@@ -29,7 +29,7 @@ try {
       out.styled = styled;
       [220, 340, 460].forEach((x, i) => { const id = F.newId("rect"); g.elements.push({ type: "rect", id, x, y: 120, width: 80, height: 80, rotation: 0, fill: "#cccccc", stroke: "#222222", strokeWidth: 2, cornerRadius: 0 }); out["p" + i] = id; });
       const t = F.newId("text");
-      g.elements.push({ type: "text", id: t, x: 600, y: 140, width: 120, height: 28, rotation: 0, text: "label", fontFamily: "sans-serif", fontSize: 18, fontWeight: 400, fontStyle: "normal", align: "left", color: "#111111", autoWidth: true });
+      g.elements.push({ type: "text", id: t, x: 600, y: 140, width: 120, height: 28, rotation: 0, text: "label", fontFamily: "sans-serif", fontSize: 18, fontWeight: 400, fontStyle: "normal", align: "left", color: "#111111", sizing: "auto" });
       out.text = t;
     });
     F.viewport.set({ panX: 40, panY: 120, zoom: 1 });

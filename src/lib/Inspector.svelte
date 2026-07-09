@@ -1,19 +1,32 @@
 <script lang="ts">
   import { get } from "svelte/store";
+  import { onMount } from "svelte";
   import { project, selection, partSelection, activeFigureId, commit, mutate, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
-  import type { Element, Figure } from "./types";
+  import type { Element, Figure, Project, TextStyle } from "./types";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
   import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
-  import { applyAutoWidth } from "./text";
+  import { applyTextLayout, reflowTexts } from "./text";
+  import {
+    globalTextStyles,
+    loadGlobalTextStyles,
+    saveStyleToLibrary,
+    applyProjectStyle,
+    applyLibraryStyle,
+    libraryOnly,
+  } from "./textStyles";
   import { plotManifests } from "./plot/store";
   import { buildPartIndex } from "./plot/parse";
   import { partBreadcrumb } from "./plot/partStyle";
   import { fluxFigMenuOpen } from "./settings";
   import ColorPalette from "./ColorPalette.svelte";
   import NumberField from "./NumberField.svelte";
+
+  onMount(() => {
+    loadGlobalTextStyles(); // machine-global style library (best-effort)
+  });
 
   // Reactive view of the current selection / active figure.
   $: sel = (() => {
@@ -136,14 +149,14 @@
   $: selectedMm = widthPresetId === "custom" ? Math.max(1, customMm) : (ALL_WIDTHS.find((w) => w.id === widthPresetId)?.mm ?? 190);
   $: journalPlan = fig ? planExport(fig.width, fig.height, selectedMm, journalDpi) : null;
 
-  function updateSelected(fn: (e: Element) => void) {
+  function updateSelected(fn: (e: Element, p: Project) => void) {
     const ids = get(selection);
     commit((p) => {
       for (const f of p.figures)
         for (const e of f.elements)
           if (ids.has(e.id)) {
-            fn(e);
-            applyAutoWidth(e);
+            fn(e, p);
+            applyTextLayout(e);
           }
     });
   }
@@ -158,14 +171,14 @@
   // Scrub setters mirror updateSelected/updateFigure but use `mutate` (no new
   // history entry): the scrub action already opened ONE beginGesture for the whole
   // drag, so a scrub is a single undo (Feature 8).
-  function scrubSelected(fn: (e: Element) => void) {
+  function scrubSelected(fn: (e: Element, p: Project) => void) {
     const ids = get(selection);
     mutate((p) => {
       for (const f of p.figures)
         for (const e of f.elements)
           if (ids.has(e.id)) {
-            fn(e);
-            applyAutoWidth(e);
+            fn(e, p);
+            applyTextLayout(e);
           }
     });
   }
@@ -182,9 +195,13 @@
   // just before writing keeps it stable across a scrub (both stay in proportion).
   function setDim(el: Element, which: "w" | "h", v: number) {
     if (!("width" in el) || !("height" in el)) return;
-    // FIG-10: manually setting W/H on auto-width text switches it to a FIXED box. Otherwise
-    // applyAutoWidth immediately overwrote the value on the next render, so the fields were dead.
-    if (el.type === "text" && el.autoWidth) el.autoWidth = false;
+    // FIG-10 (v2): a manual W on a hugging text box switches it to "auto-h"
+    // (wrap at that width, height hugs); a manual H pins the box "fixed".
+    // Otherwise applyTextLayout would re-hug and overwrite the typed value.
+    if (el.type === "text") {
+      if (which === "h") el.sizing = "fixed";
+      else if (el.sizing === "auto") el.sizing = "auto-h";
+    }
     if (el.lockAspect) {
       if (which === "w") {
         const r = el.width > 0 ? el.height / el.width : 1;
@@ -197,6 +214,102 @@
       }
     } else if (which === "w") el.width = v;
     else el.height = v;
+  }
+
+  // --- text styling (B/I/U, sizing mode, named styles) ---
+  function toggleSelText(which: ops.TextToggle) {
+    const list = [...get(selection)];
+    if (!list.length) return;
+    commit((p) => {
+      ops.toggleTextStyle(p, list, which);
+      reflowTexts(p, list);
+    });
+  }
+  function setSizing(mode: "auto" | "auto-h" | "fixed") {
+    updateSelected((el) => {
+      if (el.type === "text") el.sizing = mode;
+    });
+  }
+
+  // Named styles: project list from the model; the machine-global library on
+  // top (project copies win — copy-on-apply). The ⚙ popover manages them.
+  $: projStyles = $project.textStyles ?? [];
+  $: libStyles = libraryOnly($project.textStyles, $globalTextStyles);
+  let stylePopover = false;
+  $: linkedStyleId = single && single.type === "text" ? (single.styleId ?? "") : "";
+
+  function newStyleFromSelection() {
+    if (!single || single.type !== "text") return;
+    const id = single.id;
+    const name = `Style ${(get(project).textStyles?.length ?? 0) + 1}`;
+    commit((p) => {
+      ops.textStyleFromElement(p, id, name);
+    });
+    stylePopover = true; // land in the manager so it can be renamed right away
+  }
+  function onStyleSelect(e: { currentTarget: HTMLSelectElement }) {
+    const v = e.currentTarget.value;
+    const ids = [...get(selection)];
+    if (v === "__new__") {
+      newStyleFromSelection();
+      return;
+    }
+    if (v === "") {
+      // back to None: keep the current look, drop the link
+      updateSelected((el) => {
+        if (el.type === "text") delete el.styleId;
+      });
+      return;
+    }
+    if (v.startsWith("lib:")) {
+      const st = $globalTextStyles.find((s) => s.id === v.slice(4));
+      if (st) applyLibraryStyle(ids, st); // copy-on-apply
+      return;
+    }
+    applyProjectStyle(ids, v);
+  }
+  function styleRename(st: TextStyle, name: string) {
+    if (!name.trim() || name === st.name) return;
+    commit((p) => ops.renameTextStyle(p, st.id, name.trim()));
+  }
+  function styleUpdateFromSelection(st: TextStyle) {
+    if (!single || single.type !== "text") return;
+    const el = single;
+    commit((p) => {
+      ops.updateTextStyle(p, st.id, {
+        fontFamily: el.fontFamily,
+        fontSize: el.fontSize,
+        fontWeight: el.fontWeight,
+        fontStyle: el.fontStyle,
+        underline: el.underline,
+        lineHeight: el.lineHeight,
+        color: el.color,
+        align: el.align,
+      });
+      reflowTexts(p, p.figures.flatMap((f) => f.elements.filter((x) => x.type === "text" && x.styleId === st.id).map((x) => x.id)));
+    });
+  }
+  function styleApply(st: TextStyle) {
+    applyProjectStyle([...get(selection)], st.id);
+  }
+  function styleDelete(st: TextStyle) {
+    commit((p) => ops.deleteTextStyle(p, st.id));
+  }
+  async function styleToLibrary(st: TextStyle) {
+    await saveStyleToLibrary(st);
+  }
+
+  // --- content scale (svg/plot): the K tool's persisted geometric factor.
+  // Plain resize keeps text/strokes pt-true; this is the explicit escape hatch.
+  function setContentScale(v: number) {
+    updateSelected((el) => {
+      if (el.type === "svg" || el.type === "plot") el.contentScale = Math.max(0.01, v);
+    });
+  }
+  function resetContentScale() {
+    updateSelected((el) => {
+      if (el.type === "svg" || el.type === "plot") delete el.contentScale;
+    });
   }
 </script>
 
@@ -333,6 +446,19 @@
             <button class="true-size" title="Reset to the source's true physical size ({mmStr(physSize.width)} × {mmStr(physSize.height)} mm)" on:click={resetToPhysical}>True size</button>
           {/if}
         </p>
+        {#if single.type === "svg" || single.type === "plot"}
+          <!-- The K/Scale tool's persisted geometric factor: plain resize keeps
+               text/strokes pt-true; content scale multiplies glyphs + strokes. -->
+          <div class="row wh">
+            <NumberField label="Content scale" value={single.contentScale ?? 1} min={0.01} step={0.05}
+              title="Geometric scale of the plot's text/strokes (the K tool writes this; 1 = true point sizes)"
+              on:commit={(e) => setContentScale(e.detail)}
+              on:scrub={(e) => scrubSelected((el) => { if (el.type === "svg" || el.type === "plot") el.contentScale = Math.max(0.01, e.detail); })} />
+            {#if (single.contentScale ?? 1) !== 1}
+              <button class="true-size" title="Reset content scale to 1 (true point sizes)" on:click={resetContentScale}>1×</button>
+            {/if}
+          </div>
+        {/if}
       {/if}
       <div class="row">
         <NumberField label="Rotation°" value={single.rotation} step={1}
@@ -380,16 +506,50 @@
         value={single.text}
         on:input={(e) => updateSelected((el) => { if (el.type === "text") el.text = e.currentTarget.value; })}
       ></textarea>
+      <label class="full">Style
+        <span class="stylerow">
+          <select value={linkedStyleId} on:change={onStyleSelect} aria-label="Text style">
+            <option value="">— None —</option>
+            {#if projStyles.length}
+              <optgroup label="Project">
+                {#each projStyles as st (st.id)}<option value={st.id}>{st.name}</option>{/each}
+              </optgroup>
+            {/if}
+            {#if libStyles.length}
+              <optgroup label="Library">
+                {#each libStyles as st (st.id)}<option value={"lib:" + st.id}>{st.name}</option>{/each}
+              </optgroup>
+            {/if}
+            <option value="__new__">New from selection…</option>
+          </select>
+          <button class="gear" title="Manage text styles" aria-label="Manage text styles" on:click={() => (stylePopover = !stylePopover)}>⚙</button>
+        </span>
+      </label>
+      {#if stylePopover}
+        <div class="style-pop">
+          {#each projStyles as st (st.id)}
+            <div class="style-row">
+              <input class="sname" value={st.name} title="Rename" on:change={(e) => styleRename(st, e.currentTarget.value)} />
+              <button title="Apply to selection" on:click={() => styleApply(st)}>Apply</button>
+              <button title="Update this style from the selected text (re-applies to every linked text)" on:click={() => styleUpdateFromSelection(st)}>Update</button>
+              <button title="Save to the machine-global library" on:click={() => styleToLibrary(st)}>→ Lib</button>
+              <button title="Delete (linked texts keep their look)" on:click={() => styleDelete(st)}>✕</button>
+            </div>
+          {/each}
+          {#if !projStyles.length}<p class="note">No project styles yet.</p>{/if}
+          <button class="fig-act" on:click={newStyleFromSelection}>New from selection…</button>
+        </div>
+      {/if}
       <div class="row">
         <!-- Font size is EDITED IN POINTS (1 pt = 1/72 in — the unit journal specs use;
              type 7 → true 7 pt in print) but STORED in canvas px (1/96 in): px = pt × 4/3.
              Storage is untouched so old documents render identically. -->
         <NumberField label="Size (pt)" value={single.fontSize * 0.75} min={1} step={0.5}
           title="Font size in points, as printed (journals typically want 5–8 pt)"
-          on:commit={(e) => updateSelected((el) => { if (el.type === "text") el.fontSize = e.detail * (4 / 3); })}
-          on:scrub={(e) => scrubSelected((el) => { if (el.type === "text") el.fontSize = e.detail * (4 / 3); })} />
+          on:commit={(e) => updateSelected((el, p) => { if (el.type === "text") { el.fontSize = e.detail * (4 / 3); ops.detachOnManualEdit(p, el, ["fontSize"]); } })}
+          on:scrub={(e) => scrubSelected((el, p) => { if (el.type === "text") { el.fontSize = e.detail * (4 / 3); ops.detachOnManualEdit(p, el, ["fontSize"]); } })} />
         <label>Weight
-          <select value={single.fontWeight} on:change={(e) => updateSelected((el) => { if (el.type === "text") el.fontWeight = parseInt(e.currentTarget.value); })}>
+          <select value={single.fontWeight} on:change={(e) => updateSelected((el, p) => { if (el.type === "text") { el.fontWeight = parseInt(e.currentTarget.value); ops.detachOnManualEdit(p, el, ["fontWeight"]); } })}>
             <option value="400">Regular</option>
             <option value="700">Bold</option>
           </select>
@@ -397,25 +557,32 @@
       </div>
       <div class="row">
         <label>Font
-          <select value={single.fontFamily} on:change={(e) => updateSelected((el) => { if (el.type === "text") el.fontFamily = e.currentTarget.value; })}>
+          <select value={single.fontFamily} on:change={(e) => updateSelected((el, p) => { if (el.type === "text") { el.fontFamily = e.currentTarget.value; ops.detachOnManualEdit(p, el, ["fontFamily"]); } })}>
             <option>Arial</option><option>Helvetica</option><option>Times New Roman</option>
             <option>Georgia</option><option>Courier New</option><option>Verdana</option>
           </select>
         </label>
         <label>Align
-          <select value={single.align} on:change={(e) => updateSelected((el) => { if (el.type === "text") el.align = e.currentTarget.value as "left" | "center" | "right"; })}>
+          <select value={single.align} on:change={(e) => updateSelected((el, p) => { if (el.type === "text") { el.align = e.currentTarget.value as "left" | "center" | "right"; ops.detachOnManualEdit(p, el, ["align"]); } })}>
             <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
           </select>
         </label>
       </div>
-      <label class="chk">
-        <input
-          type="checkbox"
-          checked={single.autoWidth}
-          on:change={(e) => updateSelected((el) => { if (el.type === "text") el.autoWidth = e.currentTarget.checked; })}
-        />
-        Auto width
-      </label>
+      <div class="row biu-row">
+        <button class="biu" aria-pressed={single.fontWeight >= 600} title="Bold (Ctrl+B)" on:click={() => toggleSelText("bold")}><b>B</b></button>
+        <button class="biu" aria-pressed={single.fontStyle === "italic"} title="Italic (Ctrl+I)" on:click={() => toggleSelText("italic")}><i>I</i></button>
+        <button class="biu" aria-pressed={!!single.underline} title="Underline (Ctrl+U)" on:click={() => toggleSelText("underline")}><u>U</u></button>
+        <NumberField label="Line height" value={single.lineHeight ?? 1.2} min={0.5} step={0.05}
+          title="Line height as a multiple of the font size"
+          on:commit={(e) => updateSelected((el, p) => { if (el.type === "text") { el.lineHeight = e.detail; ops.detachOnManualEdit(p, el, ["lineHeight"]); } })}
+          on:scrub={(e) => scrubSelected((el, p) => { if (el.type === "text") { el.lineHeight = e.detail; ops.detachOnManualEdit(p, el, ["lineHeight"]); } })} />
+      </div>
+      <!-- Sizing: Auto = hug (no wrap) · Auto H = wrap at width, height hugs · Fixed = box pinned -->
+      <div class="seg" role="group" aria-label="Text sizing">
+        <button class:on={single.sizing === "auto"} title="Box hugs the text (no wrapping)" on:click={() => setSizing("auto")}>Auto</button>
+        <button class:on={single.sizing === "auto-h"} title="Wrap at the box width; height hugs" on:click={() => setSizing("auto-h")}>Auto H</button>
+        <button class:on={single.sizing === "fixed"} title="Fixed box (overflow renders unclipped)" on:click={() => setSizing("fixed")}>Fixed</button>
+      </div>
     </section>
   {/if}
 
@@ -698,5 +865,75 @@
   .fig-act {
     width: 100%;
     margin-top: 6px;
+  }
+  /* B/I/U toggles */
+  .biu-row {
+    align-items: flex-end;
+  }
+  .biu {
+    flex: 0 0 auto;
+    min-width: 26px;
+    padding: 4px 7px;
+    line-height: 1;
+  }
+  .biu[aria-pressed="true"] {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+    color: var(--c-on-accent);
+  }
+  /* 3-way sizing segmented control */
+  .seg {
+    display: flex;
+    gap: 0;
+    margin-top: 6px;
+  }
+  .seg button {
+    flex: 1;
+    border-radius: 0;
+    border-right-width: 0;
+  }
+  .seg button:first-child {
+    border-radius: 5px 0 0 5px;
+  }
+  .seg button:last-child {
+    border-radius: 0 5px 5px 0;
+    border-right-width: 1px;
+  }
+  .seg button.on {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+    color: var(--c-on-accent);
+  }
+  /* named-style picker + manage popover */
+  .stylerow {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .gear {
+    flex: 0 0 auto;
+    padding: 4px 7px;
+  }
+  .style-pop {
+    margin: 6px 0;
+    padding: 6px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: 6px;
+    background: var(--c-bg-raised);
+  }
+  .style-row {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .style-row .sname {
+    flex: 1 1 60px;
+    min-width: 40px;
+  }
+  .style-row button {
+    flex: 0 0 auto;
+    padding: 3px 6px;
+    font-size: 11px;
   }
 </style>

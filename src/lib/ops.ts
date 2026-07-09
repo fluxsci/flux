@@ -24,6 +24,7 @@ import type {
   ImageElement,
   SvgElement,
   TextElement,
+  TextStyle,
   SemanticPlotElement,
   PathElement,
   VectorNode,
@@ -233,17 +234,23 @@ export function makePlotPanel(
   return el;
 }
 
-export interface TextStyle {
+// Optional text properties for the constructors below. (Renamed from the old
+// `TextStyle` interface — that name now means a NAMED, reusable style in
+// types.ts; this is just a bag of per-call options.)
+export interface TextOpts {
   fontFamily?: string;
   fontSize?: number;
   fontWeight?: number;
   fontStyle?: "normal" | "italic";
+  underline?: boolean;
+  lineHeight?: number;
   align?: "left" | "center" | "right";
   color?: string;
-  autoWidth?: boolean;
+  sizing?: "auto" | "auto-h" | "fixed";
+  styleId?: Id;
 }
 
-export function makeText(text: string, b: Box, style: TextStyle = {}, panelLabel = false): TextElement {
+export function makeText(text: string, b: Box, style: TextOpts = {}, panelLabel = false): TextElement {
   const g = box(b, 120, 32);
   return {
     type: "text",
@@ -257,9 +264,12 @@ export function makeText(text: string, b: Box, style: TextStyle = {}, panelLabel
     fontSize: style.fontSize ?? (panelLabel ? 32 / 3 : 28 / 3),
     fontWeight: style.fontWeight ?? (panelLabel ? 700 : 400),
     fontStyle: style.fontStyle ?? "normal",
+    ...(style.underline != null ? { underline: style.underline } : {}),
+    ...(style.lineHeight != null ? { lineHeight: style.lineHeight } : {}),
     align: style.align ?? "left",
     color: style.color ?? "#222222",
-    autoWidth: style.autoWidth ?? true,
+    sizing: style.sizing ?? "auto",
+    ...(style.styleId ? { styleId: style.styleId } : {}),
     ...(panelLabel ? { panelLabel: true } : {}),
   };
 }
@@ -288,7 +298,7 @@ export function addPlotPanel(
   return addElement(p, figId, makePlotPanel(opts.assetId, opts, opts.source, opts.manifestRef));
 }
 
-export function addText(p: Project, figId: Id, opts: { text: string } & Box & TextStyle): Id | null {
+export function addText(p: Project, figId: Id, opts: { text: string } & Box & TextOpts): Id | null {
   return addElement(p, figId, makeText(opts.text, opts, opts, false));
 }
 
@@ -347,8 +357,15 @@ export function updatePath(
     }
 }
 
-export function addPanelLabel(p: Project, figId: Id, opts: { text: string } & Box & TextStyle): Id | null {
-  return addElement(p, figId, makeText(opts.text, opts, opts, true));
+export function addPanelLabel(p: Project, figId: Id, opts: { text: string } & Box & TextOpts): Id | null {
+  const el = makeText(opts.text, opts, opts, true);
+  // Link the seeded "Panel Label" named style when the project has it (and the
+  // caller didn't override fonts): new labels then follow style edits live.
+  const st = p.textStyles?.find((s) => s.id === "ts-panel-label");
+  if (st && opts.fontFamily == null && opts.fontSize == null && opts.fontWeight == null && !opts.styleId) {
+    assignTextStyle(el, st);
+  }
+  return addElement(p, figId, el);
 }
 
 // ---------------------------------------------------------------------------
@@ -623,6 +640,9 @@ export interface ElementStylePatch {
   fontSize?: number;
   fontWeight?: number;
   fontStyle?: "normal" | "italic";
+  underline?: boolean;
+  lineHeight?: number;
+  sizing?: "auto" | "auto-h" | "fixed";
   align?: "left" | "center" | "right";
   cornerRadius?: number;
   rotation?: number;
@@ -634,10 +654,37 @@ export interface ElementStylePatch {
   name?: string;
 }
 
+// Patch keys that change text layout/metrics — a patch touching any of them
+// invalidates the derived wrap cache (`lines`); the GUI seams then reflow
+// (text.ts reflowTexts) while headless callers stay correct via the fallback.
+const TEXT_LAYOUT_KEYS = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "sizing"] as const;
+// Font-identity keys: manually editing one DETACHES a linked named style
+// (color/align detach only when the style actually defines them).
+const FONT_KEYS = new Set(["fontFamily", "fontSize", "fontWeight", "fontStyle", "underline", "lineHeight"]);
+
+/** Drop a stale derived wrap cache (pure cache invalidation, DOM-free). */
+function invalidateTextLayout(e: Element): void {
+  if (e.type === "text") delete e.lines;
+}
+
+/** Detach a linked named style when a manual edit overrides it: any font-prop
+ *  key always detaches; color/align only if the linked style defines them. */
+export function detachOnManualEdit(p: Project, e: TextElement, keys: Iterable<string>): void {
+  if (!e.styleId) return;
+  const st = p.textStyles?.find((s) => s.id === e.styleId);
+  for (const k of keys) {
+    if (FONT_KEYS.has(k) || (k === "color" && st?.color != null) || (k === "align" && st?.align != null)) {
+      delete e.styleId;
+      return;
+    }
+  }
+}
+
 /** Apply a style patch to a set of elements, assigning only the props valid for
  *  each element type (mirrors applyColor/setOpacity/setStrokeWidth in colors.ts). */
 export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch): void {
   const set = new Set(ids);
+  const layoutTouched = TEXT_LAYOUT_KEYS.some((k) => patch[k] != null);
   for (const f of p.figures)
     for (const e of f.elements) {
       if (!set.has(e.id)) continue;
@@ -655,7 +702,12 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
         if (patch.fontSize != null) e.fontSize = patch.fontSize;
         if (patch.fontWeight != null) e.fontWeight = patch.fontWeight;
         if (patch.fontStyle != null) e.fontStyle = patch.fontStyle;
+        if (patch.underline != null) e.underline = patch.underline;
+        if (patch.lineHeight != null) e.lineHeight = patch.lineHeight;
+        if (patch.sizing != null) e.sizing = patch.sizing;
         if (patch.align != null) e.align = patch.align;
+        if (layoutTouched) invalidateTextLayout(e);
+        detachOnManualEdit(p, e, Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] != null));
       } else if (e.type === "line") {
         if (patch.stroke != null) e.stroke = patch.stroke;
         if (patch.strokeWidth != null) e.strokeWidth = patch.strokeWidth;
@@ -681,6 +733,132 @@ export function setPartOverride(p: Project, elementId: Id, partId: string, patch
 }
 
 // ---------------------------------------------------------------------------
+// Text styling — B/I/U toggles + named text styles (Project.textStyles)
+// ---------------------------------------------------------------------------
+export type TextToggle = "bold" | "italic" | "underline";
+
+/** Toggle bold/italic/underline across the selected TEXT elements: if every
+ *  text already has it, turn it off everywhere; else turn it on everywhere
+ *  (Figma/Docs semantics). Detaches linked named styles (manual font edit).
+ *  DOM-free — GUI callers reflow after (text.ts reflowTexts). */
+export function toggleTextStyle(p: Project, ids: Id[], which: TextToggle): void {
+  const set = new Set(ids);
+  const texts: TextElement[] = [];
+  for (const f of p.figures)
+    for (const e of f.elements) if (set.has(e.id) && e.type === "text") texts.push(e);
+  if (!texts.length) return;
+  const isOn = (e: TextElement) =>
+    which === "bold" ? e.fontWeight >= 600 : which === "italic" ? e.fontStyle === "italic" : !!e.underline;
+  const allOn = texts.every(isOn);
+  for (const e of texts) {
+    if (which === "bold") e.fontWeight = allOn ? 400 : 700;
+    else if (which === "italic") e.fontStyle = allOn ? "normal" : "italic";
+    else e.underline = !allOn;
+    if (which !== "underline") delete e.lines; // bold/italic change metrics
+    detachOnManualEdit(p, e, [which === "bold" ? "fontWeight" : which === "italic" ? "fontStyle" : "underline"]);
+  }
+}
+
+const textById = (p: Project, id: Id): TextElement | null => {
+  for (const f of p.figures)
+    for (const e of f.elements) if (e.id === id && e.type === "text") return e;
+  return null;
+};
+
+export function textStyleById(p: Project, styleId: Id): TextStyle | null {
+  return p.textStyles?.find((s) => s.id === styleId) ?? null;
+}
+
+/** Write a named style's props onto a text element + link it. Optional props
+ *  (underline/lineHeight/color/align) apply only when the style defines them. */
+function assignTextStyle(e: TextElement, st: TextStyle): void {
+  e.fontFamily = st.fontFamily;
+  e.fontSize = st.fontSize;
+  e.fontWeight = st.fontWeight;
+  e.fontStyle = st.fontStyle;
+  if (st.underline != null) e.underline = st.underline;
+  if (st.lineHeight != null) e.lineHeight = st.lineHeight;
+  if (st.color != null) e.color = st.color;
+  if (st.align != null) e.align = st.align;
+  e.styleId = st.id;
+  delete e.lines; // metrics changed — GUI reflows, headless falls back
+}
+
+/** Create a named text style (id auto-generated unless supplied; a supplied id
+ *  that already exists gets its definition REPLACED — copy-on-apply from the
+ *  global library uses this to stay idempotent). Returns the style. */
+export function createTextStyle(p: Project, def: Omit<TextStyle, "id"> & { id?: Id }): TextStyle {
+  const st: TextStyle = { ...def, id: def.id ?? newId("ts") };
+  p.textStyles = p.textStyles ?? [];
+  const i = p.textStyles.findIndex((s) => s.id === st.id);
+  if (i >= 0) p.textStyles[i] = st;
+  else p.textStyles.push(st);
+  return st;
+}
+
+/** Snapshot an element's text properties as a new named style and link the
+ *  element to it ("New style from selection"). Captures color + align too —
+ *  a from-selection style is a complete look. */
+export function textStyleFromElement(p: Project, elementId: Id, name: string): TextStyle | null {
+  const e = textById(p, elementId);
+  if (!e) return null;
+  const st = createTextStyle(p, {
+    name,
+    fontFamily: e.fontFamily,
+    fontSize: e.fontSize,
+    fontWeight: e.fontWeight,
+    fontStyle: e.fontStyle,
+    ...(e.underline != null ? { underline: e.underline } : {}),
+    ...(e.lineHeight != null ? { lineHeight: e.lineHeight } : {}),
+    color: e.color,
+    align: e.align,
+  });
+  e.styleId = st.id;
+  return st;
+}
+
+/** Patch a named style and RE-APPLY it to every linked element (live link). */
+export function updateTextStyle(p: Project, styleId: Id, patch: Partial<Omit<TextStyle, "id">>): void {
+  const st = textStyleById(p, styleId);
+  if (!st) return;
+  Object.assign(st, patch);
+  for (const f of p.figures)
+    for (const e of f.elements)
+      if (e.type === "text" && e.styleId === styleId) assignTextStyle(e, st);
+}
+
+export function renameTextStyle(p: Project, styleId: Id, name: string): void {
+  const st = textStyleById(p, styleId);
+  if (st) st.name = name;
+}
+
+/** Delete a named style. Linked elements KEEP their current properties and
+ *  simply drop the link. */
+export function deleteTextStyle(p: Project, styleId: Id): void {
+  if (!p.textStyles) return;
+  p.textStyles = p.textStyles.filter((s) => s.id !== styleId);
+  for (const f of p.figures)
+    for (const e of f.elements)
+      if (e.type === "text" && e.styleId === styleId) delete e.styleId;
+}
+
+/** Apply a named style to the given elements (text elements only): sets the
+ *  style's defined props + links styleId. DOM-free — GUI reflows after. */
+export function applyTextStyle(p: Project, ids: Id[], styleId: Id): number {
+  const st = textStyleById(p, styleId);
+  if (!st) return 0;
+  const set = new Set(ids);
+  let n = 0;
+  for (const f of p.figures)
+    for (const e of f.elements)
+      if (set.has(e.id) && e.type === "text") {
+        assignTextStyle(e, st);
+        n++;
+      }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
 // Panel labels — auto-letter (a, b, c …) by reading order (extracted from store)
 // ---------------------------------------------------------------------------
 export function autoLetterPanels(p: Project, figId: Id): void {
@@ -690,7 +868,10 @@ export function autoLetterPanels(p: Project, figId: Id): void {
   const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
   labels.sort((a, b) => Math.round(a.y / TOL) - Math.round(b.y / TOL) || a.x - b.x);
   labels.forEach((e, i) => {
-    if (e.type === "text") e.text = String.fromCharCode(97 + (i % 26));
+    if (e.type === "text") {
+      e.text = String.fromCharCode(97 + (i % 26));
+      delete e.lines; // text changed → wrap cache stale (GUI reflows on next layout)
+    }
   });
 }
 

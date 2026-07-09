@@ -2,7 +2,7 @@ import type { Element } from "./types";
 import type { DrawStyle, Tool } from "./store";
 import { newId } from "./ids";
 import { elementBBox, type Rect } from "./geometry";
-import { applyAutoWidth } from "./text";
+import { applyTextLayout } from "./text";
 import { scaleNodes, nodesToPath, pathToNodes, constrain45 } from "./path";
 
 export interface Pt {
@@ -116,28 +116,54 @@ export function createTextElement(p: Pt, style: DrawStyle): Element {
     fontStyle: "normal",
     align: "left",
     color: style.textColor,
-    autoWidth: true,
+    sizing: "auto",
   };
-  applyAutoWidth(el);
+  applyTextLayout(el);
   return el;
 }
 
-// Proportional SCALE remap (Feature 5): like resizeRemap, but also multiplies the
-// "weight" properties — strokeWidth, cornerRadius, and (via resizeRemap) fontSize —
-// by the same uniform factor, so a shrunk panel keeps its visual proportions. The
-// Scale tool forces a uniform box, so sx == sy; we use s = nb.w/ob.w (falls back to
-// the average if a degenerate axis sneaks in).
+// Proportional SCALE remap (Feature 5, the K tool): like resizeRemap, but also
+// multiplies the "weight" properties — strokeWidth, cornerRadius, fontSize (the
+// EXPLICIT geometric scaler; plain resize never touches fonts) — and a plot/svg
+// element's contentScale (plot/compensate.ts consumes it, so K scales a plot's
+// glyphs/strokes geometrically while plain resize stays pt-true). The Scale tool
+// forces a uniform box, so sx == sy; we use s = nb.w/ob.w (falls back to the
+// average if a degenerate axis sneaks in).
 export function scaleRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
-  resizeRemap(e, orig, ob, nb);
   const sx = ob.w === 0 ? 1 : nb.w / ob.w;
   const sy = ob.h === 0 ? 1 : nb.h / ob.h;
   const s = ob.w !== 0 ? sx : sy || (sx + sy) / 2;
+  if (e.type === "text" && orig.type === "text") {
+    // K scales text fully: box AND font together (wrap points stay put). The
+    // sizing mode is untouched — scaling is not a mode change.
+    const ob2 = elementBBox(orig);
+    e.x = nb.x + (ob2.x - ob.x) * sx;
+    e.y = nb.y + (ob2.y - ob.y) * sy;
+    e.fontSize = Math.max(2, orig.fontSize * s);
+    e.width = Math.max(1, orig.width * sx);
+    e.height = Math.max(1, orig.height * sy);
+    applyTextLayout(e); // headless-safe (drops the stale wrap cache)
+  } else {
+    resizeRemap(e, orig, ob, nb);
+  }
   if ("strokeWidth" in e && "strokeWidth" in orig) e.strokeWidth = Math.max(0, orig.strokeWidth * s);
   if (e.type === "rect" && orig.type === "rect") e.cornerRadius = Math.max(0, orig.cornerRadius * s);
+  if ((e.type === "svg" || e.type === "plot") && (orig.type === "svg" || orig.type === "plot")) {
+    e.contentScale = Math.max(0.01, (orig.contentScale ?? 1) * s);
+  }
 }
 
 // Remap one element when the selection bounding box changes from ob -> nb.
-export function resizeRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
+// `axes` (from the drag handle: e/w = width-only, n/s = height-only, corners =
+// both) drives the TEXT sizing-mode transitions; without it, the box delta
+// decides (bridge/ops callers).
+export function resizeRemap(
+  e: Element,
+  orig: Element,
+  ob: Rect,
+  nb: Rect,
+  axes?: { w: boolean; h: boolean },
+) {
   const sx = ob.w === 0 ? 1 : nb.w / ob.w;
   const sy = ob.h === 0 ? 1 : nb.h / ob.h;
   const fx = (px: number) => nb.x + (px - ob.x) * sx;
@@ -177,17 +203,20 @@ export function resizeRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
     return;
   }
 
-  // Text: scale the font (not the box), then let auto-width re-fit the box.
+  // Text: the box changes, the FONT NEVER does (Figma contract — the K/Scale
+  // tool is the intentional font scaler). A width drag turns a hugging "auto"
+  // box into "auto-h" (wrap at the new width, height hugs); any height drag
+  // pins the box "fixed". applyTextLayout re-wraps + re-hugs per the mode.
   if (e.type === "text" && orig.type === "text") {
     e.x = fx(ob2.x);
     e.y = fy(ob2.y);
-    e.fontSize = Math.max(2, orig.fontSize * ((sx + sy) / 2));
-    if (e.autoWidth) {
-      applyAutoWidth(e);
-    } else {
-      e.width = Math.max(1, orig.width * sx);
-      e.height = Math.max(1, orig.height * sy);
-    }
+    e.width = Math.max(1, orig.width * sx);
+    e.height = Math.max(1, orig.height * sy);
+    const wDrag = axes ? axes.w : Math.abs(nb.w - ob.w) > 1e-9;
+    const hDrag = axes ? axes.h : Math.abs(nb.h - ob.h) > 1e-9;
+    if (hDrag) e.sizing = "fixed";
+    else if (wDrag && e.sizing === "auto") e.sizing = "auto-h";
+    applyTextLayout(e);
     return;
   }
 

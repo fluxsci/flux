@@ -42,8 +42,12 @@ export function applyColor(hex: string, target = get(colorTarget)) {
     for (const f of p.figures)
       for (const e of f.elements) {
         if (!sel.has(e.id)) continue;
-        if (e.type === "text") e.color = hex;
-        else if (e.type === "line") e.stroke = hex;
+        if (e.type === "text") {
+          e.color = hex;
+          // a manual colour edit detaches a linked named style IF that style
+          // defines a colour (ops.detachOnManualEdit no-ops otherwise)
+          ops.detachOnManualEdit(p, e, ["color"]);
+        } else if (e.type === "line") e.stroke = hex;
         else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
           if (target === "fill") e.fill = hex;
           else e.stroke = hex;

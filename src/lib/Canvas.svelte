@@ -29,7 +29,7 @@
   import type { Element, Figure, PathElement, VectorNode } from "./types";
   import { get } from "svelte/store";
   import { onMount } from "svelte";
-  import { applyAutoWidth } from "./text";
+  import { applyTextLayout, lineH, visualLines } from "./text";
   import {
     elementBBox,
     rotatedAABB,
@@ -676,8 +676,20 @@
       const f = findElement(p, id);
       if (f && f.element.type === "text") {
         f.element.text = val;
-        applyAutoWidth(f.element);
+        applyTextLayout(f.element);
       }
+    });
+  }
+  // Ctrl/Cmd+B/I/U inside the inline editor: toggle on the edited element via
+  // mutate — the edit session already opened ONE beginGesture, so the whole
+  // session (typing + toggles) stays a single undo entry.
+  function onTextEditToggle(which: "bold" | "italic" | "underline") {
+    if (!editingId) return;
+    const id = editingId;
+    mutate((p) => {
+      ops.toggleTextStyle(p, [id], which);
+      const f = findElement(p, id);
+      if (f) applyTextLayout(f.element); // bold changes metrics → re-wrap
     });
   }
   function finishEdit() {
@@ -1355,6 +1367,9 @@
     } else if (g.kind === "resize" && gNb && dragging) {
       const nb = gNb;
       ensureCommitted();
+      // Which box axes this handle drives (text sizing transitions key off it:
+      // width-only drag → wrap mode, any height drag → fixed box).
+      const axes = { w: g.handle !== "n" && g.handle !== "s", h: g.handle !== "e" && g.handle !== "w" };
       mutate((p) => {
         const f = p.figures.find((ff) => ff.id === g.figId);
         if (!f) return;
@@ -1362,7 +1377,7 @@
           const o = g.origs.get(el.id);
           if (o) {
             if (g.scale) scaleRemap(el, o, g.ob, nb);
-            else resizeRemap(el, o, g.ob, nb);
+            else resizeRemap(el, o, g.ob, nb, axes);
             if ($settings.snapPixel) {
               el.x = Math.round(el.x);
               el.y = Math.round(el.y);
@@ -2121,7 +2136,7 @@
                   font-size={12 / $viewport.zoom}
                 >
                   <tspan x={fig.width / 2} dy={-5 / $viewport.zoom}>Drop PNG/SVG plots here</tspan>
-                  <tspan x={fig.width / 2} dy={18 / $viewport.zoom}>Ctrl+I import · Alt+I plot importer</tspan>
+                  <tspan x={fig.width / 2} dy={18 / $viewport.zoom}>Ctrl+Shift+K import · Alt+I plot importer</tspan>
                 </text>
               {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
@@ -2429,6 +2444,9 @@
   {/if}
 
   {#if editingInfo}
+    <!-- Editor⇄render parity: sizing auto = hugging box, no wrap (pre + slack);
+         auto-h/fixed = pre-wrap at EXACTLY the model width (content-box), long
+         words break like text.ts wrapText; line-height mirrors lineH(el). -->
     <textarea
       bind:this={taEl}
       class="text-edit"
@@ -2439,10 +2457,20 @@
         font-size:${editingInfo.el.fontSize * $viewport.zoom}px;
         font-weight:${editingInfo.el.fontWeight};
         font-style:${editingInfo.el.fontStyle};
+        ${editingInfo.el.underline ? "text-decoration:underline;" : ""}
+        line-height:${editingInfo.el.lineHeight ?? 1.2};
         color:${editingInfo.el.color};
         text-align:${editingInfo.el.align};
-        width:${Math.max(editingInfo.el.width, 8) * $viewport.zoom + 4}px;
-        height:${Math.max(editingInfo.el.height, editingInfo.el.fontSize) * $viewport.zoom + 2}px;`}
+        white-space:${editingInfo.el.sizing === "auto" ? "pre" : "pre-wrap"};
+        overflow-wrap:${editingInfo.el.sizing === "auto" ? "normal" : "break-word"};
+        width:${editingInfo.el.sizing === "auto"
+          ? Math.max(editingInfo.el.width, 8) * $viewport.zoom + 4
+          : Math.max(editingInfo.el.width, 8) * $viewport.zoom}px;
+        height:${Math.max(
+          editingInfo.el.height,
+          Math.ceil(visualLines(editingInfo.el).length * lineH(editingInfo.el)),
+          editingInfo.el.fontSize,
+        ) * $viewport.zoom + 2}px;`}
       on:input={onTextInput}
       on:blur={finishEdit}
       on:pointerdown|stopPropagation
@@ -2451,6 +2479,15 @@
         if (e.key === "Escape") {
           e.preventDefault();
           finishEdit();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+          const k = e.key.toLowerCase();
+          if (k === "b" || k === "i" || k === "u") {
+            e.preventDefault();
+            e.stopPropagation();
+            onTextEditToggle(k === "b" ? "bold" : k === "i" ? "italic" : "underline");
+          }
         }
       }}
     ></textarea>

@@ -20,7 +20,7 @@ const id = await page.evaluate(() => {
     p.figures[0].elements.push({
       type: "text", id: tid, x: 40, y: 40, width: 200, height: 34, rotation: 0,
       text: "pt gate", fontFamily: "Arial", fontSize: 24, fontWeight: 400,
-      fontStyle: "normal", align: "left", color: "#111111", autoWidth: false,
+      fontStyle: "normal", align: "left", color: "#111111", sizing: "fixed",
     });
   });
   F.fig.selection.set(new Set([tid]));

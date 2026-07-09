@@ -43,8 +43,22 @@ usage: flux <verb> [root] [args] [--flags]
   restyle <figId> <partId> [--root R] [--element E] [--stroke c] [--fill c]
           [--stroke-width n] [--opacity n] [--hidden]   restyle a plot part
   set-style <id…> [--root R] [--fill c] [--stroke c] [--stroke-width n]
-            [--opacity n] [--color c] [--font-size n] [--hidden|--show]
-            [--locked|--unlock] [--name N]   set element style
+            [--opacity n] [--color c] [--font-size n] [--font F] [--weight n]
+            [--italic|--no-italic] [--underline|--no-underline]
+            [--line-height n] [--sizing auto|auto-h|fixed] [--align a]
+            [--hidden|--show] [--locked|--unlock] [--name N]   set element style
+  toggle-text-style <bold|italic|underline> <id…> [--root R]   B/I/U toggle on texts
+  add-fig-text <figId> "text…" [--x --y --width --height --size-pt n --weight n
+            --font F --color c --align a --sizing m] [--root R]   add a figure text
+  text-styles [--root R] [--global]    list named text styles (project | machine library)
+  create-text-style --name N [--from elId | --font F --size-pt n --weight n
+            --italic --underline --line-height n --color c --align a] [--root R]
+  update-text-style <styleId> [--name N --font F --size-pt n --weight n
+            --italic|--no-italic --underline|--no-underline --line-height n
+            --color c --align a] [--root R]   patch (re-applies to linked texts)
+  delete-text-style <styleId> [--root R]   delete (linked texts keep their look)
+  apply-text-style <styleId> <id…> [--root R]   apply a named style to texts
+  save-global-text-style <styleId> [--root R]   copy a project style → machine library
   delete-element <id…> [--root R]      delete elements by id
   delete-figure <figId> [--root R]     delete a whole figure
   duplicate-figure <figId> [--root R]  duplicate a whole figure (fresh ids)
@@ -159,11 +173,41 @@ async function main() {
     if (op != null) s.opacity = op;
     const fs2 = num(flags["font-size"]);
     if (fs2 != null) s.fontSize = fs2;
+    // text props (figure-v1 P3)
+    if (typeof flags.font === "string") s.fontFamily = flags.font;
+    const fw = num(flags.weight);
+    if (fw != null) s.fontWeight = fw;
+    if (flags.italic) s.fontStyle = "italic";
+    if (flags["no-italic"]) s.fontStyle = "normal";
+    if (flags.underline) s.underline = true;
+    if (flags["no-underline"]) s.underline = false;
+    const lh = num(flags["line-height"]);
+    if (lh != null) s.lineHeight = lh;
+    if (flags.sizing === "auto" || flags.sizing === "auto-h" || flags.sizing === "fixed") s.sizing = flags.sizing;
+    if (flags.align === "left" || flags.align === "center" || flags.align === "right") s.align = flags.align;
     if (flags.hidden) s.hidden = true;
     if (flags.show) s.hidden = false;
     if (flags.locked) s.locked = true;
     if (flags.unlock) s.locked = false;
     if (typeof flags.name === "string") s.name = flags.name;
+    return s;
+  };
+  // Named-text-style props from flags (sizes edited in POINTS: px = pt × 4/3).
+  const textStyleFromFlags = (): Record<string, string | number | boolean> => {
+    const s: Record<string, string | number | boolean> = {};
+    if (typeof flags.font === "string") s.fontFamily = flags.font;
+    const pt = num(flags["size-pt"]);
+    if (pt != null) s.fontSize = pt * (4 / 3);
+    const fw = num(flags.weight);
+    if (fw != null) s.fontWeight = fw;
+    if (flags.italic) s.fontStyle = "italic";
+    if (flags["no-italic"]) s.fontStyle = "normal";
+    if (flags.underline) s.underline = true;
+    if (flags["no-underline"]) s.underline = false;
+    const lh = num(flags["line-height"]);
+    if (lh != null) s.lineHeight = lh;
+    if (typeof flags.color === "string") s.color = flags.color;
+    if (flags.align === "left" || flags.align === "center" || flags.align === "right") s.align = String(flags.align);
     return s;
   };
 
@@ -350,6 +394,76 @@ async function main() {
     case "set-style": {
       await core.setElementStyle(R(), _, styleFromFlags());
       console.error(`✓ styled ${_.length} element(s)`);
+      break;
+    }
+    case "toggle-text-style": {
+      const which = _[0];
+      if (which !== "bold" && which !== "italic" && which !== "underline")
+        throw new Error("toggle-text-style: first arg must be bold|italic|underline");
+      await core.toggleTextStyle(R(), _.slice(1), which);
+      console.error(`✓ toggled ${which} on ${_.length - 1} element(s)`);
+      break;
+    }
+    case "add-fig-text": {
+      const pt = num(flags["size-pt"]);
+      const r = await core.addFigText(R(), _[0], {
+        text: _.slice(1).join(" ") || "Text",
+        x: num(flags.x),
+        y: num(flags.y),
+        width: num(flags.width),
+        height: num(flags.height),
+        ...(pt != null ? { fontSize: pt * (4 / 3) } : {}),
+        ...(num(flags.weight) != null ? { fontWeight: num(flags.weight) } : {}),
+        ...(typeof flags.font === "string" ? { fontFamily: flags.font } : {}),
+        ...(typeof flags.color === "string" ? { color: flags.color } : {}),
+        ...(flags.align === "left" || flags.align === "center" || flags.align === "right"
+          ? { align: flags.align }
+          : {}),
+        ...(flags.sizing === "auto" || flags.sizing === "auto-h" || flags.sizing === "fixed"
+          ? { sizing: flags.sizing }
+          : {}),
+      });
+      console.log(r.id);
+      break;
+    }
+    case "text-styles": {
+      const styles = flags.global ? await core.listGlobalTextStyles() : await core.listTextStyles(R());
+      console.log(JSON.stringify(styles, null, 2));
+      break;
+    }
+    case "create-text-style": {
+      if (typeof flags.name !== "string" || !flags.name.trim()) throw new Error("create-text-style: --name required");
+      const r = await core.createTextStyle(R(), {
+        name: flags.name.trim(),
+        ...(typeof flags.from === "string" ? { fromElementId: flags.from } : {}),
+        ...(textStyleFromFlags() as object),
+      });
+      console.log(JSON.stringify(r.style, null, 2));
+      break;
+    }
+    case "update-text-style": {
+      const patch = textStyleFromFlags();
+      if (typeof flags.name === "string" && flags.name.trim()) patch.name = flags.name.trim();
+      await core.updateTextStyle(R(), _[0], patch);
+      console.error(`✓ updated text style ${_[0]} (re-applied to linked texts)`);
+      break;
+    }
+    case "delete-text-style": {
+      await core.deleteTextStyle(R(), _[0]);
+      console.error(`✓ deleted text style ${_[0]}`);
+      break;
+    }
+    case "apply-text-style": {
+      const r = await core.applyTextStyle(R(), _.slice(1), _[0]);
+      console.error(`✓ applied ${_[0]} to ${r.applied} text element(s)`);
+      break;
+    }
+    case "save-global-text-style": {
+      const styles = await core.listTextStyles(R());
+      const st = styles.find((s) => s.id === _[0]);
+      if (!st) throw new Error(`text style not found in project: ${_[0]}`);
+      await core.saveGlobalTextStyle(st);
+      console.error(`✓ saved "${st.name}" to the machine-global library`);
       break;
     }
     case "delete-element":

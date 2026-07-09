@@ -662,6 +662,30 @@ ipcMain.handle("prefs:set", (_e, patch) => {
   return next;
 });
 
+// Machine-global named text-style library: <userData>/textstyles.json
+// ({ schemaVersion, styles: TextStyle[] }). Shared across every project;
+// applying a library style copies it into the project (copy-on-apply — the
+// renderer owns that logic; this is a dumb list store). flux-core reads the
+// same file for the CLI's --global listing (userDataDir parity, like prefs).
+const textStylesFile = () => path.join(app.getPath("userData"), "textstyles.json");
+ipcMain.handle("textstyles:get", () => {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(textStylesFile(), "utf8"));
+    return Array.isArray(parsed?.styles) ? parsed.styles : [];
+  } catch {
+    return [];
+  }
+});
+ipcMain.handle("textstyles:set", (_e, styles) => {
+  fs.mkdirSync(path.dirname(textStylesFile()), { recursive: true });
+  noteWrite(textStylesFile());
+  fs.writeFileSync(
+    textStylesFile(),
+    JSON.stringify({ schemaVersion: "0.1.0", styles: Array.isArray(styles) ? styles : [] }, null, 2) + "\n",
+  );
+  return true;
+});
+
 // ---------------------------------------------------------------------------
 // Update check (5.3). Packaged builds only, at most once per day: ask GitHub for
 // the latest release and, if its tag is newer than app.getVersion(), hand the

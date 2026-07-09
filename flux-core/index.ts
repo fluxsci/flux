@@ -90,7 +90,8 @@ import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import { atomicWrite } from "./fsx";
 import Ajv from "ajv";
 import { SCHEMAS, SCHEMA_FILENAMES, schemaForFile } from "./schemas";
-import type { Figure, Element, Project, Asset, Canvas, PartOverride, VectorNode } from "../src/lib/types";
+import type { Figure, Element, Project, Asset, Canvas, PartOverride, VectorNode, TextStyle } from "../src/lib/types";
+import { migrateProject } from "../src/lib/migrate";
 import type { ProjectManifest, FigureEntry } from "../src/lib/project/types";
 import { slugify } from "../src/lib/project/types";
 
@@ -160,9 +161,17 @@ interface FigIndexFile {
     name?: string;
     naturalWidth?: number;
     naturalHeight?: number;
+    // Physical resolution a PNG declared (pHYs), captured at import. Physical
+    // size in canvas px = natural × 96/dpi — dropping this on load silently
+    // resized re-saved rasters (the Asset.dpi round-trip bug, fixed with P3).
+    dpi?: number;
   }[];
   palette?: string[];
   colorGroups?: unknown[];
+  // Named text styles (project-level; mirrors figbridge.ts). Loaded into
+  // Project.textStyles and written back EXPLICITLY in saveFigModelUnlocked —
+  // either side omitting it silently wipes user styles on the next save.
+  textStyles?: TextStyle[];
 }
 interface CanvasFile {
   schemaVersion: string;
@@ -231,16 +240,24 @@ export async function loadFigModel(root: string): Promise<{ project: Project; in
     path: a.path ?? "",
     naturalWidth: a.naturalWidth ?? 0,
     naturalHeight: a.naturalHeight ?? 0,
+    ...(a.dpi != null ? { dpi: a.dpi } : {}), // keep the pHYs dpi (round-trip)
   }));
   const project: Project = {
-    version: 1,
+    version: 2,
     name: "",
     canvases,
     figures,
     assets,
     palette: index.palette ?? [],
     colorGroups: (index.colorGroups as Project["colorGroups"]) ?? [],
+    // undefined when the index predates styles → migrate seeds the defaults;
+    // an explicit list (even []) from disk is the user's truth.
+    ...(index.textStyles !== undefined ? { textStyles: index.textStyles } : {}),
   };
+  // Same migration the GUI runs in normalizeProject (text autoWidth → sizing,
+  // seed default text styles) — flux-core previously did NO element
+  // normalization, so v1 docs mutated headless kept legacy fields forever.
+  migrateProject(project);
   return { project, index };
 }
 
@@ -328,9 +345,11 @@ async function saveFigModelUnlocked(
     name: a.name,
     naturalWidth: a.naturalWidth,
     naturalHeight: a.naturalHeight,
+    ...(a.dpi != null ? { dpi: a.dpi } : {}),
   }));
   index.palette = project.palette;
   index.colorGroups = project.colorGroups ?? [];
+  index.textStyles = project.textStyles ?? []; // explicit writeback (wipe guard)
   await saveFigIndex(root, index);
   await reindex(root);
 }
@@ -1121,7 +1140,10 @@ export async function setPartOverride(
   });
 }
 
-/** set element-level style (fill/stroke/strokeWidth/opacity/color/font…) on ids. */
+/** set element-level style (fill/stroke/strokeWidth/opacity/color/font…) on ids.
+ *  Text-metric patches invalidate the element's derived wrap cache inside
+ *  ops.setElementStyle itself, so a headless edit can never leave stale lines
+ *  behind — the GUI re-wraps on its next load/layout. */
 export async function setElementStyle(
   root: string,
   ids: string[],
@@ -1130,6 +1152,120 @@ export async function setElementStyle(
   await mutateFigModel(root, "set_style", ({ project }) => {
     ops.setElementStyle(project, ids, patch);
   });
+}
+
+// --- text system (figure-v1 P3): B/I/U toggle + named text styles ------------
+
+/** toggle bold/italic/underline across text elements (all-on → off, else on). */
+export async function toggleTextStyle(
+  root: string,
+  ids: string[],
+  which: ops.TextToggle,
+): Promise<void> {
+  await mutateFigModel(root, "toggle_text_style", ({ project }) => {
+    ops.toggleTextStyle(project, ids, which);
+  });
+}
+
+/** add a text element to a figure (parity gap: every other create verb existed). */
+export async function addFigText(
+  root: string,
+  figId: string,
+  opts: { text: string } & ops.Box & ops.TextOpts,
+): Promise<{ id: string }> {
+  return mutateFigModel(root, "add_text", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    const id = ops.addText(project, figId, opts);
+    if (!id) throw new Error(`could not add text to ${figId}`);
+    return { id };
+  });
+}
+
+/** create a named text style (optionally snapshotting an element's look). */
+export async function createTextStyle(
+  root: string,
+  def: { name: string; fromElementId?: string } & Partial<Omit<TextStyle, "id" | "name">>,
+): Promise<{ style: TextStyle }> {
+  return mutateFigModel(root, "create_text_style", ({ project }) => {
+    if (def.fromElementId) {
+      const st = ops.textStyleFromElement(project, def.fromElementId, def.name);
+      if (!st) throw new Error(`text element not found: ${def.fromElementId}`);
+      return { style: st };
+    }
+    const st = ops.createTextStyle(project, {
+      name: def.name,
+      fontFamily: def.fontFamily ?? "Arial",
+      fontSize: def.fontSize ?? 28 / 3,
+      fontWeight: def.fontWeight ?? 400,
+      fontStyle: def.fontStyle ?? "normal",
+      ...(def.underline != null ? { underline: def.underline } : {}),
+      ...(def.lineHeight != null ? { lineHeight: def.lineHeight } : {}),
+      ...(def.color != null ? { color: def.color } : {}),
+      ...(def.align != null ? { align: def.align } : {}),
+    });
+    return { style: st };
+  });
+}
+
+/** patch a named text style — re-applies to every linked element (live link).
+ *  A `name` in the patch renames. */
+export async function updateTextStyle(
+  root: string,
+  styleId: string,
+  patch: Partial<Omit<TextStyle, "id">>,
+): Promise<void> {
+  await mutateFigModel(root, "update_text_style", ({ project }) => {
+    if (!ops.textStyleById(project, styleId)) throw new Error(`text style not found: ${styleId}`);
+    ops.updateTextStyle(project, styleId, patch);
+  });
+}
+
+/** delete a named text style (linked elements keep their look, drop the link). */
+export async function deleteTextStyle(root: string, styleId: string): Promise<void> {
+  await mutateFigModel(root, "delete_text_style", ({ project }) => {
+    if (!ops.textStyleById(project, styleId)) throw new Error(`text style not found: ${styleId}`);
+    ops.deleteTextStyle(project, styleId);
+  });
+}
+
+/** apply a named text style to text elements (sets defined props + styleId). */
+export async function applyTextStyle(
+  root: string,
+  ids: string[],
+  styleId: string,
+): Promise<{ applied: number }> {
+  return mutateFigModel(root, "apply_text_style", ({ project }) => {
+    if (!ops.textStyleById(project, styleId)) throw new Error(`text style not found: ${styleId}`);
+    return { applied: ops.applyTextStyle(project, ids, styleId) };
+  });
+}
+
+/** list the project's named text styles (read-only). */
+export async function listTextStyles(root: string): Promise<TextStyle[]> {
+  const { project } = await loadFigModel(root);
+  return project.textStyles ?? [];
+}
+
+/** The machine-global text-style library (<userData>/textstyles.json — the
+ *  SAME file the Electron GUI reads/writes; fluxlib.userDataDir reproduces
+ *  app.getPath("userData")). Definitions only; applying copies into a project. */
+export async function listGlobalTextStyles(): Promise<TextStyle[]> {
+  try {
+    const p = j(fluxlib.userDataDir(), "textstyles.json");
+    const parsed = JSON.parse(await fs.readFile(p, "utf8")) as { styles?: TextStyle[] };
+    return Array.isArray(parsed?.styles) ? parsed.styles : [];
+  } catch {
+    return [];
+  }
+}
+
+/** upsert a style (by id) into the machine-global library. */
+export async function saveGlobalTextStyle(style: TextStyle): Promise<void> {
+  const dir = fluxlib.userDataDir();
+  const cur = await listGlobalTextStyles();
+  const next = [...cur.filter((s) => s.id !== style.id), style];
+  await fs.mkdir(dir, { recursive: true });
+  await writeText(j(dir, "textstyles.json"), JSON.stringify({ schemaVersion: "0.1.0", styles: next }, null, 2) + "\n");
 }
 
 // --- W11 (AGT-6): figure verbs that existed as pure ops + live-bridge commands

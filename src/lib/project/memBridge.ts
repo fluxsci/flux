@@ -116,6 +116,24 @@ export function createMemBridge(): FileBridge & {
     async paths() {
       return { home: "/home/demo", userData: "/home/demo/.config/Flux", documents: "/home/demo/Documents" };
     },
+    // Machine-global text-style library — localStorage-backed in the fixture so
+    // verify scripts can exercise the copy-on-apply flow without Electron.
+    async readGlobalTextStyles() {
+      try {
+        const raw = localStorage.getItem("flux.textstyles");
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+    async writeGlobalTextStyles(styles) {
+      try {
+        localStorage.setItem("flux.textstyles", JSON.stringify(styles ?? []));
+      } catch {
+        /* quota/serialization failure — the library is best-effort in the fixture */
+      }
+    },
     async openDirectory() {
       return "/demo/myc-growth-paper";
     },
@@ -313,7 +331,7 @@ const mkLabel = (id: string, text: string, x: number) => ({
   fontStyle: "normal",
   align: "left",
   color: "#111111",
-  autoWidth: true,
+  sizing: "auto",
   panelLabel: true,
 });
 const mkRect = (id: string, x: number, fill: string) => ({

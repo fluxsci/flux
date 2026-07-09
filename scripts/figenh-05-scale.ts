@@ -4,7 +4,7 @@
 // the Select tool's resize leaves stroke fixed; plus the Inspector "Scale %".
 import { scaleRemap, resizeRemap } from "../src/lib/editing";
 import { elementBBox } from "../src/lib/geometry";
-import type { RectElement, TextElement } from "../src/lib/types";
+import type { Element, RectElement, TextElement } from "../src/lib/types";
 // @ts-expect-error mjs helper, no types
 import { launch, gotoApp, clickMode, shot, realErrors, sleep } from "./lib/driver.mjs";
 // @ts-expect-error mjs helper, no types
@@ -26,9 +26,16 @@ const near = (a: number, b: number, t = 0.6) => Math.abs(a - b) <= t;
   assert(near(a.width, 50) && near(a.strokeWidth, 2) && near(a.cornerRadius, 4), `scaleRemap 0.5 → w50 sw2 r4 (w=${a.width} sw=${a.strokeWidth} r=${a.cornerRadius})`);
   const b = mkRect(); resizeRemap(b, mkRect(), ob, nb);
   assert(near(b.width, 50) && near(b.strokeWidth, 4) && near(b.cornerRadius, 8), `resizeRemap 0.5 → w50 but stroke/corner UNCHANGED (sw=${b.strokeWidth} r=${b.cornerRadius})`);
-  const t = { type: "text", id: "t", x: 0, y: 0, width: 100, height: 28, rotation: 0, text: "Hi", fontFamily: "sans", fontSize: 20, fontWeight: 400, fontStyle: "normal", align: "left", color: "#000", autoWidth: false } as TextElement;
+  const t = { type: "text", id: "t", x: 0, y: 0, width: 100, height: 28, rotation: 0, text: "Hi", fontFamily: "sans", fontSize: 20, fontWeight: 400, fontStyle: "normal", align: "left", color: "#000", sizing: "fixed" } as TextElement;
   const t0 = { ...t }; scaleRemap(t, t0, ob, { x: 0, y: 0, w: 50, h: 50 });
   assert(near(t.fontSize, 10), `scaleRemap scales fontSize 20→${t.fontSize}`);
+  // P3 contract: a plain resize NEVER touches fontSize (K is the font scaler)…
+  const t2 = { ...t0 }; resizeRemap(t2, { ...t0 }, ob, { x: 0, y: 0, w: 50, h: 50 });
+  assert(near(t2.fontSize, 20), `resizeRemap leaves fontSize alone (20→${t2.fontSize})`);
+  // …and K on a plot/svg multiplies contentScale (plain resize stays pt-true).
+  const pl = { type: "plot", id: "p", x: 0, y: 0, width: 100, height: 100, rotation: 0, assetId: "a" } as Element & { type: "plot" };
+  const pl0 = structuredClone(pl); scaleRemap(pl, pl0, ob, { x: 0, y: 0, w: 50, h: 50 });
+  assert(near(pl.contentScale ?? 1, 0.5, 0.01), `scaleRemap halves plot contentScale (→${pl.contentScale})`);
   void elementBBox;
 }
 

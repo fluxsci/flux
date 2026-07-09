@@ -44,6 +44,9 @@ import {
 } from "./geometry";
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
 import { fluxFigMenuOpen, settingsOpen, helpOpen } from "./settings";
+import { reflowTexts } from "./text";
+import { plotManifests } from "./plot/store";
+import { partKind, partNode, readPartStyle } from "./plot/partStyle";
 import * as ops from "./ops";
 
 let clipboard: Element[] = [];
@@ -213,6 +216,49 @@ function nudgePart(ddx: number, ddy: number): boolean {
         const dy = (Number(ov?.dy ?? 0) || 0) + ddy;
         ops.setPartOverride(p, ps.elementId, ps.partId, { dx, dy });
       }
+  });
+  return true;
+}
+
+// Ctrl/Cmd+B/I/U. A drilled-in TEXT-KIND plot part toggles via an id-keyed
+// override (fontWeight / fontStyle / textDecoration — survives regeneration);
+// else the selected text elements toggle together (ops.toggleTextStyle:
+// all-on → off, else on) and re-wrap (bold changes metrics). Returns false
+// when nothing applicable — the caller then does NOT preventDefault.
+function toggleBIU(which: ops.TextToggle): boolean {
+  const ps = get(partSelection);
+  if (ps) {
+    const p = get(project);
+    let plot: Element | null = null;
+    for (const f of p.figures)
+      for (const e of f.elements) if (e.id === ps.elementId && e.type === "plot") plot = e;
+    if (plot && plot.type === "plot") {
+      const manifest = get(plotManifests)[plot.assetId];
+      const kind = partKind(manifest, ps.partId, partNode(plot, ps.partId));
+      if (kind === "text") {
+        const cur = readPartStyle(plot, ps.partId, manifest);
+        const patch =
+          which === "bold"
+            ? { fontWeight: Number(cur.fontWeight ?? 400) >= 600 ? 400 : 700 }
+            : which === "italic"
+              ? { fontStyle: (cur.fontStyle === "italic" ? "normal" : "italic") as "normal" | "italic" }
+              : { textDecoration: cur.textDecoration === "underline" ? "none" : "underline" };
+        commit((p2) => ops.setPartOverride(p2, ps.elementId, ps.partId, patch));
+        return true;
+      }
+    }
+  }
+  const sel = get(selection);
+  if (sel.size === 0) return false;
+  const p = get(project);
+  let anyText = false;
+  for (const f of p.figures)
+    for (const e of f.elements) if (sel.has(e.id) && e.type === "text") anyText = true;
+  if (!anyText) return false;
+  const list = [...sel];
+  commit((p2) => {
+    ops.toggleTextStyle(p2, list, which);
+    reflowTexts(p2, list);
   });
   return true;
 }
@@ -414,6 +460,8 @@ function copyStyle() {
   if (el.type === "text") {
     s.color = el.color; s.fontFamily = el.fontFamily; s.fontSize = el.fontSize;
     s.fontWeight = el.fontWeight; s.fontStyle = el.fontStyle; s.align = el.align;
+    if (el.underline != null) s.underline = el.underline;
+    if (el.lineHeight != null) s.lineHeight = el.lineHeight;
   }
   if (el.type === "rect" || el.type === "ellipse" || el.type === "path") { s.fill = el.fill; s.stroke = el.stroke; s.strokeWidth = el.strokeWidth; }
   if (el.type === "line") { s.stroke = el.stroke; s.strokeWidth = el.strokeWidth; }
@@ -425,7 +473,12 @@ function pasteStyle() {
   const list = [...get(selection)];
   if (!list.length) return;
   const patch = styleClipboard;
-  commit((p) => ops.setElementStyle(p, list, patch));
+  // GUI seam: setElementStyle is DOM-free (it only invalidates the wrap
+  // cache); re-wrap + re-hug the affected texts in the same undo entry.
+  commit((p) => {
+    ops.setElementStyle(p, list, patch);
+    reflowTexts(p, list);
+  });
 }
 
 function raise(toEnd: boolean) {
@@ -611,6 +664,20 @@ export function handleKey(e: KeyboardEvent) {
       if (k === "c") { e.preventDefault(); copyStyle(); return; }
       if (k === "v") { e.preventDefault(); pasteStyle(); return; }
     }
+    // Ctrl/Cmd+B/I/U: bold / italic / underline (text elements or a drilled
+    // text-kind plot part). NOTE ctrl+I no longer imports — import moved to
+    // Ctrl+Shift+K (ctrl+shift+I is the DevTools accelerator; Figma uses ⇧⌘K
+    // for Place image). No preventDefault when nothing applicable.
+    if ((k === "b" || k === "i" || k === "u") && !e.shiftKey) {
+      const which = k === "b" ? "bold" : k === "i" ? "italic" : "underline";
+      if (toggleBIU(which)) e.preventDefault();
+      return;
+    }
+    if (k === "k" && e.shiftKey) {
+      e.preventDefault();
+      importAssets();
+      return;
+    }
     if (k === "z") {
       e.preventDefault();
       e.shiftKey ? redo() : undo();
@@ -620,9 +687,6 @@ export function handleKey(e: KeyboardEvent) {
     } else if (k === "o") {
       e.preventDefault();
       openProject();
-    } else if (k === "i") {
-      e.preventDefault();
-      importAssets();
     } else if (k === "d") {
       e.preventDefault();
       const fid = frameSelected();

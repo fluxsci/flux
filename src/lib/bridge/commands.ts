@@ -8,9 +8,10 @@
 import { get } from "svelte/store";
 import * as store from "../store";
 import * as ops from "../ops";
+import { reflowTexts } from "../text";
 import { flipElements } from "../geometry";
 import type { AlignKind } from "../geometry";
-import type { PartOverride, VectorNode } from "../types";
+import type { PartOverride, TextStyle, VectorNode } from "../types";
 
 export type Command = { type: string } & Record<string, unknown>;
 
@@ -49,6 +50,13 @@ export const ALLOWED_COMMANDS = [
   "set_caption",
   // figure-v1 P0b: batch-import plots by path (the GUI Alt+I multi-insert).
   "import_plots",
+  // figure-v1 P3: text system — B/I/U toggle + named text styles.
+  "toggle_text_style",
+  "create_text_style",
+  "update_text_style",
+  "delete_text_style",
+  "apply_text_style",
+  "list_text_styles",
 ] as const;
 
 export async function dispatchCommand(c: Command): Promise<unknown> {
@@ -84,8 +92,95 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
 
     case "set_style": {
       const list = ids(c);
-      store.commit((p) => ops.setElementStyle(p, list, (c.patch ?? {}) as ops.ElementStylePatch));
+      // GUI seam: the pure op only invalidates the wrap cache; re-wrap + re-hug
+      // the affected texts here so the agent edit renders like a human edit.
+      store.commit((p) => {
+        ops.setElementStyle(p, list, (c.patch ?? {}) as ops.ElementStylePatch);
+        reflowTexts(p, list);
+      });
       return { styled: list.length };
+    }
+
+    case "toggle_text_style": {
+      const list = ids(c);
+      const which = c.which === "italic" || c.which === "underline" ? c.which : "bold";
+      store.commit((p) => {
+        ops.toggleTextStyle(p, list, which);
+        reflowTexts(p, list); // bold changes metrics
+      });
+      return { toggled: list.length, which };
+    }
+
+    case "create_text_style": {
+      const name = typeof c.name === "string" && c.name.trim() ? c.name.trim() : "Style";
+      const fromId = typeof c.fromElementId === "string" ? c.fromElementId : ids(c)[0];
+      let made: TextStyle | null = null;
+      store.commit((p) => {
+        if (fromId && p.figures.some((f) => f.elements.some((e) => e.id === fromId && e.type === "text"))) {
+          made = ops.textStyleFromElement(p, fromId, name);
+          return;
+        }
+        const s = (c.style ?? {}) as Partial<TextStyle>;
+        made = ops.createTextStyle(p, {
+          name,
+          fontFamily: s.fontFamily ?? "Arial",
+          fontSize: s.fontSize ?? 28 / 3,
+          fontWeight: s.fontWeight ?? 400,
+          fontStyle: s.fontStyle ?? "normal",
+          ...(s.underline != null ? { underline: s.underline } : {}),
+          ...(s.lineHeight != null ? { lineHeight: s.lineHeight } : {}),
+          ...(s.color != null ? { color: s.color } : {}),
+          ...(s.align != null ? { align: s.align } : {}),
+        });
+      });
+      if (!made) throw new Error("create_text_style: no source text element and no style props");
+      return { style: made };
+    }
+
+    case "update_text_style": {
+      const styleId = typeof c.styleId === "string" ? c.styleId : "";
+      if (!styleId) throw new Error("update_text_style: styleId required");
+      const patch = (c.patch ?? {}) as Partial<TextStyle>;
+      store.commit((p) => {
+        if (!ops.textStyleById(p, styleId)) throw new Error(`update_text_style: unknown style ${styleId}`);
+        ops.updateTextStyle(p, styleId, patch);
+        const linked = p.figures.flatMap((f) =>
+          f.elements.filter((e) => e.type === "text" && e.styleId === styleId).map((e) => e.id),
+        );
+        reflowTexts(p, linked);
+      });
+      return { styleId };
+    }
+
+    case "delete_text_style": {
+      const styleId = typeof c.styleId === "string" ? c.styleId : "";
+      if (!styleId) throw new Error("delete_text_style: styleId required");
+      store.commit((p) => ops.deleteTextStyle(p, styleId));
+      return { deleted: styleId };
+    }
+
+    case "apply_text_style": {
+      const styleId = typeof c.styleId === "string" ? c.styleId : "";
+      if (!styleId) throw new Error("apply_text_style: styleId required");
+      const list = ids(c);
+      let applied = 0;
+      store.commit((p) => {
+        if (!ops.textStyleById(p, styleId)) throw new Error(`apply_text_style: unknown style ${styleId}`);
+        applied = ops.applyTextStyle(p, list, styleId);
+        reflowTexts(p, list);
+      });
+      return { applied };
+    }
+
+    case "list_text_styles": {
+      // `global: true` lists the machine-global library via the file bridge
+      // (Electron userData/textstyles.json; localStorage in the dev fixture).
+      if (c.global === true) {
+        const fb = (globalThis as { window?: { fig?: { readGlobalTextStyles?: () => Promise<unknown[]> } } }).window?.fig;
+        const list = (await fb?.readGlobalTextStyles?.()) ?? [];
+        return { styles: Array.isArray(list) ? list : [], scope: "global" };
+      }
+      return { styles: get(store.project).textStyles ?? [], scope: "project" };
     }
 
     case "rotate": {
@@ -299,6 +394,7 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
           ...(typeof c.color === "string" ? { color: c.color } : {}),
           ...(num(c.fontSize) != null ? { fontSize: num(c.fontSize) } : {}),
         } as Parameters<typeof ops.addText>[2]);
+        if (nid) reflowTexts(p, [nid]); // hug the new box like a GUI-created text
       });
       if (nid) store.selectOnly(nid);
       return { id: nid };

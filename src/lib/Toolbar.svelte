@@ -37,7 +37,7 @@
       <button on:click={openProject} title="Open (Ctrl+O)">Open</button>
       <button on:click={saveProject} title="Save (Ctrl+S)">Save</button>
     {/if}
-    <button on:click={importAssets} title="Import PNG/SVG (Ctrl+I)">Import</button>
+    <button on:click={importAssets} title="Import PNG/SVG (Ctrl+Shift+K)">Import</button>
   </div>
 
   <div class="sep"></div>

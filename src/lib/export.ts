@@ -1,5 +1,6 @@
 import type { Element, Figure } from "./types";
 import { arrowHeads, elementBBox } from "./geometry";
+import { visualLines, lineH } from "./text";
 
 function esc(s: string): string {
   return s
@@ -99,7 +100,10 @@ export function elementToSvg(
           `transform="translate(${e.x} ${e.y})"/>`,
       );
     case "text": {
-      const lines = e.text.split("\n");
+      // visualLines = the GUI's wrap cache when present (sizing auto-h/fixed),
+      // else the hard lines — this ONE function also serves flux-core's
+      // headless renderFigureSvg, so wrapped output is identical everywhere.
+      const lines = visualLines(e);
       const anchor =
         e.align === "center" ? "middle" : e.align === "right" ? "end" : "start";
       const ax =
@@ -110,16 +114,17 @@ export function elementToSvg(
             : e.x;
       const style =
         e.fontStyle === "italic" ? ` font-style="italic"` : "";
+      const deco = e.underline ? ` text-decoration="underline"` : "";
       const tspans = lines
         .map(
           (ln, i) =>
-            `<tspan x="${ax}" dy="${i === 0 ? 0 : e.fontSize * 1.2}">${esc(ln)}</tspan>`,
+            `<tspan x="${ax}" dy="${i === 0 ? 0 : lineH(e)}">${esc(ln)}</tspan>`,
         )
         .join("");
       return rot(
         e,
         `<text x="${ax}" y="${e.y + e.fontSize}" font-family="${esc(e.fontFamily)}" ` +
-          `font-size="${e.fontSize}" font-weight="${e.fontWeight}"${style} ` +
+          `font-size="${e.fontSize}" font-weight="${e.fontWeight}"${style}${deco} ` +
           `fill="${e.color}" text-anchor="${anchor}"${op(e)}>${tspans}</text>`,
       );
     }

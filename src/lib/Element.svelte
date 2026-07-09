@@ -2,6 +2,7 @@
   import type { Element } from "./types";
   import { assetData } from "./assets";
   import { arrowHeads, elementBBox } from "./geometry";
+  import { visualLines, lineH } from "./text";
   import PlotElement from "./PlotElement.svelte";
 
   export let element: Element;
@@ -108,6 +109,8 @@
       stroke-linecap="round"
     />
   {:else if e.type === "text"}
+    <!-- visualLines = the wrap cache (sizing auto-h/fixed) else the hard lines;
+         dy = lineH (fontSize × lineHeight, default 1.2 — the one source in text.ts) -->
     <text
       x={e.align === "center"
         ? e.x + e.width / 2
@@ -119,6 +122,7 @@
       font-size={e.fontSize}
       font-weight={e.fontWeight}
       font-style={e.fontStyle}
+      text-decoration={e.underline ? "underline" : undefined}
       fill={e.color}
       text-anchor={e.align === "center"
         ? "middle"
@@ -127,14 +131,14 @@
           : "start"}
       style="white-space:pre"
     >
-      {#each e.text.split("\n") as ln, i}
+      {#each visualLines(e) as ln, i}
         <tspan
           x={e.align === "center"
             ? e.x + e.width / 2
             : e.align === "right"
               ? e.x + e.width
               : e.x}
-          dy={i === 0 ? 0 : e.fontSize * 1.2}>{ln}</tspan
+          dy={i === 0 ? 0 : lineH(e)}>{ln}</tspan
         >
       {/each}
     </text>

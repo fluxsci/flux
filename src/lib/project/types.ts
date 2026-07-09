@@ -237,6 +237,13 @@ export interface FileBridge {
   // <userData>/preferences.json — holds the FluxLib path). Optional: Electron only.
   prefsGet?(): Promise<Record<string, unknown>>;
   prefsSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+  // Machine-global named TEXT-STYLE library (<userData>/textstyles.json; the
+  // dev fixture uses localStorage). Reusable definitions shared across every
+  // project; applying one copies it into the project (copy-on-apply). The
+  // element type is src/lib/types.ts TextStyle — kept as unknown[] here so this
+  // leaf module doesn't import the figure model.
+  readGlobalTextStyles?(): Promise<unknown[]>;
+  writeGlobalTextStyles?(styles: unknown[]): Promise<void>;
   // 5.3 update check (packaged app only): resolves to a newer release's
   // { version, url } or null. Main owns the ≤1/day throttle + GitHub fetch.
   checkForUpdate?(): Promise<{ version: string; url: string } | null>;

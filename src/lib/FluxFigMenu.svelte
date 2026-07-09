@@ -10,12 +10,13 @@
     mutate,
     type PartSelection,
   } from "./store";
-  import type { Element, PartOverride, Project, SemanticPlotElement } from "./types";
+  import type { Element, PartOverride, Project, SemanticPlotElement, TextStyle } from "./types";
   import type { FluxPlotManifest } from "./plot/types";
   import { plotManifests } from "./plot/store";
   import { partKind, partNode, readPartStyle } from "./plot/partStyle";
   import * as ops from "./ops";
-  import { applyAutoWidth } from "./text";
+  import { applyTextLayout, reflowTexts } from "./text";
+  import { globalTextStyles, loadGlobalTextStyles, applyTextStyleToPart, libraryOnly } from "./textStyles";
   import { evalExpr } from "./num";
   import { scrub } from "./scrub";
   import { nameForHex } from "./colors";
@@ -49,8 +50,8 @@
   let frameH = 0;
 
   // (Re)build the field list whenever the selection / part selection or its
-  // data changes.
-  $: fields = $fluxFigMenuOpen ? buildFields($project, $selection, $partSelection, $plotManifests) : [];
+  // data changes (the global style library too — it feeds the 'y' field).
+  $: fields = $fluxFigMenuOpen ? buildFields($project, $selection, $partSelection, $plotManifests, $globalTextStyles) : [];
   $: groups = groupFields(fields);
   $: sQ = search.trim().toLowerCase();
   $: sResults = sQ
@@ -58,10 +59,14 @@
     : fields;
   $: if (sIndex >= sResults.length) sIndex = Math.max(0, sResults.length - 1);
 
-  // Reset state each time the FluxFig Menu opens.
+  // Reset state each time the FluxFig Menu opens (+ refresh the global style
+  // library so the 'y' style field lists current definitions).
   let prevOpen = false;
   $: {
-    if ($fluxFigMenuOpen && !prevOpen) reset();
+    if ($fluxFigMenuOpen && !prevOpen) {
+      reset();
+      loadGlobalTextStyles();
+    }
     prevOpen = $fluxFigMenuOpen;
   }
   function reset() {
@@ -96,7 +101,29 @@
   // (activate() short-circuits toggles without opening a gesture).
   const PART_FONTS = ["Lato", "Latin Modern Roman", "Arial", "Helvetica", "Georgia", "Times New Roman", "DejaVu Sans"];
 
-  function buildPartFields(el: SemanticPlotElement, partId: string, manifest?: FluxPlotManifest): Field[] {
+  // Options for a named-style select: — None — + Project styles + the global
+  // Library (minus definitions the project already carries — project wins).
+  function styleOptions(p: Project, lib: TextStyle[]): { value: string; label: string }[] {
+    const out: { value: string; label: string }[] = [{ value: "", label: "— None —" }];
+    for (const st of p.textStyles ?? []) out.push({ value: st.id, label: st.name });
+    for (const st of libraryOnly(p.textStyles, lib)) out.push({ value: "lib:" + st.id, label: `${st.name} (library)` });
+    return out;
+  }
+  function resolveStyle(p: Project, lib: TextStyle[], v: string): { st: TextStyle; fromLibrary: boolean } | null {
+    if (v.startsWith("lib:")) {
+      const st = lib.find((s) => s.id === v.slice(4));
+      return st ? { st, fromLibrary: true } : null;
+    }
+    const st = p.textStyles?.find((s) => s.id === v);
+    return st ? { st, fromLibrary: false } : null;
+  }
+
+  function buildPartFields(
+    el: SemanticPlotElement,
+    partId: string,
+    manifest: FluxPlotManifest | undefined,
+    lib: TextStyle[],
+  ): Field[] {
     const kind = partKind(manifest, partId, partNode(el, partId));
     const read = () => readPartStyle(el, partId, manifest);
     const patch = (q: PartOverride) => mutate((proj) => ops.setPartOverride(proj, el.id, partId, q));
@@ -151,6 +178,32 @@
         apply: (v) => patch({ fontWeight: Number(v) }),
       });
       F.push({
+        key: "i",
+        label: "italic",
+        group: G,
+        kind: "toggle",
+        get: () => read().fontStyle === "italic",
+        apply: () =>
+          commit((proj) =>
+            ops.setPartOverride(proj, el.id, partId, {
+              fontStyle: read().fontStyle === "italic" ? "normal" : "italic",
+            }),
+          ),
+      });
+      F.push({
+        key: "u",
+        label: "underline",
+        group: G,
+        kind: "toggle",
+        get: () => read().textDecoration === "underline",
+        apply: () =>
+          commit((proj) =>
+            ops.setPartOverride(proj, el.id, partId, {
+              textDecoration: read().textDecoration === "underline" ? "none" : "underline",
+            }),
+          ),
+      });
+      F.push({
         key: "m",
         label: "font",
         group: G,
@@ -164,6 +217,21 @@
         apply: (v) => patch({ fontFamily: String(v) }),
       });
       color("c", "text colour", "fill");
+      // Named text style → part override (fontSize converted canvas px → plot
+      // units in applyTextStyleToPart; no styleId persisted on parts). Key 't':
+      // 'y' is this branch's dy nudge (plan's 'y' collides — see notes).
+      F.push({
+        key: "t",
+        label: "text style",
+        group: G,
+        kind: "select",
+        options: styleOptions(get(project), lib).filter((o) => o.value !== ""),
+        get: () => "",
+        apply: (v) => {
+          const r = resolveStyle(get(project), lib, String(v));
+          if (r) applyTextStyleToPart(el.id, partId, r.st);
+        },
+      });
     } else if (kind === "line") {
       color("k", "stroke colour", "stroke");
       pnum("d", "stroke width", "strokeWidth", 0.25, (n) => Math.max(0, n));
@@ -184,12 +252,13 @@
     sel: Set<string>,
     ps: PartSelection | null,
     manifests: Record<string, FluxPlotManifest>,
+    lib: TextStyle[],
   ): Field[] {
     if (ps) {
       for (const f of p.figures)
         for (const e of f.elements)
           if (e.id === ps.elementId && e.type === "plot")
-            return buildPartFields(e, ps.partId, manifests[e.assetId]);
+            return buildPartFields(e, ps.partId, manifests[e.assetId], lib);
     }
     const els: Element[] = [];
     for (const f of p.figures)
@@ -197,13 +266,13 @@
     const primary = els[0];
     if (!primary) return [];
 
-    const upd = (fn: (e: Element) => void) =>
+    const upd = (fn: (e: Element, proj: Project) => void) =>
       mutate((proj) => {
         for (const f of proj.figures)
           for (const e of f.elements)
             if (sel.has(e.id)) {
-              fn(e);
-              applyAutoWidth(e);
+              fn(e, proj);
+              applyTextLayout(e);
             }
       });
 
@@ -213,7 +282,7 @@
       label: string,
       group: string,
       g: () => number,
-      a: (e: Element, v: number) => void,
+      a: (e: Element, v: number, proj: Project) => void,
       step = 1,
     ) =>
       F.push({
@@ -223,7 +292,7 @@
         kind: "number",
         step,
         get: g,
-        apply: (v) => upd((e) => a(e, Number(v))),
+        apply: (v) => upd((e, proj) => a(e, Number(v), proj)),
       });
 
     // Union-by-presence (multi-type selections): a section renders when ANY
@@ -272,13 +341,53 @@
       // 'c' stays text colour for text-only selections (muscle memory); it
       // yields to the Fill section's fill colour in mixed selections.
       const tcKey = shapeEl ? "n" : "c";
-      F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => (textEl as any).text, apply: (v) => upd((e) => { if (e.type === "text") e.text = String(v); }) });
+      const tEl = textEl as Element & { type: "text" };
+      F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => tEl.text, apply: (v) => upd((e) => { if (e.type === "text") { e.text = String(v); } }) });
       // Font size in POINTS (stored px × 0.75; see Inspector) — same unit as journal specs.
-      num("e", "font size (pt)", "Text", () => Math.round((textEl as any).fontSize * 0.75 * 10) / 10, (e, v) => { if (e.type === "text") e.fontSize = Math.max(1, v) * (4 / 3); }, 0.5);
-      F.push({ key: "b", label: "weight", group: "Text", kind: "select", options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }], get: () => String((textEl as any).fontWeight), apply: (v) => upd((e) => { if (e.type === "text") e.fontWeight = Number(v); }) });
-      F.push({ key: "m", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => (textEl as any).fontFamily, apply: (v) => upd((e) => { if (e.type === "text") e.fontFamily = String(v); }) });
-      F.push({ key: "a", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => (textEl as any).align, apply: (v) => upd((e) => { if (e.type === "text") e.align = v as "left" | "center" | "right"; }) });
-      F.push({ key: tcKey, label: "text color", group: "Text", kind: "color", target: "fill", get: () => (textEl as any).color, apply: () => {} });
+      num("e", "font size (pt)", "Text", () => Math.round(tEl.fontSize * 0.75 * 10) / 10, (e, v, proj) => { if (e.type === "text") { e.fontSize = Math.max(1, v) * (4 / 3); ops.detachOnManualEdit(proj, e, ["fontSize"]); } }, 0.5);
+      F.push({ key: "b", label: "weight", group: "Text", kind: "select", options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }], get: () => String(tEl.fontWeight), apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontWeight = Number(v); ops.detachOnManualEdit(proj, e, ["fontWeight"]); } }) });
+      F.push({ key: "i", label: "italic", group: "Text", kind: "toggle", get: () => tEl.fontStyle === "italic", apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "italic"); reflowTexts(proj, list); }); } });
+      F.push({ key: "j", label: "underline", group: "Text", kind: "toggle", get: () => !!tEl.underline, apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "underline"); reflowTexts(proj, list); }); } });
+      F.push({ key: "m", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => tEl.fontFamily, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontFamily = String(v); ops.detachOnManualEdit(proj, e, ["fontFamily"]); } }) });
+      F.push({ key: "a", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.align = v as "left" | "center" | "right"; ops.detachOnManualEdit(proj, e, ["align"]); } }) });
+      num("l", "line height", "Text", () => tEl.lineHeight ?? 1.2, (e, v, proj) => { if (e.type === "text") { e.lineHeight = Math.max(0.5, v); ops.detachOnManualEdit(proj, e, ["lineHeight"]); } }, 0.05);
+      F.push({
+        key: "z",
+        label: "sizing",
+        group: "Text",
+        kind: "select",
+        options: [{ value: "auto", label: "Auto (hug)" }, { value: "auto-h", label: "Auto H (wrap)" }, { value: "fixed", label: "Fixed" }],
+        get: () => tEl.sizing ?? "auto",
+        apply: (v) => upd((e) => { if (e.type === "text") e.sizing = v as "auto" | "auto-h" | "fixed"; }),
+      });
+      // Named text style ('p' — the plan's 'y' collides with the ever-present
+      // geometry "y position" field; see IMPLEMENTATION_NOTES).
+      F.push({
+        key: "p",
+        label: "text style",
+        group: "Text",
+        kind: "select",
+        options: styleOptions(p, lib),
+        get: () => tEl.styleId ?? "",
+        apply: (v) => {
+          const val = String(v);
+          const list = [...sel];
+          if (val === "") {
+            upd((e) => { if (e.type === "text") delete e.styleId; });
+            return;
+          }
+          const r = resolveStyle(get(project), lib, val);
+          if (!r) return;
+          mutate((proj) => {
+            if (r.fromLibrary && !proj.textStyles?.some((s) => s.id === r.st.id)) {
+              ops.createTextStyle(proj, structuredClone(r.st)); // copy-on-apply
+            }
+            ops.applyTextStyle(proj, list, r.st.id);
+            reflowTexts(proj, list);
+          });
+        },
+      });
+      F.push({ key: tcKey, label: "text color", group: "Text", kind: "color", target: "fill", get: () => tEl.color, apply: () => {} });
     }
 
     return F;

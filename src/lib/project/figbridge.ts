@@ -10,6 +10,7 @@ import type {
   Figure,
   Asset,
   ColorGroup,
+  TextStyle,
 } from "../types";
 import {
   project as figProject,
@@ -77,6 +78,10 @@ interface FigIndexFile {
   assets?: Asset[];
   palette?: string[];
   colorGroups?: ColorGroup[];
+  // Named text styles (project-level; the machine-global library lives in
+  // <userData>/textstyles.json). Loaded into Project.textStyles and written
+  // back EXPLICITLY on save — omitting either side silently wipes them.
+  textStyles?: TextStyle[];
 }
 
 interface CanvasFile {
@@ -155,7 +160,7 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   clearAllAssetsDirty(); // W8: freshly loaded — every asset is in sync with disk
 
   const proj: FigProject = {
-    version: 1,
+    version: 2,
     name: projectName || "Untitled",
     canvases,
     figures,
@@ -164,8 +169,11 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     colorGroups:
       index?.colorGroups ??
       (get(settings).flexokiDefault ? structuredClone(FLEXOKI) : []),
+    // undefined (never []) when the index predates styles → migrate seeds the
+    // defaults; an explicit empty list from disk stays empty (user cleared it).
+    ...(index?.textStyles !== undefined ? { textStyles: index.textStyles } : {}),
   };
-  figLoad(proj, null); // normalizes, resets history, dirty=false, projectDir=null
+  figLoad(proj, null); // normalizes (incl. migrate), resets history, dirty=false
 }
 
 /** Persist the figure-editor stores into the project's `fig/` subsystem. */
@@ -279,6 +287,7 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
     assets: p.assets,
     palette: p.palette,
     colorGroups: p.colorGroups ?? [],
+    textStyles: p.textStyles ?? [], // explicit writeback (silent-wipe guard)
   };
   const indexText = JSON.stringify(index, null, 2) + "\n";
   await fig.writeText(joinPath(root, SUB, "index.json"), indexText);

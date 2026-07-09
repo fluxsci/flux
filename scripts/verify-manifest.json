@@ -30,6 +30,8 @@
       "figenh-partprops-parity.ts",
       "figenh-17-derive.ts",
       "figenh-importer-parity.ts",
+      "figenh-textstyle-parity.ts",
+      "verify-text-wrap.ts",
       "verify-compensate.ts",
       "verify-fetchflow.ts",
       "verify-figname.ts",
@@ -124,7 +126,10 @@
       "verify-shell-complete.mjs",
       "verify-slide-polish.mjs",
       "verify-fig-esc.mjs",
-      "verify-importer-multi.mjs"
+      "verify-importer-multi.mjs",
+      "verify-text-resize.mjs",
+      "verify-text-biu.mjs",
+      "verify-text-styles.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",

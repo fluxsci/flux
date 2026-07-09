@@ -54,7 +54,14 @@ const [keyboard, inspector, parse, store, xray] = await Promise.all([
   read("src/lib/PlotXray.svelte"),
 ]);
 assert(/groupRemap/.test(keyboard) && /paste/.test(keyboard), "FIG-3: paste() remaps group ids");
-assert(/el\.type === "text" && el\.autoWidth\) el\.autoWidth = false/.test(inspector), "FIG-10: setDim disables autoWidth on manual W/H");
+// FIG-10 (v2, figure-v1 P3): sizing modes replaced autoWidth — a manual W on a
+// hugging box switches it to wrap ("auto-h"), a manual H pins it "fixed";
+// otherwise applyTextLayout would re-hug and overwrite the typed value.
+assert(
+  /if \(which === "h"\) el\.sizing = "fixed";/.test(inspector) &&
+    /else if \(el\.sizing === "auto"\) el\.sizing = "auto-h";/.test(inspector),
+  "FIG-10: setDim W→auto-h (wrap) / H→fixed on text (fields stay live)",
+);
 assert(/getAttribute\("style"\)/.test(parse) && /querySelectorAll\("style"\)/.test(parse), "FIG-11: prefixIds rewrites inline styles + <style> blocks");
 assert(/selectedFrameId\.update\(\(id\) =>/.test(store), "FIG-13: pruneSelection clears a dangling selectedFrameId");
 assert(/regenMsg = "error: "/.test(xray) && /res\.stderr/.test(xray), "FIG-14: regenerate surfaces the real failure");

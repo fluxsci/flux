@@ -3,6 +3,7 @@ import type { Canvas, Element, Figure, Project, Viewport, Id } from "./types";
 import { FLEXOKI } from "./flexoki";
 import { settings } from "./settings";
 import { newId } from "./ids";
+import { migrateProject, DEFAULT_TEXT_STYLES } from "./migrate";
 import * as ops from "./ops";
 
 // ---------------------------------------------------------------------------
@@ -73,19 +74,23 @@ function blankProject(): Project {
   const canvasId = newId("canvas");
   const canvases: Canvas[] = [{ id: canvasId, name: "Canvas 1" }];
   return {
-    version: 1,
+    version: 2,
     name: "Untitled",
     canvases,
     figures: [blankFigure(canvasId)],
     assets: [],
     palette: [],
     colorGroups: get(settings).flexokiDefault ? structuredClone(FLEXOKI) : [],
+    textStyles: structuredClone(DEFAULT_TEXT_STYLES),
   };
 }
 
-// Bring older / partial projects up to the current shape: guarantee at least one
-// canvas exists and every figure is assigned to one. Mutates and returns `p`.
+// Bring older / partial projects up to the current shape: model migration
+// (migrate.ts — text autoWidth → sizing, seed default text styles), then
+// guarantee at least one canvas exists and every figure is assigned to one.
+// Mutates and returns `p`.
 export function normalizeProject(p: Project): Project {
+  migrateProject(p);
   if (!p.canvases || p.canvases.length === 0) {
     const cid = newId("canvas");
     p.canvases = [{ id: cid, name: "Canvas 1" }];

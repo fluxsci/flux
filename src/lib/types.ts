@@ -14,13 +14,38 @@
 export type Id = string;
 
 export interface Project {
-  version: 1;
+  // Model version. 2 = text sizing modes replace autoWidth (+ named text styles).
+  // migrate.ts brings older docs up; loaders (store.normalizeProject, flux-core
+  // loadFigModel) run it on every load.
+  version: 2;
   name: string;
   canvases: Canvas[]; // pages (Figma-style); each figure belongs to one
   figures: Figure[];
   assets: Asset[];
   palette: string[]; // ad-hoc / recent custom colours, e.g. "#1b9e77"
   colorGroups?: ColorGroup[]; // imported palettes (e.g. Flexoki), grouped by hue
+  // Named text styles (project-level). A machine-global LIBRARY of styles also
+  // exists (FileBridge read/writeGlobalTextStyles); applying a library style
+  // COPIES it in here (copy-on-apply — no live cross-project sync).
+  textStyles?: TextStyle[];
+}
+
+// A named, reusable text style ("Panel Label" = Arial 8 pt bold). fontSize is
+// stored in canvas px (pt × 4/3), the same storage unit as TextElement.fontSize.
+// Elements link via `styleId` (live: editing the style re-applies to linked
+// elements; a manual font edit on an element detaches it). Optional props
+// (underline/lineHeight/color/align) apply only when defined.
+export interface TextStyle {
+  id: Id;
+  name: string;
+  fontFamily: string;
+  fontSize: number; // canvas px
+  fontWeight: number;
+  fontStyle: "normal" | "italic";
+  underline?: boolean;
+  lineHeight?: number;
+  color?: string;
+  align?: "left" | "center" | "right";
 }
 
 // A canvas = an infinite 2-D page that holds figures (like a Figma page).
@@ -139,10 +164,24 @@ export interface TextElement extends ElementBase {
   fontSize: number;
   fontWeight: number;
   fontStyle: "normal" | "italic";
+  underline?: boolean; // rendered as text-decoration: underline
+  // Line height as a multiple of fontSize (CSS-style). Default 1.2 (text.ts
+  // LINE_HEIGHT) — the one source; render/export/editor all use lineH(el).
+  lineHeight?: number;
   align: "left" | "center" | "right";
   color: string;
-  // Auto-width: the box hugs the text (no wrapping). Default on, Figma-style.
-  autoWidth: boolean;
+  // Sizing mode (replaces the old boolean autoWidth; migrate.ts converts):
+  //   "auto"   — the box hugs the text, no wrapping (Figma auto-width)
+  //   "auto-h" — wrap at the box width, height hugs the wrapped lines
+  //   "fixed"  — both dimensions fixed; wrapped text may overflow (unclipped)
+  sizing: "auto" | "auto-h" | "fixed";
+  // DERIVED wrap cache — the visual lines last computed by text.ts
+  // applyTextLayout (GUI recomputes on every text mutation + load). Headless
+  // edits DELETE it instead (no font metrics under Node); renderers fall back
+  // to the hard lines via visualLines(el). Never edit by hand.
+  lines?: string[];
+  // Linked named style (Project.textStyles). Manual font edits detach it.
+  styleId?: Id;
   // Marked (Alt+L / inspector) as a figure panel label. Each marked text becomes
   // a caption block in the caption editor. Survives copy/duplicate (it's plain
   // element data, structuredClone'd like everything else). See captions.ts.
