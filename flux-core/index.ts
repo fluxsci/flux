@@ -13,7 +13,8 @@ import { figureToSvg } from "../src/lib/export";
 import { composeCaption, panelLetters } from "../src/lib/captions";
 import { elementBBox, unionRect } from "../src/lib/geometry";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
-import { parsePlotSvg, prefixIds, applyOverrides, buildPartIndex } from "../src/lib/plot/parse";
+import { preparePlot, prefixIds, applyOverrides, buildPartIndex } from "../src/lib/plot/parse";
+import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../src/lib/plot/compensate";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { withLock, setLockClient } from "./locks";
 import * as fluxlib from "./fluxlib";
@@ -451,8 +452,8 @@ function mimeFor(kind: string): string {
 }
 
 // Headless DOM (linkedom) so we can reuse the GUI's pure plot functions
-// (parsePlotSvg/prefixIds/applyOverrides) to bake per-part overrides into the
-// exported SVG — exactly like the in-app plotToSvgMarkup, one source of truth.
+// (preparePlot/prefixIds/applyOverrides/compensatePtTrue) — exactly like the
+// in-app plotToSvgMarkup, one source of truth.
 let domReady = false;
 async function ensureDom(): Promise<void> {
   if (domReady) return;
@@ -463,27 +464,57 @@ async function ensureDom(): Promise<void> {
 }
 
 /** Inline a placed semantic plot to an <svg> string with its overrides baked in
- *  (mirrors src/lib/plot/export.ts plotToSvgMarkup, but reads from disk). */
+ *  (mirrors src/lib/plot/export.ts plotToSvgMarkup, but reads from disk).
+ *  Runs the SAME preparePlot seam as the app's cachePlot — normalization
+ *  (sanitize / shared-<use> inlining / id stamping) + orphan augmentation —
+ *  so group-keyed overrides (`unclassified`, derived groups) resolve
+ *  identically headless, and the same crop + pt-true compensation. */
 function buildPlotMarkup(
   svgText: string,
-  el: Element & { id: string; x: number; y: number; width: number; height: number },
+  el: Element & {
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    crop?: { x: number; y: number; width: number; height: number };
+    contentScale?: number;
+  },
   overrides: Record<string, unknown> | undefined,
   manifest: FluxPlotManifest | undefined,
 ): string | null {
-  const rootEl = parsePlotSvg(svgText);
+  const prepared = preparePlot(svgText, manifest);
+  const rootEl = prepared.root;
   if (!rootEl) return null;
+  const intrinsic = svgIntrinsicPx(rootEl as unknown as globalThis.Element);
   prefixIds(rootEl as unknown as globalThis.Element, el.id);
   rootEl.setAttribute("x", String(el.x));
   rootEl.setAttribute("y", String(el.y));
   rootEl.setAttribute("width", String(el.width));
   rootEl.setAttribute("height", String(el.height));
   rootEl.setAttribute("preserveAspectRatio", "none");
+  if (el.crop) {
+    // NOTE: preparePlot never mutates width/height/viewBox, so reading the
+    // original viewBox off the prepared root pre-override is still valid here.
+    rootEl.setAttribute(
+      "viewBox",
+      cropViewBoxValue(rootEl.getAttribute("viewBox"), intrinsic, el.crop),
+    );
+    rootEl.setAttribute("overflow", "hidden");
+  }
   applyOverrides(
     rootEl as unknown as globalThis.Element,
     overrides as Parameters<typeof applyOverrides>[1],
     el.id,
-    manifest,
+    prepared.manifest,
   );
+  compensatePtTrue(rootEl as unknown as globalThis.Element, {
+    elW: el.width,
+    elH: el.height,
+    crop: el.crop ?? null,
+    contentScale: el.contentScale,
+    intrinsic,
+  });
   return (rootEl as unknown as { toString(): string }).toString();
 }
 
