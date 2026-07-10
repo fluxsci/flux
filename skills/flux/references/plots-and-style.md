@@ -109,8 +109,14 @@ npx tsx /home/driessen2/flux/flux-cli.ts validate-plot plots/growth.svg
 ```
 
 This checks the manifest is schema-valid **and** that every id it references exists in the SVG
-(i.e. the plot is genuinely part-addressable). Fix any failure before composing — a plot that
-fails this imports as an opaque image (not restylable). A plot saved via `fp.save` should pass.
+(i.e. the plot is genuinely part-addressable), **and** that the geometry is renderer-sane. Fix
+any failure before composing — a plot that fails imports as an opaque image (not restylable).
+A plot saved via `fp.save` should pass.
+
+**Log-axis gotcha:** a bar anchored at data 0 on a log axis (`barh(...)` + `set_xscale("log")`)
+serializes as a huge off-canvas coordinate — `fp.save` warns at generation time and
+`validate-plot` rejects it (naming the id/value). Anchor at a positive value instead:
+`barh(y, counts - 1, left=1)`. Compose clamps legacy files so they still render, with a warning.
 
 ## Regenerating (not re-saving)
 
@@ -133,6 +139,11 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
   The recipe `fp.save` wrote records the interpreter + script + params (as relative paths), so
   this re-executes the script with the override and re-emits the plot in place. (This is automatic
   whenever you pass `script=__file__` to `fp.save`.)
-  **Note:** `rerun-plot` re-executes the WHOLE script — a script that `fp.save`s several plots
-  regenerates all of them, and `--param` overrides leak into those siblings. Keep one script per
-  plot when you need per-panel parameters.
+  **Figure-level scripts are fine:** a script that `fp.save`s several plots can rerun ONE of
+  them — `rerun-plot plots/fig2a.recipe.json --only` targets just that recipe's plot
+  (`FLUXPLOT_ONLY` makes the sibling saves no-ops, so their files stay untouched). The script
+  still executes fully, so `--param` overrides only reach the targeted plot's output. Without
+  `--only`, the whole script's outputs regenerate and param overrides leak into siblings.
+- **Regenerated at a different size?** `sync-figure` resizes the element true-size (preserving a
+  deliberate hand-scale) and grows the figure frame if needed — re-`arrange` when the grid
+  should reflow around the new size.

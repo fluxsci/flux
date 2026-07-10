@@ -31,7 +31,8 @@ tail -5 .meta/journal.ndjson     # what changed since last session
 - Run it with the env that has `fluxplot` (the user's `uv` env). Then validate each plot:
 
 ```bash
-$F validate-plot plots/<name>.svg     # manifest valid + every part addressable
+$F validate-plot plots/<name>.svg     # manifest valid + every part addressable + geometry sane
+                                      # (rejects e.g. log-axis bars anchored at 0 — fix the script)
 ```
 
 Only promote results worth keeping — the workshop holds the exploration, the project holds the
@@ -61,7 +62,11 @@ $F set-manuscript --file section.qmd     # or edit manuscript/main.qmd directly
 #   embed figures with EMPTY alts: ![](../fig/renders/fig1.svg){#fig-fig1}
 $F ref fig1                              # adds 'See @fig-fig1.'  (or write @fig-fig1 / @fig-fig1-a yourself)
 $F cite-doi 10.1038/s41586-024-...       # grow references/library.bib (echoes author/title/year — CHECK it)
-$F compile --to html                     # optional: render via Quarto (needs quarto)
+$F compile --to html                     # optional: render via Quarto (needs quarto) — prints the
+                                         # output path + figures/citations resolution (fix any
+                                         # unresolved @keys it names)
+$F validate                              # lint: EMPTY figures (they shift numbering), figures not
+                                         # embedded in any doc, overlapping canvas frames
 ```
 
 Authoring + cross-refs: `manuscript-and-review.md`.
@@ -95,10 +100,12 @@ $F sync-figure fig1        # HEADLESS: refresh fig1's fig/assets copies from plo
                            # delete-figure + re-compose to pick up a regenerated plot)
 ```
 
-`render-figure` warns when a panel is stale vs `plots/` and tells you to `sync-figure`. Note
-`rerun-plot` re-executes the WHOLE script — a script that saves several plots regenerates all of
-them, and `--param` overrides leak into those siblings; keep one script per plot when you need
-per-panel params.
+`render-figure` warns when a panel is stale vs `plots/` and tells you to `sync-figure`. A
+regenerated plot with a NEW physical size is reconciled by `sync-figure` (element resized
+true-size, frame grown) — re-`arrange` if the grid should reflow. For a figure-level script that
+saves several plots, `rerun-plot <recipe> --only` regenerates just that recipe's plot (siblings
+stay untouched on disk; `--param` overrides then reach only the target). Without `--only`, every
+output regenerates and overrides leak into siblings.
 
 ## Putting it together (one breath)
 

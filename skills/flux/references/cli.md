@@ -12,6 +12,11 @@ repo's `node_modules`, but it **operates on any project directory**. Run it with
 (First run installs `tsx` transiently; that's fine.) `npm run flux -- <verb>` also works but
 only from inside the repo — prefer the absolute-path form above from anywhere.
 
+**Drift check:** the bundle is built from the repo, so it can lag. `flux version` prints
+`{version, commit, entry}` — if a documented verb/flag is missing, run the live source instead
+(`npx tsx /home/driessen2/flux/flux-cli.ts <verb> …`, same interface) and note the mismatch so
+the owner can rebuild (`npm run build:cli`).
+
 **The one rule that avoids all foot-guns: `cd` into the Flux project and run from there.**
 Then set your identity and pin the project for the session:
 
@@ -46,7 +51,8 @@ With the session export above, `render-figure growth --png` just works.
 | `list` · `reindex` | `list_project` · `reindex` | overview / rebuild `project.json.figures[]` |
 | `compose-figure <plots…> [--rows N\|--cols N] [--id slug] [--gap N]` | `compose_figure` | **flagship:** N plots → one labeled, gridded, captioned figure |
 | `create-figure [--id slug] [--name N]` | `create_figure` | blank figure |
-| `arrange <figId> [--rows N\|--cols N]` · `auto-label <figId>` | `arrange_figure` · `auto_label` | grid panels / letter panels a,b,c… |
+| `arrange <figId> [--rows N\|--cols N]` · `auto-label <figId>` | `arrange_figure` · `auto_label` | grid panels / letter panels a,b,c… (panels missing a label get one created first, so import-plots → arrange → auto-label just works) |
+| `add-fig-text <figId> "text" [--x --y --size-pt n] [--panel-label]` | `add_fig_text` | add a text element; `--panel-label` = a semantic panel label auto-label letters |
 | `restyle <figId> <partId> [--stroke c] [--fill c] …` | `restyle_part` | restyle a plot part by **stable id** (survives regeneration) |
 | `set-style <ids…> [--fill] [--stroke] …` | `set_style` | element-level style |
 | `delete-element <ids…>` · `delete-figure <figId>` · `duplicate-figure <figId>` | `delete_elements` · `delete_figure` · `duplicate_figure` | remove elements / remove or copy a whole figure |
@@ -54,7 +60,7 @@ With the session export above, `render-figure growth --png` just works.
 | `set-z <figId> <front\|back\|forward\|backward> --ids a,b,c` · `set-figure-layout <figId> [--x --y --width --height --background --name]` | `set_z` · `set_figure_layout` | stacking order / figure frame |
 | `render-figure <id> [--png] [--out f] [--scale n]` | `get_figure_image {id}` · `render_figure {id}` (SVG) | render to SVG/**PNG** — the **look** step (warns when panels are stale vs `plots/`) |
 | `render-canvas [canvasId] [--png] [--out f]` | `get_canvas_image` | render the WHOLE canvas (all figures at their x/y) — catches overlap/layout problems per-figure renders can't |
-| `sync-figure [figId]` | `sync_figure` | refresh `fig/assets` copies from regenerated `plots/` sources IN PLACE (captions/restyles survive) |
+| `sync-figure [figId]` | `sync_figure` | refresh `fig/assets` copies from regenerated `plots/` sources IN PLACE (captions/restyles survive); a changed intrinsic plot size resizes the element true-size + grows the figure frame — re-`arrange` if the grid should reflow |
 | `caption <id>` · `set-caption <id> <md> [--panel a]` | `get_caption` · `set_caption` | read / write the caption; the `Lead. **a**, … **b**, …` convention is DISTRIBUTED into per-panel blocks; `--panel` writes one panel |
 | `normalize-embeds` | `normalize_embeds` | clear legacy alt-text captions from embed lines (canonical embeds are `![](…){#fig-id}`) |
 | `manuscript [--doc r]` · `set-manuscript [--doc r] <text\|--file f>` | `get_manuscript` · `set_manuscript` | read / overwrite a `.qmd` |
@@ -62,9 +68,10 @@ With the session export above, `render-figure growth --png` just works.
 | `ref <figId> [--doc r]` | `insert_figure_ref` | append `@fig-<label>` to a doc |
 | `add-reference . <bibtex\|--file f>` · `cite-doi <doi>` | `add_reference` · `cite_doi` | grow `references/library.bib` |
 | `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | the **review loop** (see manuscript-and-review.md) |
-| `compile [--to pdf\|html\|docx]` | `compile` | render the manuscript via Quarto (needs `quarto`) |
-| `validate [file]` · `validate-plot <svg>` | `validate_project` · `validate_plot` | check writes / check a semantic plot |
-| `rerun-plot <recipe.json> [--key v…]` | `rerun_plot` | **regenerate** a plot from its recipe |
+| `compile [--to pdf\|html\|docx]` | `compile` | render via Quarto (needs `quarto`); reports the output path + figures/citations resolution (unresolved `@keys` named) |
+| `validate [file]` · `validate-plot <svg>` | `validate_project` · `validate_plot` | check writes + lint (EMPTY figures, figures embedded in no doc, overlapping frames) / check a semantic plot (manifest ids + geometry — rejects log-zero bar anchors) |
+| `rerun-plot <recipe.json> [--key v…] [--only [name]]` | `rerun_plot` | **regenerate** a plot from its recipe; `--only` reruns just this recipe's plot from a figure-level script (sibling files untouched) |
+| `version` · `config` | `config_paths` | this build's version/commit (bundle vs source) / machine paths + build info |
 | `fetch-pdfs [--key K]` · `ingest-pdf <file> --key K` | `fetch_pdfs` · `ingest_pdf` | download OA PDFs / file a hand-downloaded PDF into `items/<citekey>/` |
 | `annotations [search q] [--key K]` · `add-annotation --key K --quote "…"` | `list_annotations`/`search_annotations` · `add_annotation` | read / add FluxReader highlights & notes |
 | — | `get_app_context` · `dispatch_command` · `act_on_selection` | the **live bridge** (app open only) |

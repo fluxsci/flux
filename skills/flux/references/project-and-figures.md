@@ -84,7 +84,9 @@ npx tsx /home/driessen2/flux/flux-cli.ts restyle growth treatment.line --stroke 
 (Use the Flexoki hexes from `fluxplot.style` — `fx.FLEXOKI["blue"]` — for consistency. `restyle`
 is new-style — no `.`.)
 
-**4. Re-grid / re-letter** if needed: `arrange <figId> --rows 2`, `auto-label <figId>`.
+**4. Re-grid / re-letter** if needed: `arrange <figId> --rows 2`, `auto-label <figId>`
+(letters follow reading order; panels without a label get one created first, so the
+import-plots → arrange → auto-label route works on a blank figure too).
 
 **Loop:** compose → render (look) → restyle/arrange → re-render, until it's right.
 

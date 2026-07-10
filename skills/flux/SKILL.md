@@ -40,11 +40,12 @@ the workshop; promote only finished results into the project.
    (creating a project is meaningful — confirm the path first), default
    `<analysis-dir>/<deliverable>/` (e.g. `./paper/`):
    `/usr/bin/node /home/driessen2/flux/dist/flux-cli.mjs new ./paper --title "…" --author "…"`
-2. **Read machine-wide Guidelines when present.** Read every `.md` and inspect
-   every image under `~/FluxConfig/Guidelines/` before making figures or writing.
-   These are the user's standing conventions for all Flux output. If the folder
-   does not exist, proceed: this Flux build does not yet expose a `flux config`
-   discovery command.
+2. **Read machine-wide Guidelines when present.** Resolve the folder with
+   `flux config` (JSON; note `guidelinesPath` — it also reports the build's
+   version/commit so a stale install is visible; `flux version` prints just
+   that). Read every `.md` and inspect every image under it before making
+   figures or writing — the user's standing conventions for all Flux output.
+   If the folder does not exist, proceed without it.
 3. **Orient (first reads):** `project.json` (the map) → the project's `AGENTS.md`
    (per-project conventions) → tail `.meta/journal.ndjson` (what changed since last time).
 4. **Set identity + project** for the session:
