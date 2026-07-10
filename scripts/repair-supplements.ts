@@ -14,7 +14,8 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { safeSupplementName } from "../src/lib/references/items";
 
-const LIB = path.join(os.homedir(), "FluxLib");
+import { resolveFluxLibPathSync } from "../electron/fluxPaths.cjs";
+const LIB = resolveFluxLibPathSync(); // derived from FluxConfig (legacy fallbacks pre-migration)
 const ITEMS = path.join(LIB, "items");
 const WRITE = process.argv.includes("--write");
 

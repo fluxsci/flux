@@ -11,7 +11,8 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { doiGroup, hostGroup } from "../src/lib/references/hostLimiter";
 
-const LEDGER = path.join(os.homedir(), "FluxLib", ".fluxlib", "oa-misses.json");
+import { resolveFluxLibPathSync } from "../electron/fluxPaths.cjs";
+const LEDGER = path.join(resolveFluxLibPathSync(), ".fluxlib", "oa-misses.json");
 const WRITE = process.argv.includes("--write");
 
 type Miss = { at: string; attempts: number; sig: string };

@@ -23,7 +23,8 @@ import { writePdf, loadOaMisses, saveOaMisses } from "../flux-core/items";
 // NB: fulltext extraction (pdfjs) is done in a separate tsx backfill pass, not here —
 // pdfjs's worker doesn't survive esbuild bundling into the Electron main process.
 
-const LIB = path.join(os.homedir(), "FluxLib");
+import { resolveFluxLibPathSync } from "../electron/fluxPaths.cjs";
+const LIB = resolveFluxLibPathSync(); // derived from FluxConfig (legacy fallbacks pre-migration)
 const LOG = path.join(process.cwd(), ".oa-run.log");
 // FRESH isolated profile per launch (mkdtemp) — never reuse a dir: a hard-killed prior run
 // leaves a stale Chromium profile lock that silently breaks ses.fetch (every fetch fails →

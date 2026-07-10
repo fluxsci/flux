@@ -10,7 +10,7 @@ const engineMod = require("../electron/proxyFetch.cjs");
 const { createProxyEngine, hyphenatePii, isCellPressDoi, rewriteToProxyHost } = engineMod;
 
 const PROXY_PARTITION = "persist:fluxproxy";
-const PREFIX = String(JSON.parse(fs.readFileSync(path.join(os.homedir(), "FluxLib", "keys.json"), "utf8")).ezproxyPrefix || "").trim();
+const PREFIX = String(JSON.parse(fs.readFileSync(path.join(require("../electron/fluxPaths.cjs").resolveFluxLibPathSync(), "keys.json"), "utf8")).ezproxyPrefix || "").trim();
 const ezproxyPrefix = () => PREFIX;
 const proxiedUrl = (t) => PREFIX + String(t || "");
 function isProxyLoginUrl(u) {

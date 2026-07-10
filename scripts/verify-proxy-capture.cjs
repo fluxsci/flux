@@ -16,7 +16,7 @@ const os = require("node:os");
 const { createProxyEngine, isSupplementUrl } = require("../electron/proxyFetch.cjs");
 
 const PROXY_PARTITION = "persist:fluxproxy";
-const keysPath = path.join(os.homedir(), "FluxLib", "keys.json");
+const keysPath = path.join(require("../electron/fluxPaths.cjs").resolveFluxLibPathSync(), "keys.json");
 let PREFIX = "";
 try {
   PREFIX = String(JSON.parse(fs.readFileSync(keysPath, "utf8")).ezproxyPrefix || "").trim();

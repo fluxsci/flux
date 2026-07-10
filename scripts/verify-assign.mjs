@@ -20,7 +20,7 @@ const KEYS = [
   "cecchetto2021simultaneous-a97",
   "riedemann2019diversity-adf",
 ];
-const LIB = join(homedir(), "FluxLib", "items");
+const LIB = join((await import("../electron/fluxPaths.cjs")).default.resolveFluxLibPathSync(), "items");
 
 function pickPdf() {
   for (const k of KEYS) {
