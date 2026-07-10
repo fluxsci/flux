@@ -17,7 +17,7 @@ core.setClient(process.env.FLUX_CLIENT || "mcp"); // WS6: journal/lock identity
 // move, Guidelines seed) — idempotent + fast after first run; a failure must
 // never block the server (path resolvers keep legacy fallbacks).
 await core.ensureFluxConfig().catch((e) => console.error(`flux config init: ${(e as Error)?.message ?? e}`));
-const server = new McpServer({ name: "flux", version: "0.1.0" });
+const server = new McpServer({ name: "flux", version: core.buildInfo().version });
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
@@ -158,7 +158,7 @@ server.registerTool(
   "config_paths",
   {
     description:
-      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), guidelinesPath, and userDataDir. Read every file in guidelinesPath before working — it holds the user's standing conventions for all Flux output.",
+      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), guidelinesPath, and userDataDir — plus `build` (version/commit/entry) identifying which Flux build is answering. Read every file in guidelinesPath before working — it holds the user's standing conventions for all Flux output.",
     inputSchema: {},
   },
   async () => ok(JSON.stringify(await core.configInfo(), null, 2)),

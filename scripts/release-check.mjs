@@ -76,6 +76,19 @@ ok(
   help.status === 0 && /(compose-figure|search-text|lib-add)/.test(`${help.stdout}${help.stderr}`),
   "CLI bundle runs `help` and lists verbs",
 );
+// Drift gate (moma feedback #2/#3): the bundle must be stamped with THIS
+// checkout's commit — a stale dist/ shipped once and cost an agent session.
+const ver = spawnSync("node", ["dist/flux-cli.mjs", "version"], { encoding: "utf8", cwd: root });
+try {
+  const b = JSON.parse(ver.stdout || "{}");
+  const head = execSync("git rev-parse --short HEAD", { cwd: root }).toString().trim();
+  ok(
+    ver.status === 0 && b.entry === "bundle" && String(b.commit).replace(/-dirty$/, "") === head,
+    `CLI bundle is stamped with HEAD (${b.commit ?? "?"} vs ${head})`,
+  );
+} catch {
+  ok(false, "CLI bundle reports parseable `version` output");
+}
 ok(
   spawnSync("node", ["scripts/run-verifies.mjs", "--tier", "bundle"], { stdio: "inherit", cwd: root }).status === 0,
   "bundle verify tier passes (verify-w13-cli)",

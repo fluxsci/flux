@@ -17,11 +17,26 @@
 
 import { build } from "esbuild";
 import { chmod, readFile, writeFile } from "node:fs/promises";
-import { statSync } from "node:fs";
+import { statSync, readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// Build identity baked into both bundles (flux-core/buildInfo.ts reads it via
+// the __FLUX_BUILD__ define): `flux version` / `flux config` then say exactly
+// which revision the installed CLI is, and release-check can fail on drift —
+// the moma run spent a session discovering dist/ lagged the documented verbs.
+const pkg = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+let commit = "unknown";
+try {
+  commit = execSync("git rev-parse --short HEAD", { cwd: repoRoot, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  if (execSync("git status --porcelain", { cwd: repoRoot, stdio: ["ignore", "pipe", "ignore"] }).toString().trim()) commit += "-dirty";
+} catch {
+  /* not a git checkout (source tarball) — version alone identifies the build */
+}
+const FLUX_BUILD = { version: pkg.version, commit, builtAt: new Date().toISOString() };
 
 const EXTERNAL = [
   // Dev-only fresh-compute fallback in exportDeck.ts; never reached packaged.
@@ -60,6 +75,7 @@ for (const entry of ["flux-cli.ts", "flux-mcp.ts"]) {
     outfile,
     external: EXTERNAL,
     banner: { js: BANNER },
+    define: { __FLUX_BUILD__: JSON.stringify(FLUX_BUILD) },
     legalComments: "none",
     logLevel: "warning",
   });

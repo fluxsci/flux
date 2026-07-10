@@ -20,6 +20,7 @@ import { resolveTargets } from "../src/lib/plot/tree";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../src/lib/plot/compensate";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { withLock, setLockClient } from "./locks";
+import { buildInfo, type BuildInfo } from "./buildInfo";
 import * as fluxlib from "./fluxlib";
 import { writePdf, writeFulltext } from "./items";
 import { extractFulltext } from "./fulltext";
@@ -40,6 +41,8 @@ export type { HydrateResult } from "./enrich";
 export type { WorldBrief } from "../src/lib/references/openalex";
 // Semantic Scholar — recommendations ("papers like this") + citation contexts.
 export { s2Similar, s2Citing } from "./s2";
+export { buildInfo } from "./buildInfo";
+export type { BuildInfo } from "./buildInfo";
 // FluxFinder — PDF acquisition + the items/ store.
 export { fetchPdfForKey, fetchPdfs, ingestPdf } from "./acquire";
 export type { FetchSummary, FetchOneResult } from "./acquire";
@@ -2196,6 +2199,7 @@ export async function configInfo(): Promise<{
   fluxLibPath: string;
   guidelinesPath: string;
   userDataDir: string;
+  build: BuildInfo;
 }> {
   const info = await fluxlib.ensureFluxConfig();
   return {
@@ -2203,6 +2207,7 @@ export async function configInfo(): Promise<{
     fluxLibPath: info.fluxLibPath,
     guidelinesPath: info.guidelinesPath,
     userDataDir: info.userDataDir,
+    build: buildInfo(),
   };
 }
 

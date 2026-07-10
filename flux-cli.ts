@@ -102,8 +102,9 @@ usage: flux <verb> [root] [args] [--flags]
   cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
   search <query…>                      search FluxLib (e.g. author:smith year:2020)
   lib                                  show the FluxLib path + entry count
-  config                               machine paths (FluxConfig, FluxLib, Guidelines) as JSON;
+  config                               machine paths (FluxConfig, FluxLib, Guidelines) + build info as JSON;
                                        first run initializes ~/FluxConfig (and migrates old layouts)
+  version                              this build's version/commit/entry (bundle vs source) as JSON
   lib-add <doi|bibtex…|--file f>       add to FluxLib only (no project cite)
                                        --file f: bulk-import a .bib/.ris file
                                        --attach-files [--zotero-dir d]: pull its PDFs
@@ -729,6 +730,14 @@ async function main() {
       // Machine paths (already ensured above). Agents: read EVERY file in
       // guidelinesPath before working — it holds the user's standing conventions.
       console.log(JSON.stringify(await core.configInfo(), null, 2));
+      break;
+    }
+    case "version":
+    case "--version":
+    case "-v": {
+      // Which build is answering — the moma run couldn't tell that the
+      // installed bundle had drifted behind the source CLI (missing verbs).
+      console.log(JSON.stringify({ ...core.buildInfo(), node: process.version }, null, 2));
       break;
     }
     case "reconcile": {
