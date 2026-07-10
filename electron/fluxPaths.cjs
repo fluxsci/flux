@@ -294,9 +294,19 @@ async function migrateFluxLib(cfg, events) {
   };
   if (fsSync.existsSync(target)) {
     if (oldLib !== target && fsSync.existsSync(oldLib)) {
-      const w = `both ${target} and ${oldLib} exist — leaving both untouched (nothing merged or deleted); resolve by hand`;
-      console.error(`flux config: WARNING — ${w}`);
-      events.push({ action: "stranded-fluxlib-warning", detail: w });
+      // realpath: a transitional symlink (old path -> <cfg>/FluxLib) is the
+      // SAME tree, not a stranded second library — no warning for it.
+      let distinct = true;
+      try {
+        distinct = fsSync.realpathSync(oldLib) !== fsSync.realpathSync(target);
+      } catch {
+        /* unreadable — treat as distinct and warn */
+      }
+      if (distinct) {
+        const w = `both ${target} and ${oldLib} exist — leaving both untouched (nothing merged or deleted); resolve by hand`;
+        console.error(`flux config: WARNING — ${w}`);
+        events.push({ action: "stranded-fluxlib-warning", detail: w });
+      }
     }
     dropKey();
     return;

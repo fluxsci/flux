@@ -178,6 +178,24 @@ if (process.platform !== "win32") {
     await fp.ensureFluxConfig();
     assert(fs.existsSync(path.join(f4.home, "FluxConfig", "FluxLib", "library.bib")), "pre-existing empty FluxConfig filled in place");
 
+    // -- transitional symlink (old lib path -> <cfg>/FluxLib) is NOT "stranded"
+    // (the real machine keeps ~/FluxLib as a symlink until every old-code
+    // session is gone; old code re-persists fluxLibPath, so re-merges recur)
+    const f6 = freshFixture("t6");
+    await fp.ensureFluxConfig();
+    fs.symlinkSync(path.join(f6.home, "FluxConfig", "FluxLib"), path.join(f6.home, "FluxLib"));
+    fs.mkdirSync(path.join(f6.xdg, "Flux"), { recursive: true }); // flux-cap-ok (old code recreates it)
+    fs.writeFileSync(
+      path.join(f6.xdg, "Flux", "preferences.json"), // flux-cap-ok
+      JSON.stringify({ schemaVersion: "0.1.0", fluxLibPath: path.join(f6.home, "FluxLib") }),
+    );
+    const r6 = await fp.ensureFluxConfig();
+    assert(r6.fluxLibPath === path.join(f6.home, "FluxConfig", "FluxLib"), "re-merge after old-code prefs recreation resolves derived");
+    const marker6 = JSON.parse(fs.readFileSync(path.join(f6.home, "FluxConfig", ".fluxconfig.json"), "utf8"));
+    assert(!marker6.events.some((e: { action: string }) => e.action === "stranded-fluxlib-warning"), "symlinked legacy lib is not flagged as stranded");
+    const prefs6 = JSON.parse(fs.readFileSync(path.join(f6.xdg, "flux", "preferences.json"), "utf8"));
+    assert(!("fluxLibPath" in prefs6) && prefs6.fluxConfigPath, "re-merge drops the re-persisted fluxLibPath again");
+
     // -- moveFluxConfig (Settings "Move…"): same-fs rename + destination guards
     const f5 = freshFixture("t5");
     await fp.ensureFluxConfig();
