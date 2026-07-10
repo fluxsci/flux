@@ -1,0 +1,9 @@
+# TEMPLATE — copy to <analysis-dir>/.codex/config.toml, then replace the project
+# path below. Codex starts Flux's local stdio MCP server for this project.
+
+[mcp_servers.flux]
+command = "/usr/bin/node"
+args = ["/home/driessen2/flux/dist/flux-mcp.mjs", "/data/CHANGE_ME/paper"]
+
+[mcp_servers.flux.env]
+FLUX_CLIENT = "codex"

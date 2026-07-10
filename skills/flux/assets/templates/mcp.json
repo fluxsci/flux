@@ -1,0 +1,10 @@
+{
+  "//": "CLAUDE CODE TEMPLATE — copy to <analysis-dir>/.mcp.json and set the LAST arg to this project's Flux folder (absolute path). For Codex use codex-config.toml instead. MCP is optional but provides typed Flux verbs, inline figure PNGs, and the live bridge.",
+  "mcpServers": {
+    "flux": {
+      "command": "/usr/bin/node",
+      "args": ["/home/driessen2/flux/dist/flux-mcp.mjs", "/data/CHANGE_ME/paper"],
+      "env": { "FLUX_CLIENT": "claude" }
+    }
+  }
+}
