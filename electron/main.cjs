@@ -146,6 +146,7 @@ function fsGuard(p) {
     currentRoot,
     app.getPath("userData"),
     app.getPath("temp"),
+    getFluxConfigRoot(), // FluxLib lives inside; kept separately below for the EXDEV-fallback state
     getFluxLibRoot(),
     ...approvedDirs,
   ].filter(Boolean);
@@ -171,17 +172,29 @@ function writePrefs(next) {
   noteWrite(prefsFile());
   fs.writeFileSync(prefsFile(), JSON.stringify(next, null, 2) + "\n");
 }
-let fluxLibRoot; // undefined = not yet resolved from prefs; null = use default (~/FluxLib, under $HOME)
+// FluxLib is DERIVED from FluxConfig (<cfg>/FluxLib, legacy fallbacks
+// pre-migration) — cached because fsGuard consults it on every guarded fs op.
+// Invalidated on prefs:set and after ensureFluxConfig moves things.
+let fluxLibRoot; // undefined = not yet resolved
 function getFluxLibRoot() {
   if (fluxLibRoot !== undefined) return fluxLibRoot;
-  const c = readPrefs().fluxLibPath;
-  fluxLibRoot = typeof c === "string" && c.trim() ? path.resolve(c) : null;
+  fluxLibRoot = fluxPaths.resolveFluxLibPathSync(readPrefs());
   return fluxLibRoot;
 }
+let fluxConfigRoot; // undefined = not yet resolved (same cache discipline)
+function getFluxConfigRoot() {
+  if (fluxConfigRoot !== undefined) return fluxConfigRoot;
+  fluxConfigRoot = fluxPaths.resolveFluxConfigPathSync(readPrefs());
+  return fluxConfigRoot;
+}
+function invalidatePathCaches() {
+  fluxLibRoot = undefined;
+  fluxConfigRoot = undefined;
+}
 
-// API keys (machine-global ~/FluxLib/keys.json), shared across every project.
+// API keys (machine-global <FluxLib>/keys.json), shared across every project.
 // Read in main so credentials are attached here, never baked into renderer URLs.
-const fluxLibDir = () => getFluxLibRoot() || path.join(os.homedir(), "FluxLib");
+const fluxLibDir = () => getFluxLibRoot();
 const fluxKeysPath = () => path.join(fluxLibDir(), "keys.json");
 function readKeys() {
   try {
@@ -590,8 +603,18 @@ if (!gotSingleInstanceLock) {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (!gotSingleInstanceLock) return;
+  // One-time machine init/migration (FluxConfig, capital→lowercase config-dir
+  // merge, FluxLib move, Guidelines seed) BEFORE the window exists, so the
+  // renderer and the FluxLib watcher only ever see post-migration state. A
+  // failure must never block launch — the path resolvers keep legacy fallbacks.
+  try {
+    await fluxPaths.ensureFluxConfig();
+  } catch (e) {
+    console.error("flux config init failed:", (e && e.message) || e);
+  }
+  invalidatePathCaches(); // migration may have moved the library
   buildAppMenu(); // W6: replace the default menu (kills the stray reload accelerator)
   createWindow();
   // Cold start via protocol (Windows/Linux carry the URL in argv).
@@ -668,17 +691,20 @@ ipcMain.handle("app:paths", () => ({
   documents: app.getPath("documents"),
 }));
 
-// Global preferences (FluxLib path, etc.) — see prefsFile()/readPrefs() above.
-// `fluxLibResolved` is the absolute path actually in use (default ~/FluxLib when
-// unset), so the Settings UI can display + reveal it without knowing $HOME.
-ipcMain.handle("prefs:get", () => ({ ...readPrefs(), fluxLibResolved: fluxLibDir() }));
+// Global preferences (FluxConfig pointer, etc.) — see prefsFile()/readPrefs()
+// above. `fluxLibResolved`/`fluxConfigResolved` are the absolute paths actually
+// in use (FluxLib is DERIVED from FluxConfig), so the Settings UI can display +
+// reveal them without knowing $HOME.
+ipcMain.handle("prefs:get", () => ({
+  ...readPrefs(),
+  fluxLibResolved: fluxLibDir(),
+  fluxConfigResolved: getFluxConfigRoot(),
+}));
 ipcMain.handle("prefs:set", (_e, patch) => {
   const cur = readPrefs();
   const next = { ...cur, ...(patch || {}), schemaVersion: cur.schemaVersion || "0.1.0" };
   writePrefs(next);
-  if (typeof next.fluxLibPath === "string" && next.fluxLibPath.trim()) {
-    fluxLibRoot = path.resolve(next.fluxLibPath); // refresh the fsGuard allowlist
-  }
+  invalidatePathCaches(); // fluxConfigPath (or legacy fluxLibPath) may have changed
   return next;
 });
 

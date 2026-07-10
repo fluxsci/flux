@@ -30,13 +30,6 @@ async function prefsGet(): Promise<Record<string, unknown>> {
     return {};
   }
 }
-async function prefsSet(patch: Record<string, unknown>): Promise<void> {
-  try {
-    await fileBridge()?.prefsSet?.(patch);
-  } catch {
-    /* best-effort */
-  }
-}
 async function readTextSafe(p: string): Promise<string> {
   const fb = fileBridge();
   if (!fb) return "";
@@ -55,19 +48,22 @@ async function readManifest(root: string): Promise<ProjectManifest | null> {
   }
 }
 
-/** The configured FluxLib path (preferences → default ~/FluxLib), or null without a bridge. */
+/** The FluxLib path, or null without a bridge. Main owns the resolution
+ *  (DERIVED: <FluxConfig>/FluxLib, legacy fallbacks pre-migration) and hands
+ *  it to the renderer as prefs.fluxLibResolved — never resolve it here. */
 export async function resolveFluxLibPath(): Promise<string | null> {
   const fb = fileBridge();
   if (!fb) return null;
-  const configured = (await prefsGet()).fluxLibPath;
-  if (typeof configured === "string" && configured.trim()) return configured;
+  const resolved = (await prefsGet()).fluxLibResolved;
+  if (typeof resolved === "string" && resolved.trim()) return resolved;
   const { home } = await fb.paths();
-  return joinPath(home, "FluxLib");
+  return joinPath(home, "FluxConfig", "FluxLib");
 }
 
 /** Ensure FluxLib exists (mkdir + empty library.bib + fluxlib.json), migrating a
- *  legacy <userData>/references/library.bib seed once. Persists the path to prefs.
- *  Idempotent; returns the path (or null without a bridge). */
+ *  legacy <userData>/references/library.bib seed once. Idempotent; returns the
+ *  path (or null without a bridge). No path is persisted — FluxLib is derived
+ *  from FluxConfig (pointer pref fluxConfigPath, owned by main's migration). */
 export async function ensureFluxLib(): Promise<string | null> {
   const fb = fileBridge();
   if (!fb) return null;
@@ -108,7 +104,6 @@ export async function ensureFluxLib(): Promise<string | null> {
       ) + "\n",
     );
   }
-  if (!(await prefsGet()).fluxLibPath) await prefsSet({ fluxLibPath: lib });
   return lib;
 }
 

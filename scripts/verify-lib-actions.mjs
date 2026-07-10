@@ -60,12 +60,12 @@ await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3000 }
 await page.evaluate(
   async (bib, enrich, b64) => {
     const fig = window.fig;
-    await fig.writeText("/home/demo/FluxLib/library.bib", bib);
-    await fig.writeText("/home/demo/FluxLib/.fluxlib/enrich.json", JSON.stringify(enrich));
+    await fig.writeText("/home/demo/FluxConfig/FluxLib/library.bib", bib);
+    await fig.writeText("/home/demo/FluxConfig/FluxLib/.fluxlib/enrich.json", JSON.stringify(enrich));
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    await fig.writeFile("/home/demo/FluxLib/items/zorro2023/paper.pdf", bytes);
+    await fig.writeFile("/home/demo/FluxConfig/FluxLib/items/zorro2023/paper.pdf", bytes);
     // Seed the reader-side fixture too, so opening zorro2023 renders a real PDF.
     window.__fluxSeedReaderItem?.("zorro2023", b64);
   },

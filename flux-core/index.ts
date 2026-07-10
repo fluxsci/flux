@@ -1963,6 +1963,28 @@ export async function libraryInfo(): Promise<{
   return fluxlib.fluxLibInfo();
 }
 
+// One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib
+// move, Guidelines seed) — idempotent + fast after the first run.
+export { ensureFluxConfig } from "./fluxlib";
+
+/** Machine-level paths for `flux config` / MCP config_paths. Runs
+ *  ensureFluxConfig first, so the first call on a machine initializes
+ *  ~/FluxConfig (and migrates the legacy layout). Locked JSON shape. */
+export async function configInfo(): Promise<{
+  fluxConfigPath: string;
+  fluxLibPath: string;
+  guidelinesPath: string;
+  userDataDir: string;
+}> {
+  const info = await fluxlib.ensureFluxConfig();
+  return {
+    fluxConfigPath: info.fluxConfigPath,
+    fluxLibPath: info.fluxLibPath,
+    guidelinesPath: info.guidelinesPath,
+    userDataDir: info.userDataDir,
+  };
+}
+
 /** Reconcile a project's cited-subset library.bib against FluxLib (on open / on
  *  demand): promote project-local-only cited entries up, materialize the rest,
  *  report orphans. Non-destructive. */

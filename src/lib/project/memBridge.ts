@@ -207,7 +207,7 @@ export function createMemBridge(): FileBridge & {
       return { ok: true };
     },
     async keysGet() {
-      const p = norm("/home/demo/FluxLib/keys.json");
+      const p = norm("/home/demo/FluxConfig/FluxLib/keys.json");
       try {
         return files.has(p) ? JSON.parse(new TextDecoder().decode(files.get(p)!)) : {};
       } catch {
@@ -215,7 +215,7 @@ export function createMemBridge(): FileBridge & {
       }
     },
     async keysSet(patch) {
-      const p = norm("/home/demo/FluxLib/keys.json");
+      const p = norm("/home/demo/FluxConfig/FluxLib/keys.json");
       let cur: Record<string, unknown> = {};
       try {
         if (files.has(p)) cur = JSON.parse(new TextDecoder().decode(files.get(p)!));

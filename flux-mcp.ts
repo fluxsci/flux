@@ -13,6 +13,10 @@ import * as live from "./flux-core/liveClient";
 
 const ROOT = path.resolve(process.argv[2] ?? process.env.FLUX_PROJECT ?? ".");
 core.setClient(process.env.FLUX_CLIENT || "mcp"); // WS6: journal/lock identity
+// One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib
+// move, Guidelines seed) — idempotent + fast after first run; a failure must
+// never block the server (path resolvers keep legacy fallbacks).
+await core.ensureFluxConfig().catch((e) => console.error(`flux config init: ${(e as Error)?.message ?? e}`));
 const server = new McpServer({ name: "flux", version: "0.1.0" });
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
@@ -140,6 +144,16 @@ server.registerTool(
     inputSchema: { query: z.string() },
   },
   async ({ query }) => ok(JSON.stringify(await core.searchReferencesEnriched(query), null, 2)),
+);
+
+server.registerTool(
+  "config_paths",
+  {
+    description:
+      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), guidelinesPath, and userDataDir. Read every file in guidelinesPath before working — it holds the user's standing conventions for all Flux output.",
+    inputSchema: {},
+  },
+  async () => ok(JSON.stringify(await core.configInfo(), null, 2)),
 );
 
 server.registerTool(

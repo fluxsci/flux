@@ -138,7 +138,15 @@ function runScript(name) {
   const timeout = manifest.timeouts?.[name] ?? opt.timeout;
   return new Promise((resolve) => {
     const t0 = Date.now();
-    const child = spawn(cmd, cargs, { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    // FLUX_NO_MIGRATE: tests spawn the real CLI/MCP, which run the FluxConfig
+    // migration on startup — never against the developer's real HOME from a
+    // verify run. (verify-fluxconfig.ts clears it inside its scratch-HOME sims.)
+    const child = spawn(cmd, cargs, {
+      cwd: repoRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+      env: { ...process.env, FLUX_NO_MIGRATE: "1" },
+    });
     let out = "";
     const cap = (d) => {
       out += d;

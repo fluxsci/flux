@@ -92,7 +92,7 @@ try {
 }
 
 // terminal authenticity: run the real CLI once.
-const { stdout } = await pexec("npx", ["tsx", "flux-cli.ts", "list", TMP], { cwd: REPO });
+const { stdout } = await pexec("npx", ["tsx", "flux-cli.ts", "list", TMP], { cwd: REPO, env: { ...process.env, FLUX_NO_MIGRATE: "1" } });
 results.cli = { listHasGrowth: stdout.includes("fig-growth"), title: JSON.parse(stdout).title };
 
 await fs.rm(TMP, { recursive: true, force: true });

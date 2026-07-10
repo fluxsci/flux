@@ -34,7 +34,14 @@ await fs.writeFile(
   }, null, 2),
 );
 
-const transport = new StdioClientTransport({ command: "npx", args: ["tsx", "flux-mcp.ts", TMP], cwd: REPO });
+const transport = new StdioClientTransport({
+  command: "npx",
+  args: ["tsx", "flux-mcp.ts", TMP],
+  cwd: REPO,
+  // never run the FluxConfig migration against the real HOME from a test (the
+  // SDK strips inherited env, so the guard must be passed explicitly)
+  env: { ...(process.env as Record<string, string>), FLUX_NO_MIGRATE: "1" },
+});
 const client = new Client({ name: "verify", version: "1.0.0" });
 await client.connect(transport);
 

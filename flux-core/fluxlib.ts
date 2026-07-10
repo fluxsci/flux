@@ -64,13 +64,29 @@ export async function setPreferences(patch: Partial<Preferences>): Promise<Prefe
   return next;
 }
 
+/** The pre-FluxConfig default — kept only as the resolver's last legacy
+ *  fallback; FluxLib's real home is derived from FluxConfig. */
 export const defaultFluxLibPath = (): string => path.join(os.homedir(), "FluxLib");
 
-/** The configured FluxLib path (preferences → default ~/FluxLib). */
+/** The FluxLib path — DERIVED: <FluxConfig>/FluxLib, with legacy fallbacks
+ *  that only apply pre-migration (see fluxPaths.resolveFluxLibPathSync). */
 export async function resolveFluxLibPath(): Promise<string> {
-  const p = (await getPreferences()).fluxLibPath;
-  return p && String(p).trim() ? path.resolve(String(p)) : defaultFluxLibPath();
+  return fluxPaths.resolveFluxLibPathSync(await getPreferences());
 }
+
+/** The user-facing FluxConfig folder (preferences pointer → ~/FluxConfig). */
+export async function resolveFluxConfigPath(): Promise<string> {
+  return fluxPaths.resolveFluxConfigPathSync(await getPreferences());
+}
+
+/** <FluxConfig>/Guidelines — the machine-wide conventions agents always read. */
+export async function guidelinesPath(): Promise<string> {
+  return fluxPaths.guidelinesPathSync(await getPreferences());
+}
+
+/** One-time machine init/migration (FluxConfig + lowercase config dir +
+ *  FluxLib move + Guidelines seed). Idempotent, locked, fast after first run. */
+export const ensureFluxConfig = fluxPaths.ensureFluxConfig;
 
 const libBib = (lib: string) => path.join(lib, "library.bib");
 const libManifest = (lib: string) => path.join(lib, "fluxlib.json");
@@ -112,8 +128,9 @@ const projectBibPath = (root: string, m?: ProjectManifest | null) =>
 /**
  * Ensure the FluxLib exists: create the dir, an empty `library.bib`, and
  * `fluxlib.json`. On first creation, migrate a legacy
- * `<userData>/references/library.bib` seed in. Persists the resolved path to
- * preferences so the GUI and CLI agree. Idempotent; returns the FluxLib path.
+ * `<userData>/references/library.bib` seed in. Idempotent; returns the FluxLib
+ * path. (No path is persisted — FluxLib is derived from FluxConfig; the
+ * pointer preference is fluxConfigPath, owned by ensureFluxConfig.)
  */
 export async function ensureFluxLib(libPath?: string): Promise<string> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
@@ -151,8 +168,6 @@ export async function ensureFluxLib(libPath?: string): Promise<string> {
       ) + "\n",
     );
   }
-  const prefs = await getPreferences();
-  if (!prefs.fluxLibPath) await setPreferences({ fluxLibPath: lib });
   return lib;
 }
 

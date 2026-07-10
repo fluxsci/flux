@@ -33,7 +33,12 @@ mkdirSync(fakeProject, { recursive: true });
 
 function mcpHandshake(cmd: string, cmdArgs: string[], label: string): Promise<void> {
   return new Promise<void>((resolve) => {
-    const child = spawn(cmd, cmdArgs, { cwd: fakeProject, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(cmd, cmdArgs, {
+      cwd: fakeProject,
+      stdio: ["pipe", "pipe", "pipe"],
+      // never run the FluxConfig migration against the real HOME from a test
+      env: { ...process.env, FLUX_NO_MIGRATE: "1" },
+    });
     const timeout = setTimeout(() => {
       assert(false, `[${label}] MCP server answered within 25s (timed out)`);
       child.kill();

@@ -50,7 +50,7 @@ const jrnl = await fs.readFile(path.join(TMP, ".meta", "journal.ndjson"), "utf8"
 results.journal = jrnl.includes('"action":"rerun-plot"') && jrnl.includes("mann-whitney");
 
 // The actual CLI path: rerun-plot with a different param.
-await pexec("npx", ["tsx", "flux-cli.ts", "rerun-plot", recipePath, "--test", "wilcoxon"], { cwd: REPO });
+await pexec("npx", ["tsx", "flux-cli.ts", "rerun-plot", recipePath, "--test", "wilcoxon"], { cwd: REPO, env: { ...process.env, FLUX_NO_MIGRATE: "1" } });
 const svg2 = await fs.readFile(path.join(TMP, "plots", "out.svg"), "utf8");
 results.cliRerun = { svgReflectsParam: svg2.includes("wilcoxon") };
 

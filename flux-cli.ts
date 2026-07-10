@@ -98,6 +98,8 @@ usage: flux <verb> [root] [args] [--flags]
   cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
   search <query…>                      search FluxLib (e.g. author:smith year:2020)
   lib                                  show the FluxLib path + entry count
+  config                               machine paths (FluxConfig, FluxLib, Guidelines) as JSON;
+                                       first run initializes ~/FluxConfig (and migrates old layouts)
   lib-add <doi|bibtex…|--file f>       add to FluxLib only (no project cite)
                                        --file f: bulk-import a .bib/.ris file
                                        --attach-files [--zotero-dir d]: pull its PDFs
@@ -181,6 +183,12 @@ async function main() {
   core.setClient(process.env.FLUX_CLIENT || "cli"); // WS6: journal/lock identity
   const [verb, ...rest] = process.argv.slice(2);
   const { _, flags } = parseFlags(rest);
+  // One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib
+  // move, Guidelines seed) — idempotent, statSync-fast after the first run. A
+  // failure must never block a verb: the path resolvers keep legacy fallbacks.
+  if (verb && verb !== "help") {
+    await core.ensureFluxConfig().catch((e) => console.error(`flux config init: ${(e as Error)?.message ?? e}`));
+  }
   // New verbs take the project root from --root (or $FLUX_PROJECT / cwd) so all
   // positionals are the verb's own args (e.g. variadic plot paths).
   const R = () => path.resolve((flags.root as string) ?? process.env.FLUX_PROJECT ?? ".");
@@ -695,6 +703,12 @@ async function main() {
     }
     case "lib": {
       console.log(JSON.stringify(await core.libraryInfo(), null, 2));
+      break;
+    }
+    case "config": {
+      // Machine paths (already ensured above). Agents: read EVERY file in
+      // guidelinesPath before working — it holds the user's standing conventions.
+      console.log(JSON.stringify(await core.configInfo(), null, 2));
       break;
     }
     case "reconcile": {

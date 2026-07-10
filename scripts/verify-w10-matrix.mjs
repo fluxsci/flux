@@ -10,7 +10,7 @@
 import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
 
 const R = "/demo/myc-growth-paper";
-const LIB = "/home/demo/FluxLib/library.bib";
+const LIB = "/home/demo/FluxConfig/FluxLib/library.bib";
 const { browser, page } = await launch();
 await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3200 });
 
