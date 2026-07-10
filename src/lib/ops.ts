@@ -49,6 +49,7 @@ import {
   arrangeGrid,
   alignElements,
   distributeElements,
+  elementBBox,
   rotateAbout,
   selectionBBox,
   gridItemCount,
@@ -1229,18 +1230,63 @@ export function applyTextStyle(p: Project, ids: Id[], styleId: Id): number {
 // ---------------------------------------------------------------------------
 // Panel labels — auto-letter (a, b, c …) by reading order (extracted from store)
 // ---------------------------------------------------------------------------
-export function autoLetterPanels(p: Project, figId: Id): void {
-  const TOL = 24; // world-unit row tolerance for grouping labels into rows
+/** Reading-order rows come from the PANELS, not the label y alone: each label
+ *  adopts its nearest panel's vertical extent and labels whose extents overlap
+ *  share a row. A fixed y-bucket mis-letters mixed-height row-mates (a 19-unit
+ *  top offset bucketed two same-row panels apart → "f, e"). Returns whether any
+ *  letter actually changed so callers can report a no-op instead of "✓ labeled". */
+export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; letters: string[] } {
   const f = figById(p, figId);
-  if (!f) return;
+  if (!f) return { changed: false, letters: [] };
   const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
-  labels.sort((a, b) => Math.round(a.y / TOL) - Math.round(b.y / TOL) || a.x - b.x);
-  labels.forEach((e, i) => {
-    if (e.type === "text") {
-      e.text = String.fromCharCode(97 + (i % 26));
-      delete e.lines; // text changed → wrap cache stale (GUI reflows on next layout)
+  if (!labels.length) return { changed: false, letters: [] };
+  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
+  const rowSpan = (e: Element): { top: number; bottom: number; x: number } => {
+    const lb = elementBBox(e);
+    let best: { d: number; top: number; bottom: number } | null = null;
+    for (const a of anchors) {
+      const b = elementBBox(a);
+      const dx = Math.max(b.x - lb.x, 0, lb.x - (b.x + b.w));
+      const dy = Math.max(b.y - lb.y, 0, lb.y - (b.y + b.h));
+      const d = Math.hypot(dx, dy);
+      if (!best || d < best.d) best = { d, top: b.y, bottom: b.y + b.h };
     }
-  });
+    // A label belongs to a panel only when it sits on/near one (composed labels
+    // sit 16 above the panel top); free-floating labels fall back to their own
+    // extent padded by the old 24-unit tolerance.
+    if (best && best.d <= 48) return { top: best.top, bottom: best.bottom, x: lb.x };
+    return { top: lb.y - 24, bottom: lb.y + lb.h + 24, x: lb.x };
+  };
+  const items = labels.map((e) => ({ e, ...rowSpan(e) }));
+  items.sort((a, b) => a.top - b.top || a.x - b.x);
+  const rows: (typeof items)[] = [];
+  let rowBottom = -Infinity;
+  for (const it of items) {
+    if (!rows.length || it.top >= rowBottom) {
+      rows.push([it]);
+      rowBottom = it.bottom;
+    } else {
+      rows[rows.length - 1].push(it);
+      rowBottom = Math.max(rowBottom, it.bottom);
+    }
+  }
+  let i = 0;
+  let changed = false;
+  const letters: string[] = [];
+  for (const row of rows) {
+    row.sort((a, b) => a.x - b.x);
+    for (const it of row) {
+      const want = String.fromCharCode(97 + (i % 26));
+      i++;
+      letters.push(want);
+      if (it.e.type === "text" && it.e.text !== want) {
+        it.e.text = want;
+        delete it.e.lines; // text changed → wrap cache stale (GUI reflows on next layout)
+        changed = true;
+      }
+    }
+  }
+  return { changed, letters };
 }
 
 // Re-export so callers needing the panel inventory don't reach past ops.

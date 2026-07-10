@@ -61,6 +61,7 @@
       "verify-ratelimit.ts",
       "verify-refformat.ts",
       "verify-scaffold.ts",
+      "verify-sync-render.ts",
       "verify-slide-arrange.ts",
       "verify-slide-assets.ts",
       "verify-slide-autobuild.ts",

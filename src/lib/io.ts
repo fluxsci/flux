@@ -51,10 +51,12 @@ import { flushById } from "../shell/lifecycle";
 // EXISTING assetId (regenerate). The element + its id-keyed `overrides` are left
 // untouched, so the re-mount reapplies them automatically (group overrides too);
 // cachePlot bumps plotGen, which forces mountPlot to re-clone the new DOM.
+// (manifest optional: a sidecar-less vanilla svg gets a DERIVED one in cachePlot —
+// same rule as import; the watcher's plots/ hot-swap passes whatever it finds.)
 export function reimportPlot(
   assetId: string,
   svgText: string,
-  manifest: FluxPlotManifest,
+  manifest?: FluxPlotManifest,
   recipe?: unknown,
 ): boolean {
   const ok = cachePlot(assetId, svgText, manifest, recipe);

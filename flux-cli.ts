@@ -19,6 +19,8 @@ usage: flux <verb> [root] [args] [--flags]
   render-canvas [canvasId] [--root R] [--png] [--scale n] [--out f]
                                        render a WHOLE canvas (all figures at their x/y)
   render-figures [root] [--doc p.qmd]  write fig/renders/<id>.svg for embedded figures (bare-quarto prep)
+  sync-figure [figId] [--root R]       refresh fig/assets copies from regenerated plots/
+                                       sources IN PLACE (captions/restyles survive)
   caption [root] <id>                  print a figure's composed caption
   set-caption [root] <id> <md…|--file f>   write fig/captions/<id>.md
   add-reference [root] <bibtex…|--file f>   append a BibTeX entry to library.bib
@@ -239,6 +241,13 @@ async function main() {
       break;
     }
     case "render-figure": {
+      // Staleness probe: a plots/ source newer than its fig/assets copy means
+      // this render shows OLD panels — say so (fix with `flux sync-figure`).
+      const stale = await core.syncFigureAssets(root(), _[1], { dryRun: true }).catch(() => null);
+      if (stale?.refreshed.length)
+        console.error(
+          `⚠ ${_[1]}: ${stale.refreshed.length} panel(s) stale vs plots/ (${stale.refreshed.map((r) => r.from).join(", ")}) — run \`flux sync-figure ${_[1]}\` to refresh`,
+        );
       if (flags.png) {
         const png = await core.renderFigurePng(root(), _[1], num(flags.scale) ?? 2);
         const out = String(flags.out ?? `${_[1]}.png`);
@@ -251,6 +260,16 @@ async function main() {
           console.error(`✓ wrote ${flags.out}`);
         } else process.stdout.write(svg);
       }
+      break;
+    }
+    case "sync-figure": {
+      // Close the regenerate loop headlessly: refresh fig/assets copies from
+      // their plots/ sources in place (captions/restyles/positions survive).
+      const r = await core.syncFigureAssets(R(), _[0] || undefined);
+      if (r.refreshed.length)
+        console.error(`✓ refreshed ${r.refreshed.length}/${r.checked} panel asset(s): ${r.refreshed.map((x) => x.from).join(", ")}`);
+      else console.error(`✓ all ${r.checked} panel asset(s) already match plots/ (no change)`);
+      if (r.missing.length) console.error(`⚠ missing source plot(s): ${r.missing.join(", ")}`);
       break;
     }
     case "render-canvas": {
@@ -315,6 +334,7 @@ async function main() {
       if (_.length < 2) throw new Error("import-plots needs a figure id and at least one plot path");
       const r = await core.importPlots(R(), _[0], _.slice(1).map((p) => path.resolve(p)));
       console.error(`✓ imported ${r.panels.length} plot(s) onto ${_[0]}`);
+      for (const w of r.warnings) console.error(`⚠ ${w}`);
       console.log(JSON.stringify(r.panels, null, 2));
       break;
     }
@@ -344,6 +364,7 @@ async function main() {
       console.error(
         `✓ composed figure ${r.figureId} — ${r.panels.length} panel(s) [${r.panels.join("")}] ${r.width}×${r.height}`,
       );
+      for (const w of r.warnings) console.error(`⚠ ${w}`);
       break;
     }
     case "arrange": {
@@ -353,7 +374,9 @@ async function main() {
     }
     case "auto-label": {
       const r = await core.autoLabel(R(), _[0]);
-      console.error(`✓ labeled ${_[0]}: ${r.panels.join("")}`);
+      if (!r.panels.length) console.error(`⚠ ${_[0]} has no panel labels to letter (compose with labels, or add-fig-text with --panel-label)`);
+      else if (!r.changed) console.error(`✓ ${_[0]} already labeled: ${r.panels.join("")} (no change)`);
+      else console.error(`✓ labeled ${_[0]}: ${r.panels.join("")}`);
       break;
     }
     case "distribute": {

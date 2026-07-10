@@ -58,6 +58,22 @@ server.registerTool(
 );
 
 server.registerTool(
+  "sync_figure",
+  {
+    description:
+      "Refresh a figure's (or all figures') fig/assets plot copies from their regenerated plots/ sources IN PLACE — the regenerate loop without delete+recompose; captions, positions and per-part restyles survive.",
+    inputSchema: { figureId: z.string().optional() },
+  },
+  async ({ figureId }) => {
+    const r = await core.syncFigureAssets(ROOT, figureId);
+    const head = r.refreshed.length
+      ? `refreshed ${r.refreshed.length}/${r.checked} panel asset(s): ${r.refreshed.map((x) => x.from).join(", ")}`
+      : `all ${r.checked} panel asset(s) already match plots/ (no change)`;
+    return ok(head + (r.missing.length ? ` — missing source plot(s): ${r.missing.join(", ")}` : ""));
+  },
+);
+
+server.registerTool(
   "get_canvas_image",
   {
     description:
@@ -248,7 +264,7 @@ server.registerTool(
   },
   async ({ id, svgPath, x, y, width, height }) => {
     const r = await core.addPanel(ROOT, id, svgPath, { x, y, width, height });
-    return ok(`added panel ${r.elementId} (asset ${r.assetId})`);
+    return ok(`added panel ${r.elementId} (asset ${r.assetId})` + (r.warning ? `\n⚠ ${r.warning}` : ""));
   },
 );
 
@@ -266,7 +282,8 @@ server.registerTool(
     const r = await core.importPlots(ROOT, id, plotPaths);
     return ok(
       `imported ${r.panels.length} plot(s) onto ${id}: ` +
-        r.panels.map((p) => `${p.elementId} (asset ${p.assetId})`).join(", "),
+        r.panels.map((p) => `${p.elementId} (asset ${p.assetId})`).join(", ") +
+        (r.warnings.length ? `\n⚠ ${r.warnings.join("\n⚠ ")}` : ""),
     );
   },
 );
@@ -297,7 +314,10 @@ server.registerTool(
       label: a.label,
       captionStub: a.captionStub,
     });
-    return ok(`composed figure ${r.figureId} — panels [${r.panels.join("")}] ${r.width}×${r.height}`);
+    return ok(
+      `composed figure ${r.figureId} — panels [${r.panels.join("")}] ${r.width}×${r.height}` +
+        (r.warnings.length ? `\n⚠ ${r.warnings.join("\n⚠ ")}` : ""),
+    );
   },
 );
 
@@ -344,7 +364,8 @@ server.registerTool(
   },
   async ({ figureId }) => {
     const r = await core.autoLabel(ROOT, figureId);
-    return ok(`labeled ${figureId}: ${r.panels.join("")}`);
+    if (!r.panels.length) return ok(`${figureId} has no panel labels to letter`);
+    return ok(r.changed ? `labeled ${figureId}: ${r.panels.join("")}` : `${figureId} already labeled: ${r.panels.join("")} (no change)`);
   },
 );
 

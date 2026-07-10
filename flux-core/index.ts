@@ -378,15 +378,37 @@ function svgIntrinsicSize(svg: string): { w: number; h: number } {
   return { w: 240, h: 180 };
 }
 
+/** Clamp absurd path coordinates (|v| ≥ 100,000) to ±90,000. matplotlib
+ *  anchors log-axis bars at data 0, which serializes as a huge off-canvas
+ *  coordinate (x ≈ −176,000 in a ~500-unit viewBox); it renders invisibly
+ *  standalone, but under compose-figure's nested-<svg> scaling it can PANIC
+ *  resvg (geom.rs Option::unwrap). The clamped point stays far off-canvas
+ *  (still invisible) while the numbers stay finite through the transform. */
+function clampAbsurdPathCoords(svg: string): { svg: string; clamped: number } {
+  let clamped = 0;
+  const out = svg.replace(/\bd="([^"]*)"/g, (m, d: string) => {
+    const nd = d.replace(/-?\d{6,}(?:\.\d+)?/g, (n) => {
+      clamped++;
+      return n.startsWith("-") ? "-90000" : "90000";
+    });
+    return nd === d ? m : `d="${nd}"`;
+  });
+  return { svg: out, clamped };
+}
+
 /** Copy a plot SVG into fig/assets, registering it (+ natural size) on the model.
  *  Returns the new assetId and any detected FluxPlot sidecar paths (project-rel). */
 async function importPlotAsset(
   root: string,
   project: Project,
   svgFile: string,
-): Promise<{ assetId: string; w: number; h: number; source?: { svgPath: string; manifestPath?: string; recipePath?: string } }> {
+): Promise<{ assetId: string; w: number; h: number; warning?: string; source?: { svgPath: string; manifestPath?: string; recipePath?: string } }> {
   const abs = path.resolve(svgFile);
-  const svg = await fs.readFile(abs, "utf8");
+  const raw = await fs.readFile(abs, "utf8");
+  const { svg, clamped } = clampAbsurdPathCoords(raw);
+  const warning = clamped
+    ? `${path.basename(abs)}: clamped ${clamped} absurd path coordinate(s) ≥100k — often a bar anchored at 0 on a log axis; set an explicit anchor (e.g. left=1) in the plot script`
+    : undefined;
   const { w, h } = svgIntrinsicSize(svg);
   const tag = Date.now().toString(36) + Math.round(Math.random() * 1e6).toString(36);
   const assetId = `asset_${tag}`;
@@ -416,7 +438,7 @@ async function importPlotAsset(
       recipePath: hasRecipe ? path.relative(root, recipe) : undefined,
     };
   }
-  return { assetId, w, h, source };
+  return { assetId, w, h, warning, source };
 }
 
 // --------------------------------------------------------------------------
@@ -570,12 +592,26 @@ export async function figureMembersOf(
   return out;
 }
 
-export async function renderFigureSvg(root: string, id: string, opts?: { groupId?: string }): Promise<string> {
+export async function renderFigureSvg(
+  root: string,
+  id: string,
+  opts?: { groupId?: string; onlyElement?: string },
+): Promise<string> {
   const index = await readFigIndex(root);
   if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
   const { byId } = await readCanvasFiles(root, index);
-  const fig = byId[id];
+  let fig = byId[id];
   if (!fig) throw new Error(`figure not found: ${id}`);
+  if (opts?.onlyElement) {
+    // Panel-bisect support: render with every OTHER plot hidden, keeping the
+    // composed nested-<svg> context that standalone panel renders don't have.
+    fig = {
+      ...fig,
+      elements: fig.elements.map((e) =>
+        e.type === "plot" && e.id !== opts.onlyElement ? { ...e, hidden: true } : e,
+      ),
+    };
+  }
   // Same migration every loader runs (legacy type:"svg" → semantic plot, …):
   // this reads canvas files directly, so unmigrated on-disk docs must still
   // render through the current element union. The pseudo-project also feeds
@@ -663,13 +699,95 @@ export async function renderFigureSvg(root: string, id: string, opts?: { groupId
   );
 }
 
-/** render-figure → a rasterized PNG (resvg-js; no browser). `scale` is a zoom
- *  factor over the figure's world units (default 2 ≈ 144dpi). */
+// --- Rasterization (resvg) runs OUT OF PROCESS. A pathological SVG can PANIC
+// resvg's Rust runtime; in-process that abort can take the thread pool down and
+// let node exit 0 with no PNG and no error — the worst failure mode for a
+// workflow built around "look at what you make". A child process turns any
+// crash into a real non-zero exit + stderr we can attach to the thrown error.
+const RASTER_CHILD = `
+import { createRequire } from "node:module";
+const req = createRequire(process.env.FLUX_RESVG_FROM);
+const { Resvg } = req("@resvg/resvg-js");
+const chunks = [];
+for await (const c of process.stdin) chunks.push(c);
+const r = new Resvg(Buffer.concat(chunks).toString("utf8"), {
+  fitTo: { mode: "zoom", value: Number(process.env.FLUX_RESVG_SCALE) || 1 },
+});
+process.stdout.write(r.render().asPng());
+`;
+
+async function rasterizePng(svg: string, scale: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", RASTER_CHILD], {
+      // Resolve @resvg/resvg-js from THIS module's location — works from the
+      // repo (tsx), from dist/flux-{cli,mcp}.mjs, and packaged (external dep).
+      env: { ...process.env, FLUX_RESVG_FROM: import.meta.url, FLUX_RESVG_SCALE: String(scale) },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout.on("data", (c: Buffer) => out.push(c));
+    child.stderr.on("data", (c: Buffer) => err.push(c));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      const png = Buffer.concat(out);
+      const isPng = png.length > 8 && png[0] === 0x89 && png[1] === 0x50;
+      if (code === 0 && isPng) return resolve(png);
+      // Surface the MESSAGE, not node's stack/version noise: prefer the first
+      // "Error:"/panic line, else the first non-frame line.
+      const lines = Buffer.concat(err).toString("utf8").split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith("at ") && !/^Node\.js v/.test(l));
+      const detail = lines.find((l) => /error|panic/i.test(l)) ?? lines[0] ?? "";
+      reject(new Error(`rasterization failed (resvg exit ${code}${isPng ? "" : ", no PNG produced"})${detail ? ": " + detail : ""}`));
+    });
+    child.stdin.on("error", () => {}); // child died before reading — close() reports it
+    child.stdin.end(svg);
+  });
+}
+
+/** Best-effort bisect after a failed figure rasterization: re-render the figure
+ *  with each plot panel alone (in its composed nested-<svg> context — panels
+ *  that render fine standalone can still panic under compose scaling) and
+ *  report the ones that fail. */
+async function findUnrenderablePanels(root: string, figId: string): Promise<string[]> {
+  const culprits: string[] = [];
+  try {
+    const index = await readFigIndex(root);
+    if (!index) return [];
+    const { byId } = await readCanvasFiles(root, index);
+    const fig = byId[figId];
+    if (!fig) return [];
+    const assetName = new Map((index.assets ?? []).map((a) => [a.id, a.name ?? a.id] as const));
+    for (const el of fig.elements.filter((e) => e.type === "plot")) {
+      try {
+        await rasterizePng(await renderFigureSvg(root, figId, { onlyElement: el.id }), 1);
+      } catch {
+        const aid = (el as { assetId?: string }).assetId;
+        culprits.push(`${el.id}${aid ? ` (${assetName.get(aid) ?? aid})` : ""}`);
+      }
+    }
+  } catch {
+    /* diagnosis is best-effort — never mask the original error */
+  }
+  return culprits;
+}
+
+/** render-figure → a rasterized PNG (resvg in a child process; no browser).
+ *  `scale` is a zoom factor over the figure's world units (default 2 ≈ 144dpi).
+ *  On failure the error names the offending panel(s) when a bisect finds them. */
 export async function renderFigurePng(root: string, id: string, scale = 2): Promise<Buffer> {
   const svg = await renderFigureSvg(root, id);
-  const { Resvg } = await import("@resvg/resvg-js");
-  const r = new Resvg(svg, { fitTo: { mode: "zoom", value: scale } });
-  return Buffer.from(r.render().asPng());
+  try {
+    return await rasterizePng(svg, scale);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const culprits = await findUnrenderablePanels(root, id);
+    throw new Error(
+      `render-figure ${id}: ${msg}` +
+        (culprits.length ? ` — offending panel(s): ${culprits.join(", ")}` : ""),
+    );
+  }
 }
 
 const escXml = (s: string) =>
@@ -726,9 +844,7 @@ export async function renderCanvasSvg(root: string, canvasId?: string): Promise<
  *  tall, and 2× would produce a needlessly huge raster for a look-step. */
 export async function renderCanvasPng(root: string, canvasId?: string, scale = 1): Promise<{ png: Buffer; canvasId: string }> {
   const { svg, canvasId: cid } = await renderCanvasSvg(root, canvasId);
-  const { Resvg } = await import("@resvg/resvg-js");
-  const r = new Resvg(svg, { fitTo: { mode: "zoom", value: scale } });
-  return { png: Buffer.from(r.render().asPng()), canvasId: cid };
+  return { png: await rasterizePng(svg, scale), canvasId: cid };
 }
 
 /** set-caption: store the caption in the figure's canvas model (its true home) and
@@ -853,17 +969,17 @@ export async function addPanel(
   figId: string,
   svgFile: string,
   opts: { x?: number; y?: number; width?: number; height?: number } = {},
-): Promise<{ assetId: string; elementId: string }> {
+): Promise<{ assetId: string; elementId: string; warning?: string }> {
   return mutateFigModel(root, "add_panel", async ({ project }) => {
     if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-    const { assetId, w, h, source } = await importPlotAsset(root, project, svgFile);
+    const { assetId, w, h, source, warning } = await importPlotAsset(root, project, svgFile);
     const box = { x: opts.x ?? 20, y: opts.y ?? 20, width: opts.width ?? w, height: opts.height ?? h };
     const elementId = ops.addPlotPanel(project, figId, {
       assetId,
       source: source ?? { svgPath: path.relative(root, path.resolve(svgFile)) },
       ...box,
     })!;
-    return { assetId, elementId };
+    return { assetId, elementId, ...(warning ? { warning } : {}) };
   });
 }
 
@@ -878,7 +994,7 @@ export async function importPlots(
   root: string,
   figId: string,
   plotPaths: string[],
-): Promise<{ panels: { assetId: string; elementId: string }[] }> {
+): Promise<{ panels: { assetId: string; elementId: string }[]; warnings: string[] }> {
   if (!plotPaths.length) throw new Error("import-plots needs at least one plot");
   // AGT-12 pattern: pre-flight EVERY input before writing any asset, so a bad
   // path partway through can't leave earlier plots' asset files orphaned.
@@ -926,8 +1042,72 @@ export async function importPlots(
       });
       if (elementId) panels.push({ assetId: it.assetId, elementId });
     });
-    return { panels };
+    return { panels, warnings: infos.map((it) => it.warning).filter((w): w is string => !!w) };
   });
+}
+
+/** sync-figure: re-copy regenerated plots/*.svg into their fig/assets copies.
+ *  compose/import copy plot bytes ONCE; re-running a plot script updates
+ *  plots/ but composed figures keep rendering the stale copy — headless, the
+ *  only workaround was delete-figure + re-compose, which destroys captions and
+ *  restyles. This refreshes asset bytes + sidecars + natural size in place;
+ *  element positions, captions, and id-keyed overrides are untouched.
+ *  `dryRun` reports staleness without writing (render-figure's warning). */
+export async function syncFigureAssets(
+  root: string,
+  figId?: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<{ refreshed: { assetId: string; from: string }[]; missing: string[]; checked: number }> {
+  const run = async ({ project }: { project: Project }) => {
+    const figs = figId ? [ops.figById(project, figId)] : project.figures;
+    if (figId && !figs[0]) throw new Error(`figure not found: ${figId}`);
+    const refreshed: { assetId: string; from: string }[] = [];
+    const missing: string[] = [];
+    const seen = new Set<string>();
+    let checked = 0;
+    for (const fig of figs as Figure[]) {
+      for (const el of fig.elements) {
+        if (el.type !== "plot") continue;
+        const aid = (el as { assetId?: string }).assetId;
+        const src = (el as { source?: { svgPath?: string } }).source?.svgPath;
+        if (!aid || !src || seen.has(aid)) continue;
+        seen.add(aid);
+        const asset = project.assets.find((a) => a.id === aid);
+        if (!asset?.path) continue;
+        checked++;
+        const srcAbs = path.isAbsolute(src) ? src : path.resolve(root, src);
+        const raw = await fs.readFile(srcAbs, "utf8").catch(() => null);
+        if (raw == null) {
+          missing.push(src);
+          continue;
+        }
+        const { svg } = clampAbsurdPathCoords(raw);
+        const cur = await fs.readFile(safeJoin(root, `fig/${asset.path}`), "utf8").catch(() => "");
+        if (cur === svg) continue;
+        refreshed.push({ assetId: aid, from: src });
+        if (opts.dryRun) continue;
+        await atomicWrite(safeJoin(root, `fig/${asset.path}`), svg);
+        const { w, h } = svgIntrinsicSize(svg);
+        asset.naturalWidth = w;
+        asset.naturalHeight = h;
+        // Refresh the asset-local sidecars alongside the bytes (same pairing
+        // rule as import: X.svg → X.fluxplot.json / X.recipe.json).
+        const base = srcAbs.replace(/\.svg$/i, "");
+        for (const [ext, dest] of [
+          [".fluxplot.json", `fig/assets/${aid}.fluxplot.json`],
+          [".recipe.json", `fig/assets/${aid}.recipe.json`],
+        ] as const) {
+          const text = await fs.readFile(base + ext, "utf8").catch(() => null);
+          if (text != null) await atomicWrite(safeJoin(root, dest), text);
+        }
+      }
+    }
+    return { refreshed, missing, checked };
+  };
+  // Dry run reads under no lock and never saves — it's render-figure's cheap
+  // staleness probe. The real sync is a normal locked mutate (journaled).
+  if (opts.dryRun) return run(await loadFigModel(root));
+  return mutateFigModel(root, "sync_assets", run);
 }
 
 /** create-figure: add a blank figure (optional slug id, canvas, size). */
@@ -977,7 +1157,7 @@ export async function composeFigure(
   root: string,
   plotPaths: string[],
   opts: ComposeFigureOpts = {},
-): Promise<{ figureId: string; panels: string[]; width: number; height: number }> {
+): Promise<{ figureId: string; panels: string[]; width: number; height: number; warnings: string[] }> {
   if (!plotPaths.length) throw new Error("compose-figure needs at least one plot");
   // AGT-12: pre-flight EVERY input before writing any asset. Previously a bad path
   // partway through the loop left the earlier plots' asset files orphaned on disk (the
@@ -1002,8 +1182,10 @@ export async function composeFigure(
     const fig = ops.createFigure(project, { canvasId, id: figId, name: opts.name ?? figId, width: 100, height: 100 });
 
     const panelIds: string[] = [];
+    const warnings: string[] = [];
     for (const pp of plotPaths) {
-      const { assetId, w, h, source } = await importPlotAsset(root, project, pp);
+      const { assetId, w, h, source, warning } = await importPlotAsset(root, project, pp);
+      if (warning) warnings.push(warning);
       const box = { x: margin, y: margin, width: w, height: h };
       // figure-v1 P4 parity: EVERY svg is a semantic plot — vanilla files get a
       // derived manifest at render/cache time, never an opaque <image>.
@@ -1042,11 +1224,12 @@ export async function composeFigure(
       width: fig.width,
       height: fig.height,
       stub: composeCaption(fig) || `${opts.name ?? figId}.`,
+      warnings,
     };
   });
 
   if (opts.captionStub !== false) await setCaption(root, out.figureId, out.stub);
-  return { figureId: out.figureId, panels: out.panels, width: out.width, height: out.height };
+  return { figureId: out.figureId, panels: out.panels, width: out.width, height: out.height, warnings: out.warnings };
 }
 
 /** arrange a figure's existing panels into a grid (rows|cols|gap). */
@@ -1172,13 +1355,15 @@ export async function editPath(
   });
 }
 
-/** auto-letter a figure's panel-label elements (a, b, c…) by reading order. */
-export async function autoLabel(root: string, figId: string): Promise<{ panels: string[] }> {
+/** auto-letter a figure's panel-label elements (a, b, c…) by reading order.
+ *  `changed:false` = the assignment already matched (a silent "✓ labeled" on a
+ *  no-op cost the moma agent a render-inspect cycle). */
+export async function autoLabel(root: string, figId: string): Promise<{ panels: string[]; changed: boolean }> {
   return mutateFigModel(root, "auto_label", ({ project }) => {
     const fig = ops.figById(project, figId);
     if (!fig) throw new Error(`figure not found: ${figId}`);
-    ops.autoLetterPanels(project, figId);
-    return { panels: panelLetters(fig) };
+    const { changed } = ops.autoLetterPanels(project, figId);
+    return { panels: panelLetters(fig), changed };
   });
 }
 
