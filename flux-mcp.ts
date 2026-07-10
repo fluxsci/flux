@@ -1023,10 +1023,22 @@ server.registerTool(
 
 server.registerTool(
   "compile",
-  { description: "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH.", inputSchema: { to: z.string().optional() } },
+  { description: "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. Reports the output path and a figures/citations resolution summary.", inputSchema: { to: z.string().optional() } },
   async ({ to }) => {
     const r = await core.compile(ROOT, to ?? "pdf");
-    return ok(`quarto exited ${r.code}`);
+    if (r.code !== 0) return ok(`quarto exited ${r.code}\n${r.log.slice(-2000)}`);
+    const parts = [`compiled${r.output ? ` → ${r.output}` : " (quarto exited 0)"}`];
+    if (r.figures)
+      parts.push(
+        `figures: ${r.figures.resolved}/${r.figures.embedded} resolved` +
+          (r.figures.missing.length ? ` (no project figure for: ${r.figures.missing.join(", ")})` : ""),
+      );
+    if (r.citations)
+      parts.push(
+        `citations: ${r.citations.resolved}/${r.citations.keys} resolved` +
+          (r.citations.missing.length ? ` (unresolved: @${r.citations.missing.join(", @")})` : ""),
+      );
+    return ok(parts.join(" — "));
   },
 );
 
@@ -1060,12 +1072,14 @@ server.registerTool(
 server.registerTool(
   "validate_project",
   {
-    description: "Validate the project (or one file) against the bundled JSON Schemas (.meta/schema/). Use after editing files directly to confirm your writes are well-formed.",
+    description:
+      "Validate the project (or one file) against the bundled JSON Schemas (.meta/schema/), plus project lint: EMPTY figures (they shift figure numbers), figures embedded in no document, and overlapping canvas frames. Use after editing files directly to confirm your writes are well-formed.",
     inputSchema: { file: z.string().optional() },
   },
   async ({ file }) => {
     const r = await core.validate(ROOT, file);
-    return ok(r.ok ? `valid (${r.checked} file(s) checked)` : `INVALID (${r.errors.length}):\n` + r.errors.join("\n"));
+    const warn = r.warnings?.length ? `\nwarnings:\n` + r.warnings.map((w) => `  ${w}`).join("\n") : "";
+    return ok(r.ok ? `valid (${r.checked} file(s) checked)${warn}` : `INVALID (${r.errors.length}):\n` + r.errors.join("\n") + warn);
   },
 );
 

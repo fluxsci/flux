@@ -7,6 +7,7 @@
       "verify-an-compose.ts",
       "verify-fig-letterorder.ts",
       "verify-fig-geometry.ts",
+      "verify-project-lint.ts",
       "verify-an-journal-locks.ts",
       "verify-an-manuscript.ts",
       "verify-an-render.ts",

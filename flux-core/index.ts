@@ -2314,7 +2314,28 @@ export async function normalizeEmbeds(root: string): Promise<{ files: { path: st
   return { files: out };
 }
 
-export async function compile(root: string, to = "pdf"): Promise<{ code: number; log: string }> {
+export interface CompileSummary {
+  code: number;
+  log: string;
+  /** the compiled artifact (absolute path), when quarto reported/produced one. */
+  output?: string;
+  figures?: { embedded: number; resolved: number; missing: string[] };
+  citations?: { keys: number; resolved: number; missing: string[] };
+}
+
+/** Citation keys used in a qmd (Quarto/pandoc `@key` syntax), excluding
+ *  crossref namespaces (@fig-/@tbl-/@sec-/@eq-/@lst-). */
+function citationKeysIn(text: string): string[] {
+  const keys = new Set<string>();
+  for (const m of text.matchAll(/(?:^|[\s([;])@([A-Za-z0-9_][A-Za-z0-9_:.#$%&+?<>~/-]*[A-Za-z0-9_]|[A-Za-z0-9_])/g)) {
+    const k = m[1];
+    if (/^(fig|tbl|sec|eq|lst|thm)-/.test(k)) continue;
+    keys.add(k);
+  }
+  return [...keys];
+}
+
+export async function compile(root: string, to = "pdf"): Promise<CompileSummary> {
   const m = await loadManifest(root);
   // Figures embed as ../fig/renders/<id>.svg — materialize them so a bare quarto
   // render (agent/CI, no app open) gets real images instead of broken links.
@@ -2330,9 +2351,11 @@ export async function compile(root: string, to = "pdf"): Promise<{ code: number;
   const { files, expanded } = await readExpandedQmd(docAbs);
   const numbers = new Map(collectEmbedLabels(expanded).map((l, i) => [l, i + 1] as const));
   const captions = new Map<string, string>();
+  const knownLabels = new Set<string>();
   try {
     const { project, index } = await loadFigModel(root);
     for (const f of index.figures ?? []) {
+      knownLabels.add(f.label);
       const fig = ops.figById(project, f.id);
       const cap = fig ? composeCaption(fig) : "";
       if (cap.trim()) captions.set(f.label, cap);
@@ -2368,7 +2391,38 @@ export async function compile(root: string, to = "pdf"): Promise<{ code: number;
   }
   await journal(root, { action: "compile", to, code });
   const note = renders.failed.length ? `\n(figure renders failed: ${renders.failed.join(", ")})` : "";
-  return { code, log: log + note };
+
+  // Post-compile summary (moma feedback #12): the output path and a compact
+  // figures/citations resolution report, so "did everything land?" needs no
+  // digging through the quarto log.
+  let output: string | undefined;
+  const created = /Output created:\s*(.+)/.exec(log);
+  if (created) {
+    const cand = path.resolve(path.dirname(docAbs), created[1].trim());
+    if (await exists(cand)) output = cand;
+  }
+  if (!output && code === 0) {
+    const ext = to === "html" ? ".html" : to === "docx" ? ".docx" : `.${to.replace(/^[^a-z]*/i, "")}`;
+    const cand = docAbs.replace(/\.qmd$/i, ext);
+    if (await exists(cand)) output = cand;
+  }
+  const embeddedLabels = collectEmbedLabels(expanded);
+  const figures = {
+    embedded: embeddedLabels.length,
+    resolved: embeddedLabels.filter((l) => knownLabels.has(l)).length,
+    missing: embeddedLabels.filter((l) => !knownLabels.has(l)),
+  };
+  const bibText = await fs
+    .readFile(path.join(root, (m as { references?: { library?: string } }).references?.library ?? "references/library.bib"), "utf8")
+    .catch(() => "");
+  const bibKeys = new Set([...bibText.matchAll(/@\w+\s*\{\s*([^,\s{}]+)\s*,/g)].map((mm) => mm[1]));
+  const used = citationKeysIn(expanded);
+  const citations = {
+    keys: used.length,
+    resolved: used.filter((k) => bibKeys.has(k)).length,
+    missing: used.filter((k) => !bibKeys.has(k)),
+  };
+  return { code, log: log + note, output, figures, citations };
 }
 
 // --------------------------------------------------------------------------
@@ -2502,6 +2556,8 @@ export interface ValidateResult {
   ok: boolean;
   checked: number;
   errors: string[];
+  /** non-fatal project lint (empty/unembedded figures, overlapping frames). */
+  warnings?: string[];
 }
 
 /** Validate the whole project (or one file) against the bundled JSON Schemas. */
@@ -2542,7 +2598,55 @@ export async function validate(root: string, file?: string): Promise<ValidateRes
   } catch {
     /* no manifest — skip deck validation */
   }
-  return { ok: errors.length === 0, checked, errors };
+
+  // Project lint (moma feedback #13) — non-fatal, but exactly the problems a
+  // whole-canvas render exposes late: an empty leftover figure silently shifts
+  // every figure number; a figure embedded in no document never compiles; two
+  // frames overlapping on the canvas render on top of each other.
+  const warnings: string[] = [];
+  try {
+    const m = await loadManifest(root);
+    const { project, index } = await loadFigModel(root);
+    const embedded = new Set<string>();
+    const docPaths = [m.manuscript?.path, ...(m.supplementary ?? []).map((s) => s.path)].filter(
+      (p): p is string => typeof p === "string",
+    );
+    const seen = new Set<string>();
+    for (const dp of docPaths) {
+      const { expanded } = await readExpandedQmd(path.resolve(root, dp), seen);
+      for (const l of collectEmbedLabels(expanded)) embedded.add(l);
+    }
+    for (const f of index.figures ?? []) {
+      const fig = ops.figById(project, f.id);
+      if (!fig) continue;
+      if (fig.elements.length === 0)
+        warnings.push(`figure ${f.id} is EMPTY (0 elements) — delete it or fill it; it still occupies order ${f.order} and shifts figure numbers`);
+      else if (docPaths.length && !embedded.has(f.label))
+        warnings.push(`figure ${f.id} (${f.label}) is not embedded in any document — it won't appear in the compiled manuscript`);
+    }
+    // Overlapping frames per canvas (render-canvas shows them stacked).
+    const byCanvas = new Map<string, { id: string; x: number; y: number; w: number; h: number }[]>();
+    for (const f of index.figures ?? []) {
+      const fig = ops.figById(project, f.id);
+      if (!fig) continue;
+      const arr = byCanvas.get(f.canvas ?? "") ?? [];
+      arr.push({ id: f.id, x: fig.x ?? 0, y: fig.y ?? 0, w: fig.width, h: fig.height });
+      byCanvas.set(f.canvas ?? "", arr);
+    }
+    for (const [cid, figs] of byCanvas) {
+      for (let i = 0; i < figs.length; i++)
+        for (let k = i + 1; k < figs.length; k++) {
+          const a = figs[i], b = figs[k];
+          const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+          const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+          if (overlapX > 1 && overlapY > 1)
+            warnings.push(`figures ${a.id} and ${b.id} OVERLAP on canvas ${cid} (${Math.round(overlapX)}×${Math.round(overlapY)}) — check render-canvas`);
+        }
+    }
+  } catch {
+    /* lint is best-effort — schema validation is the contract */
+  }
+  return { ok: errors.length === 0, checked, errors, warnings };
 }
 
 /** Validate a FluxPlot output (the WS7 contract): the manifest is schema-valid AND

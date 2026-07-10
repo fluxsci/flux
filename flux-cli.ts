@@ -990,11 +990,22 @@ async function main() {
     }
     case "compile": {
       const r = await core.compile(R(), (flags.to as string) ?? "pdf");
-      console.error(`✓ quarto exited ${r.code}`);
       if (r.code !== 0) {
+        console.error(`✗ quarto exited ${r.code}`);
         console.error(r.log);
         process.exit(r.code);
       }
+      console.error(`✓ compiled${r.output ? ` → ${r.output}` : ` (quarto exited 0)`}`);
+      if (r.figures)
+        console.error(
+          `  figures: ${r.figures.resolved}/${r.figures.embedded} embedded figure(s) resolved` +
+            (r.figures.missing.length ? ` — no project figure for: ${r.figures.missing.join(", ")}` : ""),
+        );
+      if (r.citations)
+        console.error(
+          `  citations: ${r.citations.resolved}/${r.citations.keys} key(s) resolved in the project library` +
+            (r.citations.missing.length ? ` — unresolved: @${r.citations.missing.join(", @")}` : ""),
+        );
       break;
     }
     case "comments": {
@@ -1248,7 +1259,8 @@ async function main() {
     }
     case "validate": {
       const res = await core.validate(R(), _[0]);
-      if (res.ok) console.error(`✓ valid (${res.checked} file(s) checked)`);
+      for (const w of res.warnings ?? []) console.error(`⚠ ${w}`);
+      if (res.ok) console.error(`✓ valid (${res.checked} file(s) checked${res.warnings?.length ? `, ${res.warnings.length} warning(s)` : ""})`);
       else {
         console.error(`✗ ${res.errors.length} schema problem(s):`);
         for (const e of res.errors) console.error("  " + e);
