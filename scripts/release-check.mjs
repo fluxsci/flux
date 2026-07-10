@@ -12,6 +12,9 @@
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { assertNodeVersion } from "./lib/nodeCheck.mjs";
+
+assertNodeVersion("release-check"); // WS-0b: never cut a release from an off-CI runtime
 
 const root = process.cwd();
 const skipPack = process.argv.includes("--skip-pack");

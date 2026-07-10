@@ -32,7 +32,13 @@ jobs:
       - name: Type-check (svelte-check must be 0 errors)
         run: npm run check
       - name: Pure verify tier (hermetic — no network, no dev server)
-        run: npm run test:pure
+        run: node scripts/run-verifies.mjs --tier pure --jobs 4
+      - name: Upload verify summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pure-verify-summary
+          path: test-results/summary.json
       - name: Build (Vite bundle + dist/flux-cli.mjs + dist/flux-mcp.mjs)
         run: npm run build
       - name: Assert the packaged bundles were emitted

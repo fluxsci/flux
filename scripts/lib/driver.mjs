@@ -27,6 +27,10 @@ const _errs = new WeakMap();
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// WS-7.3: condition-based waits — preferred over sleep() for anything that has
+// an observable condition. See scripts/lib/wait.mjs for the conversion recipe.
+export { waitFor, waitForSelector, waitForGone, waitForText, waitForFrame } from "./wait.mjs";
+
 export async function launch({ width = 1440, height = 900 } = {}) {
   const browser = await puppeteer.launch({
     executablePath: CHROME,

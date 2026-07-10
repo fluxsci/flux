@@ -12,16 +12,19 @@
 // dirs, and the shared dev server). Exit code = number of failures.
 
 import { spawn } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertNodeVersion } from "./lib/nodeCheck.mjs";
+
+assertNodeVersion("run-verifies"); // WS-0b: gates only count on the CI runtime
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(readFileSync(path.join(repoRoot, "scripts", "verify-manifest.json"), "utf8"));
 
 // ---------- args ----------
 const args = process.argv.slice(2);
-const opt = { tiers: [], groups: [], only: null, list: false, timeout: 120000 };
+const opt = { tiers: [], groups: [], only: null, list: false, timeout: 120000, jobs: 1, changed: false };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === "--tier") opt.tiers.push(...String(args[++i] || "").split(",").filter(Boolean));
@@ -29,6 +32,8 @@ for (let i = 0; i < args.length; i++) {
   else if (a === "--only") opt.only = args[++i];
   else if (a === "--list") opt.list = true;
   else if (a === "--timeout") opt.timeout = Number(args[++i]) || opt.timeout;
+  else if (a === "--jobs") opt.jobs = Math.max(1, Number(args[++i]) || 1);
+  else if (a === "--changed") opt.changed = true;
   else {
     console.error(`Unknown arg: ${a}`);
     process.exit(2);
@@ -71,6 +76,71 @@ for (const g of opt.groups) {
   }
   scripts.forEach(add);
 }
+// ---------- --changed: map the branch diff to the scripts that gate it ----------
+// manifest.pathMap is an ORDERED list of { glob, run } entries; the first glob a
+// changed file matches wins for that file; the union of all matched `run` sets
+// (plus tier:pure as the safety floor when any file matches nothing) executes.
+// run entries: "tier:<name>" | "group:<name>" | "self" (a changed verify script
+// runs itself).
+if (opt.changed) {
+  const { execSync } = await import("node:child_process");
+  const globRe = (g) =>
+    new RegExp(
+      "^" +
+        g
+          .split(/(\*\*\/?|\*)/)
+          .map((part) =>
+            part === "**" || part === "**/" ? "(?:.*/)?" : part === "*" ? "[^/]*" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          )
+          .join("") +
+        "$",
+    );
+  let files = [];
+  try {
+    const base = execSync("git merge-base origin/main HEAD", { cwd: repoRoot }).toString().trim();
+    files = execSync(`git diff --name-only ${base}`, { cwd: repoRoot }).toString().trim().split("\n").filter(Boolean);
+    const dirty = execSync("git status --porcelain", { cwd: repoRoot })
+      .toString()
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => l.slice(3).replace(/^.* -> /, ""));
+    files = [...new Set([...files, ...dirty])];
+  } catch (e) {
+    console.error(`--changed: git diff failed (${e.message}) — falling back to full pure tier`);
+  }
+  const entries = (manifest.pathMap ?? []).map((e) => ({ ...e, re: globRe(e.glob) }));
+  const wanted = new Set();
+  let unmatched = false;
+  for (const f of files) {
+    const hit = entries.find((e) => e.re.test(f));
+    if (!hit) {
+      unmatched = true;
+      continue;
+    }
+    for (const r of hit.run) wanted.add(r === "self" ? `self:${f}` : r);
+  }
+  if (unmatched || files.length === 0) wanted.add("tier:pure"); // safety floor
+  for (const w of wanted) {
+    if (w.startsWith("tier:")) {
+      const t = manifest.tiers[w.slice(5)];
+      if (!t) console.warn(`--changed: pathMap names unknown tier "${w.slice(5)}" — skipped (does it land in a later phase?)`);
+      else t.forEach(add);
+    } else if (w.startsWith("group:")) {
+      const g = manifest.groups[w.slice(6)];
+      if (!g) console.warn(`--changed: pathMap names unknown group "${w.slice(6)}" — skipped`);
+      else g.forEach(add);
+    } else if (w.startsWith("self:")) {
+      const f = w.slice(5);
+      const base = path.basename(f);
+      if (f.startsWith("scripts/verify-") || f.startsWith("scripts/figenh-")) {
+        if (tierOf.has(base)) add(base);
+      }
+    }
+  }
+  console.log(`--changed: ${files.length} changed file(s) → ${set.length} script(s)`);
+}
+
 const run = opt.only ? set.filter((s) => s.includes(opt.only)) : set;
 if (!run.length) {
   console.error("Nothing to run.");
@@ -134,7 +204,13 @@ process.on("SIGINT", () => {
 // ---------- per-script execution ----------
 function runScript(name) {
   const file = path.join(repoRoot, "scripts", name);
-  const [cmd, cargs] = name.endsWith(".ts") ? ["npx", ["tsx", file]] : ["node", [file]];
+  // Children run THIS runner's runtime (process.execPath), never whatever `node`
+  // happens to be first on PATH — the WS-0b version gate must cover the whole
+  // tier. `--import tsx` replaces the npx→tsx wrapper chain (same loader, one
+  // process, ~0.4s less overhead per script).
+  const [cmd, cargs] = name.endsWith(".ts")
+    ? [process.execPath, ["--import", "tsx", file]]
+    : [process.execPath, [file]];
   const timeout = manifest.timeouts?.[name] ?? opt.timeout;
   return new Promise((resolve) => {
     const t0 = Date.now();
@@ -163,9 +239,41 @@ function runScript(name) {
     }, timeout);
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ name, ms: Date.now() - t0, code: timedOut ? "timeout" : code, out });
+      // WS-7.4: scripts on harness.mjs print `##VERIFY## {json}` — parse it so
+      // summary.json carries check counts; exit code stays the source of truth.
+      let sentinel = null;
+      const m = out.match(/##VERIFY## (\{.*\})/g);
+      if (m) {
+        try {
+          sentinel = JSON.parse(m[m.length - 1].slice("##VERIFY## ".length));
+        } catch {}
+      }
+      resolve({ name, ms: Date.now() - t0, code: timedOut ? "timeout" : code, out, sentinel });
     });
   });
+}
+
+async function execWithRetry(name) {
+  let r = await runScript(name);
+  // Timing-gated scripts (frame budgets, perf medians) get ONE retry — a shared-server
+  // suite run can spike them. A genuine regression fails twice.
+  if (r.code !== 0 && manifest.retryOnce?.includes(name)) {
+    r = await runScript(name);
+    r.retried = true;
+  }
+  return r;
+}
+
+function report(r) {
+  const secs = (r.ms / 1000).toFixed(1);
+  const checks = r.sentinel ? ` [${r.sentinel.checks} checks]` : "";
+  console.log(
+    `${r.code === 0 ? "  ✓" : "  ✗"} ${r.name} (${secs}s)${checks}${r.retried ? " [retried]" : ""}${r.code === 0 ? "" : ` — exit ${r.code}`}`,
+  );
+  if (r.code !== 0) {
+    const tail = r.out.trimEnd().split("\n").slice(-40).join("\n");
+    console.log(`    ┄┄ output tail ┄┄\n${tail.replace(/^/gm, "    ")}\n`);
+  }
 }
 
 // ---------- main ----------
@@ -179,31 +287,69 @@ if (needsBuild.length) {
 }
 if (needsServer) await ensureServer();
 
-console.log(`Running ${run.length} verify script(s)…\n`);
+console.log(`Running ${run.length} verify script(s)…${opt.jobs > 1 ? ` (--jobs ${opt.jobs}, pure tier only)` : ""}\n`);
 const results = [];
-for (const name of run) {
-  process.stdout.write(`  … ${name}`);
-  let r = await runScript(name);
-  // Timing-gated scripts (frame budgets, perf medians) get ONE retry — a shared-server
-  // suite run can spike them. A genuine regression fails twice.
-  let retried = false;
-  if (r.code !== 0 && manifest.retryOnce?.includes(name)) {
-    retried = true;
-    r = await runScript(name);
-  }
-  results.push(r);
-  const secs = (r.ms / 1000).toFixed(1);
-  process.stdout.write(
-    `\r${r.code === 0 ? "  ✓" : "  ✗"} ${name} (${secs}s)${retried ? " [retried]" : ""}${r.code === 0 ? "" : ` — exit ${r.code}`}\n`,
+// WS-7.6c: --jobs N parallelizes the PURE tier only (hermetic — own temp dirs,
+// no shared server). ui/scale/bundle stay strictly sequential: they share :1420
+// and frame-timing budgets.
+const pooled = opt.jobs > 1 ? run.filter((n) => tierOf.get(n) === "pure") : [];
+const serial = opt.jobs > 1 ? run.filter((n) => tierOf.get(n) !== "pure") : run;
+if (pooled.length) {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(opt.jobs, pooled.length) }, async () => {
+      while (next < pooled.length) {
+        const name = pooled[next++];
+        const r = await execWithRetry(name);
+        results.push(r);
+        report(r);
+      }
+    }),
   );
-  if (r.code !== 0) {
-    const tail = r.out.trimEnd().split("\n").slice(-40).join("\n");
-    console.log(`    ┄┄ output tail ┄┄\n${tail.replace(/^/gm, "    ")}\n`);
-  }
+}
+for (const name of serial) {
+  process.stdout.write(`  … ${name}`);
+  const r = await execWithRetry(name);
+  results.push(r);
+  process.stdout.write("\r");
+  report(r);
 }
 
 const failed = results.filter((r) => r.code !== 0);
 const total = ((Date.now() - t0) / 1000).toFixed(1);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${total}s`);
 if (failed.length) console.log(`FAILED: ${failed.map((f) => f.name).join(", ")}`);
+
+// WS-0b: every recorded run is attributable to a runtime. CI uploads this file.
+try {
+  mkdirSync(path.join(repoRoot, "test-results"), { recursive: true });
+  writeFileSync(
+    path.join(repoRoot, "test-results", "summary.json"),
+    JSON.stringify(
+      {
+        startedAt: new Date(t0).toISOString(),
+        node: process.versions.node,
+        platform: process.platform,
+        tiers: opt.tiers,
+        groups: opt.groups,
+        only: opt.only,
+        passed: results.length - failed.length,
+        total: results.length,
+        totalMs: Date.now() - t0,
+        results: results.map((r) => ({
+          name: r.name,
+          tier: tierOf.get(r.name) ?? null,
+          code: r.code,
+          ms: r.ms,
+          ...(r.retried ? { retried: true } : {}),
+          ...(r.sentinel ? { checks: r.sentinel.checks, failedChecks: r.sentinel.failed } : {}),
+        })),
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+} catch (e) {
+  console.warn(`(could not write test-results/summary.json: ${e})`);
+}
 process.exit(Math.min(failed.length, 100));
