@@ -25,6 +25,7 @@ import { normalizeOrganize, setTags, setStatus, setCollections, mergeOrganize, t
 import { atomicWrite, quarantineCorrupt } from "./fsx";
 import { withLockAt, withLock, fluxlibLockDir, getLockClient } from "./locks";
 import { splitBibEntries, lightEntry, bibtexKey } from "../src/lib/references/bibtex";
+import * as fluxPaths from "../electron/fluxPaths.cjs";
 
 const SCHEMA_VERSION = "0.1.0";
 
@@ -32,18 +33,12 @@ const SCHEMA_VERSION = "0.1.0";
 // paths + preferences (the first file-based global config the CLI/agents read)
 // --------------------------------------------------------------------------
 
-/** Electron's `app.getPath("userData")` with productName "Flux", reproduced for
- *  the CLI/MCP (which have no Electron) so both read the SAME preferences.json. */
-export function userDataDir(): string {
-  const home = os.homedir();
-  switch (process.platform) {
-    case "darwin":
-      return path.join(home, "Library", "Application Support", "Flux");
-    case "win32":
-      return path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "Flux");
-    default:
-      return path.join(process.env.XDG_CONFIG_HOME || path.join(home, ".config"), "Flux");
-  }
+/** The machine config dir — LOWERCASE "flux" on every platform. Delegates to
+ *  electron/fluxPaths.cjs, the ONE resolver shared with the Electron main
+ *  process (which pins app.getPath("userData") to the same dir), so the
+ *  CLI/MCP and the app always read the SAME preferences.json. */
+export function userDataDir(platform?: NodeJS.Platform): string {
+  return fluxPaths.userDataDir(platform);
 }
 
 const prefsPath = () => path.join(userDataDir(), "preferences.json");

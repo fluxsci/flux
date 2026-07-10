@@ -114,7 +114,7 @@ export function createMemBridge(): FileBridge & {
       files.delete(norm(p));
     },
     async paths() {
-      return { home: "/home/demo", userData: "/home/demo/.config/Flux", documents: "/home/demo/Documents" };
+      return { home: "/home/demo", userData: "/home/demo/.config/flux", documents: "/home/demo/Documents" };
     },
     // Machine-global text-style library — localStorage-backed in the fixture so
     // verify scripts can exercise the copy-on-apply flow without Electron.
@@ -240,8 +240,8 @@ export function createMemBridge(): FileBridge & {
       return { ok: false, log: "Quarto is unavailable in the demo fixture (use Surface B)." };
     },
     async prefsGet() {
-      const p = norm("/home/demo/.config/Flux/preferences.json");
-      const resolved = { fluxLibResolved: "/home/demo/FluxLib" };
+      const p = norm("/home/demo/.config/flux/preferences.json");
+      const resolved = { fluxLibResolved: "/home/demo/FluxConfig/FluxLib" };
       try {
         return files.has(p)
           ? { ...resolved, ...JSON.parse(new TextDecoder().decode(files.get(p)!)) }
@@ -251,7 +251,7 @@ export function createMemBridge(): FileBridge & {
       }
     },
     async prefsSet(patch) {
-      const p = norm("/home/demo/.config/Flux/preferences.json");
+      const p = norm("/home/demo/.config/flux/preferences.json");
       let cur: Record<string, unknown> = {};
       try {
         if (files.has(p)) cur = JSON.parse(new TextDecoder().decode(files.get(p)!));

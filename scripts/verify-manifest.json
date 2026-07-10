@@ -35,6 +35,7 @@
       "figenh-textstyle-parity.ts",
       "verify-crop-math.ts",
       "figenh-crop-parity.ts",
+      "verify-fluxconfig.ts",
       "verify-line-arrow.ts",
       "verify-text-wrap.ts",
       "verify-compensate.ts",

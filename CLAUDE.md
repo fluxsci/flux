@@ -28,6 +28,19 @@ Hard rules:
   `__fluxSeedBib`.
 - `scripts/verify-*.ts` — pure logic, run with `npx tsx`.
 
+## Machine config paths (hard rule)
+
+- Machine-level config resolves ONLY to the lowercase app dir
+  (`~/.config/flux` on Linux; lowercase "flux" on macOS/Windows). Never build a
+  path containing a capital-F "Flux" — the one legacy reference lives in
+  `electron/fluxPaths.cjs` (`legacyUserDataDir`, migration source only).
+  Display strings that must say "Flux" carry a `// flux-cap-ok` marker.
+- All user-level Flux state lives in `~/FluxConfig` (pointer: `fluxConfigPath`
+  in preferences.json). FluxLib is always DERIVED: `<FluxConfig>/FluxLib` —
+  never persist or read a separate fluxLibPath.
+- `scripts/verify-fluxconfig.ts` (pure tier) gates this; if it fails, fix the
+  path, don't extend the allowlist.
+
 ## Repo etiquette
 
 - Stage explicit paths only (never `git add -A` / `commit -a`) — parallel

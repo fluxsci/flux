@@ -8,6 +8,14 @@ const { pickRelease } = require("./updateCheck.cjs");
 const { parseFluxUrl, fluxUrlFromArgv } = require("./fluxUrl.cjs");
 const { createProxyEngine } = require("./proxyFetch.cjs");
 const { createNetGet } = require("./netFetch.cjs");
+const fluxPaths = require("./fluxPaths.cjs");
+
+// Machine config is ALWAYS the lowercase app dir (~/.config/flux on Linux) —
+// pinned before ANYTHING touches userData (the single-instance lock, prefs,
+// textstyles, Chromium session state). Without this, packaged builds derive
+// the capital-F dir from productName while dev + flux-core resolve lowercase.
+// See CLAUDE.md "Machine config paths"; gated by verify-fluxconfig.ts.
+app.setPath("userData", fluxPaths.userDataDir());
 
 // chokidar is ESM-only (v5); this file is CommonJS, so it must be loaded via a
 // dynamic import() — a require() throws ERR_REQUIRE_ESM, which (when swallowed)
@@ -442,7 +450,7 @@ function createWindow() {
     minWidth: 940,
     minHeight: 620,
     backgroundColor: "#100f0f",
-    title: "Flux",
+    title: "Flux", // flux-cap-ok (display name, not a path)
     // Linux/Windows: fully frameless — we draw our own title bar (TitleBar.svelte).
     // macOS: keep the native traffic lights but hide the title-bar chrome
     // (titleBarStyle:"hidden"), nudged to sit centered in our 38px bar.
@@ -1780,7 +1788,7 @@ ipcMain.handle("pty:create", (e, opts = {}) => {
       env: {
         ...process.env,
         TERM: "xterm-256color",
-        TERM_PROGRAM: "Flux",
+        TERM_PROGRAM: "Flux", // flux-cap-ok (display name, not a path)
         COLORTERM: "truecolor",
         ...(opts.env && typeof opts.env === "object" ? opts.env : {}),
       },
