@@ -75,11 +75,13 @@ if (res.error) {
 const html = res.srcdoc;
 
 console.log("PAP-6 — figure/table captions survive a preceding callout:");
-// Decisive: under the old blocks.length index, capStash[0]="Growth over time" was never
-// referenced (placeholders were CAP1/CAP2), so this string could not appear at all.
-assert(html.includes("Growth over time"), "PAP-6: figure caption text is rendered");
+// Decisive: under the old blocks.length index, capStash[0] was never referenced
+// (placeholders were CAP1/CAP2), so this string could not appear at all. The
+// caption's SOURCE is the figure model (embed alts are pointers now), so the
+// stashed text is the fixture's model caption, not the "Growth over time" alt.
+assert(html.includes("Mycelial growth under nutrient stress"), "PAP-6: figure caption text (from the model) is rendered");
 assert(
-  /<figure[^>]*id="fig-growth"[\s\S]*?Growth over time[\s\S]*?<\/figure>/.test(html),
+  /<figure[^>]*id="fig-growth"[\s\S]*?Mycelial growth under nutrient stress[\s\S]*?<\/figure>/.test(html),
   "PAP-6: the caption lands inside the fig-growth <figcaption> (not shifted onto another block)",
 );
 assert(html.includes("My data table"), "PAP-6: the table caption text is rendered too");
