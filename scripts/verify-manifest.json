@@ -146,7 +146,8 @@
       "verify-text-biu.mjs",
       "verify-text-styles.mjs",
       "verify-groups-layers.mjs",
-      "verify-slide-groups-gui.mjs"
+      "verify-slide-groups-gui.mjs",
+      "verify-line-pivot.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",

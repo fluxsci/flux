@@ -327,6 +327,42 @@ export function scaleRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
   }
 }
 
+/** Figma-parity endpoint pivot: move ONE endpoint of a line to `to` (figure-
+ *  local) while the other stays FIXED. Shift constrains the moving endpoint to
+ *  45° steps ABOUT THE FIXED ONE. Rotation/flip must already be baked into the
+ *  two points (grab-time world endpoints — geometry.lineWorldEndpoints); the
+ *  result is normalized the way the model stores lines anyway: origin =
+ *  endpoint 1, x1/y1 = 0, rotation 0 (resizeRemap's line shape). */
+export function lineEndpointRemap(
+  e: Element,
+  which: 1 | 2,
+  fixed: Pt,
+  to: Pt,
+  shift = false,
+): void {
+  if (e.type !== "line") return;
+  let mx = to.x;
+  let my = to.y;
+  if (shift) {
+    const { dx, dy } = constrain45(mx - fixed.x, my - fixed.y);
+    mx = fixed.x + dx;
+    my = fixed.y + dy;
+  }
+  const p1 = which === 1 ? { x: mx, y: my } : fixed;
+  const p2 = which === 2 ? { x: mx, y: my } : fixed;
+  e.x = p1.x;
+  e.y = p1.y;
+  e.x1 = 0;
+  e.y1 = 0;
+  e.x2 = p2.x - p1.x;
+  e.y2 = p2.y - p1.y;
+  e.width = 0;
+  e.height = 0;
+  e.rotation = 0;
+  delete e.flipX;
+  delete e.flipY;
+}
+
 // Remap one element when the selection bounding box changes from ob -> nb.
 // `axes` (from the drag handle: e/w = width-only, n/s = height-only, corners =
 // both) drives the TEXT sizing-mode transitions; without it, the box delta

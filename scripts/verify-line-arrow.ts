@@ -4,8 +4,12 @@
 // base (no stroke poking through the tip — the "arrows look terrible" bug),
 // V-style heads keep the full-length line, heads shrink to fit short lines,
 // round caps are the default, and SVG export mirrors the same geometry.
+// PLUS the Figma-parity endpoint pivot (feedback sweep): lineWorldEndpoints
+// bakes rotation/flip, lineEndpointRemap moves ONE endpoint while the other
+// stays fixed (shift = 45° about the FIXED end), normalized to the model shape.
 // Run: npx tsx scripts/verify-line-arrow.ts
-import { lineRender } from "../src/lib/geometry";
+import { lineRender, lineWorldEndpoints } from "../src/lib/geometry";
+import { lineEndpointRemap } from "../src/lib/editing";
 import { elementToSvg } from "../src/lib/export";
 import type { LineElement } from "../src/lib/types";
 
@@ -82,5 +86,55 @@ svg = elementToSvg(mk({ arrowStyle: "vee", cap: "butt" }));
 assert(svg.includes("<polyline") && svg.includes('fill="none"'), "export vee is a stroked polyline");
 assert(svg.includes('x2="100"') && svg.includes('stroke-linecap="butt"'), "export vee keeps full line + explicit cap");
 assert(!svg.includes("<polygon"), "no polygon for vee heads");
+
+// 8. endpoint pivot: drag one end, the other is INVARIANT (world position).
+{
+  const el = mk({ x: 10, y: 20, x1: 0, y1: 0, x2: 80, y2: 0 });
+  const before = lineWorldEndpoints(el);
+  lineEndpointRemap(el, 2, before.p1, { x: 130, y: 60 });
+  const after = lineWorldEndpoints(el);
+  assert(near(after.p1.x, before.p1.x) && near(after.p1.y, before.p1.y), "pivot: the fixed endpoint's world position is unchanged");
+  assert(near(after.p2.x, 130) && near(after.p2.y, 60), "pivot: the dragged endpoint lands on the pointer");
+  assert(el.x1 === 0 && el.y1 === 0 && el.rotation === 0 && el.width === 0 && el.height === 0,
+    "pivot result is normalized (origin = endpoint 1, rotation 0)");
+
+  // Dragging endpoint 1 keeps endpoint 2 fixed.
+  const el2 = mk({ x: 10, y: 20, x2: 80, y2: 0 });
+  const b2 = lineWorldEndpoints(el2);
+  lineEndpointRemap(el2, 1, b2.p2, { x: 0, y: 0 });
+  const a2 = lineWorldEndpoints(el2);
+  assert(near(a2.p2.x, b2.p2.x) && near(a2.p2.y, b2.p2.y) && near(a2.p1.x, 0) && near(a2.p1.y, 0),
+    "pivot: dragging endpoint 1 keeps endpoint 2 fixed");
+}
+
+// 9. shift constrains to 45° steps ABOUT THE FIXED endpoint.
+{
+  const el = mk({ x: 0, y: 0, x2: 100, y2: 0 });
+  const { p1 } = lineWorldEndpoints(el);
+  lineEndpointRemap(el, 2, p1, { x: 96, y: 41 }, true); // ~23° from fixed → snaps
+  const { p2 } = lineWorldEndpoints(el);
+  const ang = ((Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI + 360) % 360;
+  assert(near(ang % 45, 0, 1e-6), `shift-pivot snaps to a 45° multiple (got ${ang.toFixed(2)}°)`);
+}
+
+// 10. a ROTATED/FLIPPED line's endpoints bake at grab: lineWorldEndpoints gives
+// the on-screen points, and pivoting from them zeroes the rotation without a
+// visual jump (the fixed end stays where the user SEES it).
+{
+  const el = mk({ x: 0, y: 0, x2: 100, y2: 0, rotation: 90 });
+  const w = lineWorldEndpoints(el);
+  // 100-long horizontal line rotated 90° about its centre (50,0):
+  assert(near(w.p1.x, 50) && near(w.p1.y, -50) && near(w.p2.x, 50) && near(w.p2.y, 50),
+    "lineWorldEndpoints applies rotation about the bbox centre");
+  lineEndpointRemap(el, 2, w.p1, { x: 90, y: 30 });
+  const a = lineWorldEndpoints(el);
+  assert(near(a.p1.x, 50) && near(a.p1.y, -50), "pivoting a rotated line keeps the SEEN fixed endpoint");
+  assert(el.rotation === 0 && !el.flipX && !el.flipY, "rotation/flip are baked into the endpoints");
+
+  const fl = mk({ x: 0, y: 0, x2: 100, y2: 40, flipX: true });
+  const wf = lineWorldEndpoints(fl);
+  assert(near(wf.p1.x, 100) && near(wf.p1.y, 0) && near(wf.p2.x, 0) && near(wf.p2.y, 40),
+    "lineWorldEndpoints applies flipX about the bbox centre");
+}
 
 console.log("\nALL LINE/ARROW TESTS PASSED");

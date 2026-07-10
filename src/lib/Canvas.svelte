@@ -40,9 +40,10 @@
     rectsIntersect,
     rotateAbout,
     gapBetween,
+    lineWorldEndpoints,
     type Rect,
   } from "./geometry";
-  import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, type CropRemapResult } from "./editing";
+  import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, lineEndpointRemap, type CropRemapResult } from "./editing";
   import { nodesToPath, pathToNodes, constrain45 } from "./path";
   import * as ops from "./ops";
   import { settings } from "./settings";
@@ -112,6 +113,17 @@
         // single pointer-up commit (ops.setCrop). Esc rides the normal
         // transient-only cancel.
         crop?: { orig: ImageElement | SemanticPlotElement; disp: { width: number; height: number } };
+      }
+    | {
+        // Figma-parity line pivot: drag ONE endpoint, the other stays fixed.
+        // Rotation/flip are baked into the endpoints at grab; per-frame updates
+        // go through mutate() after one beginGesture (the node-drag precedent),
+        // so Esc cancels via rollbackGesture and undo is a single step.
+        kind: "lineEnd";
+        figId: string;
+        id: string;
+        which: 1 | 2;
+        fixed: { x: number; y: number }; // figure-local, transform baked
       }
     | {
         kind: "marquee";
@@ -1289,6 +1301,24 @@
     hostEl.setPointerCapture(e.pointerId);
   }
 
+  // Endpoint pivot (Figma parity): grab one end of a single selected line and
+  // drag it while the other end stays put. Rotation/flip bake into the world
+  // endpoints at grab (the drag then edits pure endpoint geometry — the shape
+  // the model stores anyway).
+  function onLineEndDown(e: PointerEvent, which: 1 | 2) {
+    e.stopPropagation();
+    if ($captionOpen) return;
+    const fig = activeFigure();
+    if (!fig || !selLine) return;
+    const { p1, p2 } = lineWorldEndpoints(selLine);
+    gesture = { kind: "lineEnd", figId: fig.id, id: selLine.id, which, fixed: which === 1 ? p2 : p1 };
+    gestureFig = fig;
+    gestureEls = [selLine];
+    committed = false;
+    dragging = false;
+    hostEl.setPointerCapture(e.pointerId);
+  }
+
   // Rotate handle (F2): drag rotates the selection about its bbox centre. The
   // model is updated live (from the captured originals so the delta never
   // compounds); Shift snaps the primary element's resulting angle to 15°.
@@ -1499,6 +1529,25 @@
       startDragging();
       gNb = nb;
       liveBox = nb;
+    } else if (g.kind === "lineEnd") {
+      // Per-frame model update through the shared pure remap (node-drag
+      // precedent: one beginGesture, then mutate — a single undo step, and Esc
+      // rolls the whole pivot back). A single line element keeps this cheap.
+      const lp = localPoint(e.clientX, e.clientY, fig);
+      startDragging();
+      ensureCommitted();
+      mutate((p) => {
+        const f = p.figures.find((ff) => ff.id === g.figId);
+        const el = f?.elements.find((x) => x.id === g.id);
+        if (!el || el.type !== "line") return;
+        lineEndpointRemap(el, g.which, g.fixed, lp, e.shiftKey);
+        if ($settings.snapPixel) {
+          el.x = Math.round(el.x);
+          el.y = Math.round(el.y);
+          el.x2 = Math.round(el.x2);
+          el.y2 = Math.round(el.y2);
+        }
+      });
     } else if (g.kind === "rotate") {
       // FIG-1: flicker-free rotate — accumulate the delta and apply a transient rotate transform
       // to the selection's LIVE scene groups (composited), committing once on release. The old
@@ -1712,6 +1761,9 @@
   function cancelGesture(): boolean {
     if (!gesture) return false;
     if (gestureAltDup) rollbackGesture(); // removes the copies minted at first move
+    // Endpoint pivot mutates the model per frame after ONE beginGesture — Esc
+    // restores that captured pre-state (same rail as alt-dup).
+    if (gesture.kind === "lineEnd" && committed) rollbackGesture();
     if (gesture.kind === "draw") activeTool.set("select");
     // Part move mutated the live node's transform transiently — put it back.
     if (gesture.kind === "partmove" && dragging) {
@@ -1967,6 +2019,27 @@
     const els = af.elements.filter((e) => $selection.has(e.id));
     return els.length > 0 && els.every((e) => effLocked(e));
   })();
+
+  // Figma-parity line editing: a SINGLE selected line/arrow gets two endpoint
+  // handles instead of the 8-handle bbox (which degenerates to a zero-area box
+  // for axis-aligned lines and only bbox-scales). Dragging one endpoint pivots
+  // the line about the fixed other.
+  $: selLine = (() => {
+    if (!af || selLocked || $captionOpen || $selection.size !== 1) return null;
+    const el = af.elements.find((e) => $selection.has(e.id));
+    return el && el.type === "line" ? el : null;
+  })();
+  $: lineEndsScreen =
+    selLine && af
+      ? (() => {
+          const { p1, p2 } = lineWorldEndpoints(selLine);
+          const s = (p: { x: number; y: number }) => ({
+            x: $viewport.panX + (af!.x + p.x) * $viewport.zoom,
+            y: $viewport.panY + (af!.y + p.y) * $viewport.zoom,
+          });
+          return { a: s(p1), b: s(p2) };
+        })()
+      : null;
 
   // Figma-style hover outline: a thin accent box around whatever a click would
   // select (the hovered element, expanded to its whole group). Suppressed while
@@ -2628,7 +2701,27 @@
     {/each}
 
     <!-- selection box + handles (hidden during node-edit — nodes stand in) -->
-    {#if selScreen && !editingInfo && !editPathId}
+    {#if lineEndsScreen && !editingInfo && !editPathId}
+      <!-- Figma parity: a single selected line gets its two ENDPOINT handles
+           (drag one to pivot about the other) — no bbox, no rotate handle
+           (endpoints subsume rotation; the bbox degenerates for h/v lines). -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <circle
+        class="endpoint-handle"
+        cx={lineEndsScreen.a.x}
+        cy={lineEndsScreen.a.y}
+        r="5"
+        on:pointerdown={(e) => onLineEndDown(e, 1)}
+      />
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <circle
+        class="endpoint-handle"
+        cx={lineEndsScreen.b.x}
+        cy={lineEndsScreen.b.y}
+        r="5"
+        on:pointerdown={(e) => onLineEndDown(e, 2)}
+      />
+    {:else if selScreen && !editingInfo && !editPathId}
       <rect class="sel-box" x={selScreen.x} y={selScreen.y} width={selScreen.w} height={selScreen.h} fill="none" />
       {#if !$captionOpen && !selLocked}
         <!-- rotate handle: circle above the top-centre resize handle, on a stem -->
@@ -2996,6 +3089,16 @@
     stroke-width: 1.5;
     pointer-events: all;
     cursor: grab;
+  }
+  .endpoint-handle {
+    fill: var(--c-tx-hi);
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    pointer-events: all;
+    cursor: crosshair;
+  }
+  .endpoint-handle:hover {
+    fill: var(--c-accent);
   }
   .rot-tip {
     fill: var(--c-tx-hi);

@@ -201,6 +201,23 @@ export interface LineRender {
   vees: number[][][]; // open-V heads as 3-point polylines (leg, tip, leg)
 }
 
+/** A line's two endpoints in FIGURE coords with rotation/flip applied — the
+ *  transform order mirrors Element.svelte's buildTransform (SVG lists apply
+ *  right-to-left: flip about the bbox centre FIRST, then rotate about it).
+ *  Feeds the endpoint handles + the pivot gesture's grab-time baking. */
+export function lineWorldEndpoints(e: LineElement): {
+  p1: { x: number; y: number };
+  p2: { x: number; y: number };
+} {
+  const b = elementBBox(e);
+  const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  const sx = e.flipX ? -1 : 1;
+  const sy = e.flipY ? -1 : 1;
+  const tp = (px: number, py: number) =>
+    rotatePoint({ x: c.x + (px - c.x) * sx, y: c.y + (py - c.y) * sy }, c, e.rotation ?? 0);
+  return { p1: tp(e.x + e.x1, e.y + e.y1), p2: tp(e.x + e.x2, e.y + e.y2) };
+}
+
 export function lineRender(e: LineElement): LineRender {
   const cap = e.cap ?? "round";
   const filled = (e.arrowStyle ?? "filled") === "filled";
