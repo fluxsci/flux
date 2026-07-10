@@ -56,6 +56,7 @@ import {
   validRowCounts,
   balancedRows,
   type AlignKind,
+  type Rect,
 } from "./geometry";
 import { scaleRemap } from "./editing";
 import { figurePanels } from "./captions";
@@ -1235,6 +1236,61 @@ export function applyTextStyle(p: Project, ids: Id[], styleId: Id): number {
  *  share a row. A fixed y-bucket mis-letters mixed-height row-mates (a 19-unit
  *  top offset bucketed two same-row panels apart → "f, e"). Returns whether any
  *  letter actually changed so callers can report a no-op instead of "✓ labeled". */
+/** Distance from a label to the panel it plausibly MARKS — the panel's
+ *  top-left region, never the whole bbox. A label measures against a panel's
+ *  TOP edge only: with whole-bbox distance, a row-2 label (16 above its panel)
+ *  sat nearer the row-1 panel's BOTTOM edge whenever the row gap was ≤ that
+ *  offset, so every lower-row label adopted the row above, rows merged, and
+ *  letters came out in a/c-b/d column order (moma feedback #6). Returns
+ *  Infinity when the label is not in the panel's top region at all. */
+function labelToPanelDistance(lb: Rect, b: Rect): number {
+  const dx = Math.max(b.x - lb.x, 0, lb.x - (b.x + b.w));
+  const dy = lb.y - b.y; // signed: <0 above the top edge, >0 below it
+  if (dy > Math.min(48, b.h * 0.5)) return Infinity; // below the top region
+  return Math.hypot(dx, Math.abs(dy));
+}
+
+/** The panel (plot/image) a label element marks, by top-left-region distance;
+ *  null when none is within `tol`. */
+export function panelForLabel(label: Element, anchors: Element[], tol = 48): Element | null {
+  const lb = elementBBox(label);
+  let best: { d: number; el: Element } | null = null;
+  for (const a of anchors) {
+    const d = labelToPanelDistance(lb, elementBBox(a));
+    if (!best || d < best.d) best = { d, el: a };
+  }
+  return best && best.d <= tol ? best.el : null;
+}
+
+/** Create a panel-label text for every plot/image panel that has none (the
+ *  same "?" stub compose-figure seeds, 16 above the panel's top-left corner —
+ *  autoLetterPanels letters them next). Panels are matched to existing labels
+ *  with the same top-left-region metric the letterer uses, so a partially
+ *  labeled figure only gains labels for its unlabeled panels. Returns how many
+ *  were created. (moma feedback #4: auto-label on an imported-then-arranged
+ *  figure had nothing to letter and could only fail.) */
+export function ensurePanelLabels(p: Project, figId: Id): { created: number } {
+  const f = figById(p, figId);
+  if (!f) return { created: 0 };
+  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
+  if (anchors.length < 2) return { created: 0 }; // single-panel figures aren't lettered
+  const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
+  const marked = new Set<Id>();
+  for (const l of labels) {
+    const a = panelForLabel(l, anchors);
+    if (a) marked.add(a.id);
+  }
+  let created = 0;
+  for (const a of anchors) {
+    if (marked.has(a.id)) continue;
+    const b = elementBBox(a);
+    // 8 pt bold (32/3 canvas px) — the journal-standard panel-letter size.
+    addPanelLabel(p, figId, { text: "?", x: b.x, y: Math.max(0, b.y - 16), fontSize: 32 / 3 });
+    created++;
+  }
+  return { created };
+}
+
 export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; letters: string[] } {
   const f = figById(p, figId);
   if (!f) return { changed: false, letters: [] };
@@ -1243,18 +1299,14 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
   const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
   const rowSpan = (e: Element): { top: number; bottom: number; x: number } => {
     const lb = elementBBox(e);
-    let best: { d: number; top: number; bottom: number } | null = null;
-    for (const a of anchors) {
-      const b = elementBBox(a);
-      const dx = Math.max(b.x - lb.x, 0, lb.x - (b.x + b.w));
-      const dy = Math.max(b.y - lb.y, 0, lb.y - (b.y + b.h));
-      const d = Math.hypot(dx, dy);
-      if (!best || d < best.d) best = { d, top: b.y, bottom: b.y + b.h };
-    }
-    // A label belongs to a panel only when it sits on/near one (composed labels
-    // sit 16 above the panel top); free-floating labels fall back to their own
+    const a = panelForLabel(e, anchors);
+    // A label belongs to a panel only when it marks one (composed labels sit
+    // 16 above the panel top); free-floating labels fall back to their own
     // extent padded by the old 24-unit tolerance.
-    if (best && best.d <= 48) return { top: best.top, bottom: best.bottom, x: lb.x };
+    if (a) {
+      const b = elementBBox(a);
+      return { top: b.y, bottom: b.y + b.h, x: lb.x };
+    }
     return { top: lb.y - 24, bottom: lb.y + lb.h + 24, x: lb.x };
   };
   const items = labels.map((e) => ({ e, ...rowSpan(e) }));

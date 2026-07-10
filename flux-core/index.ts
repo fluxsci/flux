@@ -1395,14 +1395,22 @@ export async function editPath(
 }
 
 /** auto-letter a figure's panel-label elements (a, b, c…) by reading order.
- *  `changed:false` = the assignment already matched (a silent "✓ labeled" on a
- *  no-op cost the moma agent a render-inspect cycle). */
-export async function autoLabel(root: string, figId: string): Promise<{ panels: string[]; changed: boolean }> {
+ *  Panels (plot/image) that have NO label first get the same "?" stub
+ *  compose-figure seeds, so auto-label works on any figure — including one
+ *  assembled via import-plots + arrange, which used to dead-end with "no panel
+ *  labels to letter" (moma feedback #4). `changed:false` = the assignment
+ *  already matched (a silent "✓ labeled" on a no-op cost the moma agent a
+ *  render-inspect cycle). */
+export async function autoLabel(
+  root: string,
+  figId: string,
+): Promise<{ panels: string[]; changed: boolean; created: number }> {
   return mutateFigModel(root, "auto_label", ({ project }) => {
     const fig = ops.figById(project, figId);
     if (!fig) throw new Error(`figure not found: ${figId}`);
+    const { created } = ops.ensurePanelLabels(project, figId);
     const { changed } = ops.autoLetterPanels(project, figId);
-    return { panels: panelLetters(fig), changed };
+    return { panels: panelLetters(fig), changed: changed || created > 0, created };
   });
 }
 
@@ -1528,15 +1536,20 @@ export async function toggleTextStyle(
   });
 }
 
-/** add a text element to a figure (parity gap: every other create verb existed). */
+/** add a text element to a figure (parity gap: every other create verb existed).
+ *  `panelLabel: true` creates a semantic panel label instead (bold 8 pt, linked
+ *  to the seeded "Panel Label" style, letterable by auto-label) — the flag the
+ *  auto-label error message always advertised (moma feedback #4). */
 export async function addFigText(
   root: string,
   figId: string,
-  opts: { text: string } & ops.Box & ops.TextOpts,
+  opts: { text: string; panelLabel?: boolean } & ops.Box & ops.TextOpts,
 ): Promise<{ id: string }> {
   return mutateFigModel(root, "add_text", ({ project }) => {
     if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-    const id = ops.addText(project, figId, opts);
+    const id = opts.panelLabel
+      ? ops.addPanelLabel(project, figId, opts)
+      : ops.addText(project, figId, opts);
     if (!id) throw new Error(`could not add text to ${figId}`);
     return { id };
   });

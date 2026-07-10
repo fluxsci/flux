@@ -44,7 +44,9 @@ usage: flux <verb> [root] [args] [--flags]
                  [--cols N] [--gap N] [--no-label] [--no-caption]
                                        assemble N plots into a labeled figure
   arrange <figId> [--root R] [--rows N | --cols N] [--gap N]   grid-arrange panels
-  auto-label <figId> [--root R]        auto-letter panel labels (a, b, c…)
+  auto-label <figId> [--root R]        auto-letter panel labels (a, b, c…) by
+                                       reading order; panels missing a label
+                                       get one first
   distribute <figId> [--axis h|v] [--gap n] [--ids a,b,c] [--root R]   distribute panels (exact gap when --gap)
   set-guides <figId> [--x a,b,c] [--y a,b,c] [--root R]   set ruler guides (column/baseline grid)
   duplicate <figId> <id…> [--dx n] [--dy n] [--count n] [--root R]   duplicate elements at an offset
@@ -66,7 +68,9 @@ usage: flux <verb> [root] [args] [--flags]
   reset-crop <id> [--root R]           remove a crop (full content at current scale)
   toggle-text-style <bold|italic|underline> <id…> [--root R]   B/I/U toggle on texts
   add-fig-text <figId> "text…" [--x --y --width --height --size-pt n --weight n
-            --font F --color c --align a --sizing m] [--root R]   add a figure text
+            --font F --color c --align a --sizing m] [--panel-label] [--root R]
+                                       add a figure text (--panel-label = a
+                                       semantic panel label auto-label letters)
   text-styles [--root R] [--global]    list named text styles (project | machine library)
   create-text-style --name N [--from elId | --font F --size-pt n --weight n
             --italic --underline --line-height n --color c --align a] [--root R]
@@ -410,9 +414,11 @@ async function main() {
     }
     case "auto-label": {
       const r = await core.autoLabel(R(), _[0]);
-      if (!r.panels.length) console.error(`⚠ ${_[0]} has no panel labels to letter (compose with labels, or add-fig-text with --panel-label)`);
+      const made = r.created ? ` (created ${r.created} missing label(s))` : "";
+      if (!r.panels.length)
+        console.error(`⚠ ${_[0]} has no letterable panels (needs ≥2 plot/image panels, or add labels via add-fig-text --panel-label)`);
       else if (!r.changed) console.error(`✓ ${_[0]} already labeled: ${r.panels.join("")} (no change)`);
-      else console.error(`✓ labeled ${_[0]}: ${r.panels.join("")}`);
+      else console.error(`✓ labeled ${_[0]}: ${r.panels.join("")}${made}`);
       break;
     }
     case "distribute": {
@@ -516,6 +522,7 @@ async function main() {
       const pt = num(flags["size-pt"]);
       const r = await core.addFigText(R(), _[0], {
         text: _.slice(1).join(" ") || "Text",
+        panelLabel: !!flags["panel-label"],
         x: num(flags.x),
         y: num(flags.y),
         width: num(flags.width),

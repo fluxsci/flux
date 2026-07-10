@@ -392,13 +392,15 @@ server.registerTool(
 server.registerTool(
   "auto_label",
   {
-    description: "Auto-letter a figure's panel labels (a, b, c…) by reading order.",
+    description:
+      "Auto-letter a figure's panel labels (a, b, c…) by reading order. Plot/image panels that have no label yet get one created first, so this works on any multi-panel figure (composed or imported+arranged).",
     inputSchema: { figureId: z.string() },
   },
   async ({ figureId }) => {
     const r = await core.autoLabel(ROOT, figureId);
-    if (!r.panels.length) return ok(`${figureId} has no panel labels to letter`);
-    return ok(r.changed ? `labeled ${figureId}: ${r.panels.join("")}` : `${figureId} already labeled: ${r.panels.join("")} (no change)`);
+    if (!r.panels.length) return ok(`${figureId} has no letterable panels (needs ≥2 plot/image panels)`);
+    const made = r.created ? ` (created ${r.created} missing label(s))` : "";
+    return ok(r.changed ? `labeled ${figureId}: ${r.panels.join("")}${made}` : `${figureId} already labeled: ${r.panels.join("")} (no change)`);
   },
 );
 
@@ -514,10 +516,11 @@ server.registerTool(
   "add_fig_text",
   {
     description:
-      "Add a text element to a FIGURE (fontSize in canvas px = pt × 4/3; sizing auto = box hugs text, auto-h = wrap at width, fixed = pinned box).",
+      "Add a text element to a FIGURE (fontSize in canvas px = pt × 4/3; sizing auto = box hugs text, auto-h = wrap at width, fixed = pinned box). panelLabel: true creates a semantic panel label (bold 8 pt, letterable by auto_label).",
     inputSchema: {
       figureId: z.string(),
       text: z.string(),
+      panelLabel: z.boolean().optional(),
       x: z.number().optional(),
       y: z.number().optional(),
       width: z.number().optional(),

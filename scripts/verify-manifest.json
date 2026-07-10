@@ -5,6 +5,7 @@
       "verify-an-bridge.ts",
       "verify-an-comments.ts",
       "verify-an-compose.ts",
+      "verify-fig-letterorder.ts",
       "verify-an-journal-locks.ts",
       "verify-an-manuscript.ts",
       "verify-an-render.ts",
