@@ -69,7 +69,8 @@ export function captionBlocks(fig: Figure): Panel[] {
 /**
  * Compose a figure's full caption markdown from its blocks — the single source
  * that flows Figure → fig/captions/<id>.md → Manuscript (F7). The whole-figure
- * sentence leads; each non-empty panel follows as "**(a)** text".
+ * sentence leads; each non-empty panel follows as "**a**, text" (bold letter +
+ * comma, journal style — the owner's requested format; no parentheses).
  */
 export function composeCaption(fig: Figure): string {
   const caps = fig.captions ?? {};
@@ -79,7 +80,45 @@ export function composeCaption(fig: Figure): string {
   if (lead) parts.push(lead);
   for (const p of figurePanels(fig)) {
     const t = (caps[p.id] ?? "").trim();
-    if (t) parts.push(`(${panelKey(p.label) || p.label.trim()}) ${t}`);
+    if (t) parts.push(`**${panelKey(p.label) || p.label.trim()}**, ${t}`);
   }
   return parts.join(" ");
+}
+
+/**
+ * Inverse of composeCaption for the `set-caption` verb: split one monolithic
+ * caption string on the documented `**a**, …` convention (also tolerating
+ * legacy "(a) …") into the whole-figure lead + per-panel texts, keyed by the
+ * figure's ACTUAL panel labels. Text for letters the figure doesn't have stays
+ * in the lead (never silently dropped). Returns null when the string has no
+ * panel markers matching the figure — caller stores it whole in __figure__.
+ */
+export function splitCaption(fig: Figure, md: string): Record<Id, string> | null {
+  const panels = figurePanels(fig).filter((p) => p.id !== "__figure__");
+  if (!panels.length) return null;
+  const byKey = new Map(panels.map((p) => [panelKey(p.label), p.id] as const));
+  const order = new Map(panels.map((p, i) => [panelKey(p.label), i] as const));
+  // A panel marker: `**a**,` / `**a**.` / `**a**:` or legacy `(a)` at a
+  // sentence boundary (start or after whitespace). Markers must appear in
+  // panel order (a before b before c …) — a mid-text back-reference like
+  // "(see (a))" inside panel c's text is NOT a marker.
+  const markers: { idx: number; len: number; key: string }[] = [];
+  const re = /(^|\s)(?:\*\*([A-Za-z])\*\*\s*[,.:]?|\(([A-Za-z])\))\s*/g;
+  let lastOrder = -1;
+  for (const m of md.matchAll(re)) {
+    const key = (m[2] ?? m[3] ?? "").toLowerCase();
+    const ord = order.get(key);
+    if (ord === undefined || ord <= lastOrder) continue;
+    lastOrder = ord;
+    markers.push({ idx: (m.index ?? 0) + m[1].length, len: m[0].length - m[1].length, key });
+  }
+  if (!markers.length) return null;
+  const out: Record<Id, string> = {
+    __figure__: md.slice(0, markers[0].idx).trim(),
+  };
+  markers.forEach((mk, i) => {
+    const end = i + 1 < markers.length ? markers[i + 1].idx : md.length;
+    out[byKey.get(mk.key)!] = md.slice(mk.idx + mk.len, end).trim();
+  });
+  return out;
 }

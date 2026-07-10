@@ -25,8 +25,14 @@ usage: flux <verb> [root] [args] [--flags]
   render-figures [root] [--doc p.qmd]  write fig/renders/<id>.svg for embedded figures (bare-quarto prep)
   sync-figure [figId] [--root R]       refresh fig/assets copies from regenerated plots/
                                        sources IN PLACE (captions/restyles survive)
+  normalize-embeds [--root R]          clear legacy alt-text captions from embed lines
+                                       (canonical embeds are ![](…){#fig-id} — the model
+                                       owns captions)
   caption [root] <id>                  print a figure's composed caption
-  set-caption [root] <id> <md…|--file f>   write fig/captions/<id>.md
+  set-caption [root] <id> <md…|--file f> [--panel a]   write the caption; the
+                                       "Lead. **a**, … **b**, …" convention is
+                                       distributed into per-panel blocks
+                                       (--panel writes ONE panel's text)
   add-reference [root] <bibtex…|--file f>   append a BibTeX entry to library.bib
   add-panel [root] <id> <svg> [--x --y --width --height]   import an SVG panel
   import-plots <figId> <plot.svg…> [--root R]   batch-import plots onto an EXISTING
@@ -326,8 +332,12 @@ async function main() {
     }
     case "set-caption": {
       const md = flags.file ? await fs.readFile(String(flags.file), "utf8") : A.slice(1).join(" ");
-      await core.setCaption(root(), A[0], md);
-      console.error(`✓ caption written for ${A[0]}`);
+      const panel = typeof flags.panel === "string" ? flags.panel : undefined;
+      const r = await core.setCaption(root(), A[0], md, { panel });
+      if (panel) console.error(`✓ caption written for ${A[0]} panel ${panel}`);
+      else if (r.panels.length)
+        console.error(`✓ caption written for ${A[0]} — distributed across lead + panels [${r.panels.join("")}] (use --panel <letter> for one panel)`);
+      else console.error(`✓ caption written for ${A[0]}`);
       break;
     }
     case "add-reference":
@@ -660,6 +670,12 @@ async function main() {
     case "ref": {
       const r = await core.insertFigureRef(R(), _[0], flags.doc as string | undefined);
       console.error(`✓ inserted ${r.ref}`);
+      break;
+    }
+    case "normalize-embeds": {
+      const r = await core.normalizeEmbeds(R());
+      if (!r.files.length) console.error("✓ all embed lines already canonical (empty alts)");
+      else for (const f of r.files) console.error(`✓ ${f.path}: cleared ${f.cleared} embed alt(s)`);
       break;
     }
     case "cite-doi": {

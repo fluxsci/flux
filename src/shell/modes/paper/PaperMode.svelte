@@ -22,7 +22,8 @@
   import { formattingKeymap } from "./editing/keymap";
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
-  import { setEmbedWidth, EMBED_RE, escapeEmbedCaption } from "./science/figureAttrs";
+  import { setEmbedWidth, EMBED_RE } from "./science/figureAttrs";
+  import { collectEmbedLabels, transformQmdForExport } from "../../../lib/exportQmd";
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
   import { citationStyle, citationStyleOf } from "./scholar/citeNumbering";
@@ -554,6 +555,52 @@
   let exportDone = $state(false);
   let quartoAvail = $state(false);
 
+  // Bare-quarto parity for the in-app Word export (same transform flux-core's
+  // compile applies): composed model captions into EMPTY embed alts (Quarto
+  // reads the alt as the figcaption — canonical embeds carry none) + panel
+  // refs `@fig-x-a` → literal "Figure 3a". Applied IN PLACE to the doc + its
+  // include tree via the file bridge; the returned closure restores originals.
+  async function transformDocsForQuarto(fb: NonNullable<ReturnType<typeof fileBridge>>): Promise<() => Promise<void>> {
+    if (!pm) return async () => {};
+    const INCLUDE_RE = /\{\{<\s*include\s+([^\s>]+)\s*>\}\}/g;
+    const texts = new Map<string, string>();
+    const readTree = async (abs: string): Promise<string> => {
+      if (texts.has(abs)) return "";
+      let t = "";
+      try {
+        t = await fb.readText(abs);
+      } catch {
+        return "";
+      }
+      texts.set(abs, t);
+      let expanded = "";
+      let last = 0;
+      for (const m of t.matchAll(INCLUDE_RE)) {
+        expanded += t.slice(last, m.index);
+        expanded += await readTree(`${abs.slice(0, abs.lastIndexOf("/"))}/${m[1]}`);
+        last = (m.index ?? 0) + m[0].length;
+      }
+      return expanded + t.slice(last);
+    };
+    const expanded = await readTree(`${pm.root}/${activeDocPath}`);
+    const refs = get(figureRefs);
+    const ctx = {
+      captions: new Map(refs.filter((r) => r.caption?.trim()).map((r) => [r.label, r.caption])),
+      numbers: new Map(collectEmbedLabels(expanded).map((l, i) => [l, i + 1] as const)),
+    };
+    const originals = new Map<string, string>();
+    for (const [f, t] of texts) {
+      const nt = transformQmdForExport(t, ctx);
+      if (nt !== t) {
+        originals.set(f, t);
+        await fb.writeText(f, nt);
+      }
+    }
+    return async () => {
+      for (const [f, t] of originals) await fb.writeText(f, t).catch(() => {});
+    };
+  }
+
   async function doExport(kind: "pdf" | "html" | "docx") {
     if (exportBusy) return; // one export at a time (a second Quarto render would race)
     exportOpen = false;
@@ -583,7 +630,15 @@
           throw e;
         }
         const renders = await materializeRenders(pm.root, latest);
-        const r = await fb.quartoRender(pm.root, "docx", activeDocPath);
+        // Quarto reads DISK: transform in place (captions into alts, panel
+        // refs literalized), render, restore — sources stay byte-identical.
+        const restoreDocs = await transformDocsForQuarto(fb);
+        let r;
+        try {
+          r = await fb.quartoRender(pm.root, "docx", activeDocPath);
+        } finally {
+          await restoreDocs();
+        }
         exportBusy = false;
         if (!r?.ok) {
           pushToast("error", "Word export failed", {
@@ -646,8 +701,10 @@
     if (!view) return;
     const pos = view.state.selection.main.head;
     const line = view.state.doc.lineAt(pos);
-    const cap = escapeEmbedCaption(ref.caption || ref.name || "");
-    const embed = `![${cap}](../fig/renders/${ref.id}.svg){#${ref.label}}`;
+    // Canonical embed: EMPTY alt — the figure's name/id is all an embed needs.
+    // The caption under the figure comes live from the model, and Quarto
+    // exports inject it at render time (exportQmd.ts).
+    const embed = `![](../fig/renders/${ref.id}.svg){#${ref.label}}`;
     let from: number, to: number, insert: string, anchor: number;
     if (line.text.trim() === "") {
       from = line.from;
@@ -677,12 +734,16 @@
     view.focus();
   }
 
-  // Flux-figure is the source of truth for figure captions: whenever figure
-  // data (re)loads, rewrite any embed line whose caption text drifted (rename
-  // in the figure editor → the .qmd follows, so the live embed, preview, AND
-  // Quarto exports all read fresh text). Lines the selection touches are
-  // skipped — never fight the caret — and catch up on the next figures change.
-  function syncEmbedCaptions() {
+  // Flux-figure is the source of truth for figure captions, and embed lines
+  // canonically carry an EMPTY alt (the widget + Preview read the model; Quarto
+  // exports get the caption injected at render time). This pass CLEARS the alt
+  // of every resolved embed — it replaced the old clobber-alt-with-caption sync,
+  // so it is strictly less destructive, and it self-heals legacy docs whose
+  // 1500-char alt captions wrapped to walls of raw text (the moma manuscript).
+  // Lines the selection touches are skipped — never fight the caret — and catch
+  // up on the next figures change. Unresolved embeds keep their alt: it is the
+  // only caption fallback they have.
+  function normalizeEmbedAlts() {
     if (!view) return;
     const state = view.state;
     const changes: { from: number; to: number; insert: string }[] = [];
@@ -690,18 +751,13 @@
       const line = state.doc.line(i);
       if (line.text.indexOf("![") < 0) continue;
       const m = EMBED_RE.exec(line.text);
-      if (!m) continue;
-      const r = resolveFigure(m[3]);
-      if (!r) continue;
-      // Compare/write the ESCAPED form — the raw group is what sits in the line, and
-      // writing unescaped text would both loop (never equal) and re-break EMBED_RE.
-      const want = escapeEmbedCaption(r.ref.caption || r.ref.name || "");
-      if (want === m[1]) continue;
+      if (!m || m[1].length === 0) continue;
+      if (!resolveFigure(m[3])) continue;
       const lead = /^\s*/.exec(line.text)![0].length;
       const from = line.from + lead + 2; // just past "!["
       const to = from + m[1].length;
       if (state.selection.ranges.some((sr) => sr.from <= to && sr.to >= from)) continue;
-      changes.push({ from, to, insert: want });
+      changes.push({ from, to, insert: "" });
     }
     if (changes.length) view.dispatch({ changes, userEvent: "input.figsync" });
   }
@@ -900,7 +956,7 @@
     subs.push(
       figureRefs.subscribe(() => {
         refresh();
-        syncEmbedCaptions(); // flux-figure renames flow into embed lines
+        normalizeEmbedAlts(); // embed alts stay empty; the model owns captions
         figRefsRev += 1; // preview re-renders on a pure renumber too
       }),
     );
@@ -969,7 +1025,7 @@
     untrackMath = trackMathView(v); // 2.1: KaTeX-loaded → refresh math decorations
     refreshIdleNow(); // seed latestIdle + the TOC synchronously on mount
     void loadComments(v);
-    syncEmbedCaptions(); // figures may have loaded before the editor mounted
+    normalizeEmbedAlts(); // figures may have loaded before the editor mounted
   }
   let untrackMath: (() => void) | null = null;
 

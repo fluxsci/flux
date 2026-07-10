@@ -23,6 +23,13 @@ specific change.
    `cm-flux-tablesrc`) plus a `Decoration.widget({block: true, side: 1})`
    AFTER the line. Every doc line = exactly one vertical keypress. Inline
    atomics (chips, hidden syntax) are fine; block atomics are not.
+   The embed source line's chip collapse (2026-07: `EmbedSrcWidget`, an
+   accent name-chip replacing the line CONTENT, revealed when the selection
+   touches the line) lives in **chips.ts** — the selection-aware plugin —
+   as an INLINE replace, exactly like livePreview's HorizontalRule. The
+   line itself always remains (one keypress), and embed alts are kept EMPTY
+   (`normalizeEmbedAlts`) so collapse↔reveal never changes line wrapping.
+   Gate: `verify-embed-chip.mjs`.
 
 3. **Source-line styling must keep identical metrics active vs. inactive**
    (mono 12px both ways — dim via color/opacity only). Any font-size or
@@ -83,6 +90,10 @@ npx tsx scripts/verify-figname.ts        # name-derived designations ("Figure 3"
 npx tsx scripts/verify-citenum.ts        # citation numbering (pure)
 node scripts/verify-w18-paper.mjs        # decoration stability on selection-only txns
 node scripts/verify-paper-math.mjs       # math (2.1): nav through $$ blocks, reveal-on-touch, export parity
+node scripts/verify-pdf-white.mjs        # PDF/print export is pure white (screen keeps the cream)
+node scripts/verify-embed-chip.mjs       # embed line chip: collapse/reveal, 1-keypress nav, zero reflow
+node scripts/verify-embed-caption.mjs    # widget caption from the MODEL, width tracks art, export parity
+npx tsx scripts/verify-embed-normalize.ts  # composeCaption **a**, format + splitCaption + normalize verb
 ```
 
 (Or run the whole list at once: `node scripts/run-verifies.mjs --group paper-gate`.)

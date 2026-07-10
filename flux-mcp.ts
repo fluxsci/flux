@@ -58,6 +58,20 @@ server.registerTool(
 );
 
 server.registerTool(
+  "normalize_embeds",
+  {
+    description:
+      "Clear legacy alt-text captions from manuscript embed lines (canonical embeds are ![](…){#fig-id} — the figure model owns captions; Quarto exports get them injected at render time).",
+    inputSchema: {},
+  },
+  async () => {
+    const r = await core.normalizeEmbeds(ROOT);
+    if (!r.files.length) return ok("all embed lines already canonical (empty alts)");
+    return ok(r.files.map((f) => `${f.path}: cleared ${f.cleared} embed alt(s)`).join("\n"));
+  },
+);
+
+server.registerTool(
   "sync_figure",
   {
     description:
@@ -93,10 +107,15 @@ server.registerTool(
 
 server.registerTool(
   "set_caption",
-  { description: "Write a figure's caption to fig/captions/<id>.md (the single caption source).", inputSchema: { id: z.string(), markdown: z.string() } },
-  async ({ id, markdown }) => {
-    await core.setCaption(ROOT, id, markdown);
-    return ok(`caption set for ${id}`);
+  {
+    description:
+      "Write a figure's caption. Whole-string form distributes the 'Lead. **a**, … **b**, …' convention into the per-panel caption blocks (the app's Caption Editor structure); pass panel:'a' to write ONE panel's text.",
+    inputSchema: { id: z.string(), markdown: z.string(), panel: z.string().optional() },
+  },
+  async ({ id, markdown, panel }) => {
+    const r = await core.setCaption(ROOT, id, markdown, { panel });
+    if (panel) return ok(`caption set for ${id} panel ${panel}`);
+    return ok(`caption set for ${id}` + (r.panels.length ? ` — distributed across lead + panels [${r.panels.join("")}]` : ""));
   },
 );
 

@@ -53,6 +53,9 @@ figure.fig .art svg { max-width: 100%; height: auto; }
 figure.fig .art.sized svg { width: 100%; height: auto; }
 .references .ref-num { font-weight: 700; color: #100f0f; }
 figcaption, .cap { font-size: 0.86em; color: var(--muted); line-height: 1.5; margin-top: 0.6em; text-align: center; max-width: 90%; margin-left: auto; margin-right: auto; }
+/* A sized figure's caption box tracks the art width (same inline width style
+   on both) instead of the 90% cap — long captions wrap at the figure's edge. */
+figcaption.sized { max-width: none; }
 figcaption b, .cap b { color: #100f0f; }
 table { border-collapse: collapse; width: 100%; margin: 0.6em auto; font-size: 0.93em; page-break-inside: avoid; }
 th, td { border: 1px solid var(--rule); padding: 5px 11px; text-align: left; }

@@ -13,10 +13,11 @@ import {
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { StateEffect, type EditorState, type Range } from "@codemirror/state";
-import { CiteWidget, FigRefWidget, MathWidget } from "./widgets";
+import { CiteWidget, EmbedSrcWidget, FigRefWidget, MathWidget } from "./widgets";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "./grammar";
 import { findInlineMath } from "./mathGrammar";
 import { ensureKatex, katexReady } from "./katexLoader";
+import { EMBED_RE } from "./figureAttrs";
 
 /** Dispatched when figure/bib data changes, to force a chip rebuild. */
 export const refreshChips = StateEffect.define<null>();
@@ -127,6 +128,29 @@ function build(view: EditorView): DecorationSet {
     let pos = from;
     while (pos <= to) {
       const line = state.doc.lineAt(pos);
+      // Figure-embed SOURCE line: collapse the whole line content to a compact
+      // name chip unless a selection touches the line (same reveal rule as the
+      // HorizontalRule widget in livePreview — an INLINE atomic replace; the
+      // line itself stays, so vertical nav still costs exactly one keypress,
+      // and embeds.ts' block widget below is a separate, doc-pure concern).
+      if (line.length && line.text.indexOf("![") >= 0) {
+        const em = EMBED_RE.exec(line.text);
+        if (em) {
+          if (!rangesTouch(state, line.from, line.to, 0)) {
+            const indent = line.text.length - line.text.trimStart().length;
+            deco.push(
+              Decoration.replace({ widget: new EmbedSrcWidget(em[3], line.text) }).range(
+                line.from + indent,
+                line.to,
+              ),
+            );
+          }
+          // Nothing inside a (collapsed or revealed) embed line chips separately.
+          if (line.to + 1 > to) break;
+          pos = line.to + 1;
+          continue;
+        }
+      }
       for (const tk of scanLine(line.from, line.text, line.from >= fmEnd)) {
         if (tk.widget instanceof MathWidget && tk.widget.rendered == null) pendingMath = true;
         // F6: reveal a chip's raw text only when a selection touches THAT chip

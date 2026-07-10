@@ -11,8 +11,8 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
 import { membersDeep } from "../src/lib/groups";
-import { composeCaption, panelLetters } from "../src/lib/captions";
-import { collectEmbedLabels, transformQmdForExport } from "../src/lib/exportQmd";
+import { composeCaption, panelLetters, figurePanels, panelKey, splitCaption } from "../src/lib/captions";
+import { collectEmbedLabels, transformQmdForExport, normalizeEmbedAlts } from "../src/lib/exportQmd";
 import { elementBBox, unionRect } from "../src/lib/geometry";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { preparePlot, prefixIds, applyOverrides, buildPartIndex } from "../src/lib/plot/parse";
@@ -870,22 +870,40 @@ export async function renderCanvasPng(root: string, canvasId?: string, scale = 1
 
 /** set-caption: store the caption in the figure's canvas model (its true home) and
  *  emit the derived fig/captions/<id>.md + index cache. */
-export async function setCaption(root: string, figId: string, md: string): Promise<void> {
+export async function setCaption(
+  root: string,
+  figId: string,
+  md: string,
+  opts: { panel?: string } = {},
+): Promise<{ panels: string[] }> {
   const trimmed = md.trim();
-  await mutateFigModel(root, "set_caption", async ({ project, index }) => {
+  return mutateFigModel(root, "set_caption", async ({ project, index }) => {
     const fig = project.figures.find((f) => f.id === figId);
     if (!fig) throw new Error(`no figure "${figId}"`);
     // AGT-2: the caption's true home is Figure.captions in the canvas file — the
     // single source composeCaption() reads. Writing only fig/captions/<id>.md (as
     // before) let the GUI's next save recompose from an empty captions map and
-    // silently wipe the agent's caption. Store it in the __figure__ block so the
-    // GUI reproduces it; still emit the derived .md + index cache for tools that
-    // read only those.
-    fig.captions = { ...(fig.captions ?? {}), __figure__: trimmed };
+    // silently wipe the agent's caption.
+    if (opts.panel) {
+      // --panel a: write ONE panel's text (keyed by its label element's id).
+      const key = opts.panel.toLowerCase();
+      const panel = figurePanels(fig).find((p) => panelKey(p.label) === key);
+      if (!panel || panel.id === "__figure__")
+        throw new Error(`figure "${figId}" has no panel "${opts.panel}" (panels: ${panelLetters(fig).join("") || "none"})`);
+      fig.captions = { ...(fig.captions ?? {}), [panel.id]: trimmed };
+    } else {
+      // Whole-string form: distribute the documented `Lead. **a**, … **b**, …`
+      // convention into the per-panel map (the app's Caption Editor shows one
+      // box per panel — a monolithic __figure__ blob mis-structures all of it).
+      // No recognizable markers → the whole string is the figure-level lead.
+      const split = splitCaption(fig, trimmed);
+      fig.captions = split ?? { ...(fig.captions ?? {}), __figure__: trimmed };
+    }
     const composed = composeCaption(fig);
     await writeText(safeJoin(root, `fig/captions/${figId}.md`), composed ? composed + "\n" : "");
     const entry = index.figures.find((x) => x.id === figId);
     if (entry) entry.caption = composed.trim();
+    return { panels: panelLetters(fig) };
   });
 }
 
@@ -2023,6 +2041,34 @@ async function readExpandedQmd(
   }
   expanded += text.slice(last);
   return { files, expanded };
+}
+
+/** normalize-embeds: clear legacy alt-text captions from every embed line in
+ *  the manuscript (+ includes + supplementary docs). Canonical embeds carry an
+ *  EMPTY alt — the figure model owns captions (the open app does this pass
+ *  automatically on figure load; this is the headless mirror). */
+export async function normalizeEmbeds(root: string): Promise<{ files: { path: string; cleared: number }[] }> {
+  const m = await loadManifest(root);
+  const { index } = await loadFigModel(root);
+  const labels = new Set((index.figures ?? []).map((f) => f.label));
+  const seen = new Set<string>();
+  const all: string[] = [];
+  for (const docPath of [m.manuscript.path, ...(m.supplementary ?? []).map((s) => s.path)]) {
+    const { files } = await readExpandedQmd(path.resolve(root, docPath), seen);
+    all.push(...files);
+  }
+  const out: { path: string; cleared: number }[] = [];
+  for (const f of all) {
+    const text = await fs.readFile(f, "utf8").catch(() => null);
+    if (text == null) continue;
+    const r = normalizeEmbedAlts(text, (l) => labels.has(l));
+    if (r.cleared) {
+      await atomicWrite(f, r.text);
+      out.push({ path: path.relative(root, f), cleared: r.cleared });
+    }
+  }
+  await journal(root, { action: "normalize_embeds", files: out.map((f) => f.path) });
+  return { files: out };
 }
 
 export async function compile(root: string, to = "pdf"): Promise<{ code: number; log: string }> {

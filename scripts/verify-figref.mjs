@@ -6,8 +6,9 @@
 // panel spec (`@fig-x-a-c`, `@fig-x-a,c`); Enter with nothing picked inserts
 // the whole-figure ref; chips render the panel suffix ("Fig 1a,c"); re-seeding
 // figures with a different order renumbers every chip and embed live AND
-// rewrites drifted embed captions in the document (flux-figure is the source
-// of truth); Escape walks back panel→figure→closed with focus returned.
+// clears legacy embed alt text (canonical embeds are ![](…){#fig-id} — the
+// figure MODEL owns captions, and the widget caption follows it live);
+// Escape walks back panel→figure→closed with focus returned.
 //   Run (dev server on :1420 must be up): node scripts/verify-figref.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
 
@@ -197,9 +198,10 @@ const pickerGone = await poll(() => !document.querySelector(".picker"));
 const closedFocus = await focusInEditor();
 const closedOk = backAtGrid && pickerGone && closedFocus;
 
-// --- live renumber + caption write-through --------------------------------------
-// Swap figure order (Growth 1→2) and change its caption; every chip, the embed
-// number, and the embed CAPTION TEXT in the doc must follow.
+// --- live renumber + model-caption sync ------------------------------------------
+// Swap figure order (Growth 1→2) and change its caption; every chip and the
+// embed's rendered number/caption must follow from the MODEL, and the legacy
+// alt text in the doc is cleared (never rewritten — the model owns captions).
 await page.evaluate(
   (figs, canvases) => window.__fluxSeedFigures(figs, canvases, {}),
   FIGS(true),
@@ -219,7 +221,7 @@ const renumberOk =
   chipsAfterSwap.some((t) => t === "Fig 1") && // @fig-dose
   embedCapAfterSwap.startsWith("Figure 2.");
 const captionSyncOk =
-  afterSwapDoc.includes("![Growth over 48 h.](../fig/renders/f1.svg){#fig-growth}") &&
+  afterSwapDoc.includes("![](../fig/renders/f1.svg){#fig-growth}") &&
   !afterSwapDoc.includes("Growth over 24 h.") &&
   embedCapAfterSwap.includes("Growth over 48 h.");
 

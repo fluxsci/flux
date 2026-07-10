@@ -60,6 +60,7 @@
       "verify-r4-cite.ts",
       "verify-ratelimit.ts",
       "verify-refformat.ts",
+      "verify-embed-normalize.ts",
       "verify-export-qmd.ts",
       "verify-scaffold.ts",
       "verify-sync-render.ts",
@@ -118,6 +119,8 @@
       "verify-paper-export.mjs",
       "verify-paper-math.mjs",
       "verify-pdf-white.mjs",
+      "verify-embed-chip.mjs",
+      "verify-embed-caption.mjs",
       "verify-refbib.mjs",
       "verify-fulltext-gui.mjs",
       "verify-import-gui.mjs",
@@ -238,7 +241,10 @@
       "verify-citenum.ts",
       "verify-w18-paper.mjs",
       "verify-paper-math.mjs",
-      "verify-pdf-white.mjs"
+      "verify-pdf-white.mjs",
+      "verify-embed-chip.mjs",
+      "verify-embed-caption.mjs",
+      "verify-embed-normalize.ts"
     ]
   },
   "retryOnce": [

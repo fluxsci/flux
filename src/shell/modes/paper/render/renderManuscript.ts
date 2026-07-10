@@ -328,12 +328,15 @@ function preprocess(body: string, ctx: CiteCtx): { transformed: string; blocks: 
         token,
         html: `<figure class="fig" id="${esc(m[3])}"><div class="art${attrs.width ? " sized" : ""}"${sized}>${
           svg ?? "<em>missing figure</em>"
-        }</div><figcaption><b>Figure ${num}.</b> __CAP${capStash.length}__</figcaption></figure>`,
+        }</div><figcaption class="cap${attrs.width ? " sized" : ""}"${sized}><b>Figure ${num}.</b> __CAP${capStash.length}__</figcaption></figure>`,
       });
       // PAP-6: index the placeholder by the CAPTION counter (capStash.length), not blocks.length.
       // Non-caption blocks (e.g. a callout) inflate blocks.length, so the old index pointed past
       // the stashed caption → an empty/wrong caption in Preview AND in the PDF/HTML export.
-      capStash.push(m[1]);
+      // Caption source = the FIGURE MODEL (same as the editor widget); the alt
+      // text is a fallback for unresolved figures. Canonical embeds carry an
+      // empty alt — without the model preference every export caption dies.
+      capStash.push(r?.ref.caption?.trim() || m[1]);
       continue;
     }
     m = TBL_CAPTION.exec(raw);

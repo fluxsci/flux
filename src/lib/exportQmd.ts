@@ -49,6 +49,26 @@ export function collectEmbedLabels(text: string): string[] {
   return out;
 }
 
+/** Clear the alt of every embed whose label resolves — the canonical embed
+ *  carries an EMPTY alt (the figure model owns captions; Quarto exports get
+ *  them injected at render time). Unresolvable embeds keep their alt: it is
+ *  their only caption fallback. Pure; drives the `normalize-embeds` verb and
+ *  the paper editor's on-load normalization. */
+export function normalizeEmbedAlts(
+  text: string,
+  resolvable: (label: string) => boolean,
+): { text: string; cleared: number } {
+  let cleared = 0;
+  const lines = text.split("\n").map((line) => {
+    const m = EMBED_RE.exec(line);
+    if (!m || m[1].length === 0 || !resolvable(m[3])) return line;
+    cleared++;
+    const ws = /^\s*/.exec(line)![0];
+    return `${ws}![](${m[2]}){#${m[3]}${m[4]}}`;
+  });
+  return { text: lines.join("\n"), cleared };
+}
+
 export interface ExportQmdCtx {
   /** label (e.g. "fig-growth") → composed caption markdown (no "Figure N." lead —
    *  Quarto prefixes its own). */

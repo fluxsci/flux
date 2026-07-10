@@ -101,6 +101,27 @@ export const fluxTheme = EditorView.theme(
       fontStyle: "normal !important",
       color: "var(--c-tx-faint) !important",
       letterSpacing: "0 !important",
+      /* lezer tags the whole ![…](…) image as a link → fluxHighlight underlines
+         it; a revealed embed source line must read as plain mono, not a link. */
+      textDecoration: "none !important",
+    },
+    /* Collapsed embed line: a compact accent chip carrying the figure NAME —
+       the raw `![](path){#fig-x}` reveals only when the caret is on the line
+       (chips.ts). Later + more specific than the faint reset above so the
+       accent wins. display:inline + zero vertical padding/border: the chip
+       must not change the 12px/1.65 source-line metrics (feel contract #3). */
+    ".cm-flux-embedsrc .flux-embedchip": {
+      display: "inline",
+      color: "var(--c-accent-bright) !important",
+      background: "var(--c-accent-tint, color-mix(in srgb, var(--c-accent) 12%, transparent))",
+      borderRadius: "var(--r-1)",
+      padding: "0 6px",
+      cursor: "default",
+    },
+    ".cm-flux-embedsrc .flux-embedchip.unresolved": {
+      color: "var(--c-tx-faint) !important",
+      background: "transparent",
+      borderBottom: "1px dotted var(--c-tx-faint)",
     },
 
     /* ---- math (2.1): inline chips + the display block widget ---------------- */
@@ -340,6 +361,13 @@ export const fluxTheme = EditorView.theme(
       lineHeight: "1.5",
       color: "var(--c-tx-muted)",
       textAlign: "center",
+    },
+    /* A sized figure's caption box tracks the ART width (var(--embed-w) is set
+       on the wrap by applyWidth) — a 91%-wide figure must not funnel its
+       caption into a 60ch column. */
+    ".flux-embed.sized .flux-embed-cap": {
+      width: "var(--embed-w)",
+      maxWidth: "none",
     },
     ".flux-embed-cap b": { color: "var(--c-accent-bright)", fontWeight: "700" },
     ".flux-embed-bar": {

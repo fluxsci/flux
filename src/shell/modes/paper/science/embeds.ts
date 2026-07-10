@@ -19,6 +19,7 @@ import { resolveFigure, renderFigureSvg } from "../scholar/figures";
 import { embedHandlers } from "./chipContext";
 import { refreshChips } from "./chips";
 import { EMBED_RE, parseEmbedAttrs, widthFraction, cssWidth, unescapeEmbedCaption } from "./figureAttrs";
+import { mdInlineFragment } from "./mdInline";
 
 // The usable width of the art card: the 72ch/17px serif measure (~640px) minus
 // the card's own chrome (2×18px padding + borders). Only an ESTIMATE for
@@ -28,7 +29,17 @@ import { EMBED_RE, parseEmbedAttrs, widthFraction, cssWidth, unescapeEmbedCaptio
 const EST_COL_W = 604;
 const ART_CHROME = 38; // card padding + border
 const WRAP_PAD = 36; // .flux-embed vertical padding
-const CAP_H = 32;
+
+// Caption height must be ESTIMATED from its length: model captions run to
+// 1500+ chars over many wrapped lines — the old fixed 32px under-estimate
+// brought back scroll jumps for long captions (EDITING-FEEL invariant #4).
+function estCaptionHeight(caption: string, frac: number | null): number {
+  if (!caption) return 0;
+  // Sized: the caption box tracks the art width (var(--embed-w)); auto: 60ch cap.
+  const capW = frac ? Math.max(120, EST_COL_W * frac) : Math.min(510, EST_COL_W);
+  const lines = Math.ceil((caption.length + 12) / (capW / 6.5)); // ~6.5px/char at --ts-sm
+  return lines * 20 + 12;
+}
 
 interface EmbedDomState {
   label: string;
@@ -54,10 +65,11 @@ class FigureEmbedWidget extends WidgetType {
   readonly svg: string | undefined;
   readonly figId: string | undefined;
   readonly width: string | null;
+  readonly caption: string;
   private readonly estH: number;
   constructor(
     readonly label: string,
-    readonly caption: string,
+    altCaption: string,
     attrsRaw: string,
   ) {
     super();
@@ -65,6 +77,12 @@ class FigureEmbedWidget extends WidgetType {
     const r = resolveFigure(label);
     this.number = r ? r.number : null;
     this.figId = r?.ref.id;
+    // The caption under the figure comes from the FIGURE MODEL (composed
+    // fig/captions source, live-synced via refreshChips) — the alt text is
+    // only a fallback for unresolved figures. Embeds canonically carry an
+    // EMPTY alt (insertFigure/normalize); Quarto exports get the caption
+    // injected at compile time (src/lib/exportQmd.ts).
+    this.caption = (r?.ref.caption?.trim() || altCaption).trim();
     this.svg = this.figId ? renderFigureSvg(this.figId) : undefined;
     const dims = this.svg && /width="([\d.]+)" height="([\d.]+)"/.exec(this.svg);
     if (dims) {
@@ -76,7 +94,7 @@ class FigureEmbedWidget extends WidgetType {
       const art = frac
         ? h * (Math.max(60, EST_COL_W * frac - 36) / w)
         : Math.min(440, h * Math.min(1, EST_COL_W / w));
-      this.estH = art + ART_CHROME + WRAP_PAD + (this.caption ? CAP_H : 0);
+      this.estH = art + ART_CHROME + WRAP_PAD + estCaptionHeight(this.caption, frac);
     } else {
       this.estH = 60 + ART_CHROME + WRAP_PAD; // "missing figure" placeholder
     }
@@ -116,7 +134,13 @@ class FigureEmbedWidget extends WidgetType {
     const lbl = document.createElement("b");
     lbl.textContent = `Figure ${this.number ?? "?"}.`;
     cap.appendChild(lbl);
-    if (this.caption) cap.appendChild(document.createTextNode(" " + this.caption));
+    if (this.caption) {
+      cap.appendChild(document.createTextNode(" "));
+      // Inline markdown (bold **a**, panel letters, italics, code) renders as
+      // real DOM; <strong> ≠ the <b> prefix above, so accent styling stays on
+      // "Figure N." only.
+      cap.appendChild(mdInlineFragment(this.caption));
+    }
     wrap.appendChild(cap);
 
     if (this.figId) {

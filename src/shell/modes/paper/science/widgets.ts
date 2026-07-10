@@ -84,6 +84,45 @@ export class FigRefWidget extends WidgetType {
   }
 }
 
+/** The collapsed figure-embed SOURCE line: a compact accent chip carrying the
+ *  figure's NAME (the model field the owner edits in Figure mode / Inspector) —
+ *  all an embed line IS is a pointer to a figure. chips.ts owns the collapse/
+ *  reveal (selection-aware); the rendered figure below is embeds.ts' separate
+ *  block widget, untouched by this. */
+export class EmbedSrcWidget extends WidgetType {
+  readonly display: string;
+  readonly resolved: boolean;
+  constructor(
+    readonly label: string,
+    readonly raw: string,
+  ) {
+    super();
+    const r = resolveFigure(label);
+    this.resolved = !!r;
+    this.display = r ? r.ref.name || label : label;
+  }
+  eq(o: EmbedSrcWidget) {
+    return o.label === this.label && o.display === this.display && o.resolved === this.resolved;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "flux-embedchip" + (this.resolved ? "" : " unresolved");
+    el.textContent = `⌗ ${this.display}`;
+    el.title = this.resolved
+      ? `${this.raw.trim()}\nClick to place the caret (reveals the source); double-click to open in Figure`
+      : `Unresolved figure embed: ${this.raw.trim()}`;
+    el.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      chipHandlers.onActivate?.({ kind: "figref", label: this.label }, el);
+    });
+    return el;
+  }
+  ignoreEvent(e: Event) {
+    return e.type === "dblclick";
+  }
+}
+
 export class CiteWidget extends WidgetType {
   readonly display: string;
   readonly resolved: boolean;
