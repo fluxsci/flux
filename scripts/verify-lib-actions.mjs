@@ -53,7 +53,7 @@ const ENRICH = {
 };
 
 const { browser, page } = await launch();
-await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3000 });
+await gotoApp(page, { url: (process.env.FLUX_URL || "http://127.0.0.1:1420/") + "?fixture=demo", settle: 3000 });
 
 // Seed the machine-global FluxLib (mem-FS) BEFORE entering Library, so its mount-reload
 // sees it: 4 bib entries, the enrich sidecar, and one already-on-disk PDF (zorro2023).

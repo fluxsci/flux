@@ -708,6 +708,20 @@ ipcMain.handle("prefs:set", (_e, patch) => {
   return next;
 });
 
+// Move the whole FluxConfig folder (Settings "Move…"): user picks the new
+// PARENT dir; the folder is always named exactly "FluxConfig". The watcher is
+// closed first (open fds on the tree being renamed); the renderer requires a
+// restart afterwards — same contract as the old library-folder change.
+ipcMain.handle("config:move", async (_e, parentDir) => {
+  if (projectWatcher) {
+    await projectWatcher.close().catch(() => {});
+    projectWatcher = null;
+  }
+  const r = await fluxPaths.moveFluxConfig(parentDir);
+  invalidatePathCaches();
+  return r;
+});
+
 // Machine-global named text-style library: <userData>/textstyles.json
 // ({ schemaVersion, styles: TextStyle[] }). Shared across every project;
 // applying a library style copies it into the project (copy-on-apply — the

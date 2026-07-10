@@ -383,6 +383,71 @@ async function ensureFluxConfig() {
 }
 
 // ---------------------------------------------------------------------------
+// moveFluxConfig — the Settings "Move…" action. The user picks the new PARENT
+// directory; the folder itself is always named exactly "FluxConfig". Same-fs
+// is a single rename; cross-device (EXDEV) falls back to copy → verify
+// (recursive file count + byte total) → chmod keys.json 0600 → delete old —
+// acceptable for an explicit user action, unlike auto-migration.
+// ---------------------------------------------------------------------------
+
+async function countTree(root) {
+  let files = 0;
+  let bytes = 0;
+  const rec = async (d) => {
+    for (const e of await fsp.readdir(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) await rec(p);
+      else if (e.isFile()) {
+        files++;
+        bytes += (await fsp.stat(p)).size;
+      }
+    }
+  };
+  await rec(root);
+  return { files, bytes };
+}
+
+async function moveFluxConfig(parentDir) {
+  if (typeof parentDir !== "string" || !parentDir.trim()) return { error: "no destination chosen" };
+  const prefs = readPrefsRawSync();
+  const current = resolveFluxConfigPathSync(prefs);
+  const target = path.join(path.resolve(parentDir), "FluxConfig");
+  if (target === current) return { error: "that is already the FluxConfig location" };
+  if ((target + path.sep).startsWith(current + path.sep)) return { error: "destination is inside the current FluxConfig" };
+  if (!fsSync.existsSync(current)) return { error: `current FluxConfig is missing (${current})` };
+  if (fsSync.existsSync(target)) {
+    const entries = await fsp.readdir(target).catch(() => null);
+    if (!entries) return { error: `cannot read ${target}` };
+    if (entries.length > 0) return { error: `${target} already exists and is not empty` };
+    await fsp.rmdir(target);
+  }
+  return withConfigLock(async () => {
+    const events = [];
+    try {
+      await fsp.rename(current, target);
+      events.push({ action: "move-fluxconfig", detail: `${current} -> ${target}` });
+    } catch (e) {
+      if (!e || e.code !== "EXDEV") return { error: (e && e.message) || String(e) };
+      // Cross-device: copy, verify, then delete the original.
+      const before = await countTree(current);
+      await fsp.cp(current, target, { recursive: true });
+      const after = await countTree(target);
+      if (after.files !== before.files || after.bytes !== before.bytes) {
+        await fsp.rm(target, { recursive: true, force: true });
+        return { error: `copy verification failed (${after.files}/${before.files} files, ${after.bytes}/${before.bytes} bytes) — nothing was deleted` };
+      }
+      const keys = path.join(target, "FluxLib", "keys.json");
+      if (fsSync.existsSync(keys)) await fsp.chmod(keys, 0o600); // cp does not reliably preserve mode
+      await fsp.rm(current, { recursive: true, force: true });
+      events.push({ action: "move-fluxconfig-exdev-copy", detail: `${current} -> ${target} (${after.files} files, ${after.bytes} bytes verified)` });
+    }
+    writePrefsAtomic({ ...readPrefsRawSync(), fluxConfigPath: target });
+    await appendMarker(target, events);
+    return { ok: true, path: target };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Guidelines seed content. These constants are only the FIRST-RUN seed — the
 // live copy is the user's <FluxConfig>/Guidelines/, which they own outright.
 // Embedded as strings (not a repo asset file) so the packaged app and the
@@ -421,6 +486,7 @@ module.exports = {
   readPrefsRawSync,
   writePrefsAtomic,
   ensureFluxConfig,
+  moveFluxConfig,
   configInfoSync,
   GUIDELINES_README,
   GUIDELINES_BASE_RULES,

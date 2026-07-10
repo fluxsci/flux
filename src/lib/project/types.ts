@@ -234,9 +234,14 @@ export interface FileBridge {
   lockAcquire?(scope: "project" | "fluxlib", name: string): Promise<{ ok: boolean; heldBy?: string; noop?: boolean }>;
   lockRelease?(scope: "project" | "fluxlib", name: string): Promise<boolean>;
   // Global preferences (the first file-based config the GUI + CLI/agents share:
-  // <userData>/preferences.json — holds the FluxLib path). Optional: Electron only.
+  // <userData>/preferences.json — holds the FluxConfig pointer; the FluxLib and
+  // FluxConfig paths come back RESOLVED as fluxLibResolved/fluxConfigResolved).
+  // Optional: Electron only.
   prefsGet?(): Promise<Record<string, unknown>>;
   prefsSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+  // Move the whole FluxConfig folder to a new parent dir (always named exactly
+  // "FluxConfig"; main-process rename/copy+verify). Optional: Electron only.
+  configMove?(parentDir: string): Promise<{ ok: true; path: string } | { error: string }>;
   // Machine-global named TEXT-STYLE library (<userData>/textstyles.json; the
   // dev fixture uses localStorage). Reusable definitions shared across every
   // project; applying one copies it into the project (copy-on-apply). The

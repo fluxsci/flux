@@ -3,7 +3,11 @@
   import { settings, settingsOpen, type Settings, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim, type XrayPos } from "./settings";
   import { fileBridge } from "./project/types";
 
-  // --- FluxLib location (desktop app only) ----------------------------------
+  // --- FluxConfig location (desktop app only) --------------------------------
+  // ONE user-facing folder for all user-level Flux state (FluxLib, Guidelines).
+  // Moving it moves everything; the folder is always named exactly "FluxConfig"
+  // (the user picks its PARENT). FluxLib is derived: <FluxConfig>/FluxLib.
+  let cfgPath = "";
   let libPath = "";
   let libNotice = "";
   let libBusy = false;
@@ -12,31 +16,37 @@
   async function loadLib() {
     try {
       const p = await fileBridge()?.prefsGet?.();
-      libPath = ((p?.fluxLibResolved ?? p?.fluxLibPath) as string) ?? "";
+      cfgPath = (p?.fluxConfigResolved as string) ?? "";
+      libPath = (p?.fluxLibResolved as string) ?? "";
     } catch {
+      cfgPath = "";
       libPath = "";
     }
   }
 
-  async function revealLib() {
-    if (libPath) await fileBridge()?.revealPath?.(libPath);
+  async function revealCfg() {
+    if (cfgPath) await fileBridge()?.revealPath?.(cfgPath);
   }
 
-  async function changeLib() {
+  async function moveCfg() {
     const fb = fileBridge();
-    if (!fb?.openDirectory) {
-      libNotice = "Changing the library folder needs the desktop app.";
+    if (!fb?.openDirectory || !fb?.configMove) {
+      libNotice = "Moving FluxConfig needs the desktop app.";
       return;
     }
     libBusy = true;
     try {
-      const dir = await fb.openDirectory("Choose your FluxLib folder");
-      if (!dir) return;
-      await fb.prefsSet?.({ fluxLibPath: dir });
-      libPath = dir;
-      libNotice = "Restart Flux to load references from the new location.";
+      const parent = await fb.openDirectory("Choose the new parent folder for FluxConfig");
+      if (!parent) return;
+      const r = await fb.configMove(parent);
+      if (r && "error" in r && r.error) {
+        libNotice = `Couldn't move FluxConfig: ${r.error}`;
+        return;
+      }
+      if (r && "path" in r && r.path) cfgPath = r.path;
+      libNotice = "FluxConfig moved. Restart Flux to finish switching over.";
     } catch (e) {
-      libNotice = `Couldn't set the folder: ${(e as Error).message}`;
+      libNotice = `Couldn't move FluxConfig: ${(e as Error).message}`;
     } finally {
       libBusy = false;
     }
@@ -107,11 +117,12 @@
       on:click|stopPropagation>
       <h2>Settings</h2>
 
-      <h3>Library folder</h3>
-      <div class="libpath" title={libPath}>{libPath || "—"}</div>
+      <h3>FluxConfig folder</h3>
+      <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
+      <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}) and Guidelines.</p>
       <div class="libbtns">
-        <button class="ghost" on:click={revealLib} disabled={!libPath}>Reveal</button>
-        <button class="ghost" on:click={changeLib} disabled={libBusy}>{libBusy ? "Choosing…" : "Change folder…"}</button>
+        <button class="ghost" on:click={revealCfg} disabled={!cfgPath}>Reveal</button>
+        <button class="ghost" on:click={moveCfg} disabled={libBusy}>{libBusy ? "Moving…" : "Move…"}</button>
       </div>
       {#if libNotice}<p class="hint">{libNotice}</p>{/if}
 

@@ -65,9 +65,13 @@ contextBridge.exposeInMainWorld("fig", {
   // App / user paths.
   paths: () => ipcRenderer.invoke("app:paths"),
 
-  // Global preferences (<userData>/preferences.json — holds the FluxLib path).
+  // Global preferences (<userData>/preferences.json — holds the FluxConfig
+  // pointer; FluxLib/Guidelines paths come back resolved).
   prefsGet: () => ipcRenderer.invoke("prefs:get"),
   prefsSet: (patch) => ipcRenderer.invoke("prefs:set", patch),
+  // Move the whole FluxConfig folder to a new parent dir (main-process rename;
+  // returns {ok,path} or {error}). The folder is always named "FluxConfig".
+  configMove: (parentDir) => ipcRenderer.invoke("config:move", parentDir),
   // Machine-global named text-style library (<userData>/textstyles.json).
   readGlobalTextStyles: () => ipcRenderer.invoke("textstyles:get"),
   writeGlobalTextStyles: (styles) => ipcRenderer.invoke("textstyles:set", styles),

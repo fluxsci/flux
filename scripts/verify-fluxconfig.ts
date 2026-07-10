@@ -177,6 +177,24 @@ if (process.platform !== "win32") {
     const f4 = freshFixture("t4", { preexistingCfg: true });
     await fp.ensureFluxConfig();
     assert(fs.existsSync(path.join(f4.home, "FluxConfig", "FluxLib", "library.bib")), "pre-existing empty FluxConfig filled in place");
+
+    // -- moveFluxConfig (Settings "Move…"): same-fs rename + destination guards
+    const f5 = freshFixture("t5");
+    await fp.ensureFluxConfig();
+    const newParent = path.join(f5.home, "elsewhere");
+    fs.mkdirSync(newParent, { recursive: true });
+    const mv = await fp.moveFluxConfig(newParent);
+    assert("ok" in mv && mv.path === path.join(newParent, "FluxConfig"), "moveFluxConfig renames under the new parent");
+    assert(fs.existsSync(path.join(newParent, "FluxConfig", "FluxLib", "library.bib")), "library moved with FluxConfig");
+    assert(!fs.existsSync(path.join(f5.home, "FluxConfig")), "old FluxConfig location gone");
+    const prefs5 = JSON.parse(fs.readFileSync(path.join(f5.xdg, "flux", "preferences.json"), "utf8"));
+    assert(prefs5.fluxConfigPath === path.join(newParent, "FluxConfig"), "pointer pref updated by the move");
+    assert(fp.resolveFluxLibPathSync(prefs5) === path.join(newParent, "FluxConfig", "FluxLib"), "resolver follows the move");
+    const marker5 = JSON.parse(fs.readFileSync(path.join(newParent, "FluxConfig", ".fluxconfig.json"), "utf8"));
+    assert(marker5.events.some((e: { action: string }) => e.action === "move-fluxconfig"), "marker records the Settings move");
+    assert("error" in (await fp.moveFluxConfig(newParent)), "reject moving to the same location");
+    assert("error" in (await fp.moveFluxConfig(path.join(newParent, "FluxConfig"))), "reject moving into itself");
+    assert("error" in (await fp.moveFluxConfig("")), "reject empty destination");
   } finally {
     if (realHome === undefined) delete process.env.HOME;
     else process.env.HOME = realHome;

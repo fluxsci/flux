@@ -45,6 +45,11 @@ export function writePrefsAtomic(next: FluxPrefs): void;
 /** One-time machine init/migration (idempotent, locked, fast after first run). */
 export function ensureFluxConfig(): Promise<FluxConfigInfo>;
 
+/** Move the whole FluxConfig folder under a new parent dir (Settings "Move…"). */
+export function moveFluxConfig(
+  parentDir: string,
+): Promise<{ ok: true; path: string } | { error: string }>;
+
 /** Resolve all machine paths without running migration. */
 export function configInfoSync(prefs?: FluxPrefs): FluxConfigInfo;
 

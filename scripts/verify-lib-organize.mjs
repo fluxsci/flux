@@ -9,7 +9,7 @@ let fails = 0;
 const ok = (c, msg, extra = "") => (c ? console.log("  ✓ " + msg) : (fails++, console.log("  ✗ " + msg + (extra ? ` — ${extra}` : ""))));
 
 const { browser, page } = await launch();
-await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3000 });
+await gotoApp(page, { url: (process.env.FLUX_URL || "http://127.0.0.1:1420/") + "?fixture=demo", settle: 3000 });
 await clickMode(page, "Library").catch(() => {});
 await sleep(600);
 await page.waitForFunction(() => !!window.__fluxSeedScaleLibrary, { timeout: 15000 });

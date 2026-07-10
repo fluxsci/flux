@@ -6,7 +6,7 @@ import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs"
 
 const R = "/demo/myc-growth-paper";
 const { browser, page } = await launch();
-await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
+await gotoApp(page, { url: (process.env.FLUX_URL || "http://127.0.0.1:1420/") + "?fixture=demo", settle: 3500 });
 await clickMode(page, "Paper");
 await sleep(1400);
 

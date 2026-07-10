@@ -241,7 +241,10 @@ export function createMemBridge(): FileBridge & {
     },
     async prefsGet() {
       const p = norm("/home/demo/.config/flux/preferences.json");
-      const resolved = { fluxLibResolved: "/home/demo/FluxConfig/FluxLib" };
+      const resolved = {
+        fluxLibResolved: "/home/demo/FluxConfig/FluxLib",
+        fluxConfigResolved: "/home/demo/FluxConfig",
+      };
       try {
         return files.has(p)
           ? { ...resolved, ...JSON.parse(new TextDecoder().decode(files.get(p)!)) }
@@ -261,6 +264,9 @@ export function createMemBridge(): FileBridge & {
       const next = { ...cur, ...patch };
       files.set(p, enc.encode(JSON.stringify(next)));
       return next;
+    },
+    async configMove() {
+      return { error: "Moving FluxConfig needs the desktop app." };
     },
   };
 }
