@@ -21,19 +21,14 @@
   function addFigure() {
     const cid = $activeCanvasId;
     commit((p) => {
-      const onCanvas = p.figures.filter((f) => f.canvasId === cid);
       const active = p.figures.find((f) => f.id === $activeFigureId && f.canvasId === cid);
-      // New figures stack vertically: directly below the lowest figure on the
-      // canvas, left-aligned with the active figure (M1 / F8). The default size
-      // lives only in blankFigure() (680×850 = 180×225 mm) so figure sizes never drift.
-      const gap = 80;
-      const maxBottom = onCanvas.reduce((m, f) => Math.max(m, f.y + f.height), 0);
-      const fig: Figure = {
-        ...blankFigure(cid!, `Figure ${onCanvas.length + 1}`),
-        x: onCanvas.length ? active?.x ?? onCanvas[0].x : 0,
-        y: onCanvas.length ? maxBottom + gap : 0,
-      };
-      p.figures.push(fig);
+      // ops.createFigure stacks vertically by default (below the lowest figure
+      // on the canvas — shared with headless compose); the GUI additionally
+      // left-aligns with the ACTIVE figure rather than the first.
+      const fig = ops.createFigure(p, {
+        canvasId: cid!,
+        ...(active ? { x: active.x } : {}),
+      });
       activeFigureId.set(fig.id);
     });
   }

@@ -16,6 +16,8 @@ usage: flux <verb> [root] [args] [--flags]
   reindex [root]                       rebuild project.json.figures[] from fig/
   list [root]                          print project overview (JSON)
   render-figure [root] <id> [--out f]  render a figure to SVG (stdout or --out)
+  render-canvas [canvasId] [--root R] [--png] [--scale n] [--out f]
+                                       render a WHOLE canvas (all figures at their x/y)
   render-figures [root] [--doc p.qmd]  write fig/renders/<id>.svg for embedded figures (bare-quarto prep)
   caption [root] <id>                  print a figure's composed caption
   set-caption [root] <id> <md…|--file f>   write fig/captions/<id>.md
@@ -248,6 +250,28 @@ async function main() {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
         } else process.stdout.write(svg);
+      }
+      break;
+    }
+    case "render-canvas": {
+      // The whole canvas in one image — every figure at its real x/y, so an
+      // agent's look-step catches layout problems (overlap, stray placeholder
+      // frames) that per-figure renders can never show.
+      const cid = _[0] || undefined;
+      if (flags.png) {
+        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1);
+        const out = String(flags.out ?? `${canvasId}.png`);
+        await fs.writeFile(out, png);
+        console.error(`✓ wrote ${out} (${png.length} bytes)`);
+      } else {
+        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid);
+        if (flags.out) {
+          await fs.writeFile(String(flags.out), svg);
+          console.error(`✓ wrote ${flags.out}`);
+        } else {
+          process.stdout.write(svg);
+          console.error(`✓ rendered canvas ${canvasId}`);
+        }
       }
       break;
     }

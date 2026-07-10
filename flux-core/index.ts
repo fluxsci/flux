@@ -441,11 +441,13 @@ export async function reindex(root: string): Promise<{ figures: number }> {
   return { figures: figures.length };
 }
 
-/** list_project: a compact overview of documents, figures, references. */
+/** list_project: a compact overview of documents, figures, references.
+ *  `elements` makes empty/placeholder figures visible at a glance — a 0-element
+ *  figure sitting at order 1 silently shifts every other figure's number. */
 export async function listProject(root: string): Promise<{
   title: string;
   documents: string[];
-  figures: { id: string; label: string; name: string; order: number; panels: string[] }[];
+  figures: { id: string; label: string; name: string; order: number; panels: string[]; elements: number }[];
   references: string | null;
 }> {
   const manifest = await loadManifest(root);
@@ -463,6 +465,7 @@ export async function listProject(root: string): Promise<{
       name: f.name,
       order: f.order,
       panels: byId[f.id] ? panelLetters(byId[f.id]) : [],
+      elements: byId[f.id]?.elements.length ?? 0,
     })),
     references: manifest.references?.library ?? null,
   };
@@ -667,6 +670,65 @@ export async function renderFigurePng(root: string, id: string, scale = 2): Prom
   const { Resvg } = await import("@resvg/resvg-js");
   const r = new Resvg(svg, { fitTo: { mode: "zoom", value: scale } });
   return Buffer.from(r.render().asPng());
+}
+
+const escXml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** render-canvas → one SVG of a whole canvas: every figure rendered in place
+ *  at its canvas x/y, with a muted name·id label above each frame. This is the
+ *  canvas-level "look" verb — `render-figure` shows one frame in isolation, so
+ *  a headless agent could never see figures stacked on top of each other. */
+export async function renderCanvasSvg(root: string, canvasId?: string): Promise<{ svg: string; canvasId: string }> {
+  const index = await readFigIndex(root);
+  if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
+  const cid = canvasId ?? index.canvases?.[0]?.id;
+  if (!cid || (canvasId && !(index.canvases ?? []).some((c) => c.id === canvasId)))
+    throw new Error(`canvas not found: ${canvasId ?? "(none in index)"}`);
+  const { byId } = await readCanvasFiles(root, index);
+  const figs = (index.figures ?? [])
+    .filter((f) => f.canvas === cid && byId[f.id])
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((f) => byId[f.id]);
+  if (!figs.length) throw new Error(`canvas ${cid} has no figures`);
+
+  const LABEL_H = 26;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const f of figs) {
+    x0 = Math.min(x0, f.x);
+    y0 = Math.min(y0, f.y - LABEL_H);
+    x1 = Math.max(x1, f.x + f.width);
+    y1 = Math.max(y1, f.y + f.height);
+  }
+  const pad = 40;
+  const vx = x0 - pad, vy = y0 - pad, vw = x1 - x0 + 2 * pad, vh = y1 - y0 + 2 * pad;
+
+  const parts: string[] = [];
+  for (const f of figs) {
+    const svg = await renderFigureSvg(root, f.id);
+    // Nest the figure's own render at its canvas position (nested <svg x y>).
+    parts.push(
+      `<text x="${f.x}" y="${f.y - 8}" font-family="sans-serif" font-size="16" fill="#8a8279">` +
+        `${escXml(f.name)} · ${escXml(f.id)}</text>`,
+    );
+    parts.push(svg.replace("<svg ", `<svg x="${f.x}" y="${f.y}" `));
+  }
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+    `width="${vw}" height="${vh}" viewBox="${vx} ${vy} ${vw} ${vh}">\n` +
+    `<rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" fill="#ffffff"/>\n` +
+    parts.join("\n") +
+    `\n</svg>`;
+  return { svg, canvasId: cid };
+}
+
+/** render-canvas → PNG. Default scale 1: a whole canvas is several figures
+ *  tall, and 2× would produce a needlessly huge raster for a look-step. */
+export async function renderCanvasPng(root: string, canvasId?: string, scale = 1): Promise<{ png: Buffer; canvasId: string }> {
+  const { svg, canvasId: cid } = await renderCanvasSvg(root, canvasId);
+  const { Resvg } = await import("@resvg/resvg-js");
+  const r = new Resvg(svg, { fitTo: { mode: "zoom", value: scale } });
+  return { png: Buffer.from(r.render().asPng()), canvasId: cid };
 }
 
 /** set-caption: store the caption in the figure's canvas model (its true home) and
@@ -1354,12 +1416,20 @@ export async function deleteElements(root: string, ids: string[]): Promise<void>
   });
 }
 
-/** delete a whole figure. Returns the id the GUI would activate next. */
+/** delete a whole figure. Returns the id the GUI would activate next.
+ *  Headless delete allows an empty canvas — an auto-created blank placeholder
+ *  would silently take order 1 and shift every figure's number (the moma
+ *  numbering trap). Stale renders are unlinked so they can't be mistaken for
+ *  live output. */
 export async function deleteFigure(root: string, figId: string): Promise<{ nextActiveId: string | null }> {
-  return mutateFigModel(root, "delete_figure", ({ project }) => {
+  const r = await mutateFigModel(root, "delete_figure", ({ project }) => {
     if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-    return ops.deleteFigure(project, figId);
+    return ops.deleteFigure(project, figId, { allowEmpty: true });
   });
+  for (const ext of [".svg", ".png"]) {
+    await fs.unlink(safeJoin(root, `fig/renders/${figId}${ext}`)).catch(() => {});
+  }
+  return r;
 }
 
 /** duplicate a whole figure (fresh element/group ids). Returns the new figure id. */

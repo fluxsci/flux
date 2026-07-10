@@ -58,6 +58,24 @@ server.registerTool(
 );
 
 server.registerTool(
+  "get_canvas_image",
+  {
+    description:
+      "Render a WHOLE canvas to a PNG — every figure at its real canvas x/y with a name·id label. Use to check canvas-level layout (overlaps, stray empty frames) that per-figure renders can't show.",
+    inputSchema: { canvasId: z.string().optional(), scale: z.number().optional() },
+  },
+  async ({ canvasId, scale }) => {
+    const { png, canvasId: cid } = await core.renderCanvasPng(ROOT, canvasId, scale ?? 1);
+    return {
+      content: [
+        { type: "image" as const, data: png.toString("base64"), mimeType: "image/png" },
+        { type: "text" as const, text: `Rendered canvas "${cid}" (PNG, ${png.length} bytes, scale ${scale ?? 1}).` },
+      ],
+    };
+  },
+);
+
+server.registerTool(
   "set_caption",
   { description: "Write a figure's caption to fig/captions/<id>.md (the single caption source).", inputSchema: { id: z.string(), markdown: z.string() } },
   async ({ id, markdown }) => {

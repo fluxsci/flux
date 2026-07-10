@@ -118,8 +118,6 @@ export interface CreateFigureOpts {
   /** Explicit figure id (a clean slug → stable `@fig-<id>`); else auto-generated. */
   id?: Id;
   name?: string;
-  /** Stack the new figure directly below this one (same x, under its bottom). */
-  belowFigureId?: Id;
   x?: number;
   y?: number;
   width?: number;
@@ -129,14 +127,12 @@ export interface CreateFigureOpts {
 
 export function createFigure(p: Project, opts: CreateFigureOpts): Figure {
   const onCanvas = p.figures.filter((f) => f.canvasId === opts.canvasId);
-  let x = opts.x ?? 0;
-  let y = opts.y ?? 0;
-  if (opts.belowFigureId) {
-    const ref = figById(p, opts.belowFigureId);
-    const maxBottom = onCanvas.reduce((m, f) => Math.max(m, f.y + f.height), 0);
-    x = opts.x ?? ref?.x ?? 0;
-    y = opts.y ?? maxBottom + 80;
-  }
+  // Default placement stacks vertically: directly below the lowest figure on
+  // the canvas, left-aligned with the first one. Headless composes used to
+  // default to (0,0) and pile every figure on top of the previous.
+  const maxBottom = onCanvas.reduce((m, f) => Math.max(m, f.y + f.height), 0);
+  const x = opts.x ?? (onCanvas.length ? onCanvas[0].x : 0);
+  const y = opts.y ?? (onCanvas.length ? maxBottom + 80 : 0);
   const fig: Figure = {
     id: opts.id ?? newId("fig"),
     name: opts.name ?? `Figure ${onCanvas.length + 1}`,
@@ -152,15 +148,22 @@ export function createFigure(p: Project, opts: CreateFigureOpts): Figure {
   return fig;
 }
 
-/** Delete a figure; never leaves a canvas with zero figures (mirrors the GUI's
- *  frame delete). Returns the figure that should become active next. */
-export function deleteFigure(p: Project, figId: Id): { nextActiveId: Id | null } {
+/** Delete a figure. By default never leaves a canvas with zero figures
+ *  (mirrors the GUI's frame delete, which always shows a frame). Headless
+ *  callers pass `allowEmpty` — an auto-created blank silently takes order 1
+ *  and shifts every real figure's number, which corrupts `@fig-…` refs.
+ *  Returns the figure that should become active next. */
+export function deleteFigure(
+  p: Project,
+  figId: Id,
+  opts: { allowEmpty?: boolean } = {},
+): { nextActiveId: Id | null } {
   const victim = figById(p, figId);
   const cid = victim?.canvasId ?? null;
   p.figures = p.figures.filter((f) => f.id !== figId);
   const remaining = cid ? p.figures.filter((f) => f.canvasId === cid) : [];
   let nextActiveId: Id | null;
-  if (cid && remaining.length === 0) {
+  if (cid && remaining.length === 0 && !opts.allowEmpty) {
     const blank = createFigure(p, { canvasId: cid });
     nextActiveId = blank.id;
   } else {

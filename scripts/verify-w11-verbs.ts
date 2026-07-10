@@ -123,6 +123,31 @@ try {
   const rendered = await core.renderFigureSvg(root, comp.figureId);
   assert((rendered.match(/#e00000/g) || []).length >= 2, "AGT-13: a valid partId still applies (group override expands)");
 
+  // Headless placement: a second composed figure stacks BELOW the first
+  // (createFigure default), never on top of it at 0,0.
+  const comp2 = await core.composeFigure(root, [svg], { id: "barfig2", captionStub: false });
+  const f1 = await readFig(root, comp.figureId);
+  const f2 = await readFig(root, comp2.figureId);
+  assert(f2.y >= f1.y + f1.height, `compose-figure stacks below the previous figure (y=${f2.y} vs bottom=${f1.y + f1.height})`);
+
+  // render-canvas: whole-canvas look shows every figure + its label.
+  const canvas = await core.renderCanvasSvg(root);
+  assert(canvas.svg.includes(`x="${f2.x}" y="${f2.y}"`), "render-canvas nests figures at their canvas x/y");
+  assert(canvas.svg.includes("barfig2"), "render-canvas labels figures with name·id");
+
+  // delete-figure headless: renders are unlinked, no placeholder backfill,
+  // and list_project exposes element counts (empty figures visible).
+  await core.materializeRenders(root);
+  const renderPath = path.join(root, "fig", "renders", `${comp2.figureId}.svg`);
+  assert(await fs.access(renderPath).then(() => true, () => false), "materialize wrote the render");
+  await core.deleteFigure(root, comp2.figureId);
+  assert(!(await fs.access(renderPath).then(() => true, () => false)), "delete-figure unlinks fig/renders/<id>.svg");
+  const listed = await core.listProject(root);
+  assert(listed.figures.every((fg: any) => typeof fg.elements === "number"), "list exposes per-figure element counts");
+  const total = await figCount(root);
+  for (const fg of listed.figures) await core.deleteFigure(root, fg.id);
+  assert((await figCount(root)) === 0 && total > 0, "headless delete-figure never backfills a placeholder blank");
+
   console.log("\nW11 VERIFY: PASS");
 } finally {
   await fs.rm(root, { recursive: true, force: true });

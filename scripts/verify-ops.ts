@@ -73,4 +73,25 @@ assert(fig.elements[fig.elements.length - 1].id === ids[0] || true, "setZOrder f
 ops.deleteElements(p, [labelIds[0]]);
 assert(!fig.elements.some((e) => e.id === labelIds[0]), "deleteElements removes the element");
 
+// createFigure default placement: stacks below the lowest figure on the canvas
+// (headless compose used to default every figure to 0,0 — the moma pile-up).
+const lowest = Math.max(...p.figures.map((f) => f.y + f.height));
+const stacked = ops.createFigure(p, { canvasId: "canvas-1" });
+assert(stacked.y === lowest + 80, `createFigure stacks below lowest (+80): got y=${stacked.y}, want ${lowest + 80}`);
+assert(stacked.x === p.figures[0].x, "createFigure left-aligns with the first figure");
+const explicit = ops.createFigure(p, { canvasId: "canvas-1", x: 5, y: 7 });
+assert(explicit.x === 5 && explicit.y === 7, "explicit x/y still wins over auto-placement");
+
+// deleteFigure: GUI default backfills a blank; headless allowEmpty must NOT —
+// an auto-created placeholder takes order 1 and shifts every figure number.
+const solo: Project = { version: 2, name: "", canvases: [{ id: "c", name: "C", order: 1 }],
+  figures: [], assets: [], palette: [] };
+const only = ops.createFigure(solo, { canvasId: "c" });
+ops.deleteFigure(solo, only.id);
+assert(solo.figures.length === 1 && solo.figures[0].id !== only.id,
+  "deleteFigure (GUI default) backfills a blank figure");
+const only2 = solo.figures[0].id;
+ops.deleteFigure(solo, only2, { allowEmpty: true });
+assert(solo.figures.length === 0, "deleteFigure allowEmpty leaves the canvas empty");
+
 console.log("\nALL OPS TESTS PASSED");
