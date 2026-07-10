@@ -79,7 +79,7 @@ server.registerTool(
   "sync_figure",
   {
     description:
-      "Refresh a figure's (or all figures') fig/assets plot copies from their regenerated plots/ sources IN PLACE — the regenerate loop without delete+recompose; captions, positions and per-part restyles survive.",
+      "Refresh a figure's (or all figures') fig/assets plot copies from their regenerated plots/ sources IN PLACE — the regenerate loop without delete+recompose; captions, positions and per-part restyles survive. A changed intrinsic plot size resizes its element (physical-size-true) and grows the figure frame when needed (re-pack with arrange if the grid should reflow).",
     inputSchema: { figureId: z.string().optional() },
   },
   async ({ figureId }) => {
@@ -87,7 +87,15 @@ server.registerTool(
     const head = r.refreshed.length
       ? `refreshed ${r.refreshed.length}/${r.checked} panel asset(s): ${r.refreshed.map((x) => x.from).join(", ")}`
       : `all ${r.checked} panel asset(s) already match plots/ (no change)`;
-    return ok(head + (r.missing.length ? ` — missing source plot(s): ${r.missing.join(", ")}` : ""));
+    const parts = [head];
+    for (const rs of r.resized)
+      parts.push(
+        `${rs.elementIds.join(", ")}: intrinsic ${Math.round(rs.from.w)}×${Math.round(rs.from.h)} → ${Math.round(rs.to.w)}×${Math.round(rs.to.h)} (element resized; re-pack with arrange if needed)`,
+      );
+    for (const fr of r.framed) parts.push(`${fr.figId}: frame grown ${fr.from.width}×${fr.from.height} → ${fr.to.width}×${fr.to.height}`);
+    if (r.missing.length) parts.push(`missing source plot(s): ${r.missing.join(", ")}`);
+    parts.push(...r.warnings);
+    return ok(parts.join(" — "));
   },
 );
 
@@ -945,11 +953,18 @@ server.registerTool(
 server.registerTool(
   "rerun_plot",
   {
-    description: "Re-run a plot's recipe (regenerate the figure from its source script + params). Params may be strings, numbers, or booleans.",
-    inputSchema: { recipePath: z.string(), params: z.record(z.union([z.string(), z.number(), z.boolean()])).optional() },
+    description:
+      "Re-run a plot's recipe (regenerate the figure from its source script + params). Params may be strings, numbers, or booleans. only: true reruns just THIS recipe's plot even when the script saves several (figure-level scripts) — sibling plots stay untouched on disk; a string targets specific plot name(s)/patterns.",
+    inputSchema: {
+      recipePath: z.string(),
+      params: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+      only: z.union([z.boolean(), z.string()]).optional(),
+    },
   },
-  async ({ recipePath, params }) => {
-    const r = await core.runRecipe(recipePath, params ?? {});
+  async ({ recipePath, params, only }) => {
+    const r = await core.runRecipe(recipePath, params ?? {}, {
+      only: only === true ? true : typeof only === "string" ? only : undefined,
+    });
     return ok(`recipe exited ${r.code}; wrote ${r.svgPath}`);
   },
 );

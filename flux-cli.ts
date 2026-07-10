@@ -130,7 +130,10 @@ usage: flux <verb> [root] [args] [--flags]
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   mark a comment resolved
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
-  rerun-plot <recipe.json> [--param v…]   re-run a plot's recipe (regenerate)
+  rerun-plot <recipe.json> [--param v…] [--only [name]]   re-run a plot's recipe
+                                       (--only: figure-level scripts rerun ONE
+                                       plot — bare --only = this recipe's plot;
+                                       siblings stay untouched on disk)
 
  Slides (Flux Slide — figure-first animated talks):
   decks [--root R]                     list the project's slide decks (JSON)
@@ -300,11 +303,21 @@ async function main() {
     case "sync-figure": {
       // Close the regenerate loop headlessly: refresh fig/assets copies from
       // their plots/ sources in place (captions/restyles/positions survive).
+      // Changed intrinsic sizes resize their elements (physical-size-true) and
+      // grow the figure frame when content would no longer fit.
       const r = await core.syncFigureAssets(R(), _[0] || undefined);
       if (r.refreshed.length)
         console.error(`✓ refreshed ${r.refreshed.length}/${r.checked} panel asset(s): ${r.refreshed.map((x) => x.from).join(", ")}`);
       else console.error(`✓ all ${r.checked} panel asset(s) already match plots/ (no change)`);
+      for (const rs of r.resized)
+        console.error(
+          `  ↔ ${rs.elementIds.join(", ")}: intrinsic size ${Math.round(rs.from.w)}×${Math.round(rs.from.h)} → ${Math.round(rs.to.w)}×${Math.round(rs.to.h)} (element resized to match)`,
+        );
+      for (const fr of r.framed)
+        console.error(`  ⤢ ${fr.figId}: frame ${fr.from.width}×${fr.from.height} → ${fr.to.width}×${fr.to.height} (grown to fit resized panels)`);
+      if (r.resized.length) console.error(`  (layout may need a re-pack: flux arrange <figId> --cols N)`);
       if (r.missing.length) console.error(`⚠ missing source plot(s): ${r.missing.join(", ")}`);
+      for (const w of r.warnings) console.error(`⚠ ${w}`);
       break;
     }
     case "render-canvas": {
@@ -1255,7 +1268,13 @@ async function main() {
     }
     case "rerun-plot": {
       const recipePath = path.resolve(_[0] ?? "");
-      const res = await core.runRecipe(recipePath, flags as Record<string, string | boolean>);
+      // `--only [name]` targets one plot of a figure-level script (bare --only
+      // = this recipe's own plot); `root`/`only` are runner flags, not recipe
+      // params — everything else persists into the recipe as a param override.
+      const { only, root: _r, ...params } = flags;
+      const res = await core.runRecipe(recipePath, params as Record<string, string | boolean>, {
+        only: only === true ? true : typeof only === "string" ? only : undefined,
+      });
       console.error(`✓ recipe exited ${res.code}; wrote ${res.svgPath}`);
       if (res.stderr.trim()) console.error(res.stderr.trim());
       if (res.code !== 0) process.exit(res.code);

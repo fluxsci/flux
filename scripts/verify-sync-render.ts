@@ -38,14 +38,20 @@ try {
   const comp = await core.composeFigure(root, [good, absurd], { id: "syncfig", captionStub: false });
   assert(comp.warnings.length === 1 && /clamped/.test(comp.warnings[0]) && /logbar/.test(comp.warnings[0]),
     "compose warns about clamped absurd coordinates, naming the plot");
+  // The clamp target sits JUST outside the plot's own canvas (−0.25×maxDim):
+  // the old ±90,000 target provably still panicked resvg under nested-<svg>
+  // composition (geom.rs dies ≈1.6× beyond the canvas). 200-unit plot → −50.
   const assetSvgs = await fs.readdir(path.join(root, "fig", "assets"));
   let clampedOnDisk = false;
   for (const f of assetSvgs.filter((f) => f.endsWith(".svg"))) {
     const t = await fs.readFile(path.join(root, "fig", "assets", f), "utf8");
-    if (t.includes("-90000")) clampedOnDisk = true;
+    if (t.includes('d="M -50 60')) clampedOnDisk = true;
     assert(!t.includes("-176000"), `asset copy ${f} carries no absurd coordinate`);
+    for (const d of t.matchAll(/\bd="([^"]*)"/g))
+      for (const tok of d[1].matchAll(/-?\d+(?:\.\d+)?/g))
+        assert(Math.abs(Number(tok[0])) <= 250, `every path coordinate stays near the canvas (got ${tok[0]})`);
   }
-  assert(clampedOnDisk, "the clamped coordinate landed in the asset copy");
+  assert(clampedOnDisk, "the clamped coordinate landed in the asset copy at the safe bound");
 
   // --- PNG render through the child process works --------------------------
   const png = await core.renderFigurePng(root, comp.figureId, 1);

@@ -397,22 +397,132 @@ function svgIntrinsicSize(svg: string): { w: number; h: number } {
   return { w: 240, h: 180 };
 }
 
-/** Clamp absurd path coordinates (|v| ≥ 100,000) to ±90,000. matplotlib
- *  anchors log-axis bars at data 0, which serializes as a huge off-canvas
- *  coordinate (x ≈ −176,000 in a ~500-unit viewBox); it renders invisibly
- *  standalone, but under compose-figure's nested-<svg> scaling it can PANIC
- *  resvg (geom.rs Option::unwrap). The clamped point stays far off-canvas
- *  (still invisible) while the numbers stay finite through the transform. */
-function clampAbsurdPathCoords(svg: string): { svg: string; clamped: number } {
+// ---------------------------------------------------------------------------
+// Extreme-geometry hygiene. matplotlib serializes a bar anchored at data 0 on
+// a log axis as a HUGE off-canvas path coordinate (moma fig2a: x ≈ −61,500 in
+// a ~380-unit viewBox; the magnitude scales with the axes width). Standalone
+// it renders invisibly, but under compose-figure's nested-<svg> scaling resvg
+// PANICS on it (geom.rs Rect unwrap → "resvg exit null"). The threshold is
+// viewBox-relative, so plots with legitimately large canvases are never
+// touched, and the clamp target stays far off-canvas (identical pixels — the
+// visible part of such a shape is bounded by its clip rect) while every
+// number stays small enough to survive any nested transform.
+//
+// The previous version matched raw DIGIT RUNS (/-?\d{6,}/), which (a) fired on
+// the FRACTIONAL digits of ordinary coordinates ("12.972623" → "12.90000"),
+// flooding valid linear plots with hundreds of false "absurd coordinate"
+// warnings while silently nudging their geometry, and (b) missed the real
+// offenders below 100k — the moma crash coordinate was −61,514 (moma #5/#7).
+// ---------------------------------------------------------------------------
+const NUM_TOKEN = /-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g;
+const NONFINITE_TOKEN = /-?\b(?:NaN|Inf(?:inity)?)\b/gi;
+
+export interface CoordScan {
+  svg: string;
+  /** numeric tokens beyond ±threshold (plus non-finite tokens). */
+  clamped: number;
+  /** sample of offending values, worst first (NaN for non-finite tokens). */
+  values: number[];
+  /** nearest enclosing/preceding element ids of offending paths (deduped). */
+  ids: string[];
+  threshold: number;
+  bound: number;
+}
+
+/** Scan (and with `clamp` rewrite) path data whose coordinates are absurdly
+ *  far outside the SVG's own canvas: |v| ≥ max(thresholdFactor × the larger
+ *  viewBox dimension, 8192); thresholdFactor defaults to 64 (only unambiguous
+ *  pathology). Offenders clamp NEGATIVE → −0.25× / POSITIVE → 1.25× the
+ *  canvas — just outside the viewport, so the pixels are identical (such
+ *  shapes are bounded by their clip rect / the viewport) but the geometry
+ *  stays small enough for resvg: empirically its geom.rs panics on clipped
+ *  paths reaching ≈1.6× beyond the canvas under nested-<svg> composition, so
+ *  the old ±90,000 "clamp" (and anything canvas-scale×4) still crashed it.
+ *  Non-finite tokens (NaN/Inf) become 0. */
+export function scanAbsurdPathCoords(
+  svg: string,
+  opts: { clamp: boolean; thresholdFactor?: number },
+): CoordScan {
+  const { w, h } = svgIntrinsicSize(svg);
+  const maxDim = Math.max(w, h);
+  const threshold = Math.max((opts.thresholdFactor ?? 64) * maxDim, 8192);
+  const bound = 1.25 * maxDim;
+  const boundNeg = -0.25 * maxDim;
   let clamped = 0;
-  const out = svg.replace(/\bd="([^"]*)"/g, (m, d: string) => {
-    const nd = d.replace(/-?\d{6,}(?:\.\d+)?/g, (n) => {
-      clamped++;
-      return n.startsWith("-") ? "-90000" : "90000";
-    });
-    return nd === d ? m : `d="${nd}"`;
+  const offend: number[] = [];
+  const ids: string[] = [];
+  // Best-effort blame: the nearest id BEFORE the offending tag — fluxplot-
+  // tagged marks wrap their <path> in <g id="series.bar.N"> immediately, so
+  // this names the semantic part; a path's own id is the fallback.
+  const idNear = (at: number): string | null => {
+    const tagStart = svg.lastIndexOf("<", at);
+    const back = svg.slice(Math.max(0, tagStart - 800), Math.max(0, tagStart));
+    let last: string | null = null;
+    const re = /\bid="([^"]+)"/g;
+    for (let g; (g = re.exec(back)); ) last = g[1];
+    if (last) return last;
+    const tagEnd = svg.indexOf(">", at);
+    const own = /\bid="([^"]+)"/.exec(svg.slice(Math.max(0, tagStart), tagEnd < 0 ? at : tagEnd));
+    return own ? own[1] : null;
+  };
+  const out = svg.replace(/\bd="([^"]*)"/g, (whole: string, d: string, at: number) => {
+    let touched = false;
+    const nd = d
+      .replace(NONFINITE_TOKEN, () => {
+        touched = true;
+        clamped++;
+        offend.push(NaN);
+        return "0";
+      })
+      .replace(NUM_TOKEN, (tok) => {
+        const v = Number(tok);
+        if (Number.isFinite(v) && Math.abs(v) < threshold) return tok;
+        touched = true;
+        clamped++;
+        offend.push(v);
+        return String(v < 0 ? boundNeg : bound);
+      });
+    if (!touched) return whole;
+    const id = idNear(at);
+    if (id && !ids.includes(id)) ids.push(id);
+    return opts.clamp ? `d="${nd}"` : whole;
   });
-  return { svg: out, clamped };
+  offend.sort((a, b) => (Number.isNaN(a) ? -1 : Number.isNaN(b) ? 1 : Math.abs(b) - Math.abs(a)));
+  return { svg: opts.clamp ? out : svg, clamped, values: offend.slice(0, 8), ids: ids.slice(0, 8), threshold, bound };
+}
+
+/** Whether a FluxPlot manifest records any log-scaled axis (null = unknown —
+ *  no/unreadable manifest). Drives the clamp warning's hint: the "anchor your
+ *  bar at 1" advice is only offered when a log axis actually exists. */
+function manifestHasLogAxis(manifestText: string | null | undefined): boolean | null {
+  if (manifestText == null) return null;
+  try {
+    const m = JSON.parse(manifestText) as { axes?: { x?: { scale?: string }; y?: { scale?: string } }[] };
+    if (!Array.isArray(m.axes)) return null;
+    return m.axes.some((a) => a?.x?.scale === "log" || a?.y?.scale === "log");
+  } catch {
+    return null;
+  }
+}
+
+/** One human warning line for a scan that found offenders. */
+function absurdCoordWarning(file: string, scan: CoordScan, hasLogAxis: boolean | null): string {
+  const finite = scan.values.filter((v) => !Number.isNaN(v));
+  const worst = finite.slice(0, 3).map((v) => Math.round(v).toLocaleString("en-US")).join(", ");
+  const nonFinite = scan.values.some((v) => Number.isNaN(v));
+  const where = scan.ids.length ? ` near id(s) ${scan.ids.slice(0, 3).map((i) => `"${i}"`).join(", ")}` : "";
+  const what =
+    `${scan.clamped} path coordinate(s) beyond ±${Math.round(scan.threshold).toLocaleString("en-US")}` +
+    (worst ? ` (worst: ${worst})` : "") +
+    (nonFinite ? " (some non-finite)" : "") +
+    where;
+  const hint =
+    hasLogAxis === true
+      ? "a mark anchored at data 0 on this plot's log axis serializes that way — anchor at a positive value in the plot script (barh: left=1, bar: bottom=1)"
+      : hasLogAxis === false
+        ? "the plot has only linear axes, so this is unusual — check the plot script for stray huge/non-finite values"
+        : "often a mark anchored at data 0 on a log axis — if so, anchor at a positive value in the plot script (e.g. left=1)";
+  return `${file}: ${what} clamped to keep rendering stable — ${hint}`;
 }
 
 /** Copy a plot SVG into fig/assets, registering it (+ natural size) on the model.
@@ -424,9 +534,14 @@ async function importPlotAsset(
 ): Promise<{ assetId: string; w: number; h: number; warning?: string; source?: { svgPath: string; manifestPath?: string; recipePath?: string } }> {
   const abs = path.resolve(svgFile);
   const raw = await fs.readFile(abs, "utf8");
-  const { svg, clamped } = clampAbsurdPathCoords(raw);
-  const warning = clamped
-    ? `${path.basename(abs)}: clamped ${clamped} absurd path coordinate(s) ≥100k — often a bar anchored at 0 on a log axis; set an explicit anchor (e.g. left=1) in the plot script`
+  const scan = scanAbsurdPathCoords(raw, { clamp: true });
+  const svg = scan.svg;
+  const base = abs.replace(/\.svg$/i, "");
+  const manifest = base + ".fluxplot.json";
+  const recipe = base + ".recipe.json";
+  const manifestText = await fs.readFile(manifest, "utf8").catch(() => null);
+  const warning = scan.clamped
+    ? absurdCoordWarning(path.basename(abs), scan, manifestHasLogAxis(manifestText))
     : undefined;
   const { w, h } = svgIntrinsicSize(svg);
   const tag = Date.now().toString(36) + Math.round(Math.random() * 1e6).toString(36);
@@ -434,11 +549,8 @@ async function importPlotAsset(
   const rel = `assets/${assetId}.svg`;
   await atomicWrite(safeJoin(root, `fig/${rel}`), svg);
   project.assets.push({ id: assetId, name: path.basename(abs), kind: "svg", path: rel, naturalWidth: w, naturalHeight: h });
-  const base = abs.replace(/\.svg$/i, "");
-  const manifest = base + ".fluxplot.json";
-  const recipe = base + ".recipe.json";
   let source: { svgPath: string; manifestPath?: string; recipePath?: string } | undefined;
-  if (await exists(manifest)) {
+  if (manifestText != null) {
     // AGT-1/AGT-11: copy the FluxPlot manifest (+ recipe) as ASSET-LOCAL sidecars
     // (fig/assets/<id>.fluxplot.json). The GUI reconnects a plot's semantic parts
     // ONLY from that path (figbridge.ts) — without it an agent-composed plot opens
@@ -446,7 +558,7 @@ async function importPlotAsset(
     // also keeps the manifest in-root so headless render's group-override expansion
     // works even when the original plot lives outside the project. `source` still
     // records the original paths as provenance (used by rerun-plot regeneration).
-    await atomicWrite(safeJoin(root, `fig/assets/${assetId}.fluxplot.json`), await fs.readFile(manifest, "utf8"));
+    await atomicWrite(safeJoin(root, `fig/assets/${assetId}.fluxplot.json`), manifestText);
     const hasRecipe = await exists(recipe);
     if (hasRecipe) {
       await atomicWrite(safeJoin(root, `fig/assets/${assetId}.recipe.json`), await fs.readFile(recipe, "utf8"));
@@ -769,7 +881,9 @@ async function rasterizePng(svg: string, scale: number): Promise<Buffer> {
 /** Best-effort bisect after a failed figure rasterization: re-render the figure
  *  with each plot panel alone (in its composed nested-<svg> context — panels
  *  that render fine standalone can still panic under compose scaling) and
- *  report the ones that fail. */
+ *  report the ones that fail. Each culprit's asset SVG is then scanned for
+ *  extreme coordinates so the error names the semantic id and value that broke
+ *  the renderer, not just the panel file (moma feedback #7). */
 async function findUnrenderablePanels(root: string, figId: string): Promise<string[]> {
   const culprits: string[] = [];
   try {
@@ -778,13 +892,30 @@ async function findUnrenderablePanels(root: string, figId: string): Promise<stri
     const { byId } = await readCanvasFiles(root, index);
     const fig = byId[figId];
     if (!fig) return [];
-    const assetName = new Map((index.assets ?? []).map((a) => [a.id, a.name ?? a.id] as const));
+    const assets = new Map((index.assets ?? []).map((a) => [a.id, a] as const));
     for (const el of fig.elements.filter((e) => e.type === "plot")) {
       try {
         await rasterizePng(await renderFigureSvg(root, figId, { onlyElement: el.id }), 1);
       } catch {
         const aid = (el as { assetId?: string }).assetId;
-        culprits.push(`${el.id}${aid ? ` (${assetName.get(aid) ?? aid})` : ""}`);
+        const asset = aid ? assets.get(aid) : undefined;
+        let detail = "";
+        if (asset?.path) {
+          const text = await fs.readFile(j(root, "fig", asset.path), "utf8").catch(() => null);
+          // Report-only scan at a LOWER threshold than the import clamp (4× the
+          // canvas vs 64×): rendering already failed, so moderately-outside
+          // geometry is worth naming even though import would leave it alone.
+          const scan = text ? scanAbsurdPathCoords(text, { clamp: false, thresholdFactor: 4 }) : null;
+          if (scan?.clamped) {
+            const worst = scan.values
+              .slice(0, 2)
+              .map((v) => (Number.isNaN(v) ? "non-finite" : Math.round(v).toLocaleString("en-US")))
+              .join(", ");
+            const where = scan.ids.length ? ` near "${scan.ids[0]}"` : "";
+            detail = ` — ${scan.clamped} extreme coordinate(s) (worst: ${worst})${where}; regenerate the plot with sane geometry (log-axis bars: anchor at 1) or run flux sync-figure to re-clamp`;
+          }
+        }
+        culprits.push(`${el.id}${asset ? ` (${asset.name ?? aid})` : ""}${detail}`);
       }
     }
   } catch {
@@ -862,10 +993,28 @@ export async function renderCanvasSvg(root: string, canvasId?: string): Promise<
 }
 
 /** render-canvas → PNG. Default scale 1: a whole canvas is several figures
- *  tall, and 2× would produce a needlessly huge raster for a look-step. */
+ *  tall, and 2× would produce a needlessly huge raster for a look-step. On
+ *  failure, each figure is rendered alone so the error names WHICH figure
+ *  (and via the panel bisect, which panel/coordinate) broke the canvas. */
 export async function renderCanvasPng(root: string, canvasId?: string, scale = 1): Promise<{ png: Buffer; canvasId: string }> {
   const { svg, canvasId: cid } = await renderCanvasSvg(root, canvasId);
-  return { png: await rasterizePng(svg, scale), canvasId: cid };
+  try {
+    return { png: await rasterizePng(svg, scale), canvasId: cid };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const detail: string[] = [];
+    try {
+      const index = await readFigIndex(root);
+      for (const f of (index?.figures ?? []).filter((f) => f.canvas === cid)) {
+        await renderFigurePng(root, f.id, 1).catch((fe) => {
+          detail.push(fe instanceof Error ? fe.message : String(fe));
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+    throw new Error(`render-canvas ${cid}: ${msg}` + (detail.length ? `\n  ${detail.join("\n  ")}` : ""));
+  }
 }
 
 /** set-caption: store the caption in the figure's canvas model (its true home) and
@@ -1096,15 +1245,29 @@ export async function syncFigureAssets(
   root: string,
   figId?: string,
   opts: { dryRun?: boolean } = {},
-): Promise<{ refreshed: { assetId: string; from: string }[]; missing: string[]; checked: number }> {
+): Promise<{
+  refreshed: { assetId: string; from: string }[];
+  resized: { assetId: string; elementIds: string[]; from: { w: number; h: number }; to: { w: number; h: number } }[];
+  framed: { figId: string; from: { width: number; height: number }; to: { width: number; height: number } }[];
+  missing: string[];
+  warnings: string[];
+  checked: number;
+}> {
   const run = async ({ project }: { project: Project }) => {
     const figs = figId ? [ops.figById(project, figId)] : project.figures;
     if (figId && !figs[0]) throw new Error(`figure not found: ${figId}`);
     const refreshed: { assetId: string; from: string }[] = [];
+    const resized: { assetId: string; elementIds: string[]; from: { w: number; h: number }; to: { w: number; h: number } }[] = [];
+    const framed: { figId: string; from: { width: number; height: number }; to: { width: number; height: number } }[] = [];
     const missing: string[] = [];
+    const warnings: string[] = [];
     const seen = new Set<string>();
     let checked = 0;
     for (const fig of figs as Figure[]) {
+      // Frame refit baseline: the margin the composition ALREADY keeps between
+      // its content and the frame's right/bottom edge (re-applied after panels
+      // grow, so "regenerate taller → sync" can't leave panels clipped).
+      const bbBefore = unionRect(fig.elements.map(elementBBox));
       for (const el of fig.elements) {
         if (el.type !== "plot") continue;
         const aid = (el as { assetId?: string }).assetId;
@@ -1120,18 +1283,43 @@ export async function syncFigureAssets(
           missing.push(src);
           continue;
         }
-        const { svg } = clampAbsurdPathCoords(raw);
+        const scan = scanAbsurdPathCoords(raw, { clamp: true });
+        const svg = scan.svg;
         const cur = await fs.readFile(safeJoin(root, `fig/${asset.path}`), "utf8").catch(() => "");
         if (cur === svg) continue;
         refreshed.push({ assetId: aid, from: src });
+        const base = srcAbs.replace(/\.svg$/i, "");
+        if (scan.clamped) {
+          const manifestText = await fs.readFile(base + ".fluxplot.json", "utf8").catch(() => null);
+          warnings.push(absurdCoordWarning(path.basename(srcAbs), scan, manifestHasLogAxis(manifestText)));
+        }
         if (opts.dryRun) continue;
         await atomicWrite(safeJoin(root, `fig/${asset.path}`), svg);
         const { w, h } = svgIntrinsicSize(svg);
+        const prev = { w: asset.naturalWidth || w, h: asset.naturalHeight || h };
         asset.naturalWidth = w;
         asset.naturalHeight = h;
+        // Physical-size reconciliation (moma feedback #10): a regenerated plot
+        // with a NEW intrinsic size used to refresh bytes only — the element
+        // kept its old box, silently rescaling the plot away from true size.
+        // Resize every element on this asset, preserving any deliberate user
+        // scale (elW/prevNaturalW) so "regenerate at the right size" lands
+        // true-size while a hand-scaled panel stays hand-scaled.
+        if (Math.abs(prev.w - w) > 0.01 || Math.abs(prev.h - h) > 0.01) {
+          const els: string[] = [];
+          for (const f2 of project.figures)
+            for (const e2 of f2.elements) {
+              if (e2.type !== "plot" || (e2 as { assetId?: string }).assetId !== aid) continue;
+              const sx = prev.w > 0 ? e2.width / prev.w : 1;
+              const sy = prev.h > 0 ? e2.height / prev.h : 1;
+              e2.width = w * sx;
+              e2.height = h * sy;
+              els.push(e2.id);
+            }
+          resized.push({ assetId: aid, elementIds: els, from: prev, to: { w, h } });
+        }
         // Refresh the asset-local sidecars alongside the bytes (same pairing
         // rule as import: X.svg → X.fluxplot.json / X.recipe.json).
-        const base = srcAbs.replace(/\.svg$/i, "");
         for (const [ext, dest] of [
           [".fluxplot.json", `fig/assets/${aid}.fluxplot.json`],
           [".recipe.json", `fig/assets/${aid}.recipe.json`],
@@ -1140,8 +1328,28 @@ export async function syncFigureAssets(
           if (text != null) await atomicWrite(safeJoin(root, dest), text);
         }
       }
+      // Refit the frame when grown content no longer fits: keep the smaller of
+      // the composition's previous right/bottom margin and compose's default
+      // 48, and never shrink the frame (a deliberately roomy layout survives).
+      if (!opts.dryRun && bbBefore) {
+        const bbAfter = unionRect(fig.elements.map(elementBBox));
+        if (bbAfter) {
+          const padX = Math.min(48, Math.max(0, fig.width - (bbBefore.x + bbBefore.w)));
+          const padY = Math.min(48, Math.max(0, fig.height - (bbBefore.y + bbBefore.h)));
+          const wantW = Math.ceil(bbAfter.x + bbAfter.w + padX);
+          const wantH = Math.ceil(bbAfter.y + bbAfter.h + padY);
+          if (wantW > fig.width || wantH > fig.height) {
+            const from = { width: fig.width, height: fig.height };
+            ops.setFigureLayout(project, fig.id, {
+              width: Math.max(fig.width, wantW),
+              height: Math.max(fig.height, wantH),
+            });
+            framed.push({ figId: fig.id, from, to: { width: fig.width, height: fig.height } });
+          }
+        }
+      }
     }
-    return { refreshed, missing, checked };
+    return { refreshed, resized, framed, missing, warnings, checked };
   };
   // Dry run reads under no lock and never saves — it's render-figure's cheap
   // staleness probe. The real sync is a normal locked mutate (journaled).
@@ -2365,6 +2573,30 @@ export async function validatePlot(svgPath: string): Promise<ValidateResult & { 
     if (svg.includes(`id="${id}"`)) matched++;
     else errors.push(`manifest references id "${id}" but the SVG has no element with that id`);
   }
+
+  // Renderer-aware geometry check (moma feedback #7): coordinates absurdly far
+  // outside the plot's own canvas (the log-axis zero-anchored bar) pass every
+  // id check yet can PANIC resvg once the plot is composed and rasterized.
+  // Reject them here — at generation time, where the fix belongs — with the
+  // exact ids and values; import/sync will still clamp legacy files to keep
+  // old projects rendering.
+  const scan = scanAbsurdPathCoords(svg, { clamp: false });
+  if (scan.clamped) {
+    const hasLog = manifestHasLogAxis(await fs.readFile(manifestPath, "utf8").catch(() => null));
+    const worst = scan.values
+      .slice(0, 3)
+      .map((v) => (Number.isNaN(v) ? "non-finite" : Math.round(v).toLocaleString("en-US")))
+      .join(", ");
+    const where = scan.ids.length ? ` near id(s) ${scan.ids.slice(0, 3).map((i) => `"${i}"`).join(", ")}` : "";
+    const hint =
+      hasLog === true
+        ? "a mark anchored at data 0 on this plot's log axis serializes that way — anchor at a positive value (barh: left=1, bar: bottom=1) and regenerate"
+        : "check the plot script for huge/non-finite values";
+    errors.push(
+      `${scan.clamped} path coordinate(s) beyond ±${Math.round(scan.threshold).toLocaleString("en-US")} (worst: ${worst})${where} — ` +
+        `this renders standalone but can crash the compose/render pipeline; ${hint}`,
+    );
+  }
   return { ok: errors.length === 0, checked: 1, references: domExpected.length, matched, errors };
 }
 
@@ -2415,16 +2647,25 @@ export async function journal(root: string, entry: Record<string, unknown>): Pro
 export async function runRecipe(
   recipePath: string,
   paramOverrides: Record<string, string | number | boolean> = {},
+  opts: { only?: string | true } = {},
 ): Promise<RecipeRunResult> {
   const recipe = await readJSON<{
     command: string;
     args?: string[];
     cwd?: string;
     params?: Record<string, unknown>;
+    plot?: string;
     output: string;
     lastRun?: string;
   }>(recipePath);
   if (!recipe.command) throw new Error("recipe has no `command`");
+  // Targeted rerun (moma feedback #9): a figure-level script that fp.save()s
+  // several plots re-runs for ONE of them — FLUXPLOT_ONLY makes every
+  // non-matching save a no-op, so sibling panels stay byte-identical on disk.
+  // `--only` with no value targets this recipe's own plot name.
+  const only = opts.only === true ? recipe.plot : opts.only;
+  if (opts.only === true && !only)
+    throw new Error("--only needs a plot name (this recipe has no `plot` field to default to)");
   const dir = path.dirname(recipePath);
   const params = { ...(recipe.params ?? {}), ...paramOverrides };
   const args = [...(recipe.args ?? [])];
@@ -2435,7 +2676,7 @@ export async function runRecipe(
     (resolve, reject) => {
       const child = spawn(recipe.command, args, {
         cwd,
-        env: { ...process.env, FLUX_PARAMS: JSON.stringify(params) },
+        env: { ...process.env, FLUX_PARAMS: JSON.stringify(params), ...(only ? { FLUXPLOT_ONLY: only } : {}) },
       });
       let out = "";
       let err = "";
