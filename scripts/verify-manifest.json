@@ -60,6 +60,7 @@
       "verify-r4-cite.ts",
       "verify-ratelimit.ts",
       "verify-refformat.ts",
+      "verify-export-qmd.ts",
       "verify-scaffold.ts",
       "verify-sync-render.ts",
       "verify-slide-arrange.ts",

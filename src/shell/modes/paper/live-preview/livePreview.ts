@@ -111,6 +111,18 @@ function buildDecorations(view: EditorView): {
         const nt = node.to;
         const parent = node.node.parent?.name;
 
+        // ---- Pandoc/Quarto header attributes: `## Results {#sec-results}` —
+        // the `{#id .class}` tail is consumed by markdown-it-attrs in the
+        // Preview/exports, but the editor rendered it literally inside the
+        // heading. Hide it (with its leading whitespace) unless the heading
+        // line is being edited. Plain `return` — HeaderMark below still needs
+        // this node's children iterated.
+        if (name.startsWith("ATXHeading")) {
+          const m = /\s*\{[#.-][^{}]*\}\s*$/.exec(state.doc.sliceString(nf, nt));
+          if (m && !lineTouched(nf)) hide(nf + m.index, nt);
+          return;
+        }
+
         // ---- Heading marker: hide "## " when inactive (size comes from highlight)
         if (name === "HeaderMark") {
           if (nf < fmEnd) return; // keep the front-matter closing `---` visible

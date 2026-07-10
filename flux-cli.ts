@@ -4,13 +4,17 @@
 // global link, `flux <verb> …`. "The file is the API."
 
 import * as fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as core from "./flux-core/index";
 
 const HELP = `flux — drive a Flux project from the terminal
 
 usage: flux <verb> [root] [args] [--flags]
-       (root defaults to the current directory)
+       Every verb resolves the project root as --root → $FLUX_PROJECT → cwd.
+       Verbs marked [root] ALSO accept a leading positional root (".", a path,
+       or a dir holding project.json) for back-compat — when the first
+       positional isn't plainly a root, it's treated as the verb's argument.
 
   new <dir> [--title T] [--author A]   scaffold a new project
   reindex [root]                       rebuild project.json.figures[] from fig/
@@ -171,10 +175,22 @@ async function main() {
   core.setClient(process.env.FLUX_CLIENT || "cli"); // WS6: journal/lock identity
   const [verb, ...rest] = process.argv.slice(2);
   const { _, flags } = parseFlags(rest);
-  const root = (i = 0) => path.resolve(_[i] ?? ".");
   // New verbs take the project root from --root (or $FLUX_PROJECT / cwd) so all
   // positionals are the verb's own args (e.g. variadic plot paths).
   const R = () => path.resolve((flags.root as string) ?? process.env.FLUX_PROJECT ?? ".");
+  // Old-style verbs took the root as their FIRST POSITIONAL and ignored
+  // --root/$FLUX_PROJECT — the classic wrong-root trap (`caption fig1` resolved
+  // ./fig1 as the project). Unified: the positional still wins when it plainly
+  // IS a root ("."/".."/a path/a dir holding project.json); otherwise the
+  // new-style resolution applies and every positional is a verb argument.
+  const posIsRoot =
+    _[0] !== undefined &&
+    (_[0] === "." ||
+      _[0] === ".." ||
+      /[\\/]/.test(_[0]) ||
+      existsSync(path.join(path.resolve(_[0]), "project.json")));
+  const root = () => (posIsRoot ? path.resolve(_[0]) : R());
+  const A = posIsRoot ? _.slice(1) : _; // old-style verbs' own (root-stripped) args
   const styleFromFlags = (): Record<string, string | number | boolean> => {
     const s: Record<string, string | number | boolean> = {};
     if (typeof flags.stroke === "string") s.stroke = flags.stroke;
@@ -241,20 +257,21 @@ async function main() {
       break;
     }
     case "render-figure": {
+      const figId = A[0];
       // Staleness probe: a plots/ source newer than its fig/assets copy means
       // this render shows OLD panels — say so (fix with `flux sync-figure`).
-      const stale = await core.syncFigureAssets(root(), _[1], { dryRun: true }).catch(() => null);
+      const stale = await core.syncFigureAssets(root(), figId, { dryRun: true }).catch(() => null);
       if (stale?.refreshed.length)
         console.error(
-          `⚠ ${_[1]}: ${stale.refreshed.length} panel(s) stale vs plots/ (${stale.refreshed.map((r) => r.from).join(", ")}) — run \`flux sync-figure ${_[1]}\` to refresh`,
+          `⚠ ${figId}: ${stale.refreshed.length} panel(s) stale vs plots/ (${stale.refreshed.map((r) => r.from).join(", ")}) — run \`flux sync-figure ${figId}\` to refresh`,
         );
       if (flags.png) {
-        const png = await core.renderFigurePng(root(), _[1], num(flags.scale) ?? 2);
-        const out = String(flags.out ?? `${_[1]}.png`);
+        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2);
+        const out = String(flags.out ?? `${figId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const svg = await core.renderFigureSvg(root(), _[1]);
+        const svg = await core.renderFigureSvg(root(), figId);
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
@@ -304,30 +321,31 @@ async function main() {
       break;
     }
     case "caption": {
-      console.log(await core.captionFor(root(), _[1]));
+      console.log(await core.captionFor(root(), A[0]));
       break;
     }
     case "set-caption": {
-      const md = flags.file ? await fs.readFile(String(flags.file), "utf8") : _.slice(2).join(" ");
-      await core.setCaption(root(), _[1], md);
-      console.error(`✓ caption written for ${_[1]}`);
+      const md = flags.file ? await fs.readFile(String(flags.file), "utf8") : A.slice(1).join(" ");
+      await core.setCaption(root(), A[0], md);
+      console.error(`✓ caption written for ${A[0]}`);
       break;
     }
     case "add-reference":
     case "cite": {
-      const bib = flags.file ? await fs.readFile(String(flags.file), "utf8") : _.slice(1).join(" ");
+      const bib = flags.file ? await fs.readFile(String(flags.file), "utf8") : A.join(" ");
       await core.addReference(root(), bib);
       console.error("✓ reference added");
       break;
     }
     case "add-panel": {
-      const res = await core.addPanel(root(), _[1], _[2], {
+      const res = await core.addPanel(root(), A[0], A[1], {
         x: num(flags.x),
         y: num(flags.y),
         width: num(flags.width),
         height: num(flags.height),
       });
       console.error(`✓ added panel ${res.elementId} (asset ${res.assetId})`);
+      if (res.warning) console.error(`⚠ ${res.warning}`);
       break;
     }
     case "import-plots": {
@@ -646,7 +664,11 @@ async function main() {
     }
     case "cite-doi": {
       const r = await core.citeDoi(R(), _[0]);
-      console.error(`✓ cited [@${r.keys.join("; @")}]: ${r.bibtex.slice(0, 60).replace(/\s+/g, " ")}…`);
+      // The fetched author/title/year print IN FULL: registries serve junk
+      // metadata on automated deposits ("Robot, Open Data" etc.) and a 60-char
+      // bibtex slice hid it — the manuscript then cites garbage verbatim.
+      console.error(`✓ cited [@${r.keys.join("; @")}]`);
+      console.error(`  ${r.summary}\n  (registry metadata — if it looks wrong, fix references/library.bib and keep the citekey)`);
       break;
     }
     case "search": {

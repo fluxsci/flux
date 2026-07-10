@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
 import { membersDeep } from "../src/lib/groups";
 import { composeCaption, panelLetters } from "../src/lib/captions";
+import { collectEmbedLabels, transformQmdForExport } from "../src/lib/exportQmd";
 import { elementBBox, unionRect } from "../src/lib/geometry";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { preparePlot, prefixIds, applyOverrides, buildPartIndex } from "../src/lib/plot/parse";
@@ -182,7 +183,21 @@ interface CanvasFile {
   figures: Figure[];
 }
 
+/** Fail fast with a DIAGNOSIS when root isn't a Flux project. Verbs used to
+ *  fail on whatever file they touched first ("figure not found", raw ENOENT on
+ *  project.json) — all true, none pointing at the actual mistake (wrong dir,
+ *  usually a stale $FLUX_PROJECT). Suggests the nearest real project root. */
+export async function requireProject(root: string): Promise<void> {
+  if (await exists(j(root, "project.json"))) return;
+  const near = await findProjectRoot(root);
+  throw new Error(
+    `${root} is not a Flux project (no project.json)` +
+      (near ? ` — did you mean ${near}?` : " — check --root / $FLUX_PROJECT / cwd"),
+  );
+}
+
 export async function loadManifest(root: string): Promise<ProjectManifest> {
+  await requireProject(root);
   return readJSON<ProjectManifest>(j(root, "project.json"));
 }
 async function saveManifest(root: string, m: ProjectManifest): Promise<void> {
@@ -231,6 +246,10 @@ const emptyIndex = (): FigIndexFile => ({
 });
 
 export async function loadFigModel(root: string): Promise<{ project: Project; index: FigIndexFile }> {
+  // A missing fig/index.json is fine (fresh project) — but a missing
+  // project.json means this isn't a Flux project at all: without the guard a
+  // mutate verb sees an empty model and reports "figure not found" instead.
+  await requireProject(root);
   const index = (await readFigIndex(root)) ?? emptyIndex();
   const { byId } = await readCanvasFiles(root, index);
   const canvases: Canvas[] = (index.canvases ?? []).map((c) => ({ id: c.id, name: c.name }));
@@ -597,6 +616,7 @@ export async function renderFigureSvg(
   id: string,
   opts?: { groupId?: string; onlyElement?: string },
 ): Promise<string> {
+  await requireProject(root);
   const index = await readFigIndex(root);
   if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
   const { byId } = await readCanvasFiles(root, index);
@@ -798,6 +818,7 @@ const escXml = (s: string) =>
  *  canvas-level "look" verb — `render-figure` shows one frame in isolation, so
  *  a headless agent could never see figures stacked on top of each other. */
 export async function renderCanvasSvg(root: string, canvasId?: string): Promise<{ svg: string; canvasId: string }> {
+  await requireProject(root);
   const index = await readFigIndex(root);
   if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
   const cid = canvasId ?? index.canvases?.[0]?.id;
@@ -1876,12 +1897,23 @@ async function fetchDoiBibtex(doi: string): Promise<{ clean: string; bibtex: str
 
 /** cite-doi: fetch a DOI's BibTeX, add it to FluxLib (deterministic citekey,
  *  deduped by DOI), and materialize it into this project's library.bib. */
-export async function citeDoi(root: string, doi: string): Promise<{ bibtex: string; keys: string[] }> {
+/** One-line author (year). title digest of a BibTeX entry — shown IN FULL on
+ *  cite success so junk registry metadata ("Robot, Open Data" on automated
+ *  deposits) is visible immediately instead of hiding behind a 60-char slice. */
+export function bibtexSummary(bibtex: string): string {
+  const field = (name: string) => {
+    const m = bibtex.match(new RegExp(name + String.raw`\s*=\s*[{"]([\s\S]*?)[}"]\s*,?\s*\n`, "i"));
+    return m ? m[1].replace(/[{}]/g, "").replace(/\s+/g, " ").trim() : null;
+  };
+  return `${field("author") ?? "(no author)"} (${field("year") ?? "n.d."}). ${field("title") ?? "(no title)"}`;
+}
+
+export async function citeDoi(root: string, doi: string): Promise<{ bibtex: string; keys: string[]; summary: string }> {
   const { clean, bibtex } = await fetchDoiBibtex(doi);
   const res = await fluxlib.addToFluxLib(bibtex, { source: "doi" });
   await fluxlib.materializeIntoProject(root, res.keys);
   await journal(root, { action: "cite_doi", doi: clean, keys: res.keys });
-  return { bibtex, keys: res.keys };
+  return { bibtex, keys: res.keys, summary: bibtexSummary(bibtex) };
 }
 
 /** Fetch a DOI's BibTeX and add it to FluxLib only (no project cite). */
@@ -1966,19 +1998,85 @@ export async function materializeRenders(
 }
 
 /** compile the manuscript via Quarto (pdf|html|docx). Requires `quarto` on PATH. */
+// Quarto `{{< include path >}}` directive (path relative to the including file).
+const INCLUDE_RE = /\{\{<\s*include\s+([^\s>]+)\s*>\}\}/g;
+
+/** Read a qmd and its transitive includes; returns the involved files (in
+ *  traversal order) and the EXPANDED text (includes spliced in place — the
+ *  order Quarto numbers figures in). */
+async function readExpandedQmd(
+  file: string,
+  seen = new Set<string>(),
+): Promise<{ files: string[]; expanded: string }> {
+  if (seen.has(file)) return { files: [], expanded: "" };
+  seen.add(file);
+  const text = await fs.readFile(file, "utf8").catch(() => "");
+  const files = [file];
+  let expanded = "";
+  let last = 0;
+  for (const mm of text.matchAll(INCLUDE_RE)) {
+    expanded += text.slice(last, mm.index);
+    const sub = await readExpandedQmd(path.resolve(path.dirname(file), mm[1]), seen);
+    files.push(...sub.files);
+    expanded += sub.expanded;
+    last = (mm.index ?? 0) + mm[0].length;
+  }
+  expanded += text.slice(last);
+  return { files, expanded };
+}
+
 export async function compile(root: string, to = "pdf"): Promise<{ code: number; log: string }> {
   const m = await loadManifest(root);
   // Figures embed as ../fig/renders/<id>.svg — materialize them so a bare quarto
   // render (agent/CI, no app open) gets real images instead of broken links.
   const renders = await materializeRenders(root, m.manuscript.path).catch(() => ({ wrote: 0, failed: [] as string[] }));
-  const { code, log } = await new Promise<{ code: number; log: string }>((resolve, reject) => {
-    const child = spawn("quarto", ["render", m.manuscript.path, "--to", to], { cwd: root });
-    let log = "";
-    child.stdout.on("data", (d) => (log += d));
-    child.stderr.on("data", (d) => (log += d));
-    child.on("error", (e) => reject(new Error(`quarto not available: ${e.message}`)));
-    child.on("close", (c) => resolve({ code: c ?? 0, log }));
-  });
+
+  // Bare-quarto parity transform, applied IN PLACE and restored after the
+  // render: (1) composed model captions into empty embed alts (Quarto reads
+  // the alt as the figcaption, and only captioned figures get numbers);
+  // (2) panel refs `@fig-x-a` → literal "Figure 3a" (Quarto's crossref only
+  // knows whole figures — they compiled to "?@fig-x-a"). Sources are restored
+  // in `finally`; even an unrestored transform is a valid readable manuscript.
+  const docAbs = path.resolve(root, m.manuscript.path);
+  const { files, expanded } = await readExpandedQmd(docAbs);
+  const numbers = new Map(collectEmbedLabels(expanded).map((l, i) => [l, i + 1] as const));
+  const captions = new Map<string, string>();
+  try {
+    const { project, index } = await loadFigModel(root);
+    for (const f of index.figures ?? []) {
+      const fig = ops.figById(project, f.id);
+      const cap = fig ? composeCaption(fig) : "";
+      if (cap.trim()) captions.set(f.label, cap);
+    }
+  } catch {
+    /* no fig model → nothing to inject */
+  }
+  const ctx = { captions, numbers };
+  const originals = new Map<string, string>();
+  for (const f of files) {
+    const text = await fs.readFile(f, "utf8").catch(() => null);
+    if (text == null) continue;
+    const transformed = transformQmdForExport(text, ctx);
+    if (transformed !== text) {
+      originals.set(f, text);
+      await atomicWrite(f, transformed);
+    }
+  }
+
+  let code = 0;
+  let log = "";
+  try {
+    ({ code, log } = await new Promise<{ code: number; log: string }>((resolve, reject) => {
+      const child = spawn("quarto", ["render", m.manuscript.path, "--to", to], { cwd: root });
+      let out = "";
+      child.stdout.on("data", (d) => (out += d));
+      child.stderr.on("data", (d) => (out += d));
+      child.on("error", (e) => reject(new Error(`quarto not available: ${e.message}`)));
+      child.on("close", (c) => resolve({ code: c ?? 0, log: out }));
+    }));
+  } finally {
+    for (const [f, text] of originals) await atomicWrite(f, text).catch(() => {});
+  }
   await journal(root, { action: "compile", to, code });
   const note = renders.failed.length ? `\n(figure renders failed: ${renders.failed.join(", ")})` : "";
   return { code, log: log + note };

@@ -9,30 +9,15 @@
 
 import type { EditorState, Line } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-
-// Caption group: escaped-anything or non-`]` — a literal `]` can appear only as
-// `\]`, so the `](` boundary is unambiguous and a caption containing "](…)" (a
-// markdown link, "…[subset](note)…") can no longer split the line and silently
+// The grammar itself lives in src/lib/exportQmd.ts (pure — shared with
+// headless flux-core's bare-quarto export transform); this module remains the
+// paper editor's face for it. Caption group: escaped-anything or non-`]` — a
+// literal `]` can appear only as `\]`, so the `](` boundary is unambiguous and
+// a caption containing "](…)" can no longer split the line and silently
 // degrade the embed to prose.
-export const EMBED_RE =
-  /^\s*!\[((?:\\.|[^\]])*)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)([^}]*)\}\s*$/;
+import { EMBED_RE, escapeEmbedCaption, unescapeEmbedCaption } from "../../../../lib/exportQmd";
 
-/** Escape a caption for the `![…]` alt-text slot (backslash + square brackets);
- *  newlines collapse — an embed line is one line by construction. markdown-it
- *  unescapes these natively on render, so exports show the original text. */
-export function escapeEmbedCaption(s: string): string {
-  return s
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\\/g, "\\\\")
-    .replace(/\[/g, "\\[")
-    .replace(/\]/g, "\\]");
-}
-
-/** Inverse of escapeEmbedCaption — for editor-side display of the raw group. */
-export function unescapeEmbedCaption(s: string): string {
-  return s.replace(/\\([\\[\]])/g, "$1");
-}
+export { EMBED_RE, escapeEmbedCaption, unescapeEmbedCaption };
 
 export interface EmbedAttrs {
   /** Verbatim `width=` value ("60%", "320", "3in") or null when unset. */

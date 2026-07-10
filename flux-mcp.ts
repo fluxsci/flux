@@ -966,7 +966,7 @@ server.registerTool(
   },
   async ({ doi }) => {
     const r = await core.citeDoi(ROOT, doi);
-    return ok(`cited @${r.keys.join("; @")} — ${r.bibtex.slice(0, 60).replace(/\s+/g, " ")}…`);
+    return ok(`cited @${r.keys.join("; @")} — ${r.summary} (registry metadata; if wrong, fix references/library.bib, keep the citekey)`);
   },
 );
 
