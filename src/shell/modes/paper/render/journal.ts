@@ -95,7 +95,16 @@ sup { font-size: 0.75em; }
 .page-num { position: absolute; left: 0; right: 0; bottom: 0.42in; text-align: center; font-size: 0.8em; color: var(--faint); }
 @page { size: letter; margin: 1in; }
 @media print {
+  /* Export is pure white: the cream sheet + sepia tints are a screen-preview
+     look only. printToPDF runs with printBackground:true, so every background
+     here lands in the PDF — whiten the paper, neutralize the tinted boxes. */
+  :root { --paper: #fff; --rule: #ddd; }
   html, body { background: #fff; }
   .sheet { box-shadow: none; margin: 0; width: auto; min-height: 0; padding: 0; }
+  .sheet, .page { background: #fff; }
+  .page { box-shadow: none; }
+  .abstract, th { background: #f4f4f4; }
+  .callout { background: #f7f7f7; }
+  code, pre { background: #f2f2f2; }
 }
 `;

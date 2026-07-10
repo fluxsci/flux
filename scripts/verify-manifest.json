@@ -115,6 +115,7 @@
       "verify-w18-paper.mjs",
       "verify-paper-export.mjs",
       "verify-paper-math.mjs",
+      "verify-pdf-white.mjs",
       "verify-refbib.mjs",
       "verify-fulltext-gui.mjs",
       "verify-import-gui.mjs",
@@ -234,7 +235,8 @@
       "verify-figname.ts",
       "verify-citenum.ts",
       "verify-w18-paper.mjs",
-      "verify-paper-math.mjs"
+      "verify-paper-math.mjs",
+      "verify-pdf-white.mjs"
     ]
   },
   "retryOnce": [
