@@ -69,7 +69,14 @@ function mcpHandshake(cmd: string, cmdArgs: string[], label: string): Promise<vo
         } else if (msg.id === 2) {
           const text = msg.result?.content?.[0]?.text ?? "";
           assert(text.length > 0, `[${label}] tools/call get_reading_context returns content`);
-          assert(/citekey|No reader context/i.test(text), `[${label}] context mentions a citekey (or a clean empty state): ${text.slice(0, 80)}…`);
+          // Clean empty states: no context file at all ("No reader context") OR a
+          // context whose citekey is empty (the reader was closed — flux-mcp
+          // answers "No paper is open in FluxReader right now."). This test reads
+          // the REAL machine-global FluxLib, so both empties are legitimate.
+          assert(
+            /citekey|No reader context|No paper is open/i.test(text),
+            `[${label}] context mentions a citekey (or a clean empty state): ${text.slice(0, 80)}…`,
+          );
           clearTimeout(timeout);
           child.kill();
           resolve();
