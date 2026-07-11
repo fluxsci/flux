@@ -109,6 +109,45 @@ export const project = writable<Project>(blankProject());
 export const viewport = writable<Viewport>({ panX: 140, panY: 80, zoom: 0.6 });
 export const selection = writable<Set<Id>>(new Set());
 
+// ---------------------------------------------------------------------------
+// WS-1 Fix 3 (fortify plan): transient render-invalidation signals — NEVER
+// serialized, invisible to flux-core. Consumers that are expensive per notify
+// (Canvas culling/effState, Sidebar rows, X-ray) recompute per FIGURE only
+// when that figure's revision bumps, instead of on every store notify.
+//
+//   figureRev[figId] — bumped by mutateFigure(figId, fn): a change scoped to
+//                      one figure (the hot gesture commits).
+//   globalRev        — bumped on EVERY project notify that did NOT come
+//                      through mutateFigure (commit/mutate/undo/redo/set/load/
+//                      bridge — anything). Enforced by a store subscriber, so
+//                      a new mutation path can never silently under-invalidate
+//                      (the failure mode the plan warns about): the worst an
+//                      unscoped path can do is over-invalidate.
+// ---------------------------------------------------------------------------
+export const figureRev = writable<Record<Id, number>>({});
+export const globalRev = writable(0);
+let scopedNotify = false;
+project.subscribe(() => {
+  if (!scopedNotify) globalRev.update((n) => n + 1);
+});
+
+/** Scoped mutate: like mutate(), but renderers only re-derive state for
+ *  `figId`. Use ONLY when the mutation provably touches nothing outside that
+ *  figure. No history entry — call beginGesture() first (same as mutate). */
+export function mutateFigure(figId: Id, fn: (p: Project) => void) {
+  scopedNotify = true;
+  try {
+    project.update((p) => {
+      fn(p);
+      return p;
+    });
+  } finally {
+    scopedNotify = false;
+  }
+  figureRev.update((r) => ({ ...r, [figId]: (r[figId] ?? 0) + 1 }));
+  markEdited();
+}
+
 // A part selected WITHIN a semantic plot, addressed by its stable semantic id
 // (e.g. "control.point.3"). Parallel to `selection` (whole elements); set by
 // drilling into an already-selected plot. Restyles target this part.

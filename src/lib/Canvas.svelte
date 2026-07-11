@@ -17,6 +17,9 @@
     rollbackGesture,
     gestureCancelHook,
     mutate,
+    mutateFigure,
+    figureRev,
+    globalRev,
     expandGroups,
     newId,
     findElement,
@@ -28,7 +31,7 @@
   } from "./store";
   import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
   import { commitArrange } from "./keyboard";
-  import type { Element, Figure, ImageElement, LineElement, PathElement, SemanticPlotElement, VectorNode } from "./types";
+  import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get } from "svelte/store";
   import { onMount } from "svelte";
   import { applyTextLayout, lineH, visualLines } from "./text";
@@ -282,11 +285,27 @@
   // element on the active canvas (the plan's perf note) — the render filter,
   // hit-testing, hover preview and marquee all consult this map instead of
   // re-walking ancestor chains per element per event/frame.
+  // WS-1 Fix 3a/3b: (a) group-FREE figures contribute no entries — the
+  // effHidden/effLocked fallbacks (own flags) are exact for them, so the map
+  // stays empty on ungrouped projects; (b) the whole map is memoized on the
+  // figure revisions — a scoped commit to one figure (mutateFigure) leaves the
+  // map identity unchanged unless a grouped figure actually changed.
+  // Memos live in a NON-reactive const box: reassigning a component `let` that
+  // the same $: block reads makes the effect self-dependent (it re-runs until
+  // the scheduler's loop guard trips — a measured 4× pan regression).
+  const effMemoBox = { key: "", val: new Map<string, { hidden: boolean; locked: boolean }>() };
   $: effState = (() => {
+    const key =
+      canvasFigures.map((f) => `${f.id}:${$figureRev[f.id] ?? 0}`).join(",") + `|${$globalRev}`;
+    if (key === effMemoBox.key) return effMemoBox.val;
     const m = new Map<string, { hidden: boolean; locked: boolean }>();
-    for (const f of canvasFigures)
+    for (const f of canvasFigures) {
+      if (!f.groups || !Object.keys(f.groups).length) continue; // 3a fast path
       for (const el of f.elements)
         m.set(el.id, { hidden: effectiveHidden(f, el), locked: effectiveLocked(f, el) });
+    }
+    effMemoBox.key = key;
+    effMemoBox.val = m;
     return m;
   })();
   const effHidden = (el: Element) => effState.get(el.id)?.hidden ?? !!el.hidden;
@@ -356,15 +375,51 @@
   // Precompute the per-figure visible element lists keyed off the (stable-within-a-
   // pan-step) cull rect + selection, so the template's {#each} only re-diffs when
   // the cull region/selection/project actually change — not on every pan frame.
+  // WS-1 Fix 3b: per-figure culled-elements memo. The per-figure ARRAY keeps
+  // its identity unless that figure's revision (or a global input: cull rect,
+  // selection, gesture phase, global rev) changed — so the keyed scene {#each}
+  // skips re-reconciling untouched figures entirely. Non-numeric deps
+  // (selection set, gesture object, dragging flag) fold in as identity
+  // generations tracked in the non-reactive box (see effMemoBox note).
+  const visMemoBox = {
+    map: new Map<string, { key: string; els: Element[] }>(),
+    sel: null as Set<string> | null,
+    selGen: 0,
+    ges: null as Gesture,
+    drag: false,
+    gesGen: 0,
+    // cullRect is quantized (only re-assigned every CULL_STEP px of pan — the
+    // F5 design above); its IDENTITY is the correct change signal. Do not key
+    // on its fields: a per-flush string here once collided with the culling
+    // throttle's own `cullKey` let and forced a re-cull every pan frame.
+    cullRef: null as Rect | null,
+    cullGen: 0,
+  };
   $: visibleByFig = (() => {
-    void cullRect;
-    void $selection;
-    void $project;
-    void dragging;
-    void gesture;
     void effState; // P7: group eyes change the visible set (effHidden reads it)
+    if ($selection !== visMemoBox.sel) {
+      visMemoBox.sel = $selection;
+      visMemoBox.selGen++;
+    }
+    if (gesture !== visMemoBox.ges || dragging !== visMemoBox.drag) {
+      visMemoBox.ges = gesture;
+      visMemoBox.drag = dragging;
+      visMemoBox.gesGen++;
+    }
+    if (cullRect !== visMemoBox.cullRef) {
+      visMemoBox.cullRef = cullRect;
+      visMemoBox.cullGen++;
+    }
+    const next = new Map<string, { key: string; els: Element[] }>();
     const m = new Map<string, Element[]>();
-    for (const f of visibleFigures) m.set(f.id, visibleEls(f));
+    for (const f of visibleFigures) {
+      const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}`;
+      let mm = visMemoBox.map.get(f.id);
+      if (!mm || mm.key !== key) mm = { key, els: visibleEls(f) };
+      next.set(f.id, mm);
+      m.set(f.id, mm.els);
+    }
+    visMemoBox.map = next;
     return m;
   })();
 
@@ -645,7 +700,9 @@
     const id = editPathId;
     if (!id) return;
     const nodes = editNodes.map(cloneNode);
-    mutate((p) => ops.updatePath(p, id, { nodes, closed: editClosed }));
+    const figId = findElement($project, id)?.figure.id;
+    const apply = (p: Project) => ops.updatePath(p, id, { nodes, closed: editClosed });
+    figId ? mutateFigure(figId, apply) : mutate(apply);
     const f = findElement($project, id);
     if (f && f.element.type === "path" && f.element.nodes) editNodes = f.element.nodes.map(cloneNode);
   }
@@ -1096,7 +1153,7 @@
     const originals = gestureEls;
     const newIds: string[] = [];
     const grpRemap = new Map<string, string>();
-    mutate((p) => {
+    mutateFigure(fig.id, (p) => {
       const f = p.figures.find((ff) => ff.id === fig.id);
       if (!f) return;
       const cloned = cloneGroupsFor(f.groups, originals, grpRemap);
@@ -1252,12 +1309,12 @@
       if (gd.creating) {
         if (inFig) {
           beginGesture();
-          mutate((p) => ops.addGuide(p, figId, gd.axis, gd.pos));
+          mutateFigure(figId, (p) => ops.addGuide(p, figId, gd.axis, gd.pos));
         }
       } else {
         // move existing (drag off the figure = delete)
         beginGesture();
-        mutate((p) => {
+        mutateFigure(figId, (p) => {
           ops.removeGuide(p, figId, gd.axis, gd.origPos, 0.5);
           if (inFig) ops.addGuide(p, figId, gd.axis, gd.pos);
         });
@@ -1612,7 +1669,7 @@
     if (g.kind === "move") {
       if (dragging && (gDX !== 0 || gDY !== 0)) {
         ensureCommitted();
-        mutate((p) => {
+        mutateFigure(g.figId, (p) => {
           const f = p.figures.find((ff) => ff.id === g.figId);
           if (!f) return;
           for (const el of f.elements) {
@@ -1648,14 +1705,14 @@
       const res = cropRes;
       const targetId = g.crop.orig.id;
       ensureCommitted();
-      mutate((p) => ops.setCrop(p, targetId, res.crop));
+      mutateFigure(g.figId, (p) => ops.setCrop(p, targetId, res.crop));
     } else if (g.kind === "resize" && gNb && dragging) {
       const nb = gNb;
       ensureCommitted();
       // Which box axes this handle drives (text sizing transitions key off it:
       // width-only drag → wrap mode, any height drag → fixed box).
       const axes = { w: g.handle !== "n" && g.handle !== "s", h: g.handle !== "e" && g.handle !== "w" };
-      mutate((p) => {
+      mutateFigure(g.figId, (p) => {
         const f = p.figures.find((ff) => ff.id === g.figId);
         if (!f) return;
         for (const el of f.elements) {
@@ -1677,13 +1734,13 @@
       const el = preview;
       if (b.w > 2 || b.h > 2) {
         beginGesture();
-        mutate((p) => p.figures.find((f) => f.id === g.figId)?.elements.push(el));
+        mutateFigure(g.figId, (p) => p.figures.find((f) => f.id === g.figId)?.elements.push(el));
         selectOnly(el.id);
       }
       activeTool.set("select");
     } else if (g.kind === "figmove" && dragging && (fDX !== 0 || fDY !== 0)) {
       ensureCommitted();
-      mutate((p) => {
+      mutateFigure(g.figId, (p) => {
         const f = p.figures.find((ff) => ff.id === g.figId);
         if (f) {
           f.x = g.ox + fDX;
@@ -1697,14 +1754,14 @@
         // a pristine clone carrying the new translate. Below the threshold this
         // was a click: selection only, DOM untouched.
         ensureCommitted();
-        mutate((p) => ops.setPartOverride(p, g.elementId, g.partId, { dx: pDX, dy: pDY }));
+        mutateFigure(g.figId, (p) => ops.setPartOverride(p, g.elementId, g.partId, { dx: pDX, dy: pDY }));
       }
     } else if (g.kind === "rotate" && dragging && gRotDeg !== 0) {
       // FIG-1: commit the transient rotate once. The model is still at the pre-rotation state
       // (we only showed a live transform), so a single rotateAbout with the accumulated delta —
       // about the same figure-local pivot — yields the final orbit+spin, matching the preview.
       ensureCommitted();
-      mutate((p) => {
+      mutateFigure(g.figId, (p) => {
         const f = p.figures.find((ff) => ff.id === g.figId);
         if (!f) return;
         rotateAbout(f.elements.filter((el) => g.origs.has(el.id)), { x: g.cx, y: g.cy }, gRotDeg);
@@ -1713,7 +1770,7 @@
       // WS-1 Fix 2: single commit of the accumulated transient pivot.
       const live = lineEndLive;
       ensureCommitted();
-      mutate((p) => {
+      mutateFigure(g.figId, (p) => {
         const f = p.figures.find((ff) => ff.id === g.figId);
         const el = f?.elements.find((x) => x.id === g.id);
         if (!el || el.type !== "line") return;

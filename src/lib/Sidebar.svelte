@@ -6,7 +6,7 @@
     selection,
     selectOnly,
     commit,
-    mutate,
+    mutateFigure,
     beginGesture,
     blankFigure,
     addCanvas,
@@ -178,7 +178,9 @@
     }
     const fid = $activeFigureId;
     const id = moved.kind === "group" ? moved.def.id : moved.el.id;
-    mutate((p) => ops.reorderElement(p, fid!, id, target));
+    // WS-1 Fix 3c: scoped notify — the live reorder preview re-derives only
+    // this figure's rows/culling, not the whole project per pointermove.
+    mutateFigure(fid!, (p) => ops.reorderElement(p, fid!, id, target));
   }
   function endLayerDrag(e: PointerEvent) {
     if (!dragKey) return;
