@@ -14,7 +14,7 @@
 //     group root)
 //   Run (dev server on :1420): node scripts/figenh-18-xray.mjs
 import { readFileSync } from "node:fs";
-import { launch, gotoApp, clickMode, shot, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, shot, realErrors, waitFor, waitForFrame, waitForGone } from "./lib/driver.mjs";
 
 let fails = 0;
 const ok = (cond, msg) => (cond ? console.log("  ✓ " + msg) : (fails++, console.log("  ✗ " + msg)));
@@ -27,7 +27,10 @@ const { browser, page } = await launch({ width: 1500, height: 950 });
 try {
   await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
   await clickMode(page, "Figure");
-  await sleep(700);
+  await waitFor(page, () => !!(window.__flux?.fig && window.__flux.figures().length && document.querySelector(".canvas-host")), null, {
+    timeout: 15000,
+    label: "figure mode ready (dev handle + demo figures + canvas)",
+  });
 
   // --- seed: outer group g2 = [inner g1(rectA,rectB), plot px, rectC] --------
   await page.evaluate(
@@ -66,7 +69,9 @@ try {
     SVG,
     MANIFEST,
   );
-  await sleep(400);
+  await waitFor(page, () => !!document.querySelector('.scene-svg rect[fill="#d62728"]'), null, {
+    label: "seeded scene painted",
+  });
 
   // --- helpers ---------------------------------------------------------------
   const rowByLabel = (label) =>
@@ -88,7 +93,7 @@ try {
       h, expander, eye,
     );
     if (ctrl) await page.keyboard.up("Control");
-    await sleep(220);
+    await waitForFrame(page);
     return true;
   };
   // real ctrl-click needs the ctrlKey ON the synthesized event:
@@ -97,7 +102,7 @@ try {
     const found = await page.evaluate((el) => !!el, h);
     if (!found) return false;
     await page.evaluate((el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true })), h);
-    await sleep(250);
+    await waitForFrame(page);
     return true;
   };
   const rowLabels = () =>
@@ -123,11 +128,13 @@ try {
   // === open on the GROUP =====================================================
   console.log("Group x-ray (Alt+P):");
   await page.evaluate(() => window.__flux.fig.selection.set(new Set(["rA", "rB", "px", "rC"])));
-  await sleep(150);
+  await waitForFrame(page);
   await page.keyboard.down("Alt");
   await page.keyboard.press("KeyP");
   await page.keyboard.up("Alt");
-  await sleep(500);
+  await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, {
+    label: "x-ray open with rows",
+  }).catch(() => {});
 
   ok(await page.evaluate(() => !!document.querySelector(".xray")), "Alt+P over a group selection opens the X-ray");
   let rows = await rowLabels();
@@ -174,23 +181,40 @@ try {
   ok(drill.sel.length === 1 && drill.sel[0] === "px", "part row click selects the owning plot on canvas");
   ok(drill.ps?.partId === TICKS && drill.ps?.elementId === "px", "…and drills partSelection to the part");
   await page.keyboard.press("x");
-  await sleep(250);
+  await waitFor(
+    page,
+    (pt) => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === "px")?.overrides?.[pt]?.hidden === false,
+    TICKS,
+    { label: "'x' toggled the part override back" },
+  ).catch(() => {});
   ok((await override(TICKS)) === false, "'x' on the focused part row toggles the override back");
   await clickRow("rect 4");
   await page.keyboard.press("x");
-  await sleep(250);
+  await waitFor(
+    page,
+    () => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === "rC")?.hidden === true,
+    null,
+    { label: "'x' hid the element" },
+  ).catch(() => {});
   ok(
     await page.evaluate(() => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === "rC")?.hidden === true),
     "'x' on an ELEMENT row sets the element hidden flag",
   );
   await page.keyboard.press("x");
-  await sleep(250);
+  await waitFor(
+    page,
+    () => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === "rC")?.hidden !== true,
+    null,
+    { label: "'x' unhid the element" },
+  ).catch(() => {});
 
   // === Show Properties (button + Enter) → FluxFigMenu ABOVE ==================
   console.log("Show Properties:");
   await clickRow("Tick labels");
   await page.evaluate(() => document.querySelector(".xray .showprops")?.click());
-  await sleep(450);
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu"), null, { label: "FluxFig Menu open" }).catch(
+    () => {},
+  );
   let menu = await page.evaluate(() => {
     const m = document.querySelector(".fluxFigMenu");
     if (!m) return null;
@@ -207,26 +231,33 @@ try {
     `…rendered ABOVE the still-open x-ray (menu z ${menu?.menuZ} > xray z ${menu?.xrayZ})`);
   await shot(page, "figenh18-02-props-over-xray");
   await page.keyboard.press("Escape");
-  await sleep(300);
+  await waitFor(page, () => !document.querySelector(".fluxFigMenu") && !!document.querySelector(".xray"), null, {
+    label: "menu closed, x-ray kept",
+  }).catch(() => {});
   ok(await page.evaluate(() => !document.querySelector(".fluxFigMenu") && !!document.querySelector(".xray")),
     "Esc closes the menu; the x-ray stays");
 
   // Enter = the same flow
   await page.keyboard.press("Enter");
-  await sleep(450);
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu"), null, { label: "FluxFig Menu open (Enter)" }).catch(
+    () => {},
+  );
   menu = await page.evaluate(() => {
     const m = document.querySelector(".fluxFigMenu");
     return m ? { labels: [...m.querySelectorAll(".field .label")].map((l) => (l.textContent ?? "").trim()) } : null;
   });
   ok(!!menu && menu.labels.includes("size"), "Enter opens the same properties for the focused row");
   await page.keyboard.press("Escape");
-  await sleep(300);
+  await waitForGone(page, ".fluxFigMenu").catch(() => {});
 
   // === ctrl-click re-root + Backspace pop ====================================
   console.log("Re-root:");
   let cr = await crumbs();
   ok(cr.length === 1 && cr[0] === "Both Panels", `breadcrumb shows the root (${cr.join(" › ")})`);
   ok(await ctrlClickRow("Tick labels"), "ctrl-click on the part row dispatched");
+  await waitFor(page, () => document.querySelectorAll(".xray .crumb").length === 2, null, {
+    label: "re-rooted (breadcrumb grew)",
+  }).catch(() => {});
   rows = await rowLabels();
   cr = await crumbs();
   ok(rows[0]?.label === "scatter" && rows[0]?.kind === "element", "re-rooted to the plot ALONE (root row = the plot)");
@@ -237,7 +268,9 @@ try {
   await shot(page, "figenh18-03-rerooted");
 
   await page.keyboard.press("Backspace");
-  await sleep(300);
+  await waitFor(page, () => document.querySelectorAll(".xray .crumb").length === 1, null, {
+    label: "root stack popped (one crumb)",
+  }).catch(() => {});
   rows = await rowLabels();
   cr = await crumbs();
   ok(rows[0]?.label === "Both Panels" && cr.length === 1, "Backspace pops the root stack back to the group");
@@ -246,23 +279,25 @@ try {
   // === scope-aware openXray: inside an entered group, Alt+P roots on it ======
   console.log("Entered-scope Alt+P:");
   await page.keyboard.press("Escape"); // close the x-ray
-  await sleep(300);
+  await waitForGone(page, ".xray").catch(() => {});
   await page.evaluate(() => {
     const F = window.__flux.fig;
     F.enteredGroupId.set("g1"); // standing inside Panel A
     F.partSelection.set(null); // a canvas click would have cleared the drill
     F.selection.set(new Set(["rA", "rB"])); // its direct members = loose units at scope
   });
-  await sleep(150);
+  await waitForFrame(page);
   await page.keyboard.down("Alt");
   await page.keyboard.press("KeyP");
   await page.keyboard.up("Alt");
-  await sleep(450);
+  await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, {
+    label: "x-ray reopened at the entered scope",
+  }).catch(() => {});
   rows = await rowLabels();
   ok(rows[0]?.label === "Panel A" && rows[0]?.kind === "group",
     `Alt+P inside the entered group roots on THAT group (${rows[0]?.label})`);
   await page.keyboard.press("Escape");
-  await sleep(250);
+  await waitForGone(page, ".xray").catch(() => {});
 
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);

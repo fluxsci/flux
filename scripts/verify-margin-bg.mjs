@@ -8,7 +8,7 @@
 // and ZERO frames over two vsyncs (34ms) — a dropped frame is a stutter;
 // spawns p95 < 8ms, max < 24ms.
 //   Run (dev server on :1420 must be up): node scripts/verify-margin-bg.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors, shot, waitFor } from "./lib/driver.mjs";
 
 const { browser, page } = await launch();
 // The WHOLE gate runs under emulated `prefers-reduced-motion: reduce`. The
@@ -18,10 +18,14 @@ const { browser, page } = await launch();
 await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
 await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
 await clickMode(page, "Paper").catch(() => {});
-await sleep(600);
+await waitFor(page, () => !!(document.querySelector(".dynmargin .bg canvas") && window.__fluxMargin?.bg), null, {
+  timeout: 10000,
+  label: "dynamic margin mounted (canvas + hook)",
+});
 
 // Count non-paper pixels in (a crop of) the background canvas — the "is there
 // ink on the page" probe. Sampled at native resolution, no scaling.
+// (inkAtLeast is the same count as an in-page waitFor pred: returns n once n > min.)
 const inkCount = () =>
   page.evaluate(() => {
     const c = document.querySelector(".dynmargin .bg canvas");
@@ -40,6 +44,23 @@ const inkCount = () =>
     }
     return n;
   });
+const inkAtLeast = (min) => {
+  const c = document.querySelector(".dynmargin .bg canvas");
+  if (!c) return false;
+  const w = Math.min(c.width, 700);
+  const h = Math.min(c.height, 1500);
+  const t = document.createElement("canvas");
+  t.width = w;
+  t.height = h;
+  const x = t.getContext("2d");
+  x.drawImage(c, 0, 0, w, h, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+  let n = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (Math.abs(d[i] - 255) > 6 || Math.abs(d[i + 1] - 252) > 6 || Math.abs(d[i + 2] - 240) > 6) n++;
+  }
+  return n > min ? n : false;
+};
 
 const setup = await page.evaluate(() => {
   const box = document.querySelector(".dynmargin");
@@ -62,20 +83,26 @@ if (setup.error) {
 
 // --- it animates on its own -------------------------------------------------
 const frameA = await page.evaluate(() => document.querySelector(".dynmargin .bg canvas").toDataURL());
-await sleep(900);
-const frameB = await page.evaluate(() => document.querySelector(".dynmargin .bg canvas").toDataURL());
-const animates = frameA !== frameB;
+const animates = await waitFor(
+  page,
+  (a) => document.querySelector(".dynmargin .bg canvas").toDataURL() !== a,
+  frameA,
+  { timeout: 4000, interval: 120, label: "background canvas repaints on its own" },
+).catch(() => false);
 
 // --- all five sources cycle cleanly ------------------------------------------
 const SOURCES = ["harmonograph", "neurons", "inkwind", "loom", "vines"];
 const cycle = {};
 for (const id of SOURCES) {
   await page.evaluate((s) => window.__fluxMargin.setBg(s), id);
-  await sleep(450); // crossfade (300ms) + a few live frames
+  await waitFor(page, (s) => window.__fluxMargin.bg.dims().source === s, id, { label: `bg source ${id} active` });
+  await sleep(350); // debounce: GHOST_FADE 300ms crossfade — old art must clear before the ink probe
   await page.evaluate(() => window.__fluxMargin.bg.seek(12));
-  await sleep(120);
+  const ink =
+    (await waitFor(page, inkAtLeast, 150, { timeout: 4000, interval: 120, label: `ink after seek (${id})` }).catch(
+      () => null,
+    )) ?? (await inkCount());
   const d = await page.evaluate(() => window.__fluxMargin.bg.dims());
-  const ink = await inkCount();
   cycle[id] = { source: d.source, ink };
   await shot(page, `margin-bg-${id}`);
 }
@@ -86,10 +113,15 @@ const cycleOk = SOURCES.every((id) => cycle[id].source === id && cycle[id].ink >
 // assert (a) the canvas tracks the box on every sampled step, and (b) the art
 // survives — a field reset would blank the paper (draw-in takes seconds).
 await page.evaluate(() => window.__fluxMargin.setBg("harmonograph"));
-await sleep(450);
+await waitFor(page, () => window.__fluxMargin.bg.dims().source === "harmonograph", null, {
+  label: "bg source harmonograph active",
+});
+await sleep(350); // debounce: GHOST_FADE 300ms crossfade
 await page.evaluate(() => window.__fluxMargin.bg.seek(15));
-await sleep(200);
-const inkBefore = await inkCount();
+const inkBefore =
+  (await waitFor(page, inkAtLeast, 150, { timeout: 4000, interval: 120, label: "settled art before the drag" }).catch(
+    () => null,
+  )) ?? (await inkCount());
 await page.evaluate(() => (window.__fluxMargin.bg.frames.length = 0));
 const grip = await page.evaluate(() => {
   const g = document.querySelector(".dm-grip");
@@ -104,6 +136,9 @@ if (grip) {
   await page.mouse.down();
   for (let i = 1; i <= 12; i++) {
     await page.mouse.move(grip.x - i * 30, grip.y);
+    // real-time gesture pacing inside a MEASURED window (dragBudget asserts the frame
+    // p95 of exactly these frames) — a waitForFrame evaluate here would inject CDP
+    // work into the probe and skew it (measured: p95 20→28ms). Keep the wall-clock gap.
     await sleep(30);
     const s = await page.evaluate(() => {
       const box = document.querySelector(".dynmargin").getBoundingClientRect();
@@ -113,6 +148,8 @@ if (grip) {
     if (Math.abs(s.boxW - s.cssW) > 2) dragTracked = false;
   }
   await page.mouse.up();
+  // still the MEASURED drag window (dragFrames is read below): the dragBudget p95 was
+  // tuned with this 150ms idle tail in the sample pool — shortening it tightens the gate.
   await sleep(150);
 }
 const inkAfter = await inkCount();
@@ -122,7 +159,7 @@ await shot(page, "margin-bg-after-drag");
 
 // --- frame budget at rest ------------------------------------------------------
 await page.evaluate(() => (window.__fluxMargin.bg.frames.length = 0));
-await sleep(3000);
+await sleep(3000); // measurement window: 3s of frame samples (a probe duration, not a wait)
 const rest = await page.evaluate(() => ({
   frames: [...window.__fluxMargin.bg.frames],
   spawns: [...window.__fluxMargin.bg.spawns],
@@ -133,20 +170,28 @@ const rest = await page.evaluate(() => ({
 // Measure the busiest scene (neurons, max 4 concurrent sprites) under 2 and 4
 // open panes.
 await page.evaluate(() => window.__fluxMargin.setBg("neurons"));
-await sleep(450);
+await waitFor(page, () => window.__fluxMargin.bg.dims().source === "neurons", null, {
+  label: "bg source neurons active",
+});
 await page.evaluate(() => window.__fluxMargin.bg.seek(10));
 const paneFrames = {};
 for (const n of [2, 4]) {
   await page.evaluate(() => window.__fluxMargin.closeAll());
-  await sleep(200);
+  await waitFor(page, () => document.querySelectorAll(".dynmargin .pane").length === 0, null, {
+    label: "all panes closed",
+  });
   const ids = ["reference-search", "terminal", "comments", "figure"].slice(0, n);
+  let open = 0;
   for (const id of ids) {
     await page.evaluate((i) => window.__fluxMargin.summon(i), id);
-    await sleep(150);
+    open++;
+    await waitFor(page, (k) => document.querySelectorAll(".dynmargin .pane").length >= k, open, {
+      label: `pane ${id} open`,
+    });
   }
-  await sleep(300); // materialize animations done
+  await sleep(300); // debounce: pane materialize animation before the measured window
   await page.evaluate(() => (window.__fluxMargin.bg.frames.length = 0));
-  await sleep(2500);
+  await sleep(2500); // measurement window: 2.5s of frame samples under n panes
   paneFrames[n] = await page.evaluate(() => [...window.__fluxMargin.bg.frames]);
 }
 await page.evaluate(() => window.__fluxMargin.closeAll());

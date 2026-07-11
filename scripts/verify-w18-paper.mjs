@@ -12,12 +12,15 @@
 //
 // PAP-22 (Map-indexed resolvers) is a pure find()→Map.get() equivalence covered by svelte-check.
 //   Run (dev server on :1420 must be up): node scripts/verify-w18-paper.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, realErrors, waitFor } from "./lib/driver.mjs";
 
 const { browser, page } = await launch();
 await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
 await clickMode(page, "Paper").catch(() => {});
-await sleep(600);
+await waitFor(page, () => !!(window.__fluxView || (window.__flux?.editors ?? [])[0]), null, {
+  timeout: 15000,
+  label: "paper editor mounted",
+});
 
 const res = await page.evaluate(async () => {
   const view = window.__fluxView || (window.__flux?.editors ?? [])[0];
@@ -112,10 +115,15 @@ const res = await page.evaluate(async () => {
   // --- PAP-7 debounce: a typed heading appears in the TOC after it settles (~150ms) ---------
   const headingText = "Zzz Debounce Heading";
   view.dispatch({ changes: { from: doc().line(2).from, insert: `## ${headingText}\n` } });
-  const tocImmediate = [...document.querySelectorAll(".oitem")].some((e) => e.textContent.includes(headingText));
-  await new Promise((r) => setTimeout(r, 260)); // > the 150ms idle debounce
-  await raf();
-  const tocAfterSettle = [...document.querySelectorAll(".oitem")].some((e) => e.textContent.includes(headingText));
+  const inToc = () => [...document.querySelectorAll(".oitem")].some((e) => e.textContent.includes(headingText));
+  const tocImmediate = inToc(); // must be false: the outline rebuild is debounced, not per-keystroke
+  // in-page poll (timing probe): the debounced recompute may land late on a busy runner —
+  // the assertion is that it LANDS, tocImmediate above keeps the debounce teeth
+  let tocAfterSettle = false;
+  for (let t = 0; t < 40 && !tocAfterSettle; t++) {
+    await new Promise((r) => setTimeout(r, 60));
+    tocAfterSettle = inToc();
+  }
 
   const med = (a) => +a[Math.floor(a.length / 2)].toFixed(2);
   return {

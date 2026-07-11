@@ -4,7 +4,7 @@
 // (+ enrich sidecar + one on-disk PDF), then exercises each feature end-to-end.
 //   Run (dev server on :1420 must be up): node scripts/verify-lib-actions.mjs
 import { readFileSync } from "node:fs";
-import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, realErrors, waitFor, waitForFrame, waitForGone } from "./lib/driver.mjs";
 
 function assert(cond, msg) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -74,9 +74,12 @@ await page.evaluate(
   pdfB64,
 );
 await clickMode(page, "Library");
-await sleep(1200);
 
 const ROWS = ".lib .grid .grow:not(.ghead)";
+await waitFor(page, (sel) => document.querySelectorAll(sel).length === 4, ROWS, {
+  timeout: 10000,
+  label: "4 seeded library rows rendered",
+});
 const rows = () =>
   page.evaluate((sel) => {
     return [...document.querySelectorAll(sel)].map((r) => ({
@@ -101,9 +104,16 @@ const modClick = async (rowIdx, mods) => {
   for (const m of mods) await page.keyboard.down(m);
   await handles[rowIdx].click();
   for (const m of mods.slice().reverse()) await page.keyboard.up(m);
-  await sleep(300);
+  await waitForFrame(page);
 };
 const libToast = () => page.evaluate(() => document.querySelector(".lib .toast")?.textContent?.trim() ?? "");
+const waitToast = (re, label, timeout = 10000) =>
+  waitFor(page, (src) => new RegExp(src, "i").test(document.querySelector(".lib .toast")?.textContent ?? ""), re, {
+    timeout,
+    label,
+  });
+const waitRows = (n) =>
+  waitFor(page, ({ sel, n }) => document.querySelectorAll(sel).length === n, { sel: ROWS, n }, { label: `${n} library rows` });
 
 // --- baseline: 4 seeded rows in file order -----------------------------------------------------
 let r = await rows();
@@ -113,19 +123,19 @@ assert((await headerArrow()) === null, "no sort arrow before any header click");
 
 // --- sorting -----------------------------------------------------------------------------------
 await clickHeader("Year");
-await sleep(250);
+await waitForFrame(page);
 r = await rows();
 assert(r.map((x) => x.year).join(",") === "2023,2021,2020,2019", "click Year → newest first (desc)");
 let a = await headerArrow();
 assert(a && a.col === "Year" && a.dir === "▼", `arrow marks Year desc (${JSON.stringify(a)})`);
 await clickHeader("Year");
-await sleep(250);
+await waitForFrame(page);
 r = await rows();
 assert(r.map((x) => x.year).join(",") === "2019,2020,2021,2023", "click Year again → reversed (asc)");
 a = await headerArrow();
 assert(a && a.dir === "▲", "arrow flips to asc");
 await clickHeader("Cited");
-await sleep(250);
+await waitForFrame(page);
 r = await rows();
 const firstAuthors = () => r.map((x) => x.author.split(",")[0].trim()).join("|");
 assert(
@@ -133,15 +143,17 @@ assert(
   `click Cited → most-cited first, no-enrich last (${firstAuthors()})`,
 );
 await clickHeader("Authors");
-await sleep(250);
+await waitForFrame(page);
 r = await rows();
 assert(firstAuthors() === "Abel|Miller|Smith|Zorro", `click Authors → A→Z by first author (${firstAuthors()})`);
 
 // --- Ctrl+click toggles the detail strip --------------------------------------------------------
 const detailCount = () => page.evaluate(() => document.querySelectorAll(".lib .detail").length);
 await modClick(0, ["Control"]);
+await waitFor(page, () => document.querySelectorAll(".lib .detail").length === 1, null, { label: "detail strip open" });
 assert((await detailCount()) === 1, "Ctrl+click opens the row's detail strip");
 await modClick(0, ["Control"]);
+await waitFor(page, () => document.querySelectorAll(".lib .detail").length === 0, null, { label: "detail strip closed" });
 assert((await detailCount()) === 0, "Ctrl+click again closes it");
 
 // --- Alt+click opens the DOI externally ---------------------------------------------------------
@@ -152,41 +164,46 @@ await page.evaluate(() => {
   };
 });
 await modClick(0, ["Alt"]); // Abel — has a DOI
+await waitFor(page, () => (window.__ext ?? []).length === 1, null, { label: "openExternal captured" });
 const ext = await page.evaluate(() => window.__ext);
 assert(
   ext.length === 1 && ext[0] === "https://doi.org/10.9999/nf.2019.1",
   `Alt+click opens the DOI in the browser (${ext[0]})`,
 );
 await modClick(1, ["Alt"]); // Miller — no DOI
+await waitToast("no doi", "no-DOI toast shown");
 assert(/no doi/i.test(await libToast()), `Alt+click without a DOI explains itself ("${await libToast()}")`);
-await sleep(3800); // let that toast clear
+await waitForGone(page, ".lib .toast", { timeout: 8000 }); // that toast must clear before the next one is read
 
 // --- Ctrl+Shift+click: fetch-then-read (miss path) ---------------------------------------------
 await page.evaluate(() => {
   window.fig.netGet = async () => ({ error: "HTTP 404", status: 404 });
 });
 await modClick(0, ["Control", "Shift"]); // Abel — no PDF, every route 404s
-await sleep(1500);
+await waitToast("no open-access pdf", "fetch-miss toast shown");
 assert(/no open-access pdf/i.test(await libToast()), `failed fetch surfaces the reason ("${await libToast()}")`);
 
 // --- Ctrl+Shift+click: PDF on disk → opens the reader -------------------------------------------
 await modClick(3, ["Control", "Shift"]); // Zorro — paper.pdf seeded
-await sleep(1500);
 const readerVisible = () =>
   page.evaluate(() => {
     const mc = document.querySelector(".mc:not(.hidden)");
     return !!mc?.querySelector(".reader");
   });
+await waitFor(page, () => !!document.querySelector(".mc:not(.hidden) .reader"), null, {
+  timeout: 10000,
+  label: "FluxReader visible",
+});
 assert(await readerVisible(), "Ctrl+Shift+click on a row with a PDF opens FluxReader");
 await clickMode(page, "Library");
-await sleep(600);
+await waitRows(4);
 
 // --- Alt+Del deletes the highlighted row, toast Undo restores it --------------------------------
 // (the Ctrl+Shift+click above left Zorro highlighted)
 await page.keyboard.down("Alt");
 await page.keyboard.press("Delete");
 await page.keyboard.up("Alt");
-await sleep(700);
+await waitRows(3);
 r = await rows();
 assert(r.length === 3, `Alt+Del removes the highlighted row (${r.length} left)`);
 assert(!r.some((x) => x.author.startsWith("Zorro")), "…and it was the highlighted one (Zorro)");
@@ -199,27 +216,30 @@ const undoByText = (frag) =>
     return true;
   }, frag);
 assert(await undoByText("Deleted 1 reference"), "delete toast offers Undo");
-await sleep(700);
+await waitRows(4);
 r = await rows();
 assert(r.length === 4 && r.some((x) => x.author.startsWith("Zorro")), "Undo restores the reference");
 
 // --- checkbox multi-select + Delete N ------------------------------------------------------------
 const clickRowCheckbox = async (idx) => {
+  const before = await page.evaluate(() => document.querySelectorAll(".lib .gsel input:checked").length);
   const handles = await page.$$(ROWS);
   const cb = await handles[idx].$(".gsel input");
   await cb.click();
-  await sleep(150);
+  await waitFor(page, (n) => document.querySelectorAll(".lib .gsel input:checked").length !== n, before, {
+    label: "row checkbox toggled",
+  });
 };
 await clickRowCheckbox(0); // Abel
 await clickRowCheckbox(1); // Miller
 const delLabel = await page.evaluate(() => document.querySelector(".seldel")?.textContent?.trim() ?? "");
 assert(delLabel === "Delete 2", `selection bar shows "${delLabel}"`);
 await page.click(".seldel");
-await sleep(700);
+await waitRows(2);
 r = await rows();
 assert(r.length === 2, `bulk delete removes both checked rows (${r.length} left)`);
 assert(await undoByText("Deleted 2 references"), "bulk-delete toast offers Undo");
-await sleep(700);
+await waitRows(4);
 r = await rows();
 assert(r.length === 4, "Undo restores both");
 
@@ -230,12 +250,15 @@ await clickRowCheckbox(2);
 await page.keyboard.down("Alt");
 await page.keyboard.press("f");
 await page.keyboard.up("Alt");
-let summary = "";
-for (let i = 0; i < 40; i++) {
-  await sleep(250);
-  summary = await libToast();
-  if (/fetched/i.test(summary)) break;
-}
+const summary = await waitFor(
+  page,
+  () => {
+    const t = document.querySelector(".lib .toast")?.textContent?.trim() ?? "";
+    return /fetched/i.test(t) ? t : false;
+  },
+  null,
+  { timeout: 12000, interval: 250, label: "Alt+F fetch summary toast" },
+);
 assert(/fetched 0/i.test(summary), `Alt+F ran the fetch pipeline over the checked rows ("${summary}")`);
 assert(/2 need library sign-in/.test(summary), "…and over exactly the 2 checked references");
 

@@ -7,14 +7,17 @@
 // the editor — the dynamic-margin contract); the margin can be dragged wider
 // than the old 620px cap.
 //   Run (dev server on :1420 must be up): node scripts/verify-paper-extras.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, realErrors, shot, waitFor, waitForFrame } from "./lib/driver.mjs";
 
 const { browser, page } = await launch();
 // Seed the flux flavor BEFORE the app loads (persisted-pref path).
 await page.evaluateOnNewDocument(() => localStorage.setItem("flux.paper.vimFlavor", "flux"));
 await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
 await clickMode(page, "Paper").catch(() => {});
-await sleep(600);
+await waitFor(page, () => !!(window.__fluxView || (window.__flux?.editors ?? [])[0]), null, {
+  timeout: 15000,
+  label: "paper editor mounted",
+});
 
 const setup = await page.evaluate(async () => {
   const view = window.__fluxView || (window.__flux?.editors ?? [])[0];
@@ -65,12 +68,18 @@ await page.evaluate(() => {
   view.focus();
 });
 await page.keyboard.press("i");
-await sleep(120);
+await waitFor(page, () => /INSERT/i.test(document.querySelector(".cm-vim-panel")?.textContent ?? ""), null, {
+  timeout: 3000,
+  label: "entered insert mode",
+}).catch(() => {});
 const inInsert = /INSERT/i.test(await vimPanelText());
 const docBeforeJJ = await page.evaluate(() => window.__fluxView.state.doc.line(1).text);
 await page.keyboard.press("j");
 await page.keyboard.press("j"); // rapid: within the insert-map timeout
-await sleep(250);
+await waitFor(page, () => !/INSERT/i.test(document.querySelector(".cm-vim-panel")?.textContent ?? ""), null, {
+  timeout: 3000,
+  label: "jj left insert mode",
+}).catch(() => {});
 const afterJJ = await vimPanelText();
 const docAfterJJ = await page.evaluate(() => window.__fluxView.state.doc.line(1).text);
 const jjOk = inInsert && !/INSERT/i.test(afterJJ) && docAfterJJ === docBeforeJJ;
@@ -79,21 +88,43 @@ const jjOk = inInsert && !/INSERT/i.test(afterJJ) && docAfterJJ === docBeforeJJ;
 await page.keyboard.down("Control");
 await page.keyboard.press("KeyK");
 await page.keyboard.up("Control");
-await sleep(300);
+await waitFor(
+  page,
+  () => {
+    const i = document.querySelector(".cp input");
+    return !!i && document.activeElement === i; // typing must land in the palette, not the editor
+  },
+  null,
+  { timeout: 4000, label: "command palette open + focused" },
+);
 await page.keyboard.type("flux");
-await sleep(200);
+// Enter runs the highlighted row — wait until that row IS the flavor switch
+await waitFor(
+  page,
+  () => (document.querySelector(".cp li.sel .ct")?.textContent?.trim() ?? "") === "Switch to plain Vim",
+  null,
+  { timeout: 3000, label: '"Switch to plain Vim" is the selected command' },
+);
 await page.keyboard.press("Enter"); // "Switch to plain Vim"
-await sleep(400);
+await waitFor(page, () => !document.querySelector(".cp"), null, { label: "palette closed (command ran)" });
 await page.evaluate(() => {
   const view = window.__fluxView;
   view.dispatch({ selection: { anchor: view.state.doc.line(1).to }, scrollIntoView: true });
   view.focus();
 });
 await page.keyboard.press("i");
-await sleep(120);
+await waitFor(page, () => /INSERT/i.test(document.querySelector(".cm-vim-panel")?.textContent ?? ""), null, {
+  timeout: 3000,
+  label: "entered insert mode (plain vim)",
+}).catch(() => {});
 await page.keyboard.press("j");
 await page.keyboard.press("j");
-await sleep(350); // let any (wrongly) pending mapping timeout flush
+// a (wrongly) still-active jj mapping would hold the first j pending — the letters
+// only land in the doc once no mapping is in play
+await waitFor(page, () => window.__fluxView.state.doc.line(1).text.endsWith("jj"), null, {
+  timeout: 3000,
+  label: "plain vim: jj typed as text",
+}).catch(() => {});
 const plainVim = await page.evaluate(() => ({
   line1: window.__fluxView.state.doc.line(1).text,
   panel: document.querySelector(".cm-vim-panel")?.textContent ?? "",
@@ -123,10 +154,11 @@ let pillRefs = false;
 let pdfPillAbsent = false;
 if (chipBox) {
   await page.mouse.move(chipBox.x, chipBox.y);
-  for (let i = 0; i < 20 && !hoverOk; i++) {
-    await sleep(150);
-    hoverOk = await page.evaluate(() => !!document.querySelector(".hovercard.ready"));
-  }
+  hoverOk = await waitFor(page, () => !!document.querySelector(".hovercard.ready"), null, {
+    timeout: 4000,
+    interval: 100,
+    label: "hovercard ready",
+  }).catch(() => false);
   if (hoverOk) {
     const hc = await page.evaluate(() => {
       const card = document.querySelector(".hovercard");
@@ -160,16 +192,20 @@ if (hoverOk && pillRefs) {
     );
     btn?.click();
   });
-  await sleep(700); // margin opens + smooth scroll
-  revealOk = await page.evaluate(() => {
-    const key = "suzuki2020generalanesthesia-0a2";
-    const row = document.querySelector(`[data-refkey="${key}"]`);
-    if (!row) return false;
-    const expanded = row.querySelector('.t[aria-expanded="true"]');
-    const detailKey = row.querySelector(".d-key")?.textContent?.includes(key);
-    const visible = row.getBoundingClientRect().height > 0;
-    return !!expanded && !!detailKey && visible;
-  });
+  // margin opens + smooth scroll — wait for the revealed row itself
+  revealOk = await waitFor(
+    page,
+    (key) => {
+      const row = document.querySelector(`[data-refkey="${key}"]`);
+      if (!row) return false;
+      const expanded = row.querySelector('.t[aria-expanded="true"]');
+      const detailKey = row.querySelector(".d-key")?.textContent?.includes(key);
+      const visible = row.getBoundingClientRect().height > 0;
+      return !!expanded && !!detailKey && visible;
+    },
+    "suzuki2020generalanesthesia-0a2",
+    { timeout: 5000, label: "reference row revealed + untwirled" },
+  ).catch(() => false);
 }
 await shot(page, "paper-extras-reveal");
 
@@ -179,12 +215,18 @@ const leftBefore = await page.evaluate(() => !!document.querySelector(".leftrail
 await page.keyboard.down("Alt");
 await page.keyboard.press("KeyO");
 await page.keyboard.up("Alt");
-await sleep(300);
+await waitFor(page, () => !document.querySelector(".leftrail"), null, {
+  timeout: 3000,
+  label: "left panel hidden",
+}).catch(() => {});
 const leftHidden = await page.evaluate(() => !document.querySelector(".leftrail"));
 await page.keyboard.down("Alt");
 await page.keyboard.press("KeyO");
 await page.keyboard.up("Alt");
-await sleep(300);
+await waitFor(page, () => !!document.querySelector(".leftrail"), null, {
+  timeout: 3000,
+  label: "left panel back",
+}).catch(() => {});
 const leftBack = await page.evaluate(() => !!document.querySelector(".leftrail"));
 const altOOk = leftBefore && leftHidden && leftBack;
 
@@ -194,7 +236,10 @@ const altDBefore = await page.evaluate(() => !!document.querySelector(".dynmargi
 await page.keyboard.down("Alt");
 await page.keyboard.press("KeyD");
 await page.keyboard.up("Alt");
-await sleep(350);
+await waitFor(page, () => !document.querySelector(".dynmargin"), null, {
+  timeout: 3000,
+  label: "dynamic margin hidden",
+}).catch(() => {});
 const altDClosed = await page.evaluate(() => ({
   margin: !!document.querySelector(".dynmargin"),
   editorFocused: !!document.activeElement?.closest(".cm-content"),
@@ -202,7 +247,10 @@ const altDClosed = await page.evaluate(() => ({
 await page.keyboard.down("Alt");
 await page.keyboard.press("KeyD");
 await page.keyboard.up("Alt");
-await sleep(350);
+await waitFor(page, () => !!document.querySelector(".dynmargin"), null, {
+  timeout: 3000,
+  label: "dynamic margin back",
+}).catch(() => {});
 const altDOpen = await page.evaluate(() => ({
   margin: !!document.querySelector(".dynmargin"),
   editorFocused: !!document.activeElement?.closest(".cm-content"),
@@ -227,15 +275,16 @@ if (grip) {
   await page.mouse.down();
   for (let x = grip.x; x > grip.x - 560; x -= 40) {
     await page.mouse.move(x, grip.y);
-    await sleep(16);
+    await waitForFrame(page); // each step's resize painted before the next move
   }
   await page.mouse.up();
-  await sleep(200);
-  const w = await page.evaluate(
-    () => document.querySelector(".dm-wrap")?.getBoundingClientRect().width ?? 0,
-  );
   // 1440px window: max = 1440-ish workspace − 420 ≈ 990+; old cap was 620.
-  dragOk = w > 700;
+  dragOk = await waitFor(
+    page,
+    () => (document.querySelector(".dm-wrap")?.getBoundingClientRect().width ?? 0) > 700,
+    null,
+    { timeout: 3000, label: "margin wider than the old 620px cap" },
+  ).catch(() => false);
 }
 await shot(page, "paper-extras-wide-margin");
 

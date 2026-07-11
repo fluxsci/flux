@@ -41,6 +41,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
+import { waitFor, waitForFrame } from "./lib/wait.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CHROME = process.env.FLUX_CHROME || "/usr/bin/google-chrome";
@@ -195,6 +196,25 @@ async function wheelBurst(page, ax, ay, ticks, deltaY, spacing = 25) {
   );
 }
 
+// Scene at REST: will-change demoted, wrapper residual folded to exactly 1, and the
+// zoom <g> carrying viewport.zoom — i.e. ZOOM_SETTLE_MS + SCENE_COOL_MS have elapsed
+// and the fold committed. THE condition every "settle" sleep in here was approximating.
+const sceneAtRest = () => {
+  const F = window.__flux;
+  const scene = document.querySelector(".scene");
+  const g = document.querySelector(".scene-svg > g");
+  if (!F?.fig || !scene || !g) return false;
+  const zoom = F.get(F.fig.viewport).zoom;
+  const gs = /scale\(([-\d.e]+)/.exec(g.getAttribute("transform") || "");
+  const gScale = gs ? Number(gs[1]) : 1;
+  const cs = getComputedStyle(scene);
+  const m = /matrix\(([-\d.e]+)/.exec(cs.transform);
+  const residual = m ? Number(m[1]) : 1;
+  return cs.willChange === "auto" && Math.abs(residual - 1) < 1e-9 && gScale === zoom;
+};
+const waitAtRest = (page, label, timeout = 5000, interval = 50) =>
+  waitFor(page, sceneAtRest, null, { timeout, interval, label });
+
 const zoomOf = (page) => page.evaluate(() => window.__flux.get(window.__flux.fig.viewport).zoom);
 const sceneState = (page) =>
   page.evaluate(() => {
@@ -225,16 +245,29 @@ try {
   page.on("pageerror", (e) => errs.push("PAGEERR " + e.message));
   await page.goto(APP_URL, { waitUntil: "networkidle2", timeout: 30000 });
   await page.waitForFunction(() => !!window.__flux?.fig, { timeout: 15000 });
-  await sleep(1500);
+  await sleep(1500); // app boot settle (gotoApp-equivalent: intro animations, demo fixture load)
   await page.evaluate(() => {
     const b = [...document.querySelectorAll("button[aria-label]")].find((e) => e.getAttribute("aria-label") === "Figure");
     if (b) b.click();
   });
-  await sleep(900);
   await page.waitForSelector(".canvas-host", { timeout: 10000 });
+  await waitFor(
+    page,
+    () => {
+      if (!window.__flux?.figures().length) return false;
+      const r = document.querySelector(".canvas-host")?.getBoundingClientRect();
+      if (!r) return false;
+      const k = `${r.left},${r.top},${r.width},${r.height}`;
+      const same = window.__crispHostKey === k;
+      window.__crispHostKey = k;
+      return same; // rect identical across two polls — mode-switch layout settled
+    },
+    null,
+    { interval: 120, timeout: 10000, label: "figure mode ready (canvas-host rect stable)" },
+  );
 
   const seed = await page.evaluate(seedScene, { growthSvg, growthManifest, growthRecipe, traceSvg });
-  await sleep(600); // > settle+cool: programmatic viewport.set folds via the timer
+  await waitAtRest(page, "scene at rest after seed (viewport.set folded + cooled)");
   const clip = { x: seed.ax - 160, y: seed.ay - 160, width: 320, height: 320 };
   info(`seeded ${seed.els} elements into ${seed.figId} (DSF 2)`);
 
@@ -262,7 +295,7 @@ try {
   // burst also dodges the FP edge where an exactly-invertible out/in pair folds
   // back to a bit-identical scale (which would legitimately write 0 mutations).
   await wheelBurst(page, seed.ax, seed.ay, 20, -40);
-  await sleep(1200); // ZOOM_SETTLE_MS(180) + fold + SCENE_COOL_MS(200) + margin
+  await waitAtRest(page, "burst folded + cooled (will-change demoted, residual 1)");
   const burst = await page.evaluate(() => {
     window.__crispSampling = false;
     window.__crispObs.disconnect();
@@ -291,15 +324,17 @@ try {
   // Reference: explicit demotion (the ONLY crisp reference valid headless — see
   // gate-design note). Post-fix the settled state is already demoted ⇒ no-op.
   await page.evaluate(() => (document.querySelector(".scene").style.willChange = "auto"));
-  await sleep(400);
+  await sleep(400); // debounce: compositor re-raster after a will-change flip (not DOM-observable)
   const S_demoted = await sharpness(page, clip);
   // Teeth control (recorded, non-fatal — headless-box variance): force-promote
   // should re-soften at DSF 2 while the layer bounds are huge.
   await page.evaluate(() => (document.querySelector(".scene").style.willChange = "transform"));
-  await sleep(400);
+  await sleep(400); // debounce: compositor re-raster after a will-change flip (not DOM-observable)
   const S_promoted = await sharpness(page, clip);
   await page.evaluate(() => (document.querySelector(".scene").style.willChange = ""));
-  await sleep(200);
+  await waitFor(page, () => getComputedStyle(document.querySelector(".scene")).willChange === "auto", null, {
+    label: "will-change back to the stylesheet rest value",
+  });
   const ratio = S_settled / S_demoted;
   info(`sharpness @zoom ${zAt.toFixed(3)}: settled=${S_settled.toFixed(3)} demoted-ref=${S_demoted.toFixed(3)} ratio=${ratio.toFixed(3)} (forced-promote control=${S_promoted.toFixed(3)})`);
   if (!BASELINE)
@@ -317,11 +352,11 @@ try {
       const wy = (a.ay - host.top - v.panY) / v.zoom;
       F.fig.viewport.set({ zoom: 4, panX: a.ax - host.left - wx * 4, panY: a.ay - host.top - wy * 4 });
     }, { ax: seed.ax, ay: seed.ay });
-    await sleep(600); // settle fold (180) + cool (200) + margin — at rest
+    await waitAtRest(page, "evidence zoom folded + cooled — at rest");
     const evSettled = await page.screenshot({ clip, encoding: "base64" });
     const evSettledLap = await page.evaluate(laplacianOfPng, evSettled);
     await page.evaluate(() => (document.querySelector(".scene").style.willChange = "auto"));
-    await sleep(400);
+    await sleep(400); // debounce: compositor re-raster after a will-change flip (not DOM-observable)
     const evDemoted = await page.screenshot({ clip, encoding: "base64" });
     const evDemotedLap = await page.evaluate(laplacianOfPng, evDemoted);
     await page.evaluate(() => (document.querySelector(".scene").style.willChange = ""));
@@ -352,14 +387,14 @@ try {
     const v = F.get(F.fig.viewport);
     F.fig.viewport.set({ ...v, panX: 60, panY: 80, zoom: 1 });
   });
-  await sleep(500); // settle the programmatic zoom change
+  await waitAtRest(page, "programmatic zoom-out folded + cooled");
   const before = await page.evaluate(() => document.querySelectorAll(".scene .el").length);
   await page.evaluate(() => {
     const F = window.__flux;
     const v = F.get(F.fig.viewport);
     F.fig.viewport.set({ ...v, panX: v.panX - 60, panY: v.panY - 60 });
   });
-  await sleep(300);
+  await waitForFrame(page); // pan-only commit: cull recomputes with the commit, painted next frame
   const after = await page.evaluate(() => document.querySelectorAll(".scene .el").length);
   info(`pan cull: ${before} els -> ${after} els after a small pan`);
   if (!BASELINE) assert(before === after && before > 0, `a small pan keeps the rendered .el set identical (${before} == ${after})`);
@@ -391,7 +426,7 @@ try {
         });
         F.viewport.set({ panX: 60, panY: 80, zoom: 1 });
       });
-      await sleep(600);
+      await waitAtRest(page, "1600-el fixture at rest before the recorder");
       await page.evaluate(() => {
         window.__frames = [];
         window.__fs = true;
@@ -405,7 +440,9 @@ try {
       });
       await wheelBurst(page, cx, cy, 10, -60);
       await wheelBurst(page, cx, cy, 10, +60);
-      await sleep(450); // include the settle fold in the measured window
+      // include the settle fold in the measured window: record until back at rest
+      // (interval 100 keeps the polling evaluates sparse inside the measured frames)
+      await waitAtRest(page, "burst settle fold inside the measured window", 5000, 100);
       frames = await page.evaluate(() => {
         window.__fs = false;
         return window.__frames ?? null;
@@ -413,7 +450,7 @@ try {
     } catch (e) {
       info(`perf-leg attempt ${attempt + 1} lost to a page reload (${String(e).slice(0, 80)}…) — retrying`);
       frames = null;
-      await sleep(1500);
+      await sleep(1500); // reload backoff (error path only)
     }
   }
   frames = frames ?? [];

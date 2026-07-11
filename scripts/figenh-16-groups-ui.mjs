@@ -16,11 +16,26 @@
 //     removes copies + cloned defs coherently
 //   · dissolving the entered group (⌘⇧G) drops the stale scope
 //   Run (dev server on :1420): node scripts/figenh-16-groups-ui.mjs
-import { launch, gotoApp, clickMode, shot, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, shot, realErrors, waitFor, waitForFrame } from "./lib/driver.mjs";
 
 let fails = 0;
 const ok = (cond, msg) => (cond ? console.log("  ✓ " + msg) : (fails++, console.log("  ✗ " + msg)));
 const near = (a, b, tol = 1.5) => Math.abs(a - b) <= tol;
+
+// viewport fold settled + seeded scene painted: the zoom <g> carries viewport.zoom, the
+// wrapper residual is exactly 1 (screen coords == logical coords for the fixed 60/120
+// pan math below), and the first seeded rect is in the scene DOM.
+const seededAndSettled = () => {
+  const F = window.__flux;
+  const g = document.querySelector(".scene-svg > g");
+  const scene = document.querySelector(".scene");
+  if (!F?.fig || !g || !scene) return false;
+  if (!document.querySelector('.scene-svg rect[fill="#d62728"]')) return false;
+  const zoom = F.get(F.fig.viewport).zoom;
+  const gs = /scale\(([-\d.e]+)/.exec(g.getAttribute("transform") || "");
+  const m = /matrix\(([-\d.e]+)/.exec(getComputedStyle(scene).transform);
+  return (gs ? Number(gs[1]) : 1) === zoom && Math.abs((m ? Number(m[1]) : 1) - 1) < 1e-9;
+};
 
 const { browser, page } = await launch({ width: 1500, height: 950 });
 try {
@@ -29,7 +44,10 @@ try {
   });
   await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
   await clickMode(page, "Figure");
-  await sleep(700);
+  await waitFor(page, () => !!(window.__flux?.fig && window.__flux.figures().length && document.querySelector(".canvas-host")), null, {
+    timeout: 15000,
+    label: "figure mode ready (dev handle + demo figures + canvas)",
+  });
 
   // --- seed: A/B (to group), C loose; figure at (0,0), zoom 1 ---
   const ids = await page.evaluate(() => {
@@ -53,7 +71,7 @@ try {
     return out;
   });
   const [A, B, C] = ids;
-  await sleep(350); // > ZOOM_SETTLE_MS — programmatic viewport.set folds
+  await waitFor(page, seededAndSettled, null, { label: "seeded scene painted + viewport folded" });
 
   // --- helpers -------------------------------------------------------------
   const model = () =>
@@ -85,7 +103,7 @@ try {
     await page.mouse.move(p.x, p.y, { steps: 3 });
     await page.mouse.down();
     await page.mouse.up();
-    await sleep(180);
+    await waitForFrame(page);
   };
   // A REAL double-click: two down/up pairs, the second with clickCount 2 —
   // that's what makes Chrome synthesize the dblclick event (citegroup recipe).
@@ -95,20 +113,20 @@ try {
     await page.mouse.up();
     await page.mouse.down({ clickCount: 2 });
     await page.mouse.up({ clickCount: 2 });
-    await sleep(220);
+    await waitForFrame(page);
   };
   const drag = async (from, dx, dy) => {
     await page.mouse.move(from.x, from.y, { steps: 3 });
     await page.mouse.down();
     for (let i = 1; i <= 10; i++) await page.mouse.move(from.x + (dx * i) / 10, from.y + (dy * i) / 10);
-    await sleep(100);
+    await waitForFrame(page); // last move's transient painted before release
     await page.mouse.up();
-    await sleep(220);
+    await waitForFrame(page); // release commit painted
   };
   const hoverBoxW = async (p) => {
     await page.mouse.move(p.x - 30, p.y - 20, { steps: 2 });
     await page.mouse.move(p.x, p.y, { steps: 3 });
-    await sleep(200);
+    await waitForFrame(page); // hover preview mounts with the pointermove's paint
     return page.evaluate(() => {
       const hb = document.querySelector(".overlay-svg .hover-box");
       return hb ? parseFloat(hb.getAttribute("width")) : null;
@@ -118,7 +136,7 @@ try {
     for (const m of mods) await page.keyboard.down(m);
     await page.keyboard.press(k);
     for (const m of [...mods].reverse()) await page.keyboard.up(m);
-    await sleep(220);
+    await waitForFrame(page);
   };
   const rectVisible = (fill) =>
     page.evaluate((f) => document.querySelectorAll(`.scene-svg rect[fill="${f}"]`).length > 0, fill);
@@ -126,13 +144,13 @@ try {
   // === PHASE A — flat group ==================================================
   console.log("Click scoping (flat group):");
   await page.evaluate((sel) => window.__flux.fig.selection.set(new Set(sel)), [A, B]);
-  await sleep(120);
+  await waitForFrame(page);
   await key("g", ["Control"]);
   let m = await model();
   const gid1 = Object.keys(m.groups)[0];
   ok(!!gid1 && m.groups[gid1].name === "Group 1", `⌘G created "Group 1" (${gid1})`);
   await page.evaluate(() => window.__flux.fig.clearSelection());
-  await sleep(120);
+  await waitForFrame(page);
 
   // hover preview == click result (group unit at top scope)
   const wHover = await hoverBoxW(await elCenter(A));
@@ -210,7 +228,9 @@ try {
   await page.keyboard.down("Alt");
   await drag(await elCenter(A), 150, 30);
   await page.keyboard.up("Alt");
-  await sleep(200);
+  await waitFor(page, () => window.__flux.figures().find((f) => f.id === window.__figId)?.elements.length === 5, null, {
+    label: "alt-dup committed (5 elements)",
+  }).catch(() => {});
   m = await model();
   ok(m.n === 5, `alt-drag duplicated the grouped selection (${m.n} elements)`);
   const gids = Object.keys(m.groups);
@@ -231,13 +251,13 @@ try {
   // === PHASE B — nested groups ==============================================
   console.log("Nested double-drill:");
   await page.evaluate((sel) => window.__flux.fig.selection.set(new Set(sel)), [A, B, C]);
-  await sleep(120);
+  await waitForFrame(page);
   await key("g", ["Control"]);
   m = await model();
   const gid2 = Object.keys(m.groups).find((g) => g !== gid1);
   ok(!!gid2 && m.groups[gid1]?.parentId === gid2, `⌘G nested the group under a new outer def (${gid2})`);
   await page.evaluate(() => window.__flux.fig.clearSelection());
-  await sleep(150);
+  await waitForFrame(page);
 
   await dblclick(await elCenter(A));
   m = await model();
@@ -266,7 +286,9 @@ try {
     const { dispatchCommand } = await import("/src/lib/bridge/commands.ts");
     await dispatchCommand({ type: "set_group_state", groupId: gid, hidden: true });
   }, gid1);
-  await sleep(250);
+  await waitFor(page, () => !document.querySelector('.scene-svg rect[fill="#d62728"]'), null, {
+    label: "hidden group's members left the scene DOM",
+  }).catch(() => {});
   const hidA = await rectVisible("#d62728");
   const hidB = await rectVisible("#2ca02c");
   const hidC = await rectVisible("#1f77b4");
@@ -278,7 +300,9 @@ try {
     const { dispatchCommand } = await import("/src/lib/bridge/commands.ts");
     await dispatchCommand({ type: "set_group_state", groupId: gid, hidden: false });
   }, gid1);
-  await sleep(250);
+  await waitFor(page, () => !!document.querySelector('.scene-svg rect[fill="#d62728"]'), null, {
+    label: "eye cleared — members back in the scene DOM",
+  }).catch(() => {});
   ok(await rectVisible("#d62728"), "clearing the eye brings the members back");
 
   // --- locked group blocks member click-select -------------------------------
@@ -287,7 +311,7 @@ try {
     const { dispatchCommand } = await import("/src/lib/bridge/commands.ts");
     await dispatchCommand({ type: "set_group_state", groupId: gid, locked: true });
   }, gid2);
-  await sleep(200);
+  await waitForFrame(page); // lock is registry state, read live by hover/click handlers
   const wLocked = await hoverBoxW(await elCenter(A));
   ok(wLocked === null, "no hover preview over a group-locked member");
   await click(await elCenter(A));
@@ -297,7 +321,7 @@ try {
     const { dispatchCommand } = await import("/src/lib/bridge/commands.ts");
     await dispatchCommand({ type: "set_group_state", groupId: gid, locked: false });
   }, gid2);
-  await sleep(200);
+  await waitForFrame(page);
 
   // --- dissolving the entered group drops the stale scope --------------------
   console.log("Scope hygiene:");
