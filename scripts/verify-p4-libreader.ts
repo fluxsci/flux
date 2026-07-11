@@ -79,7 +79,9 @@ assert(/sigToKey/.test(addPlan) && /dupeSignature/.test(addPlan), "LR-9: the sha
 assert(/const locCache = new Map/.test(pdfView) && /onOrphans\?\.\(/.test(pdfView), "LR-13: PdfView caches located ranges + reports orphans");
 assert(/onOrphans=\{/.test(reader) && /class:orphan=/.test(reader), "LR-13: ReaderMode surfaces orphaned highlights in the panel");
 assert(/g\.len === g\.contentLength/.test(proxy) && /const whole =/.test(proxy), "LR-14: the proxy grab accepts a whole (length==Content-Length) download");
-assert(/shell: command/.test(mainCjs), "SHL-18: pty:create returns the shell PATH, not the electron shell module");
+// WS-9.4b: pty:create lives in the TERMINAL family module now.
+const terminalCjs = await fs.readFile(new URL("../electron/ipc/terminal.cjs", import.meta.url), "utf8");
+assert(/shell: command/.test(terminalCjs), "SHL-18: pty:create returns the shell PATH, not the electron shell module");
 // WS-9.4b: fs:exists lives in the FILES family module now.
 const filesCjs = await fs.readFile(new URL("../electron/ipc/files.cjs", import.meta.url), "utf8");
 assert(/err\.code !== "ENOENT"/.test(filesCjs), "SHL-18: fs:exists distinguishes ENOENT from EACCES");

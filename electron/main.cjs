@@ -1617,28 +1617,13 @@ ipcMain.handle("shell:showItemInFolder", (_e, p) => {
 // switches (the renderer keeps one alive) and is reaped with its window / on
 // quit. Streaming mirrors quarto:log + onFsChanged (send + on/unsubscribe).
 // ---------------------------------------------------------------------------
-const ptySessions = new Map(); // id -> { pty, wc }
-let ptySeq = 0;
-
-function defaultShell() {
-  if (process.platform === "win32") return process.env.COMSPEC || "powershell.exe";
-  if (process.env.SHELL) return process.env.SHELL;
-  return process.platform === "darwin" ? "/bin/zsh" : "/bin/bash";
-}
-
-// Kill + forget sessions matching `pred` (all of them when `pred` is omitted).
-function reapPtys(pred) {
-  for (const [id, s] of [...ptySessions]) {
-    if (!pred || pred(s)) {
-      try {
-        s.pty.kill();
-      } catch {
-        /* already gone */
-      }
-      ptySessions.delete(id);
-    }
-  }
-}
+// WS-9.4b: the TERMINAL (PTY) family lives in ipc/terminal.cjs.
+const terminalFamily = require("./ipc/terminal.cjs").createTerminalFamily({
+  app,
+  nodePty,
+  getCurrentRoot: () => currentRoot,
+});
+const { reapPtys } = terminalFamily;
 
 // R3 (FluxReader "Ask Claude"): how a `claude` session should launch the flux MCP
 // server for the open project. The renderer embeds this in `claude --mcp-config`;
@@ -1668,85 +1653,4 @@ ipcMain.handle("agent:mcpSpec", () => {
   return { ok: false, projectRoot };
 });
 
-ipcMain.handle("pty:create", (e, opts = {}) => {
-  if (!nodePty) return { ok: false, error: "Terminal backend unavailable (node-pty not loaded)." };
-  const wc = e.sender;
-  // Optional command (e.g. the agent drawer spawns `claude`); default = the login shell.
-  const command = typeof opts.command === "string" && opts.command.trim() ? opts.command : defaultShell();
-  const cmdArgs = Array.isArray(opts.args) ? opts.args.map(String) : [];
-  // Open in the requested dir, else the open project root, else home.
-  const wanted = opts.cwd;
-  const cwd =
-    wanted && fs.existsSync(wanted)
-      ? wanted
-      : currentRoot && fs.existsSync(currentRoot)
-        ? currentRoot
-        : app.getPath("home");
-  const cols = Math.max(1, opts.cols | 0) || 80;
-  const rows = Math.max(1, opts.rows | 0) || 24;
-  let child;
-  try {
-    child = nodePty.spawn(command, cmdArgs, {
-      name: "xterm-256color",
-      cols,
-      rows,
-      cwd,
-      env: {
-        ...process.env,
-        TERM: "xterm-256color",
-        TERM_PROGRAM: "Flux", // flux-cap-ok (display name, not a path)
-        COLORTERM: "truecolor",
-        ...(opts.env && typeof opts.env === "object" ? opts.env : {}),
-      },
-    });
-  } catch (err) {
-    return { ok: false, error: String((err && err.message) || err) };
-  }
-  const id = `pty${++ptySeq}`;
-  ptySessions.set(id, { pty: child, wc });
-  child.onData((data) => {
-    if (!wc.isDestroyed()) wc.send("pty:data", { id, data });
-  });
-  child.onExit(({ exitCode, signal }) => {
-    if (!wc.isDestroyed()) wc.send("pty:exit", { id, exitCode, signal });
-    ptySessions.delete(id);
-  });
-  // SHL-18: report the shell/command actually launched (a path string), NOT the imported
-  // electron `shell` module — the renderer's TermInfo.shell expects the former.
-  return { ok: true, id, shell: command, cwd, pid: child.pid };
-});
-
-ipcMain.on("pty:write", (_e, id, data) => {
-  const s = ptySessions.get(id);
-  if (s) {
-    try {
-      s.pty.write(data);
-    } catch {
-      /* closed mid-write */
-    }
-  }
-});
-
-ipcMain.on("pty:resize", (_e, id, cols, rows) => {
-  const s = ptySessions.get(id);
-  if (s) {
-    try {
-      s.pty.resize(Math.max(1, cols | 0) || 80, Math.max(1, rows | 0) || 24);
-    } catch {
-      /* closed mid-resize */
-    }
-  }
-});
-
-ipcMain.handle("pty:kill", (_e, id) => {
-  const s = ptySessions.get(id);
-  if (s) {
-    try {
-      s.pty.kill();
-    } catch {
-      /* already gone */
-    }
-    ptySessions.delete(id);
-  }
-  return true;
-});
+terminalFamily.registerHandlers(ipcMain);
