@@ -93,7 +93,7 @@ export function getClient(): string {
 import * as ops from "../src/lib/ops";
 import * as slideOps from "../src/lib/slide/ops";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
-import { atomicWrite } from "./fsx";
+import { atomicWrite, fsyncDir } from "./fsx";
 import Ajv from "ajv";
 import { SCHEMAS, SCHEMA_FILENAMES, schemaForFile } from "./schemas";
 import type { Figure, Element, Project, Asset, Canvas, PartOverride, VectorNode, TextStyle } from "../src/lib/types";
@@ -343,15 +343,26 @@ async function saveFigModelUnlocked(
     byCanvas.set(f.canvasId, arr);
   }
   const canvasName = new Map((index.canvases ?? []).map((c) => [c.id, c.name] as const));
+  // Current model wins: without this, a brand-new canvas's file gets the id as
+  // its name on the first save and a spurious fix-up rewrite on the next one.
+  for (const c of project.canvases ?? []) canvasName.set(c.id, c.name);
+  // WS-5.3: skip byte-identical canvas rewrites (watcher churn + wear) and
+  // fsync the directory entry after the batch (rename durability).
+  let wroteCanvases = false;
   for (const [cid, figs] of byCanvas) {
     const cf: CanvasFile = {
-      schemaVersion: "0.1.0",
+      schemaVersion: CANVAS_SCHEMA_VERSION,
       id: cid,
       name: canvasName.get(cid) ?? cid,
       figures: figs,
     };
-    await writeText(safeJoin(root, `fig/canvases/${cid}.json`), JSON.stringify(cf, null, 2) + "\n");
+    const p = safeJoin(root, `fig/canvases/${cid}.json`);
+    const text = JSON.stringify(cf, null, 2) + "\n";
+    if ((await exists(p)) && (await fs.readFile(p, "utf8")) === text) continue;
+    await writeText(p, text);
+    wroteCanvases = true;
   }
+  if (wroteCanvases) await fsyncDir(safeJoin(root, "fig/canvases"));
   const prevFig = new Map((index.figures ?? []).map((f) => [f.id, f] as const));
   index.figures = project.figures.map((f, i) => {
     const prev = prevFig.get(f.id);
@@ -381,7 +392,18 @@ async function saveFigModelUnlocked(
   index.palette = project.palette;
   index.colorGroups = project.colorGroups ?? [];
   index.textStyles = project.textStyles ?? []; // explicit writeback (wipe guard)
-  await saveFigIndex(root, index);
+  // WS-5.3: one-generation .bak of the commit point (index is written LAST),
+  // skip a byte-identical rewrite, fsync the dir entry.
+  {
+    const ip = j(root, "fig", "index.json");
+    const next = JSON.stringify(index, null, 2) + "\n";
+    const prev = (await exists(ip)) ? await fs.readFile(ip, "utf8") : null;
+    if (prev !== next) {
+      if (prev !== null) await writeText(ip + ".bak", prev);
+      await writeText(ip, next);
+      await fsyncDir(j(root, "fig"));
+    }
+  }
   await reindex(root);
 }
 

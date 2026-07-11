@@ -149,6 +149,9 @@ export interface FileBridge {
   // Delete a file (e.g. clear a paper's fetch-failure record on a later success). Optional:
   // older bridges may lack it; callers use `fb.remove?.(p)`.
   remove?(p: string): Promise<void>;
+  // WS-5.3: fsync a DIRECTORY after a rename-into-place batch (crash-durability
+  // of the rename itself). Optional; no-op on win32 / older bridges.
+  fsyncDir?(p: string): Promise<void>;
   paths(): Promise<{ home: string; userData: string; documents: string }>;
   openDirectory(title?: string): Promise<string | null>;
   openFiles(filters?: unknown[]): Promise<string[] | null>;

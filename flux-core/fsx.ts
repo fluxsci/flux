@@ -38,6 +38,22 @@ export async function atomicWrite(p: string, data: string | Uint8Array): Promise
   }
 }
 
+/** WS-5.3: fsync a DIRECTORY after a rename-into-place batch — atomicWrite
+ *  fsyncs the FILE, but on Linux/mac the rename's directory entry needs its
+ *  own fsync to survive a crash. Best-effort; no-op on win32. */
+export async function fsyncDir(dir: string): Promise<void> {
+  if (process.platform === "win32") return;
+  let fh: import("node:fs/promises").FileHandle | undefined;
+  try {
+    fh = await fs.open(dir, "r");
+    await fh.sync();
+  } catch {
+    /* best-effort durability */
+  } finally {
+    await fh?.close().catch(() => {});
+  }
+}
+
 /** Quarantine an unparseable derived file as `<name>.corrupt-<ts>` instead of
  *  silently starting empty; returns the quarantine path (or null if it vanished). */
 export async function quarantineCorrupt(p: string): Promise<string | null> {

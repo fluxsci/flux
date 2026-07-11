@@ -832,6 +832,22 @@ ipcMain.handle("fs:mkdir", async (_e, p) => {
   fsGuard(p);
   await fs.promises.mkdir(p, { recursive: true });
 });
+// WS-5.3: atomicWriteMain fsyncs the FILE, but on Linux/mac a crash right
+// after the rename can still lose the DIRECTORY entry — callers fsync the
+// parent dir once per write batch. Best-effort; no-op on win32 (no dir fsync).
+ipcMain.handle("fs:fsyncDir", async (_e, p) => {
+  fsGuard(p);
+  if (process.platform === "win32") return;
+  let fh;
+  try {
+    fh = await fs.promises.open(p, "r");
+    await fh.sync();
+  } catch {
+    /* best-effort durability */
+  } finally {
+    await fh?.close().catch(() => {});
+  }
+});
 ipcMain.handle("fs:exists", async (_e, p) => {
   fsGuard(p); // W12 (SHL-6): was unguarded — an existence-probe of any path
   try {

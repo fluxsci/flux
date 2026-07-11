@@ -9,6 +9,10 @@
 // 3. Journal rotation: >5MB journal rotates to journal-<ts>.ndjson on next append.
 // 4. Corrupt-cache quarantine: an unparseable enrich.json is quarantined as
 //    .corrupt-<ts> and loadEnrich returns {} instead of wiping it on next write.
+// 5. Dir-fsync presence (WS-5.3): atomicWrite fsyncs the FILE, but rename
+//    durability needs the DIRECTORY entry synced too — fsyncDir must exist,
+//    behave (real dir ok, missing dir best-effort silent), and be WIRED into
+//    both save paths (flux-core saveFigModel + renderer figbridge/electron).
 //
 // Process containment (WS-0a): every child is owned by a TestProcessScope —
 // fixture .mjs children launched directly via process.execPath (no npx wrapper),
@@ -21,7 +25,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
-import { atomicWrite } from "../flux-core/fsx";
+import { atomicWrite, fsyncDir } from "../flux-core/fsx";
 import { journal } from "../flux-core/index";
 import { loadEnrich, ensureFluxLib } from "../flux-core/fluxlib";
 import { TestProcessScope, assertFileQuiescent } from "./lib/testProcess.mjs";
@@ -118,6 +122,26 @@ try {
     const gone = !(await fs.stat(ep).catch(() => null));
     if (Object.keys(map).length === 0 && q && gone) ok(`corrupt enrich.json quarantined as ${q}`);
     else fail(`quarantine failed (map=${Object.keys(map).length} keys, q=${q}, originalGone=${gone})`);
+  }
+
+  // -------------------------------------------------------------- 5. dir-fsync presence
+  {
+    await fsyncDir(work); // real directory: must not throw
+    await fsyncDir(path.join(work, "no-such-dir")); // missing: best-effort silent
+    ok("fsyncDir behaves (real dir ok, missing dir silent)");
+    const repo = path.join(fixturesDir, "..", "..");
+    const src = async (p: string) => await fs.readFile(path.join(repo, p), "utf8");
+    const wired: [string, string, RegExp][] = [
+      ["flux-core/index.ts", "canvas batch", /fsyncDir\(safeJoin\(root, "fig\/canvases"\)\)/],
+      ["flux-core/index.ts", "index commit", /fsyncDir\(j\(root, "fig"\)\)/],
+      ["src/lib/project/figbridge.ts", "renderer canvas batch", /fig\.fsyncDir\?\.\(/],
+      ["electron/main.cjs", "IPC handler", /["']fs:fsyncDir["']/],
+      ["electron/preload.cjs", "bridge exposure", /fsyncDir/],
+    ];
+    for (const [file, what, re] of wired) {
+      if (re.test(await src(file))) ok(`dir-fsync wired: ${what} (${file})`);
+      else fail(`dir-fsync NOT wired: ${what} (${file}) — pattern ${re} missing`);
+    }
   }
 } catch (e) {
   // A parent throw (incl. the FLUX_W2_INDUCE_FAIL drill) is a test failure, but

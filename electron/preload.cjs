@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("fig", {
   writeFile: (p, data) => ipcRenderer.invoke("fs:writeFile", p, data),
   readText: (p) => ipcRenderer.invoke("fs:readText", p),
   writeText: (p, text) => ipcRenderer.invoke("fs:writeText", p, text),
+  fsyncDir: (p) => ipcRenderer.invoke("fs:fsyncDir", p),
   mkdir: (p) => ipcRenderer.invoke("fs:mkdir", p),
   exists: (p) => ipcRenderer.invoke("fs:exists", p),
   // File identity (mtime+size) for cache keying — null when absent.

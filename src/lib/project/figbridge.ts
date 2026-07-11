@@ -103,6 +103,7 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   if (!fig) return;
 
   figSubsystemLocked = false;
+  canvasBaseline.clear();
   let index: FigIndexFile | null = null;
   let indexText = "";
   try {
@@ -181,6 +182,7 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
           continue;
         }
         for (const f of probe.figures) figures.push(f);
+        canvasBaseline.set(cm.id, text); // WS-5.3: seed the skip-unchanged baseline
       }
     } catch {
       /* unreadable canvas file — skip */
@@ -237,6 +239,10 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
 // WS-5.2: set when a load refused the subsystem (newer on-disk format) —
 // saving would downgrade files this build doesn't understand.
 let figSubsystemLocked = false;
+
+// WS-5.3: last-written/loaded serialized text per canvas — the skip-unchanged
+// guard (and WS-5.4's divergence probe reads the same baseline).
+const canvasBaseline = new Map<string, string>();
 
 /** Persist the figure-editor stores into the project's `fig/` subsystem. */
 export async function saveFigFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
@@ -303,6 +309,9 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
       : [{ id: DEFAULT_CANVAS_ID, name: "Canvas 1" }];
 
   // One file per canvas (figures + elements) — the authoritative composition.
+  // WS-5.3: skip byte-identical canvases (watcher churn + disk wear — every
+  // canvas used to be rewritten unconditionally on every autosave).
+  let wroteCanvases = false;
   for (const c of canvases) {
     const canvasFile: CanvasFile = {
       schemaVersion: CANVAS_SCHEMA_VERSION,
@@ -310,11 +319,14 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
       name: c.name,
       figures: p.figures.filter((f) => f.canvasId === c.id),
     };
-    await fig.writeText(
-      joinPath(root, SUB, "canvases", `${c.id}.json`),
-      JSON.stringify(canvasFile, null, 2) + "\n",
-    );
+    const text = JSON.stringify(canvasFile, null, 2) + "\n";
+    if (canvasBaseline.get(c.id) === text) continue;
+    await fig.writeText(joinPath(root, SUB, "canvases", `${c.id}.json`), text);
+    canvasBaseline.set(c.id, text);
+    wroteCanvases = true;
   }
+  // WS-5.3: make the renames themselves durable (file fsync ≠ dir entry fsync).
+  if (wroteCanvases) await fig.fsyncDir?.(joinPath(root, SUB, "canvases"));
 
   // Captions → fig/captions/<id>.md (Flux_Project_Format.md §3.2): the single
   // source of truth, composed from each figure's panel blocks (F7). The index
@@ -365,7 +377,14 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
     textStyles: p.textStyles ?? [], // explicit writeback (silent-wipe guard)
   };
   const indexText = JSON.stringify(index, null, 2) + "\n";
-  await fig.writeText(joinPath(root, SUB, "index.json"), indexText);
+  // WS-5.3: keep a one-generation backup of the commit point (index.json is
+  // written LAST, so index+bak always straddle a consistent boundary), skip a
+  // byte-identical rewrite, and fsync the dir entry.
+  if (indexText !== figIndexBaseline) {
+    if (figIndexBaseline) await fig.writeText(joinPath(root, SUB, "index.json.bak"), figIndexBaseline);
+    await fig.writeText(joinPath(root, SUB, "index.json"), indexText);
+    await fig.fsyncDir?.(joinPath(root, SUB));
+  }
   figIndexBaseline = indexText; // W7: adopt what we just wrote as the new baseline
 
   // WS6: record the human's save in the provenance journal (Electron only; the
