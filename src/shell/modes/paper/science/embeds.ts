@@ -19,6 +19,7 @@ import { resolveFigure, renderFigureSvg } from "../scholar/figures";
 import { embedHandlers } from "./chipContext";
 import { refreshChips } from "./chips";
 import { EMBED_RE, parseEmbedAttrs, widthFraction, cssWidth, unescapeEmbedCaption } from "./figureAttrs";
+import { touchesMe, paperPerf } from "./changeGate";
 import { mdInlineFragment } from "./mdInline";
 
 // The usable width of the art card: the 72ch/17px serif measure (~640px) minus
@@ -253,6 +254,7 @@ class FigureEmbedWidget extends WidgetType {
 // Widgets still render lazily (CodeMirror only calls toDOM for the visible
 // range); estimatedHeight keeps off-screen layout stable in the meantime.
 function build(state: EditorState): DecorationSet {
+  paperPerf.embeds++;
   const deco: Range<Decoration>[] = [];
   for (let i = 1; i <= state.doc.lines; i++) {
     const line = state.doc.line(i);
@@ -274,14 +276,22 @@ function build(state: EditorState): DecorationSet {
   return Decoration.set(deco, true);
 }
 
+// WS-2 Fix 1: rebuild only when the change could plausibly touch an embed —
+// a `![` on a touched line (old or new), a newline, or an edit within one
+// line of an existing embed decoration. Prose keystrokes map the set instead
+// of walking the whole doc. Conservative by construction (changeGate.ts).
+const EMBED_GATE = { tokens: ["!["], guardLines: 1 } as const;
+
 export const scienceEmbeds = StateField.define<DecorationSet>({
   create: (state) => build(state),
   update(value, tr) {
-    if (tr.docChanged || tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
+    if (tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
+    if (!tr.docChanged) return value;
     // Selection changes NEVER touch embed decorations — the caret moving onto
     // an embed line must not cause any layout shift (the old reveal-on-cursor
     // replace-widget was the root cause of multi-line arrow jumps).
-    return value;
+    if (touchesMe(tr, value, EMBED_GATE)) return build(tr.state);
+    return value.map(tr.changes); // keeps widgets glued to their lines
   },
   provide: (f) => EditorView.decorations.from(f),
 });

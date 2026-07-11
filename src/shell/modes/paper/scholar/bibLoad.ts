@@ -233,7 +233,7 @@ export async function addUrlOrDoiToBib(
 
 // Dev probe: verify Citation.js loads + parses in the real Vite/browser env
 // (the file-bridge path can't run in the browser demo).
-if (import.meta.env.DEV) {
+if (import.meta.env?.DEV) {
   (window as unknown as Record<string, unknown>).__fluxParseBib = async (text: string) => {
     const Cite = await getCite();
     return (new Cite(text).data as any[]).map(cslToEntry);

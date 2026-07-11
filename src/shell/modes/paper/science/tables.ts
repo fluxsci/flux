@@ -15,6 +15,7 @@ import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemir
 import { StateField, type EditorState, type Range } from "@codemirror/state";
 import { setTableNumbers } from "../scholar/numbering";
 import { refreshChips } from "./chips";
+import { touchesMe, paperPerf } from "./changeGate";
 
 const DELIM = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
 const CAPTION = /^\s*:\s+(.*?)\s*\{#(tbl-[A-Za-z0-9_-]+)\}\s*$/;
@@ -157,6 +158,7 @@ class TableWidget extends WidgetType {
 }
 
 function build(state: EditorState): DecorationSet {
+  paperPerf.tables++;
   const deco: Range<Decoration>[] = [];
   const numbered: { label: string; number: number }[] = [];
   let count = 0;
@@ -193,13 +195,26 @@ function build(state: EditorState): DecorationSet {
   return Decoration.set(deco, true);
 }
 
+// WS-2 Fix 1: rebuild only when the change could plausibly touch a table — a
+// pipe or ":-" (aligned-delim) on a touched line, a newline, or an edit within
+// TWO lines of an existing table decoration (the caption may sit one blank
+// line below the block; caption edits ride this guard). Prose keystrokes map
+// the set instead of the ~2×doc-lines walk. Known conservative gap (accepted):
+// a bare pipe-less "---" delim typed under a pipe header registers at the next
+// newline/pipe keystroke, not mid-"---" — hyphen is too common in prose to be
+// a trigger token. setTableNumbers republishes exactly when a construct can
+// change — behavior identical (changeGate.ts).
+const TABLE_GATE = { tokens: ["|", ":-"], guardLines: 2 } as const;
+
 export const scienceTables = StateField.define<DecorationSet>({
   create: (state) => build(state),
   update(value, tr) {
-    if (tr.docChanged || tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
+    if (tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
+    if (!tr.docChanged) return value;
     // Selection changes NEVER touch table decorations (see header comment) —
     // and setTableNumbers stops firing on every caret move as a bonus.
-    return value;
+    if (touchesMe(tr, value, TABLE_GATE)) return build(tr.state);
+    return value.map(tr.changes);
   },
   provide: (f) => EditorView.decorations.from(f),
 });

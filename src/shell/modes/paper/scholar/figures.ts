@@ -210,7 +210,7 @@ export function __seedFigures(
   renderCache.clear();
   figureRefs.set(refs);
 }
-if (import.meta.env.DEV) {
+if (import.meta.env?.DEV) {
   (window as unknown as Record<string, unknown>).__fluxSeedFigures = __seedFigures;
   (window as unknown as Record<string, unknown>).__fluxFigures = {
     refs: () => get(figureRefs),

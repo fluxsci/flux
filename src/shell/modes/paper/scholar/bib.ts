@@ -55,7 +55,7 @@ export function citeAuthorLabel(e: BibEntry): string {
 export function __seedBib(entries: BibEntry[]) {
   bibEntries.set(entries);
 }
-if (import.meta.env.DEV) {
+if (import.meta.env?.DEV) {
   (window as unknown as Record<string, unknown>).__fluxSeedBib = __seedBib;
   (window as unknown as Record<string, unknown>).__fluxBib = {
     entries: () => get(bibEntries),

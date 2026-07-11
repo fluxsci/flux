@@ -53,6 +53,7 @@
       "verify-p4-slide.ts",
       "verify-p5-library.ts",
       "verify-paper-mathgrammar.ts",
+      "verify-paper-changegate.ts",
       "verify-annotations-md.ts",
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",

@@ -18,6 +18,7 @@ import { MathBlockTracker } from "./mathGrammar";
 import { refreshChips } from "./chips";
 import { setEqNumbers } from "../scholar/numbering";
 import { ensureKatex, katexReady, renderTexCached } from "./katexLoader";
+import { touchesMe, paperPerf } from "./changeGate";
 
 class MathBlockWidget extends WidgetType {
   readonly rendered: string | null;
@@ -61,6 +62,7 @@ class MathBlockWidget extends WidgetType {
 }
 
 function build(state: EditorState): DecorationSet {
+  paperPerf.math++;
   const numbered: { label: string; number: number }[] = [];
   const deco: Range<Decoration>[] = [];
   let inFence = false;
@@ -126,12 +128,21 @@ export function trackMathView(view: EditorView): () => void {
   };
 }
 
+// WS-2 Fix 1: rebuild only when the change could plausibly touch display math —
+// `$$` on a touched line, a fence marker (``` or ~~~ flip whether a $$ counts),
+// a newline, or an edit within one line of an existing math decoration. Prose
+// keystrokes map the set instead of walking the whole doc. setEqNumbers
+// republishes exactly when a construct can change (changeGate.ts).
+const MATH_GATE = { tokens: ["$$", "```", "~~~"], guardLines: 1 } as const;
+
 export const scienceMathBlocks = StateField.define<DecorationSet>({
   create: (state) => build(state),
   update(value, tr) {
     // Document changes and explicit refreshes ONLY — never selection (invariant 1).
-    if (tr.docChanged || tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
-    return value;
+    if (tr.effects.some((e) => e.is(refreshChips))) return build(tr.state);
+    if (!tr.docChanged) return value;
+    if (touchesMe(tr, value, MATH_GATE)) return build(tr.state);
+    return value.map(tr.changes);
   },
   provide: (f) => EditorView.decorations.from(f),
 });

@@ -31,11 +31,15 @@ import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL } from "./lib/dr
 import { waitFor } from "./lib/wait.mjs";
 import { harness } from "./lib/harness.mjs";
 
-// Tightening schedule (fortify plan §7.1/WS-2): 12 → 3 in the final WS-2 PR
-// (pre-WS-2 measured ~5-6× with the 2ms control floor).
+// WS-2 Fix 1 landed: prose 7.3×→2.2× (4.3ms @20k), zero block-field builds on
+// prose keystrokes. cite/cell keep a higher residual by design: an in-cite edit
+// pays the semantically-required O(doc) ordinal rescan (appearance-order), an
+// in-cell edit pays the (gated-in) table walk. Budgets per burst kind.
 const BUDGET = {
-  syncRatio: Number(process.env.FLUX_SCALE_PAPER_RATIO || 12),
-  proseBuildsMax: null, // → 0 with WS-2 Fix 1
+  proseRatio: Number(process.env.FLUX_SCALE_PAPER_RATIO || 3),
+  citeRatio: Number(process.env.FLUX_SCALE_PAPER_RATIO || 6),
+  cellRatio: Number(process.env.FLUX_SCALE_PAPER_RATIO || 6),
+  proseBuildsMax: 0,
 };
 
 const h = harness("verify-scale-paper");
@@ -163,6 +167,7 @@ const heavy = await measureDoc(heavyDoc.text, "heavy");
 
 // ---- gates -----------------------------------------------------------------------
 const stats = {};
+const kindBudget = { prose: BUDGET.proseRatio, cite: BUDGET.citeRatio, cell: BUDGET.cellRatio };
 for (const kind of ["prose", "cite", "cell"]) {
   const c = quant(ctl.out[kind].sync, 0.95);
   const hv = quant(heavy.out[kind].sync, 0.95);
@@ -173,8 +178,8 @@ for (const kind of ["prose", "cite", "cell"]) {
     heavyPaintP95: quant(heavy.out[kind].paint, 0.95),
   };
   h.ok(
-    stats[kind].ratio < BUDGET.syncRatio,
-    `${kind} keystroke sync p95 heavy/control ${round1(stats[kind].ratio)}× < ${BUDGET.syncRatio}×`,
+    stats[kind].ratio < kindBudget[kind],
+    `${kind} keystroke sync p95 heavy/control ${round1(stats[kind].ratio)}× < ${kindBudget[kind]}×`,
   );
 }
 if (!heavy.instrumented)

@@ -22,6 +22,7 @@ import * as slideBridge from "../project/slideBridge";
 import * as toast from "../toast";
 import * as lifecycle from "../../shell/lifecycle";
 import { perfCounters } from "./perfCounters";
+import { paperPerf } from "../../shell/modes/paper/science/changeGate";
 
 export interface FluxDevHandle {
   /** Snapshot any Svelte store: `__flux.get(__flux.fig.project)`. */
@@ -58,6 +59,8 @@ export interface FluxDevHandle {
   editors: unknown[];
   /** WS-1 recompute counters (Canvas culling/effState, Sidebar rows). */
   perf: typeof perfCounters;
+  /** WS-2 block-field build() counters (embeds/tables/math). */
+  paperPerf: typeof paperPerf;
 }
 
 export function installDevHandle(): void {
@@ -81,5 +84,6 @@ export function installDevHandle(): void {
     settings,
     editors: existing.editors ?? [],
     perf: perfCounters,
+    paperPerf,
   } satisfies FluxDevHandle;
 }
