@@ -104,6 +104,16 @@ const nodeZ = z.object({
   hOut: handleZ.optional(),
 });
 
+// Flux Slide vocabularies (shared with flux-mcp's remaining manual blocks:
+// set_slide uses SLIDE_LAYOUTS, set_animation uses SLIDE_PRESETS).
+export const SLIDE_PRESETS = [
+  "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
+  "fadeOut", "popOut", "drawOff", "wipeOut",
+  "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "morph",
+] as const;
+export const SLIDE_LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
+export const SLIDE_THEMES = ["flux-dark", "flux-light", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
+
 export const VERBS: VerbDef[] = [
   // --- batch 0: trivial project verbs ------------------------------------------
   {
@@ -1624,6 +1634,624 @@ export const VERBS: VerbDef[] = [
         if (c.code !== 0)
           return { isError: true, content: [{ type: "text", text: `recipe exited ${c.code}\n${String(c.stderr ?? "").slice(-2000)}` }] };
         return text(`recipe exited ${c.code}; wrote ${c.svgPath}`);
+      },
+    },
+  },
+
+  // --- batch E: Flux Slide (deck authoring/animation) ---------------------------
+  {
+    name: "list_decks",
+    cli: "decks",
+    cliRoot: "flags",
+    summary: "List the project's slide decks (id, title, slide count) from project.json.",
+    params: {},
+    cliArgs: [],
+    handler: (ctx) => core.listDecks(ctx.root),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+    },
+  },
+  {
+    name: "create_deck",
+    cli: "new-deck",
+    cliRoot: "flags",
+    summary: "Create a new slide deck (slides/<id>/deck.json, registered in the manifest). Returns the deck id.",
+    params: { id: z.string().optional(), title: z.string().optional(), theme: z.enum(SLIDE_THEMES).optional() },
+    cliArgs: [
+      { kind: "flag", at: "id", into: "id" },
+      { kind: "flag", at: "title", into: "title" },
+      { kind: "flag", at: "theme", into: "theme" },
+    ],
+    handler: (ctx, a) =>
+      core.createDeck(ctx.root, { id: a.id as string | undefined, title: a.title as string | undefined, theme: a.theme as string | undefined }),
+    render: {
+      human: (r) => {
+        const c = r as { deckId: string; path: string };
+        return { err: `✓ created deck ${c.deckId} (${c.path})` };
+      },
+      mcp: (r) => {
+        const c = r as { deckId: string; path: string };
+        return text(`created deck ${c.deckId} (${c.path})`);
+      },
+    },
+  },
+  {
+    name: "add_slide",
+    cli: "add-slide",
+    cliRoot: "flags",
+    summary:
+      "Append a slide to a deck. `layout` seeds the slide's role (title/section/content-figure/two-column/full-bleed/blank). Returns the new slide id.",
+    params: { deckId: z.string(), name: z.string().optional(), layout: z.enum(SLIDE_LAYOUTS).optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "flag", at: "name", into: "name" },
+      { kind: "flag", at: "layout", into: "layout" },
+    ],
+    handler: (ctx, a) =>
+      core.addSlide(ctx.root, s(a.deckId), {
+        name: a.name as string | undefined,
+        layout: a.layout as Parameters<typeof core.addSlide>[2]["layout"],
+      }),
+    render: {
+      human: (r, a) => ({ err: `✓ added slide ${(r as { slideId: string }).slideId} to ${a.deckId}` }),
+      mcp: (r, a) => text(`added slide ${(r as { slideId: string }).slideId} to ${a.deckId}`),
+    },
+  },
+  {
+    name: "delete_slide",
+    cli: "delete-slide",
+    cliRoot: "flags",
+    summary: "Delete a slide from a deck. Returns the id the GUI would select next.",
+    params: { deckId: z.string(), slideId: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+    ],
+    handler: (ctx, a) => core.deleteSlide(ctx.root, s(a.deckId), s(a.slideId)),
+    render: {
+      human: (r, a) => {
+        const next = (r as { nextActiveId?: string }).nextActiveId;
+        return { err: `✓ deleted slide ${a.slideId}${next ? ` (next: ${next})` : ""}` };
+      },
+      mcp: (r, a) => {
+        const next = (r as { nextActiveId?: string }).nextActiveId;
+        return text(`deleted slide ${a.slideId}${next ? ` (next: ${next})` : ""}`);
+      },
+    },
+  },
+  {
+    name: "duplicate_slide",
+    cli: "duplicate-slide",
+    cliRoot: "flags",
+    summary: "Deep-copy a slide (fresh element/beat/track ids). Returns the new slide id.",
+    params: { deckId: z.string(), slideId: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+    ],
+    handler: (ctx, a) => core.duplicateSlide(ctx.root, s(a.deckId), s(a.slideId)),
+    render: {
+      human: (r, a) => ({
+        out: (r as { slideId: string }).slideId,
+        err: `✓ duplicated slide ${a.slideId} → ${(r as { slideId: string }).slideId}`,
+      }),
+      mcp: (r, a) => text(`duplicated slide ${a.slideId} → ${(r as { slideId: string }).slideId}`),
+    },
+  },
+  {
+    name: "reorder_slides",
+    cli: "reorder-slides",
+    cliRoot: "flags",
+    summary: "Set the deck's slide order to exactly `order` (a permutation of the current slide ids).",
+    params: { deckId: z.string(), order: z.array(z.string()) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "rest", at: 1, into: "order" },
+      { kind: "flag", at: "order", into: "order", as: "csv" },
+    ],
+    handler: (ctx, a) => core.reorderSlides(ctx.root, s(a.deckId), sArr(a.order)),
+    render: {
+      human: (_r, a) => ({ err: `✓ reordered ${a.deckId} (${sArr(a.order).length} slides)` }),
+      mcp: (_r, a) => text(`reordered ${a.deckId} (${sArr(a.order).length} slides)`),
+    },
+  },
+  {
+    name: "set_deck_theme",
+    cli: "set-theme",
+    cliRoot: "flags",
+    summary: "Switch a deck's theme (flux-dark | flux-light | flux-midnight | flux-slate | flux-sepia | flux-contrast).",
+    params: { deckId: z.string(), theme: z.enum(SLIDE_THEMES) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "theme" },
+      { kind: "flag", at: "theme", into: "theme" },
+    ],
+    handler: (ctx, a) => core.setDeckTheme(ctx.root, s(a.deckId), s(a.theme)),
+    render: {
+      human: (_r, a) => ({ err: `✓ set theme ${a.theme} on ${a.deckId}` }),
+      mcp: (_r, a) => text(`set theme ${a.theme} on ${a.deckId}`),
+    },
+  },
+  {
+    name: "add_slide_text",
+    cli: "add-text",
+    cliRoot: "flags",
+    summary: "Add a text box to a slide. Returns the new element id (use it as an animation target).",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      text: z.string(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+      align: z.enum(["left", "center", "right"]).optional(),
+      color: z.string().optional(),
+      fontSize: z.number().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "rest", at: 2, into: "text", as: "joined", default: "" },
+      { kind: "flag", at: "file", into: "text", as: "fileText" },
+      { kind: "flag", at: "x", into: "x", as: "number" },
+      { kind: "flag", at: "y", into: "y", as: "number" },
+      { kind: "flag", at: "width", into: "width", as: "number" },
+      { kind: "flag", at: "height", into: "height", as: "number" },
+      { kind: "flag", at: "align", into: "align" },
+      { kind: "flag", at: "color", into: "color" },
+      { kind: "flag", at: "font-size", into: "fontSize", as: "number" },
+    ],
+    handler: (ctx, a) =>
+      core.addTextToSlide(ctx.root, s(a.deckId), s(a.slideId), {
+        text: s(a.text),
+        x: a.x as number | undefined,
+        y: a.y as number | undefined,
+        width: a.width as number | undefined,
+        height: a.height as number | undefined,
+        align: a.align as Parameters<typeof core.addTextToSlide>[3]["align"],
+        color: a.color as string | undefined,
+        fontSize: a.fontSize as number | undefined,
+      }),
+    render: {
+      human: (r, a) => ({
+        out: (r as { elementId: string }).elementId,
+        err: `✓ added text ${(r as { elementId: string }).elementId} to ${a.slideId}`,
+      }),
+      mcp: (r, a) => text(`added text ${(r as { elementId: string }).elementId} to ${a.slideId}`),
+    },
+  },
+  {
+    name: "add_slide_math",
+    cli: "add-math",
+    cliRoot: "flags",
+    summary: "Add a KaTeX math element to a slide (`tex` is a LaTeX string). Returns the new element id.",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      tex: z.string(),
+      display: z.boolean().optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+      color: z.string().optional(),
+      fontSize: z.number().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "rest", at: 2, into: "tex", as: "joined", default: "" },
+      { kind: "flag", at: "tex", into: "tex", as: "string" },
+      { kind: "flag", at: "display", into: "display", as: "boolean" },
+      { kind: "flag", at: "x", into: "x", as: "number" },
+      { kind: "flag", at: "y", into: "y", as: "number" },
+      { kind: "flag", at: "width", into: "width", as: "number" },
+      { kind: "flag", at: "height", into: "height", as: "number" },
+      { kind: "flag", at: "color", into: "color" },
+      { kind: "flag", at: "font-size", into: "fontSize", as: "number" },
+    ],
+    handler: (ctx, a) =>
+      core.addMathToSlide(ctx.root, s(a.deckId), s(a.slideId), {
+        tex: s(a.tex),
+        display: a.display as boolean | undefined,
+        x: a.x as number | undefined,
+        y: a.y as number | undefined,
+        width: a.width as number | undefined,
+        height: a.height as number | undefined,
+        color: a.color as string | undefined,
+        fontSize: a.fontSize as number | undefined,
+      }),
+    render: {
+      human: (r, a) => ({
+        out: (r as { elementId: string }).elementId,
+        err: `✓ added math ${(r as { elementId: string }).elementId} to ${a.slideId}`,
+      }),
+      mcp: (r, a) => text(`added math ${(r as { elementId: string }).elementId} to ${a.slideId}`),
+    },
+  },
+  {
+    name: "add_slide_figure",
+    cli: "add-embed-figure",
+    cliRoot: "flags",
+    summary:
+      "Embed a project figure (by its figure id, from fig/index.json) onto a slide — its panels stay addressable so you can animate them (stagger a→b→c). This is the way to put your composed figures into a deck (no asset upload needed). Returns the new element id.",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      figureId: z.string(),
+      fit: z.enum(["contain", "cover", "fill"]).optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "figureId", required: true },
+      { kind: "flag", at: "fit", into: "fit" },
+      { kind: "flag", at: "x", into: "x", as: "number" },
+      { kind: "flag", at: "y", into: "y", as: "number" },
+      { kind: "flag", at: "width", into: "width", as: "number" },
+      { kind: "flag", at: "height", into: "height", as: "number" },
+    ],
+    handler: (ctx, a) =>
+      core.addEmbedFigureToSlide(ctx.root, s(a.deckId), s(a.slideId), {
+        figureId: s(a.figureId),
+        fit: a.fit as Parameters<typeof core.addEmbedFigureToSlide>[3]["fit"],
+        x: a.x as number | undefined,
+        y: a.y as number | undefined,
+        width: a.width as number | undefined,
+        height: a.height as number | undefined,
+      }),
+    render: {
+      human: (r, a) => ({
+        out: (r as { elementId: string }).elementId,
+        err: `✓ embedded figure ${a.figureId} → ${(r as { elementId: string }).elementId} on ${a.slideId}`,
+      }),
+      mcp: (r, a) => text(`embedded figure ${a.figureId} → ${(r as { elementId: string }).elementId} on ${a.slideId}`),
+    },
+  },
+  {
+    name: "add_beat",
+    cli: "add-beat",
+    cliRoot: "flags",
+    summary:
+      "Append a build beat to a slide — one 'advance' (click) step of its timeline. Beat 0 is the resting state; add beats, then set_animation on them. Returns the new beat id.",
+    params: { deckId: z.string(), slideId: z.string(), label: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "label", into: "label" },
+    ],
+    handler: (ctx, a) => core.addBeat(ctx.root, s(a.deckId), s(a.slideId), { label: a.label as string | undefined }),
+    render: {
+      human: (r, a) => ({
+        out: (r as { beatId: string }).beatId,
+        err: `✓ added beat ${(r as { beatId: string }).beatId} to ${a.slideId}`,
+      }),
+      mcp: (r, a) => text(`added beat ${(r as { beatId: string }).beatId} to ${a.slideId}`),
+    },
+  },
+  {
+    name: "set_beat",
+    cli: "set-beat",
+    cliRoot: "flags",
+    summary:
+      "Patch a beat: label, advance mode ('click' = manual step, 'with-prev' = chains onto the previous press, 'auto' = plays autoDelayMs after the previous beat finishes), autoDelayMs.",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      beatId: z.string(),
+      label: z.string().optional(),
+      advance: z.enum(["click", "with-prev", "auto"]).optional(),
+      autoDelayMs: z.number().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "flag", at: "label", into: "label" },
+      { kind: "flag", at: "advance", into: "advance" },
+      { kind: "flag", at: "auto-delay", into: "autoDelayMs", as: "number" },
+    ],
+    handler: (ctx, a) =>
+      core.setBeat(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), pick(a, ["label", "advance", "autoDelayMs"]) as Parameters<typeof core.setBeat>[4]),
+    render: {
+      human: (_r, a) => ({ err: `✓ set beat ${a.beatId}` }),
+      mcp: (_r, a) => text(`set beat ${a.beatId}`),
+    },
+  },
+  {
+    name: "reorder_beats",
+    cli: "reorder-beats",
+    cliRoot: "flags",
+    summary: "Set a slide's beat order to `order` (beat ids). Beat 0 — the resting state — is pinned and never moves.",
+    params: { deckId: z.string(), slideId: z.string(), order: z.array(z.string()) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "rest", at: 2, into: "order" },
+      { kind: "flag", at: "order", into: "order", as: "csv" },
+    ],
+    handler: (ctx, a) => core.reorderBeats(ctx.root, s(a.deckId), s(a.slideId), sArr(a.order)),
+    render: {
+      human: (_r, a) => ({ err: `✓ reordered beats on ${a.slideId}` }),
+      mcp: (_r, a) => text(`reordered beats on ${a.slideId}`),
+    },
+  },
+  {
+    name: "move_track",
+    cli: "move-track",
+    cliRoot: "flags",
+    summary: "Move an animation track (by id) into another beat on the same slide; timing travels untouched. `at` picks the lane index.",
+    params: { deckId: z.string(), slideId: z.string(), trackId: z.string(), toBeatId: z.string(), at: z.number().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "trackId", required: true },
+      { kind: "pos", at: 3, into: "toBeatId", required: true },
+      { kind: "flag", at: "at", into: "at", as: "number" },
+    ],
+    handler: (ctx, a) =>
+      core.moveTrack(ctx.root, s(a.deckId), s(a.slideId), s(a.trackId), s(a.toBeatId), a.at as number | undefined),
+    render: {
+      human: (_r, a) => ({ err: `✓ moved track ${a.trackId} → beat ${a.toBeatId}` }),
+      mcp: (_r, a) => text(`moved track ${a.trackId} → beat ${a.toBeatId}`),
+    },
+  },
+  {
+    name: "duplicate_track",
+    cli: "duplicate-track",
+    cliRoot: "flags",
+    summary: "Deep-copy a track in place (fresh id, inserted after the original). Returns the new track id.",
+    params: { deckId: z.string(), slideId: z.string(), trackId: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "trackId", required: true },
+    ],
+    handler: (ctx, a) => core.duplicateTrack(ctx.root, s(a.deckId), s(a.slideId), s(a.trackId)),
+    render: {
+      human: (r, a) => ({
+        out: (r as { trackId: string }).trackId,
+        err: `✓ duplicated track ${a.trackId} → ${(r as { trackId: string }).trackId}`,
+      }),
+      mcp: (r, a) => text(`duplicated track ${a.trackId} → ${(r as { trackId: string }).trackId}`),
+    },
+  },
+  {
+    name: "reorder_tracks",
+    cli: "reorder-tracks",
+    cliRoot: "flags",
+    summary: "Set one beat's track (lane) order to `order` (track ids). Order is presentational — tracks in a beat play concurrently.",
+    params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), order: z.array(z.string()) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "rest", at: 3, into: "order" },
+      { kind: "flag", at: "order", into: "order", as: "csv" },
+    ],
+    handler: (ctx, a) => core.reorderTracks(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), sArr(a.order)),
+    render: {
+      human: (_r, a) => ({ err: `✓ reordered tracks on beat ${a.beatId}` }),
+      mcp: (_r, a) => text(`reordered tracks on beat ${a.beatId}`),
+    },
+  },
+  {
+    name: "set_track_enabled",
+    cli: "set-track-enabled",
+    cliRoot: "flags",
+    summary:
+      "Disable/enable a track. Disabled tracks keep their authored timing but are invisible to play/preview/export (the non-destructive Mask substrate).",
+    params: { deckId: z.string(), slideId: z.string(), trackId: z.string(), enabled: z.boolean() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "trackId", required: true },
+      { kind: "pos", at: 3, into: "enabled", as: "boolean", default: true },
+      { kind: "flag", at: "enabled", into: "enabled", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.setTrackEnabled(ctx.root, s(a.deckId), s(a.slideId), s(a.trackId), a.enabled as boolean),
+    render: {
+      human: (_r, a) => ({ err: `✓ track ${a.trackId} ${a.enabled ? "enabled" : "disabled"}` }),
+      mcp: (_r, a) => text(`track ${a.trackId} ${a.enabled ? "enabled" : "disabled"}`),
+    },
+  },
+  {
+    name: "set_part_visibility",
+    cli: "set-part-visibility",
+    cliRoot: "flags",
+    summary:
+      "A plot part's resting tri-state on a slide: 'show' (visible from beat 0), 'animate' (revealed by its track), 'mask' (always hidden). Mask/show DISABLE the part's tracks rather than deleting them.",
+    params: { deckId: z.string(), elementId: z.string(), part: z.string(), mode: z.enum(["show", "animate", "mask"]) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "pos", at: 2, into: "part", required: true },
+      { kind: "pos", at: 3, into: "mode" },
+      { kind: "flag", at: "mode", into: "mode" },
+    ],
+    handler: (ctx, a) =>
+      core.setPartVisibility(ctx.root, s(a.deckId), s(a.elementId), s(a.part), a.mode as "show" | "animate" | "mask"),
+    render: {
+      human: (_r, a) => ({ err: `✓ ${a.part} → ${a.mode}` }),
+      mcp: (_r, a) => text(`${a.part} → ${a.mode}`),
+    },
+  },
+  {
+    name: "set_part_style",
+    cli: "set-part-style",
+    cliRoot: "flags",
+    summary:
+      "Merge a style patch into one plot part's override on a slide element — stroke, fill, strokeWidth, opacity, fontSize, fontFamily, fontWeight, hidden. Null deletes a key. Part may be a leaf ('fit.line') or group ('axis.x.ticks') id.",
+    params: {
+      deckId: z.string(),
+      elementId: z.string(),
+      part: z.string(),
+      patch: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "pos", at: 2, into: "part", required: true },
+      { kind: "flag", at: "patch", into: "patch", as: "json", required: true },
+    ],
+    handler: (ctx, a) =>
+      core.setPartStyle(ctx.root, s(a.deckId), s(a.elementId), s(a.part), a.patch as Parameters<typeof core.setPartStyle>[4]),
+    render: {
+      human: (_r, a) => ({ err: `✓ styled ${a.part}` }),
+      mcp: (_r, a) => text(`styled ${a.part}`),
+    },
+  },
+  {
+    name: "animate_part",
+    cli: "animate-part",
+    cliRoot: "flags",
+    summary:
+      "Make ONE plot part animate in: re-enables its existing tracks (authored timing preserved) or adds the plot's suggested default reveal on a build beat. Returns the beat index used.",
+    params: { deckId: z.string(), slideId: z.string(), elementId: z.string(), part: z.string(), beatIndex: z.number().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "elementId", required: true },
+      { kind: "pos", at: 3, into: "part", required: true },
+      { kind: "flag", at: "beat-index", into: "beatIndex", as: "number" },
+    ],
+    handler: (ctx, a) =>
+      core.animatePartVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.elementId), s(a.part), a.beatIndex as number | undefined),
+    render: {
+      human: (r, a) => ({ err: `✓ ${a.part} animates on beat ${(r as { beatIndex: number }).beatIndex}` }),
+      mcp: (r, a) => text(`${a.part} animates on beat ${(r as { beatIndex: number }).beatIndex}`),
+    },
+  },
+  {
+    name: "animate_element",
+    cli: "animate-element",
+    cliRoot: "flags",
+    summary:
+      "Give a whole element (text box / shape / line / image / math / video) an enter or exit animation with sensible per-kind defaults (textBox→staggered bullet fadeRise, line→drawOn, math→writeOn; exits: fadeOut/popOut/drawOff/wipeOut). The non-plot analog of animate_part. `part` narrows to a named node inside the element — on an embedFigure, 'group:<groupId>' animates one of the figure's named groups (enter fade / exit fadeOut).",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      elementId: z.string(),
+      exit: z.boolean().optional(),
+      preset: z.enum(SLIDE_PRESETS).optional(),
+      beatIndex: z.number().optional(),
+      wholeBox: z.boolean().optional(),
+      part: z.string().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "elementId", required: true },
+      { kind: "flag", at: "exit", into: "exit", as: "boolean" },
+      { kind: "flag", at: "preset", into: "preset" },
+      { kind: "flag", at: "beat-index", into: "beatIndex", as: "number" },
+      { kind: "flag", at: "whole-box", into: "wholeBox", as: "boolean" },
+      { kind: "flag", at: "part", into: "part" },
+    ],
+    handler: (ctx, a) =>
+      core.animateElementVerb(
+        ctx.root,
+        s(a.deckId),
+        s(a.slideId),
+        s(a.elementId),
+        pick(a, ["beatIndex", "exit", "preset", "wholeBox", "part"]) as Parameters<typeof core.animateElementVerb>[4],
+      ),
+    render: {
+      human: (r, a) => ({
+        out: (r as { trackId: string }).trackId,
+        err: `✓ element ${a.elementId} ${a.exit ? "animates out" : "animates in"} on beat ${(r as { beatIndex: number }).beatIndex}`,
+      }),
+      mcp: (r, a) => {
+        const c = r as { beatIndex: number; trackId: string };
+        return text(`element ${a.elementId} ${a.exit ? "animates out" : "animates in"} on beat ${c.beatIndex} (track ${c.trackId})`);
+      },
+    },
+  },
+  {
+    name: "set_morph",
+    cli: "set-morph",
+    cliRoot: "flags",
+    summary:
+      "Author the data-space morph: a plot element tweens into ANY project plot (by asset id) on a beat. Refuses structurally-incompatible pairs (no shared tweenable series) unless force.",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      beatId: z.string(),
+      elementId: z.string(),
+      toAssetId: z.string(),
+      duration: z.number().optional(),
+      force: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "pos", at: 3, into: "elementId", required: true },
+      { kind: "pos", at: 4, into: "toAssetId", required: true },
+      { kind: "flag", at: "duration", into: "duration", as: "number" },
+      { kind: "flag", at: "force", into: "force", as: "boolean" },
+    ],
+    handler: (ctx, a) =>
+      core.setMorph(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.elementId), s(a.toAssetId), {
+        duration: a.duration as number | undefined,
+        force: a.force as boolean | undefined,
+      }),
+    render: {
+      human: (_r, a) => ({ err: `✓ morph ${a.elementId} → ${a.toAssetId} on beat ${a.beatId}` }),
+      mcp: (_r, a) => text(`morph ${a.elementId} → ${a.toAssetId} on beat ${a.beatId}`),
+    },
+  },
+  {
+    name: "validate_deck",
+    cli: "validate-deck",
+    cliRoot: "flags",
+    summary: "Validate a deck (or all decks) against the bundled deck JSON Schema. Run after editing deck.json by hand.",
+    params: { deckId: z.string().optional() },
+    cliArgs: [{ kind: "pos", at: 0, into: "deckId" }],
+    handler: (ctx, a) => core.validateDeck(ctx.root, a.deckId as string | undefined),
+    render: {
+      human: (r) => {
+        const c = r as { ok: boolean; checked: number; errors: string[] };
+        if (c.ok) return { err: `✓ valid deck(s) (${c.checked} checked)` };
+        return { err: `✗ ${c.errors.length} problem(s):\n` + c.errors.map((e) => "  " + e).join("\n"), exit: 1 };
+      },
+      mcp: (r) => {
+        const c = r as { ok: boolean; checked: number; errors: string[] };
+        return text(c.ok ? `valid deck(s) (${c.checked} checked)` : `INVALID (${c.errors.length}):\n` + c.errors.join("\n"));
+      },
+    },
+  },
+  {
+    name: "export_deck",
+    cli: "export-deck",
+    cliRoot: "flags",
+    summary: "Export a deck to a single self-contained offline .html (animations + media inlined). Writes to exports/ by default.",
+    params: { deckId: z.string(), out: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "flag", at: "out", into: "out" },
+    ],
+    handler: (ctx, a) => core.exportDeck(ctx.root, s(a.deckId), { out: a.out as string | undefined }),
+    render: {
+      human: (r, a) => {
+        const c = r as { path: string; bytes: number; warnings: string[] };
+        return {
+          err:
+            `✓ exported ${a.deckId} → ${c.path} (${(c.bytes / 1024).toFixed(0)} KB, self-contained)` +
+            c.warnings.map((w) => `\n  ⚠ ${w}`).join(""),
+        };
+      },
+      mcp: (r, a) => {
+        const c = r as { path: string; bytes: number; warnings: string[] };
+        return text(
+          `exported ${a.deckId} → ${c.path} (${(c.bytes / 1024).toFixed(0)} KB)` +
+            (c.warnings.length ? `\n  ⚠ ${c.warnings.join("\n  ⚠ ")}` : ""),
+        );
       },
     },
   },

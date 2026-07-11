@@ -525,62 +525,6 @@ async function main() {
       console.error(`✓ ${key} collections: ${(d.items[key]?.collections ?? []).join(", ") || "(none)"}`);
       break;
     }
-    case "decks": {
-      console.log(JSON.stringify(await core.listDecks(R()), null, 2));
-      break;
-    }
-    case "new-deck": {
-      const r = await core.createDeck(R(), {
-        id: flags.id as string,
-        title: flags.title as string,
-        theme: flags.theme as string,
-      });
-      console.error(`✓ created deck ${r.deckId} (${r.path})`);
-      break;
-    }
-    case "add-slide": {
-      if (!_[0]) throw new Error("add-slide needs a deck id");
-      const r = await core.addSlide(R(), _[0], {
-        name: flags.name as string,
-        layout: flags.layout as import("./src/lib/slide/types").LayoutId,
-      });
-      console.error(`✓ added slide ${r.slideId} to ${_[0]}`);
-      break;
-    }
-    case "validate-deck": {
-      const r = await core.validateDeck(R(), _[0]);
-      if (r.ok) console.error(`✓ valid deck(s) (${r.checked} checked)`);
-      else {
-        console.error(`✗ ${r.errors.length} problem(s):`);
-        for (const e of r.errors) console.error("  " + e);
-        process.exit(1);
-      }
-      break;
-    }
-    case "export-deck": {
-      if (!_[0]) throw new Error("export-deck needs a deck id");
-      const r = await core.exportDeck(R(), _[0], { out: flags.out as string });
-      console.error(`✓ exported ${_[0]} → ${r.path} (${(r.bytes / 1024).toFixed(0)} KB, self-contained)`);
-      for (const w of r.warnings) console.error("  ⚠ " + w);
-      break;
-    }
-    case "delete-slide": {
-      const r = await core.deleteSlide(R(), _[0], _[1]);
-      console.error(`✓ deleted slide ${_[1]}${r.nextActiveId ? ` (next: ${r.nextActiveId})` : ""}`);
-      break;
-    }
-    case "duplicate-slide": {
-      const r = await core.duplicateSlide(R(), _[0], _[1]);
-      console.error(`✓ duplicated slide ${_[1]} → ${r.slideId}`);
-      console.log(r.slideId);
-      break;
-    }
-    case "reorder-slides": {
-      const order = typeof flags.order === "string" ? flags.order.split(",") : _.slice(1);
-      await core.reorderSlides(R(), _[0], order);
-      console.error(`✓ reordered ${_[0]} (${order.length} slides)`);
-      break;
-    }
     case "set-slide": {
       const patch: Parameters<typeof core.setSlide>[3] = {};
       if (typeof flags.name === "string") patch.name = flags.name;
@@ -596,54 +540,6 @@ async function main() {
       if (cx != null || cy != null || cz != null) patch.camera = { x: cx ?? 0, y: cy ?? 0, zoom: cz ?? 1 };
       await core.setSlide(R(), _[0], _[1], patch);
       console.error(`✓ set slide ${_[1]}`);
-      break;
-    }
-    case "set-theme": {
-      const theme = (flags.theme as string) ?? _[1];
-      await core.setDeckTheme(R(), _[0], theme);
-      console.error(`✓ set theme ${theme} on ${_[0]}`);
-      break;
-    }
-    case "add-text": {
-      const text = flags.file ? await fs.readFile(String(flags.file), "utf8") : _.slice(2).join(" ");
-      const r = await core.addTextToSlide(R(), _[0], _[1], {
-        text,
-        x: num(flags.x), y: num(flags.y), width: num(flags.width), height: num(flags.height),
-        align: flags.align as import("./src/lib/slide/ops").TextBoxOpts["align"],
-        color: typeof flags.color === "string" ? flags.color : undefined,
-        fontSize: num(flags["font-size"]),
-      });
-      console.error(`✓ added text ${r.elementId} to ${_[1]}`);
-      console.log(r.elementId);
-      break;
-    }
-    case "add-math": {
-      const tex = flags.tex ? String(flags.tex) : _.slice(2).join(" ");
-      const r = await core.addMathToSlide(R(), _[0], _[1], {
-        tex,
-        display: !!flags.display,
-        x: num(flags.x), y: num(flags.y), width: num(flags.width), height: num(flags.height),
-        color: typeof flags.color === "string" ? flags.color : undefined,
-        fontSize: num(flags["font-size"]),
-      });
-      console.error(`✓ added math ${r.elementId} to ${_[1]}`);
-      console.log(r.elementId);
-      break;
-    }
-    case "add-embed-figure": {
-      const r = await core.addEmbedFigureToSlide(R(), _[0], _[1], {
-        figureId: _[2],
-        fit: flags.fit as import("./src/lib/slide/ops").EmbedFigureOpts["fit"],
-        x: num(flags.x), y: num(flags.y), width: num(flags.width), height: num(flags.height),
-      });
-      console.error(`✓ embedded figure ${_[2]} → ${r.elementId} on ${_[1]}`);
-      console.log(r.elementId);
-      break;
-    }
-    case "add-beat": {
-      const r = await core.addBeat(R(), _[0], _[1], { label: typeof flags.label === "string" ? flags.label : undefined });
-      console.error(`✓ added beat ${r.beatId} to ${_[1]}`);
-      console.log(r.beatId);
       break;
     }
     case "set-animation": {
@@ -670,88 +566,6 @@ async function main() {
       if (!track.target) throw new Error("set-animation needs --target (an element id, or @camera/@stage)");
       await core.setAnimation(R(), _[0], _[1], _[2], track);
       console.error(`✓ set animation on beat ${_[2]} (${track.preset ?? "keyframes"} → ${track.target})`);
-      break;
-    }
-    case "set-beat": {
-      // flux set-beat <deck> <slide> <beat> [--label L] [--advance click|with-prev|auto] [--auto-delay ms]
-      const patch: Parameters<typeof core.setBeat>[4] = {};
-      if (typeof flags.label === "string") patch.label = flags.label;
-      if (typeof flags.advance === "string") patch.advance = flags.advance as "click" | "with-prev" | "auto";
-      if (num(flags["auto-delay"]) != null) patch.autoDelayMs = num(flags["auto-delay"]);
-      await core.setBeat(R(), _[0], _[1], _[2], patch);
-      console.error(`✓ set beat ${_[2]}`);
-      break;
-    }
-    case "reorder-beats": {
-      // flux reorder-beats <deck> <slide> --order b2,b1 (beat 0 is pinned)
-      const order = typeof flags.order === "string" ? flags.order.split(",") : _.slice(2);
-      await core.reorderBeats(R(), _[0], _[1], order);
-      console.error(`✓ reordered beats on ${_[1]}`);
-      break;
-    }
-    case "move-track": {
-      // flux move-track <deck> <slide> <track> <toBeat> [--at n]
-      await core.moveTrack(R(), _[0], _[1], _[2], _[3], num(flags.at));
-      console.error(`✓ moved track ${_[2]} → beat ${_[3]}`);
-      break;
-    }
-    case "duplicate-track": {
-      const r = await core.duplicateTrack(R(), _[0], _[1], _[2]);
-      console.error(`✓ duplicated track ${_[2]} → ${r.trackId}`);
-      console.log(r.trackId);
-      break;
-    }
-    case "reorder-tracks": {
-      // flux reorder-tracks <deck> <slide> <beat> --order t2,t1
-      const order = typeof flags.order === "string" ? flags.order.split(",") : _.slice(3);
-      await core.reorderTracks(R(), _[0], _[1], _[2], order);
-      console.error(`✓ reordered tracks on beat ${_[2]}`);
-      break;
-    }
-    case "set-track-enabled": {
-      // flux set-track-enabled <deck> <slide> <track> true|false
-      const enabled = String(flags.enabled ?? _[3]) !== "false";
-      await core.setTrackEnabled(R(), _[0], _[1], _[2], enabled);
-      console.error(`✓ track ${_[2]} ${enabled ? "enabled" : "disabled"}`);
-      break;
-    }
-    case "set-part-visibility": {
-      // flux set-part-visibility <deck> <element> <part> show|animate|mask
-      const mode = String(flags.mode ?? _[3]) as "show" | "animate" | "mask";
-      await core.setPartVisibility(R(), _[0], _[1], _[2], mode);
-      console.error(`✓ ${_[2]} → ${mode}`);
-      break;
-    }
-    case "set-part-style": {
-      // flux set-part-style <deck> <element> <part> --patch '{"stroke":"#bc5215","strokeWidth":2}'
-      if (typeof flags.patch !== "string") throw new Error("set-part-style needs --patch '<json>'");
-      await core.setPartStyle(R(), _[0], _[1], _[2], JSON.parse(flags.patch));
-      console.error(`✓ styled ${_[2]}`);
-      break;
-    }
-    case "animate-part": {
-      // flux animate-part <deck> <slide> <element> <part> [--beat-index n]
-      const r = await core.animatePartVerb(R(), _[0], _[1], _[2], _[3], num(flags["beat-index"]));
-      console.error(`✓ ${_[3]} animates on beat ${r.beatIndex}`);
-      break;
-    }
-    case "animate-element": {
-      // flux animate-element <deck> <slide> <element> [--exit] [--preset p] [--beat-index n] [--whole-box] [--part group:<gid>]
-      const r = await core.animateElementVerb(R(), _[0], _[1], _[2], {
-        beatIndex: num(flags["beat-index"]),
-        exit: !!flags.exit,
-        preset: typeof flags.preset === "string" ? (flags.preset as import("./src/lib/slide/types").PresetName) : undefined,
-        wholeBox: !!flags["whole-box"],
-        part: typeof flags.part === "string" ? flags.part : undefined,
-      });
-      console.error(`✓ element ${_[2]} ${flags.exit ? "animates out" : "animates in"} on beat ${r.beatIndex}`);
-      console.log(r.trackId);
-      break;
-    }
-    case "set-morph": {
-      // flux set-morph <deck> <slide> <beat> <element> <toAssetId> [--duration ms] [--force]
-      await core.setMorph(R(), _[0], _[1], _[2], _[3], _[4], { duration: num(flags.duration), force: !!flags.force });
-      console.error(`✓ morph ${_[3]} → ${_[4]} on beat ${_[2]}`);
       break;
     }
     case "help":
