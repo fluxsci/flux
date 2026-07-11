@@ -429,24 +429,30 @@ server.registerTool(
   {
     description:
       "Restyle a semantic-plot part or series by its stable id (e.g. 'control.line' or the group 'control'). Writes an override that survives regeneration. Omit elementId if the figure has a single plot panel.",
+    // WS-6.1: the FULL PartOverride surface (the CLI exposed these all along —
+    // same core.setPartOverride underneath; the 5-prop schema was drift).
     inputSchema: {
       figureId: z.string(),
       partId: z.string(),
       elementId: z.string().optional(),
       stroke: z.string().optional(),
       fill: z.string().optional(),
+      color: z.string().optional(),
       strokeWidth: z.number().optional(),
       opacity: z.number().optional(),
+      fontSize: z.number().optional(),
+      fontFamily: z.string().optional(),
+      fontWeight: z.number().optional(),
+      fontStyle: z.enum(["normal", "italic"]).optional(),
+      textDecoration: z.string().optional(),
+      dx: z.number().optional(),
+      dy: z.number().optional(),
       hidden: z.boolean().optional(),
     },
   },
-  async ({ figureId, partId, elementId, stroke, fill, strokeWidth, opacity, hidden }) => {
+  async ({ figureId, partId, elementId, ...props }) => {
     const patch: Record<string, string | number | boolean> = {};
-    if (stroke != null) patch.stroke = stroke;
-    if (fill != null) patch.fill = fill;
-    if (strokeWidth != null) patch.strokeWidth = strokeWidth;
-    if (opacity != null) patch.opacity = opacity;
-    if (hidden != null) patch.hidden = hidden;
+    for (const [k, v] of Object.entries(props)) if (v != null) patch[k] = v as string | number | boolean;
     const r = await core.setPartOverride(ROOT, figureId, partId, patch, elementId);
     return ok(`restyled ${partId} on ${r.elementId}`);
   },
@@ -986,6 +992,13 @@ server.registerTool(
     const r = await core.runRecipe(recipePath, params ?? {}, {
       only: only === true ? true : typeof only === "string" ? only : undefined,
     });
+    // WS-6.1: nonzero exit = the plot did NOT regenerate — report it as an error
+    // (the old success-shaped "recipe exited 1" was invisible to agents).
+    if (r.code !== 0)
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: `recipe exited ${r.code}\n${String(r.stderr ?? "").slice(-2000)}` }],
+      };
     return ok(`recipe exited ${r.code}; wrote ${r.svgPath}`);
   },
 );
@@ -1047,7 +1060,13 @@ server.registerTool(
   { description: "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. Reports the output path and a figures/citations resolution summary.", inputSchema: { to: z.string().optional() } },
   async ({ to }) => {
     const r = await core.compile(ROOT, to ?? "pdf");
-    if (r.code !== 0) return ok(`quarto exited ${r.code}\n${r.log.slice(-2000)}`);
+    // WS-6.1: a failed compile must be UNMISSABLE to an agent — isError, not a
+    // success-shaped string (the CLI exits nonzero; this is the MCP twin).
+    if (r.code !== 0)
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: `quarto exited ${r.code}\n${r.log.slice(-2000)}` }],
+      };
     const parts = [`compiled${r.output ? ` → ${r.output}` : " (quarto exited 0)"}`];
     if (r.figures)
       parts.push(

@@ -95,6 +95,34 @@ try {
   const fig3 = JSON.parse(await fs.readFile(canvasPath, "utf8")).figures.find((f: any) => f.id === "barfig");
   assert(fig3.captions?.__figure__ === "Revised caption.", "AGT-2: re-set caption updates the canvas model");
 
+  // WS-6.1(3): the compose-figure LABEL edge, snapshotted so any future change
+  // is deliberate. The fortify plan suspected a CLI/core divergence (the CLI
+  // always passes label:true) — measuring shows there is NONE: core gates on
+  // `panelIds.length > 1` regardless, so label:true is a NO-OP at 1 panel and
+  // only label:false ever suppresses. Both surfaces agree; pinned here.
+  {
+    const one = path.join(ext, "solo.svg");
+    await fs.writeFile(
+      one,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80"><rect width="100" height="80" fill="#eee"/></svg>`,
+    );
+    await core.composeFigure(root, [one], { id: "solo-core", captionStub: false });
+    await core.composeFigure(root, [one], { id: "solo-cli", captionStub: false, label: true }); // the CLI's shape
+    await core.composeFigure(root, [one, svg], { id: "duo", captionStub: false, label: true });
+    await core.composeFigure(root, [one, svg], { id: "duo-off", captionStub: false, label: false });
+    const idx3 = JSON.parse(await fs.readFile(path.join(root, "fig", "index.json"), "utf8"));
+    const canvasOf = (fid: string) => idx3.figures.find((f: any) => f.id === fid).canvas;
+    const labelsOf = async (fid: string) => {
+      const cf3 = JSON.parse(await fs.readFile(path.join(root, "fig", "canvases", `${canvasOf(fid)}.json`), "utf8"));
+      return cf3.figures.find((f: any) => f.id === fid).elements.filter((e: any) => e.type === "text" && e.panelLabel);
+    };
+    assert((await labelsOf("solo-core")).length === 0, "1-panel compose mints NO label (core default)");
+    assert((await labelsOf("solo-cli")).length === 0, "1-panel compose mints NO label even with label:true (CLI shape) — surfaces AGREE");
+    const duo = await labelsOf("duo");
+    assert(duo.length === 2 && duo[0].text === "a", "2-panel compose mints a/b labels");
+    assert((await labelsOf("duo-off")).length === 0, "label:false suppresses labels at 2 panels");
+  }
+
   console.log("\nW9 VERIFY: PASS");
 } finally {
   await fs.rm(root, { recursive: true, force: true });
