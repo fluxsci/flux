@@ -31,6 +31,10 @@
   } from "./store";
   import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
   import { perfCounters } from "./dev/perfCounters";
+  // WS-3.2: shared interaction core (Canvas + SlideStage) — math only.
+  import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
+  import { computeResizeBox } from "./interact/gestureMath";
+  import { snap, boxSnapTargets } from "./interact/snap";
   import { commitArrange } from "./keyboard";
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get } from "svelte/store";
@@ -89,7 +93,6 @@
   let spaceDown = false;
   let altDown = false; // Feature 3 measurement caliper (Alt held, not mid-drag)
 
-  type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
   type Gesture =
     | null
@@ -1059,21 +1062,6 @@
     beginMove(e, fig);
   }
 
-  function snapTargets(fig: Figure, excludeIds: Set<string>): { xs: number[]; ys: number[] } {
-    const xs = [0, fig.width, fig.width / 2];
-    const ys = [0, fig.height, fig.height / 2];
-    for (const el of fig.elements) {
-      if (excludeIds.has(el.id)) continue;
-      const b = elementBBox(el);
-      xs.push(b.x, b.x + b.w, b.x + b.w / 2);
-      ys.push(b.y, b.y + b.h, b.y + b.h / 2);
-    }
-    // Ruler guides join the snap targets (Feature 11).
-    if (fig.guides?.x) xs.push(...fig.guides.x);
-    if (fig.guides?.y) ys.push(...fig.guides.y);
-    return { xs, ys };
-  }
-
   function beginMove(e: PointerEvent, fig: Figure) {
     const sel = selectedEls(fig);
     // Alt-drag = duplicate-on-drag (Figma-style). FIG-9: the duplication is DEFERRED
@@ -1085,7 +1073,7 @@
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
     const ob = selectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
-    const { xs, ys } = snapTargets(fig, new Set(sel.map((el) => el.id)));
+    const { xs, ys } = boxSnapTargets(fig.elements, new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
     gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, origs, ob, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
@@ -1194,7 +1182,7 @@
     const origs = new Map<string, Element>();
     for (const el of copies) origs.set(el.id, structuredClone(el));
     g.origs = origs;
-    const t = snapTargets(fig, new Set(newIds));
+    const t = boxSnapTargets(fig.elements, new Set(newIds), { w: fig.width, h: fig.height }, fig.guides);
     g.xs = t.xs;
     g.ys = t.ys;
   }
@@ -1222,22 +1210,6 @@
     fDX = 0;
     fDY = 0;
     hostEl.setPointerCapture(e.pointerId);
-  }
-
-  function snap(edges: number[], targets: number[], thr: number) {
-    let best = thr;
-    let off = 0;
-    let line: number | null = null;
-    for (const edge of edges)
-      for (const t of targets) {
-        const d = t - edge;
-        if (Math.abs(d) < best) {
-          best = Math.abs(d);
-          off = d;
-          line = t;
-        }
-      }
-    return { off, line };
   }
 
   // Equal-spacing snap candidate (F7): if the moving bbox M sits between two
@@ -1874,33 +1846,6 @@
     };
   });
 
-  function computeResizeBox(ob: Rect, h: Handle, lp: { x: number; y: number }, shift: boolean): Rect {
-    let x = ob.x,
-      y = ob.y,
-      w = ob.w,
-      hh = ob.h;
-    const right = ob.x + ob.w;
-    const bottom = ob.y + ob.h;
-    if (h.includes("w")) {
-      x = lp.x;
-      w = right - lp.x;
-    }
-    if (h.includes("e")) w = lp.x - ob.x;
-    if (h.includes("n")) {
-      y = lp.y;
-      hh = bottom - lp.y;
-    }
-    if (h.includes("s")) hh = lp.y - ob.y;
-    if (shift && ob.w > 0 && ob.h > 0) {
-      const s = Math.max(w / ob.w, hh / ob.h);
-      w = ob.w * s;
-      hh = ob.h * s;
-      if (h.includes("w")) x = right - w;
-      if (h.includes("n")) y = bottom - hh;
-    }
-    return { x, y, w: Math.max(1, w), h: Math.max(1, hh) };
-  }
-
   // --- keyboard (space-pan, pen finish; global shortcuts live in keyboard.ts) ---
   function onKeyDown(e: KeyboardEvent) {
     const t = e.target as HTMLElement;
@@ -2073,31 +2018,6 @@
       pushToast("error", "Import failed", { detail: errMsg(err) }),
     );
   }
-
-  const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
-  function handlePos(h: Handle, b: Rect) {
-    const map: Record<Handle, [number, number]> = {
-      nw: [b.x, b.y],
-      n: [b.x + b.w / 2, b.y],
-      ne: [b.x + b.w, b.y],
-      e: [b.x + b.w, b.y + b.h / 2],
-      se: [b.x + b.w, b.y + b.h],
-      s: [b.x + b.w / 2, b.y + b.h],
-      sw: [b.x, b.y + b.h],
-      w: [b.x, b.y + b.h / 2],
-    };
-    return map[h];
-  }
-  const cursorFor: Record<Handle, string> = {
-    nw: "nwse-resize",
-    se: "nwse-resize",
-    ne: "nesw-resize",
-    sw: "nesw-resize",
-    n: "ns-resize",
-    s: "ns-resize",
-    e: "ew-resize",
-    w: "ew-resize",
-  };
 
   $: af = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
   $: displayBox = liveBox ?? overlayBox; // figure-local, active figure

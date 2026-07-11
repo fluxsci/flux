@@ -14,6 +14,12 @@
   import { plotGen, plotManifests } from "../../../lib/plot/store";
   import { get } from "svelte/store";
   import { selectionBBox, elementBBox, rectsIntersect } from "../../../lib/geometry";
+  // WS-3.2: shared interaction core (Canvas + SlideStage) — math only. The
+  // geometry/editing helpers are generic over ElementBase now, so SlideElement
+  // flows through with NO casts.
+  import { HANDLES, handlePos, cursorFor, type Handle } from "../../../lib/interact/handles";
+  import { computeResizeBox } from "../../../lib/interact/gestureMath";
+  import { snap, boxSnapTargets } from "../../../lib/interact/snap";
   import { resizeRemap } from "../../../lib/editing";
   import { commitDeck, selection, focusedPart, sealHistory, getClipboard, getClipboardTracks, setClipboard, figureMembers } from "../../../lib/slide/store";
   import { buildPartTree, type XrayNode } from "../../../lib/plot/tree";
@@ -24,7 +30,6 @@
   } from "../../../lib/slide/ops";
   import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
   import { slideXrayOpen } from "./animator/animatorState";
-  import type { Element as FigElement } from "../../../lib/types";
   import type { Slide, SlideElement, DeckTheme, StageSize } from "../../../lib/slide/types";
 
   let {
@@ -49,12 +54,6 @@
   } = $props();
 
   type Rect = { x: number; y: number; w: number; h: number };
-  type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
-  const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
-  const cursorFor: Record<Handle, string> = {
-    nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize",
-    n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize",
-  };
 
   let viewport = $state<HTMLElement>();
   let scaledEl = $state<HTMLElement>();
@@ -167,7 +166,7 @@
     return [...out];
   }
   const selectedEls = $derived(($selection.map(byId).filter(Boolean)) as SlideElement[]);
-  const modelBox = $derived(selectionBBox(selectedEls as unknown as FigElement[]));
+  const modelBox = $derived(selectionBBox(selectedEls));
 
   // The overlay box: a live preview during a gesture, else the model selection box.
   let previewBox = $state<Rect | null>(null);
@@ -179,54 +178,7 @@
     return { x: (cx - r.left) / scale, y: (cy - r.top) / scale };
   }
 
-  // --- the resize-box math (mirrors Canvas.svelte computeResizeBox) ------------
-  function computeResizeBox(ob: Rect, h: Handle, lp: { x: number; y: number }, shift: boolean): Rect {
-    let x = ob.x, y = ob.y, w = ob.w, hh = ob.h;
-    const right = ob.x + ob.w;
-    const bottom = ob.y + ob.h;
-    if (h.includes("w")) { x = lp.x; w = right - lp.x; }
-    if (h.includes("e")) w = lp.x - ob.x;
-    if (h.includes("n")) { y = lp.y; hh = bottom - lp.y; }
-    if (h.includes("s")) hh = lp.y - ob.y;
-    if (shift && ob.w > 0 && ob.h > 0) {
-      const s = Math.max(w / ob.w, hh / ob.h);
-      w = ob.w * s; hh = ob.h * s;
-      if (h.includes("w")) x = right - w;
-      if (h.includes("n")) y = bottom - hh;
-    }
-    return { x, y, w: Math.max(1, w), h: Math.max(1, hh) };
-  }
 
-  // --- the snapper (mirrors Canvas.svelte snap) --------------------------------
-  function snap(edges: number[], targets: number[], thr: number): { off: number; line: number | null } {
-    let best = thr, off = 0, line: number | null = null;
-    for (const edge of edges)
-      for (const t of targets) {
-        const d = t - edge;
-        if (Math.abs(d) < best) { best = Math.abs(d); off = d; line = t; }
-      }
-    return { off, line };
-  }
-  function snapTargets(excludeIds: Set<string>): { xs: number[]; ys: number[] } {
-    const xs = [0, stage.width, stage.width / 2];
-    const ys = [0, stage.height, stage.height / 2];
-    for (const e of els) {
-      if (excludeIds.has(e.id)) continue;
-      const b = elementBBox(e as unknown as FigElement);
-      xs.push(b.x, b.x + b.w, b.x + b.w / 2);
-      ys.push(b.y, b.y + b.h, b.y + b.h / 2);
-    }
-    return { xs, ys };
-  }
-
-  function handlePos(h: Handle, b: Rect): [number, number] {
-    const map: Record<Handle, [number, number]> = {
-      nw: [b.x, b.y], n: [b.x + b.w / 2, b.y], ne: [b.x + b.w, b.y],
-      e: [b.x + b.w, b.y + b.h / 2], se: [b.x + b.w, b.y + b.h], s: [b.x + b.w / 2, b.y + b.h],
-      sw: [b.x, b.y + b.h], w: [b.x, b.y + b.h / 2],
-    };
-    return map[h];
-  }
 
   // --- gesture state -----------------------------------------------------------
   type Gesture =
@@ -286,7 +238,7 @@
     for (let i = els.length - 1; i >= 0; i--) {
       const e = els[i];
       if (e.locked) continue;
-      const b = elementBBox(e as unknown as FigElement);
+      const b = elementBBox(e);
       if (p.x >= b.x - tol && p.x <= b.x + b.w + tol && p.y >= b.y - tol && p.y <= b.y + b.h + tol) return e;
     }
     return null;
@@ -343,7 +295,7 @@
         const part = partAtNode(e.target, hit.id);
         focusedPart.set(part ? { elId: hit.id, part } : null);
       } else focusedPart.set(null);
-      const ob = selectionBBox(ids.map(byId).filter(Boolean) as unknown as FigElement[]);
+      const ob = selectionBBox(ids.map(byId).filter((e): e is SlideElement => !!e));
       if (ob) { gesture = { kind: "move", ids, origs: cloneSel(ids), ob, start: p }; liveMove = { dx: 0, dy: 0 }; }
     } else {
       // Empty: marquee select (clear unless shift-extending).
@@ -357,7 +309,7 @@
     if (!interactive) return;
     e.stopPropagation();
     const ids = $selection;
-    const ob = selectionBBox(ids.map(byId).filter(Boolean) as unknown as FigElement[]);
+    const ob = selectionBBox(ids.map(byId).filter((e): e is SlideElement => !!e));
     if (!ob) return;
     scaledEl!.setPointerCapture(e.pointerId);
     gesture = { kind: "resize", ids, origs: cloneSel(ids), ob, handle };
@@ -393,7 +345,7 @@
     if (gesture.kind === "move") {
       let dx = p.x - gesture.start.x;
       let dy = p.y - gesture.start.y;
-      const { xs, ys } = snapTargets(new Set(gesture.ids));
+      const { xs, ys } = boxSnapTargets(els, new Set(gesture.ids), { w: stage.width, h: stage.height });
       const b = gesture.ob;
       const sX = snap([b.x + dx, b.x + b.w / 2 + dx, b.x + b.w + dx], xs, 6 / scale);
       const sY = snap([b.y + dy, b.y + b.h / 2 + dy, b.y + b.h + dy], ys, 6 / scale);
@@ -411,7 +363,7 @@
       for (const id of gesture.ids) {
         const o = gesture.origs.get(id)!;
         const tmp = structuredClone(o);
-        resizeRemap(tmp as unknown as FigElement, o as unknown as FigElement, gesture.ob, nb);
+        resizeRemap(tmp, o, gesture.ob, nb);
         previewEl(id, { x: tmp.x, y: tmp.y, width: tmp.width, height: tmp.height });
       }
       previewBox = nb;
@@ -433,7 +385,7 @@
       };
       marquee = r;
       const hit = new Set(gesture.add);
-      for (const el of els) if (rectsIntersect(elementBBox(el as unknown as FigElement), r)) hit.add(el.id);
+      for (const el of els) if (rectsIntersect(elementBBox(el), r)) hit.add(el.id);
       selection.set(expandGroups(hit));
     }
   }
@@ -464,7 +416,7 @@
           const found = findElement(d, id); // → { slide, el } | null
           // resizeRemap handles every type correctly: scales boxes, remaps line
           // endpoints, and scales text font-size (mirrors the figure canvas).
-          if (orig && found) resizeRemap(found.el as unknown as FigElement, orig as unknown as FigElement, ob, nb);
+          if (orig && found) resizeRemap(found.el, orig, ob, nb);
         }
       });
     } else if (g.kind === "rotate") {

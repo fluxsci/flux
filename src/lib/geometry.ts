@@ -1,4 +1,4 @@
-import type { Element, LineElement } from "./types";
+import type { Element, ElementBase, LineElement } from "./types";
 
 export interface Rect {
   x: number;
@@ -7,9 +7,23 @@ export interface Rect {
   h: number;
 }
 
+// WS-3.2: the box helpers are generic over ElementBase so SlideStage's
+// SlideElement union flows through without casts. The line branch detects
+// endpoint elements STRUCTURALLY ("x1"/"x2" present) instead of via the figure
+// union's `type` discriminant — identical behavior for every current Element
+// (only LineElement carries x1/x2).
+interface EndpointLike {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+const hasEndpoints = (e: ElementBase): e is ElementBase & EndpointLike =>
+  "x1" in e && "x2" in e && "y1" in e && "y2" in e;
+
 // Axis-aligned bounding box of an element in its figure-local coordinate space.
-export function elementBBox(e: Element): Rect {
-  if (e.type === "line") {
+export function elementBBox<E extends ElementBase>(e: E): Rect {
+  if (hasEndpoints(e)) {
     const x1 = e.x + e.x1;
     const y1 = e.y + e.y1;
     const x2 = e.x + e.x2;
@@ -44,7 +58,7 @@ export function unionRect(rects: Rect[]): Rect | null {
 // marquee hit-testing that shouldn't catch the empty corners of a tilted element's
 // AABB, and culling that must not hide a partially-visible rotated element.
 
-const rotationOf = (e: Element): number => ("rotation" in e ? ((e as { rotation?: number }).rotation ?? 0) : 0);
+const rotationOf = (e: ElementBase): number => ("rotation" in e ? ((e as { rotation?: number }).rotation ?? 0) : 0);
 
 /** Rotate a point about a centre by `deg` degrees (the same convention the
  *  element transforms use). Shared by rotatedCorners and the crop gesture's
@@ -65,7 +79,7 @@ export function rotatePoint(
 }
 
 /** The element's four bbox corners AFTER its rotation (figure-local coords). */
-export function rotatedCorners(e: Element): { x: number; y: number }[] {
+export function rotatedCorners<E extends ElementBase>(e: E): { x: number; y: number }[] {
   const b = elementBBox(e);
   const pts = [
     { x: b.x, y: b.y },
@@ -87,7 +101,7 @@ export function rotatedCorners(e: Element): { x: number; y: number }[] {
 }
 
 /** AABB of the ROTATED shape — the box a selection outline should enclose. */
-export function rotatedAABB(e: Element): Rect {
+export function rotatedAABB<E extends ElementBase>(e: E): Rect {
   if (!rotationOf(e)) return elementBBox(e);
   const pts = rotatedCorners(e);
   let minX = Infinity,
@@ -104,8 +118,8 @@ export function rotatedAABB(e: Element): Rect {
 }
 
 /** Box around a selection that HUGS rotated members (display/snap/resize frame). */
-export function selectionBBox(els: Element[]): Rect | null {
-  return unionRect(els.map(rotatedAABB));
+export function selectionBBox<E extends ElementBase>(els: readonly E[]): Rect | null {
+  return unionRect(els.map((e) => rotatedAABB(e)));
 }
 
 export function rectsIntersect(a: Rect, b: Rect): boolean {
@@ -144,7 +158,7 @@ function polysIntersect(a: { x: number; y: number }[], b: { x: number; y: number
 
 /** rect ∩ element honoring rotation — a marquee no longer catches the empty AABB
  *  corners of a tilted element (unrotated elements keep the cheap rect test). */
-export function rectIntersectsElement(r: Rect, e: Element): boolean {
+export function rectIntersectsElement<E extends ElementBase>(r: Rect, e: E): boolean {
   if (!rotationOf(e)) return rectsIntersect(elementBBox(e), r);
   const quad = rotatedCorners(e);
   const rectPts = [

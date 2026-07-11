@@ -1,4 +1,4 @@
-import type { CropRect, Element } from "./types";
+import type { CropRect, Element, ElementBase } from "./types";
 import type { DrawStyle, Tool } from "./store";
 import { newId } from "./ids";
 import { elementBBox, rotatePoint, type Rect } from "./geometry";
@@ -367,13 +367,19 @@ export function lineEndpointRemap(
 // `axes` (from the drag handle: e/w = width-only, n/s = height-only, corners =
 // both) drives the TEXT sizing-mode transitions; without it, the box delta
 // decides (bridge/ops callers).
-export function resizeRemap(
-  e: Element,
-  orig: Element,
+// WS-3.2: generic over ElementBase so SlideStage's SlideElement flows through
+// without casts. The figure-union narrowing (line/path/text) is preserved via
+// a local `type` read: slide-only element kinds ("textbox"/"math"/…) fall to
+// the generic width/height tail exactly as they did through the old casts.
+export function resizeRemap<E extends ElementBase>(
+  eIn: E,
+  origIn: E,
   ob: Rect,
   nb: Rect,
   axes?: { w: boolean; h: boolean },
 ) {
+  const e = eIn as unknown as Element;
+  const orig = origIn as unknown as Element;
   const sx = ob.w === 0 ? 1 : nb.w / ob.w;
   const sy = ob.h === 0 ? 1 : nb.h / ob.h;
   const fx = (px: number) => nb.x + (px - ob.x) * sx;

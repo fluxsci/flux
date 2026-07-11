@@ -21,6 +21,7 @@
       "verify-f2-recipe.ts",
       "verify-fig-rotbounds.ts",
       "verify-layer-rows.ts",
+      "verify-interact-core.ts",
       "figenh-01-parity.ts",
       "figenh-01-path.ts",
       "figenh-02-parity.ts",
