@@ -124,10 +124,11 @@ if (existsSync(cliBundle)) {
 
 // --- 2. source wiring -----------------------------------------------------------------
 console.log("\nR3 — main/preload/bridge wiring (source):");
-const main = read("electron/main.cjs");
-assert(/ipcMain\.handle\("agent:mcpSpec"/.test(main), "main exposes agent:mcpSpec");
-assert(/node_modules", "\.bin", "tsx"/.test(main) && /flux-mcp\.ts/.test(main), "dev spec = repo tsx bin + flux-mcp.ts (absolute — claude spawns from its own cwd)");
-assert(/app\.asar\.unpacked", "dist", "flux-mcp\.mjs"/.test(main) && /ELECTRON_RUN_AS_NODE/.test(main), "packaged spec = unpacked bundle on Electron-as-Node");
+// WS-9.4b: agent:mcpSpec lives in the AGENT family module now.
+const agentCjs = read("electron/ipc/agent.cjs");
+assert(/ipc\.handle\("agent:mcpSpec"/.test(agentCjs), "main exposes agent:mcpSpec (agent family)");
+assert(/node_modules", "\.bin", "tsx"/.test(agentCjs) && /flux-mcp\.ts/.test(agentCjs), "dev spec = repo tsx bin + flux-mcp.ts (absolute — claude spawns from its own cwd)");
+assert(/app\.asar\.unpacked", "dist", "flux-mcp\.mjs"/.test(agentCjs) && /ELECTRON_RUN_AS_NODE/.test(agentCjs), "packaged spec = unpacked bundle on Electron-as-Node");
 assert(/^\s*- dist\/flux-mcp\.mjs/m.test(read("electron-builder.yml")), "electron-builder.yml asar-unpacks dist/flux-mcp.mjs (the packaged spawn path)");
 const preload = read("electron/preload.cjs");
 assert(/agentMcpSpec: \(\) => ipcRenderer\.invoke\("agent:mcpSpec"\)/.test(preload), "preload exposes fig.agentMcpSpec");

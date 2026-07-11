@@ -147,72 +147,17 @@ function invalidatePathCaches() {
 // Read in main so credentials are attached here, never baked into renderer URLs.
 const fluxLibDir = () => getFluxLibRoot();
 
-// ---------------------------------------------------------------------------
-// WS4: live agent context bridge. The renderer pushes its UI context up (cached
-// here) and answers dispatch requests; an external agent (the Flux MCP server)
-// talks to a loopback control server started per open project. See bridgeServer.cjs.
-// ---------------------------------------------------------------------------
-const { startBridge } = require("./bridgeServer.cjs");
-let bridge = null;
-let latestContext = null;
-let dispatchSeq = 0;
-const dispatchPending = new Map(); // id -> { resolve, reject, timer }
-
-function stopBridge() {
-  if (bridge) {
-    try {
-      bridge.stop();
-    } catch {
-      /* ignore */
-    }
-    bridge = null;
-  }
-  for (const { reject, timer } of dispatchPending.values()) {
-    clearTimeout(timer);
-    reject(new Error("bridge stopped"));
-  }
-  dispatchPending.clear();
-  latestContext = null;
-}
-
-function startBridgeFor(root) {
-  stopBridge();
-  if (!root) return;
-  bridge = startBridge({
-    root,
-    getContext: () => latestContext,
-    dispatch: (command) =>
-      new Promise((resolve, reject) => {
-        if (!mainWindow || mainWindow.webContents.isDestroyed()) return reject(new Error("no renderer"));
-        const id = ++dispatchSeq;
-        const timer = setTimeout(() => {
-          dispatchPending.delete(id);
-          reject(new Error("dispatch timed out"));
-        }, 12000);
-        dispatchPending.set(id, { resolve, reject, timer });
-        appendJournalLine(root, {
-          action: `dispatch:${command && command.type}`,
-          client: "agent",
-          target: (command && (command.figureId || command.partId)) || undefined,
-        });
-        mainWindow.webContents.send("bridge:dispatch", { id, command });
-      }),
-    noteWrite,
-  });
-}
-
-ipcMain.on("bridge:context", (_e, ctx) => {
-  latestContext = ctx;
-  if (bridge) bridge.pushContext(ctx);
+// WS-9.4b: the AGENT family (live bridge + agent:mcpSpec) lives in ipc/agent.cjs.
+const agentFamily = require("./ipc/agent.cjs").createAgentFamily({
+  app,
+  getMainWindow: () => mainWindow,
+  getCurrentRoot: () => currentRoot,
+  appendJournalLine,
+  noteWrite,
+  appRoot: path.resolve(__dirname, ".."),
 });
-ipcMain.on("bridge:dispatch:reply", (_e, { id, result, error }) => {
-  const p = dispatchPending.get(id);
-  if (!p) return;
-  dispatchPending.delete(id);
-  clearTimeout(p.timer);
-  if (error) p.reject(new Error(error));
-  else p.resolve(result);
-});
+agentFamily.registerHandlers(ipcMain);
+const { startBridgeFor, stopBridge } = agentFamily;
 
 // ---------------------------------------------------------------------------
 // WS6: provenance journal + advisory locks. The renderer (human) and the bridge
@@ -1113,32 +1058,6 @@ const terminalFamily = require("./ipc/terminal.cjs").createTerminalFamily({
 });
 const { reapPtys } = terminalFamily;
 
-// R3 (FluxReader "Ask Claude"): how a `claude` session should launch the flux MCP
-// server for the open project. The renderer embeds this in `claude --mcp-config`;
-// claude then spawns the server itself (cwd = its own, so every path here must be
-// absolute). Dev: the repo's tsx bin runs flux-mcp.ts. Packaged: a bundled
-// dist/flux-mcp.mjs (asar-unpacked, like flux-cli.mjs) on Electron-as-Node.
-ipcMain.handle("agent:mcpSpec", () => {
-  const appRoot = path.resolve(__dirname, "..");
-  const projectRoot = currentRoot && fs.existsSync(currentRoot) ? currentRoot : app.getPath("home");
-  const bundled = app.isPackaged
-    ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "flux-mcp.mjs")
-    : path.join(appRoot, "dist", "flux-mcp.mjs");
-  if (fs.existsSync(bundled)) {
-    return {
-      ok: true,
-      projectRoot,
-      command: process.execPath,
-      args: [bundled, projectRoot],
-      env: { ELECTRON_RUN_AS_NODE: "1" },
-    };
-  }
-  const tsxBin = path.join(appRoot, "node_modules", ".bin", "tsx");
-  const entry = path.join(appRoot, "flux-mcp.ts");
-  if (!app.isPackaged && fs.existsSync(tsxBin) && fs.existsSync(entry)) {
-    return { ok: true, projectRoot, command: tsxBin, args: [entry, projectRoot] };
-  }
-  return { ok: false, projectRoot };
-});
+// (agent:mcpSpec lives in ipc/agent.cjs)
 
 terminalFamily.registerHandlers(ipcMain);
