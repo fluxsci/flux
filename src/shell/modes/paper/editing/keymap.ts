@@ -13,6 +13,39 @@ import {
 import { stepEmbedWidth } from "./figureSize";
 import { foldSection, unfoldSection } from "./folding";
 
+// WS-4.3: the CM-owned chords the window dispatcher must NEVER claim (the
+// pure gate intersects this against the command table), plus the single-source
+// palette hint strings for CM-owned actions.
+export const CM_CHORD_STRINGS = [
+  "Mod-Alt--",
+  "Mod-Alt-=",
+  "Ctrl-Shift-[",
+  "Ctrl-Shift-]",
+  "Mod-b",
+  "Mod-i",
+  "Mod-e",
+  "Mod-Shift-k",
+  "Mod-Shift-1",
+  "Mod-Shift-2",
+  "Mod-Shift-3",
+  "Mod-Shift-4",
+  "Mod-Shift-0",
+  "Mod-Shift-.",
+  "Mod-Shift-8",
+  "Mod-Shift-7",
+  // Owned by other CM layers (not this keymap, still CM territory):
+  "Mod-Enter", // follow-at-caret
+  "Mod-Alt-m", // comment on selection
+  "Mod-f", // search
+] as const;
+
+export const CM_HINTS = {
+  commentSelection: "⌘⌥M",
+  figWidth: "⌘⌥− / ⌘⌥=",
+  foldSection: "⌃⇧[",
+  unfoldSection: "⌃⇧]",
+} as const;
+
 export const formattingKeymap = keymap.of([
   // Figure width stepping (zoom mnemonic). Only fires with the caret on an
   // embed line — returns false elsewhere so the keys fall through.

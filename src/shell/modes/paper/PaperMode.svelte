@@ -20,7 +20,8 @@
   import SelectionToolbar from "./toolbar/SelectionToolbar.svelte";
   import EmptyState from "./EmptyState.svelte";
   import { selectionWatcher } from "./toolbar/selectionState";
-  import { formattingKeymap } from "./editing/keymap";
+  import { formattingKeymap, CM_HINTS } from "./editing/keymap";
+  import { paletteFromTable, dispatchWindowKey, type PaperCmdCtx } from "./commands";
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
   import { setEmbedWidth, EMBED_RE } from "./science/figureAttrs";
@@ -1381,85 +1382,80 @@
   };
 
   // ---- command palette (⌘K) + keyboard shortcuts -------------------------
+  // WS-4.3: ONE shortcut table (commands.ts) generates BOTH the palette list
+  // and the window dispatcher. Dynamic groups (figure-width presets, ambient
+  // scenes, quarto-gated export) are palette-only and appended here.
+  const cmdCtx: PaperCmdCtx = {
+    previewActive: () => previewActive,
+    togglePreview: () => {
+      previewActive = !previewActive;
+      if (!previewActive) view?.focus();
+    },
+    setView,
+    setCitationStyle: (style) => marginHost.setCitationStyle(style),
+    vimFlavor: () => $paperVimFlavor,
+    setVimFlavor,
+    openFigurePicker,
+    openFigRefPicker,
+    outlinerOpen: () => $paperLayout.outlinerOpen,
+    toggleOutliner,
+    marginOpen: () => $paperLayout.dynMarginOpen,
+    toggleMargin,
+    summonPane: (kind) => summonPane(kind as Parameters<typeof summonPane>[0]),
+    editCitationAtCursor,
+    openDoiPrompt,
+    startComment,
+    closeActivePane: () => {
+      if (closeActivePane()) view?.focus();
+    },
+    closeAllPanes: () => {
+      if (closeAllPanes()) view?.focus();
+    },
+    widerMargin: () =>
+      paperLayout.update((s) => ({ ...s, dynMarginOpen: true, dynMarginW: Math.min(dmMaxW(), s.dynMarginW + 40) })),
+    narrowerMargin: () => paperLayout.update((s) => ({ ...s, dynMarginW: Math.max(260, s.dynMarginW - 40) })),
+    rerollBgSeed,
+    foldSection: () => {
+      if (view) {
+        foldSection(view);
+        view.focus();
+      }
+    },
+    unfoldSection: () => {
+      if (view) {
+        unfoldSection(view);
+        view.focus();
+      }
+    },
+    foldAll: () => {
+      if (view) {
+        foldAll(view);
+        view.focus();
+      }
+    },
+    unfoldAll: () => {
+      if (view) {
+        unfoldAll(view);
+        view.focus();
+      }
+    },
+    doExport: (kind) => doExport(kind),
+    togglePalette: () => {
+      paletteOpen = !paletteOpen;
+    },
+  };
   const commands = $derived<Command[]>([
-    {
-      id: "view-toggle",
-      title: previewActive ? "Switch to Edit" : "Switch to Preview",
-      hint: "⌘⇧E",
-      keywords: "preview edit render",
-      run: () => {
-        previewActive = !previewActive;
-        if (!previewActive) view?.focus();
-      },
-    },
-    { id: "view-continuous", title: "Continuous view", hint: "View", keywords: "scroll column", run: () => setView("continuous") },
-    { id: "view-paginated", title: "Paginated view", hint: "View", keywords: "page sheets print", run: () => setView("paginated") },
-    {
-      id: "cite-style-numeric",
-      title: "Citation style: numbered (Vancouver)",
-      hint: "References",
-      keywords: "citation numeric vancouver brackets [1] style",
-      run: () => marginHost.setCitationStyle("numeric"),
-    },
-    {
-      id: "cite-style-authoryear",
-      title: "Citation style: author–year",
-      hint: "References",
-      keywords: "citation author year apa harvard style",
-      run: () => marginHost.setCitationStyle("author-year"),
-    },
-    {
-      id: "toggle-vim",
-      title: $paperVimFlavor === "off" ? "Enable Vim mode" : "Disable Vim mode",
-      hint: "Editor",
-      keywords: "vim modal hjkl normal insert keyboard",
-      run: () => setVimFlavor($paperVimFlavor === "off" ? "vim" : "off"),
-    },
-    {
-      id: "toggle-flux-vim",
-      title:
-        $paperVimFlavor === "flux"
-          ? "Switch to plain Vim"
-          : $paperVimFlavor === "vim"
-            ? "Switch to flux-Vim (jj → Esc)"
-            : "Enable flux-Vim (jj → Esc)",
-      hint: "Editor",
-      keywords: "vim flux flavor jj escape insert normal modal",
-      run: () => setVimFlavor($paperVimFlavor === "flux" ? "vim" : "flux"),
-    },
-    { id: "insert-figure", title: "Insert figure…", hint: "Insert", keywords: "image panel embed", run: openFigurePicker },
-    { id: "insert-figref", title: "Reference a figure…", hint: "@@", keywords: "crossref cross-reference cite figure panel fig", run: openFigRefPicker },
+    ...paletteFromTable(cmdCtx),
     ...[25, 50, 75, 100, null].map((pct) => ({
       id: `fig-width-${pct ?? "auto"}`,
       title: pct ? `Figure width ${pct}%` : "Figure width auto",
-      hint: pct ? "⌘⌥− / ⌘⌥=" : "Figure",
+      hint: pct ? CM_HINTS.figWidth : "Figure", // real binding: editing keymap layer
       keywords: "figure resize size width embed scale zoom",
       run: () => {
         if (!view || !setEmbedWidthPreset(view, pct))
           pushToast("info", "Place the cursor on a figure embed line first.");
       },
     })),
-    {
-      id: "toggle-outliner",
-      title: $paperLayout.outlinerOpen ? "Hide left panel" : "Show left panel",
-      hint: "Alt+O",
-      keywords: "outline toc headings sections documents sidebar left panel",
-      run: toggleOutliner,
-    },
-    { id: "toggle-margin", title: $paperLayout.dynMarginOpen ? "Hide dynamic margin" : "Show dynamic margin", hint: "Alt+D", keywords: "panel margin sidebar dynamic", run: toggleMargin },
-    { id: "margin-search", title: "Search references…", hint: "Alt+R", keywords: "find cite reference bibliography", run: () => summonPane("reference-search") },
-    { id: "edit-citation", title: "Edit citation at cursor", hint: "Alt+C", keywords: "citation group edit references multi cite", run: editCitationAtCursor },
-    { id: "margin-citation-group", title: "Citation group", hint: "Margin", keywords: "edit citation group cite references multi", run: () => summonPane("citation-group") },
-    { id: "margin-references", title: "References", hint: "Margin", keywords: "bibliography citations library", run: () => summonPane("bibliography") },
-    { id: "add-doi-library", title: "Add DOI to FluxLib", hint: "Reference", keywords: "doi reference library fluxlib add paper crossref import", run: () => openDoiPrompt("library") },
-    { id: "add-doi-cite", title: "Add DOI & cite here", hint: "Reference", keywords: "doi cite citation reference insert crossref", run: () => openDoiPrompt("cite") },
-    { id: "margin-figures", title: "Figures", hint: "Alt+F", keywords: "image plot zoom panel", run: () => summonPane("figure") },
-    { id: "margin-comments", title: "Comments", hint: "Alt+A", keywords: "notes annotations review", run: () => summonPane("comments") },
-    { id: "comment-selection", title: "Comment on selection", hint: "⌘⌥M", keywords: "annotate note review remark", run: startComment },
-    { id: "margin-stats", title: "Statistics", hint: "Margin", keywords: "word count length", run: () => summonPane("stats") },
-    { id: "margin-terminal", title: "Terminal", hint: "Alt+T", keywords: "shell console command cli bash zsh run", run: () => summonPane("terminal") },
-    { id: "margin-close-pane", title: "Close margin pane", hint: "Alt+P", keywords: "dynamic pane close dismiss", run: () => { if (closeActivePane()) view?.focus(); } },
-    { id: "margin-close-all", title: "Clear dynamic margin", hint: "⌃Alt+P", keywords: "close all panes clear margin dismiss", run: () => { if (closeAllPanes()) view?.focus(); } },
     ...BG_SOURCES.map((s) => ({
       id: `margin-bg-${s.id}`,
       title: `Background: ${s.label}`,
@@ -1467,15 +1463,6 @@
       keywords: "dynamic background ambient art scene switch",
       run: () => settings.update((v) => ({ ...v, paperMarginScene: s.id as never })),
     })),
-    { id: "margin-bg-seed", title: "New background seed", hint: "Margin", keywords: "dynamic background reroll shuffle random art", run: rerollBgSeed },
-    { id: "fold-section", title: "Fold section", hint: "⌃⇧[", keywords: "collapse heading hide section fold", run: () => { if (view) { foldSection(view); view.focus(); } } },
-    { id: "unfold-section", title: "Unfold section", hint: "⌃⇧]", keywords: "expand heading show section unfold", run: () => { if (view) { unfoldSection(view); view.focus(); } } },
-    { id: "fold-all", title: "Fold all sections", hint: "Fold", keywords: "collapse everything outline overview", run: () => { if (view) { foldAll(view); view.focus(); } } },
-    { id: "unfold-all", title: "Unfold all sections", hint: "Fold", keywords: "expand everything", run: () => { if (view) { unfoldAll(view); view.focus(); } } },
-    { id: "margin-wider", title: "Wider side panel", hint: "Layout", keywords: "margin panel resize grow", run: () => paperLayout.update((s) => ({ ...s, dynMarginOpen: true, dynMarginW: Math.min(dmMaxW(), s.dynMarginW + 40) })) },
-    { id: "margin-narrower", title: "Narrower side panel", hint: "Layout", keywords: "margin panel resize shrink", run: () => paperLayout.update((s) => ({ ...s, dynMarginW: Math.max(260, s.dynMarginW - 40) })) },
-    { id: "export-pdf", title: "Export PDF", hint: "Export", keywords: "download print", run: () => doExport("pdf") },
-    { id: "export-html", title: "Export HTML", hint: "Export", keywords: "download web", run: () => doExport("html") },
     ...(quartoAvail
       ? [{ id: "export-docx", title: "Export Word", hint: "Export", keywords: "docx quarto", run: () => doExport("docx") }]
       : []),
@@ -1484,45 +1471,10 @@
   $effect(() => {
     if (!focused) return;
     const h = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && !e.shiftKey && !e.altKey && e.code === "KeyK") {
-        e.preventDefault();
-        paletteOpen = !paletteOpen;
-      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyO") {
-        e.preventDefault();
-        toggleOutliner();
-      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyD") {
-        e.preventDefault();
-        toggleMargin();
-      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyF") {
-        e.preventDefault();
-        summonPane("figure");
-      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyR") {
-        e.preventDefault();
-        summonPane("reference-search");
-      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyT") {
-        e.preventDefault();
-        summonPane("terminal");
-      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyA") {
-        e.preventDefault();
-        summonPane("comments");
-      } else if (e.altKey && mod && !e.shiftKey && e.code === "KeyP") {
-        e.preventDefault();
-        if (closeAllPanes()) view?.focus();
-      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyP") {
-        e.preventDefault();
-        if (closeActivePane()) view?.focus();
-      } else if (e.altKey && !mod && !e.shiftKey && e.code === "KeyC") {
-        e.preventDefault();
-        editCitationAtCursor();
-      } else if (mod && !e.shiftKey && !e.altKey && e.code === "Backquote") {
-        e.preventDefault();
-        summonPane("terminal");
-      } else if (mod && e.shiftKey && !e.altKey && e.code === "KeyE") {
-        e.preventDefault();
-        previewActive = !previewActive;
-        if (!previewActive) view?.focus();
-      } else if (e.key === "Escape" && exportOpen) {
+      // Table-driven chords first (⌘K palette, view toggle, margin panes, …).
+      if (dispatchWindowKey(e, cmdCtx)) return;
+      // Esc layering guards — MODAL, kept verbatim (not commands).
+      if (e.key === "Escape" && exportOpen) {
         // The export menu is not mouse-only — Esc closes it and returns to the editor.
         e.preventDefault();
         exportOpen = false;
