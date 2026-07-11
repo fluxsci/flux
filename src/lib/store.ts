@@ -239,9 +239,22 @@ export const embeddedProjectRoot = writable<string | null>(null);
 // interaction (drag, resize, typing burst, discrete edit); it captures the
 // pre-state. `commit(fn)` is a convenience for one-shot edits.
 // ---------------------------------------------------------------------------
-const past: Project[] = [];
-const future: Project[] = [];
+interface HistEntry {
+  snap: Project;
+  bytes: number;
+}
+const past: HistEntry[] = [];
+const future: HistEntry[] = [];
 const MAX_HISTORY = 200;
+// WS-5.5: cap history MEMORY, not just entry count — snapshots are cheap in CPU
+// (≤0.8ms at 1600 elements; plot bytes live outside the model) but 200 deep
+// copies of a many-figure project add up. Sized once per snapshot via JSON
+// length (same order as the in-memory footprint); oldest entries evict first,
+// and the just-pushed entry is never evicted (one undo level beats none even
+// when a single snapshot exceeds the budget).
+const HISTORY_BYTE_BUDGET = 64 * 1024 * 1024;
+let pastBytes = 0;
+let futureBytes = 0;
 
 // FIG-5: `colorGroups` is the bundled Flexoki palette — hundreds of static
 // swatches that are NOT document content and barely change. The old whole-project
@@ -249,14 +262,35 @@ const MAX_HISTORY = 200;
 // undo memory + per-gesture CPU cost. Snapshot everything else; re-attach the
 // LIVE colorGroups on restore (palette state is simply outside undo, which is
 // fine — you don't Ctrl+Z a swatch).
-function snapshot(p: Project): Project {
+function snapshot(p: Project): HistEntry {
   const { colorGroups: _omit, ...rest } = p;
   void _omit;
-  return structuredClone(rest) as Project;
+  // structuredClone (not JSON.parse of the sizing string): the round-trip would
+  // silently drop `undefined`-valued keys, changing restore semantics.
+  return { snap: structuredClone(rest) as Project, bytes: JSON.stringify(rest).length };
 }
-function restore(snap: Project) {
-  snap.colorGroups = get(project).colorGroups;
-  project.set(snap);
+function restore(e: HistEntry) {
+  e.snap.colorGroups = get(project).colorGroups;
+  project.set(e.snap);
+}
+function pushPast(e: HistEntry) {
+  past.push(e);
+  pastBytes += e.bytes;
+  while (past.length > MAX_HISTORY || (pastBytes > HISTORY_BYTE_BUDGET && past.length > 1)) {
+    pastBytes -= past.shift()!.bytes;
+  }
+}
+function pushFuture(e: HistEntry) {
+  future.push(e);
+  futureBytes += e.bytes;
+  // future[0] is the farthest-forward redo — evicting it keeps the near redos.
+  while (future.length > MAX_HISTORY || (futureBytes > HISTORY_BYTE_BUDGET && future.length > 1)) {
+    futureBytes -= future.shift()!.bytes;
+  }
+}
+function clearFuture() {
+  future.length = 0;
+  futureBytes = 0;
 }
 
 // W4: monotonic edit counter. A save snapshots `editGen.n` before its async
@@ -270,9 +304,8 @@ function markEdited() {
 }
 
 export function beginGesture() {
-  past.push(snapshot(get(project)));
-  if (past.length > MAX_HISTORY) past.shift();
-  future.length = 0;
+  pushPast(snapshot(get(project)));
+  clearFuture();
   markEdited();
 }
 
@@ -296,16 +329,20 @@ export function mutate(fn: (p: Project) => void) {
 
 export function undo() {
   if (!past.length) return;
-  future.push(snapshot(get(project)));
-  restore(past.pop()!);
+  pushFuture(snapshot(get(project)));
+  const e = past.pop()!;
+  pastBytes -= e.bytes;
+  restore(e);
   pruneSelection();
   markEdited();
 }
 
 export function redo() {
   if (!future.length) return;
-  past.push(snapshot(get(project)));
-  restore(future.pop()!);
+  pushPast(snapshot(get(project)));
+  const e = future.pop()!;
+  futureBytes -= e.bytes;
+  restore(e);
   pruneSelection();
   markEdited();
 }
@@ -322,8 +359,10 @@ export const gestureCancelHook: { fn: (() => boolean) | null } = { fn: null };
 // mode) whose pre-state was captured with beginGesture().
 export function rollbackGesture() {
   if (!past.length) return;
-  restore(past.pop()!);
-  future.length = 0;
+  const e = past.pop()!;
+  pastBytes -= e.bytes;
+  restore(e);
+  clearFuture();
   pruneSelection();
   markEdited();
 }
@@ -331,6 +370,20 @@ export function rollbackGesture() {
 export function resetHistory() {
   past.length = 0;
   future.length = 0;
+  pastBytes = 0;
+  futureBytes = 0;
+}
+
+// WS-5.5: test-only introspection for the byte budget (verify-undo-budget.ts).
+export function historyStats() {
+  return {
+    past: past.length,
+    future: future.length,
+    pastBytes,
+    futureBytes,
+    budget: HISTORY_BYTE_BUDGET,
+    maxEntries: MAX_HISTORY,
+  };
 }
 
 // ---------------------------------------------------------------------------
