@@ -13,7 +13,8 @@
   import { settings } from "../lib/settings";
   import { installLifecycle } from "./lifecycle";
   import { warmModes, ALL_MODES } from "./modeRegistry";
-  import { addUrlOrDoiToLibrary } from "./modes/paper/scholar/bibLoad";
+  // (bibLoad is dynamic-imported in onCapturePayload — a static edge from the
+  // eager Shell chained the whole paper/scholar stack into Home; W15 gate.)
   import { pdfFetchJob } from "../lib/references/pdfFetchJob.svelte";
   import { assignJob } from "../lib/references/assignJob.svelte";
 
@@ -32,6 +33,7 @@
     const input = (payload?.doi || payload?.url || "").trim();
     if (!input) return;
     showCapture("busy", "Adding to FluxLib…");
+    const { addUrlOrDoiToLibrary } = await import("./modes/paper/scholar/bibLoad");
     const r = await addUrlOrDoiToLibrary(input);
     if ("error" in r) showCapture("err", r.error || "Couldn't add that paper.", 4200);
     else showCapture("ok", `Added “${r.title || r.key}” to FluxLib ✓`, 3200);
@@ -63,7 +65,12 @@
 
   onMount(() => {
     installLifecycle(); // W5: consolidated beforeunload + quit-flush answering
-    warmModes(["paper"]); // the default first mode — ready before Home → Workspace
+    // W15: warm paper (the default first mode) during Home IDLE — after first
+    // paint, so the 920KB chunk never competes with Home interactivity (the
+    // startup gate snapshots at .wordmark and asserts no mode chunk landed).
+    const idle: (fn: () => void) => void =
+      typeof requestIdleCallback === "function" ? (fn) => requestIdleCallback(fn) : (fn) => void setTimeout(fn, 250);
+    idle(() => warmModes(["paper"]));
     // In Electron the preload sets window.fig before this runs; under the dev
     // fixture it can arrive a beat late, so retry briefly until the bridge appears.
     let unsub: (() => void) | undefined;

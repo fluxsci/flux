@@ -16,8 +16,12 @@ import { isPdfBytes, bareDoi } from "./pdfFinder";
 import { assignInboxDir, supplementsDir, supplementFilePath, safeSupplementName } from "./items";
 import { lightEntry } from "./bibtex";
 import { identify, reconcile, type IdResult, type PaperMeta, type SearchHit } from "./pdfIdentify";
-import { extractPdfSignals } from "../pdf/pdfSignals";
-import { addDoiToLibrary } from "../../shell/modes/paper/scholar/bibLoad";
+// (pdfSignals pulls pdf.js — dynamic-imported at the call site for the same
+// W15 reason as bibLoad below: this module is eager via Shell.svelte.)
+// NOTE deliberately NOT imported statically: Shell.svelte (eager at Home) uses
+// this module for the assign-progress pill, and a static edge here chained the
+// entire paper/scholar stack into the Home bundle (W15 startup gate). The one
+// call site below dynamic-imports it when a PDF actually needs adding.
 import { pushToast } from "../toast";
 
 export type AssignAction = "attached" | "added-attached" | "discarded" | "unresolved" | "deferred";
@@ -214,6 +218,7 @@ class AssignJob {
         await this.#quarantine(fb, dir, name, bytes, null, rec.reason);
         return rec;
       }
+      const { extractPdfSignals } = await import("../pdf/pdfSignals");
       const sig = await extractPdfSignals(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
       const id = await identify(sig, DEPS);
       if (id.status !== "identified") {
@@ -241,6 +246,7 @@ class AssignJob {
         await writePdfItem(action.key, bytes, { source: "assigned", url: name, isOa: false });
         await fb.remove?.(src);
       } else {
+        const { addDoiToLibrary } = await import("../../shell/modes/paper/scholar/bibLoad");
         const added = await addDoiToLibrary(id.doi);
         if ("error" in added) {
           rec.action = "deferred";
