@@ -13,6 +13,8 @@ import { createDeck as createDeckModel, normalizeDeck } from "../slide/ops";
 import { validateDeckFile } from "./validate";
 import { quarantineCopy } from "./quarantine";
 import { pushToast } from "../toast";
+import { isNewerSchema, newerSchemaMessage } from "./types";
+import { DECK_SCHEMA_VERSION } from "../slide/types";
 import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen, figureGroups, figureMembers, type FigureMemberInfo } from "../slide/store";
 import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
@@ -88,9 +90,18 @@ export async function readDeck(root: string, deckId: string): Promise<Deck | nul
   try {
     if (await fig.exists(joinPath(root, rel))) {
       const text = await fig.readText(joinPath(root, rel));
+      const rawDeck = JSON.parse(text) as Deck;
+      // WS-5.2 forward-version guard FIRST (before migration/validation): a
+      // newer deck must not be normalized down or judged by our schema.
+      if (isNewerSchema(rawDeck.schemaVersion, DECK_SCHEMA_VERSION)) {
+        pushToast("error", `Deck "${deckId}" written by a newer Flux — skipped`, {
+          detail: newerSchemaMessage(rel, rawDeck.schemaVersion, DECK_SCHEMA_VERSION),
+        });
+        return null;
+      }
       // WS-4.4: normalize at the read seam (migration + track ids) — every
       // consumer (load-into-editor, duplicate, export) sees the current model.
-      const deck = normalizeDeck(JSON.parse(text) as Deck);
+      const deck = normalizeDeck(rawDeck);
       // WS-5.1 load gate: an invalid deck is quarantined (bytes preserved) and
       // skipped — never half-loaded into the editor.
       const errs = validateDeckFile(deck);

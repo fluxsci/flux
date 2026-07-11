@@ -32,6 +32,7 @@ import {
 import { figureToSvg } from "./export";
 import { migrateProject } from "./migrate";
 import { validateModel, sanitizeProjectGeometry } from "./project/validate";
+import { newerSchemaMessage, PROJECT_MODEL_VERSION } from "./project/types";
 import { assetDisplaySize } from "./ops";
 import { annotationsToMarkdown, type AnnotationMdMeta } from "./references/annotationsMarkdown";
 import type { Annotation } from "./references/annotations";
@@ -487,6 +488,11 @@ export async function openProject() {
       throw new Error("Not a Flux project (no project.json)");
     }
     const p: Project = JSON.parse(await window.fig.readText(jsonPath));
+    // WS-5.2: refuse a NEWER standalone model before migrate.ts stamps it DOWN
+    // to version 2 and the next save rewrites it lossily.
+    if (typeof (p as { version?: unknown }).version === "number" && (p.version as number) > PROJECT_MODEL_VERSION) {
+      throw new Error(newerSchemaMessage("This project file", p.version, String(PROJECT_MODEL_VERSION)));
+    }
     // WS-5.1: parse → migrate → validate (legacy-lenient, post-migration-strict).
     // A standalone project file is an ENTRY manifest — validation failure
     // refuses the open (the catch below toasts the detail).

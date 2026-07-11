@@ -2,6 +2,30 @@
 // App-name-agnostic: the manifest is project.json, state lives in .meta/.
 
 export const PROJECT_SCHEMA_VERSION = "0.1.0";
+// WS-5.2: named per-file format versions (the write sites used bare literals)
+// + THE forward-version comparator every load path shares. While formats are
+// 0.x, the MINOR is the breaking slot (load.ts documents this); PATCH bumps
+// load fine.
+export const FIG_INDEX_SCHEMA_VERSION = "0.1.0";
+export const CANVAS_SCHEMA_VERSION = "0.1.0";
+export const PROJECT_MODEL_VERSION = 2; // standalone Project.version (migrate.ts stamps it)
+
+/** True when fileV names a NEWER breaking format than appV (0.x: minor is the
+ *  breaking slot). Missing/garbled file versions are NOT newer (legacy). */
+export function isNewerSchema(fileV: unknown, appV: string): boolean {
+  const parse = (v: unknown) => String(v ?? "0").split(".").map((n) => parseInt(n, 10) || 0);
+  const [fileMajor, fileMinor] = parse(fileV);
+  const [appMajor, appMinor] = parse(appV);
+  return fileMajor > appMajor || (fileMajor === appMajor && fileMinor > appMinor);
+}
+
+/** The refuse copy every guard shows (single source — verify-fwdguard greps it). */
+export function newerSchemaMessage(what: string, fileV: unknown, appV: string): string {
+  return (
+    `${what} uses format ${String(fileV)}, written by a newer Flux (this app reads ${appV}). ` +
+    `Update Flux to open it — opening here could rewrite its files lossily.`
+  );
+}
 
 export interface ProjectAuthor {
   name: string;

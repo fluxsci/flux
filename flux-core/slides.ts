@@ -20,7 +20,9 @@ import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { Deck, Track } from "../src/lib/slide/types";
+import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
+import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
 
 const j = (...p: string[]) => path.join(...p);
 const stamp = () => new Date().toISOString();
@@ -88,9 +90,13 @@ export async function listDecks(root: string): Promise<DeckSummary[]> {
 export async function loadDeck(root: string, deckId: string): Promise<Deck> {
   const p = await resolveDeckPath(root, deckId);
   if (!(await exists(p))) throw new Error(`deck not found: ${deckId} (${path.relative(root, p)})`);
+  const raw = await readJSON<Deck>(p);
+  // WS-5.2 forward-version guard FIRST — never normalize a newer deck down.
+  if (isNewerSchema(raw.schemaVersion, DECK_SCHEMA_VERSION))
+    throw new Error(newerSchemaMessage(path.relative(root, p), raw.schemaVersion, DECK_SCHEMA_VERSION));
   // WS-4.4: the one chokepoint (migration + track-id backfill), shared with
   // the GUI seams — flux-core used to skip ensureTrackIds.
-  return slideOps.normalizeDeck(await readJSON<Deck>(p));
+  return slideOps.normalizeDeck(raw);
 }
 
 /** Ensure a deck is registered in project.json.slides[] (id/path/title/order). */

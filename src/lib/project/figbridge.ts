@@ -35,6 +35,7 @@ import { migrateProject } from "../migrate";
 import { validateModel, validateFigIndexFile, sanitizeProjectGeometry } from "./validate";
 import { quarantineCopy } from "./quarantine";
 import { pushToast } from "../toast";
+import { isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
 import { settings } from "../settings";
 import { composeCaption, panelLetters } from "../captions";
 import { fileBridge, joinPath, slugify } from "./types";
@@ -101,6 +102,7 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   const fig = fileBridge();
   if (!fig) return;
 
+  figSubsystemLocked = false;
   let index: FigIndexFile | null = null;
   let indexText = "";
   try {
@@ -108,6 +110,15 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     if (await fig.exists(p)) {
       indexText = await fig.readText(p);
       index = JSON.parse(indexText) as FigIndexFile;
+      // WS-5.2 forward-version guard: a NEWER fig format must not be migrated
+      // DOWN and rewritten — refuse the subsystem (saves locked) instead.
+      if (isNewerSchema(index.schemaVersion, FIG_INDEX_SCHEMA_VERSION)) {
+        pushToast("error", "Figure subsystem written by a newer Flux", {
+          detail: newerSchemaMessage("fig/index.json", index.schemaVersion, FIG_INDEX_SCHEMA_VERSION),
+        });
+        figSubsystemLocked = true;
+        return;
+      }
       // WS-5.1 load gate: a structurally-invalid index is quarantined (bytes
       // preserved as .corrupt-<ts>) and the load proceeds with defaults —
       // never silently half-parsed.
@@ -140,6 +151,15 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
       if (await fig.exists(p)) {
         const text = await fig.readText(p);
         const cf = JSON.parse(text) as CanvasFile;
+        // WS-5.2: a single newer-format canvas refuses the WHOLE subsystem —
+        // loading around it would drop its figures from the next index write.
+        if (isNewerSchema(cf.schemaVersion, CANVAS_SCHEMA_VERSION)) {
+          pushToast("error", `Canvas "${cm.name}" written by a newer Flux — figure editing disabled`, {
+            detail: newerSchemaMessage(`fig/canvases/${cm.id}.json`, cf.schemaVersion, CANVAS_SCHEMA_VERSION),
+          });
+          figSubsystemLocked = true;
+          return;
+        }
         // WS-5.1 load gate (parse → migrate → validate): migrate THIS canvas's
         // figures, validate them, and on failure quarantine the FILE + skip it
         // — sibling canvases still load (the malformed-canvas acceptance).
@@ -214,10 +234,17 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   figLoad(proj, null); // normalizes (incl. migrate), resets history, dirty=false
 }
 
+// WS-5.2: set when a load refused the subsystem (newer on-disk format) —
+// saving would downgrade files this build doesn't understand.
+let figSubsystemLocked = false;
+
 /** Persist the figure-editor stores into the project's `fig/` subsystem. */
 export async function saveFigFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
   const fig = fileBridge();
   if (!fig) return;
+  if (figSubsystemLocked) {
+    throw new Error("figure subsystem is read-only: its on-disk format is newer than this Flux");
+  }
 
   // W7 conflict guard: if fig/index.json changed on disk since we loaded/saved
   // (an agent or CLI edited the figure subsystem), don't clobber it — throw so
@@ -278,7 +305,7 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
   // One file per canvas (figures + elements) — the authoritative composition.
   for (const c of canvases) {
     const canvasFile: CanvasFile = {
-      schemaVersion: "0.1.0",
+      schemaVersion: CANVAS_SCHEMA_VERSION,
       id: c.id,
       name: c.name,
       figures: p.figures.filter((f) => f.canvasId === c.id),
@@ -319,7 +346,7 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
 
   // Index (rollup) — drives numbering / cross-ref; also stores palette + assets.
   const index: FigIndexFile = {
-    schemaVersion: "0.1.0",
+    schemaVersion: FIG_INDEX_SCHEMA_VERSION,
     canvases: canvases.map((c, i) => ({ id: c.id, name: c.name, order: i + 1 })),
     figures: p.figures.map((f, i) => ({
       id: f.id,

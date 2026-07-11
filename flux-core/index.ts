@@ -99,7 +99,7 @@ import { SCHEMAS, SCHEMA_FILENAMES, schemaForFile } from "./schemas";
 import type { Figure, Element, Project, Asset, Canvas, PartOverride, VectorNode, TextStyle } from "../src/lib/types";
 import { migrateProject } from "../src/lib/migrate";
 import type { ProjectManifest, FigureEntry } from "../src/lib/project/types";
-import { slugify } from "../src/lib/project/types";
+import { slugify, isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "../src/lib/project/types";
 
 // --------------------------------------------------------------------------
 // fs helpers + project-root path safety (M9: never escape the project root)
@@ -209,7 +209,11 @@ async function saveManifest(root: string, m: ProjectManifest): Promise<void> {
 }
 async function readFigIndex(root: string): Promise<FigIndexFile | null> {
   const p = j(root, "fig", "index.json");
-  return (await exists(p)) ? readJSON<FigIndexFile>(p) : null;
+  const idx = (await exists(p)) ? await readJSON<FigIndexFile>(p) : null;
+  // WS-5.2 forward-version guard: never migrate a NEWER fig format down.
+  if (idx && isNewerSchema(idx.schemaVersion, FIG_INDEX_SCHEMA_VERSION))
+    throw new Error(newerSchemaMessage("fig/index.json", idx.schemaVersion, FIG_INDEX_SCHEMA_VERSION));
+  return idx;
 }
 async function saveFigIndex(root: string, idx: FigIndexFile): Promise<void> {
   await writeText(j(root, "fig", "index.json"), JSON.stringify(idx, null, 2) + "\n");
@@ -224,6 +228,9 @@ async function readCanvasFiles(
     const p = safeJoin(root, `fig/canvases/${cm.id}.json`);
     if (await exists(p)) {
       const cf = await readJSON<CanvasFile>(p);
+      // WS-5.2 forward-version guard (see readFigIndex).
+      if (isNewerSchema(cf.schemaVersion, CANVAS_SCHEMA_VERSION))
+        throw new Error(newerSchemaMessage(`fig/canvases/${cm.id}.json`, cf.schemaVersion, CANVAS_SCHEMA_VERSION));
       for (const f of cf.figures ?? []) {
         (f as Figure).canvasId = cm.id;
         byId[f.id] = f;

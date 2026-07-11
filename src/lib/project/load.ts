@@ -9,6 +9,7 @@ import {
 } from "./types";
 import { pushToast } from "../toast";
 import { validateProjectManifest } from "./validate";
+import { isNewerSchema, newerSchemaMessage } from "./types";
 
 export class NotAProjectError extends Error {}
 
@@ -38,19 +39,11 @@ export async function loadProject(root: string): Promise<LoadedProject> {
   }
 
   if (manifest.schemaVersion !== PROJECT_SCHEMA_VERSION) {
-    const parse = (v: unknown) => String(v ?? "0").split(".").map((n) => parseInt(n, 10) || 0);
-    const [fileMajor, fileMinor] = parse(manifest.schemaVersion);
-    const [appMajor, appMinor] = parse(PROJECT_SCHEMA_VERSION);
     // Refuse a NEWER format outright: opening it means the app's next autosave
     // rewrites files it doesn't fully understand (a silent lossy downgrade).
-    // While the format is 0.x, the minor is the breaking slot.
-    const newer = fileMajor > appMajor || (fileMajor === appMajor && fileMinor > appMinor);
-    if (newer) {
-      throw new Error(
-        `This project uses format ${manifest.schemaVersion}, written by a newer Flux ` +
-          `(this app reads ${PROJECT_SCHEMA_VERSION}). Update Flux to open it — opening ` +
-          `here could rewrite its files lossily.`,
-      );
+    // WS-5.2: the comparator is shared by every load path (isNewerSchema).
+    if (isNewerSchema(manifest.schemaVersion, PROJECT_SCHEMA_VERSION)) {
+      throw new Error(newerSchemaMessage("This project", manifest.schemaVersion, PROJECT_SCHEMA_VERSION));
     }
     // Older format: opens fine today; surface it so "saving may upgrade files" is
     // never a surprise. Real migrations land with the first format bump.
