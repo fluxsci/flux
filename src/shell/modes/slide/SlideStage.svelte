@@ -603,10 +603,17 @@
             {#if $selection.length === 1}
               {@const cxp = (overlayBox.x + overlayBox.w / 2) * scale}
               {@const typ = overlayBox.y * scale}
-              <line class="rot-stem" x1={cxp} y1={typ} x2={cxp} y2={typ - 22} />
+              {@const byp = (overlayBox.y + overlayBox.h) * scale}
+              <!-- Near the stage top the knob would render under the deckbar
+                   (dead to the pointer — a rotated AABB can poke past y=0), so
+                   it flips BELOW the box, Figma-style. -->
+              {@const flip = typ - 28 < 0}
+              {@const anchor = flip ? byp : typ}
+              {@const kyp = flip ? byp + 22 : typ - 22}
+              <line class="rot-stem" x1={cxp} y1={anchor} x2={cxp} y2={kyp} />
               <circle
                 class="handle rot-knob"
-                cx={cxp} cy={typ - 22} r={6}
+                cx={cxp} cy={kyp} r={6}
                 onpointerdown={(e) => onRotateDown(e)} />
             {/if}
           {/if}

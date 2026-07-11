@@ -26,7 +26,10 @@ await page.evaluateOnNewDocument(() => {
   window.__netPdf = {}; // url → true ⇒ serve a fake PDF
   const b64 = (s) => btoa(s);
   window.fig = {
-    prefsGet: async () => ({ fluxLibPath: "/vlib" }),
+    // fluxLibResolved is the live pointer (the FluxConfig refactor DERIVES
+    // FluxLib and main persists the resolved path; the old fluxLibPath key is
+    // dead — this stub broke silently when the refactor merged).
+    prefsGet: async () => ({ fluxLibResolved: "/vlib" }),
     prefsSet: async () => {},
     keysGet: async () => ({ mailto: "test@flux" }),
     paths: async () => ({ home: "/vhome", userData: "/vdata" }),
@@ -65,8 +68,11 @@ await gotoApp(page, { settle: 1500 });
 
 const summary = await page.evaluate(async () => {
   const { pdfFetchJob } = await import("/src/lib/references/pdfFetchJob.svelte.ts");
-  // A: no OA anywhere. B: OA on a repository host (arXiv) → bulk may fetch it directly.
-  // P: OA exists but ONLY on the publisher's site (cell.com) → bulk must NOT touch it.
+  // A: no OA anywhere. B: OA on a repository host (arXiv) → fetched directly.
+  // P: OA hosted on the publisher's site (cell.com) → ALSO fetched: the old
+  // repository-only bulk rule was retired 2026-07-06 (it starved ~180 Cell
+  // Press OA papers); ban-safety lives in the cookie-jar netGet + per-publisher
+  // GET caps + the circuit breaker, and bulk/single-row share ONE candidate set.
   const entries = [
     { key: "cellA", type: "article", title: "A", doi: "10.1016/j.cell.1" },
     { key: "natB", type: "article", title: "B", doi: "10.1038/s1" },
@@ -79,7 +85,7 @@ const summary = await page.evaluate(async () => {
     cellP: { openAccess: { url: pubUrlP, isOa: true } },
   };
   window.__netPdf[oaUrlB] = true;
-  window.__netPdf[pubUrlP] = true; // would "succeed" if (wrongly) requested — the test is that it never is
+  window.__netPdf[pubUrlP] = true; // publisher-hosted OA is a legitimate bulk fetch now
   const gate = { proxyConfigured: false, proxySignedIn: false };
 
   const runs = [];
@@ -138,26 +144,22 @@ const summary = await page.evaluate(async () => {
 });
 
 const [r1, r2, r3] = summary.runs;
-assert(r1.sum.oaGot === 1 && r1.sum.oaSkipped === 0, `run 1 fetched B via OA (got=${r1.sum.oaGot})`);
+assert(r1.sum.oaGot === 2 && r1.sum.oaSkipped === 0, `run 1 fetched B (arXiv) + P (publisher OA) (got=${r1.sum.oaGot})`);
 assert(summary.havePdfB && summary.haveSourceB, "run 1 filed items/natB/paper.pdf + source.json");
+assert(summary.havePdfP, "run 1 filed P's publisher-hosted OA copy (bulk = single-row candidate set)");
 assert(r1.net > 0, `run 1 hit the network (${r1.net} calls)`);
-assert(
-  summary.publisherHits.length === 0 && !summary.havePdfP,
-  "REPOSITORY-ONLY: zero requests to publisher hosts across ALL runs" +
-    (summary.publisherHits.length ? ` — hit ${summary.publisherHits[0]}` : ""),
-);
-assert(r1.sum.publisherOnly === 1, `run 1 flagged cellP publisher-hosted-only (got ${r1.sum.publisherOnly})`);
+assert(summary.publisherHits.length > 0, "the publisher host WAS requested (repository-only rule retired 2026-07-06)");
 const ledger1 = JSON.parse(r1.ledger || "{}");
 assert(ledger1.misses?.cellA?.attempts === 1, "run 1 recorded cellA's OA miss in .fluxlib/oa-misses.json");
-assert(ledger1.misses?.cellP?.attempts === 1, "publisher-only paper also recorded (skips OA next run; proxy still tries)");
+assert(!ledger1.misses?.cellP, "no miss for P — its publisher OA copy fetched fine");
 assert(!ledger1.misses?.natB, "no miss recorded for the fetched paper");
 assert(ledger1.misses.cellA.sig.startsWith("10.1016/j.cell.1|"), "miss stores the identifier signature");
 
-assert(r2.sum.oaSkipped === 2, `run 2 skipped cellA + cellP via the ledger (oaSkipped=${r2.sum.oaSkipped})`);
+assert(r2.sum.oaSkipped === 1, `run 2 skipped cellA via the ledger (oaSkipped=${r2.sum.oaSkipped})`);
 assert(r2.net === 0, `run 2 made ZERO network calls (got ${r2.net})`);
 assert(r2.sum.oaGot === 0, "run 2 fetched nothing (nothing to do)");
 
-assert(r3.sum.oaSkipped === 1 && r3.sum.oaGot === 1, "run 3: changed enrichment invalidated A's miss → A fetched");
+assert(r3.sum.oaSkipped === 0 && r3.sum.oaGot === 1, "run 3: changed enrichment invalidated A's miss → A fetched");
 assert(summary.havePdfA, "run 3 filed items/cellA/paper.pdf");
 const ledger3 = JSON.parse(r3.ledger || "{}");
 assert(!ledger3.misses?.cellA, "run 3's success cleared cellA's miss from the ledger");
