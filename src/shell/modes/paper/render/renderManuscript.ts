@@ -14,6 +14,7 @@ import { EMBED_RE, parseEmbedAttrs, cssWidth } from "../science/figureAttrs";
 import { scanRefNumbers, TBL_CAPTION_RE, type RefNumbers } from "../science/refNumbers";
 import { findInlineMath, MathBlockTracker } from "../science/mathGrammar";
 import { formatReference, inTextAuthorYear } from "../../../../lib/references/format";
+import { frontMatterBounds } from "../frontmatter";
 import {
   buildCitationOrdinals,
   collapseOrdinals,
@@ -444,15 +445,18 @@ export async function renderManuscript(
 
   let meta: any = {};
   let body = src;
-  if (src.startsWith("---")) {
-    const end = src.indexOf("\n---", 3);
-    if (end >= 0) {
+  {
+    // WS-4.1: single-source bounds; the YAML text and body come from the same
+    // scan (the old string arithmetic left a stray leading newline on body —
+    // markdown-it output is unchanged either way).
+    const fmb = frontMatterBounds(src);
+    if (fmb.has) {
       try {
-        meta = yaml.load(src.slice(3, end)) ?? {};
+        meta = yaml.load(fmb.fmText) ?? {};
       } catch {
         meta = {};
       }
-      body = src.slice(end + 4);
+      body = src.slice(fmb.bodyStart);
     }
   }
 

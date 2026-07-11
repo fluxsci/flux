@@ -4,6 +4,7 @@
   import { EditorView } from "@codemirror/view";
   import { projectModel } from "../../shellStore";
   import { readManuscript, writeManuscript } from "../../../lib/project/load";
+  import { frontMatterBounds, frontMatterMeta } from "./frontmatter";
   import { externalManuscriptChange } from "../../../lib/project/projectWatch";
   import { createEditorExtensions } from "./markdown-setup";
   import Editor from "./Editor.svelte";
@@ -147,37 +148,14 @@
     return s.trim().replace(/^["']|["']$/g, "");
   }
   function parseFrontmatterMeta(src: string): { title: string; authors: string[] } {
-    let t = pm?.manifest.title ?? "Untitled";
-    let authors: string[] = ((pm?.manifest.authors ?? []) as Array<{ name?: string }>)
+    // WS-4.1: extraction lives in frontmatter.ts; this wrapper only supplies
+    // the project-manifest fallbacks (front-matter values win when non-empty).
+    const m = frontMatterMeta(src);
+    const t = m.title ?? (pm?.manifest.title ?? "Untitled");
+    const manifestAuthors: string[] = ((pm?.manifest.authors ?? []) as Array<{ name?: string }>)
       .map((a) => a?.name ?? "")
       .filter(Boolean);
-    if (src.startsWith("---")) {
-      const end = src.indexOf("\n---", 3);
-      if (end >= 0) {
-        const fm = src.slice(3, end);
-        const tm = /^title:[ \t]*(.+?)[ \t]*$/m.exec(fm);
-        if (tm) t = unquote(tm[1]);
-        const am = /^authors?:[ \t]*(.*)$/m.exec(fm);
-        if (am) {
-          const inline = am[1].trim();
-          if (inline.startsWith("[")) {
-            authors = inline.replace(/^\[|\]$/g, "").split(",").map(unquote).filter(Boolean);
-          } else if (inline) {
-            authors = [unquote(inline)];
-          } else {
-            // block list following the key, e.g. "- name: A"
-            const acc: string[] = [];
-            for (const ln of fm.slice(am.index + am[0].length).split("\n").slice(1)) {
-              if (/^[ \t]*-[ \t]*/.test(ln)) acc.push(unquote(ln.replace(/^[ \t]*-[ \t]*(?:name:[ \t]*)?/, "")));
-              else if (/^[ \t]+name:[ \t]*/.test(ln)) acc.push(unquote(ln.replace(/^[ \t]+name:[ \t]*/, "")));
-              else if (/^\S/.test(ln)) break; // next top-level key
-            }
-            if (acc.length) authors = acc.filter(Boolean);
-          }
-        }
-      }
-    }
-    return { title: t, authors };
+    return { title: t, authors: m.authors.length ? m.authors : manifestAuthors };
   }
 
   // ---- reader-adjustable editor margins ----------------------------------
@@ -260,11 +238,14 @@
     const yaml = await import("js-yaml");
     const src = view.state.doc.toString();
     let metaObj: Record<string, unknown> = {};
-    const fmEnd = src.startsWith("---") ? src.indexOf("\n---", 3) : -1;
-    const hadFm = fmEnd >= 0;
+    // WS-4.1: single-source bounds; closeEnd = end of the closing --- line
+    // (the replace below keeps the newline after it as the body separator,
+    // exactly like the old fmEnd+4 arithmetic).
+    const fmb = frontMatterBounds(src);
+    const hadFm = fmb.has;
     if (hadFm) {
       try {
-        metaObj = (yaml.load(src.slice(3, fmEnd)) as Record<string, unknown>) ?? {};
+        metaObj = (yaml.load(fmb.fmText) as Record<string, unknown>) ?? {};
       } catch {
         metaObj = {};
       }
@@ -279,7 +260,7 @@
     else metaObj.author = entries;
     const dumped = yaml.dump(metaObj, { lineWidth: -1 });
     if (hadFm) {
-      view.dispatch({ changes: { from: 0, to: fmEnd + 4, insert: `---\n${dumped}---` } });
+      view.dispatch({ changes: { from: 0, to: fmb.closeEnd, insert: `---\n${dumped}---` } });
     } else {
       view.dispatch({ changes: { from: 0, insert: `---\n${dumped}---\n\n` } });
     }
@@ -885,10 +866,8 @@
   const bodyEmpty = $derived.by(() => {
     const s = latest;
     let i = 0;
-    if (s.startsWith("---")) {
-      const end = s.indexOf("\n---", 3);
-      if (end >= 0) i = end + 4;
-    }
+    // WS-4.1: single-source boundary (frontmatter.ts).
+    i = frontMatterBounds(s).bodyStart;
     for (; i < s.length; i++) {
       const c = s.charCodeAt(i);
       if (c !== 32 && c !== 9 && c !== 10 && c !== 13) return false;

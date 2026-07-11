@@ -6,6 +6,7 @@
 
 import type { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
+import { frontMatterBounds } from "../frontmatter";
 import type { CitationGroup } from "../margin/types";
 import { isCrossrefKey as isCrossref } from "../science/grammar";
 
@@ -29,17 +30,11 @@ function insideBracket(doc: string, pos: number): boolean {
   return false;
 }
 
-/** First body position past any YAML front-matter (so inserts never land in it). */
+/** First body position past any YAML front-matter (so inserts never land in it).
+ *  WS-4.1: single-source boundary (frontmatter.ts) — its bodyStart already
+ *  lands past the close line's newline (the old +4-then-skip arithmetic). */
 function bodyStart(doc: string): number {
-  if (doc.startsWith("---")) {
-    const end = doc.indexOf("\n---", 3);
-    if (end >= 0) {
-      let p = end + 4;
-      if (doc[p] === "\n") p++;
-      return p;
-    }
-  }
-  return 0;
+  return frontMatterBounds(doc).bodyStart;
 }
 
 /** Locate the citation enclosing `pos`: a `[@…]` group, else a bare `@key`.

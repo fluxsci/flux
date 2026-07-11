@@ -12,6 +12,7 @@
 import { get, writable } from "svelte/store";
 import { anyCiteRe, isCrossrefKey } from "../science/grammar";
 import { maskInlineMath, MathBlockTracker } from "../science/mathGrammar";
+import { frontMatterBounds, frontMatterField } from "../frontmatter";
 
 export type CitationStyle = "author-year" | "numeric";
 
@@ -22,11 +23,8 @@ export function parseCitationStyle(v: unknown): CitationStyle {
 /** Extract citation-style from a raw .qmd's YAML front matter (cheap regex —
  *  this runs per keystroke on the editor side; no yaml lib). */
 export function citationStyleOf(src: string): CitationStyle {
-  if (!src.startsWith("---")) return "author-year";
-  const end = src.indexOf("\n---", 3);
-  if (end < 0) return "author-year";
-  const m = /^citation-style:\s*["']?([\w-]+)/m.exec(src.slice(3, end));
-  return parseCitationStyle(m?.[1]);
+  // WS-4.1: single-source front-matter extraction (frontmatter.ts).
+  return parseCitationStyle(frontMatterField(src, "citation-style"));
 }
 
 export interface OrdinalScan {
@@ -54,11 +52,8 @@ export function buildCitationOrdinals(
   const ranges: { from: number; to: number }[] = [];
   let next = 1;
 
-  let bodyStart = 0;
-  if (src.startsWith("---")) {
-    const end = src.indexOf("\n---", 3);
-    if (end >= 0) bodyStart = end + 4;
-  }
+  // WS-4.1: single-source boundary (frontmatter.ts).
+  const bodyStart = frontMatterBounds(src).bodyStart;
 
   let pos = bodyStart;
   let inFence = false;

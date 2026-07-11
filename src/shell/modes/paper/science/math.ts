@@ -19,6 +19,7 @@ import { refreshChips } from "./chips";
 import { setEqNumbers } from "../scholar/numbering";
 import { ensureKatex, katexReady, renderTexCached } from "./katexLoader";
 import { touchesMe, paperPerf } from "./changeGate";
+import { frontMatterEndLine } from "../frontmatter";
 
 class MathBlockWidget extends WidgetType {
   readonly rendered: string | null;
@@ -69,15 +70,12 @@ function build(state: EditorState): DecorationSet {
   let eqN = 0;
   let sawPending = false;
   const tracker = new MathBlockTracker();
-  // Skip YAML front matter (a $$ inside it isn't math).
+  // Skip YAML front matter (a $$ inside it isn't math). WS-4.1: single-source
+  // boundary (frontmatter.ts).
   let startLine = 1;
-  if (state.doc.lines > 0 && state.doc.line(1).text.trim() === "---") {
-    for (let i = 2; i <= state.doc.lines; i++) {
-      if (state.doc.line(i).text.trim() === "---") {
-        startLine = i + 1;
-        break;
-      }
-    }
+  {
+    const closeLine = frontMatterEndLine(state.doc);
+    if (closeLine > 0) startLine = closeLine + 1;
   }
   for (let n = startLine; n <= state.doc.lines; n++) {
     const line = state.doc.line(n);

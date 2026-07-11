@@ -3,6 +3,7 @@
 // a whole-doc replace, so selection/scroll/comment marks survive): replace the
 // existing line, else insert before the closing ---, else create front matter.
 import type { EditorView } from "@codemirror/view";
+import { frontMatterEndLine } from "../frontmatter";
 
 export function setFrontMatterKey(view: EditorView, key: string, value: string): void {
   const doc = view.state.doc;
@@ -14,18 +15,15 @@ export function setFrontMatterKey(view: EditorView, key: string, value: string):
     });
     return;
   }
+  // WS-4.1: the close comes from the single-source scanner (UNCAPPED — the
+  // old 100-line cap silently no-op'd on long front matter). Writer semantics
+  // unchanged: replace an existing key line, else insert before the close;
+  // unclosed front matter still means "leave the document alone".
+  const closeLine = frontMatterEndLine(doc);
+  if (closeLine === 0) return; // unclosed (malformed) — leave the document alone
   const keyRe = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:`);
-  const cap = Math.min(doc.lines, 100);
-  for (let i = 2; i <= cap; i++) {
+  for (let i = 2; i < closeLine; i++) {
     const l = doc.line(i);
-    if (l.text.trim() === "---") {
-      // No existing key — insert just before the closing fence.
-      view.dispatch({
-        changes: { from: l.from, to: l.from, insert: `${key}: ${value}\n` },
-        userEvent: "input",
-      });
-      return;
-    }
     if (keyRe.test(l.text)) {
       view.dispatch({
         changes: { from: l.from, to: l.to, insert: `${key}: ${value}` },
@@ -34,5 +32,9 @@ export function setFrontMatterKey(view: EditorView, key: string, value: string):
       return;
     }
   }
-  // Unclosed front matter (malformed) — leave the document alone.
+  const close = doc.line(closeLine);
+  view.dispatch({
+    changes: { from: close.from, to: close.from, insert: `${key}: ${value}\n` },
+    userEvent: "input",
+  });
 }

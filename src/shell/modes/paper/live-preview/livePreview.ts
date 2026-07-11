@@ -17,6 +17,7 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
+import { frontMatterEndLine } from "../frontmatter";
 import type { EditorState, Range } from "@codemirror/state";
 import { BulletWidget, HrWidget } from "./widgets";
 
@@ -87,15 +88,13 @@ function buildDecorations(view: EditorView): {
   // Detect the block by text and render it as quiet metadata — view-only, the
   // document is untouched and the title pill is the real editing surface.
   let fmEnd = -1;
-  if (state.doc.lineAt(0).text.trim() === "---" && state.doc.lines > 1) {
-    for (let n = 2; n <= state.doc.lines; n++) {
-      const ln = state.doc.line(n);
-      if (ln.text.trim() === "---") {
-        fmEnd = ln.to;
-        for (let k = 1; k <= n; k++) {
-          marks.push(Decoration.line({ class: "cm-frontmatter" }).range(state.doc.line(k).from));
-        }
-        break;
+  {
+    // WS-4.1: single-source boundary (frontmatter.ts).
+    const closeLine = frontMatterEndLine(state.doc);
+    if (closeLine > 0) {
+      fmEnd = state.doc.line(closeLine).to;
+      for (let k = 1; k <= closeLine; k++) {
+        marks.push(Decoration.line({ class: "cm-frontmatter" }).range(state.doc.line(k).from));
       }
     }
   }

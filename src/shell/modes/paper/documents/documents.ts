@@ -4,6 +4,7 @@
 
 import { fileBridge, joinPath, type LoadedProject } from "../../../../lib/project/types";
 import { readManuscript } from "../../../../lib/project/load";
+import { frontMatterField } from "../frontmatter";
 
 export interface DocEntry {
   path: string; // relative to the project root, e.g. "manuscript/main.qmd"
@@ -21,14 +22,9 @@ function dirOf(rel: string): string {
 
 /** Pull a title from a .qmd's YAML front-matter; fall back if there is none. */
 export function docTitle(src: string, fallback: string): string {
-  if (src.startsWith("---")) {
-    const end = src.indexOf("\n---", 3);
-    if (end >= 0) {
-      const m = /^title:[ \t]*(.+?)[ \t]*$/m.exec(src.slice(3, end));
-      if (m) return m[1].trim().replace(/^["']|["']$/g, "");
-    }
-  }
-  return fallback;
+  // WS-4.1: single-source front-matter extraction (frontmatter.ts).
+  const t = frontMatterField(src, "title");
+  return t ? t : fallback;
 }
 
 /** Discover the project's documents: main + supplementary + manuscript/**.qmd. */

@@ -12,6 +12,7 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
+import { frontMatterEndLine } from "../frontmatter";
 import { StateEffect, type EditorState, type Range } from "@codemirror/state";
 import { CiteWidget, EmbedSrcWidget, FigRefWidget, MathWidget } from "./widgets";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "./grammar";
@@ -112,15 +113,11 @@ function build(view: EditorView): DecorationSet {
   // Front-matter end: `$`-bearing YAML values must not chip as math (2.1). Line
   // walk, capped — build runs per keystroke, so no whole-doc toString here.
   let fmEnd = 0;
-  if (state.doc.lines > 1 && state.doc.line(1).text.trim() === "---") {
-    const cap = Math.min(state.doc.lines, 100);
-    for (let i = 2; i <= cap; i++) {
-      const l = state.doc.line(i);
-      if (l.text.trim() === "---") {
-        fmEnd = l.to + 1;
-        break;
-      }
-    }
+  {
+    // WS-4.1: single-source boundary (uncapped — the old 100-line cap missed
+    // closes in long front matter).
+    const closeLine = frontMatterEndLine(state.doc);
+    if (closeLine > 0) fmEnd = state.doc.line(closeLine).to + 1;
   }
   let pendingMath = false;
 
