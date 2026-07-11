@@ -344,7 +344,11 @@ export type Element =
 export type ElementType = Element["type"];
 
 // ---------------------------------------------------------------------------
-// Viewport — not persisted; lives in the editor only.
+// Viewport — EDITOR-ONLY state that deliberately lives in this persisted-model
+// file: every consumer of the figure model needs it alongside Project, and the
+// save paths never serialize it (it's not a Project field), so co-location
+// costs nothing while a separate module would just add an import hop. Moving
+// it is churn without payoff (WS-10 comment-truth sweep).
 // ---------------------------------------------------------------------------
 export interface Viewport {
   panX: number;

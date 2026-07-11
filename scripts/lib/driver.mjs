@@ -50,11 +50,11 @@ export function errors(page) {
   return _errs.get(page) || [];
 }
 
-// Errors that matter for a feature gate: drops the pre-existing page-load resource
-// 404 (a favicon / demo-fixture asset present on `main` before any of these
-// features) so a real regression (PAGEERR, thrown exceptions) still fails loudly.
+// Errors that matter for a feature gate. The old "tolerated 404" filter is
+// GONE (WS-10(5)): it was the auto-requested /favicon.ico, now satisfied by a
+// data: icon link in index.html — gates run against a genuinely clean console.
 export function realErrors(page) {
-  return errors(page).filter((e) => !/Failed to load resource.*404/i.test(e));
+  return errors(page);
 }
 
 // Navigate to the app and let intro animations settle. Retries while the dev

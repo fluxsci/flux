@@ -2,7 +2,8 @@
    Flux design tokens — the single source of truth for the whole app.
    Seeded by the Flexoki palette; consumed by the behavior, appearance, and
    motion layers alike. See style_principles.md (P7).
-   Dark theme only for now (light mode is a documented open question).
+   The app chrome is dark; the .paper scope below IS the light theme (the
+   manuscript page renders on Flexoki paper).
 
    Brand note: the Flux mark is a twisting double-sine braid in blue/gold/teal.
    Those three brand colours live ONLY in the logomark (src/shell/Logomark.svelte);

@@ -123,7 +123,8 @@
       "verify-w4-autosave.ts",
       "verify-w9-roundtrip.ts",
       "verify-writer-latency.ts",
-      "verify-tokens.mjs"
+      "verify-tokens.mjs",
+      "verify-tokens-sync.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
