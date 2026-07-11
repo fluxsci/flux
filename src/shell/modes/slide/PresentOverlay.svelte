@@ -6,6 +6,7 @@
   import { onMount, onDestroy } from "svelte";
   import { get } from "svelte/store";
   import { createPlayer, renderStaticAt, type Player, type PlayerState, type PlayerOpts } from "../../../lib/slide/player/player";
+  import { reducePresentKey, hudModel, panelModel, NEXT_W, type PresentState } from "../../../lib/slide/present/core";
   import { plotManifests } from "../../../lib/plot/store";
   import { figureMembers } from "../../../lib/slide/store";
   import type { Deck, DeckTheme } from "../../../lib/slide/types";
@@ -47,12 +48,16 @@
   let wakeLock: { release: () => Promise<void> } | null = null;
 
   const scale = $derived(vw > 0 && vh > 0 ? Math.min(vw / deck.stage.width, vh / deck.stage.height) : 1);
-  const notes = $derived(deck.slides[st.slide]?.notes ?? "");
-  const clock = $derived(`${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`);
-  const nextIdx = $derived(st.slide + 1 < deck.slides.length ? st.slide + 1 : -1);
-  // preview scale for the presenter panel's next-slide thumbnail
-  const NEXT_W = 300;
-  const nextScale = $derived(NEXT_W / deck.stage.width);
+  // WS-3.3: HUD + presenter-panel view-models come from present/core — the ONE
+  // logic shared with the exported runtime; this host binds them into Svelte.
+  const hud = $derived(hudModel(st));
+  const panel = $derived(
+    panelModel({
+      slide: st.slide, beat: st.beat, totalSlides: st.totalSlides, totalBeats: st.totalBeats,
+      notes: deck.slides[st.slide]?.notes, elapsedSec: elapsed, reducedMotion, stageWidth: deck.stage.width,
+    }),
+  );
+  const nextIdx = $derived(panel.nextIdx);
 
   function playerOpts(): PlayerOpts {
     return { mode: "present", theme, assetUrl, figureSvg, plotManifest: (id) => get(plotManifests)[id], figureMember: (fid, mid) => get(figureMembers)[fid]?.[mid], reducedMotion };
@@ -108,11 +113,6 @@
       if (wl) wakeLock = await wl.request("screen");
     } catch { /* unsupported / denied — harmless */ }
   }
-  function toggleReducedMotion() {
-    reducedMotion = !reducedMotion;
-    buildPlayer({ slide: st.slide, beat: st.beat }); // rebuild honoring the new setting
-  }
-
   // Cursor auto-hides after inactivity (B21); any move brings it (and the HUD) back.
   function bumpIdle() {
     idle = false;
@@ -133,25 +133,26 @@
   function onKey(e: KeyboardEvent) {
     if (!player) return;
     bumpIdle();
-    const k = e.key;
-    if (k === "Escape") { onClose(); return; }
-    if (blank && k !== "b" && k !== "B" && k !== "w" && k !== "W") blank = "";
-    if (/^[0-9]$/.test(k)) { digits += k; return; }
-    if (k === "Enter" && digits) { player.goTo(Math.max(0, Math.min(deck.slides.length - 1, parseInt(digits, 10) - 1)), 0); digits = ""; return; }
-    if (k !== "Shift" && k !== "Meta" && k !== "Control" && k !== "Alt") digits = "";
-    switch (k) {
-      case "ArrowRight": case " ": case "PageDown": e.preventDefault(); e.shiftKey ? player.nextSlide() : player.next(); break;
-      case "ArrowLeft": case "Backspace": case "PageUp": e.preventDefault(); e.shiftKey ? player.prevSlide() : player.prev(); break;
-      case "ArrowDown": e.preventDefault(); player.nextSlide(); break;
-      case "ArrowUp": e.preventDefault(); player.prevSlide(); break;
-      case "Home": player.goTo(0, 0); break;
-      case "End": player.goTo(deck.slides.length - 1, 0); break;
-      case "b": case "B": blank = blank === "black" ? "" : "black"; break;
-      case "w": case "W": blank = blank === "white" ? "" : "white"; break;
-      case "f": case "F": toggleFullscreen(); break;
-      case "s": case "S": showNotes = !showNotes; break;
-      case "r": case "R": elapsed = 0; break;
-      case "m": case "M": toggleReducedMotion(); break;
+    // WS-3.3: clicker semantics live in present/core's reducer — this host
+    // applies the state and runs the effects (close/fullscreen/rebuild/timer).
+    const r = reducePresentKey(
+      e.key,
+      e.shiftKey,
+      { blank, showNotes, digits, reducedMotion } satisfies PresentState,
+      player,
+      deck.slides.length,
+    );
+    if (r.preventDefault) e.preventDefault();
+    blank = r.state.blank;
+    showNotes = r.state.showNotes;
+    digits = r.state.digits;
+    const motionChanged = r.state.reducedMotion !== reducedMotion;
+    reducedMotion = r.state.reducedMotion;
+    switch (r.effect.kind) {
+      case "close": onClose(); break;
+      case "fullscreen": toggleFullscreen(); break;
+      case "rebuild": if (motionChanged) buildPlayer({ slide: st.slide, beat: st.beat }); break;
+      case "resetTimer": elapsed = 0; break;
     }
   }
   function toggleFullscreen() {
@@ -194,26 +195,26 @@
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
     <div class="notes" onclick={(e) => e.stopPropagation()}>
       <div class="notes-top">
-        <span class="clock">{clock}</span>
-        <span class="pos">slide {st.slide + 1}/{st.totalSlides} · beat {st.beat + 1}/{st.totalBeats}</span>
+        <span class="clock">{panel.clock}</span>
+        <span class="pos">{panel.pos}</span>
       </div>
       <div class="next">
-        <div class="next-label">{nextIdx >= 0 ? "Next" : "End of deck"}</div>
-        {#if nextIdx >= 0}
-          <div class="next-frame" style={`width:${NEXT_W}px;height:${deck.stage.height * nextScale}px`}>
+        <div class="next-label">{panel.nextLabel}</div>
+        {#if panel.nextIdx >= 0}
+          <div class="next-frame" style={`width:${NEXT_W}px;height:${deck.stage.height * panel.nextScale}px`}>
             <div class="next-scaled" bind:this={nextMount}
-              style={`width:${deck.stage.width}px;height:${deck.stage.height}px;transform:scale(${nextScale});transform-origin:0 0`}></div>
+              style={`width:${deck.stage.width}px;height:${deck.stage.height}px;transform:scale(${panel.nextScale});transform-origin:0 0`}></div>
           </div>
         {/if}
       </div>
-      <div class="notes-body">{notes || "No notes for this slide."}</div>
-      <div class="notes-hint">S notes · M motion {reducedMotion ? "off" : "on"} · B/W blank · R reset · F full</div>
+      <div class="notes-body">{panel.notes}</div>
+      <div class="notes-hint">{panel.hint}</div>
     </div>
   {/if}
 
   <div class="hud">
-    <span>{st.slide + 1} / {st.totalSlides}</span>
-    <span class="beats">{#each Array(st.totalBeats) as _, i (i)}<span class="dot" class:on={i <= st.beat}></span>{/each}</span>
+    <span>{hud.counter}</span>
+    <span class="beats">{#each hud.dots as on, i (i)}<span class="dot" class:on={on}></span>{/each}</span>
     <button class="x" onclick={(e) => { e.stopPropagation(); onClose(); }} title="Exit (Esc)">Esc</button>
   </div>
 </div>

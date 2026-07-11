@@ -90,6 +90,7 @@
       "verify-slide-playback.ts",
       "verify-slide-player.ts",
       "verify-slide-present.ts",
+      "verify-present-core.ts",
       "verify-slide-scatter-showcase.ts",
       "verify-slide-track-ops.ts",
       "verify-slide-trackid.ts",
