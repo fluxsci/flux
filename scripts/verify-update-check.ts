@@ -1,4 +1,5 @@
 // 5.3 — packaged update check. Two parts:
+// presence: main-process / build-config source shapes — not headless-drivable (WS-7.5).
 //  1. LOGIC: unit-test the pure decision helpers (electron/updateCheck.cjs) — version
 //     comparison + the GitHub-payload → offer decision — without booting Electron.
 //  2. SOURCE: assert the wiring that can only run in a packaged app (main handler is

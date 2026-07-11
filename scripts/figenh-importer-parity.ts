@@ -1,4 +1,5 @@
 #!/usr/bin/env -S npx tsx
+// presence: main-process / build-config source shapes — not headless-drivable (WS-7.5).
 // figure-v1 P0b — importer multi-select parity: the batch-import verb exists on
 // every agent surface and produces the SAME model outcome as the GUI's Alt+I
 // multi-insert (Ctrl+Enter → io.importPlotsFromPaths).

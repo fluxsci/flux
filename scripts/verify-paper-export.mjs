@@ -45,6 +45,45 @@ ok((ui.items ?? []).some((t) => /pdf/i.test(t)) && (ui.items ?? []).some((t) => 
 ok(ui.menuGone === true, "scrim click closes the menu");
 ok(ui.focusInEditor === true, "focus returns to the editor after close (feel invariant 7)");
 
+console.log("A2 — quarto {ok:false} surfaces as an error toast (behavioral, WS-7.5):");
+const toastCase = await page.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Stub the bridge's quarto entry points: available, but the render FAILS.
+  // quartoAvail is sampled at PaperMode MOUNT (it gates the Word menu item),
+  // so stub FIRST, then remount paper via the pane store.
+  const fig = window.fig;
+  const origAvail = fig.quartoAvailable;
+  const origRender = fig.quartoRender;
+  fig.quartoAvailable = async () => ({ installed: true });
+  fig.quartoRender = async () => ({ ok: false, log: "stub: pandoc exploded" });
+  try {
+    window.__flux.panes.resetPanes("figure");
+    await sleep(300);
+    window.__flux.panes.resetPanes("paper");
+    await sleep(900);
+    const exportBtn = [...document.querySelectorAll(".statusbar .seg")].find((b) => /export/i.test(b.textContent || ""));
+    exportBtn?.click();
+    await sleep(250);
+    const word = [...document.querySelectorAll(".export-menu button")].find((b) => /word/i.test(b.textContent || ""));
+    if (!word) return { error: "no Word item in the export menu" };
+    word.click();
+    // The failure toast lands after flush + materialize + the stubbed render.
+    let toast = "";
+    for (let i = 0; i < 40 && !toast; i++) {
+      await sleep(150);
+      toast = [...document.querySelectorAll(".toast, [class*=toast]")].map((t) => t.textContent || "").join(" ");
+      if (!/word export failed|failed/i.test(toast)) toast = "";
+    }
+    const falseSuccess = [...document.querySelectorAll(".toast, [class*=toast]")].some((t) => /exported ✓|exported/i.test((t.textContent || "").toLowerCase()) && !/failed/i.test(t.textContent || ""));
+    return { toast: toast.slice(0, 120), falseSuccess };
+  } finally {
+    fig.quartoAvailable = origAvail;
+    fig.quartoRender = origRender;
+  }
+});
+ok(!toastCase.error && /failed/i.test(toastCase.toast ?? ""), `quarto {ok:false} → error toast ("${(toastCase.toast ?? toastCase.error ?? "").slice(0, 60)}")`);
+ok(toastCase.falseSuccess === false, "no false 'Exported ✓' on failure");
+
 console.log("B — materializeRenders writes embedded figures to fig/renders/:");
 const mat = await page.evaluate(async () => {
   const figures = await import("/src/shell/modes/paper/scholar/figures.ts");
@@ -98,7 +137,8 @@ ok(/underDir\(docAbs, rootAbs\)/.test(main) && /\\\.qmd\$/.test(main), "docPath 
 ok(/no output file found/.test(main) && /outPath/.test(main), "artifact existence verified, outPath returned");
 ok(/shell:showItemInFolder/.test(main) && main.slice(main.indexOf("shell:showItemInFolder")).slice(0, 300).includes("fsGuard"), "showItemInFolder exists and is fsGuard'd");
 
-const core = readFileSync("flux-core/index.ts", "utf8");
+// WS-6.2: compile/materializeRenders live in the manuscript + render modules.
+const core = readFileSync("flux-core/manuscript.ts", "utf8") + readFileSync("flux-core/render.ts", "utf8");
 ok(/export async function materializeRenders/.test(core) && /materializeRenders\(root, m\.manuscript\.path\)/.test(core), "flux-core compile() materializes renders (bare-quarto/agent parity)");
 const cli = readFileSync("flux-cli.ts", "utf8");
 ok(/case "render-figures"/.test(cli), "CLI exposes render-figures");

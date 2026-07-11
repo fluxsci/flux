@@ -1,4 +1,5 @@
 // R3 — FluxReader "Ask Claude" context handoff. Two parts:
+// presence: main-process / build-config source shapes — not headless-drivable (WS-7.5).
 //  1. LIVE: launch the flux MCP server exactly the way agent:mcpSpec tells `claude` to
 //     (repo tsx bin + flux-mcp.ts) and drive a real stdio JSON-RPC handshake through
 //     tools/call get_reading_context — proving the spawned session can see the reader.

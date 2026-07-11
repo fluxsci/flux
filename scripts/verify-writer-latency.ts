@@ -1,4 +1,5 @@
 // Writer-latency regression guard (hermetic, pure tier).
+// presence: the source-shape half is main-process/not headless-drivable (WS-7.5).
 //
 // This is the always-on tripwire for the two writer-responsiveness invariants
 // that were hand-won on Electron 43 / Chromium 150 — asserted against source so

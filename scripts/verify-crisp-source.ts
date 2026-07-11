@@ -1,4 +1,5 @@
 // verify-crisp-source.ts — figure-v1 P6 source tripwires (pure tier).
+// presence: main-process / build-config source shapes — not headless-drivable (WS-7.5).
 //
 // Guards the SHAPE of the crisp-at-rest fix in src/lib/Canvas.svelte so a
 // refactor can never silently undo it (à la verify-writer-latency.ts). The

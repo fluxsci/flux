@@ -180,7 +180,8 @@ try {
   const after = await page.evaluate(() => window.__openFilesCalls);
   assert(before === 0 && after === 1, `Ctrl+Shift+K (and ONLY it) reaches the importer (calls ${before}→${after})`);
 
-  // source/tooltip tripwires (the remap must not silently regress)
+  // source/tooltip tripwires — DELIBERATE double-cover on top of the behavioral
+  // chord presses above (WS-7.5: behavior is the gate; these catch a silent remap).
   const src = readFileSync("src/lib/keyboard.ts", "utf8");
   assert(/k === "k" && e\.shiftKey/.test(src) && /importAssets\(\)/.test(src), "keyboard.ts routes import through Ctrl+Shift+K");
   assert(!/k === "i"\)\s*\{\s*e\.preventDefault\(\);\s*importAssets/.test(src), "keyboard.ts no longer imports on ctrl+I");

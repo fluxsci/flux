@@ -37,6 +37,13 @@ const res = await page.evaluate(async () => {
   return { spellcheck, searchPanel: !!panel, hasInput };
 });
 
+// WS-7.5 (PAP-22 behavioral): read the LIVE chip title attributes while the
+// page is still open — replaces the old widgets.ts regex presence check.
+const hints = await page.evaluate(() => {
+  const fig = document.querySelector(".cm-content .flux-figref:not(.unresolved)");
+  const cite = document.querySelector(".cm-content .flux-cite:not(.unresolved)");
+  return { fig: fig?.title ?? "(no figref chip)", cite: cite?.title ?? "(no cite chip)" };
+});
 const errs = realErrors(page);
 await browser.close();
 
@@ -50,10 +57,9 @@ console.log("PAP-10 — find/replace panel opens on Cmd/Ctrl-F:");
 assert(res.searchPanel, "the .cm-search panel is present after Cmd/Ctrl-F");
 assert(res.hasInput, "the search panel has a query input");
 
-console.log("PAP-22 — chip double-click hint (presence):");
-const widgets = await fs.readFile(path.join(import.meta.dirname, "..", "src/shell/modes/paper/science/widgets.ts"), "utf8");
-assert(/el\.title = this\.resolved \? "Double-click to jump/.test(widgets), "figref chip carries a double-click title hint");
-assert(/el\.title = this\.resolved \? "Double-click to edit/.test(widgets), "cite chip carries a double-click title hint");
+console.log("PAP-22 — chip double-click hint (behavioral, WS-7.5):");
+assert(/Double-click to jump/.test(hints.fig), `figref chip title hints double-click ("${hints.fig.slice(0, 40)}")`);
+assert(/Double-click to edit/.test(hints.cite), `cite chip title hints double-click ("${hints.cite.slice(0, 40)}")`);
 
 if (errs.length) {
   console.error("\nP5 PAPER VERIFY: FAIL — console errors:", JSON.stringify(errs, null, 2));

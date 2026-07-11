@@ -1,4 +1,5 @@
 #!/usr/bin/env -S npx tsx
+// presence: main-process / build-config source shapes — not headless-drivable (WS-7.5).
 // W12 — Security & path safety. Two layers:
 //  (1) flux-core path safety (AGT-5) — tested for real: safeId/safeJoin reject traversal, and
 //      the verb boundaries (create-figure / compose-figure) refuse a crafted `--id ../../x`
