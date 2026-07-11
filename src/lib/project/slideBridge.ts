@@ -20,6 +20,7 @@ import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { readFigSource } from "./figbridge";
+import { ConflictError } from "../autosave";
 import { figureToSvg } from "../export";
 import { figureGroupTree, membersDeep, effectiveHidden, type FigureGroupNode } from "../groups";
 import { elementBBox } from "../geometry";
@@ -34,6 +35,37 @@ export interface DeckListItem {
 
 const stamp = () => new Date().toISOString();
 const deckRel = (deckId: string) => `slides/${deckId}/deck.json`;
+
+// WS-5.4: decks had NO divergence guard at all — the fig/ subsystem's baseline
+// mechanism, mirrored. Keyed by absolute deck path (deck ids repeat across
+// projects); seeded at read, adopted after every save. saveDeckFrom compares
+// disk against it and throws ConflictError instead of clobbering an external
+// (agent/CLI) edit; the shared autosave controller treats that as
+// stay-dirty-no-retry and SlideMode surfaces the reload/overwrite banner.
+const deckBaseline = new Map<string, string>();
+
+async function readDeckText(
+  fig: NonNullable<ReturnType<typeof fileBridge>>,
+  absPath: string,
+): Promise<string> {
+  try {
+    return (await fig.exists(absPath)) ? await fig.readText(absPath) : "";
+  } catch {
+    return "";
+  }
+}
+
+/** WS-5.4: has this deck's file changed on disk since we read/wrote it? */
+export async function deckDiskDiverged(root: string, deckId: string): Promise<boolean> {
+  const fig = fileBridge();
+  if (!fig) return false;
+  const m = await readManifest(root);
+  const rel = m?.slides?.find((s) => s.id === deckId)?.path ?? deckRel(deckId);
+  const abs = joinPath(root, rel);
+  const baseline = deckBaseline.get(abs);
+  if (baseline == null) return false;
+  return (await readDeckText(fig, abs)) !== baseline;
+}
 
 async function readManifest(root: string): Promise<ProjectManifest | null> {
   const fig = fileBridge();
@@ -112,6 +144,7 @@ export async function readDeck(root: string, deckId: string): Promise<Deck | nul
         });
         return null;
       }
+      deckBaseline.set(joinPath(root, rel), text); // WS-5.4: what we believe is on disk
       return deck;
     }
   } catch {
@@ -132,8 +165,10 @@ async function registerDeck(root: string, deck: Deck): Promise<void> {
   const m = await readManifest(root);
   if (!m) return;
   m.slides = Array.isArray(m.slides) ? m.slides : [];
-  const rel = deckRel(deck.id);
   const idx = m.slides.findIndex((s) => s.id === deck.id);
+  // WS-5.4: preserve a manifest-customized path — readDeck resolves through the
+  // manifest, so forcing the default here split reads and writes across files.
+  const rel = (idx >= 0 ? m.slides[idx].path : undefined) ?? deckRel(deck.id);
   const order = idx >= 0 ? m.slides[idx].order ?? idx + 1 : m.slides.length + 1;
   const entry = { id: deck.id, path: rel, title: deck.title, order };
   if (idx >= 0) m.slides[idx] = { ...m.slides[idx], ...entry };
@@ -142,15 +177,28 @@ async function registerDeck(root: string, deck: Deck): Promise<void> {
 }
 
 /** Persist the live deck to slides/<id>/deck.json (+ register in the manifest). */
-export async function saveDeckFrom(root: string): Promise<void> {
+export async function saveDeckFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
   const fig = fileBridge();
   const d = get(deckStore);
   if (!fig || !d) return;
+  // WS-5.4 conflict guard (fig/'s W7 mechanism, mirrored): refuse to clobber a
+  // deck.json that changed on disk since we read/wrote it. `force` = the
+  // banner's Overwrite. NOTE the abs path must match readDeck's seed — resolve
+  // through the manifest the same way.
+  const m0 = await readManifest(root);
+  const rel = m0?.slides?.find((s) => s.id === d.id)?.path ?? deckRel(d.id);
+  const abs = joinPath(root, rel);
+  const baseline = deckBaseline.get(abs);
+  if (!opts.force && baseline != null && (await readDeckText(fig, abs)) !== baseline) {
+    throw new ConflictError("deck changed on disk");
+  }
   const genAtStart = deckEditGen.n; // W4: only clear dirty if no edit lands mid-save
   d.modified = stamp();
   await fig.mkdir(joinPath(root, "slides", d.id));
   await fig.mkdir(joinPath(root, "slides", d.id, "assets"));
-  await fig.writeText(joinPath(root, deckRel(d.id)), JSON.stringify(d, null, 2) + "\n");
+  const text = JSON.stringify(d, null, 2) + "\n";
+  await fig.writeText(abs, text);
+  deckBaseline.set(abs, text); // adopt what we just wrote
   await registerDeck(root, d);
   // WS6: provenance for the human's save (Electron only; mem/demo bridge no-ops).
   const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;

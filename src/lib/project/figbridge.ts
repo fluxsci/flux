@@ -61,12 +61,34 @@ async function readFigIndexText(
   }
 }
 
-/** W7: has fig/index.json changed on disk since we loaded/saved it? (used by the
- *  FigureMode divergence banner + W10 live-reload). */
+/** WS-5.4: has any canvas file changed on disk since we loaded/wrote it? The
+ *  index-only check missed an agent editing `canvases/<id>.json` in place (same
+ *  canvas set → identical index) — the GUI's next autosave silently clobbered
+ *  it. A baselined file that VANISHED counts as divergence too. */
+async function canvasesDiverged(
+  fig: NonNullable<ReturnType<typeof fileBridge>>,
+  root: string,
+): Promise<boolean> {
+  for (const [id, baseline] of canvasBaseline) {
+    try {
+      const p = joinPath(root, SUB, "canvases", `${id}.json`);
+      const onDisk = (await fig.exists(p)) ? await fig.readText(p) : "";
+      if (onDisk !== baseline) return true;
+    } catch {
+      return true; // unreadable where we have a baseline — treat as diverged
+    }
+  }
+  return false;
+}
+
+/** W7: has the fig/ subsystem changed on disk since we loaded/saved it? (used by
+ *  the FigureMode divergence banner + W10 live-reload). WS-5.4: checks the index
+ *  AND every baselined canvas file. */
 export async function figDiskDiverged(root: string): Promise<boolean> {
   const fig = fileBridge();
   if (!fig || figIndexBaseline == null) return false;
-  return (await readFigIndexText(fig, root)) !== figIndexBaseline;
+  if ((await readFigIndexText(fig, root)) !== figIndexBaseline) return true;
+  return canvasesDiverged(fig, root);
 }
 
 interface FigIndexFile {
@@ -256,9 +278,23 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
   // (an agent or CLI edited the figure subsystem), don't clobber it — throw so
   // the FigureMode banner offers reload/overwrite. The shared autosave controller
   // treats ConflictError as stay-dirty-no-retry. `force` (the banner's Overwrite)
-  // skips the check and makes the editor's version win.
-  if (!opts.force && figIndexBaseline != null && (await readFigIndexText(fig, root)) !== figIndexBaseline) {
-    throw new ConflictError("figure subsystem changed on disk");
+  // skips the check and makes the editor's version win. WS-5.4: per-canvas
+  // divergence throws the same way — an in-place canvas edit leaves the index
+  // byte-identical, so the index-only guard never saw it.
+  if (!opts.force && figIndexBaseline != null) {
+    if ((await readFigIndexText(fig, root)) !== figIndexBaseline || (await canvasesDiverged(fig, root))) {
+      throw new ConflictError("figure subsystem changed on disk");
+    }
+  }
+  if (opts.force) {
+    // Overwrite-with-mine: the skip-unchanged baselines describe what WE last
+    // wrote — not what's on disk anymore. Without re-baselining, a canvas whose
+    // MODEL text still matches our baseline would be skipped and the external
+    // edit would silently WIN an explicit Overwrite. Clearing forces a full
+    // rewrite; re-reading the index makes index.json.bak preserve the external
+    // version being clobbered (the only copy of it).
+    canvasBaseline.clear();
+    figIndexBaseline = await readFigIndexText(fig, root);
   }
 
   const genAtStart = editGen.n; // W4: only clear dirty if no edit lands mid-save

@@ -61,6 +61,7 @@
       "verify-loadgate.ts",
       "verify-fwdguard.ts",
       "verify-figsave-txn.ts",
+      "verify-canvas-divergence.ts",
       "verify-annotations-md.ts",
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",

@@ -26,6 +26,7 @@
     listProjectDecks,
     loadDeckInto,
     saveDeckFrom,
+    deckDiskDiverged,
     createDeckInProject,
     duplicateDeckInProject as duplicateDeckBridge,
     deleteDeckFromProject as deleteDeckBridge,
@@ -44,7 +45,7 @@
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen } from "../../../lib/plot/store";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
-  import { createAutosave } from "../../../lib/autosave";
+  import { createAutosave, ConflictError } from "../../../lib/autosave";
   import { registerFlushable } from "../../lifecycle";
   import { deckRevision } from "../../scholar/revisions";
   import SlideStage from "./SlideStage.svelte";
@@ -73,16 +74,37 @@
   let unsubDirty: (() => void) | undefined;
   let unsubDeckRev: (() => void) | undefined;
 
+  // WS-5.4: local edits + an external deck.json write → reload/overwrite banner
+  // (fig/'s W7 divergence UX, mirrored — decks previously clobbered silently).
+  let deckDiverged = $state(false);
+
   // W10 (SLD-1): an external (agent/CLI) write to slides/ live-reloads the deck.
   // deckRevision fires only for genuine external edits (the watcher suppresses our
   // own saves), so no self-reload guard is needed. Clean → reload the active deck
-  // in place; dirty → keep the human's work (the W3 slides lock guards the save).
+  // in place; dirty → surface the reload/overwrite banner instead of racing the
+  // autosave against the external write (WS-5.4).
   async function onDeckRevision() {
     if (!pm || !ready) return;
     decks = await listProjectDecks(pm.root); // an agent may have added/removed a deck
-    if (get(deckDirty) || !activeDeckId) return;
+    if (!activeDeckId) return;
+    if (get(deckDirty)) {
+      if (await deckDiskDiverged(pm.root, activeDeckId)) deckDiverged = true;
+      return;
+    }
     await loadDeckInto(pm.root, activeDeckId);
     await refreshAssets();
+  }
+  async function reloadDeckTheirs() {
+    if (!pm || !activeDeckId) return;
+    await loadDeckInto(pm.root, activeDeckId); // re-seeds the baseline + clears dirty
+    await refreshAssets();
+    deckDiverged = false;
+  }
+  async function overwriteDeckMine() {
+    if (!pm) return;
+    await saveDeckFrom(pm.root, { force: true }); // editor's version wins
+    decks = await listProjectDecks(pm.root);
+    deckDiverged = false;
   }
 
   // W4: the shared autosave controller (stay-dirty + silent retry + sticky
@@ -93,7 +115,14 @@
     isDirty: () => !!pm && get(deckDirty),
     save: async () => {
       if (!pm) return;
-      await saveDeckFrom(pm.root); // clears deckDirty only on success
+      try {
+        await saveDeckFrom(pm.root); // clears deckDirty only on success
+      } catch (e) {
+        // WS-5.4: don't clobber an external write — surface the banner; the
+        // controller keeps us dirty and won't retry/toast a ConflictError.
+        if (e instanceof ConflictError) deckDiverged = true;
+        throw e;
+      }
       decks = await listProjectDecks(pm.root);
     },
   });
@@ -850,6 +879,14 @@
       {exportMsg.text}
     </div>
   {/if}
+
+  {#if deckDiverged}
+    <div class="disk-toast">
+      <span>This deck changed on disk (an agent or another tool edited it).</span>
+      <button onclick={reloadDeckTheirs}>Reload theirs</button>
+      <button class="ghost" onclick={overwriteDeckMine}>Overwrite with mine</button>
+    </div>
+  {/if}
 </div>
 
 {#if presentOpen && deck && activeSlide}
@@ -904,6 +941,21 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .export-toast.err { border-color: var(--c-danger, #d14); }
+  /* WS-5.4 divergence banner (FigureMode's disk-toast, in this mode's tokens) */
+  .disk-toast {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 50;
+    display: flex; gap: 10px; align-items: center; padding: 10px 14px;
+    background: var(--c-bg-raised); border: 1px solid var(--c-line);
+    color: var(--c-tx); border-radius: var(--r-2); font-size: var(--ts-sm);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  .disk-toast button {
+    border: 1px solid var(--c-line); background: var(--c-bg-2, transparent);
+    color: var(--c-tx-hi); border-radius: var(--r-1); padding: 4px 10px;
+    cursor: pointer; font-size: var(--ts-xs, 12px);
+  }
+  .disk-toast button:hover { background: var(--c-line); }
+  .disk-toast button.ghost { background: transparent; }
   .deckbar .left, .deckbar .right { display: flex; align-items: center; gap: var(--sp-2); }
   .pillar { font-family: var(--font-serif); font-style: italic; font-size: var(--ts-lg, 20px); color: var(--c-tx-hi); }
   .title {

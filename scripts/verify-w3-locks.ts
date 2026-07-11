@@ -127,6 +127,28 @@ function run(script: string, args: string[]): Promise<{ code: number; err: strin
   }
 }
 
+// ---------------------------------------------------------------- 5b. external canvas edit survives the next verb (WS-5.4)
+{
+  // The headless engine has no baseline — its divergence safety is "every verb
+  // loads FRESH from disk under the lock". Pin that: an external in-place edit
+  // to a canvas file (index untouched) must survive the next verb's full rewrite.
+  const root = path.join(work, "proj3");
+  await scaffold(root, { title: "W3c" });
+  setClient("cli");
+  await createFigure(root, { name: "First" });
+  const idx = JSON.parse(await fs.readFile(path.join(root, "fig", "index.json"), "utf8"));
+  const cvPath = path.join(root, "fig", "canvases", `${idx.canvases[0].id}.json`);
+  const cf = JSON.parse(await fs.readFile(cvPath, "utf8"));
+  cf.figures[0].x = 4321; // the "external" (human/other-agent) in-place edit
+  await fs.writeFile(cvPath, JSON.stringify(cf, null, 2) + "\n");
+  await createFigure(root, { name: "Second" }); // full load→save cycle
+  const after = JSON.parse(await fs.readFile(cvPath, "utf8"));
+  const survivor = after.figures.find((f: { x: number }) => f.x === 4321);
+  if (survivor && after.figures.length === cf.figures.length + 1)
+    ok("external canvas edit survived the next verb's rewrite (fresh load under the lock)");
+  else fail(`external canvas edit clobbered: x=4321 ${survivor ? "present" : "GONE"}, figures=${after.figures.length}`);
+}
+
 // ---------------------------------------------------------------- 5. mergeEnrichDelta preserves concurrent writes
 {
   const lib = path.join(work, "lib2");
