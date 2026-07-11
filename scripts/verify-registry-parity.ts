@@ -113,10 +113,29 @@ try {
     assert(stable(cli.out) === stable(mcpText), "config_paths: identical payload (build stamp normalized)");
   }
   {
-    // Error taxonomy (unit level until a LOCKING verb joins the registry —
-    // batch A's mutateFigModel verbs make the end-to-end case real): the
-    // registry's surface mapping is the contract 6.1 fixed by hand for
-    // compile/rerun.
+    // END-TO-END lock taxonomy (live since batch A registered the mutateFigModel
+    // verbs): a held human lock defers a registry mutate verb on BOTH surfaces —
+    // CLI exit 75 (EX_TEMPFAIL, script-retryable), MCP isError. The lock check
+    // fires before model load, so the figure id never resolves.
+    const lockPath = path.join(TMP, ".meta", "locks", "project.json");
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await fs.writeFile(lockPath, JSON.stringify({ client: "human", pid: 999999, ts: new Date().toISOString() }));
+    try {
+      const cli = await runCli(["set-figure-layout", "anyfig", "--width", "100", "--root", TMP]);
+      assert(
+        cli.code === 75 && /locked/i.test(cli.err),
+        `locked project → registry CLI verb exits 75 (got ${cli.code}: ${cli.err.trim().split("\n")[0]})`,
+      );
+      const mcp = await client.callTool({ name: "set_figure_layout", arguments: { figureId: "anyfig", width: 100 } });
+      const mcpText = (mcp.content as { text?: string }[])[0]?.text ?? "";
+      assert(mcp.isError === true && /locked/i.test(mcpText), "locked project → registry MCP twin isError with the lock message");
+    } finally {
+      await fs.rm(lockPath, { force: true });
+    }
+  }
+  {
+    // Error taxonomy unit level: the registry's surface mapping is the contract
+    // 6.1 fixed by hand for compile/rerun.
     const { errorToCli, errorToMcp } = await import("../flux-core/registry");
     const { LockedError, ExternalToolError, NotFoundError } = await import("../flux-core/errors");
     const locked = errorToCli(new LockedError("deferred: project is locked (a human edit is in progress)"));

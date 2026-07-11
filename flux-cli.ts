@@ -214,62 +214,15 @@ async function main() {
       existsSync(path.join(path.resolve(_[0]), "project.json")));
   const root = () => (posIsRoot ? path.resolve(_[0]) : R());
   const A = posIsRoot ? _.slice(1) : _; // old-style verbs' own (root-stripped) args
-  const styleFromFlags = (): Record<string, string | number | boolean> => {
-    const s: Record<string, string | number | boolean> = {};
-    if (typeof flags.stroke === "string") s.stroke = flags.stroke;
-    if (typeof flags.fill === "string") s.fill = flags.fill;
-    if (typeof flags.color === "string") s.color = flags.color;
-    const sw = num(flags["stroke-width"]);
-    if (sw != null) s.strokeWidth = sw;
-    const op = num(flags.opacity);
-    if (op != null) s.opacity = op;
-    const fs2 = num(flags["font-size"]);
-    if (fs2 != null) s.fontSize = fs2;
-    // text props (figure-v1 P3)
-    if (typeof flags.font === "string") s.fontFamily = flags.font;
-    const fw = num(flags.weight);
-    if (fw != null) s.fontWeight = fw;
-    if (flags.italic) s.fontStyle = "italic";
-    if (flags["no-italic"]) s.fontStyle = "normal";
-    if (flags.underline) s.underline = true;
-    if (flags["no-underline"]) s.underline = false;
-    const lh = num(flags["line-height"]);
-    if (lh != null) s.lineHeight = lh;
-    if (flags.sizing === "auto" || flags.sizing === "auto-h" || flags.sizing === "fixed") s.sizing = flags.sizing;
-    if (flags.align === "left" || flags.align === "center" || flags.align === "right") s.align = flags.align;
-    if (flags.hidden) s.hidden = true;
-    if (flags.show) s.hidden = false;
-    if (flags.locked) s.locked = true;
-    if (flags.unlock) s.locked = false;
-    if (typeof flags.name === "string") s.name = flags.name;
-    return s;
-  };
-  // Named-text-style props from flags (sizes edited in POINTS: px = pt × 4/3).
-  const textStyleFromFlags = (): Record<string, string | number | boolean> => {
-    const s: Record<string, string | number | boolean> = {};
-    if (typeof flags.font === "string") s.fontFamily = flags.font;
-    const pt = num(flags["size-pt"]);
-    if (pt != null) s.fontSize = pt * (4 / 3);
-    const fw = num(flags.weight);
-    if (fw != null) s.fontWeight = fw;
-    if (flags.italic) s.fontStyle = "italic";
-    if (flags["no-italic"]) s.fontStyle = "normal";
-    if (flags.underline) s.underline = true;
-    if (flags["no-underline"]) s.underline = false;
-    const lh = num(flags["line-height"]);
-    if (lh != null) s.lineHeight = lh;
-    if (typeof flags.color === "string") s.color = flags.color;
-    if (flags.align === "left" || flags.align === "center" || flags.align === "right") s.align = String(flags.align);
-    return s;
-  };
 
   // WS-6.3: registered verbs route through the ONE registry (same schema +
   // handler + render as the MCP surface); everything else falls through to the
-  // legacy switch until its batch migrates.
+  // legacy switch until its batch migrates. The invocation carries BOTH root
+  // contracts — each VerbDef picks its own (cliRoot).
   if (
     await runCliVerb(
       verb,
-      { pos: A, flags, root: root() },
+      { pos: _, posRooted: A, flags, rootPositional: root(), rootFlags: R() },
       { log: console.log, err: console.error, setExit: (c) => (process.exitCode = c) },
     )
   ) {
@@ -361,20 +314,6 @@ async function main() {
       if (r.failed.length) process.exitCode = 1;
       break;
     }
-    case "caption": {
-      console.log(await core.captionFor(root(), A[0]));
-      break;
-    }
-    case "set-caption": {
-      const md = flags.file ? await fs.readFile(String(flags.file), "utf8") : A.slice(1).join(" ");
-      const panel = typeof flags.panel === "string" ? flags.panel : undefined;
-      const r = await core.setCaption(root(), A[0], md, { panel });
-      if (panel) console.error(`✓ caption written for ${A[0]} panel ${panel}`);
-      else if (r.panels.length)
-        console.error(`✓ caption written for ${A[0]} — distributed across lead + panels [${r.panels.join("")}] (use --panel <letter> for one panel)`);
-      else console.error(`✓ caption written for ${A[0]}`);
-      break;
-    }
     case "add-reference":
     case "cite": {
       const bib = flags.file ? await fs.readFile(String(flags.file), "utf8") : A.join(" ");
@@ -430,170 +369,9 @@ async function main() {
       for (const w of r.warnings) console.error(`⚠ ${w}`);
       break;
     }
-    case "arrange": {
-      await core.arrangeFigure(R(), _[0], { rows: num(flags.rows), cols: num(flags.cols), gap: num(flags.gap) });
-      console.error(`✓ arranged ${_[0]}`);
-      break;
-    }
-    case "auto-label": {
-      const r = await core.autoLabel(R(), _[0]);
-      const made = r.created ? ` (created ${r.created} missing label(s))` : "";
-      if (!r.panels.length)
-        console.error(`⚠ ${_[0]} has no letterable panels (needs ≥2 plot/image panels, or add labels via add-fig-text --panel-label)`);
-      else if (!r.changed) console.error(`✓ ${_[0]} already labeled: ${r.panels.join("")} (no change)`);
-      else console.error(`✓ labeled ${_[0]}: ${r.panels.join("")}${made}`);
-      break;
-    }
-    case "distribute": {
-      const axis = flags.axis === "v" || flags.v ? "v" : "h";
-      const gap = num(flags.gap);
-      const ids = typeof flags.ids === "string" ? flags.ids.split(",") : undefined;
-      await core.distributeFigure(R(), _[0], axis, gap, ids);
-      console.error(`✓ distributed ${_[0]} (${axis}${gap != null ? `, gap ${gap}` : ""})`);
-      break;
-    }
-    case "set-guides": {
-      const nums = (s: unknown) => (typeof s === "string" ? s.split(",").map(Number).filter((n) => !Number.isNaN(n)) : undefined);
-      await core.setGuides(R(), _[0], { x: nums(flags.x), y: nums(flags.y) });
-      console.error(`✓ set guides on ${_[0]} (x:[${flags.x ?? ""}] y:[${flags.y ?? ""}])`);
-      break;
-    }
-    case "duplicate": {
-      const r = await core.duplicateElements(R(), _[0], _.slice(1), { dx: num(flags.dx) ?? 16, dy: num(flags.dy) ?? 16, count: num(flags.count) });
-      console.error(`✓ duplicated ${_.slice(1).length} element(s) → ${r.ids.length} new`);
-      break;
-    }
-    case "scale": {
-      const factor = num(flags.factor) ?? num(flags.f) ?? 1;
-      const px = num(flags.px);
-      const py = num(flags.py);
-      const pivot = px != null && py != null ? { x: px, y: py } : undefined;
-      await core.scaleElements(R(), _, factor, pivot);
-      console.error(`✓ scaled ${_.length} element(s) by ${factor}×`);
-      break;
-    }
-    case "reorder": {
-      await core.reorderElement(R(), _[0], _[1], Number(_[2]));
-      console.error(`✓ reordered ${_[1]} → z-index ${_[2]} in ${_[0]}`);
-      break;
-    }
-    case "rotate": {
-      const deg = num(flags.deg) ?? num(flags.degrees) ?? 0;
-      const px = num(flags.px);
-      const py = num(flags.py);
-      const pivot = px != null && py != null ? { x: px, y: py } : undefined;
-      await core.rotateElements(R(), _, deg, pivot);
-      console.error(`✓ rotated ${_.length} element(s) by ${deg}°`);
-      break;
-    }
-    case "add-path": {
-      const nodes = JSON.parse(String(flags.nodes ?? "[]"));
-      const r = await core.addPath(R(), _[0], {
-        nodes,
-        closed: !!flags.closed,
-        fill: typeof flags.fill === "string" ? flags.fill : undefined,
-        stroke: typeof flags.stroke === "string" ? flags.stroke : undefined,
-        strokeWidth: num(flags["stroke-width"]),
-      });
-      console.error(`✓ added path ${r.id} (${nodes.length} nodes) to ${_[0]}`);
-      break;
-    }
-    case "edit-path": {
-      const patch: { nodes?: unknown; closed?: boolean } = {};
-      if (typeof flags.nodes === "string") patch.nodes = JSON.parse(flags.nodes);
-      if (flags.closed) patch.closed = true;
-      if (flags.open) patch.closed = false;
-      const r = await core.editPath(R(), _[0], patch as Parameters<typeof core.editPath>[2]);
-      console.error(`✓ edited path ${r.id}`);
-      break;
-    }
-    case "restyle": {
-      const r = await core.setPartOverride(R(), _[0], _[1], styleFromFlags(), flags.element as string | undefined);
-      console.error(`✓ restyled ${_[1]} on ${r.elementId}`);
-      break;
-    }
-    case "set-style": {
-      await core.setElementStyle(R(), _, styleFromFlags());
-      console.error(`✓ styled ${_.length} element(s)`);
-      break;
-    }
-    case "set-crop": {
-      const x = num(flags.x);
-      const y = num(flags.y);
-      const w = num(flags.width);
-      const h = num(flags.height);
-      if ([x, y, w, h].some((v) => v == null || Number.isNaN(v)))
-        throw new Error("set-crop: need numeric --x --y --width --height (intrinsic content px)");
-      await core.setCrop(R(), _[0], { x: x!, y: y!, width: w!, height: h! });
-      console.error(`✓ cropped ${_[0]} to ${w}×${h} @ ${x},${y}`);
-      break;
-    }
     case "reset-crop": {
       await core.setCrop(R(), _[0], null);
       console.error(`✓ reset crop on ${_[0]}`);
-      break;
-    }
-    case "toggle-text-style": {
-      const which = _[0];
-      if (which !== "bold" && which !== "italic" && which !== "underline")
-        throw new Error("toggle-text-style: first arg must be bold|italic|underline");
-      await core.toggleTextStyle(R(), _.slice(1), which);
-      console.error(`✓ toggled ${which} on ${_.length - 1} element(s)`);
-      break;
-    }
-    case "add-fig-text": {
-      const pt = num(flags["size-pt"]);
-      const r = await core.addFigText(R(), _[0], {
-        text: _.slice(1).join(" ") || "Text",
-        panelLabel: !!flags["panel-label"],
-        x: num(flags.x),
-        y: num(flags.y),
-        width: num(flags.width),
-        height: num(flags.height),
-        ...(pt != null ? { fontSize: pt * (4 / 3) } : {}),
-        ...(num(flags.weight) != null ? { fontWeight: num(flags.weight) } : {}),
-        ...(typeof flags.font === "string" ? { fontFamily: flags.font } : {}),
-        ...(typeof flags.color === "string" ? { color: flags.color } : {}),
-        ...(flags.align === "left" || flags.align === "center" || flags.align === "right"
-          ? { align: flags.align }
-          : {}),
-        ...(flags.sizing === "auto" || flags.sizing === "auto-h" || flags.sizing === "fixed"
-          ? { sizing: flags.sizing }
-          : {}),
-      });
-      console.log(r.id);
-      break;
-    }
-    case "text-styles": {
-      const styles = flags.global ? await core.listGlobalTextStyles() : await core.listTextStyles(R());
-      console.log(JSON.stringify(styles, null, 2));
-      break;
-    }
-    case "create-text-style": {
-      if (typeof flags.name !== "string" || !flags.name.trim()) throw new Error("create-text-style: --name required");
-      const r = await core.createTextStyle(R(), {
-        name: flags.name.trim(),
-        ...(typeof flags.from === "string" ? { fromElementId: flags.from } : {}),
-        ...(textStyleFromFlags() as object),
-      });
-      console.log(JSON.stringify(r.style, null, 2));
-      break;
-    }
-    case "update-text-style": {
-      const patch = textStyleFromFlags();
-      if (typeof flags.name === "string" && flags.name.trim()) patch.name = flags.name.trim();
-      await core.updateTextStyle(R(), _[0], patch);
-      console.error(`✓ updated text style ${_[0]} (re-applied to linked texts)`);
-      break;
-    }
-    case "delete-text-style": {
-      await core.deleteTextStyle(R(), _[0]);
-      console.error(`✓ deleted text style ${_[0]}`);
-      break;
-    }
-    case "apply-text-style": {
-      const r = await core.applyTextStyle(R(), _.slice(1), _[0]);
-      console.error(`✓ applied ${_[0]} to ${r.applied} text element(s)`);
       break;
     }
     case "save-global-text-style": {
@@ -602,88 +380,6 @@ async function main() {
       if (!st) throw new Error(`text style not found in project: ${_[0]}`);
       await core.saveGlobalTextStyle(st);
       console.error(`✓ saved "${st.name}" to the machine-global library`);
-      break;
-    }
-    case "delete-element":
-    case "delete-elements": {
-      await core.deleteElements(R(), _);
-      console.error(`✓ deleted ${_.length} element(s)`);
-      break;
-    }
-    case "delete-figure": {
-      const r = await core.deleteFigure(R(), _[0]);
-      console.error(`✓ deleted figure ${_[0]}${r.nextActiveId ? ` (next: ${r.nextActiveId})` : ""}`);
-      break;
-    }
-    case "duplicate-figure": {
-      const r = await core.duplicateFigure(R(), _[0]);
-      console.error(`✓ duplicated ${_[0]} → ${r.figureId}`);
-      console.log(r.figureId);
-      break;
-    }
-    case "align": {
-      const kind = (flags.kind as string) ?? _[1];
-      const ids = typeof flags.ids === "string" ? flags.ids.split(",") : undefined;
-      await core.alignFigure(R(), _[0], kind as Parameters<typeof core.alignFigure>[2], ids);
-      console.error(`✓ aligned ${_[0]} (${kind})`);
-      break;
-    }
-    case "group": {
-      const r = await core.groupElements(R(), _, {
-        name: typeof flags.name === "string" ? flags.name : undefined,
-        parentId: typeof flags.parent === "string" ? flags.parent : undefined,
-      });
-      console.error(`✓ grouped ${_.length} element(s) → ${r.groupId}`);
-      console.log(r.groupId);
-      break;
-    }
-    case "ungroup": {
-      await core.ungroupElements(R(), _);
-      console.error(`✓ ungrouped ${_.length} element(s)`);
-      break;
-    }
-    case "rename-group": {
-      const name = _.slice(1).join(" ");
-      if (!_[0] || !name) throw new Error("usage: rename-group <groupId> <name…>");
-      await core.renameGroup(R(), _[0], name);
-      console.error(`✓ renamed ${_[0]} → "${name}"`);
-      break;
-    }
-    case "set-group-state": {
-      const patch: { hidden?: boolean; locked?: boolean } = {};
-      if (flags.hide) patch.hidden = true;
-      if (flags.show) patch.hidden = false;
-      if (flags.lock) patch.locked = true;
-      if (flags.unlock) patch.locked = false;
-      if (patch.hidden == null && patch.locked == null)
-        throw new Error("usage: set-group-state <groupId> [--hide|--show] [--lock|--unlock]");
-      await core.setGroupState(R(), _[0], patch);
-      console.error(`✓ group ${_[0]} state ${JSON.stringify(patch)}`);
-      break;
-    }
-    case "list-groups": {
-      const r = await core.listGroups(R(), typeof flags.figure === "string" ? flags.figure : undefined);
-      console.log(JSON.stringify(r.groups, null, 2));
-      break;
-    }
-    case "set-figure-layout": {
-      const patch: Parameters<typeof core.setFigureLayout>[2] = {};
-      if (num(flags.x) != null) patch.x = num(flags.x);
-      if (num(flags.y) != null) patch.y = num(flags.y);
-      if (num(flags.width) != null) patch.width = num(flags.width);
-      if (num(flags.height) != null) patch.height = num(flags.height);
-      if (typeof flags.background === "string") patch.background = flags.background;
-      if (typeof flags.name === "string") patch.name = flags.name;
-      await core.setFigureLayout(R(), _[0], patch);
-      console.error(`✓ set layout on ${_[0]}`);
-      break;
-    }
-    case "set-z":
-    case "z-order": {
-      const where = ((flags.where as string) ?? _[1]) as Parameters<typeof core.setZOrder>[3];
-      const ids = typeof flags.ids === "string" ? flags.ids.split(",") : _.slice(2);
-      await core.setZOrder(R(), _[0], ids, where);
-      console.error(`✓ z-order ${where} for ${ids.length} element(s) in ${_[0]}`);
       break;
     }
     case "manuscript": {
