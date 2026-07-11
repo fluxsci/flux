@@ -49,11 +49,15 @@ jobs:
       - name: Bundle handshakes (CLI + MCP over stdio against the built bundles)
         run: node scripts/run-verifies.mjs --tier bundle
 
-  # Non-blocking browser smoke — kept out of the required gate until observed
-  # stable in CI (see the plan: promote to blocking only after it stops flaking).
-  ui-smoke:
+  # Browser gate (WS-7.2) — the FULL de-flaked ui tier (post sleep→condition
+  # conversion: 41 scripts, retryOnce on the known-sensitive ones). Currently
+  # OBSERVING: continue-on-error keeps it non-blocking until 5 consecutive
+  # green runs on main, then the flip is deleting the single line below (the
+  # plan's promotion condition — do not flip early, do not loosen a script to
+  # get there).
+  ui-gate:
     runs-on: ubuntu-latest
-    continue-on-error: true
+    continue-on-error: true # WS-7.2: DELETE THIS LINE after 5 consecutive green main runs
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -67,9 +71,13 @@ jobs:
         run: npm run dev &
       - name: Wait for the dev server on :1420
         run: npx wait-on tcp:127.0.0.1:1420 --timeout 120000
-      - name: Stable UI subset
+      - name: Full ui tier
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
-        run: |
-          node scripts/verify-fixture.mjs
-          node scripts/verify-shell-complete.mjs
+        run: node scripts/run-verifies.mjs --tier ui
+      - name: Upload ui verify summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-verify-summary
+          path: test-results/summary.json
