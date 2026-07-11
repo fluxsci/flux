@@ -40,7 +40,10 @@ if (!page) {
 
 const ua = await page.evaluate(() => navigator.userAgent);
 
-// Enter paper mode + seed a realistic ~600-line manuscript so the editor has real work.
+// Enter paper mode + seed a ~122-line manuscript (8 sections × 12 paragraphs) so
+// the editor has real work. NOTE: deliberately small — this probe isolates the
+// ambient-background delta, not doc-size scaling; verify-scale-paper.mjs owns
+// the large-doc (20k-line) keystroke budgets.
 const PROJ = process.env.FLUX_PERF_PROJECT;
 if (!PROJ) {
   console.error(JSON.stringify({ error: "set FLUX_PERF_PROJECT to a throwaway scaffolded project path" }));

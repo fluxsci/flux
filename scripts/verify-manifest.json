@@ -217,7 +217,9 @@
     ],
     "scale": [
       "verify-scale-library.mjs",
-      "verify-scale-reader.mjs"
+      "verify-scale-reader.mjs",
+      "verify-scale-figure.mjs",
+      "verify-scale-paper.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs"
@@ -278,9 +280,13 @@
     "verify-w17-rotate-perf.mjs",
     "verify-m10-perf.mjs",
     "verify-f5-drag.mjs",
-    "verify-m15-motion.mjs"
+    "verify-m15-motion.mjs",
+    "verify-scale-figure.mjs",
+    "verify-scale-paper.mjs"
   ],
   "timeouts": {
+    "verify-scale-figure.mjs": 120000,
+    "verify-scale-paper.mjs": 120000,
     "verify-slide-export-parity.ts": 300000,
     "verify-slide-export-core.ts": 300000,
     "verify-slide-showcase-live.mjs": 300000,
