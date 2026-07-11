@@ -525,26 +525,6 @@ async function main() {
       console.error(`✓ ${key} collections: ${(d.items[key]?.collections ?? []).join(", ") || "(none)"}`);
       break;
     }
-    case "compile": {
-      const r = await core.compile(R(), (flags.to as string) ?? "pdf");
-      if (r.code !== 0) {
-        console.error(`✗ quarto exited ${r.code}`);
-        console.error(r.log);
-        process.exit(r.code);
-      }
-      console.error(`✓ compiled${r.output ? ` → ${r.output}` : ` (quarto exited 0)`}`);
-      if (r.figures)
-        console.error(
-          `  figures: ${r.figures.resolved}/${r.figures.embedded} embedded figure(s) resolved` +
-            (r.figures.missing.length ? ` — no project figure for: ${r.figures.missing.join(", ")}` : ""),
-        );
-      if (r.citations)
-        console.error(
-          `  citations: ${r.citations.resolved}/${r.citations.keys} key(s) resolved in the project library` +
-            (r.citations.missing.length ? ` — unresolved: @${r.citations.missing.join(", @")}` : ""),
-        );
-      break;
-    }
     case "decks": {
       console.log(JSON.stringify(await core.listDecks(R()), null, 2));
       break;
@@ -772,41 +752,6 @@ async function main() {
       // flux set-morph <deck> <slide> <beat> <element> <toAssetId> [--duration ms] [--force]
       await core.setMorph(R(), _[0], _[1], _[2], _[3], _[4], { duration: num(flags.duration), force: !!flags.force });
       console.error(`✓ morph ${_[3]} → ${_[4]} on beat ${_[2]}`);
-      break;
-    }
-    case "validate": {
-      const res = await core.validate(R(), _[0]);
-      for (const w of res.warnings ?? []) console.error(`⚠ ${w}`);
-      if (res.ok) console.error(`✓ valid (${res.checked} file(s) checked${res.warnings?.length ? `, ${res.warnings.length} warning(s)` : ""})`);
-      else {
-        console.error(`✗ ${res.errors.length} schema problem(s):`);
-        for (const e of res.errors) console.error("  " + e);
-        process.exit(1);
-      }
-      break;
-    }
-    case "validate-plot": {
-      const r = await core.validatePlot(path.resolve(_[0]));
-      if (r.ok) console.error(`✓ valid FluxPlot (${r.matched}/${r.references} ids matched)`);
-      else {
-        console.error(`✗ ${r.errors.length} problem(s):`);
-        for (const e of r.errors) console.error("  " + e);
-        process.exit(1);
-      }
-      break;
-    }
-    case "rerun-plot": {
-      const recipePath = path.resolve(_[0] ?? "");
-      // `--only [name]` targets one plot of a figure-level script (bare --only
-      // = this recipe's own plot); `root`/`only` are runner flags, not recipe
-      // params — everything else persists into the recipe as a param override.
-      const { only, root: _r, ...params } = flags;
-      const res = await core.runRecipe(recipePath, params as Record<string, string | boolean>, {
-        only: only === true ? true : typeof only === "string" ? only : undefined,
-      });
-      console.error(`✓ recipe exited ${res.code}; wrote ${res.svgPath}`);
-      if (res.stderr.trim()) console.error(res.stderr.trim());
-      if (res.code !== 0) process.exit(res.code);
       break;
     }
     case "help":

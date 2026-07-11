@@ -1487,4 +1487,144 @@ export const VERBS: VerbDef[] = [
       mcp: (r, a) => text(`ingested ${a.filePath} → @${a.key} (${(r as { status: string }).status})`),
     },
   },
+
+  // --- batch D: the irregular exit-code verbs -----------------------------------
+  // A failed external tool must be UNMISSABLE on both surfaces (WS-6.1): the CLI
+  // exits with the tool's own exit code, MCP returns isError. The handlers do NOT
+  // throw — each surface's exact strings differ (the CLI prints the FULL log,
+  // MCP tails 2000 chars), so the renders own the mapping.
+  {
+    name: "compile",
+    cli: "compile",
+    cliRoot: "flags",
+    summary:
+      "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. Reports the output path and a figures/citations resolution summary.",
+    params: { to: z.string().optional() },
+    cliArgs: [{ kind: "flag", at: "to", into: "to" }],
+    handler: (ctx, a) => core.compile(ctx.root, (a.to as string | undefined) ?? "pdf"),
+    render: {
+      human: (r) => {
+        const c = r as Awaited<ReturnType<typeof core.compile>>;
+        if (c.code !== 0) return { err: `✗ quarto exited ${c.code}\n${c.log}`, exit: c.code };
+        const lines = [`✓ compiled${c.output ? ` → ${c.output}` : ` (quarto exited 0)`}`];
+        if (c.figures)
+          lines.push(
+            `  figures: ${c.figures.resolved}/${c.figures.embedded} embedded figure(s) resolved` +
+              (c.figures.missing.length ? ` — no project figure for: ${c.figures.missing.join(", ")}` : ""),
+          );
+        if (c.citations)
+          lines.push(
+            `  citations: ${c.citations.resolved}/${c.citations.keys} key(s) resolved in the project library` +
+              (c.citations.missing.length ? ` — unresolved: @${c.citations.missing.join(", @")}` : ""),
+          );
+        return { err: lines.join("\n") };
+      },
+      mcp: (r) => {
+        const c = r as Awaited<ReturnType<typeof core.compile>>;
+        if (c.code !== 0)
+          return { isError: true, content: [{ type: "text", text: `quarto exited ${c.code}\n${c.log.slice(-2000)}` }] };
+        const parts = [`compiled${c.output ? ` → ${c.output}` : " (quarto exited 0)"}`];
+        if (c.figures)
+          parts.push(
+            `figures: ${c.figures.resolved}/${c.figures.embedded} resolved` +
+              (c.figures.missing.length ? ` (no project figure for: ${c.figures.missing.join(", ")})` : ""),
+          );
+        if (c.citations)
+          parts.push(
+            `citations: ${c.citations.resolved}/${c.citations.keys} resolved` +
+              (c.citations.missing.length ? ` (unresolved: @${c.citations.missing.join(", @")})` : ""),
+          );
+        return text(parts.join(" — "));
+      },
+    },
+  },
+  {
+    name: "validate_project",
+    cli: "validate",
+    cliRoot: "flags",
+    summary:
+      "Validate the project (or one file) against the bundled JSON Schemas (.meta/schema/), plus project lint: EMPTY figures (they shift figure numbers), figures embedded in no document, and overlapping canvas frames. Use after editing files directly to confirm your writes are well-formed.",
+    params: { file: z.string().optional() },
+    cliArgs: [{ kind: "pos", at: 0, into: "file" }],
+    handler: (ctx, a) => core.validate(ctx.root, a.file as string | undefined),
+    render: {
+      human: (r) => {
+        const c = r as { ok: boolean; checked: number; errors: string[]; warnings?: string[] };
+        const lines = (c.warnings ?? []).map((w) => `⚠ ${w}`);
+        if (c.ok) {
+          lines.push(`✓ valid (${c.checked} file(s) checked${c.warnings?.length ? `, ${c.warnings.length} warning(s)` : ""})`);
+          return { err: lines.join("\n") };
+        }
+        lines.push(`✗ ${c.errors.length} schema problem(s):`, ...c.errors.map((e) => "  " + e));
+        return { err: lines.join("\n"), exit: 1 };
+      },
+      mcp: (r) => {
+        const c = r as { ok: boolean; checked: number; errors: string[]; warnings?: string[] };
+        const warn = c.warnings?.length ? `\nwarnings:\n` + c.warnings.map((w) => `  ${w}`).join("\n") : "";
+        return text(c.ok ? `valid (${c.checked} file(s) checked)${warn}` : `INVALID (${c.errors.length}):\n` + c.errors.join("\n") + warn);
+      },
+    },
+  },
+  {
+    name: "validate_plot",
+    cli: "validate-plot",
+    cliRoot: "flags",
+    summary:
+      "Validate a FluxPlot output: the .fluxplot.json manifest is schema-valid AND every id it references exists in the .svg (so the plot is genuinely part-addressable/restylable).",
+    params: { svgPath: z.string() },
+    cliArgs: [{ kind: "pos", at: 0, into: "svgPath", as: "path", required: true }],
+    handler: (_ctx, a) => core.validatePlot(s(a.svgPath)),
+    render: {
+      human: (r) => {
+        const c = r as { ok: boolean; matched: number; references: number; errors: string[] };
+        if (c.ok) return { err: `✓ valid FluxPlot (${c.matched}/${c.references} ids matched)` };
+        return { err: `✗ ${c.errors.length} problem(s):\n` + c.errors.map((e) => "  " + e).join("\n"), exit: 1 };
+      },
+      mcp: (r) => {
+        const c = r as { ok: boolean; matched: number; references: number; errors: string[] };
+        return text(c.ok ? `valid FluxPlot (${c.matched}/${c.references} ids matched)` : `INVALID (${c.errors.length}):\n` + c.errors.join("\n"));
+      },
+    },
+  },
+  {
+    name: "rerun_plot",
+    cli: "rerun-plot",
+    cliRoot: "flags",
+    summary:
+      "Re-run a plot's recipe (regenerate the figure from its source script + params). Params may be strings, numbers, or booleans. only: true reruns just THIS recipe's plot even when the script saves several (figure-level scripts) — sibling plots stay untouched on disk; a string targets specific plot name(s)/patterns.",
+    params: {
+      recipePath: z.string(),
+      params: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+      only: z.union([z.boolean(), z.string()]).optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "recipePath", as: "path", required: true },
+      { kind: "flag", at: "only", into: "only" },
+      // `root`/`only` are runner flags, not recipe params — every OTHER flag
+      // persists into the recipe as a param override (the open-ended surface
+      // kind:"flagRest" exists for).
+      { kind: "flagRest", into: "params" },
+    ],
+    handler: (_ctx, a) =>
+      core.runRecipe(s(a.recipePath), (a.params ?? {}) as Record<string, string | boolean>, {
+        only: a.only === true ? true : typeof a.only === "string" ? a.only : undefined,
+      }),
+    render: {
+      human: (r) => {
+        const c = r as { code: number; svgPath: string; stderr: string };
+        return {
+          err: `✓ recipe exited ${c.code}; wrote ${c.svgPath}` + (c.stderr.trim() ? `\n${c.stderr.trim()}` : ""),
+          exit: c.code !== 0 ? c.code : undefined,
+        };
+      },
+      mcp: (r) => {
+        const c = r as { code: number; svgPath: string; stderr: string };
+        // WS-6.1: nonzero exit = the plot did NOT regenerate — report it as an
+        // error (the old success-shaped "recipe exited 1" was invisible to agents).
+        if (c.code !== 0)
+          return { isError: true, content: [{ type: "text", text: `recipe exited ${c.code}\n${String(c.stderr ?? "").slice(-2000)}` }] };
+        return text(`recipe exited ${c.code}; wrote ${c.svgPath}`);
+      },
+    },
+  },
 ];
