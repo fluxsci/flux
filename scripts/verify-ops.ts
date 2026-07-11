@@ -127,4 +127,48 @@ assert(solo.figures.length === 0, "deleteFigure allowEmpty leaves the canvas emp
   assert(el().crop === undefined, "setCrop(null) clears the crop (presence change = reference change)");
 }
 
+// ---------------------------------------------------------------------------
+// WS-3.1 invariant: setZOrder NEVER fragments a group's contiguous run — the
+// keyboard raise/bump now route here, and the old flat swaps could interleave
+// a loose element into a foreign group's block.
+// ---------------------------------------------------------------------------
+{
+  const zp: Project = { version: 2, name: "", canvases: [{ id: "c", name: "C" }], figures: [], assets: [], palette: [] };
+  const f = ops.createFigure(zp, { canvasId: "c" });
+  const mk = (id: string) => {
+    f.elements.push({ type: "rect", id, x: 0, y: 0, width: 10, height: 10, rotation: 0, fill: "#000", stroke: "#000", strokeWidth: 1, cornerRadius: 0 } as import("../src/lib/types").Element);
+    return id;
+  };
+  // z-order: [a1, a2, loose, b1, b2] with groups A={a1,a2}, B={b1,b2}
+  mk("a1"); mk("a2"); mk("loose"); mk("b1"); mk("b2");
+  const gA = ops.group(zp, ["a1", "a2"])!;
+  const gB = ops.group(zp, ["b1", "b2"])!;
+  const order = () => f.elements.map((e) => e.id).join(",");
+  const runOf = (gid: string) => {
+    const idx = f.elements.map((e, i) => (e.groupId === gid ? i : -1)).filter((i) => i >= 0);
+    return idx.length === 2 && idx[1] - idx[0] === 1;
+  };
+  assert(runOf(gA) && runOf(gB), `two-group fixture starts contiguous (${order()})`);
+
+  // bump the loose element FORWARD — it must jump OVER group B as a block,
+  // never land inside its run.
+  ops.setZOrder(zp, f.id, ["loose"], "forward");
+  assert(runOf(gA) && runOf(gB), `forward bump keeps both runs contiguous (${order()})`);
+  assert(order() === "a1,a2,b1,b2,loose", `loose hopped the whole B unit (${order()})`);
+
+  // raise group A to front as an intact block
+  ops.setZOrder(zp, f.id, ["a1", "a2"], "front");
+  assert(runOf(gA) && runOf(gB), `raise-to-front keeps runs contiguous (${order()})`);
+  assert(order() === "b1,b2,loose,a1,a2", `A moved as one block (${order()})`);
+
+  // selections spanning two groups move as units, never interleave
+  ops.setZOrder(zp, f.id, ["a1", "a2", "b1", "b2"], "back");
+  assert(runOf(gA) && runOf(gB), `two-group selection stays two intact blocks (${order()})`);
+
+  // a PARTIAL group selection resolves to whole units at the deepest common
+  // scope (resolveZScope) — bumping just a1 backward must not split A.
+  ops.setZOrder(zp, f.id, ["a1"], "backward");
+  assert(runOf(gA), `partial-group bump keeps A contiguous (${order()})`);
+}
+
 console.log("\nALL OPS TESTS PASSED");

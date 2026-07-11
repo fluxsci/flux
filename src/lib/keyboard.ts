@@ -16,7 +16,6 @@ import {
   selectOnly,
   selectedFrameId,
   duplicateFigure,
-  blankFigure,
   newId,
   lastDupOffset,
   captionOpen,
@@ -318,9 +317,9 @@ function toggleHiddenX(): boolean {
 function deleteSelected() {
   const sel = get(selection);
   if (sel.size === 0) return;
-  commit((p) => {
-    for (const f of p.figures) f.elements = f.elements.filter((e) => !sel.has(e.id));
-  });
+  // WS-3.1: route through the pure op — identical filter PLUS gcGroups (the
+  // hand-rolled version accumulated orphan GroupDefs until the next load heal).
+  commit((p) => ops.deleteElements(p, [...sel]));
   clearSelection();
 }
 
@@ -381,19 +380,11 @@ function nudgeFrame(dx: number, dy: number) {
 function deleteFrame(): boolean {
   const fid = frameSelected();
   if (!fid) return false;
+  // WS-3.1: ops.deleteFigure owns the delete + keep-one-figure backfill; the
+  // keyboard layer keeps only the guard + the store side-effects.
   let nextActive: string | null = null;
   commit((p) => {
-    const victim = p.figures.find((f) => f.id === fid);
-    const cid = victim?.canvasId ?? null;
-    p.figures = p.figures.filter((f) => f.id !== fid);
-    const remaining = cid ? p.figures.filter((f) => f.canvasId === cid) : [];
-    if (cid && remaining.length === 0) {
-      const blank = blankFigure(cid);
-      p.figures.push(blank);
-      nextActive = blank.id;
-    } else {
-      nextActive = remaining[0]?.id ?? p.figures[0]?.id ?? null;
-    }
+    nextActive = ops.deleteFigure(p, fid).nextActiveId;
   });
   selectedFrameId.set(null);
   activeFigureId.set(nextActive);
@@ -525,33 +516,21 @@ function pasteStyle() {
 
 function raise(toEnd: boolean) {
   // Move selected elements to the front (toEnd) or back of the z-order.
+  // WS-3.1: routed through ops.setZOrder — group-aware (units move as intact
+  // blocks; the old flat filter fragmented a group's contiguous run).
   const sel = get(selection);
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
-  commit((p) => {
-    const f = p.figures.find((ff) => ff.id === fig.id)!;
-    const picked = f.elements.filter((e) => sel.has(e.id));
-    const rest = f.elements.filter((e) => !sel.has(e.id));
-    f.elements = toEnd ? [...rest, ...picked] : [...picked, ...rest];
-  });
+  commit((p) => ops.setZOrder(p, fig.id, [...sel], toEnd ? "front" : "back"));
 }
 
 function bump(forward: boolean) {
+  // WS-3.1: routed through ops.setZOrder — the flat adjacent swap could slide
+  // a loose element INTO a foreign group's contiguous run; unit logic can't.
   const sel = get(selection);
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
-  commit((p) => {
-    const f = p.figures.find((ff) => ff.id === fig.id)!;
-    const arr = f.elements;
-    const order = forward ? [...arr.keys()].reverse() : [...arr.keys()];
-    for (const i of order) {
-      const j = forward ? i + 1 : i - 1;
-      if (j < 0 || j >= arr.length) continue;
-      if (sel.has(arr[i].id) && !sel.has(arr[j].id)) {
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-    }
-  });
+  commit((p) => ops.setZOrder(p, fig.id, [...sel], forward ? "forward" : "backward"));
 }
 
 const TOOL_KEYS: Record<string, Tool> = {

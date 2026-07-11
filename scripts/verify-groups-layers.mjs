@@ -227,6 +227,57 @@ try {
   expected.splice(zCur - 10, 0, "w" + zCur); // 10 display rows DOWN = 10 z-slots earlier
   ok(eq(orderAfter, expected), `windowed drag reordered exactly 10 slots down (moved w${zCur})`);
 
+  // --- WS-3.1: z-order through the REAL keyboard path (⌘]/⌘[ → handleKey →
+  // ops.setZOrder). The old flat swap fragmented a group's contiguous run when
+  // a loose element bumped through it; unit routing must keep runs intact. ---
+  const kb = await page.evaluate(() => {
+    const F = window.__flux.fig;
+    F.commit((p) => {
+      const g = p.figures.find((f) => f.id === "growth") || p.figures[0];
+      g.elements = [];
+      delete g.groups;
+      for (let i = 0; i < 5; i++)
+        g.elements.push({ type: "rect", id: "z" + i, x: i * 90 + 10, y: 20, width: 70, height: 50, rotation: 0, fill: "#4385be", stroke: "#222222", strokeWidth: 1, cornerRadius: 0 });
+    });
+    return true;
+  });
+  ok(kb, "seeded z-order fixture (5 rects)");
+  await sleep(200);
+  // group z1+z2 through the real ⌘G path
+  await page.evaluate(() => window.__flux.fig.selection.set(new Set(["z1", "z2"])));
+  await sleep(100);
+  await page.keyboard.down("Control");
+  await page.keyboard.press("g");
+  await page.keyboard.up("Control");
+  await sleep(200);
+  // select the loose z3 (sits just above the group) and bump it BACKWARD (⌘[)
+  await page.evaluate(() => window.__flux.fig.selectOnly("z3"));
+  await sleep(100);
+  await page.keyboard.down("Control");
+  await page.keyboard.press("[");
+  await page.keyboard.up("Control");
+  await sleep(200);
+  let zm = await page.evaluate(() => {
+    const g = window.__flux.figures().find((f) => f.id === "growth");
+    return { order: g.elements.map((e) => e.id), grouped: g.elements.filter((e) => e.groupId).map((e) => e.id) };
+  });
+  const gIdx = zm.order.map((id, i) => (zm.grouped.includes(id) ? i : -1)).filter((i) => i >= 0);
+  ok(gIdx.length === 2 && gIdx[1] - gIdx[0] === 1, `⌘[ bump keeps the group run contiguous (${zm.order})`);
+  ok(eq(zm.order, ["z0", "z3", "z1", "z2", "z4"]), `loose element hopped the WHOLE group unit (${zm.order})`);
+  // partial-group bump: select z1 only, ⌘] — the group must not split
+  await page.evaluate(() => window.__flux.fig.selectOnly("z1"));
+  await sleep(100);
+  await page.keyboard.down("Control");
+  await page.keyboard.press("]");
+  await page.keyboard.up("Control");
+  await sleep(200);
+  zm = await page.evaluate(() => {
+    const g = window.__flux.figures().find((f) => f.id === "growth");
+    return { order: g.elements.map((e) => e.id), grouped: g.elements.filter((e) => e.groupId).map((e) => e.id) };
+  });
+  const gIdx2 = zm.order.map((id, i) => (zm.grouped.includes(id) ? i : -1)).filter((i) => i >= 0);
+  ok(gIdx2.length === 2 && gIdx2[1] - gIdx2[0] === 1, `partial-group ⌘] keeps the run contiguous (${zm.order})`);
+
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));
