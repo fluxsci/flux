@@ -97,6 +97,14 @@ try {
   assert(!resolveDoiCjs.includes('redirect: "follow"'), '9.2: resolveDoi no longer auto-follows (manual hop loop)');
   has(resolveDoiCjs, 'redirect: "manual"', "9.2: resolveDoi hops manually, re-validating each Location");
 
+  // --- WS-9.3: fsGuard deny-by-default + approval lifecycle ---------------------------------
+  assert(!mainCjs.includes("if (!currentRoot) return; // nothing to protect"),
+    "9.3: the launch-window allow-everything early-return is GONE (deny-by-default)");
+  has(mainCjs, "approvedDirs.clear()", "9.3: dialog approvals cleared on project switch/goHome");
+  has(mainCjs, 'ipcMain.handle("fs:beginOpen"', "9.3: beginOpen pre-registers the root being loaded");
+  has(mainCjs, 'existsSync(path.join(ab, "project.json"))', "9.3: beginOpen only accepts a real Flux project");
+  has(mainCjs, "pendingRoot = null;", "9.3: the pending slot is cleared on registration (single slot)");
+
   console.log("\nW12 SECURITY VERIFY: PASS");
 } finally {
   await fs.rm(root, { recursive: true, force: true });

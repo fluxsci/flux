@@ -17,6 +17,11 @@ export async function loadProject(root: string): Promise<LoadedProject> {
   const fig = fileBridge();
   if (!fig) throw new Error("No file bridge available (not running in the app).");
 
+  // WS-9.3: pre-register the root with the main-process fsGuard (deny-by-default
+  // — the reads below run BEFORE watchRoot promotes the root). One pending slot;
+  // a failed load is superseded by the next beginOpen / cleared by watchRoot.
+  await fig.beginOpen?.(root);
+
   const manifestPath = joinPath(root, "project.json");
   if (!(await fig.exists(manifestPath))) {
     throw new NotAProjectError("No project.json — not a Flux project.");

@@ -85,6 +85,9 @@ contextBridge.exposeInMainWorld("fig", {
   // external (agent/script) changes mapped to a subsystem ("fig"|"plots"|
   // "manuscript"|"references"). Returns an unsubscribe fn.
   watchRoot: (root) => ipcRenderer.invoke("watch:setRoot", root),
+  // WS-9.3: pre-register a project root about to be LOADED (deny-by-default
+  // fsGuard needs it before watchRoot promotes it after the load succeeds).
+  beginOpen: (root) => ipcRenderer.invoke("fs:beginOpen", root),
   // F2: re-run a plot's recipe; returns { code, svgText, manifestText, recipeText }.
   runRecipe: (recipePath, params) => ipcRenderer.invoke("recipe:run", { recipePath, params }),
   // Slide export: emit a self-contained offline .html for a deck. Node-only

@@ -276,6 +276,9 @@ export interface FileBridge {
   // leaf module doesn't import the figure model.
   readGlobalTextStyles?(): Promise<unknown[]>;
   writeGlobalTextStyles?(styles: unknown[]): Promise<void>;
+  // WS-9.3: pre-register a project root about to be loaded (single pending
+  // fsGuard slot; watchRoot promotes/clears it). Electron only.
+  beginOpen?(root: string): Promise<boolean>;
   // 5.3 update check (packaged app only): resolves to a newer release's
   // { version, url } or null. Main owns the ≤1/day throttle + GitHub fetch.
   checkForUpdate?(): Promise<{ version: string; url: string } | null>;

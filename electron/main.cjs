@@ -128,6 +128,11 @@ function isSelfWrite(p) {
 // touch paths under (a) the project root, (b) the app's own dirs, or (c) a
 // directory the user explicitly reached through a file dialog (imports/exports).
 let currentRoot = null;
+// WS-9.3: the open flow READS the project before watch:setRoot registers it —
+// fs:beginOpen pre-registers ONE pending root (it must actually be a Flux
+// project on disk); watch:setRoot promotes or clears it. A single slot, so
+// pre-approvals can never accumulate the way approvedDirs used to.
+let pendingRoot = null;
 const approvedDirs = new Set();
 function approveDir(p) {
   if (p) approvedDirs.add(path.resolve(path.dirname(p)));
@@ -136,14 +141,17 @@ function underDir(ab, dir) {
   return ab === dir || ab.startsWith(dir + path.sep);
 }
 function fsGuard(p) {
-  if (!currentRoot) return; // nothing to protect before a project is open
+  // WS-9.3: deny-by-default. The old `if (!currentRoot) return` allowed EVERYTHING
+  // in the launch→open window (and on Home) — the app dirs + FluxLib below are all
+  // Home actually needs (recents/prefs live in userData; library browsing in FluxLib).
   const ab = path.resolve(p);
   // W12 (SHL-6): dropped app.getPath("home") — allowing the entire user home made
   // the guard nearly a no-op. Imports/exports outside the project still work because
-  // a file dialog `approveDir`s the chosen directory. Roots: the project, the app's
-  // own dirs, the machine-global FluxLib, and dialog-approved dirs.
+  // a file dialog `approveDir`s the chosen directory. Roots: the project (when open),
+  // the app's own dirs, the machine-global FluxLib, and dialog-approved dirs.
   const roots = [
     currentRoot,
+    pendingRoot, // WS-9.3: the project being opened right now (single slot)
     app.getPath("userData"),
     app.getPath("temp"),
     getFluxConfigRoot(), // FluxLib lives inside; kept separately below for the EXDEV-fallback state
@@ -922,10 +930,29 @@ function fluxLibSubsystemFor(libRoot, abs) {
   return null;
 }
 
+ipcMain.handle("fs:beginOpen", async (_e, root) => {
+  // WS-9.3: pre-register the project the renderer is about to load, so the
+  // load's fs:* reads pass the deny-by-default guard. Only a real Flux project
+  // qualifies (same marker requireProject uses); anything else clears the slot.
+  const ab = root ? path.resolve(String(root)) : null;
+  if (!ab || !fs.existsSync(path.join(ab, "project.json"))) {
+    pendingRoot = null;
+    return false;
+  }
+  pendingRoot = ab;
+  return true;
+});
+
 ipcMain.handle("watch:setRoot", async (_e, root) => {
   releaseAllGuiLocks(); // W3: locks belong to the outgoing project/session
   // M9: the open project root is the primary fs allowlist entry.
   currentRoot = root ? path.resolve(root) : null;
+  // WS-9.3: dialog approvals belong to the outgoing project/session too — a dir
+  // approved for an import in project A must not stay writable from project B
+  // (or from Home, root=null). The pending pre-approval is promoted (or dropped)
+  // by this registration either way.
+  approvedDirs.clear();
+  pendingRoot = null;
   // WS4: bring the live agent bridge up/down with the open project.
   startBridgeFor(currentRoot);
   if (projectWatcher) {
