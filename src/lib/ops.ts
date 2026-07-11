@@ -969,9 +969,15 @@ const TEXT_LAYOUT_KEYS = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "
 // (color/align detach only when the style actually defines them).
 const FONT_KEYS = new Set(["fontFamily", "fontSize", "fontWeight", "fontStyle", "underline", "lineHeight"]);
 
-/** Drop a stale derived wrap cache (pure cache invalidation, DOM-free). */
+/** Drop a stale derived wrap cache (pure cache invalidation, DOM-free).
+ *  WS-12: a WRAPPING element (auto-h/fixed) whose cache we just killed will
+ *  render UNWRAPPED headless until a GUI re-measures — flag it so headless
+ *  render/export paths can warn instead of silently diverging ("auto" hugs
+ *  its hard lines, so nothing is lost there). applyTextLayout clears it. */
 function invalidateTextLayout(e: Element): void {
-  if (e.type === "text") delete e.lines;
+  if (e.type !== "text") return;
+  delete e.lines;
+  if (e.sizing === "auto-h" || e.sizing === "fixed") e.needsLayout = true;
 }
 
 /** Detach a linked named style when a manual edit overrides it: any font-prop
@@ -1124,7 +1130,7 @@ export function toggleTextStyle(p: Project, ids: Id[], which: TextToggle): void 
     if (which === "bold") e.fontWeight = allOn ? 400 : 700;
     else if (which === "italic") e.fontStyle = allOn ? "normal" : "italic";
     else e.underline = !allOn;
-    if (which !== "underline") delete e.lines; // bold/italic change metrics
+    if (which !== "underline") invalidateTextLayout(e); // bold/italic change metrics
     detachOnManualEdit(p, e, [which === "bold" ? "fontWeight" : which === "italic" ? "fontStyle" : "underline"]);
   }
 }
@@ -1151,7 +1157,7 @@ function assignTextStyle(e: TextElement, st: TextStyle): void {
   if (st.color != null) e.color = st.color;
   if (st.align != null) e.align = st.align;
   e.styleId = st.id;
-  delete e.lines; // metrics changed — GUI reflows, headless falls back
+  invalidateTextLayout(e); // metrics changed — GUI reflows, headless falls back
 }
 
 /** Create a named text style (id auto-generated unless supplied; a supplied id
@@ -1333,7 +1339,7 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
       letters.push(want);
       if (it.e.type === "text" && it.e.text !== want) {
         it.e.text = want;
-        delete it.e.lines; // text changed → wrap cache stale (GUI reflows on next layout)
+        invalidateTextLayout(it.e); // text changed → wrap cache stale (GUI reflows on next layout)
         changed = true;
       }
     }

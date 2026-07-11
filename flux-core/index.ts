@@ -663,6 +663,38 @@ export async function figureMembersOf(
   return out;
 }
 
+/** WS-12: warnings for text elements a headless edit left UNWRAPPED
+ *  (needsLayout). Renders/exports proceed — a cosmetic wrap must not break an
+ *  agent pipeline — but the GUI-parity gap is named instead of silent. */
+export function textLayoutWarnings(figures: Figure[]): string[] {
+  const out: string[] = [];
+  for (const f of figures)
+    for (const e of f.elements) {
+      if (e.type !== "text" || !e.needsLayout) continue;
+      out.push(
+        `figure "${f.id}": text ${e.id}${e.name ? ` ("${e.name}")` : ""} was edited headless and renders with UNWRAPPED lines (sizing "${e.sizing}") — open the project in Flux once to re-wrap`,
+      );
+    }
+  return out;
+}
+
+/** Load-and-scan convenience for the CLI/MCP render surfaces. */
+export async function textLayoutProbe(
+  root: string,
+  opts: { figureId?: string; canvasId?: string; figureIds?: string[] } = {},
+): Promise<string[]> {
+  const index = await readFigIndex(root).catch(() => null);
+  if (!index) return [];
+  const { byId } = await readCanvasFiles(root, index);
+  let figs = Object.values(byId);
+  if (opts.figureId) figs = figs.filter((f) => f.id === opts.figureId);
+  else if (opts.figureIds) {
+    const want = new Set(opts.figureIds);
+    figs = figs.filter((f) => want.has(f.id));
+  } else if (opts.canvasId) figs = figs.filter((f) => f.canvasId === opts.canvasId);
+  return textLayoutWarnings(figs);
+}
+
 export async function renderFigureSvg(
   root: string,
   id: string,
@@ -2163,11 +2195,12 @@ export async function reconcile(
 export async function materializeRenders(
   root: string,
   docPath?: string,
-): Promise<{ wrote: number; failed: string[] }> {
+): Promise<{ wrote: number; failed: string[]; warnings: string[] }> {
   const failed: string[] = [];
+  const warnings: string[] = [];
   let wrote = 0;
   const index = await readFigIndex(root);
-  if (!index) return { wrote, failed };
+  if (!index) return { wrote, failed, warnings };
   const known = new Set(index.figures.map((f) => f.id));
   let ids = new Set<string>(known);
   if (docPath) {
@@ -2187,6 +2220,9 @@ export async function materializeRenders(
     }
   }
   await fs.mkdir(safeJoin(root, "fig/renders"), { recursive: true });
+  // WS-12: name any figure whose text a headless edit left unwrapped — the
+  // materialized SVGs are exactly what the compiled manuscript will show.
+  warnings.push(...(await textLayoutProbe(root, { figureIds: [...ids] })));
   for (const id of ids) {
     try {
       const svg = await renderFigureSvg(root, id);
@@ -2196,7 +2232,7 @@ export async function materializeRenders(
       failed.push(id);
     }
   }
-  return { wrote, failed };
+  return { wrote, failed, warnings };
 }
 
 /** compile the manuscript via Quarto (pdf|html|docx). Requires `quarto` on PATH. */
@@ -2280,7 +2316,7 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
   const m = await loadManifest(root);
   // Figures embed as ../fig/renders/<id>.svg — materialize them so a bare quarto
   // render (agent/CI, no app open) gets real images instead of broken links.
-  const renders = await materializeRenders(root, m.manuscript.path).catch(() => ({ wrote: 0, failed: [] as string[] }));
+  const renders = await materializeRenders(root, m.manuscript.path).catch(() => ({ wrote: 0, failed: [] as string[], warnings: [] as string[] }));
 
   // Bare-quarto parity transform, applied IN PLACE and restored after the
   // render: (1) composed model captions into empty embed alts (Quarto reads
@@ -2331,7 +2367,9 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
     for (const [f, text] of originals) await atomicWrite(f, text).catch(() => {});
   }
   await journal(root, { action: "compile", to, code });
-  const note = renders.failed.length ? `\n(figure renders failed: ${renders.failed.join(", ")})` : "";
+  const note =
+    (renders.failed.length ? `\n(figure renders failed: ${renders.failed.join(", ")})` : "") +
+    (renders.warnings.length ? `\n⚠ ${renders.warnings.join("\n⚠ ")}` : "");
 
   // Post-compile summary (moma feedback #12): the output path and a compact
   // figures/citations resolution report, so "did everything land?" needs no
@@ -2584,6 +2622,9 @@ export async function validate(root: string, file?: string): Promise<ValidateRes
             warnings.push(`figures ${a.id} and ${b.id} OVERLAP on canvas ${cid} (${Math.round(overlapX)}×${Math.round(overlapY)}) — check render-canvas`);
         }
     }
+    // WS-12: headless-edited text still awaiting a GUI re-wrap renders
+    // differently here than in the app — name it.
+    warnings.push(...textLayoutWarnings(project.figures));
   } catch {
     /* lint is best-effort — schema validation is the contract */
   }

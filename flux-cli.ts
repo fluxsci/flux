@@ -287,6 +287,8 @@ async function main() {
         console.error(
           `⚠ ${figId}: ${stale.refreshed.length} panel(s) stale vs plots/ (${stale.refreshed.map((r) => r.from).join(", ")}) — run \`flux sync-figure ${figId}\` to refresh`,
         );
+      // WS-12: headless-edited text renders unwrapped — warn loudly, render anyway.
+      for (const w of await core.textLayoutProbe(root(), { figureId: figId })) console.error(`⚠ ${w}`);
       if (flags.png) {
         const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2);
         const out = String(flags.out ?? `${figId}.png`);
@@ -326,6 +328,7 @@ async function main() {
       // agent's look-step catches layout problems (overlap, stray placeholder
       // frames) that per-figure renders can never show.
       const cid = _[0] || undefined;
+      for (const w of await core.textLayoutProbe(R(), { canvasId: cid })) console.error(`⚠ ${w}`); // WS-12
       if (flags.png) {
         const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1);
         const out = String(flags.out ?? `${canvasId}.png`);
@@ -348,6 +351,7 @@ async function main() {
       // without a readable doc) — what `quarto render` needs on disk. compile() does this
       // automatically; this verb serves "I'll run quarto myself".
       const r = await core.materializeRenders(root(), typeof flags.doc === "string" ? flags.doc : undefined);
+      for (const w of r.warnings) console.error(`⚠ ${w}`); // WS-12
       console.error(`✓ wrote ${r.wrote} render(s) to fig/renders/` + (r.failed.length ? ` — failed: ${r.failed.join(", ")}` : ""));
       if (r.failed.length) process.exitCode = 1;
       break;

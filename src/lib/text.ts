@@ -135,10 +135,14 @@ export function applyTextLayout(el: Element): void {
   if (el.type !== "text") return;
   if (typeof document === "undefined") {
     delete el.lines;
+    // WS-12: a wrapping element just lost its cache with no way to rebuild it
+    // here — flag it so headless renders warn and the next GUI open re-wraps.
+    if (el.sizing === "auto-h" || el.sizing === "fixed") el.needsLayout = true;
     return;
   }
   if (el.sizing === "auto" || !el.sizing) {
     delete el.lines; // hug: the visual lines ARE the hard lines
+    delete el.needsLayout; // WS-12: measured — layout-honest again
     const m = measureText(el);
     el.width = m.width;
     el.height = m.height;
@@ -146,6 +150,7 @@ export function applyTextLayout(el: Element): void {
   }
   const lines = wrapText(el.text, Math.max(1, el.width), browserMeasure(fontString(el)));
   el.lines = lines;
+  delete el.needsLayout; // WS-12: measured — layout-honest again
   if (el.sizing === "auto-h") el.height = Math.ceil(lines.length * lineH(el));
 }
 

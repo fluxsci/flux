@@ -9,7 +9,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import Ajv from "ajv";
-import { safeJoin, journal, loadManifest, getClient, renderFigureSvg, figureMembersOf, ensureDom } from "./index";
+import { safeJoin, journal, loadManifest, getClient, renderFigureSvg, figureMembersOf, ensureDom, textLayoutProbe } from "./index";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
@@ -583,6 +583,8 @@ export async function gatherDeckPayload(
           try { figures[key] = await renderFigureSvg(root, el.figureId, el.groupId ? { groupId: el.groupId } : undefined); } catch {
             warnings.push(`figure "${el.figureId}" could not be rendered — its element will show a placeholder`);
           }
+          // WS-12: the embedded snapshot is exactly what the export will show.
+          warnings.push(...(await textLayoutProbe(root, { figureId: el.figureId })));
         }
         // Member metadata + member plot manifests: "el:<mid>" / "el:<mid>/<partId>"
         // tracks need them offline. Member plots live under fig/assets/ (their

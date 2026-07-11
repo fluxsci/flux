@@ -38,6 +38,7 @@ import { pushToast } from "../toast";
 import { isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
 import { settings } from "../settings";
 import { panelLetters } from "../captions";
+import { applyTextLayout } from "../text";
 import { fileBridge, joinPath } from "./types";
 import { ConflictError } from "../autosave";
 import {
@@ -226,6 +227,14 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   }
   assetData.set(data);
   clearAllAssetsDirty(); // W8: freshly loaded — every asset is in sync with disk
+
+  // WS-12: heal headless-edited text now that fonts are measurable — flagged
+  // elements re-wrap here (applyTextLayout clears needsLayout), so a GUI open
+  // restores render parity and the next save persists honest wrap caches.
+  if (typeof document !== "undefined") {
+    for (const f of figures)
+      for (const e of f.elements) if (e.type === "text" && e.needsLayout) applyTextLayout(e);
+  }
 
   const proj: FigProject = {
     version: 2,

@@ -52,10 +52,16 @@ server.registerTool(
   },
   async ({ id, scale }) => {
     const png = await core.renderFigurePng(ROOT, id, scale ?? 2);
+    const warns = await core.textLayoutProbe(ROOT, { figureId: id }); // WS-12
     return {
       content: [
         { type: "image" as const, data: png.toString("base64"), mimeType: "image/png" },
-        { type: "text" as const, text: `Rendered figure "${id}" (PNG, ${png.length} bytes, scale ${scale ?? 2}).` },
+        {
+          type: "text" as const,
+          text:
+            `Rendered figure "${id}" (PNG, ${png.length} bytes, scale ${scale ?? 2}).` +
+            (warns.length ? `\n⚠ ${warns.join("\n⚠ ")}` : ""),
+        },
       ],
     };
   },
@@ -108,10 +114,16 @@ server.registerTool(
   },
   async ({ canvasId, scale }) => {
     const { png, canvasId: cid } = await core.renderCanvasPng(ROOT, canvasId, scale ?? 1);
+    const warns = await core.textLayoutProbe(ROOT, { canvasId: cid }); // WS-12
     return {
       content: [
         { type: "image" as const, data: png.toString("base64"), mimeType: "image/png" },
-        { type: "text" as const, text: `Rendered canvas "${cid}" (PNG, ${png.length} bytes, scale ${scale ?? 1}).` },
+        {
+          type: "text" as const,
+          text:
+            `Rendered canvas "${cid}" (PNG, ${png.length} bytes, scale ${scale ?? 1}).` +
+            (warns.length ? `\n⚠ ${warns.join("\n⚠ ")}` : ""),
+        },
       ],
     };
   },
@@ -922,7 +934,16 @@ server.registerTool(
       "Render a figure to SVG text (per-part plot overrides baked in) — the vector source. For a raster preview an agent can SEE, use get_figure_image (PNG) instead.",
     inputSchema: { id: z.string() },
   },
-  async ({ id }) => ok(await core.renderFigureSvg(ROOT, id)),
+  async ({ id }) => {
+    const svg = await core.renderFigureSvg(ROOT, id);
+    const warns = await core.textLayoutProbe(ROOT, { figureId: id }); // WS-12
+    return {
+      content: [
+        { type: "text" as const, text: svg },
+        ...(warns.length ? [{ type: "text" as const, text: `⚠ ${warns.join("\n⚠ ")}` }] : []),
+      ],
+    };
+  },
 );
 
 server.registerTool(

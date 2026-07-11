@@ -199,6 +199,12 @@ export interface TextElement extends ElementBase {
   // edits DELETE it instead (no font metrics under Node); renderers fall back
   // to the hard lines via visualLines(el). Never edit by hand.
   lines?: string[];
+  // WS-12: set by the pure ops whenever they invalidate `lines` on a WRAPPING
+  // element (sizing auto-h/fixed) — a headless edit left this text rendering
+  // unwrapped until a GUI can measure fonts. applyTextLayout clears it
+  // (loadFigInto heals flagged elements on open); headless render/export
+  // paths WARN naming the element instead of diverging silently.
+  needsLayout?: true;
   // Linked named style (Project.textStyles). Manual font edits detach it.
   styleId?: Id;
   // Marked (Alt+L / inspector) as a figure panel label. Each marked text becomes
