@@ -1,5 +1,16 @@
 # Flux — notes for agents
 
+## Read the engineering guide first (every session)
+
+Before doing substantive work in this repo, read
+**`docs/AGENT_ENGINEERING_GUIDE-RUNNING.md`** in full. It is the living,
+agent-maintained engineering guide: architecture, hard rules, the verification
+system, recipes, known traps, and a session log. It also tells you how to
+UPDATE it — corrections when you find something outdated, and a concise
+datetime-stamped session entry after any major work. Treat that document as
+part of your instructions for every session; this file is only the short list
+of absolute invariants.
+
 ## The Paper editor's editing feel is LOCKED
 
 The cursor/typing/editing feel of the manuscript editor
