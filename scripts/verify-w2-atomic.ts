@@ -136,7 +136,7 @@ try {
       // the shared executor; each engine wires its own fsyncDir adapter in.
       ["src/lib/project/figfiles.ts", "canvas batch (executor)", /io\.fsyncDir\?\.\("fig\/canvases"\)/],
       ["src/lib/project/figfiles.ts", "index commit (executor)", /io\.fsyncDir\?\.\("fig"\)/],
-      ["flux-core/index.ts", "Node adapter", /fsyncDir: \(rel\) => fsyncDir\(safeJoin\(root, rel\)\)/],
+      ["flux-core/model.ts", "Node adapter (WS-6.2 home)", /fsyncDir: \(rel\) => fsyncDir\(safeJoin\(root, rel\)\)/],
       ["src/lib/project/figbridge.ts", "renderer adapter", /fig\.fsyncDir!\(joinPath\(root, rel\)\)/],
       ["electron/ipc/files.cjs", "IPC handler (files family)", /["']fs:fsyncDir["']/],
       ["electron/preload.cjs", "bridge exposure", /fsyncDir/],
