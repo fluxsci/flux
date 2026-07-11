@@ -10,6 +10,7 @@
   let {
     target,
     anchor,
+    nums,
     onenter,
     onleave,
     onOpenRef,
@@ -17,6 +18,8 @@
   }: {
     target: ChipTarget;
     anchor: HTMLElement;
+    /** WS-4.2: the owning editor's numbering instance (tbl/eq cross-refs). */
+    nums?: import("./numberingFacet").PaperNumbering;
     onenter?: () => void;
     onleave?: () => void;
     /** Open this citekey in the References margin view (scrolled + untwirled). */
@@ -36,7 +39,7 @@
 
   // Subscribe to the stores so content updates if data loads after mount.
   const fig = $derived(
-    target.kind === "figref" && $figureRefs ? resolveFigure(target.label) : null,
+    target.kind === "figref" && $figureRefs ? resolveFigure(target.label, nums) : null,
   );
   const figSvg = $derived(fig ? renderFigureSvg(fig.ref.id) : undefined);
   const cites = $derived(

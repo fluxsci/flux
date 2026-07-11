@@ -6,7 +6,8 @@
 import { WidgetType } from "@codemirror/view";
 import { resolveFigure } from "../scholar/figures";
 import { resolveCite } from "../scholar/bib";
-import { getCitationStyle, citeOrdinal, formatNumericLabel } from "../scholar/citeNumbering";
+import { formatNumericLabel, type CitationStyle } from "../scholar/citeNumbering";
+import type { PaperNumbering } from "../scholar/numberingFacet";
 import { renderTexCached } from "./katexLoader";
 import { chipHandlers } from "./chipContext";
 
@@ -41,9 +42,12 @@ export class MathWidget extends WidgetType {
 export class FigRefWidget extends WidgetType {
   readonly display: string;
   readonly resolved: boolean;
-  constructor(readonly label: string) {
+  constructor(
+    readonly label: string,
+    nums?: PaperNumbering,
+  ) {
     super();
-    const r = resolveFigure(label);
+    const r = resolveFigure(label, nums);
     const kind = label.startsWith("tbl-")
       ? "Table "
       : label.startsWith("sec-")
@@ -129,12 +133,14 @@ export class CiteWidget extends WidgetType {
   constructor(
     readonly keys: string[],
     readonly raw: string,
+    style: CitationStyle,
+    ordinalOf: (key: string) => number | undefined,
   ) {
     super();
-    if (getCitationStyle() === "numeric") {
-      // "[3,5,9–14]" from the live ordinal registry (citeNumbers publishes it
-      // synchronously before chips rebuild); unresolved keys show as "?".
-      const n = formatNumericLabel(keys, citeOrdinal);
+    if (style === "numeric") {
+      // "[3,5,9–14]" from the live per-editor registry (citeNumbers publishes
+      // it synchronously before chips rebuild); unresolved keys show as "?".
+      const n = formatNumericLabel(keys, ordinalOf);
       this.resolved = n.allResolved;
       // Nothing resolves → echo what was typed (same affordance as author-year).
       this.display = n.anyResolved ? n.text : raw;

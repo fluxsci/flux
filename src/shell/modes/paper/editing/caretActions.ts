@@ -8,6 +8,7 @@ import type { EditorView } from "@codemirror/view";
 import { crossrefRe } from "../science/grammar";
 import { embedLineAt } from "../science/figureAttrs";
 import { resolveFigure } from "../scholar/figures";
+import { numberingFacet } from "../scholar/numberingFacet";
 import { citationGroupAt } from "../scholar/citeOps";
 
 export function followAtCaret(deps: {
@@ -16,10 +17,11 @@ export function followAtCaret(deps: {
 }): (view: EditorView) => boolean {
   return (view) => {
     const head = view.state.selection.main.head;
+    const nums = view.state.facet(numberingFacet); // WS-4.2
 
     const embed = embedLineAt(view.state, head);
     if (embed) {
-      const r = resolveFigure(embed.id);
+      const r = resolveFigure(embed.id, nums);
       if (r) {
         deps.openFigure(r.ref.id);
         return true;
@@ -33,7 +35,7 @@ export function followAtCaret(deps: {
       const from = line.from + m.index;
       const to = from + m[0].length;
       if (head >= from - 1 && head <= to + 1) {
-        const r = resolveFigure(m[0].slice(1));
+        const r = resolveFigure(m[0].slice(1), nums);
         if (r) {
           deps.openFigure(r.ref.id);
           return true;

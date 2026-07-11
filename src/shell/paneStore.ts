@@ -14,8 +14,10 @@ export interface Pane {
 // PAP-16 + WS-1 Fix 7b: SINGLETON modes — two side-by-side panes of these
 // would share module-global state, so the split is gated for V1 and the
 // request deterministically FOCUSES the pane that already shows the mode.
-//   paper:  manuscript numbering/cursor/bubble singletons (WS-4.2 removes the
-//           numbering ones, but the block stays until ALL are per-pane).
+//   paper:  the NUMBERING singletons are gone (WS-4.2 landed: per-editor
+//           numberingFacet + margin-host threading) — the remaining reasons
+//           are the cursor/selection-bubble singletons; the block stays until
+//           those are per-pane too.
 //   figure: the figure stores (project/selection/viewport in lib/store.ts)
 //           are fully app-global — both panes would render every commit and
 //           fight over selection. Real fix = per-pane figure stores (F5.3,

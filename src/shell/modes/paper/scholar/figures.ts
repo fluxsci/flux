@@ -9,7 +9,7 @@ import { figureToSvg } from "../../../../lib/export";
 import { readFigSource } from "../../../../lib/project/figbridge";
 import { fileBridge } from "../../../../lib/project/types";
 import { EMBED_RE } from "../science/figureAttrs";
-import { tableNumber, eqNumber } from "./numbering";
+
 import { designationFromName } from "./figText";
 
 export { panelSpec, figRefText, designationFromName, nameIsDesignation } from "./figText";
@@ -66,16 +66,20 @@ export async function loadFigures(root: string | null): Promise<void> {
   figureRefs.set(refs);
 }
 
-/** Resolve a `@fig-…` label, including sub-panel refs (`fig-x-a` → "1a"). */
+/** Resolve a `@fig-…` label, including sub-panel refs (`fig-x-a` → "1a").
+ *  WS-4.2: table/equation cross-refs resolve against the PER-EDITOR numbering
+ *  instance passed in `nums` (chips/hover/caret thread it from the facet);
+ *  callers that only ever see fig-… labels (render, materialize) omit it. */
 export function resolveFigure(
   label: string,
+  nums?: { tbl: Map<string, number>; eq: Map<string, number> },
 ): { ref: FigureRef; number: string; panel?: string } | null {
   const exact = refByLabel.get(label);
   if (exact) return { ref: exact, number: exact.number };
   // Table cross-refs are numbered inline (by the table renderer), not from the
   // figure project — resolve them against the numbering registry.
   if (label.startsWith("tbl-")) {
-    const n = tableNumber(label);
+    const n = nums?.tbl.get(label);
     if (n != null) {
       return {
         ref: { id: "", label, name: "", order: n, number: String(n), canvas: "", caption: "", panels: [] },
@@ -88,7 +92,7 @@ export function resolveFigure(
   // appearance (science/math.ts publishes the registry; the export scans the
   // same rule via science/refNumbers).
   if (label.startsWith("eq-")) {
-    const n = eqNumber(label);
+    const n = nums?.eq.get(label);
     if (n != null) {
       return {
         ref: { id: "", label, name: "", order: n, number: String(n), canvas: "", caption: "", panels: [] },

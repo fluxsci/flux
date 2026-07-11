@@ -3,13 +3,21 @@
   import type { MarginHost, MarginApi } from "../types";
   import { bibError } from "../../scholar/bib";
   import { activeCitationGroup } from "../../scholar/activeCitation";
-  import { citationOrdinals, citationStyle } from "../../scholar/citeNumbering";
+  // WS-4.2: per-editor numbering comes through the margin host (was a module
+  // store import — a cross-pane singleton).
   import { refRevealReq } from "../refReveal";
   import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../scholar/pdfPresence";
   import { revealReader } from "../../../../scholar/nav";
   import { fileBridge } from "../../../../../lib/project/types";
 
   let { host, margin }: { host: MarginHost; margin: MarginApi } = $props();
+  // The numbering STORES are created once per PaperMode mount and never swap
+  // identity — capturing them off the initial host is deliberate (we want the
+  // stores, not a reactive read of the host object).
+  // svelte-ignore state_referenced_locally
+  const citationOrdinals = host.numbering.ordinals;
+  // svelte-ignore state_referenced_locally
+  const citationStyle = host.numbering.style;
 
   let doi = $state("");
   let adding = $state(false);

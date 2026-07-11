@@ -146,35 +146,8 @@ export function formatNumericLabel(
   };
 }
 
-// ---- live registry + stores (mirrors scholar/numbering.ts + bib.ts) --------
-
-/** Reactive style for Svelte surfaces; a get() wrapper for widget constructors. */
-export const citationStyle = writable<CitationStyle>("author-year");
-export function getCitationStyle(): CitationStyle {
-  return get(citationStyle);
-}
-
-/** Reactive ordinal map for margin UIs (badges, group editor). */
-export const citationOrdinals = writable<Map<string, number>>(new Map());
-
-let ordinalByKey = new Map<string, number>();
-
-/** Equality-guarded publish (chips read the registry synchronously; Svelte
- *  subscribers only wake when the numbering actually changed). */
-export function setCitationOrdinals(m: Map<string, number>): void {
-  if (m.size === ordinalByKey.size) {
-    let same = true;
-    for (const [k, v] of m)
-      if (ordinalByKey.get(k) !== v) {
-        same = false;
-        break;
-      }
-    if (same) return;
-  }
-  ordinalByKey = m;
-  citationOrdinals.set(m);
-}
-
-export function citeOrdinal(key: string): number | undefined {
-  return ordinalByKey.get(key);
-}
+// WS-4.2: the live registry/stores that used to live here (citationStyle,
+// citationOrdinals, setCitationOrdinals, citeOrdinal, getCitationStyle) are
+// gone — numbering is PER EDITOR now (scholar/numberingFacet.ts): the
+// citeNumbers field publishes into its state's facet instance, chips read it
+// in the same update, and margin views subscribe through the margin host.

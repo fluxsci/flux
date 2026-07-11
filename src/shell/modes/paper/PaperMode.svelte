@@ -27,7 +27,10 @@
   import { collectEmbedLabels, transformQmdForExport } from "../../../lib/exportQmd";
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
-  import { citationStyle, citationStyleOf } from "./scholar/citeNumbering";
+  import { citationStyleOf } from "./scholar/citeNumbering";
+  import { createPaperNumbering, numberingFacet } from "./scholar/numberingFacet";
+  // WS-4.2: THIS pane's numbering instance (facet value + margin-facing stores).
+  const numbering = createPaperNumbering();
   import { setFrontMatterKey } from "./scholar/frontMatter";
   import { activeCitationWatcher, resetActiveCitation } from "./scholar/activeCitation";
   import { followAtCaret } from "./editing/caretActions";
@@ -733,7 +736,7 @@
       if (line.text.indexOf("![") < 0) continue;
       const m = EMBED_RE.exec(line.text);
       if (!m || m[1].length === 0) continue;
-      if (!resolveFigure(m[3])) continue;
+      if (!resolveFigure(m[3], numbering.instance)) continue;
       const lead = /^\s*/.exec(line.text)![0].length;
       const from = line.from + lead + 2; // just past "!["
       const to = from + m[1].length;
@@ -780,7 +783,7 @@
   }
   function activateChip(target: ChipTarget, el?: HTMLElement) {
     if (target.kind === "figref") {
-      const r = resolveFigure(target.label);
+      const r = resolveFigure(target.label, numbering.instance);
       if (r) revealFigure(r.ref.id);
     } else if (target.kind === "cite") {
       // Land the caret at the chip (its edge satisfies citationGroupAt's
@@ -832,7 +835,7 @@
           const from = line.from + m.index;
           const to = from + m[0].length;
           if (pos >= from && pos <= to) {
-            const r = resolveFigure(m[0].slice(1));
+            const r = resolveFigure(m[0].slice(1), numbering.instance);
             if (r) {
               revealFigure(r.ref.id);
               return true;
@@ -856,7 +859,7 @@
   // STYLE actually flips — every visible chip then relabels via refreshChips.
   const citeStyle = $derived(citationStyleOf(latest));
   $effect(() => {
-    citationStyle.set(citeStyle);
+    numbering.setStyle(citeStyle); // WS-4.2: per-editor instance, not a module store
     view?.dispatch({ effects: refreshChips.of(null) });
   });
   // PAP-7: is there any non-whitespace after the front matter? Scanned in place (no slice +
@@ -985,6 +988,9 @@
         formattingKeymap,
         // `@@` → figure-reference picker (the second @ never lands in the doc).
         figRefTrigger(openFigRefPicker),
+        // WS-4.2: THIS editor's numbering instance — provided before
+        // citeNumberField so writers/readers share it in the same update.
+        numberingFacet.of(numbering.instance),
         citeNumberField, // before the chip plugin: ordinals publish first
         scienceChips,
         scienceEmbeds,
@@ -1328,6 +1334,9 @@
       if (view) setFrontMatterKey(view, "citation-style", style);
       view?.focus();
     },
+    // WS-4.2: the per-editor numbering faces margin views subscribe to
+    // (replaces their module-store imports).
+    numbering: { ordinals: numbering.ordinalsStore, style: numbering.styleStore },
     get citedKeys() {
       return citedKeys;
     },
@@ -1706,6 +1715,7 @@
     <HoverCard
       target={hover.target}
       anchor={hover.anchor}
+      nums={numbering.instance}
       onenter={() => clearTimeout(hoverHideTimer)}
       onleave={hideHoverSoon}
       onOpenRef={openRefFromHover}
@@ -1743,6 +1753,7 @@
     {#key figRefOpenN}
       <FigRefPicker
         figures={$figureRefs}
+        nums={numbering.instance}
         onInsert={insertFigRef}
         onClose={() => { figRefPickerOpen = false; view?.focus(); }} />
     {/key}

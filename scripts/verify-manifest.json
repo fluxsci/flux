@@ -56,6 +56,7 @@
       "verify-paper-mathgrammar.ts",
       "verify-paper-changegate.ts",
       "verify-frontmatter.ts",
+      "verify-render-concurrency.ts",
       "verify-annotations-md.ts",
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",

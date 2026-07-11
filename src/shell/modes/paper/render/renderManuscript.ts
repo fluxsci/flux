@@ -232,7 +232,11 @@ interface BlockSpec {
 const CALLOUT_OPEN = /^:::+\s*\{?\s*\.callout-(\w+)/;
 const CALLOUT_CLOSE = /^:::+\s*$/;
 
-function preprocess(body: string, ctx: CiteCtx): { transformed: string; blocks: BlockSpec[] } {
+// WS-4.2: capStash is a PARAMETER, not a module global. The old module-level
+// stash happened to be safe (reset→fill→read had no interleaving await) but was
+// incorrect-by-construction: any future await between fill and read — or a
+// PreviewPane render overlapping an export — would swap captions across renders.
+function preprocess(body: string, ctx: CiteCtx, capStash: string[]): { transformed: string; blocks: BlockSpec[] } {
   const lines = body.split("\n");
   const out: string[] = [];
   const blocks: BlockSpec[] = [];
@@ -362,10 +366,6 @@ function preprocess(body: string, ctx: CiteCtx): { transformed: string; blocks: 
   return { transformed: out.join("\n"), blocks };
 }
 
-// Caption markdown is collected during preprocess and inline-rendered after we
-// have the markdown-it instance.
-let capStash: string[] = [];
-
 function bibliographyHtml(ctx: CiteCtx): string {
   // Numeric: ordered + numbered by first appearance; author-year: alphabetical.
   const entries =
@@ -460,12 +460,14 @@ export async function renderManuscript(
     }
   }
 
-  capStash = [];
+  // Caption markdown collected during preprocess, inline-rendered after the
+  // markdown-it instance exists — LOCAL to this render (WS-4.2).
+  const capStash: string[] = [];
   const ctx = makeCiteCtx(parseCitationStyle(meta["citation-style"]), body);
   // KaTeX loads only when the body could hold math (`$` is a safe superset) —
   // preprocess/transformProse then render math synchronously via the module ref.
   if (body.includes("$")) await getKatex();
-  const { transformed, blocks } = preprocess(body, ctx);
+  const { transformed, blocks } = preprocess(body, ctx, capStash);
   let html = md.render(transformed);
 
   // Substitute block placeholders (figures, table captions) + their captions.

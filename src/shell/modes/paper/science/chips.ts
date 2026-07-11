@@ -13,6 +13,7 @@ import {
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { frontMatterEndLine } from "../frontmatter";
+import { numberingFacet, type PaperNumbering } from "../scholar/numberingFacet";
 import { StateEffect, type EditorState, type Range } from "@codemirror/state";
 import { CiteWidget, EmbedSrcWidget, FigRefWidget, MathWidget } from "./widgets";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "./grammar";
@@ -54,7 +55,7 @@ function keysFrom(inner: string): string[] {
     .filter(Boolean);
 }
 
-function scanLine(lineFrom: number, text: string, allowMath: boolean): Tok[] {
+function scanLine(lineFrom: number, text: string, allowMath: boolean, reg: PaperNumbering): Tok[] {
   const toks: Tok[] = [];
   const taken: [number, number][] = [];
   const overlaps = (a: number, b: number) =>
@@ -80,7 +81,7 @@ function scanLine(lineFrom: number, text: string, allowMath: boolean): Tok[] {
     if (overlaps(from, to)) continue;
     const keys = keysFrom(m[1]);
     if (keys.length) {
-      toks.push({ from, to, widget: new CiteWidget(keys, m[0]) });
+      toks.push({ from, to, widget: new CiteWidget(keys, m[0], reg.style, (k) => reg.ordinals.get(k)) });
       taken.push([from, to]);
     }
   }
@@ -89,7 +90,7 @@ function scanLine(lineFrom: number, text: string, allowMath: boolean): Tok[] {
     const from = lineFrom + m.index;
     const to = from + m[0].length;
     if (overlaps(from, to)) continue;
-    toks.push({ from, to, widget: new FigRefWidget(m[0].slice(1)) });
+    toks.push({ from, to, widget: new FigRefWidget(m[0].slice(1), reg) });
     taken.push([from, to]);
   }
   BARE_CITE.lastIndex = 0;
@@ -99,7 +100,7 @@ function scanLine(lineFrom: number, text: string, allowMath: boolean): Tok[] {
     const to = from + 1 + m[2].length;
     if (overlaps(from, to)) continue;
     if (isCrossrefKey(m[2])) continue; // a cross-ref, handled above
-    toks.push({ from, to, widget: new CiteWidget([m[2]], "@" + m[2]) });
+    toks.push({ from, to, widget: new CiteWidget([m[2]], "@" + m[2], reg.style, (k) => reg.ordinals.get(k)) });
     taken.push([from, to]);
   }
   return toks;
@@ -109,6 +110,7 @@ function build(view: EditorView): DecorationSet {
   const { state } = view;
   const deco: Range<Decoration>[] = [];
   const tree = syntaxTree(state);
+  const reg = state.facet(numberingFacet); // WS-4.2: per-editor numbering
 
   // Front-matter end: `$`-bearing YAML values must not chip as math (2.1). Line
   // walk, capped — build runs per keystroke, so no whole-doc toString here.
@@ -148,7 +150,7 @@ function build(view: EditorView): DecorationSet {
           continue;
         }
       }
-      for (const tk of scanLine(line.from, line.text, line.from >= fmEnd)) {
+      for (const tk of scanLine(line.from, line.text, line.from >= fmEnd, reg)) {
         if (tk.widget instanceof MathWidget && tk.widget.rendered == null) pendingMath = true;
         // F6: reveal a chip's raw text only when a selection touches THAT chip
         // (± 1 char) — not when the caret is merely somewhere on the line. This is

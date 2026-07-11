@@ -13,7 +13,7 @@
 
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";
-import { setTableNumbers } from "../scholar/numbering";
+import { numberingFacet } from "../scholar/numberingFacet";
 import { refreshChips } from "./chips";
 import { touchesMe, paperPerf } from "./changeGate";
 
@@ -246,7 +246,12 @@ function build(state: EditorState): DecorationSet {
     );
     n = toLine + 1;
   }
-  setTableNumbers(numbered);
+  {
+    // WS-4.2: per-editor numbering instance (facet), replace-contents.
+    const reg = state.facet(numberingFacet);
+    reg.tbl.clear();
+    for (const p of numbered) reg.tbl.set(p.label, p.number);
+  }
   return Decoration.set(deco, true);
 }
 

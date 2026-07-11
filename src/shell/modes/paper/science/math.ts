@@ -16,7 +16,7 @@ import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemir
 import { StateField, type EditorState, type Range } from "@codemirror/state";
 import { MathBlockTracker } from "./mathGrammar";
 import { refreshChips } from "./chips";
-import { setEqNumbers } from "../scholar/numbering";
+import { numberingFacet } from "../scholar/numberingFacet";
 import { ensureKatex, katexReady, renderTexCached } from "./katexLoader";
 import { touchesMe, paperPerf } from "./changeGate";
 import { frontMatterEndLine } from "../frontmatter";
@@ -102,7 +102,12 @@ function build(state: EditorState): DecorationSet {
     if (w.rendered == null) sawPending = true;
     deco.push(Decoration.widget({ widget: w, block: true, side: 1 }).range(state.doc.line(block.endLine).to));
   }
-  setEqNumbers(numbered);
+  {
+    // WS-4.2: per-editor numbering instance (facet), replace-contents.
+    const reg = state.facet(numberingFacet);
+    reg.eq.clear();
+    for (const p of numbered) reg.eq.set(p.label, p.number);
+  }
   if (sawPending) kickKatex();
   return Decoration.set(deco, true);
 }

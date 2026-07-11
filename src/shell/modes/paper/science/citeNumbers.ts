@@ -11,11 +11,8 @@
 
 import { StateField, type EditorState, type Transaction } from "@codemirror/state";
 import { bibEntry } from "../scholar/bib";
-import {
-  buildCitationOrdinals,
-  setCitationOrdinals,
-  getCitationStyle,
-} from "../scholar/citeNumbering";
+import { buildCitationOrdinals } from "../scholar/citeNumbering";
+import { numberingFacet } from "../scholar/numberingFacet";
 import { refreshChips } from "./chips";
 import { paperPerf } from "./changeGate";
 
@@ -37,7 +34,9 @@ type Ranges = { from: number; to: number }[];
 function scan(state: EditorState): Ranges {
   paperPerf.citeScans++;
   const res = buildCitationOrdinals(state.doc.toString(), (k) => !!bibEntry(k));
-  setCitationOrdinals(res.map);
+  // WS-4.2: publish into THIS editor's numbering instance (facet), not a
+  // module global — synchronously, before the chip plugin reads it.
+  state.facet(numberingFacet).publishOrdinals(res.map);
   return res.ranges;
 }
 
@@ -89,4 +88,4 @@ export const citeNumberField = StateField.define<Ranges>({
   },
 });
 
-export { getCitationStyle };
+

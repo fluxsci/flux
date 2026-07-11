@@ -1,3 +1,4 @@
+import type { Readable } from "svelte/store";
 // The Dynamic Margin's shared contract. PaperMode builds a single getter-backed
 // `MarginHost` (stable identity, reactive field reads) and passes it down; the
 // pane stack itself lives in marginPanes.ts (module-scope stores, summonable
@@ -42,6 +43,12 @@ export interface MarginHost {
   /** 2.2: write `citation-style:` into the front matter (single-line dispatch);
    *  the derived style store re-labels every chip + the References list live. */
   setCitationStyle(style: "author-year" | "numeric"): void;
+  /** WS-4.2: THIS editor's numbering (per-pane) — views subscribe to these
+   *  instead of importing module-global stores. */
+  numbering: {
+    ordinals: Readable<Map<string, number>>;
+    style: Readable<"author-year" | "numeric">;
+  };
   readonly citedKeys: Set<string>;
   readonly figures: FigureRef[];
   /** The project's cited subset (references/library.bib) — the bibliography. */

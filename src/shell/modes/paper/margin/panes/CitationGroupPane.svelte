@@ -11,9 +11,17 @@
   import type { MarginHost, MarginApi } from "../types";
   import { runQuery } from "./refQuery";
   import { activeCitationGroup } from "../../scholar/activeCitation";
-  import { citationOrdinals, citationStyle } from "../../scholar/citeNumbering";
+  // WS-4.2: per-editor numbering comes through the margin host (was a module
+  // store import — a cross-pane singleton).
 
   let { host, margin }: { host: MarginHost; margin: MarginApi } = $props();
+  // The numbering STORES are created once per PaperMode mount and never swap
+  // identity — capturing them off the initial host is deliberate (we want the
+  // stores, not a reactive read of the host object).
+  // svelte-ignore state_referenced_locally
+  const citationOrdinals = host.numbering.ordinals;
+  // svelte-ignore state_referenced_locally
+  const citationStyle = host.numbering.style;
 
   let query = $state("");
   let hl = $state(0); // one roving highlight across [members…, results…]

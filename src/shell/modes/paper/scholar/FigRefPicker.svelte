@@ -11,10 +11,13 @@
 
   let {
     figures,
+    nums,
     onInsert,
     onClose,
   }: {
     figures: FigureRef[];
+    /** WS-4.2: the owning editor's numbering instance (tbl/eq cross-refs). */
+    nums?: import("./numberingFacet").PaperNumbering;
     /** Called with the full reference text to insert, e.g. "@fig-x-a,c". */
     onInsert: (text: string) => void;
     onClose: () => void;
@@ -57,7 +60,7 @@
   // use — the previewed number IS the number the chip will show.
   const resultText = $derived(fig ? figRefText(fig, picked) : "");
   const resultNum = $derived(
-    fig ? (resolveFigure(resultText.slice(1))?.number ?? fig.number) : "",
+    fig ? (resolveFigure(resultText.slice(1), nums)?.number ?? fig.number) : "",
   );
 
   function cols(): number {
