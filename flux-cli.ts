@@ -7,6 +7,7 @@ import * as fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as core from "./flux-core/index";
+import { runCliVerb } from "./flux-core/registry";
 
 const HELP = `flux — drive a Flux project from the terminal
 
@@ -262,20 +263,24 @@ async function main() {
     return s;
   };
 
+  // WS-6.3: registered verbs route through the ONE registry (same schema +
+  // handler + render as the MCP surface); everything else falls through to the
+  // legacy switch until its batch migrates.
+  if (
+    await runCliVerb(
+      verb,
+      { pos: A, flags, root: root() },
+      { log: console.log, err: console.error, setExit: (c) => (process.exitCode = c) },
+    )
+  ) {
+    return;
+  }
+
   switch (verb) {
     case "new": {
       const dir = path.resolve(_[0] ?? ".");
       await core.scaffold(dir, { title: flags.title as string, author: flags.author as string });
       console.error(`✓ scaffolded Flux project at ${dir}`);
-      break;
-    }
-    case "reindex": {
-      const r = await core.reindex(root());
-      console.error(`✓ reindexed ${r.figures} figure(s)`);
-      break;
-    }
-    case "list": {
-      console.log(JSON.stringify(await core.listProject(root()), null, 2));
       break;
     }
     case "render-figure": {
@@ -728,12 +733,6 @@ async function main() {
     }
     case "lib": {
       console.log(JSON.stringify(await core.libraryInfo(), null, 2));
-      break;
-    }
-    case "config": {
-      // Machine paths (already ensured above). Agents: read EVERY file in
-      // guidelinesPath before working — it holds the user's standing conventions.
-      console.log(JSON.stringify(await core.configInfo(), null, 2));
       break;
     }
     case "version":

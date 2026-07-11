@@ -9,6 +9,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import * as path from "node:path";
 import * as core from "./flux-core/index";
+import { registerMcpVerbs } from "./flux-core/registry";
 import * as live from "./flux-core/liveClient";
 
 const ROOT = path.resolve(process.argv[2] ?? process.env.FLUX_PROJECT ?? ".");
@@ -19,6 +20,10 @@ core.setClient(process.env.FLUX_CLIENT || "mcp"); // WS6: journal/lock identity
 await core.ensureFluxConfig().catch((e) => console.error(`flux config init: ${(e as Error)?.message ?? e}`));
 const server = new McpServer({ name: "flux", version: core.buildInfo().version });
 
+// WS-6.3: registry-backed verbs (ONE schema/handler/render shared with the
+// CLI). Manual registerTool blocks below shrink batch by batch.
+registerMcpVerbs(server, ROOT);
+
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 // OpenAlex sort presets for the whole-world tools (undefined = relevance).
@@ -28,20 +33,6 @@ const SORT: Record<string, string | undefined> = {
   date: "publication_date:desc",
 };
 
-server.registerTool(
-  "list_project",
-  { description: "List the project's documents, figures (with panel letters), and references.", inputSchema: {} },
-  async () => ok(JSON.stringify(await core.listProject(ROOT), null, 2)),
-);
-
-server.registerTool(
-  "reindex",
-  { description: "Rebuild project.json.figures[] from fig/index.json.", inputSchema: {} },
-  async () => {
-    const r = await core.reindex(ROOT);
-    return ok(`reindexed ${r.figures} figure(s)`);
-  },
-);
 
 server.registerTool(
   "get_figure_image",
@@ -166,15 +157,6 @@ server.registerTool(
   async ({ query }) => ok(JSON.stringify(await core.searchReferencesEnriched(query), null, 2)),
 );
 
-server.registerTool(
-  "config_paths",
-  {
-    description:
-      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), guidelinesPath, and userDataDir — plus `build` (version/commit/entry) identifying which Flux build is answering. Read every file in guidelinesPath before working — it holds the user's standing conventions for all Flux output.",
-    inputSchema: {},
-  },
-  async () => ok(JSON.stringify(await core.configInfo(), null, 2)),
-);
 
 server.registerTool(
   "add_to_library",

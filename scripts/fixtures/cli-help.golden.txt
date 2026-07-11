@@ -1,0 +1,157 @@
+flux — drive a Flux project from the terminal
+
+usage: flux <verb> [root] [args] [--flags]
+       Every verb resolves the project root as --root → $FLUX_PROJECT → cwd.
+       Verbs marked [root] ALSO accept a leading positional root (".", a path,
+       or a dir holding project.json) for back-compat — when the first
+       positional isn't plainly a root, it's treated as the verb's argument.
+
+  new <dir> [--title T] [--author A]   scaffold a new project
+  reindex [root]                       rebuild project.json.figures[] from fig/
+  list [root]                          print project overview (JSON)
+  render-figure [root] <id> [--out f]  render a figure to SVG (stdout or --out)
+  render-canvas [canvasId] [--root R] [--png] [--scale n] [--out f]
+                                       render a WHOLE canvas (all figures at their x/y)
+  render-figures [root] [--doc p.qmd]  write fig/renders/<id>.svg for embedded figures (bare-quarto prep)
+  sync-figure [figId] [--root R]       refresh fig/assets copies from regenerated plots/
+                                       sources IN PLACE (captions/restyles survive)
+  normalize-embeds [--root R]          clear legacy alt-text captions from embed lines
+                                       (canonical embeds are ![](…){#fig-id} — the model
+                                       owns captions)
+  caption [root] <id>                  print a figure's composed caption
+  set-caption [root] <id> <md…|--file f> [--panel a]   write the caption; the
+                                       "Lead. **a**, … **b**, …" convention is
+                                       distributed into per-panel blocks
+                                       (--panel writes ONE panel's text)
+  add-reference [root] <bibtex…|--file f>   append a BibTeX entry to library.bib
+  add-panel [root] <id> <svg> [--x --y --width --height]   import an SVG panel
+  import-plots <figId> <plot.svg…> [--root R]   batch-import plots onto an EXISTING
+                                       figure (GUI Alt+I multi-insert parity: true
+                                       physical size, grid-packed; one plot centers)
+  create-figure [--root R] [--id slug] [--name N] [--canvas C] [--width --height]
+                                       add a blank figure
+  compose-figure <plot.svg…> [--root R] [--id slug] [--name N] [--rows N]
+                 [--cols N] [--gap N] [--no-label] [--no-caption]
+                                       assemble N plots into a labeled figure
+  arrange <figId> [--root R] [--rows N | --cols N] [--gap N]   grid-arrange panels
+  auto-label <figId> [--root R]        auto-letter panel labels (a, b, c…) by
+                                       reading order; panels missing a label
+                                       get one first
+  distribute <figId> [--axis h|v] [--gap n] [--ids a,b,c] [--root R]   distribute panels (exact gap when --gap)
+  set-guides <figId> [--x a,b,c] [--y a,b,c] [--root R]   set ruler guides (column/baseline grid)
+  duplicate <figId> <id…> [--dx n] [--dy n] [--count n] [--root R]   duplicate elements at an offset
+  scale <id…> --factor n [--px X --py Y] [--root R]   proportionally scale (geometry + stroke/font)
+  reorder <figId> <id> <index> [--root R]   move an element to a z-index (0=bottom)
+  rotate <id…> --deg N [--px X --py Y] [--root R]   rotate elements about a pivot
+  add-path <figId> --nodes '<json>' [--closed] [--fill c] [--stroke c]
+           [--stroke-width n] [--root R]   add a vector path from a node list
+  edit-path <id> [--nodes '<json>'] [--closed|--open] [--root R]   replace a path's nodes
+  restyle <figId> <partId> [--root R] [--element E] [--stroke c] [--fill c]
+          [--stroke-width n] [--opacity n] [--hidden]   restyle a plot part
+  set-style <id…> [--root R] [--fill c] [--stroke c] [--stroke-width n]
+            [--opacity n] [--color c] [--font-size n] [--font F] [--weight n]
+            [--italic|--no-italic] [--underline|--no-underline]
+            [--line-height n] [--sizing auto|auto-h|fixed] [--align a]
+            [--hidden|--show] [--locked|--unlock] [--name N]   set element style
+  set-crop <id> --x n --y n --width n --height n [--root R]   crop an image/plot to a
+            window (intrinsic content px; content stays pinned — the box follows)
+  reset-crop <id> [--root R]           remove a crop (full content at current scale)
+  toggle-text-style <bold|italic|underline> <id…> [--root R]   B/I/U toggle on texts
+  add-fig-text <figId> "text…" [--x --y --width --height --size-pt n --weight n
+            --font F --color c --align a --sizing m] [--panel-label] [--root R]
+                                       add a figure text (--panel-label = a
+                                       semantic panel label auto-label letters)
+  text-styles [--root R] [--global]    list named text styles (project | machine library)
+  create-text-style --name N [--from elId | --font F --size-pt n --weight n
+            --italic --underline --line-height n --color c --align a] [--root R]
+  update-text-style <styleId> [--name N --font F --size-pt n --weight n
+            --italic|--no-italic --underline|--no-underline --line-height n
+            --color c --align a] [--root R]   patch (re-applies to linked texts)
+  delete-text-style <styleId> [--root R]   delete (linked texts keep their look)
+  apply-text-style <styleId> <id…> [--root R]   apply a named style to texts
+  save-global-text-style <styleId> [--root R]   copy a project style → machine library
+  delete-element <id…> [--root R]      delete elements by id
+  delete-figure <figId> [--root R]     delete a whole figure
+  duplicate-figure <figId> [--root R]  duplicate a whole figure (fresh ids)
+  align <figId> <left|right|top|bottom|centerH|centerV> [--ids a,b,c] [--root R]   align elements
+  group <id…> [--name N] [--parent G] [--root R]   group ≥2 units → one NAMED
+            nestable group (whole top groups nest instead of dissolving)
+  ungroup <id…> [--root R]             dissolve each id's top-level group
+                                       (a group id dissolves exactly that group)
+  rename-group <groupId> <name…> [--root R]   rename a group
+  set-group-state <groupId> [--hide|--show] [--lock|--unlock] [--root R]
+                                       group eye/padlock (exports honor it)
+  list-groups [--figure F] [--root R]  list groups (name/nesting/state/members)
+  set-figure-layout <figId> [--x n --y n --width n --height n --background c --name N] [--root R]   set a figure's frame
+  set-z <figId> <front|back|forward|backward> --ids a,b,c [--root R]   change stacking order
+  manuscript [--root R] [--doc rel]    print a manuscript document (.qmd)
+  set-manuscript [--root R] [--doc rel] <text…|--file f>   overwrite a document
+  docs [--root R]                      list the project's documents
+  new-doc <name…> [--root R]           create a new document
+  ref <figId> [--root R] [--doc rel]   append a @fig cross-reference
+  cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
+  search <query…>                      search FluxLib (e.g. author:smith year:2020)
+  lib                                  show the FluxLib path + entry count
+  config                               machine paths (FluxConfig, FluxLib, Guidelines) + build info as JSON;
+                                       first run initializes ~/FluxConfig (and migrates old layouts)
+  version                              this build's version/commit/entry (bundle vs source) as JSON
+  lib-add <doi|bibtex…|--file f>       add to FluxLib only (no project cite)
+                                       --file f: bulk-import a .bib/.ris file
+                                       --attach-files [--zotero-dir d]: pull its PDFs
+  reconcile [--root R]                 sync this project's library.bib with FluxLib
+  hydrate [--refresh] [--key K]        enrich FluxLib with OpenAlex (abstracts, topics, citations)
+  discover <query…> [--semantic] [--sort cites|date]   search ALL of OpenAlex (--semantic = by meaning)
+  similar <key> [--s2] [--sort cites]  "more like this" (OpenAlex semantic; --s2 = Semantic Scholar recs)
+  citing <key|doi|Wid> [--s2] [--sort date]   works citing this (--s2 = Semantic Scholar + contexts)
+  by-author <key|Aid>                  other works by this entry's first author
+  related <key|Wid>                    related papers (OpenAlex similarity)
+  keys [--openalex K] [--s2 K] [--mailto M]   show/set API keys (~/FluxLib/keys.json)
+  fetch-pdfs [--refresh] [--key K]     download OA PDFs into ~/FluxLib/items/<citekey>/
+  ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
+  assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in ~/FluxLib/pdfs_to_assign/
+  search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
+  annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
+                                       --key K --md: export the paper's notes as Markdown
+  tag <citekey> <tag…> [--remove]      add/remove an organization tag on a paper
+  set-status <citekey> <status>        set reading status (unread|reading|read)
+  collection <citekey> <name…> [--remove]  add/remove a paper from a collection
+  add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
+  compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
+  comments [--root R] [--doc rel] [--all]   list review comments (open by default)
+  resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   mark a comment resolved
+  validate [file] [--root R]           validate writes against .meta/schema/
+  validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
+  rerun-plot <recipe.json> [--param v…] [--only [name]]   re-run a plot's recipe
+                                       (--only: figure-level scripts rerun ONE
+                                       plot — bare --only = this recipe's plot;
+                                       siblings stay untouched on disk)
+
+ Slides (Flux Slide — figure-first animated talks):
+  decks [--root R]                     list the project's slide decks (JSON)
+  new-deck [--title T] [--theme T] [--root R]   create a new slide deck
+  add-slide <deckId> [--name N] [--layout L] [--root R]   append a slide to a deck
+  delete-slide <deckId> <slideId>      delete a slide
+  duplicate-slide <deckId> <slideId>   deep-copy a slide (fresh ids)
+  reorder-slides <deckId> --order a,b,c   set the slide order (exact permutation)
+  set-slide <deckId> <slideId> [--name|--layout|--background|--transition|--notes|--notes-file|--camera-x/-y/-zoom]   patch a slide
+  set-theme <deckId> <theme>           flux-dark|light|midnight|slate|sepia|contrast
+  add-text <deckId> <slideId> "text…" [--x --y --width --height --align --color --font-size]   add a text box
+  add-math <deckId> <slideId> "\tex…" [--display] [--x …]   add a KaTeX element
+  add-embed-figure <deckId> <slideId> <figureId> [--fit contain|cover|fill] [--x …]   embed a project figure
+  add-beat <deckId> <slideId> [--label L]   append a build/advance step
+  set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>']   animate
+  set-beat <deckId> <slideId> <beatId> [--label L --advance click|with-prev|auto --auto-delay ms]   patch a beat
+  reorder-beats <deckId> <slideId> --order b2,b1   set beat order (beat 0 pinned)
+  move-track <deckId> <slideId> <trackId> <toBeatId> [--at n]   move a track to another beat
+  duplicate-track <deckId> <slideId> <trackId>   deep-copy a track (prints the new id)
+  reorder-tracks <deckId> <slideId> <beatId> --order t2,t1   set a beat's lane order
+  set-track-enabled <deckId> <slideId> <trackId> true|false   disable = kept but not played
+  set-part-visibility <deckId> <elementId> <part> show|animate|mask   plot part tri-state (non-destructive)
+  set-part-style <deckId> <elementId> <part> --patch '<json>'   per-part style override (stroke/fill/…)
+  animate-part <deckId> <slideId> <elementId> <part> [--beat-index n]   default reveal for a plot part
+  animate-element <deckId> <slideId> <elementId> [--exit --preset P --beat-index n --whole-box --part group:<gid>]   enter/exit for text/shape/media (+ figure groups inside an embedFigure)
+  set-morph <deckId> <slideId> <beatId> <elementId> <toAssetId> [--duration ms --force]   data-space morph to any project plot
+  validate-deck [deckId] [--root R]    validate a deck (or all decks)
+  export-deck <deckId> [--out F] [--root R]   export a self-contained offline .html (default exports/<deckId>.html)
+  help                                 this message
+

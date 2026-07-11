@@ -124,7 +124,8 @@
       "verify-w9-roundtrip.ts",
       "verify-writer-latency.ts",
       "verify-tokens.mjs",
-      "verify-tokens-sync.ts"
+      "verify-tokens-sync.ts",
+      "verify-registry-parity.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -361,6 +362,7 @@
     "verify-w13-cli.mjs": 300000,
     "verify-startup.mjs": 300000,
     "verify-writer-latency-inp.mjs": 200000,
-    "verify-scale-fulltext.mjs": 180000
+    "verify-scale-fulltext.mjs": 180000,
+    "verify-registry-parity.ts": 180000
   }
 }
