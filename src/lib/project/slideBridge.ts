@@ -9,7 +9,7 @@
 import { get } from "svelte/store";
 import { fileBridge, joinPath, type ProjectManifest } from "./types";
 import type { Deck, SlideElement } from "../slide/types";
-import { createDeck as createDeckModel } from "../slide/ops";
+import { createDeck as createDeckModel, normalizeDeck } from "../slide/ops";
 import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen, figureGroups, figureMembers, type FigureMemberInfo } from "../slide/store";
 import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
@@ -84,7 +84,9 @@ export async function readDeck(root: string, deckId: string): Promise<Deck | nul
   const rel = m?.slides?.find((s) => s.id === deckId)?.path ?? deckRel(deckId);
   try {
     if (await fig.exists(joinPath(root, rel)))
-      return JSON.parse(await fig.readText(joinPath(root, rel))) as Deck;
+      // WS-4.4: normalize at the read seam (migration + track ids) — every
+      // consumer (load-into-editor, duplicate, export) sees the current model.
+      return normalizeDeck(JSON.parse(await fig.readText(joinPath(root, rel))) as Deck);
   } catch {
     /* unreadable */
   }
@@ -293,10 +295,21 @@ function mimeForKind(kind: string): string {
   }
 }
 
+/** WS-4.4: a resolution gap surfaced instead of swallowed — mirrors flux-core
+ *  gatherDeckPayload's warnings so GUI and headless agree on what's broken. */
+export interface DeckDiag {
+  severity: "warning" | "error";
+  assetId?: string;
+  path?: string;
+  reason: string;
+}
+
 export interface DeckAssetResolvers {
   assetUrl: (assetId: string) => string | undefined;
   /** groupId scopes the markup to one named group (group embeds). */
   figureSvg: (figureId: string, groupId?: string) => string | undefined;
+  /** Everything that could not be resolved (missing media/plot/manifest/fig). */
+  diagnostics: DeckDiag[];
 }
 
 /** Preload the assets a deck needs to render: deck-local media → data URLs,
@@ -305,6 +318,7 @@ export interface DeckAssetResolvers {
 export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAssetResolvers> {
   const fig = fileBridge();
   const assetData: Record<string, string> = {};
+  const diagnostics: DeckDiag[] = [];
 
   // 1. deck-local media (slides/<id>/assets/*) → data URLs. Every svg asset is
   // ALSO cached as an inline semantic plot (derived manifest inside cachePlot),
@@ -321,7 +335,12 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
           cachePlot(a.id, new TextDecoder().decode(bytes));
         }
       } catch {
-        /* missing media — element shows a placeholder */
+        diagnostics.push({
+          severity: "warning",
+          assetId: a.id,
+          path: a.path,
+          reason: `media asset "${a.id}" missing (${a.path}) — its element will show a placeholder`,
+        });
       }
     }
   }
@@ -363,7 +382,12 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
           plotManifests.update((m) => ({ ...m, [el.assetId]: manifest as FluxPlotManifest }));
         }
       } catch {
-        /* unreadable plot — element shows a placeholder */
+        diagnostics.push({
+          severity: "warning",
+          assetId: el.assetId,
+          path: el.source.svgPath,
+          reason: `plot "${el.assetId}" unreadable (${el.source.svgPath}) — its element will show a placeholder`,
+        });
       }
     }
 
@@ -373,15 +397,22 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
     // them) would play it. One player, two hosts — both need the same inputs.
     // Insertable plot ids ARE their path under plots/ minus ".svg", hence the
     // convention fallback for targets picked from the project at large.
-    const morphIds = new Set<string>();
+    const morphTargets = new Map<string, { svgPath?: string; manifestPath?: string }>();
     for (const s of deck.slides) for (const b of s.beats) for (const t of b.tracks) {
-      if (t.preset === "morph" && t.to?.assetId) morphIds.add(t.to.assetId);
+      if (t.preset === "morph" && t.to?.assetId)
+        morphTargets.set(t.to.assetId, {
+          svgPath: t.to.svgPath as string | undefined,
+          manifestPath: t.to.manifestPath as string | undefined,
+        });
     }
-    for (const assetId of morphIds) {
+    for (const [assetId, authored] of morphTargets) {
       if (hasPlotDom(assetId) && haveReal(assetId)) continue;
       const el = plots.find((p) => p.assetId === assetId);
-      const svgPath = el?.source?.svgPath ?? `plots/${assetId}.svg`;
-      const manifestPath = el?.source?.manifestPath ?? svgPath.replace(/\.svg$/i, ".fluxplot.json");
+      // WS-4.4 resolution order: track-authored paths → the element's source →
+      // the legacy `plots/<id>.svg` guess (last resort only).
+      const svgPath = authored.svgPath ?? el?.source?.svgPath ?? `plots/${assetId}.svg`;
+      const manifestPath =
+        authored.manifestPath ?? el?.source?.manifestPath ?? svgPath.replace(/\.svg$/i, ".fluxplot.json");
       try {
         let manifest: FluxPlotManifest | undefined;
         try { manifest = JSON.parse(await fig.readText(joinPath(root, manifestPath))) as FluxPlotManifest; } catch { /* no sidecar */ }
@@ -392,7 +423,12 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
           plotManifests.update((m) => ({ ...m, [assetId]: manifest as FluxPlotManifest }));
         }
       } catch {
-        /* unresolvable morph target — the player's compat gate holds at A */
+        diagnostics.push({
+          severity: "warning",
+          assetId,
+          path: svgPath,
+          reason: `morph target "${assetId}" unresolvable (${svgPath}) — the morph will hold at A`,
+        });
       }
     }
   }
@@ -454,7 +490,10 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
             figSvgCache[key] = figureToSvg(f, (aid) => src.assetData[aid], undefined, undefined, { groupId: el.groupId });
         }
     } catch {
-      /* no fig/ — embedFigure shows a placeholder */
+      diagnostics.push({
+        severity: "warning",
+        reason: "fig/ could not be read — embedFigure elements will show placeholders",
+      });
     }
   }
   figureGroups.set(figGroupTrees);
@@ -463,6 +502,7 @@ export async function loadDeckAssets(root: string, deck: Deck): Promise<DeckAsse
   return {
     assetUrl: (id) => assetData[id],
     figureSvg: (fid, gid) => figSvgCache[gid ? `${fid}::${gid}` : fid],
+    diagnostics,
   };
 }
 

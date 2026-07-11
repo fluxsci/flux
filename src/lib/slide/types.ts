@@ -271,6 +271,12 @@ export interface Stagger {
 export interface TrackTarget {
   /** morph: a second semantic-plot asset id (same generator/series ⇒ same ids). */
   assetId?: Id;
+  /** morph (WS-4.4): explicit PROJECT-relative source paths for the target
+   *  plot — authored by ops.setMorphTrack so resolvers stop guessing
+   *  `plots/<assetId>.svg`. Optional: decks authored before these existed fall
+   *  back to the manifest plots[] index, then the legacy path convention. */
+  svgPath?: string;
+  manifestPath?: string;
   /** camera: the pose to move to. */
   x?: number;
   y?: number;

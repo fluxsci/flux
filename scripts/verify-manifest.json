@@ -78,6 +78,8 @@
       "verify-slide-assets.ts",
       "verify-slide-autobuild.ts",
       "verify-slide-decks.ts",
+      "verify-deck-migrate.ts",
+      "verify-deck-diagnostics.ts",
       "verify-slide-easing.ts",
       "verify-slide-edit.ts",
       "verify-slide-exits.ts",

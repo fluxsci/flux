@@ -88,7 +88,9 @@ export async function listDecks(root: string): Promise<DeckSummary[]> {
 export async function loadDeck(root: string, deckId: string): Promise<Deck> {
   const p = await resolveDeckPath(root, deckId);
   if (!(await exists(p))) throw new Error(`deck not found: ${deckId} (${path.relative(root, p)})`);
-  return slideOps.migrateDeck(await readJSON<Deck>(p));
+  // WS-4.4: the one chokepoint (migration + track-id backfill), shared with
+  // the GUI seams — flux-core used to skip ensureTrackIds.
+  return slideOps.normalizeDeck(await readJSON<Deck>(p));
 }
 
 /** Ensure a deck is registered in project.json.slides[] (id/path/title/order). */
@@ -482,7 +484,18 @@ export async function setMorph(
       const [cand] = listMorphCandidates(A, [{ assetId: toAssetId, manifest: B }]);
       if (!cand?.compatible) throw new Error(`morph ${el.assetId} → ${toAssetId}: structurally incompatible (no shared tweenable series). Pass force to author anyway.`);
     }
-    const ok = slideOps.setMorphTrack(deck, slideId, beatId, elementId, toAssetId, { duration: opts.duration });
+    // WS-4.4: persist explicit target paths when the project manifest knows
+    // them, so later loads/exports never guess `plots/<id>.svg`.
+    const man = (await loadManifest(root).catch(() => null)) as unknown as {
+      plots?: { id: string; path?: string; svgPath?: string; manifestPath?: string }[];
+    } | null;
+    const entry = man?.plots?.find((p) => p.id === toAssetId);
+    const svgPath = entry?.svgPath ?? entry?.path;
+    const ok = slideOps.setMorphTrack(deck, slideId, beatId, elementId, toAssetId, {
+      duration: opts.duration,
+      ...(svgPath ? { svgPath } : {}),
+      ...(entry?.manifestPath ? { manifestPath: entry.manifestPath } : {}),
+    });
     if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
   });
 }
@@ -589,7 +602,8 @@ export async function gatherDeckPayload(
       }
     }
     for (const b of s.beats) for (const t of b.tracks) {
-      if (t.preset === "morph" && t.to?.assetId) await collectPlot(t.to.assetId);
+      if (t.preset === "morph" && t.to?.assetId)
+        await collectPlot(t.to.assetId, t.to.svgPath as string | undefined, t.to.manifestPath as string | undefined);
     }
   }
 

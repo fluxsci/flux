@@ -974,13 +974,25 @@ export function setMorphTrack(
   beatId: Id,
   plotElId: Id,
   toAssetId: Id,
-  opts: { duration?: number; easing?: import("./types").EasingToken; start?: number } = {},
+  opts: {
+    duration?: number;
+    easing?: import("./types").EasingToken;
+    start?: number;
+    /** WS-4.4: explicit target source paths (project-relative) — persisted on
+     *  the track so load/export resolvers don't fall back to path guessing. */
+    svgPath?: string;
+    manifestPath?: string;
+  } = {},
 ): boolean {
   return setAnimation(deck, slideId, beatId, {
     id: newId("track"),
     target: plotElId,
     preset: "morph",
-    to: { assetId: toAssetId },
+    to: {
+      assetId: toAssetId,
+      ...(opts.svgPath ? { svgPath: opts.svgPath } : {}),
+      ...(opts.manifestPath ? { manifestPath: opts.manifestPath } : {}),
+    },
     duration: opts.duration ?? 1200,
     easing: opts.easing ?? "smooth",
     ...(opts.start != null ? { start: opts.start } : {}),
@@ -1039,6 +1051,15 @@ export function migrateDeck(deck: Deck): Deck {
     }
   }
   return deck;
+}
+
+/** WS-4.4: THE deck-load chokepoint — every seam that reads a deck from disk
+ *  (GUI slideBridge.readDeck, flux-core loadDeck) runs this: element-model
+ *  migration + stable track ids, in one idempotent call. (Named normalizeDeck
+ *  rather than the plan's readDeck — slideBridge already exports an IO
+ *  function by that name.) Mutates in place + returns the deck. */
+export function normalizeDeck(deck: Deck): Deck {
+  return ensureTrackIds(migrateDeck(deck));
 }
 
 export function removeAnimation(

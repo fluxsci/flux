@@ -98,7 +98,7 @@
     },
   });
   const saveErr = autosave.error;
-  let resolvers = $state<DeckAssetResolvers>({ assetUrl: () => undefined, figureSvg: () => undefined });
+  let resolvers = $state<DeckAssetResolvers>({ assetUrl: () => undefined, figureSvg: () => undefined, diagnostics: [] });
   let insertables = $state<Insertables>({ figures: [], plots: [], images: [] });
   let insertOpen = $state(false);
   let insertWrapEl = $state<HTMLElement | null>(null);
@@ -114,7 +114,17 @@
 
   async function refreshAssets() {
     const d = get(deckStore);
-    if (pm && d) resolvers = await loadDeckAssets(pm.root, d);
+    if (pm && d) {
+      resolvers = await loadDeckAssets(pm.root, d);
+      // WS-4.4: no more silent resolution gaps — same no-silent-failure
+      // convention as io.ts (one toast, details in the list).
+      const diags = resolvers.diagnostics;
+      if (diags.length) {
+        pushToast("error", `Deck assets: ${diags.length} problem${diags.length > 1 ? "s" : ""}`, {
+          detail: diags.map((d) => d.reason).join("\n"),
+        });
+      }
+    }
   }
 
   // --- multiple decks (D) ------------------------------------------------------
