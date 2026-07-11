@@ -28,7 +28,7 @@
   } from "./store";
   import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
   import { commitArrange } from "./keyboard";
-  import type { Element, Figure, ImageElement, PathElement, SemanticPlotElement, VectorNode } from "./types";
+  import type { Element, Figure, ImageElement, LineElement, PathElement, SemanticPlotElement, VectorNode } from "./types";
   import { get } from "svelte/store";
   import { onMount } from "svelte";
   import { applyTextLayout, lineH, visualLines } from "./text";
@@ -116,14 +116,16 @@
       }
     | {
         // Figma-parity line pivot: drag ONE endpoint, the other stays fixed.
-        // Rotation/flip are baked into the endpoints at grab; per-frame updates
-        // go through mutate() after one beginGesture (the node-drag precedent),
-        // so Esc cancels via rollbackGesture and undo is a single step.
+        // Rotation/flip are baked into the endpoints at grab. WS-1 Fix 2: the
+        // drag is fully TRANSIENT — `live` (a private clone) accumulates the
+        // remap per move and renders via the scene-slot override; ONE
+        // beginGesture+mutate on pointer-up commits it (Esc just drops it).
         kind: "lineEnd";
         figId: string;
         id: string;
         which: 1 | 2;
         fixed: { x: number; y: number }; // figure-local, transform baked
+        live: LineElement;
       }
     | {
         kind: "marquee";
@@ -182,6 +184,8 @@
   let gestureHiddenIds = new Set<string>();
   let dragging = false;
   let committed = false;
+  // WS-1 Fix 2: live line-pivot clone (reassigned per move → scene-slot preview).
+  let lineEndLive: LineElement | null = null;
   let gestureAltDup = false; // current move is an alt-drag-copy
   let altDupDone = false; // FIG-9: the deferred duplicate has been materialized (on first move)
   let pendingShiftToggle: string | null = null; // shift-click toggle deferred to up
@@ -732,16 +736,10 @@
       }
     }
     editNodes = editNodes;
-    // live scene update WITHOUT refit (keep el.x/y fixed so overlay math holds)
-    const id = editPathId;
-    const live = editNodes.map(cloneNode);
-    mutate((p) => {
-      const f = findElement(p, id);
-      if (f && f.element.type === "path") {
-        f.element.nodes = live;
-        f.element.d = nodesToPath(live, editClosed);
-      }
-    });
+    // WS-1 Fix 2: the live path renders as a TRANSIENT preview from editNodes
+    // (nodeDragLive swaps into the element's scene slot + the overlay outline)
+    // — no per-pointermove mutate()/store notify. finishNodeDrag → commitNodes
+    // applies the accumulated result once, under the beginGesture above.
   }
 
   function finishNodeDrag(e: PointerEvent) {
@@ -1311,7 +1309,14 @@
     const fig = activeFigure();
     if (!fig || !selLine) return;
     const { p1, p2 } = lineWorldEndpoints(selLine);
-    gesture = { kind: "lineEnd", figId: fig.id, id: selLine.id, which, fixed: which === 1 ? p2 : p1 };
+    gesture = {
+      kind: "lineEnd",
+      figId: fig.id,
+      id: selLine.id,
+      which,
+      fixed: which === 1 ? p2 : p1,
+      live: structuredClone(selLine),
+    };
     gestureFig = fig;
     gestureEls = [selLine];
     committed = false;
@@ -1530,24 +1535,19 @@
       gNb = nb;
       liveBox = nb;
     } else if (g.kind === "lineEnd") {
-      // Per-frame model update through the shared pure remap (node-drag
-      // precedent: one beginGesture, then mutate — a single undo step, and Esc
-      // rolls the whole pivot back). A single line element keeps this cheap.
+      // WS-1 Fix 2: fully transient pivot — the shared pure remap runs on the
+      // gesture's private clone, which renders via the scene-slot override.
+      // No store notify per move; ONE mutate on pointer-up commits the result.
       const lp = localPoint(e.clientX, e.clientY, fig);
       startDragging();
-      ensureCommitted();
-      mutate((p) => {
-        const f = p.figures.find((ff) => ff.id === g.figId);
-        const el = f?.elements.find((x) => x.id === g.id);
-        if (!el || el.type !== "line") return;
-        lineEndpointRemap(el, g.which, g.fixed, lp, e.shiftKey);
-        if ($settings.snapPixel) {
-          el.x = Math.round(el.x);
-          el.y = Math.round(el.y);
-          el.x2 = Math.round(el.x2);
-          el.y2 = Math.round(el.y2);
-        }
-      });
+      lineEndpointRemap(g.live, g.which, g.fixed, lp, e.shiftKey);
+      if ($settings.snapPixel) {
+        g.live.x = Math.round(g.live.x);
+        g.live.y = Math.round(g.live.y);
+        g.live.x2 = Math.round(g.live.x2);
+        g.live.y2 = Math.round(g.live.y2);
+      }
+      lineEndLive = { ...g.live };
     } else if (g.kind === "rotate") {
       // FIG-1: flicker-free rotate — accumulate the delta and apply a transient rotate transform
       // to the selection's LIVE scene groups (composited), committing once on release. The old
@@ -1709,6 +1709,26 @@
         if (!f) return;
         rotateAbout(f.elements.filter((el) => g.origs.has(el.id)), { x: g.cx, y: g.cy }, gRotDeg);
       });
+    } else if (g.kind === "lineEnd" && dragging && lineEndLive) {
+      // WS-1 Fix 2: single commit of the accumulated transient pivot.
+      const live = lineEndLive;
+      ensureCommitted();
+      mutate((p) => {
+        const f = p.figures.find((ff) => ff.id === g.figId);
+        const el = f?.elements.find((x) => x.id === g.id);
+        if (!el || el.type !== "line") return;
+        el.x = live.x;
+        el.y = live.y;
+        el.x1 = live.x1;
+        el.y1 = live.y1;
+        el.x2 = live.x2;
+        el.y2 = live.y2;
+        el.width = live.width;
+        el.height = live.height;
+        el.rotation = live.rotation;
+        delete el.flipX;
+        delete el.flipY;
+      });
     } else if (g.kind === "marquee") {
       // P7: a plain background CLICK (no real marquee — the box never grew past
       // click slop) exits the entered-group scope entirely (Figma: background
@@ -1744,6 +1764,7 @@
     cropRes = null;
     cropChip = null;
     gNb = null;
+    lineEndLive = null;
     gestureEls = [];
     gestureFig = null;
     gestureHiddenIds = new Set();
@@ -1761,9 +1782,8 @@
   function cancelGesture(): boolean {
     if (!gesture) return false;
     if (gestureAltDup) rollbackGesture(); // removes the copies minted at first move
-    // Endpoint pivot mutates the model per frame after ONE beginGesture — Esc
-    // restores that captured pre-state (same rail as alt-dup).
-    if (gesture.kind === "lineEnd" && committed) rollbackGesture();
+    // Endpoint pivot is transient (WS-1 Fix 2) — dropping lineEndLive IS the
+    // cancel; the model was never touched.
     if (gesture.kind === "draw") activeTool.set("select");
     // Part move mutated the live node's transform transiently — put it back.
     if (gesture.kind === "partmove" && dragging) {
@@ -2032,7 +2052,8 @@
   $: lineEndsScreen =
     selLine && af
       ? (() => {
-          const { p1, p2 } = lineWorldEndpoints(selLine);
+          // WS-1 Fix 2: during a transient pivot the handles track the live clone.
+          const { p1, p2 } = lineWorldEndpoints(lineEndLive ?? selLine);
           const s = (p: { x: number; y: number }) => ({
             x: $viewport.panX + (af!.x + p.x) * $viewport.zoom,
             y: $viewport.panY + (af!.y + p.y) * $viewport.zoom,
@@ -2167,6 +2188,23 @@
     if (!f || f.element.type !== "path") return null;
     return { el: f.element as PathElement, fig: f.figure };
   })();
+  // WS-1 Fix 2: transient node-drag preview — the edited path re-rendered from
+  // the WORKING node list while a node/handle drag is live. Swapped into the
+  // element's own scene slot (z-order + clipping preserved); the model stays
+  // frozen until the single pointer-up commit.
+  $: nodeDragLive =
+    nodeDrag?.started && editInfo
+      ? ({ ...editInfo.el, nodes: editNodes, d: nodesToPath(editNodes, editClosed) } as PathElement)
+      : null;
+
+  // Single transient scene-slot override (node drag OR line-endpoint pivot —
+  // they cannot be simultaneously active).
+  $: sceneOverride = nodeDragLive
+    ? { id: editPathId as string, el: nodeDragLive as Element }
+    : lineEndLive
+      ? { id: lineEndLive.id, el: lineEndLive as Element }
+      : null;
+
   // group transform mapping the edited path's local space → screen (for the
   // highlighted outline). Uses el.x/y which is held fixed during a node drag.
   $: editTransform = editInfo
@@ -2574,7 +2612,14 @@
                   }}
                   on:dblclick={(e) => onElementDblClick(e, el, fig)}
                 >
-                  <ElementView element={el} />
+                  <!-- WS-1 Fix 2: transient node-drag / line-pivot preview swaps
+                       into the element's own slot — z-order + clipping intact,
+                       model untouched until the single pointer-up commit. -->
+                  {#if sceneOverride && sceneOverride.id === el.id}
+                    <ElementView element={sceneOverride.el} />
+                  {:else}
+                    <ElementView element={el} />
+                  {/if}
                 </g>
               {/each}
             </g>
@@ -2808,8 +2853,7 @@
     <!-- node-edit overlay: outline + segment-insert markers + handles + nodes -->
     {#if editInfo && editScreen}
       <g transform={editTransform}>
-        <path class="node-edit-path" d={editInfo.el.d} vector-effect="non-scaling-stroke" />
-      </g>
+        <path class="node-edit-path" d={nodeDragLive?.d ?? editInfo.el.d} vector-effect="non-scaling-stroke" /></g>
       {#each editScreen.mids as m}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <circle
