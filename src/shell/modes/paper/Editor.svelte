@@ -26,6 +26,11 @@
         extensions: [
           extensions ?? createEditorExtensions(),
           EditorView.updateListener.of((u) => {
+            // WS-2 note: this per-keystroke doc.toString() is the residual
+            // O(doc) allocation after the block-field change-gating (a single
+            // ~1-2ms string at 20k lines). Deliberately left: removing it would
+            // ripple through the latest/autosave/preview contract (consumers
+            // already read the 150ms-debounced latestIdle).
             if (u.docChanged && onChange) onChange(u.state.doc.toString());
           }),
         ],
