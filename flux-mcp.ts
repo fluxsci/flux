@@ -73,30 +73,6 @@ server.registerTool(
 );
 
 server.registerTool(
-  "sync_figure",
-  {
-    description:
-      "Refresh a figure's (or all figures') fig/assets plot copies from their regenerated plots/ sources IN PLACE — the regenerate loop without delete+recompose; captions, positions and per-part restyles survive. A changed intrinsic plot size resizes its element (physical-size-true) and grows the figure frame when needed (re-pack with arrange if the grid should reflow).",
-    inputSchema: { figureId: z.string().optional() },
-  },
-  async ({ figureId }) => {
-    const r = await core.syncFigureAssets(ROOT, figureId);
-    const head = r.refreshed.length
-      ? `refreshed ${r.refreshed.length}/${r.checked} panel asset(s): ${r.refreshed.map((x) => x.from).join(", ")}`
-      : `all ${r.checked} panel asset(s) already match plots/ (no change)`;
-    const parts = [head];
-    for (const rs of r.resized)
-      parts.push(
-        `${rs.elementIds.join(", ")}: intrinsic ${Math.round(rs.from.w)}×${Math.round(rs.from.h)} → ${Math.round(rs.to.w)}×${Math.round(rs.to.h)} (element resized; re-pack with arrange if needed)`,
-      );
-    for (const fr of r.framed) parts.push(`${fr.figId}: frame grown ${fr.from.width}×${fr.from.height} → ${fr.to.width}×${fr.to.height}`);
-    if (r.missing.length) parts.push(`missing source plot(s): ${r.missing.join(", ")}`);
-    parts.push(...r.warnings);
-    return ok(parts.join(" — "));
-  },
-);
-
-server.registerTool(
   "get_canvas_image",
   {
     description:
@@ -268,96 +244,6 @@ server.registerTool(
     inputSchema: { ref: z.string() },
   },
   async ({ ref }) => ok(JSON.stringify(await core.relatedWorks(ref), null, 2)),
-);
-
-server.registerTool(
-  "add_panel",
-  {
-    description: "Import an SVG file as an image panel on a figure.",
-    inputSchema: {
-      id: z.string(),
-      svgPath: z.string(),
-      x: z.number().optional(),
-      y: z.number().optional(),
-      width: z.number().optional(),
-      height: z.number().optional(),
-    },
-  },
-  async ({ id, svgPath, x, y, width, height }) => {
-    const r = await core.addPanel(ROOT, id, svgPath, { x, y, width, height });
-    return ok(`added panel ${r.elementId} (asset ${r.assetId})` + (r.warning ? `\n⚠ ${r.warning}` : ""));
-  },
-);
-
-server.registerTool(
-  "import_plots",
-  {
-    description:
-      "Batch-import multiple SVG plots onto an EXISTING figure (the headless mirror of the GUI's Alt+I multi-insert): each plot resolves its FluxPlot sidecars (semantic when a .fluxplot.json sits next to it), lands at TRUE physical size, and the batch grid-packs into the figure's largest empty region (a single plot centers). Use compose_figure to build a NEW figure instead.",
-    inputSchema: {
-      id: z.string(),
-      plotPaths: z.array(z.string()),
-    },
-  },
-  async ({ id, plotPaths }) => {
-    const r = await core.importPlots(ROOT, id, plotPaths);
-    return ok(
-      `imported ${r.panels.length} plot(s) onto ${id}: ` +
-        r.panels.map((p) => `${p.elementId} (asset ${p.assetId})`).join(", ") +
-        (r.warnings.length ? `\n⚠ ${r.warnings.join("\n⚠ ")}` : ""),
-    );
-  },
-);
-
-server.registerTool(
-  "compose_figure",
-  {
-    description:
-      "Assemble multiple plots into ONE labeled multi-panel figure: imports each plot (semantic FluxPlot if a .fluxplot.json sidecar is present), grid-arranges them, auto-letters the panels (a, b, c…), and writes a caption stub. The flagship figure-building verb — e.g. turn 10 analysis plots into Figure 6.",
-    inputSchema: {
-      plotPaths: z.array(z.string()),
-      id: z.string().optional(),
-      name: z.string().optional(),
-      rows: z.number().optional(),
-      cols: z.number().optional(),
-      gap: z.number().optional(),
-      label: z.boolean().optional(),
-      captionStub: z.boolean().optional(),
-    },
-  },
-  async (a) => {
-    const r = await core.composeFigure(ROOT, a.plotPaths, {
-      id: a.id,
-      name: a.name,
-      rows: a.rows,
-      cols: a.cols,
-      gap: a.gap,
-      label: a.label,
-      captionStub: a.captionStub,
-    });
-    return ok(
-      `composed figure ${r.figureId} — panels [${r.panels.join("")}] ${r.width}×${r.height}` +
-        (r.warnings.length ? `\n⚠ ${r.warnings.join("\n⚠ ")}` : ""),
-    );
-  },
-);
-
-server.registerTool(
-  "create_figure",
-  {
-    description: "Create a blank figure (optionally a clean slug id → @fig-<id>, name, canvas, size).",
-    inputSchema: {
-      id: z.string().optional(),
-      name: z.string().optional(),
-      canvasId: z.string().optional(),
-      width: z.number().optional(),
-      height: z.number().optional(),
-    },
-  },
-  async (a) => {
-    const r = await core.createFigure(ROOT, a);
-    return ok(`created figure ${r.figureId}`);
-  },
 );
 
 server.registerTool(

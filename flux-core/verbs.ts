@@ -922,4 +922,206 @@ export const VERBS: VerbDef[] = [
       mcp: (_r, a) => text(`edited path ${a.id}`),
     },
   },
+
+  // --- batch B: figure composition / import / sync ------------------------------
+  {
+    name: "compose_figure",
+    cli: "compose-figure",
+    cliRoot: "flags",
+    summary:
+      "Assemble multiple plots into ONE labeled multi-panel figure: imports each plot (semantic FluxPlot if a .fluxplot.json sidecar is present), grid-arranges them, auto-letters the panels (a, b, c…), and writes a caption stub. The flagship figure-building verb — e.g. turn 10 analysis plots into Figure 6.",
+    params: {
+      plotPaths: z.array(z.string()),
+      id: z.string().optional(),
+      name: z.string().optional(),
+      // CLI superset: --canvas always reached core.composeFigure; the manual
+      // MCP schema simply never exposed it (capability drift, WS-6.1 kind).
+      canvasId: z.string().optional(),
+      rows: z.number().optional(),
+      cols: z.number().optional(),
+      gap: z.number().optional(),
+      label: z.boolean().optional(),
+      captionStub: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "rest", at: 0, into: "plotPaths", required: true },
+      { kind: "flag", at: "id", into: "id" },
+      { kind: "flag", at: "name", into: "name" },
+      { kind: "flag", at: "canvas", into: "canvasId" },
+      { kind: "flag", at: "rows", into: "rows", as: "number" },
+      { kind: "flag", at: "cols", into: "cols", as: "number" },
+      { kind: "flag", at: "gap", into: "gap", as: "number" },
+      { kind: "flag", at: "no-label", into: "label", const: false },
+      { kind: "flag", at: "no-caption", into: "captionStub", const: false },
+    ],
+    handler: (ctx, a) =>
+      core.composeFigure(ctx.root, sArr(a.plotPaths), {
+        id: a.id as string | undefined,
+        name: a.name as string | undefined,
+        canvasId: a.canvasId as string | undefined,
+        rows: a.rows as number | undefined,
+        cols: a.cols as number | undefined,
+        gap: a.gap as number | undefined,
+        label: a.label as boolean | undefined,
+        captionStub: a.captionStub as boolean | undefined,
+      }),
+    render: {
+      human: (r) => {
+        const c = r as { figureId: string; panels: string[]; width: number; height: number; warnings: string[] };
+        return {
+          err:
+            `✓ composed figure ${c.figureId} — ${c.panels.length} panel(s) [${c.panels.join("")}] ${c.width}×${c.height}` +
+            c.warnings.map((w) => `\n⚠ ${w}`).join(""),
+        };
+      },
+      mcp: (r) => {
+        const c = r as { figureId: string; panels: string[]; width: number; height: number; warnings: string[] };
+        return text(
+          `composed figure ${c.figureId} — panels [${c.panels.join("")}] ${c.width}×${c.height}` +
+            (c.warnings.length ? `\n⚠ ${c.warnings.join("\n⚠ ")}` : ""),
+        );
+      },
+    },
+  },
+  {
+    name: "create_figure",
+    cli: "create-figure",
+    cliRoot: "flags",
+    summary: "Create a blank figure (optionally a clean slug id → @fig-<id>, name, canvas, size).",
+    params: {
+      id: z.string().optional(),
+      name: z.string().optional(),
+      canvasId: z.string().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+    },
+    cliArgs: [
+      { kind: "flag", at: "id", into: "id" },
+      { kind: "flag", at: "name", into: "name" },
+      { kind: "flag", at: "canvas", into: "canvasId" },
+      { kind: "flag", at: "width", into: "width", as: "number" },
+      { kind: "flag", at: "height", into: "height", as: "number" },
+    ],
+    handler: (ctx, a) => core.createFigure(ctx.root, a as Parameters<typeof core.createFigure>[1]),
+    render: {
+      human: (r) => ({ err: `✓ created figure ${(r as { figureId: string }).figureId}` }),
+      mcp: (r) => text(`created figure ${(r as { figureId: string }).figureId}`),
+    },
+  },
+  {
+    name: "import_plots",
+    cli: "import-plots",
+    cliRoot: "flags",
+    summary:
+      "Batch-import multiple SVG plots onto an EXISTING figure (the headless mirror of the GUI's Alt+I multi-insert): each plot resolves its FluxPlot sidecars (semantic when a .fluxplot.json sits next to it), lands at TRUE physical size, and the batch grid-packs into the figure's largest empty region (a single plot centers). Use compose_figure to build a NEW figure instead.",
+    params: {
+      id: z.string(),
+      plotPaths: z.array(z.string()),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "id", required: true },
+      // The legacy switch resolved each path against the shell cwd.
+      { kind: "rest", at: 1, into: "plotPaths", as: "path", required: true },
+    ],
+    handler: (ctx, a) => core.importPlots(ctx.root, s(a.id), sArr(a.plotPaths)),
+    render: {
+      human: (r, a) => {
+        const c = r as { panels: { elementId: string; assetId: string }[]; warnings: string[] };
+        return {
+          err: `✓ imported ${c.panels.length} plot(s) onto ${a.id}` + c.warnings.map((w) => `\n⚠ ${w}`).join(""),
+          out: JSON.stringify(c.panels, null, 2),
+        };
+      },
+      mcp: (r, a) => {
+        const c = r as { panels: { elementId: string; assetId: string }[]; warnings: string[] };
+        return text(
+          `imported ${c.panels.length} plot(s) onto ${a.id}: ` +
+            c.panels.map((p) => `${p.elementId} (asset ${p.assetId})`).join(", ") +
+            (c.warnings.length ? `\n⚠ ${c.warnings.join("\n⚠ ")}` : ""),
+        );
+      },
+    },
+  },
+  {
+    name: "add_panel",
+    cli: "add-panel",
+    summary: "Import an SVG file as an image panel on a figure.",
+    params: {
+      id: z.string(),
+      svgPath: z.string(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "id", required: true },
+      { kind: "pos", at: 1, into: "svgPath", required: true },
+      { kind: "flag", at: "x", into: "x", as: "number" },
+      { kind: "flag", at: "y", into: "y", as: "number" },
+      { kind: "flag", at: "width", into: "width", as: "number" },
+      { kind: "flag", at: "height", into: "height", as: "number" },
+    ],
+    handler: (ctx, a) =>
+      core.addPanel(ctx.root, s(a.id), s(a.svgPath), {
+        x: a.x as number | undefined,
+        y: a.y as number | undefined,
+        width: a.width as number | undefined,
+        height: a.height as number | undefined,
+      }),
+    render: {
+      human: (r) => {
+        const c = r as { elementId: string; assetId: string; warning?: string };
+        return { err: `✓ added panel ${c.elementId} (asset ${c.assetId})` + (c.warning ? `\n⚠ ${c.warning}` : "") };
+      },
+      mcp: (r) => {
+        const c = r as { elementId: string; assetId: string; warning?: string };
+        return text(`added panel ${c.elementId} (asset ${c.assetId})` + (c.warning ? `\n⚠ ${c.warning}` : ""));
+      },
+    },
+  },
+  {
+    name: "sync_figure",
+    cli: "sync-figure",
+    cliRoot: "flags",
+    summary:
+      "Refresh a figure's (or all figures') fig/assets plot copies from their regenerated plots/ sources IN PLACE — the regenerate loop without delete+recompose; captions, positions and per-part restyles survive. A changed intrinsic plot size resizes its element (physical-size-true) and grows the figure frame when needed (re-pack with arrange if the grid should reflow).",
+    params: { figureId: z.string().optional() },
+    cliArgs: [{ kind: "pos", at: 0, into: "figureId" }],
+    handler: (ctx, a) => core.syncFigureAssets(ctx.root, a.figureId as string | undefined),
+    render: {
+      human: (r) => {
+        const c = r as Awaited<ReturnType<typeof core.syncFigureAssets>>;
+        const lines: string[] = [];
+        if (c.refreshed.length)
+          lines.push(`✓ refreshed ${c.refreshed.length}/${c.checked} panel asset(s): ${c.refreshed.map((x) => x.from).join(", ")}`);
+        else lines.push(`✓ all ${c.checked} panel asset(s) already match plots/ (no change)`);
+        for (const rs of c.resized)
+          lines.push(
+            `  ↔ ${rs.elementIds.join(", ")}: intrinsic size ${Math.round(rs.from.w)}×${Math.round(rs.from.h)} → ${Math.round(rs.to.w)}×${Math.round(rs.to.h)} (element resized to match)`,
+          );
+        for (const fr of c.framed)
+          lines.push(`  ⤢ ${fr.figId}: frame ${fr.from.width}×${fr.from.height} → ${fr.to.width}×${fr.to.height} (grown to fit resized panels)`);
+        if (c.resized.length) lines.push(`  (layout may need a re-pack: flux arrange <figId> --cols N)`);
+        if (c.missing.length) lines.push(`⚠ missing source plot(s): ${c.missing.join(", ")}`);
+        for (const w of c.warnings) lines.push(`⚠ ${w}`);
+        return { err: lines.join("\n") };
+      },
+      mcp: (r) => {
+        const c = r as Awaited<ReturnType<typeof core.syncFigureAssets>>;
+        const head = c.refreshed.length
+          ? `refreshed ${c.refreshed.length}/${c.checked} panel asset(s): ${c.refreshed.map((x) => x.from).join(", ")}`
+          : `all ${c.checked} panel asset(s) already match plots/ (no change)`;
+        const parts = [head];
+        for (const rs of c.resized)
+          parts.push(
+            `${rs.elementIds.join(", ")}: intrinsic ${Math.round(rs.from.w)}×${Math.round(rs.from.h)} → ${Math.round(rs.to.w)}×${Math.round(rs.to.h)} (element resized; re-pack with arrange if needed)`,
+          );
+        for (const fr of c.framed) parts.push(`${fr.figId}: frame grown ${fr.from.width}×${fr.from.height} → ${fr.to.width}×${fr.to.height}`);
+        if (c.missing.length) parts.push(`missing source plot(s): ${c.missing.join(", ")}`);
+        parts.push(...c.warnings);
+        return text(parts.join(" — "));
+      },
+    },
+  },
 ];

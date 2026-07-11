@@ -261,26 +261,6 @@ async function main() {
       }
       break;
     }
-    case "sync-figure": {
-      // Close the regenerate loop headlessly: refresh fig/assets copies from
-      // their plots/ sources in place (captions/restyles/positions survive).
-      // Changed intrinsic sizes resize their elements (physical-size-true) and
-      // grow the figure frame when content would no longer fit.
-      const r = await core.syncFigureAssets(R(), _[0] || undefined);
-      if (r.refreshed.length)
-        console.error(`✓ refreshed ${r.refreshed.length}/${r.checked} panel asset(s): ${r.refreshed.map((x) => x.from).join(", ")}`);
-      else console.error(`✓ all ${r.checked} panel asset(s) already match plots/ (no change)`);
-      for (const rs of r.resized)
-        console.error(
-          `  ↔ ${rs.elementIds.join(", ")}: intrinsic size ${Math.round(rs.from.w)}×${Math.round(rs.from.h)} → ${Math.round(rs.to.w)}×${Math.round(rs.to.h)} (element resized to match)`,
-        );
-      for (const fr of r.framed)
-        console.error(`  ⤢ ${fr.figId}: frame ${fr.from.width}×${fr.from.height} → ${fr.to.width}×${fr.to.height} (grown to fit resized panels)`);
-      if (r.resized.length) console.error(`  (layout may need a re-pack: flux arrange <figId> --cols N)`);
-      if (r.missing.length) console.error(`⚠ missing source plot(s): ${r.missing.join(", ")}`);
-      for (const w of r.warnings) console.error(`⚠ ${w}`);
-      break;
-    }
     case "render-canvas": {
       // The whole canvas in one image — every figure at its real x/y, so an
       // agent's look-step catches layout problems (overlap, stray placeholder
@@ -319,54 +299,6 @@ async function main() {
       const bib = flags.file ? await fs.readFile(String(flags.file), "utf8") : A.join(" ");
       await core.addReference(root(), bib);
       console.error("✓ reference added");
-      break;
-    }
-    case "add-panel": {
-      const res = await core.addPanel(root(), A[0], A[1], {
-        x: num(flags.x),
-        y: num(flags.y),
-        width: num(flags.width),
-        height: num(flags.height),
-      });
-      console.error(`✓ added panel ${res.elementId} (asset ${res.assetId})`);
-      if (res.warning) console.error(`⚠ ${res.warning}`);
-      break;
-    }
-    case "import-plots": {
-      if (_.length < 2) throw new Error("import-plots needs a figure id and at least one plot path");
-      const r = await core.importPlots(R(), _[0], _.slice(1).map((p) => path.resolve(p)));
-      console.error(`✓ imported ${r.panels.length} plot(s) onto ${_[0]}`);
-      for (const w of r.warnings) console.error(`⚠ ${w}`);
-      console.log(JSON.stringify(r.panels, null, 2));
-      break;
-    }
-    case "create-figure": {
-      const r = await core.createFigure(R(), {
-        id: flags.id as string,
-        name: flags.name as string,
-        canvasId: flags.canvas as string,
-        width: num(flags.width),
-        height: num(flags.height),
-      });
-      console.error(`✓ created figure ${r.figureId}`);
-      break;
-    }
-    case "compose-figure": {
-      if (!_.length) throw new Error("compose-figure needs at least one plot path");
-      const r = await core.composeFigure(R(), _, {
-        id: flags.id as string,
-        name: flags.name as string,
-        canvasId: flags.canvas as string,
-        rows: num(flags.rows),
-        cols: num(flags.cols),
-        gap: num(flags.gap),
-        label: !flags["no-label"],
-        captionStub: !flags["no-caption"],
-      });
-      console.error(
-        `✓ composed figure ${r.figureId} — ${r.panels.length} panel(s) [${r.panels.join("")}] ${r.width}×${r.height}`,
-      );
-      for (const w of r.warnings) console.error(`⚠ ${w}`);
       break;
     }
     case "reset-crop": {
