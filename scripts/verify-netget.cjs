@@ -8,6 +8,11 @@ const http = require("node:http");
 const path = require("node:path");
 const { createNetGet } = require(path.join(__dirname, "..", "electron", "netFetch.cjs"));
 
+// WS-9.2: Chromium resolves these fake hosts to the local test server, while the
+// INJECTED lookup below tells the SSRF gate they are public/private — letting the
+// gated redirect-hop paths run end-to-end against a real network stack.
+app.commandLine.appendSwitch("host-resolver-rules", "MAP fakepub.test 127.0.0.1, MAP fakepriv.test 127.0.0.1");
+
 let failures = 0;
 function ok(cond, name, detail = "") {
   console.log(`${cond ? "✓" : "✗"} ${name}${cond || !detail ? "" : ` — ${detail}`}`);
@@ -18,6 +23,7 @@ app.whenReady().then(async () => {
   // A local "publisher": counts a new session whenever a request arrives WITHOUT its
   // cookie (exactly how the real session-counting works).
   let sessionsCreated = 0;
+  const routes = {}; // late-bound extra routes (the gated WS-9.2 cases below)
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, "http://127.0.0.1");
     const hasCookie = /sid=/.test(req.headers.cookie || "");
@@ -41,6 +47,7 @@ app.whenReady().then(async () => {
       return res.end(Buffer.from("%PDF-1.4 test\n%%EOF"));
     }
     if (u.pathname === "/hang") return; // never responds — timeout test
+    if (routes[u.pathname]) return routes[u.pathname](res);
     res.statusCode = 404;
     res.end("nope");
   });
@@ -73,6 +80,48 @@ app.whenReady().then(async () => {
   const guarded = createNetGet({ session, getKey: () => "" });
   const r6 = await guarded(`${base}/cookie`, "text");
   ok(!!r6.error && /blocked/.test(r6.error), "SSRF guard still blocks private ranges in production mode");
+
+  // ---- WS-9.2: the webRequest gate validates EVERY hop (redirects included) ----
+  // Server routes for the gated cases (Location targets carry the real port).
+  const gatedPort = server.address().port;
+  routes["/to-priv-literal"] = (res) => {
+    res.statusCode = 302;
+    res.setHeader("Location", `http://127.0.0.1:${gatedPort}/cookie`);
+    res.end();
+  };
+  routes["/to-priv-dns"] = (res) => {
+    res.statusCode = 302;
+    res.setHeader("Location", `http://fakepriv.test:${gatedPort}/cookie`);
+    res.end();
+  };
+  // The injected lookup: fakepub.test is "public", fakepriv.test resolves private.
+  const fakeLookup = async (host) => {
+    if (host === "fakepub.test") return [{ address: "93.184.216.34", family: 4 }];
+    if (host === "fakepriv.test") return [{ address: "10.0.0.7", family: 4 }];
+    return [{ address: "127.0.0.1", family: 4 }];
+  };
+  const gated = createNetGet({
+    session,
+    getKey: () => "",
+    partition: "netget-gated-test", // in-memory: fresh jar + fresh gate per run
+    lookup: fakeLookup,
+    timeouts: { bytes: 3000, meta: 3000 },
+  });
+  const pub = `http://fakepub.test:${gatedPort}`;
+
+  const before = sessionsCreated;
+  const g1 = await gated(`${pub}/hop2`, "text");
+  ok(
+    g1.text === "HIT" && sessionsCreated === before + 1,
+    "gated: 2-hop chain on a public-resolving host follows + carries ONE session",
+    JSON.stringify({ g1, sessions: sessionsCreated - before }),
+  );
+  const g2 = await gated(`${pub}/to-priv-literal`, "text");
+  ok(!!g2.error && /blocked/.test(g2.error), "gated: redirect to a PRIVATE LITERAL is cancelled mid-chain", JSON.stringify(g2));
+  const g3 = await gated(`${pub}/to-priv-dns`, "text");
+  ok(!!g3.error && /blocked/.test(g3.error), "gated: redirect to a private-RESOLVING host is cancelled (rebinding)", JSON.stringify(g3));
+  const g4 = await gated(`http://fakepriv.test:${gatedPort}/cookie`, "text");
+  ok(!!g4.error && /blocked|private/.test(g4.error), "gated: entry URL resolving private is refused with a clear message", JSON.stringify(g4));
 
   server.close();
   console.log(failures ? `\nNETGET VERIFY: ${failures} FAILED` : "\nNETGET VERIFY: PASS");

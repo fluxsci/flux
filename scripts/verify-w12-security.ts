@@ -84,6 +84,19 @@ try {
   has(bridgeCjs, "mode: 0o600", "SHL-8: bridge.json written owner-only");
   has(bridgeCjs, "mode: 0o700", "SHL-8: bridge dir created owner-only");
 
+  // --- WS-9.2: SSRF — resolved-IP validation + redirect re-validation ----------------------
+  const netFetchCjs = await fs.readFile(path.join(import.meta.dirname, "..", "electron", "netFetch.cjs"), "utf8");
+  const resolveDoiCjs = await fs.readFile(path.join(import.meta.dirname, "..", "electron", "resolveDoi.cjs"), "utf8");
+  has(netFetchCjs, "function assertPublicResolved", "9.2: DNS-resolution validator present");
+  has(netFetchCjs, "webRequest.onBeforeRequest", "9.2: partition-level SSRF gate installed (validates every redirect hop)");
+  has(netFetchCjs, "ERR_BLOCKED_BY_CLIENT", "9.2: cancelled hops surface as a blocked error");
+  // session.fetch CANCELS manual redirects ("Redirect was cancelled"), so netFetch keeps
+  // redirect:"follow" and the webRequest gate does the per-hop validation — the follow is
+  // legitimate ONLY together with the gate (asserted above).
+  has(resolveDoiCjs, "assertPublicResolved", "9.2: resolveDoi imports the DNS validator");
+  assert(!resolveDoiCjs.includes('redirect: "follow"'), '9.2: resolveDoi no longer auto-follows (manual hop loop)');
+  has(resolveDoiCjs, 'redirect: "manual"', "9.2: resolveDoi hops manually, re-validating each Location");
+
   console.log("\nW12 SECURITY VERIFY: PASS");
 } finally {
   await fs.rm(root, { recursive: true, force: true });

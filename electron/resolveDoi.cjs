@@ -4,7 +4,7 @@
 // bundle past electron-builder's node_modules carve-out) and no network except the
 // injected fetch. Shared by the in-app paste box, Cmd-K, and flux:// web capture.
 
-const { publicHttpUrl } = require("./netFetch.cjs");
+const { publicHttpUrl, assertPublicResolved } = require("./netFetch.cjs");
 
 /** Extract a clean DOI from a string (a bare DOI, a doi.org URL, a "doi:" prefix,
  *  or DOI-bearing text), or null. Trims trailing sentence punctuation. */
@@ -51,8 +51,10 @@ function scrapeDoi(html, url = "") {
 
 /** Resolve a DOI-or-URL string to a DOI. Bare DOIs and doi.org links resolve with
  *  no network; any other http(s) URL is fetched and scraped. `fetchImpl` is
- *  injected (Electron's global fetch in production; a stub in tests). */
-async function resolveToDoi(input, fetchImpl) {
+ *  injected (Electron's global fetch in production; a stub in tests); `opts.assertPublic`
+ *  overrides the DNS validation for hermetic tests. */
+async function resolveToDoi(input, fetchImpl, opts = {}) {
+  const assertPublic = opts.assertPublic || assertPublicResolved;
   const u = String(input || "").trim();
   if (!u) return { error: "Nothing to resolve." };
   if (!/^https?:\/\//i.test(u)) {
@@ -69,16 +71,30 @@ async function resolveToDoi(input, fetchImpl) {
   const safe = publicHttpUrl(u);
   if (!safe) return { error: "Only public http(s) URLs can be resolved." };
   try {
-    const res = await fetchImpl(safe, {
-      headers: {
-        "User-Agent": "Flux/0.1 (manuscript editor)",
-        Accept: "text/html,application/xhtml+xml",
-      },
-      redirect: "follow",
-    });
+    // WS-9.2: manual redirect hops, each Location re-validated (literal ranges
+    // + what DNS resolves to) — mirrors pdf:netGet.
+    let current = safe;
+    let res = null;
+    const MAX_HOPS = 5;
+    for (let hop = 0; ; hop++) {
+      await assertPublic(new URL(current).hostname);
+      res = await fetchImpl(current, {
+        headers: {
+          "User-Agent": "Flux/0.1 (manuscript editor)",
+          Accept: "text/html,application/xhtml+xml",
+        },
+        redirect: "manual",
+      });
+      const loc = res.headers && res.headers.get ? res.headers.get("location") : null;
+      if (res.status < 300 || res.status >= 400 || !loc) break;
+      if (hop >= MAX_HOPS) return { error: "Too many redirects." };
+      const next = publicHttpUrl(new URL(loc, current).toString());
+      if (!next) return { error: "Only public http(s) URLs can be resolved." };
+      current = next;
+    }
     if (!res.ok) return { error: `HTTP ${res.status}` };
     const html = await res.text();
-    const doi = scrapeDoi(html, res.url || u);
+    const doi = scrapeDoi(html, res.url || current);
     return doi ? { doi } : { error: "Couldn't find a DOI on that page." };
   } catch (err) {
     return { error: String((err && err.message) || err) };

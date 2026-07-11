@@ -65,6 +65,7 @@
       "verify-undo-budget.ts",
       "verify-figfiles-parity.ts",
       "verify-text-parity.ts",
+      "verify-ssrf-ranges.ts",
       "verify-annotations-md.ts",
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",
