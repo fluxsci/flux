@@ -10,7 +10,7 @@ import type { RefEntry, AddResult } from "./types";
 import { splitBibEntries, lightEntry, bibtexKey } from "./bibtex";
 import { planAdds, appendedBib } from "./addPlan";
 import { bumpFluxLib, fluxLibEntries } from "./revision";
-import { mergeEnrich, type EnrichMap } from "./enrich";
+import { mergeEnrich, type EnrichMap, projectEnrichForGrid } from "./enrich";
 import { createEnrichCache } from "./enrichStore";
 import { pushToast } from "../toast";
 import { withIpcLock } from "./libLock";
@@ -193,6 +193,9 @@ export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: 
         }
         if (dirty) {
           await fb.writeText(libEnrich(lib), JSON.stringify(map, null, 2) + "\n");
+          // WS-8.3: keep the grid projection in lockstep (written AFTER the
+          // full file — the freshness rule is grid.mtime ≥ full.mtime).
+          await fb.writeText(libEnrichGrid(lib), JSON.stringify(projectEnrichForGrid(map)) + "\n");
           invalidateEnrichCache();
         }
       });
@@ -217,6 +220,7 @@ export async function loadFluxLib(): Promise<RefEntry[]> {
 }
 
 const libEnrich = (lib: string) => joinPath(lib, ".fluxlib", "enrich.json");
+const libEnrichGrid = (lib: string) => joinPath(lib, ".fluxlib", "enrich-grid.json");
 
 /** Read + parse the enrichment sidecar FRESH from disk (`{}` if absent / no bridge).
  *  Derived + rebuildable — the renderer twin of fluxlib.ts loadEnrich.
@@ -252,16 +256,41 @@ export async function loadEnrichMapFresh(): Promise<EnrichMap> {
 // file change, shared by the Library grid, per-key lookups (reader references,
 // citing/similar/author), and the editor's fluxLibEntries refresh.
 const enrichCache = createEnrichCache({
+  // WS-8.3: display paths read the GRID projection (~an order of magnitude
+  // smaller parse) whenever it is at least as fresh as the full sidecar;
+  // stale/missing/corrupt grid falls back to the full parse. Locked writers
+  // never read through here (loadEnrichMapFresh stays full-file).
   path: async () => {
     const lib = await resolveFluxLibPath();
-    return lib ? libEnrich(lib) : null;
+    if (!lib) return null;
+    const fb = fileBridge();
+    const grid = libEnrichGrid(lib);
+    const full = libEnrich(lib);
+    if (!fb?.stat) return full;
+    try {
+      const [gs, fs] = await Promise.all([fb.stat(grid), fb.stat(full)]);
+      if (gs && (!fs || gs.mtimeMs >= fs.mtimeMs)) return grid;
+    } catch {
+      /* stat trouble → full file */
+    }
+    return full;
   },
   stat: async (p) => {
     const fb = fileBridge();
     if (!fb?.stat) return null;
     return fb.stat(p);
   },
-  load: loadEnrichMapFresh,
+  load: async (p) => {
+    if (p.endsWith("enrich-grid.json")) {
+      try {
+        const t = await readTextSafe(p);
+        if (t) return JSON.parse(t) as EnrichMap;
+      } catch {
+        /* corrupt grid is disposable — fall through to the full parse */
+      }
+    }
+    return loadEnrichMapFresh();
+  },
 });
 
 /** The enrichment map, served from the mtime-keyed cache (a parse happens only when

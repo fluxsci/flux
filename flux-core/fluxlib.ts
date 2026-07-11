@@ -19,7 +19,7 @@ import type { RefEntry, AddResult, EnrichEntry } from "../src/lib/references/typ
 import type { ProjectManifest } from "../src/lib/project/types";
 export type { AddResult };
 import { runQuery } from "../src/lib/references/query";
-import { enrichCoverage } from "../src/lib/references/enrich";
+import { enrichCoverage, projectEnrichForGrid } from "../src/lib/references/enrich";
 import { planAdds, appendedBib } from "../src/lib/references/addPlan";
 import { normalizeOrganize, setTags, setStatus, setCollections, mergeOrganize, type OrganizeData, type ReadingStatus } from "../src/lib/references/organize";
 import { atomicWrite, quarantineCorrupt } from "./fsx";
@@ -284,13 +284,19 @@ export async function loadEnrich(libPath?: string): Promise<Record<string, Enric
   }
 }
 
-/** Write the enrichment sidecar. Derived → safe to delete/rebuild; never the `.bib`. */
+const libEnrichGridPath = (lib: string) => path.join(lib, ".fluxlib", "enrich-grid.json");
+
+/** Write the enrichment sidecar. Derived → safe to delete/rebuild; never the `.bib`.
+ *  WS-8.3: also emits the GRID projection (display fields only, compact JSON)
+ *  AFTER the full file, so grid.mtime ≥ full.mtime is the renderer's freshness
+ *  rule — a stale/missing grid falls back to parsing the full file. */
 export async function writeEnrich(
   map: Record<string, EnrichEntry>,
   libPath?: string,
 ): Promise<void> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
   await atomicWrite(libEnrichPath(lib), JSON.stringify(map, null, 2) + "\n");
+  await atomicWrite(libEnrichGridPath(lib), JSON.stringify(projectEnrichForGrid(map)) + "\n");
 }
 
 /** W3: merge this run's fetched entries into enrich.json under the "enrich"

@@ -18,8 +18,10 @@ export interface EnrichCacheDeps {
   path: () => Promise<string | null>;
   /** File identity for cache keying; null = file absent. */
   stat: (path: string) => Promise<{ mtimeMs: number; size: number } | null>;
-  /** The real read+parse (quarantine-on-corrupt behavior lives here, unchanged). */
-  load: () => Promise<EnrichMap>;
+  /** The real read+parse for the CHOSEN path (quarantine-on-corrupt behavior
+   *  lives in the full-file loader, unchanged; WS-8.3 passes the path so the
+   *  grid projection and the full sidecar share this one cache). */
+  load: (path: string) => Promise<EnrichMap>;
 }
 
 export interface EnrichCache {
@@ -38,12 +40,12 @@ export function createEnrichCache(deps: EnrichCacheDeps): EnrichCache {
     if (!p) return {};
     const st = await deps.stat(p).catch(() => null);
     // No stat capability (older bridge / fixture) → no safe identity → stay fresh.
-    if (st === null && cached === null) return deps.load();
+    if (st === null && cached === null) return deps.load(p);
     const key = st ? `${st.mtimeMs}:${st.size}` : "absent";
     if (cached && key === cacheKey) return cached;
     if (inflight) return inflight; // concurrent callers share one parse
     inflight = deps
-      .load()
+      .load(p)
       .then((m) => {
         cached = m;
         cacheKey = key;

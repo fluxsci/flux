@@ -46,3 +46,39 @@ export function topicProfile(map: EnrichMap | null | undefined): { name: string;
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
 }
+
+// WS-8.3: the GRID projection of an enrichment entry — exactly the fields any
+// renderer read path consumes (grid, hover cards, query haystacks, OA fetch
+// gating). The heavy graph/edge fields (referencedWorks/relatedWorks/
+// countsByYear/mesh/embedding) stay ONLY in the full enrich.json, which the
+// locked writers keep parsing; the projected .fluxlib/enrich-grid.json is what
+// display paths load (~an order of magnitude smaller). Shared by flux-core and
+// the renderer bridge so both write funnels emit an identical projection.
+export const GRID_ENRICH_FIELDS = [
+  "key",
+  "doi",
+  "openalexId",
+  "abstract",
+  "primaryTopic",
+  "topics",
+  "keywords",
+  "citedByCount",
+  "openAccess",
+  "authors",
+  "ids",
+  "fetchedAt",
+  "sources",
+] as const;
+
+export function projectEnrichForGrid(map: EnrichMap): EnrichMap {
+  const out: EnrichMap = {};
+  for (const [k, e] of Object.entries(map)) {
+    const slim: Record<string, unknown> = {};
+    for (const f of GRID_ENRICH_FIELDS) {
+      const v = (e as unknown as Record<string, unknown>)[f];
+      if (v !== undefined) slim[f] = v;
+    }
+    out[k] = slim as unknown as EnrichMap[string];
+  }
+  return out;
+}
