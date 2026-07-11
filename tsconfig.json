@@ -13,5 +13,6 @@
     "skipLibCheck": true
   },
   "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"],
+  "exclude": ["src/lib/project/validators.gen.js"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

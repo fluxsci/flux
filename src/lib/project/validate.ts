@@ -18,30 +18,31 @@
 // seam, not the mutation seam).
 // ---------------------------------------------------------------------------
 
-import { Ajv, type ValidateFunction } from "ajv";
-import { SCHEMAS } from "./schemas";
 import type { Project } from "../types";
+// WS-9.1: PRE-GENERATED validators (Ajv standalone codegen — see
+// scripts/gen-validators.mjs). Runtime Ajv compiles schemas via new Function,
+// which the renderer CSP refuses (script-src has no 'unsafe-eval'); the
+// generated module is plain functions with identical Ajv semantics + errors.
+// Drift-gated: verify-loadgate.ts regenerates and diffs against the committed
+// file, so a schemas.ts edit can't silently skew the shipped validators.
+import * as gen from "./validators.gen.js";
+import type { GenValidator } from "./validators.gen.js";
 
-let ajv: Ajv | null = null;
-const compiled = new Map<string, ValidateFunction>();
+const VALIDATORS: Record<"model" | "canvas" | "figIndex" | "deck" | "project", GenValidator> = {
+  model: gen.validate_model,
+  canvas: gen.validate_canvas,
+  figIndex: gen.validate_figIndex,
+  deck: gen.validate_deck,
+  project: gen.validate_project,
+};
 
-function validatorFor(key: "model" | "canvas" | "figIndex" | "deck" | "project"): ValidateFunction {
-  if (!ajv) ajv = new Ajv({ strict: false, allErrors: true });
-  let v = compiled.get(key);
-  if (!v) {
-    v = ajv.compile(SCHEMAS[key] as object);
-    compiled.set(key, v);
-  }
-  return v;
-}
-
-function errorsOf(v: ValidateFunction): string[] {
+function errorsOf(v: GenValidator): string[] {
   return (v.errors ?? []).map((e) => `${e.instancePath || "/"} ${e.message ?? "invalid"}`);
 }
 
 /** Validate a value against one of the project-format schemas. [] = valid. */
 function validateAgainst(key: "model" | "canvas" | "figIndex" | "deck" | "project", value: unknown): string[] {
-  const v = validatorFor(key);
+  const v = VALIDATORS[key];
   return v(value) ? [] : errorsOf(v);
 }
 

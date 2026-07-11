@@ -80,7 +80,6 @@ async function assertPublicResolved(hostname, lookup = dns.promises.lookup) {
  * { timeouts: { bytes, meta } }.
  */
 function createNetGet({ session, getKey, allowPrivate = false, partition = NET_PARTITION, timeouts = {}, lookup }) {
-  const ses = session.fromPartition(partition);
   // WS-9.2: a public URL used to be able to 302 to 169.254.169.254 (cloud
   // metadata) or to a DNS name resolving private (rebinding) — redirects were
   // followed unchecked. session.fetch CANCELS manual redirects outright
@@ -91,17 +90,24 @@ function createNetGet({ session, getKey, allowPrivate = false, partition = NET_P
   // can CANCEL, and the async-callback form permits real DNS validation).
   // Set-Cookie semantics are untouched (normal follow behavior; the harness
   // proves a 2-hop chain still presents ONE session).
-  if (!allowPrivate && !ses.__fluxSsrfGate) {
-    ses.__fluxSsrfGate = true;
-    ses.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*"] }, (details, callback) => {
-      (async () => {
-        const safe = publicHttpUrl(details.url);
-        if (!safe) return { cancel: true };
-        await assertPublicResolved(new URL(safe).hostname, lookup); // throws ⇒ cancel
-        return { cancel: false };
-      })().then(callback, () => callback({ cancel: true }));
-    });
-  }
+  // LAZY session init: createNetGet is called at module scope in main.cjs, and
+  // session.fromPartition throws before app-ready.
+  let ses = null;
+  const getSession = () => {
+    if (ses) return ses;
+    ses = session.fromPartition(partition);
+    if (!allowPrivate) {
+      ses.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*"] }, (details, callback) => {
+        (async () => {
+          const safe = publicHttpUrl(details.url);
+          if (!safe) return { cancel: true };
+          await assertPublicResolved(new URL(safe).hostname, lookup); // throws ⇒ cancel
+          return { cancel: false };
+        })().then(callback, () => callback({ cancel: true }));
+      });
+    }
+    return ses;
+  };
   return async function netGet(url, mode = "bytes") {
     const safe = allowPrivate ? String(url || "") : publicHttpUrl(url);
     if (!safe) return { error: "blocked: non-public http(s) URL" };
@@ -121,7 +127,7 @@ function createNetGet({ session, getKey, allowPrivate = false, partition = NET_P
       // Time-boxed: a hung publisher server must not stall a bulk run forever (bytes gets
       // longer for big PDFs on slow links; metadata calls are small and quick).
       const timeoutMs = mode === "bytes" ? (timeouts.bytes ?? 120_000) : (timeouts.meta ?? 30_000);
-      const res = await ses.fetch(safe, {
+      const res = await getSession().fetch(safe, {
         redirect: "follow",
         credentials: "include", // the whole point: carry the partition's cookie jar
         headers: { "User-Agent": UA, Accept: accept },

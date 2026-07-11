@@ -105,6 +105,41 @@ try {
   has(mainCjs, 'existsSync(path.join(ab, "project.json"))', "9.3: beginOpen only accepts a real Flux project");
   has(mainCjs, "pendingRoot = null;", "9.3: the pending slot is cleared on registration (single slot)");
 
+  // --- WS-9.1: Content-Security-Policy ------------------------------------------------------
+  const indexHtml = await fs.readFile(path.join(import.meta.dirname, "..", "index.html"), "utf8");
+  has(indexHtml, 'http-equiv="Content-Security-Policy"', "9.1: CSP meta present in index.html");
+  assert(!/script-src[^;]*'unsafe-inline'/.test(indexHtml), "9.1: script-src never allows unsafe-inline");
+  has(indexHtml, "ws://localhost:1420", "9.1: source meta is the DEV variant (HMR websocket allowed)");
+  has(mainCjs, "onHeadersReceived", "9.1: dev-server responses get the CSP as a header too");
+  const viteConfig = await fs.readFile(path.join(import.meta.dirname, "..", "vite.config.ts"), "utf8");
+  has(viteConfig, "flux-csp-strict", "9.1: the build strips the loopback entries (strict variant)");
+  // The preview iframe's constant inline scripts are hash-allowlisted — recompute
+  // from source so an edit can't silently break the paginated preview.
+  {
+    const rm = await fs.readFile(
+      path.join(import.meta.dirname, "..", "src", "shell", "modes", "paper", "render", "renderManuscript.ts"),
+      "utf8",
+    );
+    const { createHash } = await import("node:crypto");
+    for (const name of ["PAGINATOR", "LIVE_SCROLL"]) {
+      const m = rm.match(new RegExp("const " + name + " = `([\\s\\S]*?)`;"));
+      assert(m, `9.1: ${name} inline script found in renderManuscript.ts`);
+      const hash = "sha256-" + createHash("sha256").update(m![1], "utf8").digest("base64");
+      assert(indexHtml.includes(`'${hash}'`), `9.1: CSP hash for ${name} is FRESH (${hash})`);
+      assert(mainCjs.includes(`'${hash}'`), `9.1: dev-header CSP carries the ${name} hash too`);
+    }
+  }
+  // dist/ is present on any machine that has run `npm run build` (the startup
+  // gate also asserts the SERVED strict policy) — verify when available.
+  const distIndex = path.join(import.meta.dirname, "..", "dist", "index.html");
+  if (await exists(distIndex)) {
+    const dist = await fs.readFile(distIndex, "utf8");
+    has(dist, 'http-equiv="Content-Security-Policy"', "9.1: CSP meta present in dist/index.html");
+    assert(!dist.includes("ws://localhost:1420"), "9.1: dist policy is STRICT (no dev loopback entries)");
+  } else {
+    console.log("  ok: (dist/index.html absent — strict-variant check runs in verify-startup)");
+  }
+
   console.log("\nW12 SECURITY VERIFY: PASS");
 } finally {
   await fs.rm(root, { recursive: true, force: true });

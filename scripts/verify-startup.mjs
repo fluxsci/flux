@@ -61,6 +61,16 @@ try {
 
   await page.goto(URL, { waitUntil: "load", timeout: 30000 });
   await page.waitForSelector(".wordmark", { timeout: 15000 }); // Home is interactive
+
+  // WS-9.1: the SERVED production HTML must carry the STRICT CSP (no dev
+  // loopback entries) — the cspStrict() vite plugin's output, end to end.
+  const servedCsp = await page.evaluate(
+    () => document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content") ?? "",
+  );
+  const cspStrictOk =
+    servedCsp.includes("default-src 'self'") &&
+    !servedCsp.includes("ws://localhost") &&
+    !/script-src[^;]*'unsafe-inline'/.test(servedCsp);
   // Snapshot the eager set the instant Home is up (before idle-warm settles).
   const eagerFiles = [...js.entries()];
 
@@ -82,13 +92,15 @@ try {
     workerAtHome: workerChunks.map(([f]) => f),
     modeChunksSeenAfterWarm: modeChunkFiles,
     totalJsFiles: js.size,
+    cspStrictOk,
   };
   console.log(JSON.stringify(out, null, 2));
 
   const pass =
     shellBytes < BUDGET && // eager shell under budget
     modeChunks.length === 0 && // no mode blocked Home
-    workerChunks.length === 0; // pdf worker never eager
+    workerChunks.length === 0 && // pdf worker never eager
+    cspStrictOk; // WS-9.1: strict CSP served
   console.log(pass ? "\nW15 STARTUP VERIFY: PASS" : "\nW15 STARTUP VERIFY: FAIL");
   await browser.close();
   preview.kill("SIGKILL");

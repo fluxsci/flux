@@ -2,6 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- WS-9.1: renderer lockdown. This is the DEV variant (loopback ws/http for
+         Vite HMR); the build strips the loopback entries via the cspStrict()
+         plugin in vite.config.ts, and electron/main.cjs injects the same policy
+         as a response header for the dev-server load. Notes: style unsafe-inline
+         is required (Svelte transitions + KaTeX); wasm-unsafe-eval is pdf.js
+         (JPEG2000/JBIG2 + the WASM font compiler); img data:/blob: are figure
+         assets + PDF page canvases; NEVER add script-src unsafe-inline. The
+         two sha256 hashes are the manuscript preview's constant inline scripts
+         (PAGINATOR + LIVE_SCROLL in renderManuscript.ts — srcdoc inherits this
+         policy); verify-w12-security recomputes them, so editing either script
+         without updating the hashes fails the gate, not the preview. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-6r/g91Y6qywRU/8dPpMiyLq5Ksg9R0WzHQFByvJ8jqA=' 'sha256-8Yu/cmPzQpyhF7nWdsKoaj4FeP+hooq1bXRxlVz1CLE='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws://localhost:1420 ws://127.0.0.1:1420 http://localhost:1420 http://127.0.0.1:1420; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'self'; form-action 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Flux</title>
   </head>

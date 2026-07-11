@@ -111,5 +111,18 @@ assert(coreValidateModel === validateModel, "flux-core re-exports the SAME valid
   assert(again === 0, "sanitize is idempotent");
 }
 
+// ---- WS-9.1: the committed pre-generated validators must match schemas.ts ------
+// (Ajv standalone codegen replaced runtime compilation — the renderer CSP has no
+// 'unsafe-eval'. A schemas.ts edit without regeneration would silently ship
+// validators that disagree with the schema; this is the buildInfo-style drift gate.)
+{
+  const { generate, OUT } = await import("./gen-validators.mjs");
+  const disk = await (await import("node:fs/promises")).readFile(OUT, "utf8").catch(() => "");
+  assert(
+    disk === generate(),
+    "validators.gen.js is FRESH (regen: node --import tsx scripts/gen-validators.mjs)",
+  );
+}
+
 console.log(failures ? `\nLOADGATE: FAIL (${failures})` : "\nLOADGATE: PASS");
 process.exit(failures ? 1 : 0);

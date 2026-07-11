@@ -34,9 +34,25 @@ function pdfjsAssets(): Plugin {
   };
 }
 
+// WS-9.1: the source index.html carries the DEV CSP (loopback ws/http for HMR).
+// Builds must ship the STRICT variant — same policy with the loopback entries
+// dropped (packaged Electron loads file://; vite preview serves dist verbatim).
+function cspStrict(): Plugin {
+  return {
+    name: "flux-csp-strict",
+    apply: "build",
+    transformIndexHtml(html) {
+      return html.replace(
+        /connect-src 'self'[^;]*;/,
+        "connect-src 'self';",
+      );
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [svelte(), pdfjsAssets()],
+  plugins: [svelte(), pdfjsAssets(), cspStrict()],
 
   // Relative paths so the built bundle loads under Electron's file:// protocol.
   base: "./",

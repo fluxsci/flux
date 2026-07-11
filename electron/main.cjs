@@ -1,4 +1,10 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, session, safeStorage, net } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain: rawIpcMain, dialog, shell, session, safeStorage, net } = require("electron");
+// WS-9.4: every registration goes through the channel contract — an undeclared
+// or kind-mismatched channel throws at startup, and assertAllRegistered() (in
+// whenReady) catches declared-but-orphaned ones. verify-ipc-contract.ts checks
+// the preload + push sides statically.
+const ipcContract = require("./ipc/contract.cjs").wrapIpcMain(rawIpcMain);
+const ipcMain = { handle: ipcContract.handle, on: ipcContract.on };
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -623,7 +629,34 @@ app.whenReady().then(async () => {
     console.error("flux config init failed:", (e && e.message) || e);
   }
   invalidatePathCaches(); // migration may have moved the library
+  // WS-9.1: inject the CSP as a RESPONSE HEADER for the dev-server document —
+  // the meta in index.html covers the packaged file:// load, but headers are
+  // the stronger mechanism and cover dev before the parser sees the meta.
+  // Scoped to the app's own dev origin on the DEFAULT session only — the
+  // publisher proxy-capture windows run in their own partitions and must never
+  // inherit app policy.
+  if (DEV_URL) {
+    const { session } = require("electron");
+    const DEV_CSP =
+      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-6r/g91Y6qywRU/8dPpMiyLq5Ksg9R0WzHQFByvJ8jqA=' 'sha256-8Yu/cmPzQpyhF7nWdsKoaj4FeP+hooq1bXRxlVz1CLE='; style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: blob:; font-src 'self' data:; " +
+      "connect-src 'self' ws://localhost:1420 ws://127.0.0.1:1420 http://localhost:1420 http://127.0.0.1:1420; " +
+      "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'self'; form-action 'none'";
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      const isAppDoc =
+        details.resourceType === "mainFrame" &&
+        /^http:\/\/(localhost|127\.0\.0\.1):1420\//.test(details.url);
+      if (!isAppDoc) return callback({ responseHeaders: details.responseHeaders });
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [DEV_CSP],
+        },
+      });
+    });
+  }
   buildAppMenu(); // W6: replace the default menu (kills the stray reload accelerator)
+  ipcContract.assertAllRegistered(); // WS-9.4: no declared channel may be orphaned
   createWindow();
   // Cold start via protocol (Windows/Linux carry the URL in argv).
   const initialUrl = fluxUrlFromArgv(process.argv);
@@ -1754,12 +1787,14 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath }) => {
         cwd: rootAbs,
       });
       let log = "";
-      const send = (s) => {
+      // (A quarto:log live-stream push used to fire here — nothing ever
+      // subscribed; the renderer reads the accumulated log from the result.
+      // Found by verify-ipc-contract's no-orphans check, WS-9.4.)
+      const collect = (s) => {
         log += s;
-        e.sender.send("quarto:log", s);
       };
-      p.stdout.on("data", (d) => send(String(d)));
-      p.stderr.on("data", (d) => send(String(d)));
+      p.stdout.on("data", (d) => collect(String(d)));
+      p.stderr.on("data", (d) => collect(String(d)));
       p.on("error", (err) => resolve({ ok: false, log: String(err.message) }));
       p.on("close", (code) => {
         // Verify the artifact actually landed (a _quarto.yml output-dir moves it —

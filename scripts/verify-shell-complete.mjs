@@ -73,7 +73,7 @@ await page.click(railGear);
 await sleep(250);
 ok(await setOpen(), "the rail gear opens Settings (reachable from every mode)");
 const setText = await page.$eval(setSel, (el) => el.textContent || "").catch(() => "");
-ok(/Library folder/.test(setText), "Settings shows the FluxLib folder section");
+ok(/FluxConfig folder/.test(setText), "Settings shows the FluxConfig folder section (renamed from Library folder in the FluxConfig refactor)");
 ok(/Updates|newer version/.test(setText), "Settings shows the update-check toggle");
 const libPath = await page.$eval(`${setSel} .libpath`, (el) => el.textContent?.trim()).catch(() => "");
 ok(!!libPath && libPath !== "—", `the resolved library path is displayed (${libPath})`);
