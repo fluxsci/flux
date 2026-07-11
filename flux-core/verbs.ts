@@ -1124,4 +1124,367 @@ export const VERBS: VerbDef[] = [
       },
     },
   },
+
+  // --- batch C: manuscript / library / comments / references --------------------
+  {
+    name: "get_manuscript",
+    cli: "manuscript",
+    cliRoot: "flags",
+    summary: "Read a manuscript document's text (.qmd). Omit doc for the main manuscript.",
+    params: { doc: z.string().optional() },
+    cliArgs: [{ kind: "flag", at: "doc", into: "doc" }],
+    handler: (ctx, a) => core.getManuscript(ctx.root, a.doc as string | undefined),
+    render: {
+      // Byte-exact stdout (the legacy case used process.stdout.write).
+      human: (r) => ({ outRaw: r as string }),
+      mcp: (r) => text(r as string),
+    },
+  },
+  {
+    name: "set_manuscript",
+    cli: "set-manuscript",
+    cliRoot: "flags",
+    summary: "Overwrite a manuscript document's full text (.qmd). Omit doc for the main manuscript.",
+    params: { text: z.string(), doc: z.string().optional() },
+    cliArgs: [
+      { kind: "rest", at: 0, into: "text", as: "joined", default: "" },
+      { kind: "flag", at: "file", into: "text", as: "fileText" },
+      { kind: "flag", at: "doc", into: "doc" },
+    ],
+    handler: (ctx, a) => core.setManuscript(ctx.root, s(a.text), a.doc as string | undefined),
+    render: {
+      human: () => ({ err: "✓ manuscript written" }),
+      mcp: () => text("manuscript written"),
+    },
+  },
+  {
+    name: "list_documents",
+    cli: "docs",
+    cliRoot: "flags",
+    summary: "List the project's documents (main + supplementary + scanned manuscript/**.qmd).",
+    params: {},
+    cliArgs: [],
+    handler: (ctx) => core.listDocuments(ctx.root),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+    },
+  },
+  {
+    name: "create_document",
+    cli: "new-doc",
+    cliRoot: "flags",
+    summary: "Create a new blank document (registered in the manifest).",
+    params: { name: z.string() },
+    cliArgs: [{ kind: "rest", at: 0, into: "name", as: "joined", default: "Untitled" }],
+    handler: (ctx, a) => core.createDocument(ctx.root, s(a.name)),
+    render: {
+      human: (r) => ({ err: `✓ created ${(r as { path: string }).path}` }),
+      mcp: (r) => text(`created ${(r as { path: string }).path}`),
+    },
+  },
+  {
+    name: "insert_figure_ref",
+    cli: "ref",
+    cliRoot: "flags",
+    summary: "Append a figure cross-reference (@fig-<label>) to a document.",
+    params: { figureId: z.string(), doc: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "figureId", required: true },
+      { kind: "flag", at: "doc", into: "doc" },
+    ],
+    handler: (ctx, a) => core.insertFigureRef(ctx.root, s(a.figureId), a.doc as string | undefined),
+    render: {
+      human: (r) => ({ err: `✓ inserted ${(r as { ref: string }).ref}` }),
+      mcp: (r) => text(`inserted ${(r as { ref: string }).ref}`),
+    },
+  },
+  {
+    name: "cite_doi",
+    cli: "cite-doi",
+    cliRoot: "flags",
+    summary:
+      "Fetch a DOI's BibTeX (content negotiation), add it to FluxLib (deterministic citekey, deduped by DOI), and cite it in this project (materialized into references/library.bib). Returns the citekey(s) to use as @key.",
+    params: { doi: z.string() },
+    cliArgs: [{ kind: "pos", at: 0, into: "doi", required: true }],
+    handler: (ctx, a) => core.citeDoi(ctx.root, s(a.doi)),
+    render: {
+      // The fetched author/title/year print IN FULL: registries serve junk
+      // metadata on automated deposits ("Robot, Open Data" etc.) and a 60-char
+      // bibtex slice hid it — the manuscript then cites garbage verbatim.
+      human: (r) => {
+        const c = r as { keys: string[]; summary: string };
+        return {
+          err: `✓ cited [@${c.keys.join("; @")}]\n  ${c.summary}\n  (registry metadata — if it looks wrong, fix references/library.bib and keep the citekey)`,
+        };
+      },
+      mcp: (r) => {
+        const c = r as { keys: string[]; summary: string };
+        return text(`cited @${c.keys.join("; @")} — ${c.summary} (registry metadata; if wrong, fix references/library.bib, keep the citekey)`);
+      },
+    },
+  },
+  {
+    name: "add_reference",
+    cli: "add-reference",
+    aliases: ["cite"],
+    summary:
+      "Add a BibTeX entry to the machine-global FluxLib (deduped by DOI) AND cite it in this project (materialized into references/library.bib).",
+    params: { bibtex: z.string() },
+    cliArgs: [
+      { kind: "rest", at: 0, into: "bibtex", as: "joined", default: "" },
+      { kind: "flag", at: "file", into: "bibtex", as: "fileText" },
+    ],
+    handler: (ctx, a) => core.addReference(ctx.root, s(a.bibtex)),
+    render: {
+      human: () => ({ err: "✓ reference added" }),
+      mcp: () => text("reference added (FluxLib + project)"),
+    },
+  },
+  {
+    name: "search_references",
+    cli: "search",
+    cliRoot: "flags",
+    summary:
+      "Search the machine-global FluxLib reference library with a structured query, e.g. 'author:smith year:2020 journal:nature' (fields: author, year, journal, title, doi; bare words match any). Returns matching entries — cite one via its `key` as @key. Each hit also carries `enrich` (abstract, topics, keywords, citedByCount, openalexId) when the entry has been hydrated (see hydrate_library).",
+    params: { query: z.string() },
+    cliArgs: [{ kind: "rest", at: 0, into: "query", as: "joined", default: "" }],
+    // ONE core call now (the enriched search) — the CLI previously printed the
+    // un-enriched entries; hits gain the `enrich` sidecar both surfaces showed
+    // in the MCP path (capability drift closed toward the superset).
+    handler: (_ctx, a) => core.searchReferencesEnriched(s(a.query)),
+    render: {
+      human: (r) => ({
+        out: JSON.stringify(r, null, 2),
+        err: `✓ ${(r as unknown[]).length} match(es) in FluxLib`,
+      }),
+      mcp: (r) => text(JSON.stringify(r, null, 2)),
+    },
+  },
+  {
+    name: "reconcile",
+    cli: "reconcile",
+    cliRoot: "flags",
+    summary:
+      "Reconcile the project's cited references against the machine-global FluxLib: re-materialize references/library.bib from cited keys, promote any project-only entries into FluxLib, and report orphaned citekeys (cited but not found). Run after editing citations by hand.",
+    params: {},
+    cliArgs: [],
+    handler: (ctx) => core.reconcile(ctx.root),
+    render: {
+      human: (r) => {
+        const c = r as { materialized: unknown[]; promoted: unknown[]; orphans: string[] };
+        return {
+          err:
+            `✓ reconcile: materialized ${c.materialized.length}, promoted ${c.promoted.length}, orphans ${c.orphans.length}` +
+            (c.orphans.length ? `\n  orphans (cited, not in FluxLib): ${c.orphans.join(", ")}` : ""),
+        };
+      },
+      mcp: (r) => {
+        const c = r as { materialized: unknown[]; promoted: unknown[]; orphans: string[] };
+        return text(
+          `reconciled: ${c.materialized.length} materialized, ${c.promoted.length} promoted to FluxLib` +
+            (c.orphans.length ? `, ${c.orphans.length} orphan(s): ${c.orphans.join(", ")}` : ""),
+        );
+      },
+    },
+  },
+  {
+    name: "normalize_embeds",
+    cli: "normalize-embeds",
+    cliRoot: "flags",
+    summary:
+      "Clear legacy alt-text captions from manuscript embed lines (canonical embeds are ![](…){#fig-id} — the figure model owns captions; Quarto exports get them injected at render time).",
+    params: {},
+    cliArgs: [],
+    handler: (ctx) => core.normalizeEmbeds(ctx.root),
+    render: {
+      human: (r) => {
+        const files = (r as { files: { path: string; cleared: number }[] }).files;
+        if (!files.length) return { err: "✓ all embed lines already canonical (empty alts)" };
+        return { err: files.map((f) => `✓ ${f.path}: cleared ${f.cleared} embed alt(s)`).join("\n") };
+      },
+      mcp: (r) => {
+        const files = (r as { files: { path: string; cleared: number }[] }).files;
+        if (!files.length) return text("all embed lines already canonical (empty alts)");
+        return text(files.map((f) => `${f.path}: cleared ${f.cleared} embed alt(s)`).join("\n"));
+      },
+    },
+  },
+  {
+    name: "hydrate_library",
+    cli: "hydrate",
+    cliRoot: "flags",
+    summary:
+      "Enrich the machine-global FluxLib from OpenAlex — abstracts, topics/keywords, citation counts, referenced/related works, open-access, author + external IDs — into a derived sidecar (the canonical .bib is untouched). Incremental by default (skips already-hydrated entries); refresh re-fetches all; key limits to one citekey. Powers richer search_references + the world lookups. No API key needed.",
+    params: { refresh: z.boolean().optional(), key: z.string().optional() },
+    cliArgs: [
+      { kind: "flag", at: "refresh", into: "refresh", as: "boolean" },
+      { kind: "flag", at: "key", into: "key" },
+    ],
+    handler: (_ctx, a) => core.hydrateLibrary({ refresh: a.refresh as boolean | undefined, key: a.key as string | undefined }),
+    render: {
+      human: (r) => {
+        const c = r as Awaited<ReturnType<typeof core.hydrateLibrary>>;
+        return {
+          err:
+            `✓ hydrated ${c.fetched} (+${c.crossrefBackfill} CrossRef abstracts); ${c.hydrated}/${c.total} entries enriched, ${c.withAbstract} with abstracts` +
+            (c.missing.length ? `\n  no OpenAlex match: ${c.missing.join(", ")}` : ""),
+        };
+      },
+      mcp: (r) => {
+        const c = r as Awaited<ReturnType<typeof core.hydrateLibrary>>;
+        return text(
+          `hydrated ${c.fetched} (+${c.crossrefBackfill} CrossRef abstracts); ${c.hydrated}/${c.total} entries enriched, ${c.withAbstract} with abstracts` +
+            (c.missing.length ? `; no OpenAlex match for: ${c.missing.join(", ")}` : ""),
+        );
+      },
+    },
+  },
+  {
+    name: "author_works",
+    cli: "by-author",
+    cliRoot: "flags",
+    summary:
+      "Other works by an author (OpenAlex), sorted by citation count. `ref` = a FluxLib citekey (uses its first author; must be hydrated) or an OpenAlex author id (A…). Returns brief records.",
+    params: { ref: z.string(), perPage: z.number().optional() },
+    cliArgs: [{ kind: "pos", at: 0, into: "ref", required: true }],
+    handler: (_ctx, a) => core.authorWorks(s(a.ref), { perPage: a.perPage as number | undefined }),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2), err: `✓ ${(r as unknown[]).length} work(s) by author` }),
+      mcp: (r) => text(JSON.stringify(r, null, 2)),
+    },
+  },
+  {
+    name: "related_works",
+    cli: "related",
+    cliRoot: "flags",
+    summary:
+      "Related papers via OpenAlex's precomputed similarity (the closest 'papers like this' without local embeddings). `ref` = a FluxLib citekey (must be hydrated) or an OpenAlex work id (W…).",
+    params: { ref: z.string() },
+    cliArgs: [{ kind: "pos", at: 0, into: "ref", required: true }],
+    handler: (_ctx, a) => core.relatedWorks(s(a.ref)),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2), err: `✓ ${(r as unknown[]).length} related work(s)` }),
+      mcp: (r) => text(JSON.stringify(r, null, 2)),
+    },
+  },
+  {
+    name: "list_comments",
+    cli: "comments",
+    cliRoot: "flags",
+    summary:
+      "List a document's review comments (the human's margin comments). Open threads by default. Each thread's anchor.quote is the EXACT manuscript text the comment targets — find that text in the .qmd, address it, then call resolve_comment. Omit doc for the main manuscript.",
+    params: { doc: z.string().optional(), includeResolved: z.boolean().optional() },
+    cliArgs: [
+      { kind: "flag", at: "doc", into: "doc" },
+      { kind: "flag", at: "all", into: "includeResolved", as: "boolean" },
+    ],
+    handler: async (ctx, a) => {
+      const threads = await core.listComments(ctx.root, a.doc as string | undefined);
+      return a.includeResolved ? threads : threads.filter((t) => !t.resolved);
+    },
+    render: {
+      // The CLI has always printed a REDUCED shape (id/resolved/quote/messages);
+      // MCP returns the full threads.
+      human: (r) => ({
+        out: JSON.stringify(
+          (r as { id: string; resolved?: boolean; anchor?: { quote?: string }; messages: unknown }[]).map((t) => ({
+            id: t.id,
+            resolved: t.resolved,
+            quote: t.anchor?.quote ?? "",
+            messages: t.messages,
+          })),
+          null,
+          2,
+        ),
+      }),
+      mcp: (r) => text(JSON.stringify(r, null, 2)),
+    },
+  },
+  {
+    name: "resolve_comment",
+    cli: "resolve-comment",
+    cliRoot: "flags",
+    summary:
+      "Mark a review comment resolved — by thread id, or a substring of its quoted text (must match exactly one). Optionally append a reply note. Holds the manuscript lock + journals. Call this AFTER addressing the comment in the .qmd (set_manuscript). Omit doc for the main manuscript.",
+    params: { id: z.string(), doc: z.string().optional(), note: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "id", required: true },
+      { kind: "flag", at: "doc", into: "doc" },
+      { kind: "flag", at: "note", into: "note" },
+    ],
+    handler: (ctx, a) =>
+      core.resolveComment(ctx.root, s(a.id), { docRel: a.doc as string | undefined, note: a.note as string | undefined }),
+    render: {
+      human: (r) => {
+        const c = r as { id: string; resolved: number; total: number };
+        return { err: `✓ resolved ${c.id} (${c.resolved}/${c.total} resolved)` };
+      },
+      mcp: (r) => {
+        const c = r as { id: string; resolved: number; total: number };
+        return text(`resolved ${c.id} (${c.resolved}/${c.total} resolved)`);
+      },
+    },
+  },
+  {
+    name: "add_annotation",
+    cli: "add-annotation",
+    cliRoot: "flags",
+    summary:
+      "Add a highlight/note to a FluxLib paper (items/<citekey>/annotations.json) — the same annotations FluxReader shows the human. `quote` is the exact text to highlight; `prefix`/`suffix` are the surrounding text that disambiguates it on the page (find them in get_paper_text). `page` is 1-based.",
+    params: {
+      key: z.string(),
+      page: z.number(),
+      quote: z.string(),
+      prefix: z.string().optional(),
+      suffix: z.string().optional(),
+      color: z.enum(["yellow", "green", "blue", "pink", "orange"]).optional(),
+      note: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "key" },
+      { kind: "flag", at: "key", into: "key" },
+      { kind: "flag", at: "page", into: "page", as: "number", default: 1 },
+      { kind: "flag", at: "quote", into: "quote", as: "string", required: true },
+      { kind: "flag", at: "prefix", into: "prefix", as: "string" },
+      { kind: "flag", at: "suffix", into: "suffix", as: "string" },
+      { kind: "flag", at: "color", into: "color" },
+      { kind: "flag", at: "note", into: "note" },
+    ],
+    handler: (_ctx, a) =>
+      core.addAnnotation(s(a.key), {
+        page: n(a.page),
+        anchor: { quote: s(a.quote), prefix: (a.prefix as string | undefined) ?? "", suffix: (a.suffix as string | undefined) ?? "" },
+        color: ((a.color as string | undefined) ?? "yellow") as Parameters<typeof core.addAnnotation>[1]["color"],
+        note: a.note as string | undefined,
+        tags: a.tags as string[] | undefined,
+      }),
+    render: {
+      human: (r, a) => {
+        const c = r as { id: string; page: number; color: string };
+        return { err: `✓ annotated @${a.key} p${c.page} [${c.color}] (${c.id})` };
+      },
+      mcp: (r, a) => {
+        const c = r as { id: string; color: string };
+        return text(`added annotation ${c.id} on @${a.key} p${a.page} [${c.color}]`);
+      },
+    },
+  },
+  {
+    name: "ingest_pdf",
+    cli: "ingest-pdf",
+    cliRoot: "flags",
+    summary:
+      "Store a PDF you already have on disk into FluxLib for a citekey (items/<citekey>/paper.pdf) and extract its fulltext — the manual fallback when fetch_pdfs can't find an open-access copy (paywalled/proxy-only papers). `key` is the citekey; `filePath` is an absolute path to the .pdf.",
+    params: { key: z.string(), filePath: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "filePath", required: true },
+      { kind: "flag", at: "key", into: "key", required: true },
+    ],
+    handler: (_ctx, a) => core.ingestPdf(s(a.filePath), { key: s(a.key) }),
+    render: {
+      human: (r, a) => ({ err: `✓ ingested ${a.filePath} → items/${(r as { key: string }).key}/paper.pdf` }),
+      mcp: (r, a) => text(`ingested ${a.filePath} → @${a.key} (${(r as { status: string }).status})`),
+    },
+  },
 ];

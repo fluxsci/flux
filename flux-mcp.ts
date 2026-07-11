@@ -59,20 +59,6 @@ server.registerTool(
 );
 
 server.registerTool(
-  "normalize_embeds",
-  {
-    description:
-      "Clear legacy alt-text captions from manuscript embed lines (canonical embeds are ![](…){#fig-id} — the figure model owns captions; Quarto exports get them injected at render time).",
-    inputSchema: {},
-  },
-  async () => {
-    const r = await core.normalizeEmbeds(ROOT);
-    if (!r.files.length) return ok("all embed lines already canonical (empty alts)");
-    return ok(r.files.map((f) => `${f.path}: cleared ${f.cleared} embed alt(s)`).join("\n"));
-  },
-);
-
-server.registerTool(
   "get_canvas_image",
   {
     description:
@@ -94,29 +80,6 @@ server.registerTool(
       ],
     };
   },
-);
-
-server.registerTool(
-  "add_reference",
-  {
-    description:
-      "Add a BibTeX entry to the machine-global FluxLib (deduped by DOI) AND cite it in this project (materialized into references/library.bib).",
-    inputSchema: { bibtex: z.string() },
-  },
-  async ({ bibtex }) => {
-    await core.addReference(ROOT, bibtex);
-    return ok("reference added (FluxLib + project)");
-  },
-);
-
-server.registerTool(
-  "search_references",
-  {
-    description:
-      "Search the machine-global FluxLib reference library with a structured query, e.g. 'author:smith year:2020 journal:nature' (fields: author, year, journal, title, doi; bare words match any). Returns matching entries — cite one via its `key` as @key. Each hit also carries `enrich` (abstract, topics, keywords, citedByCount, openalexId) when the entry has been hydrated (see hydrate_library).",
-    inputSchema: { query: z.string() },
-  },
-  async ({ query }) => ok(JSON.stringify(await core.searchReferencesEnriched(query), null, 2)),
 );
 
 
@@ -141,22 +104,6 @@ server.registerTool(
 );
 
 // --- Reference hydration + whole-world lookups (OpenAlex; no API key needed) ---
-
-server.registerTool(
-  "hydrate_library",
-  {
-    description:
-      "Enrich the machine-global FluxLib from OpenAlex — abstracts, topics/keywords, citation counts, referenced/related works, open-access, author + external IDs — into a derived sidecar (the canonical .bib is untouched). Incremental by default (skips already-hydrated entries); refresh re-fetches all; key limits to one citekey. Powers richer search_references + the world lookups. No API key needed.",
-    inputSchema: { refresh: z.boolean().optional(), key: z.string().optional() },
-  },
-  async ({ refresh, key }) => {
-    const r = await core.hydrateLibrary({ refresh, key });
-    return ok(
-      `hydrated ${r.fetched} (+${r.crossrefBackfill} CrossRef abstracts); ${r.hydrated}/${r.total} entries enriched, ${r.withAbstract} with abstracts` +
-        (r.missing.length ? `; no OpenAlex match for: ${r.missing.join(", ")}` : ""),
-    );
-  },
-);
 
 server.registerTool(
   "search_world",
@@ -227,26 +174,6 @@ server.registerTool(
 );
 
 server.registerTool(
-  "author_works",
-  {
-    description:
-      "Other works by an author (OpenAlex), sorted by citation count. `ref` = a FluxLib citekey (uses its first author; must be hydrated) or an OpenAlex author id (A…). Returns brief records.",
-    inputSchema: { ref: z.string(), perPage: z.number().optional() },
-  },
-  async ({ ref, perPage }) => ok(JSON.stringify(await core.authorWorks(ref, { perPage }), null, 2)),
-);
-
-server.registerTool(
-  "related_works",
-  {
-    description:
-      "Related papers via OpenAlex's precomputed similarity (the closest 'papers like this' without local embeddings). `ref` = a FluxLib citekey (must be hydrated) or an OpenAlex work id (W…).",
-    inputSchema: { ref: z.string() },
-  },
-  async ({ ref }) => ok(JSON.stringify(await core.relatedWorks(ref), null, 2)),
-);
-
-server.registerTool(
   "render_figure",
   {
     description:
@@ -262,22 +189,6 @@ server.registerTool(
         ...(warns.length ? [{ type: "text" as const, text: `⚠ ${warns.join("\n⚠ ")}` }] : []),
       ],
     };
-  },
-);
-
-server.registerTool(
-  "reconcile",
-  {
-    description:
-      "Reconcile the project's cited references against the machine-global FluxLib: re-materialize references/library.bib from cited keys, promote any project-only entries into FluxLib, and report orphaned citekeys (cited but not found). Run after editing citations by hand.",
-    inputSchema: {},
-  },
-  async () => {
-    const r = await core.reconcile(ROOT);
-    return ok(
-      `reconciled: ${r.materialized.length} materialized, ${r.promoted.length} promoted to FluxLib` +
-        (r.orphans.length ? `, ${r.orphans.length} orphan(s): ${r.orphans.join(", ")}` : ""),
-    );
   },
 );
 
@@ -308,58 +219,6 @@ server.registerTool(
 );
 
 server.registerTool(
-  "get_manuscript",
-  { description: "Read a manuscript document's text (.qmd). Omit doc for the main manuscript.", inputSchema: { doc: z.string().optional() } },
-  async ({ doc }) => ok(await core.getManuscript(ROOT, doc)),
-);
-
-server.registerTool(
-  "set_manuscript",
-  { description: "Overwrite a manuscript document's full text (.qmd). Omit doc for the main manuscript.", inputSchema: { text: z.string(), doc: z.string().optional() } },
-  async ({ text, doc }) => {
-    await core.setManuscript(ROOT, text, doc);
-    return ok("manuscript written");
-  },
-);
-
-server.registerTool(
-  "list_documents",
-  { description: "List the project's documents (main + supplementary + scanned manuscript/**.qmd).", inputSchema: {} },
-  async () => ok(JSON.stringify(await core.listDocuments(ROOT), null, 2)),
-);
-
-server.registerTool(
-  "create_document",
-  { description: "Create a new blank document (registered in the manifest).", inputSchema: { name: z.string() } },
-  async ({ name }) => {
-    const r = await core.createDocument(ROOT, name);
-    return ok(`created ${r.path}`);
-  },
-);
-
-server.registerTool(
-  "insert_figure_ref",
-  { description: "Append a figure cross-reference (@fig-<label>) to a document.", inputSchema: { figureId: z.string(), doc: z.string().optional() } },
-  async ({ figureId, doc }) => {
-    const r = await core.insertFigureRef(ROOT, figureId, doc);
-    return ok(`inserted ${r.ref}`);
-  },
-);
-
-server.registerTool(
-  "cite_doi",
-  {
-    description:
-      "Fetch a DOI's BibTeX (content negotiation), add it to FluxLib (deterministic citekey, deduped by DOI), and cite it in this project (materialized into references/library.bib). Returns the citekey(s) to use as @key.",
-    inputSchema: { doi: z.string() },
-  },
-  async ({ doi }) => {
-    const r = await core.citeDoi(ROOT, doi);
-    return ok(`cited @${r.keys.join("; @")} — ${r.summary} (registry metadata; if wrong, fix references/library.bib, keep the citekey)`);
-  },
-);
-
-server.registerTool(
   "compile",
   { description: "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. Reports the output path and a figures/citations resolution summary.", inputSchema: { to: z.string().optional() } },
   async ({ to }) => {
@@ -383,33 +242,6 @@ server.registerTool(
           (r.citations.missing.length ? ` (unresolved: @${r.citations.missing.join(", @")})` : ""),
       );
     return ok(parts.join(" — "));
-  },
-);
-
-server.registerTool(
-  "list_comments",
-  {
-    description:
-      "List a document's review comments (the human's margin comments). Open threads by default. Each thread's anchor.quote is the EXACT manuscript text the comment targets — find that text in the .qmd, address it, then call resolve_comment. Omit doc for the main manuscript.",
-    inputSchema: { doc: z.string().optional(), includeResolved: z.boolean().optional() },
-  },
-  async ({ doc, includeResolved }) => {
-    const threads = await core.listComments(ROOT, doc);
-    const shown = includeResolved ? threads : threads.filter((t) => !t.resolved);
-    return ok(JSON.stringify(shown, null, 2));
-  },
-);
-
-server.registerTool(
-  "resolve_comment",
-  {
-    description:
-      "Mark a review comment resolved — by thread id, or a substring of its quoted text (must match exactly one). Optionally append a reply note. Holds the manuscript lock + journals. Call this AFTER addressing the comment in the .qmd (set_manuscript). Omit doc for the main manuscript.",
-    inputSchema: { id: z.string(), doc: z.string().optional(), note: z.string().optional() },
-  },
-  async ({ id, doc, note }) => {
-    const r = await core.resolveComment(ROOT, id, { docRel: doc, note });
-    return ok(`resolved ${r.id} (${r.resolved}/${r.total} resolved)`);
   },
 );
 
@@ -457,19 +289,6 @@ server.registerTool(
         ` (of ${s.total}).` +
         (got.length ? "\n" + got.join("\n") : ""),
     );
-  },
-);
-
-server.registerTool(
-  "ingest_pdf",
-  {
-    description:
-      "Store a PDF you already have on disk into FluxLib for a citekey (items/<citekey>/paper.pdf) and extract its fulltext — the manual fallback when fetch_pdfs can't find an open-access copy (paywalled/proxy-only papers). `key` is the citekey; `filePath` is an absolute path to the .pdf.",
-    inputSchema: { key: z.string(), filePath: z.string() },
-  },
-  async ({ key, filePath }) => {
-    const r = await core.ingestPdf(filePath, { key });
-    return ok(`ingested ${filePath} → @${key} (${r.status})`);
   },
 );
 
@@ -601,34 +420,6 @@ server.registerTool(
     const hits = await core.searchAnnotations(query, { key });
     if (!hits.length) return ok(`No annotations match "${query}".`);
     return ok(hits.map((h) => `@${h.key} p${h.page} [${h.color}] "${h.anchor.quote}"${h.note ? ` — ${h.note}` : ""}`).join("\n"));
-  },
-);
-
-server.registerTool(
-  "add_annotation",
-  {
-    description:
-      "Add a highlight/note to a FluxLib paper (items/<citekey>/annotations.json) — the same annotations FluxReader shows the human. `quote` is the exact text to highlight; `prefix`/`suffix` are the surrounding text that disambiguates it on the page (find them in get_paper_text). `page` is 1-based.",
-    inputSchema: {
-      key: z.string(),
-      page: z.number(),
-      quote: z.string(),
-      prefix: z.string().optional(),
-      suffix: z.string().optional(),
-      color: z.enum(["yellow", "green", "blue", "pink", "orange"]).optional(),
-      note: z.string().optional(),
-      tags: z.array(z.string()).optional(),
-    },
-  },
-  async ({ key, page, quote, prefix, suffix, color, note, tags }) => {
-    const a = await core.addAnnotation(key, {
-      page,
-      anchor: { quote, prefix: prefix ?? "", suffix: suffix ?? "" },
-      color: color ?? "yellow",
-      note,
-      tags,
-    });
-    return ok(`added annotation ${a.id} on @${key} p${page} [${a.color}]`);
   },
 );
 

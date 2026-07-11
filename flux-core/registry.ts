@@ -20,6 +20,9 @@ import { classifyError, ExternalToolError, LockedError, ValidationError } from "
 export interface CliRender {
   /** stdout payload (data) — printed WITHOUT decoration. */
   out?: string;
+  /** stdout payload written RAW (no trailing newline) — byte-exact document
+   *  output (`flux manuscript > file` must not grow a newline). */
+  outRaw?: string;
   /** stderr status line (human feedback) — printed as-is. */
   err?: string;
   exit?: number;
@@ -230,6 +233,7 @@ async function argsFromCli(v: VerbDef, cli: { pos: string[]; flags: Record<strin
 export interface CliIo {
   log: (s: string) => void; // stdout (data)
   err: (s: string) => void; // stderr (status)
+  raw?: (s: string) => void; // stdout, no added newline (outRaw)
   setExit: (code: number) => void;
 }
 
@@ -257,6 +261,7 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
     const args = await argsFromCli(v, { pos: newStyle ? inv.pos : inv.posRooted, flags: inv.flags });
     const r = await v.handler({ root: newStyle ? inv.rootFlags : inv.rootPositional }, args);
     const h = (v.render?.human ?? defaultHuman)(r, args);
+    if (h.outRaw !== undefined) (io.raw ?? io.log)(h.outRaw);
     if (h.out !== undefined) io.log(h.out);
     if (h.err !== undefined) io.err(h.err);
     if (h.exit) io.setExit(h.exit);

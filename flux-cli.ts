@@ -223,7 +223,12 @@ async function main() {
     await runCliVerb(
       verb,
       { pos: _, posRooted: A, flags, rootPositional: root(), rootFlags: R() },
-      { log: console.log, err: console.error, setExit: (c) => (process.exitCode = c) },
+      {
+        log: console.log,
+        err: console.error,
+        raw: (t) => process.stdout.write(t),
+        setExit: (c) => (process.exitCode = c),
+      },
     )
   ) {
     return;
@@ -294,13 +299,6 @@ async function main() {
       if (r.failed.length) process.exitCode = 1;
       break;
     }
-    case "add-reference":
-    case "cite": {
-      const bib = flags.file ? await fs.readFile(String(flags.file), "utf8") : A.join(" ");
-      await core.addReference(root(), bib);
-      console.error("✓ reference added");
-      break;
-    }
     case "reset-crop": {
       await core.setCrop(R(), _[0], null);
       console.error(`✓ reset crop on ${_[0]}`);
@@ -314,51 +312,6 @@ async function main() {
       console.error(`✓ saved "${st.name}" to the machine-global library`);
       break;
     }
-    case "manuscript": {
-      process.stdout.write(await core.getManuscript(R(), flags.doc as string | undefined));
-      break;
-    }
-    case "set-manuscript": {
-      const text = flags.file ? await fs.readFile(String(flags.file), "utf8") : _.join(" ");
-      await core.setManuscript(R(), text, flags.doc as string | undefined);
-      console.error("✓ manuscript written");
-      break;
-    }
-    case "docs": {
-      console.log(JSON.stringify(await core.listDocuments(R()), null, 2));
-      break;
-    }
-    case "new-doc": {
-      const r = await core.createDocument(R(), _.join(" ") || "Untitled");
-      console.error(`✓ created ${r.path}`);
-      break;
-    }
-    case "ref": {
-      const r = await core.insertFigureRef(R(), _[0], flags.doc as string | undefined);
-      console.error(`✓ inserted ${r.ref}`);
-      break;
-    }
-    case "normalize-embeds": {
-      const r = await core.normalizeEmbeds(R());
-      if (!r.files.length) console.error("✓ all embed lines already canonical (empty alts)");
-      else for (const f of r.files) console.error(`✓ ${f.path}: cleared ${f.cleared} embed alt(s)`);
-      break;
-    }
-    case "cite-doi": {
-      const r = await core.citeDoi(R(), _[0]);
-      // The fetched author/title/year print IN FULL: registries serve junk
-      // metadata on automated deposits ("Robot, Open Data" etc.) and a 60-char
-      // bibtex slice hid it — the manuscript then cites garbage verbatim.
-      console.error(`✓ cited [@${r.keys.join("; @")}]`);
-      console.error(`  ${r.summary}\n  (registry metadata — if it looks wrong, fix references/library.bib and keep the citekey)`);
-      break;
-    }
-    case "search": {
-      const hits = await core.searchReferences(_.join(" "));
-      console.log(JSON.stringify(hits, null, 2));
-      console.error(`✓ ${hits.length} match(es) in FluxLib`);
-      break;
-    }
     case "lib": {
       console.log(JSON.stringify(await core.libraryInfo(), null, 2));
       break;
@@ -369,14 +322,6 @@ async function main() {
       // Which build is answering — the moma run couldn't tell that the
       // installed bundle had drifted behind the source CLI (missing verbs).
       console.log(JSON.stringify({ ...core.buildInfo(), node: process.version }, null, 2));
-      break;
-    }
-    case "reconcile": {
-      const r = await core.reconcile(R());
-      console.error(
-        `✓ reconcile: materialized ${r.materialized.length}, promoted ${r.promoted.length}, orphans ${r.orphans.length}`,
-      );
-      if (r.orphans.length) console.error("  orphans (cited, not in FluxLib): " + r.orphans.join(", "));
       break;
     }
     case "lib-add": {
@@ -405,17 +350,6 @@ async function main() {
       }
       break;
     }
-    case "hydrate": {
-      const r = await core.hydrateLibrary({
-        refresh: !!flags.refresh,
-        key: typeof flags.key === "string" ? flags.key : undefined,
-      });
-      console.error(
-        `✓ hydrated ${r.fetched} (+${r.crossrefBackfill} CrossRef abstracts); ${r.hydrated}/${r.total} entries enriched, ${r.withAbstract} with abstracts`,
-      );
-      if (r.missing.length) console.error(`  no OpenAlex match: ${r.missing.join(", ")}`);
-      break;
-    }
     case "discover": {
       const semantic = flags.semantic !== undefined;
       // `--semantic` is a boolean, but the arg parser swallows the next token as its
@@ -441,18 +375,6 @@ async function main() {
         : await core.citingWorks(_[0], { sort: flags.sort === "date" ? "publication_date:desc" : undefined });
       console.log(JSON.stringify(hits, null, 2));
       console.error(`✓ ${hits.length} citing (${flags.s2 ? "Semantic Scholar + contexts" : "OpenAlex"})`);
-      break;
-    }
-    case "by-author": {
-      const hits = await core.authorWorks(_[0]);
-      console.log(JSON.stringify(hits, null, 2));
-      console.error(`✓ ${hits.length} work(s) by author`);
-      break;
-    }
-    case "related": {
-      const hits = await core.relatedWorks(_[0]);
-      console.log(JSON.stringify(hits, null, 2));
-      console.error(`✓ ${hits.length} related work(s)`);
       break;
     }
     case "similar": {
@@ -498,18 +420,6 @@ async function main() {
       );
       for (const g of r.results.filter((x) => x.status === "got").slice(0, 25))
         console.error(`  + ${g.key}  (${g.source})`);
-      break;
-    }
-    case "ingest-pdf": {
-      const file = _[0];
-      const key = typeof flags.key === "string" ? flags.key : undefined;
-      if (!file || !key) {
-        console.error("usage: flux ingest-pdf <file.pdf> --key <citekey>");
-        process.exitCode = 1;
-        break;
-      }
-      const r = await core.ingestPdf(file, { key });
-      console.error(`✓ ingested ${file} → items/${r.key}/paper.pdf`);
       break;
     }
     case "assign-pdfs": {
@@ -615,19 +525,6 @@ async function main() {
       console.error(`✓ ${key} collections: ${(d.items[key]?.collections ?? []).join(", ") || "(none)"}`);
       break;
     }
-    case "add-annotation": {
-      const key = String(flags.key ?? _[0]);
-      const quote = String(flags.quote ?? "");
-      if (!key || !quote) throw new Error("add-annotation needs --key and --quote");
-      const a = await core.addAnnotation(key, {
-        page: num(flags.page) ?? 1,
-        anchor: { quote, prefix: String(flags.prefix ?? ""), suffix: String(flags.suffix ?? "") },
-        color: typeof flags.color === "string" ? flags.color : "yellow",
-        note: typeof flags.note === "string" ? flags.note : undefined,
-      });
-      console.error(`✓ annotated @${key} p${a.page} [${a.color}] (${a.id})`);
-      break;
-    }
     case "compile": {
       const r = await core.compile(R(), (flags.to as string) ?? "pdf");
       if (r.code !== 0) {
@@ -646,26 +543,6 @@ async function main() {
           `  citations: ${r.citations.resolved}/${r.citations.keys} key(s) resolved in the project library` +
             (r.citations.missing.length ? ` — unresolved: @${r.citations.missing.join(", @")}` : ""),
         );
-      break;
-    }
-    case "comments": {
-      const threads = await core.listComments(R(), flags.doc as string | undefined);
-      const shown = flags.all ? threads : threads.filter((t) => !t.resolved);
-      console.log(
-        JSON.stringify(
-          shown.map((t) => ({ id: t.id, resolved: t.resolved, quote: t.anchor?.quote ?? "", messages: t.messages })),
-          null,
-          2,
-        ),
-      );
-      break;
-    }
-    case "resolve-comment": {
-      const r = await core.resolveComment(R(), _[0], {
-        docRel: flags.doc as string | undefined,
-        note: typeof flags.note === "string" ? flags.note : undefined,
-      });
-      console.error(`✓ resolved ${r.id} (${r.resolved}/${r.total} resolved)`);
       break;
     }
     case "decks": {
