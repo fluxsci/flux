@@ -20,6 +20,7 @@
       "verify-f1-mcp.ts",
       "verify-f2-recipe.ts",
       "verify-fig-rotbounds.ts",
+      "verify-layer-rows.ts",
       "figenh-01-parity.ts",
       "figenh-01-path.ts",
       "figenh-02-parity.ts",

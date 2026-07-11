@@ -171,6 +171,62 @@ try {
   ok(rows.length === 3 && rows.every((r) => !r.grp), "Layers back to a flat 3-row list");
   await shot(page, "p7-03-ungrouped");
 
+  // --- WS-1 Fix 6: reorder across virtual-window boundaries. Seed 120 rows so
+  // the Layers list windows (rendered ≪ total), scroll mid-list, drag a row 10
+  // display slots down through the grip — the LOGICAL drop index (pointer Y +
+  // scrollTop / fixed row height) must produce the exact splice the old
+  // full-DOM rect scan produced. ---
+  await page.evaluate(() => {
+    const F = window.__flux.fig;
+    F.commit((p) => {
+      const g = p.figures.find((f) => f.id === "growth") || p.figures[0];
+      g.elements = [];
+      delete g.groups;
+      for (let i = 0; i < 120; i++)
+        g.elements.push({ type: "rect", id: "w" + i, x: (i % 12) * 70 + 10, y: Math.floor(i / 12) * 36 + 10, width: 60, height: 30, rotation: 0, fill: "#4385be", stroke: "#222222", strokeWidth: 1, cornerRadius: 0 });
+    });
+    window.__flux.fig.clearSelection?.();
+  });
+  await sleep(350);
+  const win = await page.evaluate(() => {
+    const ul = document.querySelector(".layers ul[data-total]");
+    const aside = document.querySelector("aside.sidebar");
+    aside.scrollTop = 900; // jump the window into the middle of the list
+    return { total: +(ul?.dataset.total ?? 0), rendered: document.querySelectorAll(".layers li.layer").length };
+  });
+  ok(win.total === 120 && win.rendered < 120, `windowed list: data-total=${win.total}, rendered=${win.rendered} < 120`);
+  await sleep(200);
+  const dragInfo = await page.evaluate(() => {
+    const aside = document.querySelector("aside.sidebar");
+    const top = aside.getBoundingClientRect().top;
+    const li = [...document.querySelectorAll(".layers li.layer")].find(
+      (n) => n.getBoundingClientRect().top > top + 8,
+    ); // first FULLY-VISIBLE rendered row (skip overscan above the fold)
+    const label = li.querySelector(".item").textContent.trim(); // "rect N" → seed z = N-1
+    const grip = li.querySelector(".grip").getBoundingClientRect();
+    return { label, gx: grip.left + grip.width / 2, gy: grip.top + grip.height / 2 };
+  });
+  const zCur = Number(dragInfo.label.replace(/\D+/g, "")) - 1;
+  ok(zCur > 20 && zCur < 110, `drag source is a mid-list row that was off-window at seed time (z=${zCur})`);
+  await page.mouse.move(dragInfo.gx, dragInfo.gy);
+  await page.mouse.down();
+  // Final pointer rests 6px ABOVE the target row's midpoint (mid-band, not the
+  // boundary) so the midpoint drop rule is deterministic.
+  for (let i = 1; i <= 10; i++) {
+    await page.mouse.move(dragInfo.gx, dragInfo.gy + 25 * i - 6);
+    await sleep(15);
+  }
+  await sleep(80);
+  await page.mouse.up();
+  await sleep(250);
+  const orderAfter = await page.evaluate(() =>
+    window.__flux.figures().find((f) => f.id === "growth").elements.map((e) => e.id),
+  );
+  const expected = Array.from({ length: 120 }, (_, i) => "w" + i);
+  expected.splice(zCur, 1);
+  expected.splice(zCur - 10, 0, "w" + zCur); // 10 display rows DOWN = 10 z-slots earlier
+  ok(eq(orderAfter, expected), `windowed drag reordered exactly 10 slots down (moved w${zCur})`);
+
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));

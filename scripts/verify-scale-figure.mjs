@@ -38,7 +38,7 @@ const BUDGET = {
   // per-move recompute WS-1 must remove). → 3 in the final WS-1 PR.
   dragRatio: 25,
   commitsPerDragMax: 1,
-  layerRowsMax: null, // → 150 with WS-1 Fix 6
+  layerRowsMax: 150, // WS-1 Fix 6 landed: windowed Layers list (measured ~40 rendered at 5k)
   sigCallsUnrelatedMax: 0, // WS-1 Fix 1 landed: snapshot fast path, zero stringify on unrelated commits
 };
 
@@ -164,8 +164,15 @@ const panProbe = (steps = 48) =>
     return deltas.slice(2);
   }, steps);
 
-/** Real mouse drag on the first element: commits during/after + move→paint deltas. */
+/** Real mouse drag on the first element: commits during/after + move→paint deltas.
+ *  Retries once if the synthetic pointerdown missed (0 commits = drag never engaged). */
 async function dragProbe(moves = 14) {
+  const r = await dragProbeOnce(moves);
+  if (r.total === 1) return r;
+  await sleep(200);
+  return dragProbeOnce(moves);
+}
+async function dragProbeOnce(moves) {
   const start = await page.evaluate(() => {
     const F = window.__flux.fig;
     const g = window.__flux.get(F.project).figures[0];

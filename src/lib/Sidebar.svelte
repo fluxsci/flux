@@ -14,9 +14,11 @@
     setActiveCanvas,
     figuresOnCanvas,
   } from "./store";
-  import type { Element, Figure, GroupDef } from "./types";
+  import type { Element, GroupDef } from "./types";
   import * as ops from "./ops";
-  import { buildRenderTree, membersDeep, type RenderNode } from "./groups";
+  import { membersDeep } from "./groups";
+  import { deriveLayerRows, type LayerRow } from "./figure/derived/layerRows";
+  import VirtualFixedList from "./ui/VirtualFixedList.svelte";
 
   function addFigure() {
     const cid = $activeCanvasId;
@@ -89,68 +91,19 @@
   $: canvasFigures = $project.figures.filter((f) => f.canvasId === $activeCanvasId);
   $: activeFig = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
 
-  // --- Layers = the derived group tree (groups.ts buildRenderTree), flattened
-  // top-z first with depth indents. Collapse state is LOCAL UI state (not
-  // model); a collapsed group still drags/toggles as a whole. ---
-  type LayerRow =
-    | { kind: "el"; key: string; el: Element; depth: number; zTop: number; zBottom: number; dim: boolean }
-    | {
-        kind: "group";
-        key: string;
-        def: GroupDef;
-        depth: number;
-        zTop: number;
-        zBottom: number;
-        memberIds: string[];
-        collapsed: boolean;
-        dim: boolean;
-      };
+  // --- Layers = the derived group tree, flattened top-z first with depth
+  // indents (pure selector: figure/derived/layerRows.ts — WS-1 Fix 6a).
+  // Collapse state is LOCAL UI state (not model); a collapsed group still
+  // drags/toggles as a whole. ---
   let collapsed: Record<string, boolean> = {};
   function toggleCollapsed(gid: string) {
     collapsed = { ...collapsed, [gid]: !collapsed[gid] };
   }
+  $: rows = activeFig ? deriveLayerRows(activeFig, collapsed) : [];
 
-  function buildRows(fig: Figure, collapsedSet: Record<string, boolean>): LayerRow[] {
-    const out: LayerRow[] = [];
-    const zIndex = new Map(fig.elements.map((e, i) => [e.id, i]));
-    const walk = (nodes: RenderNode[], depth: number, ancestorHidden: boolean) => {
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        const n = nodes[i];
-        if (n.kind === "element") {
-          const z = zIndex.get(n.el.id) ?? 0;
-          out.push({
-            kind: "el",
-            key: "e:" + n.el.id,
-            el: n.el,
-            depth,
-            zTop: z,
-            zBottom: z,
-            dim: ancestorHidden || !!n.el.hidden, // effectiveHidden dimming
-          });
-          continue;
-        }
-        const members = membersDeep(fig, n.def.id);
-        const zs = members.map((m) => zIndex.get(m.id) ?? 0);
-        const dim = ancestorHidden || !!n.def.hidden;
-        const isCollapsed = !!collapsedSet[n.def.id];
-        out.push({
-          kind: "group",
-          key: "g:" + n.def.id,
-          def: n.def,
-          depth,
-          zTop: zs.length ? Math.max(...zs) : 0,
-          zBottom: zs.length ? Math.min(...zs) : 0,
-          memberIds: members.map((m) => m.id),
-          collapsed: isCollapsed,
-          dim,
-        });
-        if (!isCollapsed) walk(n.children, depth + 1, dim);
-      }
-    };
-    walk(buildRenderTree(fig), 0, false);
-    return out;
-  }
-  $: rows = activeFig ? buildRows(activeFig, collapsed) : [];
+  // WS-1 Fix 6b: fixed layer-row height (px) — the windowing grid. Matches the
+  // measured natural height of a row pre-virtualization; .layer pins it in CSS.
+  const LAYER_ROW_H = 25;
 
   function labelFor(el: Element) {
     if (el.name) return el.name;
@@ -191,7 +144,7 @@
   // aware and snaps any slot that would fragment a run). ---
   let dragKey: string | null = null;
   let dragBegan = false;
-  let layersUl: HTMLUListElement;
+  let vlist: VirtualFixedList<LayerRow> | undefined;
 
   function startLayerDrag(e: PointerEvent, row: LayerRow) {
     e.preventDefault();
@@ -201,16 +154,12 @@
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
   function onLayerDragMove(e: PointerEvent) {
-    if (!dragKey || !layersUl) return;
-    const rowEls = [...layersUl.querySelectorAll("li.layer")] as HTMLElement[];
-    let to = rowEls.length - 1;
-    for (let i = 0; i < rowEls.length; i++) {
-      const r = rowEls[i].getBoundingClientRect();
-      if (e.clientY < r.top + r.height / 2) {
-        to = i;
-        break;
-      }
-    }
+    if (!dragKey || !vlist) return;
+    // Logical index from pointer Y + scrollTop via the fixed row height (WS-1
+    // Fix 6d), off-window rows included. The old per-row rect scan anchored on
+    // the first row whose MIDPOINT sat below the pointer — band-lookup at
+    // y + rowH/2 reproduces that boundary exactly.
+    const to = vlist.indexAtY(e.clientY + LAYER_ROW_H / 2);
     const cur = rows.findIndex((r) => r.key === dragKey);
     if (cur < 0 || to < 0 || to >= rows.length || to === cur) return;
     const moved = rows[cur];
@@ -305,8 +254,20 @@
 
   <section class="layers">
     <h4>Layers</h4>
-    <ul bind:this={layersUl}>
-      {#each rows as row (row.key)}
+    <!-- WS-1 Fix 6b: fixed-height windowed list — only the viewport ± overscan
+         rows exist in the DOM (was: every row, ~5k li at scale). Row markup
+         and semantics are unchanged; the <aside> stays the scroll container. -->
+    {#if rows.length === 0}
+      <ul><li class="empty">No elements yet</li></ul>
+    {:else}
+      <VirtualFixedList
+        bind:this={vlist}
+        items={rows}
+        rowHeight={LAYER_ROW_H}
+        overscan={10}
+        getKey={(r) => r.key}
+        anchorSuspended={dragKey !== null}
+        let:item={row}>
         {#if row.kind === "group"}
           <li
             class="layer grp"
@@ -441,11 +402,8 @@
             {/if}
           </li>
         {/if}
-      {/each}
-      {#if rows.length === 0}
-        <li class="empty">No elements yet</li>
-      {/if}
-    </ul>
+      </VirtualFixedList>
+    {/if}
   </section>
 </aside>
 
@@ -560,6 +518,11 @@
   /* F6 Layers: grip + eye/lock toggles per row */
   .layer {
     gap: 1px;
+    /* WS-1 Fix 6b: the windowing grid needs a FIXED row height (spacer math +
+       logical drag targeting). 25px = the measured natural height pre-virtualization. */
+    height: var(--vrow-h, 25px);
+    box-sizing: border-box;
+    overflow: hidden;
   }
   .layer.dragging {
     background: var(--c-accent-tint);
