@@ -82,7 +82,10 @@ try {
   assert(/ipc\.handle\("fs:readdir",[^)]*\)\s*=>\s*\{\s*\n\s*fsGuard\(p\)/.test(filesCjs), "SHL-6: fs:readdir now guarded");
   has(mainCjs, "fsGuard(recipePath)", "SHL-6: recipe:run contains recipePath");
   has(mainCjs, "unsafe deckId", "SHL-6: slides:exportDeck sanitizes deckId");
-  has(mainCjs, "{ mode: 0o600 }", "SHL-8: keys.json written owner-only");
+  // WS-9.4b: keys.json + proxy-cred writes live in the NETWORK family module.
+  const networkCjs = await fs.readFile(path.join(import.meta.dirname, "..", "electron", "ipc", "network.cjs"), "utf8");
+  assert(/chmod\(fluxKeysPath\(\), 0o600\)/.test(networkCjs), "SHL-8: keys.json written owner-only");
+  has(networkCjs, "{ mode: 0o600 }", "SHL-8: proxy credentials written owner-only");
   has(mainCjs, 'process.on(sig', "SHL-8: SIGINT/SIGTERM teardown registered");
   has(bridgeCjs, "mode: 0o600", "SHL-8: bridge.json written owner-only");
   has(bridgeCjs, "mode: 0o700", "SHL-8: bridge dir created owner-only");
