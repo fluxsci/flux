@@ -191,6 +191,35 @@ else {
   else h.ok(total <= BUDGET.proseBuildsMax, `prose keystrokes invoked ${total} block-field build() calls ≤ ${BUDGET.proseBuildsMax}`);
 }
 
+h.section("table updateDOM (WS-2 Fix 2): in-cell typing patches, never redraws");
+const tblIdent = await page.evaluate(async (CELL) => {
+  const v = window.__fluxView;
+  const raf2 = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const src = v.state.doc.toString();
+  let caret = src.indexOf(CELL) + CELL.length;
+  v.dispatch({ selection: { anchor: caret }, scrollIntoView: true });
+  await raf2();
+  await new Promise((r) => setTimeout(r, 150));
+  const wrap = [...document.querySelectorAll(".flux-tablewrap")].find((w) => w.textContent.includes(CELL.slice(0, 6)));
+  if (!wrap) return { error: "cell table widget not rendered" };
+  const td = [...wrap.querySelectorAll("td")].find((c) => c.textContent.includes(CELL.slice(0, 6)));
+  for (let i = 0; i < 6; i++) {
+    v.dispatch({ changes: { from: caret, insert: "q" }, selection: { anchor: caret + 1 } });
+    await raf2();
+    caret++;
+  }
+  return {
+    wrapAlive: wrap.isConnected,
+    tdAlive: !!td && td.isConnected,
+    tdText: td?.textContent ?? "",
+  };
+}, CELL_SENTINEL);
+if (tblIdent.error) h.fail(`updateDOM check: ${tblIdent.error}`);
+else {
+  h.ok(tblIdent.wrapAlive, "table wrap element survived 6 in-cell keystrokes (updateDOM patched in place)");
+  h.ok(tblIdent.tdAlive && tblIdent.tdText.includes("qqqqqq"), `the SAME <td> node carries the typed text (${tblIdent.tdText.slice(0, 24)})`);
+}
+
 h.section("giant-paragraph ceiling (recorded, not gated)");
 await page.evaluate((t) => {
   const v = window.__fluxView;

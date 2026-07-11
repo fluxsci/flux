@@ -17,6 +17,7 @@ const { scienceEmbeds } = await import("../src/shell/modes/paper/science/embeds"
 const { scienceTables } = await import("../src/shell/modes/paper/science/tables");
 const { scienceMathBlocks } = await import("../src/shell/modes/paper/science/math");
 const { paperPerf } = await import("../src/shell/modes/paper/science/changeGate");
+const { citeNumberField } = await import("../src/shell/modes/paper/science/citeNumbers");
 
 let failures = 0;
 const ok = (m: string) => console.log("  ok:", m);
@@ -31,6 +32,7 @@ const lines: string[] = ["---", 'title: "Gate"', "---", ""];
 while (lines.length < 5000 - 20) {
   const i = lines.length;
   if (i === 1000) lines.push("![](../fig/renders/f0.svg){#fig-gate0}");
+  else if (i === 1500) lines.push("Cited here [@smith2020] mid line for the mask cases.");
   else if (i === 2000) lines.push("| A | B |", "|---|---|", "| 1 | 2 |", "| 3 | 4 |");
   else if (i === 2010) lines.push(""); // gap, then a labeled table with caption
   else if (i === 2011) lines.push("| H1 | H2 |", "|---|---|", "| x | y |", "", ": My caption {#tbl-gate}");
@@ -40,7 +42,7 @@ while (lines.length < 5000 - 20) {
 }
 while (lines.length < 5000) lines.push(`Tail ${lines.length}.`);
 const DOC = lines.join("\n");
-const EXTS: Extension[] = [scienceEmbeds, scienceTables, scienceMathBlocks];
+const EXTS: Extension[] = [scienceEmbeds, scienceTables, scienceMathBlocks, citeNumberField];
 
 const lineStart = (state: EditorState, n: number) => state.doc.line(n).from;
 const lineEnd = (state: EditorState, n: number) => state.doc.line(n).to;
@@ -53,6 +55,7 @@ const delta = (b: ReturnType<typeof counts>) => ({
   embeds: paperPerf.embeds - b.embeds,
   tables: paperPerf.tables - b.tables,
   math: paperPerf.math - b.math,
+  cite: paperPerf.citeScans - b.citeScans,
 });
 function widgets(set: DecorationSet): { from: number; to: number }[] {
   const out: { from: number; to: number }[] = [];
@@ -75,7 +78,7 @@ assert(widgets(state0.field(scienceMathBlocks)).length === 4, "initial: math lin
   const b = counts();
   const s1 = state0.update({ changes: { from: proseAt, insert: "x" } }).state;
   const d = delta(b);
-  assert(d.embeds === 0 && d.tables === 0 && d.math === 0, `(a) prose char insert → zero builds (${JSON.stringify(d)})`);
+  assert(d.embeds === 0 && d.tables === 0 && d.math === 0 && d.cite === 0, `(a) prose char insert → zero builds/scans (${JSON.stringify(d)})`);
   // mapped positions: the embed widget stays glued to its line
   const embLine = findLine(s1, "{#fig-gate0}");
   const w = widgets(s1.field(scienceEmbeds));
@@ -208,6 +211,46 @@ assert(widgets(state0.field(scienceMathBlocks)).length === 4, "initial: math lin
   s1.update({ changes: { from: above + 2, insert: "`" } }).state;
   const d = delta(b);
   assert(d.math >= 1, "(fence) completing ``` char-by-char rebuilds math (fence flips interpretation)");
+}
+
+// ---- WS-2 Fix 3: narrowed cite-rescan triggers -----------------------------
+{
+  const at = lineEnd(state0, findLine(state0, "Prose line 4040"));
+  const b = counts();
+  state0.update({ changes: { from: at, insert: "`" } }).state;
+  const d = delta(b);
+  assert(d.cite === 0, "(cite) backtick in plain prose does NOT rescan (was: full O(doc) rescan)");
+}
+{
+  const at = lineEnd(state0, findLine(state0, "Prose line 4050"));
+  const b = counts();
+  state0.update({ changes: { from: at, insert: "$" } }).state;
+  const d = delta(b);
+  assert(d.cite === 0, "(cite) $ in plain prose does NOT rescan");
+}
+{
+  const citeLine = findLine(state0, "[@smith2020]");
+  const b = counts();
+  state0.update({ changes: { from: lineStart(state0, citeLine) + 1, insert: "`" } }).state;
+  const d = delta(b);
+  assert(d.cite >= 1, "(cite) backtick on a cite-bearing line DOES rescan (masking may flip)");
+}
+{
+  const citeLine = findLine(state0, "[@smith2020]");
+  const inside = state0.doc.line(citeLine).text.indexOf("smith2020");
+  const b = counts();
+  state0.update({ changes: { from: lineStart(state0, citeLine) + inside + 3, insert: "x" } }).state;
+  const d = delta(b);
+  assert(d.cite >= 1, "(cite) typing inside a [@…] key rescans (range overlap)");
+}
+{
+  // completing a ``` fence char-by-char rescans (multi-line masking flip)
+  const at = lineStart(state0, findLine(state0, "Prose line 4060") + 1);
+  const s1 = state0.update({ changes: { from: at, insert: "``" } }).state;
+  const b = counts();
+  s1.update({ changes: { from: at + 2, insert: "`" } }).state;
+  const d = delta(b);
+  assert(d.cite >= 1, "(cite) completing a ``` fence rescans");
 }
 
 console.log(failures ? `\nCHANGEGATE: FAIL (${failures})` : "\nCHANGEGATE: PASS");

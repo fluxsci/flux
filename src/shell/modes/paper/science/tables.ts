@@ -94,6 +94,16 @@ function parseAt(state: EditorState, startLine: number): ParsedTable | null {
   };
 }
 
+// WS-2 Fix 2: previous render state per wrap element — lets updateDOM patch
+// only the changed <td>/<th> text + alignment while typing inside a table,
+// instead of rebuilding the whole <table> DOM per keystroke (embeds.ts
+// domState precedent).
+interface TableDomState {
+  t: ParsedTable;
+  number: number;
+}
+const tableDomState = new WeakMap<HTMLElement, TableDomState>();
+
 class TableWidget extends WidgetType {
   readonly key: string;
   constructor(readonly t: ParsedTable, readonly number: number) {
@@ -102,6 +112,50 @@ class TableWidget extends WidgetType {
   }
   eq(o: TableWidget) {
     return o.key === this.key;
+  }
+  // Patch in place for same-shape edits (cell text, alignment, caption text,
+  // number). Any structural change (column/row count, caption presence) →
+  // false = full redraw. estimatedHeight semantics untouched (EDITING-FEEL 4).
+  updateDOM(dom: HTMLElement): boolean {
+    const prev = tableDomState.get(dom);
+    if (!prev) return false;
+    const a = prev.t;
+    const b = this.t;
+    if (a.head.length !== b.head.length || a.body.length !== b.body.length) return false;
+    if ((a.caption == null) !== (b.caption == null)) return false;
+    const ths = dom.querySelectorAll<HTMLElement>("thead th");
+    if (ths.length !== b.head.length) return false;
+    const trs = dom.querySelectorAll<HTMLTableRowElement>("tbody tr");
+    if (trs.length !== b.body.length) return false;
+    for (let i = 0; i < b.head.length; i++) {
+      if (a.head[i] !== b.head[i]) ths[i].textContent = b.head[i];
+      const align = b.aligns[i] ?? "left";
+      if ((a.aligns[i] ?? "left") !== align)
+        for (const cell of [ths[i], ...Array.from(trs, (tr) => tr.children[i] as HTMLElement | undefined)])
+          if (cell) cell.style.textAlign = align;
+    }
+    for (let r = 0; r < b.body.length; r++) {
+      const tds = trs[r].children;
+      if (tds.length !== b.head.length) return false;
+      for (let c = 0; c < b.head.length; c++) {
+        const want = b.body[r][c] ?? "";
+        if ((a.body[r]?.[c] ?? "") !== want) (tds[c] as HTMLElement).textContent = want;
+      }
+    }
+    if (b.caption != null) {
+      const cap = dom.querySelector<HTMLElement>(".flux-table-cap");
+      if (!cap) return false;
+      const bEl = cap.querySelector("b");
+      if (!bEl) return false;
+      if (prev.number !== this.number) bEl.textContent = `Table ${this.number}.`;
+      if (a.caption !== b.caption) {
+        // the caption text node follows the <b>
+        while (bEl.nextSibling) cap.removeChild(bEl.nextSibling);
+        cap.appendChild(document.createTextNode(" " + b.caption));
+      }
+    }
+    tableDomState.set(dom, { t: b, number: this.number });
+    return true;
   }
   // Row height ≈ 2×6px padding + 0.95em×1.5 line ≈ 36px; caption ≈ 32px; wrap
   // vertical padding 2×1.4em ≈ 48px. Only an estimate for unrendered widgets —
@@ -150,6 +204,7 @@ class TableWidget extends WidgetType {
       cap.appendChild(document.createTextNode(" " + this.t.caption));
       wrap.appendChild(cap);
     }
+    tableDomState.set(wrap, { t: this.t, number: this.number });
     return wrap;
   }
   ignoreEvent() {

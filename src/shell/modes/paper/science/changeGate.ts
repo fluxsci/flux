@@ -77,7 +77,7 @@ export function touchesMe(tr: Transaction, value: RangeSet<RangeValue>, spec: Ga
   return hit;
 }
 
-// Per-field build() counters — the structural perf gates assert a prose
+// Per-field build()/scan() counters — the structural perf gates assert a prose
 // keystroke triggers ZERO of these (scripts/verify-paper-changegate.ts pure;
 // scripts/verify-scale-paper.mjs live via window.__flux.paperPerf).
-export const paperPerf = { embeds: 0, tables: 0, math: 0 };
+export const paperPerf = { embeds: 0, tables: 0, math: 0, citeScans: 0 };
