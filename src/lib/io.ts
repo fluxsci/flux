@@ -30,6 +30,8 @@ import {
   intrinsicSize,
 } from "./assets";
 import { figureToSvg } from "./export";
+import { migrateProject } from "./migrate";
+import { validateModel, sanitizeProjectGeometry } from "./project/validate";
 import { assetDisplaySize } from "./ops";
 import { annotationsToMarkdown, type AnnotationMdMeta } from "./references/annotationsMarkdown";
 import type { Annotation } from "./references/annotations";
@@ -437,6 +439,12 @@ async function writeProjectTo(dir: string) {
   await window.fig.mkdir(joinPath(dir, "assets"));
 
   const p = structuredClone(get(project));
+  // WS-5.1: never persist NaN/Infinity — JSON turns them into null, which the
+  // load gate would then (rightly) reject.
+  {
+    const fixed = sanitizeProjectGeometry(p);
+    if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
+  }
   const data = get(assetData);
   const manifests = get(plotManifests);
   const recipes = get(plotRecipes);
@@ -479,6 +487,15 @@ export async function openProject() {
       throw new Error("Not a Flux project (no project.json)");
     }
     const p: Project = JSON.parse(await window.fig.readText(jsonPath));
+    // WS-5.1: parse → migrate → validate (legacy-lenient, post-migration-strict).
+    // A standalone project file is an ENTRY manifest — validation failure
+    // refuses the open (the catch below toasts the detail).
+    migrateProject(p);
+    {
+      const errs = validateModel(p);
+      if (errs.length)
+        throw new Error(`project model failed validation:\n${errs.slice(0, 8).join("\n")}${errs.length > 8 ? `\n… ${errs.length - 8} more` : ""}`);
+    }
 
     clearPlots();
     const fresh: Record<string, string> = {};

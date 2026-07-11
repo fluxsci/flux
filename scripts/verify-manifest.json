@@ -58,6 +58,7 @@
       "verify-frontmatter.ts",
       "verify-render-concurrency.ts",
       "verify-paper-commands.ts",
+      "verify-loadgate.ts",
       "verify-annotations-md.ts",
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",

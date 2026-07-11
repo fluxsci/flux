@@ -32,6 +32,9 @@ import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { FLEXOKI } from "../flexoki";
 import { migrateProject } from "../migrate";
+import { validateModel, validateFigIndexFile, sanitizeProjectGeometry } from "./validate";
+import { quarantineCopy } from "./quarantine";
+import { pushToast } from "../toast";
 import { settings } from "../settings";
 import { composeCaption, panelLetters } from "../captions";
 import { fileBridge, joinPath, slugify } from "./types";
@@ -105,6 +108,18 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     if (await fig.exists(p)) {
       indexText = await fig.readText(p);
       index = JSON.parse(indexText) as FigIndexFile;
+      // WS-5.1 load gate: a structurally-invalid index is quarantined (bytes
+      // preserved as .corrupt-<ts>) and the load proceeds with defaults —
+      // never silently half-parsed.
+      const errs = validateFigIndexFile(index);
+      if (errs.length) {
+        const q = await quarantineCopy(fig, p, indexText);
+        pushToast("error", "fig/index.json failed validation — starting from defaults", {
+          detail: `${errs.slice(0, 5).join("\n")}${q ? `\nOriginal preserved at ${q}` : ""}`,
+        });
+        index = null;
+        indexText = "";
+      }
     }
   } catch {
     index = null;
@@ -123,11 +138,29 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     try {
       const p = joinPath(root, SUB, "canvases", `${cm.id}.json`);
       if (await fig.exists(p)) {
-        const cf = JSON.parse(await fig.readText(p)) as CanvasFile;
-        for (const f of cf.figures ?? []) {
-          f.canvasId = cm.id; // canvas membership is authoritative from the file
-          figures.push(f);
+        const text = await fig.readText(p);
+        const cf = JSON.parse(text) as CanvasFile;
+        // WS-5.1 load gate (parse → migrate → validate): migrate THIS canvas's
+        // figures, validate them, and on failure quarantine the FILE + skip it
+        // — sibling canvases still load (the malformed-canvas acceptance).
+        const probe = {
+          version: 2,
+          name: "",
+          canvases: [{ id: cm.id, name: cm.name }],
+          figures: (cf.figures ?? []).map((f) => ({ ...f, canvasId: cm.id })),
+          assets: index?.assets ?? [],
+          palette: [],
+        } as FigProject;
+        migrateProject(probe);
+        const errs = validateModel(probe);
+        if (errs.length) {
+          const q = await quarantineCopy(fig, p, text);
+          pushToast("error", `Canvas "${cm.name}" failed validation — skipped`, {
+            detail: `${errs.slice(0, 5).join("\n")}${q ? `\nOriginal preserved at ${q}` : ""}`,
+          });
+          continue;
         }
+        for (const f of probe.figures) figures.push(f);
       }
     } catch {
       /* unreadable canvas file — skip */
@@ -197,6 +230,12 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
 
   const genAtStart = editGen.n; // W4: only clear dirty if no edit lands mid-save
   const p = structuredClone(get(figProject));
+  // WS-5.1: never persist NaN/Infinity — JSON turns them into null, which the
+  // load gate would then (rightly) reject.
+  {
+    const fixed = sanitizeProjectGeometry(p);
+    if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
+  }
   const data = get(assetData);
   const manifests = get(plotManifests);
   const recipes = get(plotRecipes);

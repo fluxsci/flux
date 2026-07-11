@@ -10,6 +10,9 @@ import { get } from "svelte/store";
 import { fileBridge, joinPath, type ProjectManifest } from "./types";
 import type { Deck, SlideElement } from "../slide/types";
 import { createDeck as createDeckModel, normalizeDeck } from "../slide/ops";
+import { validateDeckFile } from "./validate";
+import { quarantineCopy } from "./quarantine";
+import { pushToast } from "../toast";
 import { deck as deckStore, loadDeckModel, deckDirty, deckEditGen, figureGroups, figureMembers, type FigureMemberInfo } from "../slide/store";
 import { cachePlot, hasPlotDom, plotManifests } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
@@ -83,10 +86,23 @@ export async function readDeck(root: string, deckId: string): Promise<Deck | nul
   const m = await readManifest(root);
   const rel = m?.slides?.find((s) => s.id === deckId)?.path ?? deckRel(deckId);
   try {
-    if (await fig.exists(joinPath(root, rel)))
+    if (await fig.exists(joinPath(root, rel))) {
+      const text = await fig.readText(joinPath(root, rel));
       // WS-4.4: normalize at the read seam (migration + track ids) — every
       // consumer (load-into-editor, duplicate, export) sees the current model.
-      return normalizeDeck(JSON.parse(await fig.readText(joinPath(root, rel))) as Deck);
+      const deck = normalizeDeck(JSON.parse(text) as Deck);
+      // WS-5.1 load gate: an invalid deck is quarantined (bytes preserved) and
+      // skipped — never half-loaded into the editor.
+      const errs = validateDeckFile(deck);
+      if (errs.length) {
+        const q = await quarantineCopy(fig, joinPath(root, rel), text);
+        pushToast("error", `Deck "${deckId}" failed validation — skipped`, {
+          detail: `${errs.slice(0, 5).join("\n")}${q ? `\nOriginal preserved at ${q}` : ""}`,
+        });
+        return null;
+      }
+      return deck;
+    }
   } catch {
     /* unreadable */
   }

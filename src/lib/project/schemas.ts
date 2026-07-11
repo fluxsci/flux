@@ -9,6 +9,114 @@
 
 const draft = "http://json-schema.org/draft-07/schema#";
 
+// ---------------------------------------------------------------------------
+// WS-5.1: shared FIGURE/ELEMENT definitions — the element schema is a
+// discriminated oneOf on `type` (one branch per element kind; the removed
+// legacy "svg" kind is NOT here — migrate.ts converts it before validation,
+// which is why loads validate AFTER migrateProject, never before). Geometry
+// fields are typed `number`, which also rejects the JSON.stringify(NaN) →
+// null corruption. additionalProperties stays permissive so hand-authored
+// agent files with extra keys keep loading.
+// ---------------------------------------------------------------------------
+
+const GEO_REQ = ["id", "type", "x", "y", "width", "height", "rotation"];
+const GEO_PROPS = {
+  id: { type: "string" },
+  x: { type: "number" },
+  y: { type: "number" },
+  width: { type: "number" },
+  height: { type: "number" },
+  rotation: { type: "number" },
+  opacity: { type: "number" },
+  groupId: { type: "string" },
+  name: { type: "string" },
+  locked: { type: "boolean" },
+  hidden: { type: "boolean" },
+  lockAspect: { type: "boolean" },
+  flipX: { type: "boolean" },
+  flipY: { type: "boolean" },
+};
+const elementBranch = (type: string, extraReq: string[], extraProps: Record<string, unknown>) => ({
+  type: "object",
+  required: [...GEO_REQ, ...extraReq],
+  properties: { ...GEO_PROPS, type: { const: type }, ...extraProps },
+});
+const ELEMENT_DEF = {
+  oneOf: [
+    elementBranch("image", ["assetId"], { assetId: { type: "string" }, crop: { type: "object" } }),
+    elementBranch("plot", ["assetId"], {
+      assetId: { type: "string" },
+      overrides: { type: "object" },
+      crop: { type: "object" },
+      contentScale: { type: "number" },
+      source: { type: "object" },
+      manifestRef: { type: "object" },
+    }),
+    elementBranch("text", ["text"], {
+      text: { type: "string" },
+      fontFamily: { type: "string" },
+      fontSize: { type: "number" },
+      fontWeight: { type: "number" },
+      fontStyle: { type: "string" },
+      align: { type: "string" },
+      color: { type: "string" },
+      sizing: { type: "string" },
+      lines: { type: "array" },
+      lineHeight: { type: "number" },
+      underline: { type: "boolean" },
+      panelLabel: { type: "boolean" },
+      styleId: { type: "string" },
+    }),
+    elementBranch("rect", [], {
+      fill: { type: "string" },
+      stroke: { type: "string" },
+      strokeWidth: { type: "number" },
+      cornerRadius: { type: "number" },
+    }),
+    elementBranch("ellipse", [], {
+      fill: { type: "string" },
+      stroke: { type: "string" },
+      strokeWidth: { type: "number" },
+    }),
+    elementBranch("line", ["x1", "y1", "x2", "y2"], {
+      x1: { type: "number" },
+      y1: { type: "number" },
+      x2: { type: "number" },
+      y2: { type: "number" },
+      stroke: { type: "string" },
+      strokeWidth: { type: "number" },
+      arrowStart: {}, // legacy-tolerant
+      arrowEnd: {},
+    }),
+    elementBranch("path", ["d"], {
+      d: { type: "string" },
+      nodes: { type: "array" },
+      closed: { type: "boolean" },
+      fill: { type: "string" },
+      stroke: { type: "string" },
+      strokeWidth: { type: "number" },
+    }),
+  ],
+};
+const FIGURE_DEF = {
+  type: "object",
+  required: ["id", "canvasId", "x", "y", "width", "height", "elements"],
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    canvasId: { type: "string" },
+    x: { type: "number" },
+    y: { type: "number" },
+    width: { type: "number" },
+    height: { type: "number" },
+    background: { type: "string" },
+    elements: { type: "array", items: { $ref: "#/definitions/element" } },
+    captions: { type: "object" },
+    guides: { type: "object" },
+    groups: { type: "object" },
+  },
+};
+
 export const SCHEMAS: Record<string, Record<string, unknown>> = {
   project: {
     $schema: draft,
@@ -131,44 +239,36 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       figures: { type: "array", items: { $ref: "#/definitions/figure" } },
     },
     definitions: {
-      figure: {
-        type: "object",
-        required: ["id", "canvasId", "x", "y", "width", "height", "elements"],
-        properties: {
-          id: { type: "string" },
-          name: { type: "string" },
-          canvasId: { type: "string" },
-          x: { type: "number" },
-          y: { type: "number" },
-          width: { type: "number" },
-          height: { type: "number" },
-          background: { type: "string" },
-          elements: { type: "array", items: { $ref: "#/definitions/element" } },
-          captions: { type: "object" },
-          guides: { type: "object" },
-        },
+      figure: FIGURE_DEF,
+      element: ELEMENT_DEF,
+    },
+  },
+
+  // WS-5.1: the ASSEMBLED in-memory figure model (post-migration) — what
+  // validateModel gates at every load seam (standalone project files, the
+  // assembled fig/ tree, flux-core loadFigModel).
+  model: {
+    $schema: draft,
+    $id: "flux/model.schema.json",
+    title: "Flux figure model (assembled, post-migration)",
+    type: "object",
+    required: ["canvases", "figures", "assets"],
+    properties: {
+      version: { type: "number" },
+      name: { type: "string" },
+      canvases: {
+        type: "array",
+        items: { type: "object", required: ["id", "name"], properties: { id: { type: "string" }, name: { type: "string" } } },
       },
-      element: {
-        type: "object",
-        required: ["id", "type"],
-        properties: {
-          id: { type: "string" },
-          type: { type: "string", enum: ["image", "svg", "text", "rect", "ellipse", "line", "path", "plot"] },
-          x: { type: "number" },
-          y: { type: "number" },
-          width: { type: "number" },
-          height: { type: "number" },
-          rotation: { type: "number" },
-          opacity: { type: "number" },
-          groupId: { type: "string" },
-          assetId: { type: "string" },
-          overrides: { type: "object" },
-          name: { type: "string" },
-          locked: { type: "boolean" },
-          hidden: { type: "boolean" },
-          lockAspect: { type: "boolean" },
-        },
-      },
+      figures: { type: "array", items: { $ref: "#/definitions/figure" } },
+      assets: { type: "array", items: { type: "object", required: ["id", "kind"] } },
+      palette: { type: "array" },
+      colorGroups: { type: "array" },
+      textStyles: { type: "array" },
+    },
+    definitions: {
+      figure: FIGURE_DEF,
+      element: ELEMENT_DEF,
     },
   },
 

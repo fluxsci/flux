@@ -8,6 +8,7 @@ import {
   type ProjectManifest,
 } from "./types";
 import { pushToast } from "../toast";
+import { validateProjectManifest } from "./validate";
 
 export class NotAProjectError extends Error {}
 
@@ -25,6 +26,15 @@ export async function loadProject(root: string): Promise<LoadedProject> {
     manifest = JSON.parse(await fig.readText(manifestPath)) as ProjectManifest;
   } catch {
     throw new Error("project.json is not valid JSON.");
+  }
+  // WS-5.1 load gate: the ENTRY manifest refuses to open on schema failure
+  // (same actionable-error path as the version guard below).
+  {
+    const errs = validateProjectManifest(manifest);
+    if (errs.length)
+      throw new Error(
+        `project.json failed validation:\n${errs.slice(0, 6).join("\n")}${errs.length > 6 ? `\n… ${errs.length - 6} more` : ""}`,
+      );
   }
 
   if (manifest.schemaVersion !== PROJECT_SCHEMA_VERSION) {
