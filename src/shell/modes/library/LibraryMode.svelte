@@ -301,6 +301,51 @@
     if (ftMode) return [...base].sort((a, b) => (ftHits.get(nfc(b.key))?.count ?? 0) - (ftHits.get(nfc(a.key))?.count ?? 0));
     return base;
   });
+
+  // WS-8.2: hand-rolled grid windowing. All N result rows used to render (CSS
+  // content-visibility only cheapens layout off-screen); at 5k+ entries the DOM
+  // itself is the cost. The collapsed non-ftMode grid renders a ±12-row window
+  // between two spacers (ROW_H matches the existing contain-intrinsic-size);
+  // ftMode keeps the old full render (already capped at 200 results).
+  const ROW_H = 37;
+  const WIN_BUFFER = 12;
+  const WIN_MIN = 150; // below this, windowing buys nothing — render all
+  let gridScrollTop = $state(0);
+  let gridViewH = $state(600);
+  let expandedH = $state(0); // measured height of the single open detail strip
+  const winActive = $derived(!ftMode && results.length > WIN_MIN);
+  const expandedIdx = $derived(winActive && expanded ? results.findIndex((r) => r.key === expanded) : -1);
+  const gridWin = $derived.by(() => {
+    if (!winActive) return { first: 0, last: results.length - 1, topPx: 0, bottomPx: 0 };
+    const exH = expandedIdx >= 0 ? expandedH : 0;
+    // Locate the first visible row, correcting for the expanded strip when the
+    // viewport sits below it.
+    let scan = gridScrollTop - ROW_H; // header row
+    const expTop = expandedIdx >= 0 ? (expandedIdx + 1) * ROW_H : Infinity;
+    if (scan > expTop + exH) scan -= exH;
+    else if (scan > expTop) scan = expTop;
+    const first = Math.max(0, Math.floor(scan / ROW_H) - WIN_BUFFER);
+    const visRows = Math.ceil(gridViewH / ROW_H) + WIN_BUFFER * 2;
+    const last = Math.min(results.length - 1, first + visRows);
+    const topPx = first * ROW_H + (expandedIdx >= 0 && expandedIdx < first ? exH : 0);
+    const bottomPx = Math.max(0, (results.length - 1 - last) * ROW_H) + (expandedIdx > last ? exH : 0);
+    return { first, last, topPx, bottomPx };
+  });
+  const winRows = $derived(winActive ? results.slice(gridWin.first, gridWin.last + 1) : results);
+  function onGridScroll() {
+    if (gridEl) gridScrollTop = gridEl.scrollTop;
+  }
+  // Keyboard nav: keep the highlighted row inside the rendered window (the
+  // window follows scrollTop, so scrolling it into view also renders it).
+  $effect(() => {
+    const i = highlighted;
+    if (!winActive || !gridEl) return;
+    const rowTop = ROW_H + i * ROW_H + (expandedIdx >= 0 && i > expandedIdx ? expandedH : 0);
+    const rowBot = rowTop + ROW_H;
+    const st = gridEl.scrollTop;
+    if (rowTop < st + ROW_H) gridEl.scrollTop = Math.max(0, rowTop - ROW_H);
+    else if (rowBot > st + gridEl.clientHeight) gridEl.scrollTop = rowBot - gridEl.clientHeight;
+  });
   // LR-U2: selection helpers + the "add N to the open project" bulk action. materializeIntoProject
   // is idempotent and lock-guarded ("references"), so re-adding already-cited keys is a no-op.
   const isSel = (key: string) => selected.has(key);
@@ -1473,7 +1518,14 @@
       </div>
     {/if}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_static_element_interactions -->
-    <div class="grid" tabindex="0" bind:this={gridEl} onkeydown={gridKey}>
+    <div
+      class="grid"
+      tabindex="0"
+      bind:this={gridEl}
+      bind:clientHeight={gridViewH}
+      onscroll={onGridScroll}
+      onkeydown={gridKey}
+      data-total={results.length}>
       <div class="grow ghead selectable">
         <span class="gsel"
           ><input
@@ -1497,7 +1549,9 @@
           >Cited{@render sortArrow("cited")}</button>
         <span class="gx"></span>
       </div>
-      {#each results as r, i (r.key)}
+      {#if gridWin.topPx > 0}<div class="gspacer" style="height:{gridWin.topPx}px"></div>{/if}
+      {#each winRows as r, wi (r.key)}
+        {@const i = gridWin.first + wi}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
           class="grow selectable"
@@ -1589,7 +1643,7 @@
         {/if}
         {#if expanded === r.key}
           <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-          <div class="detail" onclick={(e) => e.stopPropagation()}>
+          <div class="detail" bind:clientHeight={expandedH} onclick={(e) => e.stopPropagation()}>
             {#if !hasPdf(r.key) && isFailed(r.key)}
               <div class="failbanner">
                 <span class="fbtag">⚠ PDF fetch failed</span>
@@ -1666,6 +1720,7 @@
           </div>
         {/if}
       {/each}
+      {#if gridWin.bottomPx > 0}<div class="gspacer" style="height:{gridWin.bottomPx}px"></div>{/if}
       {#if loading}
         <div class="none">Loading your library…</div>
       {:else if loadError}
@@ -2044,6 +2099,10 @@
   }
   .grid:focus-within {
     border-color: var(--c-accent);
+  }
+  .gspacer {
+    /* WS-8.2 window spacers — pure height, no other layout participation */
+    flex: none;
   }
   .grow {
     display: grid;
