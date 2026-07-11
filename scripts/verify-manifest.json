@@ -63,6 +63,7 @@
       "verify-figsave-txn.ts",
       "verify-canvas-divergence.ts",
       "verify-undo-budget.ts",
+      "verify-figfiles-parity.ts",
       "verify-annotations-md.ts",
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",

@@ -37,9 +37,18 @@ import { quarantineCopy } from "./quarantine";
 import { pushToast } from "../toast";
 import { isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
 import { settings } from "../settings";
-import { composeCaption, panelLetters } from "../captions";
-import { fileBridge, joinPath, slugify } from "./types";
+import { panelLetters } from "../captions";
+import { fileBridge, joinPath } from "./types";
 import { ConflictError } from "../autosave";
+import {
+  planFigSave,
+  executeFigSave,
+  sortedCanvasMeta,
+  normalizeIndexAssets,
+  type FigIndexFile,
+  type CanvasFile,
+  type FigSaveIO,
+} from "./figfiles";
 
 const SUB = "fig";
 const DEFAULT_CANVAS_ID = "canvas-1";
@@ -91,33 +100,9 @@ export async function figDiskDiverged(root: string): Promise<boolean> {
   return canvasesDiverged(fig, root);
 }
 
-interface FigIndexFile {
-  schemaVersion: string;
-  canvases: { id: string; name: string; order: number }[];
-  figures: {
-    id: string;
-    name: string;
-    label: string;
-    order: number;
-    kind: string;
-    canvas: string;
-    caption: string;
-  }[];
-  assets?: Asset[];
-  palette?: string[];
-  colorGroups?: ColorGroup[];
-  // Named text styles (project-level; the machine-global library lives in
-  // <userData>/textstyles.json). Loaded into Project.textStyles and written
-  // back EXPLICITLY on save — omitting either side silently wipes them.
-  textStyles?: TextStyle[];
-}
-
-interface CanvasFile {
-  schemaVersion: string;
-  id: string;
-  name: string;
-  figures: Figure[];
-}
+// WS-5.6: the on-disk shapes + writer plan live in the ONE persistence core
+// (figfiles.ts) shared with flux-core — this module keeps only the GUI-side
+// concerns: stores, dirty tracking, baselines, conflict banner, quarantine UX.
 
 /** Load the project's `fig/` subsystem into the figure-editor stores. */
 export async function loadFigInto(root: string, projectName: string): Promise<void> {
@@ -160,11 +145,10 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   }
   figIndexBaseline = indexText; // W7: seed the conflict-guard baseline
 
-  // Canvas list comes from the index; fall back to a single default canvas.
-  const canvasMeta =
-    index?.canvases && index.canvases.length
-      ? [...index.canvases].sort((a, b) => a.order - b.order)
-      : [{ id: DEFAULT_CANVAS_ID, name: "Canvas 1", order: 1 }];
+  // Canvas list comes from the index (canonical order via the shared core);
+  // fall back to a single default canvas.
+  const sorted = sortedCanvasMeta(index);
+  const canvasMeta = sorted.length ? sorted : [{ id: DEFAULT_CANVAS_ID, name: "Canvas 1", order: 1 }];
 
   const canvases: Canvas[] = canvasMeta.map((c) => ({ id: c.id, name: c.name }));
   const figures: Figure[] = [];
@@ -211,7 +195,9 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     }
   }
 
-  const assets: Asset[] = index?.assets ?? [];
+  // WS-5.6: the shared normalization — same tree, same in-memory model as
+  // flux-core (name/path/size fallbacks; dpi kept only when present).
+  const assets: Asset[] = normalizeIndexAssets(index);
   const data: Record<string, string> = {};
   clearPlots();
   for (const a of assets) {
@@ -249,7 +235,7 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     assets,
     palette: index?.palette ?? [],
     colorGroups:
-      index?.colorGroups ??
+      (index?.colorGroups as ColorGroup[] | undefined) ??
       (get(settings).flexokiDefault ? structuredClone(FLEXOKI) : []),
     // undefined (never []) when the index predates styles → migrate seeds the
     // defaults; an explicit empty list from disk stays empty (user cleared it).
@@ -338,90 +324,39 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
     clearAssetDirty(a.id); // persisted — back in sync with disk
   }
 
-  // Guarantee at least one canvas (older in-memory projects may predate it).
-  const canvases: Canvas[] =
-    p.canvases && p.canvases.length
-      ? p.canvases
-      : [{ id: DEFAULT_CANVAS_ID, name: "Canvas 1" }];
-
-  // One file per canvas (figures + elements) — the authoritative composition.
-  // WS-5.3: skip byte-identical canvases (watcher churn + disk wear — every
-  // canvas used to be rewritten unconditionally on every autosave).
-  let wroteCanvases = false;
-  for (const c of canvases) {
-    const canvasFile: CanvasFile = {
-      schemaVersion: CANVAS_SCHEMA_VERSION,
-      id: c.id,
-      name: c.name,
-      figures: p.figures.filter((f) => f.canvasId === c.id),
-    };
-    const text = JSON.stringify(canvasFile, null, 2) + "\n";
-    if (canvasBaseline.get(c.id) === text) continue;
-    await fig.writeText(joinPath(root, SUB, "canvases", `${c.id}.json`), text);
-    canvasBaseline.set(c.id, text);
-    wroteCanvases = true;
-  }
-  // WS-5.3: make the renames themselves durable (file fsync ≠ dir entry fsync).
-  if (wroteCanvases) await fig.fsyncDir?.(joinPath(root, SUB, "canvases"));
-
-  // Captions → fig/captions/<id>.md (Flux_Project_Format.md §3.2): the single
-  // source of truth, composed from each figure's panel blocks (F7). The index
-  // also caches the composed text for tools that read only index.json.
-  const captionById: Record<string, string> = {};
-  for (const f of p.figures) {
-    const cap = composeCaption(f);
-    captionById[f.id] = cap;
-    await fig.writeText(joinPath(root, SUB, "captions", `${f.id}.md`), cap ? cap + "\n" : "");
-  }
-
-  // Preserve existing cross-ref labels (the figure↔prose join key) across saves;
-  // only derive a label for figures that don't have one yet (F7 label stability —
-  // otherwise renaming a figure would silently break its @fig-… references).
-  const prevLabels: Record<string, string> = {};
-  const prevKinds: Record<string, "main" | "supplementary"> = {};
+  // WS-5.6: the write set (canvases + captions + index) comes from the ONE
+  // persistence core shared with flux-core; prev = the index we believe is on
+  // disk (the W7 guard above ensured disk == baseline, and the force path
+  // re-baselined from disk), so labels/kinds set by agents are preserved.
+  let prevIndex: FigIndexFile | null = null;
   try {
-    const ip = joinPath(root, SUB, "index.json");
-    if (await fig.exists(ip)) {
-      const prev = JSON.parse(await fig.readText(ip)) as FigIndexFile;
-      for (const pf of prev.figures ?? []) {
-        if (pf.label) prevLabels[pf.id] = pf.label;
-        if (pf.kind === "main" || pf.kind === "supplementary") prevKinds[pf.id] = pf.kind;
-      }
-    }
+    prevIndex = figIndexBaseline ? (JSON.parse(figIndexBaseline) as FigIndexFile) : null;
   } catch {
-    /* no prior index — derive fresh labels below */
+    prevIndex = null;
   }
-
-  // Index (rollup) — drives numbering / cross-ref; also stores palette + assets.
-  const index: FigIndexFile = {
-    schemaVersion: FIG_INDEX_SCHEMA_VERSION,
-    canvases: canvases.map((c, i) => ({ id: c.id, name: c.name, order: i + 1 })),
-    figures: p.figures.map((f, i) => ({
-      id: f.id,
-      name: f.name,
-      label: prevLabels[f.id] ?? `fig-${slugify(f.name || f.id)}`,
-      order: i + 1,
-      // An agent can mark a figure supplementary (flux-core preserves it) — the
-      // GUI save must not silently revert it to "main".
-      kind: prevKinds[f.id] ?? "main",
-      canvas: f.canvasId,
-      caption: captionById[f.id] ?? "",
-    })),
-    assets: p.assets,
-    palette: p.palette,
-    colorGroups: p.colorGroups ?? [],
-    textStyles: p.textStyles ?? [], // explicit writeback (silent-wipe guard)
+  const plan = planFigSave(p, prevIndex);
+  const io: FigSaveIO = {
+    read: async (rel) => {
+      try {
+        const abs = joinPath(root, rel);
+        return (await fig.exists(abs)) ? await fig.readText(abs) : null;
+      } catch {
+        return null;
+      }
+    },
+    write: (rel, text) => fig.writeText(joinPath(root, rel), text),
+    ...(fig.fsyncDir ? { fsyncDir: (rel: string) => fig.fsyncDir!(joinPath(root, rel)) } : {}),
   };
-  const indexText = JSON.stringify(index, null, 2) + "\n";
-  // WS-5.3: keep a one-generation backup of the commit point (index.json is
-  // written LAST, so index+bak always straddle a consistent boundary), skip a
-  // byte-identical rewrite, and fsync the dir entry.
-  if (indexText !== figIndexBaseline) {
-    if (figIndexBaseline) await fig.writeText(joinPath(root, SUB, "index.json.bak"), figIndexBaseline);
-    await fig.writeText(joinPath(root, SUB, "index.json"), indexText);
-    await fig.fsyncDir?.(joinPath(root, SUB));
-  }
-  figIndexBaseline = indexText; // W7: adopt what we just wrote as the new baseline
+  const adopt = (rel: string, text: string) => {
+    const m = /^fig\/canvases\/(.+)\.json$/.exec(rel);
+    if (m) canvasBaseline.set(m[1], text); // WS-5.3/5.4 skip + divergence baseline
+  };
+  await executeFigSave(plan, io, {
+    skipCanvas: (id, text) => (canvasBaseline.get(id) === text ? true : undefined),
+    onWrite: adopt,
+    onSkip: adopt,
+  });
+  figIndexBaseline = plan.index.text; // W7: adopt what we just wrote as the new baseline
 
   // WS6: record the human's save in the provenance journal (Electron only; the
   // mem/demo bridge has no journalAppend, so this is a no-op there).
@@ -469,9 +404,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
   }
   if (!index) return empty;
 
-  const canvasMeta = index.canvases?.length
-    ? [...index.canvases].sort((a, b) => a.order - b.order)
-    : [];
+  const canvasMeta = sortedCanvasMeta(index);
   const figures: Record<string, Figure> = {};
   for (const cm of canvasMeta) {
     try {
@@ -490,17 +423,18 @@ export async function readFigSource(root: string): Promise<FigSource> {
   // Same migration every loader runs (legacy type:"svg" → plot, …) — this is a
   // read-only view for the Paper module / slide embedFigure, so unmigrated
   // on-disk docs must still render through the current element union.
+  const srcAssets = normalizeIndexAssets(index);
   migrateProject({
     version: 2,
     name: "",
     canvases: [],
     figures: Object.values(figures),
-    assets: index.assets ?? [],
+    assets: srcAssets,
     palette: [],
   });
 
   const assetData: Record<string, string> = {};
-  for (const a of index.assets ?? []) {
+  for (const a of srcAssets) {
     if (!a.path) continue;
     try {
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));

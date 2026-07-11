@@ -132,9 +132,12 @@ try {
     const repo = path.join(fixturesDir, "..", "..");
     const src = async (p: string) => await fs.readFile(path.join(repo, p), "utf8");
     const wired: [string, string, RegExp][] = [
-      ["flux-core/index.ts", "canvas batch", /fsyncDir\(safeJoin\(root, "fig\/canvases"\)\)/],
-      ["flux-core/index.ts", "index commit", /fsyncDir\(j\(root, "fig"\)\)/],
-      ["src/lib/project/figbridge.ts", "renderer canvas batch", /fig\.fsyncDir\?\.\(/],
+      // WS-5.6: the ordering (canvases → fsync → index → fsync) lives ONCE in
+      // the shared executor; each engine wires its own fsyncDir adapter in.
+      ["src/lib/project/figfiles.ts", "canvas batch (executor)", /io\.fsyncDir\?\.\("fig\/canvases"\)/],
+      ["src/lib/project/figfiles.ts", "index commit (executor)", /io\.fsyncDir\?\.\("fig"\)/],
+      ["flux-core/index.ts", "Node adapter", /fsyncDir: \(rel\) => fsyncDir\(safeJoin\(root, rel\)\)/],
+      ["src/lib/project/figbridge.ts", "renderer adapter", /fig\.fsyncDir!\(joinPath\(root, rel\)\)/],
       ["electron/main.cjs", "IPC handler", /["']fs:fsyncDir["']/],
       ["electron/preload.cjs", "bridge exposure", /fsyncDir/],
     ];

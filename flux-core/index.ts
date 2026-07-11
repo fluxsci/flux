@@ -100,6 +100,15 @@ import type { Figure, Element, Project, Asset, Canvas, PartOverride, VectorNode,
 import { migrateProject } from "../src/lib/migrate";
 import type { ProjectManifest, FigureEntry } from "../src/lib/project/types";
 import { slugify, isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "../src/lib/project/types";
+import {
+  planFigSave,
+  executeFigSave,
+  sortedCanvasMeta,
+  normalizeIndexAssets,
+  deriveLabel,
+  type FigIndexFile,
+  type CanvasFile,
+} from "../src/lib/project/figfiles";
 
 // --------------------------------------------------------------------------
 // fs helpers + project-root path safety (M9: never escape the project root)
@@ -146,45 +155,11 @@ function stamp(): string {
 }
 
 // --------------------------------------------------------------------------
-// on-disk shapes (mirror figbridge.ts / project format §3.2, §7)
+// on-disk shapes + writer plan: the ONE persistence core shared with the GUI
+// (src/lib/project/figfiles.ts, WS-5.6) — this engine keeps only its own
+// concerns: Node fs, locks, journal, manifest reindex.
 // --------------------------------------------------------------------------
-interface FigIndexFile {
-  schemaVersion: string;
-  canvases: { id: string; name: string; order: number }[];
-  figures: {
-    id: string;
-    name: string;
-    label: string;
-    order: number;
-    kind: string;
-    canvas: string;
-    caption: string;
-  }[];
-  assets?: {
-    id: string;
-    kind: "png" | "svg";
-    path?: string;
-    name?: string;
-    naturalWidth?: number;
-    naturalHeight?: number;
-    // Physical resolution a PNG declared (pHYs), captured at import. Physical
-    // size in canvas px = natural × 96/dpi — dropping this on load silently
-    // resized re-saved rasters (the Asset.dpi round-trip bug, fixed with P3).
-    dpi?: number;
-  }[];
-  palette?: string[];
-  colorGroups?: unknown[];
-  // Named text styles (project-level; mirrors figbridge.ts). Loaded into
-  // Project.textStyles and written back EXPLICITLY in saveFigModelUnlocked —
-  // either side omitting it silently wipes user styles on the next save.
-  textStyles?: TextStyle[];
-}
-interface CanvasFile {
-  schemaVersion: string;
-  id: string;
-  name: string;
-  figures: Figure[];
-}
+export type { FigIndexFile };
 
 /** Fail fast with a DIAGNOSIS when root isn't a Flux project. Verbs used to
  *  fail on whatever file they touched first ("figure not found", raw ENOENT on
@@ -224,7 +199,9 @@ async function readCanvasFiles(
 ): Promise<{ byId: Record<string, Figure>; canvasOf: Record<string, string> }> {
   const byId: Record<string, Figure> = {};
   const canvasOf: Record<string, string> = {};
-  for (const cm of idx.canvases ?? []) {
+  // WS-5.6: canonical canvas order (the GUI sorts; this engine used to trust
+  // array position — a hand-edited index gave the two different models).
+  for (const cm of sortedCanvasMeta(idx)) {
     const p = safeJoin(root, `fig/canvases/${cm.id}.json`);
     if (await exists(p)) {
       const cf = await readJSON<CanvasFile>(p);
@@ -262,17 +239,9 @@ export async function loadFigModel(root: string): Promise<{ project: Project; in
   await requireProject(root);
   const index = (await readFigIndex(root)) ?? emptyIndex();
   const { byId } = await readCanvasFiles(root, index);
-  const canvases: Canvas[] = (index.canvases ?? []).map((c) => ({ id: c.id, name: c.name }));
+  const canvases: Canvas[] = sortedCanvasMeta(index).map((c) => ({ id: c.id, name: c.name }));
   const figures: Figure[] = Object.values(byId); // canvas-then-file insertion order
-  const assets: Asset[] = (index.assets ?? []).map((a) => ({
-    id: a.id,
-    name: a.name ?? a.id,
-    kind: a.kind,
-    path: a.path ?? "",
-    naturalWidth: a.naturalWidth ?? 0,
-    naturalHeight: a.naturalHeight ?? 0,
-    ...(a.dpi != null ? { dpi: a.dpi } : {}), // keep the pHYs dpi (round-trip)
-  }));
+  const assets: Asset[] = normalizeIndexAssets(index); // WS-5.6: shared fallbacks
   const project: Project = {
     version: 2,
     name: "",
@@ -290,13 +259,6 @@ export async function loadFigModel(root: string): Promise<{ project: Project; in
   // normalization, so v1 docs mutated headless kept legacy fields forever.
   migrateProject(project);
   return { project, index };
-}
-
-/** A clean cross-ref label for a figure: `fig-<slug>` (slug-like ids pass through). */
-function deriveLabel(f: Figure): string {
-  const slugLike = /^[a-z0-9][a-z0-9-]*$/i.test(f.id) && !f.id.includes("_");
-  const base = slugLike ? f.id : slugify(f.name || f.id);
-  return `fig-${base || f.id}`;
 }
 
 export async function saveFigModel(
@@ -336,74 +298,20 @@ async function saveFigModelUnlocked(
   project: Project,
   index: FigIndexFile,
 ): Promise<void> {
-  const byCanvas = new Map<string, Figure[]>();
-  for (const f of project.figures) {
-    const arr = byCanvas.get(f.canvasId) ?? [];
-    arr.push(f);
-    byCanvas.set(f.canvasId, arr);
-  }
-  const canvasName = new Map((index.canvases ?? []).map((c) => [c.id, c.name] as const));
-  // Current model wins: without this, a brand-new canvas's file gets the id as
-  // its name on the first save and a spurious fix-up rewrite on the next one.
-  for (const c of project.canvases ?? []) canvasName.set(c.id, c.name);
-  // WS-5.3: skip byte-identical canvas rewrites (watcher churn + wear) and
-  // fsync the directory entry after the batch (rename durability).
-  let wroteCanvases = false;
-  for (const [cid, figs] of byCanvas) {
-    const cf: CanvasFile = {
-      schemaVersion: CANVAS_SCHEMA_VERSION,
-      id: cid,
-      name: canvasName.get(cid) ?? cid,
-      figures: figs,
-    };
-    const p = safeJoin(root, `fig/canvases/${cid}.json`);
-    const text = JSON.stringify(cf, null, 2) + "\n";
-    if ((await exists(p)) && (await fs.readFile(p, "utf8")) === text) continue;
-    await writeText(p, text);
-    wroteCanvases = true;
-  }
-  if (wroteCanvases) await fsyncDir(safeJoin(root, "fig/canvases"));
-  const prevFig = new Map((index.figures ?? []).map((f) => [f.id, f] as const));
-  index.figures = project.figures.map((f, i) => {
-    const prev = prevFig.get(f.id);
-    return {
-      id: f.id,
-      name: f.name,
-      label: prev?.label ?? deriveLabel(f),
-      order: i + 1,
-      kind: prev?.kind ?? "main",
-      canvas: f.canvasId,
-      caption: prev?.caption ?? "",
-    };
+  // WS-5.6: the write set (canvases + captions + index) comes from the ONE
+  // persistence core shared with the GUI. `index` (the loaded, possibly
+  // verb-mutated rollup) is the prev: labels/kinds persist through it. The
+  // executor owns the WS-5.3 ordering (canvases → dir fsync → captions →
+  // index LAST + .bak → dir fsync) and skips byte-identical rewrites.
+  const plan = planFigSave(project, index);
+  await executeFigSave(plan, {
+    read: async (rel) => {
+      const p = safeJoin(root, rel);
+      return (await exists(p)) ? await fs.readFile(p, "utf8") : null;
+    },
+    write: (rel, text) => writeText(safeJoin(root, rel), text),
+    fsyncDir: (rel) => fsyncDir(safeJoin(root, rel)),
   });
-  const prevCanvas = new Map((index.canvases ?? []).map((c) => [c.id, c] as const));
-  index.canvases = project.canvases.length
-    ? project.canvases.map((c, i) => ({ id: c.id, name: c.name, order: prevCanvas.get(c.id)?.order ?? i + 1 }))
-    : [...byCanvas.keys()].map((id, i) => ({ id, name: canvasName.get(id) ?? id, order: i + 1 }));
-  index.assets = project.assets.map((a) => ({
-    id: a.id,
-    kind: a.kind,
-    path: a.path,
-    name: a.name,
-    naturalWidth: a.naturalWidth,
-    naturalHeight: a.naturalHeight,
-    ...(a.dpi != null ? { dpi: a.dpi } : {}),
-  }));
-  index.palette = project.palette;
-  index.colorGroups = project.colorGroups ?? [];
-  index.textStyles = project.textStyles ?? []; // explicit writeback (wipe guard)
-  // WS-5.3: one-generation .bak of the commit point (index is written LAST),
-  // skip a byte-identical rewrite, fsync the dir entry.
-  {
-    const ip = j(root, "fig", "index.json");
-    const next = JSON.stringify(index, null, 2) + "\n";
-    const prev = (await exists(ip)) ? await fs.readFile(ip, "utf8") : null;
-    if (prev !== next) {
-      if (prev !== null) await writeText(ip + ".bak", prev);
-      await writeText(ip, next);
-      await fsyncDir(j(root, "fig"));
-    }
-  }
   await reindex(root);
 }
 
@@ -1080,10 +988,9 @@ export async function setCaption(
       const split = splitCaption(fig, trimmed);
       fig.captions = split ?? { ...(fig.captions ?? {}), __figure__: trimmed };
     }
-    const composed = composeCaption(fig);
-    await writeText(safeJoin(root, `fig/captions/${figId}.md`), composed ? composed + "\n" : "");
-    const entry = index.figures.find((x) => x.id === figId);
-    if (entry) entry.caption = composed.trim();
+    // WS-5.6: the save that follows (mutateFigModel) composes + emits the
+    // fig/captions/<id>.md file AND the index caption cache from Figure.captions
+    // — the manual writes this verb used to do are the persistence core's job.
     return { panels: panelLetters(fig) };
   });
 }
