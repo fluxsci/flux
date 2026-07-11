@@ -80,7 +80,9 @@ assert(/const locCache = new Map/.test(pdfView) && /onOrphans\?\.\(/.test(pdfVie
 assert(/onOrphans=\{/.test(reader) && /class:orphan=/.test(reader), "LR-13: ReaderMode surfaces orphaned highlights in the panel");
 assert(/g\.len === g\.contentLength/.test(proxy) && /const whole =/.test(proxy), "LR-14: the proxy grab accepts a whole (length==Content-Length) download");
 assert(/shell: command/.test(mainCjs), "SHL-18: pty:create returns the shell PATH, not the electron shell module");
-assert(/err\.code !== "ENOENT"/.test(mainCjs), "SHL-18: fs:exists distinguishes ENOENT from EACCES");
+// WS-9.4b: fs:exists lives in the FILES family module now.
+const filesCjs = await fs.readFile(new URL("../electron/ipc/files.cjs", import.meta.url), "utf8");
+assert(/err\.code !== "ENOENT"/.test(filesCjs), "SHL-18: fs:exists distinguishes ENOENT from EACCES");
 assert(/failedBatches === urls\.length/.test(enrichBridge), "LR-10: an all-batches-failed enrich run throws (not 'Enriched 0')");
 assert(/extract-on-demand|extract on demand|extractFulltext\(new Uint8Array/.test(fulltext), "LR-8: getPaperText extracts on demand so GUI-fetched PDFs stay searchable");
 

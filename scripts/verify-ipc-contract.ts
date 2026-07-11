@@ -23,7 +23,15 @@ const fail = (m: string) => {
 };
 
 const root = path.join(import.meta.dirname, "..");
-const mainSrc = await fs.readFile(path.join(root, "electron", "main.cjs"), "utf8");
+// WS-9.4b: handler families live in electron/ipc/*.cjs (main stays the
+// composition root) — the main-side extraction reads them all.
+const ipcDir = path.join(root, "electron", "ipc");
+const familySrcs = await Promise.all(
+  (await fs.readdir(ipcDir))
+    .filter((f) => f.endsWith(".cjs") && f !== "contract.cjs")
+    .map((f) => fs.readFile(path.join(ipcDir, f), "utf8")),
+);
+const mainSrc = (await fs.readFile(path.join(root, "electron", "main.cjs"), "utf8")) + familySrcs.join("\n");
 // app:flush is pushed by the flush coordinator (appLifecycle.cjs) — pushes may
 // originate in any main-process module that holds webContents. (bridgeServer's
 // .send()s go to WebSocket clients, not renderers — deliberately excluded.)
@@ -38,8 +46,8 @@ const extract = (src: string, re: RegExp) => {
 };
 
 // Main side (newline-tolerant — win:isMaximized registers across lines).
-const mainHandle = extract(mainSrc, /ipcMain\.handle\(\s*"([^"]+)"/g);
-const mainOn = extract(mainSrc, /ipcMain\.on\(\s*"([^"]+)"/g);
+const mainHandle = extract(mainSrc, /\bipc(?:Main)?\.handle\(\s*"([^"]+)"/g);
+const mainOn = extract(mainSrc, /\bipc(?:Main)?\.on\(\s*"([^"]+)"/g);
 const mainPush = extract(mainSrc + lifecycleSrc, /\.send\(\s*"([^"]+)"/g); // webContents/wc/sender sends
 // ipcRenderer.send lines don't exist in main; every .send( here is a push site.
 

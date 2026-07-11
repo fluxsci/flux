@@ -84,89 +84,28 @@ function notifyRenderer(level, msg, detail) {
   }
 }
 
-const recentWrites = new Map(); // absPath -> expiry (ms)
-function noteWrite(p) {
-  recentWrites.set(path.resolve(p), Date.now() + 1500);
-}
-
-// W2 (V1 review): durable renderer writes — every fs:write* lands via
-// write-tmp + fsync + rename, so a crash/power-loss can never truncate a
-// project file and no reader (agent CLI, watcher) sees a half-written file.
-// The dot-prefixed `.name.tmp-<pid>-<seq>` pattern is shared with
-// flux-core/fsx.ts and ignored by the project watcher below.
-let atomicSeq = 0;
-const TMP_WRITE_RE = /(^|[/\\])\.[^/\\]*\.tmp-\d+-\d+$/;
-async function atomicWriteMain(p, data) {
-  const dir = path.dirname(p);
-  await fs.promises.mkdir(dir, { recursive: true });
-  const tmp = path.join(dir, `.${path.basename(p)}.tmp-${process.pid}-${++atomicSeq}`);
-  noteWrite(tmp);
-  const fh = await fs.promises.open(tmp, "w");
-  try {
-    await fh.writeFile(data);
-    await fh.sync();
-  } finally {
-    await fh.close();
-  }
-  try {
-    await fs.promises.rename(tmp, p);
-    // SHL-10: refresh the self-write TTL at COMPLETION. The watcher's
-    // awaitWriteFinish only fires ≥250ms after the last write, so a large/slow
-    // write (e.g. the ~12MB enrich.json) could otherwise outlive the TTL set at
-    // write-start and echo back as a spurious "external change".
-    noteWrite(p);
-  } catch (e) {
-    await fs.promises.rm(tmp, { force: true }).catch(() => {});
-    throw e;
-  }
-}
-function isSelfWrite(p) {
-  const ab = path.resolve(p);
-  const exp = recentWrites.get(ab);
-  if (exp && exp > Date.now()) return true;
-  if (exp) recentWrites.delete(ab);
-  return false;
-}
-
-// M9: path-validation for the fs:* handlers (defense-in-depth — matters more now
-// that F1's agent/watch surface widens the attack area, and guards against a
-// malicious project.json with a traversal path). When a project is open we only
-// touch paths under (a) the project root, (b) the app's own dirs, or (c) a
-// directory the user explicitly reached through a file dialog (imports/exports).
+// WS-9.4b: the FILES family (write-safety core + fsGuard + fs:*/dlg:* handlers)
+// lives in ipc/files.cjs. main keeps the project-lifecycle roots it owns —
+// currentRoot (set by watch:setRoot) and the WS-9.3 single pending-open slot —
+// and lends them to the guard as a getter.
 let currentRoot = null;
-// WS-9.3: the open flow READS the project before watch:setRoot registers it —
-// fs:beginOpen pre-registers ONE pending root (it must actually be a Flux
-// project on disk); watch:setRoot promotes or clears it. A single slot, so
-// pre-approvals can never accumulate the way approvedDirs used to.
 let pendingRoot = null;
-const approvedDirs = new Set();
-function approveDir(p) {
-  if (p) approvedDirs.add(path.resolve(path.dirname(p)));
-}
-function underDir(ab, dir) {
-  return ab === dir || ab.startsWith(dir + path.sep);
-}
-function fsGuard(p) {
-  // WS-9.3: deny-by-default. The old `if (!currentRoot) return` allowed EVERYTHING
-  // in the launch→open window (and on Home) — the app dirs + FluxLib below are all
-  // Home actually needs (recents/prefs live in userData; library browsing in FluxLib).
-  const ab = path.resolve(p);
-  // W12 (SHL-6): dropped app.getPath("home") — allowing the entire user home made
-  // the guard nearly a no-op. Imports/exports outside the project still work because
-  // a file dialog `approveDir`s the chosen directory. Roots: the project (when open),
-  // the app's own dirs, the machine-global FluxLib, and dialog-approved dirs.
-  const roots = [
+const fileCore = require("./ipc/files.cjs").createFileCore({
+  app,
+  dialog,
+  roots: () => [
     currentRoot,
     pendingRoot, // WS-9.3: the project being opened right now (single slot)
-    app.getPath("userData"),
-    app.getPath("temp"),
-    getFluxConfigRoot(), // FluxLib lives inside; kept separately below for the EXDEV-fallback state
+    getFluxConfigRoot(), // FluxLib lives inside; kept separately for the EXDEV-fallback state
     getFluxLibRoot(),
-    ...approvedDirs,
-  ].filter(Boolean);
-  if (roots.some((r) => underDir(ab, path.resolve(r)))) return;
-  throw new Error(`refused path outside project/app roots: ${p}`);
-}
+  ],
+  setPendingRoot: (ab) => {
+    pendingRoot = ab;
+  },
+});
+const { noteWrite, atomicWriteMain, isSelfWrite, fsGuard, approveDir } = fileCore;
+const { TMP_WRITE_RE } = require("./ipc/files.cjs");
+
 
 // ---------------------------------------------------------------------------
 // Global preferences: <userData>/preferences.json — the first file-based config
@@ -820,161 +759,10 @@ ipcMain.handle("update:check", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// IPC: file dialogs + filesystem + PDF export
+// IPC: file dialogs + filesystem (the FILES family — ipc/files.cjs)
 // ---------------------------------------------------------------------------
-ipcMain.handle("dlg:open", async (_e, opts) => {
-  const res = await dialog.showOpenDialog({
-    properties: opts.directory
-      ? ["openDirectory"]
-      : opts.multiple
-        ? ["openFile", "multiSelections"]
-        : ["openFile"],
-    filters: opts.filters,
-    title: opts.title,
-  });
-  if (res.canceled) return null;
-  // M9: the user reached this dir on purpose — allow reading it + its siblings
-  // (the plot importer reads manifest/recipe next to a chosen .svg).
-  res.filePaths.forEach(approveDir);
-  return opts.multiple ? res.filePaths : res.filePaths[0];
-});
+fileCore.registerHandlers(ipcMain);
 
-ipcMain.handle("dlg:save", async (_e, opts) => {
-  const res = await dialog.showSaveDialog({
-    defaultPath: opts.defaultPath,
-    filters: opts.filters,
-    title: opts.title,
-  });
-  if (res.canceled) return null;
-  approveDir(res.filePath); // M9: allow writing the chosen export + sidecars
-  return res.filePath;
-});
-
-ipcMain.handle("fs:readFile", async (_e, p) => {
-  fsGuard(p);
-  const buf = await fs.promises.readFile(p);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-});
-ipcMain.handle("fs:writeFile", async (_e, p, data) => {
-  fsGuard(p);
-  noteWrite(p);
-  await atomicWriteMain(p, Buffer.from(data));
-});
-ipcMain.handle("fs:readText", async (_e, p) => {
-  fsGuard(p);
-  return fs.promises.readFile(p, "utf8");
-});
-ipcMain.handle("fs:writeText", async (_e, p, text) => {
-  fsGuard(p);
-  noteWrite(p);
-  await atomicWriteMain(p, Buffer.from(String(text), "utf8"));
-});
-ipcMain.handle("fs:mkdir", async (_e, p) => {
-  fsGuard(p);
-  await fs.promises.mkdir(p, { recursive: true });
-});
-// WS-5.3: atomicWriteMain fsyncs the FILE, but on Linux/mac a crash right
-// after the rename can still lose the DIRECTORY entry — callers fsync the
-// parent dir once per write batch. Best-effort; no-op on win32 (no dir fsync).
-ipcMain.handle("fs:fsyncDir", async (_e, p) => {
-  fsGuard(p);
-  if (process.platform === "win32") return;
-  let fh;
-  try {
-    fh = await fs.promises.open(p, "r");
-    await fh.sync();
-  } catch {
-    /* best-effort durability */
-  } finally {
-    await fh?.close().catch(() => {});
-  }
-});
-ipcMain.handle("fs:exists", async (_e, p) => {
-  fsGuard(p); // W12 (SHL-6): was unguarded — an existence-probe of any path
-  try {
-    await fs.promises.access(p);
-    return true;
-  } catch (err) {
-    // SHL-18: only ENOENT means "not there". EACCES/EPERM etc. mean the path EXISTS but isn't
-    // accessible — reporting that as absent would let a caller wrongly treat it as free to create.
-    return !!(err && err.code && err.code !== "ENOENT");
-  }
-});
-ipcMain.handle("fs:stat", async (_e, p) => {
-  fsGuard(p);
-  try {
-    const st = await fs.promises.stat(p);
-    return { mtimeMs: st.mtimeMs, size: st.size };
-  } catch {
-    return null; // absent (or blocked) — callers treat null as "no cacheable identity"
-  }
-});
-ipcMain.handle("fs:readdir", async (_e, p) => {
-  fsGuard(p); // W12 (SHL-6): was unguarded — a directory-listing of any path
-  try {
-    const es = await fs.promises.readdir(p, { withFileTypes: true });
-    return es.map((e) => ({ name: e.name, dir: e.isDirectory() }));
-  } catch {
-    return [];
-  }
-});
-// Delete a file (used to clear a paper's fetch-failure record on a later success). Guarded
-// to the same project/app roots as every other write; a missing file is a no-op success.
-ipcMain.handle("fs:remove", async (_e, p) => {
-  fsGuard(p);
-  try {
-    await fs.promises.rm(p, { force: true });
-  } catch {
-    /* already gone / unremovable — treat as removed */
-  }
-});
-
-// ---------------------------------------------------------------------------
-// File-watch live reload (F1): the renderer registers the open project root; we
-// watch plots/, fig/, manuscript/**, references/ and emit debounced fs:changed
-// events ({ subsystem, path }), skipping the app's own writes so agent/script
-// edits "pop into" the open window non-destructively.
-// ---------------------------------------------------------------------------
-function subsystemFor(root, abs) {
-  const rel = path.relative(root, abs).split(path.sep).join("/");
-  if (rel.startsWith("..")) return null;
-  if (rel.startsWith("plots/")) return "plots";
-  if (rel.startsWith("fig/")) return "fig";
-  if (rel.startsWith("manuscript/")) return "manuscript";
-  if (rel.startsWith("references/")) return "references";
-  if (rel.startsWith("slides/")) return "slides"; // W10 (SLD-1)
-  return null;
-}
-
-// W10 (LR-3): the machine-global FluxLib lives outside the project root, so classify
-// its watched paths separately. We watch library.bib + .fluxlib/enrich.json + items/
-// (NOT .fluxlib/locks/, whose 10s heartbeats would spam spurious revisions).
-function fluxLibSubsystemFor(libRoot, abs) {
-  const rel = path.relative(libRoot, abs).split(path.sep).join("/");
-  if (rel.startsWith("..")) return null;
-  if (rel === "library.bib" || rel === ".fluxlib/enrich.json" || rel.startsWith("items/")) {
-    return "fluxlib";
-  }
-  // The drop-inbox: only landed PDFs count — sidecar notes and our own _unresolved/
-  // filing must not re-trigger a scan (awaitWriteFinish already debounces mid-copy).
-  if (rel.startsWith("pdfs_to_assign/")) {
-    return !rel.includes("_unresolved/") && /\.pdf$/i.test(rel) ? "assign-inbox" : null;
-  }
-  return null;
-}
-
-ipcMain.handle("fs:beginOpen", async (_e, root) => {
-  // WS-9.3: pre-register the project the renderer is about to load, so the
-  // load's fs:* reads pass the deny-by-default guard. Only a real Flux project
-  // qualifies (same marker requireProject uses); anything else clears the slot.
-  const ab = root ? path.resolve(String(root)) : null;
-  if (!ab || !fs.existsSync(path.join(ab, "project.json"))) {
-    pendingRoot = null;
-    return false;
-  }
-  pendingRoot = ab;
-  return true;
-});
 
 ipcMain.handle("watch:setRoot", async (_e, root) => {
   releaseAllGuiLocks(); // W3: locks belong to the outgoing project/session
@@ -984,7 +772,7 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   // approved for an import in project A must not stay writable from project B
   // (or from Home, root=null). The pending pre-approval is promoted (or dropped)
   // by this registration either way.
-  approvedDirs.clear();
+  fileCore.clearApprovals();
   pendingRoot = null;
   // WS4: bring the live agent bridge up/down with the open project.
   startBridgeFor(currentRoot);

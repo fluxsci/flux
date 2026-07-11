@@ -138,7 +138,7 @@ try {
       ["src/lib/project/figfiles.ts", "index commit (executor)", /io\.fsyncDir\?\.\("fig"\)/],
       ["flux-core/index.ts", "Node adapter", /fsyncDir: \(rel\) => fsyncDir\(safeJoin\(root, rel\)\)/],
       ["src/lib/project/figbridge.ts", "renderer adapter", /fig\.fsyncDir!\(joinPath\(root, rel\)\)/],
-      ["electron/main.cjs", "IPC handler", /["']fs:fsyncDir["']/],
+      ["electron/ipc/files.cjs", "IPC handler (files family)", /["']fs:fsyncDir["']/],
       ["electron/preload.cjs", "bridge exposure", /fsyncDir/],
     ];
     for (const [file, what, re] of wired) {
