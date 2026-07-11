@@ -34,7 +34,11 @@
 
   // Only handle figure shortcuts while this pane is focused, so they don't fire
   // while the user is typing in another (e.g. Write) pane.
-  let { focused = true }: { focused?: boolean } = $props();
+  // WS-1 Fix 7: `active` (ModeContent keep-alive — false while another mode is
+  // shown) suspends the per-notify derived recompute in Canvas/Sidebar; the
+  // scene DOM stays mounted (W16 warm-switch) and one recompute runs on
+  // reactivation via the figureRev memo keys.
+  let { focused = true, active = true }: { focused?: boolean; active?: boolean } = $props();
 
   const pm = get(projectModel); // the loaded Flux project (or null on web/demo)
   let ready = false;
@@ -141,8 +145,8 @@
 <div class="figure-mode">
   <Toolbar />
   <div class="body">
-    <Sidebar />
-    <main class="canvas-wrap"><Canvas /><ArrangeHud /></main>
+    <Sidebar paneActive={active} />
+    <main class="canvas-wrap"><Canvas paneActive={active} /><ArrangeHud /></main>
     <!-- The Inspector steps aside while the caption editor is open, giving the
          caption page room (and keeping the figure read-only / distraction-free). -->
     {#if !$captionOpen}<Inspector />{/if}

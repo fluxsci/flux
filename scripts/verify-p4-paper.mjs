@@ -147,9 +147,10 @@ assert(
   "PAP-14/19: cross-ref grammar is shared (crossrefRe drops sec, includes fig|tbl|eq; chips + render import it)",
 );
 assert(
-  /function wouldDuplicatePaper/.test(paneStore) &&
-    (paneStore.match(/wouldDuplicatePaper\(/g) || []).length >= 3,
-  "PAP-16: paneStore gates a second Paper pane (splitWith + setFocusedMode)",
+  /function wouldDuplicateSingleton/.test(paneStore) &&
+    (paneStore.match(/wouldDuplicateSingleton\(/g) || []).length >= 3 &&
+    /SINGLETON_MODES[^=]*=\s*\["paper", "figure"\]/.test(paneStore),
+  "PAP-16 + WS-1 Fix 7b: paneStore gates duplicate SINGLETON panes (paper AND figure) at splitWith + setFocusedMode",
 );
 assert(
   /export async function syncRoot/.test(termSession) &&

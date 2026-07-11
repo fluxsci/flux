@@ -10,6 +10,8 @@ import {
   commit,
   beginGesture,
   mutate,
+  mutateFigure,
+  editGen,
   clearSelection,
   selectOnly,
   selectedFrameId,
@@ -197,13 +199,32 @@ export function arrangeToRows(rows: number) {
   lastArrangeRows.set(r);
 }
 
+// WS-1 Fix 5: held arrow-key nudges coalesce into ONE undo entry — key
+// auto-repeat (~30/s) used to pay a full commit() (structuredClone snapshot +
+// unscoped notify) per repeat. A session = beginGesture once, then scoped
+// mutateFigure per repeat; it closes ~350ms after the last repeat. The editGen
+// guard makes reuse safe: if ANY other edit/undo/gesture landed since our last
+// nudge, the generation moved and we open a fresh gesture instead of mutating
+// someone else's undo entry.
+const nudgeSession = { open: false, gen: -1, timer: null as ReturnType<typeof setTimeout> | null };
 function nudge(dx: number, dy: number) {
-  withSelected((els) => {
-    for (const e of els) {
-      e.x += dx;
-      e.y += dy;
-    }
+  const sel = get(selection);
+  const fig = activeFig();
+  if (!fig || sel.size === 0) return;
+  if (!nudgeSession.open || editGen.n !== nudgeSession.gen) beginGesture();
+  nudgeSession.open = true;
+  mutateFigure(fig.id, (p) => {
+    const f = p.figures.find((ff) => ff.id === fig.id);
+    if (!f) return;
+    for (const e of f.elements)
+      if (sel.has(e.id)) {
+        e.x += dx;
+        e.y += dy;
+      }
   });
+  nudgeSession.gen = editGen.n;
+  if (nudgeSession.timer) clearTimeout(nudgeSession.timer);
+  nudgeSession.timer = setTimeout(() => (nudgeSession.open = false), 350);
 }
 
 // Nudge the drilled-in plot PART instead of the element: increments the

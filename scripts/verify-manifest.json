@@ -152,7 +152,8 @@
       "verify-text-styles.mjs",
       "verify-groups-layers.mjs",
       "verify-slide-groups-gui.mjs",
-      "verify-line-pivot.mjs"
+      "verify-line-pivot.mjs",
+      "verify-fig-suspend.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",

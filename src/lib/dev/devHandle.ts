@@ -21,6 +21,7 @@ import * as slideOps from "../slide/ops";
 import * as slideBridge from "../project/slideBridge";
 import * as toast from "../toast";
 import * as lifecycle from "../../shell/lifecycle";
+import { perfCounters } from "./perfCounters";
 
 export interface FluxDevHandle {
   /** Snapshot any Svelte store: `__flux.get(__flux.fig.project)`. */
@@ -55,6 +56,8 @@ export interface FluxDevHandle {
   settings: typeof settings;
   /** Live CodeMirror editor views (one per open Paper pane). */
   editors: unknown[];
+  /** WS-1 recompute counters (Canvas culling/effState, Sidebar rows). */
+  perf: typeof perfCounters;
 }
 
 export function installDevHandle(): void {
@@ -77,5 +80,6 @@ export function installDevHandle(): void {
     figures: () => get(fig.project).figures,
     settings,
     editors: existing.editors ?? [],
+    perf: perfCounters,
   } satisfies FluxDevHandle;
 }

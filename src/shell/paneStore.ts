@@ -11,14 +11,26 @@ export interface Pane {
   mode: ModeId;
 }
 
-// PAP-16: two Paper panes side-by-side would share the manuscript's module-global singletons
-// (table numbering, cursor position, the selection bubble), so `@tbl` numbers and the comment
-// bubble collide across panes. Rather than ship that broken, gate the split for V1: refuse to
-// leave two manuscript panes open and say why. (Removing this = keying those stores per-pane.)
-function wouldDuplicatePaper(kept: Pane[], incoming: ModeId): boolean {
-  if (incoming !== "paper" || !kept.some((p) => p.mode === "paper")) return false;
-  pushToast("info", "Two manuscript panes aren’t supported yet", {
-    detail: "Keep one pane on Paper; open the other as Figure, Slide, Library, or Reader.",
+// PAP-16 + WS-1 Fix 7b: SINGLETON modes — two side-by-side panes of these
+// would share module-global state, so the split is gated for V1 and the
+// request deterministically FOCUSES the pane that already shows the mode.
+//   paper:  manuscript numbering/cursor/bubble singletons (WS-4.2 removes the
+//           numbering ones, but the block stays until ALL are per-pane).
+//   figure: the figure stores (project/selection/viewport in lib/store.ts)
+//           are fully app-global — both panes would render every commit and
+//           fight over selection. Real fix = per-pane figure stores (F5.3,
+//           deferred — do not build here).
+const SINGLETON_MODES: readonly ModeId[] = ["paper", "figure"];
+function wouldDuplicateSingleton(kept: Pane[], incoming: ModeId): boolean {
+  if (!SINGLETON_MODES.includes(incoming)) return false;
+  const existing = kept.find((p) => p.mode === incoming);
+  if (!existing) return false;
+  focusedPaneId.set(existing.id);
+  pushToast("info", `Two ${incoming === "paper" ? "manuscript" : "figure"} panes aren’t supported yet`, {
+    detail:
+      incoming === "paper"
+        ? "Keep one pane on Paper; open the other as Figure, Slide, Library, or Reader."
+        : "Focused the existing Figure pane instead.",
   });
   return true;
 }
@@ -50,7 +62,7 @@ export function focusPane(id: string) {
 /** Set the focused pane's mode. */
 export function setFocusedMode(mode: ModeId) {
   const fid = get(focusedPaneId);
-  if (wouldDuplicatePaper(get(panes).filter((p) => p.id !== fid), mode)) return;
+  if (wouldDuplicateSingleton(get(panes).filter((p) => p.id !== fid), mode)) return;
   panes.update((ps) => ps.map((p) => (p.id === fid ? { ...p, mode } : p)));
 }
 
@@ -63,11 +75,11 @@ export function splitWith(mode: ModeId) {
   if (ps.length >= 2) {
     const fid = get(focusedPaneId);
     const focused = ps.filter((p) => p.id === fid);
-    if (wouldDuplicatePaper(focused, mode)) return;
+    if (wouldDuplicateSingleton(focused, mode)) return;
     panes.update((list) => list.map((p) => (p.id !== fid ? { ...p, mode } : p)));
     return;
   }
-  if (wouldDuplicatePaper(ps, mode)) return;
+  if (wouldDuplicateSingleton(ps, mode)) return;
   const id = newId();
   panes.set([...ps, { id, mode }]);
   focusedPaneId.set(id);

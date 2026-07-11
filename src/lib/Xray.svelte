@@ -33,8 +33,11 @@
   import type { FluxPlotManifest } from "./plot/types";
 
   // --- the pinned root + its tree -----------------------------------------
+  // WS-1 Fix 4: the tree rebuilds only while the panel is OPEN — the {#if
+  // $xrayOpen} below gates the DOM but not $: blocks, so a closed X-ray was
+  // paying a full tree rebuild on every commit.
   $: root = $xrayRoot;
-  $: tree = buildXrayTree($project, root, $plotManifests);
+  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests) : null;
 
   // Parents of the current root (ctrl-click re-root pushes; Backspace pops).
   let rootStack: XrayTarget[] = [];

@@ -30,6 +30,7 @@
     arrange,
   } from "./store";
   import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
+  import { perfCounters } from "./dev/perfCounters";
   import { commitArrange } from "./keyboard";
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get } from "svelte/store";
@@ -293,11 +294,19 @@
   // Memos live in a NON-reactive const box: reassigning a component `let` that
   // the same $: block reads makes the effect self-dependent (it re-runs until
   // the scheduler's loop guard trips — a measured 4× pan regression).
+  // WS-1 Fix 7: while the Figure pane is hidden behind another mode (keep-alive)
+  // the expensive derives return their FROZEN last value — no recompute per
+  // notify. Reactivation re-runs them (paneActive is a dep) and the rev-keyed
+  // memos recompute exactly the figures whose revisions moved while hidden.
+  export let paneActive = true;
+
   const effMemoBox = { key: "", val: new Map<string, { hidden: boolean; locked: boolean }>() };
   $: effState = (() => {
+    if (!paneActive) return effMemoBox.val;
     const key =
       canvasFigures.map((f) => `${f.id}:${$figureRev[f.id] ?? 0}`).join(",") + `|${$globalRev}`;
     if (key === effMemoBox.key) return effMemoBox.val;
+    perfCounters.effRecomputes++;
     const m = new Map<string, { hidden: boolean; locked: boolean }>();
     for (const f of canvasFigures) {
       if (!f.groups || !Object.keys(f.groups).length) continue; // 3a fast path
@@ -394,8 +403,10 @@
     // throttle's own `cullKey` let and forced a re-cull every pan frame.
     cullRef: null as Rect | null,
     cullGen: 0,
+    frozen: new Map<string, Element[]>(), // last computed map (Fix 7 suspension)
   };
   $: visibleByFig = (() => {
+    if (!paneActive) return visMemoBox.frozen; // Fix 7: hidden pane — no recompute
     void effState; // P7: group eyes change the visible set (effHidden reads it)
     if ($selection !== visMemoBox.sel) {
       visMemoBox.sel = $selection;
@@ -415,11 +426,15 @@
     for (const f of visibleFigures) {
       const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}`;
       let mm = visMemoBox.map.get(f.id);
-      if (!mm || mm.key !== key) mm = { key, els: visibleEls(f) };
+      if (!mm || mm.key !== key) {
+        perfCounters.visRecomputes++;
+        mm = { key, els: visibleEls(f) };
+      }
       next.set(f.id, mm);
       m.set(f.id, mm.els);
     }
     visMemoBox.map = next;
+    visMemoBox.frozen = m;
     return m;
   })();
 

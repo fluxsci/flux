@@ -1,7 +1,7 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { onMount } from "svelte";
-  import { project, selection, partSelection, activeFigureId, commit, mutate, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
+  import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
   import type { Element, Figure, Project, TextStyle } from "./types";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
@@ -28,11 +28,27 @@
     loadGlobalTextStyles(); // machine-global style library (best-effort)
   });
 
-  // Reactive view of the current selection / active figure.
+  // Reactive view of the current selection / active figure. Selections CAN
+  // span figures (keyboard selectMatching "project" scope), so the scan stays
+  // project-wide — but rev-gated (WS-1 Fix 4): it re-runs only when the
+  // selection identity or a figure revision changes, not on every notify.
+  const selMemoBox = { key: "", val: [] as Element[], sel: null as unknown, selGen: 0, revs: null as unknown, revGen: 0 };
   $: sel = (() => {
+    if ($selection !== selMemoBox.sel) {
+      selMemoBox.sel = $selection;
+      selMemoBox.selGen++;
+    }
+    if ($figureRev !== selMemoBox.revs) {
+      selMemoBox.revs = $figureRev;
+      selMemoBox.revGen++;
+    }
+    const key = `${selMemoBox.selGen}|${selMemoBox.revGen}|${$globalRev}`;
+    if (key === selMemoBox.key) return selMemoBox.val;
     const out: Element[] = [];
     for (const f of $project.figures)
       for (const e of f.elements) if ($selection.has(e.id)) out.push(e);
+    selMemoBox.key = key;
+    selMemoBox.val = out;
     return out;
   })();
   $: single = sel.length === 1 ? sel[0] : null;

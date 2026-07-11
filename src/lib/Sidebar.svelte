@@ -7,6 +7,8 @@
     selectOnly,
     commit,
     mutateFigure,
+    figureRev,
+    globalRev,
     beginGesture,
     blankFigure,
     addCanvas,
@@ -18,6 +20,7 @@
   import * as ops from "./ops";
   import { membersDeep } from "./groups";
   import { deriveLayerRows, type LayerRow } from "./figure/derived/layerRows";
+  import { perfCounters } from "./dev/perfCounters";
   import VirtualFixedList from "./ui/VirtualFixedList.svelte";
 
   function addFigure() {
@@ -99,7 +102,27 @@
   function toggleCollapsed(gid: string) {
     collapsed = { ...collapsed, [gid]: !collapsed[gid] };
   }
-  $: rows = activeFig ? deriveLayerRows(activeFig, collapsed) : [];
+  // WS-1 Fix 7: hidden keep-alive pane — freeze rows (see Canvas paneActive).
+  export let paneActive = true;
+
+  // WS-1 Fix 4: rows rebuild only when the ACTIVE figure's revision (or a
+  // global/unscoped commit, or collapse state) changes — not on every project
+  // notify. Memo lives in a non-reactive const box (see Canvas effMemoBox note).
+  const rowsMemoBox = { key: "", val: [] as LayerRow[], collapsed: null as unknown, collapsedGen: 0 };
+  $: rows = (() => {
+    if (!paneActive) return rowsMemoBox.val;
+    if (!activeFig) return [];
+    if (collapsed !== rowsMemoBox.collapsed) {
+      rowsMemoBox.collapsed = collapsed;
+      rowsMemoBox.collapsedGen++;
+    }
+    const key = `${activeFig.id}|${$figureRev[activeFig.id] ?? 0}|${$globalRev}|${rowsMemoBox.collapsedGen}`;
+    if (key === rowsMemoBox.key) return rowsMemoBox.val;
+    perfCounters.rowsRecomputes++;
+    rowsMemoBox.key = key;
+    rowsMemoBox.val = deriveLayerRows(activeFig, collapsed);
+    return rowsMemoBox.val;
+  })();
 
   // WS-1 Fix 6b: fixed layer-row height (px) — the windowing grid. Matches the
   // measured natural height of a row pre-virtualization; .layer pins it in CSS.
