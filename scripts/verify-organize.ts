@@ -15,7 +15,7 @@ import {
   mergeOrganize,
   normalizeOrganize,
 } from "../src/lib/references/organize";
-import { runQuery, parseQuery, isStructured } from "../src/lib/references/query";
+import { runQuery, parseQuery, isStructured, attachHaystacks, createQueryRunner } from "../src/lib/references/query";
 import type { RefEntry } from "../src/lib/references/types";
 
 let fails = 0;
@@ -93,6 +93,41 @@ const ok = (c: boolean, name: string, extra = "") => {
   ok(runQuery(merged, "collection:thesis").map((e) => e.key).sort().join() === "hubel,marder", "collection: filters to members");
   ok(runQuery(merged, "tag:cpg status:read").map((e) => e.key).join() === "marder", "combined tag: + status: (AND)");
   ok(runQuery(merged, "tag:cpg status:reading").length === 0, "combined clauses that share no paper → empty");
+}
+
+// ---- WS-8.1: haystack precompute + incremental refinement ---------------------
+{
+  const mk = (key: string, title: string, extra: Partial<RefEntry> = {}): RefEntry =>
+    ({ key, title, authors: ["Doe, J."], year: "2020", container: "Nature", raw: "", ...extra }) as RefEntry;
+  const pool = [
+    mk("alpha", "Neural dynamics of decision"),
+    mk("beta", "Decision boundaries in cortex"),
+    mk("gamma", "Cortical maps"),
+    mk("delta", "Unrelated paper on rivers"),
+  ];
+  // (1) attachHaystacks changes NO results — hay path ≡ per-call build.
+  const plainRes = (q: string) => runQuery(pool.map((e) => ({ ...e })), q).map((e) => e.key).join();
+  const hayPool = attachHaystacks(pool.map((e) => ({ ...e })));
+  for (const q of ["decision", "cortex", "doe", "2020", "nature decision", "zzz"]) {
+    ok(runQuery(hayPool, q).map((e) => e.key).join() === plainRes(q), `hay ≡ plain for "${q}"`);
+  }
+  ok(!JSON.stringify(hayPool[0]).includes("_hay"), "_hay is non-enumerable (never serializes)");
+
+  // (2) the refining runner ≡ from-scratch runQuery across a typing sequence.
+  const run = createQueryRunner<RefEntry>();
+  const seq = ["d", "de", "dec", "deci", "decision", "decision c", "decision cortex"];
+  for (const q of seq) {
+    ok(run(hayPool, q).map((e) => e.key).join() === runQuery(hayPool, q).map((e) => e.key).join(),
+      `refined ≡ fresh for "${q}" (order included)`);
+  }
+  // (3) non-extending edit, structured query, and new-array identity all fall back safely.
+  ok(run(hayPool, "cortex").map((e) => e.key).join() === runQuery(hayPool, "cortex").map((e) => e.key).join(),
+    "non-extending edit falls back to the full scan");
+  ok(run(hayPool, "author:doe").map((e) => e.key).join() === runQuery(hayPool, "author:doe").map((e) => e.key).join(),
+    "structured query bypasses refinement");
+  const rebuilt = attachHaystacks(pool.map((e) => ({ ...e })));
+  ok(run(rebuilt, "co").map((e) => e.key).join() === runQuery(rebuilt, "co").map((e) => e.key).join(),
+    "new entries-array identity forces a full scan");
 }
 
 console.log(fails ? `\n${fails} FAILED` : "\nall green");

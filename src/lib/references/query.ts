@@ -101,6 +101,42 @@ export function parseQuery(q: string): Clause[] {
   return clauses;
 }
 
+/** WS-8.1: the "any"-clause haystack for one entry — the exact concat
+ *  clauseMatches builds, factored so it can be PRECOMPUTED once per entry
+ *  instead of per entry × per keystroke (the measured query hot path). */
+function buildHay(e: RefEntry): string {
+  const en = (e as { enrich?: EnrichEntry }).enrich;
+  const topicText = [en?.primaryTopic?.name, ...(en?.topics ?? []).map((t) => t.name)]
+    .filter(Boolean)
+    .join(" ");
+  return [
+    e.title,
+    e.authors.join(" "),
+    e.container ?? "",
+    e.year,
+    e.key,
+    e.doi ?? "",
+    en?.abstract ?? "",
+    (en?.keywords ?? []).join(" "),
+    topicText,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+/** WS-8.1: stamp a non-enumerable `_hay` (lowercased "any" haystack) on each
+ *  entry so free-text matching is one precomputed `includes` instead of a
+ *  9-field join+lowercase per entry per keystroke. Non-enumerable: invisible
+ *  to JSON/structuredClone, so persisted shapes are untouched. Call it where
+ *  the merged entry array is (re)built — stale hays cannot outlive the entry
+ *  objects they are stamped on. Returns the same array. */
+export function attachHaystacks<T extends RefEntry>(entries: T[]): T[] {
+  for (const e of entries) {
+    Object.defineProperty(e, "_hay", { value: buildHay(e), enumerable: false, configurable: true, writable: true });
+  }
+  return entries;
+}
+
 function clauseMatches(e: RefEntry, c: Clause): boolean {
   const v = c.value.toLowerCase();
   // Enriched fields (abstract/keywords/topics) are matched when the entry has been
@@ -135,26 +171,46 @@ function clauseMatches(e: RefEntry, c: Clause): boolean {
     case "year":
       return /^\d{4}$/.test(c.value) ? e.year === c.value : e.year.startsWith(c.value);
     case "any":
-    default:
-      return [
-        e.title,
-        e.authors.join(" "),
-        e.container ?? "",
-        e.year,
-        e.key,
-        e.doi ?? "",
-        en?.abstract ?? "",
-        (en?.keywords ?? []).join(" "),
-        topicText(),
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(v);
+    default: {
+      // WS-8.1: use the precomputed haystack when the caller attached one.
+      const hay = (e as { _hay?: string })._hay;
+      return (typeof hay === "string" ? hay : buildHay(e)).includes(v);
+    }
   }
 }
 
 export function matchEntry(e: RefEntry, clauses: Clause[]): boolean {
   return clauses.every((c) => clauseMatches(e, c));
+}
+
+/** WS-8.1: a stateful query runner with incremental REFINEMENT — when the new
+ *  query extends the previous one and both are pure free-text (every clause
+ *  "any": each typed character only narrows the match set), the scan pool is
+ *  the previous matches instead of the whole library. The pool is re-filtered
+ *  in ORIGINAL entry order (Set membership, O(1)/entry) so ranking tie-order
+ *  is IDENTICAL to a from-scratch runQuery — the pure gate asserts equality.
+ *  Any change to the entries array identity, a structured/fulltext query, or a
+ *  non-extending edit falls back to the full scan. */
+export function createQueryRunner<T extends RefEntry>(): (entries: T[], q: string) => T[] {
+  let lastEntries: T[] | null = null;
+  let lastQ = "";
+  let lastMatches: Set<T> | null = null;
+  return (entries, q) => {
+    const freeText = (s: string) => !isStructured(s) && !hasFulltext(s);
+    const refinable =
+      lastEntries === entries &&
+      lastMatches !== null &&
+      lastQ !== "" &&
+      q.startsWith(lastQ) &&
+      freeText(q) &&
+      freeText(lastQ);
+    const pool = refinable ? entries.filter((e) => lastMatches!.has(e)) : entries;
+    const out = runQuery(pool, q);
+    lastEntries = entries;
+    lastQ = q;
+    lastMatches = new Set(out);
+    return out;
+  };
 }
 
 /** Filter + light relevance ranking (author/title/journal prefix hits float up). */

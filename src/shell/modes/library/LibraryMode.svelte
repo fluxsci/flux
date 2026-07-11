@@ -15,7 +15,7 @@
   // plus a "World" scope that searches ALL of OpenAlex — by keyword OR by meaning
   // (semantic) — with one-click add + per-entry citing / similar / author lookups.
   import { onMount, untrack } from "svelte";
-  import { runQuery, extractFulltext, hasFulltext } from "../../../lib/references/query";
+  import { runQuery, extractFulltext, hasFulltext, attachHaystacks, createQueryRunner } from "../../../lib/references/query";
   import type { RefEntry } from "../../../lib/references/types";
   import { mergeEnrich, type EnrichMap, type EnrichedEntry } from "../../../lib/references/enrich";
   import {
@@ -145,7 +145,10 @@
   let lookupCtx = $state<{ kind: "citing" | "author" | "similar"; key: string; label: string } | null>(null);
   let lookupSource = $state<"openalex" | "s2">("openalex");
 
-  const enriched = $derived(mergeOrganize(mergeEnrich(entries, enrichMap), organizeData) as EnrichedEntry[]);
+  // WS-8.1: attachHaystacks stamps each merged entry's lowercased free-text
+  // haystack ONCE per rebuild — clauseMatches("any") then does a single
+  // .includes per entry per keystroke instead of a 9-field join+lowercase.
+  const enriched = $derived(attachHaystacks(mergeOrganize(mergeEnrich(entries, enrichMap), organizeData) as EnrichedEntry[]));
   // LR-4: precompute each entry's PDF-dir key (safeKey → 3 regexes + trim, then a Unicode
   // NFC normalize) ONCE per load. hasPdf()/isFailed() run 4–6× per row per render across
   // every result row plus the coverage stats; without this they re-ran the whole regex+
@@ -155,6 +158,9 @@
   // Debounce the query: runQuery scans every entry's title+abstract (multi-MB over 1710
   // entries), so running it on each keystroke janks. Recompute ~150ms after typing stops.
   let queryDebounced = $state("");
+  // WS-8.1: incremental refinement — typing another character rescans only the
+  // previous result set (pure free-text queries only; see createQueryRunner).
+  const queryRun = createQueryRunner<EnrichedEntry>();
   let queryTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     const q = query;
@@ -279,7 +285,7 @@
   const results = $derived.by(() => {
     // Full-text mode: show only papers whose stored text matched (from the async scan);
     // otherwise the metadata query. showFailedOnly narrows either.
-    let base = ftMode ? enriched.filter((r) => ftHits.has(nfc(r.key))) : runQuery(enriched, queryDebounced);
+    let base = ftMode ? enriched.filter((r) => ftHits.has(nfc(r.key))) : queryRun(enriched, queryDebounced);
     if (showFailedOnly) base = base.filter((r) => isFailed(r.key));
     if (sortCol) {
       const col = sortCol;
