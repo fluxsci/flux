@@ -18,6 +18,7 @@ import * as path from "node:path";
 import { resolveFluxLibPath } from "./fluxlib";
 import { hasPdf } from "./items";
 import { foldText, parseQueryTerms } from "../src/lib/references/textFold";
+import { loadFreshFulltextIndex, candidateDocs } from "./fulltextIndex";
 
 export interface FulltextSnippet {
   page: number; // 1-based
@@ -44,6 +45,9 @@ export interface FulltextOpts {
   snippetsPerPaper?: number; // default 3
   snippetChars?: number; // context length, default 240
   libPath?: string;
+  /** WS-8.4 test escape: skip the index and run the original linear scan (the
+   *  oracle the scale gate compares against). */
+  forceScan?: boolean;
 }
 
 const CONCURRENCY = 8;
@@ -99,6 +103,65 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
   }
   const wanted = opts.keys ? new Set(opts.keys.map((k) => k.normalize("NFC"))) : null;
 
+  // The exact per-document verdict — IDENTICAL for the index and scan paths
+  // (the index only nominates candidates; this is the semantics).
+  const matchDoc = (original: string, key: string): FulltextHit | null => {
+    const folded = foldText(original);
+    if (!needles.every((n) => folded.includes(n))) return null;
+    const primary = needles[0];
+    const snippets: FulltextSnippet[] = [];
+    let count = 0;
+    let at = folded.indexOf(primary);
+    const seenPages = new Set<number>();
+    while (at >= 0) {
+      count++;
+      if (snippets.length < perPaper) {
+        const s = snippetAround(original, folded, at, primary.length, chars);
+        if (!seenPages.has(s.page)) {
+          seenPages.add(s.page);
+          snippets.push(s);
+        }
+      }
+      at = folded.indexOf(primary, at + primary.length);
+    }
+    return { key, count, snippets };
+  };
+
+  // --- WS-8.4: indexed path — postings nominate candidates, matchDoc decides ----
+  if (!opts.forceScan) {
+    const fresh = await loadFreshFulltextIndex(L).catch(() => null);
+    const cands = fresh ? candidateDocs(fresh.idx, needles) : null;
+    if (fresh && cands !== null) {
+      result.missingText = wanted ? fresh.missingText.filter((k) => wanted.has(k)) : fresh.missingText.slice();
+      for (const key of fresh.dirOrder) {
+        if (!cands.has(key)) continue;
+        if (wanted && !wanted.has(key)) continue;
+        let original: string;
+        try {
+          original = await fs.readFile(path.join(itemsDir, key, "fulltext.txt"), "utf8");
+        } catch {
+          continue; // raced deletion — the next load purges it
+        }
+        result.scanned++;
+        const hit = matchDoc(original, key);
+        if (!hit) continue; // conservative candidate that fails exact matching
+        result.hits.push(hit);
+        if (result.hits.length >= limit) {
+          // More candidates remained → same truncation semantics as the scan.
+          result.truncated = fresh.dirOrder.indexOf(key) < fresh.dirOrder.length - 1;
+          break;
+        }
+      }
+      result.hits.sort((a, b) => b.count - a.count);
+      if (result.hits.length > limit) {
+        result.truncated = true;
+        result.hits.length = limit;
+      }
+      result.elapsedMs = Date.now() - t0;
+      return result;
+    }
+  }
+
   let i = 0;
   let stop = false;
   const worker = async (): Promise<void> => {
@@ -117,27 +180,9 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
         continue;
       }
       result.scanned++;
-      const folded = foldText(original);
-      // AND semantics: every needle must appear somewhere.
-      if (!needles.every((n) => folded.includes(n))) continue;
-      // Count + snippets follow the FIRST needle (the primary term).
-      const primary = needles[0];
-      const snippets: FulltextSnippet[] = [];
-      let count = 0;
-      let at = folded.indexOf(primary);
-      const seenPages = new Set<number>();
-      while (at >= 0) {
-        count++;
-        if (snippets.length < perPaper) {
-          const s = snippetAround(original, folded, at, primary.length, chars);
-          if (!seenPages.has(s.page)) {
-            seenPages.add(s.page);
-            snippets.push(s);
-          }
-        }
-        at = folded.indexOf(primary, at + primary.length);
-      }
-      result.hits.push({ key, count, snippets });
+      const hit = matchDoc(original, key);
+      if (!hit) continue;
+      result.hits.push(hit);
       if (result.hits.length >= limit) {
         // Early-exit optimization: stop scanning once we have enough. `limit` is a
         // SOFT cap here — other in-flight workers may push a few more past this

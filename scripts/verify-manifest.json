@@ -239,7 +239,8 @@
       "verify-scale-library.mjs",
       "verify-scale-reader.mjs",
       "verify-scale-figure.mjs",
-      "verify-scale-paper.mjs"
+      "verify-scale-paper.mjs",
+      "verify-scale-fulltext.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs"
@@ -276,14 +277,59 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
-    { "glob": "scripts/verify-*", "run": ["self", "tier:pure"] },
-    { "glob": "scripts/figenh-*", "run": ["self", "tier:pure"] },
-    { "glob": "src/shell/modes/paper/**", "run": ["group:paper-gate", "tier:pure"] },
-    { "glob": "src/lib/plot/**", "run": ["tier:pure", "tier:scale"] },
-    { "glob": "src/lib/slide/**", "run": ["tier:pure"] },
-    { "glob": "electron/**", "run": ["tier:presence", "tier:pure"] },
-    { "glob": "flux-core/**", "run": ["tier:pure"] },
-    { "glob": "scripts/**", "run": ["tier:pure"] }
+    {
+      "glob": "scripts/verify-*",
+      "run": [
+        "self",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/figenh-*",
+      "run": [
+        "self",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/shell/modes/paper/**",
+      "run": [
+        "group:paper-gate",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/**",
+      "run": [
+        "tier:pure",
+        "tier:scale"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/**",
+      "run": [
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "electron/**",
+      "run": [
+        "tier:presence",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "flux-core/**",
+      "run": [
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/**",
+      "run": [
+        "tier:pure"
+      ]
+    }
   ],
   "retryOnce": [
     "verify-crop.mjs",
@@ -313,6 +359,7 @@
     "verify-slide-showcase-live.mjs": 300000,
     "verify-w13-cli.mjs": 300000,
     "verify-startup.mjs": 300000,
-    "verify-writer-latency-inp.mjs": 200000
+    "verify-writer-latency-inp.mjs": 200000,
+    "verify-scale-fulltext.mjs": 180000
   }
 }
