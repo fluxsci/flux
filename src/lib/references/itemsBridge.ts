@@ -90,6 +90,23 @@ export async function listPdfKeys(): Promise<Set<string>> {
   const lib = await resolveFluxLibPath();
   const out = new Set<string>();
   if (!fb || !lib) return out;
+  // WS-8.5: prefer the derived .fluxlib/items.json (flux-core maintains it)
+  // when it is at least as fresh as the items/ DIRECTORY (whose mtime moves on
+  // item-dir add/remove — the reload-relevant events). One read replaces a
+  // readdir + per-dir exists sweep; the in-memory optimistic tick stays the
+  // live-update path for this session's own writes, and any parse/stat problem
+  // falls straight back to the sweep below.
+  try {
+    const idxPath = `${lib}/.fluxlib/items.json`;
+    const [idxSt, dirSt] = await Promise.all([fb.stat?.(idxPath), fb.stat?.(itemsBase(lib))]);
+    if (idxSt && dirSt && idxSt.mtimeMs >= dirSt.mtimeMs) {
+      const idx = JSON.parse(await fb.readText(idxPath)) as Record<string, { hasPdf?: boolean }>;
+      for (const [k, st] of Object.entries(idx)) if (st && st.hasPdf) out.add(safeKey(k).normalize("NFC"));
+      return out;
+    }
+  } catch {
+    /* missing/stale/corrupt index — sweep */
+  }
   let entries: { name: string; dir: boolean }[];
   try {
     entries = (await fb.readdir?.(itemsBase(lib))) ?? [];

@@ -184,6 +184,12 @@
   function locOf(info: PageInfo, a: Annotation): { start: number; end: number } | null {
     const hit = locCache.get(a.id);
     if (hit && hit.anchor === a.anchor) return hit.loc;
+    if (import.meta.env?.DEV) {
+      // WS-8.5 gate hook: count fuzzy re-locates (cache misses) — the scale
+      // gate asserts no locateQuote storm while scrolling an annotated doc.
+      const w = window as unknown as { __fluxReaderPerf?: { locateCalls: number } };
+      (w.__fluxReaderPerf ??= { locateCalls: 0 }).locateCalls++;
+    }
     const loc = locateQuote(info.text, a.anchor) ?? null;
     locCache.set(a.id, { anchor: a.anchor, loc });
     if (loc) orphanIds.delete(a.id);
@@ -195,14 +201,24 @@
   // each paint. The painted divs stay pointer-events:none so text selection through a
   // highlight keeps working; hover/click resolve against this map instead.
   const hitMap = new Map<number, HitEntry[]>();
+  // WS-8.5: bucket annotations by page ONCE per annotations change — drawHighlights
+  // used to iterate ALL annotations per page per textlayerrendered event.
+  const annByPage = $derived.by(() => {
+    const m = new Map<number, Annotation[]>();
+    for (const a of annotations) {
+      const arr = m.get(a.page);
+      if (arr) arr.push(a);
+      else m.set(a.page, [a]);
+    }
+    return m;
+  });
   function drawHighlights(p: number) {
     const st = pageInfos.get(p);
     if (!st || !st.hlLayer.isConnected) return;
     st.hlLayer.replaceChildren();
     const pageRect = st.pageDiv.getBoundingClientRect();
     const entries: HitEntry[] = [];
-    for (const a of annotations) {
-      if (a.page !== p) continue;
+    for (const a of annByPage.get(p) ?? []) {
       const loc = locOf(st.info, a);
       if (!loc) continue;
       const r = rangeFor(st.info, loc.start, loc.end);
@@ -244,6 +260,12 @@
     if (status === "ready") redrawAllLive();
   });
 
+  // WS-8.5: buildPageText (a TreeWalker over the whole layer) used to run on
+  // EVERY textlayerrendered — pdf.js re-fires it for layers that didn't change.
+  // Cache per text-layer ELEMENT at a given zoom; a reset page gets a NEW div
+  // (WeakMap entry dies with it), and a zoom change re-walks.
+  const pageTextCache = new WeakMap<HTMLElement, { scale: number; info: PageInfo }>();
+
   // Attach Flux's overlay + text map to a page whose text layer just (re)rendered.
   function attachPage(p: number) {
     const view = viewer?.getPageView(p - 1);
@@ -254,7 +276,11 @@
     const hlLayer = document.createElement("div");
     hlLayer.className = "hl-layer";
     pageDiv.appendChild(hlLayer);
-    pageInfos.set(p, { pageDiv, textDiv, hlLayer, info: buildPageText(textDiv) });
+    const scale = viewer?.currentScale ?? 1;
+    const cached = pageTextCache.get(textDiv);
+    const info = cached && cached.scale === scale ? cached.info : buildPageText(textDiv);
+    pageTextCache.set(textDiv, { scale, info });
+    pageInfos.set(p, { pageDiv, textDiv, hlLayer, info });
     drawHighlights(p);
     onOrphans?.([...orphanIds]);
   }

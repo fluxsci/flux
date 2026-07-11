@@ -59,6 +59,21 @@ const fails = [];
 const ok = (cond, msg) => (cond ? console.log("  ✓ " + msg) : (fails.push(msg), console.log("  ✗ " + msg)));
 
 const pdfB64 = makePdf(PAGES).toString("base64");
+
+// WS-8.5: 200 seeded annotations across the doc (every other page). Anchors hit
+// the fixture's per-page sentence, so each annotated page draws one highlight.
+const ANNOTS = 200;
+const annotationFile = {
+  version: 1,
+  annotations: Array.from({ length: ANNOTS }, (_, i) => ({
+    id: `scale-ann-${i}`,
+    page: 1 + i * 2,
+    anchor: { quote: "quick brown fox", prefix: "The ", suffix: " jumps" },
+    color: ["yellow", "green", "blue", "pink"][i % 4],
+    note: i % 10 === 0 ? `note ${i}` : undefined,
+    createdAt: "2026-01-01T00:00:00Z",
+  })),
+};
 const { browser, page } = await launch();
 await gotoApp(page);
 await clickNew(page);
@@ -67,12 +82,13 @@ await page.waitForFunction(() => window.__fluxOpenReader && window.__fluxSeedRea
 
 const t0 = Date.now();
 await page.evaluate(
-  (key, b64) => {
-    window.__fluxSeedReaderItem(key, b64);
+  (key, b64, af) => {
+    window.__fluxSeedReaderItem(key, b64, af);
     window.__fluxOpenReader(key);
   },
   "scale2026reader",
   pdfB64,
+  annotationFile,
 );
 await page.waitForFunction(
   () => Number(document.querySelector('[data-testid="pdf-root"]')?.dataset.rendered || 0) >= 1,
@@ -96,14 +112,43 @@ const canv = await page.evaluate(async () => {
   const scroll = document.querySelector(".pdf-scroll");
   if (!scroll) return { error: "no .pdf-scroll" };
   let maxCanvases = 0;
+  // WS-8.5: sample frame times during the scroll sweep — highlights redraw per
+  // textlayerrendered, so an annotation-cost storm shows up here as long frames.
+  const frames = [];
+  let raf = true;
+  let last = performance.now();
+  const tick = (t) => {
+    frames.push(t - last);
+    last = t;
+    if (raf) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  let maxHl = 0;
   for (let i = 0; i < 24; i++) {
     scroll.scrollTop += scroll.clientHeight * 2;
     await new Promise((r) => setTimeout(r, 120));
     maxCanvases = Math.max(maxCanvases, document.querySelectorAll(".pdf-page canvas").length);
+    maxHl = Math.max(maxHl, document.querySelectorAll(".annot-hl").length);
   }
-  return { maxCanvases, scrolledTo: scroll.scrollTop };
+  raf = false;
+  const sorted = frames.filter((f) => f > 0).sort((a, b) => a - b);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+  return {
+    maxCanvases,
+    scrolledTo: scroll.scrollTop,
+    scrollP95Ms: Math.round(p95 * 10) / 10,
+    maxHl,
+    locateCalls: window.__fluxReaderPerf?.locateCalls ?? -1,
+  };
 });
 ok(!canv.error && canv.maxCanvases <= BUDGET.maxLiveCanvases, `live canvases stay bounded while scrolling (max ${canv.maxCanvases} ≤ ${BUDGET.maxLiveCanvases})`, JSON.stringify(canv));
+// WS-8.5: the annotated-document budgets.
+ok(canv.maxHl > 0, `annotations painted while scrolling (max ${canv.maxHl} highlight divs live)`);
+ok(canv.scrollP95Ms <= 24, `scroll frame p95 ${canv.scrollP95Ms}ms ≤ 24 with ${ANNOTS} annotations`, JSON.stringify(canv));
+ok(
+  canv.locateCalls >= 0 && canv.locateCalls <= ANNOTS + 40,
+  `no locateQuote storm: ${canv.locateCalls} fuzzy locates ≤ ${ANNOTS + 40} (locCache holds across page resets)`,
+);
 
 // --- far page jump ---------------------------------------------------------------------------
 const jump = await page.evaluate(async (target) => {
