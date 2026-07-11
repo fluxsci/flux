@@ -18,6 +18,11 @@ export const plotDom = new Map<Id, SVGSVGElement>();
 // (regenerate) re-renders in place even though the element prop is unchanged.
 export const plotGen = writable<Record<Id, number>>({});
 
+// WS-1 Fix 1 instrumentation: counts mountPlot signature() computations (the
+// JSON.stringify slow path). verify-scale-figure.mjs asserts an UNRELATED
+// commit triggers zero of these; reachable headless as __flux.plot.sigCalls.
+export const sigCalls = { n: 0 };
+
 /** Parse + cache a plot's SVG + manifest (+ recipe). Returns false if the SVG is
  *  malformed. Runs the shared preparePlot seam: DOM normalization (sanitize /
  *  shared-<use> inlining / deterministic id stamping — the pass that makes

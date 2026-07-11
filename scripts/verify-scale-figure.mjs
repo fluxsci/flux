@@ -39,7 +39,7 @@ const BUDGET = {
   dragRatio: 25,
   commitsPerDragMax: 1,
   layerRowsMax: null, // → 150 with WS-1 Fix 6
-  sigCallsUnrelatedMax: null, // → 0 with WS-1 Fix 1
+  sigCallsUnrelatedMax: 0, // WS-1 Fix 1 landed: snapshot fast path, zero stringify on unrelated commits
 };
 
 const h = harness("verify-scale-figure");
@@ -298,20 +298,6 @@ console.log(
 if (BUDGET.layerRowsMax == null) h.ok(true, `layer rows recorded (${sidebar.rows}) — budget activates with WS-1 Fix 6`);
 else h.ok(sidebar.rows <= BUDGET.layerRowsMax, `rendered li.layer rows ${sidebar.rows} ≤ ${BUDGET.layerRowsMax} at 5k elements`);
 
-// Unrelated-commit plot signature() count (WS-1 Fix 1 instrumentation).
-const sig = await page.evaluate(async () => {
-  const P = window.__flux.plot;
-  if (!P.sigCalls) return { present: false };
-  const before = P.sigCalls.n;
-  window.__flux.fig.commit((p) => {
-    p.figures[0].elements[0].x += 1;
-  });
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  return { present: true, calls: P.sigCalls.n - before };
-});
-if (!sig.present) h.ok(BUDGET.sigCallsUnrelatedMax == null, "plot signature() counter not instrumented yet (arrives with WS-1 Fix 1)");
-else h.ok(sig.calls <= BUDGET.sigCallsUnrelatedMax, `plot signature() calls on unrelated commit: ${sig.calls} ≤ ${BUDGET.sigCallsUnrelatedMax}`);
-
 h.section("dense-plot profile (records data for the WS-11 trigger decision)");
 const plotSvg = readFileSync("fixtures/plots/growth.svg", "utf8");
 const dense = await page.evaluate(
@@ -365,6 +351,24 @@ console.log(
   `  · ${dense.mounted} mounted semantic plots; ${dense.svgNodes} scene SVG nodes; mount burst ${round1(dense.mountMs)}ms; pan-mount ${round1(dense.panMountMs)}ms; longtasks ${dense.longTasks} (max ${round1(dense.ltMax)}ms)`,
 );
 h.ok(dense.mounted >= 150, `dense-plot profile mounted ${dense.mounted} ≥ 150 semantic plots (WS-11 evidence recorded, not gated)`);
+
+// Plot signature() count on a geometry-only commit with 160 plots mounted
+// (WS-1 Fix 1 instrumentation): the reference-snapshot fast path must handle
+// EVERY mounted plot without a single JSON.stringify signature.
+const sig = await page.evaluate(async () => {
+  const P = window.__flux.plot;
+  if (!P.sigCalls) return { present: false };
+  await new Promise((r) => setTimeout(r, 50));
+  const before = P.sigCalls.n;
+  window.__flux.fig.commit((p) => {
+    p.figures[0].elements[0].x += 1; // move one plot — content of all 160 unchanged
+  });
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return { present: true, calls: P.sigCalls.n - before };
+});
+if (!sig.present) h.ok(BUDGET.sigCallsUnrelatedMax == null, "plot signature() counter not instrumented yet (arrives with WS-1 Fix 1)");
+else if (BUDGET.sigCallsUnrelatedMax == null) h.ok(true, `plot signature() calls on unrelated commit recorded: ${sig.calls} (gate tightens post WS-1 Fix 1)`);
+else h.ok(sig.calls <= BUDGET.sigCallsUnrelatedMax, `plot signature() calls on unrelated commit: ${sig.calls} ≤ ${BUDGET.sigCallsUnrelatedMax}`);
 
 // ---- artifact + errors -------------------------------------------------------
 const errs = realErrors(page);

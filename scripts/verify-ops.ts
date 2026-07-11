@@ -94,4 +94,37 @@ const only2 = solo.figures[0].id;
 ops.deleteFigure(solo, only2, { allowEmpty: true });
 assert(solo.figures.length === 0, "deleteFigure allowEmpty leaves the canvas empty");
 
+// ---------------------------------------------------------------------------
+// WS-1 Fix 1 invariant: setPartOverride/setCrop are COPY-ON-WRITE — every
+// change allocates a fresh overrides/crop object. mountPlot's fast path uses
+// reference equality on these to skip its JSON.stringify signature; an in-place
+// mutation here would silently break plot re-rendering.
+// ---------------------------------------------------------------------------
+{
+  const cw: Project = { version: 2, name: "", canvases: [{ id: "c", name: "C" }], figures: [], assets: [
+    { id: "pa", name: "pa", kind: "svg", path: "plots/pa.svg", naturalWidth: 300, naturalHeight: 220 },
+  ], palette: [] };
+  const f = ops.createFigure(cw, { canvasId: "c" });
+  const pid = ops.addPlotPanel(cw, f.id, { assetId: "pa", x: 0, y: 0, width: 300, height: 220 })!;
+  const el = () => f.elements.find((e) => e.id === pid)! as import("../src/lib/types").SemanticPlotElement;
+
+  ops.setPartOverride(cw, pid, "axis.x.line", { stroke: "#111" });
+  const ov1 = el().overrides;
+  ops.setPartOverride(cw, pid, "axis.x.line", { stroke: "#222" });
+  const ov2 = el().overrides;
+  assert(ov1 !== ov2, "setPartOverride allocates a fresh overrides object per change (copy-on-write)");
+  assert(ov2!["axis.x.line"].stroke === "#222", "…and the new patch landed");
+  ops.setPartOverride(cw, pid, "axis.y.line", { hidden: true });
+  assert(el().overrides !== ov2, "setPartOverride on a second part also re-allocates the container");
+
+  ops.setCrop(cw, pid, { x: 10, y: 10, width: 100, height: 80 });
+  const cr1 = el().crop;
+  assert(!!cr1, "setCrop wrote a crop");
+  ops.setCrop(cw, pid, { x: 12, y: 10, width: 100, height: 80 });
+  const cr2 = el().crop;
+  assert(cr1 !== cr2, "setCrop allocates a fresh crop object per change (copy-on-write)");
+  ops.setCrop(cw, pid, null);
+  assert(el().crop === undefined, "setCrop(null) clears the crop (presence change = reference change)");
+}
+
 console.log("\nALL OPS TESTS PASSED");
