@@ -9,8 +9,8 @@ conventions, or the traps.
 
 ## How to use and maintain this document (read this first)
 
-This document has two parts: the **body** (sections 1–9, the authoritative distilled knowledge)
-and the **session log** (section 10, an append-only history). The rules:
+This document has two parts: the **body** (sections 1–10, the authoritative distilled knowledge)
+and the **session log** (section 11, an append-only history). The rules:
 
 1. **Before working:** read the body. Skim the last few session-log entries for anything fresher
    than the body.
@@ -119,7 +119,7 @@ Persistence invariants (all machine-checked — do not weaken):
 ## 4. Renderer architecture notes
 
 - **Svelte 5, but much of `src/lib` is legacy-syntax** (`$:` + stores) while newer shell/mode code
-  uses runes. Both are fine; know the traps in §8.
+  uses runes. Both are fine; know the traps in §9.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
   bumps `globalRev` (under-invalidation impossible by construction). Expensive derived work keys
   on `${figureRev[id]}|${globalRev}|…` and memoizes in **non-reactive `const` boxes**.
@@ -170,9 +170,47 @@ Persistence invariants (all machine-checked — do not weaken):
     done. The user often runs their own.
 11. **Perf work is measure-first.** No optimization lands without a before/after number from the
     scale gates or a purpose-built probe, and budgets are structural (counts, windows) wherever
-    possible — see §8 for measurement traps.
+    possible — see §9 for measurement traps. Interactive latency targets follow the Nielsen
+    classes — §6.
 
-## 6. The verification system (how you prove your work)
+## 6. Responsiveness budgets — the Nielsen limits (product policy)
+
+Flux targets the Miller (1968) / Nielsen (1993) response-time limits as **standing product
+policy** (owner decision, 2026-07-12) — the same framework Obsidian builds against:
+
+- **≤ 0.1s — feels instantaneous.** Required for everything in the *direct-manipulation* class:
+  typing, cursor movement, drag/pan/zoom/nudge, selection, scrolling, hover feedback,
+  search-as-you-type. The user must never perceive the tool between intent and result.
+- **≤ 1s — flow of thought stays intact.** The budget for *navigations*: opening a
+  project/document/mode, jumping to a search result, one-shot commands. Nielsen is explicit that
+  the 0.1–1s band needs **no** feedback — don't add spinners here.
+- **≤ 10s — attention limit.** Beyond ~1s show progress; beyond ~10s show percent-done and make
+  it interruptible (bulk PDF fetches, enrich sweeps, exports).
+
+Rules of practice:
+
+1. **Classify every new interaction into a band at design time**, and give direct-manipulation
+   interactions a scale-gate budget (§8) at fixture scale. An unclassified interaction is an
+   unbudgeted one.
+2. **Never mask slowness with artificial latency.** A debounce/throttle wider than the operation
+   it hides is a bug: make the operation fast, then shrink or delete the delay. (Case in point:
+   the library search debounce sat at 150ms while the scan it was protecting cost ~25ms.)
+3. **Dev-mode numbers are the worst case** (§9, measurement traps): production strips Svelte dev
+   tracing. Until a production perf harness exists (`window.__flux` is dev-only — building a
+   packaged-build equivalent is a wanted item), scale gates budget ratios and structure; treat a
+   dev-mode reading over 100ms as a flag to investigate, not automatically a failure.
+
+Standing status (dev-mode, scale fixtures, as of 2026-07-12) — instantaneous class is green:
+paper keystroke @20k lines 5ms sync / 34ms paint p95, undo ~1ms, figure pan 16–47ms, library
+scroll 17ms p95 @5k refs, reader page-jump ≤56ms, warm fulltext 73ms @5k PDFs. Known items above
+100ms, tracked, descending priority: GUI `ft:` query (spawns a CLI subprocess per query — wants a
+resident mtime-invalidated index in the main process), library first-keystroke 177ms (the 150ms
+debounce above), sidebar edit @5k elements 156ms (un-memoized derived recompute), figure commit
+@1600 elements 111ms p95 (≈2 frames of it is dev tracing; likely compliant in production —
+unprovable until the prod harness exists). Reader open / project open / whole-doc find are
+1s-class navigations and within budget. If you fix one of these, update this list.
+
+## 7. The verification system (how you prove your work)
 
 The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A new verify script
 that isn't in the manifest doesn't exist.** Tiers:
@@ -188,7 +226,7 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **presence** — the six source-shape/regex scripts (main-process/build config that headless
   drivers can't exercise). They also live in pure; the tier exists for `--changed` mapping.
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
-  on this box need `--ozone-platform=x11` (§8).
+  on this box need `--ozone-platform=x11` (§9).
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
   `group:paper-gate` is the editing-feel contract (15 scripts).
 
@@ -198,12 +236,13 @@ why); child processes are owned by `TestProcessScope` (`scripts/lib/testProcess.
 required — every shell needs `export PATH="$HOME/.local/node22/bin:$PATH"` on this machine.
 `npm run check` (svelte-check) must stay at 0 errors/0 warnings.
 
-## 7. Recipes for common work
+## 8. Recipes for common work
 
 **Before starting any feature:** (a) decide which engine(s) it touches — if both, the logic goes
 in a shared core (§2); (b) find the gates that cover the area (grep the manifest + this guide's
 table) and run them for a green baseline; (c) plan the NEW gate — features without verification
-don't land; (d) check §9 that you're not rebuilding something deliberately deferred or rejected.
+don't land; (d) classify the feature's interactions into Nielsen bands (§6); (e) check §10 that
+you're not rebuilding something deliberately deferred or rejected.
 
 **Add a CLI/MCP verb:** one `VerbDef` in `flux-core/verbs.ts` (name, cli, one summary, one zod
 shape, `cliArgs` mapping, handler calling `flux-core/*`, per-surface renders). Both surfaces are
@@ -225,10 +264,10 @@ schema version ONLY for breaking changes (minor slot) → extend `verify-loadgat
 `verify-figfiles-parity` / `verify-fwdguard`.
 
 **Perf investigation:** reproduce via a scale gate or a throwaway probe against the dev server;
-read §8's measurement traps first; prefer structural fixes (window, gate, scope, cache-by-rev)
+read §9's measurement traps first; prefer structural fixes (window, gate, scope, cache-by-rev)
 and structural budgets; record before/after in the commit.
 
-## 8. Known traps (each of these cost real time)
+## 9. Known traps (each of these cost real time)
 
 **Svelte 5 legacy syntax:**
 - A `$:` block that reads **and** reassigns the same `let` is self-dependent — it re-runs until
@@ -266,7 +305,7 @@ and structural budgets; record before/after in the commit.
 Home. Dynamic-import at the call site; `verify-startup.mjs` (800KB eager budget, no mode chunks
 at Home) is the gate. Mode warms belong in `requestIdleCallback`.
 
-## 9. Current state & deliberate deferrals (don't "fix" these)
+## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **WS-11 plot render-detail budget** and the **figure spatial index**: evaluated against
   measurements and NOT built (triggers recorded 2026-07-11; blueprints live in
@@ -286,7 +325,7 @@ at Home) is the gate. Mode warms belong in `requestIdleCallback`.
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
 
-## 10. Session log (append-only; newest last — see maintenance rules at top)
+## 11. Session log (append-only; newest last — see maintenance rules at top)
 
 ### 2026-07-10/11 — Fortify hardening engagement (Claude Fable 5, `fortify` → merged to `main`)
 **Work:** Executed the full 12-workstream fortify plan (~53 commits): perf (figure/paper/library/
@@ -296,8 +335,20 @@ decomposed to 10 modules, one verb registry for CLI+MCP, one interaction/frontma
 core), platform (CSP, SSRF hop validation, fsGuard deny-by-default, IPC contract + family split),
 and the verification system itself (tiers, scale gates, sleep→condition conversion, clean-console
 contract). All gates green; ledger in `notes/flux_fortify_plan_claude.md` §12.
-**Learnings:** promoted into the body of this guide (§2 twin-engine table, §5 hard rules, §8
-traps, §9 deferrals) — notably: the Svelte `$:` self-dependence/shadowing traps, dev-tracing and
+**Learnings:** promoted into the body of this guide (§2 twin-engine table, §5 hard rules, §9
+traps, §10 deferrals) — notably: the Svelte `$:` self-dependence/shadowing traps, dev-tracing and
 load-contention measurement traps, the compositor/`--ozone-platform=x11` gotcha, positive-evidence
 boot checks, worktree agents forking from the default branch, and "the scan's tie order is
 nondeterministic — canonicalize before oracle-comparing".
+
+### 2026-07-12 — Nielsen responsiveness budgets adopted as policy (Claude Fable 5, `main`)
+**Work:** Deep-dived Obsidian's performance architecture (metadata cache in IndexedDB, deferred
+views, CM6 viewport rendering, no-framework UI, absolute-ms culture) and mapped Flux's scale-gate
+numbers onto the Nielsen 0.1s/1s/10s framework. Owner adopted the framework as standing policy —
+promoted into the body as new §6 (sections renumbered; old §6–10 are now §7–11).
+**Learnings:**
+- Obsidian on Electron is the existence proof that our stack can hit sub-100ms everywhere at
+  20k-file scale; the techniques are ones Flux mostly already uses (derived mtime-keyed caches,
+  windowing, viewport rendering, deferral).
+- Don't hide slow operations behind debounces — measure the operation; if it's fast, the delay
+  itself is the latency bug (library search: 150ms debounce over a ~25ms scan).
