@@ -656,6 +656,14 @@
           <label class="chk"><input type="checkbox" checked={single.arrowEnd} on:change={(e) => updateSelected((el) => { if (el.type === "line") el.arrowEnd = e.currentTarget.checked; })} />Arrow end</label>
         </div>
       {/if}
+      {#if single.type === "path"}
+        <!-- Close/open after the fact (pen-time closing = clicking the first
+             node). Goes through ops.updatePath: adopts legacy d-only paths
+             into nodes, regenerates d, refits the bbox. -->
+        <div class="row">
+          <label class="chk"><input type="checkbox" checked={single.closed} on:change={(e) => { const closed = e.currentTarget.checked; const id = single.id; commit((p) => ops.updatePath(p, id, { closed })); }} />Closed path</label>
+        </div>
+      {/if}
     </section>
   {/if}
 

@@ -29,6 +29,20 @@
     </div>
   </div>
 
+  <!-- "No paint" — sets the targeted paint to the literal "none" (outline-only
+       shapes / borderless fills). Deliberately not added to recents. -->
+  <div class="nonerow">
+    <button
+      class="sw none-sw"
+      title={$colorTarget === "fill" ? "Remove fill (outline only)" : "Remove stroke (no outline)"}
+      aria-label={`No ${$colorTarget}`}
+      on:click={() => applyColor("none")}
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><line x1="3.5" y1="12.5" x2="12.5" y2="3.5" stroke="#d14d41" stroke-width="1.8" stroke-linecap="round" /></svg>
+    </button>
+    <span class="nonelbl">No {$colorTarget}</span>
+  </div>
+
   {#if $project.palette.length}
     <div class="recent">
       {#each $project.palette as c}
@@ -110,6 +124,25 @@
     background: var(--c-accent);
     border-color: var(--c-accent);
     color: var(--c-on-accent);
+  }
+  .nonerow {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 8px;
+  }
+  .none-sw {
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+  }
+  .nonelbl {
+    font-size: 11px;
+    opacity: 0.55;
   }
   .recent {
     display: flex;

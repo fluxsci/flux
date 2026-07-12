@@ -26,7 +26,13 @@ export function applyPartStyle(patch: PartOverride) {
 // Apply a colour to the current selection (or to the draw style if nothing is
 // selected, so the next shape uses it). When a plot PART is selected, the colour
 // retargets to that part's override instead of the whole element.
+//
+// `hex` may be the literal "none" (the palette's None swatch): valid for shape
+// fill/stroke, but guarded where it would only ever be a foot-gun — text colour
+// (invisible text) and a line's paint via the FILL target (lines have no fill;
+// only an explicit stroke-none may blank one).
 export function applyColor(hex: string, target = get(colorTarget)) {
+  const none = hex === "none";
   if (get(partSelection)) {
     applyPartStyle(target === "fill" ? { fill: hex } : { stroke: hex });
     return;
@@ -34,7 +40,9 @@ export function applyColor(hex: string, target = get(colorTarget)) {
   const sel = get(selection);
   if (sel.size === 0) {
     drawStyle.update((s) =>
-      target === "fill" ? { ...s, fill: hex } : { ...s, stroke: hex, textColor: hex },
+      target === "fill"
+        ? { ...s, fill: hex }
+        : { ...s, stroke: hex, ...(none ? {} : { textColor: hex }) },
     );
     return;
   }
@@ -43,12 +51,15 @@ export function applyColor(hex: string, target = get(colorTarget)) {
       for (const e of f.elements) {
         if (!sel.has(e.id)) continue;
         if (e.type === "text") {
+          if (none) continue;
           e.color = hex;
           // a manual colour edit detaches a linked named style IF that style
           // defines a colour (ops.detachOnManualEdit no-ops otherwise)
           ops.detachOnManualEdit(p, e, ["color"]);
-        } else if (e.type === "line") e.stroke = hex;
-        else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
+        } else if (e.type === "line") {
+          if (none && target === "fill") continue;
+          e.stroke = hex;
+        } else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
           if (target === "fill") e.fill = hex;
           else e.stroke = hex;
         }

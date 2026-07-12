@@ -91,5 +91,15 @@ assert(added.width > 0 && added.height > 0, "ops.addPath sets bbox via refit");
 ops.updatePath(proj, pid!, { closed: true });
 assert((proj.figures[0].elements[0] as PathElement).d.trim().endsWith("Z"), "ops.updatePath closed → d ends with Z");
 
+// 8b. Closed toggle on a LEGACY d-only path — the Inspector "Closed path"
+// checkbox route: updatePath adopts nodes from d, flips closed, refits.
+const lid = "p-legacy";
+proj.figures[0].elements.push({ type: "path", id: lid, x: 10, y: 10, width: 120, height: 90, rotation: 0, d: "M 0 0 L 120 0 L 60 90", fill: "none", stroke: "#222", strokeWidth: 3, closed: false } as PathElement);
+ops.updatePath(proj, lid, { closed: true });
+const ltri = proj.figures[0].elements.find((e) => e.id === lid) as PathElement;
+assert(ltri.nodes?.length === 3 && ltri.closed && ltri.d.trim().endsWith("Z"), "updatePath adopts d-only nodes + closes (Inspector toggle)");
+ops.updatePath(proj, lid, { closed: false });
+assert(!ltri.closed && !ltri.d.includes("Z"), "updatePath reopens (Z removed)");
+
 console.log(fails === 0 ? "\nF1 PATH-CORE ALL PASS" : `\nF1 PATH-CORE ${fails} FAILURE(S)`);
 process.exit(fails === 0 ? 0 : 1);

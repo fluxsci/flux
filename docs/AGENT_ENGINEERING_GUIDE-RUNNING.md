@@ -383,3 +383,15 @@ remain as ordinary regression gates.
 - Corrected a false environment claim in §9: the dev machine is NOT headless (owner's desktop,
   monitors attached, active Wayland seat). Verify environment claims against `loginctl`/`who`
   before repeating them — an agent shell without a display is not evidence the machine lacks one.
+
+### 2026-07-12 — Shape completeness: None swatch + Closed-path toggle (Claude Fable 5, `main`)
+**Work:** Added the Colors panel "None" swatch (fill/stroke → literal `"none"`, with foot-gun
+guards: text colour never blanked, lines skip fill-target none, drawStyle.textColor never
+poisoned) and an Inspector "Closed path" checkbox (via `ops.updatePath` — adopts legacy d-only
+paths, regenerates `d`, refits bbox). New ui gate `verify-shape-nofill.mjs`; extended
+`figenh-01-path.ts`.
+**Learnings:**
+- `window.__flux` dev handle: svelte's `get` lives at the ROOT (`__flux.get`), store modules
+  (`__flux.fig`) expose only their own exports.
+- The element renderer already draws open paths with `fill="none"` regardless of the model fill
+  (chord-fill masquerade guard) — model fill survives a close→reopen round trip by design.
