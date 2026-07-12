@@ -302,10 +302,13 @@ and structural budgets; record before/after in the commit.
   headless Chrome doesn't. Never gate ambient/feature motion on that query.
 
 **Environment:**
-- Headless box (ssh/tmux, no monitor). The Wayland compositor can die mid-session and Electron
-  then **hangs before executing any JS** — silence looks like success. Always pass
-  `--ozone-platform=x11` and demand **positive** boot evidence (e.g. a probe printing
-  `windows=1 title=Flux`), never absence-of-errors.
+- The dev machine is the owner's Linux desktop with monitors and an active Wayland session —
+  do NOT assume it is headless (an earlier "no monitor" note here was wrong; corrected
+  2026-07-12). Agent shells, however, often run detached (ssh/tmux), and the Wayland compositor
+  has died mid-session at least once, leaving Electron **hung before executing any JS** — silence
+  looks like success. Automated Electron harnesses therefore pass `--ozone-platform=x11` and
+  demand **positive** boot evidence (e.g. a probe printing `windows=1 title=Flux`), never
+  absence-of-errors.
 - Delegated worktree agents fork from the **default branch**, not your branch. Give them an
   explicit `git reset --hard <sha>` as step one, and expect to reconcile your in-flight deltas
   when merging their result.
@@ -377,3 +380,6 @@ remain as ordinary regression gates.
   gated area (intentional changes update the gates with evidence, per hard rule 3).
 - The technical invariants behind the old lock were kept (as §4 architecture notes) because they
   are load-bearing for instantaneous editing — they were never aesthetic preferences.
+- Corrected a false environment claim in §9: the dev machine is NOT headless (owner's desktop,
+  monitors attached, active Wayland seat). Verify environment claims against `loginctl`/`who`
+  before repeating them — an agent shell without a display is not evidence the machine lacks one.
