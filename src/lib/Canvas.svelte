@@ -53,6 +53,7 @@
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, lineEndpointRemap, type CropRemapResult } from "./editing";
   import { nodesToPath, pathToNodes, constrain45 } from "./path";
+  import { penSnap, type PenSnapResult } from "./interact/penSnap";
   import * as ops from "./ops";
   import { settings } from "./settings";
   import { importDroppedFiles } from "./io";
@@ -238,6 +239,12 @@
   // While the button is held right after placing a node, dragging pulls out that
   // node's (symmetric) bezier handles — Figma/Illustrator click-drag behavior.
   let penDrag: { i: number } | null = null;
+  // Placement assist (interact/penSnap): penRaw is the last RAW cursor point so
+  // Shift/Alt keydown/keyup can re-snap without a mouse move; penSnapRes drives
+  // penCursor (the snapped point) + the guide/close overlays. One function feeds
+  // both preview and placement, so clicks land exactly where the preview shows.
+  let penRaw: { x: number; y: number } | null = null;
+  let penSnapRes: PenSnapResult | null = null;
 
   // --- node-edit state (double-click / Enter on a selected path) ---
   let editPathId: string | null = null;
@@ -644,18 +651,19 @@
       preview = createDrawElement($activeTool, lp, lp, get(drawStyle));
       hostEl.setPointerCapture(e.pointerId);
     } else if ($activeTool === "pen") {
-      // Click near the first node (with ≥2 placed) closes the path.
-      if (penNodes.length >= 2 && penFigId === fig.id) {
-        const first = penNodes[0];
-        if (Math.hypot(lp.x - first.x, lp.y - first.y) < 8 / $viewport.zoom) {
-          finishPen(true);
-          return;
-        }
+      // Same assist as the pointermove preview (close / shift-45 / align /
+      // equal-length) so the click lands exactly where the preview showed.
+      // A click inside the close radius of the first node closes the path.
+      const assist = penSnap(penNodes, lp, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
+      if (assist.close && penFigId === fig.id) {
+        finishPen(true);
+        return;
       }
       if (penNodes.length === 0) penFigId = fig.id;
       if (penFigId === fig.id) {
-        penNodes = [...penNodes, { x: lp.x, y: lp.y, type: "corner" }];
+        penNodes = [...penNodes, { x: assist.pt.x, y: assist.pt.y, type: "corner" }];
         penDrag = { i: penNodes.length - 1 }; // a drag now pulls out handles
+        penSnapRes = null; // guides hide while handles are being pulled
         hostEl.setPointerCapture(e.pointerId);
       }
     }
@@ -685,6 +693,8 @@
     penFigId = null;
     penCursor = null;
     penDrag = null;
+    penRaw = null;
+    penSnapRes = null;
   }
 
   // --- node editing (double-click / Enter on a selected path) ---
@@ -1420,8 +1430,10 @@
       const pf = $project.figures.find((f) => f.id === penFigId);
       if (pf) {
         const lp = localPoint(e.clientX, e.clientY, pf);
-        penCursor = lp;
+        penRaw = lp;
         if (penDrag) {
+          penCursor = lp;
+          penSnapRes = null;
           // pull symmetric handles out of the just-placed node → smooth node
           const n = penNodes[penDrag.i];
           let dx = lp.x - n.x;
@@ -1431,6 +1443,9 @@
           n.hIn = { dx: -dx, dy: -dy };
           n.type = "smooth";
           penNodes = penNodes;
+        } else {
+          penSnapRes = penSnap(penNodes, lp, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
+          penCursor = penSnapRes.pt;
         }
       }
     }
@@ -1876,7 +1891,8 @@
       return;
     }
 
-    // Pen authoring: Enter finishes (open), Esc cancels.
+    // Pen authoring: Enter finishes (open), Esc cancels. Shift/Alt re-snap the
+    // preview live (constrain / disable-assist) without waiting for a move.
     if (penNodes.length) {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -1886,6 +1902,11 @@
         penFigId = null;
         penCursor = null;
         penDrag = null;
+        penRaw = null;
+        penSnapRes = null;
+      } else if ((e.key === "Shift" || e.key === "Alt") && penRaw && !penDrag) {
+        penSnapRes = penSnap(penNodes, penRaw, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
+        penCursor = penSnapRes.pt;
       }
       return;
     }
@@ -1903,6 +1924,10 @@
   function onKeyUp(e: KeyboardEvent) {
     if (e.code === "Space") spaceDown = false;
     if (e.key === "Alt") altDown = false;
+    if ((e.key === "Shift" || e.key === "Alt") && penNodes.length && penRaw && !penDrag) {
+      penSnapRes = penSnap(penNodes, penRaw, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
+      penCursor = penSnapRes.pt;
+    }
   }
   function onWinBlur() {
     spaceDown = false;
@@ -1917,6 +1942,8 @@
       penFigId = null;
       penCursor = null;
       penDrag = null;
+      penRaw = null;
+      penSnapRes = null;
     }
     prevTool = $activeTool;
   }
@@ -2157,6 +2184,41 @@
           smooth: n.type === "smooth",
         }))
       : [];
+  // Placement-assist overlay (screen px): dashed alignment guides from the
+  // matched node/midpoint to the prospective point, equal-length tick pairs
+  // (geometry-notation ticks across both edges' midpoints), the cursor's
+  // prospective-node dot, and the close-the-shape hot state.
+  $: penAssist = (() => {
+    if (!penFig || !penSnapRes || penDrag) return null;
+    const px = (p: { x: number; y: number }) => ({
+      x: $viewport.panX + (penFig!.x + p.x) * $viewport.zoom,
+      y: $viewport.panY + (penFig!.y + p.y) * $viewport.zoom,
+    });
+    const aligns: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    const ticks: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    const tick = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+      const A = px(a);
+      const B = px(b);
+      const mx = (A.x + B.x) / 2;
+      const my = (A.y + B.y) / 2;
+      const len = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+      const nx = -(B.y - A.y) / len;
+      const ny = (B.x - A.x) / len;
+      ticks.push({ x1: mx - nx * 5, y1: my - ny * 5, x2: mx + nx * 5, y2: my + ny * 5 });
+    };
+    for (const g of penSnapRes.guides) {
+      if (g.kind === "align") {
+        const F = px(g.from);
+        const T = px(g.to);
+        aligns.push({ x1: F.x, y1: F.y, x2: T.x, y2: T.y });
+      } else {
+        tick(g.a[0], g.a[1]);
+        tick(g.b[0], g.b[1]);
+      }
+    }
+    return { aligns, ticks, close: penSnapRes.close, cursor: penCursor ? px(penCursor) : null };
+  })();
+
   // live handle line for the node whose handles are being dragged out
   $: penHandle = (() => {
     if (!penFig || !penDrag) return null;
@@ -2838,8 +2900,27 @@
         {/if}
       {/if}
       {#each penAnchors as a}
-        <circle class="pen-anchor" class:first={a.first} class:smooth={a.smooth} cx={a.x} cy={a.y} r={a.first ? 5 : 4} />
+        <circle
+          class="pen-anchor"
+          class:first={a.first}
+          class:smooth={a.smooth}
+          class:hot={a.first && !!penAssist?.close}
+          cx={a.x}
+          cy={a.y}
+          r={a.first ? (penAssist?.close ? 6.5 : 5) : 4}
+        />
       {/each}
+      {#if penAssist}
+        {#each penAssist.aligns as l}
+          <line class="pen-guide" x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} />
+        {/each}
+        {#each penAssist.ticks as t}
+          <line class="pen-tick" x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} />
+        {/each}
+        {#if penAssist.cursor}
+          <circle class="pen-cursor" class:close={penAssist.close} cx={penAssist.cursor.x} cy={penAssist.cursor.y} r={penAssist.close ? 9 : 3} />
+        {/if}
+      {/if}
     {/if}
 
     <!-- node-edit overlay: outline + segment-insert markers + handles + nodes -->
@@ -3253,13 +3334,48 @@
     fill: var(--c-tx-hi);
     stroke: var(--c-accent);
     stroke-width: 1.5;
-    pointer-events: all;
+    /* MUST stay none: anchors live in the OVERLAY svg, but pen placement/close
+       runs in the SCENE svg's figure handler — an anchor that captures the
+       pointer silently swallows the click. (pointer-events:all here was why
+       closing a path by clicking the first node was so finicky: only the thin
+       annulus between the 5px anchor and the old 8px radius worked.) */
+    pointer-events: none;
   }
   .pen-anchor.first {
     fill: var(--c-accent);
   }
   .pen-anchor.smooth {
     fill: var(--c-accent);
+  }
+  .pen-anchor.hot {
+    stroke: var(--c-tx-hi);
+    stroke-width: 2;
+  }
+  /* placement assist: dashed alignment guides, equal-length ticks, and the
+     prospective-node dot (turns into a ring around the first anchor when a
+     click would close the shape) */
+  .pen-guide {
+    stroke: var(--c-accent);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    opacity: 0.8;
+    pointer-events: none;
+  }
+  .pen-tick {
+    stroke: var(--c-accent);
+    stroke-width: 2;
+    stroke-linecap: round;
+    pointer-events: none;
+  }
+  .pen-cursor {
+    fill: var(--c-tx-hi);
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .pen-cursor.close {
+    fill: none;
+    stroke-width: 2.5;
   }
 
   /* --- node-edit chrome --- */

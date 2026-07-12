@@ -261,6 +261,69 @@ try {
   await sleep(200); // deliberate persistence window: the width must NOT snap back on a later tick
   assert((await firstPath()).width > wBefore + 40, "resized width persists");
 
+  // ---- placement assist: shift-constrained square from SLOPPY clicks, with
+  // live indicators (equal-length ticks, alignment guide, close ring) and a
+  // widened close-click. Every raw point below is deliberately a few px off —
+  // the assist must produce the exact square anyway. ----
+  await page.evaluate(() => {
+    const F = (window as any).__flux.fig;
+    F.commit((p: any) => {
+      const g = p.figures.find((f: any) => f.id === "growth") || p.figures[0];
+      g.elements = [];
+    });
+    F.selection.set(new Set());
+    F.activeTool.set("pen");
+  });
+  await waitFor(page, () => (window as any).__flux.get((window as any).__flux.fig.activeTool) === "pen", null, {
+    label: "pen re-armed for the assist square",
+  });
+  const A = await pt(150, 130);
+  const Braw = await pt(271, 132); // shift → exactly horizontal
+  const Craw = await pt(269, 248); // shift → vertical + equal-length → perfect corner
+  const Draw = await pt(154, 252); // shift → horizontal + v-align over the start
+  await page.keyboard.down("Shift");
+  await page.mouse.move(A.x, A.y);
+  await page.mouse.down(); await page.mouse.up();
+  await page.mouse.move(Braw.x, Braw.y); await waitForFrame(page);
+  await page.mouse.down(); await page.mouse.up();
+  await page.mouse.move(Craw.x, Craw.y); await waitForFrame(page);
+  const ticksSeen = await page.evaluate(() => document.querySelectorAll(".pen-tick").length);
+  await page.mouse.down(); await page.mouse.up();
+  await page.mouse.move(Draw.x, Draw.y); await waitForFrame(page);
+  const alignSeen = await page.evaluate(() => document.querySelectorAll(".pen-guide").length);
+  await page.mouse.down(); await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await page.mouse.move(A.x + 5, A.y + 4); await waitForFrame(page); // sloppy hover near the start
+  const closeHot = await page.evaluate(() => ({
+    ring: !!document.querySelector(".pen-cursor.close"),
+    hot: !!document.querySelector(".pen-anchor.hot"),
+  }));
+  await shot(page, "f1-06-square-close-indicator");
+  await page.mouse.down(); await page.mouse.up(); // click inside the widened radius → closes
+  await waitFor(
+    page,
+    () => (window as any).__flux.figures().flatMap((f: any) => f.elements).some((e: any) => e.type === "path" && e.closed),
+    null,
+    { label: "assist square committed closed" },
+  );
+  const sq = await page.evaluate(() =>
+    (window as any).__flux.figures().flatMap((f: any) => f.elements).find((e: any) => e.type === "path" && e.closed),
+  );
+  assert(ticksSeen >= 2, `equal-length ticks shown while hovering corner 3 (${ticksSeen})`);
+  assert(alignSeen >= 1, `alignment guide shown while hovering corner 4 (${alignSeen})`);
+  assert(closeHot.ring && closeHot.hot, "close indicator: ring cursor + highlighted first anchor");
+  assert(sq && /Z$/.test(sq.d.trim()), "sloppy click near the start closed the path");
+  const ns = sq.nodes;
+  assert(ns.length === 4, `square has 4 nodes (${ns.length})`);
+  const side = (i: number, j: number) => Math.hypot(ns[j].x - ns[i].x, ns[j].y - ns[i].y);
+  const sides = [side(0, 1), side(1, 2), side(2, 3), side(3, 0)];
+  assert(sides.every((s) => near(s, sides[0], 0.01)), `all four sides equal (${sides.map((s) => s.toFixed(2)).join(", ")})`);
+  assert(
+    near(ns[0].y, ns[1].y, 0.01) && near(ns[1].x, ns[2].x, 0.01) && near(ns[2].y, ns[3].y, 0.01) && near(ns[3].x, ns[0].x, 0.01),
+    "sides axis-aligned — a perfect square from sloppy clicks",
+  );
+  await shot(page, "f1-07-square-done");
+
   const errs = realErrors(page);
   assert(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));

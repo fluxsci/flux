@@ -63,7 +63,10 @@ so what you lay out is exactly what prints.
 - **Import a plot:** press **Alt+I** to browse your project's plots (or just drag a file in).
 - **Tools:** single keys — **V** select, **T** text, **R** rectangle, **O** ellipse, **L** line,
   **A** arrow, **P** pen (click to place points; click your first point again to close the
-  shape, or press Enter to finish an open curve), **H** hand (pan).
+  shape — a ring appears when you're close enough — or press Enter to finish an open curve;
+  hold Shift for perfectly horizontal/diagonal/vertical segments, and watch for the dashed
+  guides and tick marks that snap your point into alignment or equal edge lengths),
+  **H** hand (pan).
 - **Everyday editing:** drag to move (with smart snapping), arrow keys to nudge, Ctrl+G to group,
   **[** and **]** to send backward / bring forward, Shift+H / Shift+V to flip, Delete to remove,
   Escape to cancel whatever you're mid-way through.

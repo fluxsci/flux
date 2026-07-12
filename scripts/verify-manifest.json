@@ -24,6 +24,7 @@
       "verify-interact-core.ts",
       "figenh-01-parity.ts",
       "figenh-01-path.ts",
+      "verify-pen-snap.ts",
       "figenh-02-parity.ts",
       "figenh-04-parity.ts",
       "figenh-05-parity.ts",

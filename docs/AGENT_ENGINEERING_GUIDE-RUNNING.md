@@ -395,3 +395,18 @@ paths, regenerates `d`, refits bbox). New ui gate `verify-shape-nofill.mjs`; ext
   (`__flux.fig`) expose only their own exports.
 - The element renderer already draws open paths with `fill="none"` regardless of the model fill
   (chord-fill masquerade guard) — model fill survives a close→reopen round trip by design.
+
+### 2026-07-12 — Pen placement assist (Claude Fable 5, `main`)
+**Work:** Pen tool gained a placement-assist core (`src/lib/interact/penSnap.ts`, pure): widened
+zoom-corrected close radius (8→14 screen px) with a ring + hot-anchor indicator, Shift 0/45/90°
+constraint (line-tool parity), h/v alignment snapping to draft nodes AND edge midpoints, and
+equal-edge-length snapping (free / axis-pinned / along-ray) with geometry-notation tick marks —
+perfect squares and 45-45-90 triangles from sloppy clicks. Gates: `verify-pen-snap.ts` (pure),
+`figenh-01-pen.ts` extended with an end-to-end shift-square.
+**Learnings:**
+- Overlay-svg chrome must be `pointer-events: none` unless it has its OWN handler: figure-level
+  interactions (pen placement/close) run in the SCENE svg's handlers, and overlay elements that
+  capture the pointer silently swallow clicks. The pen's close-click was finicky for exactly this
+  reason — the first anchor's `pointer-events: all` ate direct hits, leaving only a 3px annulus.
+- One snap function must feed BOTH pointermove (preview) and pointerdown (placement) — computing
+  assists in only one path makes the click land somewhere the preview never showed.
