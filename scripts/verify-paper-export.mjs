@@ -1,6 +1,6 @@
 // V1-readiness 0.4 gate — DOCX/Quarto export integrity + the (previously dead) Export menu.
 //   A. REAL UI: the StatusBar's Export segment exists, opens the export menu, and a
-//      scrim-close returns focus to the editor (EDITING-FEEL invariant 7).
+//      scrim-close returns focus to the editor (focus-return discipline).
 //   B. IN-PAGE: materializeRenders() writes fig/renders/<id>.svg for the figures the doc
 //      embeds — round-tripped through the fixture bridge — and reports unknown ids.
 //   C. SOURCE: the docx flow flushes BEFORE quarto, materializes BEFORE quarto, propagates

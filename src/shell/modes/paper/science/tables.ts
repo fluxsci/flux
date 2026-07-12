@@ -8,8 +8,9 @@
 // function of the document (docChanged/refreshChips only, never selection).
 // You edit the markdown source directly; the .qmd stays Quarto.
 //
-// Part of the LOCKED editing-feel contract — see ../EDITING-FEEL.md. In
-// particular: never rebuild on selection, never add block atomicRanges.
+// Never rebuild on selection, never add block atomicRanges — selection-driven
+// decoration rebuilds and block atomics are what caused the old multi-line
+// caret jumps.
 
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";
@@ -115,7 +116,8 @@ class TableWidget extends WidgetType {
   }
   // Patch in place for same-shape edits (cell text, alignment, caption text,
   // number). Any structural change (column/row count, caption presence) →
-  // false = full redraw. estimatedHeight semantics untouched (EDITING-FEEL 4).
+  // false = full redraw. estimatedHeight semantics untouched (accurate
+  // estimates are what prevent scroll jumps).
   updateDOM(dom: HTMLElement): boolean {
     const prev = tableDomState.get(dom);
     if (!prev) return false;

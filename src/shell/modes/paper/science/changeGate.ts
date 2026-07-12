@@ -7,8 +7,8 @@
 // existing decorations are mapped through the change (RangeSet.map keeps the
 // widgets glued to their lines).
 //
-// EDITING-FEEL invariant 1 holds by construction: the predicate reads ONLY
-// tr.changes + the documents — never the selection.
+// Decorations stay a pure function of the document by construction: the
+// predicate reads ONLY tr.changes + the documents — never the selection.
 //
 // Conservative contract (over-triggering is safe; under-triggering shows as a
 // widget failing to appear/disappear — scripts/verify-paper-changegate.ts is

@@ -7,7 +7,7 @@ in this order:
    the twin-engine rule, hard rules, verification system, recipes, known traps, session log).
    It is agent-maintained: it contains its own instructions for how to correct it and how to
    append a session-log entry after major work. Follow those instructions every session.
-2. **`CLAUDE.md`** — the short list of absolute invariants (locked editing feel, config paths,
+2. **`CLAUDE.md`** — the short list of absolute invariants (responsiveness policy, config paths,
    repo etiquette, verification conventions).
 
 If anything in this file, `CLAUDE.md`, or the guide contradicts reality, the guide's maintenance

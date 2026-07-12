@@ -4,9 +4,6 @@
 // survive, same pattern as the page-view compartment). The compartment content
 // must sit BEFORE every other keymap in the extension tree — vim handles keys
 // at the DOM-event level and expects first claim.
-//
-// Part of the LOCKED editing-feel contract — see ../EDITING-FEEL.md before
-// changing anything here.
 
 import { Compartment, Prec, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";

@@ -128,9 +128,20 @@ Persistence invariants (all machine-checked — do not weaken):
   (64MB / 200 entries).
 - Big collections use windowing (`VirtualFixedList.svelte` for the sidebar; hand-rolled row window
   in `LibraryMode`) — all N rows in the DOM is never acceptable at 5k scale.
-- The **paper editor's feel is LOCKED** (see §5). Its internals: CodeMirror 6, decorations as a
-  pure function of the document, per-editor state via facets (no module singletons), block
-  StateFields change-gated by `science/changeGate.ts` so prose keystrokes pay zero construct cost.
+- The **paper editor** (CodeMirror 6) is the most latency-sensitive surface in the app. The
+  mechanisms that keep it instantaneous (§6) and glitch-free — engineering constraints, not
+  aesthetics; understand them before changing them: decorations are a pure function of the
+  DOCUMENT, never the selection (selection-driven rebuilds once swapped a ~500px widget in the
+  caret's own transaction — the "arrow up jumps multiple lines" bug); no block-level
+  `atomicRanges` — embeds/tables/math render as a styled source line plus a block widget AFTER it,
+  so every doc line costs exactly one vertical keypress; source-line metrics are identical active
+  vs. inactive (goal-column navigation survives caret entry); block widgets carry accurate
+  `estimatedHeight`s (scroll stability); vim loads FIRST in the extension tree (it claims keys at
+  the DOM level); citation ordinals publish synchronously before the chip plugin; external reloads
+  dispatch a minimal single-span diff, never a whole-doc replace. Per-editor state rides facets
+  (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
+  keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
+  Regression suite: `group:paper-gate`.
 - Electron: `main.cjs` is a **composition root**; handler families live in
   `electron/ipc/{contract,files,terminal,network,agent}.cjs`. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
@@ -138,10 +149,12 @@ Persistence invariants (all machine-checked — do not weaken):
 
 ## 5. Hard rules — do not do these
 
-1. **The Paper editor's editing feel is LOCKED** (owner sign-off). Read
-   `src/shell/modes/paper/EDITING-FEEL.md` before touching `src/shell/modes/paper/**`, and run the
-   full paper gate after ANY change there. Never change cursor/typing behavior unless the user
-   explicitly asked for that specific change.
+1. **Never regress out of the instantaneous class (§6).** Responsiveness outranks every other
+   user-facing quality. The paper editor is the most sensitive surface — §4 lists the mechanisms
+   that keep it fast; understand them before touching `src/shell/modes/paper/**`, and run the full
+   paper gate after ANY change there. There is no "locked feel" (a July-2026 lock was rescinded
+   2026-07-12): editing behavior may change when there's a reason, with the affected gates updated
+   alongside per rule 3.
 2. **Never `git add -A` / `git commit -a`.** Stage explicit paths only — parallel agent sessions
    may have unrelated work in flight in this tree.
 3. **Never loosen a failing gate to make it pass.** The gates encode contracts; a failure means
@@ -228,7 +241,7 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
   on this box need `--ozone-platform=x11` (§9).
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
-  `group:paper-gate` is the editing-feel contract (15 scripts).
+  `group:paper-gate` is the paper editor's regression suite (15 scripts).
 
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
@@ -352,3 +365,15 @@ promoted into the body as new §6 (sections renumbered; old §6–10 are now §7
   windowing, viewport rendering, deferral).
 - Don't hide slow operations behind debounces — measure the operation; if it's fast, the delay
   itself is the latency bug (library search: 150ms debounce over a ~25ms scan).
+
+### 2026-07-12 — Editing-feel lock rescinded (Claude Fable 5, `main`)
+**Work:** The owner rescinded the July-2026 "editing feel is LOCKED" policy: EDITING-FEEL.md
+deleted, lock language removed from CLAUDE.md / AGENTS.md / this guide / source and script
+comments. The Nielsen budgets (§6) are the standing policy in its place; the `paper-gate` scripts
+remain as ordinary regression gates.
+**Learnings:**
+- Any "LOCKED editing feel" reference in old commits, branches, or agent memories is obsolete —
+  responsiveness (§6) is the contract, and paper-editor behavior is changeable like any other
+  gated area (intentional changes update the gates with evidence, per hard rule 3).
+- The technical invariants behind the old lock were kept (as §4 architecture notes) because they
+  are load-bearing for instantaneous editing — they were never aesthetic preferences.

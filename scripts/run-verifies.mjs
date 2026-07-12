@@ -3,7 +3,7 @@
 //
 //   node scripts/run-verifies.mjs --tier pure            # the `npm test` gate (hermetic)
 //   node scripts/run-verifies.mjs --tier ui              # browser suite (spawns :1420 if absent)
-//   node scripts/run-verifies.mjs --group paper-gate     # the EDITING-FEEL contract
+//   node scripts/run-verifies.mjs --group paper-gate     # the paper editor regression suite
 //   node scripts/run-verifies.mjs --tier pure,ui --only slide
 //   node scripts/run-verifies.mjs --list
 //

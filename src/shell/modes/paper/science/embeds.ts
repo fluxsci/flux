@@ -10,8 +10,9 @@
 // and by export, and is edited via the drag grip / hover buttons here or the
 // keyboard commands in editing/figureSize.ts.
 //
-// Part of the LOCKED editing-feel contract — see ../EDITING-FEEL.md. In
-// particular: never rebuild on selection, never add block atomicRanges.
+// Never rebuild on selection, never add block atomicRanges — the old code
+// swapped a ~500px widget in the same transaction that moved the caret, which
+// was THE "arrow up jumps multiple lines" bug.
 
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";
@@ -33,7 +34,8 @@ const WRAP_PAD = 36; // .flux-embed vertical padding
 
 // Caption height must be ESTIMATED from its length: model captions run to
 // 1500+ chars over many wrapped lines — the old fixed 32px under-estimate
-// brought back scroll jumps for long captions (EDITING-FEEL invariant #4).
+// brought back scroll jumps for long captions (block widgets must carry
+// accurate estimatedHeights).
 function estCaptionHeight(caption: string, frac: number | null): number {
   if (!caption) return 0;
   // Sized: the caption box tracks the art width (var(--embed-w)); auto: 60ch cap.

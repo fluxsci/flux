@@ -4,9 +4,9 @@
 // (Flux_Paper_Plan.md Part 2). Keep precedence intentional: our formatting
 // keymap is prepended ahead of the default keymap so it wins.
 //
-// Part of the LOCKED editing-feel contract — see ./EDITING-FEEL.md. In
-// particular: the `first` slot (vim) must stay first, and the scrollMargins
-// values are tuned feel constants.
+// The `first` slot (vim) must stay first — vim claims keys at the DOM level
+// and its status panel host crashes if anything initializes before it. The
+// scrollMargins values keep the caret off the viewport edges.
 
 import {
   EditorView,

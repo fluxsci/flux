@@ -1,6 +1,6 @@
 // Display math (2.1): `$$ … $$` blocks render as a KaTeX block widget placed
-// AFTER their source lines — the embeds/tables shape, the only EDITING-FEEL-
-// compliant one (invariants 1–4): the source lines stay present and navigable
+// AFTER their source lines — the embeds/tables shape, the only one that keeps
+// editing glitch-free: the source lines stay present and navigable
 // (`cm-flux-mathsrc`, identical metrics active/inactive → one keypress per line,
 // goal column safe), decorations are a pure function of the DOCUMENT (StateField;
 // rebuilds on docChanged/refreshChips only — NEVER on selection), and the widget

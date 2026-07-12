@@ -1,4 +1,4 @@
-// 2.1 gate — math in Paper, held to the EDITING-FEEL contract: display `$$` blocks are
+// 2.1 gate — math in Paper, held to the paper editing invariants: display `$$` blocks are
 // block-widgets AFTER navigable source lines (one keypress per line, goal column safe,
 // zero layout shift on caret moves after first render); inline `$…$` is an atomic chip
 // that reveals ONLY when the selection touches it; `@eq` chips number labeled equations;

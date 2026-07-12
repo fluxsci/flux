@@ -2,11 +2,10 @@
 // the editor matches the shell (serif body, accent, dark) and re-themes for
 // free when tokens change.
 //
-// Part of the LOCKED editing-feel contract — see ./EDITING-FEEL.md. In
-// particular: the .cm-cursor smooth-caret transition (its duration is the
-// user-tunable --flux-caret-ms, default 70ms) and the identical active/inactive
-// metrics of .cm-flux-embedsrc/.cm-flux-tablesrc are tuned feel constants — do
-// not change without an explicit user request.
+// Two tuned constants live here: the .cm-cursor smooth-caret transition (its
+// duration is the user-tunable --flux-caret-ms, default 70ms) and the identical
+// active/inactive metrics of .cm-flux-embedsrc/.cm-flux-tablesrc (any metric
+// change on caret entry reflows the line and breaks goal-column navigation).
 
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle } from "@codemirror/language";

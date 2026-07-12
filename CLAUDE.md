@@ -11,25 +11,20 @@ datetime-stamped session entry after any major work. Treat that document as
 part of your instructions for every session; this file is only the short list
 of absolute invariants.
 
-## The Paper editor's editing feel is LOCKED
+## Responsiveness above all (the Nielsen budgets)
 
-The cursor/typing/editing feel of the manuscript editor
-(`src/shell/modes/paper/**`) was overhauled and hand-tuned in July 2026 and
-the owner wants it to stay **exactly** as it is. Before touching anything in
-that module, read `src/shell/modes/paper/EDITING-FEEL.md` — it lists the
-invariants (decorations are a pure function of the document, no block
-atomicRanges, vim-first extension order, scroll margins, the 70ms caret
-transition, focus-return discipline) and the verify-script gate.
+Flux targets the Nielsen response-time limits as standing product policy —
+the full framework is §6 of the engineering guide. The non-negotiable core:
+every direct-manipulation interaction (typing, cursor movement, drag/pan/
+zoom, selection, scrolling, search-as-you-type) must feel **instantaneous
+(≤100ms)**, and slow operations are made fast rather than masked with
+artificial latency. There is no "locked feel" anywhere in the app — editing
+behavior can be changed when there's a reason, provided the responsiveness
+budgets hold and the affected gates are updated with the change (never
+silently loosened).
 
-Hard rules:
-
-- Do NOT make major changes to cursor movement, typing behavior, or the
-  editing feel unless the user explicitly asks for that specific change.
-- After ANY paper-module change, run the `scripts/verify-paper-*.mjs` suite
-  (plus `verify-fig-width.mjs`, `verify-citegroup.mjs`,
-  `npx tsx scripts/verify-citenum.ts`) against the dev server on :1420. These
-  scripts encode the feel contract — if one fails, fix the regression rather
-  than loosening the test.
+After paper-module changes, run the paper regression suite against the dev
+server on :1420: `node scripts/run-verifies.mjs --group paper-gate`.
 
 ## Verification conventions
 

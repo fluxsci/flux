@@ -6,8 +6,9 @@
 // editor's extension tree as a Facet value; PaperMode owns the instance and
 // republishes to its margin surfaces through the stores in the owner handle.
 //
-// EDITING-FEEL #8 (ordinals publish synchronously before the chip plugin) is
-// preserved structurally: the WRITER fields mutate the instance during their
+// Ordinals publish synchronously before the chip plugin (numeric chips never
+// render stale numbers), preserved structurally: the WRITER fields mutate the
+// instance during their
 // own StateField update, and citeNumberField still sits before scienceChips in
 // buildExtensions — chips read fresh numbers in the same transaction.
 // ---------------------------------------------------------------------------
