@@ -56,9 +56,25 @@ assert(p1.arrowEnd === true, "set_style arrowEnd applies to an open path");
   assert(pr.polys.length === 1 && pr.vees.length === 0, "filled end arrow → one triangle");
   const head = arrowHeadLen(4, undefined, 100, 1);
   assert(near(pr.polys[0][0][0], 100) && near(pr.polys[0][0][1], 0), "triangle tip sits ON the path end");
-  assert(pr.d.trim().endsWith(`L ${100 - head} 0`), `filled head trims the body back by the head length (d: ${pr.d})`);
+  // The body TUCKS under the head (0.65×head euclidean from the tip) — never a
+  // gap, and always covered by the solid triangle.
+  const em = pr.d.trim().match(/(-?[\d.]+) (-?[\d.]+)$/);
+  const endX = em ? Number(em[1]) : NaN;
+  assert(near(endX, 100 - head * 0.65, 0.5) && endX < 100, `filled head: body tucks under the triangle (end x=${endX})`);
   const same = arrowTri(100, 0, 1, 0, head);
   assert(JSON.stringify(pr.polys[0]) === JSON.stringify(same), "path head geometry === line head geometry (one source)");
+}
+{
+  // REGRESSION (owner screenshot): a strongly curved end used to open a GAP
+  // between the trimmed body and the filled head — arc-length trimming lands
+  // short of the tangent-aligned base. Euclidean tuck keeps the stub inside.
+  const el: PathElement = { type: "path", id: "hook", x: 0, y: 0, width: 120, height: 60, rotation: 0, d: "", fill: "none", stroke: "#000", strokeWidth: 4, closed: false, arrowEnd: true, nodes: [N(0, 0), N(120, 60, { hIn: { dx: -60, dy: -60 } })] };
+  el.d = nodesToPath(el.nodes!, false);
+  const pr = pathRender(el);
+  const head = arrowHeadLen(4, undefined, 999, 1); // long path → unclamped head
+  const m = pr.d.trim().match(/(-?[\d.]+) (-?[\d.]+)$/);
+  const gap = m ? Math.hypot(Number(m[1]) - 120, Number(m[2]) - 60) : Infinity;
+  assert(gap <= head * 0.72 && gap > 0, `curved end: stub ends INSIDE the head, no gap (dist ${gap.toFixed(2)} vs head ${head})`);
 }
 {
   const vee = pathRender({ ...p1, arrowStyle: "vee" });

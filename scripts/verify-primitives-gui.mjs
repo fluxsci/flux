@@ -165,6 +165,65 @@ try {
   await waitFor(page, () => !document.querySelector(".pp"), null, { label: "picker closed after insert (out-transition done)" });
   ok(true, "picker closed after insert");
 
+  // --- G. REGRESSION: rotated path — hover trace + node-edit follow the pose --
+  const rotId = await page.evaluate(() => {
+    const F = window.__flux.fig;
+    let id;
+    F.commit((p) => {
+      const g = p.figures[0];
+      id = F.newId("path");
+      g.elements.push({ type: "path", id, x: 450, y: 330, width: 160, height: 1, rotation: 40, d: "M 0 0 L 160 0", fill: "none", stroke: "#222222", strokeWidth: 3, closed: false });
+    });
+    F.selection.set(new Set());
+    return id;
+  });
+  await page.evaluate((id) => window.__flux.fig.hoverId.set(id), rotId);
+  await waitForFrame(page);
+  const traceRot = await page.evaluate(() => document.querySelector(".hover-trace")?.closest("g")?.getAttribute("transform") || "");
+  ok(/rotate\(40/.test(traceRot), `rotated path: hover trace carries the rotation (${traceRot.slice(0, 60)}…)`);
+  await page.evaluate(() => window.__flux.fig.hoverId.set(null));
+
+  await page.evaluate((id) => window.__flux.fig.selectOnly(id), rotId);
+  await page.keyboard.press("Enter");
+  await waitFor(page, (want) => window.__flux.get(window.__flux.fig.nodeEditId) === want, rotId, { label: "node-edit on the rotated path" });
+  // first node's marker must sit at the ROTATED screen position of local (0,0)
+  const rotCheck = await page.evaluate((id) => {
+    const X = window.__flux;
+    const vp = X.get(X.fig.viewport);
+    let el;
+    for (const f of X.get(X.fig.project).figures) for (const e of f.elements) if (e.id === id) el = e;
+    const c = { x: el.x + el.width / 2, y: el.y + el.height / 2 };
+    const rad = (el.rotation * Math.PI) / 180;
+    const q = { x: el.x, y: el.y }; // node0 local (0,0) → figure coords pre-rotation
+    const r = {
+      x: c.x + (q.x - c.x) * Math.cos(rad) - (q.y - c.y) * Math.sin(rad),
+      y: c.y + (q.x - c.x) * Math.sin(rad) + (q.y - c.y) * Math.cos(rad),
+    };
+    const want = { x: vp.panX + r.x * vp.zoom, y: vp.panY + r.y * vp.zoom };
+    const host = document.querySelector(".canvas-host").getBoundingClientRect();
+    const pt = document.querySelector(".node-pt");
+    const box = pt.getBoundingClientRect();
+    const got = { x: box.x + box.width / 2 - host.left, y: box.y + box.height / 2 - host.top };
+    return { dx: Math.abs(got.x - want.x), dy: Math.abs(got.y - want.y) };
+  }, rotId);
+  ok(rotCheck.dx < 2 && rotCheck.dy < 2, `rotated node marker sits on the rendered node (Δ ${rotCheck.dx.toFixed(1)},${rotCheck.dy.toFixed(1)})`);
+  // ctrl-bend through the rotated pose: grab the segment at its midpoint MARKER
+  const midPos = await page.evaluate(() => {
+    const host = document.querySelector(".canvas-host").getBoundingClientRect();
+    const m = document.querySelector(".node-insert");
+    const b = m.getBoundingClientRect();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2, hostL: host.left, hostT: host.top };
+  });
+  await page.keyboard.down("Control");
+  await page.mouse.move(midPos.x, midPos.y);
+  await page.mouse.down();
+  await page.mouse.move(midPos.x + 20, midPos.y + 34, { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up("Control");
+  const rotBent = await el(rotId);
+  ok(/C /.test(rotBent.d), "ctrl-drag bends a ROTATED path (pointer unmapped through the rotation)");
+  await page.keyboard.press("Escape");
+
   const errs = realErrors(page);
   ok(errs.length === 0, errs.length ? `console errors: ${errs.join(" | ").slice(0, 220)}` : "zero console errors");
 } finally {

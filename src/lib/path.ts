@@ -341,18 +341,21 @@ function segsToD(segs: PathSeg[]): string {
   return d;
 }
 
-/** Trim `dist` of arc length off one end of a segment list (for filled heads).
- *  Never eats more than 90% of the end segment — a huge head on a tiny end
- *  segment clamps rather than devouring the path. */
+/** Cut the path back to the first point at EUCLIDEAN distance `dist` from the
+ *  original endpoint (for filled heads). Euclidean — NOT arc length: the head
+ *  sits along the end TANGENT, so on a curve an arc-length trim lands short of
+ *  the head's base and opens a visible gap. A euclidean cut at a fraction of
+ *  the head length leaves a stub that always ends underneath the filled
+ *  triangle instead. Never eats more than 90% of the end segment. */
 function trimEnd(segs: PathSeg[], dist: number, end: "start" | "end"): void {
   if (!segs.length || dist <= 0) return;
   const idx = end === "end" ? segs.length - 1 : 0;
   const s = segs[idx];
   const L = segLength(s);
   if (L < 1e-6) return;
-  const frac = Math.min(dist / L, 0.9);
   if (s.line) {
-    // analytic for straights
+    // analytic for straights (euclidean == arc length)
+    const frac = Math.min(dist / L, 0.9);
     if (end === "end") {
       const t = 1 - frac;
       const p = segPoint(s, t);
@@ -363,26 +366,42 @@ function trimEnd(segs: PathSeg[], dist: number, end: "start" | "end"): void {
     }
     return;
   }
-  // walk the sampled arc length to the split parameter
+  // walk from the endpoint to the first sample beyond `dist`, then bisect the
+  // bracketing pair so the cut lands ON the target distance (sample spacing
+  // alone can overshoot by px — enough to resurface the gap on sharp curves)
   const N = 32;
-  let acc = 0;
-  let tSplit = end === "end" ? 1 - frac : frac;
+  const tip = end === "end" ? { x: s.x3, y: s.y3 } : { x: s.x0, y: s.y0 };
   const from = end === "end" ? N : 0;
   const step = end === "end" ? -1 : 1;
-  let prev = segPoint(s, from / N);
+  const distAt = (t: number) => {
+    const p = segPoint(s, t);
+    return Math.hypot(p.x - tip.x, p.y - tip.y);
+  };
+  let tSplit = end === "end" ? 0.1 : 0.9; // fallback: whole segment closer than dist
   for (let i = from + step; i >= 0 && i <= N; i += step) {
-    const p = segPoint(s, i / N);
-    acc += Math.hypot(p.x - prev.x, p.y - prev.y);
-    prev = p;
-    if (acc >= dist) {
-      tSplit = i / N;
+    if (distAt(i / N) >= dist) {
+      let beyond = i / N;
+      let within = (i - step) / N;
+      for (let k = 0; k < 20; k++) {
+        const mid = (beyond + within) / 2;
+        if (distAt(mid) >= dist) beyond = mid;
+        else within = mid;
+      }
+      tSplit = beyond;
       break;
     }
   }
-  tSplit = end === "end" ? Math.max(tSplit, 0.1) : Math.min(tSplit, 0.9);
+  tSplit = end === "end" ? Math.min(Math.max(tSplit, 0.1), 1) : Math.max(Math.min(tSplit, 0.9), 0);
   const [left, right] = splitSeg(s, tSplit);
   segs[idx] = end === "end" ? left : right;
 }
+
+/** How deep the body tucks under a filled head: the cut lands at this fraction
+ *  of the head length from the tip — inside the triangle on straights AND
+ *  curves (the head half-angle is ~23°, far more than gentle end curvature),
+ *  so there is never a gap. The stub is invisible under the solid head; the
+ *  only trade is double-painting under sub-1 opacity. */
+const HEAD_TUCK = 0.65;
 
 export function pathRender(e: {
   d: string;
@@ -411,7 +430,7 @@ export function pathRender(e: {
     (filled ? polys : vees).push(
       filled ? arrowTri(s.x3, s.y3, dir.x, dir.y, head) : arrowVee(s.x3, s.y3, dir.x, dir.y, head),
     );
-    if (filled) trimEnd(segs, head, "end");
+    if (filled) trimEnd(segs, head * HEAD_TUCK, "end");
   }
   if (e.arrowStart) {
     const s = segs[0];
@@ -419,7 +438,7 @@ export function pathRender(e: {
     (filled ? polys : vees).push(
       filled ? arrowTri(s.x0, s.y0, -dir.x, -dir.y, head) : arrowVee(s.x0, s.y0, -dir.x, -dir.y, head),
     );
-    if (filled) trimEnd(segs, head, "start");
+    if (filled) trimEnd(segs, head * HEAD_TUCK, "start");
   }
   return { d: segsToD(segs), polys, vees };
 }

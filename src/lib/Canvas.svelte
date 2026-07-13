@@ -47,6 +47,7 @@
     selectionBBox,
     rectsIntersect,
     rotateAbout,
+    rotatePoint,
     gapBetween,
     lineWorldEndpoints,
     type Rect,
@@ -759,6 +760,49 @@
   }
   $: void $project, editPathId, nodeDrag, resyncEditNodes();
 
+  // ---------------------------------------------------------------------
+  // Rotation/flip-aware mapping between a path element's LOCAL space and
+  // FIGURE space (Element.svelte's buildTransform: flip about the bbox centre
+  // first, then rotate about it). Every node-edit overlay position and every
+  // pointer→node conversion must round trip through these — translate+scale
+  // alone leaves markers/hits at the UNROTATED pose while the element renders
+  // rotated (the "stuck on the original shape" bug).
+  // ---------------------------------------------------------------------
+  function elMapPoint(el: Element, p: { x: number; y: number }): { x: number; y: number } {
+    const b = elementBBox(el);
+    const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    let q = { x: el.x + p.x, y: el.y + p.y };
+    const sx = el.flipX ? -1 : 1;
+    const sy = el.flipY ? -1 : 1;
+    if (sx !== 1 || sy !== 1) q = { x: c.x + (q.x - c.x) * sx, y: c.y + (q.y - c.y) * sy };
+    return el.rotation ? rotatePoint(q, c, el.rotation) : q;
+  }
+  function elUnmapPoint(el: Element, q: { x: number; y: number }): { x: number; y: number } {
+    const b = elementBBox(el);
+    const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    let p = el.rotation ? rotatePoint(q, c, -el.rotation) : { x: q.x, y: q.y };
+    const sx = el.flipX ? -1 : 1;
+    const sy = el.flipY ? -1 : 1;
+    if (sx !== 1 || sy !== 1) p = { x: c.x + (p.x - c.x) * sx, y: c.y + (p.y - c.y) * sy };
+    return { x: p.x - el.x, y: p.y - el.y };
+  }
+  /** SVG transform string: element-LOCAL coords → screen, incl. rotation/flip.
+   *  `vp` passed explicitly so reactive callers keep their $viewport dep visible. */
+  function elOverlayTransform(vp: { panX: number; panY: number; zoom: number }, figXY: { x: number; y: number }, el: Element): string {
+    const parts = [`translate(${vp.panX + figXY.x * vp.zoom} ${vp.panY + figXY.y * vp.zoom}) scale(${vp.zoom})`];
+    const sx = el.flipX ? -1 : 1;
+    const sy = el.flipY ? -1 : 1;
+    if (el.rotation || sx !== 1 || sy !== 1) {
+      const b = elementBBox(el);
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      if (el.rotation) parts.push(`rotate(${el.rotation} ${cx} ${cy})`);
+      if (sx !== 1 || sy !== 1) parts.push(`translate(${cx} ${cy}) scale(${sx} ${sy}) translate(${-cx} ${-cy})`);
+    }
+    parts.push(`translate(${el.x} ${el.y})`);
+    return parts.join(" ");
+  }
+
   function onNodeDown(e: PointerEvent, i: number, kind: "node" | "in" | "out") {
     e.stopPropagation();
     if (startPanIfNeeded(e)) return;
@@ -779,8 +823,9 @@
     // onDblClick is suppressed in node-edit), breaking corner↔smooth toggle.
     // Capture is taken on the first real move in onNodeDrag instead.
     const lp = localPoint(e.clientX, e.clientY, found.figure);
-    nodeDrag.sx = lp.x - found.element.x;
-    nodeDrag.sy = lp.y - found.element.y;
+    const g = elUnmapPoint(found.element, lp);
+    nodeDrag.sx = g.x;
+    nodeDrag.sy = g.y;
   }
 
   function onNodeDrag(e: PointerEvent) {
@@ -790,8 +835,8 @@
     if (!found || found.element.type !== "path") return;
     const el = found.element;
     const lp = localPoint(e.clientX, e.clientY, found.figure);
-    const ex = lp.x - el.x; // element-local (el.x/y stays fixed until commit)
-    const ey = lp.y - el.y;
+    // element-local incl. rotation/flip (el.x/y stays fixed until commit)
+    const { x: ex, y: ey } = elUnmapPoint(el, lp);
     if (!nd.started) {
       // ignore sub-pixel jitter so a plain click stays a click (selection only)
       if (Math.hypot(ex - nd.sx, ey - nd.sy) < 2 / $viewport.zoom) return;
@@ -848,8 +893,7 @@
     e.stopPropagation();
     const el = found.element;
     const lp = localPoint(e.clientX, e.clientY, found.figure);
-    const ex = lp.x - el.x;
-    const ey = lp.y - el.y;
+    const { x: ex, y: ey } = elUnmapPoint(el, lp);
     const segs = segsFromNodes(editNodes, editClosed);
     const t = segs[s] ? nearestTOnSeg(segs[s], ex, ey).t : 0.5;
     bendDrag = { s, t, sx: ex, sy: ey, started: false, orig: editNodes.map(cloneNode) };
@@ -865,8 +909,7 @@
     if (!found || found.element.type !== "path") return;
     const el = found.element;
     const lp = localPoint(e.clientX, e.clientY, found.figure);
-    const ex = lp.x - el.x;
-    const ey = lp.y - el.y;
+    const { x: ex, y: ey } = elUnmapPoint(el, lp);
     if (!bd.started) {
       if (Math.hypot(ex - bd.sx, ey - bd.sy) < 2 / $viewport.zoom) return;
       bd.started = true;
@@ -2182,7 +2225,9 @@
               el.type === "path"
                 ? el.d
                 : `M ${el.x1} ${el.y1} L ${el.x2} ${el.y2}`,
-            tf: `translate(${$viewport.panX + (found.figure.x + el.x) * $viewport.zoom} ${$viewport.panY + (found.figure.y + el.y) * $viewport.zoom}) scale(${$viewport.zoom})`,
+            // full element transform — a rotated/flipped path must trace its
+            // RENDERED pose, not the unrotated one
+            tf: elOverlayTransform($viewport, { x: found.figure.x, y: found.figure.y }, el),
           }
         : null;
     return {
@@ -2336,26 +2381,30 @@
       : null;
 
   // group transform mapping the edited path's local space → screen (for the
-  // highlighted outline). Uses el.x/y which is held fixed during a node drag.
+  // highlighted outline), incl. the element's rotation/flip. Uses el.x/y which
+  // is held fixed during a node drag.
   $: editTransform = editInfo
-    ? `translate(${$viewport.panX + (editInfo.fig.x + editInfo.el.x) * $viewport.zoom} ${$viewport.panY + (editInfo.fig.y + editInfo.el.y) * $viewport.zoom}) scale(${$viewport.zoom})`
+    ? elOverlayTransform($viewport, { x: editInfo.fig.x, y: editInfo.fig.y }, editInfo.el)
     : "";
   $: editScreen = (() => {
     if (!editInfo) return null;
-    const fx = editInfo.fig.x + editInfo.el.x;
-    const fy = editInfo.fig.y + editInfo.el.y;
-    const px = (x: number) => $viewport.panX + (fx + x) * $viewport.zoom;
-    const py = (y: number) => $viewport.panY + (fy + y) * $viewport.zoom;
+    // element-local → screen through the FULL element transform (rotation/flip
+    // included via elMapPoint) — rigid maps take bezier controls to the
+    // rotated curve's controls, so mapping each point is exact.
+    const S = (x: number, y: number) => {
+      const m = elMapPoint(editInfo!.el, { x, y });
+      return {
+        x: $viewport.panX + (editInfo!.fig.x + m.x) * $viewport.zoom,
+        y: $viewport.panY + (editInfo!.fig.y + m.y) * $viewport.zoom,
+      };
+    };
     const N = editNodes.length;
-    const nodes = editNodes.map((n, i) => ({
-      i,
-      x: px(n.x),
-      y: py(n.y),
-      smooth: n.type === "smooth",
-      sel: editSel.has(i),
-      hIn: n.hIn && editSel.has(i) ? { x: px(n.x + n.hIn.dx), y: py(n.y + n.hIn.dy) } : null,
-      hOut: n.hOut && editSel.has(i) ? { x: px(n.x + n.hOut.dx), y: py(n.y + n.hOut.dy) } : null,
-    }));
+    const nodes = editNodes.map((n, i) => {
+      const pt = S(n.x, n.y);
+      const hi = n.hIn && editSel.has(i) ? S(n.x + n.hIn.dx, n.y + n.hIn.dy) : null;
+      const ho = n.hOut && editSel.has(i) ? S(n.x + n.hOut.dx, n.y + n.hOut.dy) : null;
+      return { i, x: pt.x, y: pt.y, smooth: n.type === "smooth", sel: editSel.has(i), hIn: hi, hOut: ho };
+    });
     // segment midpoints (screen) → click to insert a node; per-segment screen
     // path d → the wide ctrl-drag BEND hit target
     const segCount = editClosed ? N : N - 1;
@@ -2372,11 +2421,13 @@
       const a1y = a.y + (a.hOut?.dy ?? 0);
       const b1x = b.x + (b.hIn?.dx ?? 0);
       const b1y = b.y + (b.hIn?.dy ?? 0);
-      mids.push({ s, x: px(de(0.5, a.x, a1x, b1x, b.x)), y: py(de(0.5, a.y, a1y, b1y, b.y)) });
-      segsD.push({
-        s,
-        d: `M ${px(a.x)} ${py(a.y)} C ${px(a1x)} ${py(a1y)} ${px(b1x)} ${py(b1y)} ${px(b.x)} ${py(b.y)}`,
-      });
+      const mid = S(de(0.5, a.x, a1x, b1x, b.x), de(0.5, a.y, a1y, b1y, b.y));
+      mids.push({ s, x: mid.x, y: mid.y });
+      const A = S(a.x, a.y);
+      const C1 = S(a1x, a1y);
+      const C2 = S(b1x, b1y);
+      const B = S(b.x, b.y);
+      segsD.push({ s, d: `M ${A.x} ${A.y} C ${C1.x} ${C1.y} ${C2.x} ${C2.y} ${B.x} ${B.y}` });
     }
     return { nodes, mids, segsD };
   })();
