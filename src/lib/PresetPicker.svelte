@@ -15,7 +15,8 @@
     deleteDesignPreset,
     insertPreset,
     presetThumb,
-    presetable,
+    presetElements,
+    presetableSelection,
     type PresetEntry,
   } from "./presets";
   import { project, findElement } from "./store";
@@ -30,7 +31,10 @@
   let loading = false;
 
   $: state = $presetPicker;
-  $: saveEl = state?.mode === "save" ? (findElement($project, state.elementId)?.element ?? null) : null;
+  $: saveEls =
+    state?.mode === "save"
+      ? state.elementIds.map((id) => findElement($project, id)?.element).filter((e) => !!e)
+      : [];
   $: q = search.trim().toLowerCase();
   $: shown = q
     ? entries.filter((e) => `${e.preset.name} ${e.rel}`.toLowerCase().includes(q))
@@ -50,7 +54,7 @@
     entries = await listDesignPresets();
     loading = false;
     if (state?.mode === "save") {
-      name = saveEl ? defaultName(saveEl.type) : "";
+      name = saveEls.length > 1 ? defaultName("group") : saveEls.length ? defaultName(saveEls[0].type) : "";
       requestAnimationFrame(() => {
         nameEl?.focus();
         nameEl?.select();
@@ -59,9 +63,12 @@
       requestAnimationFrame(() => searchEl?.focus());
     }
   }
-  function defaultName(type: string): string {
-    const n = entries.filter((e) => e.preset.element.type === type).length;
-    return n ? `${type}-${n + 1}` : type;
+  function defaultName(kind: string): string {
+    const n = entries.filter((e) => {
+      const els = presetElements(e.preset);
+      return kind === "group" ? els.length > 1 : els.length === 1 && els[0].type === kind;
+    }).length;
+    return n ? `${kind}-${n + 1}` : kind;
   }
 
   function close() {
@@ -69,11 +76,11 @@
   }
 
   async function doSave() {
-    if (!saveEl || !presetable(saveEl)) {
-      pushToast("error", "Only rectangles, ellipses, lines and paths can be presets");
+    if (state?.mode !== "save" || !presetableSelection(saveEls)) {
+      pushToast("error", "Presets take one primitive, or a group of primitives + text");
       return;
     }
-    const rel = await saveDesignPreset(name, saveEl);
+    const rel = await saveDesignPreset(name, state.elementIds);
     if (rel) {
       pushToast("success", `Preset saved`, { detail: rel });
       close();
@@ -83,8 +90,8 @@
   }
 
   function doInsert(entry: PresetEntry) {
-    const id = insertPreset(entry, { w: window.innerWidth, h: window.innerHeight });
-    if (id) close();
+    const ids = insertPreset(entry, { w: window.innerWidth, h: window.innerHeight });
+    if (ids.length) close();
     else pushToast("info", "Open a figure first — presets insert into the active figure");
   }
 
@@ -146,8 +153,8 @@
 
     {#if state.mode === "save"}
       <div class="save-row">
-        {#if saveEl}
-          <div class="save-thumb"><img src={presetThumb(saveEl)} alt="preset preview" /></div>
+        {#if saveEls.length}
+          <div class="save-thumb"><img src={presetThumb(saveEls)} alt="preset preview" /></div>
         {/if}
         <input
           bind:this={nameEl}
@@ -192,9 +199,9 @@
             on:pointerenter={() => (index = i)}
             on:click={() => state.mode === "insert" && doInsert(entry)}
           >
-            <div class="thumb"><img src={presetThumb(entry.preset.element)} alt={entry.preset.name} /></div>
+            <div class="thumb"><img src={presetThumb(presetElements(entry.preset))} alt={entry.preset.name} /></div>
             <div class="meta">
-              <span class="nm">{entry.preset.name}</span>
+              <span class="nm">{entry.preset.name}{presetElements(entry.preset).length > 1 ? ` (group·${presetElements(entry.preset).length})` : ""}</span>
               {#if entry.rel.includes("/")}<span class="dir">{entry.rel.split("/").slice(0, -1).join("/")}</span>{/if}
             </div>
             <button class="del" title="Delete preset" on:click={(e) => doDelete(e, entry)}>×</button>

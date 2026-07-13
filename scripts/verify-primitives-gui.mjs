@@ -139,12 +139,7 @@ try {
   ok(true, "bend is one undo entry");
 
   // --- F. presets: save → Ctrl+P grid → insert -------------------------------
-  const rel = await page.evaluate(async (id) => {
-    const X = window.__flux;
-    let target = null;
-    for (const f of X.get(X.fig.project).figures) for (const e of f.elements) if (e.id === id) target = e;
-    return await X.presets.saveDesignPreset("gate/curve", target);
-  }, ids.path);
+  const rel = await page.evaluate(async (id) => await window.__flux.presets.saveDesignPreset("gate/curve", [id]), ids.path);
   ok(rel === "gate/curve.json", `saveDesignPreset wrote ${rel}`);
   const countBefore = await page.evaluate(() => window.__flux.figures().flatMap((f) => f.elements).length);
   await page.keyboard.down("Control");
@@ -223,6 +218,94 @@ try {
   const rotBent = await el(rotId);
   ok(/C /.test(rotBent.d), "ctrl-drag bends a ROTATED path (pointer unmapped through the rotation)");
   await page.keyboard.press("Escape");
+
+  // --- H. GROUP presets: badge (rect+text, grouped via real Ctrl+G) ----------
+  const grpIds = await page.evaluate(() => {
+    const F = window.__flux.fig;
+    const out = {};
+    F.commit((p) => {
+      const g = p.figures[0];
+      out.box = F.newId("rect");
+      g.elements.push({ type: "rect", id: out.box, x: 60, y: 380, width: 120, height: 44, rotation: 0, fill: "#e8871e", stroke: "#222222", strokeWidth: 2, cornerRadius: 8 });
+      out.label = F.newId("text");
+      g.elements.push({ type: "text", id: out.label, x: 78, y: 392, width: 90, height: 20, rotation: 0, text: "Badge", fontFamily: "sans-serif", fontSize: 14, fontWeight: 700, fontStyle: "normal", align: "left", color: "#111111", sizing: "auto" });
+    });
+    F.selection.set(new Set([out.box, out.label]));
+    return out;
+  });
+  await page.keyboard.down("Control");
+  await page.keyboard.press("g");
+  await page.keyboard.up("Control");
+  const gid0 = await page.evaluate((ids) => {
+    const X = window.__flux;
+    for (const f of X.get(X.fig.project).figures) for (const e of f.elements) if (e.id === ids.box) return e.groupId ?? null;
+    return null;
+  }, grpIds);
+  ok(!!gid0, `Ctrl+G grouped the pair (gid ${gid0})`);
+  const grel = await page.evaluate(async (ids) => await window.__flux.presets.saveDesignPreset("gate/badge", [ids.box, ids.label]), grpIds);
+  ok(grel === "gate/badge.json", `group preset saved as ${grel}`);
+  const stored = await page.evaluate(() => {
+    const list = JSON.parse(localStorage.getItem("flux.presets.designs") || "[]");
+    const hit = list.find((e) => e.rel === "gate/badge.json");
+    return hit ? { els: hit.preset.elements?.length ?? 0, grps: Object.keys(hit.preset.groups || {}).length, hasStyleId: JSON.stringify(hit.preset).includes("styleId") } : null;
+  });
+  ok(stored && stored.els === 2 && stored.grps === 1, `stored form: 2 elements + 1 group def (${JSON.stringify(stored)})`);
+
+  // insert through the real picker: Ctrl+P → search → click the badge card
+  const beforeIns = await page.evaluate(() => {
+    const X = window.__flux;
+    const f = X.get(X.fig.project).figures[0];
+    return { els: f.elements.length, grps: Object.keys(f.groups || {}).length };
+  });
+  await page.keyboard.down("Control");
+  await page.keyboard.press("p");
+  await page.keyboard.up("Control");
+  await waitFor(page, () => !!document.querySelector(".pp .search"), null, { label: "picker open for group insert" });
+  await page.type(".pp .search", "badge");
+  await waitFor(page, () => document.querySelectorAll(".pp .card").length === 1, null, { label: "search narrowed to the badge card" });
+  const gThumb = await page.evaluate(() => (document.querySelector(".pp .card img")?.getAttribute("src") || "").startsWith("data:image/svg+xml"));
+  ok(gThumb, "group card thumbnail rendered (multi-element SVG)");
+  await page.click(".pp .card");
+  await waitFor(page, (n) => window.__flux.get(window.__flux.fig.project).figures[0].elements.length === n + 2, beforeIns.els, { label: "group insert added both elements" });
+  const after = await page.evaluate((ids) => {
+    const X = window.__flux;
+    const f = X.get(X.fig.project).figures[0];
+    const sel = [...X.get(X.fig.selection)];
+    const els = f.elements.filter((e) => sel.includes(e.id));
+    return {
+      selCount: sel.length,
+      types: els.map((e) => e.type).sort().join(","),
+      gids: [...new Set(els.map((e) => e.groupId))],
+      grps: Object.keys(f.groups || {}).length,
+      freshIds: els.every((e) => e.id !== ids.box && e.id !== ids.label),
+      text: els.find((e) => e.type === "text")?.text,
+    };
+  }, grpIds);
+  ok(after.selCount === 2 && after.types === "rect,text", "inserted group = rect + text, both selected");
+  ok(after.gids.length === 1 && !!after.gids[0] && after.gids[0] !== gid0, `inserted pair shares ONE fresh group id (${after.gids[0]})`);
+  ok(after.grps === beforeIns.grps + 1 && after.freshIds && after.text === "Badge", "new group def registered; ids fresh; text intact");
+  await waitFor(page, () => !document.querySelector(".pp"), null, { label: "picker closed after group insert" });
+
+  // loose pair (never grouped) → insert must WRAP into one fresh group
+  const looseIns = await page.evaluate(async () => {
+    const X = window.__flux;
+    const F = X.fig;
+    const a = F.newId("line");
+    const b = F.newId("ellipse");
+    F.commit((p) => {
+      const g = p.figures[0];
+      g.elements.push({ type: "line", id: a, x: 600, y: 60, width: 0, height: 0, rotation: 0, x1: 0, y1: 0, x2: 60, y2: 0, stroke: "#222", strokeWidth: 2, arrowStart: false, arrowEnd: true });
+      g.elements.push({ type: "ellipse", id: b, x: 600, y: 80, width: 40, height: 40, rotation: 0, fill: "#5a9", stroke: "#222", strokeWidth: 2 });
+    });
+    await X.presets.saveDesignPreset("gate/loose", [a, b]);
+    const entries = await X.presets.listDesignPresets();
+    const entry = entries.find((e) => e.rel === "gate/loose.json");
+    const ids = X.presets.insertPreset(entry, { w: window.innerWidth, h: window.innerHeight });
+    const f = X.get(X.fig.project).figures[0];
+    const els = f.elements.filter((e) => ids.includes(e.id));
+    return { n: ids.length, gids: [...new Set(els.map((e) => e.groupId))].filter(Boolean).length, allGrouped: els.every((e) => !!e.groupId) };
+  });
+  ok(looseIns.n === 2 && looseIns.gids === 1 && looseIns.allGrouped, "loose multi-element preset inserts WRAPPED in one fresh group");
 
   const errs = realErrors(page);
   ok(errs.length === 0, errs.length ? `console errors: ${errs.join(" | ").slice(0, 220)}` : "zero console errors");

@@ -419,8 +419,11 @@ tangent heads from the shared arrowTri/arrowVee + arc-length body trim), TRUE-cu
 hit strokes), ctrl+drag segment BEND in node-edit (pure `bendSegment`, weight-distributed handle
 deltas), FluxFig-menu none/dash fields, and the machine-global design-preset library
 (`<FluxConfig>/presets/designs/**.json`, presets:* IPC, memBridge localStorage fallback, Ctrl+P
-grid picker with elementToSvg thumbnails). Gates: verify-primitives.ts (pure),
-verify-primitives-gui.mjs (ui), figenh/parity/canary suites green.
+grid picker with elementToSvg thumbnails). Presets extended to GROUPS of primitives + text:
+elements stored verbatim with their group-def subtree (clipboard-copy semantics), inserted via
+cloneGroupsFor with fresh ids, loose sets wrapped by ops.group so a multi-element preset always
+lands as one ungroupable unit. Gates: verify-primitives.ts (pure), verify-primitives-gui.mjs
+(ui), figenh/parity/canary suites green.
 **Learnings:**
 - A degenerate cubic with controls AT the endpoints is NOT linear in t (parameterization bunches)
   — straight segments must special-case point/tangent evaluation. The pure gate caught this.

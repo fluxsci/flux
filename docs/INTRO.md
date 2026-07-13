@@ -75,10 +75,12 @@ so what you lay out is exactly what prints.
   travel with the figure into your manuscript). **Alt+G** snaps a messy selection into a tidy
   grid; **Alt+P** opens the X-ray, which shows the anatomy of a plot so you can pick exact parts.
 - **Rulers and guides:** Shift+R.
-- **Reusable designs:** style any shape, line, or path exactly how you like it, then save it as a
+- **Reusable designs:** style any shape, line, or path exactly how you like it — or select a
+  whole **group** of shapes and labels (a badge, a labelled bracket) — then save it as a
   **preset** (press **F** for the property menu → "save as preset"). **Ctrl+P** opens your preset
   library — a personal, cross-project collection of arrows, stars, callouts — and inserts one
-  with a click. Strokes can be dashed, and paths can carry arrowheads, from the same menus.
+  with a click; group presets arrive as a group you can move as one or ungroup to break apart.
+  Strokes can be dashed, and paths can carry arrowheads, from the same menus.
 
 ## Slide — the deck builder
 
