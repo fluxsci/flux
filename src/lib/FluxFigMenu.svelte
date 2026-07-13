@@ -8,6 +8,7 @@
     beginGesture,
     commit,
     mutate,
+    drawStyle,
     type PartSelection,
   } from "./store";
   import type { Element, PartOverride, Project, SemanticPlotElement, TextStyle } from "./types";
@@ -337,6 +338,8 @@
     // Fill
     if (shapeEl) {
       F.push({ key: "c", label: "fill color", group: "Fill", kind: "color", target: "fill", get: () => (shapeEl as any).fill, apply: () => {} });
+      // "none" as a first-class state: toggling back restores the draw-style fill.
+      F.push({ key: "0", label: "no fill (outline only)", group: "Fill", kind: "toggle", get: () => (shapeEl as any).fill === "none", apply: () => { const to = (shapeEl as any).fill === "none" ? get(drawStyle).fill : "none"; upd((e) => { if (e.type === "rect" || e.type === "ellipse" || e.type === "path") e.fill = to; }); } });
     }
     if (rectEl) {
       num("u", "corner radius", "Fill", () => (rectEl as any).cornerRadius, (e, v) => { if (e.type === "rect") e.cornerRadius = Math.max(0, v); });
@@ -344,18 +347,39 @@
 
     // Stroke
     if (strokeEl) {
+      const se = strokeEl as Element & { dash?: number[] };
       F.push({ key: "k", label: "stroke color", group: "Stroke", kind: "color", target: "stroke", get: () => (strokeEl as any).stroke, apply: () => {} });
       num("d", "stroke width", "Stroke", () => (strokeEl as any).strokeWidth, (e, v) => { if ("strokeWidth" in e) e.strokeWidth = Math.max(0, v); });
+      F.push({ key: "9", label: "no stroke", group: "Stroke", kind: "toggle", get: () => (strokeEl as any).stroke === "none", apply: () => { const to = (strokeEl as any).stroke === "none" ? get(drawStyle).stroke : "none"; upd((e) => { if (e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line") e.stroke = to; }); } });
+      // Dash pattern ([len, gap] canvas px) — the toggle swaps solid↔[6,4];
+      // the two numbers appear while dashed (fields rebuild reactively). All
+      // writes go through ops.setElementStyle so sanitizing lives in ONE place.
+      F.push({ key: "-", label: "dashed stroke", group: "Stroke", kind: "toggle", get: () => !!se.dash?.length, apply: () => { const ids = [...sel]; const on = !!se.dash?.length; commit((proj) => ops.setElementStyle(proj, ids, { dash: on ? [] : [6, 4] })); } });
+      if (se.dash?.length) {
+        F.push({ key: "[", label: "dash length", group: "Stroke", kind: "number", step: 0.5, get: () => se.dash?.[0] ?? 6, apply: (v) => { const ids = [...sel]; const gap = se.dash?.[1] ?? 4; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [Math.max(0.5, Number(v)), gap] })); } });
+        F.push({ key: "]", label: "dash gap", group: "Stroke", kind: "number", step: 0.5, get: () => se.dash?.[1] ?? 4, apply: (v) => { const ids = [...sel]; const len = se.dash?.[0] ?? 6; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [len, Math.max(0.5, Number(v))] })); } });
+      }
+    }
+    // Arrowheads — lines AND open paths share the flags (ops.setElementStyle
+    // applies them per-type).
+    const arrowEl = els.find((e) => e.type === "line" || (e.type === "path" && !e.closed)) as
+      | (Element & { arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: string; arrowSize?: number })
+      | undefined;
+    if (arrowEl) {
+      const applyArrow = (patch: Partial<{ arrowStart: boolean; arrowEnd: boolean; arrowStyle: "filled" | "vee"; arrowSize: number }>) => {
+        const ids = [...sel];
+        commit((proj) => ops.setElementStyle(proj, ids, patch));
+      };
+      F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowStart, apply: () => applyArrow({ arrowStart: !arrowEl.arrowStart }) });
+      F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowEnd, apply: () => applyArrow({ arrowEnd: !arrowEl.arrowEnd }) });
+      if (arrowEl.arrowStart || arrowEl.arrowEnd) {
+        F.push({ key: "z", label: "arrowhead", group: "Stroke", kind: "select", options: [{ value: "filled", label: "Filled" }, { value: "vee", label: "V-line" }], get: () => arrowEl.arrowStyle ?? "filled", apply: (v) => applyArrow({ arrowStyle: v as "filled" | "vee" }) });
+        num("e", "arrowhead size (× width)", "Stroke", () => arrowEl.arrowSize ?? 4, (e, v) => { if (e.type === "line" || e.type === "path") (e as any).arrowSize = Math.max(1, v); }, 0.5);
+      }
     }
     if (lineEl) {
       const ln = lineEl as Element & { type: "line" };
-      F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => ln.arrowStart, apply: () => upd((e) => { if (e.type === "line") e.arrowStart = !e.arrowStart; }) });
-      F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => ln.arrowEnd, apply: () => upd((e) => { if (e.type === "line") e.arrowEnd = !e.arrowEnd; }) });
       F.push({ key: "l", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => ln.cap ?? "round", apply: (v) => upd((e) => { if (e.type === "line") e.cap = v as "butt" | "round" | "square"; }) });
-      if (ln.arrowStart || ln.arrowEnd) {
-        F.push({ key: "z", label: "arrowhead", group: "Stroke", kind: "select", options: [{ value: "filled", label: "Filled" }, { value: "vee", label: "V-line" }], get: () => ln.arrowStyle ?? "filled", apply: (v) => upd((e) => { if (e.type === "line") e.arrowStyle = v as "filled" | "vee"; }) });
-        num("e", "arrowhead size (× width)", "Stroke", () => ln.arrowSize ?? 4, (e, v) => { if (e.type === "line") e.arrowSize = Math.max(1, v); }, 0.5);
-      }
     }
 
     // Text

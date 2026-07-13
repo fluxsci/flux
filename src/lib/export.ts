@@ -1,7 +1,14 @@
 import type { Element, Figure, ImageElement } from "./types";
-import { lineRender, elementBBox } from "./geometry";
+import { lineRender, elementBBox, dashAttr } from "./geometry";
+import { pathRender } from "./path";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
 import { visualLines, lineH } from "./text";
+
+// stroke-dasharray attribute (or nothing) — mirrors the canvas dashAttr.
+function dashA(e: { dash?: number[] }): string {
+  const v = dashAttr(e);
+  return v ? ` stroke-dasharray="${v}"` : "";
+}
 
 function esc(s: string): string {
   return s
@@ -97,41 +104,55 @@ export function elementToSvg(
         e,
         `<rect x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
           `rx="${e.cornerRadius}" fill="${e.fill}" stroke="${e.stroke}" ` +
-          `stroke-width="${e.strokeWidth}"${op(e)}/>`,
+          `stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
       );
     case "ellipse":
       return rot(
         e,
         `<ellipse cx="${e.x + e.width / 2}" cy="${e.y + e.height / 2}" ` +
           `rx="${e.width / 2}" ry="${e.height / 2}" fill="${e.fill}" ` +
-          `stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${op(e)}/>`,
+          `stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
       );
     case "line": {
       const lr = lineRender(e);
+      // op(e) on every piece: the canvas applies element opacity on the group
+      // wrapper, so the export must too (a translucent line used to export
+      // fully opaque).
       let s =
         `<line x1="${e.x + lr.x1}" y1="${e.y + lr.y1}" x2="${e.x + lr.x2}" y2="${e.y + lr.y2}" ` +
         `stroke="${e.stroke}" stroke-width="${e.strokeWidth}" ` +
-        `stroke-linecap="${lr.cap}"/>`;
+        `stroke-linecap="${lr.cap}"${dashA(e)}${op(e)}/>`;
       for (const tri of lr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
-        s += `<polygon points="${pts}" fill="${e.stroke}"/>`;
+        s += `<polygon points="${pts}" fill="${e.stroke}"${op(e)}/>`;
       }
       for (const v of lr.vees) {
         const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s +=
           `<polyline points="${pts}" fill="none" stroke="${e.stroke}" ` +
-          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
+          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${op(e)}/>`;
       }
       return rot(e, s);
     }
-    case "path":
-      return rot(
-        e,
-        `<path d="${e.d}" fill="${e.closed ? e.fill : "none"}" ` +
-          `stroke="${e.stroke}" stroke-width="${e.strokeWidth}" ` +
-          `stroke-linejoin="round" stroke-linecap="round"${op(e)} ` +
-          `transform="translate(${e.x} ${e.y})"/>`,
-      );
+    case "path": {
+      const pr = pathRender(e);
+      let s =
+        `<path d="${pr.d}" fill="${e.closed ? e.fill : "none"}" ` +
+        `stroke="${e.stroke}" stroke-width="${e.strokeWidth}" ` +
+        `stroke-linejoin="round" stroke-linecap="round"${dashA(e)}${op(e)} ` +
+        `transform="translate(${e.x} ${e.y})"/>`;
+      for (const tri of pr.polys) {
+        const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
+        s += `<polygon points="${pts}" fill="${e.stroke}"${op(e)}/>`;
+      }
+      for (const v of pr.vees) {
+        const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
+        s +=
+          `<polyline points="${pts}" fill="none" stroke="${e.stroke}" ` +
+          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${op(e)}/>`;
+      }
+      return rot(e, s);
+    }
     case "text": {
       // visualLines = the GUI's wrap cache when present (sizing auto-h/fixed),
       // else the hard lines — this ONE function also serves flux-core's

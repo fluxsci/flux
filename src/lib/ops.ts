@@ -946,12 +946,15 @@ export interface ElementStylePatch {
   sizing?: "auto" | "auto-h" | "fixed";
   align?: "left" | "center" | "right";
   cornerRadius?: number;
-  // line/arrow (figure-v1: Figma-parity stroke controls)
+  // line/arrow (figure-v1: Figma-parity stroke controls). Arrows also apply to
+  // OPEN paths (same semantics).
   cap?: "butt" | "round" | "square";
   arrowStart?: boolean;
   arrowEnd?: boolean;
   arrowStyle?: "filled" | "vee";
   arrowSize?: number;
+  /** Dash pattern in canvas px for the four stroked primitives; [] = solid. */
+  dash?: number[];
   rotation?: number;
   flipX?: boolean;
   flipY?: boolean;
@@ -993,6 +996,14 @@ export function detachOnManualEdit(p: Project, e: TextElement, keys: Iterable<st
   }
 }
 
+// Sanitized dash write: keep only finite non-negative values; empty → solid
+// (the property is deleted so files don't accumulate `dash: []` noise).
+function setDash(e: { dash?: number[] }, dash: number[]): void {
+  const clean = dash.filter((v) => Number.isFinite(v) && v >= 0);
+  if (clean.length && clean.some((v) => v > 0)) e.dash = clean;
+  else delete e.dash;
+}
+
 /** Apply a style patch to a set of elements, assigning only the props valid for
  *  each element type (mirrors applyColor/setOpacity/setStrokeWidth in colors.ts). */
 export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch): void {
@@ -1029,11 +1040,22 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
         if (patch.arrowEnd != null) e.arrowEnd = patch.arrowEnd;
         if (patch.arrowStyle != null) e.arrowStyle = patch.arrowStyle;
         if (patch.arrowSize != null) e.arrowSize = Math.max(0.5, patch.arrowSize);
+        if (patch.dash != null) setDash(e, patch.dash);
       } else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
         if (patch.fill != null) e.fill = patch.fill;
         if (patch.stroke != null) e.stroke = patch.stroke;
         if (patch.strokeWidth != null) e.strokeWidth = patch.strokeWidth;
         if (e.type === "rect" && patch.cornerRadius != null) e.cornerRadius = patch.cornerRadius;
+        if (patch.dash != null) setDash(e, patch.dash);
+        if (e.type === "path") {
+          // Arrowheads on OPEN paths — the same flags as lines. Meaningless on
+          // closed paths (renderer ignores them there), but stored regardless
+          // so a close→reopen round trip keeps them.
+          if (patch.arrowStart != null) e.arrowStart = patch.arrowStart;
+          if (patch.arrowEnd != null) e.arrowEnd = patch.arrowEnd;
+          if (patch.arrowStyle != null) e.arrowStyle = patch.arrowStyle;
+          if (patch.arrowSize != null) e.arrowSize = Math.max(0.5, patch.arrowSize);
+        }
       }
     }
 }

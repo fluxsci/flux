@@ -73,11 +73,13 @@ const ELEMENT_DEF = {
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
       cornerRadius: { type: "number" },
+      dash: { type: "array" },
     }),
     elementBranch("ellipse", [], {
       fill: { type: "string" },
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
+      dash: { type: "array" },
     }),
     elementBranch("line", ["x1", "y1", "x2", "y2"], {
       x1: { type: "number" },
@@ -88,6 +90,7 @@ const ELEMENT_DEF = {
       strokeWidth: { type: "number" },
       arrowStart: {}, // legacy-tolerant
       arrowEnd: {},
+      dash: { type: "array" },
     }),
     elementBranch("path", ["d"], {
       d: { type: "string" },
@@ -96,6 +99,11 @@ const ELEMENT_DEF = {
       fill: { type: "string" },
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
+      dash: { type: "array" },
+      arrowStart: { type: "boolean" },
+      arrowEnd: { type: "boolean" },
+      arrowStyle: { type: "string" },
+      arrowSize: { type: "number" },
     }),
   ],
 };

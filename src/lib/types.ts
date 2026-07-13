@@ -219,6 +219,9 @@ export interface RectElement extends ElementBase {
   stroke: string;
   strokeWidth: number;
   cornerRadius: number;
+  /** Dash pattern in canvas px (SVG stroke-dasharray values, e.g. [6, 4]).
+   *  Absent/empty = solid. Shared by all four stroked primitives. */
+  dash?: number[];
 }
 
 export interface EllipseElement extends ElementBase {
@@ -226,6 +229,7 @@ export interface EllipseElement extends ElementBase {
   fill: string;
   stroke: string;
   strokeWidth: number;
+  dash?: number[];
 }
 
 export interface LineElement extends ElementBase {
@@ -245,6 +249,7 @@ export interface LineElement extends ElementBase {
   arrowStyle?: "filled" | "vee";
   /** Arrowhead length in multiples of the stroke width (default 4). */
   arrowSize?: number;
+  dash?: number[];
 }
 
 // A bezier vector node (Feature 1). Element-local coords; handles are relative
@@ -274,6 +279,13 @@ export interface PathElement extends ElementBase {
   // When present, the AUTHORITATIVE editable geometry; `d` is derived from it.
   // Absent on legacy paths (d-only) until they're parsed for node editing.
   nodes?: VectorNode[];
+  dash?: number[];
+  /** Arrowheads on OPEN paths — same semantics/geometry as LineElement
+   *  (rendered tangent to the first/last segment; ignored when closed). */
+  arrowStart?: boolean;
+  arrowEnd?: boolean;
+  arrowStyle?: "filled" | "vee";
+  arrowSize?: number;
 }
 
 // A semantic plot — EVERY imported SVG is one (figure-v1 P4; the old opaque

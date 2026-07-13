@@ -3,7 +3,8 @@
   import { assetData } from "./assets";
   import { project } from "./store";
   import { assetDisplaySize } from "./ops";
-  import { lineRender, elementBBox } from "./geometry";
+  import { lineRender, elementBBox, dashAttr } from "./geometry";
+  import { pathRender } from "./path";
   import { visualLines, lineH } from "./text";
   import PlotElement from "./PlotElement.svelte";
 
@@ -90,6 +91,7 @@
       fill={e.fill}
       stroke={e.stroke}
       stroke-width={e.strokeWidth}
+      stroke-dasharray={dashAttr(e)}
     />
   {:else if e.type === "ellipse"}
     <ellipse
@@ -100,6 +102,7 @@
       fill={e.fill}
       stroke={e.stroke}
       stroke-width={e.strokeWidth}
+      stroke-dasharray={dashAttr(e)}
     />
   {:else if e.type === "line"}
     {@const lr = lineRender(e)}
@@ -120,6 +123,7 @@
       stroke={e.stroke}
       stroke-width={e.strokeWidth}
       stroke-linecap={lr.cap}
+      stroke-dasharray={dashAttr(e)}
     />
     {#each lr.polys as tri}
       <polygon
@@ -138,15 +142,43 @@
       />
     {/each}
   {:else if e.type === "path"}
+    {@const pr = pathRender(e)}
+    <!-- wide invisible hit stroke (same trick as lines) so hovering/selecting a
+         path doesn't demand pixel-perfect aim; the interior of closed shapes
+         hits via the visible path's own fill -->
     <path
       d={e.d}
+      transform={`translate(${e.x} ${e.y})`}
+      fill="none"
+      stroke="transparent"
+      stroke-width={Math.max(12, e.strokeWidth + 8)}
+    />
+    <path
+      d={pr.d}
       transform={`translate(${e.x} ${e.y})`}
       fill={e.closed ? e.fill : "none"}
       stroke={e.stroke}
       stroke-width={e.strokeWidth}
       stroke-linejoin="round"
       stroke-linecap="round"
+      stroke-dasharray={dashAttr(e)}
     />
+    {#each pr.polys as tri}
+      <polygon
+        points={tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
+        fill={e.stroke}
+      />
+    {/each}
+    {#each pr.vees as v}
+      <polyline
+        points={v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
+        fill="none"
+        stroke={e.stroke}
+        stroke-width={e.strokeWidth}
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    {/each}
   {:else if e.type === "text"}
     <!-- visualLines = the wrap cache (sizing auto-h/fixed) else the hard lines;
          dy = lineH (fontSize × lineHeight, default 1.2 — the one source in text.ts) -->

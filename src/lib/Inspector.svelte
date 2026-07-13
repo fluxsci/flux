@@ -650,6 +650,17 @@
             on:scrub={(e) => scrubSelected((el) => { if (el.type === "rect") el.cornerRadius = e.detail; })} />
         {/if}
       </div>
+      <!-- Dash: [len, gap] in canvas px on any stroked primitive; unchecking
+           returns to solid (property deleted via ops.setElementStyle's rules). -->
+      <div class="row">
+        <label class="chk"><input type="checkbox" checked={!!single.dash?.length} on:change={(e) => { const on = e.currentTarget.checked; const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { dash: on ? [6, 4] : [] })); }} />Dashed</label>
+        {#if single.dash?.length}
+          <NumberField label="Dash" value={single.dash[0] ?? 6} min={0.5} step={0.5}
+            on:commit={(e) => { const gap = single.dash?.[1] ?? 4; const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { dash: [e.detail, gap] })); }} />
+          <NumberField label="Gap" value={single.dash[1] ?? 4} min={0.5} step={0.5}
+            on:commit={(e) => { const len = single.dash?.[0] ?? 6; const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { dash: [len, e.detail] })); }} />
+        {/if}
+      </div>
       {#if single.type === "line"}
         <div class="row">
           <label class="chk"><input type="checkbox" checked={single.arrowStart} on:change={(e) => updateSelected((el) => { if (el.type === "line") el.arrowStart = e.currentTarget.checked; })} />Arrow start</label>
@@ -663,6 +674,13 @@
         <div class="row">
           <label class="chk"><input type="checkbox" checked={single.closed} on:change={(e) => { const closed = e.currentTarget.checked; const id = single.id; commit((p) => ops.updatePath(p, id, { closed })); }} />Closed path</label>
         </div>
+        {#if !single.closed}
+          <!-- Arrowheads on open paths — same semantics as lines. -->
+          <div class="row">
+            <label class="chk"><input type="checkbox" checked={!!single.arrowStart} on:change={(e) => updateSelected((el) => { if (el.type === "path") el.arrowStart = e.currentTarget.checked; })} />Arrow start</label>
+            <label class="chk"><input type="checkbox" checked={!!single.arrowEnd} on:change={(e) => updateSelected((el) => { if (el.type === "path") el.arrowEnd = e.currentTarget.checked; })} />Arrow end</label>
+          </div>
+        {/if}
       {/if}
     </section>
   {/if}

@@ -232,50 +232,77 @@ export function lineWorldEndpoints(e: LineElement): {
   return { p1: tp(e.x + e.x1, e.y + e.y1), p2: tp(e.x + e.x2, e.y + e.y2) };
 }
 
+/** Filled-triangle arrowhead polygon (tip first). (sx,sy) = unit direction from
+ *  the body toward the tip. ONE source for line AND path heads — never fork. */
+export function arrowTri(tipX: number, tipY: number, sx: number, sy: number, head: number): number[][] {
+  const px = -sy;
+  const py = sx;
+  const bx = tipX - sx * head;
+  const by = tipY - sy * head;
+  const half = head * 0.42;
+  return [
+    [tipX, tipY],
+    [bx + px * half, by + py * half],
+    [bx - px * half, by - py * half],
+  ];
+}
+
+/** Open-V arrowhead polyline (leg, tip, leg). Same direction convention. */
+export function arrowVee(tipX: number, tipY: number, sx: number, sy: number, head: number): number[][] {
+  const px = -sy;
+  const py = sx;
+  const c = 0.85; // ~32° half-opening, legs the full head length
+  const s = 0.53;
+  return [
+    [tipX - (sx * c - px * s) * head, tipY - (sy * c - py * s) * head],
+    [tipX, tipY],
+    [tipX - (sx * c + px * s) * head, tipY - (sy * c + py * s) * head],
+  ];
+}
+
+/** Arrowhead length for a stroke: user-tunable multiple of the stroke width,
+ *  ≥1.2·sw so a filled head hides the cap, shrunk so heads never invert. */
+export function arrowHeadLen(
+  strokeWidth: number,
+  arrowSize: number | undefined,
+  bodyLen: number,
+  headCount: number,
+): number {
+  const sw = Math.max(strokeWidth, 0.5);
+  let head = Math.max(6, sw * 1.2, sw * (arrowSize ?? 4));
+  if (headCount) head = Math.min(head, (bodyLen * 0.9) / headCount);
+  return head;
+}
+
+/** The dash pattern as an SVG stroke-dasharray value (undefined = solid). */
+export function dashAttr(e: { dash?: number[] }): string | undefined {
+  return e.dash && e.dash.length ? e.dash.join(" ") : undefined;
+}
+
 export function lineRender(e: LineElement): LineRender {
   const cap = e.cap ?? "round";
   const filled = (e.arrowStyle ?? "filled") === "filled";
-  const sw = Math.max(e.strokeWidth, 0.5);
   const dx = e.x2 - e.x1;
   const dy = e.y2 - e.y1;
   const len = Math.hypot(dx, dy) || 1;
-  // Head length: a user-tunable multiple of the stroke width. ≥1.2·sw keeps
-  // the stroke's cap hidden inside a filled head; heads shrink to fit short
-  // lines so a double-headed arrow never inverts.
   const headCount = (e.arrowStart ? 1 : 0) + (e.arrowEnd ? 1 : 0);
-  let head = Math.max(6, sw * 1.2, sw * (e.arrowSize ?? 4));
-  if (headCount) head = Math.min(head, (len * 0.9) / headCount);
+  const head = arrowHeadLen(e.strokeWidth, e.arrowSize, len, headCount);
   const ux = dx / len;
   const uy = dy / len;
   const out: LineRender = { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, cap, polys: [], vees: [] };
   // sx/sy = direction from the line body toward this end's tip.
   const make = (tipX: number, tipY: number, sx: number, sy: number, end: "start" | "end") => {
-    const px = -sy;
-    const py = sx;
     if (filled) {
-      const bx = tipX - sx * head;
-      const by = tipY - sy * head;
-      const half = head * 0.42;
-      out.polys.push([
-        [tipX, tipY],
-        [bx + px * half, by + py * half],
-        [bx - px * half, by - py * half],
-      ]);
+      out.polys.push(arrowTri(tipX, tipY, sx, sy, head));
       if (end === "end") {
-        out.x2 = bx;
-        out.y2 = by;
+        out.x2 = tipX - sx * head;
+        out.y2 = tipY - sy * head;
       } else {
-        out.x1 = bx;
-        out.y1 = by;
+        out.x1 = tipX - sx * head;
+        out.y1 = tipY - sy * head;
       }
     } else {
-      const c = 0.85; // ~32° half-opening, legs the full head length
-      const s = 0.53;
-      out.vees.push([
-        [tipX - (sx * c - px * s) * head, tipY - (sy * c - py * s) * head],
-        [tipX, tipY],
-        [tipX - (sx * c + px * s) * head, tipY - (sy * c + py * s) * head],
-      ]);
+      out.vees.push(arrowVee(tipX, tipY, sx, sy, head));
     }
   };
   if (e.arrowEnd) make(e.x2, e.y2, ux, uy, "end");

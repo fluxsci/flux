@@ -48,6 +48,11 @@ const STYLE_KEYS = [
   "hidden",
   "locked",
   "name",
+  "dash",
+  "arrowStart",
+  "arrowEnd",
+  "arrowStyle",
+  "arrowSize",
 ] as const;
 
 // The full PartOverride surface restyle_part accepts (WS-6.1 closed the
@@ -203,7 +208,7 @@ export const VERBS: VerbDef[] = [
     cli: "set-style",
     cliRoot: "flags",
     summary:
-      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize (canvas px = pt × 4/3), text props (fontFamily/fontWeight/fontStyle/underline/lineHeight/sizing/align), plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
+      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize (canvas px = pt × 4/3), text props (fontFamily/fontWeight/fontStyle/underline/lineHeight/sizing/align), stroke dash (--dash 6,4 in canvas px; --solid clears), arrowheads for lines AND open paths (--arrow-start/--arrow-end/--no-arrow-*, --arrow-style filled|vee, --arrow-size ×width), plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
     params: {
       ids: z.array(z.string()),
       fill: z.string().optional(),
@@ -222,6 +227,11 @@ export const VERBS: VerbDef[] = [
       hidden: z.boolean().optional(),
       locked: z.boolean().optional(),
       name: z.string().optional(),
+      dash: z.array(z.number()).optional(),
+      arrowStart: z.boolean().optional(),
+      arrowEnd: z.boolean().optional(),
+      arrowStyle: z.enum(["filled", "vee"]).optional(),
+      arrowSize: z.number().optional(),
     },
     cliArgs: [
       { kind: "rest", at: 0, into: "ids", required: true },
@@ -230,6 +240,14 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "color", into: "color" },
       { kind: "flag", at: "stroke-width", into: "strokeWidth", as: "number" },
       { kind: "flag", at: "opacity", into: "opacity", as: "number" },
+      { kind: "flag", at: "dash", into: "dash", as: "csvNum" },
+      { kind: "flag", at: "solid", into: "dash", const: [] },
+      { kind: "flag", at: "arrow-start", into: "arrowStart", const: true },
+      { kind: "flag", at: "no-arrow-start", into: "arrowStart", const: false },
+      { kind: "flag", at: "arrow-end", into: "arrowEnd", const: true },
+      { kind: "flag", at: "no-arrow-end", into: "arrowEnd", const: false },
+      { kind: "flag", at: "arrow-style", into: "arrowStyle" },
+      { kind: "flag", at: "arrow-size", into: "arrowSize", as: "number" },
       { kind: "flag", at: "font-size", into: "fontSize", as: "number" },
       { kind: "flag", at: "font", into: "fontFamily" },
       { kind: "flag", at: "weight", into: "fontWeight", as: "number" },
