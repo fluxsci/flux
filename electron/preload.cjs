@@ -76,6 +76,10 @@ contextBridge.exposeInMainWorld("fig", {
   // Machine-global named text-style library (<userData>/textstyles.json).
   readGlobalTextStyles: () => ipcRenderer.invoke("textstyles:get"),
   writeGlobalTextStyles: (styles) => ipcRenderer.invoke("textstyles:set", styles),
+  // Machine-global design presets (<FluxConfig>/presets/designs/**.json).
+  readDesignPresets: () => ipcRenderer.invoke("presets:list"),
+  writeDesignPreset: (rel, preset) => ipcRenderer.invoke("presets:save", rel, preset),
+  deleteDesignPreset: (rel) => ipcRenderer.invoke("presets:delete", rel),
   // 5.3 update check: packaged-only, ≤1/day. Main owns the throttle + GitHub fetch;
   // resolves to { version, url } when a newer release exists, else null. The renderer
   // gates the call on settings.updateCheck and toasts the result.

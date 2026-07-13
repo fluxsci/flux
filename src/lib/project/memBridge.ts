@@ -134,6 +134,38 @@ export function createMemBridge(): FileBridge & {
         /* quota/serialization failure — the library is best-effort in the fixture */
       }
     },
+    // Design presets — localStorage-backed in the fixture (entries shaped like
+    // the Electron store: { rel, preset }) so the picker + save flow verify
+    // headless.
+    async readDesignPresets() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem("flux.presets.designs") || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+    async writeDesignPreset(rel, preset) {
+      try {
+        const raw = JSON.parse(localStorage.getItem("flux.presets.designs") || "[]");
+        const cur = (Array.isArray(raw) ? raw : []) as { rel: string }[];
+        const next = [...cur.filter((p) => p.rel !== rel), { rel, preset }];
+        localStorage.setItem("flux.presets.designs", JSON.stringify(next));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async deleteDesignPreset(rel) {
+      try {
+        const raw = JSON.parse(localStorage.getItem("flux.presets.designs") || "[]");
+        const cur = (Array.isArray(raw) ? raw : []) as { rel: string }[];
+        localStorage.setItem("flux.presets.designs", JSON.stringify(cur.filter((p) => p.rel !== rel)));
+        return true;
+      } catch {
+        return false;
+      }
+    },
     async openDirectory() {
       return "/demo/myc-growth-paper";
     },

@@ -410,3 +410,22 @@ perfect squares and 45-45-90 triangles from sloppy clicks. Gates: `verify-pen-sn
   reason — the first anchor's `pointer-events: all` ate direct hits, leaving only a 3px annulus.
 - One snap function must feed BOTH pointermove (preview) and pointerdown (placement) — computing
   assists in only one path makes the click land somewhere the preview never showed.
+
+### 2026-07-12 — Primitive completeness (dash, path arrows, bend, presets) (Claude Fable 5, `main`)
+**Work:** Owner-mandated completeness pass on the four primitives: `dash` on all four (model →
+schema → both renderers → set_style `--dash`), arrowheads on open paths (pure `pathRender`:
+tangent heads from the shared arrowTri/arrowVee + arc-length body trim), TRUE-curve path bboxes
+(cubic extrema, not control hull), Figma hover (paths/lines trace their geometry; wide invisible
+hit strokes), ctrl+drag segment BEND in node-edit (pure `bendSegment`, weight-distributed handle
+deltas), FluxFig-menu none/dash fields, and the machine-global design-preset library
+(`<FluxConfig>/presets/designs/**.json`, presets:* IPC, memBridge localStorage fallback, Ctrl+P
+grid picker with elementToSvg thumbnails). Gates: verify-primitives.ts (pure),
+verify-primitives-gui.mjs (ui), figenh/parity/canary suites green.
+**Learnings:**
+- A degenerate cubic with controls AT the endpoints is NOT linear in t (parameterization bunches)
+  — straight segments must special-case point/tangent evaluation. The pure gate caught this.
+- Machine-global user libraries have an established 4-layer pattern to copy (textstyles →
+  presets): contract channels + dumb main-process file store, preload pair, FileBridge optional
+  methods, memBridge localStorage fallback (headless gates), devHandle exposure.
+- Export parity check pays off: line elements were silently dropping `opacity` in export while
+  the canvas honored it — found by reading both renderers side by side, not by a report.

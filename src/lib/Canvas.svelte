@@ -52,7 +52,7 @@
     type Rect,
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, lineEndpointRemap, type CropRemapResult } from "./editing";
-  import { nodesToPath, pathToNodes, constrain45 } from "./path";
+  import { nodesToPath, pathToNodes, constrain45, segsFromNodes, nearestTOnSeg, bendSegment } from "./path";
   import { penSnap, type PenSnapResult } from "./interact/penSnap";
   import * as ops from "./ops";
   import { settings } from "./settings";
@@ -256,6 +256,11 @@
   let nodeDrag:
     | null
     | { kind: "node" | "in" | "out"; i: number; started: boolean; alt: boolean; sx: number; sy: number; orig: VectorNode[] } = null;
+  // Figma bend: ctrl+drag anywhere on a segment curves it (path.ts bendSegment
+  // moves the two flanking handles so the curve passes through the drag point).
+  // t is fixed at the grab parameter; deltas accumulate against `orig`.
+  let bendDrag: null | { s: number; t: number; sx: number; sy: number; started: boolean; orig: VectorNode[] } = null;
+  let ctrlDown = false; // cursor affordance on segment hits
 
   const cloneNode = (n: VectorNode): VectorNode => ({
     x: n.x,
@@ -830,6 +835,50 @@
   function finishNodeDrag(e: PointerEvent) {
     if (nodeDrag?.started) commitNodes(); // refit + resync under the open gesture
     nodeDrag = null;
+    try {
+      hostEl.releasePointerCapture(e.pointerId);
+    } catch {}
+  }
+
+  // --- bend (ctrl+drag a segment; Figma's bend tool) ---
+  function onSegDown(e: PointerEvent, s: number) {
+    if (!e.ctrlKey || !editPathId) return;
+    const found = findElement($project, editPathId);
+    if (!found || found.element.type !== "path") return;
+    e.stopPropagation();
+    const el = found.element;
+    const lp = localPoint(e.clientX, e.clientY, found.figure);
+    const ex = lp.x - el.x;
+    const ey = lp.y - el.y;
+    const segs = segsFromNodes(editNodes, editClosed);
+    const t = segs[s] ? nearestTOnSeg(segs[s], ex, ey).t : 0.5;
+    bendDrag = { s, t, sx: ex, sy: ey, started: false, orig: editNodes.map(cloneNode) };
+    try {
+      hostEl.setPointerCapture(e.pointerId);
+    } catch {}
+  }
+
+  function onBendDrag(e: PointerEvent) {
+    const bd = bendDrag;
+    if (!bd || !editPathId) return;
+    const found = findElement($project, editPathId);
+    if (!found || found.element.type !== "path") return;
+    const el = found.element;
+    const lp = localPoint(e.clientX, e.clientY, found.figure);
+    const ex = lp.x - el.x;
+    const ey = lp.y - el.y;
+    if (!bd.started) {
+      if (Math.hypot(ex - bd.sx, ey - bd.sy) < 2 / $viewport.zoom) return;
+      bd.started = true;
+      beginGesture();
+    }
+    editNodes = bendSegment(bd.orig, bd.s, editClosed, bd.t, ex - bd.sx, ey - bd.sy);
+    // live preview rides nodeDragLive (same transient scene-slot mechanism)
+  }
+
+  function finishBendDrag(e: PointerEvent) {
+    if (bendDrag?.started) commitNodes();
+    bendDrag = null;
     try {
       hostEl.releasePointerCapture(e.pointerId);
     } catch {}
@@ -1426,6 +1475,10 @@
       onNodeDrag(e);
       return;
     }
+    if (bendDrag) {
+      onBendDrag(e);
+      return;
+    }
     if ($activeTool === "pen" && penFigId) {
       const pf = $project.figures.find((f) => f.id === penFigId);
       if (pf) {
@@ -1657,6 +1710,10 @@
       finishNodeDrag(e);
       return;
     }
+    if (bendDrag) {
+      finishBendDrag(e);
+      return;
+    }
     // End a pen handle-drag; the node (with its handles) stays for the next click.
     if (penDrag) {
       penDrag = null;
@@ -1867,6 +1924,7 @@
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA";
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
     if (e.key === "Alt") altDown = true; // caliper (measure) mode
+    if (e.key === "Control") ctrlDown = true; // bend affordance in node-edit
     if (typing) return;
 
     // Shift+R toggles the rulers (Feature 11).
@@ -1924,6 +1982,7 @@
   function onKeyUp(e: KeyboardEvent) {
     if (e.code === "Space") spaceDown = false;
     if (e.key === "Alt") altDown = false;
+    if (e.key === "Control") ctrlDown = false;
     if ((e.key === "Shift" || e.key === "Alt") && penNodes.length && penRaw && !penDrag) {
       penSnapRes = penSnap(penNodes, penRaw, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
       penCursor = penSnapRes.pt;
@@ -1932,6 +1991,7 @@
   function onWinBlur() {
     spaceDown = false;
     altDown = false; // don't leave the caliper stuck on if focus leaves mid-hold
+    ctrlDown = false;
   }
 
   let prevTool = $activeTool;
@@ -2110,11 +2170,27 @@
     // Outset ~1.5px (screen) so the outline sits just outside the element's own
     // border and stays visible even on a same-hue shape (Figma-style).
     const O = 1.5;
+    // Figma-style for strokes: a hovered SINGLE line/path shows a TRACE of its
+    // own geometry (accent over the stroke), not the bounding box — the box
+    // appears on selection. Groups and box-like elements keep the box preview.
+    const el = found.element;
+    const single = grp.size === 1;
+    const trace =
+      single && (el.type === "path" || el.type === "line")
+        ? {
+            d:
+              el.type === "path"
+                ? el.d
+                : `M ${el.x1} ${el.y1} L ${el.x2} ${el.y2}`,
+            tf: `translate(${$viewport.panX + (found.figure.x + el.x) * $viewport.zoom} ${$viewport.panY + (found.figure.y + el.y) * $viewport.zoom}) scale(${$viewport.zoom})`,
+          }
+        : null;
     return {
       x: $viewport.panX + (found.figure.x + b.x) * $viewport.zoom - O,
       y: $viewport.panY + (found.figure.y + b.y) * $viewport.zoom - O,
       w: b.w * $viewport.zoom + 2 * O,
       h: b.h * $viewport.zoom + 2 * O,
+      trace,
     };
   })();
 
@@ -2247,7 +2323,7 @@
   // element's own scene slot (z-order + clipping preserved); the model stays
   // frozen until the single pointer-up commit.
   $: nodeDragLive =
-    nodeDrag?.started && editInfo
+    (nodeDrag?.started || bendDrag?.started) && editInfo
       ? ({ ...editInfo.el, nodes: editNodes, d: nodesToPath(editNodes, editClosed) } as PathElement)
       : null;
 
@@ -2280,9 +2356,11 @@
       hIn: n.hIn && editSel.has(i) ? { x: px(n.x + n.hIn.dx), y: py(n.y + n.hIn.dy) } : null,
       hOut: n.hOut && editSel.has(i) ? { x: px(n.x + n.hOut.dx), y: py(n.y + n.hOut.dy) } : null,
     }));
-    // segment midpoints (screen) → click to insert a node
+    // segment midpoints (screen) → click to insert a node; per-segment screen
+    // path d → the wide ctrl-drag BEND hit target
     const segCount = editClosed ? N : N - 1;
     const mids: { s: number; x: number; y: number }[] = [];
+    const segsD: { s: number; d: string }[] = [];
     for (let s = 0; s < segCount; s++) {
       const a = editNodes[s];
       const b = editNodes[(s + 1) % N];
@@ -2295,8 +2373,12 @@
       const b1x = b.x + (b.hIn?.dx ?? 0);
       const b1y = b.y + (b.hIn?.dy ?? 0);
       mids.push({ s, x: px(de(0.5, a.x, a1x, b1x, b.x)), y: py(de(0.5, a.y, a1y, b1y, b.y)) });
+      segsD.push({
+        s,
+        d: `M ${px(a.x)} ${py(a.y)} C ${px(a1x)} ${py(a1y)} ${px(b1x)} ${py(b1y)} ${px(b.x)} ${py(b.y)}`,
+      });
     }
-    return { nodes, mids };
+    return { nodes, mids, segsD };
   })();
 
   // Feature 3 — measurement caliper. Alt + a live selection: red dimension lines
@@ -2766,9 +2848,16 @@
       <rect class="marquee" x={marqueeScreen.x} y={marqueeScreen.y} width={marqueeScreen.w} height={marqueeScreen.h} />
     {/if}
 
-    <!-- hover outline: previews what a click would select -->
+    <!-- hover outline: previews what a click would select. Lines/paths trace
+         their own geometry (Figma); everything else gets the box. -->
     {#if hoverInfo}
-      <rect class="hover-box" x={hoverInfo.x} y={hoverInfo.y} width={hoverInfo.w} height={hoverInfo.h} fill="none" />
+      {#if hoverInfo.trace}
+        <g transform={hoverInfo.trace.tf}>
+          <path class="hover-trace" d={hoverInfo.trace.d} vector-effect="non-scaling-stroke" />
+        </g>
+      {:else}
+        <rect class="hover-box" x={hoverInfo.x} y={hoverInfo.y} width={hoverInfo.w} height={hoverInfo.h} fill="none" />
+      {/if}
     {/if}
 
     <!-- measurement caliper (Alt + selection): red gap dimensions -->
@@ -2927,6 +3016,12 @@
     {#if editInfo && editScreen}
       <g transform={editTransform}>
         <path class="node-edit-path" d={nodeDragLive?.d ?? editInfo.el.d} vector-effect="non-scaling-stroke" /></g>
+      <!-- wide per-segment hit strokes: ctrl+drag BENDS the segment (Figma).
+           Plain clicks fall through (no handler consumes them). -->
+      {#each editScreen.segsD as sg}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <path class="seg-hit" class:bendable={ctrlDown} d={sg.d} on:pointerdown={(e) => onSegDown(e, sg.s)} />
+      {/each}
       {#each editScreen.mids as m}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <circle
@@ -2935,6 +3030,10 @@
           cy={m.y}
           r="4"
           on:pointerdown={(e) => {
+            if (e.ctrlKey) {
+              onSegDown(e, m.s); // ctrl on the midpoint marker bends too
+              return;
+            }
             e.stopPropagation();
             insertNodeAt(m.s);
           }}
@@ -3182,6 +3281,16 @@
     vector-effect: non-scaling-stroke;
     rx: 1;
   }
+  /* hovered line/path: trace the stroke itself (Figma), not the bbox */
+  .hover-trace {
+    fill: none;
+    stroke: var(--c-accent-bright);
+    stroke-width: 2;
+    pointer-events: none;
+    opacity: 0.9;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
   .part-box {
     stroke: var(--c-accent-bright);
     stroke-width: 1.5;
@@ -3407,6 +3516,17 @@
   }
   .node-pt.sel {
     fill: var(--c-accent);
+  }
+  /* per-segment bend hit target: invisible wide stroke; the cursor flags the
+     affordance while Ctrl is held */
+  .seg-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 10;
+    pointer-events: stroke;
+  }
+  .seg-hit.bendable {
+    cursor: crosshair;
   }
   .node-insert {
     fill: none;

@@ -654,6 +654,66 @@ ipcMain.handle("textstyles:set", (_e, styles) => {
   return true;
 });
 
+// Machine-global DESIGN-PRESET library: <FluxConfig>/presets/designs/**.json —
+// the user's reusable primitive designs (line/path/rect/ellipse), one preset
+// per file, subfolders allowed. Dumb path-safe file store; the renderer's
+// picker + save flow own all semantics. rel paths are normalized and must stay
+// inside the designs dir (no traversal, no absolutes).
+const presetsDir = () => path.join(fluxPaths.resolveFluxConfigPathSync(readPrefs()), "presets", "designs");
+const presetPathSafe = (rel) => {
+  const clean = path.normalize(String(rel || "")).replace(/^([/\\.])+/, "");
+  if (!clean || clean.split(/[/\\]/).some((s) => s === "..")) return null;
+  if (!/\.json$/i.test(clean)) return null;
+  const root = presetsDir();
+  const abs = path.join(root, clean);
+  return abs.startsWith(root + path.sep) ? abs : null;
+};
+ipcMain.handle("presets:list", () => {
+  const root = presetsDir();
+  const out = [];
+  const walk = (dir, rel) => {
+    let es = [];
+    try {
+      es = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of es) {
+      if (out.length >= 500) return; // sanity cap, not a UX limit anyone should hit
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(dir, e.name), r);
+      else if (e.isFile() && e.name.endsWith(".json")) {
+        try {
+          out.push({ rel: r, preset: JSON.parse(fs.readFileSync(path.join(dir, e.name), "utf8")) });
+        } catch {
+          /* unreadable preset file — skip, never break the whole listing */
+        }
+      }
+    }
+  };
+  walk(root, "");
+  return out;
+});
+ipcMain.handle("presets:save", (_e, rel, preset) => {
+  const abs = presetPathSafe(rel);
+  if (!abs || !preset || typeof preset !== "object") return false;
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.tmp-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(tmp, JSON.stringify(preset, null, 2) + "\n");
+  fs.renameSync(tmp, abs);
+  return true;
+});
+ipcMain.handle("presets:delete", (_e, rel) => {
+  const abs = presetPathSafe(rel);
+  if (!abs) return false;
+  try {
+    fs.unlinkSync(abs);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Update check (5.3). Packaged builds only, at most once per day: ask GitHub for
 // the latest release and, if its tag is newer than app.getVersion(), hand the

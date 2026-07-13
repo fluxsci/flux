@@ -276,6 +276,12 @@ export interface FileBridge {
   // leaf module doesn't import the figure model.
   readGlobalTextStyles?(): Promise<unknown[]>;
   writeGlobalTextStyles?(styles: unknown[]): Promise<void>;
+  // Machine-global DESIGN-PRESET library (<FluxConfig>/presets/designs/**.json;
+  // the dev fixture uses localStorage). One preset per file, subfolders via
+  // rel paths. Payloads stay unknown here (same leaf-module rule as above).
+  readDesignPresets?(): Promise<unknown[]>;
+  writeDesignPreset?(rel: string, preset: unknown): Promise<boolean>;
+  deleteDesignPreset?(rel: string): Promise<boolean>;
   // WS-9.3: pre-register a project root about to be loaded (single pending
   // fsGuard slot; watchRoot promotes/clears it). Electron only.
   beginOpen?(root: string): Promise<boolean>;

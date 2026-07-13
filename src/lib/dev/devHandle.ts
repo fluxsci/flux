@@ -23,6 +23,7 @@ import * as toast from "../toast";
 import * as lifecycle from "../../shell/lifecycle";
 import { perfCounters } from "./perfCounters";
 import { paperPerf } from "../../shell/modes/paper/science/changeGate";
+import * as presets from "../presets";
 
 export interface FluxDevHandle {
   /** Snapshot any Svelte store: `__flux.get(__flux.fig.project)`. */
@@ -61,6 +62,8 @@ export interface FluxDevHandle {
   perf: typeof perfCounters;
   /** WS-2 block-field build() counters (embeds/tables/math). */
   paperPerf: typeof paperPerf;
+  /** Design-preset library (presetPicker store, list/save/insert helpers). */
+  presets: typeof presets;
 }
 
 export function installDevHandle(): void {
@@ -85,5 +88,6 @@ export function installDevHandle(): void {
     editors: existing.editors ?? [],
     perf: perfCounters,
     paperPerf,
+    presets,
   } satisfies FluxDevHandle;
 }

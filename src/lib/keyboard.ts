@@ -47,6 +47,7 @@ import {
   type AlignKind,
 } from "./geometry";
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
+import { presetPicker } from "./presets";
 import { fluxFigMenuOpen, settingsOpen, helpOpen } from "./settings";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
@@ -675,6 +676,14 @@ export function handleKey(e: KeyboardEvent) {
   if (e.altKey && !mod && e.code === "KeyI") {
     e.preventDefault();
     if (get(embeddedProjectRoot) || get(projectDir)) importerOpen.set(true);
+    return;
+  }
+
+  // Ctrl/Cmd+P: insert a design preset (the machine-global primitive library).
+  // preventDefault also swallows the browser's print dialog in dev.
+  if (mod && !e.altKey && !e.shiftKey && e.code === "KeyP") {
+    e.preventDefault();
+    presetPicker.set({ mode: "insert" });
     return;
   }
 

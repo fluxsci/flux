@@ -100,6 +100,10 @@ const CHANNELS = [
   // --- text styles (machine-global library) --------------------------------------------
   { channel: "textstyles:get", kind: "invoke", scope: "read" },
   { channel: "textstyles:set", kind: "invoke", scope: "write" },
+  // --- design presets (<FluxConfig>/presets/designs/**.json) ---------------------------
+  { channel: "presets:list", kind: "invoke", scope: "read" },
+  { channel: "presets:save", kind: "invoke", scope: "write" },
+  { channel: "presets:delete", kind: "invoke", scope: "write" },
 ];
 
 const byChannel = new Map(CHANNELS.map((c) => [c.channel, c]));

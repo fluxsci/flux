@@ -21,6 +21,7 @@
   import { evalExpr } from "./num";
   import { scrub } from "./scrub";
   import { nameForHex } from "./colors";
+  import { presetPicker, presetable } from "./presets";
   import { fluxFigMenuOpen, settings, popupLayout } from "./settings";
   import { halfFrame, drawForge } from "./motion/selfDraw";
   import { prefersReducedMotion } from "./motion/motion";
@@ -380,6 +381,23 @@
     if (lineEl) {
       const ln = lineEl as Element & { type: "line" };
       F.push({ key: "l", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => ln.cap ?? "round", apply: (v) => upd((e) => { if (e.type === "line") e.cap = v as "butt" | "round" | "square"; }) });
+    }
+
+    // Presets — save a SINGLE primitive to the machine-global design library
+    // (<FluxConfig>/presets/designs). Insert side lives on Ctrl+P.
+    if (els.length === 1 && presetable(els[0])) {
+      const pid = els[0].id;
+      F.push({
+        key: "p",
+        label: "save as preset…",
+        group: "Presets",
+        kind: "toggle",
+        get: () => false,
+        apply: () => {
+          fluxFigMenuOpen.set(false);
+          presetPicker.set({ mode: "save", elementId: pid });
+        },
+      });
     }
 
     // Text

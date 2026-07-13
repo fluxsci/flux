@@ -168,6 +168,7 @@
       "verify-slide-polish.mjs",
       "verify-fig-esc.mjs",
       "verify-shape-nofill.mjs",
+      "verify-primitives-gui.mjs",
       "verify-importer-multi.mjs",
       "verify-vanilla-inline.mjs",
       "verify-text-resize.mjs",

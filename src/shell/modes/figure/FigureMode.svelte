@@ -23,6 +23,7 @@
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
+  import PresetPicker from "../../../lib/PresetPicker.svelte";
   import { handleKey } from "../../../lib/keyboard";
   import { dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
   import { projectModel } from "../../shellStore";
@@ -154,6 +155,7 @@
   <FluxFigMenu />
   <Xray />
   <PlotImporter />
+  <PresetPicker />
 
   {#if figDiverged}
     <div class="disk-toast">
