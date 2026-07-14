@@ -13,7 +13,7 @@ import { promisify } from "node:util";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { scaffold, createFigure, addFigText } from "../flux-core/index";
+import { scaffold, createFigure, addFigText, importPlots, addFigureToSlide, addBeat, setMorph } from "../flux-core/index";
 
 const execFileP = promisify(execFile);
 function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); console.log("  ok:", m); }
@@ -62,6 +62,43 @@ try {
   const slide = deck.slides.find((s: { id: string }) => s.id === slideId);
   assert(slide.elements.every((e: { type: string }) => ["text", "rect", "ellipse", "line", "path", "image", "plot"].includes(e.type)), "every element is the FIGURE union");
   assert(slide.elements.some((e: { text?: string }) => e.text === "PANEL A"), "the copied figure content is real elements in the deck");
+
+  // --- set-morph persists explicit target paths for fig-derived plots ----------------
+  // A morph target lives only in the track's `to` (never as an element); a bare
+  // assetId left the GUI preview unable to resolve figure-derived targets (no
+  // plots/ entry) and the morph silently held at A in the app while the export
+  // worked. setMorph must probe the conventional locations and persist them.
+  const plotSvg = (ys: number[]) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="400"><g id="s.line"><path d="M40 ${ys[0]} L440 ${ys[1]}" stroke="#000" fill="none"/></g></svg>`;
+  const plotManifest = (ys: number[]) => JSON.stringify({
+    spec: "fluxplot", schemaVersion: "1", plotType: "line", svg: "", size: { width: 480, height: 400, unit: "px" },
+    axes: [{ x: { scale: "linear", domain: [0, 5], anchors: [{ data: 0, svg: 40 }, { data: 5, svg: 440 }] },
+             y: { scale: "linear", domain: [0, 10], anchors: [{ data: 0, svg: 380 }, { data: 10, svg: 20 }] } }],
+    series: [{ id: "s", svg: { line: "s.line" }, data: { x: [1, 4], y: ys } }],
+  });
+  await fs.writeFile(path.join(root, "mA.svg"), plotSvg([300, 100]));
+  await fs.writeFile(path.join(root, "mA.fluxplot.json"), plotManifest([2, 8]));
+  await fs.writeFile(path.join(root, "mB.svg"), plotSvg([100, 300]));
+  await fs.writeFile(path.join(root, "mB.fluxplot.json"), plotManifest([8, 2]));
+  await createFigure(root, { id: "morphfig", name: "Morph pair" });
+  const impA = await importPlots(root, "morphfig", [path.join(root, "mA.svg")]);
+  const impB = await importPlots(root, "morphfig", [path.join(root, "mB.svg")]);
+  const [aId, bId] = [impA.panels[0].assetId, impB.panels[0].assetId];
+  const { elementIds: morphEls } = await addFigureToSlide(root, "talk", slideId, "morphfig", { x: 40, y: 120 });
+  const plotEl = (JSON.parse(await fs.readFile(path.join(root, "slides", "talk", "deck.json"), "utf8")) as
+    { slides: { id: string; elements: { id: string; type: string; assetId?: string }[] }[] })
+    .slides.find((s) => s.id === slideId)!.elements.find((e) => morphEls.includes(e.id) && e.type === "plot" && e.assetId === aId);
+  assert(!!plotEl, "the fig-derived plot A landed on the slide");
+  const { beatId: morphBeat } = await addBeat(root, "talk", slideId, { label: "morph" });
+  await setMorph(root, "talk", slideId, morphBeat, plotEl!.id, bId, { duration: 500 });
+  const deckM = JSON.parse(await fs.readFile(path.join(root, "slides", "talk", "deck.json"), "utf8"));
+  const mTrack = deckM.slides.find((s: { id: string }) => s.id === slideId)
+    .beats.flatMap((b: { tracks: unknown[] }) => b.tracks)
+    .find((t: { preset: string }) => t.preset === "morph") as { to?: { assetId?: string; svgPath?: string; manifestPath?: string } };
+  assert(mTrack?.to?.assetId === bId, "morph track targets plot B");
+  assert(mTrack?.to?.svgPath === `fig/assets/${bId}.svg`, `set-morph persisted the fig-derived svgPath (got ${mTrack?.to?.svgPath})`);
+  assert(mTrack?.to?.manifestPath === `fig/assets/${bId}.fluxplot.json`, "set-morph persisted the sibling manifestPath");
+  await flux("export-deck", "talk"); // re-export with the morph slide in place
 
   // --- the export is self-contained ---------------------------------------------------
   const html = await fs.readFile(path.join(root, "exports", "talk.html"), "utf8");

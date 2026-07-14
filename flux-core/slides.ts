@@ -495,17 +495,31 @@ export async function setMorph(
       const [cand] = listMorphCandidates(A, [{ assetId: toAssetId, manifest: B }]);
       if (!cand?.compatible) throw new Error(`morph ${found.el.assetId} → ${toAssetId}: structurally incompatible (no shared tweenable series). Pass force to author anyway.`);
     }
-    // Persist explicit target paths when the project manifest knows them, so
-    // later loads/exports never guess `plots/<id>.svg`.
+    // Persist explicit target paths so later loads/exports never guess. The
+    // project manifest's plots index is authoritative when it knows the asset;
+    // otherwise PROBE the conventional locations (plots/<id>.svg, then the
+    // figure-derived fig/assets/<id>.svg) — a morph target lives only in the
+    // track's `to`, never as an element, so a bare assetId left the GUI
+    // preview unable to resolve figure-derived targets (morph held at A).
     const man = (await loadManifest(root).catch(() => null)) as unknown as {
       plots?: { id: string; path?: string; svgPath?: string; manifestPath?: string }[];
     } | null;
     const entry = man?.plots?.find((p) => p.id === toAssetId);
-    const svgPath = entry?.svgPath ?? entry?.path;
+    let svgPath = entry?.svgPath ?? entry?.path;
+    let manifestPath = entry?.manifestPath;
+    if (!svgPath) {
+      for (const sp of [j("plots", `${toAssetId}.svg`), j("fig", "assets", `${toAssetId}.svg`)]) {
+        try { await fs.access(safeJoin(root, sp)); svgPath = sp; break; } catch { /* next candidate */ }
+      }
+    }
+    if (svgPath && !manifestPath) {
+      const mp = svgPath.replace(/\.svg$/i, ".fluxplot.json");
+      try { await fs.access(safeJoin(root, mp)); manifestPath = mp; } catch { /* no sibling manifest */ }
+    }
     const ok = slideOps.setMorphTrack(deck, slideId, beatId, elementId, toAssetId, {
       duration: opts.duration,
       ...(svgPath ? { svgPath } : {}),
-      ...(entry?.manifestPath ? { manifestPath: entry.manifestPath } : {}),
+      ...(manifestPath ? { manifestPath } : {}),
     });
     if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
   });

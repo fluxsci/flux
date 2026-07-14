@@ -311,20 +311,36 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
     for (const b of s.beats)
       for (const t of b.tracks) {
         if (t.preset !== "morph" || !t.to?.assetId || have.has(t.to.assetId)) continue;
-        const svgPath = (t.to.svgPath as string | undefined) ?? `plots/${t.to.assetId}.svg`;
-        const manifestPath = (t.to.manifestPath as string | undefined) ?? svgPath.replace(/\.svg$/i, ".fluxplot.json");
+        // Candidate order mirrors flux-core's collectPlot: the authored source
+        // path, the plots/<id>.svg convention, then fig/assets/<id>.svg — a
+        // figure-derived target (Send to deck / headless import) has no
+        // plots/ entry, and a bare assetId used to resolve nothing here, so
+        // the morph silently held at A in preview while the export worked.
+        const authored = t.to.svgPath as string | undefined;
+        const sps = [...(authored ? [authored] : []), `plots/${t.to.assetId}.svg`, `fig/assets/${t.to.assetId}.svg`];
         if (!hasPlotDom(t.to.assetId) || !haveRealManifest(t.to.assetId)) {
-          try {
-            const svgText = await fig.readText(joinPath(root, svgPath));
-            const manifest = await readManifestFile(manifestPath);
-            if (!hasPlotDom(t.to.assetId)) cachePlot(t.to.assetId, svgText, manifest);
-            else if (manifest) plotManifests.update((m) => ({ ...m, [t.to!.assetId!]: manifest }));
-          } catch {
+          let resolved = false;
+          for (const svgPath of sps) {
+            try {
+              const svgText = await fig.readText(joinPath(root, svgPath));
+              const manifestPath =
+                (svgPath === authored ? (t.to.manifestPath as string | undefined) : undefined) ??
+                svgPath.replace(/\.svg$/i, ".fluxplot.json");
+              const manifest = await readManifestFile(manifestPath);
+              if (!hasPlotDom(t.to.assetId)) cachePlot(t.to.assetId, svgText, manifest);
+              else if (manifest) plotManifests.update((m) => ({ ...m, [t.to!.assetId!]: manifest }));
+              resolved = true;
+              break;
+            } catch {
+              /* next candidate */
+            }
+          }
+          if (!resolved) {
             diagnostics.push({
               severity: "warning",
               assetId: t.to.assetId,
-              path: svgPath,
-              reason: `morph target "${t.to.assetId}" unresolvable (${svgPath}) — the morph will hold at A`,
+              path: sps[0],
+              reason: `morph target "${t.to.assetId}" unresolvable (tried ${sps.join(", ")}) — the morph will hold at A`,
             });
           }
         }

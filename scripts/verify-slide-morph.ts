@@ -93,4 +93,43 @@ const gd1 = wrapG.querySelector('[id="p1__ctrl.line"] path')!.getAttribute("d")!
 assert(gd0.startsWith("M") && gd0.includes("L"), "group-line seek(0): child path rebuilt (not the <g>)");
 assert(gd0 !== gd1, "group-line seek(1): child path d changed A→B (regression: <g>-wrapped line morph)");
 
+// --- LINE-ONLY series (no markers: vertices under `data`, no `points`) ------
+// A plain fp.line emits every vertex in series.data but no points[] — the morph
+// must tween from data (regression: it passed morphCompatible then silently
+// no-op'd the line, freezing it at A).
+const noPts = (ys: number[]): FluxPlotManifest => ({
+  ...mk(ys, yAxisSame),
+  series: [{ id: "ctrl", svg: { line: "ctrl.line" }, data: { x: xs, y: ys } }],
+});
+const An = noPts(yA), Bn = noPts(yB);
+assert(morphSeriesPixels(An.series[0], Bn.series[0], proj(An), proj(Bn), 0).length === xs.length,
+  "data-only series: vertices derived from series.data");
+assert(near(morphSeriesPixels(An.series[0], Bn.series[0], proj(An), proj(Bn), 0.5)[0].y, 380 - 36 * 5),
+  "data-only series: t=0.5 interpolates in data space (y=5)");
+const wrapD = document.createElement("div");
+wrapD.innerHTML = `<svg><g id="p1__ctrl.line"><path d="M0 0"/></g></svg>`;
+const md = createMorph(wrapD as unknown as ParentNode, "p1", An, Bn);
+md.seek(0);
+const nd0 = wrapD.querySelector('[id="p1__ctrl.line"] path')!.getAttribute("d")!;
+md.seek(1);
+const nd1 = wrapD.querySelector('[id="p1__ctrl.line"] path')!.getAttribute("d")!;
+assert(nd0.startsWith("M") && nd0.includes("L"), "data-only seek(0): line path rebuilt from data vertices");
+assert(nd0 !== nd1, "data-only seek(1): line path d changed A→B (regression: markerless line morph no-op)");
+
+// --- drawOn residue: stale stroke-dash window must not truncate the morph ---
+// drawOn preps stroke-dasharray = len(ORIGINAL path); if the morph target path
+// is longer, the leftover window clips its tail (regression: pitchfork/VdP
+// showcase). seek(t>0) owns the geometry and must clear the dash; seek(0)
+// must NOT (drawOn's pre-beat hidden state needs it).
+const wrapS = document.createElement("div");
+wrapS.innerHTML = `<svg><g id="p1__ctrl.line"><path d="M0 0" style="stroke-dasharray: 480; stroke-dashoffset: 0"/></g></svg>`;
+const pathS = wrapS.querySelector('[id="p1__ctrl.line"] path')! as unknown as { style: CSSStyleDeclaration };
+const ms = createMorph(wrapS as unknown as ParentNode, "p1", An, Bn);
+ms.seek(0);
+assert(pathS.style.getPropertyValue("stroke-dasharray") === "480", "seek(0) leaves the drawOn dash window intact");
+ms.seek(0.5);
+// (linkedom returns undefined for a removed property where the browser gives "")
+assert(!pathS.style.getPropertyValue("stroke-dasharray"), "seek(t>0) clears the stale dasharray (no tail truncation)");
+assert(!pathS.style.getPropertyValue("stroke-dashoffset"), "seek(t>0) clears the stale dashoffset");
+
 console.log("\nALL SLIDE-MORPH (P3) MATH TESTS PASSED");

@@ -35,6 +35,17 @@ const lerpData = (vA: number, vB: number, t: number, log: boolean) =>
 
 export interface MorphPoint { index: number; x: number; y: number }
 
+/** The vertices a series can tween: explicit marker `points` when present, else
+ *  the manifest's raw `data` arrays (line-only series — a plain fp.line emits
+ *  every vertex under `data` but no `points`, and without this the morph passed
+ *  the compatibility gate then silently no-op'd the line). */
+function tweenVertices(s: FluxPlotSeries): { index: number; x: number; y: number }[] {
+  if (s.points?.length) return s.points;
+  const xs = s.data?.x ?? [], ys = s.data?.y ?? [];
+  const n = Math.min(xs.length, ys.length);
+  return Array.from({ length: n }, (_, i) => ({ index: i, x: xs[i], y: ys[i] }));
+}
+
 /** PURE: the projected pixel positions of a series' points at morph time `t`,
  *  interpolating each datum A→B in data space then projecting through the blended
  *  axis fits. Points only in A hold at A; points matched in B move toward B. */
@@ -47,8 +58,8 @@ export function morphSeriesPixels(
 ): MorphPoint[] {
   const fxA = axisFit(axA.x), fxB = axisFit(axB.x), fyA = axisFit(axA.y), fyB = axisFit(axB.y);
   const fx = blendFit(fxA, fxB, t), fy = blendFit(fyA, fyB, t);
-  const bIdx = new Map((sB.points ?? []).map((p) => [p.index, p]));
-  return (sA.points ?? []).map((pa) => {
+  const bIdx = new Map(tweenVertices(sB).map((p) => [p.index, p]));
+  return tweenVertices(sA).map((pa) => {
     const pb = bIdx.get(pa.index) ?? pa;
     return {
       index: pa.index,
@@ -105,7 +116,19 @@ export function createMorph(wrap: ParentNode, elId: string, A: FluxPlotManifest,
       if (lineId && px.length) {
         const found = q(lineId);
         const node = found && found.tagName?.toLowerCase() !== "path" ? (found.querySelector?.("path") ?? found) : found;
-        if (node) node.setAttribute("d", px.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" "));
+        if (node) {
+          node.setAttribute("d", px.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" "));
+          // A prior drawOn leaves a stroke-dash window sized to the ORIGINAL
+          // path; on a rewritten (longer) path it truncates the tail. Once the
+          // morph owns the geometry (t>0) that dash is stale — clear it. At
+          // t=0 the rebuild matches A's length, and drawOn's pre-beat hidden
+          // state still needs its dasharray, so leave it alone.
+          if (t > 0) {
+            const st = (node as Element & { style?: CSSStyleDeclaration }).style;
+            st?.removeProperty?.("stroke-dasharray");
+            st?.removeProperty?.("stroke-dashoffset");
+          }
+        }
       }
 
       // point markers: <circle> → cx/cy; anything else → translate from its A pixel

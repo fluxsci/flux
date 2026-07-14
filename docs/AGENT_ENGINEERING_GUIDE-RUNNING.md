@@ -546,3 +546,82 @@ shipped bugs surfaced and fixed (regression-gated in `verify-slide-morph`):
   `blank` when authoring every element yourself. `add_slide_text` has no
   fontFamily knob; set `el.fontFamily` on the deck.json text elements directly to
   match a serif plot set.
+
+### 2026-07-14 — Two more morph fixes: markerless lines + drawOn dash residue (Claude Fable 5, `main` working tree)
+
+Extended the Edge-of-Chaos showcase with two morph-flagship slides (pitchfork
+potential x²/2 → x⁴/2 − x²; Van der Pol limit cycle μ=0.15 → μ=3, one period
+from the same Poincaré section, arc-length-resampled to 401 index-matched
+vertices) and found + fixed two more shipped bugs in the process — both in the
+same-axis, same-structure regime the morph is *supposed* to own:
+
+- **Markerless line series silently didn't morph.** A plain `fp.line` (no
+  markers) emits every vertex under `series.data.{x,y}` but no `points[]`;
+  `morphCompatible` counted `svg.line` as tweenable, yet `morphSeriesPixels`
+  consumed only `points` — so the pair passed the gate and the line froze at A
+  (`px.length` 0 skipped the `d` rewrite). Only marker-carrying lines (Moore)
+  ever morphed. Fix: `tweenVertices()` in `player/morph.ts` — explicit `points`
+  when present, else vertices synthesized from `series.data`. Positional
+  behavior for marker series is byte-identical (points take precedence).
+- **A prior drawOn truncated the tail of a longer morphed path.** drawOn preps
+  `stroke-dasharray = len(original path)`; `applyStatic` runs `prep()` before
+  morph seeks, and live playback leaves the dash inline after the enter beat.
+  When the morph rewrites `d` into a LONGER path, everything past the old
+  window is invisible (the VdP relaxation loop wouldn't close; the double well
+  lost its right arm). Fix: `seek(t>0)` clears `stroke-dasharray/-offset` on
+  the line it rewrites — the morph owns the geometry from there. `seek(0)`
+  leaves the dash intact: drawOn's pre-beat hidden state (`dashoffset=len`)
+  needs it, and at t=0 the rebuild matches A's length anyway.
+
+Both regression-gated in `scripts/verify-slide-morph.ts` (data-only-series
+morph; dash cleared at t>0, preserved at t=0 — linkedom note: a removed style
+property reads back `undefined`, not the browser's `""`). All 22 pure slide
+gates PASS; svelte-check 0/0; `gen-export-assets` re-run (morph.ts is baked
+into the export runtime — REMEMBER this after any player edit). Full-deck
+sweep: 12 slides / 38 beat states, 0 page errors.
+
+**Learning:** the morph's reliable home turf is *exactly* the case the earlier
+fragility note pushed toward — same axes, shared series id, index-matched
+vertex counts — and that regime is now genuinely solid for smooth curves (the
+natural morph content), not just marker plots. Authoring recipe for a clean
+closed-curve morph: start both cycles at the same Poincaré section, keep the
+same orientation, and resample both by arc length to the same vertex count.
+
+### 2026-07-14 (later) — "no morph in the app": GUI morph-target resolution + the stray scaffold deck (Claude Fable 5, `main` working tree)
+
+Owner reported the new morph slides showed no morph. The exported talk.html was
+verified fine (keypress AND mouse-click advance, both reduced-motion settings)
+— the failure was the APP path, and it was two independent problems stacked:
+
+- **The app opened a stray deck.** `scaffold()` seeds a default deck; the
+  showcase build authored everything into deck `talk` and deleted `talk`'s
+  stock *slides* but left the scaffold-seeded *deck* registered first in
+  project.json — and the app opens the first registered deck. The owner was
+  presenting a one-slide "Title/Subtitle" placeholder, not the talk at all.
+  There is no core deleteDeck verb yet; the build script now prunes non-talk
+  decks from `project.json` + `slides/` directly.
+- **GUI morph-target resolution missed figure-derived plots.** A morph target
+  lives only in the track's `to` (never as an element). flux-core `setMorph`
+  persisted `svgPath`/`manifestPath` only from the project manifest's plots
+  index (absent in this project) → bare `{assetId}`; `slideBridge.loadDeckAssets`'
+  2b loop then guessed only `plots/<id>.svg` — but figure-imported plots live
+  at `fig/assets/<id>.svg` → manifest never cached → `computeSlideAnims`
+  requires `A && B && morphCompatible` → the morph SILENTLY held at A in
+  preview/present while the export (whose collectPlot has the full candidate
+  chain) worked. Fixed on both sides: `setMorph` now probes
+  `plots/<id>.svg` → `fig/assets/<id>.svg` and persists what exists (gated in
+  verify-slide-headless-e2e: authored deck.json must carry the fig-derived
+  paths); the bridge 2b loop mirrors collectPlot's candidate order (authored
+  path → plots/ → fig/assets/) so even bare-assetId decks resolve.
+
+Verified in the REAL app (electron + CDP over the dev server, present mode,
+keypress-driven): both showcase morphs play live, mid-flight ≠ endpoints; the
+export re-verified after rebuild. Testing traps worth remembering:
+- **Scope present-mode DOM probes to `.present .mount`** — the editor's
+  filmstrip renders EVERY slide as a thumbnail beneath the overlay, so a
+  global `[id$="__part"]` query matches a static thumbnail and reads as
+  "frozen animation" (and as "slide reached" when you never left slide 1).
+- An in-app anomaly is not necessarily the player: check WHICH deck loaded
+  (`__flux.get(__flux.slide.deckOverlay)`) before debugging animation code.
+- `plotManifests` can be inspected live via
+  `window.__flux.get((await import("/src/lib/plot/store.ts")).plotManifests)`.
