@@ -22,19 +22,51 @@ export interface Pane {
 //           are fully app-global — both panes would render every commit and
 //           fight over selection. Real fix = per-pane figure stores (F5.3,
 //           deferred — do not build here).
-const SINGLETON_MODES: readonly ModeId[] = ["paper", "figure"];
+//   slide:  slides-are-figures — slide mode loads the deck INTO those same
+//           app-global figure stores, so it is a singleton for the same reason.
+const SINGLETON_MODES: readonly ModeId[] = ["paper", "figure", "slide"];
+const MODE_LABEL: Partial<Record<ModeId, string>> = { paper: "manuscript", figure: "figure", slide: "slide" };
 function wouldDuplicateSingleton(kept: Pane[], incoming: ModeId): boolean {
   if (!SINGLETON_MODES.includes(incoming)) return false;
   const existing = kept.find((p) => p.mode === incoming);
   if (!existing) return false;
   focusedPaneId.set(existing.id);
-  pushToast("info", `Two ${incoming === "paper" ? "manuscript" : "figure"} panes aren’t supported yet`, {
+  pushToast("info", `Two ${MODE_LABEL[incoming] ?? incoming} panes aren’t supported yet`, {
     detail:
       incoming === "paper"
         ? "Keep one pane on Paper; open the other as Figure, Slide, Library, or Reader."
-        : "Focused the existing Figure pane instead.",
+        : `Focused the existing ${incoming === "slide" ? "Slide" : "Figure"} pane instead.`,
   });
   return true;
+}
+
+// Slide-migration §3.2.1: figure and slide mode SHARE the app-global figure
+// store (a deck loads into it, projected as figures), so they may never be
+// simultaneously visible — deny the request with a toast (predictable beats
+// clever). Mutual keep-alive eviction (below) handles the hidden-mode case.
+const EXCLUSIVE_PAIRS: readonly [ModeId, ModeId][] = [["figure", "slide"]];
+function wouldViolateExclusivity(kept: Pane[], incoming: ModeId): boolean {
+  for (const [a, b] of EXCLUSIVE_PAIRS) {
+    const other = incoming === a ? b : incoming === b ? a : null;
+    if (other && kept.some((p) => p.mode === other)) {
+      pushToast("info", "Figure and Slide share the editing engine and can’t be open side-by-side", {
+        detail: "Close or switch the other pane first.",
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Keep-alive eviction (slide-migration §3.2.1): an explicit trigger for
+// ModeContent's MRU — entering figure mode force-evicts a kept-alive slide
+// mode (and vice versa) so the two store tenants are never resident together.
+// The payload is a counter so repeated evictions of the same mode re-notify.
+// ---------------------------------------------------------------------------
+export const evictRequest = writable<{ n: number; mode: ModeId | null }>({ n: 0, mode: null });
+export function evictMode(mode: ModeId): void {
+  evictRequest.update((r) => ({ n: r.n + 1, mode }));
 }
 
 let counter = 0;
@@ -64,7 +96,9 @@ export function focusPane(id: string) {
 /** Set the focused pane's mode. */
 export function setFocusedMode(mode: ModeId) {
   const fid = get(focusedPaneId);
-  if (wouldDuplicateSingleton(get(panes).filter((p) => p.id !== fid), mode)) return;
+  const others = get(panes).filter((p) => p.id !== fid);
+  if (wouldDuplicateSingleton(others, mode)) return;
+  if (wouldViolateExclusivity(others, mode)) return;
   panes.update((ps) => ps.map((p) => (p.id === fid ? { ...p, mode } : p)));
 }
 
@@ -78,10 +112,12 @@ export function splitWith(mode: ModeId) {
     const fid = get(focusedPaneId);
     const focused = ps.filter((p) => p.id === fid);
     if (wouldDuplicateSingleton(focused, mode)) return;
+    if (wouldViolateExclusivity(focused, mode)) return;
     panes.update((list) => list.map((p) => (p.id !== fid ? { ...p, mode } : p)));
     return;
   }
   if (wouldDuplicateSingleton(ps, mode)) return;
+  if (wouldViolateExclusivity(ps, mode)) return;
   const id = newId();
   panes.set([...ps, { id, mode }]);
   focusedPaneId.set(id);

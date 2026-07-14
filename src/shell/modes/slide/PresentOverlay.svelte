@@ -8,21 +8,19 @@
   import { createPlayer, renderStaticAt, type Player, type PlayerState, type PlayerOpts } from "../../../lib/slide/player/player";
   import { reducePresentKey, hudModel, panelModel, NEXT_W, type PresentState } from "../../../lib/slide/present/core";
   import { plotManifests } from "../../../lib/plot/store";
-  import { figureMembers } from "../../../lib/slide/store";
+  import { getAssetData } from "../../../lib/assets";
+  import { assetDisplaySize } from "../../../lib/ops";
+  import { project } from "../../../lib/store";
   import type { Deck, DeckTheme } from "../../../lib/slide/types";
 
   let {
     deck,
     theme,
-    assetUrl,
-    figureSvg,
     start = { slide: 0, beat: 0 },
     onClose,
   }: {
     deck: Deck;
     theme: DeckTheme;
-    assetUrl?: (id: string) => string | undefined;
-    figureSvg?: (id: string, groupId?: string) => string | undefined;
     start?: { slide: number; beat: number };
     onClose: () => void;
   } = $props();
@@ -60,7 +58,15 @@
   const nextIdx = $derived(panel.nextIdx);
 
   function playerOpts(): PlayerOpts {
-    return { mode: "present", theme, assetUrl, figureSvg, plotManifest: (id) => get(plotManifests)[id], figureMember: (fid, mid) => get(figureMembers)[fid]?.[mid], reducedMotion };
+    return {
+      mode: "present",
+      theme,
+      assetUrl: (id) => getAssetData(id),
+      assetSize: (id) => assetDisplaySize(get(project), id),
+      plotManifest: (id) => get(plotManifests)[id],
+      deckBackground: deck.background,
+      reducedMotion,
+    };
   }
   function buildPlayer(at: { slide: number; beat: number }) {
     if (!mount) return;
@@ -78,13 +84,10 @@
     if (nextIdx < 0) return;
     const s = deck.slides[nextIdx];
     const host = document.createElement("div");
-    host.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;background:${s.background ?? theme.background};`;
+    host.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;background:${s.background ?? deck.background ?? theme.background};`;
     nextMount.appendChild(host);
     try {
-      renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), {
-        mode: "present", theme, assetUrl, figureSvg, plotManifest: (id) => get(plotManifests)[id],
-        figureMember: (fid, mid) => get(figureMembers)[fid]?.[mid],
-      });
+      renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), playerOpts());
     } catch { /* a missing asset preview is non-fatal */ }
   }
 

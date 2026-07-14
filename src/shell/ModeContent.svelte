@@ -15,6 +15,7 @@
   // already in the sync cache (it was active once) so it renders with no flash.
   import { loadMode, cachedMode } from "./modeRegistry";
   import { isDirtyById } from "./lifecycle";
+  import { evictRequest } from "./paneStore";
   import { pushToast, errMsg } from "../lib/toast";
   import { fadeRise } from "../lib/motion/actions";
   import { DUR } from "../lib/motion/tokens";
@@ -47,6 +48,17 @@
       next.splice(victim, 1);
     }
     visited = next;
+  });
+
+  // Slide-migration §3.2.1: explicit eviction — figure and slide mode share
+  // the app-global figure store, so entering one force-unmounts a kept-alive
+  // other (its autosave was flushed by the requester first; the onDestroy
+  // flush is then a clean no-op). Never evicts this pane's ACTIVE mode — the
+  // pane-level exclusivity denies that configuration up front.
+  $effect(() => {
+    const req = $evictRequest;
+    if (!req.mode || req.mode === mode) return;
+    if (visited.includes(req.mode)) visited = visited.filter((m) => m !== req.mode);
   });
 
   // Load the active mode's chunk if it's cold (visited modes are already cached).

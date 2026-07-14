@@ -1,27 +1,41 @@
 <script lang="ts">
-  // flux-slide: the Slide mode (the 4th pillar). P1 = the editor: a WYSIWYG stage
-  // (the ONE renderer + selection/drag/resize/snap), a tools toolbar, a filmstrip,
-  // the inspector, and theme/stage controls. Persistence mirrors FigureMode
-  // (debounced autosave on a dirty store, flush on destroy, keyboard gated on
-  // `focused`). The stage + thumbnails both render through src/lib/slide/player.
-  import { onMount, onDestroy } from "svelte";
+  // flux-slide — the Slide mode. Slides-are-figures (slide-migration): the
+  // static editing surface IS the figure editor — the deck's slides load into
+  // the app-global figure store (projected one slide = one Figure on the
+  // synthetic "deck" canvas) and the shared Canvas/Inspector/X-ray/presets/
+  // keyboard operate on them unchanged. This mode adds only the thin
+  // presentation layer: a slide filmstrip for sequencing, the on-demand
+  // Animator dock, present mode, and the offline HTML export. Persistence
+  // mirrors FigureMode (debounced autosave on the shared dirty store, flush on
+  // destroy, keyboard gated on `focused`) but writes ONE deck.json through the
+  // slide bridge — tenancy-asserted so a wrong-folder write is structurally
+  // impossible.
+  import { onMount, onDestroy, tick, setContext } from "svelte";
   import { get } from "svelte/store";
   import { projectModel } from "../../shellStore";
   import {
-    deck as deckStore,
-    deckDirty,
-    activeSlideId,
+    deckOverlay,
     activeBeat,
-    selection,
-    loadDeckModel,
-    commitDeck,
-    loadedProjectRoot,
-    undoDeck,
-    redoDeck,
-    canUndo,
-    canRedo,
-    figureMembers,
+    selTrackIds,
+    commitDeckLive,
+    currentDeck,
+    composedSlide,
+    selectSlide,
+    overlayHistoryCompanion,
+    sealHistory,
   } from "../../../lib/slide/store";
+  import {
+    dirty as figDirty,
+    activeFigureId,
+    selection,
+    selectedFrameId,
+    partSelection,
+    viewport,
+    project,
+    commit,
+    embeddedProjectRoot,
+    registerHistoryCompanion,
+  } from "../../../lib/store";
   import {
     listProjectDecks,
     loadDeckInto,
@@ -30,74 +44,87 @@
     createDeckInProject,
     duplicateDeckInProject as duplicateDeckBridge,
     deleteDeckFromProject as deleteDeckBridge,
-    loadDeckAssets,
-    writeDeckAsset,
-    listInsertables,
     exportDeck as exportDeckBridge,
     canExportDeck,
     type DeckListItem,
-    type DeckAssetResolvers,
-    type Insertables,
+    type DeckDiag,
   } from "../../../lib/project/slideBridge";
   import * as slideOps from "../../../lib/slide/ops";
-  import { createDeck as createDeckModel } from "../../../lib/slide/ops";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
+  import type { Deck, TransitionKind } from "../../../lib/slide/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen } from "../../../lib/plot/store";
+  import { getAssetData } from "../../../lib/assets";
+  import { assetDisplaySize } from "../../../lib/ops";
+  import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
-  import { registerFlushable } from "../../lifecycle";
-  import { deckRevision } from "../../scholar/revisions";
-  import SlideStage from "./SlideStage.svelte";
-  import Inspector from "./Inspector.svelte";
+  import { registerFlushable, flushById, isDirtyById } from "../../lifecycle";
+  import { evictMode } from "../../paneStore";
+  import { setStoreTenant } from "../../../lib/tenancy";
+  import { deckRevision, bumpFigRevision } from "../../scholar/revisions";
+  import { handleKey } from "../../../lib/keyboard";
+  import { importDroppedFiles } from "../../../lib/io";
+  import Toolbar from "../../../lib/Toolbar.svelte";
+  import Canvas from "../../../lib/Canvas.svelte";
+  import Inspector from "../../../lib/Inspector.svelte";
+  import ArrangeHud from "../../../lib/ArrangeHud.svelte";
+  import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
+  import Xray from "../../../lib/Xray.svelte";
+  import PlotImporter from "../../../lib/PlotImporter.svelte";
+  import PresetPicker from "../../../lib/PresetPicker.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
-  import SlideXray from "./SlideXray.svelte";
-  import { slideXrayOpen } from "./animator/animatorState";
   import DeckPicker from "./DeckPicker.svelte";
   import PresentOverlay from "./PresentOverlay.svelte";
-  import PlotImporter from "../../../lib/PlotImporter.svelte";
-  import { importerOpen } from "../../../lib/store";
-  import { pushToast } from "../../../lib/toast";
+  import SlideThumb from "./SlideThumb.svelte";
   import { slideLayout } from "./slideLayoutStore";
-  import { stageView, resetStageView, ZOOM_MIN, ZOOM_MAX } from "./stageView";
-  import "katex/dist/katex.min.css";
+  import { pushToast, errMsg } from "../../../lib/toast";
 
-  // `active` (W16): false when this pane is kept-alive but hidden — pause the build
-  // preview so its animation loop doesn't run off-screen. `focused` alone won't do:
-  // a split pane can be visible-but-unfocused, where you WANT the preview to keep going.
+  // Shared components (Inspector/Toolbar) read this to hide figure-only
+  // affordances / accent the mode title. Context, so figure mode is untouched.
+  setContext("flux-editor-mode", "slide");
+
+  // `active` (W16): false when this pane is kept-alive but hidden — pause the
+  // build preview so its animation loop doesn't run off-screen.
   let { focused = true, active = true }: { focused?: boolean; active?: boolean } = $props();
 
   const pm = get(projectModel);
   let ready = $state(false);
+  let loadError = $state<string | null>(null);
   let decks = $state<DeckListItem[]>([]);
   let activeDeckId = $state<string | null>(null);
   let unsubDirty: (() => void) | undefined;
   let unsubDeckRev: (() => void) | undefined;
-
-  // WS-5.4: local edits + an external deck.json write → reload/overwrite banner
-  // (fig/'s W7 divergence UX, mirrored — decks previously clobbered silently).
+  let unregCompanion: (() => void) | undefined;
   let deckDiverged = $state(false);
 
-  // W10 (SLD-1): an external (agent/CLI) write to slides/ live-reloads the deck.
-  // deckRevision fires only for genuine external edits (the watcher suppresses our
-  // own saves), so no self-reload guard is needed. Clean → reload the active deck
-  // in place; dirty → surface the reload/overwrite banner instead of racing the
-  // autosave against the external write (WS-5.4).
+  const overlay = $derived($deckOverlay);
+  const stage = $derived(overlay?.stage ?? slideOps.DEFAULT_STAGE);
+  const theme = $derived(resolveTheme(overlay?.theme));
+  const slideIds = $derived(overlay?.slides.map((s) => s.id) ?? []);
+  const activeSlide = $derived.by(() => {
+    void $project; // composedSlide reads the project non-reactively
+    void overlay;
+    const sid = $activeFigureId;
+    return sid ? composedSlide(sid) : null;
+  });
+
+  // --- external edits: reload-or-banner (fig/'s W7 UX, mirrored) --------------
   async function onDeckRevision() {
     if (!pm || !ready) return;
     decks = await listProjectDecks(pm.root); // an agent may have added/removed a deck
     if (!activeDeckId) return;
-    if (get(deckDirty)) {
+    if (get(figDirty)) {
       if (await deckDiskDiverged(pm.root, activeDeckId)) deckDiverged = true;
       return;
     }
-    await loadDeckInto(pm.root, activeDeckId);
-    await refreshAssets();
+    if (await deckDiskDiverged(pm.root, activeDeckId)) {
+      await openDeck(activeDeckId, { force: true });
+    }
   }
   async function reloadDeckTheirs() {
     if (!pm || !activeDeckId) return;
-    await loadDeckInto(pm.root, activeDeckId); // re-seeds the baseline + clears dirty
-    await refreshAssets();
+    await openDeck(activeDeckId, { force: true }); // re-seeds baseline + clears dirty
     deckDiverged = false;
   }
   async function overwriteDeckMine() {
@@ -107,19 +134,16 @@
     deckDiverged = false;
   }
 
-  // W4: the shared autosave controller (stay-dirty + silent retry + sticky
-  // error toast) replaces the hand-rolled saveTimer/saveError pattern here.
+  // --- autosave (shared controller: stay-dirty, retry, sticky error toast) ----
   const autosave = createAutosave({
     name: "deck",
     delay: 700,
-    isDirty: () => !!pm && get(deckDirty),
+    isDirty: () => !!pm && ready && get(figDirty),
     save: async () => {
       if (!pm) return;
       try {
-        await saveDeckFrom(pm.root); // clears deckDirty only on success
+        await saveDeckFrom(pm.root); // clears the dirty flag only on success
       } catch (e) {
-        // WS-5.4: don't clobber an external write — surface the banner; the
-        // controller keeps us dirty and won't retry/toast a ConflictError.
         if (e instanceof ConflictError) deckDiverged = true;
         throw e;
       }
@@ -127,37 +151,15 @@
     },
   });
   const saveErr = autosave.error;
-  let resolvers = $state<DeckAssetResolvers>({ assetUrl: () => undefined, figureSvg: () => undefined, diagnostics: [] });
-  let insertables = $state<Insertables>({ figures: [], plots: [], images: [] });
-  let insertOpen = $state(false);
-  let insertWrapEl = $state<HTMLElement | null>(null);
-  let deckBusy = $state(false); // guards new/duplicate deck against double-submit
-  let presentOpen = $state(false);
-  let presentFromStart = $state(false);
-  let dragOver = $state(false);
-  function launchPresent(fromStart: boolean) {
-    if (!deck?.slides.length) return; // nothing to present — don't latch presentOpen
-    presentFromStart = fromStart;
-    presentOpen = true;
+
+  function surfaceDiagnostics(diags: DeckDiag[]) {
+    if (!diags.length) return;
+    pushToast("error", `Deck assets: ${diags.length} problem${diags.length > 1 ? "s" : ""}`, {
+      detail: diags.map((d) => d.reason).join("\n"),
+    });
   }
 
-  async function refreshAssets() {
-    const d = get(deckStore);
-    if (pm && d) {
-      resolvers = await loadDeckAssets(pm.root, d);
-      // WS-4.4: no more silent resolution gaps — same no-silent-failure
-      // convention as io.ts (one toast, details in the list).
-      const diags = resolvers.diagnostics;
-      if (diags.length) {
-        pushToast("error", `Deck assets: ${diags.length} problem${diags.length > 1 ? "s" : ""}`, {
-          detail: diags.map((d) => d.reason).join("\n"),
-        });
-      }
-    }
-  }
-
-  // --- multiple decks (D) ------------------------------------------------------
-  // Remember the last-open deck per project (mirrors paperLayout's activeDocPath).
+  // --- deck switching / management --------------------------------------------
   const lastDeckKey = (root: string) => `flux.slide.lastDeck:${root}`;
   function rememberDeck(root: string, id: string | null) {
     try { if (id) localStorage.setItem(lastDeckKey(root), id); } catch { /* ignore */ }
@@ -165,56 +167,44 @@
   function lastDeckId(root: string): string | null {
     try { return localStorage.getItem(lastDeckKey(root)); } catch { return null; }
   }
-  // After a deck swaps in, point the cursor at its first slide (fully built) and
-  // reset the canvas view + selection.
-  function resetCursorAndView() {
-    const d = get(deckStore);
-    if (d?.slides.length) {
-      activeSlideId.set(d.slides[0].id);
-      activeBeat.set(Math.max(0, d.slides[0].beats.length - 1));
-    } else {
-      activeSlideId.set(null);
-      activeBeat.set(0);
-    }
-    selection.set([]);
-    resetStageView();
-  }
-  /** Switch to another deck — saves the current one FIRST (await, mirrors Paper's
-   *  loadDocument), so no edits race the swap. */
-  async function switchDeck(id: string) {
-    if (!pm || id === activeDeckId) return;
+
+  async function openDeck(id: string, opts: { force?: boolean } = {}): Promise<boolean> {
+    if (!pm) return false;
+    if (!opts.force && id === activeDeckId) return true;
     try {
       await autosave.flush();
       const loaded = await loadDeckInto(pm.root, id);
       if (!loaded) {
-        flashExport(false, "Couldn't open that deck — its file may be missing or corrupt.");
-        return;
+        pushToast("error", "Couldn't open that deck — its file may be missing or corrupt.");
+        return false;
       }
-      activeDeckId = get(deckStore)?.id ?? id;
+      surfaceDiagnostics(loaded.diagnostics);
+      activeDeckId = loaded.deck.id;
       rememberDeck(pm.root, activeDeckId);
-      loadedProjectRoot.set(pm.root);
-      await refreshAssets();
-      resetCursorAndView();
       decks = await listProjectDecks(pm.root);
+      animatorOpen = animatorRemembered();
+      fitViewport();
+      return true;
     } catch (e) {
-      flashExport(false, e instanceof Error ? e.message : "Couldn't open that deck.");
+      pushToast("error", "Couldn't open that deck", { detail: errMsg(e) });
+      return false;
     }
   }
-  /** Create a fresh deck in the project, then switch to it. */
+
+  let deckBusy = $state(false);
   async function newDeck() {
     if (!pm || deckBusy) return;
     deckBusy = true;
     try {
       await autosave.flush();
-      const d = await createDeckInProject(pm.root, { title: `Deck ${decks.length + 1}`, theme: get(deckStore)?.theme });
+      const d = await createDeckInProject(pm.root, { title: `Deck ${decks.length + 1}`, theme: overlay?.theme });
       activeDeckId = d.id;
       rememberDeck(pm.root, d.id);
-      loadedProjectRoot.set(pm.root);
       decks = await listProjectDecks(pm.root);
-      await refreshAssets();
-      resetCursorAndView();
+      animatorOpen = animatorRemembered();
+      fitViewport();
     } catch (e) {
-      flashExport(false, e instanceof Error ? e.message : "Couldn't create the deck.");
+      pushToast("error", "Couldn't create the deck", { detail: errMsg(e) });
     } finally {
       deckBusy = false;
     }
@@ -223,13 +213,13 @@
     if (!pm || deckBusy) return;
     deckBusy = true;
     try {
-      await autosave.flush(); // flush the source first if it's live
+      await autosave.flush();
       const newId = await duplicateDeckBridge(pm.root, id);
       decks = await listProjectDecks(pm.root);
-      if (newId) await switchDeck(newId);
-      else flashExport(false, "Couldn't duplicate that deck.");
+      if (newId) await openDeck(newId);
+      else pushToast("error", "Couldn't duplicate that deck.");
     } catch (e) {
-      flashExport(false, e instanceof Error ? e.message : "Couldn't duplicate that deck.");
+      pushToast("error", "Couldn't duplicate that deck", { detail: errMsg(e) });
     } finally {
       deckBusy = false;
     }
@@ -241,56 +231,184 @@
     try {
       const ok = await deleteDeckBridge(pm.root, id);
       if (!ok) {
-        flashExport(false, "Couldn't remove that deck.");
+        pushToast("error", "Couldn't remove that deck.");
         return;
       }
       decks = await listProjectDecks(pm.root);
-      if (wasActive && decks[0]) await switchDeck(decks[0].id);
+      if (wasActive && decks[0]) await openDeck(decks[0].id);
     } catch (e) {
-      flashExport(false, e instanceof Error ? e.message : "Couldn't remove that deck.");
+      pushToast("error", "Couldn't remove that deck", { detail: errMsg(e) });
     }
   }
-  // Plots get their own always-on `Plot…` browser button; Insert ▾ is for the
-  // (typically short) figure + image lists.
-  const hasInsertables = $derived(insertables.figures.length + insertables.images.length > 0);
 
-  const deck = $derived($deckStore);
-  const activeSlide = $derived(
-    deck && $activeSlideId ? slideOps.slideById(deck, $activeSlideId) : deck?.slides[0] ?? null,
-  );
-  const theme = $derived(resolveTheme(deck?.theme));
+  // --- slide lifecycle (deck ops through the ONE pure core) --------------------
+  function onAddSlide() {
+    let newId = "";
+    commitDeckLive((d) => {
+      newId = slideOps.addSlide(d, { name: `Slide ${d.slides.length + 1}`, layout: "content-figure", starters: true }).id;
+    });
+    if (newId) selectSlide(newId);
+  }
+  function onDuplicateSlide(id: string) {
+    let nid: string | null = null;
+    commitDeckLive((d) => {
+      nid = slideOps.duplicateSlide(d, id);
+    });
+    if (nid) selectSlide(nid);
+  }
+  function onDeleteSlide(id: string) {
+    if ((overlay?.slides.length ?? 0) <= 1) return;
+    let next: string | null = null;
+    commitDeckLive((d) => {
+      next = slideOps.deleteSlide(d, id).nextActiveId;
+    });
+    if (next) selectSlide(next);
+  }
 
-  // --- inline build preview (play the current slide's animations on the stage) --
+  // --- filmstrip drag-to-reorder ------------------------------------------------
+  let dragIdx = $state<number | null>(null);
+  let dropIdx = $state<number | null>(null);
+  function moveSlide(from: number, to: number) {
+    if (from == null || from === to || !overlay) return;
+    const ids = overlay.slides.map((s) => s.id);
+    const [moved] = ids.splice(from, 1);
+    ids.splice(to, 0, moved);
+    commitDeckLive((dd) => slideOps.reorderSlides(dd, ids));
+  }
+
+  // --- deck / slide panels --------------------------------------------------------
+  function onTitleInput(e: Event) {
+    const v = (e.target as HTMLInputElement).value;
+    commitDeckLive((dd) => slideOps.setDeckMeta(dd, { title: v }), { coalesce: "deck-title" });
+  }
+  function onThemeChange(e: Event) {
+    const v = (e.target as HTMLSelectElement).value;
+    commitDeckLive((dd) => slideOps.setTheme(dd, v));
+  }
+  function onStageChange(e: Event) {
+    const i = Number((e.target as HTMLSelectElement).value);
+    const p = slideOps.STAGE_PRESETS[i];
+    if (p) {
+      commitDeckLive((dd) => slideOps.setStageSize(dd, { width: p.width, height: p.height }));
+      fitViewport(); // stage change re-frames every slide
+    }
+  }
+  function onSlideName(v: string) {
+    const sid = $activeFigureId;
+    if (!sid) return;
+    commitDeckLive((dd) => slideOps.setSlide(dd, sid, { name: v }), { coalesce: `slide-name:${sid}` });
+  }
+  function onSlideNotes(v: string) {
+    const sid = $activeFigureId;
+    if (!sid) return;
+    commitDeckLive((dd) => slideOps.setSlide(dd, sid, { notes: v }), { coalesce: `slide-notes:${sid}` });
+  }
+  function onSlideTransition(v: string) {
+    const sid = $activeFigureId;
+    if (!sid) return;
+    commitDeckLive((dd) => slideOps.setSlide(dd, sid, { transition: v as TransitionKind }));
+  }
+  // Background edits write the PROJECTED Figure.background (the canvas paints
+  // it live); the save fold-back turns it into slide.background (§3.4).
+  function onSlideBackground(v: string) {
+    const sid = $activeFigureId;
+    if (!sid) return;
+    commit((p) => {
+      const f = p.figures.find((ff) => ff.id === sid);
+      if (f) f.background = v;
+    });
+  }
+
+  // --- Send to canvas (slide → paper figure) ------------------------------------
+  let sendOpen = $state(false);
+  let sendCanvases = $state<{ id: string; name: string }[]>([]);
+  async function openSendToCanvas() {
+    if (!pm) return;
+    sendCanvases = await listFigCanvases(pm.root);
+    sendOpen = true;
+  }
+  async function doSendToCanvas(canvasId: string | null) {
+    sendOpen = false;
+    const sid = $activeFigureId;
+    const s = sid ? composedSlide(sid) : null;
+    if (!pm || !s || !overlay) return;
+    try {
+      const res = await sendSlideToCanvas(pm.root, s, overlay, canvasId);
+      bumpFigRevision();
+      pushToast("info", `Sent to canvas as "${res.name}"`, {
+        detail: "It is now a paper figure (it will appear in @fig).",
+      });
+    } catch (e) {
+      pushToast("error", "Couldn't send to canvas", { detail: errMsg(e) });
+    }
+  }
+
+  // --- viewport: fit the stage frame into the canvas pane -----------------------
+  let canvasWrapEl = $state<HTMLElement | null>(null);
+  function fitViewport() {
+    queueMicrotask(() => {
+      const el = canvasWrapEl;
+      const st = get(deckOverlay)?.stage ?? slideOps.DEFAULT_STAGE;
+      if (!el) return;
+      const w = el.clientWidth || 800;
+      const h = el.clientHeight || 500;
+      const z = Math.max(0.05, Math.min(16, Math.min((w - 90) / st.width, (h - 90) / st.height)));
+      viewport.set({ panX: (w - st.width * z) / 2, panY: (h - st.height * z) / 2, zoom: z });
+    });
+  }
+
+  // --- animator dock: on-demand, remembered per deck ----------------------------
+  let animatorOpen = $state(false);
+  const animKey = () => `flux.slide.animator:${pm?.root ?? ""}:${activeDeckId ?? ""}`;
+  function animatorRemembered(): boolean {
+    try { return localStorage.getItem(animKey()) === "1"; } catch { return false; }
+  }
+  function toggleAnimator() {
+    animatorOpen = !animatorOpen;
+    try { localStorage.setItem(animKey(), animatorOpen ? "1" : "0"); } catch { /* ignore */ }
+    if (!animatorOpen) stopPreview();
+  }
+
+  // --- inline build preview (present-in-place via the ONE player) ---------------
   let previewing = $state(false);
-  let previewHost = $state<HTMLElement>();
+  let previewHost = $state<HTMLElement | undefined>();
   let pvW = $state(0);
   let pvH = $state(0);
   let player: Player | undefined;
-  const pvScale = $derived(deck && pvW > 0 && pvH > 0 ? Math.min(pvW / deck.stage.width, pvH / deck.stage.height) : 1);
+  let pvStage = $state(slideOps.DEFAULT_STAGE);
+  const pvScale = $derived(pvW > 0 && pvH > 0 ? Math.min(pvW / pvStage.width, pvH / pvStage.height) : 1);
 
+  function playerOpts(d: Deck) {
+    return {
+      theme: resolveTheme(d.theme),
+      assetUrl: (id: string) => getAssetData(id),
+      assetSize: (id: string) => assetDisplaySize(get(project), id),
+      plotGen: get(plotGen),
+      deckBackground: d.background,
+      mode: "present" as const,
+      plotManifest: (id: string) => get(plotManifests)[id],
+      // A talk previews with motion regardless of the OS setting — matches
+      // Present and the exported runtime (which force it off too).
+      reducedMotion: false,
+    };
+  }
   function startPreview(startBeat = 0) {
-    const d = deck;
-    const s = activeSlide;
-    if (!d || !s || previewing) return;
-    const si = d.slides.findIndex((x) => x.id === s.id);
+    const d = currentDeck();
+    const sid = $activeFigureId;
+    if (!d || !sid || previewing) return;
+    const si = d.slides.findIndex((x) => x.id === sid);
     if (si < 0) return;
+    pvStage = d.stage;
     previewing = true;
     queueMicrotask(() => {
       if (!previewHost) { previewing = false; return; }
-      const opts = {
-        theme, assetUrl: resolvers.assetUrl, figureSvg: resolvers.figureSvg,
-        plotGen: get(plotGen), mode: "present" as const, plotManifest: (id: string) => get(plotManifests)[id], figureMember: (fid: string, mid: string) => get(figureMembers)[fid]?.[mid],
-        // A talk previews with motion regardless of the OS setting — matches
-        // Present and the exported runtime (which force it off too).
-        reducedMotion: false,
-      };
-      player = createPlayer(previewHost, d, opts);
+      player = createPlayer(previewHost, d, playerOpts(d));
       previewHost.style.transformOrigin = "center center";
       previewHost.style.transform = `scale(${pvScale})`;
+      const nBeats = d.slides[si].beats.length;
       // play-from-here: rest at the beat BEFORE the requested one, then advance.
-      const from = Math.max(0, Math.min(s.beats.length - 1, startBeat) - 1);
+      const from = Math.max(0, Math.min(nBeats - 1, startBeat) - 1);
       player.goTo(si, from);
-      const nBeats = s.beats.length;
       player.on("beatEnd", () => {
         if (!player) return;
         if (player.state().beat >= nBeats - 1) setTimeout(stopPreview, 1100);
@@ -301,300 +419,41 @@
     });
   }
   function stopPreview() {
+    // The player (and its WAAPI/rAF work) is fully torn down — static editing
+    // never runs a continuous loop (the E43 lesson, gated).
     player?.destroy();
     player = undefined;
     previewing = false;
   }
-  // W16: when the pane is hidden (kept alive), tear down any running preview so its
-  // WAAPI loop doesn't advance off-screen. It restarts on demand when shown again.
   $effect(() => {
     if (!active && previewing) stopPreview();
   });
 
-  const STAGE_PRESETS = [
-    { label: "16:9 · 1280×720", w: 1280, h: 720 },
-    { label: "16:9 · 1920×1080", w: 1920, h: 1080 },
-    { label: "4:3 · 1024×768", w: 1024, h: 768 },
-  ];
-
-  onMount(async () => {
-    try {
-      if (pm) {
-        decks = await listProjectDecks(pm.root);
-        // Reuse the live in-memory deck across a mode round-trip (slide→figure→
-        // slide, same project) — the deck store is module-level and survives
-        // unmount, so don't reload from disk (which raced the un-awaited
-        // destroy-time save and dropped edits). Reload only on first entry or a
-        // genuine project change (root mismatch).
-        const live = get(deckStore) && get(loadedProjectRoot) === pm.root;
-        if (!live) {
-          if (decks.length) {
-            // open the deck the user last had here, else the first
-            const want = lastDeckId(pm.root);
-            await loadDeckInto(pm.root, want && decks.some((d) => d.id === want) ? want : decks[0].id);
-          } else await createDeckInProject(pm.root, { title: pm.manifest.title });
-          decks = await listProjectDecks(pm.root);
-          if (!get(deckStore)) loadDeckModel(createDeckModel({ title: pm.manifest.title }));
-          loadedProjectRoot.set(pm.root);
-        }
-        activeDeckId = get(deckStore)?.id ?? null;
-        if (activeDeckId) rememberDeck(pm.root, activeDeckId);
-      } else if (!get(deckStore)) {
-        loadDeckModel(createDeckModel({ title: "Demo Deck" }));
-      }
-      await refreshAssets();
-      if (pm) insertables = await listInsertables(pm.root);
-      const d0 = get(deckStore);
-      if (d0?.slides.length) {
-        if (!get(activeSlideId)) activeSlideId.set(d0.slides[0].id);
-        const cur = slideOps.slideById(d0, get(activeSlideId) ?? d0.slides[0].id) ?? d0.slides[0];
-        activeBeat.set(Math.max(0, cur.beats.length - 1)); // open fully-built
-      }
-    } catch (e) {
-      console.error("SlideMode: deck load failed, using in-memory deck", e);
-      loadDeckModel(createDeckModel({ title: pm?.manifest.title ?? "Demo Deck" }));
-    }
-    ready = true;
-    canExport = canExportDeck();
-    unsubDirty = deckDirty.subscribe((d) => {
-      if (!ready || !pm || !d) return;
-      touchActivityLock("slides"); // W3: defer concurrent agent deck writes while mid-edit
-      autosave.schedule();
-    });
-    // W10: live-reload on external slides/ edits (skip the immediate on-subscribe call).
-    let firstDeck = true;
-    unsubDeckRev = deckRevision.subscribe(() => {
-      if (firstDeck) { firstDeck = false; return; }
-      void onDeckRevision();
-    });
-  });
-
-  // W5: the shell's dirty registry replaces this mode's private beforeunload —
-  // goHome/quit/reload now flush every registered mode through one protocol.
-  const unregFlush = registerFlushable({
-    id: "slide",
-    isDirty: () => !!pm && get(deckDirty),
-    flush: () => autosave.flush(),
-  });
-
-  onDestroy(() => {
-    unsubDirty?.();
-    unsubDeckRev?.();
-    player?.destroy();
-    // Flush pending edits to disk, but DO NOT clearDeck() — the live deck is kept
-    // in the module-level store so a quick round-trip to another mode reuses it
-    // (see onMount's `live` guard). clearDeck() is reserved for true project close.
-    void autosave.flush();
-    autosave.dispose();
-    unregFlush();
-  });
-
-  function selectSlide(id: string) {
-    activeSlideId.set(id);
-    const s = deck && slideOps.slideById(deck, id);
-    activeBeat.set(s ? Math.max(0, s.beats.length - 1) : 0); // show fully-built for editing
-    selection.set([]);
+  // --- present mode ---------------------------------------------------------------
+  let presentOpen = $state(false);
+  let presentDeck = $state<Deck | null>(null);
+  let presentStart = $state(0);
+  function launchPresent(fromStart: boolean) {
+    const d = currentDeck();
+    if (!d?.slides.length) return;
+    presentDeck = d;
+    presentStart = fromStart ? 0 : Math.max(0, d.slides.findIndex((s) => s.id === $activeFigureId));
+    presentOpen = true;
   }
 
-  // --- tools: add an element to the active slide, then select it ---------------
-  function add(make: (d: import("../../../lib/slide/types").Deck, sid: string) => string | null) {
-    const sid = $activeSlideId ?? activeSlide?.id;
-    if (!sid) return;
-    let id: string | null = null;
-    commitDeck((d) => {
-      id = make(d, sid);
-    });
-    if (id) selection.set([id]);
-  }
-  const addText = () => add((d, sid) => slideOps.addTextBox(d, sid, { text: "Text", x: 120, y: 120, width: 600, height: 90, fontSize: 36 }));
-  const addTitle = () => add((d, sid) => slideOps.addTextBox(d, sid, { text: "Title", x: 120, y: 90, width: 1040, height: 130, fontSize: 72, fontWeight: 700, align: "left" }));
-  const addBullets = () =>
-    add((d, sid) =>
-      slideOps.addTextBox(d, sid, {
-        x: 140, y: 220, width: 900, height: 320, fontSize: 34,
-        blocks: [
-          slideOps.makeBlock("First point", { marker: "bullet" }),
-          slideOps.makeBlock("Second point", { marker: "bullet" }),
-          slideOps.makeBlock("…and a sub-point", { marker: "bullet", level: 1, emphasis: "accent" }),
-        ],
-      }),
-    );
-  const addMath = () => add((d, sid) => slideOps.addMath(d, sid, { tex: "E = mc^2", x: 420, y: 300, width: 440, height: 120, display: true }));
-  const addRect = () => add((d, sid) => slideOps.addRect(d, sid, { x: 300, y: 250, width: 320, height: 200 }));
-  const addEllipse = () => add((d, sid) => slideOps.addEllipse(d, sid, { x: 360, y: 260, width: 220, height: 220 }));
-  const addLine = () => add((d, sid) => slideOps.addLine(d, sid, { x: 300, y: 360, width: 360, arrowEnd: true }));
-
-  // --- insert reusable project content (figures / plots / images) -------------
-  // These reference real project assets, so after inserting we must reload the
-  // asset resolvers (figure SVG / plot cache / image data URL) before they paint.
-  async function insertAndSelect(make: (d: import("../../../lib/slide/types").Deck, sid: string) => string | null) {
-    const sid = $activeSlideId ?? activeSlide?.id;
-    if (!sid) return;
-    let id: string | null = null;
-    commitDeck((d) => { id = make(d, sid); });
-    await refreshAssets();
-    if (id) selection.set([id]);
-    insertOpen = false;
-  }
-  const insertFigure = (figureId: string) =>
-    insertAndSelect((d, sid) => slideOps.addEmbedFigure(d, sid, { figureId, x: 360, y: 150, width: 600, height: 420, fit: "contain" }));
-  // A named figure GROUP as its own live embed — sized aspect-true from the
-  // group's bbox into the same 600×420 default footprint.
-  const insertFigureGroup = (figureId: string, g: Insertables["figures"][number]["groups"][number]) => {
-    const s = Math.min(600 / g.w, 420 / g.h);
-    const w = Math.max(40, Math.round(g.w * s));
-    const h = Math.max(40, Math.round(g.h * s));
-    return insertAndSelect((d, sid) =>
-      slideOps.addEmbedFigure(d, sid, { figureId, groupId: g.id, x: 360, y: 150, width: w, height: h, fit: "contain" }),
-    );
-  };
-  const insertImage = (img: Insertables["images"][number]) =>
-    insertAndSelect((d, sid) => slideOps.addImageToSlide(d, sid, { assetId: img.id, x: 360, y: 150, width: 600, height: 420 }));
-
-  // --- import a NEW image by drag-drop / paste (writes a deck asset) -----------
-  const MIME_KIND: Record<string, import("../../../lib/slide/types").DeckAsset["kind"]> = {
-    "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
-    "image/webp": "webp", "image/svg+xml": "svg",
-  };
-  /** Natural pixel size of an image file (falls back for SVG without a size). */
-  function naturalSize(file: File): Promise<{ w: number; h: number }> {
-    return new Promise((res) => {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => { res({ w: img.naturalWidth || 800, h: img.naturalHeight || 600 }); URL.revokeObjectURL(url); };
-      img.onerror = () => { res({ w: 800, h: 600 }); URL.revokeObjectURL(url); };
-      img.src = url;
-    });
-  }
-  let importBusy = $state(false);
-  /** Import one dropped/pasted image: write it into the deck's assets/, register
-   *  the asset + a centered, aspect-fit image element, then refresh resolvers. */
-  async function importImageFile(file: File) {
-    const kind = MIME_KIND[file.type];
-    const d = get(deckStore);
-    if (!kind || !pm || !d) return;
-    importBusy = true;
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const nat = await naturalSize(file);
-      const rel = await writeDeckAsset(pm.root, d.id, file.name || `image.${kind}`, bytes);
-      // fit within 80% of the stage, preserving aspect ratio; center it.
-      const s = Math.min((d.stage.width * 0.8) / nat.w, (d.stage.height * 0.8) / nat.h, 1);
-      const w = Math.round(nat.w * s), h = Math.round(nat.h * s);
-      await insertAndSelect((dd, sid) => {
-        const assetId = slideOps.addAsset(dd, { kind, path: rel, naturalWidth: nat.w, naturalHeight: nat.h });
-        return slideOps.addImageToSlide(dd, sid, {
-          assetId, x: Math.round((d.stage.width - w) / 2), y: Math.round((d.stage.height - h) / 2), width: w, height: h,
-        });
-      });
-    } catch (e) {
-      flashExport(false, e instanceof Error ? `Couldn't import that image: ${e.message}` : "Couldn't import that image.");
-    } finally {
-      importBusy = false;
-    }
-  }
-  function onStageDrop(e: DragEvent) {
-    const files = [...(e.dataTransfer?.files ?? [])].filter((f) => MIME_KIND[f.type]);
-    if (!files.length) return;
-    e.preventDefault();
-    for (const f of files) void importImageFile(f);
-  }
-  function onStagePaste(e: ClipboardEvent) {
-    const t = (e.target as HTMLElement)?.tagName;
-    if (t === "INPUT" || t === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
-    const item = [...(e.clipboardData?.items ?? [])].find((it) => MIME_KIND[it.type]);
-    const file = item?.getAsFile();
-    if (file) { e.preventDefault(); void importImageFile(file); }
-  }
-
-  // Reuse Figure mode's Plot Importer (the searchable plots/ browser) to drop
-  // plots onto the active slide. Each pick's `rel` is the path under plots/
-  // (e.g. "example_set/01_bars.svg"); strip .svg for the stable id + source
-  // paths. Multi-insert = ONE commitDeck (single undo step) placing every pick
-  // staggered +24px from the 360/150 base, ONE asset refresh, then select all.
-  const openPlotBrowser = () => importerOpen.set(true);
-  async function onPickPlot(picks: Array<{ abs: string; rel: string; semantic: boolean }>) {
-    if (!picks.length) return;
-    const sid = $activeSlideId ?? activeSlide?.id;
-    if (!sid) {
-      pushToast("info", "Add a slide first — plots insert onto the active slide.");
-      return;
-    }
-    const ids: string[] = [];
-    commitDeck((d) => {
-      picks.forEach((p, i) => {
-        const base = p.rel.replace(/\.svg$/i, "");
-        const id = slideOps.addPlotToSlide(d, sid, {
-          assetId: base, x: 360 + 24 * i, y: 150 + 24 * i, width: 600, height: 420,
-          source: { svgPath: `plots/${base}.svg`, manifestPath: p.semantic ? `plots/${base}.fluxplot.json` : undefined },
-        });
-        if (id) ids.push(id);
-      });
-    });
-    await refreshAssets();
-    if (ids.length) selection.set(ids);
-  }
-
-  function onAddSlide() {
-    const d = get(deckStore);
-    if (!d) return;
-    let newId = "";
-    commitDeck((dd) => {
-      newId = slideOps.addSlide(dd, { name: `Slide ${dd.slides.length + 1}`, layout: "content-figure", starters: true }).id;
-    });
-    if (newId) selectSlide(newId);
-  }
-  function onDuplicateSlide(id: string) {
-    let nid: string | null = null;
-    commitDeck((dd) => { nid = slideOps.duplicateSlide(dd, id); });
-    if (nid) selectSlide(nid);
-  }
-  function onDeleteSlide(id: string) {
-    const d = get(deckStore);
-    if (!d || d.slides.length <= 1) return;
-    let next: string | null = null;
-    commitDeck((dd) => { next = slideOps.deleteSlide(dd, id).nextActiveId; });
-    if (next) selectSlide(next);
-  }
-
-  // --- filmstrip drag-to-reorder ----------------------------------------------
-  let dragIdx = $state<number | null>(null);
-  let dropIdx = $state<number | null>(null);
-  function moveSlide(from: number, to: number) {
-    if (from == null || from === to || !deck) return;
-    const ids = deck.slides.map((s) => s.id);
-    const [moved] = ids.splice(from, 1);
-    ids.splice(to, 0, moved);
-    commitDeck((dd) => slideOps.reorderSlides(dd, ids));
-  }
-
-  function onTitleInput(e: Event) {
-    const v = (e.target as HTMLInputElement).value;
-    commitDeck((dd) => { dd.title = v; });
-  }
-  function onThemeChange(e: Event) {
-    const v = (e.target as HTMLSelectElement).value;
-    commitDeck((dd) => slideOps.setTheme(dd, v));
-  }
-  function onStageChange(e: Event) {
-    const i = Number((e.target as HTMLSelectElement).value);
-    const p = STAGE_PRESETS[i];
-    if (p) commitDeck((dd) => slideOps.setStageSize(dd, { width: p.w, height: p.h }));
-  }
-
-  // --- export (E) --------------------------------------------------------------
-  let canExport = $state(false); // desktop-only (the engine needs Node/esbuild)
+  // --- export ----------------------------------------------------------------------
+  let canExport = $state(false);
   let exporting = $state(false);
   let exportMsg = $state<{ ok: boolean; text: string } | null>(null);
   let exportMsgTimer: ReturnType<typeof setTimeout> | undefined;
   async function onExport() {
-    const d = get(deckStore);
-    if (!pm || !d || exporting) return;
+    const id = activeDeckId;
+    if (!pm || !id || exporting) return;
     exporting = true;
     exportMsg = null;
     try {
-      if (get(deckDirty)) await saveDeckFrom(pm.root); // export the latest, not a stale file
-      const path = await exportDeckBridge(pm.root, d.id);
+      await autosave.flush(); // export the latest, not a stale file
+      const path = await exportDeckBridge(pm.root, id);
       flashExport(true, `Exported → ${path.split("/").slice(-2).join("/")}`);
     } catch (e) {
       flashExport(false, e instanceof Error ? e.message : "Export failed");
@@ -608,205 +467,167 @@
     exportMsgTimer = setTimeout(() => (exportMsg = null), ok ? 6000 : 9000);
   }
 
-  // Deckbar zoom buttons step centered (pan reset); fine zoom-to-cursor is the
-  // canvas's Ctrl+wheel. The % chip resets to fit.
-  function stepZoom(factor: number) {
-    stageView.update((v) => ({ zoom: Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom * factor)), panX: 0, panY: 0 }));
-  }
-
-  // --- draggable pane edges (filmstrip / inspector widths) — mirrors Paper's
-  // pointer-drag gutter; sizes persist in slideLayout (localStorage). The Animator
-  // dock height is dragged inside AnimatePanel via the same store.
-  let bodyEl = $state<HTMLDivElement | null>(null);
-  let dragPane = $state<"film" | "insp" | null>(null);
-  function startPaneDrag(which: "film" | "insp", e: PointerEvent) {
-    e.preventDefault();
-    dragPane = which;
-    window.addEventListener("pointermove", movePaneDrag);
-    window.addEventListener("pointerup", endPaneDrag);
-  }
-  function movePaneDrag(e: PointerEvent) {
-    if (!dragPane || !bodyEl) return;
-    const r = bodyEl.getBoundingClientRect();
-    if (dragPane === "film") {
-      const w = Math.max(120, Math.min(420, e.clientX - r.left));
-      slideLayout.update((s) => ({ ...s, filmstripW: Math.round(w) }));
-    } else {
-      const w = Math.max(190, Math.min(480, r.right - e.clientX));
-      slideLayout.update((s) => ({ ...s, inspectorW: Math.round(w) }));
-    }
-  }
-  function endPaneDrag() {
-    dragPane = null;
-    window.removeEventListener("pointermove", movePaneDrag);
-    window.removeEventListener("pointerup", endPaneDrag);
-  }
-
-  // Slide nav with arrows — only when no element is selected (else the stage nudges).
+  // --- keyboard: slide navigation first, then the FIGURE keymap wholesale --------
   function onKey(e: KeyboardEvent) {
-    if (!focused || !deck) return;
-    if (presentOpen) return; // the presenter overlay owns the keyboard while it's up
+    if (presentOpen) return; // the presenter overlay owns the keyboard
     const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
-    // Alt+I opens the plot importer (mirrors Figure mode's keyboard.ts:461) — works
-    // regardless of selection, so handle it before the slide-nav selection guard.
-    if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyI") {
-      e.preventDefault();
-      if (!$importerOpen) openPlotBrowser();
-      return;
+    const typing = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
+    if (!typing) {
+      // F5 presents from the first slide; Shift+F5 from the current one.
+      if (e.key === "F5") {
+        e.preventDefault();
+        launchPresent(!e.shiftKey);
+        return;
+      }
+      // Slide nav with arrows — only when nothing is selected (else the
+      // figure keymap nudges the selection).
+      if ($selection.size === 0 && !$selectedFrameId && !$partSelection && (overlay?.slides.length ?? 0) > 0) {
+        const i = slideIds.indexOf($activeFigureId ?? "");
+        if (e.key === "ArrowDown" || e.key === "PageDown") {
+          e.preventDefault();
+          const n = slideIds[Math.min(slideIds.length - 1, i + 1)];
+          if (n) selectSlide(n);
+          return;
+        }
+        if (e.key === "ArrowUp" || e.key === "PageUp") {
+          e.preventDefault();
+          const n = slideIds[Math.max(0, i - 1)];
+          if (n) selectSlide(n);
+          return;
+        }
+      }
     }
-    // Alt+P opens the slide X-ray (per-part styles) for the selected plot —
-    // the same gesture as figure mode (keyboard.ts openXray).
-    if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyP") {
+    // Everything else: the ONE figure keymap (tools, undo/redo, align,
+    // group/ungroup, copy/paste, X-ray, importer, presets, nudges, Esc…).
+    handleKey(e);
+  }
+  $effect(() => {
+    if (!focused) return;
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // Paste an image onto the active slide (figure drop pipeline, deck asset sink).
+  function onPaste(e: ClipboardEvent) {
+    if (!focused || presentOpen) return;
+    const t = (e.target as HTMLElement)?.tagName;
+    if (t === "INPUT" || t === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+    const item = [...(e.clipboardData?.items ?? [])].find((it) => /^image\/(png|svg)/.test(it.type));
+    const file = item?.getAsFile();
+    const sid = $activeFigureId;
+    if (file && sid) {
       e.preventDefault();
-      if ($slideXrayOpen) { slideXrayOpen.set(null); return; }
-      const el = $selection.length === 1 && activeSlide ? activeSlide.elements.find((x) => x.id === $selection[0]) : null;
-      if (el && el.type === "plot") slideXrayOpen.set({ elId: el.id });
-      return;
-    }
-    // F5 presents from the first slide; Shift+F5 from the current one (B22).
-    if (e.key === "F5") {
-      e.preventDefault();
-      launchPresent(!e.shiftKey);
-      return;
-    }
-    // Undo / redo (deck-level history). After the input guard so a focused text
-    // field keeps its native undo; Cmd/Ctrl+Z everywhere else on the stage.
-    if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z")) {
-      e.preventDefault();
-      if (e.shiftKey) redoDeck();
-      else undoDeck();
-      return;
-    }
-    if ((e.metaKey || e.ctrlKey) && (e.key === "y" || e.key === "Y")) {
-      e.preventDefault();
-      redoDeck();
-      return;
-    }
-    if ($selection.length > 0) return;
-    const i = deck.slides.findIndex((s) => s.id === $activeSlideId);
-    if (e.key === "ArrowDown" || e.key === "PageDown") {
-      e.preventDefault();
-      const n = deck.slides[Math.min(deck.slides.length - 1, i + 1)];
-      if (n) selectSlide(n.id);
-    } else if (e.key === "ArrowUp" || e.key === "PageUp") {
-      e.preventDefault();
-      const n = deck.slides[Math.max(0, i - 1)];
-      if (n) selectSlide(n.id);
+      void importDroppedFiles([file], sid);
     }
   }
 
-  // Dismiss the Insert ▾ dropdown on an outside click or Escape (mirrors
-  // TimelineMenu). Escape is captured so it closes the menu without also
-  // reaching the stage's deselect handler.
-  $effect(() => {
-    if (!insertOpen) return;
-    const onDown = (e: PointerEvent) => {
-      if (insertWrapEl && !insertWrapEl.contains(e.target as Node)) insertOpen = false;
-    };
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopPropagation(); insertOpen = false; }
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onEsc, true);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("keydown", onEsc, true);
-    };
+  // --- lifecycle ---------------------------------------------------------------------
+  onMount(async () => {
+    // Tenancy handoff (§3.2.1): flush + evict a resident FigureMode, claim the
+    // store, register the overlay's history companion, THEN load the deck.
+    await flushById("figure");
+    if (isDirtyById("figure")) {
+      pushToast("error", "Unsaved figure changes could not be written", {
+        detail: "fig/ changed on disk. Resolve the conflict in Figure mode if those edits matter — opening Slide replaces the shared editing store.",
+      });
+    }
+    evictMode("figure");
+    await tick(); // let the evicted FigureMode unmount (its onDestroy no-ops)
+    setStoreTenant("slide");
+    unregCompanion = registerHistoryCompanion(overlayHistoryCompanion());
+    try {
+      if (pm) {
+        embeddedProjectRoot.set(pm.root);
+        decks = await listProjectDecks(pm.root);
+        if (decks.length) {
+          const want = lastDeckId(pm.root);
+          const ok = await openDeck(want && decks.some((d) => d.id === want) ? want : decks[0].id, { force: true });
+          if (!ok && decks[0]) await openDeck(decks[0].id, { force: true });
+        } else {
+          await createDeckInProject(pm.root, { title: pm.manifest.title });
+          decks = await listProjectDecks(pm.root);
+          activeDeckId = decks[0]?.id ?? get(deckOverlay)?.id ?? null;
+          if (activeDeckId) rememberDeck(pm.root, activeDeckId);
+          fitViewport();
+        }
+      } else {
+        loadError = "Slide mode needs an open Flux project.";
+      }
+    } catch (e) {
+      loadError = errMsg(e);
+    }
+    ready = true;
+    canExport = canExportDeck();
+    animatorOpen = animatorRemembered();
+    unsubDirty = figDirty.subscribe((d) => {
+      if (!ready || !pm || !d) return;
+      touchActivityLock("slides"); // defer concurrent agent deck writes while mid-edit
+      autosave.schedule();
+    });
+    // Live-reload on external slides/ edits (skip the immediate on-subscribe call).
+    let firstDeck = true;
+    unsubDeckRev = deckRevision.subscribe(() => {
+      if (firstDeck) { firstDeck = false; return; }
+      void onDeckRevision();
+    });
+  });
+
+  const unregFlush = registerFlushable({
+    id: "slide",
+    isDirty: () => !!pm && ready && get(figDirty),
+    flush: () => autosave.flush(),
+  });
+
+  onDestroy(() => {
+    unsubDirty?.();
+    unsubDeckRev?.();
+    stopPreview();
+    void autosave.flush();
+    autosave.dispose();
+    unregFlush();
+    unregCompanion?.();
   });
 </script>
 
-<svelte:window onkeydown={onKey} onpaste={onStagePaste} />
+<svelte:window onpaste={onPaste} />
 
 <div class="slide-mode">
   <header class="deckbar">
     <div class="left">
-      <span class="pillar">Slide</span>
-      {#if deck}
-        <input class="title" value={deck.title} oninput={onTitleInput} spellcheck="false" aria-label="Deck title" />
+      {#if overlay}
+        <input class="title" value={overlay.title} oninput={onTitleInput} onblur={sealHistory} spellcheck="false" aria-label="Deck title" />
       {/if}
     </div>
     <div class="right">
-      {#if deck}
-        <select class="sel" value={deck.theme} onchange={onThemeChange} title="Theme" aria-label="Theme">
-          {#each Object.values(BUILTIN_THEMES) as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
-        </select>
-        <select class="sel" onchange={onStageChange} title="Stage size" aria-label="Stage size">
-          {#each STAGE_PRESETS as p, i (p.label)}
-            <option value={i} selected={deck.stage.width === p.w && deck.stage.height === p.h}>{p.label}</option>
-          {/each}
-        </select>
-        <div class="zoomctl" title="Zoom — Ctrl+wheel to zoom to cursor · + / − / 0 (fit) · middle-drag to pan">
-          <button class="zb" onclick={() => stepZoom(1 / 1.2)} disabled={$stageView.zoom <= ZOOM_MIN} aria-label="Zoom out">−</button>
-          <button class="zb pct" onclick={resetStageView} title="Reset to fit">{Math.round($stageView.zoom * 100)}%</button>
-          <button class="zb" onclick={() => stepZoom(1.2)} disabled={$stageView.zoom >= ZOOM_MAX} aria-label="Zoom in">+</button>
-        </div>
-      {/if}
-      <button class="btn" onclick={() => launchPresent(false)} disabled={!deck?.slides.length} title="Present from the current slide · F5 from the start, ⇧F5 from here">Present ▶</button>
-      <button class="btn ghost" onclick={onExport} disabled={!deck || !canExport || exporting}
+      <button class="btn" class:active={animatorOpen} onclick={toggleAnimator} disabled={!overlay}
+        title="Toggle the animation dock (beats, tracks, preview)">Animate ⏱</button>
+      <button class="btn" onclick={() => launchPresent(false)} disabled={!overlay?.slides.length}
+        title="Present from the current slide · F5 from the start, ⇧F5 from here">Present ▶</button>
+      <button class="btn ghost" onclick={onExport} disabled={!overlay || !canExport || exporting}
         title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
         {exporting ? "Exporting…" : "Export"}
       </button>
       {#if $saveErr}
         <button class="saveerr" title={`Autosave failed — ${$saveErr}. Your edits are still in memory; it will retry on the next change.`} onclick={() => void autosave.flush()}>⚠ unsaved</button>
       {:else}
-        <span class="dirty" class:on={$deckDirty} title="Unsaved changes">●</span>
+        <span class="dirty" class:on={$figDirty} title="Unsaved changes">●</span>
       {/if}
     </div>
   </header>
 
-  <!-- tools -->
-  <div class="tools">
-    <button class="tool ic" onclick={undoDeck} disabled={!$canUndo} title="Undo (⌘/Ctrl+Z)" aria-label="Undo">↶</button>
-    <button class="tool ic" onclick={redoDeck} disabled={!$canRedo} title="Redo (⇧⌘/Ctrl+Z)" aria-label="Redo">↷</button>
-    <span class="div"></span>
-    <button class="tool" onclick={addTitle} disabled={!activeSlide}>Title</button>
-    <button class="tool" onclick={addText} disabled={!activeSlide}>Text</button>
-    <button class="tool" onclick={addBullets} disabled={!activeSlide}>Bullets</button>
-    <button class="tool" onclick={addMath} disabled={!activeSlide}>Math</button>
-    <button class="tool" class:active={$importerOpen} onclick={openPlotBrowser} disabled={!activeSlide} title="Browse + insert a project plot (semantic — animatable & morphable) · Alt+I">Plot…</button>
-    <span class="div"></span>
-    <button class="tool" onclick={addRect} disabled={!activeSlide}>Rect</button>
-    <button class="tool" onclick={addEllipse} disabled={!activeSlide}>Ellipse</button>
-    <button class="tool" onclick={addLine} disabled={!activeSlide}>Line</button>
-    {#if hasInsertables}
-      <span class="div"></span>
-      <div class="insert-wrap" bind:this={insertWrapEl}>
-        <button class="tool" onclick={() => (insertOpen = !insertOpen)} disabled={!activeSlide} aria-haspopup="menu" aria-expanded={insertOpen}>Insert ▾</button>
-        {#if insertOpen}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="insert-menu" role="menu">
-            {#if insertables.figures.length}
-              <div class="grp">Figures</div>
-              {#each insertables.figures as f (f.id)}
-                <button class="item" role="menuitem" onclick={() => insertFigure(f.id)}>{f.title}</button>
-                {#each f.groups as g (g.id)}
-                  <button class="item sub" role="menuitem" title="Insert just this group (live)" onclick={() => insertFigureGroup(f.id, g)}>❖ {g.label}</button>
-                {/each}
-              {/each}
-            {/if}
-            {#if insertables.images.length}
-              <div class="grp">Images</div>
-              {#each insertables.images as img (img.id)}
-                <button class="item" role="menuitem" onclick={() => insertImage(img)}>{img.id}</button>
-              {/each}
-            {/if}
-          </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
+  <!-- the SHARED figure toolbar: tools, undo/redo, rulers, zoom -->
+  <Toolbar />
 
-  <div class="body" bind:this={bodyEl} style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
+  <div class="body" style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
     <!-- filmstrip -->
     <aside class="filmstrip">
       {#if pm}
-        <DeckPicker {decks} activeId={activeDeckId} onSelect={switchDeck} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} busy={deckBusy} />
+        <DeckPicker {decks} activeId={activeDeckId} onSelect={(id) => void openDeck(id)} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} busy={deckBusy} />
       {/if}
-      {#if deck}
-        {#each deck.slides as s, i (s.id)}
+      {#if overlay}
+        {#each overlay.slides as s, i (s.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="thumb" class:active={s.id === ($activeSlideId ?? activeSlide?.id)}
+          <div class="thumb" class:active={s.id === $activeFigureId}
             class:dragging={dragIdx === i} class:dropbefore={dropIdx === i && dragIdx !== null && dragIdx > i} class:dropafter={dropIdx === i && dragIdx !== null && dragIdx < i}
             draggable="true"
             ondragstart={(e) => { dragIdx = i; if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; }}
@@ -815,15 +636,11 @@
             ondragend={() => { dragIdx = null; dropIdx = null; }}
             onclick={() => selectSlide(s.id)}>
             <span class="n">{i + 1}</span>
-            <div class="mini" style="aspect-ratio: {deck.stage.width} / {deck.stage.height}">
-              <!-- SLD-7: freeze the thumbnail at the LAST beat (fully built), not beat 0 —
-                   an auto-animated figure slide is blank at beat 0 (enter nodes hidden). -->
-              <SlideStage slide={s} {theme} stage={deck.stage} interactive={false} beat={Math.max(0, s.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
-            </div>
+            <div class="mini"><SlideThumb slideId={s.id} {stage} /></div>
             <span class="nm">{s.name ?? `Slide ${i + 1}`}</span>
             <div class="thumbacts">
               <button class="ta" title="Duplicate" aria-label="Duplicate slide" onclick={(e) => { e.stopPropagation(); onDuplicateSlide(s.id); }}>⧉</button>
-              {#if deck.slides.length > 1}
+              {#if overlay.slides.length > 1}
                 <button class="ta" title="Delete" aria-label="Delete slide" onclick={(e) => { e.stopPropagation(); onDeleteSlide(s.id); }}>×</button>
               {/if}
             </div>
@@ -833,43 +650,82 @@
       {/if}
     </aside>
 
-    <!-- filmstrip ↔ stage resize handle -->
-    <div class="pane-gutter" class:active={dragPane === "film"} role="separator" aria-orientation="vertical"
-      aria-label="Resize filmstrip" onpointerdown={(e) => startPaneDrag("film", e)}><span class="grip"></span></div>
-
-    <!-- stage -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <main class="stage-wrap" class:dropping={dragOver}
-      ondragover={(e) => { if ([...(e.dataTransfer?.items ?? [])].some((it) => it.kind === "file")) { e.preventDefault(); dragOver = true; } }}
-      ondragleave={(e) => { if (e.currentTarget === e.target) dragOver = false; }}
-      ondrop={(e) => { dragOver = false; onStageDrop(e); }}>
-      {#if importBusy}<div class="import-toast">Importing image…</div>{/if}
-      {#if ready && deck && activeSlide}
-        <div class="stage-viewport" bind:clientWidth={pvW} bind:clientHeight={pvH}>
-          <SlideStage slide={activeSlide} {theme} stage={deck.stage} interactive={true} focused={focused && !presentOpen} beat={Math.min($activeBeat, activeSlide.beats.length - 1)} assetUrl={resolvers.assetUrl} figureSvg={resolvers.figureSvg} />
+    <!-- stage: the SHARED figure canvas in frame mode -->
+    <main class="stage-col">
+      <div class="canvas-wrap" bind:this={canvasWrapEl}>
+        {#if ready && overlay}
+          <Canvas frame paneActive={active} />
+          <ArrangeHud />
           {#if previewing}
             <div class="preview-overlay">
-              <div class="preview-host" bind:this={previewHost}></div>
+              <div class="preview-viewport" bind:clientWidth={pvW} bind:clientHeight={pvH}>
+                <div class="preview-host" bind:this={previewHost}></div>
+              </div>
               <button class="preview-stop" onclick={stopPreview} title="Stop preview">■ Stop</button>
             </div>
           {/if}
-        </div>
-        <AnimatePanel onPreview={startPreview} />
-        <SlideXray />
-      {:else if ready && deck}
-        <div class="empty">This deck has no slides. <button class="btn" onclick={onAddSlide}>Add one</button></div>
-      {:else}
-        <div class="empty">Loading deck…</div>
+        {:else if ready}
+          <div class="empty">{loadError ?? "No deck loaded."}</div>
+        {:else}
+          <div class="empty">Loading deck…</div>
+        {/if}
+      </div>
+      {#if animatorOpen && overlay}
+        <AnimatePanel slide={activeSlide} onPreview={startPreview} />
       {/if}
     </main>
 
-    <!-- stage ↔ inspector resize handle -->
-    <div class="pane-gutter" class:active={dragPane === "insp"} role="separator" aria-orientation="vertical"
-      aria-label="Resize inspector" onpointerdown={(e) => startPaneDrag("insp", e)}><span class="grip"></span></div>
-
-    <!-- inspector -->
-    <aside class="inspector-host">
-      <Inspector {focused} />
+    <!-- right rail: the SHARED inspector + the slide/deck panels -->
+    <aside class="rail">
+      <Inspector />
+      {#if overlay && activeSlide}
+        <section class="panel">
+          <h4>Slide</h4>
+          <label class="full">Name
+            <input value={activeSlide.name ?? ""} onchange={(e) => onSlideName(e.currentTarget.value)} />
+          </label>
+          <label class="full">Background
+            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(activeSlide.background ?? "") ? activeSlide.background : "#100f0f"}
+              onchange={(e) => onSlideBackground(e.currentTarget.value)} />
+          </label>
+          <label class="full">Transition
+            <select value={activeSlide.transition ?? overlay.defaults.transition} onchange={(e) => onSlideTransition(e.currentTarget.value)}>
+              <option value="none">none</option><option value="fade">fade</option>
+              <option value="slide">slide</option><option value="push">push</option>
+            </select>
+          </label>
+          <label class="full">Speaker notes
+            <textarea rows="3" value={activeSlide.notes ?? ""} oninput={(e) => onSlideNotes(e.currentTarget.value)} onblur={sealHistory}></textarea>
+          </label>
+          <div class="convertrow">
+            <button class="act" onclick={openSendToCanvas} title="Copy this slide's content to a paper-figure canvas (it becomes a real figure and WILL appear in @fig)">Send to canvas…</button>
+          </div>
+          {#if sendOpen}
+            <div class="sendmenu">
+              {#each sendCanvases as c (c.id)}
+                <button onclick={() => void doSendToCanvas(c.id)}>{c.name}</button>
+              {/each}
+              <button onclick={() => void doSendToCanvas(null)}>+ New canvas</button>
+              <button class="ghosty" onclick={() => (sendOpen = false)}>Cancel</button>
+            </div>
+          {/if}
+        </section>
+        <section class="panel">
+          <h4>Deck</h4>
+          <label class="full">Stage
+            <select onchange={onStageChange} title="All slides share one stage frame (figure ruler: 96 px/inch)">
+              {#each slideOps.STAGE_PRESETS as p, i (p.label)}
+                <option value={i} selected={stage.width === p.width && stage.height === p.height}>{p.label}</option>
+              {/each}
+            </select>
+          </label>
+          <label class="full">Theme
+            <select value={overlay.theme} onchange={onThemeChange}>
+              {#each Object.values(BUILTIN_THEMES) as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+            </select>
+          </label>
+        </section>
+      {/if}
     </aside>
   </div>
 
@@ -889,19 +745,19 @@
   {/if}
 </div>
 
-{#if presentOpen && deck && activeSlide}
+{#if presentOpen && presentDeck}
   <PresentOverlay
-    {deck}
-    {theme}
-    assetUrl={resolvers.assetUrl}
-    figureSvg={resolvers.figureSvg}
-    start={{ slide: presentFromStart ? 0 : deck.slides.findIndex((s) => s.id === activeSlide.id), beat: 0 }}
+    deck={presentDeck}
+    theme={resolveTheme(presentDeck.theme)}
+    start={{ slide: presentStart, beat: 0 }}
     onClose={() => (presentOpen = false)} />
 {/if}
 
-<!-- the shared plots/ browser (Figure mode's Alt+I importer), reused to drop a
-     plot onto the active slide instead of importing into a figure -->
-<PlotImporter rootOverride={pm?.root ?? ""} onPick={onPickPlot} title="Insert plot onto slide" />
+<!-- shared figure surfaces: X-ray, property cockpit, plots/ browser, presets -->
+<FluxFigMenu />
+<Xray />
+<PlotImporter rootOverride={pm?.root ?? ""} title="Insert plot onto slide" />
+<PresetPicker />
 
 <style>
   .slide-mode {
@@ -918,21 +774,33 @@
     justify-content: space-between;
     align-items: center;
     gap: var(--sp-3);
-    padding: 7px 14px;
+    padding: 5px 14px;
     border-bottom: 1px solid var(--c-line);
     background: var(--c-bg-raised);
     flex: 0 0 auto;
   }
-  /* zoom control (C2) */
-  .zoomctl { display: inline-flex; align-items: center; border: 1px solid var(--c-line); border-radius: var(--r-1); overflow: hidden; }
-  .zb {
-    border: none; background: var(--c-surface); color: var(--c-tx); cursor: pointer;
-    font-size: var(--ts-sm); padding: 4px 8px; line-height: 1;
+  .deckbar .left, .deckbar .right { display: flex; align-items: center; gap: var(--sp-2); }
+  .title {
+    border: 1px solid transparent; border-radius: var(--r-1); background: transparent;
+    color: var(--c-tx); font: inherit; font-size: var(--ts-md); padding: 3px 8px; min-width: 220px;
   }
-  .zb:hover:not(:disabled) { background: var(--c-accent-tint); color: var(--c-tx-hi); }
-  .zb:disabled { opacity: 0.4; cursor: default; }
-  .zb.pct { min-width: 46px; font-variant-numeric: tabular-nums; border-left: 1px solid var(--c-line); border-right: 1px solid var(--c-line); }
-  /* export toast (E) */
+  .title:hover { border-color: var(--c-line); }
+  .title:focus { outline: none; border-color: var(--c-accent); background: var(--c-bg); }
+  .btn {
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-1); background: var(--c-surface);
+    color: var(--c-tx-2); cursor: pointer; font-size: var(--ts-sm); padding: 4px 10px;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn.ghost { background: transparent; }
+  .btn.active { border-color: var(--c-accent); background: var(--c-accent); color: var(--c-on-accent); }
+  .dirty { color: var(--c-tx-faint); opacity: 0; transition: opacity 0.15s; font-size: 12px; }
+  .dirty.on { opacity: 1; color: var(--c-accent); }
+  .saveerr {
+    font-size: 11px; font-weight: 600; color: var(--c-on-accent, #100f0f);
+    background: var(--c-danger, #d14d41); border: none; border-radius: var(--r-1); padding: 2px 8px; cursor: pointer;
+  }
+  .saveerr:hover { filter: brightness(1.08); }
   .export-toast {
     position: absolute; top: 54px; left: 50%; transform: translateX(-50%); z-index: 40;
     max-width: 70%; padding: 8px 14px; border-radius: var(--r-2);
@@ -941,7 +809,6 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .export-toast.err { border-color: var(--c-danger, #d14); }
-  /* WS-5.4 divergence banner (FigureMode's disk-toast, in this mode's tokens) */
   .disk-toast {
     position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 50;
     display: flex; gap: 10px; align-items: center; padding: 10px 14px;
@@ -956,83 +823,22 @@
   }
   .disk-toast button:hover { background: var(--c-line); }
   .disk-toast button.ghost { background: transparent; }
-  .deckbar .left, .deckbar .right { display: flex; align-items: center; gap: var(--sp-2); }
-  .pillar { font-family: var(--font-serif); font-style: italic; font-size: var(--ts-lg, 20px); color: var(--c-tx-hi); }
-  .title {
-    border: 1px solid transparent; border-radius: var(--r-1); background: transparent;
-    color: var(--c-tx); font: inherit; font-size: var(--ts-md); padding: 3px 8px; min-width: 220px;
-  }
-  .title:hover { border-color: var(--c-line); }
-  .title:focus { outline: none; border-color: var(--c-accent); background: var(--c-bg); }
-  .sel {
-    border: 1px solid var(--c-line-strong); border-radius: var(--r-1); background: var(--c-surface);
-    color: var(--c-tx-2); font-size: var(--ts-xs); padding: 3px 6px;
-  }
-  .btn {
-    border: 1px solid var(--c-line-strong); border-radius: var(--r-1); background: var(--c-surface);
-    color: var(--c-tx-2); cursor: pointer; font-size: var(--ts-sm); padding: 4px 10px;
-  }
-  .btn:hover:not(:disabled) { border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .btn:disabled, .tool:disabled { opacity: 0.4; cursor: default; }
-  .btn.ghost { background: transparent; }
-  .dirty { color: var(--c-tx-faint); opacity: 0; transition: opacity 0.15s; font-size: 12px; }
-  .dirty.on { opacity: 1; color: var(--c-accent); }
-  .saveerr {
-    font-size: 11px; font-weight: 600; color: var(--c-on-accent, #100f0f);
-    background: var(--c-danger, #d14d41); border: none; border-radius: var(--r-1); padding: 2px 8px; cursor: pointer;
-  }
-  .saveerr:hover { filter: brightness(1.08); }
-  .tools {
-    display: flex; align-items: center; gap: 5px; padding: 6px 12px;
-    border-bottom: 1px solid var(--c-line); background: var(--c-bg-raised); flex: 0 0 auto;
-  }
-  .tool {
-    border: 1px solid var(--c-line); border-radius: var(--r-1); background: var(--c-surface);
-    color: var(--c-tx-2); cursor: pointer; font-size: var(--ts-sm); padding: 3px 11px;
-  }
-  .tool:hover:not(:disabled) { border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .tool.ic { padding: 3px 8px; font-size: 15px; line-height: 1; }
-  /* lit only while the plot importer is open (was a permanent .accent → looked stuck) */
-  .tool.active { border-color: var(--c-accent); background: var(--c-accent); color: var(--c-on-accent); }
-  .div { width: 1px; height: 18px; background: var(--c-line); margin: 0 4px; }
-  .insert-wrap { position: relative; }
-  .insert-menu {
-    position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 180px;
-    background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-2);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); padding: 4px; display: flex; flex-direction: column; gap: 1px;
-  }
-  .insert-menu .grp { font-size: var(--ts-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-tx-muted); padding: 5px 8px 2px; }
-  .insert-menu .item {
-    text-align: left; border: none; background: transparent; color: var(--c-tx-2);
-    border-radius: var(--r-1); padding: 5px 8px; cursor: pointer; font-size: var(--ts-sm);
-  }
-  .insert-menu .item:hover { background: var(--c-accent-tint); color: var(--c-tx-hi); }
-  .insert-menu .item.sub { padding-left: 22px; font-size: var(--ts-xs); color: var(--c-tx-muted); }
-  .insert-menu .item.sub:hover { color: var(--c-tx-hi); }
   .body { display: flex; flex: 1; min-height: 0; }
   .filmstrip {
     flex: 0 0 var(--film-w, 172px); overflow-y: auto; border-right: 1px solid var(--c-line);
     background: var(--c-bg-raised); padding: 10px; display: flex; flex-direction: column; gap: 10px;
   }
-  /* draggable pane edges (C1): a thin hit-strip with a centered grip on hover/drag */
-  .pane-gutter {
-    flex: 0 0 5px; align-self: stretch; cursor: col-resize; position: relative;
-    margin: 0 -2px; z-index: 5; display: flex; align-items: center; justify-content: center;
-  }
-  .pane-gutter .grip { width: 1px; height: 100%; background: transparent; transition: background 0.12s; }
-  .pane-gutter:hover .grip, .pane-gutter.active .grip { background: var(--c-accent, #4385be); width: 2px; }
   .thumb {
     position: relative; display: grid; grid-template-columns: 16px 1fr; grid-template-rows: auto auto;
     gap: 2px 6px; cursor: pointer; padding: 4px; border: 1px solid transparent; border-radius: var(--r-2);
   }
   .thumb:hover { background: var(--c-accent-tint-2); }
   .thumb.active { border-color: var(--c-accent); background: var(--c-accent-tint-2); }
-  /* drag-to-reorder affordances */
   .thumb.dragging { opacity: 0.4; }
   .thumb.dropbefore { box-shadow: inset 0 2px 0 0 var(--c-accent); }
   .thumb.dropafter { box-shadow: inset 0 -2px 0 0 var(--c-accent); }
   .thumb .n { grid-row: 1 / span 2; font-size: 11px; color: var(--c-tx-muted); text-align: right; font-variant-numeric: tabular-nums; }
-  .mini { aspect-ratio: 16 / 9; /* fallback; the real deck ratio is set inline */ border: 1px solid var(--c-line); border-radius: 3px; overflow: hidden; position: relative; background: #000; }
+  .mini { border: 1px solid var(--c-line); border-radius: 3px; overflow: hidden; position: relative; background: #000; }
   .nm { font-size: 11px; color: var(--c-tx-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .thumbacts { position: absolute; top: 2px; right: 2px; display: flex; gap: 2px; opacity: 0; }
   .thumb:hover .thumbacts { opacity: 1; }
@@ -1046,24 +852,13 @@
     color: var(--c-tx-muted); cursor: pointer; font-size: var(--ts-sm); padding: 8px;
   }
   .addslide:hover { border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .stage-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--c-bg); padding: 18px; gap: 12px; position: relative; }
-  .stage-wrap.dropping { outline: 2px dashed var(--c-accent); outline-offset: -6px; }
-  .stage-wrap.dropping::after {
-    content: "Drop image to add"; position: absolute; inset: 0; z-index: 40;
-    display: flex; align-items: center; justify-content: center; pointer-events: none;
-    font-size: var(--ts-lg); color: var(--c-tx-hi);
-    background: color-mix(in oklab, var(--c-accent) 12%, transparent);
-  }
-  .import-toast {
-    position: absolute; top: 24px; left: 50%; transform: translateX(-50%); z-index: 41;
-    background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-2);
-    padding: 6px 14px; color: var(--c-tx-hi); font-size: var(--ts-sm); box-shadow: var(--shadow-2, 0 4px 16px rgba(0,0,0,0.4));
-  }
-  .stage-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  .stage-col { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+  .canvas-wrap { flex: 1; min-height: 0; position: relative; }
   .preview-overlay {
     position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
-    background: var(--c-bg, #100f0f);
+    background: var(--c-canvas-slide, #17181b);
   }
+  .preview-viewport { position: relative; flex: 1; align-self: stretch; display: flex; align-items: center; justify-content: center; overflow: hidden; }
   .preview-host { flex: 0 0 auto; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5); }
   .preview-stop {
     position: absolute; top: 12px; right: 12px; z-index: 31;
@@ -1071,6 +866,35 @@
     border: 1px solid var(--c-line-strong, #343331); border-radius: 6px; padding: 5px 12px; cursor: pointer;
   }
   .preview-stop:hover { border-color: var(--c-accent, #4385be); }
-  .inspector-host { flex: 0 0 var(--insp-w, 248px); border-left: 1px solid var(--c-line); background: var(--c-bg-raised); overflow-y: auto; position: relative; }
-  .empty { margin: auto; color: var(--c-tx-faint); font-style: italic; display: flex; gap: 10px; align-items: center; }
+  .rail {
+    flex: 0 0 var(--insp-w, 248px); border-left: 1px solid var(--c-line);
+    background: var(--c-surface); overflow-y: auto; display: flex; flex-direction: column;
+  }
+  /* the shared Inspector carries its own width/border — neutralize inside the rail */
+  .rail :global(.inspector) { width: 100%; border-left: none; flex: 0 0 auto; }
+  .panel {
+    padding: 10px; border-top: 1px solid var(--c-line);
+    font-size: 12px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .panel h4 { margin: 0 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.6; }
+  .panel label.full { display: flex; flex-direction: column; gap: 3px; opacity: 0.85; }
+  .panel input, .panel select, .panel textarea {
+    background: var(--c-bg-raised); border: 1px solid var(--c-line-strong); color: var(--c-tx);
+    border-radius: 4px; padding: 4px 6px; font-size: 12px; width: 100%;
+  }
+  .panel textarea { resize: vertical; font-family: inherit; }
+  .convertrow { display: flex; }
+  .act {
+    flex: 1; background: var(--c-ui); color: var(--c-tx); border: 1px solid var(--c-line-strong);
+    border-radius: 5px; padding: 5px 8px; font-size: 12px; cursor: pointer;
+  }
+  .act:hover { background: var(--c-ui-hover); }
+  .sendmenu { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--c-line-strong); border-radius: 6px; padding: 4px; background: var(--c-bg-raised); }
+  .sendmenu button {
+    text-align: left; border: none; background: transparent; color: var(--c-tx-2);
+    border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px;
+  }
+  .sendmenu button:hover { background: var(--c-accent-tint, rgba(67, 133, 190, 0.15)); color: var(--c-tx-hi); }
+  .sendmenu .ghosty { color: var(--c-tx-muted); }
+  .empty { margin: auto; color: var(--c-tx-faint); font-style: italic; display: flex; gap: 10px; align-items: center; justify-content: center; height: 100%; }
 </style>

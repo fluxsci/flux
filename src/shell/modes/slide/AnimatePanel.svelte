@@ -4,13 +4,14 @@
   // BeatTimeline (mini-Gantt per beat, full direct manipulation), and the
   // TrackEditor strip — plus the toolbar (✨ auto-animate, beats, camera, morph,
   // preview), the resizable top edge, and the keyboard cockpit.
-  import { deck as deckStore, activeSlideId, activeBeat, selection, commitDeck, focusedPart, selTrackIds } from "../../../lib/slide/store";
+  import { deckOverlay, activeBeat, commitDeckLive, selTrackIds } from "../../../lib/slide/store";
+  import { selection, partSelection } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
   import { morphCompatible } from "../../../lib/slide/player/morph";
   import { plotManifests } from "../../../lib/plot/store";
   import { slideLayout } from "./slideLayoutStore";
-  import type { Track } from "../../../lib/slide/types";
+  import type { Slide, Track } from "../../../lib/slide/types";
   import PartsTree from "./animator/PartsTree.svelte";
   import BeatTimeline from "./animator/BeatTimeline.svelte";
   import TrackEditor from "./animator/TrackEditor.svelte";
@@ -20,11 +21,10 @@
     nudgeSelected, moveSelectedToAdjacentBeat,
   } from "./animator/trackActions";
 
-  let { onPreview }: { onPreview?: (startBeat?: number) => void } = $props();
+  let { slide, onPreview }: { slide: Slide | null; onPreview?: (startBeat?: number) => void } = $props();
 
-  const deck = $derived($deckStore);
-  const slide = $derived(deck && $activeSlideId ? slideById(deck, $activeSlideId) : deck?.slides[0] ?? null);
-  const sel = $derived($selection);
+  const deck = $derived($deckOverlay); // stage/meta only — slide comes composed
+  const sel = $derived([...$selection]);
   const manifests = $derived($plotManifests);
   const selPlot = $derived.by(() => {
     if (sel.length !== 1 || !slide) return null;
@@ -134,15 +134,16 @@
   }
   const compact = $derived($slideLayout.animatorH < 220);
 
-  // direct manipulation: a part clicked on the stage → select its track (if any)
+  // direct manipulation: a plot part drilled on the canvas (the figure part
+  // selection) → select its track (if any) + reveal its tree row.
   $effect(() => {
-    const fp = $focusedPart;
+    const fp = $partSelection;
     if (!fp || !slide) return;
     for (let bi = 0; bi < slide.beats.length; bi++) {
-      const t = slide.beats[bi].tracks.find((tk) => tk.target === fp.elId && tk.part === fp.part);
+      const t = slide.beats[bi].tracks.find((tk) => tk.target === fp.elementId && tk.part === fp.partId);
       if (t) { selTrackIds.set(t.id ? [t.id] : []); activeBeat.set(bi); break; }
     }
-    queueMicrotask(() => document.querySelector(`.parts .row[data-part="${fp.part}"]`)?.scrollIntoView({ block: "nearest" }));
+    queueMicrotask(() => document.querySelector(`.parts .row[data-part="${fp.partId}"]`)?.scrollIntoView({ block: "nearest" }));
   });
 
   function focusDock() {
@@ -156,7 +157,7 @@
     let added = 0;
     // Held in an object so TS keeps the union type across the commitDeck closure.
     const hold: { fb: { beatIndex: number; trackId: string } | null } = { fb: null };
-    commitDeck((d) => {
+    commitDeckLive((d) => {
       added = applyAutoAnimation(d, sid, plot.id, manifest);
       // Pre-0.2.0 plots have no parts tree → applyAutoAnimation adds nothing.
       // Fall back to a whole-element fade so the button always animates something.
@@ -194,7 +195,7 @@
     const sid = slide?.id;
     if (!sid) return;
     let idx = 0;
-    commitDeck((d) => {
+    commitDeckLive((d) => {
       const b = addBeatOp(d, sid, { label, advance: "click" });
       if (b) setAnimation(d, sid, b.id, track);
       idx = (slideById(d, sid)?.beats.length ?? 1) - 1;
@@ -224,7 +225,7 @@
     const sid = slide?.id;
     if (!sid) return;
     let idx = 0;
-    commitDeck((d) => {
+    commitDeckLive((d) => {
       const s = slideById(d, sid);
       const n = s?.beats.length ?? 1;
       addBeatOp(d, sid, { label: `Beat ${n}`, advance: "click" });

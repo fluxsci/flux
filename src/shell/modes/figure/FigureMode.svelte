@@ -13,7 +13,7 @@
   // 100vh) and the keyboard handler is scoped to this component's lifetime so
   // figure shortcuts aren't global when another mode is focused. Persistence is
   // wired into the project's `fig/` subsystem via project/figbridge.ts.
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { get } from "svelte/store";
   import Toolbar from "../../../lib/Toolbar.svelte";
   import Sidebar from "../../../lib/Sidebar.svelte";
@@ -31,7 +31,10 @@
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
   import { bumpFigRevision, figRevision } from "../../scholar/revisions";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
-  import { registerFlushable } from "../../lifecycle";
+  import { registerFlushable, flushById, isDirtyById } from "../../lifecycle";
+  import { evictMode } from "../../paneStore";
+  import { setStoreTenant } from "../../../lib/tenancy";
+  import { pushToast } from "../../../lib/toast";
 
   // Only handle figure shortcuts while this pane is focused, so they don't fire
   // while the user is typing in another (e.g. Write) pane.
@@ -100,6 +103,20 @@
 
   onMount(async () => {
     figureModeMounts++;
+    // Slide-migration §3.2.1: figure and slide mode share the app-global
+    // figure store — slide mode may not stay resident (kept-alive) while this
+    // mode loads fig/ into it. Flush the deck first (its edits persist), evict
+    // the mode, claim the store, THEN load. The tenancy assert in
+    // slideBridge.saveDeckFrom backstops any regression here.
+    await flushById("slide");
+    if (isDirtyById("slide")) {
+      pushToast("error", "Unsaved slide changes could not be written", {
+        detail: "The deck changed on disk. Its unsaved edits were superseded by the on-disk version when Figure mode opened.",
+      });
+    }
+    evictMode("slide");
+    await tick(); // let the evicted SlideMode unmount (its onDestroy no-ops)
+    setStoreTenant("figure");
     if (pm) {
       embeddedProjectRoot.set(pm.root);
       await loadFigInto(pm.root, pm.manifest.title);

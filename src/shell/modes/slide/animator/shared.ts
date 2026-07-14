@@ -4,7 +4,6 @@
 import type { Slide, Track, PresetName } from "../../../../lib/slide/types";
 import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { resolveTargets } from "../../../../lib/plot/tree";
-import { figureGroupName, figureMemberName } from "../../../../lib/slide/store";
 
 export const PRESET_COLOR: Record<string, string> = {
   drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
@@ -27,10 +26,10 @@ export const INFLUENCE_PRESETS: { name: string; in: number; out: number }[] = [
   { name: "extreme", in: 95, out: 95 },
 ];
 
-/** Element type → a compact glyph for tree rows / chip labels. */
+/** Element type → a compact glyph for tree rows / chip labels (the figure
+ *  element union — slides-are-figures). */
 export const EL_GLYPH: Record<string, string> = {
-  plot: "▤", textBox: "¶", text: "¶", math: "∑", image: "▣", svg: "▣", video: "▶",
-  embedFigure: "⧉", rect: "▭", ellipse: "◯", line: "╱", path: "〰",
+  plot: "▤", text: "¶", image: "▣", rect: "▭", ellipse: "◯", line: "╱", path: "〰",
 };
 
 /** A compact label for a track chip (prefixed with a P-tag when the slide has
@@ -39,36 +38,25 @@ export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, s
   if (t.target.startsWith("@")) return t.target.slice(1);
   const tag = plotTags.get(t.target);
   const pre = tag ? `${tag} · ` : "";
-  if (t.part?.startsWith("group:")) {
-    // a figure group inside an embedFigure (P9) — show its NAME when loaded
-    const el = slide?.elements.find((e) => e.id === t.target);
-    const name = el?.type === "embedFigure" ? figureGroupName(el.figureId, t.part.slice(6)) : null;
-    return pre + (name ?? "group");
-  }
-  if (t.part?.startsWith("el:")) {
-    // a figure MEMBER (or a part inside a member plot): "el:<mid>[/<partId>]"
-    const el = slide?.elements.find((e) => e.id === t.target);
-    const slash = t.part.indexOf("/");
-    const mid = slash === -1 ? t.part.slice(3) : t.part.slice(3, slash);
-    const partId = slash === -1 ? null : t.part.slice(slash + 1);
-    const name = el?.type === "embedFigure" ? figureMemberName(el.figureId, mid) : null;
-    const tail = partId ? ` · ${partId.split(".").slice(-2).join(".")}` : "";
-    return pre + (name ?? "member") + tail;
-  }
   if (t.part) return pre + t.part.split(".").slice(-2).join(".");
-  if (t.selector?.blocks) return pre + (t.selector.blocks === "all" ? "bullets" : `block ${String(t.selector.blocks[0] ?? "")}`);
   const el = slide?.elements.find((e) => e.id === t.target);
-  if (el?.type === "textBox") return pre + (el.blocks[0]?.text.slice(0, 14) || "text");
-  return pre + (el?.type ?? "elem");
+  if (!el) return pre + "missing"; // dangling target — tolerated + surfaced
+  if (el.type === "text") return pre + (el.text.split("\n")[0]?.slice(0, 14) || "text");
+  return pre + ((el.name ?? el.type) || "elem");
+}
+
+/** A track whose element target no longer exists on the slide (the figure
+ *  editor deleted it). Tolerated (the player no-ops), marked in the timeline,
+ *  never auto-pruned — an undo of the deletion restores the animation. */
+export function isDanglingTrack(t: Track, slide: Slide | null): boolean {
+  if (t.target.startsWith("@")) return false;
+  return !slide?.elements.some((e) => e.id === t.target);
 }
 
 /** How many targets a track fans out to (drives the stagger tail length). */
 export function trackFanout(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined): number {
+  void slide;
   if (t.part) return Math.max(1, resolveTargets(manifest, t.part).length);
-  if (t.selector?.blocks) {
-    const el = slide?.elements.find((e) => e.id === t.target);
-    if (el?.type === "textBox") return t.selector.blocks === "all" ? Math.max(1, el.blocks.length) : t.selector.blocks.length;
-  }
   return 1;
 }
 

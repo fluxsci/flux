@@ -19,6 +19,9 @@ import * as io from "../io";
 import * as slide from "../slide/store";
 import * as slideOps from "../slide/ops";
 import * as slideBridge from "../project/slideBridge";
+import * as deckProject from "../slide/deckProject";
+import * as convert from "../project/convert";
+import * as tenancy from "../tenancy";
 import * as toast from "../toast";
 import * as lifecycle from "../../shell/lifecycle";
 import { perfCounters } from "./perfCounters";
@@ -42,12 +45,19 @@ export interface FluxDevHandle {
   plot: typeof plot;
   /** Asset/plot I/O incl. reimportPlot (F2 hot-swap). */
   io: typeof io;
-  /** Flux Slide editor stores (deck, deckDirty, activeSlideId, commitDeck, …). */
+  /** Flux Slide overlay stores (deckOverlay, activeBeat, commitDeckLive,
+   *  currentDeck, loadDeckModel — the static half lives in `fig`). */
   slide: typeof slide;
-  /** Flux Slide pure ops core (addSlide, addPlotToSlide, addBeat, setAnimation, …). */
+  /** Flux Slide pure ops core (addSlide, addBeat, setAnimation, …). */
   slideOps: typeof slideOps;
   /** Slide deck bridge (listProjectDecks, loadDeckInto, saveDeckFrom, …). */
   slideBridge: typeof slideBridge;
+  /** The deck ⇄ figure-Project projection (deckToProject/projectIntoDeck). */
+  deckProject: typeof deckProject;
+  /** Send-to-deck / Send-to-canvas converters. */
+  convert: typeof convert;
+  /** Store tenancy (figure|slide) — the cross-write guard. */
+  tenancy: typeof tenancy;
   /** App-wide toast store + pushToast/dismissToast (W1) — for headless asserts. */
   toast: typeof toast;
   /** Dirty registry + flushAll/anyDirty (W5) — for headless asserts. */
@@ -81,6 +91,9 @@ export function installDevHandle(): void {
     slide,
     slideOps,
     slideBridge,
+    deckProject,
+    convert,
+    tenancy,
     toast,
     lifecycle,
     figures: () => get(fig.project).figures,

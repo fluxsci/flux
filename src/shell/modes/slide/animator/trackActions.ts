@@ -3,12 +3,13 @@
 // ONE commitDeck (one undo step) over every selected track.
 
 import { get } from "svelte/store";
-import { deck, activeSlideId, activeBeat, selTrackIds, commitDeck } from "../../../../lib/slide/store";
+import { activeBeat, selTrackIds, commitDeckLive, deckOverlay } from "../../../../lib/slide/store";
+import { activeFigureId } from "../../../../lib/store";
 import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled } from "../../../../lib/slide/ops";
 import type { Track } from "../../../../lib/slide/types";
 
 function ctx(): { sid: string; ids: string[] } | null {
-  const sid = get(activeSlideId);
+  const sid = get(activeFigureId); // slide id === projected figure id
   const ids = get(selTrackIds);
   return sid && ids.length ? { sid, ids } : null;
 }
@@ -17,7 +18,7 @@ function ctx(): { sid: string; ids: string[] } | null {
 export function withSelectedTracks(fn: (t: Track) => void, coalesce?: string): void {
   const c = ctx();
   if (!c) return;
-  commitDeck((d) => {
+  commitDeckLive((d) => {
     const s = slideById(d, c.sid);
     if (s) for (const b of s.beats) for (const t of b.tracks) if (t.id && c.ids.includes(t.id)) fn(t);
   }, coalesce ? { coalesce } : undefined);
@@ -26,7 +27,7 @@ export function withSelectedTracks(fn: (t: Track) => void, coalesce?: string): v
 export function deleteSelectedTracks(): void {
   const c = ctx();
   if (!c) return;
-  commitDeck((d) => {
+  commitDeckLive((d) => {
     const s = slideById(d, c.sid);
     if (s) for (const b of s.beats) b.tracks = b.tracks.filter((t) => !t.id || !c.ids.includes(t.id));
   });
@@ -38,7 +39,7 @@ export function duplicateSelectedTracks(): void {
   const c = ctx();
   if (!c) return;
   const copies: string[] = [];
-  commitDeck((d) => {
+  commitDeckLive((d) => {
     for (const id of c.ids) {
       const nid = duplicateTrack(d, c.sid, id);
       if (nid) copies.push(nid);
@@ -51,11 +52,11 @@ export function duplicateSelectedTracks(): void {
 export function toggleSelectedDisabled(): void {
   const c = ctx();
   if (!c) return;
-  const d0 = get(deck);
+  const d0 = get(deckOverlay);
   const s0 = d0 && slideById(d0, c.sid);
   const all = s0?.beats.flatMap((b) => b.tracks).filter((t) => t.id && c.ids.includes(t.id)) ?? [];
   const anyEnabled = all.some((t) => !t.disabled);
-  commitDeck((d) => {
+  commitDeckLive((d) => {
     for (const id of c.ids) setTrackEnabled(d, c.sid, id, !anyEnabled);
   });
 }
@@ -71,7 +72,7 @@ export function nudgeSelected(field: "start" | "duration", deltaMs: number): voi
 /** Move the selection into an adjacent beat ([ / ] keys). */
 export function moveSelectedToAdjacentBeat(dir: 1 | -1): void {
   const c = ctx();
-  const d0 = get(deck);
+  const d0 = get(deckOverlay);
   if (!c || !d0) return;
   const s = slideById(d0, c.sid);
   if (!s) return;
@@ -80,7 +81,7 @@ export function moveSelectedToAdjacentBeat(dir: 1 | -1): void {
   const to = at + dir;
   if (to < 1 || to >= s.beats.length) return;
   const toId = s.beats[to].id;
-  commitDeck((d) => {
+  commitDeckLive((d) => {
     for (const id of c.ids) moveTrackToBeat(d, c.sid, id, toId);
   });
   activeBeat.set(to);
@@ -90,7 +91,7 @@ export function moveSelectedToAdjacentBeat(dir: 1 | -1): void {
 export function moveSelectedToBeat(beatId: string, at?: number): void {
   const c = ctx();
   if (!c) return;
-  commitDeck((d) => {
+  commitDeckLive((d) => {
     let lane = at;
     for (const id of c.ids) {
       moveTrackToBeat(d, c.sid, id, beatId, lane);

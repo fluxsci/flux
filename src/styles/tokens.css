@@ -96,6 +96,7 @@
   /* Deliberately a NEUTRAL grey (not the near-black app bg) so figure colours
      are judged against a neutral backdrop. Tokenised for central control. */
   --c-canvas:        #2b2d31;
+  --c-canvas-slide:  #17181b;              /* slide-mode backdrop: noticeably darker (the required visual differentiator vs Figure mode) */
   --c-canvas-shadow: rgba(0, 0, 0, 0.18);  /* figure drop-shadow on the canvas */
   --c-guide:         #f43f8e;              /* smart-guide magenta (contrasts the blue selection) */
   --c-guide-2:       #12b5cb;              /* manual ruler-drag guide (cyan; distinct from smart-guide) */

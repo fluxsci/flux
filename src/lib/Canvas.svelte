@@ -316,6 +316,13 @@
   // memos recompute exactly the figures whose revisions moved while hidden.
   export let paneActive = true;
 
+  // Slide-migration: `frame` mode (slide editing). The canvas shows ONLY the
+  // active figure (one slide, its frame = the deck's stage), on a darker
+  // backdrop (--c-canvas-slide — the required visual differentiator), with the
+  // multi-figure arrangement chrome (titlebar drag / name label) suppressed.
+  // Strictly additive: with the prop unset, figure mode is byte-identical.
+  export let frame = false;
+
   const effMemoBox = { key: "", val: new Map<string, { hidden: boolean; locked: boolean }>() };
   $: effState = (() => {
     if (!paneActive) return effMemoBox.val;
@@ -378,11 +385,13 @@
         : { x: -1e9, y: -1e9, w: 2e9, h: 2e9 };
     }
   }
-  $: visibleFigures = canvasFigures.filter(
-    (f) =>
-      f.id === $activeFigureId ||
-      rectsIntersect({ x: f.x, y: f.y, w: f.width, h: f.height }, cullRect),
-  );
+  $: visibleFigures = frame
+    ? canvasFigures.filter((f) => f.id === $activeFigureId)
+    : canvasFigures.filter(
+        (f) =>
+          f.id === $activeFigureId ||
+          rectsIntersect({ x: f.x, y: f.y, w: f.width, h: f.height }, cullRect),
+      );
   function visibleEls(fig: Figure): Element[] {
     // The frame being moved renders all its elements: its world position is stale
     // until commit, so culling by the stale bbox would drop elements as it travels.
@@ -2709,6 +2718,7 @@
 
 <div
   class="canvas-host"
+  class:frame
   bind:this={hostEl}
   bind:clientWidth={hostW}
   bind:clientHeight={hostH}
@@ -2810,16 +2820,21 @@
                 </g>
               {/each}
             </g>
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <rect
-              class="figure-titlebar"
-              x="0"
-              y={-22 / renderZoom}
-              width={Math.max(fig.width, 120 / renderZoom)}
-              height={18 / renderZoom}
-              on:pointerdown={(e) => startFigMove(e, fig)}
-            />
-            <text class="figure-label" x="0" y={-8 / renderZoom} font-size={13 / renderZoom}>{fig.name}</text>
+            {#if !frame}
+              <!-- Figure-arrangement chrome (drag-by-title, name label) only
+                   makes sense with multiple frames on screen — suppressed in
+                   frame (slide) mode. -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <rect
+                class="figure-titlebar"
+                x="0"
+                y={-22 / renderZoom}
+                width={Math.max(fig.width, 120 / renderZoom)}
+                height={18 / renderZoom}
+                on:pointerdown={(e) => startFigMove(e, fig)}
+              />
+              <text class="figure-label" x="0" y={-8 / renderZoom} font-size={13 / renderZoom}>{fig.name}</text>
+            {/if}
           </g>
           </g>
         {/each}
@@ -3234,6 +3249,11 @@
     background: var(--c-canvas);
     touch-action: none;
     user-select: none;
+  }
+  /* Slide (frame) mode: the noticeably darker editor backdrop — the one
+     required visual differentiator between Slide and Figure editing. */
+  .canvas-host.frame {
+    background: var(--c-canvas-slide, #17181b);
   }
   .fig-shadow {
     fill: var(--c-canvas-shadow);

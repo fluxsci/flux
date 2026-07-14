@@ -10,14 +10,14 @@
   // to insert a beat, double-click a label to rename, cycle the advance mode
   // (click ▸ with-prev ▸ auto), right-click for the full menu. Preview commits
   // exactly once on release (the W17/FIG-1 transient-transform pattern).
-  import { activeBeat, selTrackIds, commitDeck, sealHistory } from "../../../../lib/slide/store";
+  import { activeBeat, selTrackIds, commitDeckLive, sealHistory } from "../../../../lib/slide/store";
   import {
     slideById, addBeat as addBeatOp, deleteBeat as deleteBeatOp, duplicateBeat as duplicateBeatOp,
     reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat,
   } from "../../../../lib/slide/ops";
   import type { Slide, Track, Beat } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
-  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, autoPxPerMs, snapMs } from "./shared";
+  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, autoPxPerMs, snapMs, isDanglingTrack } from "./shared";
   import { hoverTrackId, timelinePxPerMs, requestFlash } from "./animatorState";
   import { toggleSelectedDisabled, deleteSelectedTracks, duplicateSelectedTracks, moveSelectedToBeat } from "./trackActions";
   import TimelineMenu, { type MenuItem } from "./TimelineMenu.svelte";
@@ -200,7 +200,7 @@
       if ((d.mode === "start" || d.mode === "dur") && d.dxMs !== 0) {
         const field = d.mode === "start" ? "start" : "duration";
         const byId = new Map(d.origs.map((o) => [o.id, o] as const));
-        commitDeck((dd) => {
+        commitDeckLive((dd) => {
           const s = slideById(dd, sid);
           if (!s) return;
           for (const b of s.beats) for (const t of b.tracks) {
@@ -216,7 +216,7 @@
         if (!toId) return;
         if (d.alt) {
           const copies: string[] = [];
-          commitDeck((dd) => {
+          commitDeckLive((dd) => {
             for (const o of d.origs) {
               const nid = duplicateTrack(dd, sid, o.id);
               if (nid) { moveTrackToBeat(dd, sid, nid, toId, d.overLane ?? undefined); copies.push(nid); }
@@ -230,7 +230,7 @@
           const rest = ids.filter((id) => !moving.includes(id));
           const at = Math.max(0, Math.min(rest.length, d.overLane - moving.filter((id) => ids.indexOf(id) < d.overLane!).length));
           rest.splice(at, 0, ...moving);
-          commitDeck((dd) => reorderTracks(dd, sid, toId, rest));
+          commitDeckLive((dd) => reorderTracks(dd, sid, toId, rest));
         } else {
           moveSelectedToBeat(toId, d.overLane ?? undefined);
           activeBeat.set(d.overBeat);
@@ -241,7 +241,7 @@
       const movable = slide.beats.slice(1).map((b) => b.id).filter((id) => id !== d.beatId);
       const at = Math.max(0, Math.min(movable.length, d.over - 1));
       movable.splice(at, 0, d.beatId);
-      commitDeck((dd) => reorderBeats(dd, sid, movable));
+      commitDeckLive((dd) => reorderBeats(dd, sid, movable));
       activeBeat.set(d.over);
       sealHistory();
     }
@@ -281,7 +281,7 @@
   // --- beat header widgets ---------------------------------------------------------
   let editingBeatId = $state<string | null>(null);
   function commitLabel(b: Beat, v: string) {
-    commitDeck((d) => setBeat(d, sid, b.id, { label: v.trim() }), { coalesce: `beat-label:${b.id}` });
+    commitDeckLive((d) => setBeat(d, sid, b.id, { label: v.trim() }), { coalesce: `beat-label:${b.id}` });
     sealHistory();
     editingBeatId = null;
   }
@@ -294,19 +294,19 @@
   function cycleAdvance(b: Beat) {
     const order: Beat["advance"][] = ["click", "with-prev", "auto"];
     const next = order[(order.indexOf(b.advance ?? "click") + 1) % order.length];
-    commitDeck((d) => setBeat(d, sid, b.id, { advance: next, ...(next === "auto" ? { autoDelayMs: b.autoDelayMs ?? 600 } : {}) }));
+    commitDeckLive((d) => setBeat(d, sid, b.id, { advance: next, ...(next === "auto" ? { autoDelayMs: b.autoDelayMs ?? 600 } : {}) }));
   }
   function setAutoDelay(b: Beat, v: number) {
-    commitDeck((d) => setBeat(d, sid, b.id, { autoDelayMs: Math.max(0, v) }), { coalesce: `auto-delay:${b.id}` });
+    commitDeckLive((d) => setBeat(d, sid, b.id, { autoDelayMs: Math.max(0, v) }), { coalesce: `auto-delay:${b.id}` });
   }
   function insertBeatAt(at: number) {
     let idx = at;
-    commitDeck((d) => { addBeatOp(d, sid, { advance: "click", at }); idx = at; });
+    commitDeckLive((d) => { addBeatOp(d, sid, { advance: "click", at }); idx = at; });
     activeBeat.set(idx);
   }
   function removeBeat(beatId: string, bi: number) {
     if (bi === 0) return;
-    commitDeck((d) => deleteBeatOp(d, sid, beatId));
+    commitDeckLive((d) => deleteBeatOp(d, sid, beatId));
     if ($activeBeat >= bi) activeBeat.set(Math.max(0, $activeBeat - 1));
     selTrackIds.set([]);
   }
@@ -342,7 +342,7 @@
       x: e.clientX, y: e.clientY,
       items: [
         { label: "Rename", action: () => (editingBeatId = b.id) },
-        { label: "Duplicate beat", action: () => commitDeck((d) => void duplicateBeatOp(d, sid, b.id)) },
+        { label: "Duplicate beat", action: () => commitDeckLive((d) => void duplicateBeatOp(d, sid, b.id)) },
         { label: "Insert beat before", action: () => insertBeatAt(bi) },
         { label: "Insert beat after", action: () => insertBeatAt(bi + 1) },
         { divider: true, label: "" },
@@ -414,10 +414,12 @@
           {/if}
           {#each b.tracks as t, ti (t.id ?? ti)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="trk" class:sel={!!t.id && $selTrackIds.includes(t.id)} class:dim={isOtherPlot(t)} class:dis={t.disabled}
+            <div class="trk" class:sel={!!t.id && $selTrackIds.includes(t.id)} class:dim={isOtherPlot(t)} class:dis={t.disabled} class:missing={isDanglingTrack(t, slide)}
               data-track-id={t.id}
               style={`--pc:${PRESET_COLOR[t.preset ?? "fade"] ?? "#888"}; left:${chipX(t)}px; top:${ti * LANE_H + 3}px; width:${chipW(t)}px; height:${LANE_H - 4}px; ${dragging(t)}`}
-              title={isOtherPlot(t)
+              title={isDanglingTrack(t, slide)
+                ? `${chipLabel(t, slide, plotTags)} · MISSING TARGET — its element was deleted. The track is kept (undo the deletion to restore it) and plays as a no-op.`
+                : isOtherPlot(t)
                 ? "Belongs to another plot — select that plot to edit it"
                 : `${chipLabel(t, slide, plotTags)} · ${t.preset ?? "fade"}${t.disabled ? " · disabled" : ""}\ndrag = retime · right edge = duration · drag out = move to another beat (Alt copies)`}
               onpointerdown={(e) => chipDown(e, t, bi)}
@@ -425,6 +427,7 @@
               onpointerenter={() => hoverTrackId.set(t.id ?? null)}
               onpointerleave={() => hoverTrackId.set(null)}>
               <span class="dot" class:hollow={t.disabled}></span>
+              {#if isDanglingTrack(t, slide)}<span class="miss" title="missing target">⚠</span>{/if}
               <span class="nm">{chipLabel(t, slide, plotTags)}</span>
               {#if tailW(t) > 2}<span class="tail" style={`width:${tailW(t)}px`} title="stagger fan-out"></span>{/if}
               <span class="edge"></span>
@@ -532,6 +535,8 @@
   .trk.sel { outline: 1.5px solid var(--pc); z-index: 3; }
   .trk.dim { opacity: 0.35; cursor: default; }
   .trk.dis { opacity: 0.38; border-style: dashed; }
+  .trk.missing { border-color: var(--c-warning, #d0a215); }
+  .trk .miss { color: var(--c-warning, #d0a215); font-size: 9px; flex: 0 0 auto; }
   .trk .dot { width: 6px; height: 6px; border-radius: 2px; background: var(--pc); flex: 0 0 auto; }
   .trk .dot.hollow { background: transparent; border: 1.5px solid var(--pc); }
   .trk .nm { color: var(--c-tx, #cecdc3); overflow: hidden; text-overflow: ellipsis; }

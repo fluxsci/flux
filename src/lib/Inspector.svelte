@@ -1,6 +1,6 @@
 <script lang="ts">
   import { get } from "svelte/store";
-  import { onMount } from "svelte";
+  import { onMount, getContext } from "svelte";
   import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
   import type { Element, Figure, Project, TextStyle } from "./types";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle } from "./keyboard";
@@ -27,6 +27,13 @@
   onMount(() => {
     loadGlobalTextStyles(); // machine-global style library (best-effort)
   });
+
+  // Slide-migration: the shared editing surface, lightly slide-accented. In
+  // slide mode the figure-only affordances (physical-mm/true-size readouts,
+  // caption/panel-label, the Figure section, exports) are hidden — slide name/
+  // background/stage live in the Slide/Deck panels instead. Strictly additive:
+  // without the context (figure mode) this renders byte-identically.
+  const slideMode = (getContext<"figure" | "slide" | undefined>("flux-editor-mode") ?? "figure") === "slide";
 
   // Reactive view of the current selection / active figure. Selections CAN
   // span figures (keyboard selectMatching "project" scope), so the scan stays
@@ -467,16 +474,20 @@
             on:commit={(e) => updateSelected((el) => setDim(el, "h", e.detail))}
             on:scrub={(e) => scrubSelected((el) => setDim(el, "h", e.detail))} />
         </div>
-        <p class="note phys">
-          {mmStr(single.width)} × {mmStr(single.height)} mm
-          {#if physRef && !atPhys}
-            <span class="off-phys">· {Math.round((single.width / physRef.width) * 100)}% of true size</span>
-            <button class="true-size" title="Reset to the {elCrop ? 'crop window' : 'source'}'s true physical size ({mmStr(physRef.width)} × {mmStr(physRef.height)} mm)" on:click={resetToPhysical}>True size</button>
-          {/if}
-        </p>
+        {#if !slideMode}
+          <!-- Physical units stay hidden in slide mode: a slide shares the 96/in
+               ruler but has no FIXED physical size (it projects at any scale). -->
+          <p class="note phys">
+            {mmStr(single.width)} × {mmStr(single.height)} mm
+            {#if physRef && !atPhys}
+              <span class="off-phys">· {Math.round((single.width / physRef.width) * 100)}% of true size</span>
+              <button class="true-size" title="Reset to the {elCrop ? 'crop window' : 'source'}'s true physical size ({mmStr(physRef.width)} × {mmStr(physRef.height)} mm)" on:click={resetToPhysical}>True size</button>
+            {/if}
+          </p>
+        {/if}
         {#if elCrop && physSize}
           <p class="note phys">
-            cropped from {mmStr(physSize.width)} × {mmStr(physSize.height)} mm
+            {#if slideMode}cropped{:else}cropped from {mmStr(physSize.width)} × {mmStr(physSize.height)} mm{/if}
             <button class="true-size" title="Remove the crop — show the full content at its current scale" on:click={resetCrop}>Reset crop</button>
           </p>
         {/if}
@@ -620,8 +631,8 @@
     </section>
   {/if}
 
-  <!-- PANEL LABEL (caption) -->
-  {#if textSel.length > 0}
+  <!-- PANEL LABEL (caption) — figure-only (captions belong to paper figures) -->
+  {#if textSel.length > 0 && !slideMode}
     <section>
       <h4>Caption</h4>
       <label class="chk">
@@ -688,8 +699,10 @@
   <!-- COLOR PALETTE -->
   <ColorPalette />
 
-  <!-- FIGURE -->
-  {#if fig}
+  <!-- FIGURE (+ exports) — figure-only: slide name/background are edited in
+       the Slide panel, the stage in the Deck panel, and a deck exports as a
+       presentation (.html), never as a per-frame raster. -->
+  {#if fig && !slideMode}
     <section>
       <h4>Figure</h4>
       <label class="full">Name<input value={fig.name} on:change={(e) => updateFigure((f) => (f.name = e.currentTarget.value))} /></label>

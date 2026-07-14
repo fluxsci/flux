@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getContext } from "svelte";
   import {
     activeTool,
     viewport,
@@ -11,6 +12,10 @@
   } from "./store";
   import { importAssets, openProject, saveProject } from "./io";
   import { settingsOpen, settings } from "./settings";
+
+  // Slide-migration: the same toolbar serves both editors; only the mode title
+  // differs (subtly accented in Slide mode — the sanctioned differentiator).
+  const slideMode = (getContext<"figure" | "slide" | undefined>("flux-editor-mode") ?? "figure") === "slide";
 
   const tools: { id: Tool; label: string; key: string }[] = [
     { id: "select", label: "Select", key: "V" },
@@ -30,7 +35,7 @@
 </script>
 
 <header class="toolbar">
-  <span class="brand">Figure{$dirty ? " •" : ""}</span>
+  <span class="brand" class:slide={slideMode}>{slideMode ? "Slide" : "Figure"}{$dirty ? " •" : ""}</span>
 
   <div class="group">
     {#if !$embeddedProjectRoot}
@@ -94,6 +99,10 @@
     font-weight: 600;
     margin-right: 4px;
     color: var(--c-tx-hi);
+  }
+  .brand.slide {
+    color: var(--c-accent);
+    font-style: italic;
   }
   .group {
     display: flex;

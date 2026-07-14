@@ -1,26 +1,23 @@
 <script lang="ts">
-  // The animator's tree of EVERYTHING on the slide — no longer plot-parts-only.
-  // Top level = every element in z-order (¶ text, ▭ shapes, ∑ math, ▤ plots…);
-  // a plot expands into its X-ray parts tree (S/A/M tri-state per part, 🎨 opens
-  // the style cockpit), a text box expands into its blocks, and an embedFigure
-  // expands into the figure's NAMED GROUP tree (P9 — via figureGroupTree,
-  // loaded into the figureGroups store by loadDeckAssets): a group row's
-  // ⊕in/⊖out quick actions author Track {target: elId, part: "group:<gid>"},
-  // which the player resolves to the export wrapper inside the mounted figure
-  // svg. Every element row has one-click "animate in / animate out" quick
-  // actions — the fix for "text boxes and shapes can't be animated at all".
-  // Rows multi-select (ctrl/shift + range) with a bulk S/A/M bar, and the S/A/M
+  // The animator's tree of EVERYTHING on the slide. Slides-are-figures: the
+  // rows come from the FIGURE model — registered groups (the same derived
+  // render tree the figure editor's Layers/X-ray use, top-z first) wrap their
+  // member elements, and a semantic plot expands into its manifest part tree
+  // (S/A/M tri-state per part, 🎨 opens the shared figure X-ray). Every
+  // element/group row has one-click "animate in / animate out" quick actions;
+  // a group row fans out to one track per member (one undo step). The S/A/M
   // buttons PAINT: press one and sweep down the column to set a whole run of
-  // parts at once (one undo step).
-  import { selection, activeBeat, commitDeck, sealHistory, focusedPart, selTrackIds, figureGroups, figureMembers } from "../../../../lib/slide/store";
+  // parts at once (one undo step, coalesced).
+  import { activeBeat, commitDeckLive, sealHistory, selTrackIds } from "../../../../lib/slide/store";
+  import { selection, partSelection, xrayOpen, xrayRoot, activeFigureId } from "../../../../lib/store";
   import { setPartVisibility } from "../../../../lib/slide/ops";
   import { animatePart, animateElement } from "../../../../lib/slide/autobuild";
   import { buildPartTree, type XrayNode } from "../../../../lib/plot/tree";
-  import type { FigureGroupNode } from "../../../../lib/groups";
-  import type { Slide, SlideElement } from "../../../../lib/slide/types";
+  import { buildRenderTree, membersDeep, type RenderNode } from "../../../../lib/groups";
+  import type { Element } from "../../../../lib/types";
+  import type { Slide } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
   import { EL_GLYPH } from "./shared";
-  import { slideXrayOpen } from "./animatorState";
 
   let { slide, manifests, plotTags }: {
     slide: Slide;
@@ -32,118 +29,78 @@
 
   type Vis = "show" | "animate" | "mask";
   interface Row {
-    key: string; // element id, or `${elId}|${partId}`, or `${elId}#${blockId}`
-    kind: "element" | "part" | "block" | "group" | "member";
+    key: string; // element id, `grp:<gid>`, or `${elId}|${partId}`
+    kind: "element" | "part" | "group";
     depth: number;
     label: string;
     glyph?: string;
     elId: string;
-    el?: SlideElement;
+    el?: Element;
     node?: XrayNode;
-    blockId?: string;
-    /** a figure GROUP row inside an embedFigure (P9) — the registry gid */
     groupId?: string;
-    /** a figure MEMBER row (or a part row INSIDE a member plot) — the figure
-     *  element id; tracks address it as "el:<mid>" / "el:<mid>/<partId>" */
-    memberId?: string;
     expandable: boolean;
     /** the collapse key + its EFFECTIVE state (user toggle over the default) */
     ckey: string;
     collapsed: boolean;
   }
 
-  // Collapse = user toggles OVER defaults (elements open; part groups at depth
-  // ≥2 closed, so 100+ part trees start compact). Pure — the rows derived never
-  // mutates state (Svelte 5 forbids state writes inside $derived).
+  // Collapse = user toggles OVER defaults (elements/groups open; part groups at
+  // depth ≥2 closed, so 100+ part trees start compact).
   let toggled = $state(new Map<string, boolean>());
   let filter = $state("");
   const isCollapsed = (ckey: string, def: boolean) => toggled.get(ckey) ?? def;
 
-  function elLabel(el: SlideElement): string {
-    if (el.type === "textBox") return el.blocks[0]?.text.replace(/\*/g, "").slice(0, 22) || "Text";
-    if (el.type === "math") return el.tex.slice(0, 20) || "Math";
+  function elLabel(el: Element): string {
+    if (el.name) return el.name;
+    if (el.type === "text") return el.text.split("\n")[0]?.slice(0, 22) || "Text";
     if (el.type === "plot") {
       const m = manifests[el.assetId];
       return [plotTags.get(el.id), m?.plotType ? `plot · ${m.plotType}` : "plot"].filter(Boolean).join(" ");
     }
-    if (el.type === "embedFigure") return `figure · ${el.figureId}`;
     return el.type;
   }
+
+  // The slide viewed as a figure for the shared group tree (buildRenderTree
+  // only reads elements/groups).
+  const figView = $derived({
+    id: sid, name: "", canvasId: "deck", x: 0, y: 0, width: 1, height: 1,
+    background: "", elements: slide.elements, ...(slide.groups ? { groups: slide.groups } : {}),
+  });
 
   const rows = $derived.by(() => {
     const out: Row[] = [];
     const q = filter.trim().toLowerCase();
-    const figGroups = $figureGroups;
-    for (const el of slide.elements) {
+    const pushEl = (el: Element, depth: number) => {
       const isPlot = el.type === "plot";
       const tree = isPlot ? buildPartTree(manifests[(el as { assetId: string }).assetId]) : null;
-      const blocks = el.type === "textBox" ? el.blocks : null;
-      // P9: an embedFigure expands into its figure's named group tree; a
-      // group-SCOPED embed (figure-v1 group insertables) shows only its own
-      // subtree — sibling groups aren't in the rendered markup, so a track
-      // targeting them could never resolve.
-      const scopeGroups = (nodes: FigureGroupNode[], gid: string): FigureGroupNode[] => {
-        for (const n of nodes) {
-          if (n.id === gid) return [n];
-          const hit = scopeGroups(n.groups, gid);
-          if (hit.length) return hit;
-        }
-        return [];
-      };
-      const fullGroups = el.type === "embedFigure" ? figGroups[el.figureId] ?? [] : [];
-      const groups = el.type === "embedFigure" && el.groupId ? scopeGroups(fullGroups, el.groupId) : fullGroups;
-      const expandable = !!tree || (!!blocks && blocks.length > 1) || groups.length > 0;
+      const expandable = !!tree && tree.children.length > 0;
       const elCollapsed = isCollapsed(el.id, false);
-      out.push({ key: el.id, kind: "element", depth: 0, label: elLabel(el), glyph: EL_GLYPH[el.type] ?? "▫", elId: el.id, el, expandable, ckey: el.id, collapsed: elCollapsed });
+      out.push({ key: el.id, kind: "element", depth, label: elLabel(el), glyph: EL_GLYPH[el.type] ?? "▫", elId: el.id, el, expandable, ckey: el.id, collapsed: elCollapsed });
       const open = q ? true : !elCollapsed;
-      if (!open || !expandable) continue;
-      if (tree) {
-        const walk = (n: XrayNode, depth: number) => {
-          const ckey = `${el.id}|${n.id}`;
-          const def = depth >= 2 && n.children.length > 0; // deep groups start compact
-          const col = isCollapsed(ckey, def);
-          out.push({ key: ckey, kind: "part", depth, label: n.label, elId: el.id, el, node: n, expandable: n.children.length > 0, ckey, collapsed: col });
-          if (n.children.length && (q || !col)) for (const c of n.children) walk(c, depth + 1);
-        };
-        walk(tree, 1);
-      } else if (groups.length) {
-        const members = el.type === "embedFigure" ? $figureMembers[el.figureId] ?? {} : {};
-        const walkMemberPlot = (mid: string, n: XrayNode, depth: number) => {
-          const ckey = `${el.id}|el:${mid}/${n.id}`;
-          const col = isCollapsed(ckey, depth >= 3 && n.children.length > 0);
-          out.push({ key: ckey, kind: "part", depth, label: n.label, elId: el.id, el, node: n, memberId: mid, expandable: n.children.length > 0, ckey, collapsed: col });
-          if (n.children.length && (q || !col)) for (const c of n.children) walkMemberPlot(mid, c, depth + 1);
-        };
-        const walkG = (nodes: FigureGroupNode[], depth: number) => {
-          for (const g of nodes) {
-            const ckey = `${el.id}|group:${g.id}`;
-            const col = isCollapsed(ckey, false);
-            out.push({ key: ckey, kind: "group", depth, label: g.name, glyph: "❖", elId: el.id, el, groupId: g.id, expandable: g.groups.length > 0 || g.elementIds.length > 0, ckey, collapsed: col });
-            if (q || !col) {
-              // individual MEMBERS: arrows/text/shapes ⊕-able alone; member
-              // PLOTS expand into their semantic part tree (manifest-driven)
-              for (const mid of g.elementIds) {
-                const m = members[mid];
-                if (!m) continue;
-                const mkey = `${el.id}|el:${mid}`;
-                const tree = m.assetId ? buildPartTree(manifests[m.assetId]) : null;
-                const mcol = isCollapsed(mkey, true);
-                out.push({ key: mkey, kind: "member", depth: depth + 1, label: m.name ?? m.type, glyph: EL_GLYPH[m.type] ?? "▫", elId: el.id, el, memberId: mid, expandable: !!tree && tree.children.length > 0, ckey: mkey, collapsed: mcol });
-                if (tree && tree.children.length && (q || !mcol)) for (const c of tree.children) walkMemberPlot(mid, c, depth + 2);
-              }
-              if (g.groups.length) walkG(g.groups, depth + 1);
-            }
-          }
-        };
-        walkG(groups, 1);
-      } else if (blocks) {
-        blocks.forEach((b, i) => {
-          const key = `${el.id}#${b.id}`;
-          out.push({ key, kind: "block", depth: 1, label: b.text.replace(/\*/g, "").slice(0, 24) || `line ${i + 1}`, elId: el.id, el, blockId: b.id, expandable: false, ckey: key, collapsed: false });
-        });
+      if (!open || !tree) return;
+      const walk = (n: XrayNode, d: number) => {
+        const ckey = `${el.id}|${n.id}`;
+        const def = d >= depth + 2 && n.children.length > 0; // deep groups start compact
+        const col = isCollapsed(ckey, def);
+        out.push({ key: ckey, kind: "part", depth: d, label: n.label, elId: el.id, el, node: n, expandable: n.children.length > 0, ckey, collapsed: col });
+        if (n.children.length && (q || !col)) for (const c of n.children) walk(c, d + 1);
+      };
+      for (const c of tree.children) walk(c, depth + 1);
+    };
+    const walkNode = (n: RenderNode, depth: number) => {
+      if (n.kind === "element") {
+        pushEl(n.el, depth);
+        return;
       }
-    }
-    return q ? out.filter((r) => r.kind === "element" || r.label.toLowerCase().includes(q) || r.key.toLowerCase().includes(q)) : out;
+      const ckey = `grp:${n.def.id}`;
+      const col = isCollapsed(ckey, false);
+      // anchor group rows on their first member for selection/animation fan-out
+      const first = membersDeep(figView, n.def.id)[0];
+      out.push({ key: ckey, kind: "group", depth, label: n.def.name, glyph: "❖", elId: first?.id ?? "", groupId: n.def.id, expandable: n.children.length > 0, ckey, collapsed: col });
+      if (q || !col) for (const c of n.children) walkNode(c, depth + 1);
+    };
+    for (const n of buildRenderTree(figView)) walkNode(n, 0);
+    return q ? out.filter((r) => r.kind === "element" || r.kind === "group" || r.label.toLowerCase().includes(q) || r.key.toLowerCase().includes(q)) : out;
   });
 
   function toggleCollapse(r: Row) {
@@ -152,7 +109,7 @@
     toggled = m;
   }
 
-  // --- row selection (multi, with shift ranges over the visible rows) -----------
+  // --- row selection (multi, with shift ranges over the visible rows) ---------
   let selRows = $state<string[]>([]);
   let anchor = $state<string | null>(null);
   function clickRow(e: MouseEvent, r: Row) {
@@ -166,30 +123,31 @@
     } else {
       selRows = [r.key];
       anchor = r.key;
-      if (r.kind === "element") selection.set([r.elId]); // stage follows
+      // the stage follows: an element row selects it; a group row its members
+      if (r.kind === "element") selection.set(new Set([r.elId]));
+      else if (r.kind === "group" && r.groupId) selection.set(new Set(membersDeep(figView, r.groupId).map((m) => m.id)));
     }
   }
   const selPartRows = $derived(rows.filter((r) => r.kind === "part" && selRows.includes(r.key)));
 
-  // --- tri-state ------------------------------------------------------------------
-  function partStateFor(el: SlideElement, part: string): Vis {
+  // --- tri-state -----------------------------------------------------------
+  function partStateFor(el: Element, part: string): Vis {
     const ov = (el as { overrides?: Record<string, { hidden?: boolean }> }).overrides;
     if (ov?.[part]?.hidden) return "mask";
     if (slide.beats.some((b) => b.tracks.some((t) => t.target === el.id && t.part === part && !t.disabled))) return "animate";
     return "show";
   }
   function applyVis(elId: string, assetId: string, part: string, mode: Vis, coalesce?: string) {
-    commitDeck((d) => {
+    commitDeckLive((d) => {
       if (mode === "animate") animatePart(d, sid, elId, part, manifests[assetId], $activeBeat);
       else setPartVisibility(d, elId, part, mode);
     }, coalesce ? { coalesce } : undefined);
   }
   function setVis(r: Row, mode: Vis) {
     if (!r.node || !r.el) return;
-    const assetId = (r.el as { assetId: string }).assetId;
     // multi-select bulk: clicking a tri button of ANY selected row applies to all
     const targets = selRows.includes(r.key) && selPartRows.length > 1 ? selPartRows : [r];
-    commitDeck((d) => {
+    commitDeckLive((d) => {
       for (const t of targets) {
         if (!t.node || !t.el) continue;
         const aid = (t.el as { assetId: string }).assetId;
@@ -197,10 +155,9 @@
         else setPartVisibility(d, t.elId, t.node.id, mode);
       }
     });
-    void assetId;
   }
 
-  // --- the S/A/M PAINT gesture -------------------------------------------------------
+  // --- the S/A/M PAINT gesture ----------------------------------------------
   let painting = $state<Vis | null>(null);
   let painted = new Set<string>();
   function paintStart(e: PointerEvent, r: Row, mode: Vis) {
@@ -234,23 +191,24 @@
     window.removeEventListener("pointerup", paintEnd);
   }
 
-  // --- element/block/group quick actions: animate in / out -----------------------------
-  // A group row narrows the track to its figure group ("group:<gid>") — the P9
-  // slides handshake; defaults come from suggestElementTrack (enter fade /
-  // exit fadeOut, deterministic for a wrapper <g>).
+  // --- element/group quick actions: animate in / out -------------------------
+  // A group row fans out to one track per member element (one undo step).
   function quickAnimate(r: Row, exit: boolean) {
     let trackId: string | null = null;
     let bi = -1;
-    commitDeck((d) => {
-      const res = animateElement(d, sid, r.elId, {
-        exit,
-        beatIndex: $activeBeat > 0 ? $activeBeat : undefined,
-        ...(r.kind === "block" && r.blockId ? { blocks: [r.blockId] } : {}),
-        ...(r.kind === "group" && r.groupId ? { part: `group:${r.groupId}` } : {}),
-        ...(r.kind === "member" && r.memberId ? { part: `el:${r.memberId}` } : {}),
-        ...(r.kind === "part" && r.memberId && r.node ? { part: `el:${r.memberId}/${r.node.id}` } : {}),
-      });
-      if (res) { trackId = res.trackId; bi = res.beatIndex; }
+    const memberIds =
+      r.kind === "group" && r.groupId ? membersDeep(figView, r.groupId).map((m) => m.id) : [r.elId];
+    commitDeckLive((d) => {
+      for (const mid of memberIds) {
+        const res = animateElement(d, sid, mid, {
+          exit,
+          beatIndex: $activeBeat > 0 ? $activeBeat : undefined,
+        });
+        if (res) {
+          trackId = trackId ?? res.trackId;
+          bi = res.beatIndex;
+        }
+      }
     });
     if (trackId) {
       selTrackIds.set([trackId]);
@@ -258,12 +216,18 @@
     }
   }
 
+  // 🎨 opens the SHARED figure X-ray rooted on the plot (Alt+P parity); a part
+  // row also drills the part selection so the FluxFig menu targets it.
   function openXray(r: Row) {
-    slideXrayOpen.set({ elId: r.elId, part: r.node?.id });
+    const fid = $activeFigureId;
+    if (!fid) return;
+    if (r.node) partSelection.set({ elementId: r.elId, partId: r.node.id });
+    xrayRoot.set({ kind: "element", figId: fid, elementId: r.elId });
+    xrayOpen.set(true);
   }
 
-  // stage → tree: a part clicked on the stage highlights + reveals its row
-  const focusKey = $derived($focusedPart ? `${$focusedPart.elId}|${$focusedPart.part}` : null);
+  // stage → tree: a part drilled on the canvas highlights + reveals its row
+  const focusKey = $derived($partSelection ? `${$partSelection.elementId}|${$partSelection.partId}` : null);
 </script>
 
 <div class="parts">
@@ -285,7 +249,7 @@
     {#each rows as r (r.key)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="row" class:elrow={r.kind === "element"}
+      <div class="row" class:elrow={r.kind === "element" || r.kind === "group"}
         class:selrow={selRows.includes(r.key)}
         class:focus={focusKey === r.key}
         data-rowkey={r.key} data-part={r.node?.id}
@@ -299,7 +263,7 @@
         {#if r.glyph}<span class="gl" class:grp={r.kind === "group"}>{r.glyph}</span>{/if}
         <span class="pl" title={r.kind === "group" ? `group:${r.groupId}` : r.node?.id ?? r.key}>{r.label}</span>
         {#if r.kind === "group"}<span class="badge">group</span>{/if}
-        {#if r.kind === "part" && r.node && r.el && !r.memberId}
+        {#if r.kind === "part" && r.node && r.el}
           {@const st = partStateFor(r.el, r.node.id)}
           <button class="paint" title="Edit this part's style (color, width, opacity) — Alt+P" onclick={(e) => { e.stopPropagation(); openXray(r); }}>🎨</button>
           <span class="tri">
@@ -307,7 +271,7 @@
             <button class:on={st === "animate"} title="Animate in on the current beat (press + sweep to paint many)" onpointerdown={(e) => paintStart(e, r, "animate")}>A</button>
             <button class:on={st === "mask"} title="Mask — hide entirely (press + sweep to paint many)" onpointerdown={(e) => paintStart(e, r, "mask")}>M</button>
           </span>
-        {:else if r.kind === "element" || r.kind === "block" || r.kind === "group" || r.kind === "member" || (r.kind === "part" && r.memberId)}
+        {:else if r.kind === "element" || r.kind === "group"}
           <span class="qa">
             <button title="Animate IN on the current beat" onclick={(e) => { e.stopPropagation(); quickAnimate(r, false); }}>⊕ in</button>
             <button title="Animate OUT (disappear) on the current beat" onclick={(e) => { e.stopPropagation(); quickAnimate(r, true); }}>⊖ out</button>
@@ -319,7 +283,7 @@
       </div>
     {/each}
     {#if !rows.length}
-      <div class="empty">Nothing on this slide yet — add text, shapes, or insert a plot.</div>
+      <div class="empty">Nothing on this slide yet — draw shapes, add text, or insert a plot (Alt+I).</div>
     {/if}
   </div>
 </div>
