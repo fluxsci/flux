@@ -607,10 +607,21 @@ export async function gatherDeckPayload(
         const svg = await fs.readFile(safeJoin(root, sp), "utf8");
         // Sibling convention: NN.svg ↔ NN.fluxplot.json — the SAME fallback the
         // app's loader uses. Without it the export sees an empty manifest and
-        // part animations silently no-op offline.
-        const mp = manifestPath ?? entry?.manifestPath ?? sp.replace(/\.svg$/i, ".fluxplot.json");
+        // part animations silently no-op offline. Try each candidate IN ORDER
+        // and take the first that actually READS: an authored source.manifestPath
+        // can point outside the project (a plot imported from an external dir —
+        // its relative path escapes root and safeJoin rejects it), in which case
+        // the byte copy sitting next to the resolved SVG
+        // (fig/assets/<id>.fluxplot.json) is the real manifest. Committing to a
+        // non-null-but-unreadable manifestPath used to leave the manifest empty →
+        // the morph/part animations silently no-op (series geometry vanished).
+        const mpCandidates = [manifestPath, entry?.manifestPath, sp.replace(/\.svg$/i, ".fluxplot.json")].filter(
+          (p): p is string => !!p,
+        );
         let m: FluxPlotManifest | undefined;
-        try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* optional sidecar */ }
+        for (const mp of mpCandidates) {
+          try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; break; } catch { /* next candidate */ }
+        }
         // The SAME preparePlot seam the app's cachePlot runs: a sidecar-less
         // vanilla svg gets a DERIVED manifest, a real one gets orphan
         // augmentation — the payload manifest matches what the runtime computes.

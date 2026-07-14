@@ -97,10 +97,14 @@ export function createMorph(wrap: ParentNode, elId: string, A: FluxPlotManifest,
     for (const { sA, sB } of pairs) {
       const px = morphSeriesPixels(sA, sB, axA, axB, t);
 
-      // line: rebuild `d` from the projected points (equal vertex count ⇒ clean)
+      // line: rebuild `d` from the projected points (equal vertex count ⇒ clean).
+      // fluxplot wraps the series line in a <g data-role="line"> (esp. when the
+      // line carries markers) whose CHILD <path> holds the geometry — rewrite the
+      // drawable path, not the group (setting `d` on a <g> is a silent no-op).
       const lineId = sA.svg?.line;
       if (lineId && px.length) {
-        const node = q(lineId);
+        const found = q(lineId);
+        const node = found && found.tagName?.toLowerCase() !== "path" ? (found.querySelector?.("path") ?? found) : found;
         if (node) node.setAttribute("d", px.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" "));
       }
 

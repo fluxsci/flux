@@ -79,4 +79,18 @@ assert(near(cy1, 380 - 36 * 8), "seek(1): point0 circle moved to B position");
 const d1 = wrap.querySelector('[id="p1__ctrl.line"]')!.getAttribute("d")!;
 assert(d0 !== d1, "seek(1): line path changed from A→B");
 
+// --- GROUP-WRAPPED line (the real fluxplot structure) ----------------------
+// fluxplot emits the series line as <g id="…ctrl.line"><path/></g> (a group,
+// esp. when the line carries markers). The morph must rewrite the CHILD path's
+// `d`, not set `d` on the <g> (a silent no-op that froze the line at A).
+const wrapG = document.createElement("div");
+wrapG.innerHTML = `<svg><g id="p1__ctrl.line"><path d="M0 0"/></g>${circles}</svg>`;
+const mg = createMorph(wrapG as unknown as ParentNode, "p1", A, B);
+mg.seek(0);
+const gd0 = wrapG.querySelector('[id="p1__ctrl.line"] path')!.getAttribute("d")!;
+mg.seek(1);
+const gd1 = wrapG.querySelector('[id="p1__ctrl.line"] path')!.getAttribute("d")!;
+assert(gd0.startsWith("M") && gd0.includes("L"), "group-line seek(0): child path rebuilt (not the <g>)");
+assert(gd0 !== gd1, "group-line seek(1): child path d changed A→B (regression: <g>-wrapped line morph)");
+
 console.log("\nALL SLIDE-MORPH (P3) MATH TESTS PASSED");

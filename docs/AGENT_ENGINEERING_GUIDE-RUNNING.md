@@ -498,3 +498,51 @@ headless-e2e, 6 GUI gates, scale-slide. Net −2.3k lines.
 - A history "companion" (opaque capture/restore snapshot riding each history
   entry) unifies two stores under one undo stack with ~30 lines and zero cost
   when unregistered — beats focus-routed twin stacks.
+
+### 2026-07-13/14 — Slide showcase deck + two morph/export bug fixes (Claude Fable 5, `main` working tree)
+**Work:** Built an end-to-end demo of the slide pillar — a 10-slide flux-midnight
+talk ("The Edge of Chaos", ~/edge-of-chaos) driven entirely through the headless
+verb layer from fluxplot-generated semantic plots (Fourier synthesis, Moore's
+law, logistic bifurcation, Monte-Carlo π, iris allometry, pendulum phase
+portrait, Lorenz attractor). Exercised every animation family (drawOn, stagger
+by-x, growBaseline, countUp, camera zoom, highlight/dim, part-style, S/A/M
+part-visibility, all four exits, writeOn, with-prev/auto beats) and verified each
+slide/beat by booting the exported HTML headless and screenshotting. Two genuine
+shipped bugs surfaced and fixed (regression-gated in `verify-slide-morph`):
+- **Morph line froze at state A.** fluxplot emits a series line as
+  `<g id="…series.line"><path/></g>` (a group, esp. with markers); `createMorph`
+  set `d` on the `<g>` — a silent no-op. Fix: descend to the child `<path>` when
+  the matched node isn't itself a path (`src/lib/slide/player/morph.ts`).
+- **Export dropped part animations for externally-imported plots.** A plot
+  imported from a dir OUTSIDE the project stores `source.manifestPath` as a
+  root-escaping `../…` relative path; `gatherDeckPayload.collectPlot` committed to
+  that single path, failed `safeJoin`, and DERIVED an empty-series manifest →
+  `morphCompatible` false and every part id unresolvable, so drawOn/stagger/morph
+  silently no-op'd offline. Fix: try `[manifestPath, entry.manifestPath,
+  sibling-of-resolved-svg]` in order and take the first that READS — the
+  `fig/assets/<id>.fluxplot.json` byte copy is the real manifest
+  (`flux-core/slides.ts`).
+**Learnings:**
+- The data-space `morph` preset is fragile for real matplotlib output beyond a
+  same-range point/line tween: the linear↔log axis-fit blend goes numerically
+  unstable for large data ranges (Moore's 2.3k→4e10 projected to ~−1e6 px,
+  off-canvas), and scatter `PathCollection` markers don't respond to the
+  transform-based point move. Prefer a two-plot crossfade (fadeOut + fade/drawOn)
+  for a linear→log reveal — correct axes on both sides, and it can't mis-tween.
+  A morph is only reliable between structurally-identical, same-scale plots.
+- Verifying slide animations headless needs `page.emulateMediaFeatures([{name:
+  "prefers-reduced-motion", value:"no-preference"}])` — headless Chrome defaults
+  to `reduce`, which snaps every WAAPI/rAF anim (and morph/countUp seek) straight
+  to its end state, so partials look "instantly complete". `fluxDeck.goTo` is
+  anim-off by design; drive real playback with a keypress to see motion.
+- Camera targets are stage-space; compute a data feature's stage pixel from the
+  manifest `axes[0].{x,y}.anchors` (data→svg-pt) × the pt→px factor (4/3) + the
+  element origin — guessing lands on the plot's empty margins. Keep the focus in
+  bounds for the zoom (`cx ∈ [W/2Z, W−W/2Z]`) or the frame shows past-edge void.
+  Sparse plots (a square wave is mostly flat band + thin jumps) resist meaningful
+  zoom; showcase camera on dense plots (bifurcation cloud, Lorenz) instead.
+- `core.addSlide` hard-codes `starters:true`, so every non-`blank`/`full-bleed`
+  layout seeds placeholder "Title/Subtitle" figure-text under your content — use
+  `blank` when authoring every element yourself. `add_slide_text` has no
+  fontFamily knob; set `el.fontFamily` on the deck.json text elements directly to
+  match a serif plot set.
