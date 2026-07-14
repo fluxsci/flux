@@ -135,9 +135,8 @@ usage: flux <verb> [root] [args] [--flags]
   reorder-slides <deckId> --order a,b,c   set the slide order (exact permutation)
   set-slide <deckId> <slideId> [--name|--layout|--background|--transition|--notes|--notes-file|--camera-x/-y/-zoom]   patch a slide
   set-theme <deckId> <theme>           flux-dark|light|midnight|slate|sepia|contrast
-  add-text <deckId> <slideId> "text…" [--x --y --width --height --align --color --font-size]   add a text box
-  add-math <deckId> <slideId> "\tex…" [--display] [--x …]   add a KaTeX element
-  add-embed-figure <deckId> <slideId> <figureId> [--fit contain|cover|fill] [--x …]   embed a project figure
+  add-text <deckId> <slideId> "text…" [--x --y --width --height --align --color --size-pt|--font-size --weight --sizing]   add a figure text element
+  add-figure <deckId> <slideId> <figureId> [--x --y]   COPY a project figure's content onto a slide (fresh ids, native size)
   add-beat <deckId> <slideId> [--label L]   append a build/advance step
   set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>']   animate
   set-beat <deckId> <slideId> <beatId> [--label L --advance click|with-prev|auto --auto-delay ms]   patch a beat
@@ -149,7 +148,7 @@ usage: flux <verb> [root] [args] [--flags]
   set-part-visibility <deckId> <elementId> <part> show|animate|mask   plot part tri-state (non-destructive)
   set-part-style <deckId> <elementId> <part> --patch '<json>'   per-part style override (stroke/fill/…)
   animate-part <deckId> <slideId> <elementId> <part> [--beat-index n]   default reveal for a plot part
-  animate-element <deckId> <slideId> <elementId> [--exit --preset P --beat-index n --whole-box --part group:<gid>]   enter/exit for text/shape/media (+ figure groups inside an embedFigure)
+  animate-element <deckId> <slideId> <elementId> [--exit --preset P --beat-index n --part <plotPartId>]   enter/exit for text/shape/image/plot
   set-morph <deckId> <slideId> <beatId> <elementId> <toAssetId> [--duration ms --force]   data-space morph to any project plot
   validate-deck [deckId] [--root R]    validate a deck (or all decks)
   export-deck <deckId> [--out F] [--root R]   export a self-contained offline .html (default exports/<deckId>.html)

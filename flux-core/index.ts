@@ -54,7 +54,7 @@ export * from "./model";
 // SVG intrinsic sizing + extreme-coordinate hygiene live in ./coordscan.
 export * from "./coordscan";
 
-// Headless rendering (figure/canvas SVG+PNG, ensureDom, figureMembersOf,
+// Headless rendering (figure/canvas SVG+PNG, ensureDom,
 // materializeRenders) lives in ./render.
 export * from "./render";
 
@@ -97,8 +97,7 @@ export {
   setSlide,
   setDeckTheme,
   addTextToSlide,
-  addMathToSlide,
-  addEmbedFigureToSlide,
+  addFigureToSlide,
   addBeat,
   setAnimation,
   // Slides overhaul WS2 — timeline + part-control verbs

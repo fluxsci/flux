@@ -1794,7 +1794,8 @@ export const VERBS: VerbDef[] = [
     name: "add_slide_text",
     cli: "add-text",
     cliRoot: "flags",
-    summary: "Add a text box to a slide. Returns the new element id (use it as an animation target).",
+    summary:
+      "Add a text element to a slide — the FIGURE text model on the shared 96 px/inch ruler (fontSize in canvas px = pt × 4/3, like add_fig_text; the default 640×360 stage is a ~6.7-inch frame). Returns the new element id (use it as an animation target).",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -1806,6 +1807,8 @@ export const VERBS: VerbDef[] = [
       align: z.enum(["left", "center", "right"]).optional(),
       color: z.string().optional(),
       fontSize: z.number().optional(),
+      fontWeight: z.number().optional(),
+      sizing: z.enum(["auto", "auto-h", "fixed"]).optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
@@ -1819,6 +1822,9 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "align", into: "align" },
       { kind: "flag", at: "color", into: "color" },
       { kind: "flag", at: "font-size", into: "fontSize", as: "number" },
+      { kind: "flag", at: "size-pt", into: "fontSize", as: "ptToPx" },
+      { kind: "flag", at: "weight", into: "fontWeight", as: "number" },
+      { kind: "flag", at: "sizing", into: "sizing" },
     ],
     handler: (ctx, a) =>
       core.addTextToSlide(ctx.root, s(a.deckId), s(a.slideId), {
@@ -1827,9 +1833,11 @@ export const VERBS: VerbDef[] = [
         y: a.y as number | undefined,
         width: a.width as number | undefined,
         height: a.height as number | undefined,
-        align: a.align as Parameters<typeof core.addTextToSlide>[3]["align"],
+        align: a.align as "left" | "center" | "right" | undefined,
         color: a.color as string | undefined,
         fontSize: a.fontSize as number | undefined,
+        fontWeight: a.fontWeight as number | undefined,
+        sizing: a.sizing as "auto" | "auto-h" | "fixed" | undefined,
       }),
     render: {
       human: (r, a) => ({
@@ -1840,95 +1848,42 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "add_slide_math",
-    cli: "add-math",
-    cliRoot: "flags",
-    summary: "Add a KaTeX math element to a slide (`tex` is a LaTeX string). Returns the new element id.",
-    params: {
-      deckId: z.string(),
-      slideId: z.string(),
-      tex: z.string(),
-      display: z.boolean().optional(),
-      x: z.number().optional(),
-      y: z.number().optional(),
-      width: z.number().optional(),
-      height: z.number().optional(),
-      color: z.string().optional(),
-      fontSize: z.number().optional(),
-    },
-    cliArgs: [
-      { kind: "pos", at: 0, into: "deckId", required: true },
-      { kind: "pos", at: 1, into: "slideId", required: true },
-      { kind: "rest", at: 2, into: "tex", as: "joined", default: "" },
-      { kind: "flag", at: "tex", into: "tex", as: "string" },
-      { kind: "flag", at: "display", into: "display", as: "boolean" },
-      { kind: "flag", at: "x", into: "x", as: "number" },
-      { kind: "flag", at: "y", into: "y", as: "number" },
-      { kind: "flag", at: "width", into: "width", as: "number" },
-      { kind: "flag", at: "height", into: "height", as: "number" },
-      { kind: "flag", at: "color", into: "color" },
-      { kind: "flag", at: "font-size", into: "fontSize", as: "number" },
-    ],
-    handler: (ctx, a) =>
-      core.addMathToSlide(ctx.root, s(a.deckId), s(a.slideId), {
-        tex: s(a.tex),
-        display: a.display as boolean | undefined,
-        x: a.x as number | undefined,
-        y: a.y as number | undefined,
-        width: a.width as number | undefined,
-        height: a.height as number | undefined,
-        color: a.color as string | undefined,
-        fontSize: a.fontSize as number | undefined,
-      }),
-    render: {
-      human: (r, a) => ({
-        out: (r as { elementId: string }).elementId,
-        err: `✓ added math ${(r as { elementId: string }).elementId} to ${a.slideId}`,
-      }),
-      mcp: (r, a) => text(`added math ${(r as { elementId: string }).elementId} to ${a.slideId}`),
-    },
-  },
-  {
     name: "add_slide_figure",
-    cli: "add-embed-figure",
+    cli: "add-figure",
     cliRoot: "flags",
     summary:
-      "Embed a project figure (by its figure id, from fig/index.json) onto a slide — its panels stay addressable so you can animate them (stagger a→b→c). This is the way to put your composed figures into a deck (no asset upload needed). Returns the new element id.",
+      "COPY a project figure's elements + groups (by its figure id, from fig/index.json) onto a slide with fresh ids, at native size (slides share the figure 96 px/inch ruler — 1:1, fit-to-frame only if the figure exceeds the stage; pass x/y to place the content's top-left instead of centering). Plot panels stay individually addressable — animate their parts with animate_part / set_animation. The headless twin of the GUI's Send-to-deck. Returns the new element ids.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
       figureId: z.string(),
-      fit: z.enum(["contain", "cover", "fill"]).optional(),
       x: z.number().optional(),
       y: z.number().optional(),
-      width: z.number().optional(),
-      height: z.number().optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
       { kind: "pos", at: 1, into: "slideId", required: true },
       { kind: "pos", at: 2, into: "figureId", required: true },
-      { kind: "flag", at: "fit", into: "fit" },
       { kind: "flag", at: "x", into: "x", as: "number" },
       { kind: "flag", at: "y", into: "y", as: "number" },
-      { kind: "flag", at: "width", into: "width", as: "number" },
-      { kind: "flag", at: "height", into: "height", as: "number" },
     ],
     handler: (ctx, a) =>
-      core.addEmbedFigureToSlide(ctx.root, s(a.deckId), s(a.slideId), {
-        figureId: s(a.figureId),
-        fit: a.fit as Parameters<typeof core.addEmbedFigureToSlide>[3]["fit"],
+      core.addFigureToSlide(ctx.root, s(a.deckId), s(a.slideId), s(a.figureId), {
         x: a.x as number | undefined,
         y: a.y as number | undefined,
-        width: a.width as number | undefined,
-        height: a.height as number | undefined,
       }),
     render: {
-      human: (r, a) => ({
-        out: (r as { elementId: string }).elementId,
-        err: `✓ embedded figure ${a.figureId} → ${(r as { elementId: string }).elementId} on ${a.slideId}`,
-      }),
-      mcp: (r, a) => text(`embedded figure ${a.figureId} → ${(r as { elementId: string }).elementId} on ${a.slideId}`),
+      human: (r, a) => {
+        const ids = (r as { elementIds: string[] }).elementIds;
+        return {
+          out: ids.join("\n"),
+          err: `✓ copied figure ${a.figureId} → ${ids.length} element(s) on ${a.slideId}`,
+        };
+      },
+      mcp: (r, a) => {
+        const ids = (r as { elementIds: string[] }).elementIds;
+        return text(`copied figure ${a.figureId} → ${ids.length} element(s) on ${a.slideId}: ${ids.join(", ")}`);
+      },
     },
   },
   {
@@ -2104,7 +2059,7 @@ export const VERBS: VerbDef[] = [
     cli: "set-part-style",
     cliRoot: "flags",
     summary:
-      "Merge a style patch into one plot part's override on a slide element — stroke, fill, strokeWidth, opacity, fontSize, fontFamily, fontWeight, hidden. Null deletes a key. Part may be a leaf ('fit.line') or group ('axis.x.ticks') id.",
+      "Merge a style patch into one plot part's override on a slide element — stroke, fill, strokeWidth, opacity, fontSize, fontFamily, fontWeight, hidden. The SAME id-keyed override core the figure editor writes (survives regeneration). Null deletes a key. Part may be a leaf ('fit.line') or group ('axis.x.ticks') id.",
     params: {
       deckId: z.string(),
       elementId: z.string(),
@@ -2150,7 +2105,7 @@ export const VERBS: VerbDef[] = [
     cli: "animate-element",
     cliRoot: "flags",
     summary:
-      "Give a whole element (text box / shape / line / image / math / video) an enter or exit animation with sensible per-kind defaults (textBox→staggered bullet fadeRise, line→drawOn, math→writeOn; exits: fadeOut/popOut/drawOff/wipeOut). The non-plot analog of animate_part. `part` narrows to a named node inside the element — on an embedFigure, 'group:<groupId>' animates one of the figure's named groups (enter fade / exit fadeOut).",
+      "Give a whole element (text / shape / line / image / plot) an enter or exit animation with sensible per-kind defaults (text→fadeRise, line/path→drawOn, rect/ellipse→popIn; exits: fadeOut/popOut/drawOff). The non-plot analog of animate_part. `part` narrows to a named plot part instead.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -2158,7 +2113,6 @@ export const VERBS: VerbDef[] = [
       exit: z.boolean().optional(),
       preset: z.enum(SLIDE_PRESETS).optional(),
       beatIndex: z.number().optional(),
-      wholeBox: z.boolean().optional(),
       part: z.string().optional(),
     },
     cliArgs: [
@@ -2168,7 +2122,6 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "exit", into: "exit", as: "boolean" },
       { kind: "flag", at: "preset", into: "preset" },
       { kind: "flag", at: "beat-index", into: "beatIndex", as: "number" },
-      { kind: "flag", at: "whole-box", into: "wholeBox", as: "boolean" },
       { kind: "flag", at: "part", into: "part" },
     ],
     handler: (ctx, a) =>
@@ -2177,7 +2130,7 @@ export const VERBS: VerbDef[] = [
         s(a.deckId),
         s(a.slideId),
         s(a.elementId),
-        pick(a, ["beatIndex", "exit", "preset", "wholeBox", "part"]) as Parameters<typeof core.animateElementVerb>[4],
+        pick(a, ["beatIndex", "exit", "preset", "part"]) as Parameters<typeof core.animateElementVerb>[4],
       ),
     render: {
       human: (r, a) => ({
@@ -2234,13 +2187,15 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) => core.validateDeck(ctx.root, a.deckId as string | undefined),
     render: {
       human: (r) => {
-        const c = r as { ok: boolean; checked: number; errors: string[] };
-        if (c.ok) return { err: `✓ valid deck(s) (${c.checked} checked)` };
-        return { err: `✗ ${c.errors.length} problem(s):\n` + c.errors.map((e) => "  " + e).join("\n"), exit: 1 };
+        const c = r as { ok: boolean; checked: number; errors: string[]; warnings: string[] };
+        const warn = c.warnings.length ? "\n" + c.warnings.map((w) => `  ⚠ ${w}`).join("\n") : "";
+        if (c.ok) return { err: `✓ valid deck(s) (${c.checked} checked)` + warn };
+        return { err: `✗ ${c.errors.length} problem(s):\n` + c.errors.map((e) => "  " + e).join("\n") + warn, exit: 1 };
       },
       mcp: (r) => {
-        const c = r as { ok: boolean; checked: number; errors: string[] };
-        return text(c.ok ? `valid deck(s) (${c.checked} checked)` : `INVALID (${c.errors.length}):\n` + c.errors.join("\n"));
+        const c = r as { ok: boolean; checked: number; errors: string[]; warnings: string[] };
+        const warn = c.warnings.length ? "\n" + c.warnings.map((w) => `⚠ ${w}`).join("\n") : "";
+        return text((c.ok ? `valid deck(s) (${c.checked} checked)` : `INVALID (${c.errors.length}):\n` + c.errors.join("\n")) + warn);
       },
     },
   },

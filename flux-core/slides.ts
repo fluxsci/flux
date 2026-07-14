@@ -5,16 +5,24 @@
 // write defers rather than clobbering a live human edit, and journal every
 // mutation. "The file is the API" — the GUI (slideBridge.ts) and this module
 // read/write the same slides/<id>/deck.json.
+//
+// Slides-are-figures: a slide's elements are the figure `Element` union, so
+// the static-content verbs delegate to the SAME figure constructors/ops the
+// figure verbs use (twin-engine: one core, no drift). `add_slide_figure` is a
+// COPY (fresh-id clone of a paper figure's elements+groups onto the slide, at
+// native size on the shared 96/in ruler) — the headless twin of the GUI's
+// "Send to deck", both through slideOps.addFigureContentToSlide.
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import Ajv from "ajv";
-import { safeJoin, journal, loadManifest, getClient, renderFigureSvg, figureMembersOf, ensureDom, textLayoutProbe } from "./index";
+import { safeJoin, journal, loadManifest, getClient, ensureDom } from "./index";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
+import { loadFigModel } from "./model";
 import { animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
@@ -23,6 +31,7 @@ import type { Deck, Track } from "../src/lib/slide/types";
 import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
+import type { Box, TextOpts } from "../src/lib/ops";
 
 const j = (...p: string[]) => path.join(...p);
 const stamp = () => new Date().toISOString();
@@ -84,18 +93,17 @@ export async function listDecks(root: string): Promise<DeckSummary[]> {
   return out;
 }
 
-/** loadDeck: read slides/<deckId>/deck.json (migrated to the current element
- *  model — legacy `type:"svg"` elements become semantic plots, same seam the
- *  GUI's loadDeckModel runs; any mutateDeck round-trip persists it). */
+/** loadDeck: read slides/<deckId>/deck.json. Forward-version guard first; the
+ *  0.2.0 format is a clean break — there is NO migration (an old deck fails
+ *  schema validation via validate_deck; here it simply loads as-is and the
+ *  first structural miss surfaces at op time — the GUI additionally
+ *  quarantines). Only track-id normalization runs. */
 export async function loadDeck(root: string, deckId: string): Promise<Deck> {
   const p = await resolveDeckPath(root, deckId);
   if (!(await exists(p))) throw new Error(`deck not found: ${deckId} (${path.relative(root, p)})`);
   const raw = await readJSON<Deck>(p);
-  // WS-5.2 forward-version guard FIRST — never normalize a newer deck down.
   if (isNewerSchema(raw.schemaVersion, DECK_SCHEMA_VERSION))
     throw new Error(newerSchemaMessage(path.relative(root, p), raw.schemaVersion, DECK_SCHEMA_VERSION));
-  // WS-4.4: the one chokepoint (migration + track-id backfill), shared with
-  // the GUI seams — flux-core used to skip ensureTrackIds.
   return slideOps.normalizeDeck(raw);
 }
 
@@ -161,25 +169,19 @@ export async function createDeck(
   return { deckId: deck.id, path: deckRel(deck.id) };
 }
 
-/** add-slide: append a slide to a deck. */
+/** add-slide: append a slide to a deck (layout starters seed figure `text`
+ *  elements at figure-ruler sizes). */
 export async function addSlide(
   root: string,
   deckId: string,
   opts: { name?: string; layout?: import("../src/lib/slide/types").LayoutId } = {},
 ): Promise<{ slideId: string }> {
   return mutateDeck(root, deckId, "add_slide", (deck) => {
-    const slide = slideOps.addSlide(deck, opts);
+    const slide = slideOps.addSlide(deck, { ...opts, starters: true });
     return { slideId: slide.id };
   });
 }
 
-// --------------------------------------------------------------------------
-// W11b (AGT-6/SLD-6): slide-authoring verbs. The whole Slides pillar was
-// CLI-only (5 verbs) with ZERO MCP tools and no way to add content, beats, or
-// animations headlessly. These wrap the pure slideOps so an agent can build an
-// animated deck with the app closed (and via MCP). Each throws with a clear
-// message if the deck/slide/beat target is missing.
-// --------------------------------------------------------------------------
 const mustSlide = (deck: Deck, slideId: string) => {
   const s = slideOps.slideById(deck, slideId);
   if (!s) throw new Error(`slide not found: ${slideId}`);
@@ -194,7 +196,7 @@ export async function deleteSlide(root: string, deckId: string, slideId: string)
   });
 }
 
-/** duplicate-slide: deep-copy a slide (fresh element/beat/track ids). */
+/** duplicate-slide: deep-copy a slide (fresh element/group/beat/track ids). */
 export async function duplicateSlide(root: string, deckId: string, slideId: string): Promise<{ slideId: string }> {
   return mutateDeck(root, deckId, "duplicate_slide", (deck) => {
     mustSlide(deck, slideId);
@@ -226,50 +228,41 @@ export async function setDeckTheme(root: string, deckId: string, theme: string):
   });
 }
 
-/** add-text: add a text box to a slide. Returns the new element id. */
+/** add-text: add a figure `text` element to a slide (the SAME constructor +
+ *  headless layout convention add_fig_text uses). Returns the new element id. */
 export async function addTextToSlide(
   root: string,
   deckId: string,
   slideId: string,
-  opts: slideOps.TextBoxOpts,
+  opts: { text: string } & Box & TextOpts,
 ): Promise<{ elementId: string }> {
   return mutateDeck(root, deckId, "add_text", (deck) => {
     mustSlide(deck, slideId);
-    const id = slideOps.addTextBox(deck, slideId, opts);
+    const id = slideOps.addSlideText(deck, slideId, opts);
     if (!id) throw new Error(`could not add text to ${slideId}`);
     return { elementId: id };
   });
 }
 
-/** add-math: add a KaTeX math element to a slide. Returns the new element id. */
-export async function addMathToSlide(
+/** add-figure: COPY a project figure's elements + groups onto a slide (fresh
+ *  ids, native size — the shared 96/in ruler — fit only if it exceeds the
+ *  stage). Plot parts stay addressable for animate_part. The headless twin of
+ *  the GUI's "Send to deck". Returns the new element ids. */
+export async function addFigureToSlide(
   root: string,
   deckId: string,
   slideId: string,
-  opts: slideOps.MathOpts,
-): Promise<{ elementId: string }> {
-  return mutateDeck(root, deckId, "add_math", (deck) => {
+  figureId: string,
+  opts: { x?: number; y?: number } = {},
+): Promise<{ elementIds: string[] }> {
+  const { project } = await loadFigModel(root);
+  const figure = project.figures.find((f) => f.id === figureId);
+  if (!figure) throw new Error(`figure not found: ${figureId}`);
+  return mutateDeck(root, deckId, "add_slide_figure", (deck) => {
     mustSlide(deck, slideId);
-    const id = slideOps.addMath(deck, slideId, opts);
-    if (!id) throw new Error(`could not add math to ${slideId}`);
-    return { elementId: id };
-  });
-}
-
-/** add-embed-figure: place a project figure (by id) onto a slide — its panels
- *  stay addressable, so an agent can animate them. No asset bytes to ingest: the
- *  figure lives in fig/, resolved at render/export. Returns the new element id. */
-export async function addEmbedFigureToSlide(
-  root: string,
-  deckId: string,
-  slideId: string,
-  opts: slideOps.EmbedFigureOpts,
-): Promise<{ elementId: string }> {
-  return mutateDeck(root, deckId, "add_embed_figure", (deck) => {
-    mustSlide(deck, slideId);
-    const id = slideOps.addEmbedFigure(deck, slideId, opts);
-    if (!id) throw new Error(`could not embed figure on ${slideId}`);
-    return { elementId: id };
+    const ids = slideOps.addFigureContentToSlide(deck, slideId, figure, opts);
+    if (!ids.length) throw new Error(`figure ${figureId} has no elements to copy`);
+    return { elementIds: ids };
   });
 }
 
@@ -401,8 +394,9 @@ export async function setPartVisibility(
 }
 
 /** set-part-style: merge a style patch (stroke/fill/strokeWidth/opacity/fontSize/
- *  fontFamily/fontWeight/hidden…) into one plot part's override — the slide X-ray
- *  cockpit's write path. Null values delete keys. */
+ *  fontFamily/fontWeight/hidden…) into one plot part's override on a slide
+ *  element — through the SAME id-keyed override core the figure editor writes
+ *  (ops.mergePartOverride). Null values delete keys. */
 export async function setPartStyle(
   root: string,
   deckId: string,
@@ -411,14 +405,37 @@ export async function setPartStyle(
   patch: Record<string, string | number | boolean | null>,
 ): Promise<void> {
   await mutateDeck(root, deckId, "set_part_style", (deck) => {
+    const found = slideOps.findElement(deck, elementId);
+    if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
     slideOps.setPartStyle(deck, elementId, part, patch);
   });
 }
 
+/** Resolve a plot's manifest for suggestion/compat gating: the element's
+ *  authored source paths, then the plots/ convention, then fig/assets/ by id
+ *  (figure-derived copies from Send to deck / add_slide_figure). */
+async function readPlotManifest(
+  root: string,
+  el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } },
+): Promise<FluxPlotManifest | undefined> {
+  const candidates: string[] = [];
+  if (el.source?.manifestPath) candidates.push(el.source.manifestPath);
+  if (el.source?.svgPath) candidates.push(el.source.svgPath.replace(/\.svg$/i, ".fluxplot.json"));
+  candidates.push(j("plots", `${el.assetId}.fluxplot.json`));
+  candidates.push(j("fig", "assets", `${el.assetId}.fluxplot.json`));
+  for (const rel of candidates) {
+    try {
+      return JSON.parse(await fs.readFile(safeJoin(root, rel), "utf8")) as FluxPlotManifest;
+    } catch {
+      /* next candidate */
+    }
+  }
+  return undefined;
+}
+
 /** animate-part: ensure ONE plot part animates in — re-enables existing tracks
  *  (preserving authored timing) or adds the plot's suggested default reveal.
- *  Needs the plot's manifest to suggest well; resolved from the element's svg
- *  sidecar like the export gatherer. Returns the beat index used. */
+ *  Returns the beat index used. */
 export async function animatePartVerb(
   root: string,
   deckId: string,
@@ -431,29 +448,23 @@ export async function animatePartVerb(
     mustSlide(deck, slideId);
     const found = slideOps.findElement(deck, elementId);
     if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
-    const el = found.el as { assetId: string; source?: { svgPath?: string; manifestPath?: string } };
-    let manifest: FluxPlotManifest | undefined;
-    const sp = el.source?.svgPath ?? j("plots", `${el.assetId}.svg`);
-    const mp = el.source?.manifestPath ?? sp.replace(/\.svg$/i, ".fluxplot.json");
-    try { manifest = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* suggest without hints */ }
+    const manifest = await readPlotManifest(root, found.el);
     const bi = animatePart(deck, slideId, elementId, part, manifest, beatIndex);
     if (bi < 0) throw new Error(`slide not found: ${slideId}`);
     return { beatIndex: bi };
   });
 }
 
-/** animate-element: give a whole element (text box / shape / image / math /
- *  line…) an enter or exit animation with per-kind defaults — the non-plot
- *  analog of animate-part. `part` narrows to a named node inside the element:
- *  on an embedFigure, "group:<groupId>" targets one of the figure's named
- *  groups (ids via the figure-side list_groups / groups digest) with the P9
- *  defaults (enter fade / exit fadeOut). Returns the beat index + track id. */
+/** animate-element: give a whole element (text / shape / line / image / plot)
+ *  an enter or exit animation with per-kind defaults — the non-plot analog of
+ *  animate-part. `part` narrows to a named plot part. Returns the beat index +
+ *  track id. */
 export async function animateElementVerb(
   root: string,
   deckId: string,
   slideId: string,
   elementId: string,
-  opts: { beatIndex?: number; exit?: boolean; preset?: Track["preset"]; wholeBox?: boolean; part?: string } = {},
+  opts: { beatIndex?: number; exit?: boolean; preset?: Track["preset"]; part?: string } = {},
 ): Promise<{ beatIndex: number; trackId: string }> {
   return mutateDeck(root, deckId, "animate_element", (deck) => {
     mustSlide(deck, slideId);
@@ -479,19 +490,13 @@ export async function setMorph(
     const found = slideOps.findElement(deck, elementId);
     if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
     if (!opts.force) {
-      const el = found.el as { assetId: string; source?: { svgPath?: string; manifestPath?: string } };
-      const readManifest = async (assetId: string, svgPath?: string, manifestPath?: string) => {
-        const sp = svgPath ?? j("plots", `${assetId}.svg`);
-        const mp = manifestPath ?? sp.replace(/\.svg$/i, ".fluxplot.json");
-        try { return JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { return undefined; }
-      };
-      const A = await readManifest(el.assetId, el.source?.svgPath, el.source?.manifestPath);
-      const B = await readManifest(toAssetId);
+      const A = await readPlotManifest(root, found.el);
+      const B = await readPlotManifest(root, { assetId: toAssetId });
       const [cand] = listMorphCandidates(A, [{ assetId: toAssetId, manifest: B }]);
-      if (!cand?.compatible) throw new Error(`morph ${el.assetId} → ${toAssetId}: structurally incompatible (no shared tweenable series). Pass force to author anyway.`);
+      if (!cand?.compatible) throw new Error(`morph ${found.el.assetId} → ${toAssetId}: structurally incompatible (no shared tweenable series). Pass force to author anyway.`);
     }
-    // WS-4.4: persist explicit target paths when the project manifest knows
-    // them, so later loads/exports never guess `plots/<id>.svg`.
+    // Persist explicit target paths when the project manifest knows them, so
+    // later loads/exports never guess `plots/<id>.svg`.
     const man = (await loadManifest(root).catch(() => null)) as unknown as {
       plots?: { id: string; path?: string; svgPath?: string; manifestPath?: string }[];
     } | null;
@@ -507,106 +512,135 @@ export async function setMorph(
 }
 
 // --------------------------------------------------------------------------
-// export — the portable .html (§7/§8.2), fully headless (no browser)
+// export — the portable .html, fully headless (no browser)
 // --------------------------------------------------------------------------
 function assetMime(kind: string): string {
   const m: Record<string, string> = {
     png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
-    webp: "image/webp", svg: "image/svg+xml", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+    webp: "image/webp", svg: "image/svg+xml",
   };
   return m[kind] ?? "application/octet-stream";
 }
 
-/** Gather everything a deck needs to render offline: deck-local media → data
- *  URIs, semantic plots (incl. morph targets) → inline SVG + manifest, project
- *  figures → standalone SVG (the headless figure render). Best-effort: a missing
- *  asset is simply absent (the element shows its placeholder) — but every gap
- *  that would make the export DIVERGE from the editor is reported in `warnings`
- *  so the caller can surface it instead of shipping a silently-broken file. */
+/** Gather everything a deck needs to render offline: deck-local media + fig/-
+ *  resolved media (BY ID) → data URIs (+ display sizes for crop rendering),
+ *  semantic plots (incl. morph targets) → inline SVG + manifest. Best-effort:
+ *  a missing asset is simply absent (the element shows its placeholder) — but
+ *  every gap that would make the export DIVERGE from the editor is reported in
+ *  `warnings` so the caller can surface it instead of shipping a silently-
+ *  broken file. */
 export async function gatherDeckPayload(
   root: string,
   deckId: string,
 ): Promise<{ payload: ExportPayload; warnings: string[] }> {
   const deck = await loadDeck(root, deckId);
   const assets: Record<string, string> = {};
+  const assetSizes: Record<string, { width: number; height: number }> = {};
   const plots: Record<string, { svg: string; manifest: FluxPlotManifest }> = {};
-  const figures: Record<string, string> = {};
-  const figureMembers: Record<string, Record<string, { type: string; name?: string; assetId?: string }>> = {};
   const warnings: string[] = [];
 
-  for (const a of deck.assets ?? []) {
-    if (!a.path) continue;
-    try {
-      const buf = await fs.readFile(safeJoin(root, j("slides", deck.id, a.path)));
-      assets[a.id] = `data:${assetMime(a.kind)};base64,${buf.toString("base64")}`;
-    } catch { warnings.push(`media asset "${a.id}" missing (${a.path}) — its element will show a placeholder`); }
+  // The by-id resolution table for figure-derived content.
+  let figAssets: { id: string; kind: string; path?: string; naturalWidth?: number; naturalHeight?: number; dpi?: number }[] = [];
+  try {
+    figAssets = ((await readJSON<{ assets?: typeof figAssets }>(safeJoin(root, j("fig", "index.json")))).assets) ?? [];
+  } catch {
+    /* no fig/ — nothing figure-derived to resolve */
   }
+  const displaySize = (a: { kind: string; naturalWidth?: number; naturalHeight?: number; dpi?: number }) => {
+    if (!(a.naturalWidth && a.naturalHeight)) return null;
+    const k = a.kind === "png" && a.dpi && a.dpi > 0 ? 96 / a.dpi : 1;
+    return { width: a.naturalWidth * k, height: a.naturalHeight * k };
+  };
+
+  const deckAsset = (id: string) => deck.assets.find((a) => a.id === id);
+
+  // Raster/media bytes by id: deck-local first, then fig/ by id.
+  const collectMedia = async (assetId: string): Promise<boolean> => {
+    if (assets[assetId]) return true;
+    const da = deckAsset(assetId);
+    if (da?.path) {
+      try {
+        const buf = await fs.readFile(safeJoin(root, j("slides", deck.id, da.path)));
+        assets[assetId] = `data:${assetMime(da.kind)};base64,${buf.toString("base64")}`;
+        const ds = displaySize(da);
+        if (ds) assetSizes[assetId] = ds;
+        return true;
+      } catch {
+        warnings.push(`media asset "${assetId}" missing (${da.path}) — its element will show a placeholder`);
+        return false;
+      }
+    }
+    const fa = figAssets.find((x) => x.id === assetId);
+    if (fa?.path) {
+      try {
+        const buf = await fs.readFile(safeJoin(root, j("fig", fa.path)));
+        assets[assetId] = `data:${assetMime(fa.kind)};base64,${buf.toString("base64")}`;
+        const ds = displaySize(fa);
+        if (ds) assetSizes[assetId] = ds;
+        return true;
+      } catch {
+        warnings.push(`fig/ asset "${assetId}" unreadable (${fa.path}) — its element will show a placeholder`);
+        return false;
+      }
+    }
+    return false;
+  };
 
   const manifest = await loadManifest(root).catch(() => null);
   const plotIndex = ((manifest as unknown as { plots?: { id: string; path?: string; svgPath?: string; manifestPath?: string }[] })?.plots) ?? [];
   const collectPlot = async (assetId: string, svgPath?: string, manifestPath?: string) => {
     if (plots[assetId]) return;
     const entry = plotIndex.find((p) => p.id === assetId);
-    // Insertable plot ids ARE their path under plots/ minus ".svg", so the
-    // convention fallback makes bare-assetId references (morph targets) work.
-    const sp = svgPath ?? entry?.svgPath ?? entry?.path ?? j("plots", `${assetId}.svg`);
-    // Sibling convention: NN.svg ↔ NN.fluxplot.json — the SAME fallback the app's
-    // loadDeckAssets uses. Without it the export sees an empty manifest, group
-    // parts (ticks/points/gridlines) never expand, and animations silently no-op
-    // in the exported file while previewing fine in the editor.
-    const mp = manifestPath ?? entry?.manifestPath ?? sp.replace(/\.svg$/i, ".fluxplot.json");
-    try {
-      const svg = await fs.readFile(safeJoin(root, sp), "utf8");
-      let m: FluxPlotManifest | undefined;
-      try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* optional sidecar */ }
-      // The SAME preparePlot seam the app's cachePlot (and the export runtime's
-      // boot) runs: a sidecar-less vanilla svg gets a DERIVED manifest, a real
-      // one gets orphan augmentation — so the payload manifest matches what the
-      // runtime will compute, and the parity audit below sees the truth. The
-      // export snapshot MAY carry a derived manifest (the never-persist rule is
-      // about project sidecars, not this self-contained payload; the runtime
-      // re-derives identically from the same bytes anyway).
-      await ensureDom();
-      m = preparePlot(svg, m).manifest ?? m;
-      plots[assetId] = { svg, manifest: m ?? ({ axes: [], series: [] } as unknown as FluxPlotManifest) };
-    } catch { warnings.push(`plot "${assetId}" not found (${sp}) — it will be missing from the export`); }
+    const da = deckAsset(assetId);
+    // Resolution order: deck-local bytes → authored source → manifest plots
+    // index → plots/<id>.svg convention → fig/assets/<id>.svg (figure-derived
+    // copies from Send to deck / add_slide_figure).
+    const sps = [
+      ...(da?.path && da.kind === "svg" ? [j("slides", deck.id, da.path)] : []),
+      ...(svgPath ? [svgPath] : []),
+      ...(entry?.svgPath ? [entry.svgPath] : entry?.path ? [entry.path] : []),
+      j("plots", `${assetId}.svg`),
+      j("fig", "assets", `${assetId}.svg`),
+    ];
+    for (const sp of sps) {
+      try {
+        const svg = await fs.readFile(safeJoin(root, sp), "utf8");
+        // Sibling convention: NN.svg ↔ NN.fluxplot.json — the SAME fallback the
+        // app's loader uses. Without it the export sees an empty manifest and
+        // part animations silently no-op offline.
+        const mp = manifestPath ?? entry?.manifestPath ?? sp.replace(/\.svg$/i, ".fluxplot.json");
+        let m: FluxPlotManifest | undefined;
+        try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; } catch { /* optional sidecar */ }
+        // The SAME preparePlot seam the app's cachePlot runs: a sidecar-less
+        // vanilla svg gets a DERIVED manifest, a real one gets orphan
+        // augmentation — the payload manifest matches what the runtime computes.
+        await ensureDom();
+        m = preparePlot(svg, m).manifest ?? m;
+        plots[assetId] = { svg, manifest: m ?? ({ axes: [], series: [] } as unknown as FluxPlotManifest) };
+        return;
+      } catch {
+        /* next candidate */
+      }
+    }
+    warnings.push(`plot "${assetId}" not found — it will be missing from the export`);
   };
+
+  // Deck-local media loads up front: a registered asset whose bytes vanished
+  // is a diagnostic even before any element references it.
+  for (const a of deck.assets ?? []) await collectMedia(a.id);
 
   for (const s of deck.slides) {
     for (const el of s.elements) {
-      if (el.type === "plot") await collectPlot(el.assetId, el.source?.svgPath, el.source?.manifestPath);
-      else if (el.type === "embedFigure") {
-        // Group-scoped embeds are keyed "fid::gid" — the SAME convention the
-        // live loadDeckAssets cache and the export runtime resolver use.
-        const key = el.groupId ? `${el.figureId}::${el.groupId}` : el.figureId;
-        if (!figures[key]) {
-          try { figures[key] = await renderFigureSvg(root, el.figureId, el.groupId ? { groupId: el.groupId } : undefined); } catch {
-            warnings.push(`figure "${el.figureId}" could not be rendered — its element will show a placeholder`);
-          }
-          // WS-12: the embedded snapshot is exactly what the export will show.
-          warnings.push(...(await textLayoutProbe(root, { figureId: el.figureId })));
-        }
-        // Member metadata + member plot manifests: "el:<mid>" / "el:<mid>/<partId>"
-        // tracks need them offline. Member plots live under fig/assets/ (their
-        // svg is already inside the figure markup — the manifest is what the
-        // player's part fan-out reads, keyed by assetId in payload.plots).
-        if (!figureMembers[el.figureId]) {
-          try {
-            const members = await figureMembersOf(root, el.figureId);
-            figureMembers[el.figureId] = members;
-            for (const m of Object.values(members)) {
-              if (!m.assetId || plots[m.assetId]) continue;
-              try {
-                const svg = await fs.readFile(safeJoin(root, j("fig", "assets", `${m.assetId}.svg`)), "utf8");
-                let man: FluxPlotManifest | undefined;
-                try { man = JSON.parse(await fs.readFile(safeJoin(root, j("fig", "assets", `${m.assetId}.fluxplot.json`)), "utf8")) as FluxPlotManifest; } catch { /* optional sidecar */ }
-                await ensureDom();
-                man = preparePlot(svg, man).manifest ?? man;
-                plots[m.assetId] = { svg, manifest: man ?? ({ axes: [], series: [] } as unknown as FluxPlotManifest) };
-              } catch { /* member plot manifest is best-effort */ }
-            }
-          } catch { /* member metadata is best-effort */ }
-        }
+      if (el.type === "plot") {
+        await collectPlot(el.assetId, el.source?.svgPath, el.source?.manifestPath);
+        await collectMedia(el.assetId); // <image> fallback bytes
+      } else if (el.type === "image") {
+        if (!(await collectMedia(el.assetId)))
+          warnings.push(`image asset "${el.assetId}" unresolvable — its element will show a placeholder`);
+      } else if (el.type === "text" && el.needsLayout) {
+        warnings.push(
+          `text element "${el.id}" on slide "${s.id}" was edited headlessly and awaits a GUI re-wrap (needsLayout) — its wrapping may differ until the deck is opened once in Flux`,
+        );
       }
     }
     for (const b of s.beats) for (const t of b.tracks) {
@@ -617,11 +651,7 @@ export async function gatherDeckPayload(
 
   // Parity audit: a part-targeting track whose part id the gathered manifest
   // does not cover cannot resolve to real nodes in the export (resolveTargets
-  // falls back to the literal id). Every gathered plot HAS a manifest now
-  // (derived when the sidecar is gone), so the honest check is id coverage:
-  // e.g. a fluxplot deck whose .fluxplot.json vanished derives a manifest
-  // WITHOUT the manifest-only group ids (axis.x.ticks, …) its tracks target —
-  // the editor may still have looked animated via a cached manifest.
+  // falls back to the literal id).
   const partIdx = new Map<string, Record<string, unknown>>();
   const coveredPart = (assetId: string, part: string): boolean => {
     if (!partIdx.has(assetId)) partIdx.set(assetId, buildPartIndex(plots[assetId]?.manifest));
@@ -640,7 +670,19 @@ export async function gatherDeckPayload(
       }
     }
   }
-  return { payload: { deck, plots, figures, assets, ...(Object.keys(figureMembers).length ? { figureMembers } : {}) }, warnings };
+  // Dangling targets are tolerated (they no-op) but the export should say so.
+  for (const d of slideOps.danglingTrackTargets(deck)) {
+    warnings.push(`slide "${d.slideId}" beat "${d.beatId}" animates a deleted element ("${d.target}") — the track plays as a no-op`);
+  }
+  return {
+    payload: {
+      deck,
+      plots,
+      assets,
+      ...(Object.keys(assetSizes).length ? { assetSizes } : {}),
+    },
+    warnings,
+  };
 }
 
 /** export-deck: gather + emit the self-contained .html (defaults to
@@ -662,13 +704,18 @@ export interface ValidateDeckResult {
   ok: boolean;
   checked: number;
   errors: string[];
+  /** Non-fatal findings: dangling beat targets (tolerated, surfaced, never
+   *  auto-pruned) and similar advisory diagnostics. */
+  warnings: string[];
 }
 
-/** validate-deck: check one deck (or every deck) against the bundled deck schema. */
+/** validate-deck: check one deck (or every deck) against the bundled deck
+ *  schema; report dangling beat targets as WARNINGS (not errors). */
 export async function validateDeck(root: string, deckId?: string): Promise<ValidateDeckResult> {
   const ajv = new Ajv({ allErrors: true, strict: false });
   const v = ajv.compile(SCHEMAS.deck);
   const errors: string[] = [];
+  const warnings: string[] = [];
   let checked = 0;
   const checkOne = async (id: string) => {
     const rel = deckRel(id);
@@ -685,12 +732,18 @@ export async function validateDeck(root: string, deckId?: string): Promise<Valid
       errors.push(`${rel}: not valid JSON (${(e as Error).message})`);
       return;
     }
-    if (!v(data)) for (const e of v.errors ?? []) errors.push(`${rel}: ${e.instancePath || "(root)"} ${e.message ?? "invalid"}`);
+    if (!v(data)) {
+      for (const e of v.errors ?? []) errors.push(`${rel}: ${e.instancePath || "(root)"} ${e.message ?? "invalid"}`);
+      return;
+    }
+    for (const d of slideOps.danglingTrackTargets(data as Deck)) {
+      warnings.push(`${rel}: slide "${d.slideId}" beat "${d.beatId}" targets a missing element "${d.target}" (tolerated — the track no-ops; undo/re-add the element to restore it)`);
+    }
   };
   if (deckId) {
     await checkOne(deckId);
   } else {
     for (const d of await listDecks(root)) await checkOne(d.id);
   }
-  return { ok: errors.length === 0, checked, errors };
+  return { ok: errors.length === 0, checked, errors, warnings };
 }

@@ -395,7 +395,7 @@ server.registerTool(
   "set_animation",
   {
     description:
-      "Add (or replace) an animation track on a beat — the general mechanism behind every preset. `target` is an element id, or '@camera'/'@stage'. `preset` picks the motion (fade, fadeRise, popIn, drawOn, stagger, writeOn, highlight, dim, move, scale, rotate, camera, morph, …). `part` targets one plot semantic id — or, on an embedFigure element, one of the figure's named groups as 'group:<groupId>' (group ids from the figure-side list_groups / groups digest; the group animates as one unit). `to` is the destination for morph (to.assetId = a second same-structure plot) / camera (to.{x,y,zoom}). `start`/`duration` are ms within the beat.",
+      "Add (or replace) an animation track on a beat — the general mechanism behind every preset. `target` is an element id, or '@camera'/'@stage'. `preset` picks the motion (fade, fadeRise, popIn, drawOn, stagger, writeOn, highlight, dim, move, scale, rotate, camera, morph, …). `part` targets one plot semantic id (leaf like 'fit.line' or group like 'axis.x' — groups fan out to their leaves at play time). `to` is the destination for morph (to.assetId = a second same-structure plot) / camera (to.{x,y,zoom}). `start`/`duration` are ms within the beat.",
     inputSchema: {
       deckId: z.string(),
       slideId: z.string(),
