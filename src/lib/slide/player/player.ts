@@ -35,10 +35,6 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   theme: DeckTheme;
   /** assetId → its plot manifest (for role/series/index part targeting). */
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
-  /** (figureId, memberElementId) → the member's plot assetId, when it is a
-   *  semantic plot — lets "el:<mid>/<partId>" tracks fan a container part id
-   *  (e.g. "axis.x") out to leaves via that plot's manifest. */
-  figureMember?: (figureId: string, elementId: string) => { assetId?: string } | undefined;
   reducedMotion?: boolean;
 }
 
@@ -107,53 +103,20 @@ function manifestFor(target: string, slide: Slide, opts: PlayerOpts): FluxPlotMa
   return assetId ? opts.plotManifest?.(assetId) : undefined;
 }
 
-/** A track → the DOM nodes it animates (whole element, text blocks, a plot part,
- *  a plot part-set by role/series/index, or the camera layer). */
+/** A track → the DOM nodes it animates (whole element, a plot part, a plot
+ *  part-set by role/series/index, or the camera layer). A DANGLING target
+ *  (its element deleted in the editor) resolves to [] — the track no-ops
+ *  cleanly; it is surfaced by the animator/diagnostics, never pruned. */
 function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, opts: PlayerOpts): TargetNode[] {
   if (track.target === "@camera" || track.target === "@stage") return [cameraLayer];
   const wrap = rendered.elements.get(track.target);
   if (!wrap) return [];
-
-  // text-box blocks (reveal bullets)
-  if (track.selector?.blocks) {
-    const blocks = Array.from(wrap.querySelectorAll<HTMLElement>(".sl-block"));
-    if (track.selector.blocks === "all") return blocks;
-    const want = new Set(track.selector.blocks);
-    return blocks.filter((b) => want.has(b.dataset.blockId ?? ""));
-  }
 
   // a plot part OR a part-GROUP by parts-tree id: a leaf id → that one node; a
   // group/container id (e.g. "axis.x", "series.main.point-group") → every leaf
   // member, in tree order. This is the only path that reaches axis parts (spine/
   // ticks/labels/gridlines live in the parts tree, not the series part-index).
   if (track.part) {
-    // A named FIGURE GROUP inside an embedFigure (P9): the mounted figureSvg
-    // carries the export wrapper `<g data-flux-group id="<figureId>__group:<gid>">`
-    // (figureToSvg), so part = "group:<gid>" resolves by the same
-    // `${prefix}${SEP}${semanticId}` grammar — with the FIGURE id as the prefix
-    // (one shared markup per figure). Scoping the query to THIS element's
-    // wrapper keeps the same figure embedded twice resolving per instance.
-    // Animating the wrapper <g> animates the whole group (children inherit).
-    const el = slide.elements.find((e) => e.id === track.target);
-    if (el?.type === "embedFigure") {
-      // "el:<memberId>/<partId>": a semantic part INSIDE a member plot — the
-      // figure markup already carries `<memberId>__<partId>` ids (plot markup
-      // is id-prefixed by its figure ELEMENT id), so fan the part id out via
-      // that plot's manifest (container ids → leaves; no manifest → literal).
-      const m = /^el:([^/]+)\/(.+)$/.exec(track.part);
-      if (m) {
-        const manifest = opts.figureMember?.(el.figureId, m[1])?.assetId
-          ? opts.plotManifest?.(opts.figureMember(el.figureId, m[1])!.assetId!)
-          : undefined;
-        return resolveTargets(manifest, m[2])
-          .map((id) => wrap.querySelector<SVGElement>(`[id="${m[1]}${SEP}${id}"]`))
-          .filter((n): n is SVGElement => !!n);
-      }
-      // "group:<gid>" (P9 wrapper) or "el:<memberId>" (per-element wrapper):
-      // both live on `<figureId>__…` ids in the mounted figure markup.
-      const node = wrap.querySelector<SVGElement>(`[id="${el.figureId}${SEP}${track.part}"]`);
-      return node ? [node] : [];
-    }
     const ids = resolveTargets(manifestFor(track.target, slide, opts), track.part);
     return ids
       .map((id) => wrap.querySelector<SVGElement>(`[id="${track.target}${SEP}${id}"]`))
@@ -234,12 +197,14 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       }
       // countUp — a number-tween driver sharing the morph plumbing (rAF play,
       // static seek 0|1, reduced-motion snap). Targets the first resolved node;
-      // for a whole text box, drill to its first .sl-block so writing the tween
-      // text doesn't flatten the box's block structure.
+      // for a text element, drill to the innermost tspan/text node so writing
+      // the tween text doesn't flatten the rendered markup.
       if (track.preset === "countUp") {
         let node = resolveNodes(track, slide, rendered, cameraLayer, opts)[0];
-        const block = (node as HTMLElement | undefined)?.querySelector?.(".sl-block");
-        if (block) node = block as HTMLElement;
+        const textNode =
+          (node as HTMLElement | undefined)?.querySelector?.("tspan") ??
+          (node as HTMLElement | undefined)?.querySelector?.("text");
+        if (textNode) node = textNode as unknown as HTMLElement;
         if (node) {
           specs.push({
             node, beatIndex: bi, keyframes: [], enter: false, key,
@@ -495,8 +460,14 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let autoTimer: ReturnType<typeof setTimeout> | undefined;
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set() };
 
-  const figureSvg = opts.figureSvg;
-  const renderCtx: SlideRenderCtx = { theme: opts.theme, assetUrl: opts.assetUrl, figureSvg, plotGen: opts.plotGen, mode: opts.mode };
+  const renderCtx: SlideRenderCtx = {
+    theme: opts.theme,
+    assetUrl: opts.assetUrl,
+    assetSize: opts.assetSize,
+    plotGen: opts.plotGen,
+    deckBackground: deck.background,
+    mode: opts.mode,
+  };
 
   function emit(ev: Ev) {
     const s = state();
@@ -504,7 +475,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function buildSlide(si: number) {
     const slide = deck.slides[si];
-    mount.style.background = slide.background ?? opts.theme.background;
+    mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
     rendered = renderSlide(cameraLayer, slide, stage, renderCtx);
     specs = computeSlideAnims(slide, rendered, cameraLayer, stage, opts);
     // Seed the resting camera to the slide's base pose; camera tracks animate from
@@ -669,7 +640,14 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
 /** Editor helper: render a slide and freeze it at `beat`'s static state (so the
  *  beat scrubber previews builds). The host doubles as the camera layer. */
 export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize, beat: number, opts: PlayerOpts): RenderedSlide {
-  const ctx: SlideRenderCtx = { theme: opts.theme, assetUrl: opts.assetUrl, figureSvg: opts.figureSvg, plotGen: opts.plotGen, mode: opts.mode };
+  const ctx: SlideRenderCtx = {
+    theme: opts.theme,
+    assetUrl: opts.assetUrl,
+    assetSize: opts.assetSize,
+    plotGen: opts.plotGen,
+    deckBackground: opts.deckBackground,
+    mode: opts.mode,
+  };
   const rendered = renderSlide(host, slide, stage, ctx);
   const specs = computeSlideAnims(slide, rendered, host, stage, opts);
   applyStatic(specs, beat);

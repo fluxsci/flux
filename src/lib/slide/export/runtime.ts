@@ -21,14 +21,10 @@ export interface ExportPayload {
   deck: Deck;
   /** assetId → { inline plot SVG, its manifest } (semantic parts stay live). */
   plots?: Record<string, { svg: string; manifest: FluxPlotManifest }>;
-  /** figureId (or "figureId::groupId" for group-scoped embeds) → standalone SVG markup. */
-  figures?: Record<string, string>;
-  /** figureId → memberElementId → {type, name?, plot assetId} — lets the
-   *  runtime resolve "el:<mid>/<partId>" tracks via the member plot manifest
-   *  (which rides in `plots` keyed by that assetId). */
-  figureMembers?: Record<string, Record<string, { type: string; name?: string; assetId?: string }>>;
-  /** assetId → data: URI (images/video). */
+  /** assetId → data: URI (raster images; plot <image> fallbacks). */
   assets?: Record<string, string>;
+  /** assetId → intrinsic display size (crop rendering of raster elements). */
+  assetSizes?: Record<string, { width: number; height: number }>;
 }
 
 export function boot(mount: HTMLElement, payload: ExportPayload): Player {
@@ -80,9 +76,8 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       mode: "export",
       theme,
       assetUrl: (id) => payload.assets?.[id],
-      figureSvg: (id, gid) => payload.figures?.[gid ? `${id}::${gid}` : id],
+      assetSize: (id) => payload.assetSizes?.[id],
       plotManifest: (id) => get(plotManifests)[id],
-      figureMember: (fid, mid) => payload.figureMembers?.[fid]?.[mid],
       reducedMotion, // default OFF: a talk is meant to animate regardless of OS setting (C15)
     });
     player.on("change", () => { renderHud(); renderPanel(); });
@@ -119,12 +114,12 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       `<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.4)">${pm.nextLabel}</div>`;
     if (pm.nextIdx >= 0) {
       const frame = document.createElement("div");
-      frame.style.cssText = `position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.14);border-radius:6px;width:${NEXT_W}px;height:${deck.stage.height * nextScale}px;background:${deck.slides[pm.nextIdx].background ?? theme.background};`;
+      frame.style.cssText = `position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.14);border-radius:6px;width:${NEXT_W}px;height:${deck.stage.height * nextScale}px;background:${deck.slides[pm.nextIdx].background ?? deck.background ?? theme.background};`;
       nextScaled.innerHTML = "";
       const inner = document.createElement("div");
       inner.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;`;
       nextScaled.appendChild(inner);
-      try { renderStaticAt(inner, deck.slides[pm.nextIdx], deck.stage, Math.max(0, deck.slides[pm.nextIdx].beats.length - 1), { mode: "export", theme, assetUrl: (id) => payload.assets?.[id], figureSvg: (id, gid) => payload.figures?.[gid ? `${id}::${gid}` : id], plotManifest: (id) => get(plotManifests)[id], figureMember: (fid, mid) => payload.figureMembers?.[fid]?.[mid] }); } catch (_e) { /* preview best-effort */ }
+      try { renderStaticAt(inner, deck.slides[pm.nextIdx], deck.stage, Math.max(0, deck.slides[pm.nextIdx].beats.length - 1), { mode: "export", theme, assetUrl: (id) => payload.assets?.[id], assetSize: (id) => payload.assetSizes?.[id], plotManifest: (id) => get(plotManifests)[id], deckBackground: deck.background }); } catch (_e) { /* preview best-effort */ }
       frame.appendChild(nextScaled);
       panel.appendChild(frame);
     }

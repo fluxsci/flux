@@ -28,7 +28,6 @@ const runtimeEntry = path.join(here, "runtime.ts");
 export interface ExportAssets {
   runtime: string;
   gelasio: string;
-  katexCss: string;
   /** Repo-relative source files the runtime bundle was built from (staleness guard). */
   sources?: string[];
   /** sha256 over the sorted (path, content) pairs of `sources` at bake time. */
@@ -94,37 +93,16 @@ async function computeGelasio(): Promise<string> {
   return faces.join("\n");
 }
 
-/** Read KaTeX's CSS and inline its woff2 fonts as data URIs (drop woff/ttf src
- *  entries) so equations render offline. */
-async function computeKatexCss(): Promise<string> {
-  const distDir = path.join(repoRoot, "node_modules/katex/dist");
-  let css = await readFile(path.join(distDir, "katex.min.css"), "utf8");
-  const woff2 = [...css.matchAll(/url\(fonts\/([\w-]+\.woff2)\)/g)].map((m) => m[1]);
-  for (const name of new Set(woff2)) {
-    try {
-      const data = b64(await readFile(path.join(distDir, "fonts", name)));
-      css = css.replaceAll(`url(fonts/${name})`, `url(data:font/woff2;base64,${data})`);
-    } catch {
-      /* skip a missing variant */
-    }
-  }
-  // strip the now-broken woff/ttf alternates (offline they'd 404)
-  css = css.replace(/,url\(fonts\/[\w-]+\.(?:woff|ttf)\)\s*format\("[^"]+"\)/g, "");
-  return css;
-}
-
 /** Build-time producer: compute every deck-independent asset from source.
- *  Called by scripts/gen-export-assets.ts to write the shipped sidecar. */
+ *  Called by scripts/gen-export-assets.ts to write the shipped sidecar.
+ *  (KaTeX inlining left with the math element — slide text is the figure
+ *  text element now; a future math element re-adds its CSS here.) */
 export async function computeExportAssets(): Promise<ExportAssets> {
-  const [rt, gelasio, katexCss] = await Promise.all([
-    computeRuntime(),
-    computeGelasio(),
-    computeKatexCss(),
-  ]);
+  const [rt, gelasio] = await Promise.all([computeRuntime(), computeGelasio()]);
   let sourcesHash = "";
   try { sourcesHash = await hashSources(rt.sources); } catch { /* best-effort */ }
   return {
-    runtime: rt.text, gelasio, katexCss,
+    runtime: rt.text, gelasio,
     sources: rt.sources, sourcesHash, generatedAt: new Date().toISOString(),
   };
 }
@@ -187,13 +165,9 @@ export interface ExportResult {
 /** Build the self-contained HTML from a fully-gathered payload (deck + inlined
  *  plots/figures/assets). `warnThreshold` (bytes) flags video-heavy decks (§7.2). */
 export async function exportDeckHtml(payload: ExportPayload, opts: { warnThreshold?: number } = {}): Promise<ExportResult> {
-  const hasMath = payload.deck.slides.some((s) => s.elements.some((e) => e.type === "math"));
   const assets = await loadExportAssets();
   const runtime = assets.runtime;
   const gelasio = assets.gelasio;
-  // KaTeX CSS + its fonts weigh ~1 MB; only inline them when the deck actually has
-  // an equation (C12). Most decks have none, so this is the biggest size win.
-  const katexCss = hasMath ? assets.katexCss : "";
   const warnings: string[] = [];
 
   // JSON for a <script type=application/json>: only `<` needs neutralizing.
@@ -212,7 +186,6 @@ html,body{height:100%;background:#000;overflow:hidden}
 #flux-stage{position:fixed;inset:0}
 .sl-el{position:absolute}
 ${gelasio}
-${katexCss}
 </style>
 </head>
 <body>
