@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Flux Slide — the deck data model (the standard, designed before the UI).
+// Flux Slide — the deck data model.
 //
 // A deck is a plain, diffable `slides/<deckId>/deck.json` (the source of truth)
 // plus a deck-local `assets/` dir and an optional `theme.json`. A human and an
@@ -7,34 +7,51 @@
 // JSON-friendly (no class instances, functions, or DOM) so the on-disk format
 // stays open and inspectable, exactly like `src/lib/types.ts`.
 //
-// The element model reuses the figure `Element` union verbatim (so a plot
-// dropped on a slide is the same animation-ready `SemanticPlotElement`) and adds
-// four slide-only types that extend `ElementBase`. The beat/track model is the
-// build timeline: a beat is one "advance" step; a track is one animation within
-// it. The track shape is forward-compatible with full per-property keyframing
-// (§4.3 of the plan) — `keyframes[]` is purely additive, no migration.
+// A SLIDE IS A FIGURE (slide-migration, 2026-07): `Slide.elements` is the
+// figure `Element` union VERBATIM — there are no slide-only element types.
+// A slide is a figure's worth of elements (+ the figure group registry and
+// guides, so group/ungroup and the group-aware X-ray work identically) plus a
+// presentation overlay: background, transition, notes, camera, and the
+// beat/track build timeline. The Slide module edits slides with the figure
+// editor operating on the same element model; this file owns only the
+// presentation-side shapes.
 //
-// See: notes/ plan §4 (deck.json), §5 (the player/preset/morph), §4.3 (keyframes).
+// The beat/track model is the build timeline: a beat is one "advance" step; a
+// track is one animation within it. The track shape is forward-compatible with
+// full per-property keyframing — `keyframes[]` is purely additive.
+//
+// VIDEO SEAM: video returns later as a purpose-built slide-only element type
+// (with a video-capable asset kind). When it lands, it extends the element
+// union here (a discriminated addition next to the figure `Element` union) and
+// adds a render branch in player/render.ts. Nothing ships now.
 // ---------------------------------------------------------------------------
 
-import type { Element, ElementBase, Id } from "../types";
+import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../types";
 
-export const DECK_SCHEMA_VERSION = "0.1.0";
+// 0.x → the MINOR slot is the breaking slot (repo convention). 0.2.0 is the
+// slides-are-figures format; 0.1.x decks are a clean break (no migration —
+// they fail validation and quarantine like any invalid file).
+export const DECK_SCHEMA_VERSION = "0.2.0";
 
 // ---------------------------------------------------------------------------
 // Deck
 // ---------------------------------------------------------------------------
 
-/** Authoring resolution of the stage (16:9 by default). The player auto-scales
- *  this fixed canvas to any screen (letterboxed), so a deck authored at 1280×720
- *  fills any projector. */
+/** The stage frame every slide shares, in figure canvas px (96 units/inch —
+ *  the SAME physical ruler as figures, so a fluxplot saved at print size lands
+ *  at its true size on a slide exactly as it does on a figure). The default is
+ *  640×360 (16:9): a ~6.7″ × 3.75″ frame. The player scales this fixed frame
+ *  to any screen (vector — only aspect matters), and raster export multiplies
+ *  it to any DPI. The coordinate number is arbitrary; the only thing it
+ *  governs is how large a physically-sized import looks (width ÷ 96 = the
+ *  slide's virtual width in inches). Do not raise it toward 1280/1920 — that
+ *  is exactly what makes print-sized plots vanish. */
 export interface StageSize {
   width: number;
   height: number;
 }
 
-/** Slide-to-slide transitions (kept deliberately small — D7 holds the line on a
- *  big transition library). */
+/** Slide-to-slide transitions (kept deliberately small). */
 export type TransitionKind = "none" | "fade" | "slide" | "push";
 
 /** Named easings — map onto `src/lib/motion/tokens.ts` EASE + smoothEasing().
@@ -49,10 +66,10 @@ export interface Influence {
   out: number;
 }
 
-/** How the presenter reaches a beat (§4.2). `click` = a manual advance (the
- *  default "thing" you step to); `with-prev` chains onto the previous beat's
- *  click so several tracks land on one press; `auto` plays automatically
- *  `autoDelayMs` after the previous beat finishes. */
+/** How the presenter reaches a beat. `click` = a manual advance (the default
+ *  "thing" you step to); `with-prev` chains onto the previous beat's click so
+ *  several tracks land on one press; `auto` plays automatically `autoDelayMs`
+ *  after the previous beat finishes. */
 export type AdvanceMode = "click" | "with-prev" | "auto";
 
 export interface DeckDefaults {
@@ -61,29 +78,31 @@ export interface DeckDefaults {
   advance: AdvanceMode;
 }
 
-/** Deck-local imported media NOT owned by the project (screenshots, a video).
- *  Stored under `slides/<deckId>/assets/` and referenced by stable id. */
-export interface DeckAsset {
-  id: Id;
-  kind: "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "mp4" | "webm" | "mov";
-  /** Deck-relative path, e.g. "assets/paper-fig2.png". */
-  path: string;
-  naturalWidth?: number;
-  naturalHeight?: number;
-}
-
 export interface Deck {
   schemaVersion: string;
   id: Id;
   title: string;
   created: string;
   modified: string;
-  /** Authoring resolution; 16:9 default (also 1920×1080, 4:3). */
+  /** Fixed stage frame; ALL slides share it (default 640×360, figure ruler). */
   stage: StageSize;
   /** Built-in theme id (e.g. "flux-dark") OR "./theme.json". */
   theme: string;
   defaults: DeckDefaults;
-  assets: DeckAsset[];
+  /** Deck-level default slide background (falls back to the theme's). */
+  background?: string;
+  // Deck-level design tokens (mirror fig/index.json) so the figure editor's
+  // palette / color-groups / text-styles work unchanged while editing a slide.
+  palette?: string[];
+  colorGroups?: ColorGroup[];
+  textStyles?: TextStyle[];
+  /** Deck-local imported media, using the FIGURE `Asset` shape verbatim
+   *  ({id,name,kind:"png"|"svg",path,naturalWidth,naturalHeight,dpi?}), with
+   *  `path` relative to `slides/<deckId>/` (e.g. "assets/photo.png").
+   *  Project-owned content (plots, figure-derived elements) is resolved BY ID
+   *  against the project at load — never copied in here. (A video-capable
+   *  asset kind returns with the future video element — see the seam note.) */
+  assets: Asset[];
   slides: Slide[];
 }
 
@@ -92,7 +111,7 @@ export interface Deck {
 // ---------------------------------------------------------------------------
 
 /** A lightweight layout starter — merely pre-places elements when a slide is
- *  created; never a runtime constraint (D7: a few starters, not a library). */
+ *  created; never a runtime constraint. */
 export type LayoutId =
   | "title"
   | "section"
@@ -102,8 +121,7 @@ export type LayoutId =
   | "blank";
 
 /** The stage camera ({x,y} in stage coords = the focus point; zoom ≥ 1 pushes
- *  in). A per-beat camera animates a transform on the stage group — the 3b1b
- *  "zoom into the interesting part" move (fully Tier-1). */
+ *  in). A per-beat camera animates a transform on the stage group. */
 export interface Camera {
   x: number;
   y: number;
@@ -113,8 +131,19 @@ export interface Camera {
 export interface Slide {
   id: Id;
   name?: string;
+  /** Layout-starter role tag (title/section/…); used by add-slide starters. */
   layout?: LayoutId;
-  /** Slide background (CSS color); falls back to the theme background. */
+
+  // ── static content: a figure ──────────────────────────────────────────────
+  /** The SAME element union the figure editor edits. No slide-only types. */
+  elements: Element[];
+  /** Figure group semantics, verbatim (group/ungroup, X-ray, presets). */
+  groups?: Record<Id, GroupDef>;
+  /** Per-slide alignment guides (figure parity). */
+  guides?: { x?: number[]; y?: number[] };
+
+  // ── presentation overlay (the slide-only additions) ───────────────────────
+  /** CSS color; falls back to deck.background, then the theme background. */
   background?: string;
   /** Transition played when entering this slide. */
   transition?: TransitionKind;
@@ -122,104 +151,18 @@ export interface Slide {
   notes?: string;
   /** Base camera; beats can move it. */
   camera?: Camera;
-  elements: SlideElement[];
+  /** Animation build timeline (tracks reference element ids). */
   beats: Beat[];
 }
 
 // ---------------------------------------------------------------------------
-// Elements — the figure model + a slide superset (§4.1)
+// Beats — the build timeline (the spine of motion)
 // ---------------------------------------------------------------------------
 
-/** A slide element is the figure `Element` union (text|rect|ellipse|line|path|
- *  image|plot — reused verbatim, so a plot is the same addressable
- *  `SemanticPlotElement`; every svg IS a plot since figure-v1 P4, and
- *  migrateDeck converts legacy `type:"svg"` on load) PLUS four slide-only
- *  types. All extend `ElementBase`, so position/size/rotation/opacity/group +
- *  the editor's drag/resize/snap are uniform across every kind. */
-export type SlideElement =
-  | Element
-  | TextBoxElement
-  | MathElement
-  | VideoElement
-  | EmbedFigureElement;
-
-export type SlideElementType = SlideElement["type"];
-
-/** One independently-revealable line/paragraph within a text box. "Reveal
- *  bullets one at a time" = a stagger over `blocks`. */
-export interface TextBlock {
-  id: Id;
-  /** Inline text (a small markdown subset: **bold**, *italic*, `code`). */
-  text: string;
-  /** Indent level (0 = top). */
-  level?: number;
-  marker?: "none" | "bullet" | "number" | "dash";
-  /** Visual emphasis keyed to the theme. */
-  emphasis?: "none" | "accent" | "muted";
-}
-
-/** The workhorse for titles, body, and bullets — rendered as HTML for real
- *  typography (wrapping, markers, indent). */
-export interface TextBoxElement extends ElementBase {
-  type: "textBox";
-  align?: "left" | "center" | "right";
-  valign?: "top" | "middle" | "bottom";
-  color?: string;
-  fontFamily?: string;
-  fontSize?: number;
-  fontWeight?: number;
-  fontStyle?: "normal" | "italic";
-  lineHeight?: number;
-  /** Auto-fit the font size down so the text fills the box without overflow. */
-  autoFit?: boolean;
-  blocks: TextBlock[];
-}
-
-/** A KaTeX-typeset equation. Supports the `writeOn` preset. */
-export interface MathElement extends ElementBase {
-  type: "math";
-  tex: string;
-  /** Display (block, centered) vs inline. */
-  display?: boolean;
-  color?: string;
-  fontSize?: number;
-}
-
-/** A `<video>` element backed by a deck asset; plays/pauses on its build beat. */
-export interface VideoElement extends ElementBase {
-  type: "video";
-  assetId: Id;
-  autoplay?: boolean;
-  loop?: boolean;
-  muted?: boolean;
-  controls?: boolean;
-  /** A poster asset id (a still frame shown before play). */
-  poster?: Id;
-}
-
-/** A whole project figure (composed via the existing `figureToSvg`) dropped as
- *  one unit whose panels stay addressable (so you can stagger a figure's panels
- *  a→b→c). Distinct from placing a single `plot`. */
-export interface EmbedFigureElement extends ElementBase {
-  type: "embedFigure";
-  /** A figure id from the project's `fig/` subsystem. */
-  figureId: string;
-  /** Scope the live embed to ONE named group inside the figure (figure-v1
-   *  group insertables): only that group's subtree renders, viewBox tight on
-   *  its bbox. Absent = the whole figure. */
-  groupId?: string;
-  fit?: "contain" | "cover" | "fill";
-}
-
-// ---------------------------------------------------------------------------
-// Beats — the build timeline (the spine of motion) (§4.2)
-// ---------------------------------------------------------------------------
-
-/** The preset catalog (§5.3). Each compiles a track → WAAPI keyframes (or a
- *  bespoke driver for `morph`/`countUp`). Tier-2 (paint) presets — drawOn,
- *  drawOff, morph, countUp — are used on few paths while the scene is still (P5).
- *  Three families: ENTERS (hidden before their beat), EXITS (hidden after —
- *  fadeOut/popOut/drawOff/wipeOut), and emphasis/transform (always present). */
+/** The preset catalog. Each compiles a track → WAAPI keyframes (or a bespoke
+ *  driver for `morph`/`countUp`). Three families: ENTERS (hidden before their
+ *  beat), EXITS (hidden after — fadeOut/popOut/drawOff/wipeOut), and
+ *  emphasis/transform (always present). */
 export type PresetName =
   | "fade"
   | "fadeRise"
@@ -241,8 +184,8 @@ export type PresetName =
   | "countUp"
   | "morph";
 
-/** Select a *set* of animation targets within an element — by role/series/index
- *  for a plot's parts, or `blocks` for a text box's lines. */
+/** Select a *set* of animation targets within a plot element — by
+ *  role/series/index over the plot's part index. */
 export interface TrackSelector {
   /** A plot part role: "point" | "line" | "bar" | "guide" | "overlay" | … */
   role?: string;
@@ -250,8 +193,6 @@ export interface TrackSelector {
   series?: string;
   /** One or more datum indices. */
   index?: number | number[];
-  /** Text-box blocks: "all" or an explicit list of block ids. */
-  blocks?: "all" | Id[];
 }
 
 /** Stagger a set: each child starts `perMs` after the previous, ordered `by`
@@ -259,10 +200,9 @@ export interface TrackSelector {
 export interface Stagger {
   perMs: number;
   /** Ordering key for the stagger ramp. "index" = target array order; "x"/"y" =
-   *  each target's spatial coordinate (data-x/data-y, falling back to the rendered
-   *  x/y), so points fire left→right ("x") or low→high ("y") regardless of the
-   *  order they were emitted in — the basis for the scatter "left to right" reveal. */
-  by?: "index" | "x" | "y" | "blocks" | "series" | "dom";
+   *  each target's spatial coordinate (data-x/data-y, falling back to the
+   *  rendered x/y), so points fire left→right ("x") or low→high ("y"). */
+  by?: "index" | "x" | "y" | "series" | "dom";
   from?: "start" | "end" | "center" | "edges";
 }
 
@@ -271,10 +211,8 @@ export interface Stagger {
 export interface TrackTarget {
   /** morph: a second semantic-plot asset id (same generator/series ⇒ same ids). */
   assetId?: Id;
-  /** morph (WS-4.4): explicit PROJECT-relative source paths for the target
-   *  plot — authored by ops.setMorphTrack so resolvers stop guessing
-   *  `plots/<assetId>.svg`. Optional: decks authored before these existed fall
-   *  back to the manifest plots[] index, then the legacy path convention. */
+  /** morph: explicit PROJECT-relative source paths for the target plot —
+   *  authored by ops.setMorphTrack so resolvers stop guessing. */
   svgPath?: string;
   manifestPath?: string;
   /** camera: the pose to move to. */
@@ -285,10 +223,9 @@ export interface TrackTarget {
   [prop: string]: number | string | undefined;
 }
 
-/** A single explicit keyframe — the forward-compatible full-keyframing path
- *  (§4.3). When a track carries `keyframes`, `preset` becomes optional and the
- *  renderer animates these props directly. Purely additive over the preset
- *  shape; no migration. */
+/** A single explicit keyframe — the forward-compatible full-keyframing path.
+ *  When a track carries `keyframes`, `preset` becomes optional and the
+ *  renderer animates these props directly. Purely additive. */
 export interface Keyframe {
   /** Normalized time within the track, 0..1. */
   at: number;
@@ -299,10 +236,9 @@ export interface Keyframe {
 /** One animation within a beat. `start`/`duration` form the within-beat
  *  mini-timeline (ms). `target` is an element id, or `@camera`/`@stage`. */
 export interface Track {
-  /** Stable identity for editor selection / timeline keying / reorder. Populated
-   *  at every creation point (setAnimation, autobuild) and backfilled for legacy
-   *  decks at load (`ensureTrackIds`); optional only so older Track literals and
-   *  on-disk decks predating it still type-check. */
+  /** Stable identity for editor selection / timeline keying / reorder.
+   *  Populated at every creation point and backfilled at load
+   *  (`ensureTrackIds`); optional only so older Track literals type-check. */
   id?: Id;
   target: string;
   /** A single plot semantic id (e.g. "control.line"). */
@@ -314,9 +250,8 @@ export interface Track {
   start?: number;
   duration?: number;
   easing?: EasingToken;
-  /** After Effects-style velocity profile, 0–100% each. `out` = outgoing influence
-   *  (slow-out at the start), `in` = incoming (slow-in at the end). Overrides
-   *  `easing` when set: maps to cubic-bezier(out/100, 0, 1 − in/100, 1). */
+  /** After Effects-style velocity profile, 0–100% each. Overrides `easing`
+   *  when set: maps to cubic-bezier(out/100, 0, 1 − in/100, 1). */
   influence?: Influence;
   stagger?: Stagger;
   /** morph/camera/move destination. */
@@ -324,14 +259,16 @@ export interface Track {
   /** Forward-compat full keyframes (preset optional when present). */
   keyframes?: Keyframe[];
   /** A disabled track is invisible to the player/static-state/export but keeps
-   *  its authored timing — this is how Mask stays NON-destructive (masking a
-   *  part disables its tracks instead of deleting them, so Mask→Animate
-   *  round-trips lose nothing). */
+   *  its authored timing — this is how Mask stays NON-destructive. */
   disabled?: boolean;
 }
 
 /** A beat is one "advance" step. Entering it plays its `tracks` concurrently
- *  (each at its own `start` offset). Beat 0 is the slide's resting state. */
+ *  (each at its own `start` offset). Beat 0 is the slide's resting state.
+ *  Tracks may reference element ids the figure editor has since deleted —
+ *  dangling targets are TOLERATED (the player no-ops, the animator marks
+ *  them, diagnostics warn) and never auto-pruned, so an undo of the deletion
+ *  restores the animation intact. */
 export interface Beat {
   id: Id;
   label?: string;
@@ -370,23 +307,6 @@ export interface DeckTheme {
   fontBody: string;
   /** Monospace stack (code). */
   fontMono: string;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers — type guards over the slide-only element types
-// ---------------------------------------------------------------------------
-
-export function isTextBox(el: SlideElement): el is TextBoxElement {
-  return el.type === "textBox";
-}
-export function isMath(el: SlideElement): el is MathElement {
-  return el.type === "math";
-}
-export function isVideo(el: SlideElement): el is VideoElement {
-  return el.type === "video";
-}
-export function isEmbedFigure(el: SlideElement): el is EmbedFigureElement {
-  return el.type === "embedFigure";
 }
 
 /** The deck entry as stored in `project.json.slides[]` (the `SlideEntry` type,

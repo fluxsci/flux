@@ -41,6 +41,7 @@ import { panelLetters } from "../captions";
 import { applyTextLayout } from "../text";
 import { fileBridge, joinPath } from "./types";
 import { ConflictError } from "../autosave";
+import { assertStoreTenant } from "../tenancy";
 import {
   planFigSave,
   executeFigSave,
@@ -263,6 +264,12 @@ const canvasBaseline = new Map<string, string>();
 
 /** Persist the figure-editor stores into the project's `fig/` subsystem. */
 export async function saveFigFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
+  // Tenancy guard (slide-migration §3.2.1): slide mode loads a deck's slides
+  // into the SAME app-global store this save reads. If a kept-alive
+  // FigureMode's autosave ever fired then, it would write the deck's projected
+  // slides into fig/ — refuse structurally instead (the autosave error path
+  // surfaces the throw; nothing is written).
+  assertStoreTenant("figure", "fig/ save");
   const fig = fileBridge();
   if (!fig) return;
   if (figSubsystemLocked) {

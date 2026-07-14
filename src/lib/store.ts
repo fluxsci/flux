@@ -242,6 +242,11 @@ export const embeddedProjectRoot = writable<string | null>(null);
 interface HistEntry {
   snap: Project;
   bytes: number;
+  /** Opaque companion snapshot (slide-migration §3.5): captured/restored via a
+   *  registered provider so a second store (the slide presentation overlay)
+   *  rides the SAME history — one Cmd+Z across static + overlay edits. Absent
+   *  when no provider is registered (figure mode: byte-identical to before). */
+  comp?: unknown;
 }
 const past: HistEntry[] = [];
 const future: HistEntry[] = [];
@@ -267,11 +272,45 @@ function snapshot(p: Project): HistEntry {
   void _omit;
   // structuredClone (not JSON.parse of the sizing string): the round-trip would
   // silently drop `undefined`-valued keys, changing restore semantics.
-  return { snap: structuredClone(rest) as Project, bytes: JSON.stringify(rest).length };
+  const entry: HistEntry = { snap: structuredClone(rest) as Project, bytes: JSON.stringify(rest).length };
+  if (companion) {
+    entry.comp = companion.capture();
+    // Companion bytes count toward the history budget (same order as memory).
+    try {
+      entry.bytes += JSON.stringify(entry.comp)?.length ?? 0;
+    } catch {
+      /* uncountable companion — the project bytes still bound the entry */
+    }
+  }
+  return entry;
 }
 function restore(e: HistEntry) {
   e.snap.colorGroups = get(project).colorGroups;
   project.set(e.snap);
+  if (companion && "comp" in e) companion.restore(e.comp);
+}
+
+// ---------------------------------------------------------------------------
+// History companion (slide-migration §3.5) — an ADDITIVE hook that lets slide
+// mode snapshot its presentation overlay (beats/transition/notes/…) into the
+// same history entries the project snapshots ride, yielding ONE unified undo
+// stack across static + overlay edits. Figure mode registers nothing, so the
+// history behaves byte-identically to before (gated).
+// ---------------------------------------------------------------------------
+export interface HistoryCompanion {
+  capture(): unknown;
+  restore(snapshot: unknown): void;
+}
+let companion: HistoryCompanion | null = null;
+
+/** Register the (single) history companion. Returns an unregister function.
+ *  Registering resets nothing — pair with loadProject (which resets history)
+ *  so no pre-registration entries can restore without their companion half. */
+export function registerHistoryCompanion(c: HistoryCompanion): () => void {
+  companion = c;
+  return () => {
+    if (companion === c) companion = null;
+  };
 }
 function pushPast(e: HistEntry) {
   past.push(e);

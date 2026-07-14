@@ -337,22 +337,31 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     $id: "flux/deck.schema.json",
     title: "Flux Slide deck (slides/<id>/deck.json)",
     type: "object",
-    // Lenient (additionalProperties allowed everywhere so the format can grow),
-    // strict only on the load-bearing fields: schemaVersion/id/slides and the
-    // per-slide/element/track join keys an agent must get right.
-    required: ["schemaVersion", "id", "slides"],
+    // Slides-are-figures (0.2.0): a slide's `elements` is the FIGURE element
+    // union, validated by the same shared ELEMENT_DEF the canvas schema uses.
+    // Lenient (additionalProperties allowed so the format can grow), strict on
+    // the load-bearing fields. schemaVersion is PINNED to the 0.2 line: the
+    // 0.1 format is a deliberate clean break — an old deck fails validation
+    // and quarantines (newer-than-ours files are refused earlier by the
+    // forward-version guard, before validation).
+    required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string" },
+      schemaVersion: { type: "string", pattern: "^0\\.2\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
       modified: { type: "string" },
       stage: {
         type: "object",
+        required: ["width", "height"],
         properties: { width: { type: "number" }, height: { type: "number" } },
       },
       theme: { type: "string" },
       defaults: { type: "object" },
+      background: { type: "string" },
+      palette: { type: "array", items: { type: "string" } },
+      colorGroups: { type: "array" },
+      textStyles: { type: "array" },
       assets: {
         type: "array",
         items: {
@@ -360,10 +369,12 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
           required: ["id", "kind", "path"],
           properties: {
             id: { type: "string" },
-            kind: { type: "string" },
+            name: { type: "string" },
+            kind: { type: "string", enum: ["png", "svg"] },
             path: { type: "string" },
             naturalWidth: { type: "number" },
             naturalHeight: { type: "number" },
+            dpi: { type: "number" },
           },
         },
       },
@@ -380,23 +391,9 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
             transition: { type: "string" },
             notes: { type: "string" },
             camera: { type: "object" },
-            elements: {
-              type: "array",
-              items: {
-                type: "object",
-                required: ["id", "type"],
-                properties: {
-                  id: { type: "string" },
-                  type: { type: "string" },
-                  x: { type: "number" },
-                  y: { type: "number" },
-                  width: { type: "number" },
-                  height: { type: "number" },
-                  rotation: { type: "number" },
-                  opacity: { type: "number" },
-                },
-              },
-            },
+            elements: { type: "array", items: { $ref: "#/definitions/element" } },
+            groups: { type: "object" },
+            guides: { type: "object" },
             beats: {
               type: "array",
               items: {
@@ -434,6 +431,9 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
           },
         },
       },
+    },
+    definitions: {
+      element: ELEMENT_DEF,
     },
   },
 

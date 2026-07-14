@@ -1,43 +1,46 @@
 // ---------------------------------------------------------------------------
-// Flux Slide — the one pure mutation core (the agent-parity keystone).
+// Flux Slide — the pure DECK mutation core (the agent-parity keystone).
 //
-// Mirrors src/lib/ops.ts exactly: every structural edit to a deck is a PURE
-// function `(deck: Deck, args) => result` that mutates the plain types.ts model
-// in place — no Svelte stores, no DOM. Three callers share this one core so that
-// "no capability is GUI-only":
-//   • the GUI:         deckStore commit → ops.xxx(deck, args)
-//   • flux-core:       reads deck.json, calls ops.xxx, writes it back
-//   • the live bridge: maps a slide command → the same ops.xxx
-//
-// Dependency-light: imports only the slide types, the figure types/constructors
-// it reuses (makePlotPanel/makeImagePanel — a plot on a slide is the same
-// SemanticPlotElement), the id leaf, and the theme defaults.
+// Slides are figures (slide-migration, 2026-07): STATIC element editing goes
+// through the figure editor's shared core (src/lib/ops.ts) — this module owns
+// only what a deck adds on top: deck/slide lifecycle, the beat/track build
+// timeline, layout starters, and the plot-part tri-state that couples a
+// static override with its animation tracks. Every function is a PURE
+// `(deck: Deck, args) => result` mutating the plain types.ts model in place —
+// no Svelte stores, no DOM — so three callers share this one core:
+//   • the GUI:    slide store `commitDeckLive` composes the live Deck
+//                 (projectIntoDeck), runs the op, and decomposes it back
+//   • flux-core:  reads deck.json, calls the op, writes it back
 // ---------------------------------------------------------------------------
 
-import type { Element, Id, RectElement, EllipseElement, LineElement, SemanticPlotElement } from "../types";
+import type { Element, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
-import { makePlotPanel, makeImagePanel, type Box } from "../ops";
+import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, type TextOpts } from "../ops";
+import { FLEXOKI } from "../flexoki";
+import { DEFAULT_TEXT_STYLES } from "../migrate";
 import { DEFAULT_THEME_ID } from "./theme";
+import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
 import {
   DECK_SCHEMA_VERSION,
   type Deck,
   type Slide,
   type Beat,
   type Track,
-  type SlideElement,
-  type TextBoxElement,
-  type TextBlock,
-  type MathElement,
-  type VideoElement,
-  type EmbedFigureElement,
   type LayoutId,
   type StageSize,
   type Camera,
   type TransitionKind,
 } from "./types";
 
-// 16:9 at a comfortable authoring resolution (also 1920×1080, 4:3 via setStageSize).
-export const DEFAULT_STAGE: StageSize = { width: 1280, height: 720 };
+// 16:9 on the FIGURE ruler (96 units/inch): a ~6.7″ × 3.75″ frame, so a
+// print-sized fluxplot lands at the same fraction of a slide as of a figure.
+// Alternates offered by the Deck panel: 4:3 = 480×360, 16:10 = 640×400.
+export const DEFAULT_STAGE: StageSize = { width: 640, height: 360 };
+export const STAGE_PRESETS: { label: string; width: number; height: number }[] = [
+  { label: "16:9 · 640×360", width: 640, height: 360 },
+  { label: "4:3 · 480×360", width: 480, height: 360 },
+  { label: "16:10 · 640×400", width: 640, height: 400 },
+];
 
 const stamp = (): string => new Date().toISOString();
 
@@ -53,10 +56,7 @@ export function beatById(slide: Slide, beatId: Id): Beat | null {
 }
 
 /** Locate an element anywhere in the deck → its slide + element (or null). */
-export function findElement(
-  deck: Deck,
-  elId: Id,
-): { slide: Slide; el: SlideElement } | null {
+export function findElement(deck: Deck, elId: Id): { slide: Slide; el: Element } | null {
   for (const slide of deck.slides) {
     const el = slide.elements.find((e) => e.id === elId);
     if (el) return { slide, el };
@@ -76,8 +76,11 @@ export interface CreateDeckOpts {
   withTitleSlide?: boolean;
 }
 
-/** Construct a new, valid, empty deck (one blank title slide by default). The
- *  single source for a blank deck — the GUI and agents both build through it. */
+/** Construct a new, valid, empty deck (one title slide by default). The single
+ *  source for a blank deck — the GUI and agents both build through it. Seeds
+ *  the same design tokens a blank figure project gets (Flexoki color groups +
+ *  the default named text styles) so the figure editor's palette works on the
+ *  deck from the first edit. */
 export function createDeck(opts: CreateDeckOpts = {}): Deck {
   const now = stamp();
   const deck: Deck = {
@@ -89,19 +92,20 @@ export function createDeck(opts: CreateDeckOpts = {}): Deck {
     stage: opts.stage ?? { ...DEFAULT_STAGE },
     theme: opts.theme ?? DEFAULT_THEME_ID,
     defaults: { transition: "fade", buildEasing: "smooth", advance: "click" },
+    palette: [],
+    colorGroups: structuredClone(FLEXOKI),
+    textStyles: structuredClone(DEFAULT_TEXT_STYLES),
     assets: [],
     slides: [],
   };
-  if (opts.withTitleSlide !== false) addSlide(deck, { layout: "title", name: "Title" });
+  if (opts.withTitleSlide !== false) addSlide(deck, { layout: "title", name: "Title", starters: true });
   return deck;
 }
 
-export function setDeckMeta(
-  deck: Deck,
-  patch: { title?: string; theme?: string },
-): void {
+export function setDeckMeta(deck: Deck, patch: { title?: string; theme?: string; background?: string }): void {
   if (patch.title != null) deck.title = patch.title;
   if (patch.theme != null) deck.theme = patch.theme;
+  if (patch.background != null) deck.background = patch.background;
 }
 
 export function setStageSize(deck: Deck, size: StageSize): void {
@@ -122,7 +126,7 @@ export interface AddSlideOpts {
   background?: string;
   /** Insert at this index (default: append). */
   at?: number;
-  /** Pre-place editable starter text boxes for the layout (the GUI "Add slide"
+  /** Pre-place editable starter text for the layout (the GUI "Add slide"
    *  passes this; programmatic callers get an empty slide unless they opt in). */
   starters?: boolean;
 }
@@ -144,32 +148,39 @@ export function addSlide(deck: Deck, opts: AddSlideOpts = {}): Slide {
   return slide;
 }
 
-/** Pre-place editable placeholder text boxes for a layout (A16) — the "Layout"
- *  choice now actually scaffolds the slide. Coordinates are fractions of the
- *  stage so any aspect ratio lands sensibly. `full-bleed`/`blank` stay empty
- *  (they're for a single dropped figure/plot or a hand-built slide). */
+/** Pre-place editable starter FIGURE TEXT elements for a layout — sized on
+ *  the figure-scale ruler (canvas px, 96/inch; pt × 4/3). Theme fonts apply at
+ *  creation time (copied into the created elements); changing the deck theme
+ *  later does not restyle existing text. `full-bleed`/`blank` stay empty. */
 export function applyLayoutStarters(deck: Deck, slideId: Id, layout: LayoutId): void {
   const s = slideById(deck, slideId);
   if (!s) return;
-  const W = deck.stage.width, H = deck.stage.height;
-  const box = (fx: number, fy: number, fw: number, fh: number) => ({ x: Math.round(fx * W), y: Math.round(fy * H), width: Math.round(fw * W), height: Math.round(fh * H) });
-  const add = (b: ReturnType<typeof box>, text: string, extra: Partial<TextBoxOpts> = {}) =>
-    addTextBox(deck, slideId, { ...b, blocks: [makeBlock(text)], ...extra });
+  const W = deck.stage.width;
+  const H = deck.stage.height;
+  const box = (fx: number, fy: number, fw: number, fh: number) => ({
+    x: Math.round(fx * W),
+    y: Math.round(fy * H),
+    width: Math.round(fw * W),
+    height: Math.round(fh * H),
+  });
+  // Slide text sizes on the figure ruler: a 640-wide stage projects ~10× on a
+  // screen, so 24 px ≈ a 44 pt projected title; body ≈ 20 pt. Stored px.
+  const title = Math.round(H * 0.09);
+  const body = Math.round(H * 0.045);
+  const add = (b: Box, text: string, style: TextOpts) =>
+    addSlideText(deck, slideId, { text, ...b, ...style });
   if (layout === "title") {
-    add(box(0.1, 0.34, 0.8, 0.18), "Title", { fontSize: Math.round(H * 0.089), fontWeight: 700, align: "center" });
-    add(box(0.1, 0.56, 0.8, 0.1), "Subtitle", { fontSize: Math.round(H * 0.044), align: "center", blocks: [makeBlock("Subtitle", { emphasis: "muted" })] });
+    add(box(0.1, 0.34, 0.8, 0.18), "Title", { fontSize: title, fontWeight: 700, align: "center", sizing: "auto-h" });
+    add(box(0.1, 0.58, 0.8, 0.1), "Subtitle", { fontSize: body, align: "center", sizing: "auto-h" });
   } else if (layout === "section") {
-    add(box(0.1, 0.4, 0.8, 0.2), "Section", { fontSize: Math.round(H * 0.078), fontWeight: 700, align: "center" });
+    add(box(0.1, 0.4, 0.8, 0.2), "Section", { fontSize: Math.round(H * 0.078), fontWeight: 700, align: "center", sizing: "auto-h" });
   } else if (layout === "content-figure") {
-    add(box(0.06, 0.08, 0.88, 0.13), "Title", { fontSize: Math.round(H * 0.061), fontWeight: 700 });
-    add(box(0.06, 0.26, 0.42, 0.64), "Point one", {
-      fontSize: Math.round(H * 0.042),
-      blocks: [makeBlock("Point one", { marker: "bullet" }), makeBlock("Point two", { marker: "bullet" }), makeBlock("Point three", { marker: "bullet" })],
-    });
+    add(box(0.06, 0.08, 0.88, 0.13), "Title", { fontSize: Math.round(H * 0.061), fontWeight: 700, sizing: "auto-h" });
+    add(box(0.06, 0.28, 0.42, 0.6), "• Point one\n• Point two\n• Point three", { fontSize: body, sizing: "auto-h", lineHeight: 1.5 });
   } else if (layout === "two-column") {
-    add(box(0.06, 0.08, 0.88, 0.13), "Title", { fontSize: Math.round(H * 0.061), fontWeight: 700 });
-    add(box(0.06, 0.26, 0.42, 0.64), "Left column", { fontSize: Math.round(H * 0.042), blocks: [makeBlock("Left column", { marker: "bullet" })] });
-    add(box(0.52, 0.26, 0.42, 0.64), "Right column", { fontSize: Math.round(H * 0.042), blocks: [makeBlock("Right column", { marker: "bullet" })] });
+    add(box(0.06, 0.08, 0.88, 0.13), "Title", { fontSize: Math.round(H * 0.061), fontWeight: 700, sizing: "auto-h" });
+    add(box(0.06, 0.28, 0.42, 0.6), "• Left column", { fontSize: body, sizing: "auto-h", lineHeight: 1.5 });
+    add(box(0.52, 0.28, 0.42, 0.6), "• Right column", { fontSize: body, sizing: "auto-h", lineHeight: 1.5 });
   }
   // full-bleed / blank: intentionally empty.
 }
@@ -183,43 +194,27 @@ export function deleteSlide(deck: Deck, slideId: Id): { nextActiveId: Id | null 
   return { nextActiveId: next?.id ?? null };
 }
 
-/** Duplicate a slide (all elements + beats), remapping element/block/beat ids
- *  and rewriting any track targets that referenced the old element ids. */
+/** Duplicate a slide (all elements + groups + beats), remapping element/group/
+ *  beat/track ids and retargeting the copy's tracks at the copy's elements —
+ *  the one op that must re-map beat targets when element ids change. */
 export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   const src = slideById(deck, slideId);
   if (!src) return null;
   const i = deck.slides.findIndex((s) => s.id === slideId);
-  const idRemap = new Map<Id, Id>();
-  const groupRemap = new Map<Id, Id>();
-  const copy: Slide = structuredClone(src);
-  copy.id = newId("slide");
-  copy.name = `${src.name ?? "Slide"} copy`;
-  for (const el of copy.elements) {
-    const nid = newId(el.type);
-    idRemap.set(el.id, nid);
-    el.id = nid;
-    // Remap group membership so the copy's elements group with each OTHER, not
-    // with the originals (same stable-id-contract concern as track ids below).
-    // NOTE (figure-v1 P7/P9): this flat remap is DELIBERATELY not the figure
-    // editor's groups.ts cloneGroupsFor — slide decks have no GroupDef registry
-    // (no Slide.groups; a slide groupId is pure co-selection, never named or
-    // nested), so a fresh shared id per source group is the complete, correct
-    // semantics here. Do not port the registry to slides without a model
-    // decision. (The named-group trees a slide CAN animate live inside
-    // embedFigure elements and belong to the FIGURE, addressed via
-    // Track.part = "group:<gid>" — see player.ts resolveNodes.)
-    if (el.groupId) {
-      let g = groupRemap.get(el.groupId);
-      if (!g) { g = newId("grp"); groupRemap.set(el.groupId, g); }
-      el.groupId = g;
-    }
-  }
+  const { elements, groups, idRemap } = cloneContentWithFreshIds(src.elements, src.groups);
+  const copy: Slide = {
+    ...structuredClone(src),
+    id: newId("slide"),
+    name: `${src.name ?? "Slide"} copy`,
+    elements,
+    ...(Object.keys(groups).length ? { groups } : {}),
+  };
+  if (!Object.keys(groups).length) delete copy.groups;
   for (const beat of copy.beats) {
     beat.id = newId("beat");
     for (const t of beat.tracks) {
-      // SLD-10: every track carries a stable id; a duplicated slide's tracks must
-      // get FRESH ids or they collide with the source slide's (breaks editor
-      // selection / timeline keying).
+      // Every track carries a stable id; a duplicated slide's tracks must get
+      // FRESH ids or they collide with the source slide's.
       t.id = newId("track");
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
@@ -266,404 +261,92 @@ export function setSlide(deck: Deck, slideId: Id, patch: SetSlidePatch): void {
 }
 
 // ---------------------------------------------------------------------------
-// Element constructors + add (pure)
+// Content adders — thin wrappers over the FIGURE constructors (the shared
+// element core), for headless authoring. GUI editing never comes through
+// here — it uses the figure editor's own tools/ops on the projected store.
 // ---------------------------------------------------------------------------
-const box = (b: Box, dw: number, dh: number) => ({
-  x: b.x ?? 80,
-  y: b.y ?? 80,
-  width: b.width ?? dw,
-  height: b.height ?? dh,
-});
 
-export interface TextBoxOpts extends Box {
-  blocks?: TextBlock[];
-  /** Convenience: a single block of text (alternative to `blocks`). */
-  text?: string;
-  align?: TextBoxElement["align"];
-  valign?: TextBoxElement["valign"];
-  color?: string;
-  fontFamily?: string;
-  fontSize?: number;
-  fontWeight?: number;
-  fontStyle?: "normal" | "italic";
-  lineHeight?: number;
-  autoFit?: boolean;
-}
-
-export function makeBlock(text: string, opts: Partial<TextBlock> = {}): TextBlock {
-  return {
-    id: opts.id ?? newId("blk"),
-    text,
-    ...(opts.level != null ? { level: opts.level } : {}),
-    ...(opts.marker != null ? { marker: opts.marker } : {}),
-    ...(opts.emphasis != null ? { emphasis: opts.emphasis } : {}),
-  };
-}
-
-/** Inline-edit write path: reconcile a textarea's plain text (one line per block)
- *  back into a TextBox's blocks — preserving each surviving block's id + marker/
- *  emphasis/level; new lines inherit the last block's marker; never goes empty. */
-export function setTextBoxText(deck: Deck, elId: Id, text: string): void {
-  const found = findElement(deck, elId);
-  if (!found || found.el.type !== "textBox") return;
-  const el = found.el;
-  const lines = text.split("\n");
-  // Reconcile block IDENTITY across the edit so per-block animation tracks keep
-  // targeting the same line (A18). Pass 1: a new line whose text is UNCHANGED
-  // reclaims that exact old block (id + marker/emphasis/level) even if lines were
-  // inserted/removed above it. Pass 2: an edited line inherits the nearest
-  // still-unclaimed old block positionally (so an in-place edit keeps its id);
-  // a genuinely new line mints a fresh id.
-  const pool = el.blocks.map((b) => ({ b, used: false }));
-  const claim: (TextBlock | undefined)[] = lines.map((line) => {
-    const hit = pool.find((p) => !p.used && p.b.text === line);
-    if (hit) { hit.used = true; return hit.b; }
-    return undefined;
-  });
-  let cursor = 0;
-  el.blocks = lines.map((line, i) => {
-    const exact = claim[i];
-    if (exact) return { ...exact, text: line };
-    while (cursor < pool.length && pool[cursor].used) cursor++;
-    const ref = cursor < pool.length ? pool[cursor] : null;
-    if (ref) ref.used = true;
-    return makeBlock(line, { id: ref?.b.id, marker: ref?.b.marker, emphasis: ref?.b.emphasis, level: ref?.b.level });
-  });
-  if (!el.blocks.length) el.blocks = [makeBlock("")];
-}
-
-/** Inline-edit write path for a math element: set its TeX source. */
-export function setMathTex(deck: Deck, elId: Id, tex: string): void {
-  const found = findElement(deck, elId);
-  if (found && found.el.type === "math") found.el.tex = tex;
-}
-
-export function makeTextBox(opts: TextBoxOpts = {}): TextBoxElement {
-  const g = box(opts, 560, 120);
-  const blocks =
-    opts.blocks ?? (opts.text != null ? [makeBlock(opts.text)] : [makeBlock("")]);
-  const el: TextBoxElement = {
-    type: "textBox",
-    id: newId("textBox"),
-    ...g,
-    rotation: 0,
-    blocks,
-  };
-  if (opts.align != null) el.align = opts.align;
-  if (opts.valign != null) el.valign = opts.valign;
-  if (opts.color != null) el.color = opts.color;
-  if (opts.fontFamily != null) el.fontFamily = opts.fontFamily;
-  if (opts.fontSize != null) el.fontSize = opts.fontSize;
-  if (opts.fontWeight != null) el.fontWeight = opts.fontWeight;
-  if (opts.fontStyle != null) el.fontStyle = opts.fontStyle;
-  if (opts.lineHeight != null) el.lineHeight = opts.lineHeight;
-  if (opts.autoFit != null) el.autoFit = opts.autoFit;
-  return el;
-}
-
-export interface MathOpts extends Box {
-  tex: string;
-  display?: boolean;
-  color?: string;
-  fontSize?: number;
-}
-export function makeMath(opts: MathOpts): MathElement {
-  const g = box(opts, 360, 80);
-  const el: MathElement = { type: "math", id: newId("math"), ...g, rotation: 0, tex: opts.tex };
-  if (opts.display != null) el.display = opts.display;
-  if (opts.color != null) el.color = opts.color;
-  if (opts.fontSize != null) el.fontSize = opts.fontSize;
-  return el;
-}
-
-export interface VideoOpts extends Box {
-  assetId: Id;
-  autoplay?: boolean;
-  loop?: boolean;
-  muted?: boolean;
-  controls?: boolean;
-  poster?: Id;
-}
-export function makeVideo(opts: VideoOpts): VideoElement {
-  const g = box(opts, 640, 360);
-  const el: VideoElement = { type: "video", id: newId("video"), ...g, rotation: 0, assetId: opts.assetId };
-  if (opts.autoplay != null) el.autoplay = opts.autoplay;
-  if (opts.loop != null) el.loop = opts.loop;
-  if (opts.muted != null) el.muted = opts.muted;
-  if (opts.controls != null) el.controls = opts.controls;
-  if (opts.poster != null) el.poster = opts.poster;
-  return el;
-}
-
-export interface EmbedFigureOpts extends Box {
-  figureId: string;
-  /** Scope to one named group inside the figure (group insertables). */
-  groupId?: string;
-  fit?: EmbedFigureElement["fit"];
-}
-export function makeEmbedFigure(opts: EmbedFigureOpts): EmbedFigureElement {
-  const g = box(opts, 640, 480);
-  const el: EmbedFigureElement = {
-    type: "embedFigure",
-    id: newId("embedFigure"),
-    ...g,
-    rotation: 0,
-    figureId: opts.figureId,
-  };
-  if (opts.groupId != null) el.groupId = opts.groupId;
-  if (opts.fit != null) el.fit = opts.fit;
-  return el;
-}
-
-/** Append a fully-formed element to a slide; returns its id (or null). */
-export function addElement(deck: Deck, slideId: Id, el: SlideElement): Id | null {
+/** Append a fully-formed figure element to a slide; returns its id (or null). */
+export function addElement(deck: Deck, slideId: Id, el: Element): Id | null {
   const s = slideById(deck, slideId);
   if (!s) return null;
   s.elements.push(el);
   return el.id;
 }
 
-export function addTextBox(deck: Deck, slideId: Id, opts: TextBoxOpts = {}): Id | null {
-  return addElement(deck, slideId, makeTextBox(opts));
-}
-
-/** Append a bullet block to an existing text box (or to a fresh one if id omitted). */
-export function addBullet(
+/** Add a figure `text` element to a slide — the SAME constructor + headless
+ *  text-layout convention `add_fig_text` uses (makeText; a wrapping sizing
+ *  mode gets `needsLayout` handled by the shared ops when edited). */
+export function addSlideText(
   deck: Deck,
   slideId: Id,
-  textBoxId: Id,
-  text: string,
-  opts: Partial<TextBlock> = {},
+  opts: { text: string } & Box & TextOpts,
 ): Id | null {
-  const found = findElement(deck, textBoxId);
-  if (!found || found.el.type !== "textBox") return null;
-  const blk = makeBlock(text, { marker: "bullet", ...opts });
-  found.el.blocks.push(blk);
-  return blk.id;
-}
-
-export function addMath(deck: Deck, slideId: Id, opts: MathOpts): Id | null {
-  return addElement(deck, slideId, makeMath(opts));
-}
-
-export function addVideo(deck: Deck, slideId: Id, opts: VideoOpts): Id | null {
-  return addElement(deck, slideId, makeVideo(opts));
-}
-
-export function addEmbedFigure(deck: Deck, slideId: Id, opts: EmbedFigureOpts): Id | null {
-  return addElement(deck, slideId, makeEmbedFigure(opts));
+  return addElement(deck, slideId, makeText(opts.text, opts, opts, false));
 }
 
 /** Drop a semantic plot on a slide — the SAME SemanticPlotElement the figure
- *  editor uses (so its parts are addressable + animation-ready). Reuses the
- *  figure constructor. */
+ *  editor uses (parts addressable + animation-ready). */
 export function addPlotToSlide(
   deck: Deck,
   slideId: Id,
-  opts: { assetId: Id; source?: import("../types").SemanticPlotElement["source"]; manifestRef?: import("../types").SemanticPlotElement["manifestRef"] } & Box,
+  opts: {
+    assetId: Id;
+    source?: SemanticPlotElement["source"];
+    manifestRef?: SemanticPlotElement["manifestRef"];
+  } & Box,
 ): Id | null {
   return addElement(deck, slideId, makePlotPanel(opts.assetId, opts, opts.source, opts.manifestRef));
 }
 
-// ---------------------------------------------------------------------------
-// Element editing — duplicate / group / z-order / align (multi-select tools)
-// ---------------------------------------------------------------------------
-
-/** Deep-clone the given elements (remapping ids; keeping a duplicated group
- *  together under a fresh shared id; re-keying text blocks) and append them,
- *  offset by (dx,dy). Returns the new element ids — the caller selects them. */
-export function duplicateElements(deck: Deck, slideId: Id, ids: Id[], dx = 24, dy = 24): Id[] {
-  const s = slideById(deck, slideId);
-  if (!s) return [];
-  const set = new Set(ids);
-  const groupRemap = new Map<Id, Id>();
-  const idRemap = new Map<Id, Id>(); // original element id → its copy's id
-  const out: Id[] = [];
-  for (const el of [...s.elements]) {
-    if (!set.has(el.id)) continue;
-    const copy = structuredClone(el);
-    copy.id = newId(el.type);
-    copy.x += dx;
-    copy.y += dy;
-    if (copy.groupId) {
-      let g = groupRemap.get(copy.groupId);
-      if (!g) { g = newId("group"); groupRemap.set(copy.groupId, g); }
-      copy.groupId = g;
-    }
-    if (copy.type === "textBox") for (const b of copy.blocks) b.id = newId("block");
-    s.elements.push(copy);
-    idRemap.set(el.id, copy.id);
-    out.push(copy.id);
-  }
-  // SLD-10: carry each duplicated element's animation tracks onto its copy (same slide → beats
-  // align 1:1). Fresh track ids keep the stable-id contract; the copy animates like the original.
-  carryTracks(s, idRemap);
-  return out;
+/** Drop an image (by asset id) on a slide. */
+export function addImageToSlide(deck: Deck, slideId: Id, opts: { assetId: Id } & Box): Id | null {
+  return addElement(deck, slideId, makeImagePanel(opts.assetId, opts));
 }
 
-/** Append, to every beat, a fresh-id retargeted copy of each track that targets an element in
- *  `idRemap` (original id → new id). Same-slide only, so beats map 1:1. */
-function carryTracks(slide: Slide, idRemap: Map<Id, Id>): void {
-  if (!idRemap.size) return;
-  for (const beat of slide.beats) {
-    const add: Track[] = [];
-    for (const t of beat.tracks) {
-      const nt = idRemap.get(t.target);
-      if (nt) add.push({ ...structuredClone(t), id: newId("track"), target: nt });
-    }
-    beat.tracks.push(...add);
-  }
-}
-
-/** Clone external elements (from the clipboard) into a slide with fresh ids —
- *  the paste counterpart of duplicateElements. Returns the new ids. SLD-10: optional `tracks`
- *  (captured at copy time, tagged by beat index) are re-attached, retargeted to the copies, at
- *  the same beat index when it exists in the target slide (dropped otherwise — beat structure
- *  differs across slides), so pasting an animated element keeps its animation. */
-export function pasteElements(
+/** The headless "Send to deck onto an existing slide" (the repurposed
+ *  add_slide_figure): copy a FIGURE's elements + groups onto a slide with
+ *  fresh ids, at native size (same 96/in ruler → 1:1), fit-to-frame only if
+ *  the content exceeds the stage. Plot parts remain addressable for
+ *  animate_part. Returns the new element ids. Explicit x/y place the content's
+ *  top-left instead of centering (native size kept). */
+export function addFigureContentToSlide(
   deck: Deck,
   slideId: Id,
-  els: SlideElement[],
-  dx = 24,
-  dy = 24,
-  tracks: { beatIndex: number; track: Track }[] = [],
+  figure: { elements: Element[]; groups?: Record<Id, import("../types").GroupDef> },
+  opts: { x?: number; y?: number } = {},
 ): Id[] {
   const s = slideById(deck, slideId);
   if (!s) return [];
-  const groupRemap = new Map<Id, Id>();
-  const idRemap = new Map<Id, Id>(); // source element id → its copy's id
-  const out: Id[] = [];
-  for (const src of els) {
-    const copy = structuredClone(src);
-    copy.id = newId(src.type);
-    copy.x += dx;
-    copy.y += dy;
-    if (copy.groupId) {
-      let g = groupRemap.get(copy.groupId);
-      if (!g) { g = newId("group"); groupRemap.set(copy.groupId, g); }
-      copy.groupId = g;
+  const { elements, groups } = cloneContentWithFreshIds(figure.elements, figure.groups);
+  if (opts.x != null || opts.y != null) {
+    let x0 = Infinity, y0 = Infinity;
+    for (const e of elements) {
+      x0 = Math.min(x0, e.x);
+      y0 = Math.min(y0, e.y);
     }
-    if (copy.type === "textBox") for (const b of copy.blocks) b.id = newId("block");
-    s.elements.push(copy);
-    idRemap.set(src.id, copy.id);
-    out.push(copy.id);
-  }
-  for (const { beatIndex, track } of tracks) {
-    const nt = idRemap.get(track.target);
-    const beat = s.beats[beatIndex];
-    if (nt && beat) beat.tracks.push({ ...structuredClone(track), id: newId("track"), target: nt });
-  }
-  return out;
-}
-
-/** Assign a fresh shared groupId to the given elements (≥2). Returns the group id. */
-export function groupElements(deck: Deck, slideId: Id, ids: Id[]): Id | null {
-  const s = slideById(deck, slideId);
-  if (!s || ids.length < 2) return null;
-  const g = newId("group");
-  const set = new Set(ids);
-  for (const el of s.elements) if (set.has(el.id)) el.groupId = g;
-  return g;
-}
-
-/** Clear the groupId from the given elements (ungroup). */
-export function ungroupElements(deck: Deck, slideId: Id, ids: Id[]): void {
-  const s = slideById(deck, slideId);
-  if (!s) return;
-  const set = new Set(ids);
-  for (const el of s.elements) if (set.has(el.id)) delete el.groupId;
-}
-
-/** Elements paint in array order (last = top). Move the selection to the front. */
-export function bringToFront(deck: Deck, slideId: Id, ids: Id[]): void {
-  const s = slideById(deck, slideId);
-  if (!s) return;
-  const set = new Set(ids);
-  s.elements = [...s.elements.filter((e) => !set.has(e.id)), ...s.elements.filter((e) => set.has(e.id))];
-}
-
-/** Move the selection to the back (bottom of the paint order). */
-export function sendToBack(deck: Deck, slideId: Id, ids: Id[]): void {
-  const s = slideById(deck, slideId);
-  if (!s) return;
-  const set = new Set(ids);
-  s.elements = [...s.elements.filter((e) => set.has(e.id)), ...s.elements.filter((e) => !set.has(e.id))];
-}
-
-/** Raise the selection one step toward the front. */
-export function raiseElements(deck: Deck, slideId: Id, ids: Id[]): void {
-  const s = slideById(deck, slideId);
-  if (!s) return;
-  const set = new Set(ids);
-  for (let i = s.elements.length - 2; i >= 0; i--) {
-    if (set.has(s.elements[i].id) && !set.has(s.elements[i + 1].id)) {
-      [s.elements[i], s.elements[i + 1]] = [s.elements[i + 1], s.elements[i]];
+    const dx = (opts.x ?? x0) - x0;
+    const dy = (opts.y ?? y0) - y0;
+    for (const e of elements) {
+      e.x += dx;
+      e.y += dy;
     }
-  }
-}
-
-/** Lower the selection one step toward the back. */
-export function lowerElements(deck: Deck, slideId: Id, ids: Id[]): void {
-  const s = slideById(deck, slideId);
-  if (!s) return;
-  const set = new Set(ids);
-  for (let i = 1; i < s.elements.length; i++) {
-    if (set.has(s.elements[i].id) && !set.has(s.elements[i - 1].id)) {
-      [s.elements[i], s.elements[i - 1]] = [s.elements[i - 1], s.elements[i]];
-    }
-  }
-}
-
-export type AlignMode = "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom";
-
-/** Align the given elements (≥2) to the selection's bounding-box edge/center. */
-export function alignElements(deck: Deck, slideId: Id, ids: Id[], mode: AlignMode): void {
-  const s = slideById(deck, slideId);
-  if (!s || ids.length < 2) return;
-  const set = new Set(ids);
-  const els = s.elements.filter((e) => set.has(e.id));
-  const minX = Math.min(...els.map((e) => e.x));
-  const maxX = Math.max(...els.map((e) => e.x + e.width));
-  const minY = Math.min(...els.map((e) => e.y));
-  const maxY = Math.max(...els.map((e) => e.y + e.height));
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  for (const e of els) {
-    if (mode === "left") e.x = minX;
-    else if (mode === "right") e.x = maxX - e.width;
-    else if (mode === "hcenter") e.x = cx - e.width / 2;
-    else if (mode === "top") e.y = minY;
-    else if (mode === "bottom") e.y = maxY - e.height;
-    else if (mode === "vcenter") e.y = cy - e.height / 2;
-  }
-}
-
-/** Evenly space the given elements (≥3) by gap along an axis (Figma-style). */
-export function distributeElements(deck: Deck, slideId: Id, ids: Id[], axis: "h" | "v"): void {
-  const s = slideById(deck, slideId);
-  if (!s || ids.length < 3) return;
-  const set = new Set(ids);
-  const els = s.elements.filter((e) => set.has(e.id));
-  if (axis === "h") {
-    els.sort((a, b) => a.x - b.x);
-    const span = els[els.length - 1].x + els[els.length - 1].width - els[0].x;
-    const gap = (span - els.reduce((n, e) => n + e.width, 0)) / (els.length - 1);
-    let x = els[0].x;
-    for (const e of els) { e.x = x; x += e.width + gap; }
   } else {
-    els.sort((a, b) => a.y - b.y);
-    const span = els[els.length - 1].y + els[els.length - 1].height - els[0].y;
-    const gap = (span - els.reduce((n, e) => n + e.height, 0)) / (els.length - 1);
-    let y = els[0].y;
-    for (const e of els) { e.y = y; y += e.height + gap; }
+    placeContentOnStage(elements, deck.stage);
   }
+  if (Object.keys(groups).length) s.groups = { ...(s.groups ?? {}), ...groups };
+  s.elements.push(...elements);
+  return elements.map((e) => e.id);
 }
+
+// ---------------------------------------------------------------------------
+// Plot-part tri-state (S/A/M) — the ONE static-element concern that stays
+// here, because it couples a static override with the part's animation TRACKS
+// (an overlay behavior with no figure equivalent).
+// ---------------------------------------------------------------------------
 
 /** Disable/enable every track on a slide that targets one plot part. Disabling
- *  (NOT deleting) is what makes the S/A/M tri-state non-destructive: a masked or
- *  shown-from-start part keeps its authored tracks (timing, stagger, easing) so
- *  flipping back to Animate restores them intact. Matches by part id at the
- *  granularity the track was authored (group or leaf). */
+ *  (NOT deleting) is what makes the S/A/M tri-state non-destructive. */
 function setPartTracksDisabled(slide: Slide, elId: Id, part: string, disabled: boolean): void {
   for (const beat of slide.beats) {
     for (const t of beat.tracks) {
@@ -674,18 +357,17 @@ function setPartTracksDisabled(slide: Slide, elId: Id, part: string, disabled: b
   }
 }
 
-/** The three resting states the X-ray GUI offers for a plot part (or part group):
+/** The three resting states the GUI offers for a plot part (or part group):
  *   • "mask"    — hidden always (override hidden:true); its tracks are DISABLED.
  *   • "show"    — visible from beat 0 (clear hidden); tracks DISABLED (no anim).
  *   • "animate" — visible only once its build track plays (clear hidden, tracks
- *                 re-ENABLED; the caller/autobuild owns adding an enter track if
- *                 none exists).
- *  The override key may be a leaf id or a group id ("axis.x") — applyOverrides
- *  re-resolves groups to their leaves every render, so masks survive regen. */
+ *                 re-ENABLED; the caller/autobuild owns adding an enter track).
+ *  The static-hide half writes the SAME id-keyed override the figure editor's
+ *  setPartOverride writes (survives regeneration). */
 export function setPartVisibility(deck: Deck, elId: Id, part: string, mode: "show" | "animate" | "mask"): void {
   const found = findElement(deck, elId);
   if (!found || found.el.type !== "plot") return;
-  const el = found.el as SemanticPlotElement;
+  const el = found.el;
   const ov = (el.overrides = el.overrides ?? {});
   if (mode === "mask") {
     ov[part] = { ...(ov[part] ?? {}), hidden: true };
@@ -699,10 +381,9 @@ export function setPartVisibility(deck: Deck, elId: Id, part: string, mode: "sho
   }
 }
 
-/** Merge a style patch into one plot part's override (the slide-mode X-ray
- *  cockpit's write path — stroke/fill/strokeWidth/opacity/fonts/hidden). A
- *  `null` value deletes that key; an override left empty is removed entirely.
- *  Keys may be leaf or group ids exactly like `setPartVisibility`. */
+/** Merge a style patch into one plot part's override on a slide element —
+ *  the SAME element-level core the figure editor's setPartOverride uses
+ *  (ops.mergePartOverride); null values delete keys. */
 export function setPartStyle(
   deck: Deck,
   elId: Id,
@@ -711,87 +392,7 @@ export function setPartStyle(
 ): void {
   const found = findElement(deck, elId);
   if (!found || found.el.type !== "plot") return;
-  const el = found.el as SemanticPlotElement;
-  const ov = (el.overrides = el.overrides ?? {});
-  const cur = { ...(ov[part] ?? {}) } as Record<string, string | number | boolean>;
-  for (const [k, v] of Object.entries(patch)) {
-    if (v == null) delete cur[k];
-    else cur[k] = v;
-  }
-  if (Object.keys(cur).length === 0) delete ov[part];
-  else ov[part] = cur;
-  if (Object.keys(ov).length === 0) delete el.overrides;
-}
-
-// --- vector shapes (figure RectElement/EllipseElement/LineElement reused) -----
-export function makeRect(opts: Box & { fill?: string; stroke?: string; strokeWidth?: number; cornerRadius?: number } = {}): RectElement {
-  const g = box(opts, 240, 160);
-  return {
-    type: "rect", id: newId("rect"), ...g, rotation: 0,
-    fill: opts.fill ?? "var(--sl-accent)", stroke: opts.stroke ?? "transparent",
-    strokeWidth: opts.strokeWidth ?? 0, cornerRadius: opts.cornerRadius ?? 0,
-  };
-}
-export function makeEllipse(opts: Box & { fill?: string; stroke?: string; strokeWidth?: number } = {}): EllipseElement {
-  const g = box(opts, 200, 200);
-  return {
-    type: "ellipse", id: newId("ellipse"), ...g, rotation: 0,
-    fill: opts.fill ?? "var(--sl-accent)", stroke: opts.stroke ?? "transparent", strokeWidth: opts.strokeWidth ?? 0,
-  };
-}
-export function makeLine(opts: Box & { stroke?: string; strokeWidth?: number; arrowEnd?: boolean } = {}): LineElement {
-  const g = box(opts, 240, 0);
-  return {
-    type: "line", id: newId("line"), ...g, height: opts.height ?? 0, rotation: 0,
-    x1: 0, y1: 0, x2: g.width, y2: 0,
-    stroke: opts.stroke ?? "var(--sl-text)", strokeWidth: opts.strokeWidth ?? 3,
-    arrowStart: false, arrowEnd: opts.arrowEnd ?? false,
-  };
-}
-export function addRect(deck: Deck, slideId: Id, opts: Parameters<typeof makeRect>[0] = {}): Id | null {
-  return addElement(deck, slideId, makeRect(opts));
-}
-export function addEllipse(deck: Deck, slideId: Id, opts: Parameters<typeof makeEllipse>[0] = {}): Id | null {
-  return addElement(deck, slideId, makeEllipse(opts));
-}
-export function addLine(deck: Deck, slideId: Id, opts: Parameters<typeof makeLine>[0] = {}): Id | null {
-  return addElement(deck, slideId, makeLine(opts));
-}
-
-/** Drop an imported image (deck asset) on a slide. */
-export function addImageToSlide(
-  deck: Deck,
-  slideId: Id,
-  opts: { assetId: Id } & Box,
-): Id | null {
-  return addElement(deck, slideId, makeImagePanel(opts.assetId, opts) as Element);
-}
-
-/** Update an element's geometry/transform (drag/resize/rotate from the editor). */
-export function setElementBox(
-  deck: Deck,
-  elId: Id,
-  patch: { x?: number; y?: number; width?: number; height?: number; rotation?: number; opacity?: number; locked?: boolean },
-): void {
-  const found = findElement(deck, elId);
-  if (!found) return;
-  const el = found.el;
-  if (patch.x != null) el.x = patch.x;
-  if (patch.y != null) el.y = patch.y;
-  if (patch.width != null) el.width = patch.width;
-  if (patch.height != null) el.height = patch.height;
-  if (patch.rotation != null) el.rotation = patch.rotation;
-  if (patch.opacity != null) el.opacity = patch.opacity;
-  if (patch.locked != null) el.locked = patch.locked;
-}
-
-export function deleteElements(deck: Deck, ids: Id[]): void {
-  const set = new Set(ids);
-  for (const s of deck.slides) {
-    s.elements = s.elements.filter((e) => !set.has(e.id));
-    // Drop any tracks that targeted a removed element.
-    for (const b of s.beats) b.tracks = b.tracks.filter((t) => !set.has(t.target));
-  }
+  mergePartOverride(found.el, part, patch);
 }
 
 // ---------------------------------------------------------------------------
@@ -978,8 +579,8 @@ export function setMorphTrack(
     duration?: number;
     easing?: import("./types").EasingToken;
     start?: number;
-    /** WS-4.4: explicit target source paths (project-relative) — persisted on
-     *  the track so load/export resolvers don't fall back to path guessing. */
+    /** Explicit target source paths (project-relative) — persisted on the
+     *  track so load/export resolvers don't fall back to path guessing. */
     svgPath?: string;
     manifestPath?: string;
   } = {},
@@ -1020,48 +621,6 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
   return true;
 }
 
-/** Backfill stable ids onto any track that lacks one (decks authored before
- *  `Track.id` existed). Idempotent; called at load so the editor can key/select
- *  tracks reliably. Mutates in place + returns the deck. */
-export function ensureTrackIds(deck: Deck): Deck {
-  for (const s of deck.slides) for (const b of s.beats) for (const t of b.tracks) if (!t.id) t.id = newId("track");
-  return deck;
-}
-
-/** Bring a loaded deck up to the current element model (mirrors src/lib/
- *  migrate.ts — decks are separate JSON, not covered by migrateProject).
- *  `type:"svg"` elements (deleted from the union, figure-v1 P4) become
- *  semantic plots: same id/geometry, `overrides:{}`, `source.svgPath`
- *  best-effort from the deck-local asset entry (PROJECT-relative, so
- *  loadDeckAssets/gatherDeckPayload can read it) — no manifestPath (sidecar
- *  presence is the fluxplot/vanilla discriminator; the manifest derives at
- *  cachePlot). Idempotent; called at every deck-load seam (GUI loadDeckModel,
- *  flux-core loadDeck). Mutates in place + returns the deck. */
-export function migrateDeck(deck: Deck): Deck {
-  for (const s of deck.slides ?? []) {
-    for (const e of s.elements ?? []) {
-      if ((e as { type: string }).type !== "svg") continue;
-      const el = e as unknown as SemanticPlotElement;
-      (el as { type: string }).type = "plot";
-      if (!el.overrides) el.overrides = {};
-      if (!el.source) {
-        const a = (deck.assets ?? []).find((x) => x.id === el.assetId);
-        el.source = { svgPath: a?.path ? `slides/${deck.id}/${a.path}` : "" };
-      }
-    }
-  }
-  return deck;
-}
-
-/** WS-4.4: THE deck-load chokepoint — every seam that reads a deck from disk
- *  (GUI slideBridge.readDeck, flux-core loadDeck) runs this: element-model
- *  migration + stable track ids, in one idempotent call. (Named normalizeDeck
- *  rather than the plan's readDeck — slideBridge already exports an IO
- *  function by that name.) Mutates in place + returns the deck. */
-export function normalizeDeck(deck: Deck): Deck {
-  return ensureTrackIds(migrateDeck(deck));
-}
-
 export function removeAnimation(
   deck: Deck,
   slideId: Id,
@@ -1075,24 +634,61 @@ export function removeAnimation(
   b.tracks = b.tracks.filter((t) => !tracksMatch(t, probe));
 }
 
+/** Backfill stable ids onto any track that lacks one. Idempotent; called at
+ *  load so the editor can key/select tracks reliably. Mutates + returns. */
+export function ensureTrackIds(deck: Deck): Deck {
+  for (const s of deck.slides) for (const b of s.beats) for (const t of b.tracks) if (!t.id) t.id = newId("track");
+  return deck;
+}
+
+/** THE deck-load chokepoint — every seam that reads a deck from disk (GUI
+ *  slideBridge.readDeck, flux-core loadDeck) runs this. Since the 0.2.0 clean
+ *  break there is NO migration here (an old-format deck fails validation and
+ *  quarantines); only id normalization remains. Mutates + returns. */
+export function normalizeDeck(deck: Deck): Deck {
+  return ensureTrackIds(deck);
+}
+
+/** Beat tracks whose target element no longer exists on their slide (excluding
+ *  the virtual @camera/@stage targets). Tolerated at play time (the player
+ *  no-ops), surfaced by the animator + deck diagnostics, never auto-pruned. */
+export function danglingTrackTargets(deck: Deck): { slideId: Id; beatId: Id; trackId?: Id; target: string }[] {
+  const out: { slideId: Id; beatId: Id; trackId?: Id; target: string }[] = [];
+  for (const s of deck.slides) {
+    const live = new Set(s.elements.map((e) => e.id));
+    for (const b of s.beats)
+      for (const t of b.tracks) {
+        if (t.target.startsWith("@") || live.has(t.target)) continue;
+        out.push({ slideId: s.id, beatId: b.id, ...(t.id ? { trackId: t.id } : {}), target: t.target });
+      }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
-// Assets
+// Assets — deck-local media registry (figure Asset shape).
 // ---------------------------------------------------------------------------
 export interface AddAssetOpts {
   id?: Id;
-  kind: import("./types").DeckAsset["kind"];
+  name?: string;
+  kind: "png" | "svg";
+  /** Deck-relative path, e.g. "assets/photo.png". */
   path: string;
-  naturalWidth?: number;
-  naturalHeight?: number;
+  naturalWidth: number;
+  naturalHeight: number;
+  dpi?: number;
 }
+
 export function addAsset(deck: Deck, opts: AddAssetOpts): Id {
   const id = opts.id ?? newId("asset");
   deck.assets.push({
     id,
+    name: opts.name ?? opts.path.split("/").pop() ?? id,
     kind: opts.kind,
     path: opts.path,
-    ...(opts.naturalWidth != null ? { naturalWidth: opts.naturalWidth } : {}),
-    ...(opts.naturalHeight != null ? { naturalHeight: opts.naturalHeight } : {}),
+    naturalWidth: opts.naturalWidth,
+    naturalHeight: opts.naturalHeight,
+    ...(opts.dpi != null ? { dpi: opts.dpi } : {}),
   });
   return id;
 }

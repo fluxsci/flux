@@ -1118,6 +1118,26 @@ export function setCrop(p: Project, id: Id, crop: CropRect | null): boolean {
   return false;
 }
 
+/** The ONE element-level override-merge core (figure editor + the slide
+ *  module's set_part_style share it — twin-engine). Merges `patch` into the
+ *  part's id-keyed override; a null/undefined value DELETES that key; an
+ *  override left empty is removed entirely. */
+export function mergePartOverride(
+  el: SemanticPlotElement,
+  partId: string,
+  patch: Record<string, string | number | boolean | null | undefined>,
+): void {
+  const cur = { ...(el.overrides?.[partId] ?? {}) } as Record<string, string | number | boolean>;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v == null) delete cur[k];
+    else cur[k] = v;
+  }
+  el.overrides = { ...(el.overrides ?? {}) };
+  if (Object.keys(cur).length === 0) delete el.overrides[partId];
+  else el.overrides[partId] = cur as PartOverride;
+  if (Object.keys(el.overrides).length === 0) delete el.overrides;
+}
+
 /** Write a per-part override onto a semantic plot, keyed by stable semantic id
  *  (e.g. "control.line"). Survives regeneration (ids are deterministic).
  *  Extracted from colors.ts `applyPartStyleTo`. */
@@ -1125,8 +1145,7 @@ export function setPartOverride(p: Project, elementId: Id, partId: string, patch
   for (const f of p.figures)
     for (const e of f.elements) {
       if (e.id !== elementId || e.type !== "plot") continue;
-      e.overrides = { ...(e.overrides ?? {}) };
-      e.overrides[partId] = { ...(e.overrides[partId] ?? {}), ...patch };
+      mergePartOverride(e, partId, patch);
     }
 }
 

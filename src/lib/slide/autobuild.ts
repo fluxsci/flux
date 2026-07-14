@@ -25,7 +25,8 @@ import { buildPartTree, type XrayNode } from "../plot/tree";
 import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, setAnimation, setPartVisibility, findElement } from "./ops";
 import { morphCompatible } from "./player/morph";
-import type { Beat, Track, PresetName, Deck, SlideElement } from "./types";
+import type { Beat, Track, PresetName, Deck } from "./types";
+import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
 
@@ -233,17 +234,12 @@ export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, man
 // Non-plot elements — the same one-click "animate this" for text/shapes/media
 // ---------------------------------------------------------------------------
 
-// per-kind enter defaults: what each element kind naturally does when it appears.
-// rect/ellipse render as CSS divs (no strokable geometry) → popIn, NOT drawOn;
-// line/path render as inline SVG → the self-draw reads beautifully.
+// per-kind enter defaults: what each element kind naturally does when it
+// appears. The union is the FIGURE element union (slides-are-figures): shapes
+// render as inline SVG geometry, so line/path self-draw and rect/ellipse pop.
 const ELEMENT_ENTER: Record<string, { preset: PresetName; duration: number }> = {
-  textBox: { preset: "fadeRise", duration: 380 },
   text: { preset: "fadeRise", duration: 380 },
-  math: { preset: "writeOn", duration: 600 },
   image: { preset: "fade", duration: 350 },
-  svg: { preset: "fade", duration: 350 },
-  video: { preset: "fade", duration: 350 },
-  embedFigure: { preset: "fade", duration: 400 },
   rect: { preset: "popIn", duration: 300 },
   ellipse: { preset: "popIn", duration: 300 },
   line: { preset: "drawOn", duration: 500 },
@@ -252,7 +248,6 @@ const ELEMENT_ENTER: Record<string, { preset: PresetName; duration: number }> = 
 };
 // per-kind exit defaults — the mirror family.
 const ELEMENT_EXIT: Record<string, { preset: PresetName; duration: number }> = {
-  math: { preset: "wipeOut", duration: 450 },
   line: { preset: "drawOff", duration: 450 },
   path: { preset: "drawOff", duration: 500 },
   rect: { preset: "popOut", duration: 260 },
@@ -261,15 +256,11 @@ const ELEMENT_EXIT: Record<string, { preset: PresetName; duration: number }> = {
 
 /** A sensible default Track for a WHOLE element (the analog of `suggestTrack`
  *  for non-plot rows in the animator tree). `exit` flips to the disappear
- *  family. A multi-block text box enters as a per-block stagger — the classic
- *  bullets reveal — unless `wholeBox` asks for one unit. `part` narrows the
- *  track to a named node INSIDE the element — P9: a figure group inside an
- *  embedFigure, addressed "group:<groupId>" — with simple deterministic
- *  defaults (enter fade / exit fadeOut; the target is one wrapper <g>, so the
- *  fade family always reads correctly regardless of what the group holds). */
+ *  family. `part` narrows the track to a named plot part with deterministic
+ *  defaults (enter fade / exit fadeOut). */
 export function suggestElementTrack(
-  el: SlideElement,
-  opts: { exit?: boolean; wholeBox?: boolean; blocks?: Id[]; part?: string } = {},
+  el: Element,
+  opts: { exit?: boolean; preset?: PresetName; part?: string } = {},
 ): Track {
   if (opts.part) {
     return {
@@ -283,28 +274,20 @@ export function suggestElementTrack(
   }
   const kind = el.type;
   const def = (opts.exit ? ELEMENT_EXIT[kind] : undefined) ?? (opts.exit ? { preset: "fadeOut" as PresetName, duration: 300 } : ELEMENT_ENTER[kind] ?? { preset: "fade" as PresetName, duration: 350 });
-  const track: Track = { id: newId("track"), target: el.id, preset: def.preset, duration: def.duration, start: 0 };
-  if (opts.blocks?.length && kind === "textBox") {
-    track.selector = { blocks: opts.blocks }; // specific line(s) of a text box
-  } else if (!opts.wholeBox && kind === "textBox" && el.blocks.length > 1) {
-    track.selector = { blocks: "all" };
-    track.stagger = { perMs: 120, by: "blocks", from: "start" };
-  }
-  return track;
+  return { id: newId("track"), target: el.id, preset: def.preset, duration: def.duration, start: 0 };
 }
 
 /** Give ONE element an enter (or exit) animation on a build beat — the non-plot
  *  analog of `animatePart`, and the GUI's "Animate in / Animate out" quick
  *  action. Adds to `beatIndex` when given (never 0), else the last build beat
- *  (creating beat 1 if only the resting beat exists). `part` narrows to a named
- *  node inside the element (P9: an embedFigure's figure group, "group:<gid>").
- *  Returns the beat index and the track id, or null if the element/slide is
- *  missing. */
+ *  (creating beat 1 if only the resting beat exists). `part` narrows to a
+ *  named plot part. Returns the beat index and the track id, or null if the
+ *  element/slide is missing. */
 export function animateElement(
   deck: Deck,
   slideId: Id,
   elId: Id,
-  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; wholeBox?: boolean; blocks?: Id[]; part?: string } = {},
+  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; part?: string } = {},
 ): { beatIndex: number; trackId: Id } | null {
   const slide = slideById(deck, slideId);
   const found = findElement(deck, elId);
@@ -314,7 +297,7 @@ export function animateElement(
     if (slide.beats.length <= 1) addBeat(deck, slideId, { label: "Beat 1", advance: "click" });
     bi = slide.beats.length - 1;
   }
-  const track = suggestElementTrack(found.el as SlideElement, opts);
+  const track = suggestElementTrack(found.el, opts);
   if (opts.preset) track.preset = opts.preset;
   setAnimation(deck, slideId, slide.beats[bi].id, track);
   return { beatIndex: bi, trackId: track.id! };
