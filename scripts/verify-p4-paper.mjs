@@ -149,8 +149,8 @@ assert(
 assert(
   /function wouldDuplicateSingleton/.test(paneStore) &&
     (paneStore.match(/wouldDuplicateSingleton\(/g) || []).length >= 3 &&
-    /SINGLETON_MODES[^=]*=\s*\["paper", "figure"\]/.test(paneStore),
-  "PAP-16 + WS-1 Fix 7b: paneStore gates duplicate SINGLETON panes (paper AND figure) at splitWith + setFocusedMode",
+    /SINGLETON_MODES[^=]*=\s*\["paper", "figure", "slide"\]/.test(paneStore),
+  "PAP-16 + WS-1 Fix 7b (+ slide-migration): paneStore gates duplicate SINGLETON panes (paper, figure AND slide — slide shares the figure store) at splitWith + setFocusedMode",
 );
 assert(
   /export async function syncRoot/.test(termSession) &&

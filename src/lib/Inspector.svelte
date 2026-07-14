@@ -1,7 +1,8 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { onMount, getContext } from "svelte";
-  import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels } from "./store";
+  import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot } from "./store";
+  import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextStyle } from "./types";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
@@ -332,6 +333,37 @@
   }
   async function styleToLibrary(st: TextStyle) {
     await saveStyleToLibrary(st);
+  }
+
+  // --- Send to deck (slide-migration §3.9) — figure mode only; slide mode is
+  // never resident then (tenancy), so the disk-level deck write cannot race.
+  let sendDeckOpen = false;
+  let sendDecks: { id: string; title: string }[] = [];
+  async function openSendToDeck() {
+    const root = get(embeddedProjectRoot);
+    if (!root) return;
+    try {
+      const convert = await import("./project/convert"); // lazy: keep the deck bridge out of figure-mode startup
+      sendDecks = await convert.listProjectDecks(root);
+      sendDeckOpen = true;
+    } catch (e) {
+      pushToast("error", "Couldn't list decks", { detail: errMsg(e) });
+    }
+  }
+  async function doSendToDeck(deckId: string | null) {
+    sendDeckOpen = false;
+    const root = get(embeddedProjectRoot);
+    const f = fig;
+    if (!root || !f) return;
+    try {
+      const convert = await import("./project/convert");
+      const res = await convert.sendFigureToDeck(root, f, deckId);
+      pushToast("info", `Sent "${f.name}" to deck "${res.title}"`, {
+        detail: "Added as a new slide (native size — slides share the figure ruler).",
+      });
+    } catch (e) {
+      pushToast("error", "Couldn't send to deck", { detail: errMsg(e) });
+    }
   }
 
   // --- content scale (plot): the K tool's persisted geometric factor.
@@ -728,6 +760,20 @@
       </label>
       <button class="fig-act" on:click={() => duplicateFigure(fig.id)}>Duplicate figure</button>
       <button class="fig-act" on:click={() => autoLetterPanels(fig.id)}>Auto-letter panels (a, b, c)</button>
+      {#if $embeddedProjectRoot}
+        <!-- Send to deck (slide-migration §3.9): copy this figure's content to a
+             deck as a new slide (fresh ids, native size — the shared 96/in ruler). -->
+        <button class="fig-act" on:click={openSendToDeck} title="Copy this figure's content to a slide deck (a new slide; native size)">Send to deck…</button>
+        {#if sendDeckOpen}
+          <div class="style-pop">
+            {#each sendDecks as d (d.id)}
+              <div class="style-row"><button style="flex:1;text-align:left" on:click={() => doSendToDeck(d.id)}>{d.title}</button></div>
+            {/each}
+            <div class="style-row"><button style="flex:1;text-align:left" on:click={() => doSendToDeck(null)}>+ New deck</button></div>
+            <div class="style-row"><button style="flex:1;text-align:left;opacity:.6" on:click={() => (sendDeckOpen = false)}>Cancel</button></div>
+          </div>
+        {/if}
+      {/if}
     </section>
 
     <!-- EXPORT -->

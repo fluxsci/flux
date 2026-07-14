@@ -165,7 +165,6 @@
       "verify-lib-actions.mjs",
       "verify-lib-organize.mjs",
       "verify-shell-complete.mjs",
-      "verify-slide-polish.mjs",
       "verify-fig-esc.mjs",
       "verify-shape-nofill.mjs",
       "verify-primitives-gui.mjs",
@@ -175,9 +174,14 @@
       "verify-text-biu.mjs",
       "verify-text-styles.mjs",
       "verify-groups-layers.mjs",
-      "verify-slide-groups-gui.mjs",
       "verify-line-pivot.mjs",
-      "verify-fig-suspend.mjs"
+      "verify-fig-suspend.mjs",
+      "verify-slide-editor-gui.mjs",
+      "verify-slide-filmstrip-gui.mjs",
+      "verify-slide-animator-gui.mjs",
+      "verify-slide-present-gui.mjs",
+      "verify-slide-tenancy-gui.mjs",
+      "verify-slide-import-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -225,28 +229,20 @@
       "verify-r4-links.mjs",
       "verify-r5-figure.mjs",
       "verify-r6-supplement.mjs",
-      "verify-slide-animator-live.mjs",
-      "verify-slide-arrange-live.mjs",
-      "verify-slide-deckmgmt-live.mjs",
-      "verify-slide-e2e-live.mjs",
-      "verify-slide-present-live.mjs",
-      "verify-slide-richness-live.mjs",
-      "verify-slide-showcase-live.mjs",
-      "verify-importer-slide.mjs",
       "verify-w1-toast.mjs",
       "verify-w10-matrix.mjs",
       "verify-w17-gestures.mjs",
       "verify-w17-rotate-perf.mjs",
       "verify-w4-wiring.mjs",
-      "verify-w5-lifecycle.mjs",
-      "verify-slide-export.ts"
+      "verify-w5-lifecycle.mjs"
     ],
     "scale": [
       "verify-scale-library.mjs",
       "verify-scale-reader.mjs",
       "verify-scale-figure.mjs",
       "verify-scale-paper.mjs",
-      "verify-scale-fulltext.mjs"
+      "verify-scale-fulltext.mjs",
+      "verify-scale-slide.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs"
@@ -358,7 +354,6 @@
     "figenh-18-xray.mjs",
     "verify-xray-theme.mjs",
     "verify-importer-multi.mjs",
-    "verify-importer-slide.mjs",
     "figenh-06-layers.ts",
     "verify-w3-locks.ts",
     "verify-figsave-txn.ts",
@@ -369,20 +364,24 @@
     "verify-f5-drag.mjs",
     "verify-m15-motion.mjs",
     "verify-scale-figure.mjs",
-    "verify-scale-paper.mjs"
+    "verify-scale-paper.mjs",
+    "verify-slide-editor-gui.mjs",
+    "verify-slide-tenancy-gui.mjs",
+    "verify-scale-slide.mjs"
   ],
   "timeouts": {
     "verify-scale-figure.mjs": 120000,
     "verify-scale-paper.mjs": 120000,
     "verify-slide-export-parity.ts": 300000,
     "verify-slide-export-core.ts": 300000,
-    "verify-slide-showcase-live.mjs": 300000,
     "verify-w13-cli.mjs": 300000,
     "verify-startup.mjs": 300000,
     "verify-writer-latency-inp.mjs": 200000,
     "verify-scale-fulltext.mjs": 180000,
     "verify-registry-parity.ts": 180000,
     "verify-slide-headless-e2e.ts": 300000,
-    "verify-slide-export-w6.ts": 300000
+    "verify-slide-export-w6.ts": 300000,
+    "verify-slide-tenancy-gui.mjs": 180000,
+    "verify-scale-slide.mjs": 180000
   }
 }

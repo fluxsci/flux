@@ -78,7 +78,10 @@ The established shared cores — extend these, don't duplicate them:
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
-| Slide deck normalization (migrate + track ids) | `normalizeDeck` in `src/lib/slide/ops.ts` | `verify-deck-migrate.ts` |
+| Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
+| Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
+| Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
+| Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
 
@@ -86,7 +89,12 @@ The established shared cores — extend these, don't duplicate them:
 
 A project is a folder: `project.json` (manifest), `manuscript/**.qmd` (text is truth),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
-`slides/<deckId>/deck.json`, `references/library.bib` (the project's *cited subset*),
+`slides/<deckId>/deck.json` (0.2.0, **slides-are-figures**: a slide's `elements`
+is the figure `Element` union verbatim + a presentation overlay of beats/
+transition/notes/camera; deck-local media under `slides/<id>/assets/`, figure
+`Asset` shape; project plots/fig media resolved BY ID, never copied in;
+`0.1.x` decks are a sanctioned clean break — they fail validation and
+quarantine, no migration), `references/library.bib` (the project's *cited subset*),
 `.meta/` (locks, journal, live bridge). Machine-global state lives in `~/FluxConfig`
 (pointer pref `fluxConfigPath`); the reference library is **always derived** as
 `<FluxConfig>/FluxLib` — never persist or read a separate `fluxLibPath`
@@ -142,6 +150,23 @@ Persistence invariants (all machine-checked — do not weaken):
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
+- **Slide mode edits through the figure store** (slide-migration, 2026-07): a
+  deck loads as projected figures on the synthetic `"deck"` canvas
+  (`deckProject.ts`), the shared Canvas (`frame` prop) / Inspector
+  (`flux-editor-mode` context) / X-ray / presets / keyboard operate on them,
+  and the presentation overlay lives in `slide/store.ts` (`deckOverlay`,
+  composed back on save by `projectIntoDeck`). Deck-level structural ops go
+  through `commitDeckLive` (compose → ONE pure `slideOps` fn — the same fn
+  flux-core runs — → decompose). Overlay edits ride the figure history via
+  `store.registerHistoryCompanion` → ONE unified Cmd+Z. THE TENANCY RULE:
+  figure and slide mode share that app-global store, so they are mutually
+  exclusive residents — `paneStore` denies side-by-side panes, mode mounts
+  flush+evict the other (`evictMode`), and the bridges hard-assert the tenant
+  (`src/lib/tenancy.ts`) so a wrong-folder autosave is structurally impossible.
+  When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
+  Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
+  `$store` consumers in runes components (referential dedup) — publish a fresh
+  identity (`store.set({ ...o })`) when mutating in place.
 - Electron: `main.cjs` is a **composition root**; handler families live in
   `electron/ipc/{contract,files,terminal,network,agent}.cjs`. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
@@ -213,9 +238,11 @@ Rules of practice:
    packaged-build equivalent is a wanted item), scale gates budget ratios and structure; treat a
    dev-mode reading over 100ms as a flag to investigate, not automatically a failure.
 
-Standing status (dev-mode, scale fixtures, as of 2026-07-12) — instantaneous class is green:
+Standing status (dev-mode, scale fixtures, as of 2026-07-13) — instantaneous class is green:
 paper keystroke @20k lines 5ms sync / 34ms paint p95, undo ~1ms, figure pan 16–47ms, library
-scroll 17ms p95 @5k refs, reader page-jump ≤56ms, warm fulltext 73ms @5k PDFs. Known items above
+scroll 17ms p95 @5k refs, reader page-jump ≤56ms, warm fulltext 73ms @5k PDFs, slide-switch
+33ms p95 + slide static-edit 34ms p95 @31 plot-bearing slides with 0 rAF at rest and
+1-thumbnail invalidation per edit (`verify-scale-slide.mjs`, test-results/scale-slide.json). Known items above
 100ms, tracked, descending priority: GUI `ft:` query (spawns a CLI subprocess per query — wants a
 resident mtime-invalidated index in the main process), library first-keystroke 177ms (the 150ms
 debounce above), sidebar edit @5k elements 156ms (un-memoized derived recompute), figure commit
@@ -338,6 +365,15 @@ at Home) is the gate. Mode warms belong in `requestIdleCallback`.
   lezer re-parses the paragraph), dense-canvas *initial* mount (160 plots → one ~90ms task).
 - The proxy-capture engine is owner-tuned and out of scope for refactors; its behavior contract is
   `verify-proxy-capture.cjs` + `verify-netget.cjs`.
+- **Slide deferrals (slide-migration, owner-scoped §8):** rich text boxes /
+  bullets and math are OUT — slide text is the figure `text` element; KaTeX
+  left the deck export bundle entirely. **Video** returns later as a
+  purpose-built slide-only element (commented seams in `slide/types.ts` +
+  `player/render.ts`; the player's media plumbing was kept). Live-linked
+  embedded figures (the old `embedFigure`) were removed — design fresh if
+  wanted. Theme fonts bind at layout-starter creation (no live restyle). A
+  fluxplot "presentation" render style (bigger labels for projection) is a
+  fluxplot-side follow-up. Do not rebuild any of these casually.
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
 
@@ -432,3 +468,33 @@ lands as one ungroupable unit. Gates: verify-primitives.ts (pure), verify-primit
   methods, memBridge localStorage fallback (headless gates), devHandle exposure.
 - Export parity check pays off: line elements were silently dropping `opacity` in export while
   the canvas honored it — found by reading both renderers side by side, not by a report.
+
+### 2026-07-13 — Slide migration: slides are figures (Claude Fable 5, `slide_migration`)
+**Work:** Executed notes/slide_migration_plan.md end-to-end: a slide IS a figure
+(deck 0.2.0; `SlideElement`/textBox/math/video/embedFigure/DeckAsset deleted, clean
+break, no migration), the Slide module now mounts the figure editor verbatim
+(Canvas `frame` prop, Inspector/Toolbar `flux-editor-mode` context) over a pure
+deck⇄Project projection (`deckProject.ts`, identity round-trip gated), with a thin
+presentation layer (filmstrip w/ figureRev-keyed thumbnails, on-demand animator
+dock, present, offline export), ONE unified undo via the store's new history
+companion, store tenancy + mutual mode eviction (the #1 risk — gated end to end),
+the slide asset sink (`slides/<id>/assets/`), Send-to-deck/Send-to-canvas over one
+clone core, and the full batch-E headless disposition (add_slide_figure = copy
+semantics; add_slide_math deleted; goldens regenerated deliberately). Old slide
+gate suite dispositioned per plan §7.0 (rewritten/deleted-with-re-homing, table in
+the disposition commit); new gates: roundtrip, deck-schema, figure-separation,
+headless-e2e, 6 GUI gates, scale-slide. Net −2.3k lines.
+**Learnings:**
+- Svelte 5 runes dedupe store values by reference: `store.set(sameObj)` after an
+  in-place mutation silently skips `$store` consumers in runes components —
+  always publish a fresh identity. (Legacy `$:` components were immune;
+  the filmstrip went stale for exactly this reason.)
+- The compose→pure-op→decompose pattern (`commitDeckLive`) is a cheap way to give
+  a GUI real twin-engine parity: the GUI literally executes the flux-core
+  mutation function per structural edit, so drift is impossible by construction.
+- `elementToSvg` (the figure export serializer) doubling as the slide
+  present/export renderer bought dash/arrowhead/wrap/crop parity for free —
+  reuse the serializer, never re-approximate rendering.
+- A history "companion" (opaque capture/restore snapshot riding each history
+  entry) unifies two stores under one undo stack with ~30 lines and zero cost
+  when unregistered — beats focus-routed twin stacks.

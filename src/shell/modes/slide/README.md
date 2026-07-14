@@ -1,8 +1,10 @@
 # Flux Slide — the Animator ("data in motion")
 
-Flux Slide is figure-first: a slide is a stage of **elements** (text, math, image,
-rect/line, and **plots**), and a plot is not a picture — it's a live **semantic
-scene graph**. The Animator turns that scene graph into a *talk*: hide everything,
+Flux Slide is figure-first — literally: **a slide IS a figure** (slide-migration
+2026-07). Its elements are the figure `Element` union (text, image,
+rect/ellipse/line/path, and **plots**), edited by the FIGURE editor operating on
+the projected deck (see `src/lib/slide/deckProject.ts`); a plot is not a
+picture — it's a live **semantic scene graph**. The Animator turns that scene graph into a *talk*: hide everything,
 then reveal it the way the data should be read — axes draw on, points stagger in
 left→right, the fit line draws itself as they land. PowerPoint meets 3blue1brown.
 
@@ -20,7 +22,7 @@ Deck → Slide → beats[] → tracks[]
   time via `resolveTargets`; the player queries `[id="${target}__${part}"]`.
 * **preset** — `drawOn` (stroke a path on), `fade`, `stagger` (reveal members in
   sequence), `growBaseline`, `writeOn`, `popIn`, `fadeRise`, `morph`, `camera`.
-* **stagger.by** — `index | x | y | series | blocks | dom`. `x`/`y` read each
+* **stagger.by** — `index | x | y | series | dom`. `x`/`y` read each
   member's `data-x`/`data-y` so points reveal in *data* order, not DOM order.
 
 The player has two faces over the same specs: `createPlayer` (live sequencer for

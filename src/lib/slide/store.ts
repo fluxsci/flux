@@ -172,7 +172,10 @@ export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: str
     // this callback) holds the true pre-state.
     Object.assign(o, stripDeckToOverlay(deck));
   });
-  deckOverlay.set(o); // notify overlay subscribers (same object, fresh signal)
+  // Publish a FRESH identity: Svelte 5's store→rune bridge dedupes on
+  // referential equality, so re-setting the same object would not re-render
+  // `$deckOverlay` consumers (the filmstrip's {#each} would go stale).
+  deckOverlay.set({ ...o });
   coalesceState.key = key;
   coalesceState.gen = editGen.n;
   reconcileCursor();
