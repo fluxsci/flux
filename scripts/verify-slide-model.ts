@@ -33,17 +33,13 @@ try {
   // Build a rich deck via the PURE ops, save, reload → assert byte-identical.
   const deck = slideOps.createDeck({ id: "defense", title: "Thesis Defense" });
   const s1 = slideOps.addSlide(deck, { name: "Results", layout: "content-figure" });
-  const tb = slideOps.addTextBox(deck, s1.id, { text: "Mycelial growth doubles under stress", x: 80, y: 80, fontSize: 44 })!;
-  slideOps.addBullet(deck, s1.id, tb, "…but only above 24 °C", { level: 1, emphasis: "accent" });
-  slideOps.addMath(deck, s1.id, { tex: "\\frac{dN}{dt}=rN\\left(1-\\frac{N}{K}\\right)", x: 80, y: 300, display: true });
+  const tb = slideOps.addSlideText(deck, s1.id, { text: "Mycelial growth doubles under stress\n• …but only above 24 °C", x: 80, y: 80, fontSize: 24 })!;
   const beat = slideOps.addBeat(deck, s1.id, { label: "reveal bullets", advance: "click" })!;
   slideOps.setAnimation(deck, s1.id, beat.id, {
     target: tb,
-    selector: { blocks: "all" },
     preset: "fadeRise",
     start: 0,
     duration: 320,
-    stagger: { perMs: 120 },
   });
   assert(deck.slides.length === 2, "deck has 2 slides (title + results)");
 
@@ -52,7 +48,7 @@ try {
   assert(JSON.stringify(reloaded.slides) === JSON.stringify(deck.slides), "deck slides round-trip byte-identical");
   assert(reloaded.title === "Thesis Defense", "deck title preserved");
   const rb = reloaded.slides[1].beats.find((b) => b.label === "reveal bullets");
-  assert(!!rb && rb.tracks[0].preset === "fadeRise" && rb.tracks[0].stagger?.perMs === 120, "animation track round-trips");
+  assert(!!rb && rb.tracks[0].preset === "fadeRise" && rb.tracks[0].duration === 320, "animation track round-trips");
 
   // The new deck registered in project.json.slides[].
   const decks1 = await core.listDecks(root);

@@ -31,11 +31,11 @@ try {
   await fs.writeFile(path.join(root, "plots", "nested", "real-target.svg"), realSvg);
 
   const deck = {
-    schemaVersion: "0.1.0",
+    schemaVersion: "0.2.0",
     id: "diag",
     title: "Diag",
-    theme: "flexoki",
-    stage: { width: 1280, height: 720 },
+    theme: "flux-dark",
+    stage: { width: 640, height: 360 },
     assets: [{ id: "ghost-media", kind: "png", path: "assets/ghost.png" }], // missing on disk
     slides: [
       {

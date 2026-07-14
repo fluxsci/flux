@@ -25,8 +25,10 @@ const fig = {
 
 const slideOps = await import("../src/lib/slide/ops");
 const bridge = await import("../src/lib/project/slideBridge");
-const { deck: deckStore, commitDeck } = await import("../src/lib/slide/store");
+const { deckOverlay, commitDeckLive } = await import("../src/lib/slide/store");
+const { setStoreTenant } = await import("../src/lib/tenancy");
 const { get } = await import("svelte/store");
+setStoreTenant("slide"); // the mode lifecycle's claim — saveDeckFrom asserts it
 
 function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); console.log("  ok:", m); }
 
@@ -37,7 +39,7 @@ await fs.writeFile(`${ROOT}/project.json`, JSON.stringify({ schema: "flux-projec
 const A = await bridge.createDeckInProject(ROOT, { title: "Alpha" });
 const B = await bridge.createDeckInProject(ROOT, { title: "Beta" });
 assert(A.id !== B.id, "two new decks get distinct ids");
-assert(get(deckStore)?.id === B.id, "the most recently created deck is the live one");
+assert(get(deckOverlay)?.id === B.id, "the most recently created deck is the live one");
 
 // 2. listProjectDecks enumerates both, with titles
 let list = await bridge.listProjectDecks(ROOT);
@@ -45,15 +47,15 @@ assert(list.length === 2 && list.some((d) => d.title === "Alpha") && list.some((
 
 // 3. load A, edit it (add a uniquely-named slide), save to disk
 await bridge.loadDeckInto(ROOT, A.id);
-assert(get(deckStore)?.id === A.id, "loadDeckInto put deck A in the live store");
-commitDeck((d) => slideOps.addSlide(d, { name: "EDIT_SLIDE", layout: "blank" }));
-const aSlides = get(deckStore)!.slides.length;
+assert(get(deckOverlay)?.id === A.id, "loadDeckInto put deck A in the live store");
+commitDeckLive((d) => slideOps.addSlide(d, { name: "EDIT_SLIDE", layout: "blank" }));
+const aSlides = get(deckOverlay)!.slides.length;
 await bridge.saveDeckFrom(ROOT);
 
 // 4. switch to B — the save-before-switch contract means A is already flushed
 await bridge.loadDeckInto(ROOT, B.id);
-assert(get(deckStore)?.id === B.id, "switched the live store to deck B");
-assert(!get(deckStore)!.slides.some((s) => s.name === "EDIT_SLIDE"), "deck B does NOT carry deck A's edit (decks are independent)");
+assert(get(deckOverlay)?.id === B.id, "switched the live store to deck B");
+assert(!get(deckOverlay)!.slides.some((s) => s.name === "EDIT_SLIDE"), "deck B does NOT carry deck A's edit (decks are independent)");
 
 // 5. re-read A from disk → the edit survived the switch
 const aDisk = await bridge.readDeck(ROOT, A.id);

@@ -1,9 +1,10 @@
 #!/usr/bin/env -S npx tsx
-// W11b acceptance (AGT-6/SLD-6): the Slides pillar is now fully agent-authorable
+// W11b acceptance (AGT-6/SLD-6): the Slides pillar is fully agent-authorable
 // through flux-core (→ CLI + MCP). An agent builds a multi-slide ANIMATED deck
-// headlessly — add slides, text/math, embed a figure, add a beat + animation,
-// set notes/camera/theme, reorder/duplicate/delete — then exports the offline
-// .html and confirms the content + animation survive the round-trip.
+// headlessly — add slides, figure text, COPY a project figure in
+// (add_slide_figure, slides-are-figures), add a beat + animation, set notes/
+// camera/theme, reorder/duplicate/delete — then exports the offline .html and
+// confirms the content + animation survive the round-trip.
 //   Run: npx tsx scripts/verify-w11-slides.ts
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -36,14 +37,22 @@ try {
   deck = await core.loadDeck(root, deckId);
   assert(deck.slides.length === 3, "three slides after two add-slide calls");
 
-  // Content: text + math on the results slide; embed a real project figure on s2.
+  // Content: figure text on the results slide; COPY a real project figure onto s2.
   const { elementId: elText } = await core.addTextToSlide(root, deckId, s1, {
-    text: "Growth doubles under stress", x: 90, y: 150, width: 560, height: 120, fontSize: 40,
+    text: "Growth doubles under stress", x: 90, y: 150, width: 400, height: 60, fontSize: 24,
   });
-  await core.addMathToSlide(root, deckId, s1, { tex: "\\frac{dN}{dt}=rN", x: 90, y: 320, width: 560, height: 100, display: true });
   const { figureId } = await core.createFigure(root, { id: "gfig", name: "Growth" });
-  const { elementId: elFig } = await core.addEmbedFigureToSlide(root, deckId, s2, { figureId, x: 100, y: 100, width: 900, height: 500 });
-  assert(elText && elFig, "added text + embed-figure elements");
+  await core.addFigText(root, figureId, { text: "PANEL A", x: 40, y: 40 });
+  await core.addFigText(root, figureId, { text: "PANEL B", x: 40, y: 400 });
+  const { elementIds: figEls } = await core.addFigureToSlide(root, deckId, s2, figureId, {});
+  assert(elText && figEls.length === 2, "added text + copied the figure's 2 elements onto the slide");
+  {
+    const d = await core.loadDeck(root, deckId);
+    const sl = d.slides.find((s) => s.id === s2)!;
+    const copies = sl.elements.filter((e) => figEls.includes(e.id));
+    assert(copies.every((e) => e.type === "text"), "copied elements are real figure elements (fresh ids)");
+    assert(copies.every((e) => e.x >= 0 && e.x + e.width <= d.stage.width), "copied content sits inside the stage frame (native size, fit-only-if-exceeds)");
+  }
 
   // Animation: a beat that fades the headline in.
   const { beatId } = await core.addBeat(root, deckId, s1, { label: "reveal" });
@@ -90,7 +99,7 @@ try {
   const html = await fs.readFile(exp.path, "utf8");
   assert(html.length > 5000, `exported HTML is substantial (${(exp.bytes / 1024).toFixed(0)} KB)`);
   assert(html.includes("Growth doubles under stress"), "exported HTML contains the slide text");
-  assert(html.includes("\\frac{dN}{dt}=rN") || html.includes("frac"), "exported HTML contains the math");
+  assert(html.includes("PANEL A"), "exported HTML contains the copied figure content");
   assert(/"preset"\s*:\s*"fade"/.test(html) || html.includes("fade"), "exported HTML carries the fade animation");
 
   console.log("\nW11 SLIDES VERIFY: PASS");

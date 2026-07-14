@@ -23,8 +23,8 @@ try {
   // author a deck through the pure ops, then save it on disk
   const deck = slideOps.createDeck({ id: "talk", title: "Defense Talk" });
   const s1 = slideOps.addSlide(deck, { name: "Results", layout: "content-figure" }).id;
-  slideOps.addTextBox(deck, s1, { text: "Key result", x: 100, y: 120, width: 800, height: 100, fontSize: 48 });
-  slideOps.addMath(deck, s1, { tex: "e^{i\\pi}+1=0", x: 100, y: 300, width: 400, height: 100 });
+  slideOps.addSlideText(deck, s1, { text: "Key result", x: 100, y: 120, width: 800, height: 100, fontSize: 48 });
+  slideOps.addSlideText(deck, s1, { text: "n = 1,247", x: 100, y: 300, width: 400, height: 100, fontSize: 32 });
   // a deck-local image asset (written to slides/talk/assets/)
   const onePx = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
   await fs.mkdir(path.join(root, "slides", "talk", "assets"), { recursive: true });

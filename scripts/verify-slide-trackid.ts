@@ -23,7 +23,7 @@ const allTracks = (d: { slides: { beats: { tracks: { id?: string }[] }[] }[] }) 
 // 1. setAnimation assigns an id to a new track
 const deck = slideOps.createDeck({ id: "d", title: "d" });
 const sid = slideOps.addSlide(deck, { name: "s", layout: "blank" }).id;
-const el = slideOps.addTextBox(deck, sid, { x: 0, y: 0, width: 100, height: 40, blocks: [slideOps.makeBlock("hi")] })!;
+const el = slideOps.addSlideText(deck, sid, { text: "hi", x: 0, y: 0, width: 100, height: 40 })!;
 const beat = slideOps.addBeat(deck, sid, { label: "b1", advance: "click" })!;
 slideOps.setAnimation(deck, sid, beat.id, { target: el, preset: "fade", duration: 300 });
 const t1 = slideOps.slideById(deck, sid)!.beats.find((b) => b.id === beat.id)!.tracks[0];

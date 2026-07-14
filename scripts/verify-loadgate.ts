@@ -91,7 +91,8 @@ assert(validateModel(model([rect({ type: "svg", assetId: "a" })])).length > 0, '
 // ---- canvas + deck file validators -----------------------------------------------
 assert(validateCanvasFile({ id: "c1", figures: [] }).length === 0, "minimal canvas file passes");
 assert(validateCanvasFile({ figures: [] }).length > 0, "canvas file without id rejected");
-assert(validateDeckFile({ schemaVersion: "0.1.0", id: "d", title: "T", theme: "flexoki", stage: { width: 1, height: 1 }, slides: [] }).length === 0, "minimal deck passes");
+assert(validateDeckFile({ schemaVersion: "0.2.0", id: "d", title: "T", theme: "flux-dark", stage: { width: 640, height: 360 }, slides: [] }).length === 0, "minimal deck passes");
+assert(validateDeckFile({ schemaVersion: "0.1.0", id: "d", title: "T", theme: "flux-dark", stage: { width: 640, height: 360 }, slides: [] }).length > 0, "a 0.1.x deck fails (clean break — quarantined at the read seam, never migrated)");
 assert(validateDeckFile({ id: "d" }).length > 0, "structurally-broken deck rejected");
 
 // ---- one compile, both engines ------------------------------------------------------

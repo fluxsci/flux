@@ -18,13 +18,13 @@ function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); 
 const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false });
 const s = ops.addSlide(deck, { name: "s", layout: "blank" });
 const sid = s.id;
-ops.addTextBox(deck, sid, { x: 0, y: 0, width: 400, height: 200, blocks: [ops.makeBlock("a"), ops.makeBlock("b"), ops.makeBlock("c")] });
+ops.addSlideText(deck, sid, { text: "a\nb\nc", x: 0, y: 0, width: 400, height: 200 });
 ops.addBeat(deck, sid, { label: "b1", advance: "click" });
 ops.addBeat(deck, sid, { label: "b2", advance: "with-prev" });
 ops.addBeat(deck, sid, { label: "b3", advance: "click" });
 const s2 = ops.addSlide(deck, { name: "s2", layout: "blank" });
 deck.slides[1].transition = "slide"; // exercise a directional transition path
-ops.addTextBox(deck, s2.id, { x: 0, y: 0, width: 400, height: 200, blocks: [ops.makeBlock("z")] });
+ops.addSlideText(deck, s2.id, { text: "z", x: 0, y: 0, width: 400, height: 200 });
 
 const mount = document.createElement("div") as unknown as HTMLElement;
 const player = createPlayer(mount, deck, { theme: FLUX_DARK, reducedMotion: true, plotManifest: () => undefined });

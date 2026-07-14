@@ -14,13 +14,13 @@ const { FLUX_DARK } = await import("../src/lib/slide/theme");
 
 function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); console.log("  ok:", m); }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const stage = { width: 1280, height: 720 };
+const stage = { width: 1280, height: 720 }; // fixtures predate the 640×360 default — pinned explicitly
 // reducedMotion:true → the player never calls WAAPI animate() (absent in linkedom).
 const opts = { theme: FLUX_DARK, plotManifest: () => undefined, reducedMotion: true } as const;
 
 // --- B24: a 0-beat slide still reports one (resting) beat -----------------------
 {
-  const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false });
+  const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false, stage });
   const s = ops.addSlide(deck, { name: "s", layout: "blank" });
   s.beats = []; // pathological: no beats at all
   const mount = document.createElement("div") as unknown as HTMLElement;
@@ -31,10 +31,10 @@ const opts = { theme: FLUX_DARK, plotManifest: () => undefined, reducedMotion: t
 
 // --- B14: the slide's base camera is applied at rest ----------------------------
 {
-  const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false });
+  const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false, stage });
   const s = ops.addSlide(deck, { name: "s", layout: "blank" });
   s.camera = { x: 400, y: 300, zoom: 2 }; // tx=640-800=-160, ty=360-600=-240
-  ops.addTextBox(deck, s.id, { x: 0, y: 0, width: 200, height: 80, blocks: [ops.makeBlock("hi")] });
+  ops.addSlideText(deck, s.id, { text: "hi", x: 0, y: 0, width: 200, height: 80 });
   const mount = document.createElement("div") as unknown as HTMLElement;
   createPlayer(mount, deck, opts);
   const cam = (mount.querySelector(".sl-camera") as HTMLElement).style.transform;
@@ -43,9 +43,9 @@ const opts = { theme: FLUX_DARK, plotManifest: () => undefined, reducedMotion: t
 
 // --- B11: move THEN scale on the same element compose (translate + scale) --------
 {
-  const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false });
+  const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false, stage });
   const s = ops.addSlide(deck, { name: "s", layout: "blank" });
-  const el = ops.addTextBox(deck, s.id, { x: 100, y: 100, width: 200, height: 80, blocks: [ops.makeBlock("x")] })!;
+  const el = ops.addSlideText(deck, s.id, { text: "x", x: 100, y: 100, width: 200, height: 80 })!;
   const b1 = ops.addBeat(deck, s.id, { label: "move", advance: "click" })!;
   ops.setAnimation(deck, s.id, b1.id, { target: el, preset: "move", to: { x: 50, y: 30 }, duration: 300 });
   const b2 = ops.addBeat(deck, s.id, { label: "scale", advance: "click" })!;
@@ -61,9 +61,9 @@ const opts = { theme: FLUX_DARK, plotManifest: () => undefined, reducedMotion: t
 
 // --- B9: an auto beat fires on slide ENTRY (not only after a manual next) --------
 {
-  const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false });
+  const deck = ops.createDeck({ id: "d", title: "d", withTitleSlide: false, stage });
   const s = ops.addSlide(deck, { name: "s", layout: "blank" });
-  ops.addTextBox(deck, s.id, { x: 0, y: 0, width: 200, height: 80, blocks: [ops.makeBlock("a"), ops.makeBlock("b")] });
+  ops.addSlideText(deck, s.id, { text: "a\nb", x: 0, y: 0, width: 200, height: 80 });
   const b1 = ops.addBeat(deck, s.id, { label: "auto", advance: "auto", autoDelayMs: 40 })!;
   ops.setAnimation(deck, s.id, b1.id, { target: "@stage", preset: "fade", duration: 100 });
   const mount = document.createElement("div") as unknown as HTMLElement;

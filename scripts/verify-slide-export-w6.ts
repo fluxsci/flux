@@ -1,8 +1,10 @@
 #!/usr/bin/env -S npx tsx
-// W6 export polish: KaTeX (~1 MB) is inlined ONLY when the deck has an equation
-// (C12), and the exported file carries the presenter panel + motion-on default
-// (C1/C15). The node half checks the KaTeX gate + writes a no-math file; the live
-// half opens that file offline and drives the presenter panel.
+// W6 export polish — REWRITTEN for slides-are-figures (slide_migration): the
+// math element is gone (slide text = figure text, plan §8), so KaTeX is never
+// bundled at all — the old C12 "inline only with an equation" gate hardens into
+// "never present". The exported file still carries the presenter panel +
+// motion-on default (C1/C15); the live half opens the file offline and drives
+// the presenter panel.
 // Run: npx tsx scripts/verify-slide-export-w6.ts
 import { writeFile } from "node:fs/promises";
 import * as ops from "../src/lib/slide/ops";
@@ -11,25 +13,19 @@ import type { ExportPayload } from "../src/lib/slide/export/runtime";
 
 function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); console.log("  ok:", m); }
 
-// --- deck WITHOUT math ----------------------------------------------------------
+// --- a plain two-slide deck -------------------------------------------------------
 const plain = ops.createDeck({ id: "plain", title: "No Equations Here" });
 const p0 = plain.slides[0].id;
-ops.addTextBox(plain, p0, { text: "Just words", x: 100, y: 250, width: 900, height: 160, fontSize: 60 });
+ops.addSlideText(plain, p0, { text: "Just words", x: 60, y: 140, width: 500, height: 60, fontSize: 30 });
 const s1 = ops.addSlide(plain, { name: "Two", layout: "blank" }).id;
 plain.slides[1].notes = "Speaker note for slide two.";
-ops.addTextBox(plain, s1, { x: 100, y: 120, width: 900, height: 200, blocks: [ops.makeBlock("SECOND")] });
+ops.addSlideText(plain, s1, { text: "SECOND", x: 60, y: 80, width: 500, height: 80, fontSize: 30 });
 const plainOut = await exportDeckHtml({ deck: plain } as ExportPayload);
 
-// --- deck WITH math -------------------------------------------------------------
-const mathy = ops.createDeck({ id: "mathy", title: "Has An Equation" });
-ops.addMath(mathy, mathy.slides[0].id, { tex: "e^{i\\pi}+1=0", x: 100, y: 250, width: 900, height: 160, display: true });
-const mathOut = await exportDeckHtml({ deck: mathy } as ExportPayload);
-
-// The runtime IIFE always bundles KaTeX *JS* (the import); C12 gates the ~1 MB
-// CSS + fonts, whose signature is the "KaTeX_" @font-face family (CSS-only).
-assert(!plainOut.html.includes("KaTeX_"), "C12: a no-math deck does NOT inline the KaTeX CSS/fonts");
-assert(mathOut.html.includes("KaTeX_"), "C12: a deck WITH an equation DOES inline the KaTeX CSS/fonts");
-assert(plainOut.bytes < mathOut.bytes - 250_000, `C12: dropping KaTeX saves ~350 KB (plain ${(plainOut.bytes / 1024) | 0} KB vs math ${(mathOut.bytes / 1024) | 0} KB)`);
+// KaTeX left with the math element (slides-are-figures) — never bundled now.
+assert(!plainOut.html.includes("KaTeX_"), "no KaTeX CSS/fonts in the export (math element deleted with the migration)");
+assert(!/katex/i.test(plainOut.html.slice(0, 4000)), "no katex reference in the export head");
+assert(plainOut.bytes < 900_000, `export stays lean without KaTeX (${(plainOut.bytes / 1024) | 0} KB)`);
 
 // write the no-math file for the live pass
 const file = "/tmp/flux-export-w6.html";

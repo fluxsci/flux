@@ -42,7 +42,8 @@ const { loadFigInto, saveFigFrom, figDiskDiverged } = await import("../src/lib/p
 const { project: figProject } = await import("../src/lib/store");
 const { ConflictError } = await import("../src/lib/autosave");
 const slideBridge = await import("../src/lib/project/slideBridge");
-const { deck: deckStore } = await import("../src/lib/slide/store");
+const { deckOverlay, commitDeckLive } = await import("../src/lib/slide/store");
+const { setStoreTenant } = await import("../src/lib/tenancy");
 
 try {
   // ---- figure subsystem -------------------------------------------------------
@@ -113,9 +114,9 @@ try {
   await fs.writeFile(deckPath, externalDeck);
   assert(await slideBridge.deckDiskDiverged(root, deckId), "external deck edit IS detected");
 
-  deckStore.update((d) => {
-    if (d) d.title = "Talk (mine)";
-    return d;
+  setStoreTenant("slide"); // the slide-mode lifecycle claim (saveDeckFrom asserts it)
+  commitDeckLive((d) => {
+    d.title = "Talk (mine)";
   });
   threw = undefined;
   try {
@@ -135,7 +136,7 @@ try {
   await fs.writeFile(deckPath, externalDeck);
   await slideBridge.loadDeckInto(root, deckId);
   assert(!(await slideBridge.deckDiskDiverged(root, deckId)), "reload-theirs re-seeds the deck baseline");
-  const d = (await import("svelte/store")).get(deckStore);
+  const d = (await import("svelte/store")).get(deckOverlay);
   assert(d?.title === "Talk (agent)", "reload-theirs actually loaded the external version");
 } finally {
   await fs.rm(root, { recursive: true, force: true });

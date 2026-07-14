@@ -6,7 +6,8 @@
 // Run: npx tsx scripts/verify-slide-track-ops.ts
 import * as ops from "../src/lib/slide/ops";
 import { suggestElementTrack, animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
-import type { Track, TextBoxElement, SlideElement } from "../src/lib/slide/types";
+import type { Track } from "../src/lib/slide/types";
+import type { Element as SlideElement } from "../src/lib/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 
 function assert(cond: unknown, msg: string) {
@@ -81,23 +82,20 @@ assert(masked.disabled === true && el.overrides?.["axis.x.ticks"] === undefined,
 
 // --- setPartStyle --------------------------------------------------------------
 ops.setPartStyle(deck, plotId, "fit.line", { stroke: "#bc5215", strokeWidth: 2 });
-const ov = (ops.findElement(deck, plotId)!.el as { overrides?: Record<string, Record<string, unknown>> }).overrides!;
+const readOv = () => (ops.findElement(deck, plotId)!.el as { overrides?: Record<string, Record<string, unknown>> }).overrides!;
+let ov = readOv();
 assert(ov["fit.line"].stroke === "#bc5215" && ov["fit.line"].strokeWidth === 2, "style patch merged into the part override");
 ops.setPartStyle(deck, plotId, "fit.line", { stroke: null, opacity: 0.5 });
+ov = readOv();
 assert(!("stroke" in ov["fit.line"]) && ov["fit.line"].opacity === 0.5, "null deletes a key; others merge");
 ops.setPartStyle(deck, plotId, "fit.line", { strokeWidth: null, opacity: null });
 assert(!("fit.line" in ((ops.findElement(deck, plotId)!.el as { overrides?: object }).overrides ?? {})), "an emptied override is removed");
 
-// --- per-kind element tracks -----------------------------------------------------
-const textId = ops.addTextBox(deck, sid, { text: "One", x: 0, y: 0, width: 300, height: 200 })!;
-const textEl = ops.findElement(deck, textId)!.el as TextBoxElement;
-textEl.blocks = [
-  { id: "blk1", text: "One" }, { id: "blk2", text: "Two" }, { id: "blk3", text: "Three" },
-];
+// --- per-kind element tracks (figure element union — slides-are-figures) ---------
+const textId = ops.addSlideText(deck, sid, { text: "One\nTwo\nThree", x: 0, y: 0, width: 300, height: 200 })!;
+const textEl = ops.findElement(deck, textId)!.el;
 const tText = suggestElementTrack(textEl);
-assert(tText.preset === "fadeRise" && tText.selector?.blocks === "all" && tText.stagger?.by === "blocks", "multi-block text box → staggered per-block fadeRise (the bullets reveal)");
-const tWhole = suggestElementTrack(textEl, { wholeBox: true });
-assert(!tWhole.selector && tWhole.preset === "fadeRise", "wholeBox skips the block stagger");
+assert(tText.preset === "fadeRise" && !tText.selector, "text → fadeRise (one unit; per-line reveal returns with rich text, plan §8)");
 const line = { type: "line", id: "el-line", x: 0, y: 0, width: 200, height: 0, rotation: 0, x1: 0, y1: 0, x2: 200, y2: 0, stroke: "#000", strokeWidth: 2, arrowStart: false, arrowEnd: false } as unknown as SlideElement;
 assert(suggestElementTrack(line).preset === "drawOn", "line → drawOn");
 const rect = { type: "rect", id: "el-rect", x: 0, y: 0, width: 100, height: 80, rotation: 0, fill: "#123", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as unknown as SlideElement;
@@ -111,7 +109,7 @@ assert(rIn && rIn.beatIndex > 0, "animateElement lands on a build beat");
 const rOut = animateElement(deck, sid, textId, { exit: true, beatIndex: 2 })!;
 assert(rOut.beatIndex === 2, "explicit beatIndex honoured for the exit");
 const outTrack = ops.findTrack(deck, rOut.trackId)!.track;
-assert(outTrack.preset === "fadeOut" && outTrack.selector?.blocks === "all", "exit track targets the blocks with fadeOut");
+assert(outTrack.preset === "fadeOut" && !outTrack.selector, "exit track fades the whole element out");
 
 // --- morph authoring + gate ------------------------------------------------------
 const mkManifest = (series: { id: string; n: number }[]): FluxPlotManifest =>
