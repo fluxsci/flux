@@ -49,6 +49,9 @@ const EXTERNAL = [
   // imported in flux-core/fulltext.ts, so it stays out of the load path.
   "pdfjs-dist",
   "pdfjs-dist/legacy/build/pdf.mjs",
+  // Native module (.node), lazily imported only by the snip_paper verb
+  // (flux-core/snips.ts) to rasterize a PDF page region. Same posture as resvg.
+  "@napi-rs/canvas",
 ];
 
 // CJS interop shims some bundled deps (require/__dirname/__filename) expect
