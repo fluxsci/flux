@@ -2245,4 +2245,75 @@ export const VERBS: VerbDef[] = [
       },
     },
   },
+
+  // --- paper snips (reader-parity capture + citations) ------------------------------
+  {
+    name: "snip_paper",
+    cli: "snip-paper",
+    cliRoot: "flags",
+    summary:
+      "Capture a region of a FluxLib paper's PDF page as a PNG snip into plots/paper_snips/ — true-size pHYs dpi (72×scale), embedded flux-snip tEXt provenance, and a .snip.json sidecar, exactly like the reader's ctrl+alt+drag. rect is PDF points, y-up, [x1,y1,x2,y2] (a human-captured snip's sidecar rect round-trips); omit it to snip the whole page. Returns the file path and the formatted citation — cite it to substantiate claims about the paper's figures.",
+    params: {
+      key: z.string(),
+      page: z.number().int().min(1),
+      rect: z.array(z.number()).length(4).optional(),
+      name: z.string().optional(),
+      scale: z.number().positive().max(8).optional(),
+      supplement: z.string().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "key", required: true },
+      { kind: "flag", at: "page", into: "page", as: "number", required: true },
+      { kind: "flag", at: "rect", into: "rect", as: "csvNum" },
+      { kind: "flag", at: "name", into: "name" },
+      { kind: "flag", at: "scale", into: "scale", as: "number" },
+      { kind: "flag", at: "supplement", into: "supplement" },
+    ],
+    handler: (ctx, a) =>
+      core.snipPaper(ctx.root, {
+        key: s(a.key),
+        page: a.page as number,
+        rect: a.rect as [number, number, number, number] | undefined,
+        name: a.name as string | undefined,
+        scale: a.scale as number | undefined,
+        supplement: a.supplement as string | undefined,
+      }),
+    render: {
+      human: (r, a) => {
+        const c = r as { path: string; citation: string; dpi: number; bibEntry: boolean };
+        return {
+          err:
+            `✓ snipped @${a.key} p${a.page} → ${c.path} (${c.dpi}dpi)\n  ${c.citation}` +
+            (c.bibEntry ? "" : "\n  ⚠ no bib entry for this key — citation is the bare citekey"),
+        };
+      },
+      mcp: (r, a) => {
+        const c = r as { path: string; citation: string; rect: number[]; bibEntry: boolean };
+        return text(
+          `snipped @${a.key} → ${c.path}\nrect: [${c.rect.map((n) => n.toFixed(1)).join(", ")}]\ncitation: ${c.citation}` +
+            (c.bibEntry ? "" : "\n⚠ no bib entry for this key — citation is the bare citekey"),
+        );
+      },
+    },
+  },
+  {
+    name: "get_citation",
+    cli: "cite",
+    cliRoot: "flags",
+    summary:
+      'The minimal text citation for a FluxLib key ("Driessen et al., 2026, Nat. Neurosci." — in-text author-year + ISO-4-abbreviated journal), for figure captions and slides.',
+    params: { key: z.string() },
+    cliArgs: [{ kind: "pos", at: 0, into: "key", required: true }],
+    handler: (_ctx, a) => core.getCitation(s(a.key)),
+    render: {
+      human: (r) => {
+        const c = r as { citation: string; bibEntry: boolean };
+        return { err: c.bibEntry ? `✓ ${c.citation}` : `✓ ${c.citation}\n  ⚠ no bib entry for this key` };
+      },
+      mcp: (r) => {
+        const c = r as { citation: string; bibEntry: boolean };
+        return text(c.citation + (c.bibEntry ? "" : "\n⚠ no bib entry for this key"));
+      },
+    },
+  },
 ];

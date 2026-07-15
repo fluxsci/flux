@@ -125,6 +125,11 @@ usage: flux <verb> [root] [args] [--flags]
   search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
   annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
                                        --key K --md: export the paper's notes as Markdown
+  snip-paper <key> --page N [--rect x1,y1,x2,y2]   capture a PDF page region as a PNG snip into
+                                       plots/paper_snips/ (rect = PDF points, y-up; omit = whole
+                                       page) with citekey provenance; [--name N] [--scale S]
+                                       [--supplement F]. Returns the path + citation.
+  cite <key>                           minimal text citation ("Driessen et al., 2026, Nat. Neurosci.")
   tag <citekey> <tag…> [--remove]      add/remove an organization tag on a paper
   set-status <citekey> <status>        set reading status (unread|reading|read)
   collection <citekey> <name…> [--remove]  add/remove a paper from a collection

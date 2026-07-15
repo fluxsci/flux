@@ -58,6 +58,10 @@ export * from "./coordscan";
 // materializeRenders) lives in ./render.
 export * from "./render";
 
+// Paper snips (PDF page-region → provenance-carrying PNG) + citations
+// live in ./snips.
+export * from "./snips";
+
 // The figure verbs (compose/create/arrange, captions, panel + plot
 // import/sync, part overrides, styles + text system, groups/z-order/layout,
 // scaffold) live in ./figures.
