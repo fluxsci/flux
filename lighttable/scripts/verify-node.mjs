@@ -9,7 +9,7 @@ import { makeFixture } from "./make-fixture.mjs";
 import { check, checkAsync, section, finish } from "./lib/harness.mjs";
 
 const require = createRequire(import.meta.url);
-const { scanCollection, toManifest, LOOSE_SET_ID } = require("../electron/scan.cjs");
+const { scanCollection, toManifest, listSiblings, LOOSE_SET_ID } = require("../electron/scan.cjs");
 const thumbs = require("../electron/thumbs.cjs");
 const { loadImage } = require("@napi-rs/canvas");
 
@@ -72,6 +72,20 @@ const orderDir = await makeFixture(path.join(base, "order"), {
 });
 const order = await scanCollection(orderDir);
 check("sets natural-sorted (run1 < run2 < run10)", order.sets.map((s) => s.id).join(",") === "run1,run2,run10");
+
+section("listSiblings (sister folders)");
+{
+  const { mkdirSync } = await import("node:fs");
+  await makeFixture(path.join(base, "sibs", "run2"), { loose: ["a.png"] });
+  await makeFixture(path.join(base, "sibs", "run10"), { loose: ["a.png"] });
+  await makeFixture(path.join(base, "sibs", "run1"), { loose: ["a.png"] });
+  mkdirSync(path.join(base, "sibs", ".hidden"), { recursive: true });
+  writeFileSync(path.join(base, "sibs", "readme.txt"), "not a dir");
+  const sibs = await listSiblings(path.join(base, "sibs", "run2"));
+  check("siblings natural-sorted, current included", sibs.map((s) => s.name).join(",") === "run1,run2,run10");
+  check("hidden dirs and files skipped", !sibs.some((s) => s.name === ".hidden" || s.name === "readme.txt"));
+  check("sibling paths are absolute", sibs.every((s) => path.isAbsolute(s.path)));
+}
 
 // ---- thumbs ------------------------------------------------------------------
 section("thumbs: generation, cache, fallbacks");

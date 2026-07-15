@@ -16,7 +16,13 @@ export type Manifest = {
   bySet: Record<string, ItemCell[]>; // per set, aligned to `keys`
 };
 
-export type Prefs = { columns: number; captions: boolean; recents: string[] };
+export type Prefs = {
+  columns: number;
+  captions: boolean;
+  hGap: number; // px between columns
+  vGap: number; // px between rows
+  recents: string[];
+};
 
 export type RecentEntry = { path: string; name: string };
 
@@ -25,6 +31,7 @@ export interface LtApi {
   openPath(path: string): Promise<Manifest | null>;
   onOpen(cb: (m: Manifest) => void): void; // main-initiated opens (CLI/drag/2nd instance)
   recents(): Promise<RecentEntry[]>;
+  siblings(): Promise<RecentEntry[]>; // directories beside the open collection (sister folders)
   thumbUrl(setId: string, key: string, px: number): Promise<string | null>;
   fullUrl(setId: string, key: string): Promise<string | null>;
   revealInFolder(setId: string, key: string): Promise<void>;

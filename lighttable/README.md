@@ -46,29 +46,40 @@ filename without extension — the key aligns cells across sets, and a set missi
 shows a placeholder so the flip-book never shifts. Supported formats:
 png/jpg/jpeg/webp/gif/avif/bmp/svg; flat sets (no recursion); natural sort everywhere.
 
-## Keyboard
+## Keyboard & mouse
 
-| Key | Grid | Detail |
-|---|---|---|
-| `←→↑↓` | move selection (↑↓ = row) | ←→ item (skips missing), ↑↓ set |
-| `Enter`/`Space` | open Detail | toggle fit / 1:1 |
-| `Esc` | clear search | back to grid |
-| `1`–`9` | jump to set N | same |
-| `Tab`/`Shift+Tab` | next / prev set | same |
-| `[` `]` (or `-` `=`) | fewer / more columns | zoom out / in (`0` = fit) |
-| `/` | focus search | — |
-| `c` | toggle captions | same |
-| `Home`/`End` | first / last item | first / last present item |
-| `PageUp`/`PageDown` | scroll a page | — |
+| Key | Grid | Detail | Compare |
+|---|---|---|---|
+| `←→↑↓` | move selection (↑↓ = row) | ←→ item (skips missing), ↑↓ set | ←→ item |
+| `Enter`/`Space` | open Detail | toggle fit / 1:1 | Detail (current set) |
+| `Ctrl+Enter` | **Compare** — this item across ALL sets | — | — |
+| `Esc` | clear search | back to grid / compare | back to grid |
+| `1`–`9` | jump to set N | same | — |
+| `Tab`/`Shift+Tab` | next / prev set | same | — |
+| `[` `]` (or `-` `=`) | fewer / more columns | zoom out / in (`0` = fit) | — |
+| `/` | focus search | — | — |
+| `c` | toggle captions | same | same |
+| `Home`/`End` | first / last item | first / last present item | first / last item |
+| `PageUp`/`PageDown` | scroll a page | — | — |
+
+Mouse: click a cell = fullscreen it; **Ctrl+click** a cell = Compare (that item across all
+sets, tiles packed as large as they fit, captioned by set name; click a tile to fullscreen
+it, Esc steps back). Top-left collection name: click = **sister folders** (directories
+beside the current collection — switch with one click); **Ctrl+click** = native folder
+picker. Grid H/V gaps are adjustable in the `⋯` menu (persisted).
 
 ## Architecture (short)
 
-Two processes. Main (`electron/*.cjs`, plain CommonJS, no build step) owns fs scanning,
-alignment, prefs, and a webp thumbnail cache (`@napi-rs/canvas`, size buckets, atomic
-writes, LRU sweep) in `userData/thumbs/`. The renderer (Svelte 5 + Vite, `src/`) is UI only:
-a virtualized grid (bounded DOM at any set size) that gets images via `ltfile://` — a
-path-validated privileged protocol streaming from the collection root or the thumb cache.
-Sandbox + context isolation + strict CSP; the preload (`window.lt`) is the entire bridge.
+Two processes plus a worker. Main (`electron/*.cjs`, plain CommonJS, no build step) owns fs
+scanning, alignment, prefs, and a webp thumbnail cache (size buckets, atomic writes, LRU
+sweep) in `userData/thumbs/`; the actual `@napi-rs/canvas` raster work runs in a
+crash-isolated `utilityProcess` worker (it segfaults the main process under burst load —
+never move it back). The renderer (Svelte 5 + Vite, `src/`) is UI only: a virtualized grid
+(bounded DOM at any set size) whose cells adopt the images' **measured aspect ratio**
+(median of decoded sizes, collection-global so the flip-book keeps its row heights) — wide
+plots waste no vertical space. Images arrive via `ltfile://` — a path-validated privileged
+protocol streaming from the collection root or the thumb cache. Sandbox + context isolation
++ strict CSP; the preload (`window.lt`) is the entire bridge.
 
 Every direct-manipulation interaction targets **≤100 ms** (set switch, column change,
 search, scroll, detail enter/leave) — measured by the gates, never masked with spinners.

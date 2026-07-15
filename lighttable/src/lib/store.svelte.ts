@@ -3,7 +3,6 @@ import type { ItemCell, LtApi, Manifest, RecentEntry, SetInfo } from "./types";
 
 // Grid layout constants (shared with Grid.svelte and the verify gates).
 export const GRID_PAD = 12;
-export const GRID_GAP = 8;
 export const CAPTION_H = 20;
 export const OVERSCAN_ROWS = 2;
 
@@ -25,17 +24,36 @@ export interface DetailApi {
   zoomBy(factor: number): void;
   resetZoom(): void;
 }
-export type GridDebug = { firstRow: number; lastRow: number; cellPx: number; rowH: number; dom: number };
+export type GridDebug = {
+  firstRow: number;
+  lastRow: number;
+  cellPx: number;
+  cellH: number;
+  rowH: number;
+  dom: number;
+};
 
 class LtStore {
   manifest = $state<Manifest | null>(null);
   setIndex = $state(0);
   cols = $state(8);
   captions = $state(true);
+  hGap = $state(8);
+  vGap = $state(8);
   search = $state("");
-  view = $state<"grid" | "detail">("grid");
+  view = $state<"grid" | "detail" | "compare">("grid");
   selectedKey = $state<string | null>(null);
   recents = $state<RecentEntry[]>([]);
+
+  // The grid's cell aspect (width/height): the median of the actually-decoded
+  // image sizes, dampened so it settles instead of jittering. Collection-global
+  // (never per set) — the flip-book requires identical row heights across
+  // sets so a set switch keeps scroll and selection on the same cells.
+  layoutAspect = $state(1);
+  private aspectSamples: number[] = [];
+
+  // Where Detail was opened from — Esc returns there.
+  detailFrom: "grid" | "compare" = "grid";
 
   // Imperative hooks registered by components (non-reactive on purpose).
   gridApi: GridApi | null = null;
@@ -79,7 +97,17 @@ class LtStore {
     this.search = "";
     this.view = "grid";
     this.selectedKey = m.keys[0] ?? null;
+    this.aspectSamples = []; // re-measure per collection (keep the old value until samples arrive)
     document.title = m.name ? `${m.name} — Lighttable` : "Lighttable";
+  }
+
+  // Cells report decoded image sizes; the first 64 samples drive the layout.
+  reportAspect(w: number, h: number): void {
+    if (!w || !h || this.aspectSamples.length >= 64) return;
+    this.aspectSamples.push(Math.min(8, Math.max(0.2, w / h)));
+    const sorted = [...this.aspectSamples].sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    if (Math.abs(med - this.layoutAspect) / this.layoutAspect > 0.02) this.layoutAspect = med;
   }
 
   switchSet(i: number): void {
@@ -111,14 +139,36 @@ class LtStore {
   openDetail(key?: string): void {
     if (key) this.selectedKey = key;
     if (!this.selectedKey) return;
+    this.detailFrom = "grid";
     this.view = "detail";
   }
-  // Back to Grid: selection = the item being viewed; grid scroll is untouched
-  // (Grid stays mounted under the overlay) and the cell is nudged into view
-  // only if ←/→ in Detail moved it out of the window.
+  // Back to where Detail came from. For the grid: selection = the item being
+  // viewed; scroll is untouched (Grid stays mounted under the overlay) and the
+  // cell is nudged into view only if navigation moved it out of the window.
   closeDetail(): void {
+    if (this.detailFrom === "compare") {
+      this.view = "compare";
+      return;
+    }
     this.view = "grid";
     if (this.selIdx >= 0) this.gridApi?.ensureVisible(this.selIdx);
+  }
+
+  // Compare: one item across ALL sets, fullscreen (Ctrl+click / Ctrl+Enter).
+  openCompare(key?: string): void {
+    if (key) this.selectedKey = key;
+    if (!this.selectedKey) return;
+    this.view = "compare";
+  }
+  closeCompare(): void {
+    this.view = "grid";
+    if (this.selIdx >= 0) this.gridApi?.ensureVisible(this.selIdx);
+  }
+  // A Compare tile click: fullscreen that set's image; Esc returns to Compare.
+  openDetailFromCompare(setIdx: number): void {
+    this.switchSet(setIdx);
+    this.detailFrom = "compare";
+    this.view = "detail";
   }
 
   // Detail ←/→: previous/next item present in the CURRENT set (skip-missing),
@@ -154,6 +204,14 @@ class LtStore {
   setCols(n: number): void {
     this.cols = Math.min(24, Math.max(1, Math.round(n)));
     void this.api?.prefsSet({ columns: this.cols });
+  }
+  setHGap(n: number): void {
+    this.hGap = Math.min(64, Math.max(0, Math.round(n)));
+    void this.api?.prefsSet({ hGap: this.hGap });
+  }
+  setVGap(n: number): void {
+    this.vGap = Math.min(64, Math.max(0, Math.round(n)));
+    void this.api?.prefsSet({ vGap: this.vGap });
   }
   toggleCaptions(): void {
     this.captions = !this.captions;
@@ -204,6 +262,18 @@ if (import.meta.env.DEV) {
     },
     get captions() {
       return store.captions;
+    },
+    get hGap() {
+      return store.hGap;
+    },
+    get vGap() {
+      return store.vGap;
+    },
+    get layoutAspect() {
+      return store.layoutAspect;
+    },
+    get collName() {
+      return store.manifest?.name ?? null;
     },
     get search() {
       return store.search;

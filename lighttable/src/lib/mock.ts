@@ -48,6 +48,9 @@ export function installMock(kind: string): void {
     keys,
     bySet,
   };
+  // A sister collection (same content, different identity) so the gates can
+  // exercise the collection-name switcher.
+  const sister: Manifest = { ...manifest, root: "/mock-sister", name: "mock-sister" };
 
   const cache = new Map<string, string>();
   const urlFor = (setId: string, key: string): string => {
@@ -63,14 +66,18 @@ export function installMock(kind: string): void {
 
   const api: LtApi = {
     openDialog: async () => manifest,
-    openPath: async () => manifest,
+    openPath: async (p) => (p === "/mock-sister" ? sister : manifest),
     onOpen: (cb) => queueMicrotask(() => cb(manifest)), // auto-open for gates
     recents: async () => [{ path: "/mock", name: manifest.name }],
+    siblings: async () => [
+      { path: "/mock", name: manifest.name },
+      { path: "/mock-sister", name: "mock-sister" },
+    ],
     thumbUrl: async (s, k) => (present(s, k) ? urlFor(s, k) : null),
     fullUrl: async (s, k) => (present(s, k) ? urlFor(s, k) : null),
     revealInFolder: async () => {},
     pathForFile: () => "",
-    prefsGet: async () => ({ columns: 8, captions: true, recents: [] }),
+    prefsGet: async () => ({ columns: 8, captions: true, hGap: 8, vGap: 8, recents: [] }),
     prefsSet: async () => {},
   };
   (window as unknown as { lt: LtApi }).lt = api;

@@ -5,7 +5,7 @@ const fss = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 
-const DEFAULTS = { columns: 8, captions: true, recents: [] };
+const DEFAULTS = { columns: 8, captions: true, hGap: 8, vGap: 8, recents: [] };
 const MAX_RECENTS = 12;
 
 let prefsPath = null;
@@ -20,6 +20,8 @@ function initPrefs(dir) {
     cur = {
       columns: clampCols(j.columns) ?? DEFAULTS.columns,
       captions: typeof j.captions === "boolean" ? j.captions : DEFAULTS.captions,
+      hGap: clampGap(j.hGap) ?? DEFAULTS.hGap,
+      vGap: clampGap(j.vGap) ?? DEFAULTS.vGap,
       recents: Array.isArray(j.recents) ? j.recents.filter((r) => typeof r === "string").slice(0, MAX_RECENTS) : [],
     };
   } catch {
@@ -31,9 +33,13 @@ function clampCols(n) {
   if (typeof n !== "number" || !Number.isFinite(n)) return null;
   return Math.min(24, Math.max(1, Math.round(n)));
 }
+function clampGap(n) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return null;
+  return Math.min(64, Math.max(0, Math.round(n)));
+}
 
 function get() {
-  return { columns: cur.columns, captions: cur.captions, recents: [...cur.recents] };
+  return { columns: cur.columns, captions: cur.captions, hGap: cur.hGap, vGap: cur.vGap, recents: [...cur.recents] };
 }
 
 // Validated partial merge — IPC input is untrusted.
@@ -42,6 +48,10 @@ function set(patch) {
   const cols = clampCols(patch.columns);
   if (cols !== null) cur.columns = cols;
   if (typeof patch.captions === "boolean") cur.captions = patch.captions;
+  const hg = clampGap(patch.hGap);
+  if (hg !== null) cur.hGap = hg;
+  const vg = clampGap(patch.vGap);
+  if (vg !== null) cur.vGap = vg;
   scheduleWrite();
 }
 

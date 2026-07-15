@@ -102,7 +102,11 @@ const build = spawnSync(path.join(ROOT, "node_modules", ".bin", "vite"), ["build
   encoding: "utf8",
 });
 check("vite build succeeds", build.status === 0, (build.stderr || "").slice(-300));
-const fixture = await makeFixture(path.join(base, "fixture"), DEFAULT_SPEC);
+// The collection sits beside a sister collection so the switcher is testable.
+const fixture = await makeFixture(path.join(base, "collections", "fixture"), DEFAULT_SPEC);
+await makeFixture(path.join(base, "collections", "fixture2"), {
+  sets: { A: ["item_001.png", "item_002.png", "item_003.png"] },
+});
 console.log(`  fixture: ${fixture}`);
 
 // ---- launch the real app -----------------------------------------------------
@@ -147,6 +151,50 @@ check("Detail paints the full-res original over ltfile://full/", true);
 await page.keyboard.press("Escape");
 await waitFor(async () => (await page.$$("[data-detail]")).length === 0, { timeout: 5000, desc: "detail closed" });
 check("Esc returns to the grid", true);
+
+section("aspect-aware layout (real 640×400 sources)");
+await waitFor(
+  async () => {
+    const r = await page.$eval("[data-cell] .surface", (e) => e.clientHeight / e.clientWidth);
+    return Math.abs(r - 400 / 640) < 0.06;
+  },
+  { timeout: 10000, desc: "cell aspect settles to the measured image aspect" }
+);
+check("grid cells adopt the measured 640×400 aspect (no wasted letterbox)", true);
+
+section("compare view against the real backend");
+await page.evaluate(() => {
+  document
+    .querySelector('[data-cell][data-key="item_002"]')
+    .dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true }));
+});
+await waitFor(async () => (await page.$$("[data-compare]")).length === 1, { timeout: 5000, desc: "compare open" });
+check(
+  "Ctrl+click opens Compare with one tile per set",
+  (await page.$$eval("[data-compare-tile]", (els) => els.map((e) => e.dataset.set))).join() === "A,B"
+);
+await waitFor(
+  async () =>
+    await page.$$eval("[data-compare-tile] img", (els) => els.length === 2 && els.every((i) => i.src.startsWith("ltfile://") && i.complete && i.naturalWidth > 0)),
+  { timeout: 10000, desc: "compare tiles painted over ltfile://" }
+);
+check("both tiles painted from the real backend", true);
+await page.keyboard.press("Escape");
+await waitFor(async () => (await page.$$("[data-compare]")).length === 0, { timeout: 5000, desc: "compare closed" });
+check("Esc leaves Compare", true);
+
+section("sister-folder switcher against the real fs");
+await page.evaluate(() => document.querySelector(".coll-name").click());
+await waitFor(async () => (await page.$$("[data-sisters]")).length === 1, { timeout: 5000, desc: "sister menu" });
+check(
+  "menu lists the sibling collections",
+  (await page.$$eval("[data-sisters] button", (els) => els.map((e) => e.textContent))).join() === "fixture,fixture2"
+);
+await page.evaluate(() => {
+  [...document.querySelectorAll("[data-sisters] button")].find((b) => b.textContent === "fixture2").click();
+});
+await waitFor(async () => (await page.title()).startsWith("fixture2"), { timeout: 8000, desc: "sister collection opened" });
+check("clicking a sister opens it (title + cells swap)", (await page.$$eval("[data-cell]", (els) => els.length)) === 3);
 
 section("console contract");
 check("renderer console is clean", consoleErrors.length === 0, consoleErrors.slice(0, 5).join(" | "));

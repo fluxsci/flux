@@ -1,10 +1,14 @@
 <script lang="ts">
-  // The virtualized grid (§3.4): square cells + fixed columns make windowing
-  // O(1) integer math. Only visible-ish rows exist in the DOM, whatever the
-  // set size; a single spacer supplies the scroll height and the window
-  // container is translateY'd into place. Cells are keyed by item KEY, so a
-  // set switch swaps images inside stable DOM nodes — the flip-book hard cut.
-  import { store, GRID_PAD, GRID_GAP, CAPTION_H, OVERSCAN_ROWS, bucketFor } from "./store.svelte";
+  // The virtualized grid (§3.4): fixed columns make windowing O(1) integer
+  // math. Cells are sized to the MEASURED image aspect ratio (median of the
+  // decoded sizes, collection-global so the flip-book keeps its row heights)
+  // instead of square — wide plots waste no vertical space; the user trades
+  // plot size against spacing via the hGap/vGap prefs. Only visible-ish rows
+  // exist in the DOM, whatever the set size; a single spacer supplies the
+  // scroll height and the window container is translateY'd into place. Cells
+  // are keyed by item KEY, so a set switch swaps images inside stable DOM
+  // nodes — the flip-book hard cut.
+  import { store, GRID_PAD, CAPTION_H, OVERSCAN_ROWS, bucketFor } from "./store.svelte";
   import Cell from "./Cell.svelte";
 
   let viewport = $state<HTMLDivElement | null>(null);
@@ -25,9 +29,12 @@
 
   const n = $derived(store.filteredKeys.length);
   const cols = $derived(store.cols);
-  const cellPx = $derived(Math.max(24, Math.floor((vw - 2 * GRID_PAD - (cols - 1) * GRID_GAP) / cols)));
+  const hGap = $derived(store.hGap);
+  const vGap = $derived(store.vGap);
+  const cellW = $derived(Math.max(24, Math.floor((vw - 2 * GRID_PAD - (cols - 1) * hGap) / cols)));
+  const cellH = $derived(Math.max(24, Math.round(cellW / store.layoutAspect)));
   const capH = $derived(store.captions ? CAPTION_H : 0);
-  const rowH = $derived(cellPx + capH + GRID_GAP);
+  const rowH = $derived(cellH + capH + vGap);
   const rows = $derived(Math.ceil(n / cols));
   const totalH = $derived(rows * rowH + 2 * GRID_PAD);
   const firstRow = $derived(Math.max(0, Math.floor((scrollTop - GRID_PAD) / rowH) - OVERSCAN_ROWS));
@@ -40,7 +47,8 @@
     for (let i = startIdx; i < endIdx; i++) out.push(list[i]);
     return out;
   });
-  const pxBucket = $derived(bucketFor(cellPx * (window.devicePixelRatio || 1)));
+  // Thumbs are keyed by longest edge — bucket by the cell's longer side.
+  const pxBucket = $derived(bucketFor(Math.max(cellW, cellH) * (window.devicePixelRatio || 1)));
   const setId = $derived(store.currentSet?.id ?? "");
 
   // Imperative hooks for the keymap (closures read the current derived values).
@@ -111,7 +119,7 @@
 
   // Dev introspection for the gates (bounded-DOM structural budget).
   $effect(() => {
-    store.gridDebug = { firstRow, lastRow, cellPx, rowH, dom: endIdx - startIdx };
+    store.gridDebug = { firstRow, lastRow, cellPx: cellW, cellH, rowH, dom: endIdx - startIdx };
   });
 </script>
 
@@ -120,12 +128,13 @@
     <div
       class="window"
       style:transform={`translateY(${GRID_PAD + firstRow * rowH}px)`}
-      style:grid-template-columns={`repeat(${cols}, ${cellPx}px)`}
-      style:gap={`${GRID_GAP}px`}
+      style:grid-template-columns={`repeat(${cols}, ${cellW}px)`}
+      style:column-gap={`${hGap}px`}
+      style:row-gap={`${vGap}px`}
       style:padding-left={`${GRID_PAD}px`}
     >
       {#each visible as key (key)}
-        <Cell itemKey={key} {setId} px={pxBucket} {cellPx} {capH} />
+        <Cell itemKey={key} {setId} px={pxBucket} {cellW} {cellH} {capH} />
       {/each}
     </div>
   </div>

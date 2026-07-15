@@ -9,9 +9,10 @@
     itemKey,
     setId,
     px,
-    cellPx,
+    cellW,
+    cellH,
     capH,
-  }: { itemKey: string; setId: string; px: number; cellPx: number; capH: number } = $props();
+  }: { itemKey: string; setId: string; px: number; cellW: number; cellH: number; capH: number } = $props();
 
   const cell = $derived(store.cellFor(setId, itemKey));
   const selected = $derived(store.selectedKey === itemKey);
@@ -41,12 +42,14 @@
         // undecodable is fine — the <img> just won't paint
       }
       if (my !== gen) return;
+      store.reportAspect(im.naturalWidth, im.naturalHeight); // drives the grid's cell aspect
       src = url;
     })();
   });
 
-  function onClick() {
-    store.openDetail(itemKey);
+  function onClick(e: MouseEvent) {
+    if (e.ctrlKey || e.metaKey) store.openCompare(itemKey); // this item across ALL sets
+    else store.openDetail(itemKey);
   }
 </script>
 
@@ -56,12 +59,12 @@
   data-cell
   data-key={itemKey}
   data-missing={cell && !cell.present ? "" : undefined}
-  style:width={`${cellPx}px`}
+  style:width={`${cellW}px`}
   tabindex="-1"
   onclick={onClick}
   title={cell?.file ?? itemKey}
 >
-  <div class="surface" style:height={`${cellPx}px`}>
+  <div class="surface" style:height={`${cellH}px`}>
     {#if cell?.present}
       {#if src}
         <img {src} alt={itemKey} draggable="false" />

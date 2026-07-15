@@ -1,25 +1,64 @@
 <script lang="ts">
   import { store } from "./store.svelte";
   import SetSwitcher from "./SetSwitcher.svelte";
+  import type { RecentEntry } from "./types";
 
   let menuOpen = $state(false);
   let menuEl = $state<HTMLDivElement | null>(null);
+  let sistersOpen = $state(false);
+  let sisters = $state<RecentEntry[]>([]);
+  let collEl = $state<HTMLDivElement | null>(null);
 
   function onWindowPointerDown(e: PointerEvent) {
     if (menuOpen && menuEl && !menuEl.contains(e.target as Node)) menuOpen = false;
+    if (sistersOpen && collEl && !collEl.contains(e.target as Node)) sistersOpen = false;
   }
   async function toggleMenu() {
     if (!menuOpen) await store.refreshRecents();
     menuOpen = !menuOpen;
+  }
+  // Plain click: sister folders (collections beside this one). Ctrl+click:
+  // the native picker for opening anything else.
+  async function onCollClick(e: MouseEvent) {
+    if (e.ctrlKey || e.metaKey) {
+      sistersOpen = false;
+      void store.openViaDialog();
+      return;
+    }
+    if (!sistersOpen) sisters = (await store.api?.siblings()) ?? [];
+    sistersOpen = !sistersOpen;
   }
 </script>
 
 <svelte:window onpointerdown={onWindowPointerDown} />
 
 <header class="topbar">
-  <button class="coll-name" title="Open collection…" onclick={() => void store.openViaDialog()}>
-    {store.manifest?.name ?? "Lighttable"}
-  </button>
+  <div class="coll-anchor" bind:this={collEl}>
+    <button
+      class="coll-name"
+      title="Sister folders — Ctrl+click to open another collection"
+      onclick={(e) => void onCollClick(e)}
+    >
+      {store.manifest?.name ?? "Lighttable"}
+    </button>
+    {#if sistersOpen}
+      <div class="menu sisters" data-sisters>
+        {#if sisters.length === 0}
+          <div class="about">No sister folders</div>
+        {/if}
+        {#each sisters as s (s.path)}
+          <button
+            class:active={s.path === store.manifest?.root}
+            title={s.path}
+            onclick={() => {
+              sistersOpen = false;
+              if (s.path !== store.manifest?.root) void store.openPath(s.path);
+            }}>{s.name}</button
+          >
+        {/each}
+      </div>
+    {/if}
+  </div>
 
   <SetSwitcher />
 
@@ -60,6 +99,20 @@
             store.revealSelected();
           }}>Reveal selected in file manager</button
         >
+        <div class="sep"></div>
+        <div class="label">Grid gaps</div>
+        <div class="gap-row">
+          <span class="gap-name">Horizontal</span>
+          <button class="step" aria-label="Smaller horizontal gap" onclick={() => store.setHGap(store.hGap - 2)}>−</button>
+          <span class="gap-val" data-hgap>{store.hGap}</span>
+          <button class="step" aria-label="Larger horizontal gap" onclick={() => store.setHGap(store.hGap + 2)}>+</button>
+        </div>
+        <div class="gap-row">
+          <span class="gap-name">Vertical</span>
+          <button class="step" aria-label="Smaller vertical gap" onclick={() => store.setVGap(store.vGap - 2)}>−</button>
+          <span class="gap-val" data-vgap>{store.vGap}</span>
+          <button class="step" aria-label="Larger vertical gap" onclick={() => store.setVGap(store.vGap + 2)}>+</button>
+        </div>
         {#if store.recents.length > 0}
           <div class="sep"></div>
           <div class="label">Recent</div>
@@ -92,6 +145,9 @@
     border-bottom: 1px solid var(--c-line);
     flex: none;
   }
+  .coll-anchor {
+    position: relative;
+  }
   .coll-name {
     font-weight: 600;
     color: var(--c-tx-hi);
@@ -104,6 +160,14 @@
   }
   .coll-name:hover {
     background: var(--c-surface);
+  }
+  .sisters {
+    left: 0;
+    right: auto;
+  }
+  .sisters button.active {
+    background: var(--c-accent-tint);
+    color: var(--c-tx-hi);
   }
   .col-ctl {
     display: flex;
@@ -205,5 +269,33 @@
     padding: 4px 10px;
     font-size: 11px;
     color: var(--c-tx-faint);
+  }
+  .gap-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    color: var(--c-tx-2);
+  }
+  .gap-name {
+    flex: 1;
+    font-size: 12px;
+  }
+  .gap-row .step {
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-s);
+    color: var(--c-tx-2);
+    line-height: 1;
+    text-align: center;
+  }
+  .gap-row .step:hover {
+    background: var(--c-ui-hover);
+  }
+  .gap-val {
+    min-width: 22px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
   }
 </style>

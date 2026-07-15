@@ -110,4 +110,32 @@ function toManifest(scan) {
   return { root: scan.root, name: scan.name, sets: scan.sets, keys: scan.keys, bySet: scan.bySet };
 }
 
-module.exports = { scanCollection, toManifest, LOOSE_SET_ID };
+// Sister folders: directories beside `root` (INCLUDING root itself, so the
+// switcher can mark the current one), natural-sorted, hidden dirs skipped.
+async function listSiblings(root) {
+  const parent = path.dirname(root);
+  if (!parent || parent === root) return [];
+  let entries;
+  try {
+    entries = await fsp.readdir(parent, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const e of entries) {
+    if (e.name.startsWith(".")) continue;
+    let isDir = e.isDirectory();
+    if (e.isSymbolicLink()) {
+      try {
+        isDir = (await fsp.stat(path.join(parent, e.name))).isDirectory();
+      } catch {
+        continue;
+      }
+    }
+    if (isDir) out.push({ path: path.join(parent, e.name), name: e.name });
+  }
+  out.sort((a, b) => naturalCompare(a.name, b.name));
+  return out;
+}
+
+module.exports = { scanCollection, toManifest, listSiblings, LOOSE_SET_ID };

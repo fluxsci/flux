@@ -718,3 +718,13 @@ dependency either way, Flexoki tokens copied not imported. Gates live inside the
   style. Lighttable's fix: an Electron `utilityProcess` worker (crash-isolated, bounded
   respawn, jobs fall back to serving originals) — the same pattern to reach for if Flux ever
   needs canvas/resvg in the app process. Regression-gated in its `test:electron` burst phase.
+
+### 2026-07-15 (later) — Lighttable owner iteration: aspect-fit grid, sister folders, Compare view (Claude Fable 5, `lighttable`)
+**Work:** Three owner-requested changes to the sidecar, all gated in its own suite (ui 63,
+node 37, electron 19, pure 32, check 0/0): grid cells now adopt the images' MEASURED aspect
+ratio (median of decoded sizes, dampened, collection-global so the flip-book keeps row
+heights) with user-adjustable H/V gaps in the ⋯ menu — wide plots no longer waste vertical
+space; the collection name is a sister-folder switcher (plain click lists sibling dirs,
+Ctrl+click opens the picker); and Ctrl+click / Ctrl+Enter opens a Compare view — one item
+across ALL sets at once, tiles packed optimally for the known aspect, set-name captions,
+click-through to Detail with Esc stepping back. Sidecar-only work; no Flux files touched.

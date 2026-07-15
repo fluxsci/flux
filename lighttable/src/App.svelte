@@ -5,6 +5,7 @@
   import TopBar from "./lib/TopBar.svelte";
   import Grid from "./lib/Grid.svelte";
   import Detail from "./lib/Detail.svelte";
+  import Compare from "./lib/Compare.svelte";
   import EmptyState from "./lib/EmptyState.svelte";
 
   onMount(() => {
@@ -15,6 +16,8 @@
       const p = await api.prefsGet();
       store.cols = p.columns;
       store.captions = p.captions;
+      store.hGap = p.hGap ?? 8;
+      store.vGap = p.vGap ?? 8;
       await store.refreshRecents();
     })();
   });
@@ -47,12 +50,40 @@
 
 {#if !store.manifest}
   <EmptyState />
-{:else if store.manifest.keys.length === 0}
-  <EmptyState message={`No images found in “${store.manifest.name}”`} />
 {:else}
   <TopBar />
-  <Grid />
-  {#if store.view === "detail"}
-    <Detail />
+  {#if store.manifest.keys.length === 0}
+    <!-- keep the top bar: the sister-folder menu is the way back out -->
+    <div class="no-images">
+      <p>No images found in “{store.manifest.name}”.</p>
+      <p class="hint">Click the collection name for sister folders, or Ctrl+click it to open another collection.</p>
+    </div>
+  {:else}
+    <Grid />
+    {#if store.view === "detail"}
+      <Detail />
+    {/if}
+    {#if store.view === "compare"}
+      <Compare />
+    {/if}
   {/if}
 {/if}
+
+<style>
+  .no-images {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--c-tx-muted);
+  }
+  .no-images p {
+    margin: 0;
+  }
+  .no-images .hint {
+    font-size: 11px;
+    color: var(--c-tx-faint);
+  }
+</style>

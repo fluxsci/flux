@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("lt", {
     ipcRenderer.on("lt:open", (_e, m) => cb(m));
   },
   recents: () => ipcRenderer.invoke("lt:recents"),
+  siblings: () => ipcRenderer.invoke("lt:siblings"),
   thumbUrl: (setId, key, px) => ipcRenderer.invoke("lt:thumbUrl", setId, key, px),
   fullUrl: (setId, key) => ipcRenderer.invoke("lt:fullUrl", setId, key),
   revealInFolder: (setId, key) => ipcRenderer.invoke("lt:reveal", setId, key),

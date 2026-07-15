@@ -208,6 +208,115 @@ check("keymap inert while typing (digit stays in input)", await p1.evaluate(() =
 }));
 
 // =====================================================================
+section("mock=default: aspect-aware layout (128×96 mock images)");
+await waitFor(async () => Math.abs((await state(p1, "layoutAspect")) - 4 / 3) < 0.02, {
+  desc: "layout aspect settles to 4/3",
+});
+check("measured aspect drives the grid", true);
+const gAspect = await p1.evaluate(() => window.__ltState.grid);
+check(
+  `cell height = width / aspect (${gAspect.cellH} vs ${Math.round(gAspect.cellPx * 0.75)})`,
+  Math.abs(gAspect.cellH - gAspect.cellPx / (4 / 3)) <= 2
+);
+
+section("mock=default: gap steppers (⋯ menu)");
+await p1.click(".overflow");
+await p1.waitForSelector("[data-vgap]", { timeout: 3000 });
+const rowH0 = (await p1.evaluate(() => window.__ltState.grid)).rowH;
+await p1.evaluate(() => {
+  document.querySelector('button[aria-label="Larger vertical gap"]').click();
+});
+await waitFor(async () => (await state(p1, "vGap")) === 10, { desc: "vGap stepped to 10" });
+check("vertical gap steps +2", true);
+check("menu stays open while stepping", (await p1.$("[data-vgap]")) !== null);
+check("row height grew by the gap delta", (await p1.evaluate(() => window.__ltState.grid)).rowH === rowH0 + 2);
+await p1.evaluate(() => {
+  document.querySelector('button[aria-label="Larger horizontal gap"]').click();
+});
+await waitFor(async () => (await state(p1, "hGap")) === 10, { desc: "hGap stepped to 10" });
+check("horizontal gap steps +2 (cells narrow)", (await p1.evaluate(() => window.__ltState.grid)).cellPx <= gAspect.cellPx);
+await p1.evaluate(() => {
+  document.querySelector('button[aria-label="Smaller vertical gap"]').click();
+  document.querySelector('button[aria-label="Smaller horizontal gap"]').click();
+});
+await p1.keyboard.press("Escape");
+await p1.click(".grid-viewport").catch(() => {});
+
+section("mock=default: compare view (one item across all sets)");
+await p1.evaluate(() => {
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+});
+await waitFor(async () => (await state(p1, "selectedKey")) === "item_003", { desc: "item_003 selected" });
+await timed(p1, "Ctrl+Enter opens Compare", () =>
+  p1.evaluate(async () => {
+    const t0 = performance.now();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, cancelable: true }));
+    for (;;) {
+      if (document.querySelector("[data-compare]")) return performance.now() - t0;
+      if (performance.now() - t0 > 1000) return -1;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  })
+);
+check("header shows the item name", (await p1.$eval("[data-compare-item]", (e) => e.textContent)) === "item_003");
+check(
+  "one tile per set, captioned with the SET name",
+  (await p1.$$eval("[data-compare-tile] .cap", (els) => els.map((e) => e.textContent))).join() === "A,B"
+);
+await waitFor(
+  async () => (await p1.$$eval("[data-compare-tile] img", (els) => els.filter((i) => i.complete && i.naturalWidth > 0).length)) === 2,
+  { desc: "both compare tiles painted" }
+);
+check("both tiles painted", true);
+await p1.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true })));
+await waitFor(async () => (await state(p1, "selectedKey")) === "item_004", { desc: "→ moves item in compare" });
+check("→ moves to the next item without leaving Compare", (await p1.$("[data-compare]")) !== null);
+check(
+  "missing item shows a placeholder tile for set B",
+  (await p1.$$eval("[data-compare-tile][data-missing]", (els) => els.map((e) => e.dataset.set))).join() === "B"
+);
+await p1.evaluate(() => {
+  document.querySelector('[data-compare-tile][data-set="A"]').click();
+});
+await p1.waitForSelector("[data-detail]", { timeout: 3000 });
+check("clicking a tile fullscreens that set's image", (await state(p1, "setName")) === "A" && (await state(p1, "view")) === "detail");
+await p1.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+await waitFor(async () => (await state(p1, "view")) === "compare", { desc: "Esc returns to Compare" });
+check("Esc from tile-Detail returns to Compare", true);
+await p1.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+await waitFor(async () => (await state(p1, "view")) === "grid", { desc: "Esc exits Compare" });
+check("Esc from Compare returns to the grid", true);
+await p1.evaluate(() => {
+  document.querySelector('[data-cell][data-key="item_002"]').dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true }));
+});
+await p1.waitForSelector("[data-compare]", { timeout: 3000 });
+check("Ctrl+click a cell opens Compare on that item", (await p1.$eval("[data-compare-item]", (e) => e.textContent)) === "item_002");
+await p1.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+await waitFor(async () => (await state(p1, "view")) === "grid", { desc: "back to grid" });
+
+section("mock=default: sister-folder switcher");
+await p1.click(".coll-name");
+await p1.waitForSelector("[data-sisters]", { timeout: 3000 });
+check(
+  "plain click lists sister folders (current marked)",
+  (await p1.$$eval("[data-sisters] button", (els) => els.map((e) => `${e.textContent}${e.classList.contains("active") ? "*" : ""}`))).join() ===
+    "mock-collection*,mock-sister"
+);
+await p1.evaluate(() => {
+  [...document.querySelectorAll("[data-sisters] button")].find((b) => b.textContent === "mock-sister").click();
+});
+await waitFor(async () => (await state(p1, "collName")) === "mock-sister", { desc: "sister collection opened" });
+check("clicking a sister opens it", true);
+check("sister menu closed after the switch", (await p1.$("[data-sisters]")) === null);
+await p1.keyboard.down("Control");
+await p1.click(".coll-name");
+await p1.keyboard.up("Control");
+await waitFor(async () => (await state(p1, "collName")) === "mock-collection", { desc: "ctrl+click → open dialog (mock returns primary)" });
+check("Ctrl+click opens the picker instead (no sister menu)", (await p1.$("[data-sisters]")) === null);
+
+// =====================================================================
 section("mock=big: virtualization on 3×2000 items");
 const p2 = await openPage("big");
 check("2000 keys loaded", (await state(p2, "keyCount")) === 2000);

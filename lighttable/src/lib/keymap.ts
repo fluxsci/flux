@@ -22,6 +22,14 @@ export function handleKey(e: KeyboardEvent, s: Store): void {
     return;
   }
   if (!s.manifest || s.manifest.keys.length === 0) return;
+  // Ctrl/Cmd+Enter: Compare — the selected item across ALL sets.
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "Enter") {
+    if (s.view === "grid") {
+      s.openCompare();
+      e.preventDefault();
+    }
+    return;
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
 
   const k = e.key;
@@ -31,6 +39,33 @@ export function handleKey(e: KeyboardEvent, s: Store): void {
     s.switchSet(Number(k) - 1); // jump to set N (same item — the EDA move)
   } else if (k === "Tab") {
     s.stepSet(e.shiftKey ? -1 : 1);
+  } else if (s.view === "compare") {
+    switch (k) {
+      case "Escape":
+        s.closeCompare();
+        break;
+      case "ArrowLeft":
+        s.moveSelection(-1);
+        break;
+      case "ArrowRight":
+        s.moveSelection(1);
+        break;
+      case "Home":
+        s.selectEdge(false);
+        break;
+      case "End":
+        s.selectEdge(true);
+        break;
+      case "Enter":
+      case " ":
+        s.openDetailFromCompare(s.setIndex);
+        break;
+      case "c":
+        s.toggleCaptions();
+        break;
+      default:
+        handled = false;
+    }
   } else if (s.view === "grid") {
     switch (k) {
       case "ArrowLeft":

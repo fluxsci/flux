@@ -7,7 +7,7 @@ const { app, BrowserWindow, protocol, dialog, ipcMain, shell, net } = require("e
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { pathToFileURL } = require("node:url");
-const { scanCollection, toManifest } = require("./scan.cjs");
+const { scanCollection, toManifest, listSiblings } = require("./scan.cjs");
 const thumbs = require("./thumbs.cjs");
 const prefs = require("./prefs.cjs");
 const { mimeFor } = require("./lib/pure.cjs");
@@ -140,6 +140,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     ipcMain.handle("lt:openPath", (_e, p) => (typeof p === "string" && p ? openCollection(p) : null));
     ipcMain.handle("lt:recents", () => prefs.recents());
+    ipcMain.handle("lt:siblings", () => (currentScan ? listSiblings(currentScan.root) : []));
     ipcMain.handle("lt:thumbUrl", async (_e, setId, key, px) => {
       const src = resolveItemPath(setId, key);
       if (!src) return null;
