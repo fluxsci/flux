@@ -625,3 +625,31 @@ export re-verified after rebuild. Testing traps worth remembering:
   (`__flux.get(__flux.slide.deckOverlay)`) before debugging animation code.
 - `plotManifests` can be inspected live via
   `window.__flux.get((await import("/src/lib/plot/store.ts")).plotManifests)`.
+
+### 2026-07-15 — Figma deep-select for plot parts + Ctrl+Shift+I bring-inside (Claude Fable 5, `main`)
+**Work:** Two owner-requested figure-editor changes. (1) Plot part selection is
+now Figma deep-select: a PLAIN click/drag anywhere on a plot always selects/
+moves the WHOLE plot (killing the accidental grab of a bar/tick while dragging
+a selected plot); ctrl/meta-click pierces to the part under the cursor even on
+an unselected plot (and to the element itself inside a group); double-click
+descends into the part; the already-drilled part stays plain-draggable
+(Figma's drag-selected-child); ctrl-hover previews the deep target
+(`.part-hover`). (2) Ctrl+Shift+I "bring inside": `ops.bringInside` translates
+each selection unit (groups rigid, rotation-aware bboxes, lines by endpoints)
+minimally into the figure frame — never resizing; oversized units are placed
+to fully cover the frame — with a `bring_inside` CLI/MCP verb, the
+import-overflow toast now pointing at the chord, and the DEV Electron menu's
+toggleDevTools moved to F12 on Linux/Windows so the app owns ⌃⇧I everywhere
+(prod Linux/Windows has no menu). Gates: `verify-bring-inside.ts` (pure),
+`verify-bring-inside-gui.mjs` (ui), `figenh-15-partmove.mjs` rewritten for the
+new interaction matrix, `verify-vanilla-inline.mjs` click-through updated to
+ctrl-click; registry goldens regenerated (86 verbs). Pure 127/127, ui 48/48,
+figenh sweep 16/16, scale-figure, W6 electron menu gate all green.
+**Learnings:**
+- `page.mouse.click(x, y, {clickCount: 2})` never fires dblclick in Chrome —
+  a REAL double-click needs two down/up pairs with the second at clickCount 2
+  (the citegroup recipe; figenh-15 §9 uses it on the canvas now).
+- Pointer capture retargets compatibility dblclicks to the HOST, so any
+  dblclick-time hit resolution needs a `document.elementFromPoint(clientX,
+  clientY)` fallback — `e.target` is the host, not the scene node
+  (`partAtPoint` in Canvas.svelte).

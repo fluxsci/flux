@@ -208,6 +208,10 @@
   // partBoxScreen suppresses itself during gestures, so the drag draws its own
   // box from the live node's bounding rect each frame.
   let partMoveBox: { x: number; y: number; w: number; h: number } | null = null;
+  // Deep-select affordance (screen px): with ctrl/meta held at rest over a
+  // plot, the part a ctrl-click would drill to is outlined (Figma's
+  // deep-target hover). Cleared on modifier release / gesture start / leave.
+  let partHover: { x: number; y: number; w: number; h: number } | null = null;
   let gNb: Rect | null = null;
   let liveBox: Rect | null = null;
   let marquee: Rect | null = null; // figure-local
@@ -637,6 +641,7 @@
     e.stopPropagation();
     activeFigureId.set(fig.id);
     selectedFrameId.set(null);
+    partHover = null;
     const lp = localPoint(e.clientX, e.clientY, fig);
 
     if ($activeTool === "select" || $activeTool === "scale") {
@@ -1111,6 +1116,7 @@
     e.stopPropagation();
     activeFigureId.set(fig.id);
     selectedFrameId.set(null);
+    partHover = null; // the click resolves the target; the affordance is done
     // P7: record the element under this pointerdown — beginMove takes pointer
     // capture, which retargets the compatibility dblclick to the HOST, so the
     // host dblclick handler resolves "which element was double-clicked" from
@@ -1125,31 +1131,47 @@
       enteredGroupId.set(null);
       scope = null;
     }
-    const unit = unitOf(fig, el, scope);
-    // Drill into a semantic plot: clicking an ALREADY-selected plot selects the
-    // part under the cursor (its prefixed DOM id → canonical semantic id) and —
-    // for a REAL part — arms a part-move gesture, so a drag moves the part
-    // itself (an id-keyed {dx,dy} override). SCAFFOLD parts (figure/plot-area/
-    // background patches/axis containers) clear the part selection and fall
-    // through to the normal whole-plot move — else the plot would be
-    // un-draggable by its own background. P7: only when the plot is its OWN
-    // unit at the current scope — a plot inside a selected GROUP moves the
-    // group; double-click enters the group first (Figma), then clicks drill.
-    if (el.type === "plot" && unit.groupId === null && $selection.has(el.id)) {
-      // (DOM Element is shadowed by the figure-model Element import → cast via unknown)
-      const pid = resolvePartId($plotManifests[el.assetId], e.target as unknown as globalThis.Element, el.id);
-      const scaffold = !pid || isScaffoldPart($plotManifests[el.assetId], pid);
-      partSelection.set(pid && !scaffold ? { elementId: el.id, partId: pid } : null);
-      // Plain select-tool click on a real part → part move (shift keeps the
-      // deferred selection toggle; alt keeps duplicate-drag; scale tool keeps
-      // whole-plot semantics).
-      if (pid && !scaffold && $activeTool === "select" && !e.shiftKey && !e.altKey) {
-        if (beginPartMove(e, fig, el.id, pid)) return;
+    // Figma deep-select (ctrl/meta-click): pierce straight to the deepest thing
+    // under the cursor — a semantic plot's PART (even when the plot isn't
+    // selected yet) or a grouped element itself — while a PLAIN click always
+    // selects the top-level unit (the whole plot / the group), so dragging a
+    // plot can never accidentally grab a bar or a tick label. The one
+    // plain-click exception (also Figma): the part that is ALREADY drilled
+    // stays drilled, so a plain drag keeps moving the selected part. Shift
+    // keeps its add/toggle meaning and alt keeps duplicate-drag — both
+    // suppress deep-select. SCAFFOLD parts (figure/plot-area/background
+    // patches/axis containers) never drill — a ctrl-click on a plot's
+    // background selects the whole plot, like Figma's deep-click on a frame.
+    const deep = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+    if (el.type === "plot") {
+      const ps = $partSelection;
+      const plainSame =
+        !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
+      let pid: string | null = null;
+      if (deep || plainSame) {
+        pid = partAtPoint(el, e);
+        if (pid && isScaffoldPart($plotManifests[el.assetId], pid)) pid = null;
+        // The plain-click continuation only holds on the very part that is
+        // already drilled — any other spot re-selects the whole plot.
+        if (plainSame && pid !== ps!.partId) pid = null;
+      }
+      partSelection.set(pid ? { elementId: el.id, partId: pid } : null);
+      if (pid) {
+        // The drill makes the plot ELEMENT the selection (deep pierces any
+        // group; a continuation click never widens an existing selection).
+        if (deep || !$selection.has(el.id)) selection.set(new Set([el.id]));
+        // Select tool → arm the part move; scale tool keeps whole-plot
+        // semantics (falls through to a normal move of the plot).
+        if ($activeTool === "select" && beginPartMove(e, fig, el.id, pid)) return;
+        beginMove(e, fig);
+        return;
       }
     } else {
       partSelection.set(null);
     }
-    const grp = expandGroups($project, new Set([el.id]), scope);
+    // Deep-click on a non-plot (or a plot's scaffold) selects the element
+    // ITSELF — no group-unit expansion (Figma deep select).
+    const grp = deep ? new Set([el.id]) : expandGroups($project, new Set([el.id]), scope);
     // Shift has two meanings on an element: shift-CLICK toggles its selection,
     // but shift-DRAG constrains the move to one axis. We can't tell which at
     // pointer-down, so for an already-selected element we DEFER the toggle to
@@ -1167,7 +1189,9 @@
           return n;
         });
       }
-    } else if (!$selection.has(el.id)) {
+    } else if (deep || !$selection.has(el.id)) {
+      // deep always REPLACES the selection with exactly the pierced element
+      // (Figma); a plain click only re-selects when the unit wasn't selected.
       selection.set(grp);
     }
     beginMove(e, fig);
@@ -1194,6 +1218,39 @@
     gDY = 0;
     liveBox = ob;
     hostEl.setPointerCapture(e.pointerId);
+  }
+
+  // Resolve the semantic plot part under a pointer/mouse event. ev.target is
+  // the live node for direct scene events; host-retargeted events (pointer
+  // capture redirects the compatibility dblclick to the HOST) fall back to an
+  // elementFromPoint hit test at the event coordinates.
+  // (DOM Element is shadowed by the figure-model Element import → cast via unknown)
+  function partAtPoint(
+    el: SemanticPlotElement,
+    ev: { target: EventTarget | null; clientX: number; clientY: number },
+  ): string | null {
+    const man = $plotManifests[el.assetId];
+    let pid = resolvePartId(man, ev.target as unknown as globalThis.Element, el.id);
+    if (!pid)
+      pid = resolvePartId(man, document.elementFromPoint(ev.clientX, ev.clientY) as globalThis.Element | null, el.id);
+    return pid;
+  }
+
+  // Screen-px box of the deep-select target under the pointer (the hovered
+  // plot's REAL part), or null when there's nothing a ctrl-click would drill.
+  function partHoverBox(ev: PointerEvent): { x: number; y: number; w: number; h: number } | null {
+    const hid = $hoverId;
+    if (!hid || !hostEl) return null;
+    const f = findElement($project, hid);
+    if (!f || f.element.type !== "plot" || effLocked(f.element)) return null;
+    const pid = partAtPoint(f.element, ev);
+    if (!pid || isScaffoldPart($plotManifests[f.element.assetId], pid)) return null;
+    const node = document.getElementById(`${f.element.id}__${pid}`);
+    if (!node) return null;
+    const r = node.getBoundingClientRect();
+    const h = hostEl.getBoundingClientRect();
+    const O = 2;
+    return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
   }
 
   // Arm a part-move gesture on the live mounted node. Returns false when the
@@ -1554,6 +1611,23 @@
         }
       }
     }
+    // Deep-select affordance: with ctrl/meta held at rest, outline the plot
+    // part a ctrl-click would drill to (Figma deep-target hover). Only ever
+    // computed while the modifier is down — zero cost on plain moves.
+    if (
+      !gesture &&
+      (e.ctrlKey || e.metaKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      ($activeTool === "select" || $activeTool === "scale") &&
+      !$captionOpen &&
+      !editPathId
+    ) {
+      partHover = partHoverBox(e);
+    } else if (partHover) {
+      partHover = null;
+    }
+
     const g = gesture;
     if (!g) return;
 
@@ -2035,6 +2109,7 @@
     if (e.code === "Space") spaceDown = false;
     if (e.key === "Alt") altDown = false;
     if (e.key === "Control") ctrlDown = false;
+    if ((e.key === "Control" || e.key === "Meta") && partHover) partHover = null;
     if ((e.key === "Shift" || e.key === "Alt") && penNodes.length && penRaw && !penDrag) {
       penSnapRes = penSnap(penNodes, penRaw, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
       penCursor = penSnapRes.pt;
@@ -2044,6 +2119,7 @@
     spaceDown = false;
     altDown = false; // don't leave the caliper stuck on if focus leaves mid-hold
     ctrlDown = false;
+    partHover = null;
   }
 
   let prevTool = $activeTool;
@@ -2095,7 +2171,8 @@
   //    under the cursor — nested groups drill progressively, one dblclick per
   //    level;
   //  - the element itself → text starts the inline edit here (as before);
-  //    plots already part-drilled on the second pointerdown (onElementDown);
+  //    plots descend to the PART under the cursor (ctrl-click is the one-shot
+  //    deep select; see onElementDown);
   //    paths keep the selection-based node-edit entry in onDblClick.
   // Returns true when it consumed the double-click. Called from the host
   // handler (real mice, via lastDownEl) AND from the per-element on:dblclick
@@ -2116,6 +2193,19 @@
       e.stopPropagation();
       startEdit(el, true);
       return true;
+    }
+    // Double-click DESCENDS into a semantic plot (Figma enter-children): drill
+    // the real part under the cursor — the modifier-free path to a part now
+    // that a plain click always selects the whole plot (ctrl-click = one-shot
+    // deep select). Scaffold hits leave the whole plot selected.
+    if (el.type === "plot" && unit.groupId === null && !e.shiftKey && !e.altKey) {
+      const pid = partAtPoint(el, e);
+      if (pid && !isScaffoldPart($plotManifests[el.assetId], pid)) {
+        e.stopPropagation();
+        partSelection.set({ elementId: el.id, partId: pid });
+        if (!$selection.has(el.id)) selection.set(new Set([el.id]));
+        return true;
+      }
     }
     return false;
   }
@@ -2731,7 +2821,10 @@
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
   on:pointercancel={onPointerUp}
-  on:pointerleave={() => hoverId.set(null)}
+  on:pointerleave={() => {
+    hoverId.set(null);
+    partHover = null;
+  }}
   on:dblclick={onDblClick}
   on:dragover={onDragOver}
   on:dragleave={onDragLeave}
@@ -3032,6 +3125,18 @@
         y={partMoveBox.y}
         width={partMoveBox.w}
         height={partMoveBox.h}
+        fill="none"
+      />
+    {/if}
+
+    <!-- deep-select hover target (ctrl/meta held over a plot part) -->
+    {#if partHover && !gesture}
+      <rect
+        class="part-hover"
+        x={partHover.x}
+        y={partHover.y}
+        width={partHover.w}
+        height={partHover.h}
         fill="none"
       />
     {/if}
@@ -3366,6 +3471,14 @@
     stroke: var(--c-accent-bright);
     stroke-width: 1.5;
     stroke-dasharray: 3 2;
+    pointer-events: none;
+    vector-effect: non-scaling-stroke;
+  }
+  /* lighter than .part-box: a PREVIEW of what ctrl-click would drill to */
+  .part-hover {
+    stroke: var(--c-accent-bright);
+    stroke-width: 1;
+    opacity: 0.6;
     pointer-events: none;
     vector-effect: non-scaling-stroke;
   }

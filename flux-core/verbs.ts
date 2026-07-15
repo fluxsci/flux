@@ -396,6 +396,23 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "bring_inside",
+    cli: "bring-inside",
+    cliRoot: "flags",
+    summary:
+      "Bring elements inside the figure frame: translate each unit (whole groups move rigidly) the minimal distance so it lies inside the frame — nothing is resized, units may overlap; an element larger than the frame is positioned to fully cover it. The rescue for imports placed at true physical size outside the frame (GUI: Ctrl+Shift+I). `ids` restricts the set (default = all elements).",
+    params: { figureId: z.string(), ids: z.array(z.string()).optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "figureId", required: true },
+      { kind: "flag", at: "ids", into: "ids", as: "csv" },
+    ],
+    handler: (ctx, a) => core.bringInside(ctx.root, s(a.figureId), a.ids as string[] | undefined),
+    render: {
+      human: (_r, a) => ({ err: `✓ brought ${a.ids ? sArr(a.ids).length + " element(s)" : "all elements"} inside ${a.figureId}` }),
+      mcp: (_r, a) => text(`brought ${a.ids ? sArr(a.ids).length + " element(s)" : "all elements"} inside ${a.figureId}`),
+    },
+  },
+  {
     name: "distribute",
     cli: "distribute",
     cliRoot: "flags",

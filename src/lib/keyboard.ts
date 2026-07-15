@@ -343,6 +343,17 @@ function flipSelected(axis: "h" | "v") {
   withSelected((els) => flipElements(els, axis));
 }
 
+// Ctrl/Cmd+Shift+I ("inside"): bring the selection inside the figure frame —
+// each unit translated the minimal distance (never resized; overlaps allowed;
+// oversized elements positioned to cover the frame). The rescue for imports
+// that land outside the frame at true physical size. One undo entry.
+function bringInsideSelected() {
+  const sel = get(selection);
+  const fig = activeFig();
+  if (!fig || sel.size === 0) return;
+  commit((p) => ops.bringInside(p, fig.id, [...sel]));
+}
+
 // Cmd/Ctrl+Shift+L: toggle the lock flag across the selection (F6). Locks if any
 // is unlocked, else unlocks — one undo entry.
 function toggleLockSelected() {
@@ -740,8 +751,8 @@ export function handleKey(e: KeyboardEvent) {
     }
     // Ctrl/Cmd+B/I/U: bold / italic / underline (text elements or a drilled
     // text-kind plot part). NOTE ctrl+I no longer imports — import moved to
-    // Ctrl+Shift+K (ctrl+shift+I is the DevTools accelerator; Figma uses ⇧⌘K
-    // for Place image). No preventDefault when nothing applicable.
+    // Ctrl+Shift+K (Figma uses ⇧⌘K for Place image). No preventDefault when
+    // nothing applicable.
     if ((k === "b" || k === "i" || k === "u") && !e.shiftKey) {
       const which = k === "b" ? "bold" : k === "i" ? "italic" : "underline";
       if (toggleBIU(which)) e.preventDefault();
@@ -750,6 +761,15 @@ export function handleKey(e: KeyboardEvent) {
     if (k === "k" && e.shiftKey) {
       e.preventDefault();
       importAssets();
+      return;
+    }
+    // Ctrl/Cmd+Shift+I: bring the selection inside the figure frame. (In dev
+    // this chord was the DevTools accelerator; the dev menu now binds DevTools
+    // to F12 on Linux/Windows so the app owns ⌃⇧I everywhere — production
+    // Linux/Windows builds have no menu at all.)
+    if (k === "i" && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      bringInsideSelected();
       return;
     }
     if (k === "z") {

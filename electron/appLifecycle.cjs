@@ -60,7 +60,11 @@ function appMenuTemplate({ isMac, isDev }) {
       ? [
           { role: "reload" },
           { role: "forceReload" },
-          { role: "toggleDevTools" },
+          // Linux/Windows: F12, not the default Ctrl+Shift+I — the renderer
+          // owns ⌃⇧I ("bring inside the frame", keyboard.ts) on every
+          // platform, and a dev-only menu accelerator would shadow it. macOS
+          // keeps its ⌥⌘I default (no conflict).
+          isMac ? { role: "toggleDevTools" } : { role: "toggleDevTools", accelerator: "F12" },
           { type: "separator" },
         ]
       : []),

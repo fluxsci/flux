@@ -463,6 +463,49 @@ export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: I
   distributeElements(targetEls(f, ids), axis, gap);
 }
 
+/** Minimal 1-D translation that brings [pos, pos+size] inside [0, frame]:
+ *  a fitting span clamps into the frame; an OVERSIZED span clamps so it fully
+ *  covers the frame (the nearest position where every frame px shows content).
+ *  Already-compliant spans return 0 — the op is idempotent. */
+const insideDelta = (pos: number, size: number, frame: number): number => {
+  const lo = Math.min(0, frame - size);
+  const hi = Math.max(0, frame - size);
+  return Math.min(hi, Math.max(lo, pos)) - pos;
+};
+
+/** Bring elements INSIDE the figure frame (Ctrl+Shift+I): translate each
+ *  selection unit (a whole top-level group moves rigidly; loose elements move
+ *  individually) the minimal distance so its rotation-aware bbox lies inside
+ *  the frame — overlaps between units are fine and NOTHING is ever resized
+ *  (physical size is the contract). An element larger than the frame is
+ *  positioned to fully cover it instead. The rescue for imports that land
+ *  outside the frame at true physical size. */
+export function bringInside(p: Project, figId: Id, ids?: Id[]): void {
+  const f = figById(p, figId);
+  if (!f) return;
+  const units = new Map<string, Element[]>();
+  for (const e of targetEls(f, ids)) {
+    // Unit key: the TOP-level group (dangling groupIds — no registry def —
+    // still co-move, mirroring targetEls' co-expansion), else the element.
+    const top = e.groupId ? (topGroupOf(f, e.groupId) ?? e.groupId) : null;
+    const key = top ?? `el:${e.id}`;
+    const arr = units.get(key);
+    if (arr) arr.push(e);
+    else units.set(key, [e]);
+  }
+  for (const members of units.values()) {
+    const b = selectionBBox(members);
+    if (!b) continue;
+    const dx = insideDelta(b.x, b.w, f.width);
+    const dy = insideDelta(b.y, b.h, f.height);
+    if (!dx && !dy) continue;
+    for (const e of members) {
+      e.x += dx;
+      e.y += dy;
+    }
+  }
+}
+
 // --- ruler guides (Feature 11) — figure-local guide lines elements snap to ---
 const roundGuides = (a?: number[]): number[] =>
   a ? [...new Set(a.map((v) => Math.round(v * 100) / 100))].sort((m, n) => m - n) : [];

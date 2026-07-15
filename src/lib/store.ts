@@ -150,7 +150,9 @@ export function mutateFigure(figId: Id, fn: (p: Project) => void) {
 
 // A part selected WITHIN a semantic plot, addressed by its stable semantic id
 // (e.g. "control.point.3"). Parallel to `selection` (whole elements); set by
-// drilling into an already-selected plot. Restyles target this part.
+// ctrl-clicking / double-clicking a plot part (Figma deep select — a plain
+// click always selects the whole plot), or from the X-Ray. Restyles target
+// this part.
 export interface PartSelection {
   elementId: Id;
   partId: string;

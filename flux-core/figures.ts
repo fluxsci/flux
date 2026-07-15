@@ -871,6 +871,16 @@ export async function alignFigure(
   });
 }
 
+/** bring elements inside the figure frame: minimal per-unit translation so each
+ *  rotation-aware bbox lies inside (oversized units cover the frame); never
+ *  resizes. `ids` restricts the set (default = all elements). */
+export async function bringInside(root: string, figId: string, ids?: string[]): Promise<void> {
+  await mutateFigModel(root, "bring_inside", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.bringInside(project, figId, ids);
+  });
+}
+
 /** group elements/whole top groups into one NAMED, nestable unit (P7 registry;
  *  members spliced z-contiguous). Returns the new group id. */
 export async function groupElements(

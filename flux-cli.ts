@@ -85,6 +85,8 @@ usage: flux <verb> [root] [args] [--flags]
   delete-figure <figId> [--root R]     delete a whole figure
   duplicate-figure <figId> [--root R]  duplicate a whole figure (fresh ids)
   align <figId> <left|right|top|bottom|centerH|centerV> [--ids a,b,c] [--root R]   align elements
+  bring-inside <figId> [--ids a,b,c] [--root R]   translate elements inside the
+            frame (minimal move, never resized; oversized ones cover the frame)
   group <id…> [--name N] [--parent G] [--root R]   group ≥2 units → one NAMED
             nestable group (whole top groups nest instead of dissolving)
   ungroup <id…> [--root R]             dissolve each id's top-level group

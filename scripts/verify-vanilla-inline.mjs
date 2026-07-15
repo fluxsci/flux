@@ -141,7 +141,9 @@ try {
   assert(dom.sceneImages === 0, `NO <image> elements for svg assets in the scene (${dom.sceneImages})`);
   await shot(page, "vanilla-inline-side-by-side");
 
-  // ---- 3. part click-through: a REAL click over a tick label drills ----------
+  // ---- 3. part click-through: a REAL CTRL-click over a tick label drills -----
+  // (Figma deep-select: a plain click always selects the whole plot; ctrl-click
+  // pierces to the part — the derived manifest makes it addressable.)
   const rect = await page.evaluate(() => {
     const n = document.getElementById("vanilla1__text_1");
     if (!n) return null;
@@ -151,6 +153,16 @@ try {
   assert(rect, "tick label has a live on-screen rect");
   if (rect) {
     await page.mouse.click(rect.x, rect.y);
+    await sleep(350);
+    const plain = await page.evaluate(() => ({
+      ps: window.__flux.get(window.__flux.fig.partSelection),
+      sel: [...window.__flux.get(window.__flux.fig.selection)],
+    }));
+    assert(plain.ps === null, "a PLAIN click over the tick label does NOT drill");
+    assert(plain.sel.length === 1 && plain.sel[0] === "vanilla1", "…it selects the whole plot");
+    await page.keyboard.down("Control");
+    await page.mouse.click(rect.x, rect.y);
+    await page.keyboard.up("Control");
     await sleep(350);
     const ps = await page.evaluate(() => {
       const F = window.__flux;
@@ -165,7 +177,7 @@ try {
         insideLabel: !!node && !!label && (node === label || label.contains(node)),
       };
     });
-    assert(ps.drilled, "real click over the tick label sets partSelection");
+    assert(ps.drilled, "ctrl-click over the tick label sets partSelection");
     assert(ps.drilled && ps.elementId === "vanilla1", `…on the vanilla plot (${ps.elementId})`);
     assert(ps.drilled && ps.insideLabel, `…resolved to the label subtree (partId ${ps.partId})`);
   }

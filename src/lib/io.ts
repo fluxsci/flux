@@ -338,8 +338,8 @@ function placeIncoming(incoming: Incoming[], figId?: string) {
     const one = over.length === 1 ? over[0].el : null;
     pushToast("info", "Placed at true physical size — larger than the frame", {
       detail: one
-        ? `${mm(one.width)} × ${mm(one.height)} mm vs frame ${mm(fig.width)} × ${mm(fig.height)} mm. Resize it here, or regenerate the plot at the size it should print.`
-        : `${over.length} of ${incoming.length} imports exceed the ${mm(fig.width)} × ${mm(fig.height)} mm frame. Resize them here, or regenerate the plots at the size they should print.`,
+        ? `${mm(one.width)} × ${mm(one.height)} mm vs frame ${mm(fig.width)} × ${mm(fig.height)} mm. Ctrl+Shift+I brings it inside the frame (unresized); or resize it here / regenerate the plot at the size it should print.`
+        : `${over.length} of ${incoming.length} imports exceed the ${mm(fig.width)} × ${mm(fig.height)} mm frame. Ctrl+Shift+I brings them inside the frame (unresized, may overlap); or resize them here / regenerate the plots at the size they should print.`,
     });
   }
 
