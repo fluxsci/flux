@@ -154,6 +154,8 @@
           items: [
             ["⌘F", "Find in the PDF"],
             ["⌘J", "Ask Claude about this paper"],
+            ["Alt+drag", "Pop a page region out into a floating panel"],
+            ["Ctrl+Alt+drag", "Snip a region → PNG in plots/paper_snips (with citation)"],
             ["Esc", "Close find / popover"],
           ],
         },

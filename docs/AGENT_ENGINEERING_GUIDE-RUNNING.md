@@ -83,6 +83,7 @@ The established shared cores — extend these, don't duplicate them:
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
+| Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
 
 ## 3. Data model and persistence invariants
@@ -625,6 +626,44 @@ export re-verified after rebuild. Testing traps worth remembering:
   (`__flux.get(__flux.slide.deckOverlay)`) before debugging animation code.
 - `plotManifests` can be inspected live via
   `window.__flux.get((await import("/src/lib/plot/store.ts")).plotManifests)`.
+
+### 2026-07-15 — Paper snips: reader capture + citation linkage (Claude Fable 5, `paper-snips`)
+**Work:** New feature end-to-end on a branch. Ctrl+Alt+drag in the reader captures a
+PDF page region as a PNG "snip" into `<project>/plots/paper_snips/` (parallel to the
+existing Alt+drag figure pop-out); a naming popover confirms/renames (Enter keeps).
+Provenance (citekey/page/rect/citation) travels **inside the PNG bytes** as a
+`flux-snip` tEXt chunk plus a `.snip.json` sidecar, decoded into a runtime `snipMeta`
+map at every asset-decode seam, so the FluxFig menu's new "copy citation" action works
+on any imported snip in figure AND slide mode. A headless `snip_paper` verb (+ `cite`)
+gives agents the same capture (pdf.js legacy + `@napi-rs/canvas`). One shared pure core
+`src/lib/references/snips.ts` (+ `journalAbbrev.ts`) owns naming/citation/meta/raster
+math for both engines. Gates: `verify-snips` (pure), `verify-snip-headless` (pure),
+`verify-snip-gui` (ui), `verify-snip-cite-gui` (ui-extra); pure 129/129, check 0/0,
+live CLI exercised against a real FluxLib paper.
+**Learnings:**
+- **Snip physical-size math:** pdf.js renders at scale *s* → pixels = PDF-points·s;
+  physical size = points/72 in ⇒ stamp dpi = 72·s. Snips render at s=4 (288dpi) and the
+  existing physical-size-true import (`io.ts buildIncoming` × `readPngDpi`) then places
+  them 1:1 with the printed page for free.
+- **Provenance in bytes, not the model:** carrying metadata in a PNG tEXt chunk (pure
+  byte surgery beside the pHYs helpers in `figure/pngDpi.ts`) + a sidecar, resolved into
+  a runtime map, avoided the entire "change the fig/ file format" recipe (figfiles
+  whitelists, both schemas, validators regen, parity goldens) — fig/deck saves write
+  asset bytes verbatim, so the linkage survives every round-trip structurally, and the
+  slide-paste path (no sidecar possible) still works because the bytes self-describe.
+- **The reader's project root is `shellStore.currentProject.path`, NOT
+  `embeddedProjectRoot`** — the latter is figure-mode-scoped (set/cleared on FigureMode
+  mounts, `store.ts:233`), so it's null while you're in the reader.
+- tEXt is Latin-1: ASCII-escape (`\uXXXX`) the JSON payload so diacritic author names
+  survive the byte round-trip (`JSON.parse` decodes the escapes natively).
+- **ESM cycle:** import `VERBS` from `flux-core/registry`, never `./verbs` directly —
+  registry's module body iterates `VERBS`, so entering `verbs.ts` first throws
+  "Cannot access 'VERBS' before initialization".
+- **ui-gate seam:** a snip save must go through `fileBridge()` (not `window.fig`
+  directly) so the memBridge demo fixture observes the writes; and an in-page
+  `await import()` of a store module can yield a *different* instance than the app's
+  after vite HMR — gates hardcode the fixture ROOT (`/demo/myc-growth-paper`) rather
+  than subscribing to a re-imported store.
 
 ### 2026-07-15 — Figma deep-select for plot parts + Ctrl+Shift+I bring-inside (Claude Fable 5, `main`)
 **Work:** Two owner-requested figure-editor changes. (1) Plot part selection is
