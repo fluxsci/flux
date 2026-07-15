@@ -184,7 +184,8 @@
       "verify-slide-animator-gui.mjs",
       "verify-slide-present-gui.mjs",
       "verify-slide-tenancy-gui.mjs",
-      "verify-slide-import-gui.mjs"
+      "verify-slide-import-gui.mjs",
+      "verify-snip-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",

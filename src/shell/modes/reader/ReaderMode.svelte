@@ -35,6 +35,26 @@
   import HighlightPopover from "./HighlightPopover.svelte";
   import CitePreview from "./CitePreview.svelte";
   import FigurePanel from "./FigurePanel.svelte";
+  import SnipNamePopover from "./SnipNamePopover.svelte";
+  import { get } from "svelte/store";
+  import { currentProject } from "../../shellStore";
+  import { dataUrlToBytes } from "../../../lib/assets";
+  import { injectPngDpi, injectPngText } from "../../../lib/figure/pngDpi";
+  import {
+    SNIP_DIR,
+    SNIP_SCALE,
+    SNIP_TEXT_KEYWORD,
+    composeSnipCitation,
+    defaultSnipName,
+    sanitizeSnipName,
+    dedupSnipName,
+    normSnipRect,
+    snipRasterPlan,
+    encodeSnipMeta,
+    sidecarText,
+    type SnipMeta,
+    type SnipRect,
+  } from "../../../lib/references/snips";
 
   let { focused = true }: { focused?: boolean } = $props();
 
@@ -283,6 +303,72 @@
     figPanels = figPanels.map((f) => (f.id === id ? { ...f, z: ++figZ } : f));
   };
 
+  // Paper snips: ctrl+alt+drag a region → naming popover → 288dpi PNG (+ provenance
+  // tEXt chunk + .snip.json sidecar) into <project>/plots/paper_snips/. The popover
+  // opens instantly on mouseup; the full-quality render happens on save (§6).
+  let snipReq = $state<{ page: number; rect: SnipRect; anchor: { x: number; y: number }; name: string; citation: string } | null>(null);
+  let snipPreview = $state<string | null>(null);
+  let snipSaving = $state(false);
+  let snipError = $state("");
+  const snipExists = (root: string) => (name: string) => fileBridge()?.exists(`${root}/${SNIP_DIR}/${name}.png`) ?? Promise.resolve(false);
+  async function snipRegion(req: { page: number; rect: SnipRect; anchor: { x: number; y: number } }) {
+    const root = get(currentProject)?.path ?? null;
+    if (!root) {
+      pushToast("info", "Open a project to save paper snips");
+      return;
+    }
+    const key = curKey;
+    if (!key) return;
+    const name = await dedupSnipName(defaultSnipName(key, req.page), snipExists(root));
+    snipError = "";
+    snipPreview = null;
+    snipReq = { ...req, name, citation: composeSnipCitation(entry, key) };
+    void pdfView?.renderRegion(req.page, req.rect, 130).then((src) => {
+      if (snipReq) snipPreview = src;
+    });
+  }
+  async function saveSnip(rawName: string) {
+    const req = snipReq;
+    const root = get(currentProject)?.path ?? null;
+    const key = curKey;
+    if (!req || !root || !key || snipSaving) return;
+    snipSaving = true;
+    snipError = "";
+    try {
+      const base = sanitizeSnipName(rawName) || req.name;
+      const name = await dedupSnipName(base, snipExists(root));
+      const box = await pdfView?.pageBox(req.page);
+      const rect = box ? normSnipRect(req.rect, box) : req.rect;
+      const src = await pdfView?.renderRegion(req.page, rect, 460, { scale: SNIP_SCALE });
+      if (!src) throw new Error("couldn't render the region");
+      const meta: SnipMeta = {
+        citekey: key,
+        page: req.page,
+        rect,
+        sourcePdf: activePdf.kind === "supp" ? { supplement: activePdf.name } : "main",
+        capturedAt: new Date().toISOString(),
+        citation: req.citation,
+      };
+      let bytes = dataUrlToBytes(src);
+      bytes = injectPngDpi(bytes, snipRasterPlan(rect, SNIP_SCALE).dpi);
+      bytes = injectPngText(bytes, SNIP_TEXT_KEYWORD, encodeSnipMeta(meta));
+      const fb = fileBridge();
+      if (!fb) throw new Error("no file bridge available");
+      await fb.mkdir(`${root}/plots`);
+      await fb.mkdir(`${root}/${SNIP_DIR}`);
+      await fb.writeFile(`${root}/${SNIP_DIR}/${name}.png`, bytes);
+      await fb.writeText(`${root}/${SNIP_DIR}/${name}.snip.json`, sidecarText(meta));
+      snipReq = null;
+      snipPreview = null;
+      pushToast("info", `Snip saved${name !== base ? ` as ${name}` : ""}`, { detail: `${SNIP_DIR}/${name}.png · ${meta.citation}` });
+    } catch (e) {
+      snipError = errMsg(e);
+      pushToast("error", `Snip save failed: ${errMsg(e)}`);
+    } finally {
+      snipSaving = false;
+    }
+  }
+
   // R5: per-paper view persistence (page/zoom/layout/sidebars) — localStorage, this
   // machine's reading state, not FluxLib data.
   const viewKey = (k: string) => `flux-reader-view:${k}`;
@@ -376,6 +462,8 @@
     navDepth = 0;
     cite = null;
     figPanels = [];
+    snipReq = null;
+    snipPreview = null;
     // Restore this paper's saved view before the PDF mounts (R5).
     viewRestored = false;
     const saved = loadView(key);
@@ -814,7 +902,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key `${$readerKey}#${bufferGen}`}
-              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => void askAgent(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
           {#if agentOpen}
@@ -838,6 +926,25 @@
             onJump={() => pdfView?.goToPage(f.page, { pushNav: true })}
             onFocus={() => raiseFig(f.id)} />
         {/each}
+
+        {#if snipReq}
+          <SnipNamePopover
+            name={snipReq.name}
+            dir={SNIP_DIR}
+            citation={snipReq.citation}
+            page={snipReq.page}
+            preview={snipPreview}
+            saving={snipSaving}
+            error={snipError}
+            x={snipReq.anchor.x}
+            y={snipReq.anchor.y}
+            onSave={(n) => void saveSnip(n)}
+            onCancel={() => {
+              snipReq = null;
+              snipPreview = null;
+              snipError = "";
+            }} />
+        {/if}
 
         {#if cite}
           <CitePreview

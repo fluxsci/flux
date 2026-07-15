@@ -58,6 +58,7 @@
     onCitePreview,
     onNavDepth,
     onRegionPop,
+    onRegionSnip,
     onOrphans,
     onPage,
     onScale,
@@ -88,6 +89,10 @@
     onNavDepth?: (n: number) => void;
     /** R5: alt+drag marquee finished — a page region in PDF units [x1,y1,x2,y2]. */
     onRegionPop?: (req: { page: number; rect: [number, number, number, number] }) => void;
+    /** Paper snips: ctrl+alt+drag marquee finished — same region contract as
+     *  onRegionPop, plus the marquee's bottom-right client corner to anchor the
+     *  naming popover at the spot the drag ended. */
+    onRegionSnip?: (req: { page: number; rect: [number, number, number, number]; anchor: { x: number; y: number } }) => void;
     /** R5: restore a saved view (applied instead of the fit-width/page-1 defaults). */
     initialView?: { page?: number; scaleValue?: string } | null;
     /** LR-13: ids whose quote no longer locates on their (rendered) page → the annotations
@@ -570,17 +575,18 @@
     return { page: viewer.currentPageNumber, scaleValue: viewer.currentScaleValue };
   }
 
-  // --- R5: alt+drag a page region → floating figure panel --------------------------
-  let marquee = $state<{ x: number; y: number; w: number; h: number } | null>(null);
-  let marqueeStart: { x: number; y: number; pageDiv: HTMLElement; page: number } | null = null;
+  // --- R5: alt+drag a page region → floating figure panel; ctrl+alt+drag → paper snip
+  let marquee = $state<{ x: number; y: number; w: number; h: number; snip: boolean } | null>(null);
+  let marqueeStart: { x: number; y: number; pageDiv: HTMLElement; page: number; snip: boolean } | null = null;
   let skipNextClick = false; // the mouseup that ends a marquee still fires a click
   function onPointerDown(e: MouseEvent) {
     if (!e.altKey || e.button !== 0) return;
     const pageDiv = (e.target as Element | null)?.closest?.(".pdf-page") as HTMLElement | null;
     if (!pageDiv) return;
     e.preventDefault(); // no text selection while marqueeing
-    marqueeStart = { x: e.clientX, y: e.clientY, pageDiv, page: Number(pageDiv.dataset.page) };
-    marquee = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+    const snip = e.ctrlKey || e.metaKey; // mode is decided at pointer-down, not release
+    marqueeStart = { x: e.clientX, y: e.clientY, pageDiv, page: Number(pageDiv.dataset.page), snip };
+    marquee = { x: e.clientX, y: e.clientY, w: 0, h: 0, snip };
   }
   function onMarqueeMove(e: MouseEvent) {
     if (!marqueeStart) return;
@@ -589,6 +595,7 @@
       y: Math.min(marqueeStart.y, e.clientY),
       w: Math.abs(e.clientX - marqueeStart.x),
       h: Math.abs(e.clientY - marqueeStart.y),
+      snip: marqueeStart.snip,
     };
   }
   function onMarqueeUp() {
@@ -604,23 +611,31 @@
     const pr = start.pageDiv.getBoundingClientRect();
     const [ax, ay] = vp.convertToPdfPoint(m.x - pr.left, m.y - pr.top);
     const [bx, by] = vp.convertToPdfPoint(m.x + m.w - pr.left, m.y + m.h - pr.top);
-    onRegionPop?.({
-      page: start.page,
-      rect: [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)],
-    });
+    const rect: [number, number, number, number] = [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+    if (start.snip) onRegionSnip?.({ page: start.page, rect, anchor: { x: m.x + m.w, y: m.y + m.h } });
+    else onRegionPop?.({ page: start.page, rect });
   }
-  /** Render a page region (PDF units) at 2× the given CSS width → PNG data URL. */
+  /** The page's PDF view box [x1,y1,x2,y2] (PDF points, y-up) — for clamping snip rects. */
+  export async function pageBox(pageNo: number): Promise<[number, number, number, number] | null> {
+    if (!pdfDoc) return null;
+    const page = await pdfDoc.getPage(pageNo);
+    return page.view as [number, number, number, number];
+  }
+  /** Render a page region (PDF units) at 2× the given CSS width → PNG data URL.
+   *  An explicit `opts.scale` (px per PDF point) overrides the cssWidth sizing —
+   *  the snip save path renders at SNIP_SCALE so the stamped dpi (72×scale) holds. */
   export async function renderRegion(
     pageNo: number,
     rect: [number, number, number, number],
     cssWidth = 460,
+    opts: { scale?: number } = {},
   ): Promise<string | null> {
     if (!pdfDoc) return null;
     const page = await pdfDoc.getPage(pageNo);
     const [x1, y1, x2, y2] = rect;
     const w = Math.max(1, x2 - x1);
     const h = Math.max(1, y2 - y1);
-    const scale = (cssWidth * 2) / w;
+    const scale = opts.scale ?? (cssWidth * 2) / w;
     const vp = page.getViewport({ scale });
     const [vx, vy] = vp.convertToViewportPoint(x1, y2); // region's top-left in viewport space
     const canvas = document.createElement("canvas");
@@ -828,7 +843,7 @@
     <div class="pdfViewer" bind:this={viewerDiv}></div>
   </div>
   {#if marquee}
-    <div class="marquee" style:left="{marquee.x}px" style:top="{marquee.y}px" style:width="{marquee.w}px" style:height="{marquee.h}px"></div>
+    <div class="marquee" class:snip={marquee.snip} style:left="{marquee.x}px" style:top="{marquee.y}px" style:width="{marquee.w}px" style:height="{marquee.h}px"></div>
   {/if}
   {#if status === "loading"}
     <div class="msg loading">Loading…{loadNote ? ` ${loadNote}` : ""}</div>
@@ -937,6 +952,11 @@
     border: 1.5px dashed var(--c-accent);
     background: var(--c-accent-tint-2, rgba(67, 133, 190, 0.08));
     border-radius: 2px;
+  }
+  /* Snip capture reads as "camera", not "pop-out": solid border, no tint. */
+  .marquee.snip {
+    border-style: solid;
+    background: transparent;
   }
   .msg {
     padding: 16px;
