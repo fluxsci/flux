@@ -23,6 +23,8 @@
   import { nameForHex } from "./colors";
   import { presetPicker, presetableSelection } from "./presets";
   import { fluxFigMenuOpen, settings, popupLayout } from "./settings";
+  import { getSnipMeta } from "./snipMeta";
+  import { pushToast } from "./toast";
   import { halfFrame, drawForge } from "./motion/selfDraw";
   import { prefersReducedMotion } from "./motion/motion";
   import ColorSearch from "./ColorSearch.svelte";
@@ -333,6 +335,27 @@
         kind: "toggle",
         get: () => true,
         apply: () => commit((proj) => ops.setCrop(proj, cid, null)),
+      });
+    }
+
+    // Paper snips: an image whose PNG carries flux-snip provenance (tEXt chunk /
+    // sidecar, captured at every asset decode seam) offers its source citation.
+    // Action-as-toggle like "reset crop"; shared menu ⇒ slide mode gets it too.
+    const snipEl = els.find((e) => e.type === "image" && getSnipMeta(e.assetId));
+    if (snipEl && snipEl.type === "image") {
+      const meta = getSnipMeta(snipEl.assetId)!;
+      F.push({
+        key: "n",
+        label: `copy citation — ${meta.citation}`,
+        group: "Source",
+        kind: "toggle",
+        get: () => true,
+        apply: () => {
+          void navigator.clipboard
+            .writeText(meta.citation)
+            .then(() => pushToast("info", "Citation copied", { detail: meta.citation }))
+            .catch(() => pushToast("error", "Copy failed"));
+        },
       });
     }
 

@@ -38,6 +38,7 @@ import { annotationsToMarkdown, type AnnotationMdMeta } from "./references/annot
 import type { Annotation } from "./references/annotations";
 import { encodeTiff } from "./figure/tiff";
 import { injectPngDpi, readPngDpi } from "./figure/pngDpi";
+import { captureSnipMeta, clearSnipMeta } from "./snipMeta";
 import { planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
 import { cachePlot, clearPlots, plotManifests, plotRecipes } from "./plot/store";
@@ -104,11 +105,23 @@ interface Siblings {
   recipePath?: string;
   manifestText?: string;
   recipeText?: string;
+  /** Paper-snip sidecar (`X.snip.json`) beside an imported PNG — the fallback
+   *  provenance source when a PNG's flux-snip tEXt chunk was stripped. */
+  snipText?: string;
 }
 
 // Resolve sidecars from the filesystem by deterministic sibling path (the
 // preload bridge has no readdir, but `X.svg` → `X.fluxplot.json` is fixed).
 async function resolveSiblingsFromFs(absPath: string): Promise<Siblings> {
+  if (/\.png$/i.test(absPath)) {
+    const snipPath = absPath.replace(/\.png$/i, ".snip.json");
+    try {
+      if (await window.fig.exists(snipPath)) return { snipText: await window.fig.readText(snipPath) };
+    } catch {
+      /* unreadable — the tEXt chunk (if any) still covers it */
+    }
+    return {};
+  }
   if (!/\.svg$/i.test(absPath)) return {};
   const base = absPath.replace(/\.svg$/i, "");
   const manifestPath = `${base}.fluxplot.json`;
@@ -162,6 +175,10 @@ async function buildIncoming(
   };
   setAssetData(asset.id, dataUrl); // also serves as the <image> fallback (spec P4)
   markAssetDirty(asset.id); // W8: newly imported bytes → write on next save
+  // Paper snips: pick up provenance riding the PNG (tEXt) or its sidecar, so
+  // "copy citation" works on the imported element. Covers every import surface
+  // that funnels here: picker, drag-drop, path import, slide paste.
+  if (kind === "png") captureSnipMeta(asset.id, bytes, sib.snipText);
 
   // EVERY svg goes through the semantic-plot pipeline: a fluxplot sidecar gives
   // the real manifest; anything else gets a DERIVED one at cachePlot (via
@@ -274,10 +291,12 @@ export async function importDroppedFiles(files: File[], figId: string) {
   const all = [...files];
   const manifests = new Map<string, File>();
   const recipes = new Map<string, File>();
+  const snips = new Map<string, File>();
   for (const f of all) {
     const n = (f.name || "").toLowerCase();
     if (n.endsWith(".fluxplot.json")) manifests.set(f.name.slice(0, -".fluxplot.json".length), f);
     else if (n.endsWith(".recipe.json")) recipes.set(f.name.slice(0, -".recipe.json".length), f);
+    else if (n.endsWith(".snip.json")) snips.set(f.name.slice(0, -".snip.json".length), f);
   }
   const accepted = all.filter(
     (f) => /\.(png|svg)$/i.test(f.name || "") || /(png|svg)/i.test(f.type),
@@ -302,6 +321,11 @@ export async function importDroppedFiles(files: File[], figId: string) {
           recipeText: rf ? await rf.text() : undefined,
         };
       }
+    } else if (/\.png$/i.test(file.name || "")) {
+      // A dropped snip's provenance normally rides its tEXt chunk; a dropped
+      // X.snip.json pairs up for the stripped-PNG case (mirrors the fluxplot pair).
+      const sf = snips.get((file.name || "").replace(/\.png$/i, ""));
+      if (sf) sib = { snipText: await sf.text() };
     }
     incoming.push(await buildIncoming(file.name || "image", bytes, sib));
   }
@@ -504,11 +528,13 @@ export async function openProject() {
     }
 
     clearPlots();
+    clearSnipMeta();
     const fresh: Record<string, string> = {};
     for (const asset of p.assets) {
       if (!asset.path) continue;
       const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
       fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
+      if (asset.kind === "png") captureSnipMeta(asset.id, bytes);
       // Cache EVERY svg's DOM (+ manifest/recipe when sidecars exist; a vanilla
       // svg gets a derived manifest inside cachePlot) so inlined rendering +
       // part overrides reconnect on reload.

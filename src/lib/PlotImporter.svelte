@@ -36,6 +36,8 @@
     rel: string;
     name: string;
     semantic: boolean;
+    /** A paper snip: a PNG with an `X.snip.json` provenance sidecar. */
+    snip?: boolean;
   }
   interface Row {
     kind: "up" | "dir" | "file";
@@ -43,6 +45,7 @@
     abs?: string;
     rel?: string;
     semantic?: boolean;
+    snip?: boolean;
   }
 
   $: root = rootOverride || $embeddedProjectRoot || $projectDir || "";
@@ -82,29 +85,33 @@
     requestAnimationFrame(() => inputEl?.focus());
   }
 
-  // Manifest sidecars present in the CURRENT folder — kept from the raw listing
-  // (entries filters them out), so browse rows can flag semantic plots. Search
-  // rows get the same flag from scan()'s own raw listings.
+  // Sidecars present in the CURRENT folder — kept from the raw listing (entries
+  // filters them out), so browse rows can flag semantic plots (.fluxplot.json)
+  // and paper snips (.snip.json). Search rows get the same flags from scan().
   let manifestNames = new Set<string>();
+  let snipNames = new Set<string>();
   async function loadDir(dir: string) {
     const fig = fileBridge();
     if (!fig?.readdir || !dir) {
       entries = [];
       manifestNames = new Set();
+      snipNames = new Set();
       return;
     }
     loading = true;
     const es = await fig.readdir(dir);
     manifestNames = new Set(es.filter((e) => !e.dir && /\.fluxplot\.json$/i.test(e.name)).map((e) => e.name));
-    // dirs first, then files, each alphabetical; only show dirs + .svg plots.
+    snipNames = new Set(es.filter((e) => !e.dir && /\.snip\.json$/i.test(e.name)).map((e) => e.name));
+    // dirs first, then files, each alphabetical; show dirs + .svg plots + .png rasters (snips).
     entries = es
-      .filter((e) => e.dir || /\.svg$/i.test(e.name))
+      .filter((e) => e.dir || /\.(svg|png)$/i.test(e.name))
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
     loading = false;
   }
 
-  // Recursively collect every .svg under plots/ (capped), flagging semantic ones
-  // (those with a .fluxplot.json sibling) — no extra IO, read from the dir listing.
+  // Recursively collect every .svg/.png under plots/ (capped), flagging semantic
+  // plots (.fluxplot.json sibling) and paper snips (.snip.json sibling) — no
+  // extra IO, read from the dir listing.
   async function scan() {
     const fig = fileBridge();
     if (!fig?.readdir || !plotsRoot) {
@@ -125,6 +132,8 @@
         if (e.dir) await visit(abs, r, depth + 1);
         else if (/\.svg$/i.test(e.name))
           out.push({ abs, rel: r, name: e.name, semantic: names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")) });
+        else if (/\.png$/i.test(e.name))
+          out.push({ abs, rel: r, name: e.name, semantic: false, snip: names.has(e.name.replace(/\.png$/i, ".snip.json")) });
       }
     };
     await visit(plotsRoot, "", 0);
@@ -140,7 +149,7 @@
         .filter((p) => `${p.rel} ${p.name}`.toLowerCase().includes(q))
         .sort((a, b) => rank(a, q) - rank(b, q))
         .slice(0, 300)
-        .map((p) => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic }));
+        .map((p) => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip }));
     }
     const out: Row[] = [];
     if (cwd && cwd !== plotsRoot) out.push({ kind: "up", name: ".." });
@@ -152,9 +161,10 @@
           name: e.name,
           abs: joinPath(cwd, e.name),
           rel: e.name,
-          // entries drops non-svg files, so the sidecar check reads the raw
-          // listing's manifest names (a browse row was NEVER semantic before).
+          // entries drops sidecar files, so these checks read the raw listing's
+          // sidecar names (a browse row was NEVER semantic before).
           semantic: manifestNames.has(e.name.replace(/\.svg$/i, ".fluxplot.json")),
+          snip: /\.png$/i.test(e.name) && snipNames.has(e.name.replace(/\.png$/i, ".snip.json")),
         });
     }
     return out;
@@ -341,9 +351,10 @@
               <span class="ic"
                 >{r.kind === "dir" ? "📁" : r.kind === "up" ? "↩" : r.abs && picked.has(r.abs) ? "✓" : r.semantic ? "◆" : "◇"}</span
               >
-              <span class="nm">{r.kind === "file" ? r.name.replace(/\.svg$/i, "") : r.name}</span>
+              <span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png)$/i, "") : r.name}</span>
               {#if q && r.rel && r.rel !== r.name}<span class="rel">{r.rel.replace(/\/[^/]+$/, "")}</span>{/if}
               {#if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
+              {#if r.kind === "file" && r.snip}<span class="badge">snip</span>{/if}
             </div>
           {/each}
           {#if truncated}<div class="note">Showing the first 2000 plots — narrow your search.</div>{/if}

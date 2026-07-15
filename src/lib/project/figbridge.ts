@@ -28,6 +28,7 @@ import {
   clearAllAssetsDirty,
 } from "../assets";
 import { plotManifests, plotRecipes, cachePlot, clearPlots } from "../plot/store";
+import { captureSnipMeta, clearSnipMeta } from "../snipMeta";
 import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { FLEXOKI } from "../flexoki";
@@ -202,11 +203,13 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   const assets: Asset[] = normalizeIndexAssets(index);
   const data: Record<string, string> = {};
   clearPlots();
+  clearSnipMeta(); // project-load boundary — snip provenance re-derives from the bytes below
   for (const a of assets) {
     if (!a.path) continue;
     try {
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
       data[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
+      if (a.kind === "png") captureSnipMeta(a.id, bytes);
       // Cache EVERY svg's DOM (+ manifest/recipe when the asset-local sidecar
       // exists; a vanilla svg gets a DERIVED manifest inside cachePlot), so the
       // inlined rendering + part overrides reconnect on reload — mirrors
@@ -455,6 +458,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
     try {
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
       assetData[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
+      if (a.kind === "png") captureSnipMeta(a.id, bytes);
     } catch {
       /* skip missing asset bytes */
     }

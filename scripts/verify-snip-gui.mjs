@@ -9,6 +9,7 @@ import { launch, gotoApp, clickMode, shot, realErrors, sleep } from "./lib/drive
 const pdfB64 = readFileSync("scripts/fixtures/reader-sample.pdf").toString("base64");
 const KEY = "sniptest2026";
 const CITATION = "Driessen et al., 2026, Nat. Neurosci.";
+const ROOT = "/demo/myc-growth-paper"; // the fixture's project root (verify-importer-multi convention)
 
 const { browser, page } = await launch();
 let fails = 0;
@@ -46,11 +47,10 @@ try {
 
   // Seed the paper's PDF bytes AND a bib entry (through the real bridge) so the
   // citation composes fully: 3 authors → "et al.", journal → ISO-4 abbreviation.
-  const root = await page.evaluate(async (b64, key) => {
+  await page.evaluate(async (b64, key) => {
     const { ensureFluxLib } = await import("/src/lib/references/fluxlibBridge.ts");
     const { fileBridge, joinPath } = await import("/src/lib/project/types.ts");
     const { bumpFluxLib } = await import("/src/lib/references/revision.ts");
-    const { currentProject } = await import("/src/shell/shellStore.ts");
     const lib = await ensureFluxLib();
     const fb = fileBridge();
     await fb.writeText(
@@ -60,11 +60,9 @@ try {
     bumpFluxLib();
     window.__fluxSeedReaderItem(key, b64);
     window.__fluxOpenReader(key);
-    let cur = null;
-    currentProject.subscribe((v) => (cur = v))();
-    return cur?.path ?? null;
   }, pdfB64, KEY);
-  ok("demo project root resolved", !!root, String(root));
+  const root = ROOT;
+  ok("demo project scaffolded (project.json exists)", await page.evaluate((r) => window.fig.exists(`${r}/project.json`), root));
   await page.waitForSelector('[data-testid="pdf-root"]', { timeout: 15000 });
   await waitRendered();
   await sleep(600);

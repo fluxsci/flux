@@ -232,6 +232,7 @@
       "verify-r2-viewer.mjs",
       "verify-r4-links.mjs",
       "verify-r5-figure.mjs",
+      "verify-snip-cite-gui.mjs",
       "verify-r6-supplement.mjs",
       "verify-w1-toast.mjs",
       "verify-w10-matrix.mjs",

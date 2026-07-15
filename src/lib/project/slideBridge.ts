@@ -25,6 +25,7 @@ import { project as figProject, editGen, dirty as figDirty } from "../store";
 import { assertStoreTenant } from "../tenancy";
 import { assetData, bytesToDataUrl, dataUrlToBytes, mimeFor, isAssetDirty, clearAssetDirty, clearAllAssetsDirty } from "../assets";
 import { cachePlot, clearPlots, hasPlotDom, plotManifests, plotDom } from "../plot/store";
+import { captureSnipMeta } from "../snipMeta";
 import { isDerivedManifest } from "../plot/derive";
 import { svgIntrinsicPx } from "../plot/compensate";
 import type { FluxPlotManifest } from "../plot/types";
@@ -212,6 +213,7 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
         const manifest = await readManifestFile(`slides/${deck.id}/assets/${a.id}.fluxplot.json`);
         cachePlot(a.id, new TextDecoder().decode(bytes), manifest);
       }
+      if (a.kind === "png") captureSnipMeta(a.id, bytes); // paper-snip provenance → copy citation
       assets.push({ ...a });
     } catch {
       assets.push({ ...a }); // keep the entry — the element shows a placeholder
@@ -275,6 +277,7 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
           const manifest = await readManifestFile(`fig/assets/${assetId}.fluxplot.json`);
           cachePlot(assetId, new TextDecoder().decode(bytes), manifest);
         }
+        if (fa.kind !== "svg") captureSnipMeta(assetId, bytes); // fig-derived png snip
         assets.push({
           id: assetId,
           name: fa.name ?? assetId,
