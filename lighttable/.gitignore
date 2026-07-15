@@ -1,0 +1,5 @@
+# Lighttable is liftable to its own repo — it carries its own ignores.
+node_modules/
+dist/
+test/
+*.local

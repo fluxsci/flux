@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Renderer lockdown (mirrors Flux's posture, independently owned). This is
+         the DEV variant: the loopback ws/http entries exist for Vite HMR and are
+         stripped on build by cspStrict() in vite.config.ts. ltfile: is the app's
+         privileged image protocol; data: also covers the dev mock's generated
+         thumbnails. NEVER add script-src 'unsafe-inline' or 'unsafe-eval'. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' ltfile: data: blob:; font-src 'self' data:; connect-src 'self' ws://localhost:1440 ws://127.0.0.1:1440 http://localhost:1440 http://127.0.0.1:1440; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- data: icon = no /favicon.ico request = genuinely clean consoles in gates -->
+    <link rel="icon" href="data:," />
+    <title>Lighttable</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,58 @@
+/* Flexoki subset copied from Flux src/styles/tokens.css — intentionally decoupled; resync by hand. */
+:root {
+  color-scheme: dark;
+
+  /* ---- Flexoki raw ramp (only the steps Lighttable uses) ---------------- */
+  --flx-black: #100f0f;
+  --flx-base-950: #1c1b1a;
+  --flx-base-900: #282726;
+  --flx-base-850: #343331;
+  --flx-base-800: #403e3c;
+  --flx-base-700: #575653;
+  --flx-base-600: #6f6e69;
+  --flx-base-500: #878580;
+  --flx-base-300: #b7b5ac;
+  --flx-base-200: #cecdc3;
+  --flx-paper: #fffcf0;
+  --flx-blue-300: #66a0c8;
+  --flx-blue-400: #4385be;
+  --flx-blue-600: #205ea6;
+
+  /* ---- Semantic surfaces ------------------------------------------------ */
+  --c-bg: var(--flx-black);
+  --c-bg-raised: var(--flx-base-950);
+  --c-surface: var(--flx-base-900);
+  --c-surface-2: var(--flx-base-850);
+  --c-ui-hover: var(--flx-base-800);
+
+  --c-line: color-mix(in oklab, var(--flx-base-800) 55%, transparent);
+  --c-line-strong: var(--flx-base-800);
+
+  /* ---- Text ------------------------------------------------------------- */
+  --c-tx: var(--flx-base-200);
+  --c-tx-2: var(--flx-base-300);
+  --c-tx-muted: var(--flx-base-500);
+  --c-tx-faint: var(--flx-base-600);
+  --c-tx-hi: var(--flx-paper);
+
+  /* ---- Accent (the single Flexoki blue) --------------------------------- */
+  --c-accent: var(--flx-blue-400);
+  --c-accent-bright: var(--flx-blue-300);
+  --c-accent-deep: var(--flx-blue-600);
+  --c-accent-tint: color-mix(in oklab, var(--flx-blue-400) 16%, transparent);
+  --c-accent-glow: color-mix(in oklab, var(--flx-blue-400) 42%, transparent);
+  --c-danger: #d14d41;
+
+  /* ---- Image surfaces --------------------------------------------------- */
+  /* Deliberately NEUTRAL darks (not the warm Flexoki near-black) so image
+     colours are judged against neutral, not tinted. */
+  --c-image-surface: #232529;
+  --c-detail-surface: #17181b;
+
+  /* ---- Radii / motion ---------------------------------------------------- */
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --dur-fast: 80ms;
+  --dur-med: 160ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}

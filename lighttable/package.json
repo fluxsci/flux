@@ -1,0 +1,37 @@
+{
+  "name": "lighttable",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lighttable — a fast, minimal contact-sheet viewer for image sets. A standalone sidecar in the Flux repo; NOT part of Flux.",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "electron:dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:127.0.0.1:1440 && LT_DEV_SERVER_URL=http://127.0.0.1:1440 electron .\"",
+    "start": "npm run build && electron .",
+    "test": "npm run check && node scripts/verify-pure.mjs && node scripts/verify-node.mjs && node scripts/verify-ui.mjs",
+    "test:electron": "node scripts/verify-electron.mjs"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "1.0.2"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@tsconfig/svelte": "^5.0.8",
+    "concurrently": "^9.1.0",
+    "electron": "^43.0.0",
+    "puppeteer-core": "^25.2.1",
+    "svelte": "^5.56.4",
+    "svelte-check": "^4.7.1",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.0",
+    "vite": "^8.0.0",
+    "wait-on": "^8.0.0"
+  }
+}
