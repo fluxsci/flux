@@ -692,3 +692,29 @@ figenh sweep 16/16, scale-figure, W6 electron menu gate all green.
   dblclick-time hit resolution needs a `document.elementFromPoint(clientX,
   clientY)` fallback — `e.target` is the host, not the scene node
   (`partAtPoint` in Canvas.svelte).
+
+### 2026-07-15 — Lighttable sidecar created (image-set EDA viewer) (Claude Fable 5, `lighttable`)
+**Work:** Added `lighttable/`, a standalone Svelte 5 + Vite + Electron app for fast grid viewing
+of image sets (contact-sheet EDA: aligned flip-book across variant folders, virtualized grid,
+fullscreen compare, webp thumb cache behind a path-validated `ltfile://` protocol). It is a
+sidecar, NOT part of Flux: own package.json/deps/build/tests/dev-port(:1440)/docs, zero code
+dependency either way, Flexoki tokens copied not imported. Gates live inside the sidecar
+(`cd lighttable && npm test` = check + pure + node-integration + ui on :1440; opt-in
+`test:electron` real-app smoke with positive boot evidence). Boundary recorded in CLAUDE.md
+(new "Sidecars" section), AGENTS.md, root .gitignore, and lighttable/README.md.
+**Learnings:**
+- The guide and Flux's gates govern Flux only; Lighttable is out of scope for both — edit its
+  own README, never fold it into paper-gate/pure/ui or verify-manifest.json.
+- Electron ≥ 32 removed `File.path`: any drag-a-folder-to-open flow needs
+  `webUtils.getPathForFile` exposed through the preload (applies to Flux too if it ever
+  accepts dropped folders).
+- `net.fetch(pathToFileURL(...))` in a `protocol.handle` does not reliably set image MIME
+  types — SVG in an `<img>` silently renders nothing until the handler wraps the response
+  with an explicit `Content-Type`.
+- **`@napi-rs/canvas` SEGFAULTS the Electron main process under burst load** (reproduced:
+  a fling queuing ~1500 thumbnail generations killed the app; same storm serving originals
+  survived — so it's the canvas work, not the protocol). Flux's posture of keeping native
+  raster work OUT of main (child-process resvg, CLI-only snips raster) is load-bearing, not
+  style. Lighttable's fix: an Electron `utilityProcess` worker (crash-isolated, bounded
+  respawn, jobs fall back to serving originals) — the same pattern to reach for if Flux ever
+  needs canvas/resvg in the app process. Regression-gated in its `test:electron` burst phase.

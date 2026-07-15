@@ -12,3 +12,6 @@ in this order:
 
 If anything in this file, `CLAUDE.md`, or the guide contradicts reality, the guide's maintenance
 rules apply: fix the document in the same session and note it in your session-log entry.
+
+Note: `lighttable/` is a separate sidecar app with its own README and rules; the guide and this
+file govern **Flux**, not the sidecar.

@@ -31,3 +31,9 @@ test-results/
 flux_figure_upgrades_fixes/
 
 default_conventions/
+
+# Lighttable sidecar build artifacts (it also carries its own .gitignore for
+# when it is lifted to its own repo; thumb cache lives in userData, not here)
+lighttable/node_modules/
+lighttable/dist/
+lighttable/test/

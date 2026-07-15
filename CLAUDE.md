@@ -52,3 +52,14 @@ server on :1420: `node scripts/run-verifies.mjs --group paper-gate`.
 - Stage explicit paths only (never `git add -A` / `commit -a`) — parallel
   agent sessions may have unrelated work in flight in this tree.
 - Check whether :1420 is already serving before spawning a dev server.
+
+## Sidecars (not part of Flux)
+
+The `lighttable/` directory is a **separate application** — a fast, minimal image-set viewer
+for exploratory data analysis (a digital contact sheet). It has its **own** `package.json`,
+`node_modules`, build, tests (`cd lighttable && npm test`), dev port (**:1440**), Electron
+app id, and docs (`lighttable/README.md`). **Do not** import between Flux and `lighttable/`
+in either direction, add its deps to the root `package.json`, or wire its tests into
+`scripts/verify-manifest.json`. When doing Flux work, ignore `lighttable/`; when doing
+Lighttable work, follow `lighttable/README.md` and ignore the Flux guide. The boundary is
+intentional (decoupling beats DRY across an app boundary).
