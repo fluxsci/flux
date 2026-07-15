@@ -1,0 +1,248 @@
+// ISO-4-style journal title abbreviation for the minimal snip citation
+// ("Nature Neuroscience" → "Nat. Neurosci."). Deliberately NOT a citeproc/LTWA
+// engine (same posture as format.ts): a word-level map of the vocabulary that
+// actually appears in scientific journal titles, with the two ISO-4 rules that
+// matter — single-word titles are never abbreviated, and articles/prepositions
+// are dropped from multi-word titles. Unknown words pass through unchanged, so
+// the result is always a usable citation even off-map. Pure and dependency-free
+// (flux-core and tests import it too).
+
+/** Words dropped entirely in multi-word titles (ISO-4 drops articles,
+ *  conjunctions and prepositions). Lowercase-keyed. */
+const STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "de",
+  "der",
+  "des",
+  "die",
+  "du",
+  "et",
+  "for",
+  "från",
+  "für",
+  "in",
+  "la",
+  "le",
+  "of",
+  "on",
+  "the",
+  "to",
+  "und",
+  "van",
+  "von",
+]);
+
+/** Word → ISO-4 abbreviation. Lowercase-keyed; the original word's leading-case
+ *  is re-applied so "nature" and "Nature" both work. Curated from the LTWA
+ *  entries that cover mainstream science/biomed/physics/CS titles. */
+const WORDS: Record<string, string> = {
+  academy: "Acad.",
+  acoustical: "Acoust.",
+  acta: "Acta",
+  advanced: "Adv.",
+  advances: "Adv.",
+  agricultural: "Agric.",
+  american: "Am.",
+  analytical: "Anal.",
+  anatomical: "Anat.",
+  animal: "Anim.",
+  annals: "Ann.",
+  annual: "Annu.",
+  applications: "Appl.",
+  applied: "Appl.",
+  archives: "Arch.",
+  artificial: "Artif.",
+  association: "Assoc.",
+  astronomical: "Astron.",
+  astronomy: "Astron.",
+  astrophysical: "Astrophys.",
+  astrophysics: "Astrophys.",
+  atmospheric: "Atmos.",
+  australian: "Aust.",
+  behavior: "Behav.",
+  behavioral: "Behav.",
+  behaviour: "Behav.",
+  behavioural: "Behav.",
+  biochemical: "Biochem.",
+  biochemistry: "Biochem.",
+  biological: "Biol.",
+  biology: "Biol.",
+  biomedical: "Biomed.",
+  biophysical: "Biophys.",
+  biophysics: "Biophys.",
+  biotechnology: "Biotechnol.",
+  brain: "Brain",
+  british: "Br.",
+  bulletin: "Bull.",
+  canadian: "Can.",
+  cancer: "Cancer",
+  cardiology: "Cardiol.",
+  cell: "Cell",
+  cellular: "Cell.",
+  chemical: "Chem.",
+  chemistry: "Chem.",
+  chinese: "Chin.",
+  clinical: "Clin.",
+  cognition: "Cogn.",
+  cognitive: "Cogn.",
+  communications: "Commun.",
+  comparative: "Comp.",
+  computational: "Comput.",
+  computer: "Comput.",
+  computing: "Comput.",
+  conference: "Conf.",
+  current: "Curr.",
+  development: "Dev.",
+  developmental: "Dev.",
+  disease: "Dis.",
+  diseases: "Dis.",
+  earth: "Earth",
+  ecology: "Ecol.",
+  economic: "Econ.",
+  economics: "Econ.",
+  education: "Educ.",
+  electronic: "Electron.",
+  engineering: "Eng.",
+  environment: "Environ.",
+  environmental: "Environ.",
+  epidemiology: "Epidemiol.",
+  european: "Eur.",
+  evolution: "Evol.",
+  evolutionary: "Evol.",
+  experimental: "Exp.",
+  frontiers: "Front.",
+  genetics: "Genet.",
+  genome: "Genome",
+  genomics: "Genomics",
+  geophysical: "Geophys.",
+  geoscience: "Geosci.",
+  german: "Ger.",
+  human: "Hum.",
+  immunology: "Immunol.",
+  indian: "Indian",
+  industrial: "Ind.",
+  infectious: "Infect.",
+  information: "Inf.",
+  intelligence: "Intell.",
+  international: "Int.",
+  japanese: "Jpn.",
+  journal: "J.",
+  language: "Lang.",
+  learning: "Learn.",
+  letters: "Lett.",
+  machine: "Mach.",
+  magnetic: "Magn.",
+  marine: "Mar.",
+  materials: "Mater.",
+  mathematical: "Math.",
+  mathematics: "Math.",
+  mechanical: "Mech.",
+  mechanics: "Mech.",
+  medical: "Med.",
+  medicine: "Med.",
+  memory: "Mem.",
+  methods: "Methods",
+  microbiology: "Microbiol.",
+  modeling: "Model.",
+  modelling: "Model.",
+  modern: "Mod.",
+  molecular: "Mol.",
+  national: "Natl.",
+  natural: "Nat.",
+  nature: "Nat.",
+  neural: "Neural",
+  neurobiology: "Neurobiol.",
+  neuroimaging: "Neuroimaging",
+  neurology: "Neurol.",
+  neuron: "Neuron",
+  neurophysiology: "Neurophysiol.",
+  neuropsychologia: "Neuropsychologia",
+  neuroscience: "Neurosci.",
+  neurosciences: "Neurosci.",
+  nuclear: "Nucl.",
+  nucleic: "Nucleic",
+  nutrition: "Nutr.",
+  oncology: "Oncol.",
+  optical: "Opt.",
+  optics: "Opt.",
+  organic: "Org.",
+  pathology: "Pathol.",
+  pediatric: "Pediatr.",
+  perception: "Percept.",
+  pharmacology: "Pharmacol.",
+  philosophical: "Philos.",
+  physical: "Phys.",
+  physics: "Phys.",
+  physiological: "Physiol.",
+  physiology: "Physiol.",
+  planetary: "Planet.",
+  plant: "Plant",
+  proceedings: "Proc.",
+  progress: "Prog.",
+  psychiatry: "Psychiatry",
+  psychological: "Psychol.",
+  psychology: "Psychol.",
+  public: "Public",
+  quantitative: "Quant.",
+  quantum: "Quantum",
+  quarterly: "Q.",
+  radiology: "Radiol.",
+  reports: "Rep.",
+  research: "Res.",
+  review: "Rev.",
+  reviews: "Rev.",
+  royal: "R.",
+  science: "Sci.",
+  sciences: "Sci.",
+  scientific: "Sci.",
+  social: "Soc.",
+  society: "Soc.",
+  sociology: "Sociol.",
+  software: "Softw.",
+  statistical: "Stat.",
+  statistics: "Stat.",
+  structural: "Struct.",
+  studies: "Stud.",
+  surgery: "Surg.",
+  systems: "Syst.",
+  technology: "Technol.",
+  theoretical: "Theor.",
+  transactions: "Trans.",
+  trends: "Trends",
+  tropical: "Trop.",
+  veterinary: "Vet.",
+  vision: "Vis.",
+  visual: "Vis.",
+};
+
+/** Re-apply the source word's leading capitalization to a map hit, so an
+ *  all-caps or lowercase styling survives ("NATURE" stays recognizable). */
+function matchCase(source: string, abbrev: string): string {
+  if (source === source.toUpperCase() && source.length > 1) return abbrev.toUpperCase();
+  if (source[0] === source[0].toLowerCase()) return abbrev[0].toLowerCase() + abbrev.slice(1);
+  return abbrev;
+}
+
+/** Abbreviate a journal/container title ISO-4-style. Single-word titles are
+ *  returned verbatim (Nature, Science, Cell, eLife — ISO-4 rule); in multi-word
+ *  titles stopwords are dropped and each remaining word is abbreviated via the
+ *  map, passing through unchanged when unknown. */
+export function abbrevJournal(container: string): string {
+  const trimmed = (container ?? "").replace(/\s+/g, " ").trim();
+  if (!trimmed) return "";
+  const words = trimmed.split(" ");
+  if (words.length === 1) return trimmed;
+  const out: string[] = [];
+  for (const w of words) {
+    // Strip wrapping punctuation for lookup, keep it in the output form.
+    const core = w.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
+    if (!core) continue;
+    const lower = core.toLowerCase();
+    if (STOPWORDS.has(lower)) continue;
+    const hit = WORDS[lower];
+    out.push(hit ? w.replace(core, matchCase(core, hit)) : w);
+  }
+  return out.length ? out.join(" ") : trimmed;
+}

@@ -113,6 +113,7 @@
       "verify-slide-track-ops.ts",
       "verify-slide-trackid.ts",
       "verify-slide-w7.ts",
+      "verify-snips.ts",
       "verify-supplement.ts",
       "verify-update-check.ts",
       "verify-w11-slides.ts",
