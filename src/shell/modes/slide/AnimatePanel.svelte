@@ -1,9 +1,13 @@
 <script lang="ts">
-  // flux-slide — the Animator dock: the shell that composes the whole-slide
-  // PartsTree (S/A/M + animate in/out for EVERY element), the temporal
-  // BeatTimeline (mini-Gantt per beat, full direct manipulation), and the
-  // TrackEditor strip — plus the toolbar (✨ auto-animate, beats, camera, morph,
-  // preview), the resizable top edge, and the keyboard cockpit.
+  // flux-slide — the ANIMATOR dock (animation rework §6): the shell that
+  // composes the Properties mini-pane (the selected track's parameters) and
+  // the BeatRail (collapsed beat chips + one expanded beat with grouped,
+  // time-positioned lanes) — plus the toolbar (✨ auto-animate, beats,
+  // camera, morph, preview), the resizable top edge, and the keyboard
+  // cockpit. There is NO parts tree and NO S/A/M tri-state: everything is
+  // visible by default (hide statically via the X-ray/Layers), and a track
+  // exists only when an object animates — select an object anywhere and
+  // press ⌃⇧A / ⌃⇧D / ⌃⇧T.
   import { deckOverlay, activeBeat, commitDeckLive, selTrackIds } from "../../../lib/slide/store";
   import { selection, partSelection } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
@@ -12,9 +16,8 @@
   import { plotManifests } from "../../../lib/plot/store";
   import { slideLayout } from "./slideLayoutStore";
   import type { Slide, Track } from "../../../lib/slide/types";
-  import PartsTree from "./animator/PartsTree.svelte";
-  import BeatTimeline from "./animator/BeatTimeline.svelte";
-  import TrackEditor from "./animator/TrackEditor.svelte";
+  import PropertiesPane from "./animator/PropertiesPane.svelte";
+  import BeatRail from "./animator/BeatRail.svelte";
   import { timelinePxPerMs } from "./animator/animatorState";
   import {
     deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled,
@@ -22,6 +25,8 @@
   } from "./animator/trackActions";
 
   let { slide, onPreview }: { slide: Slide | null; onPreview?: (startBeat?: number) => void } = $props();
+
+  let railRef = $state<{ groupSelection(): void; ungroupSelection(): void } | null>(null);
 
   const deck = $derived($deckOverlay); // stage/meta only — slide comes composed
   const sel = $derived([...$selection]);
@@ -75,7 +80,13 @@
       return;
     }
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && (e.key === "d" || e.key === "D")) { e.preventDefault(); duplicateSelectedTracks(); return; }
+    if (mod && (e.key === "d" || e.key === "D") && !e.shiftKey) { e.preventDefault(); duplicateSelectedTracks(); return; }
+    if (mod && (e.key === "g" || e.key === "G")) {
+      e.preventDefault();
+      if (e.shiftKey) railRef?.ungroupSelection();
+      else railRef?.groupSelection();
+      return;
+    }
     if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       e.preventDefault();
       nudgeSelected(e.shiftKey ? "duration" : "start", e.key === "ArrowRight" ? 50 : -50);
@@ -132,10 +143,11 @@
     window.removeEventListener("pointermove", moveDockDrag);
     window.removeEventListener("pointerup", endDockDrag);
   }
-  const compact = $derived($slideLayout.animatorH < 220);
 
-  // direct manipulation: a plot part drilled on the canvas (the figure part
-  // selection) → select its track (if any) + reveal its tree row.
+  // direct manipulation, canvas → animator: a plot part drilled on the canvas
+  // selects its track (jumping to its beat); a plain single-element selection
+  // highlights that element's track in the ACTIVE beat when it has one (no
+  // beat jump — a canvas click must never yank the rail around).
   $effect(() => {
     const fp = $partSelection;
     if (!fp || !slide) return;
@@ -143,7 +155,13 @@
       const t = slide.beats[bi].tracks.find((tk) => tk.target === fp.elementId && tk.part === fp.partId);
       if (t) { selTrackIds.set(t.id ? [t.id] : []); activeBeat.set(bi); break; }
     }
-    queueMicrotask(() => document.querySelector(`.parts .row[data-part="${fp.partId}"]`)?.scrollIntoView({ block: "nearest" }));
+  });
+  $effect(() => {
+    const ids = [...$selection];
+    if ($partSelection || ids.length !== 1 || !slide) return;
+    const b = slide.beats[$activeBeat];
+    const t = b?.tracks.find((tk) => tk.target === ids[0] && !tk.part);
+    if (t?.id && !$selTrackIds.includes(t.id)) selTrackIds.set([t.id]);
   });
 
   function focusDock() {
@@ -242,7 +260,7 @@
     <div class="dock-gutter" class:active={dockResize} role="separator" aria-orientation="horizontal"
       aria-label="Resize animator" onpointerdown={startDockDrag} ondblclick={toggleDockSize}><span class="grip"></span></div>
     <div class="bar">
-      <strong class="ttl">Animation</strong>
+      <strong class="ttl">Animator</strong>
       {#if selPlot}
         <button class="magic" onclick={autoAnimate} disabled={!selManifest}
           title={selManifest ? "Build a beat sequence from this plot's own animation hints" : "This plot has no build manifest to auto-animate"}>✨ Auto-animate</button>
@@ -282,18 +300,16 @@
         <button class="b" onclick={() => timelinePxPerMs.set(null)} title="Reset the timeline zoom to auto-fit">fit ⟲</button>
       {/if}
       <button class="b" onclick={toggleDockSize} title="Toggle animator size (or double-click the top edge)">⇕</button>
-      <span class="keyhint" title="When the Animator has focus: ←→ beat · ↑↓ track · ⌫ delete · ⌘D duplicate · x disable · Alt+←→ retime · [ ] move across beats · letters jump to fields">
-        <kbd>←→</kbd>beat <kbd>↑↓</kbd>track <kbd>⌫</kbd>del <kbd>⌘D</kbd>dup
+      <span class="keyhint" title="Select an object (canvas or X-ray), then: ⌃⇧A add appearance · ⌃⇧D add disappearance · ⌃⇧T add transform / toggle t₁↔t₂ · Esc exits an endpoint. With the Animator focused: ←→ beat · ↑↓ track · ⌫ delete · ⌘D duplicate · ⌘G group · x disable · Alt+←→ retime · [ ] move across beats · letters jump to fields">
+        <kbd>⌃⇧A</kbd>appear <kbd>⌃⇧D</kbd>disappear <kbd>⌃⇧T</kbd>transform <kbd>←→</kbd>beat <kbd>⌫</kbd>del
       </span>
     </div>
 
     <div class="dock-body">
-      <PartsTree {slide} {manifests} {plotTags} />
-      <BeatTimeline {slide} {plotTags} selPlotId={selPlot?.id ?? null} {manifestFor} {compact}
+      <PropertiesPane {slide} {plotTags} />
+      <BeatRail bind:this={railRef} {slide} {plotTags} {manifestFor}
         onFocusDock={focusDock} onPreviewFrom={onPreview ? (b) => onPreview?.(b) : undefined} />
     </div>
-
-    <TrackEditor {slide} {plotTags} />
   </div>
 {/if}
 

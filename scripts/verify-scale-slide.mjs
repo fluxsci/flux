@@ -96,6 +96,63 @@ try {
   });
   ok(raf <= 6, `no continuous rAF loop at static rest (${raf} calls in 800ms — E43)`);
 
+  // --- ANIMATOR-OPEN budgets (animation rework §12/§16) --------------------------------
+  // With the dock open on the fixture deck: track ops stay in the
+  // instantaneous class, and the pane adds ZERO ambient rAF at rest.
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".deckbar button")].find((b) => /Animate/.test(b.textContent || ""))?.click();
+  });
+  await waitFor(page, () => !!document.querySelector(".animator"), null, { timeout: 6000, label: "animator open" });
+  const animEdits = await page.evaluate(async () => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    // an appearance + a transform to exercise both lane kinds
+    f.slide.commitDeckLive((d) => {
+      const s = f.slideOps.slideById(d, sid);
+      if (s.beats.length <= 1) f.slideOps.addBeat(d, sid, { label: "B1" });
+      const el = s.elements.find((e) => e.type === "rect") ?? s.elements[0];
+      f.slideOps.setAnimation(d, sid, s.beats[1].id, { target: el.id, preset: "fade", duration: 300 });
+      f.slideOps.setTransform(d, sid, s.beats[1].id, el.id, { state: { x: 200 } });
+    });
+    f.slide.activeBeat.set(1);
+    await new Promise((r) => setTimeout(r, 120));
+    const times = [];
+    const o = f.get(f.slide.deckOverlay);
+    const s = o.slides.find((x) => x.id === sid);
+    const tid = s.beats[1].tracks[0]?.id;
+    for (let i = 0; i < 24; i++) {
+      const t0 = performance.now();
+      f.slide.selTrackIds.set(i % 2 ? [tid] : []);
+      f.slide.commitDeckLive((d) => {
+        const b = f.slideOps.slideById(d, sid).beats[1];
+        const t = b.tracks.find((x) => x.id === tid);
+        if (t) t.start = (t.start ?? 0) + (i % 2 ? 10 : -10);
+      }, { coalesce: "scale-probe" });
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      times.push(performance.now() - t0);
+    }
+    f.slide.sealHistory();
+    return times;
+  });
+  const animP95 = p95(animEdits);
+  ok(animP95 <= 100, `animator-open track edit p95 ${animP95.toFixed(1)}ms ≤ 100ms (select + retime + paint)`);
+  const rafAnim = await page.evaluate(async () => {
+    let count = 0;
+    const orig = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb) => {
+      count++;
+      return orig(cb);
+    };
+    await new Promise((r) => setTimeout(r, 800));
+    window.requestAnimationFrame = orig;
+    return count;
+  });
+  ok(rafAnim <= 6, `zero ambient rAF at rest WITH the animator open (${rafAnim} calls in 800ms)`);
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".deckbar button")].find((b) => /Animate/.test(b.textContent || ""))?.click();
+  });
+  await sleep(200);
+
   // --- bounded thumbnail invalidation --------------------------------------------------
   await sleep(800); // let any pending thumb debounce settle
   const thumbs = await page.evaluate(async () => {
@@ -123,7 +180,9 @@ try {
         slides: n,
         slideSwitchMs: { p95: swP95, samples: switches.map((x) => +x.toFixed(1)) },
         staticEditMs: { p95: editP95 },
+        animatorEditMs: { p95: animP95 },
         rafIn800ms: raf,
+        rafAnimatorOpenIn800ms: rafAnim,
         thumbRerendersPerEdit: thumbs.rerenders,
       },
       null,

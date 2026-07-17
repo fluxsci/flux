@@ -208,9 +208,14 @@
           ],
         },
         {
-          title: "Animate",
+          title: "Animate (animator open)",
           items: [
-            ["⌘D", "Duplicate tracks"],
+            ["⌘⇧A", "Add appearance for the selection"],
+            ["⌘⇧D", "Add disappearance"],
+            ["⌘⇧T", "Add transform · toggle t₁ ↔ t₂"],
+            ["Esc", "Exit an endpoint (t₁/t₂) edit"],
+            ["⌘G / ⌘⇧G", "Group / ungroup tracks (dock focused)"],
+            ["⌘D", "Duplicate tracks (dock focused)"],
             ["Alt+← / →", "Nudge start"],
             ["Alt+Shift+← / →", "Change duration"],
           ],
