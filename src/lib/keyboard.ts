@@ -781,7 +781,10 @@ export function handleKey(e: KeyboardEvent) {
     } else if (k === "o") {
       e.preventDefault();
       openProject();
-    } else if (k === "d") {
+    } else if (k === "d" && !e.shiftKey) {
+      // !shiftKey: Ctrl+Shift+D is the slide animator's "add disappearance"
+      // chord — the shifted form was only ever an undocumented fallthrough
+      // alias of duplicate, never a binding.
       e.preventDefault();
       const fid = frameSelected();
       if (fid) duplicateFigure(fid);
@@ -790,7 +793,9 @@ export function handleKey(e: KeyboardEvent) {
       copySelected();
     } else if (k === "v") {
       paste();
-    } else if (k === "a") {
+    } else if (k === "a" && !e.shiftKey) {
+      // !shiftKey: Ctrl+Shift+A is the slide animator's "add appearance"
+      // chord (same hygiene as Ctrl+Shift+D above).
       e.preventDefault();
       selectAll();
     } else if (k === "g") {

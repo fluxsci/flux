@@ -24,10 +24,9 @@ import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx, type No
 import { createMorph, morphCompatible, type MorphController } from "./morph";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
-import { applyState, foldPreState } from "../tween";
+import { applyState, transformPreState } from "../tween";
 import { familyOf } from "../family";
 import type { Deck, Slide, Track, EasingToken, Influence, StageSize, DeckTheme, TransitionKind } from "../types";
-import type { Element as FigElement } from "../../types";
 
 /** A unified handle the sequencer awaits + can interrupt — a WAAPI Animation or
  *  the morph's rAF driver both satisfy it. */
@@ -168,22 +167,9 @@ interface Spec {
   morphEase?: (t: number) => number;
 }
 
-/** The pre-state (t1) of a transform on beat `beatIndex` for `target`: the
- *  document element ⊕ every ENABLED transform-family state in earlier beats,
- *  in beat order (rework §4.1). Pure over deck data — preview, present, and
- *  export all agree from deck.json alone. Exported for the endpoint checkout. */
-export function transformPreState(slide: Slide, target: string, beatIndex: number): FigElement | null {
-  const docEl = slide.elements.find((e) => e.id === target);
-  if (!docEl) return null;
-  const earlier: (Record<string, unknown> | undefined)[] = [];
-  for (let i = 0; i < Math.min(beatIndex, slide.beats.length); i++) {
-    for (const t of slide.beats[i].tracks) {
-      if (t.disabled || t.target !== target || familyOf(t) !== "transform") continue;
-      earlier.push(t.to?.state as Record<string, unknown> | undefined);
-    }
-  }
-  return foldPreState(docEl, earlier);
-}
+// transformPreState moved to ../tween (pure) — the endpoint checkout and the
+// player must share ONE fold. Re-exported for existing consumers/gates.
+export { transformPreState } from "../tween";
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
 export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, stage: StageSize, opts: PlayerOpts): Spec[] {

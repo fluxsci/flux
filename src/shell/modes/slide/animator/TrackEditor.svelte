@@ -4,6 +4,7 @@
   // duplicate, disable, delete. Field values come from the PRIMARY (last
   // selected); "mixed" flags disagreement.
   import { selTrackIds } from "../../../../lib/slide/store";
+  import { familyOf } from "../../../../lib/slide/family";
   import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel } from "./shared";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
@@ -48,11 +49,17 @@
     {#if selTracks.length > 1 && (mixed((t) => t.preset) || mixed((t) => t.duration ?? 400) || mixed((t) => t.start ?? 0) || mixed((t) => t.stagger?.perMs ?? 0) || mixed((t) => t.easing ?? "standard"))}
       <span class="te-mixed" title="Selected tracks differ on some fields — editing a field sets it on ALL of them">mixed</span>
     {/if}
-    <label>preset<kbd class="kc" title="shortcut: p">p</kbd>
-      <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
-        {#each EDIT_PRESETS as p (p)}<option value={p}>{p}</option>{/each}
-      </select>
-    </label>
+    {#if familyOf(curTrack) === "transform"}
+      <!-- a transform is a FAMILY, not a preset choice — its t2 state is
+           sculpted via the endpoint handles; only timing/easing edit here -->
+      <span class="fam" title="Transform — select t₂ on its chip and edit the object on the canvas">transform</span>
+    {:else}
+      <label>preset<kbd class="kc" title="shortcut: p">p</kbd>
+        <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
+          {#each EDIT_PRESETS as p (p)}<option value={p}>{p}</option>{/each}
+        </select>
+      </label>
+    {/if}
     <label>dur<kbd class="kc" title="shortcut: d">d</kbd> <input data-fld="d" type="number" min="0" step="50" value={curTrack.duration ?? 400} onchange={(e) => patchTrack({ duration: +e.currentTarget.value })} /><small>ms</small></label>
     <label>start<kbd class="kc" title="shortcut: t">t</kbd> <input data-fld="t" type="number" min="0" step="50" value={curTrack.start ?? 0} onchange={(e) => patchTrack({ start: +e.currentTarget.value })} /><small>ms</small></label>
     <label>stagger<kbd class="kc" title="shortcut: g">g</kbd> <input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></label>
@@ -103,6 +110,11 @@
     font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
     color: var(--c-tx-3, #878580); border: 1px solid var(--c-line, #403e3c);
     border-radius: 3px; padding: 0 4px;
+  }
+  .fam {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    color: #66800b; border: 1px solid color-mix(in oklab, #66800b 50%, transparent);
+    border-radius: 3px; padding: 1px 5px;
   }
   .track-editor label { display: inline-flex; align-items: center; gap: 4px; color: var(--c-tx-3, #878580); }
   .track-editor small { color: var(--c-tx-3, #6f6e69); }

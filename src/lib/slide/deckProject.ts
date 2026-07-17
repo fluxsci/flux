@@ -87,11 +87,30 @@ export function deckToProject(deck: Deck, resolvedAssets: Asset[]): Project {
 export function projectIntoDeck(
   project: Project,
   prev: Deck,
-  opts: { externalAssetIds?: ReadonlySet<string> } = {},
+  opts: {
+    externalAssetIds?: ReadonlySet<string>;
+    /** THE ENDPOINT-CHECKOUT FOLD GUARD (animation rework §4.4): while a
+     *  transform endpoint is checked out, the figure store deliberately holds
+     *  the element's COMPOSED display state (t2) so every editor tool works
+     *  on it. This map (elementId → the captured BASE element) substitutes
+     *  the base back at fold time, so deck.json can NEVER contain a composed
+     *  endpoint state — even if autosave fires mid-checkout. */
+    baselines?: ReadonlyMap<Id, Element>;
+  } = {},
 ): Deck {
   const external = opts.externalAssetIds;
   const defaultBg = slideDefaultBackground(prev);
-  const figById = new Map(project.figures.map((f) => [f.id, f] as const));
+  const baselines = opts.baselines;
+  const figById = new Map(
+    project.figures.map((f) => {
+      if (!baselines?.size || !f.elements.some((e) => baselines.has(e.id))) return [f.id, f] as const;
+      const swapped = {
+        ...f,
+        elements: f.elements.map((e) => (baselines.has(e.id) ? structuredClone(baselines.get(e.id)!) : e)),
+      };
+      return [f.id, swapped] as const;
+    }),
+  );
 
   const slides: Slide[] = [];
   const used = new Set<Id>();

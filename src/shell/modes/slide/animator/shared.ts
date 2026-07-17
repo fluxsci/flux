@@ -8,7 +8,11 @@ import { resolveTargets } from "../../../../lib/plot/tree";
 export const PRESET_COLOR: Record<string, string> = {
   drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
   growBaseline: "#d0a215", popIn: "#8b7ec8", writeOn: "#3aa99f", highlight: "#d0a215",
-  dim: "#6f6e69", move: "#4385be", scale: "#4385be", rotate: "#4385be", morph: "#ce5d97", camera: "#a02f6f",
+  dim: "#6f6e69", move: "#4385be", scale: "#4385be", rotate: "#4385be", camera: "#a02f6f",
+  // the TRANSFORM family reads GREEN (the mockups' t1—t2 lanes); legacy morph
+  // is the same family, same color. (Distinct from fade's lighter green;
+  // the full family palette lands with the Phase-3 animator.)
+  transform: "#66800b", morph: "#66800b",
   // exits render in the muted red family — visually "this leaves the stage"
   fadeOut: "#af3029", popOut: "#af3029", drawOff: "#af3029", wipeOut: "#af3029", countUp: "#66800b",
 };

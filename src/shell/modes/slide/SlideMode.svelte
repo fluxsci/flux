@@ -23,7 +23,12 @@
     selectSlide,
     overlayHistoryCompanion,
     sealHistory,
+    endpointEdit,
+    enterEndpointEdit,
+    exitEndpointEdit,
   } from "../../../lib/slide/store";
+  import { familyOf } from "../../../lib/slide/family";
+  import { animateElement, animatePart, suggestElementTrack } from "../../../lib/slide/autobuild";
   import {
     dirty as figDirty,
     activeFigureId,
@@ -35,6 +40,7 @@
     commit,
     embeddedProjectRoot,
     registerHistoryCompanion,
+    gestureCancelHook,
   } from "../../../lib/store";
   import {
     listProjectDecks,
@@ -366,7 +372,10 @@
   function toggleAnimator() {
     animatorOpen = !animatorOpen;
     try { localStorage.setItem(animKey(), animatorOpen ? "1" : "0"); } catch { /* ignore */ }
-    if (!animatorOpen) stopPreview();
+    if (!animatorOpen) {
+      stopPreview();
+      exitEndpointEdit(); // closing the animator ends any endpoint checkout
+    }
   }
 
   // --- inline build preview (present-in-place via the ONE player) ---------------
@@ -393,6 +402,7 @@
     };
   }
   function startPreview(startBeat = 0) {
+    exitEndpointEdit(); // preview plays the PERSISTED state, never a checkout
     const d = currentDeck();
     const sid = $activeFigureId;
     if (!d || !sid || previewing) return;
@@ -434,6 +444,7 @@
   let presentDeck = $state<Deck | null>(null);
   let presentStart = $state(0);
   function launchPresent(fromStart: boolean) {
+    exitEndpointEdit();
     const d = currentDeck();
     if (!d?.slides.length) return;
     presentDeck = d;
@@ -449,6 +460,7 @@
   async function onExport() {
     const id = activeDeckId;
     if (!pm || !id || exporting) return;
+    exitEndpointEdit(); // export the persisted deck, never a checkout view
     exporting = true;
     exportMsg = null;
     try {
@@ -467,6 +479,118 @@
     exportMsgTimer = setTimeout(() => (exportMsg = null), ok ? 6000 : 9000);
   }
 
+  // --- the animation chords (animator-open only; rework §8) ----------------------
+  // Selection sources are honored identically by construction: canvas click,
+  // ctrl-click deep-select, and X-ray rows all write the same selection/
+  // partSelection stores these read.
+  function selectionTargets(): string[] {
+    const ps = $partSelection;
+    if ($selection.size) return [...$selection];
+    return ps ? [ps.elementId] : [];
+  }
+  /** Ctrl+Shift+A / Ctrl+Shift+D: give every selected object/part an
+   *  appearance (enter) or disappearance (exit) with the smart per-kind
+   *  defaults, into the active beat (never beat 0 — beat 1 auto-creates). */
+  function addAppearance(exit: boolean) {
+    const sid = $activeFigureId;
+    const s = activeSlide;
+    if (!sid || !s) return;
+    const ps = $partSelection;
+    const ids = selectionTargets();
+    if (!ids.length) return;
+    const beatIndex = $activeBeat > 0 ? $activeBeat : undefined;
+    let landed = -1;
+    const newIds: string[] = [];
+    commitDeckLive((d) => {
+      if (ps) {
+        const el = s.elements.find((x) => x.id === ps.elementId);
+        if (!el) return;
+        if (exit) {
+          const sl = slideOps.slideById(d, sid);
+          if (!sl) return;
+          let bi = beatIndex != null && beatIndex < sl.beats.length ? beatIndex : -1;
+          if (bi < 0) {
+            if (sl.beats.length <= 1) slideOps.addBeat(d, sid, { label: "Beat 1", advance: "click" });
+            bi = sl.beats.length - 1;
+          }
+          const track = suggestElementTrack(el, { exit: true, part: ps.partId });
+          slideOps.setAnimation(d, sid, sl.beats[bi].id, track);
+          landed = bi;
+          if (track.id) newIds.push(track.id);
+        } else {
+          landed = animatePart(d, sid, ps.elementId, ps.partId, $plotManifests[(el as { assetId?: string }).assetId ?? ""], beatIndex);
+        }
+        return;
+      }
+      for (const id of ids) {
+        const r = animateElement(d, sid, id, { beatIndex, exit });
+        if (r) {
+          landed = r.beatIndex;
+          newIds.push(r.trackId);
+        }
+      }
+    });
+    if (landed > 0) activeBeat.set(landed);
+    if (newIds.length) selTrackIds.set(newIds);
+    else if (landed > 0) {
+      // animatePart may have re-enabled an existing track — select it
+      const b = activeSlide?.beats[landed];
+      const t = b?.tracks.find((tk) => tk.target === (ps?.elementId ?? ids[0]) && (!ps || tk.part === ps.partId));
+      if (t?.id) selTrackIds.set([t.id]);
+    }
+  }
+  /** Ctrl+Shift+T: no transform on the selection → create one per selected
+   *  element in the active beat (grouped when several) and check out t2
+   *  immediately (the mockup's flow: add, then sculpt). A transform already
+   *  selected → toggle the t1 ↔ t2 checkout. */
+  function addOrToggleTransform() {
+    const sid = $activeFigureId;
+    const s = activeSlide;
+    if (!sid || !s) return;
+    const ids = selectionTargets();
+    if (!ids.length) return;
+    const targetBi = $activeBeat > 0 ? $activeBeat : Math.max(1, s.beats.length - 1);
+    const existing = new Map<string, string>(); // target → trackId (active-beat transforms)
+    const beat = s.beats[Math.min(targetBi, s.beats.length - 1)];
+    for (const t of beat?.tracks ?? []) {
+      if (t.id && ids.includes(t.target) && familyOf(t) === "transform") existing.set(t.target, t.id);
+    }
+    if (existing.size === ids.length) {
+      // all selected already have transforms here → toggle the endpoint
+      const trackIds = ids.map((id) => existing.get(id)!);
+      const cur = $endpointEdit;
+      const sameTracks = cur && cur.entries.length && trackIds.includes(cur.entries[0].trackId);
+      const next: "t1" | "t2" = cur && sameTracks && cur.end === "t2" ? "t1" : "t2";
+      // t2→t1 with no upstream = plain document editing: enter returns [] and
+      // the checkout simply ends (base state IS t1).
+      enterEndpointEdit(trackIds, next);
+      return;
+    }
+    let beatId = "";
+    const created: string[] = [];
+    commitDeckLive((d) => {
+      const sl = slideOps.slideById(d, sid);
+      if (!sl) return;
+      let bi = targetBi;
+      if (sl.beats.length <= 1) {
+        slideOps.addBeat(d, sid, { label: "Beat 1", advance: "click" });
+        bi = 1;
+      }
+      bi = Math.min(bi, sl.beats.length - 1);
+      beatId = sl.beats[bi].id;
+      for (const id of ids) {
+        const t = slideOps.setTransform(d, sid, beatId, id, {});
+        if (t?.id) created.push(t.id);
+      }
+      if (created.length > 1) slideOps.groupTracks(d, sid, beatId, created, "Transform");
+      activeBeat.set(bi);
+    });
+    if (created.length) {
+      selTrackIds.set(created);
+      enterEndpointEdit(created, "t2");
+    }
+  }
+
   // --- keyboard: slide navigation first, then the FIGURE keymap wholesale --------
   function onKey(e: KeyboardEvent) {
     if (presentOpen) return; // the presenter overlay owns the keyboard
@@ -477,6 +601,28 @@
       if (e.key === "F5") {
         e.preventDefault();
         launchPresent(!e.shiftKey);
+        return;
+      }
+      // The three animation chords act ONLY while the animator is open
+      // (rework §8); elsewhere they do nothing — and never fall through to
+      // select-all/duplicate (those branches carry !shiftKey guards now).
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.shiftKey && !e.altKey && animatorOpen) {
+        const k = e.key.toLowerCase();
+        if (k === "a") { e.preventDefault(); addAppearance(false); return; }
+        if (k === "d") { e.preventDefault(); addAppearance(true); return; }
+        if (k === "t") { e.preventDefault(); addOrToggleTransform(); return; }
+      }
+      // Esc: an in-flight canvas gesture aborts first (FIG-12); then an
+      // active endpoint checkout exits (restoring the base state); then the
+      // figure keymap's normal Esc ladder.
+      if (e.key === "Escape" && $endpointEdit) {
+        if (gestureCancelHook.fn?.()) {
+          e.preventDefault();
+          return;
+        }
+        e.preventDefault();
+        exitEndpointEdit();
         return;
       }
       // Slide nav with arrows — only when nothing is selected (else the
@@ -582,6 +728,7 @@
     unsubDirty?.();
     unsubDeckRev?.();
     stopPreview();
+    exitEndpointEdit(); // unmount restores the base state before the flush
     void autosave.flush();
     autosave.dispose();
     unregFlush();

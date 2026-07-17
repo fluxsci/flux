@@ -17,6 +17,8 @@
 // ---------------------------------------------------------------------------
 
 import type { Element, PartOverride, VectorNode } from "../types";
+import type { Slide } from "./types";
+import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
 import { nodesToPath, pathToNodes, resampleNodes } from "../path";
 
@@ -413,4 +415,33 @@ export function foldPreState(
     if (s) el = applyState(el, s);
   }
   return el;
+}
+
+/** The ENABLED transform-family states on `target` in beats strictly before
+ *  `beatIndex`, in beat order — foldPreState's input, extracted so callers
+ *  that hold the base element separately (the endpoint checkout) share the
+ *  exact walk the player uses. */
+export function earlierTransformStates(
+  beats: Slide["beats"],
+  target: string,
+  beatIndex: number,
+): (Record<string, unknown> | undefined)[] {
+  const out: (Record<string, unknown> | undefined)[] = [];
+  for (let i = 0; i < Math.min(beatIndex, beats.length); i++) {
+    for (const t of beats[i].tracks) {
+      if (t.disabled || t.target !== target || familyOf(t) !== "transform") continue;
+      out.push(t.to?.state as Record<string, unknown> | undefined);
+    }
+  }
+  return out;
+}
+
+/** The pre-state (t1) of a transform on beat `beatIndex` for `target`: the
+ *  document (beat-0) element ⊕ every earlier enabled transform state, in beat
+ *  order (rework §4.1). Pure over deck data — preview, present, export, and
+ *  the endpoint checkout all agree from deck.json alone. */
+export function transformPreState(slide: Slide, target: string, beatIndex: number): Element | null {
+  const docEl = slide.elements.find((e) => e.id === target);
+  if (!docEl) return null;
+  return foldPreState(docEl, earlierTransformStates(slide.beats, target, beatIndex));
 }

@@ -10,7 +10,8 @@
   // to insert a beat, double-click a label to rename, cycle the advance mode
   // (click ▸ with-prev ▸ auto), right-click for the full menu. Preview commits
   // exactly once on release (the W17/FIG-1 transient-transform pattern).
-  import { activeBeat, selTrackIds, commitDeckLive, sealHistory } from "../../../../lib/slide/store";
+  import { activeBeat, selTrackIds, commitDeckLive, sealHistory, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";
+  import { familyOf } from "../../../../lib/slide/family";
   import {
     slideById, addBeat as addBeatOp, deleteBeat as deleteBeatOp, duplicateBeat as duplicateBeatOp,
     reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat,
@@ -426,10 +427,24 @@
               oncontextmenu={(e) => chipCtx(e, t)}
               onpointerenter={() => hoverTrackId.set(t.id ?? null)}
               onpointerleave={() => hoverTrackId.set(null)}>
+              {#if familyOf(t) === "transform" && t.id}
+                <!-- endpoint handles: select t1/t2 and CHECK OUT that state on
+                     the canvas (rework §4.4; Esc exits, Ctrl+Shift+T toggles) -->
+                <button class="ep t1" class:on={!!$endpointEdit && $endpointEdit.end === "t1" && $endpointEdit.entries.some((en) => en.trackId === t.id || en.target === t.target)}
+                  title="Edit t1 — the state the object transforms FROM (edits the previous transform when chained)"
+                  onpointerdown={(e) => e.stopPropagation()}
+                  onclick={(e) => { e.stopPropagation(); enterEndpointEdit([t.id!], "t1"); }}>t₁</button>
+              {/if}
               <span class="dot" class:hollow={t.disabled}></span>
               {#if isDanglingTrack(t, slide)}<span class="miss" title="missing target">⚠</span>{/if}
               <span class="nm">{chipLabel(t, slide, plotTags)}</span>
               {#if tailW(t) > 2}<span class="tail" style={`width:${tailW(t)}px`} title="stagger fan-out"></span>{/if}
+              {#if familyOf(t) === "transform" && t.id}
+                <button class="ep t2" class:on={!!$endpointEdit && $endpointEdit.end === "t2" && $endpointEdit.entries.some((en) => en.trackId === t.id)}
+                  title="Edit t2 — sculpt how the object looks AFTER the transform, with every canvas tool"
+                  onpointerdown={(e) => e.stopPropagation()}
+                  onclick={(e) => { e.stopPropagation(); enterEndpointEdit([t.id!], "t2"); }}>t₂</button>
+              {/if}
               <span class="edge"></span>
             </div>
             {#if drag?.kind === "chip" && drag.mode === "move" && drag.overBeat === bi && drag.overLane === ti}
@@ -546,6 +561,16 @@
     pointer-events: none;
   }
   .trk .edge { position: absolute; right: -2px; top: 0; width: 8px; height: 100%; cursor: ew-resize; }
+  .trk .ep {
+    flex: 0 0 auto; width: 15px; height: 13px; padding: 0; line-height: 1;
+    font: 600 8.5px var(--font-mono, ui-monospace, monospace); cursor: pointer;
+    color: var(--pc); background: var(--c-bg, #100f0f);
+    border: 1px solid color-mix(in oklab, var(--pc) 60%, transparent); border-radius: 3px;
+  }
+  .trk .ep:hover { background: color-mix(in oklab, var(--pc) 25%, var(--c-bg, #100f0f)); }
+  .trk .ep.on { color: var(--c-bg, #100f0f); background: var(--pc); }
+  .trk .ep.t1 { margin-right: 1px; }
+  .trk .ep.t2 { margin-left: 1px; }
   .lane-ins { position: absolute; left: 4px; right: 4px; height: 2px; background: var(--c-guide-2); border-radius: 1px; z-index: 4; }
   .marquee {
     position: fixed; z-index: 60; pointer-events: none;
