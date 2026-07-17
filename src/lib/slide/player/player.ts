@@ -20,10 +20,14 @@ import { buildPartIndex } from "../../plot/parse";
 import { resolveTargets } from "../../plot/tree";
 import type { FluxPlotManifest } from "../../plot/types";
 import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
-import { PRESETS, type TargetNode, type PresetCtx, type NodeAnim } from "./presets";
+import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx, type NodeAnim } from "./presets";
 import { createMorph, morphCompatible, type MorphController } from "./morph";
 import { createCountUp } from "./countup";
+import { createTransform } from "./transform";
+import { applyState, foldPreState } from "../tween";
+import { familyOf } from "../family";
 import type { Deck, Slide, Track, EasingToken, Influence, StageSize, DeckTheme, TransitionKind } from "../types";
+import type { Element as FigElement } from "../../types";
 
 /** A unified handle the sequencer awaits + can interrupt — a WAAPI Animation or
  *  the morph's rAF driver both satisfy it. */
@@ -164,6 +168,23 @@ interface Spec {
   morphEase?: (t: number) => number;
 }
 
+/** The pre-state (t1) of a transform on beat `beatIndex` for `target`: the
+ *  document element ⊕ every ENABLED transform-family state in earlier beats,
+ *  in beat order (rework §4.1). Pure over deck data — preview, present, and
+ *  export all agree from deck.json alone. Exported for the endpoint checkout. */
+export function transformPreState(slide: Slide, target: string, beatIndex: number): FigElement | null {
+  const docEl = slide.elements.find((e) => e.id === target);
+  if (!docEl) return null;
+  const earlier: (Record<string, unknown> | undefined)[] = [];
+  for (let i = 0; i < Math.min(beatIndex, slide.beats.length); i++) {
+    for (const t of slide.beats[i].tracks) {
+      if (t.disabled || t.target !== target || familyOf(t) !== "transform") continue;
+      earlier.push(t.to?.state as Record<string, unknown> | undefined);
+    }
+  }
+  return foldPreState(docEl, earlier);
+}
+
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
 export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, stage: StageSize, opts: PlayerOpts): Spec[] {
   const specs: Spec[] = [];
@@ -174,6 +195,44 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       // to play/static/export — the non-destructive Mask/Show substrate.
       if (track.disabled) continue;
       const key = `${track.target}|${track.part ?? ""}|${JSON.stringify(track.selector ?? null)}`;
+      // transform — the state tween (rework §4). Pre = fold of earlier
+      // transforms; end = pre ⊕ to.state. Plots may ALSO carry a content
+      // morph target (to.assetId) — one track, both halves.
+      if (track.preset === "transform") {
+        const wrap = rendered.elements.get(track.target);
+        const preEl = transformPreState(slide, track.target, bi);
+        if (!wrap || !preEl) continue; // dangling target — tolerated no-op
+        const endEl = applyState(preEl, track.to?.state as Record<string, unknown> | undefined);
+        // conflict rule: same-beat same-target APPEARANCE tracks own the
+        // wrapper props they animate; the transform drops those for the
+        // overlap (at rest, applyStatic's later-spec-wins already resolves).
+        const skipProps = new Set<string>();
+        for (const other of beat.tracks) {
+          if (other === track || other.disabled || other.target !== track.target) continue;
+          if (other.part || other.selector) continue; // inner-node tracks — no wrapper conflict
+          if (familyOf(other) !== "appearance") continue;
+          for (const p of PRESET_WRAPPER_PROPS[other.preset ?? "fade"] ?? []) skipProps.add(p);
+        }
+        let morphTo: { A: import("../../plot/types").FluxPlotManifest; B: import("../../plot/types").FluxPlotManifest } | undefined;
+        const el = slide.elements.find((e) => e.id === track.target);
+        if (el && el.type === "plot" && track.to?.assetId) {
+          const A = opts.plotManifest?.(el.assetId);
+          const B = opts.plotManifest?.(track.to.assetId);
+          if (A && B && morphCompatible(A, B)) morphTo = { A, B };
+        }
+        specs.push({
+          node: wrap, beatIndex: bi, keyframes: [], enter: false, key,
+          delay: track.start ?? 0, duration: track.duration ?? 600,
+          easing: resolveEasing(track.easing ?? "smooth", track.influence),
+          morph: createTransform(wrap, preEl, endEl, {
+            theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
+            plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
+            plotManifest: opts.plotManifest, morphTo, skipProps,
+          }),
+          morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence),
+        });
+        continue;
+      }
       // morph — a data-space driver over a plot element (not keyframe-based).
       if (track.preset === "morph") {
         const wrap = rendered.elements.get(track.target);
@@ -325,9 +384,21 @@ export function applyStatic(specs: Spec[], beatIndex: number): void {
     // rest before its beat — corrupting "hide all", the scrubber, and export.
     clearAnimStyles(node);
     for (const s of list) s.prep?.();
-    // morph specs drive child geometry directly: B once its beat has passed, else A.
+    // Controller specs (morph/transform/countUp) drive content directly. For a
+    // CHAIN on one node (transform beats 1 and 3), the rest state is owned by
+    // the LAST controller at-or-before the current beat: seek(1) each played
+    // one in order (later absolute states win); FUTURE controllers must not
+    // seek at all — a later transform's seek(0) shows its PRE state, which
+    // already contains the earlier transforms' ends and would leak them into
+    // beats before they play. Only when NOTHING has played does the first
+    // controller seek(0), restoring the base state after interruptions.
     const morphs = list.filter((s) => s.morph);
-    for (const s of morphs) s.morph!.seek(s.beatIndex <= beatIndex ? 1 : 0);
+    if (morphs.length) {
+      let last = -1;
+      for (let i = 0; i < morphs.length; i++) if (morphs[i].beatIndex <= beatIndex) last = i;
+      if (last >= 0) for (let i = 0; i <= last; i++) morphs[i].morph!.seek(1);
+      else morphs[0].morph!.seek(0);
+    }
     const kf = list.filter((s) => !s.morph);
     if (!kf.length) continue;
     const past = kf.filter((s) => s.beatIndex <= beatIndex && !superseded(s));

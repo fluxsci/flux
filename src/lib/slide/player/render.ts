@@ -103,6 +103,88 @@ function fillStatic(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
   w.appendChild(svg);
 }
 
+/** Patch an already-filled static wrapper to a NEW state of the same element
+ *  IN PLACE, preserving node identity: attributes are copied onto the
+ *  existing DOM nodes (inline `style` — where WAAPI leftovers and drawOn's
+ *  dash scaffolding live — is deliberately untouched), so animations bound to
+ *  inner geometry survive a transform's per-frame content updates. Falls back
+ *  to a full re-fill (fresh nodes) when the markup STRUCTURE changed (a
+ *  discrete flip mid-tween: arrowheads appearing, wrap line count changing).
+ *  Returns true when identity was preserved. */
+export function updateStaticContent(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): boolean {
+  const svg = w.firstElementChild as SVGSVGElement | null;
+  if (!svg || svg.tagName?.toLowerCase() !== "svg") {
+    w.replaceChildren();
+    w.classList.remove("sl-missing");
+    fillStatic(w, el, ctx);
+    return false;
+  }
+  const neutral: FigElement = { ...el, rotation: 0 };
+  delete neutral.flipX;
+  delete neutral.flipY;
+  delete neutral.opacity;
+  const bb = elementBBox(neutral);
+  svg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
+  const markup = elementToSvg(neutral, (id) => ctx.assetUrl?.(id), undefined, ctx.assetSize);
+  const tpl = document.createElementNS(SVG_NS, "svg");
+  tpl.innerHTML = markup;
+  const walk = (a: Element, b: Element): boolean => {
+    if (a.tagName !== b.tagName) return false;
+    const ac = Array.from(a.children);
+    const bc = Array.from(b.children);
+    if (ac.length !== bc.length) return false;
+    for (let i = 0; i < ac.length; i++) if (!walk(ac[i], bc[i])) return false;
+    return true;
+  };
+  const oldKids = Array.from(svg.children);
+  const newKids = Array.from(tpl.children);
+  const sameShape = oldKids.length === newKids.length && oldKids.every((k, i) => walk(k, newKids[i]));
+  if (!sameShape) {
+    svg.innerHTML = markup;
+    return false;
+  }
+  const patch = (dst: Element, src: Element) => {
+    for (const attr of Array.from(dst.attributes)) {
+      if (attr.name === "style") continue;
+      if (!src.hasAttribute(attr.name)) dst.removeAttribute(attr.name);
+    }
+    for (const attr of Array.from(src.attributes)) {
+      if (attr.name === "style") {
+        // the serializer's own style attr must land (fonts etc.), but WAAPI/
+        // dash leftovers live in the LIVE node's style — merge: serializer
+        // wins per-declaration, live-only props survive.
+        const live = dst.getAttribute("style") ?? "";
+        const next = attr.value;
+        if (live && live !== next) {
+          const liveDecls = live.split(";").map((s) => s.trim()).filter(Boolean);
+          const nextNames = new Set(next.split(";").map((s) => s.split(":")[0]?.trim()).filter(Boolean));
+          const keep = liveDecls.filter((d) => !nextNames.has(d.split(":")[0]?.trim()));
+          dst.setAttribute("style", [next, ...keep].filter(Boolean).join("; "));
+        } else if (dst.getAttribute("style") !== next) {
+          dst.setAttribute("style", next);
+        }
+        continue;
+      }
+      if (dst.getAttribute(attr.name) !== attr.value) dst.setAttribute(attr.name, attr.value);
+    }
+    // text content of leaf nodes (tspans, text)
+    if (!src.children.length && !dst.children.length && dst.textContent !== src.textContent) {
+      dst.textContent = src.textContent;
+    }
+    for (let i = 0; i < src.children.length; i++) patch(dst.children[i], src.children[i]);
+  };
+  for (let i = 0; i < newKids.length; i++) patch(oldKids[i], newKids[i]);
+  return true;
+}
+
+/** The ONE content dispatch — a plot mounts live inline SVG, everything else
+ *  the serialized static markup. renderSlide and the transform driver share
+ *  this entry so there is never a second renderer. */
+export function fillContent(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
+  if (el.type === "plot") fillPlot(w, el, ctx);
+  else fillStatic(w, el, ctx);
+}
+
 /** Mount a semantic plot into the wrapper as LIVE inline <svg>, keeping its
  *  parts addressable (id-prefixed by element id) for the player + morph.
  *  pt-true compensation matches the figure editor: resizing the plot element
@@ -191,10 +273,28 @@ export function renderSlide(
   for (const el of slide.elements) {
     if (el.hidden || groupHidden(el)) continue;
     const w = wrapper(el);
-    if (el.type === "plot") fillPlot(w, el, ctx);
-    else fillStatic(w, el, ctx);
+    fillContent(w, el, ctx);
     host.appendChild(w);
     elements.set(el.id, w);
   }
   return { elements };
+}
+
+/** The wrapper box/transform/opacity for an element state — exported so the
+ *  transform driver applies EXACTLY the math renderSlide's wrapper() uses. */
+export function applyWrapperBox(w: HTMLElement, el: FigElement, opts: { skipOpacity?: boolean; skipTransform?: boolean } = {}): void {
+  const bb = elementBBox({ ...el, rotation: 0 });
+  const s = w.style;
+  s.left = `${bb.x}px`;
+  s.top = `${bb.y}px`;
+  s.width = `${Math.max(bb.w, 1)}px`;
+  s.height = `${Math.max(bb.h, 1)}px`;
+  if (!opts.skipTransform) {
+    const t: string[] = [];
+    if (el.rotation) t.push(`rotate(${el.rotation}deg)`);
+    if (el.flipX) t.push("scaleX(-1)");
+    if (el.flipY) t.push("scaleY(-1)");
+    s.transform = t.length ? t.join(" ") : "";
+  }
+  if (!opts.skipOpacity) s.opacity = el.opacity != null ? String(el.opacity) : "";
 }

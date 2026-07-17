@@ -296,6 +296,102 @@ export function nodesExtent(nodes: VectorNode[], closed = false): { x: number; y
   return { x: minX, y: minY, w: Math.max(...xs) - minX, h: Math.max(...ys) - minY };
 }
 
+// ---------------------------------------------------------------------------
+// resampleNodes — geometry-preserving arc-length resample (animation rework).
+// Splits the existing segments (de Casteljau — the CURVE is unchanged) at N
+// equally-spaced arc-length stations, so two paths with different node counts
+// can be tweened node-by-node. Open paths keep both endpoints exactly (N ≥ 2,
+// stations at i·L/(N−1)); closed paths keep node 0 as the seam and place N
+// stations at i·L/N around the loop (N ≥ 3). Straight sub-segments stay
+// handle-free (their nodes carry no hIn/hOut), so a resampled polyline is
+// still a polyline.
+// ---------------------------------------------------------------------------
+
+export function resampleNodes(nodes: VectorNode[], closed: boolean, n: number): VectorNode[] {
+  const minN = closed ? 3 : 2;
+  if (nodes.length < 2 || n < minN) {
+    return nodes.map((x) => ({ ...x, hIn: x.hIn && { ...x.hIn }, hOut: x.hOut && { ...x.hOut } }));
+  }
+  const segs = segsFromNodes(nodes, closed);
+  const lens = segs.map((s) => segLength(s, 24));
+  const total = lens.reduce((a, b) => a + b, 0);
+  if (total < 1e-9) {
+    return Array.from({ length: n }, () => ({ x: nodes[0].x, y: nodes[0].y, type: "corner" as const }));
+  }
+
+  // Split the whole path into `linkCount` equal-arc-length LINKS (open: n−1
+  // links between n nodes incl. both endpoints; closed: n links around the
+  // loop, node 0 = the seam). Each link is a chain of sub-segments cut from
+  // the originals by de Casteljau, so the geometry is exact; a link spanning
+  // several original segments is then summarized by its first/last controls.
+  const linkCount = closed ? n : n - 1;
+  const per = total / linkCount;
+  const links: PathSeg[][] = [];
+  let chain: PathSeg[] = [];
+  let need = per; // arc length still to collect into the current link
+  for (let i = 0; i < segs.length; i++) {
+    let seg = segs[i];
+    let len = lens[i];
+    while (len > need + 1e-7 && links.length < linkCount - 1) {
+      // cut `seg` at arc length `need` (bisect t for curves; exact for lines)
+      let t = need / len;
+      if (!seg.line) {
+        let lo = 0, hi = 1;
+        for (let k = 0; k < 22; k++) {
+          t = (lo + hi) / 2;
+          if (segLength(splitSeg(seg, t)[0], 16) < need) lo = t;
+          else hi = t;
+        }
+      }
+      const [left, right] = splitSeg(seg, t);
+      chain.push(left);
+      links.push(chain);
+      chain = [];
+      seg = right;
+      len -= need;
+      need = per;
+    }
+    chain.push(seg);
+    need -= len;
+    // a station landing exactly on a segment boundary closes the link here —
+    // without this, the next iteration would cut a degenerate zero-length
+    // sliver whose collapsed controls put noise handles on the node.
+    if (need <= 1e-7 && links.length < linkCount - 1) {
+      links.push(chain);
+      chain = [];
+      need = per;
+    }
+  }
+  if (chain.length) links.push(chain);
+  // numeric drift can leave one link short — pad defensively (never in practice)
+  while (links.length < linkCount) links.push([links[links.length - 1]?.at(-1) ?? segs[segs.length - 1]]);
+
+  // links → nodes. node i sits between links[i−1] and links[i]; handles come
+  // from the adjoining sub-segments (straight neighbours contribute none).
+  // Open: n−1 link-start nodes + the final endpoint; closed: n seam-to-seam.
+  const out: VectorNode[] = [];
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const after = links[i] ?? null; // link leaving this node (open: absent on last)
+    const before = i === 0 ? (closed ? links[links.length - 1] : null) : links[i - 1];
+    const a = after?.[0] ?? null;
+    const b = before?.[before.length - 1] ?? null;
+    const px = a ? a.x0 : b!.x3;
+    const py = a ? a.y0 : b!.y3;
+    const node: VectorNode = { x: px, y: py, type: "corner" };
+    if (b && !b.line) node.hIn = { dx: b.x2 - px, dy: b.y2 - py };
+    if (a && !a.line) node.hOut = { dx: a.x1 - px, dy: a.y1 - py };
+    out.push(node);
+  }
+  if (!closed) {
+    const last = links[links.length - 1];
+    const b = last[last.length - 1];
+    const node: VectorNode = { x: b.x3, y: b.y3, type: "corner" };
+    if (!b.line) node.hIn = { dx: b.x2 - b.x3, dy: b.y2 - b.y3 };
+    out.push(node);
+  }
+  return out;
+}
+
 /** Re-fit a path element to its `nodes`: normalize so the content's top-left sits
  *  at local (0,0) (shifting x/y to preserve the on-canvas position), set
  *  width/height from the TRUE curve extent, and regenerate `d`. Call after any

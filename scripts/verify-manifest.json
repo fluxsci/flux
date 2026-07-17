@@ -100,9 +100,12 @@
       "verify-slide-export-bridge.ts",
       "verify-slide-export-core.ts",
       "verify-slide-export-parity.ts",
+      "verify-slide-export-transform.ts",
       "verify-slide-export-w6.ts",
       "verify-slide-model.ts",
       "verify-slide-morph.ts",
+      "verify-trim.ts",
+      "verify-color-interp.ts",
       "verify-slide-multiplot.ts",
       "verify-slide-orphans.ts",
       "verify-slide-playback.ts",
@@ -111,6 +114,7 @@
       "verify-present-core.ts",
       "verify-slide-scatter-showcase.ts",
       "verify-slide-track-ops.ts",
+      "verify-slide-tween.ts",
       "verify-slide-trackid.ts",
       "verify-slide-w7.ts",
       "verify-snip-headless.ts",
@@ -388,6 +392,7 @@
     "verify-slide-headless-e2e.ts": 300000,
     "verify-slide-export-w6.ts": 300000,
     "verify-slide-tenancy-gui.mjs": 180000,
-    "verify-scale-slide.mjs": 180000
+    "verify-scale-slide.mjs": 180000,
+    "verify-slide-export-transform.ts": 300000
   }
 }

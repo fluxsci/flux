@@ -53,6 +53,23 @@ export function browserMeasure(font: string): (s: string) => number {
   };
 }
 
+// Can this environment actually measure text? `typeof document` alone is not
+// enough: DOM shims (linkedom in the pure verify tier) define `document` but
+// return no 2d canvas context — such environments must take the headless
+// path, not crash in browserMeasure. Only a POSITIVE answer is cached: a
+// capable DOM never goes away, while headless harnesses may inject one
+// mid-process (verify-text-parity does).
+let _canMeasure = false;
+export function canMeasureText(): boolean {
+  if (_canMeasure) return true;
+  try {
+    _canMeasure = typeof document !== "undefined" && !!document.createElement("canvas").getContext?.("2d");
+  } catch {
+    _canMeasure = false;
+  }
+  return _canMeasure;
+}
+
 // A hugged box may be re-wrapped at exactly its measured width — the tolerance
 // absorbs float noise so content never spuriously wraps against itself.
 export const WRAP_TOLERANCE = 0.5;
@@ -133,7 +150,7 @@ export function measureText(e: TextElement): { width: number; height: number } {
  *  edits stay correct (visualLines falls back), the GUI re-wraps on load. */
 export function applyTextLayout(el: Element): void {
   if (el.type !== "text") return;
-  if (typeof document === "undefined") {
+  if (!canMeasureText()) {
     delete el.lines;
     // WS-12: a wrapping element just lost its cache with no way to rebuild it
     // here — flag it so headless renders warn and the next GUI open re-wraps.

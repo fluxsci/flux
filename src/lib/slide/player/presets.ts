@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Track, DeckTheme, StageSize } from "../types";
+import { trimKeyframes, resolveAnchor, isDefaultTrim, type TrimSpec } from "./trim";
 
 export type TargetNode = HTMLElement | SVGElement;
 
@@ -37,6 +38,16 @@ const num = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
 const each = (nodes: TargetNode[], fn: (node: TargetNode, index: number) => NodeAnim): NodeAnim[] =>
   nodes.map(fn);
 
+/** [hidden, shown] clip-path insets for a writeOn/wipeOut direction. */
+function wipeInsets(direction: string): [string, string] {
+  const hidden =
+    direction === "rtl" ? "inset(0 0 0 100%)" :
+    direction === "ttb" ? "inset(0 0 100% 0)" :
+    direction === "btt" ? "inset(100% 0 0 0)" :
+    "inset(0 100% 0 0)"; // ltr
+  return [hidden, "inset(0 0 0 0)"];
+}
+
 /** Inside a <defs> subtree? Such geometry is a shared TEMPLATE (fluxplot ticks
  *  reference one defs path via <use> per tick) — dashing it would animate every
  *  referencing instance at once. Never draw-on defs content. */
@@ -49,16 +60,86 @@ function inDefs(el: Element): boolean {
 
 /** The strokable geometry to draw-on for a target. FluxPlot wraps each part in a
  *  <g id="…"> and the real path/line lives inside, so a draw-on target is usually
- *  a group — drill to its path/line/polyline/polygon descendants. <use> and
- *  anything living in <defs> are NOT strokable here (a <use>'s length can't be
- *  measured and its defs path is shared) — returns [] when nothing real is found
- *  so callers pick an explicit fallback instead of silently no-oping. */
+ *  a group — drill to its path/line/polyline/polygon descendants. Shape tags
+ *  (rect/ellipse/circle) qualify ONLY when stroke-rendered (fill none): dash
+ *  windows hide the STROKE alone, so a filled shape would flash its fill
+ *  before its beat — those keep the fade fallback. <use> and anything living
+ *  in <defs> are NOT strokable here (a <use>'s length can't be measured and
+ *  its defs path is shared) — returns [] when nothing real is found so
+ *  callers pick an explicit fallback instead of silently no-oping. */
+function strokeRenderedShape(el: Element): boolean {
+  const fill = (el.getAttribute?.("fill") ?? "").trim().toLowerCase();
+  if (fill !== "none" && fill !== "transparent") return false;
+  const stroke = (el.getAttribute?.("stroke") ?? "").trim().toLowerCase();
+  return stroke !== "" && stroke !== "none";
+}
 function geometryEls(node: TargetNode): SVGElement[] {
   const el = node as Element;
   const tag = el.tagName?.toLowerCase();
   if (tag && /^(path|line|polyline|polygon)$/.test(tag)) return inDefs(el) ? [] : [el as SVGElement];
+  if (tag && /^(rect|ellipse|circle)$/.test(tag)) return !inDefs(el) && strokeRenderedShape(el) ? [el as SVGElement] : [];
   const found = Array.from(el.querySelectorAll?.("path,line,polyline,polygon") ?? []) as SVGElement[];
-  return found.filter((g) => !inDefs(g));
+  const shapes = (Array.from(el.querySelectorAll?.("rect,ellipse,circle") ?? []) as SVGElement[]).filter((s) => strokeRenderedShape(s));
+  return [...found, ...shapes].filter((g) => !inDefs(g));
+}
+
+/** Measured length of a strokable node, honoring an explicit pathLength
+ *  attribute (dash units must then be expressed in ITS scale). */
+function geoLength(geo: SVGElement): number {
+  const pl = Number(geo.getAttribute?.("pathLength"));
+  if (Number.isFinite(pl) && pl > 0) return pl;
+  try {
+    return (geo as unknown as SVGGeometryElement).getTotalLength?.() || 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Is this geometry a closed loop (dash windows wrap)? */
+function geoClosed(geo: SVGElement): boolean {
+  const tag = geo.tagName?.toLowerCase();
+  if (tag === "rect" || tag === "ellipse" || tag === "circle" || tag === "polygon") return true;
+  if (tag === "path") return /z\s*$/i.test((geo.getAttribute?.("d") ?? "").trim());
+  return false;
+}
+
+/** Trim-path params from a track (documented schema — §5 of the rework plan). */
+interface TrimParams {
+  anchor?: number | string;
+  direction?: "forward" | "reverse";
+  mode?: "single" | "both-ends" | "middle-out";
+  from?: number;
+  to?: number;
+}
+
+/** Build the trim NodeAnim for one geometry (the enriched drawOn/drawOff). */
+function trimAnim(geo: SVGElement, index: number, enter: boolean, p: TrimParams): NodeAnim {
+  const len = geoLength(geo);
+  const box = (geo as unknown as { getBBox?: () => { width: number; height: number } }).getBBox?.();
+  const spec: TrimSpec = {
+    len,
+    closed: geoClosed(geo),
+    anchor: resolveAnchor(p.anchor, {
+      tag: geo.tagName?.toLowerCase() ?? "path",
+      width: box?.width ?? Number(geo.getAttribute?.("width")) ?? undefined,
+      height: box?.height ?? Number(geo.getAttribute?.("height")) ?? undefined,
+    }),
+    direction: p.direction === "reverse" ? "reverse" : "forward",
+    mode: p.mode === "both-ends" || p.mode === "middle-out" ? p.mode : "single",
+    from: typeof p.from === "number" ? p.from : 0,
+    to: typeof p.to === "number" ? p.to : 1,
+  };
+  const kfs = trimKeyframes(spec, enter);
+  return {
+    node: geo,
+    index,
+    enter,
+    keyframes: kfs.map((k) => ({
+      ...(k.offset != null ? { offset: k.offset } : {}),
+      strokeDasharray: k.strokeDasharray,
+      strokeDashoffset: k.strokeDashoffset,
+    })),
+  };
 }
 
 export const PRESETS: Record<string, Preset> = {
@@ -88,26 +169,34 @@ export const PRESETS: Record<string, Preset> = {
       keyframes: [{ transform: "scaleY(0)" }, { transform: "scaleY(1)" }],
     })),
 
-  // Tier-2: left→right reveal via a clip-path inset (math / axis labels / text).
-  writeOn: (nodes) =>
-    each(nodes, (node, index) => ({
+  // Tier-2: directional reveal via a clip-path inset (math / axis labels /
+  // text). params.direction: ltr (default) | rtl | ttb | btt.
+  writeOn: (nodes, t) => {
+    const [hidden, shown] = wipeInsets((t.params?.direction as string) ?? "ltr");
+    return each(nodes, (node, index) => ({
       node, index, enter: true,
-      keyframes: [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0 0 0)" }],
-    })),
+      keyframes: [{ clipPath: hidden }, { clipPath: shown }],
+    }));
+  },
 
-  // Tier-2: the SVG self-draw. Drills through wrapper <g>s to the strokable
-  // geometry, then dashes each child by its OWN length so the stroke draws itself
-  // on (dashing the empty <g> would do nothing / dot the children). A target with
-  // NO measurable geometry (<use>-based ticks in pre-regen fluxplot SVGs, a
-  // div-rendered rect/ellipse) falls back to a fade — never a silent no-op that
+  // Tier-2: the SVG self-draw — Flux's Trim Paths. Drills through wrapper
+  // <g>s to the strokable geometry, then dashes each child by its OWN length
+  // so the stroke draws itself on (dashing the empty <g> would do nothing /
+  // dot the children). DEFAULT params compile exactly the legacy way (constant
+  // dasharray, offset len→0 — old decks byte-play identically); any trim
+  // param (anchor / direction / mode / from / to) switches that geometry to
+  // the full trim engine (trim.ts). A target with NO measurable geometry
+  // (<use>-based ticks in pre-regen fluxplot SVGs, a FILLED rect/ellipse —
+  // dash hides only strokes) falls back to a fade — never a silent no-op that
   // leaves the part visible before its beat.
-  drawOn: (nodes) =>
+  drawOn: (nodes, t) =>
     nodes.flatMap((node, index): NodeAnim[] => {
       const geos = geometryEls(node);
       if (!geos.length) return [{ node, index, enter: true, keyframes: [{ opacity: 0 }, { opacity: 1 }] }];
+      const trim = !isDefaultTrim(t.params as TrimParams | undefined);
       return geos.map((geo): NodeAnim => {
-        let len = 1;
-        try { len = (geo as SVGGeometryElement).getTotalLength?.() || 1; } catch { len = 1; }
+        if (trim) return trimAnim(geo, index, true, (t.params ?? {}) as TrimParams);
+        const len = geoLength(geo);
         return {
           node: geo, index, enter: true,
           prep: () => { geo.style.strokeDasharray = `${len}`; },
@@ -128,22 +217,26 @@ export const PRESETS: Record<string, Preset> = {
     }));
   },
 
-  // Tier-2: writeOn's mirror — a right-to-left wipe via clip-path.
-  wipeOut: (nodes) =>
-    each(nodes, (node, index) => ({
+  // Tier-2: writeOn's mirror — a directional wipe via clip-path. The default
+  // wipes back right-to-left (the reverse of the ltr write).
+  wipeOut: (nodes, t) => {
+    const [hidden, shown] = wipeInsets((t.params?.direction as string) ?? "ltr");
+    return each(nodes, (node, index) => ({
       node, index, enter: false,
-      keyframes: [{ clipPath: "inset(0 0 0 0)" }, { clipPath: "inset(0 100% 0 0)" }],
-    })),
+      keyframes: [{ clipPath: shown }, { clipPath: hidden }],
+    }));
+  },
 
   // Tier-2: drawOn reversed — the stroke un-draws itself. Same geometry drill,
-  // same no-measurable-geometry fallback (a fade-out).
-  drawOff: (nodes) =>
+  // same trim enrichment, same no-measurable-geometry fallback (a fade-out).
+  drawOff: (nodes, t) =>
     nodes.flatMap((node, index): NodeAnim[] => {
       const geos = geometryEls(node);
       if (!geos.length) return [{ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0 }] }];
+      const trim = !isDefaultTrim(t.params as TrimParams | undefined);
       return geos.map((geo): NodeAnim => {
-        let len = 1;
-        try { len = (geo as SVGGeometryElement).getTotalLength?.() || 1; } catch { len = 1; }
+        if (trim) return trimAnim(geo, index, false, (t.params ?? {}) as TrimParams);
+        const len = geoLength(geo);
         return {
           node: geo, index, enter: false,
           prep: () => { geo.style.strokeDasharray = `${len}`; },
@@ -215,3 +308,26 @@ export const ENTER_PRESETS = new Set(["fade", "fadeRise", "popIn", "growBaseline
  *  re-baselines the node (the player's static accumulation restarts at the last
  *  enter), so enter → exit → re-enter sequences are deterministic + reversible. */
 export const EXIT_PRESETS = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"]);
+
+/** The WRAPPER-level style props each appearance preset animates — the
+ *  transform-conflict map (rework §4.1): a transform on the same element in
+ *  the same beat DROPS these props from its own writes so the appearance owns
+ *  them for the overlap (and, at rest, the static pass's later-spec-wins
+ *  ordering resolves the same way). Presets that drill to INNER geometry
+ *  (drawOn/drawOff) touch no wrapper props and are absent deliberately. */
+export const PRESET_WRAPPER_PROPS: Record<string, readonly string[]> = {
+  fade: ["opacity"],
+  fadeRise: ["opacity", "transform"],
+  popIn: ["opacity", "transform"],
+  growBaseline: ["transform"],
+  writeOn: ["clipPath"],
+  stagger: ["opacity", "transform"],
+  fadeOut: ["opacity"],
+  popOut: ["opacity", "transform"],
+  wipeOut: ["clipPath"],
+  highlight: ["opacity"],
+  dim: ["opacity"],
+  move: ["transform"],
+  scale: ["transform"],
+  rotate: ["transform"],
+};
