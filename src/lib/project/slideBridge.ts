@@ -116,10 +116,10 @@ export async function listProjectDecks(root: string): Promise<DeckListItem[]> {
 }
 
 /** Read a deck file (without touching the live stores). Forward-version guard
- *  FIRST; then id normalization; then the load-gate validation — a
- *  structurally invalid deck (including any pre-0.2.0 deck: clean break, no
- *  migration) is quarantined (bytes preserved) and skipped, never
- *  half-loaded. */
+ *  FIRST; then normalizeDeck (0.2.0 → 0.3.0 migration + id normalization);
+ *  then the load-gate validation — a structurally invalid deck (including any
+ *  pre-0.2.0 deck: clean break, no migration) is quarantined (bytes
+ *  preserved) and skipped, never half-loaded. */
 export async function readDeck(root: string, deckId: string): Promise<Deck | null> {
   const fig = fileBridge();
   if (!fig) return null;

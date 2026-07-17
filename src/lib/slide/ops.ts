@@ -20,12 +20,14 @@ import { FLEXOKI } from "../flexoki";
 import { DEFAULT_TEXT_STYLES } from "../migrate";
 import { DEFAULT_THEME_ID } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
+import { familyOf } from "./family";
 import {
   DECK_SCHEMA_VERSION,
   type Deck,
   type Slide,
   type Beat,
   type Track,
+  type TrackGroup,
   type LayoutId,
   type StageSize,
   type Camera,
@@ -212,6 +214,7 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   if (!Object.keys(groups).length) delete copy.groups;
   for (const beat of copy.beats) {
     beat.id = newId("beat");
+    remapBeatGroupIds(beat);
     for (const t of beat.tracks) {
       // Every track carries a stable id; a duplicated slide's tracks must get
       // FRESH ids or they collide with the source slide's.
@@ -435,8 +438,24 @@ export function setBeat(
   if (patch.autoDelayMs != null) b.autoDelayMs = patch.autoDelayMs;
 }
 
-/** Deep-copy a beat (fresh beat + track ids), inserted right after the original.
- *  Returns the new beat, or null. Beat 0 (the resting state) can't be duplicated. */
+/** Remap a beat's TrackGroup ids to fresh ones (duplicated beats/slides must
+ *  not share group identity with their source). Mutates the beat in place. */
+function remapBeatGroupIds(beat: Beat): void {
+  if (!beat.groups?.length) return;
+  const remap = new Map<Id, Id>();
+  for (const g of beat.groups) {
+    const nid = newId("tgrp");
+    remap.set(g.id, nid);
+    g.id = nid;
+  }
+  for (const t of beat.tracks) {
+    if (t.groupId) t.groupId = remap.get(t.groupId) ?? t.groupId;
+  }
+}
+
+/** Deep-copy a beat (fresh beat + track + group ids), inserted right after the
+ *  original. Returns the new beat, or null. Beat 0 (the resting state) can't
+ *  be duplicated. */
 export function duplicateBeat(deck: Deck, slideId: Id, beatId: Id): Beat | null {
   const s = slideById(deck, slideId);
   if (!s) return null;
@@ -446,6 +465,7 @@ export function duplicateBeat(deck: Deck, slideId: Id, beatId: Id): Beat | null 
   copy.id = newId("beat");
   if (copy.label) copy.label += " copy";
   for (const t of copy.tracks) t.id = newId("track");
+  remapBeatGroupIds(copy);
   s.beats.splice(i + 1, 0, copy);
   return copy;
 }
@@ -497,7 +517,8 @@ export function findTrack(deck: Deck, trackId: Id): { slide: Slide; beat: Beat; 
 
 /** Move a track into another beat on the same slide (drag a chip across
  *  columns). `at` places it at a lane index (default: append). Timing (start/
- *  duration/stagger) travels untouched. */
+ *  duration/stagger) travels untouched; a beat-local group membership is
+ *  dropped on a CROSS-beat move (groups live per beat). */
 export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: Id, at?: number): boolean {
   const s = slideById(deck, slideId);
   if (!s) return false;
@@ -507,9 +528,11 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
     const i = b.tracks.findIndex((t) => t.id === trackId);
     if (i < 0) continue;
     const [t] = b.tracks.splice(i, 1);
+    if (b.id !== to.id && t.groupId) delete t.groupId;
     // Splicing out of the SAME beat shifts indices; recompute a safe insert point.
     const j = at != null ? Math.max(0, Math.min(at, to.tracks.length)) : to.tracks.length;
     to.tracks.splice(j, 0, t);
+    gcTrackGroups(b);
     return true;
   }
   return false;
@@ -600,10 +623,17 @@ export function setMorphTrack(
   });
 }
 
-/** Two tracks "match" (and thus replace, rather than stack) when they target the
- *  same element + the same part/selector signature. */
+/** Two tracks "match" (and thus replace, rather than stack) when they animate
+ *  in the same FAMILY (family.ts) on the same target with the same part/
+ *  selector signature — so an appearance and a transform coexist on one
+ *  object in one beat. Transforms are whole-element and unique per target:
+ *  two transform-family tracks match on target alone (the "max one transform
+ *  per target per beat" law — chaining happens across beats). */
 function tracksMatch(a: Track, b: Track): boolean {
   if (a.target !== b.target) return false;
+  const fam = familyOf(a);
+  if (fam !== familyOf(b)) return false;
+  if (fam === "transform") return true;
   if ((a.part ?? "") !== (b.part ?? "")) return false;
   return JSON.stringify(a.selector ?? null) === JSON.stringify(b.selector ?? null);
 }
@@ -616,9 +646,72 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
   const i = b.tracks.findIndex((t) => tracksMatch(t, track));
   // Every track carries a stable id; replacing a matched track keeps its id so
   // editor selection survives the edit, a brand-new track gets a fresh one.
-  if (i >= 0) b.tracks[i] = { ...track, id: track.id ?? b.tracks[i].id ?? newId("track") };
-  else b.tracks.push({ ...track, id: track.id ?? newId("track") });
+  // A matched track's group membership survives the replace (grouping is
+  // presentational; a re-preset shouldn't eject the lane from its group).
+  if (i >= 0) {
+    const prev = b.tracks[i];
+    b.tracks[i] = {
+      ...track,
+      id: track.id ?? prev.id ?? newId("track"),
+      ...(track.groupId == null && prev.groupId != null ? { groupId: prev.groupId } : {}),
+    };
+  } else b.tracks.push({ ...track, id: track.id ?? newId("track") });
   return true;
+}
+
+/** Add (or update) the ONE transform track for `targetId` on a beat — the
+ *  ergonomic form agents and the GUI use so nobody hand-builds `to.state`
+ *  diffs. Merges `state` keys over the existing patch (a key of undefined is
+ *  skipped; an explicit null persists as "delete this prop at t2");
+ *  `replaceState` swaps the whole patch. Timing/easing patch only when given.
+ *  Returns the track (created or updated), or null. */
+export function setTransform(
+  deck: Deck,
+  slideId: Id,
+  beatId: Id,
+  targetId: Id,
+  opts: {
+    state?: Record<string, unknown>;
+    replaceState?: boolean;
+    start?: number;
+    duration?: number;
+    easing?: import("./types").EasingToken;
+    influence?: import("./types").Influence;
+    /** plot content half: morph target asset (+ explicit source paths). */
+    toAssetId?: Id;
+    svgPath?: string;
+    manifestPath?: string;
+  } = {},
+): Track | null {
+  const s = slideById(deck, slideId);
+  const b = s && beatById(s, beatId);
+  if (!b) return null;
+  let t = b.tracks.find((x) => x.target === targetId && familyOf(x) === "transform");
+  if (!t) {
+    t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: "smooth", to: { state: {} } };
+    b.tracks.push(t);
+  } else if (t.preset === "morph") {
+    // Adopt a legacy morph into the transform form (same family, richer patch).
+    t.preset = "transform";
+  }
+  t.to = t.to ?? {};
+  if (opts.replaceState) t.to.state = structuredClone(opts.state ?? {});
+  else if (opts.state) {
+    const cur = { ...(t.to.state ?? {}) };
+    for (const [k, v] of Object.entries(opts.state)) {
+      if (v === undefined) delete cur[k];
+      else cur[k] = structuredClone(v);
+    }
+    t.to.state = cur;
+  }
+  if (opts.toAssetId != null) t.to.assetId = opts.toAssetId;
+  if (opts.svgPath != null) t.to.svgPath = opts.svgPath;
+  if (opts.manifestPath != null) t.to.manifestPath = opts.manifestPath;
+  if (opts.start != null) t.start = opts.start;
+  if (opts.duration != null) t.duration = opts.duration;
+  if (opts.easing != null) t.easing = opts.easing;
+  if (opts.influence != null) t.influence = opts.influence;
+  return t;
 }
 
 export function removeAnimation(
@@ -630,8 +723,92 @@ export function removeAnimation(
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b) return;
-  const probe: Track = { target: match.target, part: match.part, selector: match.selector };
-  b.tracks = b.tracks.filter((t) => !tracksMatch(t, probe));
+  // Deliberately FAMILY-BLIND (unlike tracksMatch): "remove the animation on
+  // this object/part" means every family — an appearance and its sibling
+  // transform both go. Family scoping exists for add/replace, not removal.
+  const sameSig = (t: Track) =>
+    t.target === match.target &&
+    (t.part ?? "") === (match.part ?? "") &&
+    JSON.stringify(t.selector ?? null) === JSON.stringify(match.selector ?? null);
+  b.tracks = b.tracks.filter((t) => !sameSig(t));
+  gcTrackGroups(b);
+}
+
+// ---------------------------------------------------------------------------
+// Track groups — beat-local, collapsible animator lanes (presentational; the
+// player never reads them).
+// ---------------------------------------------------------------------------
+
+/** Drop group defs no track references and groupIds no def backs. Keeps the
+ *  registry tight across deletes/moves; empty `groups` arrays are removed. */
+export function gcTrackGroups(beat: Beat): void {
+  if (!beat.groups?.length) {
+    if (beat.groups) delete beat.groups;
+    // strip dangling refs even when the registry is gone
+    for (const t of beat.tracks) if (t.groupId) delete t.groupId;
+    return;
+  }
+  const used = new Set<Id>();
+  for (const t of beat.tracks) if (t.groupId) used.add(t.groupId);
+  beat.groups = beat.groups.filter((g) => used.has(g.id));
+  const live = new Set(beat.groups.map((g) => g.id));
+  for (const t of beat.tracks) if (t.groupId && !live.has(t.groupId)) delete t.groupId;
+  if (!beat.groups.length) delete beat.groups;
+}
+
+/** Group tracks (by id) on one beat under a new labeled TrackGroup. Tracks
+ *  leave any previous group; the grouped lanes are spliced ADJACENT (in their
+ *  current relative order, at the first member's lane) so the group renders as
+ *  one contiguous run. Returns the new group id, or null. */
+export function groupTracks(deck: Deck, slideId: Id, beatId: Id, trackIds: Id[], label?: string): Id | null {
+  const s = slideById(deck, slideId);
+  const b = s && beatById(s, beatId);
+  if (!b) return null;
+  const want = new Set(trackIds);
+  const members = b.tracks.filter((t) => t.id && want.has(t.id));
+  if (members.length < 1) return null;
+  const g: TrackGroup = { id: newId("tgrp"), label: label ?? "Group" };
+  b.groups = [...(b.groups ?? []), g];
+  for (const t of members) t.groupId = g.id;
+  // splice members contiguous at the first member's position
+  const first = b.tracks.findIndex((t) => t.id && want.has(t.id));
+  const rest = b.tracks.filter((t) => !(t.id && want.has(t.id)));
+  const at = Math.min(first, rest.length);
+  rest.splice(at, 0, ...members);
+  b.tracks = rest;
+  gcTrackGroups(b);
+  return g.id;
+}
+
+/** Dissolve the groups the given tracks belong to (members become loose). */
+export function ungroupTracks(deck: Deck, slideId: Id, beatId: Id, trackIds: Id[]): void {
+  const s = slideById(deck, slideId);
+  const b = s && beatById(s, beatId);
+  if (!b || !b.groups?.length) return;
+  const want = new Set(trackIds);
+  const gone = new Set<Id>();
+  for (const t of b.tracks) if (t.id && want.has(t.id) && t.groupId) gone.add(t.groupId);
+  for (const t of b.tracks) if (t.groupId && gone.has(t.groupId)) delete t.groupId;
+  gcTrackGroups(b);
+}
+
+/** Patch one TrackGroup (label / collapsed). */
+export function setTrackGroup(
+  deck: Deck,
+  slideId: Id,
+  beatId: Id,
+  groupId: Id,
+  patch: { label?: string; collapsed?: boolean },
+): void {
+  const s = slideById(deck, slideId);
+  const b = s && beatById(s, beatId);
+  const g = b?.groups?.find((x) => x.id === groupId);
+  if (!g) return;
+  if (patch.label != null) g.label = patch.label;
+  if (patch.collapsed != null) {
+    if (patch.collapsed) g.collapsed = true;
+    else delete g.collapsed;
+  }
 }
 
 /** Backfill stable ids onto any track that lacks one. Idempotent; called at
@@ -641,12 +818,25 @@ export function ensureTrackIds(deck: Deck): Deck {
   return deck;
 }
 
+/** 0.2.0 → 0.3.0: a pure stamp — every 0.2.0 document is already valid 0.3.0
+ *  (the rework's additions are all optional fields with absent-means-legacy
+ *  semantics, and defaults reproduce 0.2.0 playback byte-identically).
+ *  Anything else (0.1.x, garbage) passes through untouched and fails
+ *  validation downstream exactly as before. Mutates + returns. */
+export function migrateDeck(deck: Deck): Deck {
+  if (typeof deck?.schemaVersion === "string" && deck.schemaVersion.startsWith("0.2.")) {
+    deck.schemaVersion = DECK_SCHEMA_VERSION;
+  }
+  return deck;
+}
+
 /** THE deck-load chokepoint — every seam that reads a deck from disk (GUI
- *  slideBridge.readDeck, flux-core loadDeck) runs this. Since the 0.2.0 clean
- *  break there is NO migration here (an old-format deck fails validation and
- *  quarantines); only id normalization remains. Mutates + returns. */
+ *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2.0 →
+ *  0.3.0 stamp) then id normalization. A 0.1.x deck is untouched here and
+ *  fails validation downstream (quarantine — the sanctioned clean break);
+ *  newer-than-ours files are refused earlier by the forward-version guard. */
 export function normalizeDeck(deck: Deck): Deck {
-  return ensureTrackIds(deck);
+  return ensureTrackIds(migrateDeck(deck));
 }
 
 /** Beat tracks whose target element no longer exists on their slide (excluding

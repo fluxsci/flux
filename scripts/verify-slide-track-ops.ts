@@ -129,4 +129,76 @@ assert(ops.setMorphTrack(deck, sid, b2.id, plotId, "demo/other", { duration: 900
 const morphT = b2.tracks.find((t) => t.preset === "morph")!;
 assert(morphT.to?.assetId === "demo/other" && morphT.duration === 900 && morphT.easing === "smooth", "morph track shape (to.assetId, duration, smooth default)");
 
-console.log("\nSLIDE TRACK-OPS (WS2) TESTS PASSED");
+// --- 0.3.0 family law: appearance + transform coexist; one transform/target/beat
+{
+  const d = ops.createDeck({ id: "fam", title: "Family" });
+  const s = ops.addSlide(d, { name: "S" }).id;
+  const beat = ops.addBeat(d, s, { label: "B1" })!;
+  ops.setAnimation(d, s, beat.id, { target: "el-1", preset: "fade", duration: 300 });
+  ops.setAnimation(d, s, beat.id, { target: "el-1", preset: "transform", to: { state: { x: 50 } }, duration: 600 });
+  assert(beat.tracks.length === 2, "an appearance and a transform COEXIST on one target in one beat");
+  ops.setAnimation(d, s, beat.id, { target: "el-1", preset: "drawOn", duration: 500 });
+  assert(beat.tracks.length === 2 && beat.tracks.some((t) => t.preset === "drawOn"), "a second appearance REPLACES the first (within-family match)");
+  ops.setAnimation(d, s, beat.id, { target: "el-1", preset: "transform", to: { state: { y: 9 } } });
+  assert(beat.tracks.filter((t) => t.preset === "transform").length === 1, "max ONE transform per target per beat (family match replaces)");
+  ops.setAnimation(d, s, beat.id, { target: "el-1", preset: "morph", to: { assetId: "p2" } });
+  assert(beat.tracks.filter((t) => t.preset === "morph" || t.preset === "transform").length === 1, "legacy morph and transform share the family — still one track");
+
+  // setTransform: the ergonomic merge form
+  const t1 = ops.setTransform(d, s, beat.id, "el-2", { state: { x: 10, fill: "#ff0000" }, duration: 800 })!;
+  assert(t1.preset === "transform" && (t1.to?.state as Record<string, unknown>).x === 10, "setTransform creates the transform track with the given patch");
+  ops.setTransform(d, s, beat.id, "el-2", { state: { x: 20 } });
+  const st = t1.to?.state as Record<string, unknown>;
+  assert(st.x === 20 && st.fill === "#ff0000", "setTransform MERGES state keys over the existing patch");
+  ops.setTransform(d, s, beat.id, "el-2", { state: { opacity: 0.5 }, replaceState: true });
+  const st2 = t1.to?.state as Record<string, unknown>;
+  assert(st2.opacity === 0.5 && !("x" in st2), "replaceState swaps the whole patch");
+  assert(beat.tracks.filter((t) => t.target === "el-2").length === 1, "setTransform never stacks a second transform");
+}
+
+// --- 0.3.0 track groups: lifecycle + contiguity + GC + duplication remap ------
+{
+  const d = ops.createDeck({ id: "grp", title: "Groups" });
+  const s = ops.addSlide(d, { name: "S" }).id;
+  const beat = ops.addBeat(d, s, { label: "B1" })!;
+  ops.setAnimation(d, s, beat.id, { target: "a", preset: "fade" });
+  ops.setAnimation(d, s, beat.id, { target: "b", preset: "fade" });
+  ops.setAnimation(d, s, beat.id, { target: "c", preset: "fade" });
+  const [ta, tb, tc] = beat.tracks;
+  const gid = ops.groupTracks(d, s, beat.id, [ta.id!, tc.id!], "X-axis")!;
+  assert(!!gid && beat.groups?.length === 1 && beat.groups[0].label === "X-axis", "groupTracks creates a labeled TrackGroup");
+  assert(ta.groupId === gid && tc.groupId === gid && !tb.groupId, "members reference the group; others untouched");
+  assert(beat.tracks.map((t) => t.target).join(",") === "a,c,b", "grouped lanes are spliced contiguous at the first member");
+  ops.setTrackGroup(d, s, beat.id, gid, { collapsed: true, label: "Axis X" });
+  assert(beat.groups![0].collapsed === true && beat.groups![0].label === "Axis X", "setTrackGroup patches collapse + label");
+  ops.setTrackGroup(d, s, beat.id, gid, { collapsed: false });
+  assert(!("collapsed" in beat.groups![0]), "collapsed:false removes the flag (sparse persistence)");
+
+  // preset replace keeps membership; cross-beat move drops it
+  ops.setAnimation(d, s, beat.id, { target: "a", preset: "drawOn" });
+  const ta2 = beat.tracks.find((t) => t.target === "a")!;
+  assert(ta2.groupId === gid, "a within-family replace keeps the track's group membership");
+  const b2g = ops.addBeat(d, s, { label: "B2" })!;
+  ops.moveTrackToBeat(d, s, ta2.id!, b2g.id);
+  assert(!b2g.tracks[0].groupId, "a cross-beat move drops beat-local group membership");
+  // one member left → group survives; ungroup dissolves it
+  const tcNow = beat.tracks.find((t) => t.target === "c")!;
+  assert(tcNow.groupId === gid, "remaining member keeps the group");
+  ops.ungroupTracks(d, s, beat.id, [tcNow.id!]);
+  assert(!tcNow.groupId && !beat.groups, "ungroup dissolves the group and GCs the empty registry");
+
+  // duplication remaps group ids (beat + slide)
+  const gid2 = ops.groupTracks(d, s, beat.id, [beat.tracks[0].id!], "G2")!;
+  const copyBeat = ops.duplicateBeat(d, s, beat.id)!;
+  assert(copyBeat.groups?.length === 1 && copyBeat.groups[0].id !== gid2, "duplicateBeat remaps TrackGroup ids");
+  assert(copyBeat.tracks[0].groupId === copyBeat.groups[0].id, "…and the copied tracks reference the fresh group");
+  const copySlideId = ops.duplicateSlide(d, s)!;
+  const copySlide = ops.slideById(d, copySlideId)!;
+  const srcGroupIds = new Set(ops.slideById(d, s)!.beats.flatMap((b) => (b.groups ?? []).map((g) => g.id)));
+  for (const b of copySlide.beats) for (const g of b.groups ?? []) {
+    assert(!srcGroupIds.has(g.id), "duplicateSlide remaps TrackGroup ids too");
+    assert(b.tracks.some((t) => t.groupId === g.id), "…keeping member references consistent");
+  }
+}
+
+console.log("\nSLIDE TRACK-OPS (WS2 + 0.3.0 families/groups) TESTS PASSED");

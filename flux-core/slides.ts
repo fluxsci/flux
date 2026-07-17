@@ -93,11 +93,12 @@ export async function listDecks(root: string): Promise<DeckSummary[]> {
   return out;
 }
 
-/** loadDeck: read slides/<deckId>/deck.json. Forward-version guard first; the
- *  0.2.0 format is a clean break — there is NO migration (an old deck fails
- *  schema validation via validate_deck; here it simply loads as-is and the
+/** loadDeck: read slides/<deckId>/deck.json. Forward-version guard first;
+ *  then normalizeDeck migrates (0.2.0 → 0.3.0 stamp) + backfills track ids.
+ *  A pre-0.2.0 deck remains the sanctioned clean break — no migration (it
+ *  fails schema validation via validate_deck; here it loads as-is and the
  *  first structural miss surfaces at op time — the GUI additionally
- *  quarantines). Only track-id normalization runs. */
+ *  quarantines). */
 export async function loadDeck(root: string, deckId: string): Promise<Deck> {
   const p = await resolveDeckPath(root, deckId);
   if (!(await exists(p))) throw new Error(`deck not found: ${deckId} (${path.relative(root, p)})`);

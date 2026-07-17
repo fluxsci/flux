@@ -28,10 +28,12 @@
 
 import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../types";
 
-// 0.x → the MINOR slot is the breaking slot (repo convention). 0.2.0 is the
-// slides-are-figures format; 0.1.x decks are a clean break (no migration —
-// they fail validation and quarantine like any invalid file).
-export const DECK_SCHEMA_VERSION = "0.2.0";
+// 0.x → the MINOR slot is the breaking slot (repo convention). 0.3.0 is the
+// animation-rework format (transform tracks, track groups, trim params) —
+// 0.2.0 decks migrate in place (a pure stamp: every 0.2.0 document is already
+// valid 0.3.0; see ops.migrateDeck). 0.1.x decks remain a clean break (no
+// migration — they fail validation and quarantine like any invalid file).
+export const DECK_SCHEMA_VERSION = "0.3.0";
 
 // ---------------------------------------------------------------------------
 // Deck
@@ -160,9 +162,11 @@ export interface Slide {
 // ---------------------------------------------------------------------------
 
 /** The preset catalog. Each compiles a track → WAAPI keyframes (or a bespoke
- *  driver for `morph`/`countUp`). Three families: ENTERS (hidden before their
- *  beat), EXITS (hidden after — fadeOut/popOut/drawOff/wipeOut), and
- *  emphasis/transform (always present). */
+ *  driver for `transform`/`morph`/`countUp`). Two authoring families (see
+ *  family.ts): APPEARANCES (enters hidden before their beat; exits hidden
+ *  after — fadeOut/popOut/drawOff/wipeOut; emphasis) and TRANSFORMS (an
+ *  element tweens into a different version of itself — `transform`, plus the
+ *  legacy data-space `morph` it subsumes). `camera` is its own family. */
 export type PresetName =
   | "fade"
   | "fadeRise"
@@ -182,7 +186,8 @@ export type PresetName =
   | "rotate"
   | "camera"
   | "countUp"
-  | "morph";
+  | "morph"
+  | "transform";
 
 /** Select a *set* of animation targets within a plot element — by
  *  role/series/index over the plot's part index. */
@@ -201,26 +206,47 @@ export interface Stagger {
   perMs: number;
   /** Ordering key for the stagger ramp. "index" = target array order; "x"/"y" =
    *  each target's spatial coordinate (data-x/data-y, falling back to the
-   *  rendered x/y), so points fire left→right ("x") or low→high ("y"). */
-  by?: "index" | "x" | "y" | "series" | "dom";
+   *  rendered x/y), so points fire left→right ("x") or low→high ("y").
+   *  (The never-implemented "series"/"dom" options were dropped in 0.3.0.) */
+  by?: "index" | "x" | "y";
   from?: "start" | "end" | "center" | "edges";
 }
 
-/** The destination of a `morph` (a second same-structure plot asset) or a
- *  `camera` move (a stage pose). */
+/** The destination of a `transform` (a sparse element-state patch), a `morph`
+ *  (a second same-structure plot asset) or a `camera` move (a stage pose). */
 export interface TrackTarget {
-  /** morph: a second semantic-plot asset id (same generator/series ⇒ same ids). */
+  /** transform (plot content half) / morph: a second semantic-plot asset id
+   *  (same generator/series ⇒ same ids). */
   assetId?: Id;
-  /** morph: explicit PROJECT-relative source paths for the target plot —
-   *  authored by ops.setMorphTrack so resolvers stop guessing. */
+  /** morph/transform: explicit PROJECT-relative source paths for the target
+   *  plot — authored by ops.setMorphTrack so resolvers stop guessing. */
   svgPath?: string;
   manifestPath?: string;
   /** camera: the pose to move to. */
   x?: number;
   y?: number;
   zoom?: number;
-  /** move/scale/rotate: an explicit pose delta (preset-specific). */
-  [prop: string]: number | string | undefined;
+  /** transform: sparse element-property patch vs the track's pre-state (t1 =
+   *  document state ⊕ every earlier transform on the same target, in beat
+   *  order). Keys are top-level Element props (x, y, width, height, rotation,
+   *  opacity, fill, stroke, strokeWidth, text, fontSize, d, nodes, x1..y2,
+   *  cornerRadius, dash, crop, contentScale, overrides, …). Absent key =
+   *  unchanged; `null` = the prop is deleted at t2; `overrides` patches merge
+   *  per part-id (a part key of `null` deletes that part's override). Applied
+   *  by tween.applyState — never hand-compose. */
+  state?: Record<string, unknown>;
+  /** move/scale/rotate deltas ride the index signature (preset-specific). */
+  [prop: string]: unknown;
+}
+
+/** A named, collapsible group of tracks within one beat (a purely
+ *  presentational authoring aid — grouping never changes playback). Tracks
+ *  reference their group via `Track.groupId`; collapse state is deck-persisted
+ *  (agents can read the authoring layout; churn is negligible). */
+export interface TrackGroup {
+  id: Id;
+  label: string;
+  collapsed?: boolean;
 }
 
 /** A single explicit keyframe — the forward-compatible full-keyframing path.
@@ -254,13 +280,15 @@ export interface Track {
    *  when set: maps to cubic-bezier(out/100, 0, 1 − in/100, 1). */
   influence?: Influence;
   stagger?: Stagger;
-  /** morph/camera/move destination. */
+  /** transform/morph/camera/move destination. */
   to?: TrackTarget;
   /** Forward-compat full keyframes (preset optional when present). */
   keyframes?: Keyframe[];
   /** A disabled track is invisible to the player/static-state/export but keeps
    *  its authored timing — this is how Mask stays NON-destructive. */
   disabled?: boolean;
+  /** The beat-local TrackGroup this track belongs to (Beat.groups registry). */
+  groupId?: Id;
 }
 
 /** A beat is one "advance" step. Entering it plays its `tracks` concurrently
@@ -276,6 +304,8 @@ export interface Beat {
   /** For `advance:"auto"` — ms after the previous beat finishes. */
   autoDelayMs?: number;
   tracks: Track[];
+  /** Beat-local track groups (collapsible animator lanes; presentational). */
+  groups?: TrackGroup[];
 }
 
 // ---------------------------------------------------------------------------

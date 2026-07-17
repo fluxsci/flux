@@ -337,16 +337,19 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     $id: "flux/deck.schema.json",
     title: "Flux Slide deck (slides/<id>/deck.json)",
     type: "object",
-    // Slides-are-figures (0.2.0): a slide's `elements` is the FIGURE element
-    // union, validated by the same shared ELEMENT_DEF the canvas schema uses.
-    // Lenient (additionalProperties allowed so the format can grow), strict on
-    // the load-bearing fields. schemaVersion is PINNED to the 0.2 line: the
-    // 0.1 format is a deliberate clean break — an old deck fails validation
-    // and quarantines (newer-than-ours files are refused earlier by the
-    // forward-version guard, before validation).
+    // Slides-are-figures (0.2.0) + animation rework (0.3.0): a slide's
+    // `elements` is the FIGURE element union, validated by the same shared
+    // ELEMENT_DEF the canvas schema uses. Lenient (additionalProperties
+    // allowed so the format can grow), strict on the load-bearing fields.
+    // schemaVersion accepts the 0.2/0.3 generation: 0.3 is current and 0.2 is
+    // valid INPUT (ops.migrateDeck stamps it 0.3.0 at every load seam, so
+    // post-migration values are always 0.3). The 0.1 format is a deliberate
+    // clean break — an old deck fails validation and quarantines
+    // (newer-than-ours files are refused earlier by the forward-version
+    // guard, before validation).
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.2\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[23]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
@@ -404,6 +407,19 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                   label: { type: "string" },
                   advance: { type: "string", enum: ["click", "with-prev", "auto"] },
                   autoDelayMs: { type: "number" },
+                  // 0.3.0: beat-local collapsible track groups (presentational)
+                  groups: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      required: ["id", "label"],
+                      properties: {
+                        id: { type: "string" },
+                        label: { type: "string" },
+                        collapsed: { type: "boolean" },
+                      },
+                    },
+                  },
                   tracks: {
                     type: "array",
                     items: {
@@ -420,8 +436,10 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         easing: { type: "string" },
                         influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
                         stagger: { type: "object" },
+                        // 0.3.0: `to.state` carries a transform's sparse patch
                         to: { type: "object" },
                         keyframes: { type: "array" },
+                        groupId: { type: "string" }, // 0.3.0: TrackGroup ref
                       },
                     },
                   },

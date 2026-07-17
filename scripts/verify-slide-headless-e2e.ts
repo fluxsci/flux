@@ -58,7 +58,7 @@ try {
 
   // --- deck shape on disk -----------------------------------------------------------
   const deck = JSON.parse(await fs.readFile(path.join(root, "slides", "talk", "deck.json"), "utf8"));
-  assert(deck.schemaVersion === "0.2.0", "deck is the 0.2.0 slides-are-figures format");
+  assert(deck.schemaVersion === "0.3.0", "deck is the 0.3.0 animation-rework format");
   const slide = deck.slides.find((s: { id: string }) => s.id === slideId);
   assert(slide.elements.every((e: { type: string }) => ["text", "rect", "ellipse", "line", "path", "image", "plot"].includes(e.type)), "every element is the FIGURE union");
   assert(slide.elements.some((e: { text?: string }) => e.text === "PANEL A"), "the copied figure content is real elements in the deck");
