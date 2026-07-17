@@ -115,6 +115,7 @@ export const SLIDE_PRESETS = [
   "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
   "fadeOut", "popOut", "drawOff", "wipeOut",
   "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "morph",
+  "transform",
 ] as const;
 export const SLIDE_LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
 export const SLIDE_THEMES = ["flux-dark", "flux-light", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
@@ -2048,6 +2049,142 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (_r, a) => ({ err: `✓ track ${a.trackId} ${a.enabled ? "enabled" : "disabled"}` }),
       mcp: (_r, a) => text(`track ${a.trackId} ${a.enabled ? "enabled" : "disabled"}`),
+    },
+  },
+  {
+    name: "set_transform",
+    cli: "set-transform",
+    cliRoot: "flags",
+    summary:
+      "Add or update THE transform track for an element on a beat (max one per element per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` adds the data-morph half (same-structure plot; explicit source paths are persisted automatically). Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      beatId: z.string(),
+      target: z.string(),
+      state: z.record(z.any()).optional(),
+      replaceState: z.boolean().optional(),
+      start: z.number().optional(),
+      duration: z.number().optional(),
+      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      toAssetId: z.string().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "pos", at: 3, into: "target", required: true },
+      { kind: "flag", at: "state", into: "state", as: "json" },
+      { kind: "flag", at: "replace-state", into: "replaceState", as: "boolean" },
+      { kind: "flag", at: "start", into: "start", as: "number" },
+      { kind: "flag", at: "duration", into: "duration", as: "number" },
+      { kind: "flag", at: "easing", into: "easing" },
+      { kind: "flag", at: "to-asset", into: "toAssetId" },
+    ],
+    handler: (ctx, a) =>
+      core.setTransformTrack(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.target), {
+        ...(a.state != null ? { state: a.state as Record<string, unknown> } : {}),
+        ...(a.replaceState ? { replaceState: true } : {}),
+        ...(a.start != null ? { start: a.start as number } : {}),
+        ...(a.duration != null ? { duration: a.duration as number } : {}),
+        ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
+        ...(a.toAssetId != null ? { toAssetId: s(a.toAssetId) } : {}),
+      }),
+    render: {
+      human: (r, a) => ({
+        out: (r as { trackId: string }).trackId,
+        err: `✓ transform on ${a.target} (beat ${a.beatId})`,
+      }),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId} on ${a.target} (beat ${a.beatId})`),
+    },
+  },
+  {
+    name: "group_tracks",
+    cli: "group-tracks",
+    cliRoot: "flags",
+    summary:
+      "Bundle tracks on one beat under a labeled, collapsible TrackGroup (a presentational animator lane group — grouping never changes playback). Returns the group id.",
+    params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), trackIds: z.array(z.string()), label: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "rest", at: 3, into: "trackIds" },
+      { kind: "flag", at: "tracks", into: "trackIds", as: "csv" },
+      { kind: "flag", at: "label", into: "label" },
+    ],
+    handler: (ctx, a) => core.groupTracksVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), sArr(a.trackIds), a.label as string | undefined),
+    render: {
+      human: (r, a) => ({
+        out: (r as { groupId: string }).groupId,
+        err: `✓ grouped ${sArr(a.trackIds).length} tracks on beat ${a.beatId}`,
+      }),
+      mcp: (r, a) => text(`grouped ${sArr(a.trackIds).length} tracks → ${(r as { groupId: string }).groupId}`),
+    },
+  },
+  {
+    name: "ungroup_tracks",
+    cli: "ungroup-tracks",
+    cliRoot: "flags",
+    summary: "Dissolve the TrackGroups the given tracks belong to (members become loose lanes).",
+    params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), trackIds: z.array(z.string()) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "rest", at: 3, into: "trackIds" },
+      { kind: "flag", at: "tracks", into: "trackIds", as: "csv" },
+    ],
+    handler: (ctx, a) => core.ungroupTracksVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), sArr(a.trackIds)),
+    render: {
+      human: (_r, a) => ({ err: `✓ ungrouped on beat ${a.beatId}` }),
+      mcp: (_r, a) => text(`ungrouped tracks on beat ${a.beatId}`),
+    },
+  },
+  {
+    name: "apply_anim_template",
+    cli: "apply-anim-template",
+    cliRoot: "flags",
+    summary:
+      "Apply a saved animation TEMPLATE (a bundle of preset slots with role/type matchers, from <FluxConfig>/presets/anim-templates/ by name, or an explicit .json path) onto a scope: `elementId` [+ `part`] binds part slots within that plot('s container subtree) by ROLE (an x-axis template lands on a y-axis); `elementIds` binds element slots by type + document order. Bound tracks land on `beatId` (default: the last build beat) as one labeled TrackGroup. Partial matches are reported, never invented.",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      template: z.string(),
+      beatId: z.string().optional(),
+      elementIds: z.array(z.string()).optional(),
+      elementId: z.string().optional(),
+      part: z.string().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "template", required: true },
+      { kind: "flag", at: "beat", into: "beatId" },
+      { kind: "flag", at: "elements", into: "elementIds", as: "csv" },
+      { kind: "flag", at: "element", into: "elementId" },
+      { kind: "flag", at: "part", into: "part" },
+    ],
+    handler: (ctx, a) =>
+      core.applyAnimTemplateVerb(ctx.root, s(a.deckId), s(a.slideId), {
+        template: s(a.template),
+        ...(a.beatId != null ? { beatId: s(a.beatId) } : {}),
+        ...(a.elementIds != null ? { elementIds: sArr(a.elementIds) } : {}),
+        ...(a.elementId != null ? { elementId: s(a.elementId) } : {}),
+        ...(a.part != null ? { part: s(a.part) } : {}),
+      }),
+    render: {
+      human: (r) => {
+        const x = r as { matched: number; total: number; trackIds: string[]; unmatched: string[] };
+        return {
+          out: x.trackIds.join("\n"),
+          err: `✓ applied ${x.matched}/${x.total}${x.unmatched.length ? ` — unmatched: ${x.unmatched.join("; ")}` : ""}`,
+        };
+      },
+      mcp: (r) => {
+        const x = r as { matched: number; total: number; trackIds: string[]; unmatched: string[] };
+        return text(`applied ${x.matched}/${x.total} slots (${x.trackIds.length} tracks)${x.unmatched.length ? `; unmatched: ${x.unmatched.join("; ")}` : ""}`);
+      },
     },
   },
   {

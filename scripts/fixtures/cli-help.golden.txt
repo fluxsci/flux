@@ -146,6 +146,10 @@ usage: flux <verb> [root] [args] [--flags]
   add-figure <deckId> <slideId> <figureId> [--x --y]   COPY a project figure's content onto a slide (fresh ids, native size)
   add-beat <deckId> <slideId> [--label L]   append a build/advance step
   set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>']   animate
+  set-transform <deckId> <slideId> <beatId> <elementId> [--state '<json patch>' --replace-state --start ms --duration ms --easing e --to-asset id]   the t1→t2 state tween (one per element per beat)
+  group-tracks <deckId> <slideId> <beatId> t1,t2… [--label L]   bundle lanes under a collapsible TrackGroup
+  ungroup-tracks <deckId> <slideId> <beatId> t1,t2…   dissolve the lanes' groups
+  apply-anim-template <deckId> <slideId> <name|path.json> [--element id [--part axis.y] | --elements a,b,c] [--beat id]   bind a saved preset bundle by role/type
   set-beat <deckId> <slideId> <beatId> [--label L --advance click|with-prev|auto --auto-delay ms]   patch a beat
   reorder-beats <deckId> <slideId> --order b2,b1   set beat order (beat 0 pinned)
   move-track <deckId> <slideId> <trackId> <toBeatId> [--at n]   move a track to another beat

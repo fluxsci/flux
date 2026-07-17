@@ -298,6 +298,160 @@ export async function setAnimation(
   });
 }
 
+/** set-transform: add or update THE transform track for a target on a beat
+ *  (max one per target per beat — the family law). The ergonomic form: agents
+ *  pass a sparse element-state patch instead of hand-building diffs. */
+export async function setTransformTrack(
+  root: string,
+  deckId: string,
+  slideId: string,
+  beatId: string,
+  targetId: string,
+  opts: {
+    state?: Record<string, unknown>;
+    replaceState?: boolean;
+    start?: number;
+    duration?: number;
+    easing?: import("../src/lib/slide/types").EasingToken;
+    toAssetId?: string;
+  } = {},
+): Promise<{ trackId: string }> {
+  return mutateDeck(root, deckId, "set_transform", async (deck) => {
+    mustSlide(deck, slideId);
+    // fig-derived morph targets need explicit paths (the setMorph lesson —
+    // resolvers must not guess): probe the conventional locations.
+    let svgPath: string | undefined;
+    let manifestPath: string | undefined;
+    if (opts.toAssetId) {
+      for (const sp of [j("plots", `${opts.toAssetId}.svg`), j("fig", "assets", `${opts.toAssetId}.svg`)]) {
+        try {
+          await fs.access(safeJoin(root, sp));
+          svgPath = sp;
+          const mp = sp.replace(/\.svg$/i, ".fluxplot.json");
+          try { await fs.access(safeJoin(root, mp)); manifestPath = mp; } catch { /* svg only */ }
+          break;
+        } catch { /* next */ }
+      }
+    }
+    const t = slideOps.setTransform(deck, slideId, beatId, targetId, {
+      ...(opts.state ? { state: opts.state } : {}),
+      ...(opts.replaceState ? { replaceState: true } : {}),
+      ...(opts.start != null ? { start: opts.start } : {}),
+      ...(opts.duration != null ? { duration: opts.duration } : {}),
+      ...(opts.easing != null ? { easing: opts.easing } : {}),
+      ...(opts.toAssetId != null ? { toAssetId: opts.toAssetId } : {}),
+      ...(svgPath ? { svgPath } : {}),
+      ...(manifestPath ? { manifestPath } : {}),
+    });
+    if (!t?.id) throw new Error(`beat not found: ${beatId} on ${slideId}`);
+    return { trackId: t.id };
+  });
+}
+
+/** group-tracks: bundle tracks on one beat under a labeled, collapsible
+ *  TrackGroup (a presentational animator lane group). */
+export async function groupTracksVerb(
+  root: string,
+  deckId: string,
+  slideId: string,
+  beatId: string,
+  trackIds: string[],
+  label?: string,
+): Promise<{ groupId: string }> {
+  return mutateDeck(root, deckId, "group_tracks", (deck) => {
+    mustSlide(deck, slideId);
+    const gid = slideOps.groupTracks(deck, slideId, beatId, trackIds, label);
+    if (!gid) throw new Error(`no matching tracks on beat ${beatId}`);
+    return { groupId: gid };
+  });
+}
+
+/** ungroup-tracks: dissolve the groups the given tracks belong to. */
+export async function ungroupTracksVerb(
+  root: string,
+  deckId: string,
+  slideId: string,
+  beatId: string,
+  trackIds: string[],
+): Promise<void> {
+  await mutateDeck(root, deckId, "ungroup_tracks", (deck) => {
+    mustSlide(deck, slideId);
+    slideOps.ungroupTracks(deck, slideId, beatId, trackIds);
+  });
+}
+
+/** apply-anim-template: run the SAME pure matching engine the GUI library
+ *  uses (animTemplates.applyTemplate) against a machine-library template (by
+ *  name) or an explicit .json path, binding onto a part container
+ *  (elementId+part) or an element set. Bound tracks land on the beat as one
+ *  labeled TrackGroup; partial matches are returned, never invented. */
+export async function applyAnimTemplateVerb(
+  root: string,
+  deckId: string,
+  slideId: string,
+  opts: {
+    template: string; // library name (matched case-insensitively) or a path to a .json
+    beatId?: string;
+    elementIds?: string[];
+    elementId?: string;
+    part?: string;
+  },
+): Promise<{ matched: number; total: number; trackIds: string[]; groupId?: string; unmatched: string[] }> {
+  const { parseAnimTemplate, applyTemplate } = await import("../src/lib/slide/animTemplates");
+  const { resolveFluxConfigPath } = await import("./fluxlib");
+  // resolve the template: explicit path first, else the machine library by name
+  let tpl: import("../src/lib/slide/animTemplates").AnimTemplate | null = null;
+  try {
+    tpl = parseAnimTemplate(JSON.parse(await fs.readFile(path.resolve(root, opts.template), "utf8")));
+  } catch {
+    /* not a readable path — try the library */
+  }
+  if (!tpl) {
+    const dir = path.join(await resolveFluxConfigPath(), "presets", "anim-templates");
+    let entries: string[] = [];
+    try { entries = (await fs.readdir(dir)).filter((f) => f.endsWith(".json")); } catch { /* no library yet */ }
+    for (const f of entries) {
+      try {
+        const cand = parseAnimTemplate(JSON.parse(await fs.readFile(path.join(dir, f), "utf8")));
+        if (cand && (cand.name.toLowerCase() === opts.template.toLowerCase() || f === opts.template)) {
+          tpl = cand;
+          break;
+        }
+      } catch { /* skip unreadable */ }
+    }
+  }
+  if (!tpl) throw new Error(`template not found: ${opts.template} (not a readable file, and no library template by that name)`);
+  const theTpl = tpl;
+
+  return mutateDeck(root, deckId, "apply_anim_template", async (deck) => {
+    const s = mustSlide(deck, slideId);
+    const beat =
+      (opts.beatId ? s.beats.find((b) => b.id === opts.beatId) : undefined) ??
+      (s.beats.length > 1 ? s.beats[s.beats.length - 1] : slideOps.addBeat(deck, slideId, { label: "Beat 1", advance: "click" })!);
+    const scope =
+      opts.elementId != null
+        ? ({ kind: "part-container", elementId: opts.elementId, partId: opts.part ?? "" } as const)
+        : ({ kind: "elements", ids: opts.elementIds ?? [] } as const);
+    if (scope.kind === "elements" && !scope.ids.length) throw new Error("pass elementIds (a set) or elementId [+ part] (a container scope)");
+    const manifests = new Map<string, FluxPlotManifest | undefined>();
+    for (const el of s.elements) {
+      if (el.type === "plot") manifests.set(el.id, await readPlotManifest(root, el));
+    }
+    const res = applyTemplate(theTpl, scope as import("../src/lib/slide/animTemplates").TemplateScope, {
+      elements: s.elements,
+      manifestFor: (id) => manifests.get(id),
+    });
+    const trackIds: string[] = [];
+    for (const t of res.tracks) {
+      slideOps.setAnimation(deck, slideId, beat.id, t);
+      if (t.id) trackIds.push(t.id);
+    }
+    let groupId: string | undefined;
+    if (trackIds.length) groupId = slideOps.groupTracks(deck, slideId, beat.id, trackIds, theTpl.name) ?? undefined;
+    return { matched: res.matched, total: res.total, trackIds, ...(groupId ? { groupId } : {}), unmatched: res.unmatched };
+  });
+}
+
 /** set-beat: patch a beat's label / advance mode (click|with-prev|auto) / autoDelayMs. */
 export async function setBeat(
   root: string,

@@ -116,6 +116,11 @@ export {
   animatePartVerb,
   animateElementVerb,
   setMorph,
+  // Animation rework — transforms, track groups, template application
+  setTransformTrack,
+  groupTracksVerb,
+  ungroupTracksVerb,
+  applyAnimTemplateVerb,
   type DeckSummary,
   type ValidateDeckResult,
 } from "./slides";

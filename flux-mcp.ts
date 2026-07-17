@@ -395,7 +395,7 @@ server.registerTool(
   "set_animation",
   {
     description:
-      "Add (or replace) an animation track on a beat — the general mechanism behind every preset. `target` is an element id, or '@camera'/'@stage'. `preset` picks the motion (fade, fadeRise, popIn, drawOn, stagger, writeOn, highlight, dim, move, scale, rotate, camera, morph, …). `part` targets one plot semantic id (leaf like 'fit.line' or group like 'axis.x' — groups fan out to their leaves at play time). `to` is the destination for morph (to.assetId = a second same-structure plot) / camera (to.{x,y,zoom}). `start`/`duration` are ms within the beat.",
+      "Add (or replace, within the same family) an animation track on a beat — the general mechanism behind every preset. Two FAMILIES: appearances (fade, fadeRise, popIn, drawOn, growBaseline, stagger, writeOn, exits, highlight, dim, countUp) and transforms ('transform' — prefer the ergonomic set_transform verb — plus legacy 'morph'); an appearance and a transform coexist on one object in one beat. `target` is an element id, or '@camera'/'@stage'. `part` targets one plot semantic id (leaf like 'fit.line' or group like 'axis.x' — groups fan out at play time). drawOn/drawOff take Trim-Path `params`: {anchor: 0..1 | corner-tl|top|corner-tr|right|corner-br|bottom|corner-bl|left|start|middle|end, direction: forward|reverse, mode: single|both-ends|middle-out, from, to}; writeOn/wipeOut take {direction: ltr|rtl|ttb|btt}. `to` carries a transform's sparse `state` patch, a morph's assetId, or a camera pose {x,y,zoom}. `influence` is the AE-style velocity profile {in,out} 0–100; `stagger` = {perMs, by: index|x|y, from: start|end|center|edges}; `groupId` joins a beat-local TrackGroup.",
     inputSchema: {
       deckId: z.string(),
       slideId: z.string(),
@@ -407,10 +407,23 @@ server.registerTool(
       duration: z.number().optional(),
       easing: z.string().optional(),
       params: z.record(z.any()).optional(),
-      to: z.object({ assetId: z.string().optional(), x: z.number().optional(), y: z.number().optional(), zoom: z.number().optional() }).optional(),
+      influence: z.object({ in: z.number(), out: z.number() }).optional(),
+      stagger: z.object({ perMs: z.number(), by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges"]).optional() }).optional(),
+      groupId: z.string().optional(),
+      to: z
+        .object({
+          assetId: z.string().optional(),
+          x: z.number().optional(),
+          y: z.number().optional(),
+          zoom: z.number().optional(),
+          state: z.record(z.any()).optional(),
+          svgPath: z.string().optional(),
+          manifestPath: z.string().optional(),
+        })
+        .optional(),
     },
   },
-  async ({ deckId, slideId, beatId, target, preset, part, start, duration, easing, params, to }) => {
+  async ({ deckId, slideId, beatId, target, preset, part, start, duration, easing, params, influence, stagger, groupId, to }) => {
     const track: import("./src/lib/slide/types").Track = { target };
     if (preset) track.preset = preset;
     if (part) track.part = part;
@@ -418,6 +431,9 @@ server.registerTool(
     if (duration != null) track.duration = duration;
     if (easing) track.easing = easing as import("./src/lib/slide/types").EasingToken;
     if (params) track.params = params;
+    if (influence) track.influence = influence;
+    if (stagger) track.stagger = stagger;
+    if (groupId) track.groupId = groupId;
     if (to) track.to = to;
     await core.setAnimation(ROOT, deckId, slideId, beatId, track);
     return ok(`set animation on beat ${beatId} (${preset ?? "keyframes"} → ${target})`);

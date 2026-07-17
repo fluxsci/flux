@@ -1,15 +1,18 @@
 # Flux Slide — build & animate a scientific talk (the 4th pillar)
 
 Flux Slide is a **figure-first talk creator and animator** — "PowerPoint meets 3blue1brown."
-You author a deck, animate it with one-click presets (including the signature **data-space
-morph**), and export **one self-contained `.html`** you can present offline on any browser
-(the flash-drive file). Agents are first-class authors: every slide mutation is a pure op,
-surfaced through flux-core **and the CLI *and* MCP** (structure, content, beats, animation —
-full parity), so you can build a whole animated talk from files, app open or closed.
+A **slide IS a figure** (deck `0.3.0`): its `elements` are the figure element union verbatim
+(`text`, `rect`, `ellipse`, `line`, `path`, `image`, `plot`) plus a presentation overlay of
+beats/transition/notes/camera. You animate with **two families** — (dis)Appearances and
+**Transforms** (the signature: any object tweens into a different version of itself) — and
+export **one self-contained `.html`** that presents offline on any browser. Agents are
+first-class authors: every mutation is a pure op surfaced through flux-core **and the CLI
+*and* MCP**, so you can build a whole animated talk from files, app open or closed.
 
 **The file is the API.** A deck is plain JSON at `slides/<deckId>/deck.json`, registered in
-`project.json.slides[]`. Edit it through the verbs (which lock + journal) or, for bulk authoring,
-through the pure ops — never hand-wave the schema; run `validate-deck` after.
+`project.json.slides[]`. Edit it through the verbs (which lock + journal) or, for bulk
+authoring, through the pure ops — never hand-wave the schema; run `validate-deck` after.
+(`0.2.0` decks auto-migrate on load; `0.1.x` is a sanctioned clean break.)
 
 ## The one rule that matters: ops-core-first
 
@@ -36,31 +39,72 @@ flux set-slide <deck> <slideId> [--name|--layout|--background|--transition|--not
 flux set-theme <deck> <theme>                  # (set_deck_theme)  flux-dark|light|midnight|slate|sepia|contrast
 
 # content (returns the new element id on stdout)
-flux add-text <deck> <slideId> "text…" [--x --y --width --height --align --color --font-size]   # (add_slide_text)
-flux add-math <deck> <slideId> "\\tex…" [--display] [--x …]                                       # (add_slide_math)
-flux add-embed-figure <deck> <slideId> <figureId> [--fit contain|cover|fill] [--x …]             # (add_slide_figure)
+flux add-text <deck> <slideId> "text…" [--x --y --width --height --align --color --size-pt --weight --sizing]   # (add_slide_text)
+flux add-figure <deck> <slideId> <figureId> [--x --y]   # (add_slide_figure)  COPY a project figure's content (fresh ids, native size)
 
-# animation
+# animation — (dis)appearances
 flux add-beat <deck> <slideId> [--label L]     # (add_beat)     append a build/advance step
 flux set-animation <deck> <slideId> <beatId> --target <elId|@camera|@stage> [--preset P] [--part id]
      [--start ms] [--duration ms] [--easing e] [--to-asset id] [--to-x --to-y --to-zoom] [--track '<json>']
                                                # (set_animation)  --track passes a full Track JSON; else built from flags
+flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default
+flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
+
+# animation — transforms (the signature family)
+flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state]
+     [--start ms] [--duration ms] [--easing e] [--to-asset id]                        # (set_transform)
+flux set-morph <deck> <slideId> <beatId> <elId> <toAssetId> [--duration ms]           # (set_morph)  legacy data-space form
+
+# lane organization + reuse
+flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
+flux ungroup-tracks <deck> <slideId> <beatId> t1,t2…              # (ungroup_tracks)
+flux apply-anim-template <deck> <slideId> <name|path.json> [--element id [--part axis.y] | --elements a,b,c] [--beat id]
+                                               # (apply_anim_template)  bind a saved preset bundle by role/type
 
 # verify + ship
-flux validate-deck [deck]                       # (validate_deck)  check against the bundled schema
+flux validate-deck [deck]                      # (validate_deck)  check against the bundled schema
 flux export-deck <deck> [--out F]              # (export_deck)   → self-contained exports/<deck>.html (offline)
 ```
 
-`add-embed-figure` is the primary way to put your composed figures into a deck: it references a
-project figure by id (no asset upload) and keeps the figure's **panels addressable**, so you can
-stagger them (a→b→c) or morph a plot inside it. `export-deck` gathers everything off disk
-(deck-local images → data URIs, semantic plots incl. morph targets → inline SVG + manifest,
-project figures → standalone SVG) and emits ONE file with the player, fonts (Gelasio + KaTeX),
-and KaTeX CSS all inlined. No network, no install to present.
+`add-figure` is the primary way to put composed figures into a deck: it copies a project
+figure's elements (same 96 px/inch ruler → native size) and keeps plot **panels addressable**,
+so you can stagger their parts or morph them. `export-deck` gathers everything off disk and
+emits ONE file with the player + fonts inlined. No network, no install to present.
 
-> Adding raw image/plot *assets* (uploading media bytes into a deck) is still GUI/Node-only —
-> from an agent, embed a **project figure** (above) instead, or script `ops.addAsset` +
-> `ops.addImageToSlide`/`addPlotToSlide` in Node (below).
+## The two families
+
+**1. (dis)Appearances** — an object arrives or leaves elegantly. Enters: `fade`, `fadeRise`,
+`popIn`, `growBaseline`, `drawOn`, `writeOn`, `stagger` (fan a child preset across a part set).
+Exits: `fadeOut`, `popOut`, `drawOff`, `wipeOut`. Emphasis: `highlight`, `dim`, `countUp`.
+An enter and an exit for the same object belong in DIFFERENT beats (same-family tracks on one
+beat replace each other).
+
+- **Trim Paths** (`drawOn`/`drawOff` `params`) — the featured stroke draw:
+  `anchor` (0..1, or `corner-tl|top|corner-tr|right|corner-br|bottom|corner-bl|left|start|middle|end`),
+  `direction` (`forward|reverse`), `mode` (`single|both-ends|middle-out`), `from`/`to`
+  (partial window, 0..1). A rect can draw from its top-right corner, meet in the middle from
+  both ends, or draw only its top half. Only STROKE-rendered shapes self-draw (a filled shape
+  fades — dash windows hide strokes alone). Defaults reproduce the classic full draw.
+- `writeOn`/`wipeOut` take `params.direction: ltr|rtl|ttb|btt`.
+- Timing knobs on every track: `start`, `duration`, `easing`
+  (`smooth|standard|enter|exit|linear`), `influence` ({in, out} 0–100, the AE velocity
+  profile), `stagger` ({perMs, by: index|x|y, from: start|end|center|edges}).
+
+**2. Transforms** — the object BECOMES a different version of itself: position, size, shape
+geometry, colors (blended in OKLab), opacity, dash, text (a pure numeric change digit-tweens;
+a rewrite crossfades — moving all the while), plot part styles, and (for plots) the data-space
+morph in one track. `set-transform` stores a **sparse patch** (`to.state`) against the
+track's pre-state; **chaining composes**: t1 of a later transform = the earlier one's end.
+Max ONE transform per element per beat — chain across beats. Never hand-compose states; pass
+the patch and let the engine fold. `--to-asset` adds the same-structure plot-data morph half.
+
+```
+flux set-transform talk s1 b2 el_rect --state '{"x": 420, "width": 220, "stroke": "#d14d41"}' --duration 700
+flux set-transform talk s1 b3 el_rect --state '{"opacity": 0.3}'        # chains: t1 = b2's end
+flux set-transform talk s1 b2 el_plot --state '{"width": 500}' --to-asset growthB   # frame + data morph
+```
+
+**Camera** is its own small family: `--target @camera --preset camera --to-x --to-y --to-zoom`.
 
 ## Authoring a deck in Node (bulk / precise work)
 
@@ -72,65 +116,57 @@ import * as ops from "./src/lib/slide/ops";
 
 const deck = ops.createDeck({ id: "defense", title: "Mycelial Growth" });   // seeds 1 slide
 const title = deck.slides[0].id;
-ops.addTextBox(deck, title, { text: "Mycelial growth under stress", x: 120, y: 250,
-                              width: 1040, height: 160, fontSize: 64, fontWeight: 700 });
+ops.addSlideText(deck, title, { text: "Mycelial growth under stress", x: 60, y: 120,
+                                width: 520, height: 60, fontSize: 32, fontWeight: 700 });
 
-const s = ops.addSlide(deck, { name: "Results", layout: "content-figure" }).id;
-// rich text with bullets — blocks carry markers + emphasis
-const body = ops.addTextBox(deck, s, { x: 90, y: 150, width: 560, height: 360, fontSize: 34, blocks: [
-  ops.makeBlock("Growth doubles under stress", { marker: "bullet" }),
-  ops.makeBlock("…but only above 24 °C",       { marker: "bullet", emphasis: "accent" }),
-]});
-ops.addMath(deck, s, { tex: "\\frac{dN}{dt}=rN\\left(1-\\frac{N}{K}\\right)", x: 90, y: 540,
-                       width: 560, height: 110, display: true });
-ops.addPlotToSlide(deck, s,  { assetId: "growthA", x: 700, y: 150, width: 480, height: 400 });
-ops.addEmbedFigure(deck, s,  { figureId: "growth", x: 700, y: 150, width: 480, height: 400 });
-ops.addImageToSlide(deck, s, { assetId: "scope-shot", x: 1100, y: 40, width: 120, height: 120 });
-ops.addRect(deck, s, { x: 80, y: 120, width: 600, height: 4 });   // + addEllipse / addLine
+const s = ops.addSlide(deck, { name: "Results", layout: "blank" }).id;      // blank = no starter text
+ops.addSlideText(deck, s, { text: "Growth doubles under stress", x: 45, y: 40, fontSize: 18 });
+ops.addPlotToSlide(deck, s,  { assetId: "growthA", x: 320, y: 60, width: 280, height: 230 });
+ops.addImageToSlide(deck, s, { assetId: "scope-shot", x: 40, y: 250, width: 90, height: 70 });
+ops.addElement(deck, s, { type: "rect", id: "hero", x: 40, y: 90, width: 120, height: 80,
+                          rotation: 0, fill: "none", stroke: "#4385be", strokeWidth: 3, cornerRadius: 0 });
+
+const b1 = ops.addBeat(deck, s, { label: "draw" })!;
+ops.setAnimation(deck, s, b1.id, { target: "hero", preset: "drawOn", duration: 700,
+                                   params: { mode: "both-ends" } });
+const b2 = ops.addBeat(deck, s, { label: "become" })!;
+ops.setTransform(deck, s, b2.id, "hero", { state: { x: 420, stroke: "#d14d41" }, duration: 600 });
+ops.groupTracks(deck, s, b2.id, [/* track ids */], "Hero move");
 
 await core.saveDeck(root, deck);          // locks + journals + registers in project.json
 await core.exportDeck(root, "defense");   // → exports/defense.html
 ```
 
-**Gotcha:** `ops.findElement(deck, elId)` returns `{ slide, el } | null` — use `.el`, not the
-wrapper. Element types: `textBox`, `math`, `image`, `video`, `plot` (semantic, addressable parts),
-`embedFigure`, and shapes `rect`/`ellipse`/`line`.
+**Gotchas:** `ops.findElement(deck, elId)` returns `{ slide, el } | null` — use `.el`. The
+stage is the FIGURE ruler (default 640×360 = a ~6.7″ frame; fontSize in canvas px = pt × 4/3).
+`addSlide` with a non-blank layout seeds placeholder starter text only when `starters: true`.
 
-## Animation: beats + tracks + presets
+## Beats, resting state, and determinism
 
-Motion is built from **beats** (one-button advance steps) carrying **tracks** (animations). A track
-names a `target` element, a `preset`, and an optional `selector`/`to`. The player computes a
-deterministic **resting state** at any (slide, beat) — so preview, present, and export all agree,
-and back/forward is reversible.
+Motion is built from **beats** (one-button advance steps) carrying **tracks**. Beat 0 is the
+slide's resting state — pinned, never animated. The player computes a deterministic resting
+look at any (slide, beat): every transform ≤ the current beat rests at its composed end;
+enters are hidden before their beat; exits after. Preview, present, and export share ONE
+engine, so they agree by construction. Tracks whose element was deleted are TOLERATED
+(no-op + ⚠ in the animator, never auto-pruned — undo restores the pair).
 
-```ts
-const reveal = ops.addBeat(deck, s, { label: "reveal", advance: "click" })!;
-// stagger the bullets in (selector.blocks "all" → each .sl-block, offset by perMs)
-ops.setAnimation(deck, s, reveal.id, { target: body, selector: { blocks: "all" },
-                                       preset: "stagger", duration: 320, stagger: { perMs: 110 } });
+Track groups (`Beat.groups[]` + `Track.groupId`) are presentational animator lanes — they
+never change playback. Collapse state persists in the deck (you can read the authoring
+layout).
 
-const grow = ops.addBeat(deck, s, { label: "morph", advance: "click" })!;
-// the crown jewel: morph plot A → plot B in DATA space (log-aware, axis-rescaling)
-ops.setAnimation(deck, s, grow.id, { target: plotEl, preset: "morph",
-                                     to: { assetId: "growthB" }, duration: 1200, easing: "smooth" });
-```
-
-**Preset catalog** (`src/lib/slide/player/presets.ts`): `fade`, `fadeRise`, `popIn`, `growBaseline`,
-`writeOn`, `drawOn`, `move`/`scale`/`rotate`, `highlight`/`dim`, `camera` (push in on a region),
-`stagger` (apply a child preset across text blocks / plot parts), and `morph`. **Targeting:** whole
-element (default), text blocks via `selector.blocks`, a single plot part via `track.part`
-(`${elId}__${semanticId}`), a set of parts via `selector` role/series/index, or `@camera`/`@stage`.
-
-Keep the data model forward-compatible with full per-property keyframing — don't invent a parallel
-animation format; extend tracks.
+**Reuse:** presets (one track's settings) live at `<FluxConfig>/presets/animations/`,
+templates (bundles with role/type matchers) at `<FluxConfig>/presets/anim-templates/`.
+`apply-anim-template` binds a template by part ROLE within a container (an x-axis-derived
+template lands on a y-axis) or by element type + document order — partial matches are
+reported, never invented.
 
 ## The constitution (do not violate — `notes/style_principles.md`)
 
 - **P1 Instantaneous authoring** — adding a slide/element/beat is immediate; never block the author.
-- **P2/P3 Signature motion is rare & meaningful** — the morph and big builds earn their moment;
+- **P2/P3 Signature motion is rare & meaningful** — transforms and big builds earn their moment;
   everything else is a quick, quiet cut or fade. Don't animate for its own sake.
 - **P5 Two-tier perf** — Tier-1 (transform/opacity) is free; Tier-2 (stroke-dashoffset, clip-path,
-  morph `d` rewrites) is surgical. Never animate layout/paint properties in bulk.
+  transform/morph re-renders) is surgical. Never animate layout/paint properties in bulk.
 - **P6 Reduced-motion collapses to cuts** — honored automatically by the player; don't fight it.
 - **P7 Look** — Flexoki dark, serif body (Gelasio), a single blue accent. 1–2 themes; make/reuse a
   custom theme rather than reaching for a library of presets. `ops.setTheme` / `setStageSize`.
@@ -149,9 +185,11 @@ animation format; extend tracks.
 ## Verify your work
 
 - `flux validate-deck <id>` — schema-check the deck.
-- Headless ops/player/morph/export tests: `npx tsx scripts/verify-slide-{edit,player,morph,export,export-core}.ts`.
-- The real test for a talk: export it and **open the `.html` offline** — title, math, builds, and
-  morphs must all play with arrow keys and a clicker, no network.
+- Headless ops/player/tween/trim/export tests:
+  `npx tsx scripts/verify-slide-{track-ops,player,tween,morph,export-transform}.ts` and
+  `npx tsx scripts/verify-trim.ts`.
+- The real test for a talk: export it and **open the `.html` offline** — title, builds, trims,
+  transforms, and morphs must all play with arrow keys and a clicker, no network.
 
-Related: `references/project-and-figures.md` (figures you embed), `references/plots-and-style.md`
+Related: `references/project-and-figures.md` (figures you copy in), `references/plots-and-style.md`
 (semantic plots you morph), `references/cli.md` (running the verbs).
