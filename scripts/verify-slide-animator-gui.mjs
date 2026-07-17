@@ -206,6 +206,108 @@ try {
   await page.evaluate(() => document.querySelector(".beatrail .grp-row .chev")?.click());
   await sleep(200);
 
+  // --- Phase-4 properties: TRIM controls (drawOn) --------------------------------
+  await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    const t = o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect");
+    f.slide.selTrackIds.set([t.id]);
+  });
+  await sleep(150);
+  await page.evaluate(() => {
+    const sel = document.querySelector('.props [data-fld="p"]');
+    sel.value = "drawOn";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await sleep(200);
+  ok(await page.evaluate(() => !!document.querySelector(".props .trim")), "a drawOn track shows the Trim path controls");
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".props .trim .sg2")].find((b) => /both ends/.test(b.textContent || ""))?.click();
+  });
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".props .trim .pb")].find((b) => b.title?.includes("the tr corner"))?.click();
+  });
+  await sleep(200);
+  const trimWrote = await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    const t = o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect");
+    return t.params;
+  });
+  ok(trimWrote?.mode === "both-ends" && trimWrote?.anchor === "corner-tr", `trim controls write Track.params (${JSON.stringify(trimWrote)})`);
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".props .trim .sg2")].find((b) => /single/.test(b.textContent || ""))?.click();
+  });
+  await sleep(150);
+  const trimDefaults = await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    const t = o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect");
+    return t.params;
+  });
+  ok(trimDefaults?.mode === undefined && trimDefaults?.anchor === "corner-tr", "a param set back to its DEFAULT deletes the key (legacy compile path preserved)");
+
+  // writeOn direction select
+  await page.evaluate(() => {
+    const sel = document.querySelector('.props [data-fld="p"]');
+    sel.value = "writeOn";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await sleep(200);
+  await page.evaluate(() => {
+    const sel = [...document.querySelectorAll(".props select")].find((s) => [...s.options].some((o) => /left → right/.test(o.textContent || "")));
+    sel.value = "btt";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await sleep(150);
+  const wipeDir = await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    return o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect")?.params?.direction;
+  });
+  ok(wipeDir === "btt", "writeOn's direction select writes params.direction");
+
+  // --- Phase-4 properties: transform Δ chips + clear ------------------------------
+  const deltaSetup = await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    let tid = "";
+    f.slide.commitDeckLive((d) => {
+      const b = f.slideOps.slideById(d, sid).beats[1];
+      const t = f.slideOps.setTransform(d, sid, b.id, "anim-ell", { state: { x: 500, fill: "#111111" } });
+      tid = t?.id ?? "";
+    });
+    f.slide.selTrackIds.set([tid]);
+    return tid;
+  });
+  await sleep(200);
+  const deltaChips = await page.evaluate(() => [...document.querySelectorAll(".props .dchip")].map((c) => c.textContent?.replace("✕", "").trim()));
+  ok(deltaChips.includes("x") && deltaChips.includes("fill"), `the transform Δ summary lists the captured props (${deltaChips.join(",")})`);
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".props .dchip")].find((c) => c.textContent?.includes("fill"))?.querySelector(".dx")?.click();
+  });
+  await sleep(150);
+  const afterDrop = await page.evaluate((tid) => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    return o.slides.find((x) => x.id === sid).beats.flatMap((b) => b.tracks).find((t) => t.id === tid)?.to?.state;
+  }, deltaSetup);
+  ok(afterDrop?.x === 500 && !("fill" in (afterDrop ?? {})), "✕ drops ONE captured prop from to.state");
+  await page.evaluate(() => document.querySelector(".props .dclear")?.click());
+  await sleep(150);
+  const afterClear = await page.evaluate((tid) => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    return o.slides.find((x) => x.id === sid).beats.flatMap((b) => b.tracks).find((t) => t.id === tid)?.to?.state;
+  }, deltaSetup);
+  ok(afterClear && Object.keys(afterClear).length === 0, "clear t₂ resets the patch (t₂ ≡ t₁)");
+
   // Preview plays via the player, then tears down — and NO rAF loop survives
   await page.evaluate(() => {
     window.__rafCount = 0;

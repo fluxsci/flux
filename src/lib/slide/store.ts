@@ -433,6 +433,13 @@ export function enterEndpointEdit(trackIds: Id[], end: "t1" | "t2"): EndpointEdi
   return entries;
 }
 
+/** Re-derive the checkout display after a PROPERTIES-side edit to the
+ *  checked-out track's state (dropping a Δ prop, Clear t₂): the sync mirror
+ *  is one-way (canvas → track), so track-side edits push back explicitly. */
+export function refreshEndpointDisplay(): void {
+  if (get(endpointEdit)) reprojectCheckoutDisplay();
+}
+
 /** Exit the checkout (the ONE central exit — Esc, animator close, slide
  *  switch, preview/present/export start, mode unmount, project close):
  *  restores every baseline into the store (history-invisible) and clears. */

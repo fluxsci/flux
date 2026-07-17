@@ -10,8 +10,10 @@
   // Absorbs the old TrackEditor strip (same data-fld letters for the dock's
   // keyboard cockpit). The accent border reads pink for appearances, green
   // for transforms — the mockups' color language.
-  import { selTrackIds, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";
+  import { selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive } from "../../../../lib/slide/store";
   import { familyOf } from "../../../../lib/slide/family";
+  import { morphCompatible } from "../../../../lib/slide/player/morph";
+  import { plotManifests } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel } from "./shared";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
@@ -78,6 +80,84 @@
     const st = curTrack?.to?.state as Record<string, unknown> | undefined;
     return st ? Object.keys(st) : [];
   });
+
+  // --- transform Δ management (drop a captured prop / clear t2 / morph row) --
+  function withCurTrack(fn: (t: Track) => void) {
+    const id = curTrack?.id;
+    if (!id) return;
+    commitDeckLive((d) => {
+      for (const s of d.slides) for (const b of s.beats) {
+        const t = b.tracks.find((x) => x.id === id);
+        if (t) fn(t);
+      }
+    });
+    refreshEndpointDisplay();
+  }
+  function dropChangedProp(k: string) {
+    withCurTrack((t) => {
+      const st = (t.to?.state ?? {}) as Record<string, unknown>;
+      delete st[k];
+      t.to = { ...(t.to ?? {}), state: st };
+    });
+  }
+  function clearT2() {
+    withCurTrack((t) => {
+      t.to = { ...(t.to ?? {}), state: {} };
+    });
+  }
+  // morph-content row: other compatible plots on the slide (plot targets only)
+  const curTargetEl = $derived(curTrack ? slide.elements.find((e) => e.id === curTrack.target) : null);
+  const morphTargets = $derived.by(() => {
+    if (curTargetEl?.type !== "plot" || curFamily !== "transform") return [];
+    const m = $plotManifests;
+    const A = m[curTargetEl.assetId];
+    return slide.elements
+      .filter((e) => e.type === "plot" && e.id !== curTargetEl.id)
+      .map((e) => {
+        const assetId = (e as { assetId: string }).assetId;
+        return { assetId, label: [plotTags.get(e.id), m[assetId]?.plotType].filter(Boolean).join(" · ") || assetId, compatible: morphCompatible(A, m[assetId]) };
+      });
+  });
+  function setMorphTarget(assetId: string) {
+    withCurTrack((t) => {
+      t.to = { ...(t.to ?? {}) };
+      if (!assetId) {
+        delete t.to.assetId;
+        delete t.to.svgPath;
+        delete t.to.manifestPath;
+      } else t.to.assetId = assetId;
+    });
+  }
+
+  // --- trim-path params (drawOn/drawOff — rework §5) -------------------------
+  const isTrim = $derived(curFamily === "appearance" && (curTrack?.preset === "drawOn" || curTrack?.preset === "drawOff"));
+  const isWipe = $derived(curFamily === "appearance" && (curTrack?.preset === "writeOn" || curTrack?.preset === "wipeOut"));
+  const trimP = $derived((curTrack?.params ?? {}) as { anchor?: number | string; direction?: string; mode?: string; from?: number; to?: number });
+  /** Write one trim param; a value equal to its default DELETES the key so
+   *  default decks keep the legacy byte-identical compile path. */
+  function setTrim(key: "anchor" | "direction" | "mode" | "from" | "to", value: unknown) {
+    const DEF: Record<string, unknown> = { anchor: 0, direction: "forward", mode: "single", from: 0, to: 1 };
+    withSelectedTracks((t) => {
+      const p = { ...(t.params ?? {}) } as Record<string, unknown>;
+      const isDefault = value === DEF[key] || value === "" || value == null || (key === "anchor" && (value === "start" || value === 0));
+      if (isDefault) delete p[key];
+      else p[key] = value;
+      if (Object.keys(p).length) t.params = p;
+      else delete t.params;
+    });
+  }
+  // the anchor pad: named positions laid out spatially (rect/ellipse corners +
+  // edges; paths get start/middle/end below)
+  const PAD: (string | null)[] = ["corner-tl", "top", "corner-tr", "left", null, "right", "corner-bl", "bottom", "corner-br"];
+  const PAD_GLYPH: Record<string, string> = {
+    "corner-tl": "◤", top: "▲", "corner-tr": "◥", left: "◀", right: "▶", "corner-bl": "◣", bottom: "▼", "corner-br": "◢",
+  };
+  const anchorIsNamed = $derived(typeof trimP.anchor === "string");
+  const trimGeoKind = $derived.by(() => {
+    const el = curTargetEl;
+    if (!el) return "path";
+    return el.type === "rect" || el.type === "ellipse" ? "shape" : "path";
+  });
 </script>
 
 <div class="props" class:tx={curFamily === "transform"}>
@@ -114,9 +194,24 @@
         <div class="note">Editing <b>t₁</b> — this rewrites the previous transform's end state.</div>
       {/if}
       {#if changedProps.length}
-        <div class="delta" title="The properties this transform changes at t₂">
-          Δ {changedProps.join(", ")}
+        <div class="delta" title="The properties this transform changes at t₂ — ✕ drops one">
+          <span class="dl">Δ</span>
+          {#each changedProps as k (k)}
+            <span class="dchip">{k}<button class="dx" title={`Drop the ${k} change`} onclick={() => dropChangedProp(k)}>✕</button></span>
+          {/each}
+          <button class="dclear" title="Reset t₂ to equal t₁ (drop every change)" onclick={clearT2}>clear t₂</button>
         </div>
+      {/if}
+      {#if morphTargets.length}
+        <label class="f">data morph
+          <select value={curTrack.to?.assetId ?? ""} title="Also morph the plot's DATA into another plot on the slide (same-structure plots only) while the frame transforms"
+            onchange={(e) => setMorphTarget(e.currentTarget.value)}>
+            <option value="">none</option>
+            {#each morphTargets as m (m.assetId)}
+              <option value={m.assetId} disabled={!m.compatible}>{m.label}{m.compatible ? "" : " (incompatible)"}</option>
+            {/each}
+          </select>
+        </label>
       {/if}
     {:else if curFamily !== "transform"}
       <label class="f">preset<kbd class="kc" title="shortcut: p">p</kbd>
@@ -148,6 +243,72 @@
           </select>
         </label>
       {/if}
+    {/if}
+    {#if isWipe}
+      <label class="f">direction
+        <select value={(curTrack.params?.direction as string) ?? "ltr"} title="Which way the reveal/wipe travels"
+          onchange={(e) => { const v = e.currentTarget.value; withSelectedTracks((t) => { const p = { ...(t.params ?? {}) }; if (v === "ltr") delete p.direction; else p.direction = v; if (Object.keys(p).length) t.params = p; else delete t.params; }); }}>
+          <option value="ltr">left → right</option>
+          <option value="rtl">right → left</option>
+          <option value="ttb">top → bottom</option>
+          <option value="btt">bottom → top</option>
+        </select>
+      </label>
+    {/if}
+    {#if isTrim}
+      <!-- TRIM PATHS (rework §5) — the featured draw controls: where the draw
+           anchors, which way it runs, single/both-ends/middle-out, and the
+           final [from,to] window. Defaults keep the legacy compile path. -->
+      <div class="trim">
+        <div class="tl">Trim path</div>
+        <div class="f seg2" role="group" aria-label="Trim mode">
+          <button class="sg2" class:on={(trimP.mode ?? "single") === "single"} title="One window grows from the anchor" onclick={() => setTrim("mode", "single")}>single</button>
+          <button class="sg2" class:on={trimP.mode === "both-ends"} title="Draw from both ends, meet in the middle" onclick={() => setTrim("mode", "both-ends")}>both ends</button>
+          <button class="sg2" class:on={trimP.mode === "middle-out"} title="Grow outward from the anchor symmetrically" onclick={() => setTrim("mode", "middle-out")}>middle out</button>
+        </div>
+        <div class="f">
+          <span class="fl">direction</span>
+          <button class="dirb" class:on={(trimP.direction ?? "forward") === "forward"} title="Along the stroke direction" onclick={() => setTrim("direction", "forward")}>⟳ fwd</button>
+          <button class="dirb" class:on={trimP.direction === "reverse"} title="Against the stroke direction" onclick={() => setTrim("direction", "reverse")}>⟲ rev</button>
+        </div>
+        <div class="f anch">
+          <span class="fl">anchor</span>
+          {#if trimGeoKind === "shape"}
+            <span class="pad" role="group" aria-label="Draw anchor">
+              {#each PAD as p, i (i)}
+                {#if p}
+                  <button class="pb" class:on={trimP.anchor === p} title={`Draw from ${p.replace("corner-", "the ")} ${p.startsWith("corner") ? "corner" : "edge midpoint"}`}
+                    onclick={() => setTrim("anchor", p)}>{PAD_GLYPH[p]}</button>
+                {:else}
+                  <span class="pb void"></span>
+                {/if}
+              {/each}
+            </span>
+          {:else}
+            <span class="unit">
+              <button class="dirb" class:on={trimP.anchor == null || trimP.anchor === 0 || trimP.anchor === "start"} onclick={() => setTrim("anchor", 0)}>start</button>
+              <button class="dirb" class:on={trimP.anchor === "middle" || trimP.anchor === 0.5} onclick={() => setTrim("anchor", "middle")}>mid</button>
+              <button class="dirb" class:on={trimP.anchor === "end" || trimP.anchor === 1} onclick={() => setTrim("anchor", "end")}>end</button>
+            </span>
+          {/if}
+        </div>
+        <div class="f">
+          <span class="fl" title="Fine anchor position along the stroke, 0–1 (overrides the pad)">at</span>
+          <span class="unit">
+            <input type="number" min="0" max="1" step="0.05" value={typeof trimP.anchor === "number" ? trimP.anchor : ""}
+              placeholder={anchorIsNamed ? String(trimP.anchor) : "0"}
+              onchange={(e) => { const v = e.currentTarget.value; setTrim("anchor", v === "" ? 0 : Math.max(0, Math.min(1, Number(v)))); }} />
+          </span>
+        </div>
+        <div class="f">
+          <span class="fl" title="Partial trim: the final drawn window of the stroke (fractions 0–1)">window</span>
+          <span class="unit">
+            <input type="number" min="0" max="1" step="0.05" value={trimP.from ?? 0} title="from" onchange={(e) => setTrim("from", Math.max(0, Math.min(1, Number(e.currentTarget.value))))} />
+            <small>→</small>
+            <input type="number" min="0" max="1" step="0.05" value={trimP.to ?? 1} title="to" onchange={(e) => setTrim("to", Math.max(0, Math.min(1, Number(e.currentTarget.value))))} />
+          </span>
+        </div>
+      </div>
     {/if}
     <label class="f">easing<kbd class="kc" title="shortcut: e">e</kbd>
       <select data-fld="e" value={curTrack.easing ?? (curFamily === "transform" ? "smooth" : "standard")} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"] })}>
@@ -215,9 +376,50 @@
   .note { color: var(--c-tx-3, #878580); font-size: 10px; line-height: 1.5; }
   .note b { color: var(--c-tx-2, #b7b5ac); }
   .delta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
     font-size: 10px; color: #879a39; border: 1px dashed color-mix(in oklab, #66800b 45%, transparent);
-    border-radius: 4px; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis;
+    border-radius: 4px; padding: 3px 6px;
   }
+  .delta .dl { font-weight: 700; }
+  .dchip {
+    display: inline-flex; align-items: center; gap: 2px;
+    border: 1px solid color-mix(in oklab, #66800b 40%, transparent); border-radius: 3px; padding: 0 2px 0 4px;
+    color: var(--c-tx-2, #b7b5ac);
+  }
+  .dx { border: none; background: none; color: var(--c-tx-3, #878580); cursor: pointer; font-size: 8px; padding: 0 2px; }
+  .dx:hover { color: var(--c-danger, #d14d41); }
+  .dclear {
+    margin-left: auto; border: none; background: none; cursor: pointer;
+    color: var(--c-tx-3, #878580); font-size: 9px; text-decoration: underline dotted;
+  }
+  .dclear:hover { color: var(--c-danger, #d14d41); }
+  .trim {
+    display: flex; flex-direction: column; gap: 5px;
+    border: 1px solid color-mix(in oklab, #4385be 35%, transparent); border-radius: 6px; padding: 5px 7px;
+  }
+  .trim .tl { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #4385be; }
+  .seg2 { display: flex; gap: 0; border: 1px solid var(--c-line-strong, #343331); border-radius: 4px; overflow: hidden; }
+  .sg2 {
+    flex: 1; font-size: 9.5px; color: var(--c-tx-3, #878580); background: var(--c-bg, #100f0f);
+    border: none; padding: 2px 4px; cursor: pointer; white-space: nowrap;
+  }
+  .sg2 + .sg2 { border-left: 1px solid var(--c-line, #282726); }
+  .sg2.on { color: var(--c-on-accent, #fff); background: var(--c-accent, #4385be); }
+  .dirb {
+    font-size: 9.5px; color: var(--c-tx-3, #878580); background: var(--c-bg, #100f0f);
+    border: 1px solid var(--c-line, #403e3c); border-radius: 3px; padding: 1px 6px; cursor: pointer;
+  }
+  .dirb.on { color: var(--c-on-accent, #fff); background: var(--c-accent, #4385be); border-color: var(--c-accent, #4385be); }
+  .anch { align-items: flex-start; }
+  .pad { display: grid; grid-template-columns: repeat(3, 17px); gap: 2px; }
+  .pb {
+    width: 17px; height: 15px; padding: 0; font-size: 8px; line-height: 1; cursor: pointer;
+    color: var(--c-tx-3, #878580); background: var(--c-bg, #100f0f);
+    border: 1px solid var(--c-line, #403e3c); border-radius: 3px;
+  }
+  .pb:hover { color: var(--c-tx-hi, #cecdc3); border-color: var(--c-tx-3, #878580); }
+  .pb.on { color: var(--c-on-accent, #fff); background: var(--c-accent, #4385be); border-color: var(--c-accent, #4385be); }
+  .pb.void { border: none; background: none; cursor: default; }
   .f { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: var(--c-tx-3, #878580); }
   .f .fl { flex: 0 0 auto; }
   .unit { display: inline-flex; align-items: center; gap: 3px; }

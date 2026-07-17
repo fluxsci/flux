@@ -8,6 +8,7 @@
   // visible by default (hide statically via the X-ray/Layers), and a track
   // exists only when an object animates — select an object anywhere and
   // press ⌃⇧A / ⌃⇧D / ⌃⇧T.
+  import { untrack } from "svelte";
   import { deckOverlay, activeBeat, commitDeckLive, selTrackIds } from "../../../lib/slide/store";
   import { selection, partSelection } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
@@ -156,12 +157,22 @@
       if (t) { selTrackIds.set(t.id ? [t.id] : []); activeBeat.set(bi); break; }
     }
   });
+  // Guarded: fires only when the SELECTION itself changes — the lane
+  // selection is read untracked (an explicit lane click that disagrees with
+  // the canvas selection must never be clobbered by this sync).
+  let lastSyncedSel = "";
   $effect(() => {
     const ids = [...$selection];
-    if ($partSelection || ids.length !== 1 || !slide) return;
-    const b = slide.beats[$activeBeat];
+    const key = ids.join(",");
+    if ($partSelection || ids.length !== 1 || !slide) {
+      lastSyncedSel = key;
+      return;
+    }
+    if (key === lastSyncedSel) return;
+    lastSyncedSel = key;
+    const b = slide.beats[untrack(() => $activeBeat)];
     const t = b?.tracks.find((tk) => tk.target === ids[0] && !tk.part);
-    if (t?.id && !$selTrackIds.includes(t.id)) selTrackIds.set([t.id]);
+    if (t?.id && !untrack(() => $selTrackIds).includes(t.id)) selTrackIds.set([t.id]);
   });
 
   function focusDock() {
