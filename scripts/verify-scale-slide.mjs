@@ -148,6 +148,52 @@ try {
     return count;
   });
   ok(rafAnim <= 6, `zero ambient rAF at rest WITH the animator open (${rafAnim} calls in 800ms)`);
+
+  // --- TRANSFORM PLAYBACK frame budget (rework §16: 60fps => p95 ≤ 17ms) --------------
+  // One beat, 4 concurrent transforms: 3 shapes (move+resize+recolor — full
+  // content re-render per frame) + the slide's PLOT (frame resize — the
+  // per-frame compensate/override path). Frame deltas sampled during REAL
+  // playback via the preview player.
+  const playFrames = await page.evaluate(async () => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    f.fig.commit((p) => {
+      const fig = p.figures.find((x) => x.id === sid);
+      for (let i = 0; i < 3; i++) {
+        fig.elements.push({ type: "rect", id: `tp-r${i}`, x: 20 + i * 60, y: 250, width: 40, height: 30, rotation: 0, fill: "#4385be", stroke: "#222", strokeWidth: 1.5, cornerRadius: 0 });
+      }
+    });
+    f.slide.commitDeckLive((d) => {
+      const s = f.slideOps.slideById(d, sid);
+      const beatId = s.beats[1].id;
+      for (let i = 0; i < 3; i++) {
+        f.slideOps.setTransform(d, sid, beatId, `tp-r${i}`, {
+          state: { x: 320 + i * 70, width: 90, fill: "#d14d41", rotation: 20 }, duration: 700,
+        });
+      }
+      const plot = s.elements.find((e) => e.type === "plot");
+      if (plot) f.slideOps.setTransform(d, sid, beatId, plot.id, { state: { width: plot.width * 1.3, contentScale: 1.1 }, duration: 700 });
+    });
+    // drive REAL playback and sample rAF frame deltas mid-flight
+    const deltas = [];
+    await new Promise((resolve) => {
+      [...document.querySelectorAll(".animator .bar button")].find((b) => /Preview/.test(b.textContent || ""))?.click();
+      let last = 0;
+      let n = 0;
+      const tick = (ts) => {
+        if (last) deltas.push(ts - last);
+        last = ts;
+        if (++n < 45) requestAnimationFrame(tick);
+        else resolve();
+      };
+      setTimeout(() => requestAnimationFrame(tick), 650); // land inside the playing beat
+    });
+    document.querySelector(".preview-stop")?.click();
+    return deltas;
+  });
+  await sleep(400);
+  const playP95 = p95(playFrames);
+  ok(playP95 <= 17, `transform playback p95 frame ${playP95.toFixed(1)}ms ≤ 17ms (3 shape transforms + 1 plot frame transform concurrent, ${playFrames.length} frames)`);
   await page.evaluate(() => {
     [...document.querySelectorAll(".deckbar button")].find((b) => /Animate/.test(b.textContent || ""))?.click();
   });
@@ -181,6 +227,7 @@ try {
         slideSwitchMs: { p95: swP95, samples: switches.map((x) => +x.toFixed(1)) },
         staticEditMs: { p95: editP95 },
         animatorEditMs: { p95: animP95 },
+        transformPlaybackFrameMs: { p95: playP95 },
         rafIn800ms: raf,
         rafAnimatorOpenIn800ms: rafAnim,
         thumbRerendersPerEdit: thumbs.rerenders,

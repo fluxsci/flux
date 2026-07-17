@@ -80,6 +80,9 @@ The established shared cores — extend these, don't duplicate them:
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
+| Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
+| Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
+| Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
@@ -90,12 +93,16 @@ The established shared cores — extend these, don't duplicate them:
 
 A project is a folder: `project.json` (manifest), `manuscript/**.qmd` (text is truth),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
-`slides/<deckId>/deck.json` (0.2.0, **slides-are-figures**: a slide's `elements`
-is the figure `Element` union verbatim + a presentation overlay of beats/
-transition/notes/camera; deck-local media under `slides/<id>/assets/`, figure
-`Asset` shape; project plots/fig media resolved BY ID, never copied in;
-`0.1.x` decks are a sanctioned clean break — they fail validation and
-quarantine, no migration), `references/library.bib` (the project's *cited subset*),
+`slides/<deckId>/deck.json` (0.3.0, **slides-are-figures** + the animation
+rework: a slide's `elements` is the figure `Element` union verbatim + a
+presentation overlay of beats/transition/notes/camera; tracks animate in two
+FAMILIES — appearances and transforms (`to.state` = a sparse t2 patch folded
+left-to-right across beats; `Beat.groups` = collapsible animator lanes);
+deck-local media under `slides/<id>/assets/`, figure `Asset` shape; project
+plots/fig media resolved BY ID, never copied in; `0.2.0` decks migrate via a
+pure stamp at the normalizeDeck chokepoint; `0.1.x` decks remain a sanctioned
+clean break — they fail validation and quarantine, no migration),
+`references/library.bib` (the project's *cited subset*),
 `.meta/` (locks, journal, live bridge). Machine-global state lives in `~/FluxConfig`
 (pointer pref `fluxConfigPath`); the reference library is **always derived** as
 `<FluxConfig>/FluxLib` — never persist or read a separate `fluxLibPath`
@@ -375,6 +382,15 @@ at Home) is the gate. Mode warms belong in `requestIdleCallback`.
   wanted. Theme fonts bind at layout-starter creation (no live restyle). A
   fluxplot "presentation" render style (bigger labels for projection) is a
   fluxplot-side follow-up. Do not rebuild any of these casually.
+- **Animation-rework deferrals (2026-07-17):** the S/A/M tri-state TREE is
+  GONE from the GUI (everything is visible by default; the X-ray's `x` hide
+  is the one static-hiding mechanism) — `setPartVisibility` remains as the
+  headless/back-compat op + verb only; don't resurrect a GUI tri-state.
+  Cross-type transforms (rect→text) and per-part transform tracks are
+  deliberately out of v1 (part styling changes ride the plot transform's
+  `overrides` diff). Character-level text morph is the flagged Phase-8
+  enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
+  digit-tween).
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
 
@@ -728,3 +744,44 @@ space; the collection name is a sister-folder switcher (plain click lists siblin
 Ctrl+click opens the picker); and Ctrl+click / Ctrl+Enter opens a Compare view — one item
 across ALL sets at once, tiles packed optimally for the known aspect, set-name captions,
 click-through to Detail with Esc stepping back. Sidecar-only work; no Flux files touched.
+
+### 2026-07-17 — Animation rework: transforms + trim + the Animator (Claude Fable 5, `animation_overhaul`)
+**Work:** Executed notes/flux_animation_rework/PLAN.md phases 0–7 end to end. Deck 0.3.0
+(first minor bump WITH a migration — a pure stamp at normalizeDeck; 0.1.x stays the clean
+break). Two animation families: appearances (enriched — full Trim Paths on drawOn/drawOff
+with anchor/direction/mode/partial windows; writeOn direction) and TRANSFORMS (an element
+tweens into a different version of itself: sparse `to.state` diffs folded across beats,
+OKLab colors, arc-length path resampling, digit-tweened numeric text, crossfade fallback
+that still moves, plot frame + data-morph in one track). Endpoint checkout: t1/t2 edit with
+the WHOLE editor via a model swap, overlay-only diff sync riding the canvas commit's undo
+entry, and a fold guard so deck.json can never contain a composed state (gated:
+autosave-mid-checkout is byte-clean). New Animator pane (beat chips + one expanded beat +
+collapsible track groups + t₁—t₂ transform lanes + properties mini-pane), ⌃⇧A/⌃⇧D/⌃⇧T
+chords, S/A/M tree deleted. Machine-global presets + role/type-matched templates (animlib
+IPC; axis-swap apply). Headless: set_transform / group_tracks / ungroup_tracks /
+apply_anim_template verbs (92 total, goldens regenerated), slides.md rewritten. Acceptance:
+pure 134/134, ui 50/50, scale-slide extended (animator edit p95 16.8ms, playback p95
+16.7ms = vsync, 0 ambient rAF), Edge-of-Chaos verified in the export (44 states, 0 errors,
+both morphs 75+ mid-flight frames) AND the real Electron app (x11 + CDP, positive boot
+evidence, deck migrated in memory, morph live in present, owner files byte-untouched).
+**Learnings:**
+- Svelte 5 `$state` deep-proxies anything assigned into it, and `structuredClone(proxy)`
+  throws DataCloneError — `$state.snapshot()` at the boundary before cloning/persisting.
+- A `$effect` that syncs store A → store B while also READING B re-fires on B's change and
+  clobbers explicit B-writes — guard with a last-synced key and `untrack()` the B read.
+- Under a long-lived vite dev server, an in-page dynamic `import("/src/…")` can return a
+  DIFFERENT module instance than the app's HMR-timestamped graph (the snips lesson, now
+  bitten twice) — drive the app through `window.__flux.*` handles, never re-imports.
+- For chained per-node controllers (morph/transform), applyStatic must seek only the LAST
+  controller ≤ the current beat (futures never seek): a later transform's t=0 already
+  contains the earlier ends and leaks them into beats before they play.
+- WAAPI interpolates stroke-dasharray lists numerically only when every keyframe keeps the
+  SAME entry count — piecewise-linear dash windows with an exact mid-keyframe at the
+  clamp knee stay exact under any easing (offsets live in eased-progress space).
+- dash windows hide STROKES only: a filled shape must not "draw on" (its fill would flash
+  before the beat) — stroke-rendered shapes trim; filled ones keep the fade fallback.
+- `page.evaluate` of a tsx-transpiled closure can reference esbuild's `__name` helper that
+  doesn't exist in the page — pass collector snippets as STRINGS.
+- linkedom defines `document` but can't measure text: headless guards must probe for a real
+  2d canvas (`canMeasureText()`), caching only the positive answer (harnesses inject DOMs
+  mid-process).
