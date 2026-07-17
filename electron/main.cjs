@@ -714,6 +714,70 @@ ipcMain.handle("presets:delete", (_e, rel) => {
   }
 });
 
+// Machine-global ANIMATION preset/template library (animation rework §7):
+// <FluxConfig>/presets/animations/**.json (presets) and
+// <FluxConfig>/presets/anim-templates/**.json (templates). Same dumb
+// path-safe file store as the design presets; `kind` picks the root.
+const animlibDir = (kind) =>
+  path.join(
+    fluxPaths.resolveFluxConfigPathSync(readPrefs()),
+    "presets",
+    kind === "template" ? "anim-templates" : "animations",
+  );
+const animlibPathSafe = (kind, rel) => {
+  const clean = path.normalize(String(rel || "")).replace(/^([/\\.])+/, "");
+  if (!clean || clean.split(/[/\\]/).some((s) => s === "..")) return null;
+  if (!/\.json$/i.test(clean)) return null;
+  const root = animlibDir(kind);
+  const abs = path.join(root, clean);
+  return abs.startsWith(root + path.sep) ? abs : null;
+};
+ipcMain.handle("animlib:list", (_e, kind) => {
+  const root = animlibDir(kind);
+  const out = [];
+  const walk = (dir, rel) => {
+    let es = [];
+    try {
+      es = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of es) {
+      if (out.length >= 500) return;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(dir, e.name), r);
+      else if (e.isFile() && e.name.endsWith(".json")) {
+        try {
+          out.push({ rel: r, payload: JSON.parse(fs.readFileSync(path.join(dir, e.name), "utf8")) });
+        } catch {
+          /* unreadable file — skip, never break the whole listing */
+        }
+      }
+    }
+  };
+  walk(root, "");
+  return out;
+});
+ipcMain.handle("animlib:save", (_e, kind, rel, payload) => {
+  const abs = animlibPathSafe(kind, rel);
+  if (!abs || !payload || typeof payload !== "object") return false;
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.tmp-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(tmp, JSON.stringify(payload, null, 2) + "\n");
+  fs.renameSync(tmp, abs);
+  return true;
+});
+ipcMain.handle("animlib:delete", (_e, kind, rel) => {
+  const abs = animlibPathSafe(kind, rel);
+  if (!abs) return false;
+  try {
+    fs.unlinkSync(abs);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Update check (5.3). Packaged builds only, at most once per day: ask GitHub for
 // the latest release and, if its tag is newer than app.getVersion(), hand the

@@ -166,6 +166,38 @@ export function createMemBridge(): FileBridge & {
         return false;
       }
     },
+    // Animation presets/templates — same localStorage twin pattern as the
+    // design presets ({ rel, payload } entries; kind picks the key).
+    async readAnimLibrary(kind) {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(kind === "template" ? "flux.presets.animTemplates" : "flux.presets.animations") || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+    async writeAnimLibrary(kind, rel, payload) {
+      try {
+        const key = kind === "template" ? "flux.presets.animTemplates" : "flux.presets.animations";
+        const raw = JSON.parse(localStorage.getItem(key) || "[]");
+        const cur = (Array.isArray(raw) ? raw : []) as { rel: string }[];
+        localStorage.setItem(key, JSON.stringify([...cur.filter((p) => p.rel !== rel), { rel, payload }]));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async deleteAnimLibrary(kind, rel) {
+      try {
+        const key = kind === "template" ? "flux.presets.animTemplates" : "flux.presets.animations";
+        const raw = JSON.parse(localStorage.getItem(key) || "[]");
+        const cur = (Array.isArray(raw) ? raw : []) as { rel: string }[];
+        localStorage.setItem(key, JSON.stringify(cur.filter((p) => p.rel !== rel)));
+        return true;
+      } catch {
+        return false;
+      }
+    },
     async openDirectory() {
       return "/demo/myc-growth-paper";
     },

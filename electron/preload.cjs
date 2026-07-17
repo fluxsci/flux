@@ -80,6 +80,11 @@ contextBridge.exposeInMainWorld("fig", {
   readDesignPresets: () => ipcRenderer.invoke("presets:list"),
   writeDesignPreset: (rel, preset) => ipcRenderer.invoke("presets:save", rel, preset),
   deleteDesignPreset: (rel) => ipcRenderer.invoke("presets:delete", rel),
+  // Machine-global animation presets/templates (<FluxConfig>/presets/
+  // animations|anim-templates/**.json); kind = "preset" | "template".
+  readAnimLibrary: (kind) => ipcRenderer.invoke("animlib:list", kind),
+  writeAnimLibrary: (kind, rel, payload) => ipcRenderer.invoke("animlib:save", kind, rel, payload),
+  deleteAnimLibrary: (kind, rel) => ipcRenderer.invoke("animlib:delete", kind, rel),
   // 5.3 update check: packaged-only, ≤1/day. Main owns the throttle + GitHub fetch;
   // resolves to { version, url } when a newer release exists, else null. The renderer
   // gates the call on settings.updateCheck and toasts the result.

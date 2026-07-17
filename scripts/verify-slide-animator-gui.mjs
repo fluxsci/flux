@@ -308,6 +308,103 @@ try {
   }, deltaSetup);
   ok(afterClear && Object.keys(afterClear).length === 0, "clear t₂ resets the patch (t₂ ≡ t₁)");
 
+  // --- Phase-5: preset save → library apply -------------------------------------
+  await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    const t = o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect");
+    f.slide.selTrackIds.set([t.id]);
+  });
+  await sleep(200);
+  await page.evaluate(() => document.querySelector(".props .saveas")?.click());
+  await sleep(150);
+  await page.evaluate(() => {
+    const inp = document.querySelector(".props .psave input");
+    inp.value = "My Reveal";
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    document.querySelector(".props .psave button")?.click();
+  });
+  await sleep(300);
+  const savedPreset = await page.evaluate(() => JSON.parse(localStorage.getItem("flux.presets.animations") || "[]"));
+  ok(savedPreset.length === 1 && savedPreset[0].payload?.name === "My Reveal" && !savedPreset[0].payload?.track?.target,
+    "Save-as-preset stores the track's reusable settings (no binding) in the machine library");
+  await page.evaluate(() => {
+    window.__flux.fig.selectOnly("anim-ell");
+    [...document.querySelectorAll(".animator .bar button")].find((b) => /Library/.test(b.textContent || ""))?.click();
+  });
+  await waitFor(page, () => !!document.querySelector(".animlib"), null, { timeout: 5000, label: "library open" });
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".animlib .apply")].find((b) => /My Reveal/.test(b.textContent || ""))?.click();
+  });
+  await sleep(300);
+  const applied = await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    const tracks = o.slides.find((x) => x.id === sid).beats[1].tracks.filter((t) => t.target === "anim-ell");
+    return tracks.map((t) => ({ preset: t.preset, duration: t.duration, dir: t.params?.direction }));
+  });
+  ok(applied.some((t) => t.preset === "writeOn" && t.duration === 760 && t.dir === "btt"),
+    `the library preset applied its exact settings to the new selection (${JSON.stringify(applied)})`);
+
+  // --- Phase-5: template save from lanes → apply onto a fresh shape set ----------
+  await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    // a fresh pair to receive the template
+    f.fig.commit((p) => {
+      const fig = p.figures.find((x) => x.id === sid);
+      fig.elements.push(
+        { type: "rect", id: "tpl-rect", x: 400, y: 200, width: 50, height: 40, rotation: 0, fill: "#333", stroke: "none", strokeWidth: 0, cornerRadius: 0 },
+        { type: "ellipse", id: "tpl-ell", x: 470, y: 200, width: 40, height: 40, rotation: 0, fill: "#555", stroke: "none", strokeWidth: 0 },
+      );
+    });
+    const o = f.get(f.slide.deckOverlay);
+    const b1 = o.slides.find((x) => x.id === sid).beats[1];
+    const ids = b1.tracks.filter((t) => t.target === "anim-rect" || t.target === "anim-ell").map((t) => t.id).slice(0, 2);
+    f.slide.selTrackIds.set(ids);
+  });
+  await sleep(200);
+  // applying a preset closes the popover (by design) — reopen for templates
+  await page.evaluate(() => {
+    if (!document.querySelector(".animlib")) {
+      [...document.querySelectorAll(".animator .bar button")].find((b) => /Library/.test(b.textContent || ""))?.click();
+    }
+  });
+  await waitFor(page, () => !!document.querySelector(".animlib"), null, { timeout: 5000, label: "library reopen" });
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".animlib .tab")].find((b) => /Templates/.test(b.textContent || ""))?.click();
+  });
+  await sleep(150);
+  await page.evaluate(() => {
+    const inp = document.querySelector(".animlib .save input");
+    inp.value = "Pair build";
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    [...document.querySelectorAll(".animlib .save button")].find((b) => /Save selection/.test(b.textContent || ""))?.click();
+  });
+  await sleep(300);
+  const savedTpl = await page.evaluate(() => JSON.parse(localStorage.getItem("flux.presets.animTemplates") || "[]"));
+  ok(savedTpl.length === 1 && savedTpl[0].payload?.slots?.length === 2, "Save-selection derived a 2-slot template from the lanes");
+  await page.evaluate(() => {
+    const f = window.__flux;
+    f.fig.selection.set(new Set(["tpl-rect", "tpl-ell"]));
+    [...document.querySelectorAll(".animlib .apply")].find((b) => /Pair build/.test(b.textContent || ""))?.click();
+  });
+  await sleep(350);
+  const tplApplied = await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    const b1 = o.slides.find((x) => x.id === sid).beats[1];
+    const bound = b1.tracks.filter((t) => t.target === "tpl-rect" || t.target === "tpl-ell");
+    const grouped = bound.every((t) => t.groupId) && new Set(bound.map((t) => t.groupId)).size === 1;
+    const g = b1.groups?.find((x) => x.id === bound[0]?.groupId);
+    return { n: bound.length, grouped, label: g?.label };
+  });
+  ok(tplApplied.n === 2 && tplApplied.grouped && tplApplied.label === "Pair build",
+    `the template bound onto the fresh pair as ONE labeled TrackGroup (${tplApplied.n} tracks, "${tplApplied.label}")`);
+
   // Preview plays via the player, then tears down — and NO rAF loop survives
   await page.evaluate(() => {
     window.__rafCount = 0;

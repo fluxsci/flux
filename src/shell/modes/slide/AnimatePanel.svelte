@@ -19,6 +19,7 @@
   import type { Slide, Track } from "../../../lib/slide/types";
   import PropertiesPane from "./animator/PropertiesPane.svelte";
   import BeatRail from "./animator/BeatRail.svelte";
+  import AnimLibrary from "./animator/AnimLibrary.svelte";
   import { timelinePxPerMs } from "./animator/animatorState";
   import {
     deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled,
@@ -28,6 +29,7 @@
   let { slide, onPreview }: { slide: Slide | null; onPreview?: (startBeat?: number) => void } = $props();
 
   let railRef = $state<{ groupSelection(): void; ungroupSelection(): void } | null>(null);
+  let libOpen = $state(false);
 
   const deck = $derived($deckOverlay); // stage/meta only — slide comes composed
   const sel = $derived([...$selection]);
@@ -306,6 +308,13 @@
       {#if onPreview && slide.beats.length > 1}
         <button class="b play" onclick={() => onPreview?.()} title="Play this slide's build on the stage (▶ on a beat plays from there)">▶ Preview</button>
       {/if}
+      <span class="lib-wrap">
+        <button class="b" class:active={libOpen} onclick={() => (libOpen = !libOpen)}
+          title="Animation presets & templates — reusable track settings and preset bundles that auto-map onto matching objects">☆ Library</button>
+        {#if libOpen}
+          <AnimLibrary {slide} onClose={() => (libOpen = false)} />
+        {/if}
+      </span>
       <span class="spacer"></span>
       {#if $timelinePxPerMs != null}
         <button class="b" onclick={() => timelinePxPerMs.set(null)} title="Reset the timeline zoom to auto-fit">fit ⟲</button>
@@ -367,6 +376,8 @@
   }
   .b:hover { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
   .morph-wrap { position: relative; display: inline-flex; }
+  .lib-wrap { position: relative; display: inline-flex; }
+  .b.active { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
   .morph-menu {
     position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 25; min-width: 150px;
     background: var(--c-bg-2, #1c1b1a); border: 1px solid var(--c-line-strong, #343331);

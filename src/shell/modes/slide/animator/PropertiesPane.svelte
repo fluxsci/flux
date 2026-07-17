@@ -17,8 +17,25 @@
   import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel } from "./shared";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
+  import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
+  import { saveAnimPreset } from "../../../../lib/slide/animPresets";
+  import { pushToast } from "../../../../lib/toast";
 
   let { slide, plotTags }: { slide: Slide; plotTags: Map<string, string> } = $props();
+
+  // "Save as preset" (the mockup's pink button): name inline, Enter saves.
+  let savingPreset = $state(false);
+  let presetName = $state("");
+  async function doSavePreset() {
+    const t = curTrack;
+    const name = presetName.trim();
+    if (!t || !name) return;
+    if (await saveAnimPreset(makeAnimPreset(name, t))) {
+      pushToast("info", `Saved preset “${name}” — apply it from ☆ Library`);
+      savingPreset = false;
+      presetName = "";
+    } else pushToast("error", "Couldn't save the preset.");
+  }
 
   const selTracks = $derived.by(() => {
     const all = slide.beats.flatMap((b) => b.tracks);
@@ -328,6 +345,23 @@
       </span>
     </div>
 
+    {#if selTracks.length === 1}
+      {#if savingPreset}
+        <div class="psave">
+          <!-- svelte-ignore a11y_autofocus -->
+          <input autofocus placeholder="Preset name…" value={presetName}
+            oninput={(e) => (presetName = e.currentTarget.value)}
+            onkeydown={(e) => { if (e.key === "Enter") void doSavePreset(); if (e.key === "Escape") savingPreset = false; e.stopPropagation(); }} />
+          <button onclick={() => void doSavePreset()}>Save</button>
+        </div>
+      {:else}
+        <button class="saveas" onclick={() => (savingPreset = true)}
+          title="Save these exact settings as a reusable preset (☆ Library applies it to any object)">
+          Save as {curFamily === "transform" ? "Transform" : curTrack.preset ?? "fade"} preset
+        </button>
+      {/if}
+    {/if}
+
     <div class="acts">
       <button class="mini" title="Duplicate the selected track(s) — ⌘D" onclick={duplicateSelectedTracks}>⧉</button>
       <button class="mini" class:warn={anyDisabled} title={anyDisabled ? "Enable (x)" : "Disable — kept but not played (x)"} onclick={toggleSelectedDisabled}>{anyDisabled ? "◌" : "⏻"}</button>
@@ -444,6 +478,23 @@
     color: var(--c-accent, #4385be);
     background: color-mix(in oklab, var(--c-accent, #4385be) 16%, transparent);
     border: 1px solid color-mix(in oklab, var(--c-accent, #4385be) 32%, transparent);
+  }
+  .saveas {
+    font-size: 10.5px; font-weight: 600; cursor: pointer; text-align: center;
+    color: #ce5d97; background: none;
+    border: 1.5px solid color-mix(in oklab, #ce5d97 55%, transparent); border-radius: 6px; padding: 4px 8px;
+  }
+  .props.tx .saveas { color: #66800b; border-color: color-mix(in oklab, #66800b 55%, transparent); }
+  .saveas:hover { background: color-mix(in oklab, #ce5d97 12%, transparent); }
+  .props.tx .saveas:hover { background: color-mix(in oklab, #66800b 12%, transparent); }
+  .psave { display: flex; gap: 4px; }
+  .psave input {
+    flex: 1; min-width: 0; font-size: 11px; color: var(--c-tx, #cecdc3); background: var(--c-bg, #100f0f);
+    border: 1px solid var(--c-accent, #4385be); border-radius: 4px; padding: 3px 6px;
+  }
+  .psave button {
+    font-size: 10.5px; color: var(--c-tx-2, #b7b5ac); background: var(--c-bg-2, #1c1b1a);
+    border: 1px solid var(--c-line-strong, #343331); border-radius: 4px; padding: 3px 8px; cursor: pointer;
   }
   .acts { display: flex; align-items: center; gap: 4px; margin-top: auto; padding-top: 4px; }
   .sp { flex: 1; }

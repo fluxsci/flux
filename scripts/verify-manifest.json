@@ -115,6 +115,7 @@
       "verify-slide-scatter-showcase.ts",
       "verify-slide-track-ops.ts",
       "verify-slide-tween.ts",
+      "verify-anim-presets.ts",
       "verify-slide-trackid.ts",
       "verify-slide-w7.ts",
       "verify-snip-headless.ts",

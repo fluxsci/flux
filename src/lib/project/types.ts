@@ -282,6 +282,13 @@ export interface FileBridge {
   readDesignPresets?(): Promise<unknown[]>;
   writeDesignPreset?(rel: string, preset: unknown): Promise<boolean>;
   deleteDesignPreset?(rel: string): Promise<boolean>;
+  // Machine-global ANIMATION preset/template library (animation rework §7:
+  // <FluxConfig>/presets/animations|anim-templates/**.json; the dev fixture
+  // uses localStorage). kind = "preset" | "template"; payloads stay unknown
+  // here (leaf-module rule).
+  readAnimLibrary?(kind: string): Promise<unknown[]>;
+  writeAnimLibrary?(kind: string, rel: string, payload: unknown): Promise<boolean>;
+  deleteAnimLibrary?(kind: string, rel: string): Promise<boolean>;
   // WS-9.3: pre-register a project root about to be loaded (single pending
   // fsGuard slot; watchRoot promotes/clears it). Electron only.
   beginOpen?(root: string): Promise<boolean>;

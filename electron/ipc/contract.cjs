@@ -104,6 +104,11 @@ const CHANNELS = [
   { channel: "presets:list", kind: "invoke", scope: "read" },
   { channel: "presets:save", kind: "invoke", scope: "write" },
   { channel: "presets:delete", kind: "invoke", scope: "write" },
+  // --- animation presets + templates (<FluxConfig>/presets/animations|anim-templates) --
+  // One trio; the payload's `kind` ("preset" | "template") picks the path root.
+  { channel: "animlib:list", kind: "invoke", scope: "read" },
+  { channel: "animlib:save", kind: "invoke", scope: "write" },
+  { channel: "animlib:delete", kind: "invoke", scope: "write" },
 ];
 
 const byChannel = new Map(CHANNELS.map((c) => [c.channel, c]));
