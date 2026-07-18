@@ -53,8 +53,9 @@
     type Rect,
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, lineEndpointRemap, type CropRemapResult } from "./editing";
-  import { nodesToPath, pathD, pathToNodes, constrain45, segsFromNodes, nearestTOnSeg, bendSegment } from "./path";
-  import { penSnap, type PenSnapResult } from "./interact/penSnap";
+  import { nodesToPath, pathD, pathToNodes, constrain45, segsFromNodes, nearestTOnSeg, bendSegment, mergeNodeChains, reverseNodes } from "./path";
+  import { nodeMoveAxes, constrainDelta, type Axis } from "./interact/nodeAxis";
+  import { penSnap, type PenSnapResult, type PenAnchor } from "./interact/penSnap";
   import * as ops from "./ops";
   import { settings } from "./settings";
   import { importDroppedFiles } from "./io";
@@ -256,11 +257,34 @@
   let editNodes: VectorNode[] = []; // working copy, element-local; live during drag
   let editClosed = false;
   let editSel = new Set<number>(); // selected node indices (for handles + delete)
+  // Path-edit sub-modes (hotkeys inside node-edit — keyboard.ts yields):
+  //   v EDIT (default, today's behavior) · p PEN (draw drafts that connect to
+  //   this path's endpoints) · d DELETE (click a node to remove it).
+  type PathEditMode = "edit" | "pen" | "delete";
+  let editMode: PathEditMode = "edit";
+  // Pen sub-mode: non-null while the active draft is SEEDED on an endpoint of
+  // the edited path (the draft will merge into it on finish).
+  let penSeed: null | { end: "start" | "end" } = null;
   // Active node/handle drag. `orig` snapshots editNodes at grab so a multi-node
   // move applies a clean delta; `started` defers beginGesture to the first move.
+  // `shiftToggle` defers shift-click's selection toggle to pointer-up-without-
+  // drag (shift during a real drag means axis-constrain); `axes` are the
+  // constraint candidates (H/V + flanking tangents) captured at grab, `axis`
+  // the live chosen one (drives the magenta guide ray).
   let nodeDrag:
     | null
-    | { kind: "node" | "in" | "out"; i: number; started: boolean; alt: boolean; sx: number; sy: number; orig: VectorNode[] } = null;
+    | {
+        kind: "node" | "in" | "out";
+        i: number;
+        started: boolean;
+        alt: boolean;
+        shiftToggle: boolean;
+        axes: Axis[];
+        axis: Axis | null;
+        sx: number;
+        sy: number;
+        orig: VectorNode[];
+      } = null;
   // Figma bend: ctrl+drag anywhere on a segment curves it (path.ts bendSegment
   // moves the two flanking handles so the curve passes through the drag point).
   // t is fixed at the grab parameter; deltas accumulate against `orig`.
@@ -622,7 +646,15 @@
       return;
     }
     if ($captionOpen) return; // read-only while the caption editor is open
-    if (editPathId) exitNodeEdit(); // click on empty canvas leaves node-edit
+    if (editPathId) {
+      // pen sub-mode with a live draft: an off-canvas click cancels the draft
+      // but stays in the mode; otherwise leave node-edit as before.
+      if (editMode === "pen" && penNodes.length) {
+        resetPenState();
+        return;
+      }
+      exitNodeEdit(); // click on empty canvas leaves node-edit
+    }
     if ($activeTool === "select") clearSelection();
   }
 
@@ -635,9 +667,24 @@
       return;
     }
     if ($captionOpen) return; // read-only while the caption editor is open
-    // A click into the figure background while node-editing exits the mode
-    // (unless the pen is active — then it's placing/closing nodes).
-    if (editPathId && $activeTool !== "pen") exitNodeEdit();
+    // Node-edit sub-modes intercept figure clicks: pen places/connects draft
+    // points; delete de-escalates back to edit on a background click. Plain
+    // edit mode exits as before (unless the pen TOOL is active — then it's
+    // placing/closing nodes below).
+    if (editPathId && $activeTool !== "pen") {
+      if (editMode === "pen") {
+        e.stopPropagation();
+        activeFigureId.set(fig.id);
+        placePenPoint(e, fig, localPoint(e.clientX, e.clientY, fig));
+        return;
+      }
+      if (editMode === "delete") {
+        e.stopPropagation();
+        setEditMode("edit");
+        return;
+      }
+      exitNodeEdit();
+    }
     e.stopPropagation();
     activeFigureId.set(fig.id);
     selectedFrameId.set(null);
@@ -671,21 +718,48 @@
       preview = createDrawElement($activeTool, lp, lp, get(drawStyle));
       hostEl.setPointerCapture(e.pointerId);
     } else if ($activeTool === "pen") {
-      // Same assist as the pointermove preview (close / shift-45 / align /
-      // equal-length / grid) so the click lands exactly where the preview
-      // showed. A click inside the close radius of the first node closes.
-      const assist = penSnap(penNodes, lp, penOpts(e.shiftKey, e.altKey));
-      if (assist.close && penFigId === fig.id) {
-        finishPen(true);
+      placePenPoint(e, fig, lp);
+    }
+  }
+
+  // One pen placement body for the TOOL and the path-edit pen SUB-MODE. Runs
+  // the same assist as the pointermove preview (close / anchors / grid /
+  // shift-45 / align / equal-length) so the click lands exactly where the
+  // preview showed. A click inside the close radius of the first draft node
+  // closes; in the sub-mode, endpoint-anchor clicks seed/join the edited path.
+  function placePenPoint(e: PointerEvent, fig: Figure, lp: { x: number; y: number }) {
+    const sub = !!editPathId && editMode === "pen";
+    const assist = penSnap(penNodes, lp, penOpts(e.shiftKey, e.altKey));
+    if (assist.close && penFigId === fig.id) {
+      sub ? finishPenDraft("self") : finishPen(true);
+      return;
+    }
+    if (sub && assist.anchor && assist.anchor.role !== "mid") {
+      const end = assist.anchor.role === "endpoint-start" ? "start" : "end";
+      if (!penNodes.length) {
+        // Seed the draft ON the endpoint — finishing merges into the path.
+        penSeed = { end };
+        penFigId = fig.id;
+        penNodes = [{ x: assist.pt.x, y: assist.pt.y, type: "corner" }];
+        penDrag = { i: 0 };
+        penSnapRes = null;
+        hostEl.setPointerCapture(e.pointerId);
         return;
       }
-      if (penNodes.length === 0) penFigId = fig.id;
       if (penFigId === fig.id) {
+        // A draft in flight landing on an endpoint: append the landing node
+        // and merge (seeded → join/close; free → reverse-attach).
         penNodes = [...penNodes, { x: assist.pt.x, y: assist.pt.y, type: "corner" }];
-        penDrag = { i: penNodes.length - 1 }; // a drag now pulls out handles
-        penSnapRes = null; // guides hide while handles are being pulled
-        hostEl.setPointerCapture(e.pointerId);
+        finishPenDraft(end);
       }
+      return;
+    }
+    if (penNodes.length === 0) penFigId = fig.id;
+    if (penFigId === fig.id) {
+      penNodes = [...penNodes, { x: assist.pt.x, y: assist.pt.y, type: "corner" }];
+      penDrag = { i: penNodes.length - 1 }; // a drag now pulls out handles
+      penSnapRes = null; // guides hide while handles are being pulled
+      hostEl.setPointerCapture(e.pointerId);
     }
   }
 
@@ -694,13 +768,52 @@
   // or the click lands somewhere the preview never showed (the penSnap rule).
   function penOpts(shift: boolean, alt: boolean) {
     const s = $settings;
+    const sub = !!editPathId && editMode === "pen";
     return {
       zoom: $viewport.zoom,
       shift,
       disable: alt,
       // Owner spec: a VISIBLE grid restricts pen nodes to its vertices.
       grid: s.showGrid && s.gridSize > 0 ? s.gridSize : undefined,
+      // Path-edit pen sub-mode: the edited path's nodes are connect targets;
+      // a SEEDED draft never self-closes (a loop onto the seed = a branch).
+      anchors: sub ? penAnchorsForEdit() : undefined,
+      noClose: sub && !!penSeed ? true : undefined,
     };
+  }
+
+  // Connectable nodes of the edited path in FIGURE-local coords (the pen draft
+  // space). Endpoint roles exist only on open paths; while a draft is seeded,
+  // its own seed endpoint demotes to "mid" (clicking it again is just a
+  // coincident point — never a merge target, never a close).
+  function penAnchorsForEdit(): PenAnchor[] {
+    if (!editInfo) return [];
+    const el = editInfo.el;
+    const N = editNodes.length;
+    const out: PenAnchor[] = [];
+    for (let i = 0; i < N; i++) {
+      const p = elMapPoint(el, editNodes[i]);
+      let role: PenAnchor["role"] = "mid";
+      if (!editClosed && i === 0 && penSeed?.end !== "start") role = "endpoint-start";
+      else if (!editClosed && i === N - 1 && penSeed?.end !== "end") role = "endpoint-end";
+      out.push({ pt: p, role, i });
+    }
+    return out;
+  }
+
+  function resetPenState() {
+    penNodes = [];
+    penFigId = null;
+    penCursor = null;
+    penDrag = null;
+    penRaw = null;
+    penSnapRes = null;
+    penSeed = null;
+  }
+
+  function setEditMode(m: PathEditMode) {
+    if (editMode === "pen" && m !== "pen" && penNodes.length) resetPenState();
+    editMode = m;
   }
 
   function finishPen(close: boolean) {
@@ -723,12 +836,66 @@
       if (created) selectOnly(created);
       activeTool.set("select");
     }
-    penNodes = [];
-    penFigId = null;
-    penCursor = null;
-    penDrag = null;
-    penRaw = null;
-    penSnapRes = null;
+    resetPenState();
+  }
+
+  // Draft (figure-local) → the edited element's local space, handles included.
+  // Rigid maps (rotation/flip) make per-point unmapping exact; handle offsets
+  // unmap through their absolute positions.
+  function draftToElementLocal(el: Element): VectorNode[] {
+    return penNodes.map((n) => {
+      const base = elUnmapPoint(el, { x: n.x, y: n.y });
+      const h = (hh?: { dx: number; dy: number }) => {
+        if (!hh) return undefined;
+        const abs = elUnmapPoint(el, { x: n.x + hh.dx, y: n.y + hh.dy });
+        return { dx: abs.x - base.x, dy: abs.y - base.y };
+      };
+      return { x: base.x, y: base.y, type: n.type, hIn: h(n.hIn), hOut: h(n.hOut) };
+    });
+  }
+
+  // Finish a pen SUB-MODE draft. `landing`: "start"/"end" = the draft's last
+  // node sits on that endpoint of the base (merge; seeded drafts close the
+  // path); "self" = free-draft self-close → a standalone CLOSED element;
+  // null = plain finish (seeded → extend-merge; free → standalone open
+  // element). One gesture per finished draft; stays in node-edit + pen mode.
+  function finishPenDraft(landing: "start" | "end" | "self" | null) {
+    const info = editInfo;
+    const id = editPathId;
+    if (!info || !id) {
+      resetPenState();
+      return;
+    }
+    if (landing === "self" || (!penSeed && landing == null)) {
+      // standalone element in the draft's figure (same as the tool's finish)
+      if (penNodes.length >= 2 && penFigId) {
+        const s = get(drawStyle);
+        const close = landing === "self";
+        const nodes = penNodes.map(cloneNode);
+        const figId = penFigId;
+        beginGesture();
+        mutate((p) => {
+          ops.addPath(p, figId, { nodes, closed: close, fill: close ? s.fill : "none", stroke: s.stroke, strokeWidth: s.strokeWidth });
+        });
+      }
+      resetPenState();
+      return;
+    }
+    if (penNodes.length >= 2) {
+      const draftLocal = draftToElementLocal(info.el);
+      const base = editNodes.map(cloneNode);
+      const merged = penSeed
+        ? // seeded: draft flows out of penSeed.end; a landing means it came
+          // back around onto the OTHER endpoint → the path closes.
+          mergeNodeChains(base, draftLocal, penSeed.end, landing != null)
+        : // free draft that LANDED on an endpoint: reverse it so it starts
+          // there, then attach (stays open).
+          mergeNodeChains(base, reverseNodes(draftLocal), landing as "start" | "end", false);
+      const figId = info.fig.id;
+      beginGesture();
+      mutateFigure(figId, (p) => ops.updatePath(p, id, { nodes: merged.nodes, closed: merged.closed }));
+    }
+    resetPenState();
   }
 
   // --- node editing (double-click / Enter on a selected path) ---
@@ -740,6 +907,8 @@
     selectOnly(id);
     editPathId = id;
     editClosed = el.closed;
+    editMode = "edit";
+    penSeed = null;
     // Adopt legacy d-only paths into nodes so ANY path becomes editable.
     const src = el.nodes && el.nodes.length ? el.nodes : pathToNodes(el.d);
     editNodes = src.map(cloneNode);
@@ -748,10 +917,14 @@
     nodeEditId.set(id);
   }
   function exitNodeEdit() {
+    const hadDraft = editMode === "pen" && penNodes.length > 0;
     editPathId = null;
     editNodes = [];
     editSel = new Set();
     nodeDrag = null;
+    editMode = "edit";
+    if (hadDraft) resetPenState();
+    penSeed = null;
     nodeEditId.set(null);
   }
 
@@ -783,6 +956,11 @@
     // pathD, NOT nodesToPath: el.d embeds cornerRadius fillets — a sharp-nodes
     // compare would read every commit of a rounded path as an external edit.
     if (el.d !== pathD(editNodes, editClosed, el.cornerRadius)) {
+      // The model changed underneath (undo via chrome, a bridge/AI edit, or
+      // our own just-finished merge): a live pen draft would now be anchored
+      // to stale geometry — cancel it (finishPenDraft resets before the flush,
+      // so this only fires for genuinely external changes).
+      if (editMode === "pen" && penNodes.length) resetPenState();
       editClosed = el.closed;
       editNodes = (el.nodes && el.nodes.length ? el.nodes : pathToNodes(el.d)).map(cloneNode);
       editSel = new Set([...editSel].filter((i) => i < editNodes.length));
@@ -836,18 +1014,31 @@
   function onNodeDown(e: PointerEvent, i: number, kind: "node" | "in" | "out") {
     e.stopPropagation();
     if (startPanIfNeeded(e)) return;
+    // DELETE sub-mode: clicking a node removes it (one gesture per click).
+    if (editMode === "delete") {
+      if (kind === "node") deleteNodesByIndex(new Set([i]));
+      return;
+    }
+    if (editMode === "pen") return; // markers are passive in pen mode
     const found = findElement($project, editPathId ?? "");
     if (!found || found.element.type !== "path") return;
-    if (kind === "node") {
-      if (e.shiftKey) {
-        const n = new Set(editSel);
-        n.has(i) ? n.delete(i) : n.add(i);
-        editSel = n;
-      } else if (!editSel.has(i)) {
-        editSel = new Set([i]);
-      }
-    }
-    nodeDrag = { kind, i, started: false, alt: e.altKey, sx: 0, sy: 0, orig: editNodes.map(cloneNode) };
+    // Plain click on an unselected node selects it now (the drag target set is
+    // decided at grab). Shift-click's TOGGLE is deferred to pointer-up-without-
+    // drag (finishNodeDrag) — shift held during a real drag means axis-
+    // constrain, and the 2px `started` threshold discriminates the two.
+    if (kind === "node" && !e.shiftKey && !editSel.has(i)) editSel = new Set([i]);
+    nodeDrag = {
+      kind,
+      i,
+      started: false,
+      alt: e.altKey,
+      shiftToggle: kind === "node" && e.shiftKey,
+      axes: kind === "node" ? nodeMoveAxes(editNodes, editClosed, i) : [],
+      axis: null,
+      sx: 0,
+      sy: 0,
+      orig: editNodes.map(cloneNode),
+    };
     // record element-local grab point. NOTE: don't capture the pointer yet —
     // capturing here would retarget a no-drag dblclick to the host (where
     // onDblClick is suppressed in node-edit), breaking corner↔smooth toggle.
@@ -877,8 +1068,16 @@
       beginGesture();
     }
     if (nd.kind === "node") {
-      const dx = ex - nd.sx;
-      const dy = ey - nd.sy;
+      let dx = ex - nd.sx;
+      let dy = ey - nd.sy;
+      // Shift: constrain the move to the closest of H / V / the flanking
+      // segment directions (axes captured at grab from the ORIGINAL geometry).
+      if (e.shiftKey && nd.axes.length) {
+        const c = constrainDelta(dx, dy, nd.axes);
+        dx = c.dx;
+        dy = c.dy;
+        nd.axis = c.axis;
+      } else nd.axis = null;
       const targets = editSel.has(nd.i) && editSel.size ? [...editSel] : [nd.i];
       for (const ti of targets) {
         editNodes[ti].x = nd.orig[ti].x + dx;
@@ -908,7 +1107,14 @@
   }
 
   function finishNodeDrag(e: PointerEvent) {
-    if (nodeDrag?.started) commitNodes(); // refit + resync under the open gesture
+    const nd = nodeDrag;
+    if (nd?.started) commitNodes(); // refit + resync under the open gesture
+    else if (nd?.shiftToggle) {
+      // shift-click without a drag: the deferred selection toggle
+      const n = new Set(editSel);
+      n.has(nd.i) ? n.delete(nd.i) : n.add(nd.i);
+      editSel = n;
+    }
     nodeDrag = null;
     try {
       hostEl.releasePointerCapture(e.pointerId);
@@ -990,9 +1196,10 @@
   }
 
   function deleteEditNodes() {
-    if (!editPathId) return;
-    const targets = editSel.size ? editSel : new Set<number>();
-    if (!targets.size) return;
+    deleteNodesByIndex(editSel);
+  }
+  function deleteNodesByIndex(targets: Set<number>) {
+    if (!editPathId || !targets.size) return;
     const keep = editNodes.filter((_, i) => !targets.has(i));
     if (keep.length < 2) {
       // too few points to be a path — delete the whole element
@@ -1114,6 +1321,13 @@
       return;
     }
     if ($captionOpen) return; // read-only while the caption editor is open
+    // Pen/delete sub-modes: a click on ANY element routes like a figure click
+    // (pen places a draft point "through" element bodies; delete de-escalates)
+    // — never starts a move/selection.
+    if (editPathId && editMode !== "edit") {
+      onFigureDown(e, fig);
+      return;
+    }
     // Clicking a DIFFERENT element while node-editing leaves the mode first, then
     // proceeds with a normal selection (node markers stopPropagation, so a click
     // that reaches here is genuinely on the scene, not a node).
@@ -1604,7 +1818,7 @@
       onBendDrag(e);
       return;
     }
-    if ($activeTool === "pen" && penFigId) {
+    if (($activeTool === "pen" || (editPathId && editMode === "pen")) && penFigId) {
       const pf = $project.figures.find((f) => f.id === penFigId);
       if (pf) {
         const lp = localPoint(e.clientX, e.clientY, pf);
@@ -2084,16 +2298,42 @@
     }
 
     // Node-edit mode owns the keyboard (keyboard.ts yields on nodeEditId).
+    // Sub-mode hotkeys: v edit · p pen · d delete. Esc ladders out: cancel
+    // draft → back to edit → exit node-edit. Enter finishes a pen draft
+    // (staying in pen mode) or exits.
     if (editPathId) {
-      if (e.key === "Escape" || e.key === "Enter") {
+      const k = e.key.toLowerCase();
+      const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+      if (e.key === "Escape") {
         e.preventDefault();
-        exitNodeEdit();
-      } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (editMode === "pen" && penNodes.length) resetPenState();
+        else if (editMode !== "edit") setEditMode("edit");
+        else exitNodeEdit();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (editMode === "pen" && penNodes.length >= 2) finishPenDraft(null);
+        else if (editMode === "pen" && penNodes.length) resetPenState();
+        else exitNodeEdit();
+      } else if (plain && k === "v") {
+        e.preventDefault();
+        setEditMode("edit");
+      } else if (plain && k === "p") {
+        e.preventDefault();
+        setEditMode("pen");
+      } else if (plain && k === "d") {
+        e.preventDefault();
+        setEditMode("delete");
+      } else if ((e.key === "Delete" || e.key === "Backspace") && editMode === "edit") {
         e.preventDefault();
         deleteEditNodes();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+      } else if ((e.metaKey || e.ctrlKey) && k === "a" && editMode === "edit") {
         e.preventDefault();
         editSel = new Set(editNodes.map((_, i) => i));
+      } else if ((e.key === "Shift" || e.key === "Alt") && editMode === "pen" && penRaw && !penDrag) {
+        // live re-snap of the sub-mode draft preview (the tool's block below
+        // is unreachable while editPathId is set)
+        penSnapRes = penSnap(penNodes, penRaw, penOpts(e.shiftKey, e.altKey));
+        penCursor = penSnapRes.pt;
       }
       return;
     }
@@ -2105,12 +2345,7 @@
         e.preventDefault();
         finishPen(false);
       } else if (e.key === "Escape") {
-        penNodes = [];
-        penFigId = null;
-        penCursor = null;
-        penDrag = null;
-        penRaw = null;
-        penSnapRes = null;
+        resetPenState();
       } else if ((e.key === "Shift" || e.key === "Alt") && penRaw && !penDrag) {
         penSnapRes = penSnap(penNodes, penRaw, penOpts(e.shiftKey, e.altKey));
         penCursor = penSnapRes.pt;
@@ -2148,14 +2383,10 @@
   let prevTool = $activeTool;
   $: if ($activeTool !== prevTool) {
     if (prevTool === "pen" && penNodes.length >= 2) finishPen(false);
-    else if (prevTool === "pen") {
-      penNodes = [];
-      penFigId = null;
-      penCursor = null;
-      penDrag = null;
-      penRaw = null;
-      penSnapRes = null;
-    }
+    else if (prevTool === "pen") resetPenState();
+    // A toolbar tool pick while node-editing (keyboard can't — it yields)
+    // leaves the mode; sub-modes and drafts reset with it.
+    if (editPathId && $activeTool !== "select") exitNodeEdit();
     prevTool = $activeTool;
   }
 
@@ -2168,7 +2399,11 @@
 
   function onDblClick(e: MouseEvent) {
     if ($captionOpen) return; // read-only while the caption editor is open
-    if (editPathId) return; // node markers/segments handle their own dblclicks
+    if (editPathId) {
+      // pen sub-mode: double-click finishes the draft (open / extend-merge)
+      if (editMode === "pen" && penNodes.length >= 2) finishPenDraft(null);
+      return; // node markers/segments handle their own dblclicks otherwise
+    }
     if (penNodes.length >= 2) {
       finishPen(false);
       return;
@@ -2554,6 +2789,28 @@
     return { nodes, mids, segsD };
   })();
 
+  // Magenta constraint ray while a shift-constrained node drag is live: the
+  // chosen axis through the grabbed node's ORIGINAL position, element→screen.
+  // Keys on editNodes (reassigned every drag frame) so the ray follows the
+  // axis choice live; nodeDrag itself mutates in place.
+  $: nodeAxisGuide = (() => {
+    void editNodes;
+    const nd = nodeDrag;
+    if (!nd?.started || nd.kind !== "node" || !nd.axis || !editInfo) return null;
+    const o = nd.orig[nd.i];
+    const R = 100000;
+    const px = (p: { x: number; y: number }) => {
+      const m = elMapPoint(editInfo!.el, p);
+      return {
+        x: $viewport.panX + (editInfo!.fig.x + m.x) * $viewport.zoom,
+        y: $viewport.panY + (editInfo!.fig.y + m.y) * $viewport.zoom,
+      };
+    };
+    const A = px({ x: o.x - nd.axis.x * R, y: o.y - nd.axis.y * R });
+    const B = px({ x: o.x + nd.axis.x * R, y: o.y + nd.axis.y * R });
+    return { x1: A.x, y1: A.y, x2: B.x, y2: B.y };
+  })();
+
   // Feature 3 — measurement caliper. Alt + a live selection: red dimension lines
   // to the hovered element's edges (equal-gutter checking) or, over empty space,
   // to the figure edges. Pure overlay; suppressed mid-gesture so Alt-drag-dup and
@@ -2717,11 +2974,13 @@
   $: hostCursor =
     gesture?.kind === "pan" || spaceDown || $activeTool === "hand"
       ? "grab"
-      : $activeTool === "text"
-        ? "text"
-        : ["rect", "ellipse", "line", "arrow", "pen"].includes($activeTool)
-          ? "crosshair"
-          : "default";
+      : editPathId && editMode === "pen"
+        ? "crosshair"
+        : $activeTool === "text"
+          ? "text"
+          : ["rect", "ellipse", "line", "arrow", "pen"].includes($activeTool)
+            ? "crosshair"
+            : "default";
 
   // draw-preview group transform (screen space), references $viewport directly.
   $: drawPreviewTransform = gestureFig
@@ -3206,70 +3465,87 @@
       {/if}
     {/if}
 
-    <!-- node-edit overlay: outline + segment-insert markers + handles + nodes -->
+    <!-- node-edit overlay: outline + segment-insert markers + handles + nodes.
+         Sub-modes trim the chrome: pen renders passive nodes (+hot endpoint
+         rings — clicks fall through to placement); delete renders only the
+         clickable nodes (red hover). -->
     {#if editInfo && editScreen}
       <g transform={editTransform}>
         <path class="node-edit-path" d={nodeDragLive?.d ?? editInfo.el.d} vector-effect="non-scaling-stroke" /></g>
-      <!-- wide per-segment hit strokes: ctrl+drag BENDS the segment (Figma).
-           Plain clicks fall through (no handler consumes them). -->
-      {#each editScreen.segsD as sg}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <path class="seg-hit" class:bendable={ctrlDown} d={sg.d} on:pointerdown={(e) => onSegDown(e, sg.s)} />
-      {/each}
-      {#each editScreen.mids as m}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <circle
-          class="node-insert"
-          cx={m.x}
-          cy={m.y}
-          r="4"
-          on:pointerdown={(e) => {
-            if (e.ctrlKey) {
-              onSegDown(e, m.s); // ctrl on the midpoint marker bends too
-              return;
-            }
-            e.stopPropagation();
-            insertNodeAt(m.s);
-          }}
-        />
-      {/each}
-      {#each editScreen.nodes as n}
-        {#if n.hIn}
-          <line class="node-handle-line" x1={n.x} y1={n.y} x2={n.hIn.x} y2={n.hIn.y} />
-        {/if}
-        {#if n.hOut}
-          <line class="node-handle-line" x1={n.x} y1={n.y} x2={n.hOut.x} y2={n.hOut.y} />
-        {/if}
-      {/each}
-      {#each editScreen.nodes as n}
-        {#if n.hIn}
+      {#if editMode === "edit"}
+        <!-- wide per-segment hit strokes: ctrl+drag BENDS the segment (Figma).
+             Plain clicks fall through (no handler consumes them). -->
+        {#each editScreen.segsD as sg}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <circle class="node-handle" cx={n.hIn.x} cy={n.hIn.y} r="3.5" on:pointerdown={(e) => onNodeDown(e, n.i, "in")} />
-        {/if}
-        {#if n.hOut}
+          <path class="seg-hit" class:bendable={ctrlDown} d={sg.d} on:pointerdown={(e) => onSegDown(e, sg.s)} />
+        {/each}
+        {#each editScreen.mids as m}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <circle class="node-handle" cx={n.hOut.x} cy={n.hOut.y} r="3.5" on:pointerdown={(e) => onNodeDown(e, n.i, "out")} />
-        {/if}
-      {/each}
+          <circle
+            class="node-insert"
+            cx={m.x}
+            cy={m.y}
+            r="4"
+            on:pointerdown={(e) => {
+              if (e.ctrlKey) {
+                onSegDown(e, m.s); // ctrl on the midpoint marker bends too
+                return;
+              }
+              e.stopPropagation();
+              insertNodeAt(m.s);
+            }}
+          />
+        {/each}
+        {#each editScreen.nodes as n}
+          {#if n.hIn}
+            <line class="node-handle-line" x1={n.x} y1={n.y} x2={n.hIn.x} y2={n.hIn.y} />
+          {/if}
+          {#if n.hOut}
+            <line class="node-handle-line" x1={n.x} y1={n.y} x2={n.hOut.x} y2={n.hOut.y} />
+          {/if}
+        {/each}
+        {#each editScreen.nodes as n}
+          {#if n.hIn}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <circle class="node-handle" cx={n.hIn.x} cy={n.hIn.y} r="3.5" on:pointerdown={(e) => onNodeDown(e, n.i, "in")} />
+          {/if}
+          {#if n.hOut}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <circle class="node-handle" cx={n.hOut.x} cy={n.hOut.y} r="3.5" on:pointerdown={(e) => onNodeDown(e, n.i, "out")} />
+          {/if}
+        {/each}
+      {/if}
+      {#if editMode === "pen" && !editClosed}
+        <!-- connectable-endpoint affordance (the seed endpoint drops its ring) -->
+        {#each editScreen.nodes as n}
+          {#if (n.i === 0 && penSeed?.end !== "start") || (n.i === editNodes.length - 1 && penSeed?.end !== "end")}
+            <circle class="pen-anchor-ring" cx={n.x} cy={n.y} r="7.5" />
+          {/if}
+        {/each}
+      {/if}
       {#each editScreen.nodes as n}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         {#if n.smooth}
           <circle
             class="node-pt"
             class:sel={n.sel}
+            class:passive={editMode === "pen"}
+            class:del={editMode === "delete"}
             cx={n.x}
             cy={n.y}
             r="4.5"
             on:pointerdown={(e) => onNodeDown(e, n.i, "node")}
             on:dblclick={(e) => {
               e.stopPropagation();
-              toggleNodeType(n.i);
+              if (editMode === "edit") toggleNodeType(n.i);
             }}
           />
         {:else}
           <rect
             class="node-pt"
             class:sel={n.sel}
+            class:passive={editMode === "pen"}
+            class:del={editMode === "delete"}
             x={n.x - 4}
             y={n.y - 4}
             width="8"
@@ -3277,11 +3553,14 @@
             on:pointerdown={(e) => onNodeDown(e, n.i, "node")}
             on:dblclick={(e) => {
               e.stopPropagation();
-              toggleNodeType(n.i);
+              if (editMode === "edit") toggleNodeType(n.i);
             }}
           />
         {/if}
       {/each}
+      {#if nodeAxisGuide}
+        <line class="pen-guide axis" x1={nodeAxisGuide.x1} y1={nodeAxisGuide.y1} x2={nodeAxisGuide.x2} y2={nodeAxisGuide.y2} />
+      {/if}
     {/if}
 
     <!-- ruler guides (Feature 11): draggable guide lines + live preview -->
@@ -3315,6 +3594,16 @@
 
   {#if $captionOpen}
     <CaptionEditor />
+  {/if}
+
+  {#if editPathId}
+    <!-- node-edit sub-mode HUD: which mode is live + the hotkeys -->
+    <div class="node-hud" role="status">
+      <b class:on={editMode === "edit"}>V edit</b>
+      <b class:on={editMode === "pen"}>P pen</b>
+      <b class:on={editMode === "delete"}>D delete</b>
+      <span>Esc done</span>
+    </div>
   {/if}
 
   {#if editingInfo}
@@ -3723,6 +4012,54 @@
   }
   .node-pt.sel {
     fill: var(--c-accent);
+  }
+  /* pen sub-mode: markers are affordance only — clicks fall through to pen
+     placement (anchor snapping resolves node hits) */
+  .node-pt.passive {
+    pointer-events: none;
+  }
+  /* delete sub-mode: click removes the node */
+  .node-pt.del {
+    cursor: pointer;
+  }
+  .node-pt.del:hover {
+    fill: #d33;
+    stroke: #d33;
+  }
+  /* connectable endpoints while the pen sub-mode is live */
+  .pen-anchor-ring {
+    fill: none;
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    stroke-dasharray: 2 2;
+    pointer-events: none;
+    opacity: 0.9;
+  }
+  /* node-edit sub-mode HUD */
+  .node-hud {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 5px 12px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--c-surface) 88%, transparent);
+    border: 1px solid var(--c-line-strong);
+    font-size: 11px;
+    color: var(--c-tx-2);
+    pointer-events: none;
+    z-index: 5;
+  }
+  .node-hud b {
+    font-weight: 500;
+    opacity: 0.55;
+  }
+  .node-hud b.on {
+    opacity: 1;
+    color: var(--c-accent);
   }
   /* per-segment bend hit target: invisible wide stroke; the cursor flags the
      affordance while Ctrl is held */

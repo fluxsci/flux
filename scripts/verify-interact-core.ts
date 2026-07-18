@@ -9,6 +9,7 @@
 import { HANDLES, handlePos, cursorFor, type Handle } from "../src/lib/interact/handles";
 import { computeResizeBox } from "../src/lib/interact/gestureMath";
 import { snap, boxSnapTargets } from "../src/lib/interact/snap";
+import { nodeMoveAxes, constrainDelta } from "../src/lib/interact/nodeAxis";
 import { elementBBox, selectionBBox, rectIntersectsElement, rotatedAABB, type Rect } from "../src/lib/geometry";
 import type { Element, LineElement, RectElement } from "../src/lib/types";
 
@@ -186,6 +187,39 @@ assert(bad === 0, `computeResizeBox bit-for-bit over ${n} grid cases`);
   assert(Math.abs(ra.w - 10) < 1e-9 && Math.abs(ra.h - 10) < 1e-9, "rotatedAABB generic over ElementBase");
   assert(selectionBBox([slideish, rot]) !== null, "selectionBBox generic");
   assert(rectIntersectsElement({ x: 0, y: 0, w: 5, h: 5 }, slideish) === true, "rectIntersectsElement generic");
+}
+
+// ---- nodeAxis: shift-constrained node dragging (2026-07-18) ----------------
+{
+  const near = (a: number, b: number, t = 1e-6) => Math.abs(a - b) <= t;
+  const N = (x: number, y: number): import("../src/lib/types").VectorNode => ({ x, y, type: "corner" });
+  // zigzag: node 1 sits between two diagonal segments (+45° in, −45° out)
+  const zig = [N(0, 100), N(100, 0), N(200, 100)];
+  const axes1 = nodeMoveAxes(zig, false, 1);
+  assert(axes1.length === 4, `interior zigzag node: H + V + two distinct tangents (${axes1.length})`);
+  // a smooth node's mirrored tangents dedupe to ONE axis
+  const smooth = [N(0, 0), { x: 100, y: 50, type: "smooth" as const, hIn: { dx: -30, dy: -15 }, hOut: { dx: 30, dy: 15 } }, N(200, 100)];
+  assert(nodeMoveAxes(smooth, false, 1).length === 3, "smooth node: mirrored tangents dedupe (H, V, one tangent)");
+  // an axis-aligned segment folds into H (no duplicate)
+  assert(nodeMoveAxes([N(0, 0), N(100, 0), N(100, 100)], false, 1).length === 2, "H/V-aligned tangents fold into H and V");
+  // open-path endpoint has only one flanking tangent
+  assert(nodeMoveAxes(zig, false, 0).length === 3, "open-path endpoint: H, V, one tangent");
+  // closed wrap: node 0's incoming segment is the wrap
+  const sq = [N(0, 0), N(100, 0), N(100, 100), N(0, 100)];
+  assert(nodeMoveAxes(sq, true, 0).length === 2, "closed square corner: wrap + outgoing both fold into H/V");
+  const diamond = [N(100, 0), N(200, 100), N(100, 200), N(0, 100)];
+  assert(nodeMoveAxes(diamond, true, 0).length === 4, "closed diamond corner: wrap tangent counted (H, V, two diagonals)");
+
+  // constrainDelta: picks the closest axis, projects exactly
+  const axes = nodeMoveAxes(zig, false, 1);
+  const c1 = constrainDelta(50, 3, axes);
+  assert(near(c1.dy, 0) && near(c1.dx, 50), "near-horizontal drag constrains to exact H (dy=0)");
+  const c2 = constrainDelta(3, -60, axes);
+  assert(near(c2.dx, 0) && near(c2.dy, -60), "near-vertical drag constrains to exact V");
+  const c3 = constrainDelta(40, -38, axes);
+  assert(near(c3.dx + c3.dy, 0, 1e-6), "near-diagonal drag rides the incoming segment direction (dx = −dy)");
+  const proj = Math.abs(c3.dx) * Math.SQRT2;
+  assert(near(proj, Math.abs((40 - -38) / Math.SQRT2), 1e-6), "…with the exact scalar projection");
 }
 
 console.log(failures ? `\nINTERACT CORE: FAIL (${failures})` : "\nINTERACT CORE: PASS");

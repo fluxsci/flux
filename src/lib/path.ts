@@ -663,6 +663,78 @@ export function bendSegment(
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Endpoint merge (path-edit pen sub-mode). A draft chain drawn with the pen
+// attaches to an OPEN path's start/end node — the single-chain node model
+// cannot represent branches, so endpoints are the only true merge points
+// (mid-node connects stay coincident separate elements by design).
+// ---------------------------------------------------------------------------
+
+/** Reverse a chain: reverse order, swap hIn/hOut per node. Geometry unchanged;
+ *  only the traversal direction flips. */
+export function reverseNodes(nodes: VectorNode[]): VectorNode[] {
+  return [...nodes].reverse().map((n) => ({
+    x: n.x,
+    y: n.y,
+    type: n.type,
+    hIn: n.hOut ? { ...n.hOut } : undefined,
+    hOut: n.hIn ? { ...n.hIn } : undefined,
+  }));
+}
+
+/** Attach `draft` (whose FIRST node coincides with base's `at` endpoint) to
+ *  `base`. The seed node's pulled handles fold onto the base endpoint (its
+ *  x/y are discarded — the base node's position is authoritative, so float
+ *  drift can't creep in). `closes`: the draft's LAST node coincides with
+ *  base's OTHER endpoint — it is dropped, its incoming handle folds onto that
+ *  node, and the result is closed. Node types re-classify from the folded
+ *  handles (mirrored → smooth). */
+export function mergeNodeChains(
+  base: VectorNode[],
+  draft: VectorNode[],
+  at: "start" | "end",
+  closes: boolean,
+): { nodes: VectorNode[]; closed: boolean } {
+  const cp = (n: VectorNode): VectorNode => ({
+    x: n.x,
+    y: n.y,
+    type: n.type,
+    hIn: n.hIn ? { ...n.hIn } : undefined,
+    hOut: n.hOut ? { ...n.hOut } : undefined,
+  });
+  const out = base.map(cp);
+  const d = draft.map(cp);
+  if (d.length < 2 || !out.length) return { nodes: out, closed: false };
+  if (at === "end") {
+    const E = out[out.length - 1];
+    if (d[0].hOut) E.hOut = { ...d[0].hOut };
+    E.type = classify(E);
+    const tail = d.slice(1);
+    if (closes) {
+      const last = tail.pop()!; // coincides with out[0]
+      if (last.hIn) out[0].hIn = { ...last.hIn };
+      out[0].type = classify(out[0]);
+      return { nodes: [...out, ...tail], closed: true };
+    }
+    return { nodes: [...out, ...tail], closed: false };
+  }
+  // at === "start": prepend the draft reversed so it flows INTO the old start.
+  const rev = reverseNodes(d); // now ENDS at the seed (= base start) position
+  const S = out[0];
+  const seedRev = rev[rev.length - 1];
+  if (seedRev.hIn) S.hIn = { ...seedRev.hIn };
+  S.type = classify(S);
+  const head = rev.slice(0, -1);
+  if (closes) {
+    const first = head.shift()!; // coincides with the base END
+    const E = out[out.length - 1];
+    if (first.hOut) E.hOut = { ...first.hOut };
+    E.type = classify(E);
+    return { nodes: [...head, ...out], closed: true };
+  }
+  return { nodes: [...head, ...out], closed: false };
+}
+
 /** Constrain a handle/segment vector to the nearest 0/45/90° (Shift behavior). */
 export function constrain45(dx: number, dy: number): { dx: number; dy: number } {
   const len = Math.hypot(dx, dy);

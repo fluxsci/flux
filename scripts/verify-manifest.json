@@ -251,7 +251,8 @@
       "verify-w17-rotate-perf.mjs",
       "verify-w4-wiring.mjs",
       "verify-w5-lifecycle.mjs",
-      "verify-paste-image.mjs"
+      "verify-paste-image.mjs",
+      "figenh-18-pathmodes.ts"
     ],
     "scale": [
       "verify-scale-library.mjs",

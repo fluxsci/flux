@@ -2,7 +2,7 @@
 // Feature 1 — pure vector-path core: nodesToPath/pathToNodes round-trip, Shift
 // constrain, scaleNodes, refitPath, the resizeRemap path FIX (nodes + legacy d),
 // and ops.addPath/updatePath.
-import { nodesToPath, pathToNodes, scaleNodes, refitPath, constrain45, nodesExtent, roundCorners, pathD, pathRender } from "../src/lib/path";
+import { nodesToPath, pathToNodes, scaleNodes, refitPath, constrain45, nodesExtent, roundCorners, pathD, pathRender, reverseNodes, mergeNodeChains } from "../src/lib/path";
 import { resizeRemap, scaleRemap } from "../src/lib/editing";
 import { elementBBox } from "../src/lib/geometry";
 import * as ops from "../src/lib/ops";
@@ -184,6 +184,50 @@ assert(!ltri.closed && !ltri.d.includes("Z"), "updatePath reopens (Z removed)");
   const scaled = pathToNodes(sc.d);
   const entry = scaled[1];
   assert(near(entry.x, 180, 0.5) && near(entry.y, 0, 0.5), "K-scaled d re-emitted with the multiplied radius (trim at 20 on the 200-leg)");
+}
+
+// ---------------------------------------------------------------------------
+// 10. Endpoint merge (pen sub-mode): reverseNodes + mergeNodeChains
+// ---------------------------------------------------------------------------
+{
+  const N = (x: number, y: number, extra: Partial<VectorNode> = {}): VectorNode => ({ x, y, type: "corner", ...extra });
+  // reverseNodes: order flips, handles swap, geometry identical
+  const chain = [N(0, 0, { hOut: { dx: 10, dy: 0 } }), N(50, 20, { hIn: { dx: -10, dy: 0 }, hOut: { dx: 5, dy: 5 } }), N(100, 0)];
+  const rev = reverseNodes(chain);
+  assert(rev[0].x === 100 && rev[2].x === 0, "reverseNodes flips order");
+  assert(rev[2].hIn?.dx === 10 && rev[1].hOut?.dx === -10 && rev[1].hIn?.dx === 5, "reverseNodes swaps hIn/hOut per node");
+
+  const base = [N(0, 0), N(100, 0), N(200, 0)];
+  // append at END: draft seeded on (200,0) drawing on to (300,50)
+  const draftEnd = [N(200, 0, { hOut: { dx: 20, dy: 20 } }), N(300, 50)];
+  const m1 = mergeNodeChains(base, draftEnd, "end", false);
+  assert(m1.nodes.length === 4 && !m1.closed, "end-extend: base + draft tail, stays open");
+  assert(m1.nodes[2].hOut?.dx === 20 && m1.nodes[2].hOut?.dy === 20, "seed's pulled handle folds onto the base endpoint");
+  assert(m1.nodes[3].x === 300 && m1.nodes[3].y === 50, "draft tail appended");
+  // prepend at START: draft seeded on (0,0) drawing out to (-100,40)
+  const draftStart = [N(0, 0), N(-100, 40, { hIn: { dx: 10, dy: 10 } })];
+  const m2 = mergeNodeChains(base, draftStart, "start", false);
+  assert(m2.nodes.length === 4 && m2.nodes[0].x === -100, "start-extend: draft prepends reversed");
+  assert(m2.nodes[0].hOut?.dx === 10 && m2.nodes[0].hOut?.dy === 10, "reversed draft's handles swap (hIn → hOut)");
+  assert(m2.nodes[1].x === 0 && m2.nodes[3].x === 200, "base order preserved after the prepend");
+  // close: seeded at END, draft comes back around onto the START node
+  const draftClose = [N(200, 0), N(150, 80), N(0, 0, { hIn: { dx: 30, dy: 30 } })];
+  const m3 = mergeNodeChains(base, draftClose, "end", true);
+  assert(m3.closed && m3.nodes.length === 4, "end→start draft closes the path (landing node dropped)");
+  assert(m3.nodes[0].hIn?.dx === 30, "landing node's hIn folds onto the start (the wrap segment keeps its curve)");
+  // 2-node draft straight from end to start = close with no new nodes
+  const m4 = mergeNodeChains(base, [N(200, 0), N(0, 0)], "end", true);
+  assert(m4.closed && m4.nodes.length === 3, "minimal end→start draft just closes");
+  // free draft REVERSED onto an endpoint (the landing path in Canvas)
+  const free = [N(400, 100), N(300, 60), N(200, 0)]; // ends ON base's end node
+  const m5 = mergeNodeChains(base, reverseNodes(free), "end", false);
+  assert(m5.nodes.length === 5 && m5.nodes[3].x === 300 && m5.nodes[4].x === 400, "free draft attaches reversed at the endpoint");
+  // merged result round-trips through updatePath/refit cleanly
+  const p3: Project = { version: 1, name: "t3", canvases: [{ id: "c1", name: "C" }], figures: [{ id: "f1", name: "F", canvasId: "c1", x: 0, y: 0, width: 400, height: 300, background: "#fff", elements: [] }], assets: [], palette: [] };
+  const mid = ops.addPath(p3, "f1", { nodes: base, closed: false, stroke: "#000" })!;
+  ops.updatePath(p3, mid, { nodes: m3.nodes, closed: m3.closed });
+  const mEl = p3.figures[0].elements[0] as PathElement;
+  assert(mEl.closed && mEl.d.trim().endsWith("Z") && mEl.nodes?.length === 4, "merge → updatePath: closed d + refit hold");
 }
 
 console.log(fails === 0 ? "\nF1 PATH-CORE ALL PASS" : `\nF1 PATH-CORE ${fails} FAILURE(S)`);
