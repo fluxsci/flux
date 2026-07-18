@@ -964,3 +964,56 @@ timing (a zero-drop animation can still stutter — quantization and pacing are 
 failure axes). The ladder technique (fractional style writes + screenshot + sub-pixel edge
 centroid computed in-page via canvas) is the cheap way to see what the compositor actually
 paints.
+
+### 2026-07-18 (late) — Human↔agent feedback-loop design brainstorm (Claude Fable 5, `main`, no code)
+**Work:** Owner asked for better human↔agent iteration on Flux projects (no app restarts,
+agent-agnostic, no context re-explaining). Surveyed the existing surfaces and wrote the design
+brainstorm to `notes/Flux_Human_Agent_Loop.md`: a context-stamped feedback ledger
+(`.meta/feedback.ndjson` + AppContext stamp), an agent-agnostic `flux attend` dispatcher over
+non-interactive passes, a per-project RUNNING lab notebook (this guide's pattern applied to
+science projects), and generalizing the reader's AgentDrawer project-wide. Proposal only —
+nothing built.
+**Learnings:** for any future work on this loop, the shipped precedents to build on are:
+`manuscript/comments.json` + `resolve-comment` (the review loop), `reader-context.json` +
+`get_reading_context` (context-stamping to a file), the `pdfs_to_assign` watcher engine (file
+queue driving work), and `AgentDrawer.svelte` + `agent:mcpSpec` + the `pty:*` bridge (in-app
+agent terminal). There is currently NO task/inbox structure in the project schema, and no
+CLI/MCP verb to *create* a comment thread (only list/resolve).
+
+### 2026-07-18 (night) — Figure batch: paste, aspect-lock fix, path sub-modes, corner radius, grid (Claude Fable 5, `main`)
+**Work:** Owner's five-item figure batch (notes/new_flux_fig_updates_jul18). (1) OS-clipboard
+image paste, Figma-style: pasting rides the native "paste" event exclusively now — the keydown
+Ctrl+V branch is GONE (it raced the paste event → double-paste); `copySelected` stamps the OS
+clipboard with a marker text and the pure `decidePaste` table (src/lib/clipboardPaste.ts)
+arbitrates elements/image/fallback for FigureMode + SlideMode via one `handleEditorPaste`.
+(2) FluxFig-menu W/H now honor `lockAspect` via the shared `ops.setBoxDim` (moved from
+Inspector.setDim) — with a `dimBase` snapshot captured at field activation, because the menu
+applies LIVE per keystroke and re-deriving the ratio from a half-typed value ("1","14","140")
+collapses it to 1:1. (3) Path-edit sub-modes: v edit / p pen / d delete inside node-edit
+(keyboard.ts yields, so the letters are free), endpoint-only pen merge (pure
+`mergeNodeChains`/`reverseNodes`; mid-node connects stay coincident separate elements — the
+single-chain model can't branch, owner-approved), shift-drag node constraint to H/V/flanking
+tangents (pure `interact/nodeAxis.ts`; shift-click's toggle deferred to up-without-drag).
+(4) `PathElement.cap` + `cornerRadius` (geometric Figma fillets): ONE d-generation wrapper
+`pathD()` now feeds refitPath/pathRender/resizeRemap/scaleRemap/tween/Canvas previews —
+nodes stay the sharp skeleton; radius 0 is byte-identical to before. (5) Shift+G grid toggle
+(Ctrl+Shift+G is ungroup) + pen placement hard-snaps to grid vertices while the grid is
+visible (`penSnap` grid/anchors/noClose opts; one `penOpts()` for all four call sites).
+Gates: verify-paste-decide (new pure), verify-paste-image + figenh-18-pathmodes (new
+ui-extra), extended figenh-01-path/-06, verify-pen-snap, verify-interact-core,
+verify-slide-tween; pure 137/137, ui sweep green, export assets regenerated.
+**Learnings:**
+- A control that applies LIVE per keystroke (FluxFigMenu number fields) must never derive
+  invariants (like an aspect ratio) from the mid-edit model — snapshot the base at field
+  activation. The Inspector never hit this because it applies on commit.
+- The keydown handler and the native paste event BOTH firing for one Ctrl+V is a standing
+  double-dispatch trap: route side-effects through exactly one of them. The paste event is
+  the right one — it alone carries the OS clipboard synchronously.
+- verify-tokens.mjs guards CSS custom properties: invent no `--c-*` names; read
+  src/styles/tokens.css first (`--c-surface`/`--c-line-strong`/`--c-tx-2`, not
+  panel/border/fg-dim).
+- New optional element fields need NO figfiles/writer changes (elements serialize verbatim)
+  — only types + schemas (+ regen validators) + both renderers + `ElementStylePatch`.
+- verify-p4-figure pins FIG-contract text by grepping SOURCE files — moving a function to
+  another module (Inspector.setDim → ops.setBoxDim) fails the gate until its `read()` list
+  follows; update it in the same change.
