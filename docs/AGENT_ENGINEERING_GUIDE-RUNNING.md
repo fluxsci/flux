@@ -389,6 +389,17 @@ at Home) is the gate. Mode warms belong in `requestIdleCallback`.
   per-field records first (WeakMap in compensate.ts), and every seek runs
   `restorePtTrue → viewBox/crop → applyOverrides → compensatePtTrue` — exactly a fresh mount,
   idempotent at any t (transform.ts).
+- **Never animate the wrapper's layout box** (left/top/width/height): the svg child's painted
+  origin pixel-snaps to whole STAGE px — sub-pixel writes paint nothing, then jump a full px at
+  the 0.5 crossing (ladder-measured: `0 0 0 0 3 0…` device px at fit-scale 3). Present + export
+  scale the stage with a CSS fit transform, so every snap is a multi-device-pixel jump — the
+  "jitter" at slow ease tails. Frame timing can be perfect (zero drops) and it still stutters:
+  it's paint quantization, not jank. Mid-flight morph frames therefore FREEZE layout at the t1
+  box and ride a compositor transform (translate+scale, rotation/flips conjugated about the
+  current centre, origin 0 0 — `applyWrapperBoxComposite`); endpoints restore classic layout.
+  Equivalence holds because content svgs are `100%`+`preserveAspectRatio:none`: stretching the
+  frozen box by (w/w0, h/h0) IS the viewBox→box mapping. Gates read effective x = frozen left
+  + translate-x.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -926,3 +937,30 @@ evidence, probes scoped to `.present .mount`, owner deck.json byte-untouched).
 getTotalLength undershoot → overshoot doctrine, zero-length-dash cap dots, one-shot
 compensation → restore-cycle contract. Meta-lesson: gate fixtures must be PAINT-faithful
 (explicit stroke/fill), or the gate exercises a different code path than the app.
+
+### 2026-07-18 (night) — Transform glide: composite mid-flight frames (Claude Fable 5, `animation_overhaul`)
+**Work:** Owner follow-up: move/resize transforms carried a subtle jitter — "the object should
+perfectly glide." Diagnosis was measurement-first: an rAF sampler on the exported anim_test
+deck showed PERFECT frame pacing (83 consecutive 16.7ms frames, seek cost p95 0.2ms, zero
+drops) — not jank. A painted-edge ladder (0.1-stage-px style.left steps, screenshot each,
+sub-pixel edge centroid via in-page canvas decode) revealed the real mechanism: the painted
+svg origin quantizes to whole stage px (`0 0 0 0 3 0 0 0 0 0` device px at fit 3× — nothing,
+nothing, a 3-device-px JUMP at the rounding boundary). The transform driver animated the
+wrapper's LAYOUT box per frame; under the present/export fit-scale every snap amplifies into
+a multi-device-pixel stagger, worst at slow ease tails. Fix (`ae64525`): mid-flight frames
+(0<t<1) freeze the layout box at t1 and ride a compositor transform — translate + scale with
+rotation/flips conjugated about the current box centre, origin 0 0
+(`applyWrapperBoxComposite`); endpoints keep classic layout writes (applyWrapperBox restores
+the center origin), and skipTransform conflicts fall back to the classic path. Equivalence is
+exact because content svgs are 100%+preserveAspectRatio:none. After: ladder reads
+0.296–0.303 device px per step (ideal 0.30) — continuous sub-pixel glide; 12 simultaneous
+path morphs p95 0.2ms/frame; plot morphs (full restore→overrides→compensate per frame) p95
+1.3ms; endpoints byte-identical; real-Electron present acceptance on ~/anim_test green.
+Gates updated deliberately (mid-flight readers now compute effective x = frozen left +
+translate-x) and extended to PIN the mechanism (frozen layout mid-flight, no composite
+residue at rest) in verify-slide-export-transform, verify-slide-tween, verify-transform-gui.
+**Learnings:** promoted to §9 — never animate the wrapper layout box; measure paint, not just
+timing (a zero-drop animation can still stutter — quantization and pacing are independent
+failure axes). The ladder technique (fractional style writes + screenshot + sub-pixel edge
+centroid computed in-page via canvas) is the cheap way to see what the compositor actually
+paints.
