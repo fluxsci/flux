@@ -31,7 +31,7 @@ import { get } from "svelte/store";
 import type { Element as FigElement, SemanticPlotElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
 import { applyOverrides } from "../../plot/parse";
-import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
+import { compensatePtTrue, restorePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
 import { lerpElement, contentPlan, type ContentPlan } from "../tween";
@@ -147,6 +147,13 @@ export function createTransform(
       const p = el as SemanticPlotElement;
       const inst = wrap.querySelector("svg");
       if (inst) {
+        // compensatePtTrue is ONE-SHOT (it prepends transforms / multiplies
+        // stroke styles) — re-applying per seek COMPOUNDS: glyphs shrank a
+        // notch on every beat nav (static seek 0) and exploded to a gray
+        // wall during playback. Restore the pristine state first, re-apply
+        // the (lerped) overrides, then compensate for THIS frame's box —
+        // exactly a fresh mount, idempotent at any t.
+        restorePtTrue(inst);
         if (naturalViewBox && intrinsic) {
           if (p.crop) {
             inst.setAttribute("viewBox", cropViewBoxValue(naturalViewBox, intrinsic, p.crop));

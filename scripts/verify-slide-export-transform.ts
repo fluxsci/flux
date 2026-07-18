@@ -144,9 +144,74 @@ try {
   assert(strokeMid === "#d14d41", "the stroke color landed at the t2 OKLab endpoint");
 
   assert(pageErrors.length === 0, `zero page errors while booting + playing (${pageErrors.join("; ") || "clean"})`);
+
+  // ── the anim_test regression pins (owner report 2026-07-18) ────────────────
+  // A second deck: an ellipse drawOn (browser getTotalLength UNDERSHOOTS the
+  // painted perimeter ~0.6% → the old compile leaked a pre-beat sliver + a
+  // resting seam notch), an arrow line drawOn (filled head polygon — dash
+  // hides strokes only), a writeOn text (clip-path clips box overflow), and a
+  // plot-free check of svg display (inline svgs sat on the host's text
+  // BASELINE — a 1px-tall line's content rendered ~12px low, host-dependent).
+  const deck2 = slideOps.createDeck({ id: "pins", title: "Pins", withTitleSlide: false });
+  const s2 = slideOps.addSlide(deck2, { name: "P", layout: "blank" }).id;
+  slideOps.addElement(deck2, s2, {
+    type: "ellipse", id: "e_ring", x: 80, y: 150, width: 30, height: 30, rotation: 0,
+    fill: "none", stroke: "#222222", strokeWidth: 6,
+  })!;
+  slideOps.addElement(deck2, s2, {
+    type: "line", id: "l_arrow", x: 40, y: 320, width: 0, height: 0, rotation: 0,
+    x1: 0, y1: 0, x2: 86, y2: -0.2, stroke: "#222222", strokeWidth: 2, arrowStart: false, arrowEnd: true,
+  } as never)!;
+  slideOps.addSlideText(deck2, s2, { text: "Write me on", x: 200, y: 120, fontSize: 9.5 });
+  const wtId = slideOps.slideById(deck2, s2)!.elements.at(-1)!.id;
+  const pb = slideOps.addBeat(deck2, s2, { label: "draw" })!;
+  slideOps.setAnimation(deck2, s2, pb.id, { target: "e_ring", preset: "drawOn", duration: 400 });
+  slideOps.setAnimation(deck2, s2, pb.id, { target: "l_arrow", preset: "drawOn", duration: 400 });
+  slideOps.setAnimation(deck2, s2, pb.id, { target: wtId, preset: "writeOn", duration: 300 });
+  await slides.saveDeck(root, deck2);
+  const res2 = await slides.exportDeck(root, "pins");
+  const page2 = await (browser as unknown as { newPage(): Promise<typeof page> }).newPage();
+  await page2.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "no-preference" }]);
+  await page2.goto(pathToFileURL(res2.path).href, { waitUntil: "load" });
+  await page2.waitForFunction("!!window.fluxDeck");
+  await page2.evaluate(() => (window as never as { fluxDeck: { goTo(s: number, b: number): void } }).fluxDeck.goTo(0, 0));
+  const pre = await page2.evaluate(() => {
+    const ell = document.querySelector('[data-el-id="e_ring"] ellipse') as SVGGeometryElement;
+    const poly = document.querySelector('[data-el-id="l_arrow"] polygon') as SVGElement;
+    const line = document.querySelector('[data-el-id="l_arrow"] line') as SVGElement;
+    const svgs = [...document.querySelectorAll('[data-el-id] > svg')] as SVGElement[];
+    return {
+      dash: parseFloat(ell.style.strokeDasharray || "0"),
+      measured: ell.getTotalLength(),
+      truePerimeter: 2 * Math.PI * 15,
+      polyOpacity: getComputedStyle(poly).opacity,
+      lineHidden: line.style.strokeDashoffset !== "" && line.style.strokeDashoffset !== "0",
+      displays: [...new Set(svgs.map((s) => getComputedStyle(s).display))],
+    };
+  });
+  assert(pre.dash > pre.truePerimeter, `the draw dasharray OVERSHOOTS the true perimeter (${pre.dash.toFixed(2)} > ${pre.truePerimeter.toFixed(2)}; measured was ${pre.measured.toFixed(2)})`);
+  assert(pre.polyOpacity === "0", "the filled arrowhead is HIDDEN before the draw (opacity, not dash)");
+  assert(pre.lineHidden, "the arrow line rests undrawn (offset form — no zero-dash cap dots)");
+  assert(pre.displays.length === 1 && pre.displays[0] === "block", "content svgs are display:block (no host-baseline offset — the 12px-low arrow bug)");
+  await page2.evaluate(() => (window as never as { fluxDeck: { goTo(s: number, b: number): void } }).fluxDeck.goTo(0, 1));
+  const post = await page2.evaluate(() => {
+    const ell = document.querySelector('[data-el-id="e_ring"] ellipse') as SVGGeometryElement;
+    const poly = document.querySelector('[data-el-id="l_arrow"] polygon') as SVGElement;
+    const wt = [...document.querySelectorAll("[data-el-id]")].find((w) => w.querySelector("text")?.textContent?.includes("Write me on")) as HTMLElement;
+    return {
+      offset: ell.style.strokeDashoffset,
+      dash: parseFloat(ell.style.strokeDasharray || "0"),
+      polyOpacity: getComputedStyle(poly).opacity,
+      clip: wt?.style.clipPath ?? "",
+    };
+  });
+  assert(post.offset === "0" && post.dash > post.dash - 1 && post.dash > 94.24, "the drawn rest state is SEAM-FREE (offset 0, overshot dash covers the true perimeter)");
+  assert(post.polyOpacity === "1", "the arrowhead pops in with the draw");
+  assert(post.clip.includes("-20%"), `writeOn's resting clip keeps the overflow margin (descenders survive: ${post.clip})`);
+  await page2.close();
 } finally {
   await browser?.close().catch(() => {});
   await fs.rm(root, { recursive: true, force: true });
 }
 
-console.log("\nSLIDE EXPORT TRANSFORM (offline runtime plays trims + transform chains): PASS");
+console.log("\nSLIDE EXPORT TRANSFORM (offline runtime plays trims + transform chains + draw/clip pins): PASS");

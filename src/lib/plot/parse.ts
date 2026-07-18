@@ -112,6 +112,12 @@ function declaredFill(el: Element): string | null {
   return el.getAttribute("fill");
 }
 
+// A dx/dy-translated node's ORIGINAL transform (pre-override), so repeated
+// applyOverrides on one live instance (the slide transform driver, per frame)
+// replaces the translate instead of stacking prepends. Per DOM node, never
+// serialized; one-shot clone flows never notice it.
+const preOverrideTransform = new WeakMap<Element, string>();
+
 /** Apply per-part style overrides to the inlined DOM. A key may be a leaf semantic
  * id (`control.point.3`) or a group/container id (`axis.x.tick-labels`, `axis.x`),
  * which the manifest resolves to its current leaf members — so a group edit survives
@@ -136,9 +142,16 @@ export function applyOverrides(
       if (ov.dx != null || ov.dy != null) {
         const dx = Number(ov.dx ?? 0) || 0;
         const dy = Number(ov.dy ?? 0) || 0;
-        // The clone is pristine per application, so the attribute present here
-        // IS the node's original transform — a plain prepend is idempotent.
-        const orig = el.getAttribute("transform") ?? "";
+        // Compose the translate over the node's PRE-OVERRIDE transform. A
+        // plain prepend was fine when every application ran on a pristine
+        // clone, but the slide transform driver re-applies overrides per
+        // frame on the SAME instance — remember the original (per DOM node,
+        // never serialized) so re-application replaces instead of stacking.
+        let orig = preOverrideTransform.get(el);
+        if (orig === undefined) {
+          orig = el.getAttribute("transform") ?? "";
+          preOverrideTransform.set(el, orig);
+        }
         const t = [`translate(${dx} ${dy})`, orig].filter(Boolean).join(" ");
         el.setAttribute("transform", t);
       }

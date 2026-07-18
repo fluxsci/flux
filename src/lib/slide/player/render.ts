@@ -99,6 +99,12 @@ function fillStatic(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
   svg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
   svg.setAttribute("preserveAspectRatio", "none");
   svg.style.overflow = "visible";
+  // display:block — an INLINE svg sits on the host's text BASELINE, so a
+  // small-height svg (a near-horizontal line's 1px box, a one-line text)
+  // gets pushed DOWN by the host font's ascent minus its own height (~12px
+  // at default fonts), and the offset differs per host (app present vs
+  // export vs canvas). Block layout pins it to the wrapper's top-left.
+  svg.style.display = "block";
   svg.innerHTML = markup;
   w.appendChild(svg);
 }
@@ -215,6 +221,7 @@ function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx
   inst.setAttribute("width", "100%");
   inst.setAttribute("height", "100%");
   inst.setAttribute("preserveAspectRatio", "none");
+  inst.style.display = "block"; // same inline-baseline hazard as fillStatic
   if (el.crop) {
     inst.setAttribute("viewBox", cropViewBoxValue(cached.getAttribute("viewBox"), intrinsic, el.crop));
     inst.style.overflow = "hidden";

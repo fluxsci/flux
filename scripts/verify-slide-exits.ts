@@ -91,6 +91,8 @@ for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {
   const svgNS = "http://www.w3.org/2000/svg";
   const path = document.createElementNS(svgNS, "path");
   path.setAttribute("d", "M 0 0 L 100 0");
+  path.setAttribute("stroke", "#fff");
+  path.setAttribute("fill", "none");
   wrap.appendChild(path);
   const rendered: RenderedSlide = { elements: new Map([["e3", wrap]]) };
   const slide: Slide = {
@@ -158,6 +160,7 @@ for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {
   const realLine = document.createElementNS(svgNS, "g") as unknown as HTMLElement;
   const line = document.createElementNS(svgNS, "line");
   realLine.appendChild(line);
+  line.setAttribute("stroke", "#fff"); // <line> never fills; stroke makes it draw-rendered
   const on = PRESETS.drawOn([realLine as never], { target: "x" } as Track, { theme: FLUX_DARK, stage });
   assert(on.length === 1 && on[0].node === (line as never) && "strokeDashoffset" in on[0].keyframes[0], "real geometry still self-draws (no behavior change)");
 }

@@ -83,16 +83,20 @@ assert(opacity(title) === "1" && opacity(b3) === "1", "beat 2: title + all bulle
 applyStatic(specs, 0);
 assert(opacity(b3) === "0", "back to beat 0 re-hides the bullets (reversible/O(1))");
 
-// --- draw-on static-state regression (anim 0.3) ------------------------------
-// A draw-on part must rest UNDRAWN (strokeDasharray set + strokeDashoffset=len)
-// before its beat — not fully drawn. Guards the prep()-after-clearAnimStyles
-// ordering in applyStatic (the bug: clear wiped prep's dash-array → drawn).
+// --- draw-on static-state regression (anim 0.3 / seam-proof compile) ---------
+// A draw-on part must rest UNDRAWN before its beat and SEAM-FREE after it.
+// The compile animates a [dash, gap] pair at offset 0: hidden = "0 G" (zero
+// dash), drawn = "G 0" (zero gap) — endpoints exact even where the browser's
+// getTotalLength undershoots the painted arc (ellipse/circle, ~0.6%), which
+// used to leave a pre-beat sliver + a resting seam notch.
 // WS3: drawOn drills to REAL geometry only; a geometry-less target now falls
 // back to a fade (covered below + in verify-slide-exits) instead of dashing a div.
 const lineNode = el("ln_line");
 const svgNS = "http://www.w3.org/2000/svg";
 const linePath = document.createElementNS(svgNS, "path");
 linePath.setAttribute("d", "M 0 0 L 100 0");
+linePath.setAttribute("stroke", "#fff");
+linePath.setAttribute("fill", "none"); // faithful to elementToSvg output — bare paths default-fill black and take the opacity reveal instead
 lineNode.appendChild(linePath);
 const drawSlide: Slide = {
   id: "s2",
@@ -108,9 +112,13 @@ const dash = (n: HTMLElement) => (n.style as unknown as { strokeDasharray?: stri
 const offset = (n: HTMLElement) => (n.style as unknown as { strokeDashoffset?: string }).strokeDashoffset ?? "";
 assert(drawSpecs.some((s) => s.node === (linePath as never)), "drawOn drilled to the real path geometry");
 applyStatic(drawSpecs, 0);
-assert(dash(geoNode) !== "" && offset(geoNode) !== "" && offset(geoNode) !== "0", "beat 0: draw-on part rests UNDRAWN (dasharray set + offset=len) — the static-state fix");
+assert(dash(geoNode) !== "" && offset(geoNode) !== "" && offset(geoNode) !== "0", "beat 0: draw-on part rests UNDRAWN (offset = G; no zero-dash cap dots)");
+// linkedom has no getTotalLength (length falls back to 1) — assert the
+// overshoot FORMULA (len + max(4, 5%) = 5 here); the real-browser overshoot
+// is pinned by verify-slide-export-transform against a painted ellipse.
+assert(parseFloat(dash(geoNode)) >= 5, `…with the dasharray OVERSHOT past the measured length (seam-proof: ${dash(geoNode)} >= 5)`);
 applyStatic(drawSpecs, 1);
-assert(offset(geoNode) === "0", "beat 1: draw-on part fully drawn (offset 0)");
+assert(offset(geoNode) === "0", "beat 1: draw-on part fully drawn (offset 0, overshot dash covers the true perimeter)");
 applyStatic(drawSpecs, 0);
 assert(offset(geoNode) !== "0" && offset(geoNode) !== "", "back to beat 0 re-hides the draw (reversible)");
 
@@ -186,15 +194,19 @@ assert(delayById.get("p_sx__g.point.0") === 200, "1.2: by:x — largest data-x (
 // must dash the PATH (by its length), not the empty <g> (which would do nothing).
 const gWrap = document.createElement("g");
 const gp1 = document.createElement("path"), gp2 = document.createElement("path");
+for (const gp of [gp1, gp2]) { gp.setAttribute("stroke", "#fff"); gp.setAttribute("fill", "none"); }
 gWrap.appendChild(gp1); gWrap.appendChild(gp2);
 const drawTrack = { target: "p", preset: "drawOn" } as Track;
 const drawAnims = PRESETS.drawOn([gWrap as unknown as HTMLElement], drawTrack, { theme: FLUX_DARK, stage });
 assert(drawAnims.length === 2, "1.5 drawOn: a <g> wrapper yields one anim per geometry child");
 assert(drawAnims.every((a) => (a.node as Element).tagName?.toLowerCase() === "path"), "1.5 drawOn: anims target the PATH children, not the <g>");
 drawAnims.forEach((a) => a.prep?.());
-assert((gp1 as unknown as HTMLElement).style.strokeDasharray !== "", "1.5 drawOn: prep sets stroke-dasharray on the path child");
+assert((gp1 as unknown as HTMLElement).style.strokeDasharray !== "", "1.5 drawOn: prep sets the (overshot) stroke-dasharray on the path child");
 assert(!(gWrap as unknown as HTMLElement).style.strokeDasharray, "1.5 drawOn: the wrapper <g> is left untouched");
-const bareDraw = PRESETS.drawOn([document.createElement("path") as unknown as HTMLElement], drawTrack, { theme: FLUX_DARK, stage });
+const barePath = document.createElement("path");
+barePath.setAttribute("stroke", "#fff");
+barePath.setAttribute("fill", "none");
+const bareDraw = PRESETS.drawOn([barePath as unknown as HTMLElement], drawTrack, { theme: FLUX_DARK, stage });
 assert(bareDraw.length === 1, "1.5 drawOn: a bare path (already geometry) stays a single anim");
 
 // --- easing resolution -------------------------------------------------------

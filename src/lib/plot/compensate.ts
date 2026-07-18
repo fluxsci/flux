@@ -80,6 +80,83 @@ const near = (v: number, t: number) => Math.abs(v - t) < 1e-6;
 const SKIP_SUBTREES = new Set(["defs", "clippath", "style", "metadata", "title", "desc", "svg"]);
 const STROKABLE = new Set(["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]);
 
+// ---------------------------------------------------------------------------
+// RE-APPLICATION support (animation rework): compensatePtTrue is a ONE-SHOT
+// pass — it prepends transforms and multiplies stroke styles, so calling it
+// twice compounds (the slide transform driver re-derives per frame; repeated
+// static seeks shrank plot glyphs a notch per beat nav). The fix: the first
+// application records each touched node's pristine values in a WeakMap
+// (never serialized, per-DOM-instance), and restorePtTrue() puts them back —
+// so a caller that needs a NEW factor runs restore → (re-apply overrides) →
+// compensate, exactly like a fresh mount. Single-shot callers (canvas mount,
+// export serialization) are untouched.
+// ---------------------------------------------------------------------------
+interface PristineRec {
+  /** the transform ATTRIBUTE as it was (null = absent) */
+  t: string | null;
+  /** inline style stroke-width value ("" = not set) */
+  sw: string;
+  /** inline style stroke-dasharray value ("" = not set) */
+  da: string;
+  /** which fields THIS pass actually wrote — restore touches only these
+   *  (a drawOn's dash window on an un-dashed stroke must survive). */
+  wt: boolean;
+  wsw: boolean;
+  wda: boolean;
+}
+const pristine = new WeakMap<Element, PristineRec>();
+const compensated = new WeakSet<Element>(); // instance roots with records below
+
+function recFor(el: Element): PristineRec {
+  let rec = pristine.get(el);
+  if (!rec) {
+    const st = (el as SVGElement).style;
+    rec = {
+      t: el.getAttribute("transform"),
+      sw: st?.strokeWidth ?? "",
+      da: st?.strokeDasharray ?? "",
+      wt: false,
+      wsw: false,
+      wda: false,
+    };
+    pristine.set(el, rec);
+  }
+  return rec;
+}
+
+/** Undo a previous compensatePtTrue on this instance: every recorded node
+ *  returns to its pristine values (only the fields compensation wrote) and
+ *  forgets its record — so the next compensate re-captures CURRENT values,
+ *  and overrides applied between restore and re-compensate compose exactly
+ *  like a fresh mount. No-op for never-compensated instances. */
+export function restorePtTrue(inst: Element): void {
+  if (!compensated.has(inst)) return;
+  compensated.delete(inst);
+  const walk = (el: Element) => {
+    const rec = pristine.get(el);
+    if (rec) {
+      pristine.delete(el);
+      if (rec.wt) {
+        if (rec.t == null) el.removeAttribute("transform");
+        else el.setAttribute("transform", rec.t);
+      }
+      const st = (el as SVGElement).style;
+      if (st) {
+        if (rec.wsw) {
+          if (rec.sw) st.strokeWidth = rec.sw;
+          else st.removeProperty("stroke-width");
+        }
+        if (rec.wda) {
+          if (rec.da) st.strokeDasharray = rec.da;
+          else st.removeProperty("stroke-dasharray");
+        }
+      }
+    }
+    for (const c of Array.from(el.children ?? [])) walk(c as Element);
+  };
+  walk(inst);
+}
+
 function declaredStrokeProps(el: Element): { width: number | null; dash: string | null; hasStroke: boolean } {
   const style = el.getAttribute("style") ?? "";
   const sw = style.match(/(?:^|;)\s*stroke-width\s*:\s*([\d.]+)/i);
@@ -105,11 +182,14 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts): void {
   const fx = clamp((visW / Math.max(o.elW, 0.01)) * cs);
   const fy = clamp((visH / Math.max(o.elH, 0.01)) * cs);
   if (near(fx, 1) && near(fy, 1)) return; // true size → output untouched
+  compensated.add(inst); // restorable (see restorePtTrue)
   const fs = Math.sqrt(fx * fy); // scalar stroke factor (exact under uniform resize)
 
   const prependAnchored = (el: Element, ax: number, ay: number) => {
     const C =
       ax || ay ? `translate(${ax} ${ay}) scale(${fx} ${fy}) translate(${-ax} ${-ay})` : `scale(${fx} ${fy})`;
+    const rec = recFor(el);
+    rec.wt = true;
     const orig = el.getAttribute("transform") ?? "";
     el.setAttribute("transform", [C, orig].filter(Boolean).join(" "));
   };
@@ -129,6 +209,8 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts): void {
     if (el.getAttribute("data-flux-glyph") === "1") {
       // Inlined tick/marker glyph: geometry drawn about its translate anchor —
       // APPEND the scale so it applies to the glyph-local coordinates.
+      const rec = recFor(el);
+      rec.wt = true;
       const orig = el.getAttribute("transform") ?? "";
       el.setAttribute("transform", [orig, `scale(${fx} ${fy})`].filter(Boolean).join(" "));
       // Its stroke scales with the appended transform — already pt-true.
@@ -146,10 +228,14 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts): void {
     if (!underCompensated && STROKABLE.has(tag)) {
       const d = declaredStrokeProps(el);
       if (d.hasStroke || d.width != null) {
+        const rec = recFor(el);
+        rec.wsw = true;
         const w = d.width ?? 1;
         (el as SVGElement).style.strokeWidth = String(w * fs);
       }
       if (d.dash && d.dash !== "none") {
+        const rec = recFor(el);
+        rec.wda = true;
         const scaled = d.dash
           .split(/[\s,]+/)
           .filter(Boolean)

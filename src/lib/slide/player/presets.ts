@@ -38,14 +38,19 @@ const num = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
 const each = (nodes: TargetNode[], fn: (node: TargetNode, index: number) => NodeAnim): NodeAnim[] =>
   nodes.map(fn);
 
-/** [hidden, shown] clip-path insets for a writeOn/wipeOut direction. */
+/** [hidden, shown] clip-path insets for a writeOn/wipeOut direction. The
+ *  non-animating edges use a NEGATIVE margin: any clip-path clips the border
+ *  box, and hugged text overflows it slightly (descenders, italic overhang,
+ *  antialiasing) — without the margin the resting state permanently shaves
+ *  the bottom of written-on text. Only the reveal edge sweeps 100% → −20%. */
 function wipeInsets(direction: string): [string, string] {
+  const M = "-20%";
   const hidden =
-    direction === "rtl" ? "inset(0 0 0 100%)" :
-    direction === "ttb" ? "inset(0 0 100% 0)" :
-    direction === "btt" ? "inset(100% 0 0 0)" :
-    "inset(0 100% 0 0)"; // ltr
-  return [hidden, "inset(0 0 0 0)"];
+    direction === "rtl" ? `inset(${M} ${M} ${M} 100%)` :
+    direction === "ttb" ? `inset(${M} ${M} 100% ${M})` :
+    direction === "btt" ? `inset(100% ${M} ${M} ${M})` :
+    `inset(${M} 100% ${M} ${M})`; // ltr
+  return [hidden, `inset(${M} ${M} ${M} ${M})`];
 }
 
 /** Inside a <defs> subtree? Such geometry is a shared TEMPLATE (fluxplot ticks
@@ -58,29 +63,60 @@ function inDefs(el: Element): boolean {
   return false;
 }
 
-/** The strokable geometry to draw-on for a target. FluxPlot wraps each part in a
- *  <g id="…"> and the real path/line lives inside, so a draw-on target is usually
- *  a group — drill to its path/line/polyline/polygon descendants. Shape tags
- *  (rect/ellipse/circle) qualify ONLY when stroke-rendered (fill none): dash
- *  windows hide the STROKE alone, so a filled shape would flash its fill
- *  before its beat — those keep the fade fallback. <use> and anything living
- *  in <defs> are NOT strokable here (a <use>'s length can't be measured and
- *  its defs path is shared) — returns [] when nothing real is found so
- *  callers pick an explicit fallback instead of silently no-oping. */
-function strokeRenderedShape(el: Element): boolean {
-  const fill = (el.getAttribute?.("fill") ?? "").trim().toLowerCase();
-  if (fill !== "none" && fill !== "transparent") return false;
-  const stroke = (el.getAttribute?.("stroke") ?? "").trim().toLowerCase();
-  return stroke !== "" && stroke !== "none";
+/** The drawable geometry under a target, SPLIT by how it paints. Dash windows
+ *  hide the STROKE alone, so only stroke-rendered geometry (stroke set, fill
+ *  none/absent) can self-draw; FILL-rendered geometry (filled arrowhead
+ *  polygons, area fills, filled shapes) would flash its fill before its beat
+ *  if dashed — it gets an end-timed opacity reveal instead, so an arrow's
+ *  head pops in as the stroke reaches it. FluxPlot wraps each part in a
+ *  <g id="…"> and the real geometry lives inside — drill to descendants.
+ *  <use> and anything living in <defs> are excluded (a <use>'s length can't
+ *  be measured and its defs path is shared); both lists empty → callers pick
+ *  the whole-node fade fallback instead of silently no-oping. */
+const GEO_TAGS = "path,line,polyline,polygon,rect,ellipse,circle";
+function paintOf(el: Element): { stroked: boolean; filled: boolean } {
+  const styleAttr = el.getAttribute?.("style") ?? "";
+  const val = (name: string): string => {
+    const m = styleAttr.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, "i"));
+    return (m?.[1] ?? el.getAttribute?.(name) ?? "").trim().toLowerCase();
+  };
+  const stroke = val("stroke");
+  const fill = val("fill");
+  const tag = el.tagName?.toLowerCase() ?? "";
+  // SVG default fill is BLACK when unspecified — but line/polyline never fill.
+  const fillable = tag !== "line" && tag !== "polyline";
+  return {
+    stroked: stroke !== "" && stroke !== "none",
+    filled: fillable && fill !== "none" && fill !== "transparent",
+  };
 }
-function geometryEls(node: TargetNode): SVGElement[] {
+function drawGeometry(node: TargetNode): { strokes: SVGElement[]; fills: SVGElement[] } {
   const el = node as Element;
   const tag = el.tagName?.toLowerCase();
-  if (tag && /^(path|line|polyline|polygon)$/.test(tag)) return inDefs(el) ? [] : [el as SVGElement];
-  if (tag && /^(rect|ellipse|circle)$/.test(tag)) return !inDefs(el) && strokeRenderedShape(el) ? [el as SVGElement] : [];
-  const found = Array.from(el.querySelectorAll?.("path,line,polyline,polygon") ?? []) as SVGElement[];
-  const shapes = (Array.from(el.querySelectorAll?.("rect,ellipse,circle") ?? []) as SVGElement[]).filter((s) => strokeRenderedShape(s));
-  return [...found, ...shapes].filter((g) => !inDefs(g));
+  const all: SVGElement[] = [];
+  if (tag && new RegExp(`^(${GEO_TAGS.replace(/,/g, "|")})$`).test(tag)) {
+    if (!inDefs(el)) all.push(el as SVGElement);
+  } else {
+    for (const g of Array.from(el.querySelectorAll?.(GEO_TAGS) ?? []) as SVGElement[]) {
+      if (!inDefs(g)) all.push(g);
+    }
+  }
+  const strokes: SVGElement[] = [];
+  const fills: SVGElement[] = [];
+  for (const g of all) {
+    const p = paintOf(g);
+    if (p.stroked && !p.filled) strokes.push(g);
+    else if (p.filled) fills.push(g); // filled (or stroke+fill) → opacity reveal
+  }
+  return { strokes, fills };
+}
+
+/** The dash/gap magnitude for the default draw compile: the measured length
+ *  plus a safety overshoot, so the hidden state ([0,G]) covers the WHOLE
+ *  stroke and the drawn state ([G,0]) is seam-free even when the browser's
+ *  getTotalLength undershoots the painted arc (ellipses/circles, ~0.6%). */
+function drawGap(len: number): number {
+  return Math.round((len + Math.max(4, len * 0.05)) * 100) / 100;
 }
 
 /** Measured length of a strokable node, honoring an explicit pathLength
@@ -130,6 +166,12 @@ function trimAnim(geo: SVGElement, index: number, enter: boolean, p: TrimParams)
     to: typeof p.to === "number" ? p.to : 1,
   };
   const kfs = trimKeyframes(spec, enter);
+  // The trim engine's window lists carry STRUCTURAL zero-length dashes, and a
+  // round/square linecap paints a DOT at every zero dash — force butt caps
+  // for the trim's lifetime (constant across keyframes; the ends read square
+  // during the draw, restored by the re-baseline after).
+  const capped = (geo.getAttribute?.("stroke-linecap") ?? "").toLowerCase() !== "" ||
+    /stroke-linecap\s*:/.test(geo.getAttribute?.("style") ?? "");
   return {
     node: geo,
     index,
@@ -138,6 +180,7 @@ function trimAnim(geo: SVGElement, index: number, enter: boolean, p: TrimParams)
       ...(k.offset != null ? { offset: k.offset } : {}),
       strokeDasharray: k.strokeDasharray,
       strokeDashoffset: k.strokeDashoffset,
+      ...(capped ? { strokeLinecap: "butt" } : {}),
     })),
   };
 }
@@ -180,29 +223,43 @@ export const PRESETS: Record<string, Preset> = {
   },
 
   // Tier-2: the SVG self-draw — Flux's Trim Paths. Drills through wrapper
-  // <g>s to the strokable geometry, then dashes each child by its OWN length
-  // so the stroke draws itself on (dashing the empty <g> would do nothing /
-  // dot the children). DEFAULT params compile exactly the legacy way (constant
-  // dasharray, offset len→0 — old decks byte-play identically); any trim
-  // param (anchor / direction / mode / from / to) switches that geometry to
-  // the full trim engine (trim.ts). A target with NO measurable geometry
-  // (<use>-based ticks in pre-regen fluxplot SVGs, a FILLED rect/ellipse —
-  // dash hides only strokes) falls back to a fade — never a silent no-op that
-  // leaves the part visible before its beat.
+  // <g>s to the geometry and splits it by paint: STROKE-rendered children
+  // dash-draw by their own length; FILL-rendered children (arrowheads, area
+  // fills, filled shapes — dash hides strokes only) pop in near the END of
+  // the draw. The default compile animates a [dash, gap] PAIR at offset 0
+  // ([0,G] → [G,0], G = length + safety): the endpoints are EXACT regardless
+  // of measurement error — browsers' getTotalLength on <ellipse>/<circle>
+  // undershoots the painted perimeter (~0.6%), and the old constant-dasharray
+  // form left a visible sliver before the beat and a missing notch at the
+  // seam forever after. Any trim param switches to the trim engine (trim.ts).
+  // A target with NO drawable geometry (<use>-based ticks in pre-regen
+  // fluxplot SVGs) falls back to a fade — never a silent no-op that leaves
+  // the part visible before its beat.
   drawOn: (nodes, t) =>
     nodes.flatMap((node, index): NodeAnim[] => {
-      const geos = geometryEls(node);
-      if (!geos.length) return [{ node, index, enter: true, keyframes: [{ opacity: 0 }, { opacity: 1 }] }];
+      const { strokes, fills } = drawGeometry(node);
+      if (!strokes.length && !fills.length) return [{ node, index, enter: true, keyframes: [{ opacity: 0 }, { opacity: 1 }] }];
       const trim = !isDefaultTrim(t.params as TrimParams | undefined);
-      return geos.map((geo): NodeAnim => {
+      const out: NodeAnim[] = strokes.map((geo): NodeAnim => {
         if (trim) return trimAnim(geo, index, true, (t.params ?? {}) as TrimParams);
-        const len = geoLength(geo);
+        // offset-based hiding paints NOTHING pre-beat (no zero-length dash →
+        // no round/square cap dots); the overshot G covers the true perimeter
+        // at offset 0, so the drawn rest state has no seam either.
+        const G = drawGap(geoLength(geo));
         return {
           node: geo, index, enter: true,
-          prep: () => { geo.style.strokeDasharray = `${len}`; },
-          keyframes: [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
+          prep: () => { geo.style.strokeDasharray = `${G}`; },
+          keyframes: [{ strokeDashoffset: G }, { strokeDashoffset: 0 }],
         };
       });
+      for (const geo of fills) {
+        out.push({
+          node: geo, index, enter: true,
+          // hidden until ~3/4 through the draw, then pops in with the stroke
+          keyframes: [{ opacity: 0 }, { opacity: 0, offset: 0.72 }, { opacity: 1 }],
+        });
+      }
+      return out;
     }),
 
   // --- exits (hidden AFTER their beat) --------------------------------------
@@ -227,22 +284,30 @@ export const PRESETS: Record<string, Preset> = {
     }));
   },
 
-  // Tier-2: drawOn reversed — the stroke un-draws itself. Same geometry drill,
-  // same trim enrichment, same no-measurable-geometry fallback (a fade-out).
+  // Tier-2: drawOn reversed — the stroke un-draws itself. Same geometry
+  // split (fill-rendered children vanish EARLY, as the un-draw leaves them),
+  // same trim enrichment, same no-geometry fallback (a fade-out).
   drawOff: (nodes, t) =>
     nodes.flatMap((node, index): NodeAnim[] => {
-      const geos = geometryEls(node);
-      if (!geos.length) return [{ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0 }] }];
+      const { strokes, fills } = drawGeometry(node);
+      if (!strokes.length && !fills.length) return [{ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0 }] }];
       const trim = !isDefaultTrim(t.params as TrimParams | undefined);
-      return geos.map((geo): NodeAnim => {
+      const out: NodeAnim[] = strokes.map((geo): NodeAnim => {
         if (trim) return trimAnim(geo, index, false, (t.params ?? {}) as TrimParams);
-        const len = geoLength(geo);
+        const G = drawGap(geoLength(geo));
         return {
           node: geo, index, enter: false,
-          prep: () => { geo.style.strokeDasharray = `${len}`; },
-          keyframes: [{ strokeDashoffset: 0 }, { strokeDashoffset: len }],
+          prep: () => { geo.style.strokeDasharray = `${G}`; },
+          keyframes: [{ strokeDashoffset: 0 }, { strokeDashoffset: G }],
         };
       });
+      for (const geo of fills) {
+        out.push({
+          node: geo, index, enter: false,
+          keyframes: [{ opacity: 1 }, { opacity: 0, offset: 0.28 }, { opacity: 0 }],
+        });
+      }
+      return out;
     }),
 
   // --- transforms / emphasis (already-present elements) --------------------

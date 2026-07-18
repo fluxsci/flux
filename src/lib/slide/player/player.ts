@@ -288,7 +288,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   return specs;
 }
 
-const ANIM_PROPS = ["opacity", "transform", "clipPath", "strokeDashoffset", "strokeDasharray", "transformOrigin"] as const;
+const ANIM_PROPS = ["opacity", "transform", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin"] as const;
 function clearAnimStyles(node: TargetNode) {
   const s = (node as HTMLElement).style;
   for (const p of ANIM_PROPS) s.removeProperty(p.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()));
