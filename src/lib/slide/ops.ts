@@ -13,7 +13,7 @@
 //   • flux-core:  reads deck.json, calls the op, writes it back
 // ---------------------------------------------------------------------------
 
-import type { Element, Id, SemanticPlotElement } from "../types";
+import type { Asset, Element, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, type TextOpts } from "../ops";
 import { FLEXOKI } from "../flexoki";
@@ -225,6 +225,85 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   }
   deck.slides.splice(i + 1, 0, copy);
   return copy.id;
+}
+
+// ---------------------------------------------------------------------------
+// Slide presets — machine-global whole-slide snapshots (<FluxConfig>/presets/
+// slides/**.json). The snapshot embeds asset BYTES (data URLs) so a preset is
+// self-contained across projects; this pure op only handles the model half —
+// the caller (GUI presetLib / a future verb) registers bytes for the ids in
+// the returned remap.
+// ---------------------------------------------------------------------------
+export interface SlidePresetAssetEntry {
+  /** The asset row as it existed at save time (id/path are remapped at insert). */
+  asset: Asset;
+  /** The bytes, as a data: URL (the renderer's native asset currency). */
+  data: string;
+  /** A REAL fluxplot manifest/recipe riding along (derived manifests re-derive). */
+  manifest?: unknown;
+  recipe?: unknown;
+}
+export interface SlidePresetSnapshot {
+  fluxPreset: 1;
+  kind: "slide";
+  name: string;
+  savedAt: string;
+  /** Stage the slide was authored on (informational; insert never rescales). */
+  stage: StageSize;
+  /** The EFFECTIVE background at save time (slide → deck → theme), for the
+   *  picker thumbnail only. slide.background stays sparse: a theme-following
+   *  slide keeps following the TARGET deck's theme after insert. */
+  thumbBackground?: string;
+  /** The slide verbatim (id/name ignored at insert; beats/tracks remapped). */
+  slide: Slide;
+  assets?: SlidePresetAssetEntry[];
+}
+
+/** Insert a preset snapshot as a NEW slide (duplicateSlide's remap discipline:
+ *  fresh element/group/beat/track ids, tracks retargeted at the clones).
+ *  Embedded assets whose id already exists in deck.assets are reused; the rest
+ *  join deck.assets under FRESH ids (path assets/<id>.<kind>) and come back in
+ *  `assetRemap` (old → new) so the caller can register their bytes. */
+export function insertSlideSnapshot(
+  deck: Deck,
+  snap: SlidePresetSnapshot,
+  opts: { at?: number } = {},
+): { slideId: Id; assetRemap: Map<Id, Id> } {
+  const assetRemap = new Map<Id, Id>();
+  for (const entry of snap.assets ?? []) {
+    const aid = entry.asset.id;
+    if (deck.assets.some((a) => a.id === aid)) continue; // same source asset, already here
+    const nid = newId("asset");
+    assetRemap.set(aid, nid);
+    deck.assets.push({ ...structuredClone(entry.asset), id: nid, path: `assets/${nid}.${entry.asset.kind}` });
+  }
+  const { elements, groups, idRemap } = cloneContentWithFreshIds(snap.slide.elements, snap.slide.groups);
+  for (const el of elements) {
+    const withAsset = el as { assetId?: Id };
+    if (withAsset.assetId && assetRemap.has(withAsset.assetId)) withAsset.assetId = assetRemap.get(withAsset.assetId)!;
+  }
+  const slide: Slide = {
+    ...structuredClone(snap.slide),
+    id: newId("slide"),
+    name: snap.name || (snap.slide.name ?? "Preset slide"),
+    elements,
+    ...(Object.keys(groups).length ? { groups } : {}),
+  };
+  if (!Object.keys(groups).length) delete slide.groups;
+  if (!slide.beats?.length) slide.beats = [{ id: newId("beat"), label: "base", tracks: [] }];
+  for (const beat of slide.beats) {
+    beat.id = newId("beat");
+    remapBeatGroupIds(beat);
+    for (const t of beat.tracks) {
+      t.id = newId("track");
+      const mapped = idRemap.get(t.target);
+      if (mapped) t.target = mapped;
+    }
+  }
+  const at = opts.at;
+  if (at != null && at >= 0 && at <= deck.slides.length) deck.slides.splice(at, 0, slide);
+  else deck.slides.push(slide);
+  return { slideId: slide.id, assetRemap };
 }
 
 /** Reorder slides by an explicit id ordering (ids omitted keep their tail order). */

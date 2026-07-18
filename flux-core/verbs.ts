@@ -118,7 +118,7 @@ export const SLIDE_PRESETS = [
   "transform",
 ] as const;
 export const SLIDE_LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
-export const SLIDE_THEMES = ["flux-dark", "flux-light", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
+export const SLIDE_THEMES = ["flux-dark", "flux-light", "flux-paper", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
 
 export const VERBS: VerbDef[] = [
   // --- batch 0: trivial project verbs ------------------------------------------
@@ -1795,7 +1795,7 @@ export const VERBS: VerbDef[] = [
     name: "set_deck_theme",
     cli: "set-theme",
     cliRoot: "flags",
-    summary: "Switch a deck's theme (flux-dark | flux-light | flux-midnight | flux-slate | flux-sepia | flux-contrast).",
+    summary: "Switch a deck's theme (flux-dark | flux-light | flux-paper | flux-midnight | flux-slate | flux-sepia | flux-contrast).",
     params: { deckId: z.string(), theme: z.enum(SLIDE_THEMES) },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },

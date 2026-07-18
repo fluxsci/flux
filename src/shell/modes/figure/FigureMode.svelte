@@ -26,6 +26,7 @@
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import { handleKey } from "../../../lib/keyboard";
   import { dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
+  import { inspectorHidden } from "../../../lib/settings";
   import { projectModel } from "../../shellStore";
   import { loadFigInto, saveFigFrom, figDiskDiverged } from "../../../lib/project/figbridge";
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
@@ -166,8 +167,9 @@
     <Sidebar paneActive={active} />
     <main class="canvas-wrap"><Canvas paneActive={active} /><ArrangeHud /></main>
     <!-- The Inspector steps aside while the caption editor is open, giving the
-         caption page room (and keeping the figure read-only / distraction-free). -->
-    {#if !$captionOpen}<Inspector />{/if}
+         caption page room (and keeping the figure read-only / distraction-free).
+         Ctrl+Shift+B (keyboard.ts) hides it entirely. -->
+    {#if !$captionOpen && !$inspectorHidden}<Inspector />{/if}
   </div>
   <FluxFigMenu />
   <Xray />

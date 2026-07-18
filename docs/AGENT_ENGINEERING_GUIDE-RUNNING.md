@@ -274,7 +274,7 @@ The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A 
 that isn't in the manifest doesn't exist.** Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
-  pure --jobs 4` (~15s, currently 135 scripts, must stay green at all times).
+  pure --jobs 4` (~15s, currently 136 scripts, must stay green at all times).
 - **ui / ui-extra** — puppeteer against the dev server on :1420 (`scripts/lib/driver.mjs`;
   fixtures via `?fixture=demo`, dev handles `window.__flux`, `__fluxView`, `__fluxSeed*`). ui is
   the curated stable suite (41), ui-extra the full sweep (60). Consoles must be **clean** —
@@ -847,3 +847,33 @@ main.cjs, watchRoot on a throwaway project, 6 SVGs dropped externally) → 0 unc
   dialog), grabs the app window via `BrowserWindow.getAllWindows()`, and drives the real
   preload bridge (`window.fig.beginOpen/watchRoot/onFsChanged`) via `executeJavaScript` —
   needs :1420 + `--ozone-platform=x11 --no-sandbox`, prints positive boot evidence (§9).
+
+### 2026-07-18 (later) — Slide QOL batch: themes, slide presets, layout chords (Claude Fable 5, `animation_overhaul`)
+**Work:** Owner's five slide-mode requests. (1) `flux-light` is now PURE WHITE (#ffffff, neutral
+surface); the old cream look moved to a new `flux-paper` theme (BUILTIN_THEMES + SLIDE_THEMES +
+CLI help literal in `flux-cli.ts` — goldens regenerated). (2) The Slide-panel Background swatch
+shows the EFFECTIVE color (override → deck → theme via `slideDefaultBackground`), not a
+hardcoded dark. (3) Machine-global slide presets: `<FluxConfig>/presets/slides/**.json` via the
+`slidelib:*` IPC trio (contract-declared, memBridge localStorage twin), snapshot = whole slide +
+beats + embedded asset bytes/manifests; pure op `slideOps.insertSlideSnapshot` (duplicateSlide's
+remap discipline + asset id reuse-or-remap); GUI = `presetLib.ts` + `SlidePresetMenu.svelte`
+("+ Preset" in the filmstrip, "Save as preset…" in the Slide panel). Gate:
+`verify-slide-presets.ts` (pure, also pins the theme contract + SLIDE_THEMES↔BUILTIN_THEMES
+lockstep). (4) Filmstrip width is drag-resizable (gutter OUTSIDE the scrolling aside;
+dblclick resets; persists via slideLayout). (5) Ctrl+Shift+B toggles the right rail
+(`inspectorHidden` in settings.ts, chord in the shared keyboard.ts) — figure Inspector and the
+whole slide rail. Verified: 136 pure, 6/6 slide GUI gates, beat-display, w10, scale-slide, and
+a headless five-feature probe with screenshots.
+**Learnings:**
+- `e.preventDefault()` on `pointerdown` suppresses the browser's DERIVED dblclick — it silently
+  killed the dock gutter's double-click-reset (AnimatePanel had shipped that way). Block drag
+  text-selection with `document.body.style.userSelect = "none"` for the drag instead.
+- The $state-proxy/structuredClone trap again (f59ae44's lesson, new site): `$state<T[]>`
+  entries fed into `structuredClone` throw DataCloneError — use `$state.raw` for lists that are
+  only ever reassigned.
+- `verify-w10-matrix`'s slide leg had been dead since the slide migration: it read the retired
+  `slide.deck` store handle (renamed `deckOverlay`), and `F.get(undefined)` made the leg fail
+  quietly. When a store is renamed, grep scripts/ for the old handle path.
+- Puppeteer: `mouse.click`'s double-click option is `count: 2` — `clickCount` is silently
+  ignored there (it belongs to `page.click`), and the "dblclick doesn't work" it fakes is
+  indistinguishable from a real app bug until you isolate with a synthetic dispatch.

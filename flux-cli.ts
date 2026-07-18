@@ -152,7 +152,7 @@ usage: flux <verb> [root] [args] [--flags]
   duplicate-slide <deckId> <slideId>   deep-copy a slide (fresh ids)
   reorder-slides <deckId> --order a,b,c   set the slide order (exact permutation)
   set-slide <deckId> <slideId> [--name|--layout|--background|--transition|--notes|--notes-file|--camera-x/-y/-zoom]   patch a slide
-  set-theme <deckId> <theme>           flux-dark|light|midnight|slate|sepia|contrast
+  set-theme <deckId> <theme>           flux-dark|light|paper|midnight|slate|sepia|contrast
   add-text <deckId> <slideId> "text…" [--x --y --width --height --align --color --size-pt|--font-size --weight --sizing]   add a figure text element
   add-figure <deckId> <slideId> <figureId> [--x --y]   COPY a project figure's content onto a slide (fresh ids, native size)
   add-beat <deckId> <slideId> [--label L]   append a build/advance step

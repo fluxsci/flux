@@ -109,6 +109,10 @@ const CHANNELS = [
   { channel: "animlib:list", kind: "invoke", scope: "read" },
   { channel: "animlib:save", kind: "invoke", scope: "write" },
   { channel: "animlib:delete", kind: "invoke", scope: "write" },
+  // --- slide presets (<FluxConfig>/presets/slides/**.json) -----------------------------
+  { channel: "slidelib:list", kind: "invoke", scope: "read" },
+  { channel: "slidelib:save", kind: "invoke", scope: "write" },
+  { channel: "slidelib:delete", kind: "invoke", scope: "write" },
 ];
 
 const byChannel = new Map(CHANNELS.map((c) => [c.channel, c]));

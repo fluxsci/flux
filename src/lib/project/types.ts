@@ -289,6 +289,12 @@ export interface FileBridge {
   readAnimLibrary?(kind: string): Promise<unknown[]>;
   writeAnimLibrary?(kind: string, rel: string, payload: unknown): Promise<boolean>;
   deleteAnimLibrary?(kind: string, rel: string): Promise<boolean>;
+  // Machine-global SLIDE-PRESET library (<FluxConfig>/presets/slides/**.json;
+  // the dev fixture uses localStorage). Whole-slide snapshots with embedded
+  // asset bytes; payloads stay unknown here (leaf-module rule).
+  readSlideLibrary?(): Promise<unknown[]>;
+  writeSlideLibrary?(rel: string, payload: unknown): Promise<boolean>;
+  deleteSlideLibrary?(rel: string): Promise<boolean>;
   // WS-9.3: pre-register a project root about to be loaded (single pending
   // fsGuard slot; watchRoot promotes/clears it). Electron only.
   beginOpen?(root: string): Promise<boolean>;

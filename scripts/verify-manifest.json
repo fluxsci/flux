@@ -119,6 +119,7 @@
       "verify-slide-trackid.ts",
       "verify-slide-w7.ts",
       "verify-electron-no-undef.ts",
+      "verify-slide-presets.ts",
       "verify-snip-headless.ts",
       "verify-snips.ts",
       "verify-supplement.ts",

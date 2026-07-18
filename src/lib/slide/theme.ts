@@ -32,11 +32,28 @@ export const FLUX_DARK: DeckTheme = {
   fontMono: MONO,
 };
 
-/** Flexoki light — cream desk, ink text. Accent darkens to a text-grade blue so
- *  it stays AA-legible on cream (mirrors the app's light-mode accent shift). */
+/** Pure white, ink text — the projector-neutral light theme. Accent darkens to
+ *  a text-grade blue so it stays AA-legible (mirrors the app's light-mode
+ *  accent shift). The warm Flexoki-paper look lives in Flux Paper below. */
 export const FLUX_LIGHT: DeckTheme = {
   id: "flux-light",
   name: "Flux Light",
+  background: "#ffffff", // pure white (owner decision 2026-07-18; cream → flux-paper)
+  surface: "#f4f4f4", // neutral light gray (the warm base-50 reads dirty on white)
+  text: "#100f0f", // black
+  textHi: "#100f0f",
+  textMuted: "#6f6e69", // base-600
+  accent: "#205ea6", // blue-600 (text-grade)
+  accentBright: "#4385be", // blue-400
+  fontTitle: SERIF,
+  fontBody: SERIF,
+  fontMono: MONO,
+};
+
+/** Flexoki paper — cream desk, ink text (the original Flux Light look). */
+export const FLUX_PAPER: DeckTheme = {
+  id: "flux-paper",
+  name: "Flux Paper",
   background: "#fffcf0", // paper
   surface: "#f2f0e5", // base-50
   text: "#100f0f", // black
@@ -117,6 +134,7 @@ export const FLUX_CONTRAST: DeckTheme = {
 export const BUILTIN_THEMES: Record<string, DeckTheme> = {
   "flux-dark": FLUX_DARK,
   "flux-light": FLUX_LIGHT,
+  "flux-paper": FLUX_PAPER,
   "flux-midnight": FLUX_MIDNIGHT,
   "flux-slate": FLUX_SLATE,
   "flux-sepia": FLUX_SEPIA,

@@ -57,6 +57,8 @@
     type DeckDiag,
   } from "../../../lib/project/slideBridge";
   import * as slideOps from "../../../lib/slide/ops";
+  import { slideDefaultBackground } from "../../../lib/slide/deckProject";
+  import { inspectorHidden } from "../../../lib/settings";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
   import type { Deck, TransitionKind } from "../../../lib/slide/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
@@ -82,6 +84,7 @@
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
   import DeckPicker from "./DeckPicker.svelte";
+  import SlidePresetMenu from "./SlidePresetMenu.svelte";
   import PresentOverlay from "./PresentOverlay.svelte";
   import SlideThumb from "./SlideThumb.svelte";
   import { slideLayout } from "./slideLayoutStore";
@@ -115,6 +118,11 @@
     const sid = $activeFigureId;
     return sid ? composedSlide(sid) : null;
   });
+  // What the Background swatch shows: the slide's own override, else the color
+  // it actually rests at (deck default → theme) — never a hardcoded dark.
+  const effectiveBg = $derived(
+    activeSlide && overlay ? (activeSlide.background ?? slideDefaultBackground(overlay)) : "#100f0f",
+  );
 
   // --- external edits: reload-or-banner (fig/'s W7 UX, mirrored) --------------
   async function onDeckRevision() {
@@ -326,6 +334,9 @@
     });
   }
 
+  // --- slide presets (machine-global library, FluxConfig/presets/slides) --------
+  let presetMenu = $state<null | { mode: "insert" } | { mode: "save"; slideId: string }>(null);
+
   // --- Send to canvas (slide → paper figure) ------------------------------------
   let sendOpen = $state(false);
   let sendCanvases = $state<{ id: string; name: string }[]>([]);
@@ -348,6 +359,37 @@
     } catch (e) {
       pushToast("error", "Couldn't send to canvas", { detail: errMsg(e) });
     }
+  }
+
+  // --- draggable filmstrip edge → left-rail width (the animator gutter, turned
+  // vertical; persists via slideLayout like animatorH) ---------------------------
+  let filmResize = $state(false);
+  let filmEl = $state<HTMLElement | null>(null);
+  const FILM_DEFAULT_W = 172;
+  const filmMaxW = () => Math.max(FILM_DEFAULT_W, Math.round(window.innerWidth * 0.5));
+  function startFilmDrag(e: PointerEvent) {
+    // No preventDefault here: canceling pointerdown suppresses the derived
+    // dblclick, killing the double-click-to-reset affordance. Text selection
+    // during the drag is blocked via body user-select instead.
+    void e;
+    filmResize = true;
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", moveFilmDrag);
+    window.addEventListener("pointerup", endFilmDrag);
+  }
+  function moveFilmDrag(e: PointerEvent) {
+    if (!filmResize || !filmEl) return;
+    const w = Math.max(120, Math.min(filmMaxW(), e.clientX - filmEl.getBoundingClientRect().left));
+    slideLayout.update((s) => ({ ...s, filmstripW: Math.round(w) }));
+  }
+  function endFilmDrag() {
+    filmResize = false;
+    document.body.style.userSelect = "";
+    window.removeEventListener("pointermove", moveFilmDrag);
+    window.removeEventListener("pointerup", endFilmDrag);
+  }
+  function resetFilmW() {
+    slideLayout.update((s) => ({ ...s, filmstripW: FILM_DEFAULT_W }));
   }
 
   // --- viewport: fit the stage frame into the canvas pane -----------------------
@@ -776,7 +818,7 @@
 
   <div class="body" style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
     <!-- filmstrip -->
-    <aside class="filmstrip">
+    <aside class="filmstrip" bind:this={filmEl}>
       {#if pm}
         <DeckPicker {decks} activeId={activeDeckId} onSelect={(id) => void openDeck(id)} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} busy={deckBusy} />
       {/if}
@@ -803,8 +845,14 @@
           </div>
         {/each}
         <button class="addslide" onclick={onAddSlide}>+ Add slide</button>
+        <button class="addslide" onclick={() => (presetMenu = { mode: "insert" })}
+          title="Insert a slide from your machine-global preset library (FluxConfig/presets/slides)">+ Preset</button>
       {/if}
     </aside>
+    <!-- the drag gutter sits OUTSIDE the (vertically scrolling) filmstrip so it
+         never scrolls away; a flex sibling with negative margins overlays the seam -->
+    <div class="film-gutter" class:active={filmResize} role="separator" aria-orientation="vertical"
+      aria-label="Resize slide list" onpointerdown={startFilmDrag} ondblclick={resetFilmW}><span class="grip"></span></div>
 
     <!-- stage: the SHARED figure canvas in frame mode -->
     <main class="stage-col">
@@ -831,7 +879,9 @@
       {/if}
     </main>
 
-    <!-- right rail: the SHARED inspector + the slide/deck panels -->
+    <!-- right rail: the SHARED inspector + the slide/deck panels.
+         Ctrl+Shift+B (shared keyboard.ts chord) hides the whole rail. -->
+    {#if !$inspectorHidden}
     <aside class="rail">
       <Inspector />
       {#if overlay && activeSlide}
@@ -841,7 +891,7 @@
             <input value={activeSlide.name ?? ""} onchange={(e) => onSlideName(e.currentTarget.value)} />
           </label>
           <label class="full">Background
-            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(activeSlide.background ?? "") ? activeSlide.background : "#100f0f"}
+            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(effectiveBg) ? effectiveBg : "#100f0f"}
               onchange={(e) => onSlideBackground(e.currentTarget.value)} />
           </label>
           <label class="full">Transition
@@ -855,6 +905,10 @@
           </label>
           <div class="convertrow">
             <button class="act" onclick={openSendToCanvas} title="Copy this slide's content to a paper-figure canvas (it becomes a real figure and WILL appear in @fig)">Send to canvas…</button>
+          </div>
+          <div class="convertrow">
+            <button class="act" onclick={() => (presetMenu = { mode: "save", slideId: activeSlide.id })}
+              title="Save this slide (content, animation, background, media) to your machine-global preset library">Save as preset…</button>
           </div>
           {#if sendOpen}
             <div class="sendmenu">
@@ -883,7 +937,16 @@
         </section>
       {/if}
     </aside>
+    {/if}
   </div>
+
+  {#if presetMenu}
+    <SlidePresetMenu
+      mode={presetMenu.mode}
+      slideId={presetMenu.mode === "save" ? presetMenu.slideId : $activeFigureId}
+      suggestedName={presetMenu.mode === "save" ? (activeSlide?.name ?? "") : ""}
+      onClose={() => (presetMenu = null)} />
+  {/if}
 
   {#if exportMsg}
     <div class="export-toast" class:err={!exportMsg.ok} role="status">
@@ -1010,6 +1073,12 @@
     color: var(--c-tx-muted); cursor: pointer; font-size: var(--ts-sm); padding: 8px;
   }
   .addslide:hover { border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .film-gutter {
+    flex: 0 0 7px; margin: 0 -3px; cursor: col-resize; z-index: 6;
+    display: flex; align-items: stretch; justify-content: center;
+  }
+  .film-gutter .grip { width: 1px; background: transparent; transition: background 0.12s; }
+  .film-gutter:hover .grip, .film-gutter.active .grip { background: var(--c-accent, #4385be); width: 2px; }
   .stage-col { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
   .canvas-wrap { flex: 1; min-height: 0; position: relative; }
   .preview-overlay {

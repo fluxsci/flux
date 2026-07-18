@@ -85,6 +85,10 @@ contextBridge.exposeInMainWorld("fig", {
   readAnimLibrary: (kind) => ipcRenderer.invoke("animlib:list", kind),
   writeAnimLibrary: (kind, rel, payload) => ipcRenderer.invoke("animlib:save", kind, rel, payload),
   deleteAnimLibrary: (kind, rel) => ipcRenderer.invoke("animlib:delete", kind, rel),
+  // Machine-global slide-preset library (<FluxConfig>/presets/slides/**.json).
+  readSlideLibrary: () => ipcRenderer.invoke("slidelib:list"),
+  writeSlideLibrary: (rel, payload) => ipcRenderer.invoke("slidelib:save", rel, payload),
+  deleteSlideLibrary: (rel) => ipcRenderer.invoke("slidelib:delete", rel),
   // 5.3 update check: packaged-only, ≤1/day. Main owns the throttle + GitHub fetch;
   // resolves to { version, url } when a newer release exists, else null. The renderer
   // gates the call on settings.updateCheck and toasts the result.

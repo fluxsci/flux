@@ -198,6 +198,35 @@ export function createMemBridge(): FileBridge & {
         return false;
       }
     },
+    // Slide presets — same localStorage twin pattern ({ rel, payload } entries).
+    async readSlideLibrary() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem("flux.presets.slides") || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+    async writeSlideLibrary(rel, payload) {
+      try {
+        const raw = JSON.parse(localStorage.getItem("flux.presets.slides") || "[]");
+        const cur = (Array.isArray(raw) ? raw : []) as { rel: string }[];
+        localStorage.setItem("flux.presets.slides", JSON.stringify([...cur.filter((p) => p.rel !== rel), { rel, payload }]));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async deleteSlideLibrary(rel) {
+      try {
+        const raw = JSON.parse(localStorage.getItem("flux.presets.slides") || "[]");
+        const cur = (Array.isArray(raw) ? raw : []) as { rel: string }[];
+        localStorage.setItem("flux.presets.slides", JSON.stringify(cur.filter((p) => p.rel !== rel)));
+        return true;
+      } catch {
+        return false;
+      }
+    },
     async openDirectory() {
       return "/demo/myc-growth-paper";
     },

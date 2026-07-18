@@ -122,8 +122,11 @@
   const dockMaxH = () => Math.max(150, window.innerHeight - 160);
   let lastBigH = 0;
   function startDockDrag(e: PointerEvent) {
-    e.preventDefault();
+    // No preventDefault: canceling pointerdown suppresses the derived dblclick,
+    // which is the toggleDockSize affordance on this same gutter.
+    void e;
     dockResize = true;
+    document.body.style.userSelect = "none";
     window.addEventListener("pointermove", moveDockDrag);
     window.addEventListener("pointerup", endDockDrag);
   }
@@ -143,6 +146,7 @@
   }
   function endDockDrag() {
     dockResize = false;
+    document.body.style.userSelect = "";
     window.removeEventListener("pointermove", moveDockDrag);
     window.removeEventListener("pointerup", endDockDrag);
   }

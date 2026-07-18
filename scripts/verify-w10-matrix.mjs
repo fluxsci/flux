@@ -54,7 +54,9 @@ await clickMode(page, "Slide");
 await sleep(1600);
 const slideReload = await page.evaluate(async (R) => {
   const F = window.__flux;
-  const id = F.get(F.slide.deck)?.id;
+  // slide-migration: the live deck store is the OVERLAY (deckOverlay) now —
+  // the old `slide.deck` handle died with the pre-migration store.
+  const id = F.get(F.slide.deckOverlay)?.id;
   if (!id) return { ok: false, why: "no deck" };
   const p = R + "/slides/" + id + "/deck.json";
   const o = JSON.parse(await window.fig.readText(p));
@@ -64,7 +66,7 @@ const slideReload = await page.evaluate(async (R) => {
   return { ok: true };
 }, R);
 await sleep(800);
-const slideTitle = await page.evaluate(() => window.__flux.get(window.__flux.slide.deck)?.title);
+const slideTitle = await page.evaluate(() => window.__flux.get(window.__flux.slide.deckOverlay)?.title);
 
 // ---- FluxLib: event handled (LR-3 wiring) ----------------------------------
 await clickMode(page, "Library");

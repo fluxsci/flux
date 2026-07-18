@@ -222,7 +222,7 @@ export async function setSlide(root: string, deckId: string, slideId: string, pa
   });
 }
 
-/** set-theme: switch the deck theme (flux-dark|light|midnight|slate|sepia|contrast). */
+/** set-theme: switch the deck theme (flux-dark|light|paper|midnight|slate|sepia|contrast). */
 export async function setDeckTheme(root: string, deckId: string, theme: string): Promise<void> {
   await mutateDeck(root, deckId, "set_theme", (deck) => {
     slideOps.setTheme(deck, theme);

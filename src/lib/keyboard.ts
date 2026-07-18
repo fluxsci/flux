@@ -48,7 +48,7 @@ import {
 } from "./geometry";
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
-import { fluxFigMenuOpen, settingsOpen, helpOpen } from "./settings";
+import { fluxFigMenuOpen, settingsOpen, helpOpen, inspectorHidden } from "./settings";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
@@ -654,10 +654,17 @@ export function handleKey(e: KeyboardEvent) {
     t &&
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
-  // Shortcuts that work even while typing: save/open.
+  // Shortcuts that work even while typing: save/open, rail toggle.
   if (mod && e.key.toLowerCase() === "s") {
     e.preventDefault();
     e.shiftKey ? saveProjectAs() : saveProject();
+    return;
+  }
+  // Ctrl/Cmd+Shift+B: hide/show the right rail (Inspector; in slide mode the
+  // whole right sidebar) — VS Code's sidebar-toggle chord, shifted.
+  if (mod && e.shiftKey && !e.altKey && e.code === "KeyB") {
+    e.preventDefault();
+    inspectorHidden.update((v) => !v);
     return;
   }
   if (typing) return;

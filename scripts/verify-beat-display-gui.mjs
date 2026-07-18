@@ -225,7 +225,7 @@ try {
     const bgs = wraps.map((w) => getComputedStyle(w).backgroundColor);
     const themeBg = (() => {
       const probe = document.createElement("div");
-      probe.style.color = "#fffcf0"; // flux-light background (Flexoki paper)
+      probe.style.color = "#ffffff"; // flux-light background (pure white, 2026-07-18)
       return probe.style.color;
     })();
     return { bgs, themeBg, n: wraps.length };

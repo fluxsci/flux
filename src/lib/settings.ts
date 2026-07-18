@@ -90,6 +90,25 @@ settings.subscribe((v) => {
   } catch {}
 });
 
+// Right-rail (Inspector) visibility — Ctrl+Shift+B in the figure editor, and
+// (because the slide editor IS the figure editor) the whole slide right rail.
+// A workspace toggle, not a preference, so it keeps its own key.
+const INSPECTOR_KEY = "flux.ui.inspectorHidden";
+export const inspectorHidden = writable<boolean>(
+  (() => {
+    try {
+      return localStorage.getItem(INSPECTOR_KEY) === "1";
+    } catch {
+      return false;
+    }
+  })(),
+);
+inspectorHidden.subscribe((v) => {
+  try {
+    localStorage.setItem(INSPECTOR_KEY, v ? "1" : "0");
+  } catch {}
+});
+
 // ---------------------------------------------------------------------------
 // Popup layout: the FluxFig menu is placed by preset (horizontal) + px nudge,
 // and the X-ray docks to it across a fixed horizontal boundary line (above by

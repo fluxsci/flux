@@ -778,6 +778,66 @@ ipcMain.handle("animlib:delete", (_e, kind, rel) => {
   }
 });
 
+// Machine-global SLIDE-PRESET library: <FluxConfig>/presets/slides/**.json —
+// whole-slide snapshots (elements + groups + beats + background + embedded
+// asset bytes) saved from any deck and re-insertable anywhere. Same dumb
+// path-safe file store as the design/animation libraries above; the renderer
+// (src/lib/slide/presetLib.ts) owns all semantics.
+const slidelibDir = () => path.join(fluxPaths.resolveFluxConfigPathSync(readPrefs()), "presets", "slides");
+const slidelibPathSafe = (rel) => {
+  const clean = path.normalize(String(rel || "")).replace(/^([/\\.])+/, "");
+  if (!clean || clean.split(/[/\\]/).some((s) => s === "..")) return null;
+  if (!/\.json$/i.test(clean)) return null;
+  const root = slidelibDir();
+  const abs = path.join(root, clean);
+  return abs.startsWith(root + path.sep) ? abs : null;
+};
+ipcMain.handle("slidelib:list", () => {
+  const root = slidelibDir();
+  const out = [];
+  const walk = (dir, rel) => {
+    let es = [];
+    try {
+      es = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of es) {
+      if (out.length >= 500) return;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(dir, e.name), r);
+      else if (e.isFile() && e.name.endsWith(".json")) {
+        try {
+          out.push({ rel: r, payload: JSON.parse(fs.readFileSync(path.join(dir, e.name), "utf8")) });
+        } catch {
+          /* unreadable preset file — skip, never break the whole listing */
+        }
+      }
+    }
+  };
+  walk(root, "");
+  return out;
+});
+ipcMain.handle("slidelib:save", (_e, rel, payload) => {
+  const abs = slidelibPathSafe(rel);
+  if (!abs || !payload || typeof payload !== "object") return false;
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.tmp-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(tmp, JSON.stringify(payload, null, 2) + "\n");
+  fs.renameSync(tmp, abs);
+  return true;
+});
+ipcMain.handle("slidelib:delete", (_e, rel) => {
+  const abs = slidelibPathSafe(rel);
+  if (!abs) return false;
+  try {
+    fs.unlinkSync(abs);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Update check (5.3). Packaged builds only, at most once per day: ask GitHub for
 // the latest release and, if its tag is newer than app.getVersion(), hand the
