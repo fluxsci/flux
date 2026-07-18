@@ -367,6 +367,29 @@ and structural budgets; record before/after in the commit.
 Home. Dynamic-import at the call site; `verify-startup.mjs` (800KB eager budget, no mode chunks
 at Home) is the gate. Mode warms belong in `requestIdleCallback`.
 
+**SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
+- An inline-level `<svg>` sits on the host line box's **text baseline** — small-height svgs get
+  pushed down by a host-font-dependent ~12px, so content drifts inside its wrapper and clips
+  against `clip-path`. Content svgs must be `display:block` (fillStatic/fillPlot do this), and
+  wipe clips grow non-animating edges (`inset(-20% …)`) because clip-path clips border-box
+  overflow (descenders, stroke halves, antialiasing).
+- Chromium's `getTotalLength()` **undershoots the painted perimeter** on `<ellipse>` (~0.6%) —
+  a dash window sized exactly to it leaves a visible sliver in drawOn's "hidden" state. Always
+  overshoot: `drawGap(len) = len + max(4, len·5%)` (presets.ts). linkedom has no
+  `getTotalLength` at all (lengths fall back to 1) — pure-tier gates can only check the
+  formula; the real overshoot is pinned browser-side (verify-slide-export-transform).
+- A **zero-length dash still paints its linecaps** — `stroke-dasharray: 0 G` with round/square
+  caps renders a DOT at the path start. Hide strokes with the offset form
+  (`dasharray: G; dashoffset: G`), which never paints caps; the trim engine instead forces
+  `stroke-linecap: butt` in its keyframes when the geometry declares a cap. Filled shapes
+  (arrowhead polygons) can't be dash-hidden at all — hide them with opacity, end-timed.
+- `compensatePtTrue` and `applyOverrides`' dx/dy are **one-shot writes** (prepend transforms,
+  multiply stroke styles) — any code path that re-runs them per frame COMPOUNDS (glyphs shrink
+  a notch per beat nav, explode to a gray wall during playback). The contract: capture pristine
+  per-field records first (WeakMap in compensate.ts), and every seek runs
+  `restorePtTrue → viewBox/crop → applyOverrides → compensatePtTrue` — exactly a fresh mount,
+  idempotent at any t (transform.ts).
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **WS-11 plot render-detail budget** and the **figure spatial index**: evaluated against
@@ -877,3 +900,29 @@ a headless five-feature probe with screenshots.
 - Puppeteer: `mouse.click`'s double-click option is `count: 2` — `clickCount` is silently
   ignored there (it belongs to `page.click`), and the "dblclick doesn't work" it fakes is
   indistinguishable from a real app bug until you isolate with a synthetic dispatch.
+
+### 2026-07-18 (evening) — anim_test root causes: baseline, perimeter, caps, idempotency (Claude Fable 5, `animation_overhaul`)
+**Work:** Owner filed three animation edge cases as a self-describing deck (`~/anim_test`,
+deck_mrpjnqrkw7xh_3) and asked for underlying root causes, not symptom patches. All three
+traced to four defects (d034767): (1) writeOn text clipped at the bottom (present-mode) +
+arrowheads landing ~12px low = inline-level `<svg>` sitting on the host text baseline →
+`display:block` in fillStatic/fillPlot, plus `inset(-20%)` margins on non-animating wipe-clip
+edges (clip-path clips border-box overflow). (2) drawOn ellipse showing a sliver/notch while
+"hidden" = Chromium `getTotalLength()` undershooting the painted perimeter ~0.6% → `drawGap()`
+dash-window overshoot (len + max(4, 5%)). Arrow visible pre-beat = filled polygon head being
+dash-hidden (no-op on fills) → stroke/fill split, opacity-hidden end-timed head; a first-cut
+`0 G` dasharray fix painted a linecap DOT → reverted to offset-form hiding, trim engine forces
+butt caps. (3) pt-true plot thinning per beat nav and exploding to gray during transform
+playback = `compensatePtTrue`/`applyOverrides` dx/dy being one-shot but re-run per seek →
+pristine WeakMap records + `restorePtTrue()`, and transform seeks now run
+restore→viewBox→overrides→compensate (idempotent at any t). Gates: 8-assertion "anim_test
+regression pins" section in verify-slide-export-transform (browser-side); player/exits
+fixtures made paint-faithful (`stroke`/`fill` attrs — bare paths default to black FILL and
+route to the wrong branch). Verified: pure 136/136, 6 slide ui gates, re-exported owner deck
+probes (head lands at model position exactly; compensation signature byte-stable over 6 navs
++ 4 scrubs), and a real-Electron present-mode acceptance on `~/anim_test` (x11, positive boot
+evidence, probes scoped to `.present .mount`, owner deck.json byte-untouched).
+**Learnings:** promoted to §9 "SVG rendering & the slide player" — inline-svg baseline,
+getTotalLength undershoot → overshoot doctrine, zero-length-dash cap dots, one-shot
+compensation → restore-cycle contract. Meta-lesson: gate fixtures must be PAINT-faithful
+(explicit stroke/fill), or the gate exercises a different code path than the app.
