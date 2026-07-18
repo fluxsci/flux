@@ -226,31 +226,8 @@
     });
   }
 
-  // Set W or H on an element; when its aspect ratio is locked (chain toggle),
-  // scale the other dimension proportionally. Reading the ratio from the element
-  // just before writing keeps it stable across a scrub (both stay in proportion).
-  function setDim(el: Element, which: "w" | "h", v: number) {
-    if (!("width" in el) || !("height" in el)) return;
-    // FIG-10 (v2): a manual W on a hugging text box switches it to "auto-h"
-    // (wrap at that width, height hugs); a manual H pins the box "fixed".
-    // Otherwise applyTextLayout would re-hug and overwrite the typed value.
-    if (el.type === "text") {
-      if (which === "h") el.sizing = "fixed";
-      else if (el.sizing === "auto") el.sizing = "auto-h";
-    }
-    if (el.lockAspect) {
-      if (which === "w") {
-        const r = el.width > 0 ? el.height / el.width : 1;
-        el.width = v;
-        el.height = Math.max(1, Math.round(v * r));
-      } else {
-        const r = el.height > 0 ? el.width / el.height : 1;
-        el.height = v;
-        el.width = Math.max(1, Math.round(v * r));
-      }
-    } else if (which === "w") el.width = v;
-    else el.height = v;
-  }
+  // Aspect-lock-aware W/H setter (shared with the FluxFig menu) — ops.setBoxDim.
+  const setDim = ops.setBoxDim;
 
   // --- text styling (B/I/U, sizing mode, named styles) ---
   function toggleSelText(which: ops.TextToggle) {

@@ -971,6 +971,41 @@ export function reorderElement(p: Project, figId: Id, id: Id, toIndex: number): 
   f.elements = rest;
 }
 
+/** Set W or H on a box element; when its aspect ratio is locked (the chain
+ *  toggle next to W/H), scale the other dimension proportionally. Reading the
+ *  ratio from the element just before writing keeps it stable across a scrub
+ *  (both dimensions stay in proportion). Encodes the FIG-10 text-sizing rules:
+ *  a manual W on a hugging text box switches it to "auto-h" (wrap at that
+ *  width, height hugs); a manual H pins the box "fixed" — otherwise
+ *  applyTextLayout would re-hug and overwrite the typed value. Backs the
+ *  Inspector W/H fields AND the FluxFig-menu w/h keys (the menu writing
+ *  width/height directly was the aspect-lock bypass bug).
+ *  `base` — pre-edit dims for callers that apply LIVE per keystroke (the
+ *  FluxFig menu's on:input): without it, re-deriving the ratio from a
+ *  half-typed value ("1", "14", "140") collapses it toward 1:1. */
+export function setBoxDim(el: Element, which: "w" | "h", v: number, base?: { w: number; h: number }): void {
+  if (!("width" in el) || !("height" in el)) return;
+  v = Math.max(1, v);
+  if (el.type === "text") {
+    if (which === "h") el.sizing = "fixed";
+    else if (el.sizing === "auto") el.sizing = "auto-h";
+  }
+  if (el.lockAspect) {
+    const bw = base?.w ?? el.width;
+    const bh = base?.h ?? el.height;
+    if (which === "w") {
+      const r = bw > 0 ? bh / bw : 1;
+      el.width = v;
+      el.height = Math.max(1, Math.round(v * r));
+    } else {
+      const r = bh > 0 ? bw / bh : 1;
+      el.height = v;
+      el.width = Math.max(1, Math.round(v * r));
+    }
+  } else if (which === "w") el.width = v;
+  else el.height = v;
+}
+
 // ---------------------------------------------------------------------------
 // Styling — element-level + semantic-plot per-part overrides
 // ---------------------------------------------------------------------------

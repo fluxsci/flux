@@ -45,6 +45,9 @@
   let mode: "hotkey" | "field" | "color" | "search" = "hotkey";
   let activeKey: string | null = null;
   let colorField: Field | null = null;
+  // Pre-edit W/H per selected element, captured when the w/h field activates —
+  // the base the aspect lock scales from (see the geometry appliers).
+  let dimBase: Map<string, { w: number; h: number }> | null = null;
   let search = "";
   let sIndex = 0;
   let panelEl: HTMLDivElement;
@@ -316,8 +319,14 @@
     num("x", "x position", "Geometry", () => Math.round(primary.x), (e, v) => (e.x = v));
     num("y", "y position", "Geometry", () => Math.round(primary.y), (e, v) => (e.y = v));
     if (boxEl) {
-      num("w", "width", "Geometry", () => Math.round((boxEl as any).width), (e, v) => { if ("width" in e) e.width = Math.max(1, v); });
-      num("h", "height", "Geometry", () => Math.round((boxEl as any).height), (e, v) => { if ("height" in e) e.height = Math.max(1, v); });
+      // Aspect-lock-aware (ops.setBoxDim honors element.lockAspect — writing
+      // width/height directly here was the "menu bypasses the chain toggle"
+      // bug). dimBase carries the pre-edit dims captured at field activation:
+      // these appliers run live per keystroke, and the lock ratio must come
+      // from before the edit, not from a half-typed intermediate value.
+      num("w", "width", "Geometry", () => Math.round((boxEl as any).width), (e, v) => { if ("width" in e) ops.setBoxDim(e, "w", v, dimBase?.get(e.id)); });
+      num("h", "height", "Geometry", () => Math.round((boxEl as any).height), (e, v) => { if ("height" in e) ops.setBoxDim(e, "h", v, dimBase?.get(e.id)); });
+      F.push({ key: "8", label: "lock aspect ratio", group: "Geometry", kind: "toggle", get: () => !!(boxEl as any).lockAspect, apply: () => { const ids = [...sel]; const to = !(boxEl as any).lockAspect; commit((proj) => ops.setElementStyle(proj, ids, { lockAspect: to })); } });
     }
     num("r", "rotation", "Geometry", () => Math.round(primary.rotation), (e, v) => (e.rotation = v));
     num("o", "opacity", "Geometry", () => primary.opacity ?? 1, (e, v) => (e.opacity = Math.min(1, Math.max(0, v))), 0.05);
@@ -524,6 +533,13 @@
       f.apply(true);
       return; // stays in hotkey mode
     }
+    if (f.key === "w" || f.key === "h") {
+      dimBase = new Map();
+      const s = get(selection);
+      for (const fig of get(project).figures)
+        for (const e of fig.elements)
+          if (s.has(e.id) && "width" in e && "height" in e) dimBase.set(e.id, { w: e.width, h: e.height });
+    }
     beginGesture();
     activeKey = f.key;
     mode = "field";
@@ -543,6 +559,7 @@
     mode = "hotkey";
     activeKey = null;
     colorField = null;
+    dimBase = null;
     focusPanel();
   }
 

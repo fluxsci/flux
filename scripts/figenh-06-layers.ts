@@ -192,6 +192,29 @@ try {
   assert(Math.abs(m.width - 400) < 1 && Math.abs(m.height - 280) < 1, `aspect lock: W=400 -> H=${m.height} (expect 280)`);
   await shot(page, "f6-05-aspect");
 
+  // --- ASPECT LOCK from the FluxFig MENU: the h field honors the chain toggle
+  // (regression: the menu wrote width/height directly, bypassing setBoxDim) ---
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+  await page.keyboard.press("f");
+  await sleep(400);
+  assert(await page.evaluate(() => !!document.querySelector(".fluxFigMenu")), "f-menu opened");
+  await page.keyboard.press("h");
+  await sleep(250);
+  // Field input is focused + selected; typing applies LIVE per keystroke — the
+  // dimBase capture must keep the 400:280 ratio through "1", "14", "140".
+  await page.keyboard.type("140", { delay: 40 });
+  await sleep(150);
+  await page.keyboard.press("Enter");
+  await sleep(120);
+  await page.keyboard.press("Escape");
+  await sleep(200);
+  const m2 = await model(r3);
+  assert(
+    Math.abs(m2.height - 140) < 1 && Math.abs(m2.width - 200) < 1,
+    `f-menu honors aspect lock incl. live typing: H=140 -> W=${m2.width} (expect 200)`,
+  );
+  await shot(page, "f6-06-aspect-menu");
+
   const errs = realErrors(page);
   assert(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));
