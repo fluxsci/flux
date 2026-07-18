@@ -34,9 +34,10 @@ import { applyOverrides } from "../../plot/parse";
 import { compensatePtTrue, restorePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
+import { elementBBox } from "../../geometry";
 import { lerpElement, contentPlan, type ContentPlan } from "../tween";
 import { createMorph, type MorphController } from "./morph";
-import { applyWrapperBox, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 
 export interface TransformCtx extends SlideRenderCtx {
   /** assetId → manifest (plot frame updates + the content-morph half). */
@@ -70,6 +71,12 @@ export function createTransform(
     skipOpacity: skip?.has("opacity") ?? false,
     skipTransform: skip?.has("transform") ?? false,
   };
+  // The frozen layout box for mid-flight composite frames (= the t1 box the
+  // t≤0 endpoint writes). When a same-beat appearance owns the wrapper
+  // transform (skipTransform), composite motion is impossible — those rare
+  // overlaps keep the classic per-frame layout path.
+  const baseBB = elementBBox({ ...pre, rotation: 0 });
+  const baseBox = { x: baseBB.x, y: baseBB.y, w: baseBB.w, h: baseBB.h };
 
   // --- plot half: in-place frame/override updates + optional content morph --
   const isPlot = pre.type === "plot" && end.type === "plot";
@@ -121,7 +128,11 @@ export function createTransform(
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
     if (el.type === "text" && el.needsLayout) applyTextLayout(el);
-    applyWrapperBox(wrap, el, boxOpts);
+    if (t > 0 && t < 1 && !boxOpts.skipTransform) {
+      applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
+    } else {
+      applyWrapperBox(wrap, el, boxOpts);
+    }
 
     if (plan.mode === "crossfade") {
       ensureLayers();

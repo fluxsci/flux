@@ -302,6 +302,56 @@ export function applyWrapperBox(w: HTMLElement, el: FigElement, opts: { skipOpac
     if (el.flipX) t.push("scaleX(-1)");
     if (el.flipY) t.push("scaleY(-1)");
     s.transform = t.length ? t.join(" ") : "";
+    // composite frames pin the origin to 0 0 — restore the classic pivot
+    s.transformOrigin = "center center";
   }
+  if (!opts.skipOpacity) s.opacity = el.opacity != null ? String(el.opacity) : "";
+}
+
+/** MID-FLIGHT wrapper application for morph frames (the glide fix): the
+ *  layout box stays FROZEN at `base` (the t1 box the endpoints write) and the
+ *  current state's box rides a COMPOSITOR transform instead — translate +
+ *  scale, with rotation/flips conjugated about the current box centre.
+ *
+ *  Why: animating left/top/width/height re-lays-out and re-paints per frame,
+ *  and the svg child's painted origin pixel-snaps to whole STAGE px — under
+ *  the host's fit-scale (present + export scale the stage with a CSS
+ *  transform) every snap lands as a multi-device-pixel jump, which reads as
+ *  jitter at slow speeds (the anim_test lesson). Compositor transforms
+ *  interpolate at float precision with no snapping and no layout. Because
+ *  content svgs are width/height:100% + preserveAspectRatio:none, stretching
+ *  the frozen base box by (w/w0, h/h0) is EXACTLY the viewBox→box mapping the
+ *  per-frame layout write produced — same visual, smooth path. Endpoints
+ *  (t≤0 / t≥1) still go through applyWrapperBox, so resting states, gates,
+ *  and downstream readers see the classic layout box unchanged. */
+export function applyWrapperBoxComposite(
+  w: HTMLElement,
+  el: FigElement,
+  base: { x: number; y: number; w: number; h: number },
+  opts: { skipOpacity?: boolean } = {},
+): void {
+  const bb = elementBBox({ ...el, rotation: 0 });
+  const s = w.style;
+  const bx = `${base.x}px`, by = `${base.y}px`;
+  const bw = `${Math.max(base.w, 1)}px`, bh = `${Math.max(base.h, 1)}px`;
+  if (s.left !== bx) s.left = bx;
+  if (s.top !== by) s.top = by;
+  if (s.width !== bw) s.width = bw;
+  if (s.height !== bh) s.height = bh;
+  const cw = Math.max(bb.w, 1), ch = Math.max(bb.h, 1);
+  const sx = cw / Math.max(base.w, 1), sy = ch / Math.max(base.h, 1);
+  const parts: string[] = [`translate(${bb.x - base.x}px, ${bb.y - base.y}px)`];
+  const spin: string[] = [];
+  if (el.rotation) spin.push(`rotate(${el.rotation}deg)`);
+  if (el.flipX) spin.push("scaleX(-1)");
+  if (el.flipY) spin.push("scaleY(-1)");
+  if (spin.length) {
+    // about the CURRENT box centre (the classic pivot), conjugated because the
+    // origin is pinned at 0 0 for the scale math
+    parts.push(`translate(${cw / 2}px, ${ch / 2}px)`, ...spin, `translate(${-cw / 2}px, ${-ch / 2}px)`);
+  }
+  if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`);
+  s.transformOrigin = "0 0";
+  s.transform = parts.join(" ");
   if (!opts.skipOpacity) s.opacity = el.opacity != null ? String(el.opacity) : "";
 }

@@ -283,11 +283,14 @@ try {
   ok(!pr0.checkout, "launching Present exits an active endpoint checkout");
   ok(pr0.left === "40px", `the present stage rests at the BASE state (left ${pr0.left})`);
   // collect mid-flight frames, then advance the transform beat with a REAL key
+  // mid-flight the layout box is FROZEN and motion rides the composite
+  // transform (the glide fix) — effective x = left + translate-x
   await page.evaluate(`(() => {
     window.__plefts = [];
     var w = document.querySelector('.present .mount [data-el-id="tr-rect"]');
     var collect = function () {
-      window.__plefts.push(w ? w.style.left : "");
+      var m = w ? /translate\\(([-0-9.]+)px/.exec(w.style.transform || "") : null;
+      window.__plefts.push(w ? (parseFloat(w.style.left) || 0) + (m ? parseFloat(m[1]) : 0) : NaN);
       if (window.__plefts.length < 80) requestAnimationFrame(collect);
     };
     requestAnimationFrame(collect);
@@ -296,7 +299,7 @@ try {
   await page.waitForFunction("window.__plefts && window.__plefts.length >= 70", { timeout: 8000 });
   const pr1 = await page.evaluate(() => {
     const w = document.querySelector('.present .mount [data-el-id="tr-rect"]');
-    const mids = window.__plefts.map((v) => parseFloat(v)).filter((v) => Number.isFinite(v) && v > 45 && v < 255);
+    const mids = window.__plefts.filter((v) => Number.isFinite(v) && v > 45 && v < 255);
     const dots = [...document.querySelectorAll(".present .hud .dot")].filter((d) => d.className.includes("on")).length;
     return { left: w?.style.left, mids: mids.length, dots };
   });

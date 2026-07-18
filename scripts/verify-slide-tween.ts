@@ -287,8 +287,13 @@ function build(slide: Slide) {
   assert(wrap.children.length === 2, "non-tweenable content crossfades via two stacked layers");
   const [la, lb] = Array.from(wrap.children) as HTMLElement[];
   assert(near(Number(la.style.opacity), 0.5) && near(Number(lb.style.opacity), 0.5), "…opacity cross-lerped");
-  assert(wrap.style.left === "50px", "…while the box still MOVES (the fallback never pops)");
+  // mid-flight the box rides the COMPOSITE transform (layout frozen at the t1
+  // box — the glide fix); effective x = frozen left + translate-x
+  const midTx = /translate\(([-0-9.]+)px/.exec(wrap.style.transform || "")?.[1];
+  assert(wrap.style.left === "0px" && near(parseFloat(midTx ?? "NaN"), 50), "…while the box still MOVES via the composite transform (the fallback never pops)");
   assert(lb.textContent?.includes("after"), "the B layer renders the end content");
+  ctrl.morph.seek(1);
+  assert(wrap.style.left === "100px" && !/translate/.test(wrap.style.transform), "…and the endpoint restores the classic layout box (no composite residue)");
 }
 
 // dangling transform target: tolerated no-op

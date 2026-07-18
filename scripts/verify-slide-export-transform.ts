@@ -124,22 +124,32 @@ try {
   );
 
   // --- real playback: the transform beat moves through intermediate frames -----
+  // Mid-flight the wrapper's LAYOUT stays frozen at the t1 box and motion
+  // rides a compositor transform (the glide fix — layout-property animation
+  // pixel-snaps to whole stage px under the fit-scale). Effective x = frozen
+  // left + the transform's translate-x. Endpoints still write classic layout.
   await page.evaluate(`(() => {
     window.__lefts = [];
     var w = document.querySelector('${SEL}');
     var collect = function () {
-      window.__lefts.push(w.style.left);
+      var m = /translate\\(([-0-9.]+)px/.exec(w.style.transform || "");
+      window.__lefts.push({ left: w.style.left, eff: (parseFloat(w.style.left) || 0) + (m ? parseFloat(m[1]) : 0), composite: !!m });
       if (window.__lefts.length < 90) requestAnimationFrame(collect);
     };
     requestAnimationFrame(collect);
   })()`);
   await page.keyboard.press("ArrowRight"); // play beat 2 (the transform)
   await page.waitForFunction("window.__lefts && window.__lefts.length >= 60", { timeout: 5000 });
-  const lefts = (await page.evaluate(() => (window as never as { __lefts: string[] }).__lefts)) as string[];
-  const mid = lefts.map((v) => parseFloat(v)).filter((v) => Number.isFinite(v) && v > 70 && v < 350);
+  const lefts = (await page.evaluate(() => (window as never as { __lefts: { left: string; eff: number; composite: boolean }[] }).__lefts)) as { left: string; eff: number; composite: boolean }[];
+  const mid = lefts.filter((v) => Number.isFinite(v.eff) && v.eff > 70 && v.eff < 350);
   assert(mid.length >= 5, `transform playback produced real mid-flight frames (${mid.length} samples strictly between the endpoints)`);
-  const settled = await page.evaluate((sel: string) => (document.querySelector(sel) as HTMLElement).style.left, SEL);
-  assert(parseFloat(settled) === 360, `…and settles exactly at t2 (left ${settled})`);
+  assert(mid.every((v) => v.composite && v.left === "60px"), "mid-flight frames are COMPOSITE: layout frozen at the t1 box, motion on the transform (the glide fix)");
+  const settled = await page.evaluate((sel: string) => {
+    const el = document.querySelector(sel) as HTMLElement;
+    return { left: el.style.left, transform: el.style.transform, origin: el.style.transformOrigin };
+  }, SEL);
+  assert(parseFloat(settled.left) === 360, `…and settles exactly at t2 (left ${settled.left})`);
+  assert(!/translate/.test(settled.transform) && settled.origin !== "0px 0px", "…with the classic layout box restored at rest (no composite residue)");
   const strokeMid = await page.evaluate((sel: string) => document.querySelector(sel)!.querySelector("rect")!.getAttribute("stroke"), SEL);
   assert(strokeMid === "#d14d41", "the stroke color landed at the t2 OKLab endpoint");
 
