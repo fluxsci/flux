@@ -46,9 +46,11 @@ assert(svgRect.includes("rotate(90 70 60)"), "FIG-2: rotated RECT still pivots o
 
 // --- presence of the store/DOM/component-bound fixes ---------------------------------------
 const read = (p: string) => fs.readFile(path.join(import.meta.dirname, "..", p), "utf8");
-const [keyboard, inspector, parse, store, xray] = await Promise.all([
+const [keyboard, opsSrc, parse, store, xray] = await Promise.all([
   read("src/lib/keyboard.ts"),
-  read("src/lib/Inspector.svelte"),
+  // FIG-10's setDim moved from Inspector.svelte to ops.setBoxDim (2026-07-18,
+  // aspect-lock fix — the Inspector and the FluxFig menu now share it).
+  read("src/lib/ops.ts"),
   read("src/lib/plot/parse.ts"),
   read("src/lib/store.ts"),
   // P8: PlotXray.svelte became the unified Xray.svelte — the FIG-14 regenerate
@@ -63,9 +65,9 @@ assert(/cloneGroupsFor\(clipboardGroups, clipboard, remap\)/.test(keyboard) && /
 // hugging box switches it to wrap ("auto-h"), a manual H pins it "fixed";
 // otherwise applyTextLayout would re-hug and overwrite the typed value.
 assert(
-  /if \(which === "h"\) el\.sizing = "fixed";/.test(inspector) &&
-    /else if \(el\.sizing === "auto"\) el\.sizing = "auto-h";/.test(inspector),
-  "FIG-10: setDim W→auto-h (wrap) / H→fixed on text (fields stay live)",
+  /if \(which === "h"\) el\.sizing = "fixed";/.test(opsSrc) &&
+    /else if \(el\.sizing === "auto"\) el\.sizing = "auto-h";/.test(opsSrc),
+  "FIG-10: setBoxDim W→auto-h (wrap) / H→fixed on text (fields stay live)",
 );
 assert(/getAttribute\("style"\)/.test(parse) && /querySelectorAll\("style"\)/.test(parse), "FIG-11: prefixIds rewrites inline styles + <style> blocks");
 assert(/selectedFrameId\.update\(\(id\) =>/.test(store), "FIG-13: pruneSelection clears a dangling selectedFrameId");
