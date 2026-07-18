@@ -441,7 +441,14 @@
 
   // --- present mode ---------------------------------------------------------------
   let presentOpen = $state(false);
-  let presentDeck = $state<Deck | null>(null);
+  // $state.raw, NOT $state: a deep $state proxy would ride into the player,
+  // where the transform engine structuredClones deck elements
+  // (transformPreState) — structuredClone(proxy) throws DataCloneError and
+  // createPlayer dies mid-construction, leaving Present frozen on the first
+  // slide (keys/clicks all hit `if (!player) return`). The deck is composed
+  // once per launch and never mutated in place — reassignment reactivity is
+  // exactly right. (The same Svelte-5 trap as the ☆ Library payloads.)
+  let presentDeck = $state.raw<Deck | null>(null);
   let presentStart = $state(0);
   function launchPresent(fromStart: boolean) {
     exitEndpointEdit();

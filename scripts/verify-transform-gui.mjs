@@ -242,6 +242,74 @@ try {
   ok(secondAfter?.state?.x === undefined && secondAfter?.state?.y === 220, "…and the downstream track's own patch is untouched");
   await page.keyboard.press("Escape");
 
+  // --- PRESENT on a transform deck (the $state.raw regression lock) --------------
+  // The deckbar Present button hands the composed deck to the overlay; a deep
+  // $state proxy there kills createPlayer inside the transform pre-state fold
+  // (structuredClone(proxy) → DataCloneError) and Present freezes with every
+  // key/click dead. This section presents THIS transform deck for real:
+  // player alive, keyboard advance lands t2 with true mid-flight frames,
+  // chain composes, click-prev works, and launching mid-checkout exits it.
+  await page.evaluate(() => {
+    const f = window.__flux;
+    const o = f.get(f.slide.deckOverlay);
+    const sid = f.get(f.fig.activeFigureId);
+    const t = o.slides.find((x) => x.id === sid).beats.flatMap((b) => b.tracks).find((tk) => tk.preset === "transform");
+    f.slide.enterEndpointEdit([t.id], "t2"); // present must exit this cleanly
+  });
+  await sleep(200);
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".deckbar button")].find((b) => /Present/.test(b.textContent || ""))?.click();
+  });
+  await waitFor(page, () => !!document.querySelector(".present .mount [data-el-id]"), null, { timeout: 8000, label: "present mounted" });
+  const pr0 = await page.evaluate(() => {
+    const f = window.__flux;
+    const wrap = document.querySelector('.present .mount [data-el-id="tr-rect"]');
+    return { checkout: !!f.get(f.slide.endpointEdit), left: wrap?.style.left ?? null };
+  });
+  ok(!pr0.checkout, "launching Present exits an active endpoint checkout");
+  ok(pr0.left === "40px", `the present stage rests at the BASE state (left ${pr0.left})`);
+  // collect mid-flight frames, then advance the transform beat with a REAL key
+  await page.evaluate(`(() => {
+    window.__plefts = [];
+    var w = document.querySelector('.present .mount [data-el-id="tr-rect"]');
+    var collect = function () {
+      window.__plefts.push(w ? w.style.left : "");
+      if (window.__plefts.length < 80) requestAnimationFrame(collect);
+    };
+    requestAnimationFrame(collect);
+  })()`);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction("window.__plefts && window.__plefts.length >= 70", { timeout: 8000 });
+  const pr1 = await page.evaluate(() => {
+    const w = document.querySelector('.present .mount [data-el-id="tr-rect"]');
+    const mids = window.__plefts.map((v) => parseFloat(v)).filter((v) => Number.isFinite(v) && v > 45 && v < 255);
+    const dots = [...document.querySelectorAll(".present .hud .dot")].filter((d) => d.className.includes("on")).length;
+    return { left: w?.style.left, mids: mids.length, dots };
+  });
+  // beat 1's t2 is x=260 — the chained-t1 section above rewrote the upstream patch
+  ok(pr1.left === "260px", `keyboard advance PLAYED the transform to t2 (left ${pr1.left})`);
+  ok(pr1.mids >= 5, `…through real mid-flight frames (${pr1.mids} samples strictly between the endpoints)`);
+  ok(pr1.dots === 2, `…and the HUD advanced (${pr1.dots} dots lit)`);
+  await page.keyboard.press("ArrowRight"); // the chained beat (y → 220)
+  await sleep(900);
+  const pr2 = await page.evaluate(() => document.querySelector('.present .mount [data-el-id="tr-rect"]')?.style.top);
+  ok(pr2 === "220px", `the chained transform composed on advance (top ${pr2})`);
+  // click-prev (left quarter) steps back a beat
+  await page.evaluate(() => {
+    const el = document.querySelector(".present");
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: r.left + 8, clientY: r.top + r.height / 2 }));
+  });
+  await sleep(500);
+  const pr3 = await page.evaluate(() => {
+    const w = document.querySelector('.present .mount [data-el-id="tr-rect"]');
+    return { left: w?.style.left, top: w?.style.top };
+  });
+  ok(pr3.left === "260px" && pr3.top === "60px", `click-prev rests at the earlier beat's composed state (${pr3.left}/${pr3.top})`);
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector(".present"), null, { timeout: 5000, label: "present closed" });
+  ok(true, "Esc exits Present back to the editor");
+
   // --- console clean --------------------------------------------------------------
   const errs = await realErrors(page);
   ok(errs.length === 0, "console is clean", errs.join(" | "));

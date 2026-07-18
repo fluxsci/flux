@@ -766,7 +766,13 @@ both morphs 75+ mid-flight frames) AND the real Electron app (x11 + CDP, positiv
 evidence, deck migrated in memory, morph live in present, owner files byte-untouched).
 **Learnings:**
 - Svelte 5 `$state` deep-proxies anything assigned into it, and `structuredClone(proxy)`
-  throws DataCloneError — `$state.snapshot()` at the boundary before cloning/persisting.
+  throws DataCloneError — `$state.snapshot()` at the boundary before cloning/persisting, and
+  `$state.raw` for model objects a component merely HOLDS and hands onward (the Present
+  button froze on any transform deck because `presentDeck = $state(...)` proxied the deck
+  into `createPlayer`, whose pre-state fold structuredClones elements; the constructor died
+  and every key/click hit `if (!player) return`). Reassignment-reactive is usually all a
+  handed-off object needs. Regression-locked: verify-transform-gui now PRESENTS a transform
+  deck for real (keyboard + click advance, mid-flight frames, chain compose, Esc).
 - A `$effect` that syncs store A → store B while also READING B re-fires on B's change and
   clobbers explicit B-writes — guard with a last-synced key and `untrack()` the B read.
 - Under a long-lived vite dev server, an in-page dynamic `import("/src/…")` can return a
