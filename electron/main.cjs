@@ -101,7 +101,7 @@ const fileCore = require("./ipc/files.cjs").createFileCore({
     pendingRoot = ab;
   },
 });
-const { noteWrite, atomicWriteMain, isSelfWrite, fsGuard, approveDir } = fileCore;
+const { noteWrite, atomicWriteMain, isSelfWrite, fsGuard, approveDir, underDir } = fileCore;
 const { TMP_WRITE_RE } = require("./ipc/files.cjs");
 
 
@@ -815,6 +815,39 @@ ipcMain.handle("update:check", async () => {
 // ---------------------------------------------------------------------------
 fileCore.registerHandlers(ipcMain);
 
+// ---------------------------------------------------------------------------
+// File-watch live reload (F1): the renderer registers the open project root; we
+// watch plots/, fig/, manuscript/**, references/, slides/ and emit debounced
+// fs:changed events ({ subsystem, path }), skipping the app's own writes so
+// agent/script edits "pop into" the open window non-destructively.
+// ---------------------------------------------------------------------------
+function subsystemFor(root, abs) {
+  const rel = path.relative(root, abs).split(path.sep).join("/");
+  if (rel.startsWith("..")) return null;
+  if (rel.startsWith("plots/")) return "plots";
+  if (rel.startsWith("fig/")) return "fig";
+  if (rel.startsWith("manuscript/")) return "manuscript";
+  if (rel.startsWith("references/")) return "references";
+  if (rel.startsWith("slides/")) return "slides"; // W10 (SLD-1)
+  return null;
+}
+
+// W10 (LR-3): the machine-global FluxLib lives outside the project root, so classify
+// its watched paths separately. We watch library.bib + .fluxlib/enrich.json + items/
+// (NOT .fluxlib/locks/, whose 10s heartbeats would spam spurious revisions).
+function fluxLibSubsystemFor(libRoot, abs) {
+  const rel = path.relative(libRoot, abs).split(path.sep).join("/");
+  if (rel.startsWith("..")) return null;
+  if (rel === "library.bib" || rel === ".fluxlib/enrich.json" || rel.startsWith("items/")) {
+    return "fluxlib";
+  }
+  // The drop-inbox: only landed PDFs count — sidecar notes and our own _unresolved/
+  // filing must not re-trigger a scan (awaitWriteFinish already debounces mid-copy).
+  if (rel.startsWith("pdfs_to_assign/")) {
+    return !rel.includes("_unresolved/") && /\.pdf$/i.test(rel) ? "assign-inbox" : null;
+  }
+  return null;
+}
 
 ipcMain.handle("watch:setRoot", async (_e, root) => {
   releaseAllGuiLocks(); // W3: locks belong to the outgoing project/session

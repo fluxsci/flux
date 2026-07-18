@@ -218,6 +218,7 @@ function createFileCore({ app, dialog, roots, setPendingRoot }) {
     isSelfWrite,
     fsGuard,
     approveDir,
+    underDir,
     clearApprovals: () => approvedDirs.clear(),
     registerHandlers,
   };

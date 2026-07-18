@@ -274,15 +274,16 @@ The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A 
 that isn't in the manifest doesn't exist.** Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
-  pure --jobs 4` (~15s, currently 124 scripts, must stay green at all times).
+  pure --jobs 4` (~15s, currently 135 scripts, must stay green at all times).
 - **ui / ui-extra** — puppeteer against the dev server on :1420 (`scripts/lib/driver.mjs`;
   fixtures via `?fixture=demo`, dev handles `window.__flux`, `__fluxView`, `__fluxSeed*`). ui is
   the curated stable suite (41), ui-extra the full sweep (60). Consoles must be **clean** —
   there is no tolerated-404 filter anymore.
 - **scale** — the perf budgets (figure/paper/library/reader/fulltext). These are the standing
   60fps/scale contracts from the polish mandate.
-- **presence** — the six source-shape/regex scripts (main-process/build config that headless
-  drivers can't exercise). They also live in pure; the tier exists for `--changed` mapping.
+- **presence** — the seven source-shape/static scripts (main-process/build config that headless
+  drivers can't exercise; incl. `verify-electron-no-undef.ts`, the TS-checker undefined-identifier
+  gate over `electron/**/*.cjs`). They also live in pure; the tier exists for `--changed` mapping.
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
   on this box need `--ozone-platform=x11` (§9).
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
@@ -823,3 +824,26 @@ now the slide's own resting background.
 - Part-override edits (X-ray hide etc.) on a displayed plot route into the transform's t2
   like any other edit — static masking of a PART is a beat-0 action; element-level `hidden`
   stays base-only by the NEVER_CAPTURED law.
+
+### 2026-07-18 — Watcher dialog storm: WS-9.4b orphaned identifiers + no-undef gate (Claude Fable 5, `animation_overhaul`)
+**Work:** Owner report: adding plots to `plots/` while a project is open popped an endless
+"Uncaught Exception: subsystemFor is not defined" dialog per fs event. Root cause: the WS-9.4b
+FILES extraction (30492ce) deleted `subsystemFor`/`fluxLibSubsystemFor` from `main.cjs` and made
+`underDir` a `createFileCore` closure-local, but left three call sites behind (the project
+watcher and quarto:render containment). Restored the two watcher helpers verbatim from git
+history, exported `underDir` from fileCore, and added `verify-electron-no-undef.ts`
+(pure+presence): the TS checker over `electron/**/*.cjs` failing on TS2304/2552 — the static
+signature of a runtime ReferenceError. Verified live: real-Electron probe (boots actual
+main.cjs, watchRoot on a throwaway project, 6 SVGs dropped externally) → 0 uncaught, debounced
+`fs:changed {subsystem:"plots"}` delivered.
+**Learnings:**
+- Main-process code has NO execution gate — verify-w10-matrix drives only the renderer half of
+  the watch matrix ("verified by inspection" is a trap). Any refactor that moves/deletes a
+  main.cjs helper can strand call sites that only explode at runtime, as a per-event modal
+  storm. The no-undef gate now catches the whole class; it found a second latent orphan
+  (`underDir` in quarto:render — Render-PDF would have crashed main) on its first run.
+- Cheap real-main-process probe recipe: an Electron entry script that `require()`s the real
+  `electron/main.cjs`, installs a `process.on("uncaughtException")` counter (suppresses the
+  dialog), grabs the app window via `BrowserWindow.getAllWindows()`, and drives the real
+  preload bridge (`window.fig.beginOpen/watchRoot/onFsChanged`) via `executeJavaScript` —
+  needs :1420 + `--ozone-platform=x11 --no-sandbox`, prints positive boot evidence (§9).

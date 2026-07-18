@@ -118,6 +118,7 @@
       "verify-anim-presets.ts",
       "verify-slide-trackid.ts",
       "verify-slide-w7.ts",
+      "verify-electron-no-undef.ts",
       "verify-snip-headless.ts",
       "verify-snips.ts",
       "verify-supplement.ts",
@@ -271,6 +272,7 @@
       "verify-writer-latency-inp.mjs"
     ],
     "presence": [
+      "verify-electron-no-undef.ts",
       "verify-w12-security.ts",
       "verify-r3-agent.ts",
       "verify-update-check.ts",
