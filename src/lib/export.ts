@@ -139,7 +139,7 @@ export function elementToSvg(
       let s =
         `<path d="${pr.d}" fill="${e.closed ? e.fill : "none"}" ` +
         `stroke="${e.stroke}" stroke-width="${e.strokeWidth}" ` +
-        `stroke-linejoin="round" stroke-linecap="round"${dashA(e)}${op(e)} ` +
+        `stroke-linejoin="round" stroke-linecap="${e.cap ?? "round"}"${dashA(e)}${op(e)} ` +
         `transform="translate(${e.x} ${e.y})"/>`;
       for (const tri of pr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");

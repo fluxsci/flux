@@ -104,6 +104,8 @@ const ELEMENT_DEF = {
       arrowEnd: { type: "boolean" },
       arrowStyle: { type: "string" },
       arrowSize: { type: "number" },
+      cap: { type: "string" },
+      cornerRadius: { type: "number" },
     }),
   ],
 };

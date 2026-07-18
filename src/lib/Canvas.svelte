@@ -53,7 +53,7 @@
     type Rect,
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, lineEndpointRemap, type CropRemapResult } from "./editing";
-  import { nodesToPath, pathToNodes, constrain45, segsFromNodes, nearestTOnSeg, bendSegment } from "./path";
+  import { nodesToPath, pathD, pathToNodes, constrain45, segsFromNodes, nearestTOnSeg, bendSegment } from "./path";
   import { penSnap, type PenSnapResult } from "./interact/penSnap";
   import * as ops from "./ops";
   import { settings } from "./settings";
@@ -780,7 +780,9 @@
       return;
     }
     const el = f.element;
-    if (el.d !== nodesToPath(editNodes, editClosed)) {
+    // pathD, NOT nodesToPath: el.d embeds cornerRadius fillets — a sharp-nodes
+    // compare would read every commit of a rounded path as an external edit.
+    if (el.d !== pathD(editNodes, editClosed, el.cornerRadius)) {
       editClosed = el.closed;
       editNodes = (el.nodes && el.nodes.length ? el.nodes : pathToNodes(el.d)).map(cloneNode);
       editSel = new Set([...editSel].filter((i) => i < editNodes.length));
@@ -2489,7 +2491,7 @@
   // frozen until the single pointer-up commit.
   $: nodeDragLive =
     (nodeDrag?.started || bendDrag?.started) && editInfo
-      ? ({ ...editInfo.el, nodes: editNodes, d: nodesToPath(editNodes, editClosed) } as PathElement)
+      ? ({ ...editInfo.el, nodes: editNodes, d: pathD(editNodes, editClosed, editInfo.el.cornerRadius) } as PathElement)
       : null;
 
   // Single transient scene-slot override (node drag OR line-endpoint pivot —

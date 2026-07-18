@@ -20,7 +20,7 @@ import type { Element, PartOverride, VectorNode } from "../types";
 import type { Slide } from "./types";
 import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
-import { nodesToPath, pathToNodes, resampleNodes } from "../path";
+import { pathD, pathToNodes, resampleNodes } from "../path";
 
 // --- the property law --------------------------------------------------------
 
@@ -89,9 +89,10 @@ export function applyState(el: Element, state: Record<string, unknown> | undefin
     out.needsLayout = true;
   }
   // keep the path's render form in sync with patched authoritative nodes
-  if (out.type === "path" && ("nodes" in state || "closed" in state)) {
+  // (pathD embeds the cornerRadius fillets — a patched radius re-emits too)
+  if (out.type === "path" && ("nodes" in state || "closed" in state || "cornerRadius" in state)) {
     const nodes = out.nodes as VectorNode[] | undefined;
-    if (nodes?.length) out.d = nodesToPath(nodes, Boolean(out.closed));
+    if (nodes?.length) out.d = pathD(nodes, Boolean(out.closed), out.cornerRadius as number | undefined);
   }
   return out as unknown as Element;
 }
@@ -343,7 +344,9 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
     if (closedA === closedB && (pre.d !== end.d || JSON.stringify(pre.nodes) !== JSON.stringify(end.nodes))) {
       const nodes = lerpNodes(nodesOf(pre), nodesOf(end), closedB, t);
       (out as unknown as { nodes: VectorNode[]; d: string; closed: boolean }).nodes = nodes;
-      (out as unknown as { d: string }).d = nodesToPath(nodes, closedB);
+      // cornerRadius was already lerped above (NUM_PROPS) — the frame's d
+      // fillets with the interpolated radius over the interpolated skeleton.
+      (out as unknown as { d: string }).d = pathD(nodes, closedB, (out as { cornerRadius?: number }).cornerRadius);
     } else if (closedA !== closedB) {
       // topology step (the driver crossfades; the model steps at 0.5)
       const src = t < 0.5 ? pre : end;

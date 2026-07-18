@@ -270,7 +270,8 @@ export interface VectorNode {
 export interface PathElement extends ElementBase {
   type: "path";
   // SVG path data in element-local coords. Rendered/exported form — kept in sync
-  // with `nodes` when present (regenerated via path.ts nodesToPath).
+  // with `nodes` when present (regenerated via path.ts pathD, which embeds the
+  // cornerRadius fillets — `nodes` stays the sharp editable skeleton).
   d: string;
   fill: string;
   stroke: string;
@@ -286,6 +287,12 @@ export interface PathElement extends ElementBase {
   arrowEnd?: boolean;
   arrowStyle?: "filled" | "vee";
   arrowSize?: number;
+  /** stroke-linecap on OPEN paths; round is the Flux default (line parity). */
+  cap?: "butt" | "round" | "square";
+  /** Figma-style geometric corner rounding: corner nodes between two straight
+   *  segments render as arc fillets (radius clamped to half the shorter
+   *  adjacent segment). 0/absent = sharp — today's look, byte-identical. */
+  cornerRadius?: number;
 }
 
 // A semantic plot — EVERY imported SVG is one (figure-v1 P4; the old opaque

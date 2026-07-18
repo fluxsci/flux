@@ -409,8 +409,78 @@ export function refitPath(el: PathElement): PathElement {
   }
   el.width = Math.max(1, ext.w);
   el.height = Math.max(1, ext.h);
-  el.d = nodesToPath(el.nodes, el.closed);
+  // Extent stays on the SHARP nodes: fillets lie inside the corner wedge, so
+  // the sharp box contains the rounded shape and x/y hold still under a
+  // radius scrub (no re-normalization churn).
+  el.d = pathD(el.nodes, el.closed, el.cornerRadius);
   return el;
+}
+
+// ---------------------------------------------------------------------------
+// Corner rounding (Figma-style geometric fillets). `nodes` stays the SHARP
+// authoritative skeleton; rounding is applied where `d` is generated (pathD),
+// so node-edit shows true corners while the geometry renders rounded.
+// v1 contract: only corner nodes whose BOTH flanking segments are straight
+// and non-collinear are filleted (curve-flanked corners already blend; a
+// curve fillet has no exact clamp). Open-path endpoints never round; the
+// closed wrap corners do. radius <= 0 returns the input array unchanged.
+// ---------------------------------------------------------------------------
+
+export function roundCorners(nodes: VectorNode[], closed: boolean, radius: number): VectorNode[] {
+  if (!(radius > 0) || nodes.length < 3) return nodes;
+  const n = nodes.length;
+  const copy = (nd: VectorNode): VectorNode => ({ ...nd, hIn: nd.hIn && { ...nd.hIn }, hOut: nd.hOut && { ...nd.hOut } });
+  const out: VectorNode[] = [];
+  for (let i = 0; i < n; i++) {
+    const cur = nodes[i];
+    const isEnd = !closed && (i === 0 || i === n - 1);
+    const prev = nodes[(i - 1 + n) % n];
+    const next = nodes[(i + 1) % n];
+    // Both flanking segments straight = no handle on any relevant end.
+    const qualifies = !isEnd && !cur.hIn && !cur.hOut && !prev.hOut && !next.hIn;
+    if (!qualifies) {
+      out.push(copy(cur));
+      continue;
+    }
+    const Lin = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+    const Lout = Math.hypot(next.x - cur.x, next.y - cur.y);
+    if (Lin < 1e-9 || Lout < 1e-9) {
+      out.push(copy(cur));
+      continue;
+    }
+    const u = { x: (cur.x - prev.x) / Lin, y: (cur.y - prev.y) / Lin }; // into the corner
+    const v = { x: (next.x - cur.x) / Lout, y: (next.y - cur.y) / Lout }; // out of the corner
+    // Interior angle θ between (−u) and v: sin from the cross, cos from the dot.
+    const sin = Math.abs(u.x * v.y - u.y * v.x);
+    if (sin < 1e-4) {
+      out.push(copy(cur)); // collinear pass-through or a degenerate spike
+      continue;
+    }
+    const theta = Math.atan2(sin, -(u.x * v.x + u.y * v.y)); // ∈ (0, π)
+    const tanHalf = Math.tan(theta / 2);
+    // Trim distance along each leg; each leg donates at most HALF its length
+    // to each end, so adjacent fillets can never overlap by construction.
+    const t = Math.min(radius / tanHalf, Lin / 2, Lout / 2);
+    if (!(t > 1e-6)) {
+      out.push(copy(cur));
+      continue;
+    }
+    const re = t * tanHalf; // effective radius after the clamp
+    const phi = Math.PI - theta; // arc turn angle
+    const k = (4 / 3) * Math.tan(phi / 4) * re; // cubic arc approximation
+    out.push({ x: cur.x - u.x * t, y: cur.y - u.y * t, type: "corner", hOut: { dx: u.x * k, dy: u.y * k } });
+    out.push({ x: cur.x + v.x * t, y: cur.y + v.y * t, type: "corner", hIn: { dx: -v.x * k, dy: -v.y * k } });
+  }
+  return out;
+}
+
+/** The rendered `d` for a path's nodes — nodesToPath with corner rounding
+ *  applied (radius <= 0 → identity). The ONE d-generation wrapper: every site
+ *  that turns a PathElement's nodes into its `d` goes through here, so canvas,
+ *  export, resize, and tween can never disagree about fillets. */
+export function pathD(nodes: VectorNode[], closed: boolean, cornerRadius?: number): string {
+  const r = cornerRadius ?? 0;
+  return nodesToPath(r > 0 ? roundCorners(nodes, closed, r) : nodes, closed);
 }
 
 // ---------------------------------------------------------------------------
@@ -508,10 +578,15 @@ export function pathRender(e: {
   arrowEnd?: boolean;
   arrowStyle?: "filled" | "vee";
   arrowSize?: number;
+  cornerRadius?: number;
 }): PathRenderOut {
   if (e.closed || (!e.arrowStart && !e.arrowEnd)) return { d: e.d, polys: [], vees: [] };
-  const nodes = e.nodes && e.nodes.length ? e.nodes : pathToNodes(e.d);
-  if (nodes.length < 2) return { d: e.d, polys: [], vees: [] };
+  const sharp = e.nodes && e.nodes.length ? e.nodes : pathToNodes(e.d);
+  if (sharp.length < 2) return { d: e.d, polys: [], vees: [] };
+  // Fillet BEFORE building segments — the arrow-trim path below re-emits
+  // segsToD(segs), which would silently strip the rounding otherwise.
+  // Endpoints never round, so the head tangents are unaffected.
+  const nodes = e.cornerRadius && e.cornerRadius > 0 ? roundCorners(sharp, false, e.cornerRadius) : sharp;
   const segs = segsFromNodes(nodes, false);
   let total = 0;
   for (const s of segs) total += segLength(s, 8);

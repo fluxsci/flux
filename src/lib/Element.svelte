@@ -160,7 +160,7 @@
       stroke={e.stroke}
       stroke-width={e.strokeWidth}
       stroke-linejoin="round"
-      stroke-linecap="round"
+      stroke-linecap={e.cap ?? "round"}
       stroke-dasharray={dashAttr(e)}
     />
     {#each pr.polys as tri}

@@ -3,7 +3,7 @@ import type { DrawStyle, Tool } from "./store";
 import { newId } from "./ids";
 import { elementBBox, rotatePoint, type Rect } from "./geometry";
 import { applyTextLayout } from "./text";
-import { scaleNodes, nodesToPath, pathToNodes, constrain45 } from "./path";
+import { scaleNodes, pathD, pathToNodes, constrain45 } from "./path";
 
 export interface Pt {
   x: number;
@@ -322,6 +322,13 @@ export function scaleRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
   }
   if ("strokeWidth" in e && "strokeWidth" in orig) e.strokeWidth = Math.max(0, orig.strokeWidth * s);
   if (e.type === "rect" && orig.type === "rect") e.cornerRadius = Math.max(0, orig.cornerRadius * s);
+  if (e.type === "path" && orig.type === "path" && orig.cornerRadius) {
+    // resizeRemap (above) already emitted `d` with the ORIGINAL radius — the
+    // multiplied radius must re-emit, or K-scaled fillets keep the old size.
+    e.cornerRadius = Math.max(0, orig.cornerRadius * s);
+    if (e.nodes && e.nodes.length) e.d = pathD(e.nodes, e.closed, e.cornerRadius);
+    else e.d = pathD(scaleNodes(pathToNodes(orig.d), sx, sy), e.closed, e.cornerRadius);
+  }
   if (e.type === "plot" && orig.type === "plot") {
     e.contentScale = Math.max(0.01, (orig.contentScale ?? 1) * s);
   }
@@ -410,9 +417,9 @@ export function resizeRemap<E extends ElementBase>(
     e.y = fy(ob2.y);
     if (orig.nodes && orig.nodes.length) {
       e.nodes = scaleNodes(orig.nodes, sx, sy);
-      e.d = nodesToPath(e.nodes, e.closed);
+      e.d = pathD(e.nodes, e.closed, e.cornerRadius);
     } else {
-      e.d = nodesToPath(scaleNodes(pathToNodes(orig.d), sx, sy), e.closed);
+      e.d = pathD(scaleNodes(pathToNodes(orig.d), sx, sy), e.closed, e.cornerRadius);
     }
     e.width = Math.max(1, orig.width * sx);
     e.height = Math.max(1, orig.height * sy);

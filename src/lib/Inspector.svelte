@@ -668,8 +668,26 @@
           <NumberField label="Radius" value={single.cornerRadius} min={0}
             on:commit={(e) => updateSelected((el) => { if (el.type === "rect") el.cornerRadius = e.detail; })}
             on:scrub={(e) => scrubSelected((el) => { if (el.type === "rect") el.cornerRadius = e.detail; })} />
+        {:else if single.type === "path"}
+          <!-- Geometric fillets (Figma corner radius) — must go through
+               ops.setElementStyle so the refit re-emits d; a direct field
+               write would leave the rendered geometry sharp. -->
+          <NumberField label="Radius" value={single.cornerRadius ?? 0} min={0}
+            on:commit={(e) => { const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }}
+            on:scrub={(e) => { const ids = [...$selection]; mutate((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }} />
         {/if}
       </div>
+      {#if single.type === "line" || (single.type === "path" && !single.closed)}
+        <div class="row">
+          <label class="chk">Cap
+            <select value={single.cap ?? "round"} on:change={(e) => { const cap = e.currentTarget.value as "butt" | "round" | "square"; const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { cap })); }}>
+              <option value="round">Round</option>
+              <option value="butt">Flat</option>
+              <option value="square">Square</option>
+            </select>
+          </label>
+        </div>
+      {/if}
       <!-- Dash: [len, gap] in canvas px on any stroked primitive; unchecking
            returns to solid (property deleted via ops.setElementStyle's rules). -->
       <div class="row">

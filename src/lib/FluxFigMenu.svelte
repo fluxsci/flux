@@ -311,8 +311,6 @@
     const strokeEl = els.find(
       (e) => e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line",
     );
-    const rectEl = els.find((e) => e.type === "rect");
-    const lineEl = els.find((e) => e.type === "line");
     const boxEl = els.find((e) => "width" in e && e.type !== "line");
 
     // Geometry (all element types; position reads the primary)
@@ -374,8 +372,15 @@
       // "none" as a first-class state: toggling back restores the draw-style fill.
       F.push({ key: "0", label: "no fill (outline only)", group: "Fill", kind: "toggle", get: () => (shapeEl as any).fill === "none", apply: () => { const to = (shapeEl as any).fill === "none" ? get(drawStyle).fill : "none"; upd((e) => { if (e.type === "rect" || e.type === "ellipse" || e.type === "path") e.fill = to; }); } });
     }
-    if (rectEl) {
-      num("u", "corner radius", "Fill", () => (rectEl as any).cornerRadius, (e, v) => { if (e.type === "rect") e.cornerRadius = Math.max(0, v); });
+    // Corner radius — rects AND paths (paths get Figma-style geometric
+    // fillets; the setElementStyle route refits so d re-emits rounded).
+    const radiusEl = els.find((e) => e.type === "rect" || e.type === "path");
+    if (radiusEl) {
+      F.push({
+        key: "u", label: "corner radius", group: "Fill", kind: "number", step: 1,
+        get: () => (radiusEl as any).cornerRadius ?? 0,
+        apply: (v) => { const ids = [...sel]; mutate((proj) => ops.setElementStyle(proj, ids, { cornerRadius: Math.max(0, Number(v)) })); },
+      });
     }
 
     // Stroke
@@ -410,9 +415,10 @@
         num("e", "arrowhead size (× width)", "Stroke", () => arrowEl.arrowSize ?? 4, (e, v) => { if (e.type === "line" || e.type === "path") (e as any).arrowSize = Math.max(1, v); }, 0.5);
       }
     }
-    if (lineEl) {
-      const ln = lineEl as Element & { type: "line" };
-      F.push({ key: "l", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => ln.cap ?? "round", apply: (v) => upd((e) => { if (e.type === "line") e.cap = v as "butt" | "round" | "square"; }) });
+    // Cap — lines AND open paths (ops.setElementStyle applies per-type).
+    const capEl = els.find((e) => e.type === "line" || (e.type === "path" && !e.closed));
+    if (capEl) {
+      F.push({ key: "l", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => (capEl as any).cap ?? "round", apply: (v) => { const ids = [...sel]; mutate((proj) => ops.setElementStyle(proj, ids, { cap: v as "butt" | "round" | "square" })); } });
     }
 
     // Presets — save a SINGLE primitive, or a GROUP of primitives + text, to

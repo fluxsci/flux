@@ -14,7 +14,7 @@ import {
   applyState, diffState, lerpElement, lerpNodes, lerpDash, numericTextTween,
   contentPlan, foldPreState,
 } from "../src/lib/slide/tween";
-import { resampleNodes, nodesToPath } from "../src/lib/path";
+import { resampleNodes, nodesToPath, pathD } from "../src/lib/path";
 import type { Element as FigElement, RectElement, TextElement, PathElement, VectorNode } from "../src/lib/types";
 
 function assert(cond: unknown, msg: string) {
@@ -126,6 +126,22 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
   const shut = pathEl(nodes([[0, 0], [100, 0], [100, 100]]), true);
   assert(contentPlan(open, shut).mode === "crossfade", "closed≠open topology crossfades");
   assert((lerpElement(open, shut, 0.6) as PathElement).closed === true, "…and the model steps at t=.5");
+
+  // cornerRadius lerps and the frame's d embeds the interpolated fillets;
+  // cap (a string) steps at t=.5 like other discrete props.
+  const bendA = pathEl(nodes([[0, 0], [100, 0], [100, 100]]));
+  const bendB = { ...pathEl(nodes([[0, 0], [100, 0], [100, 100]])), cornerRadius: 20, cap: "butt" as const };
+  bendA.d = pathD(bendA.nodes!, false, 0);
+  bendB.d = pathD(bendB.nodes!, false, 20);
+  const rm = lerpElement(bendA, bendB, 0.5) as PathElement;
+  assert(near(rm.cornerRadius ?? 0, 10), "path cornerRadius lerps (0→20 mid = 10)");
+  assert(rm.d.includes("C") && rm.d === pathD(rm.nodes!, false, 10), "mid-frame d = pathD(lerped skeleton, lerped radius)");
+  assert(rm.nodes!.length === 3 && !rm.nodes![1].hOut, "lerped nodes stay the sharp skeleton (fillets only in d)");
+  assert((lerpElement(bendA, bendB, 0.49) as PathElement).cap === undefined, "cap holds until t=.5");
+  assert((lerpElement(bendA, bendB, 0.5) as PathElement).cap === "butt", "…then steps");
+  // applyState with a patched radius re-emits d through pathD
+  const rp = applyState(bendA, { cornerRadius: 20 }) as PathElement;
+  assert(rp.d === pathD(bendA.nodes!, false, 20), "applyState cornerRadius patch re-emits rounded d");
 }
 
 // --- diffState / applyState round trips ---------------------------------------

@@ -1133,6 +1133,15 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
           if (patch.arrowEnd != null) e.arrowEnd = patch.arrowEnd;
           if (patch.arrowStyle != null) e.arrowStyle = patch.arrowStyle;
           if (patch.arrowSize != null) e.arrowSize = Math.max(0.5, patch.arrowSize);
+          if (patch.cap != null) e.cap = patch.cap;
+          if (patch.cornerRadius != null) {
+            e.cornerRadius = Math.max(0, patch.cornerRadius);
+            // Adopt legacy d-only geometry so the fillets apply to real nodes.
+            // This also guarantees a radius-bearing path ALWAYS carries nodes,
+            // so pathToNodes(d) can never re-ingest fillets as skeleton.
+            if (!e.nodes || !e.nodes.length) e.nodes = pathToNodes(e.d);
+            refitPath(e); // re-emits d through pathD with the new radius
+          }
         }
       }
     }
