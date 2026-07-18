@@ -130,16 +130,18 @@ try {
   ok(onDisk.el.x === 40 && onDisk.el.fill === "#d95f02", `deck.json holds the BASE element mid-checkout (x=${onDisk.el.x}, fill=${onDisk.el.fill}) — never a composed state`);
   ok(onDisk.state?.x === 300, "…and the track carries the t2 patch");
 
-  // --- t1 on an unchained transform = plain document editing --------------------
+  // --- t1 on an unchained transform = a BASE-editing override --------------------
   await page.click(".trk .ep.t1");
   await sleep(200);
   const t1State = await page.evaluate(() => {
     const f = window.__flux;
     const sid = f.get(f.fig.activeFigureId);
+    const ee = f.get(f.slide.endpointEdit);
     const el = f.get(f.fig.project).figures.find((x) => x.id === sid).elements.find((e) => e.id === "tr-rect");
-    return { checkout: !!f.get(f.slide.endpointEdit), elX: el.x };
+    return { end: ee?.end, route: ee?.entries?.[0]?.trackId, elX: el.x };
   });
-  ok(!t1State.checkout && t1State.elX === 40, "t1 with no upstream = base editing (checkout ended, canvas shows the base)");
+  ok(t1State.end === "t1" && t1State.route === null && t1State.elX === 40,
+    "t1 with no upstream = a lit BASE override (canvas shows/edits the document state)");
 
   // --- t2 handle re-enters -------------------------------------------------------
   await page.click(".trk .ep.t2");
@@ -182,16 +184,28 @@ try {
   ok(postUndo.stateX === 300 && postUndo.elX === 300, `ONE undo reverted canvas + track together (el x=${postUndo.elX}, state x=${postUndo.stateX})`);
   ok(postUndo.checkout, "…with the checkout still active (its state rides the same history)");
 
-  // --- Esc exits and restores the base -------------------------------------------
+  // --- Esc drops the explicit endpoint; the canvas stays BEAT-FAITHFUL -----------
   await page.keyboard.press("Escape");
   await sleep(200);
   const postEsc = await page.evaluate(() => {
     const f = window.__flux;
     const sid = f.get(f.fig.activeFigureId);
     const el = f.get(f.fig.project).figures.find((x) => x.id === sid).elements.find((e) => e.id === "tr-rect");
-    return { checkout: !!f.get(f.slide.endpointEdit), elX: el.x, elFill: el.fill };
+    return { checkout: !!f.get(f.slide.endpointEdit), beat: f.get(f.slide.activeBeat), elX: el.x };
   });
-  ok(!postEsc.checkout && postEsc.elX === 40 && postEsc.elFill === "#d95f02", "Esc exits the checkout and the canvas shows the base again");
+  ok(!postEsc.checkout && postEsc.beat === 1 && postEsc.elX === 300,
+    "Esc drops the endpoint selection; the canvas stays faithful to the active beat (composed t2)");
+  await page.evaluate(() => window.__flux.slide.activeBeat.set(0));
+  await sleep(200);
+  const atBase = await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const el = f.get(f.fig.project).figures.find((x) => x.id === sid).elements.find((e) => e.id === "tr-rect");
+    return { elX: el.x, elFill: el.fill };
+  });
+  ok(atBase.elX === 40 && atBase.elFill === "#d95f02", "…and beat 0 shows the base (the t1 view is one beat-click away)");
+  await page.evaluate(() => window.__flux.slide.activeBeat.set(1));
+  await sleep(200);
 
   // --- chained: the later track's t1 edits the UPSTREAM track --------------------
   const chained = await page.evaluate(() => {

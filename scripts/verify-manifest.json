@@ -189,6 +189,7 @@
       "verify-slide-filmstrip-gui.mjs",
       "verify-slide-animator-gui.mjs",
       "verify-transform-gui.mjs",
+      "verify-beat-display-gui.mjs",
       "verify-slide-present-gui.mjs",
       "verify-slide-tenancy-gui.mjs",
       "verify-slide-import-gui.mjs",

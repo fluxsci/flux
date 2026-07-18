@@ -171,6 +171,16 @@ Persistence invariants (all machine-checked — do not weaken):
   exclusive residents — `paneStore` denies side-by-side panes, mode mounts
   flush+evict the other (`evictMode`), and the bridges hard-assert the tenant
   (`src/lib/tenancy.ts`) so a wrong-folder autosave is structurally impossible.
+  BEAT-FAITHFUL DISPLAY (2026-07-18): the canvas always shows the slide AS
+  IT EXISTS AT THE ACTIVE BEAT — elements with transforms in beats ≤
+  activeBeat hold their COMPOSED state in the figure store (base elements
+  captured in `displayBaselines`; every fold substitutes them back so
+  deck.json never stores a composed state), and a plain edit routes into the
+  GOVERNING transform's `to.state` ("you edit what you see"; beat 0 edits
+  the base). `refreshBeatDisplay()` in slide/store.ts is the one reconciler
+  (beat/slide changes, every deck op, undo/redo); it skips no-op writes so
+  coalesced commit runs keep their editGen continuity. Gate:
+  `verify-beat-display-gui.mjs`.
   When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
@@ -791,3 +801,25 @@ evidence, deck migrated in memory, morph live in present, owner files byte-untou
 - linkedom defines `document` but can't measure text: headless guards must probe for a real
   2d canvas (`canMeasureText()`), caching only the positive answer (harnesses inject DOMs
   mid-process).
+
+### 2026-07-18 — Beat-faithful canvas + Present fix follow-ups (Claude Fable 5, `animation_overhaul`)
+**Work:** Owner iteration on the animation rework. (1) The canvas is now BEAT-FAITHFUL:
+scrubbing beats shows the slide as it exists at that point (transforms ≤ activeBeat compose
+into the store display; beat 0 = base), and plain edits route into the governing transform's
+t2 — the endpoint checkout generalized into an ambient display reconciler
+(`refreshBeatDisplay`), with t₁/t₂ handles as per-element overrides (t₁-on-base = a lit
+base-editing override, no longer an exit; Esc keeps the beat view). Gated end to end by the
+new `verify-beat-display-gui.mjs` (scrub matrix, routing, fold guard under autosave, live
+revert on disable/delete, undo, slide-switch restore, coalescing continuity, thumbnails).
+(2) Filmstrip thumbnails painted hardcoded `#000` behind the debounced render/letterbox —
+now the slide's own resting background.
+**Learnings:**
+- Display-swap systems must record their coalescing generation AFTER any reconciler mutate
+  (commitDeckLive: refresh BEFORE `coalesceState.gen = editGen.n`), and the reconciler must
+  skip no-op writes — otherwise unrelated coalesced typing runs fracture into N undo entries.
+- When a store swap makes elements scope-local (per slide/beat), every SCOPE EXIT needs an
+  explicit restore under the OLD scope id (selectSlide restores the outgoing slide's bases
+  BEFORE switching activeFigureId — a subscription on the new scope can't reach them).
+- Part-override edits (X-ray hide etc.) on a displayed plot route into the transform's t2
+  like any other edit — static masking of a PART is a beat-0 action; element-level `hidden`
+  stays base-only by the NEVER_CAPTURED law.

@@ -26,6 +26,7 @@
     endpointEdit,
     enterEndpointEdit,
     exitEndpointEdit,
+    clearBeatDisplay,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
   import { animateElement, animatePart, suggestElementTrack } from "../../../lib/slide/autobuild";
@@ -566,10 +567,11 @@
       // all selected already have transforms here → toggle the endpoint
       const trackIds = ids.map((id) => existing.get(id)!);
       const cur = $endpointEdit;
-      const sameTracks = cur && cur.entries.length && trackIds.includes(cur.entries[0].trackId);
+      const sameTracks =
+        cur && cur.entries.length && cur.entries.some((en) => (en.trackId != null && trackIds.includes(en.trackId)) || ids.includes(en.target));
       const next: "t1" | "t2" = cur && sameTracks && cur.end === "t2" ? "t1" : "t2";
-      // t2→t1 with no upstream = plain document editing: enter returns [] and
-      // the checkout simply ends (base state IS t1).
+      // t1 with no upstream routes to the BASE (the canvas shows/edits the
+      // document state while the t₁ handle is lit).
       enterEndpointEdit(trackIds, next);
       return;
     }
@@ -735,7 +737,7 @@
     unsubDirty?.();
     unsubDeckRev?.();
     stopPreview();
-    exitEndpointEdit(); // unmount restores the base state before the flush
+    clearBeatDisplay(); // unmount fully restores base states before the flush
     void autosave.flush();
     autosave.dispose();
     unregFlush();
@@ -992,7 +994,9 @@
   .thumb.dropbefore { box-shadow: inset 0 2px 0 0 var(--c-accent); }
   .thumb.dropafter { box-shadow: inset 0 -2px 0 0 var(--c-accent); }
   .thumb .n { grid-row: 1 / span 2; font-size: 11px; color: var(--c-tx-muted); text-align: right; font-variant-numeric: tabular-nums; }
-  .mini { border: 1px solid var(--c-line); border-radius: 3px; overflow: hidden; position: relative; background: #000; }
+  /* the SlideThumb wrap paints the slide's own background — a hardcoded black
+     here bled through as dark placeholder/letterbox slivers in light themes */
+  .mini { border: 1px solid var(--c-line); border-radius: 3px; overflow: hidden; position: relative; }
   .nm { font-size: 11px; color: var(--c-tx-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .thumbacts { position: absolute; top: 2px; right: 2px; display: flex; gap: 2px; opacity: 0; }
   .thumb:hover .thumbacts { opacity: 1; }

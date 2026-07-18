@@ -28,6 +28,11 @@
 
   const rev = $derived($figureRev[slideId] ?? 0);
   const scale = $derived(wrapW > 0 ? wrapW / stage.width : 0.1);
+  // The wrap's own background = the slide's RESTING background, so the
+  // placeholder (before the debounced render lands) and any sub-pixel
+  // letterbox sliver match the slide instead of flashing black in light
+  // themes. Written by the render effect (not read by it — no self-dep).
+  let bg = $state("");
 
   $effect(() => {
     // deps: this slide's scoped revision (the hot gesture-commit path — an
@@ -44,6 +49,7 @@
     if (!h || !overlay) return;
     const slide = composedSlide(slideId);
     if (!slide) return;
+    bg = slide.background ?? overlay.background ?? resolveTheme(overlay.theme).background;
     const sig = `${JSON.stringify(slide)}|${overlay.theme}|${overlay.background ?? ""}|${stage.width}x${stage.height}|${JSON.stringify($plotGen)}`;
     if (sig === memo.sig) return;
     memo.sig = sig;
@@ -82,7 +88,8 @@
   });
 </script>
 
-<div class="thumb-wrap" bind:clientWidth={wrapW} style={`aspect-ratio: ${stage.width} / ${stage.height}`}>
+<div class="thumb-wrap" bind:clientWidth={wrapW}
+  style={`aspect-ratio: ${stage.width} / ${stage.height};${bg ? ` background:${bg};` : ""}`}>
   <div class="thumb-stage" bind:this={host}
     style={`width:${stage.width}px;height:${stage.height}px;transform:scale(${scale});transform-origin:0 0;`}></div>
 </div>
@@ -92,7 +99,8 @@
     position: relative;
     width: 100%;
     overflow: hidden;
-    background: #000;
+    /* pre-measure fallback only — the inline slide background replaces it */
+    background: var(--c-surface, transparent);
   }
   .thumb-stage {
     position: absolute;
