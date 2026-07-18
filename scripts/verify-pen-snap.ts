@@ -104,5 +104,52 @@ const N = (x: number, y: number): VectorNode => ({ x, y, type: "corner" });
   assert(s4.close, "square: click near A closes");
 }
 
+// 9. grid quantization (visible-grid pen restriction) + precedence
+{
+  const G = 8;
+  // First node of a draft quantizes (the old early-return bypassed empty drafts).
+  let r = penSnap([], { x: 13, y: 18 }, { zoom: 1, grid: G });
+  assert(r.pt.x === 16 && r.pt.y === 16 && r.onGrid === true, "first draft node lands on the nearest vertex");
+  // Subsequent nodes quantize and skip align/equal assists entirely.
+  const nodes = [N(0, 0), N(100, 0)];
+  r = penSnap(nodes, { x: 99, y: 59 }, { zoom: 1, grid: G });
+  assert(r.pt.x === 96 && r.pt.y === 56 && r.guides.length === 0, "grid beats align assists (no 99→100 pull, no guides)");
+  // Close still beats grid (a path must be closable from off-lattice).
+  r = penSnap(nodes, { x: 3, y: 2 }, { zoom: 1, grid: G });
+  assert(r.close && r.pt.x === 0 && r.pt.y === 0, "close beats grid");
+  // Alt kills grid too.
+  r = penSnap(nodes, { x: 13, y: 18 }, { zoom: 1, grid: G, disable: true });
+  assert(r.pt.x === 13 && r.pt.y === 18 && !r.onGrid, "alt bypass → raw point even with grid on");
+  // Shift + grid: direction wins exactly; h/v rays land on the lattice.
+  r = penSnap([N(4, 4)], { x: 61, y: 7 }, { zoom: 1, grid: G, shift: true });
+  assert(near(r.pt.y, 4, 1e-9), "shift+grid horizontal ray: y stays exactly on the ray");
+  assert(near(r.pt.x, 64, 1e-9), "shift+grid horizontal ray: moving axis lands on n·G");
+  const d = penSnap([N(0, 0)], { x: 70, y: 74 }, { zoom: 1, grid: G, shift: true });
+  assert(near(d.pt.x, d.pt.y, 1e-9), "shift+grid 45° ray: direction exact (dx === dy)");
+}
+
+// 10. anchors (path-edit pen sub-mode): exact landing, endpoint > mid, radius zoom-scaled
+{
+  const A = (x: number, y: number, role: "endpoint-start" | "endpoint-end" | "mid", i: number) => ({ pt: { x, y }, role, i });
+  const anchors = [A(0, 0, "endpoint-start", 0), A(50, 3, "mid", 1), A(100, 0, "endpoint-end", 2)];
+  // Nearest-in-radius, exact landing, no grid/assist re-snap.
+  let r = penSnap([], { x: 47, y: 7 }, { zoom: 1, grid: 8, anchors });
+  assert(r.anchor?.i === 1 && r.pt.x === 50 && r.pt.y === 3 && !r.onGrid, "anchor lands EXACTLY on the node (grid does not re-snap it)");
+  // An endpoint beats a nearer mid.
+  r = penSnap([], { x: 95, y: 1 }, { zoom: 1, anchors: [A(94, 0, "mid", 1), A(100, 0, "endpoint-end", 2)] });
+  assert(r.anchor?.role === "endpoint-end", "endpoint anchor preferred over a nearer mid");
+  // Radius is screen-px (zoom-scaled); outside → no anchor.
+  r = penSnap([], { x: 50 + PEN_CLOSE_PX + 2, y: 3 }, { zoom: 1, anchors });
+  assert(!r.anchor, "outside the radius → no anchor");
+  assert(penSnap([], { x: 50 + 10, y: 3 }, { zoom: 2, anchors }).anchor == null, "zoom 2 shrinks the world-space radius (10 > 14/2)");
+  // Self-close beats anchors on a free draft…
+  const draft = [N(0, 0), N(60, 0)];
+  r = penSnap(draft, { x: 2, y: 1 }, { zoom: 1, anchors });
+  assert(r.close && !r.anchor, "self-close beats anchors");
+  // …but noClose (seeded sub-mode draft) suppresses it, letting anchors/raw win.
+  r = penSnap(draft, { x: 2, y: 1 }, { zoom: 1, anchors, noClose: true });
+  assert(!r.close && r.anchor?.role === "endpoint-start", "noClose: seed-adjacent click resolves to the anchor instead of closing");
+}
+
 console.log(fails === 0 ? "\nPEN-SNAP ALL PASS" : `\nPEN-SNAP ${fails} FAILURE(S)`);
 process.exit(fails === 0 ? 0 : 1);

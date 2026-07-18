@@ -209,7 +209,7 @@
       </label>
       <label class="chk">
         <input type="checkbox" checked={$settings.showGrid} on:change={(e) => settings.update((v) => ({ ...v, showGrid: e.currentTarget.checked }))} />
-        Show background grid
+        Show background grid (<b>Shift+G</b>) — while visible, the pen places nodes on its vertices
       </label>
       <label class="chk">
         <input type="checkbox" checked={$settings.snapGrid} on:change={(e) => settings.update((v) => ({ ...v, snapGrid: e.currentTarget.checked }))} />

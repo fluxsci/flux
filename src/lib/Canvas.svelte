@@ -672,9 +672,9 @@
       hostEl.setPointerCapture(e.pointerId);
     } else if ($activeTool === "pen") {
       // Same assist as the pointermove preview (close / shift-45 / align /
-      // equal-length) so the click lands exactly where the preview showed.
-      // A click inside the close radius of the first node closes the path.
-      const assist = penSnap(penNodes, lp, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
+      // equal-length / grid) so the click lands exactly where the preview
+      // showed. A click inside the close radius of the first node closes.
+      const assist = penSnap(penNodes, lp, penOpts(e.shiftKey, e.altKey));
       if (assist.close && penFigId === fig.id) {
         finishPen(true);
         return;
@@ -687,6 +687,20 @@
         hostEl.setPointerCapture(e.pointerId);
       }
     }
+  }
+
+  // ONE options builder for EVERY penSnap call — preview (pointermove,
+  // shift/alt re-snap) and placement (pointerdown) must see identical assists
+  // or the click lands somewhere the preview never showed (the penSnap rule).
+  function penOpts(shift: boolean, alt: boolean) {
+    const s = $settings;
+    return {
+      zoom: $viewport.zoom,
+      shift,
+      disable: alt,
+      // Owner spec: a VISIBLE grid restricts pen nodes to its vertices.
+      grid: s.showGrid && s.gridSize > 0 ? s.gridSize : undefined,
+    };
   }
 
   function finishPen(close: boolean) {
@@ -1606,7 +1620,7 @@
           n.type = "smooth";
           penNodes = penNodes;
         } else {
-          penSnapRes = penSnap(penNodes, lp, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
+          penSnapRes = penSnap(penNodes, lp, penOpts(e.shiftKey, e.altKey));
           penCursor = penSnapRes.pt;
         }
       }
@@ -2060,6 +2074,13 @@
       return;
     }
 
+    // Shift+G toggles the background grid (Ctrl+Shift+G is taken by ungroup).
+    if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "KeyG") {
+      e.preventDefault();
+      settings.update((s) => ({ ...s, showGrid: !s.showGrid }));
+      return;
+    }
+
     // Node-edit mode owns the keyboard (keyboard.ts yields on nodeEditId).
     if (editPathId) {
       if (e.key === "Escape" || e.key === "Enter") {
@@ -2089,7 +2110,7 @@
         penRaw = null;
         penSnapRes = null;
       } else if ((e.key === "Shift" || e.key === "Alt") && penRaw && !penDrag) {
-        penSnapRes = penSnap(penNodes, penRaw, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
+        penSnapRes = penSnap(penNodes, penRaw, penOpts(e.shiftKey, e.altKey));
         penCursor = penSnapRes.pt;
       }
       return;
@@ -2111,7 +2132,7 @@
     if (e.key === "Control") ctrlDown = false;
     if ((e.key === "Control" || e.key === "Meta") && partHover) partHover = null;
     if ((e.key === "Shift" || e.key === "Alt") && penNodes.length && penRaw && !penDrag) {
-      penSnapRes = penSnap(penNodes, penRaw, { zoom: $viewport.zoom, shift: e.shiftKey, disable: e.altKey });
+      penSnapRes = penSnap(penNodes, penRaw, penOpts(e.shiftKey, e.altKey));
       penCursor = penSnapRes.pt;
     }
   }
