@@ -137,7 +137,8 @@
       "verify-writer-latency.ts",
       "verify-tokens.mjs",
       "verify-tokens-sync.ts",
-      "verify-registry-parity.ts"
+      "verify-registry-parity.ts",
+      "verify-paste-decide.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -249,7 +250,8 @@
       "verify-w17-gestures.mjs",
       "verify-w17-rotate-perf.mjs",
       "verify-w4-wiring.mjs",
-      "verify-w5-lifecycle.mjs"
+      "verify-w5-lifecycle.mjs",
+      "verify-paste-image.mjs"
     ],
     "scale": [
       "verify-scale-library.mjs",

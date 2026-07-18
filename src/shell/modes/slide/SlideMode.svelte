@@ -72,8 +72,7 @@
   import { evictMode } from "../../paneStore";
   import { setStoreTenant } from "../../../lib/tenancy";
   import { deckRevision, bumpFigRevision } from "../../scholar/revisions";
-  import { handleKey } from "../../../lib/keyboard";
-  import { importDroppedFiles } from "../../../lib/io";
+  import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import Toolbar from "../../../lib/Toolbar.svelte";
   import Canvas from "../../../lib/Canvas.svelte";
   import Inspector from "../../../lib/Inspector.svelte";
@@ -704,18 +703,12 @@
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // Paste an image onto the active slide (figure drop pipeline, deck asset sink).
+  // Paste onto the active slide — the shared figure/slide arbitration
+  // (internal elements vs OS-clipboard image; images ride the figure drop
+  // pipeline into the deck asset sink).
   function onPaste(e: ClipboardEvent) {
     if (!focused || presentOpen) return;
-    const t = (e.target as HTMLElement)?.tagName;
-    if (t === "INPUT" || t === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
-    const item = [...(e.clipboardData?.items ?? [])].find((it) => /^image\/(png|svg)/.test(it.type));
-    const file = item?.getAsFile();
-    const sid = $activeFigureId;
-    if (file && sid) {
-      e.preventDefault();
-      void importDroppedFiles([file], sid);
-    }
+    handleEditorPaste(e, $activeFigureId);
   }
 
   // --- lifecycle ---------------------------------------------------------------------

@@ -35,6 +35,8 @@ import {
   type Tool,
 } from "./store";
 import type { Element, GroupDef } from "./types";
+import { FLUX_CLIP_MARKER, decidePaste, pastedImageName } from "./clipboardPaste";
+import { importDroppedFiles } from "./io";
 import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf, unitOf } from "./groups";
 import {
   alignElements,
@@ -412,6 +414,10 @@ function copySelected() {
   for (const e of clipboard)
     for (const gid of ancestorsOf(fig, e.groupId))
       if (!clipboardGroups[gid]) clipboardGroups[gid] = structuredClone(groupDefs(fig)[gid]);
+  // Stamp the OS clipboard so paste arbitration sees the in-app copy as the
+  // most recent one (clipboardPaste.decidePaste). Fire-and-forget: headless
+  // or permission-denied environments just keep the internal fallback path.
+  if (clipboard.length) void navigator.clipboard?.writeText(FLUX_CLIP_MARKER).catch(() => {});
 }
 
 function paste() {
@@ -441,6 +447,35 @@ function paste() {
     }
   });
   selection.set(new Set(newIds));
+}
+
+/** The ONE paste entry — wired to the window "paste" event by FigureMode and
+ *  SlideMode (the keydown Ctrl+V branch no longer pastes: a real Ctrl+V always
+ *  fires the native paste event, which — unlike keydown — carries the OS
+ *  clipboard contents synchronously). Decides between the internal element
+ *  clipboard and an OS-clipboard image (Figma-style screenshot paste through
+ *  the standard import pipeline; slide mode's asset sink applies as usual). */
+export function handleEditorPaste(e: ClipboardEvent, figId: string | null) {
+  const t = e.target as HTMLElement | null;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (get(nodeEditId)) return; // node-edit is modal — don't drop elements mid-edit
+  const item = [...(e.clipboardData?.items ?? [])].find((it) => /^image\/(png|svg)/.test(it.type));
+  const action = decidePaste({
+    text: e.clipboardData?.getData("text/plain") ?? "",
+    hasImage: !!item,
+    internalCount: clipboard.length,
+  });
+  if (action === "none") return;
+  e.preventDefault();
+  if (action === "elements") {
+    paste();
+    return;
+  }
+  const file = item?.getAsFile();
+  if (!file || !figId) return;
+  const ext = /svg/i.test(file.type) ? "svg" : "png";
+  const named = new File([file], pastedImageName(new Date(), ext), { type: file.type });
+  void importDroppedFiles([named], figId);
 }
 
 // ⌘G — one shared op (ops.group): named registry group, nesting, z-splice.
@@ -798,8 +833,8 @@ export function handleKey(e: KeyboardEvent) {
       else duplicateSelected();
     } else if (k === "c") {
       copySelected();
-    } else if (k === "v") {
-      paste();
+      // NOTE: no Ctrl+V branch — pasting rides the native "paste" event
+      // (handleEditorPaste), which arbitrates elements vs OS-clipboard images.
     } else if (k === "a" && !e.shiftKey) {
       // !shiftKey: Ctrl+Shift+A is the slide animator's "add appearance"
       // chord (same hygiene as Ctrl+Shift+D above).

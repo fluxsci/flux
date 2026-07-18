@@ -24,8 +24,8 @@
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
-  import { handleKey } from "../../../lib/keyboard";
-  import { dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
+  import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
+  import { activeFigureId, dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
   import { inspectorHidden } from "../../../lib/settings";
   import { projectModel } from "../../shellStore";
   import { loadFigInto, saveFigFrom, figDiskDiverged } from "../../../lib/project/figbridge";
@@ -98,8 +98,13 @@
 
   $effect(() => {
     if (!focused) return;
+    const onPaste = (e: ClipboardEvent) => handleEditorPaste(e, get(activeFigureId));
     window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("paste", onPaste);
+    };
   });
 
   onMount(async () => {
