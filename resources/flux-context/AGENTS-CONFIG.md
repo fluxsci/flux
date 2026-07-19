@@ -29,6 +29,46 @@
   hang there, so keep a `-p`/`exec`-style entry).
 - **`workers.<role>`** — dispatch targets (`flux dispatch <role> --brief-file <f>`).
 
+## Codex entries (worked example)
+
+Codex takes per-launch settings as `-c key=value` config overrides; a `--model` flag picks
+the model. Headless `codex exec` needs `--skip-git-repo-check` (it otherwise refuses in a
+directory that isn't codex-trusted or a git repo — dispatch cwds often are neither):
+
+```json
+{
+  "principal": { "command": [
+    "codex", "--model", "<model>",
+    "-c", "model_reasoning_effort=xhigh",
+    "-c", "approval_policy=on-request",
+    "-c", "approvals_reviewer=auto_review",
+    "-c", "sandbox_mode=workspace-write",
+    "{prompt}" ] },
+  "workers": { "analysis": { "command": [
+    "codex", "exec", "--skip-git-repo-check", "--model", "<model>",
+    "-c", "model_reasoning_effort=medium",
+    "-c", "approval_policy=on-request",
+    "-c", "approvals_reviewer=auto_review",
+    "-c", "sandbox_mode=workspace-write",
+    "{prompt}" ] } }
+}
+```
+
+**MCP for Codex** doesn't ride the argv (no `{mcpJson}` equivalent): wire it ONCE in the
+global `~/.codex/config.toml` with **no root argument** — the server then resolves the
+project from the `FLUX_PROJECT` env var, which every Flux launch sets, so one global entry
+serves every project:
+
+```toml
+[mcp_servers.flux]
+command = "node"
+args = ["{{FLUX_MCP_PATH}}"]
+```
+
+`approvals_reviewer = "auto_review"` makes Codex's reviewer adjudicate permission requests
+in-session (interactive sessions escalate to the human only when it can't decide; headless
+runs auto-decide or fail the action safely).
+
 - **`command`** — argv array. Placeholders substituted at launch:
   - `{prompt}` — the launch prompt / brief text, inline.
   - `{briefPath}` — absolute path to the brief file (for CLIs that read a file).
