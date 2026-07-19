@@ -42,6 +42,8 @@ const CHANNELS = [
   { channel: "shell:openPath", kind: "invoke", scope: "spawn" },
   // --- project lifecycle / watcher / locks / journal ---------------------------
   { channel: "watch:setRoot", kind: "invoke", scope: "read" },
+  // The feedback ledger (append-only .meta/feedback.ndjson — principal-agent scheme).
+  { channel: "feedback:append", kind: "invoke", scope: "write" },
   { channel: "lock:acquire", kind: "invoke", scope: "write" },
   { channel: "lock:release", kind: "invoke", scope: "write" },
   { channel: "lock:set", kind: "invoke", scope: "write" },

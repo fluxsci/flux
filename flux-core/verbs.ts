@@ -1472,6 +1472,118 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "add_comment",
+    cli: "add-comment",
+    cliRoot: "flags",
+    summary:
+      "Open a NEW review-comment thread anchored to exact document text — your channel for asking the human a question in the margin (they see it live in the open app). quote must occur in the document; if it occurs more than once pass at (1-based occurrence). Omit doc for the main manuscript. Holds the manuscript lock + journals.",
+    params: {
+      quote: z.string(),
+      body: z.string(),
+      doc: z.string().optional(),
+      at: z.number().optional(),
+    },
+    cliArgs: [
+      { kind: "flag", at: "quote", into: "quote", required: true },
+      { kind: "flag", at: "body", into: "body", required: true },
+      { kind: "flag", at: "doc", into: "doc" },
+      { kind: "flag", at: "at", into: "at", as: "number" },
+    ],
+    handler: (ctx, a) =>
+      core.addComment(ctx.root, {
+        quote: s(a.quote),
+        body: s(a.body),
+        docRel: a.doc as string | undefined,
+        at: a.at as number | undefined,
+      }),
+    render: {
+      human: (r) => {
+        const c = r as { id: string; doc: string; total: number };
+        return { err: `✓ comment ${c.id} added on ${c.doc} (${c.total} threads)` };
+      },
+      mcp: (r) => {
+        const c = r as { id: string; doc: string; total: number };
+        return text(`added comment ${c.id} on ${c.doc} (${c.total} threads)`);
+      },
+    },
+  },
+  {
+    name: "list_feedback",
+    cli: "feedback",
+    cliRoot: "flags",
+    summary:
+      "List the user's feedback notes from the app (.meta/feedback.ndjson). Each note carries a context STAMP of what the user had selected when writing it (figure/element/plot part, document + quoted text, slide + beat) — 'make this bigger' arrives with 'this' resolved. Open notes by default (--all includes resolved); also reports the last send (review-pass request). Address each note, then resolve_feedback.",
+    params: { all: z.boolean().optional() },
+    cliArgs: [{ kind: "flag", at: "all", into: "all", as: "boolean" }],
+    handler: (ctx, a) => core.listFeedback(ctx.root, { all: a.all as boolean | undefined }),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+      mcp: (r) => text(JSON.stringify(r, null, 2)),
+    },
+  },
+  {
+    name: "resolve_feedback",
+    cli: "resolve-feedback",
+    cliRoot: "flags",
+    summary:
+      "Mark a feedback note resolved — by id, or a unique substring of its text — with a note on what you did (the user sees it in the app). Call AFTER actually addressing the item. Appends to the ledger (never rewrites) + journals.",
+    params: { id: z.string(), note: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "id", required: true },
+      { kind: "flag", at: "note", into: "note" },
+    ],
+    handler: (ctx, a) => core.resolveFeedback(ctx.root, s(a.id), { note: a.note as string | undefined }),
+    render: {
+      human: (r) => {
+        const c = r as { id: string; open: number };
+        return { err: `✓ resolved ${c.id} (${c.open} still open)` };
+      },
+      mcp: (r) => {
+        const c = r as { id: string; open: number };
+        return text(`resolved ${c.id} (${c.open} still open)`);
+      },
+    },
+  },
+  {
+    name: "send_feedback",
+    cli: "send",
+    cliRoot: "flags",
+    summary:
+      "Mark a review-pass boundary in the feedback ledger: everything open is now a work order (the attend watcher wakes the principal on this). Humans trigger this from the app; agents rarely need it.",
+    params: { note: z.string().optional() },
+    cliArgs: [{ kind: "flag", at: "note", into: "note" }],
+    handler: (ctx, a) => core.sendFeedback(ctx.root, { note: a.note as string | undefined }),
+    render: {
+      human: (r) => {
+        const c = r as { open: number };
+        return { err: `✓ sent — ${c.open} open note(s) now a work order` };
+      },
+      mcp: (r) => {
+        const c = r as { open: number };
+        return text(`sent (${c.open} open notes)`);
+      },
+    },
+  },
+  {
+    name: "ensure_context",
+    cli: "context-init",
+    summary:
+      "Ensure this project has its Context/ layer (Project/MISSION.qmd, NOTEBOOK.md, RULES.md, Transcripts/, Dispatches/) — heals projects created before the principal-agent scheme. Additive and existence-guarded; safe to run any time.",
+    params: {},
+    cliArgs: [],
+    handler: (ctx) => core.ensureProjectContext(ctx.root),
+    render: {
+      human: (r) => {
+        const c = r as { created: string[] };
+        return { err: c.created.length ? `✓ created: ${c.created.join(", ")}` : "✓ Context layer already complete" };
+      },
+      mcp: (r) => {
+        const c = r as { created: string[] };
+        return text(c.created.length ? `created: ${c.created.join(", ")}` : "Context layer already complete");
+      },
+    },
+  },
+  {
     name: "add_annotation",
     cli: "add-annotation",
     cliRoot: "flags",

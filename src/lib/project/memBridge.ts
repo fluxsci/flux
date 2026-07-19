@@ -83,6 +83,20 @@ export function createMemBridge(): FileBridge & {
       ensureParent(p);
       files.set(norm(p), enc.encode(text));
     },
+    async feedbackAppend(p, line) {
+      ensureParent(p);
+      const key = norm(p);
+      const cur = files.get(key);
+      const add = enc.encode(line);
+      if (!cur) files.set(key, add);
+      else {
+        const merged = new Uint8Array(cur.length + add.length);
+        merged.set(cur);
+        merged.set(add, cur.length);
+        files.set(key, merged);
+      }
+      return true;
+    },
     async readText(p) {
       const b = files.get(norm(p));
       if (!b) throw new Error(`ENOENT: ${p}`);

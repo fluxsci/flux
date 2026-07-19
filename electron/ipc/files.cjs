@@ -138,6 +138,16 @@ function createFileCore({ app, dialog, roots, setPendingRoot }) {
       noteWrite(p);
       await atomicWriteMain(p, Buffer.from(String(text), "utf8"));
     });
+    // The feedback ledger is APPEND-only (event-sourced NDJSON): O_APPEND keeps
+    // concurrent writers safe (the app adding notes while an agent appends
+    // resolves), which an atomic read-modify-write could not.
+    ipc.handle("feedback:append", async (_e, p, line) => {
+      fsGuard(p);
+      noteWrite(p);
+      await fs.promises.mkdir(path.dirname(p), { recursive: true });
+      await fs.promises.appendFile(p, String(line));
+      return true;
+    });
     ipc.handle("fs:mkdir", async (_e, p) => {
       fsGuard(p);
       await fs.promises.mkdir(p, { recursive: true });

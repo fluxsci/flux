@@ -126,6 +126,11 @@ usage: flux <verb> [root] [args] [--flags]
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
   comments [--root R] [--doc rel] [--all]   list review comments (open by default)
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   mark a comment resolved
+  add-comment --quote "…" --body "…" [--root R] [--doc rel] [--at n]   open a NEW thread (ask the human in the margin)
+  feedback [--root R] [--all]          list the user's context-stamped feedback notes
+  resolve-feedback <id|text> [--root R] [--note "…"]   mark a feedback note resolved
+  send [--root R] [--note "…"]         mark a review-pass boundary in the feedback ledger
+  context-init [--root R]              ensure the project's Context/ layer (heal old projects)
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
   rerun-plot <recipe.json> [--param v…] [--only [name]]   re-run a plot's recipe

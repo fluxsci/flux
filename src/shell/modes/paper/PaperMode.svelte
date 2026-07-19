@@ -17,6 +17,8 @@
   import type { Command } from "../../command/commands";
   import { paperPaletteRequest, openDocRequest } from "../../command/commandBus";
   import { contextCommands } from "../../command/globalCommands";
+  import { paperSelectionWatcher } from "./paperContext";
+  import { setPaperContextDoc } from "../../../lib/project/paperSelectionStore";
   import { paperLayout } from "./view-mode/paperLayoutStore";
   import { cursorPos, cursorWatcher } from "./outline/activeHeading";
   import SelectionToolbar from "./toolbar/SelectionToolbar.svelte";
@@ -965,6 +967,7 @@
       extra: [
         pageCompartment.of(themeFor(viewMode)),
         selectionWatcher,
+        paperSelectionWatcher, // feedback stamp: live doc selection → shell store
         cursorWatcher,
         activeCitationWatcher,
         chipDblClick,
@@ -1009,6 +1012,7 @@
 
   function onReady(v: EditorView) {
     view = v;
+    setPaperContextDoc(activeDocPath); // feedback stamp: initial doc
     untrackMath?.();
     untrackMath = trackMathView(v); // 2.1: KaTeX-loaded → refresh math decorations
     refreshIdleNow(); // seed latestIdle + the TOC synchronously on mount
@@ -1122,6 +1126,7 @@
     activeComment = null;
     cRanges = new Map();
     activeDocPath = path;
+    setPaperContextDoc(path); // feedback stamp follows the active doc
     paperLayout.update((s) => ({ ...s, activeDocPath: path }));
     // Swap the editor content in place (preserve the extension set).
     view.dispatch({

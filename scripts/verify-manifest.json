@@ -44,6 +44,8 @@
       "verify-crop-math.ts",
       "figenh-crop-parity.ts",
       "verify-fluxconfig.ts",
+      "verify-feedback.ts",
+      "verify-context-scheme.ts",
       "verify-line-arrow.ts",
       "verify-text-wrap.ts",
       "verify-compensate.ts",
@@ -325,6 +327,34 @@
       "run": [
         "group:paper-gate",
         "tier:pure"
+      ]
+    },
+    {
+      "glob": "resources/flux-context/**",
+      "run": [
+        "verify-context-scheme.ts"
+      ]
+    },
+    {
+      "glob": "electron/{agentsConfig,fluxContextDocs.gen}.cjs",
+      "run": [
+        "verify-context-scheme.ts",
+        "verify-fluxconfig.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/project/{feedback,contextTemplates,contextHeal,paperSelectionStore}.ts",
+      "run": [
+        "verify-feedback.ts",
+        "verify-context-scheme.ts",
+        "verify-scaffold.ts"
+      ]
+    },
+    {
+      "glob": "flux-core/{feedback,context,comments}.ts",
+      "run": [
+        "verify-feedback.ts",
+        "verify-registry-parity.ts"
       ]
     },
     {

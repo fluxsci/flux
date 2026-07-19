@@ -6,13 +6,17 @@
   import Help from "../lib/Help.svelte";
   import Settings from "../lib/Settings.svelte";
   import CommandPalette from "./command/CommandPalette.svelte";
+  import FeedbackCapture from "./agent/FeedbackCapture.svelte";
   import { contextCommands } from "./command/globalCommands";
-  import { requestPaperPalette, togglePrincipalDrawer } from "./command/commandBus";
+  import { requestPaperPalette, togglePrincipalDrawer, feedbackCaptureOpen } from "./command/commandBus";
+  import { initFeedbackStore } from "./agent/feedbackStore";
   import { focusedMode } from "./paneStore";
   import type { Command } from "./command/commands";
 
   let globalPaletteOpen = $state(false);
   let globalCommandList = $state<Command[]>([]);
+
+  initFeedbackStore();
 
   // The shell owns Ctrl+K: Paper focused → route to PaperMode's richer palette
   // (its own Mod+K chord was retired to keep this single-fire); anywhere else →
@@ -30,6 +34,9 @@
       } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyJ") {
         e.preventDefault();
         togglePrincipalDrawer();
+      } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyM") {
+        e.preventDefault();
+        feedbackCaptureOpen.update((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -48,6 +55,7 @@
       <CommandPalette commands={globalCommandList} onClose={() => (globalPaletteOpen = false)} />
     </div>
   {/if}
+  <FeedbackCapture />
 </div>
 
 <style>
