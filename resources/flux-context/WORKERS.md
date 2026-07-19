@@ -10,7 +10,9 @@ well-defined task. Your brief is your contract.
    conventions that apply, and what "done" looks like.
 2. This file.
 3. `FLUX-CLI.md` (sibling) when your task touches a Flux project.
-4. Only the additional files your brief names. Do **not** roam the user's context folders
+4. Only the additional files your brief names — briefs commonly point at the sibling
+   references (`WORKFLOW.md`, `PLOTS-AND-STYLE.md`, `PROJECT-AND-FIGURES.md`,
+   `MANUSCRIPT-AND-REVIEW.md`, `SLIDES.md`). Do **not** roam the user's context folders
    (`UserContext/`, the project notebook) — the Principal already distilled what you need
    into the brief; if something you need is missing, say so in your report rather than
    guessing.

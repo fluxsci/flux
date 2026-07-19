@@ -42,7 +42,7 @@ Run `flux config` to print the resolved paths on your machine.
 |---|---|---|
 | `Context/UserContext/WHO-AM-I.md` | Who you are: background, interests, strengths, taste. Every agent reads it at session start — the more it knows, the less you repeat yourself. | **You** |
 | `Context/UserContext/RULES.md` | Your standing rules for *all* Flux work (figure conventions, writing style, statistics habits). Add sibling files or images freely — agents read everything in the folder. | **You** (agents may propose edits) |
-| `Context/FluxContext/` | Stock documentation shipped with Flux and re-synced on every update: `README.md` (the map of this whole scheme), `PRINCIPAL.md` (the principal's role & doctrine), `WORKERS.md` (how dispatched workers operate), `FLUX-CLI.md` (driving Flux headless), `PROJECT-GUIDE.md` (the full inside-a-project reference), `AGENTS-CONFIG.md` (the roster format). | **Flux** — never edit these |
+| `Context/FluxContext/` | Stock documentation shipped with Flux and re-synced on every update — **the single canonical home of all agent-facing Flux knowledge.** Role docs: `README.md` (the map of this whole scheme), `PRINCIPAL.md` (the principal's role & doctrine), `WORKERS.md` (dispatched workers), `AGENTS-CONFIG.md` (the roster format). Working references: `FLUX-CLI.md`, `WORKFLOW.md` (the session playbook), `CLI-REFERENCE.md` (every verb), `PLOTS-AND-STYLE.md`, `PROJECT-AND-FIGURES.md`, `MANUSCRIPT-AND-REVIEW.md`, `SLIDES.md`, `PROJECT-GUIDE.md`, `TEMPLATES.md`. Machine-specific CLI/MCP invocations are baked in at sync time. | **Flux** — never edit these |
 | `<FluxConfig>/agents.json` | The **agent roster**: which CLI is your principal, which are dispatchable workers (see @sec-roster). | **You** |
 
 If you used Flux before this system existed, your old `Guidelines/` folder was migrated
@@ -197,6 +197,16 @@ always set for the child.
 **This file is the whole vendor coupling.** The principal is a role defined by what it
 reads (the Context folders) and how it's launched (this roster) — change the command
 array and your collaborator gets a new brain with the same memory.
+
+# Where the "skill" fits
+
+Agent-CLI *skills* (the `~/.claude/skills/` and `~/.agents/skills/` conventions) exist so
+a **bare, self-started session** can discover Flux unprompted. Since the principal and
+workers are launched *by* Flux with explicit pointers into FluxContext, they don't use the
+skill mechanism at all. What remains in the vendor skill directories is a deliberate
+**stub**: a few lines that trigger on Flux-related requests and route the agent to
+`<FluxConfig>/Context/` — it carries no knowledge of its own, so it never goes stale.
+All real content lives in FluxContext and updates with the app.
 
 # Design properties worth knowing
 

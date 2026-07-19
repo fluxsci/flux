@@ -5,10 +5,16 @@
 ```
 <project>/                       # the Flux project (lives INSIDE the analysis dir)
 ├── project.json                 # the manifest / map — read this first (DERIVED rollup, rebuildable)
-├── AGENTS.md                    # per-project agent orientation (generated)
+├── AGENTS.md                    # stub → routes agents to the two Context folders
+├── Context/                     # the agent layer (see README.md here)
+│   ├── Project/MISSION.qmd      #   goals/charter (co-owned with the user)
+│   ├── NOTEBOOK.md              #   the principal's running memory (agent-owned)
+│   ├── RULES.md                 #   project rules (promoted from feedback)
+│   ├── Transcripts/             #   drawer-session transcripts (machine-captured)
+│   └── Dispatches/              #   worker dispatch records (brief/log/result)
 ├── manuscript/                  # USER-OWNED prose — source of truth
 │   ├── main.qmd                 #   the Quarto manuscript
-│   └── comments.json            #   the user's review comments (sidecar; see manuscript-and-review.md)
+│   └── comments.json            #   the user's review comments (sidecar; see MANUSCRIPT-AND-REVIEW.md)
 ├── plots/                       # USER-OWNED drop-zone — your fluxplot output lands here
 │   └── growth.{svg,fluxplot.json,recipe.json}
 ├── fig/                         # APP-MANAGED — NEVER hand-edit
@@ -18,8 +24,9 @@
 │   ├── assets/                  #   Flux's imported copies of your plot SVGs
 │   └── renders/                 #   auto static renders (derived)
 ├── references/library.bib       # USER-OWNED bibliography (BibTeX, [@citekey])
+├── slides/<deckId>/deck.json    # Flux Slide decks (see SLIDES.md)
 ├── exports/                     # final compiled outputs (derived, git-ignored)
-└── .meta/                       # tool state: journal.ndjson, locks/, schema/, live/
+└── .meta/                       # tool state: journal.ndjson, feedback.ndjson, locks/, schema/, live/
 ```
 
 ## Ownership — what you edit vs. what you never touch
@@ -56,17 +63,17 @@ caption stub. Run from the project dir.
 
 ```bash
 # multi-panel: imports each, arranges 2 rows, letters a,b,c…, captions
-npx tsx /home/driessen2/flux/flux-cli.ts compose-figure plots/*.svg --id fig3 --rows 2
+{{FLUX_CLI}} compose-figure plots/*.svg --id fig3 --rows 2
 # single plot is fine too (no panel letters until there are ≥2 panels)
-npx tsx /home/driessen2/flux/flux-cli.ts compose-figure plots/growth.svg --id growth
+{{FLUX_CLI}} compose-figure plots/growth.svg --id growth
 ```
 
 **2. Look** — render to a PNG and actually view it (this is non-negotiable; don't ship blind):
 
 ```bash
-npx tsx /home/driessen2/flux/flux-cli.ts render-figure growth --png --out /tmp/growth.png
+{{FLUX_CLI}} render-figure growth --png --out /tmp/growth.png
 # then open/Read /tmp/growth.png
-npx tsx /home/driessen2/flux/flux-cli.ts render-canvas --png --out /tmp/canvas.png
+{{FLUX_CLI}} render-canvas --png --out /tmp/canvas.png
 # the whole canvas at once — check the figures' LAYOUT too (new figures
 # auto-stack below the previous one; set-figure-layout moves them)
 ```
@@ -77,8 +84,8 @@ inline — preferred for looking.)
 **3. Restyle a part** by its stable id — the override **survives regeneration**:
 
 ```bash
-npx tsx /home/driessen2/flux/flux-cli.ts restyle growth control.line --stroke '#205EA6'
-npx tsx /home/driessen2/flux/flux-cli.ts restyle growth treatment.line --stroke '#BC5215'
+{{FLUX_CLI}} restyle growth control.line --stroke '#205EA6'
+{{FLUX_CLI}} restyle growth treatment.line --stroke '#BC5215'
 ```
 
 (Use the Flexoki hexes from `fluxplot.style` — `fx.FLEXOKI["blue"]` — for consistency. `restyle`
@@ -97,11 +104,11 @@ Caption Editor shows); `fig/captions/<id>.md` is the composed read-out. Write th
 style — bold letter + comma:
 
 ```bash
-npx tsx /home/driessen2/flux/flux-cli.ts set-caption growth "Growth of control vs treatment under nutrient stress over 24 h. **a**, Control. **b**, Treatment."
+{{FLUX_CLI}} set-caption growth "Growth of control vs treatment under nutrient stress over 24 h. **a**, Control. **b**, Treatment."
 #   the '**a**, …' convention is DISTRIBUTED into the per-panel blocks automatically
-npx tsx /home/driessen2/flux/flux-cli.ts set-caption growth "Control (revised)." --panel a   # rewrite ONE panel
-npx tsx /home/driessen2/flux/flux-cli.ts caption growth      # read the composed caption back
+{{FLUX_CLI}} set-caption growth "Control (revised)." --panel a   # rewrite ONE panel
+{{FLUX_CLI}} caption growth      # read the composed caption back
 ```
 
 The manuscript reads captions from the model (embed lines carry NO caption text — see
-`manuscript-and-review.md`); use `@fig-growth-a` in the caption/prose to refer to panels.
+`MANUSCRIPT-AND-REVIEW.md`); use `@fig-growth-a` in the caption/prose to refer to panels.

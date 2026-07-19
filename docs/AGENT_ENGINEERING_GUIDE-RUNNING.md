@@ -1010,6 +1010,29 @@ verify-an-manuscript doc counts, verify-paper-commands Mod+K ownership.
   (`window.fig.*`) via executeJavaScript instead of app UI — verify-principal-electron gets
   roster→spec→PTY→data coverage with zero Svelte coupling.
 
+### 2026-07-19 (later) — Skill content migrated into FluxContext; vendor skills are stubs (Claude Fable 5, `principal-agent`)
+**Work:** Owner decision: launched agents (principal/workers) get instructions
+deterministically, so vendor skill dirs add nothing for them — the six `skills/flux/`
+references (workflow/cli/plots/figures/manuscript/slides) moved into
+`resources/flux-context/` as stock docs (13 total; content read-through: retired slide verbs
+fixed in the cheat-sheet, machine paths → `{{FLUX_CLI}}`/`{{FLUX_MCP}}`/`{{FLUX_MCP_PATH}}`
+placeholders, per-machine facts moved to the owner's UserContext RULES); templates folded
+into `TEMPLATES.md`; `skills/flux/` is now a pointer STUB (kept for `/flux` + bare-session
+discovery, synced once to `~/.claude` + `~/.agents`; no runtime auto-sync into vendor dirs).
+verify-registry-parity repointed to `resources/flux-context/CLI-REFERENCE.md` AND now scans
+the cheat-sheet TABLES (1 → 57 verbs checked — the table blindspot had let deleted
+`add-math`/`add-embed-figure` linger); verify-context-scheme pins the 13-doc set + a
+no-machine-paths sweep; verify-fluxconfig checks placeholder substitution across ALL synced
+docs.
+**Learnings:**
+- The stock-docs bundle rides the CLI BUNDLES: after editing `resources/flux-context/` +
+  regen, `npm run build:cli` must run before the packaged CLI can sync the new content (the
+  stamp correctly no-ops on the stale bundle's own hash — drift-safe, but easy to mistake
+  for a failed sync).
+- A doc gate that only greps prose patterns misses tables — scan the structured columns too;
+  going from 1 to 57 checked verbs found nothing new only because the content had JUST been
+  hand-audited.
+
 ### 2026-07-18 (late) — Human↔agent feedback-loop design brainstorm (Claude Fable 5, `main`, no code)
 **Work:** Owner asked for better human↔agent iteration on Flux projects (no app restarts,
 agent-agnostic, no context re-explaining). Surveyed the existing surfaces and wrote the design

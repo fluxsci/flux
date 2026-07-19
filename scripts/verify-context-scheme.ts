@@ -37,8 +37,28 @@ const docs = (docsMod.FLUX_CONTEXT_FILES ? docsMod : docsMod.default) as {
 };
 {
   const files = docs.FLUX_CONTEXT_FILES as Record<string, string>;
-  const expect = ["README.md", "PRINCIPAL.md", "WORKERS.md", "FLUX-CLI.md", "PROJECT-GUIDE.md", "AGENTS-CONFIG.md"];
-  ok(expect.every((n) => n in files), `stock set complete (${expect.join(", ")})`);
+  const expect = [
+    "README.md",
+    "PRINCIPAL.md",
+    "WORKERS.md",
+    "FLUX-CLI.md",
+    "PROJECT-GUIDE.md",
+    "AGENTS-CONFIG.md",
+    // the skill-content migration (2026-07-19): the working references are stock too
+    "WORKFLOW.md",
+    "CLI-REFERENCE.md",
+    "PLOTS-AND-STYLE.md",
+    "PROJECT-AND-FIGURES.md",
+    "MANUSCRIPT-AND-REVIEW.md",
+    "SLIDES.md",
+    "TEMPLATES.md",
+  ];
+  ok(expect.every((n) => n in files) && Object.keys(files).length === expect.length, `stock set complete (${expect.length} docs)`);
+  ok(/add-figure/.test(files["CLI-REFERENCE.md"]) && !/add-math/.test(files["CLI-REFERENCE.md"]), "CLI-REFERENCE reflects the post-migration slide surface (no retired verbs)");
+  ok(/feedback/.test(files["WORKFLOW.md"]) && /resolve-feedback/.test(files["WORKFLOW.md"]), "WORKFLOW's review loop covers the feedback ledger");
+  ok(/\{\{FLUX_MCP_PATH\}\}/.test(files["TEMPLATES.md"]), "TEMPLATES keeps the MCP path placeholder in the SOURCE");
+  const machineSpecific = Object.entries(files).filter(([, body]) => /driessen2|\/home\/[a-z]/.test(body));
+  ok(machineSpecific.length === 0, `stock docs carry no machine-specific paths (${machineSpecific.map(([n]) => n).join(", ") || "clean"})`);
   ok(/Boot sequence/.test(files["PRINCIPAL.md"]) && /notebook law/i.test(files["PRINCIPAL.md"]), "PRINCIPAL.md carries boot sequence + notebook law");
   ok(/Delegation discipline/.test(files["PRINCIPAL.md"]) && /Promotion discipline/.test(files["PRINCIPAL.md"]), "PRINCIPAL.md carries delegation + promotion doctrine");
   ok(/report/i.test(files["WORKERS.md"]) && /brief is your contract/i.test(files["WORKERS.md"]), "WORKERS.md carries the brief contract + report shape");

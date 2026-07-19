@@ -7,10 +7,10 @@ plain Quarto markdown with YAML front-matter (title, `bibliography: ../reference
 **The `.qmd` is the source of truth** — edit it directly, or via the verbs:
 
 ```bash
-npx tsx /home/driessen2/flux/flux-cli.ts manuscript                 # read main.qmd (--doc for others)
-npx tsx /home/driessen2/flux/flux-cli.ts set-manuscript --file draft.md   # overwrite (holds the manuscript lock + journals)
-npx tsx /home/driessen2/flux/flux-cli.ts docs                       # list documents
-npx tsx /home/driessen2/flux/flux-cli.ts new-doc "Supplement"       # add one
+{{FLUX_CLI}} manuscript                 # read main.qmd (--doc for others)
+{{FLUX_CLI}} set-manuscript --file draft.md   # overwrite (holds the manuscript lock + journals)
+{{FLUX_CLI}} docs                       # list documents
+{{FLUX_CLI}} new-doc "Supplement"       # add one
 ```
 
 When the app is open, an external `.qmd` write **live-reloads** if the user's editor is clean;
@@ -20,11 +20,11 @@ clobbers their work). For big rewrites of hand-edited prose, prefer proposing th
 ## Cross-references and citations (literal Quarto text in the `.qmd`)
 
 - **Figures:** write `@fig-<label>` (panel: `@fig-<label>-a`). Append one with
-  `… flux-cli.ts ref growth` → adds `See @fig-growth.`. Numbers ("Figure 3") are resolved at
+  `ref growth` → adds `See @fig-growth.`. Numbers ("Figure 3") are resolved at
   render time from order. Panel refs survive `compile` too: they're translated to literal
   "Figure 3a" text at render time (bare Quarto only knows whole-figure refs).
 - **Citations:** write `[@citekey]`. Grow the library with
-  `… flux-cli.ts cite-doi 10.1038/nature12373` (fetches BibTeX — it echoes the fetched
+  `cite-doi 10.1038/nature12373` (fetches BibTeX — it echoes the fetched
   author/title/year in full; CHECK it, registries serve junk metadata on automated deposits)
   or `add-reference . <bibtex>` / `add-reference . --file refs.bib`. Citekeys are stable join keys.
 - **Embedding a figure** in the prose (an actual image): `![](../fig/renders/<id>.svg){#fig-<id>}`
@@ -35,7 +35,7 @@ clobbers their work). For big rewrites of hand-edited prose, prefer proposing th
   carrying the figure's NAME — name figures well (`set-figure-layout <id> --name "Figure 3"`).
 - **Section IDs:** standard Quarto header attributes (`## Results {#sec-results}`) are fine —
   the editor hides the `{#…}` tail unless the caret is on the heading.
-- **Compile:** `… flux-cli.ts compile --to pdf|html|docx` (needs `quarto` on PATH).
+- **Compile:** `compile --to pdf|html|docx` (needs `quarto` on PATH).
 
 ## The review loop (read → address → resolve)
 
@@ -47,7 +47,7 @@ main doc, `<dir>/<base>.comments.json` for others — **never inside the `.qmd`*
 { "id": "c…", "resolved": false,
   "anchor": { "start": 1234, "end": 1270, "quote": "the EXACT text the comment targets",
               "prefix": "…32 chars before", "suffix": "…32 chars after" },
-  "messages": [ { "author": "Kort", "body": "Please cite Smith 2020 here.", "createdAt": "…" } ] }
+  "messages": [ { "author": "You", "body": "Please cite Smith 2020 here.", "createdAt": "…" } ] }
 ```
 
 `anchor.quote` is the exact manuscript text the note is about — that's how you know *where* each
@@ -55,12 +55,12 @@ comment applies. **Procedure when the user says "address my comments":**
 
 ```bash
 # 1. list the open threads (JSON: id, quote, messages)
-npx tsx /home/driessen2/flux/flux-cli.ts comments            # add --all to include resolved
+{{FLUX_CLI}} comments            # add --all to include resolved
 # 2. for each thread: locate anchor.quote in the .qmd, make the requested change
-npx tsx /home/driessen2/flux/flux-cli.ts manuscript          # read, edit, then:
-npx tsx /home/driessen2/flux/flux-cli.ts set-manuscript --file revised.qmd
+{{FLUX_CLI}} manuscript          # read, edit, then:
+{{FLUX_CLI}} set-manuscript --file revised.qmd
 # 3. mark it resolved (by id or a unique substring of the quote), optionally reply
-npx tsx /home/driessen2/flux/flux-cli.ts resolve-comment c… --note "Added the Smith 2020 citation."
+{{FLUX_CLI}} resolve-comment c… --note "Added the Smith 2020 citation."
 ```
 
 `resolve-comment` flips `resolved:true`, appends your reply (stamped with your client identity +
@@ -122,16 +122,18 @@ the `url` + bearer `token`). Via MCP:
 
 If `.meta/live/bridge.json` is absent, the app is closed → use the file verbs instead.
 
-## Wiring MCP into an agent (per analysis project)
+## Wiring MCP into a standalone agent (per analysis project)
 
-The MCP server's project root is fixed at launch, so configure it per analysis project. For
-**Codex**, copy `assets/templates/codex-config.toml` to `<analysis-dir>/.codex/config.toml` and
-set the final argument to the Flux project path:
+The **principal and dispatched workers get MCP automatically** (the `{mcpJson}` roster
+placeholder — `AGENTS-CONFIG.md`); this section is only for a standalone session you start
+yourself. The server's project root is fixed at launch, so configure it per analysis
+project (ready-to-copy versions of these: `TEMPLATES.md`). For **Codex**,
+`<analysis-dir>/.codex/config.toml` with the final argument set to the Flux project path:
 
 ```toml
 [mcp_servers.flux]
-command = "/usr/bin/node"
-args = ["/home/driessen2/flux/dist/flux-mcp.mjs", "/data/microns_analysis/paper"]
+command = "node"
+args = ["{{FLUX_MCP_PATH}}", "/data/microns_analysis/paper"]
 
 [mcp_servers.flux.env]
 FLUX_CLIENT = "codex"
@@ -141,8 +143,8 @@ For **Claude Code**, use `<analysis-dir>/.mcp.json`:
 
 ```json
 { "mcpServers": { "flux": {
-  "command": "/usr/bin/node",
-  "args": ["/home/driessen2/flux/dist/flux-mcp.mjs", "/data/microns_analysis/paper"],
+  "command": "node",
+  "args": ["{{FLUX_MCP_PATH}}", "/data/microns_analysis/paper"],
   "env": { "FLUX_CLIENT": "claude" }
 } } }
 ```

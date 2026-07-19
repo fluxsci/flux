@@ -162,11 +162,27 @@ try {
     }
     ok(`all ${VERBS.length} registry verbs present on both surfaces (help + tools/list)`);
 
-    // Agent skill doc: every `flux <verb>` it names must exist on the CLI surface
-    // (registry now, or a legacy switch case still to migrate).
-    const doc = await fs.readFile(path.join(REPO, "skills", "flux", "references", "cli.md"), "utf8");
+    // Stock CLI reference (the FluxContext cheat-sheet — was skills/flux/references/
+    // cli.md before the Context migration): every verb it names must exist on the
+    // CLI surface (registry now, or a legacy switch case still to migrate). Scans
+    // BOTH `flux <verb>` prose mentions AND the cheat-sheet tables' first column —
+    // the table blindspot once let a deleted verb (add-math) linger for a release.
+    const doc = await fs.readFile(
+      path.join(REPO, "resources", "flux-context", "CLI-REFERENCE.md"),
+      "utf8",
+    );
     const named = new Set<string>();
     for (const m of doc.matchAll(/(?:^|[`\s])flux\s+([a-z][a-z0-9-]+)/g)) named.add(m[1]);
+    for (const line of doc.split("\n")) {
+      if (!line.startsWith("|") || /^\|[\s-|]*$/.test(line) || line.includes("Verb (CLI)")) continue;
+      const firstCell = line.split("|")[1] ?? "";
+      for (const span of firstCell.matchAll(/`([^`]+)`/g)) {
+        const tok = span[1].trim().split(/\s+/)[0];
+        // Verbs only: lowercase, no placeholders/flags/paths — "—" cells and
+        // arg-only spans (e.g. `--order a,b,c`) don't match.
+        if (/^[a-z][a-z0-9-]*$/.test(tok)) named.add(tok);
+      }
+    }
     const cliSurface = new Set([...registeredCliVerbs()]);
     const legacy = await fs.readFile(path.join(REPO, "flux-cli.ts"), "utf8");
     for (const m of legacy.matchAll(/case "([a-z0-9-]+)":/g)) cliSurface.add(m[1]);

@@ -2,8 +2,9 @@
 
 Flux is agent-native: **the file is the API.** A project is a plain folder; you read and
 write its files (directly, or through typed verbs), and the open app live-reloads the
-result. This file is the orientation; `flux help` is the complete, always-current verb
-reference.
+result. This file is the orientation; the full references are siblings — `WORKFLOW.md`
+(the session playbook), `CLI-REFERENCE.md` (every verb + root resolution), and
+`flux help` (always current).
 
 ## Running the CLI / MCP
 

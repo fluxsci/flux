@@ -1,21 +1,20 @@
-# Running Flux from the command line (and MCP)
+# Running Flux from the command line (and MCP) — stock, shipped with Flux
 
 ## How to run the CLI
 
-The `flux` CLI is **not on `PATH`**. It lives in the Flux repo and must resolve against that
-repo's `node_modules`, but it **operates on any project directory**. Run it with:
+The `flux` CLI is usually **not on `PATH`**. This machine's resolved invocation (baked in
+when Flux synced this doc) is:
 
 ```bash
-/usr/bin/node /home/driessen2/flux/dist/flux-cli.mjs <verb> [args] [--flags]
+{{FLUX_CLI}} <verb> [args] [--flags]
 ```
 
-(First run installs `tsx` transiently; that's fine.) `npm run flux -- <verb>` also works but
-only from inside the repo — prefer the absolute-path form above from anywhere.
+It **operates on any project directory** — where you run it from doesn't pin the project
+(see root resolution below), though `cd`-ing into the project is the ergonomic default.
 
-**Drift check:** the bundle is built from the repo, so it can lag. `flux version` prints
-`{version, commit, entry}` — if a documented verb/flag is missing, run the live source instead
-(`npx tsx /home/driessen2/flux/flux-cli.ts <verb> …`, same interface) and note the mismatch so
-the owner can rebuild (`npm run build:cli`).
+**Drift check:** `flux version` prints `{version, commit, entry}` — if a documented
+verb/flag is missing, the bundle may lag the repo; note the mismatch so the owner can
+rebuild (`npm run build:cli` in the Flux repo).
 
 **The one rule that avoids all foot-guns: `cd` into the Flux project and run from there.**
 Then set your identity and pin the project for the session:
@@ -67,9 +66,9 @@ With the session export above, `render-figure growth --png` just works.
 | `docs` · `new-doc <name>` | `list_documents` · `create_document` | list / add documents |
 | `ref <figId> [--doc r]` | `insert_figure_ref` | append `@fig-<label>` to a doc |
 | `add-reference . <bibtex\|--file f>` · `cite-doi <doi>` | `add_reference` · `cite_doi` | grow `references/library.bib` |
-| `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | the **review loop** (see manuscript-and-review.md) |
+| `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | the **review loop** (see MANUSCRIPT-AND-REVIEW.md) |
 | `add-comment --quote "…" --body "…" [--doc r] [--at n]` | `add_comment` | open a NEW thread — ask the human a question in their margin |
-| `feedback [--all]` · `resolve-feedback <id\|text> [--note "…"]` · `send` | `list_feedback` · `resolve_feedback` · `send_feedback` | the **feedback ledger** (context-stamped notes from the app; see manuscript-and-review.md) |
+| `feedback [--all]` · `resolve-feedback <id\|text> [--note "…"]` · `send` | `list_feedback` · `resolve_feedback` · `send_feedback` | the **feedback ledger** (context-stamped notes from the app; see MANUSCRIPT-AND-REVIEW.md) |
 | `context-init` · `agents` · `dispatch <role> --brief-file f [--name n]` | `ensure_context` · `list_agents` · `dispatch` | heal `Context/` / show the agent roster / run a worker with a brief (recorded in `Context/Dispatches/`) |
 | `agent [root] [--print]` · `attend [root] [--interval ms]` | — | CLI-only: launch YOUR principal interactively / watch the ledger — Send wakes a review pass |
 | `compile [--to pdf\|html\|docx]` | `compile` | render via Quarto (needs `quarto`); reports the output path + figures/citations resolution (unresolved `@keys` named) |
@@ -80,7 +79,7 @@ With the session export above, `render-figure growth --png` just works.
 | `annotations [search q] [--key K]` · `add-annotation --key K --quote "…"` | `list_annotations`/`search_annotations` · `add_annotation` | read / add FluxReader highlights & notes |
 | — | `get_app_context` · `dispatch_command` · `act_on_selection` | the **live bridge** (app open only) |
 
-### Slides (Flux Slide — see `slides.md`)
+### Slides (Flux Slide — see `SLIDES.md`)
 
 | Verb (CLI) | MCP tool | What it does |
 |---|---|---|
@@ -88,8 +87,9 @@ With the session export above, `render-figure growth --png` just works.
 | `add-slide <deck> [--name N] [--layout L]` · `delete-slide <deck> <s>` · `duplicate-slide <deck> <s>` | `add_slide` · `delete_slide` · `duplicate_slide` | slide structure |
 | `reorder-slides <deck> --order a,b,c` · `set-slide <deck> <s> [--notes\|--camera-x/-y/-zoom\|--layout\|--background]` | `reorder_slides` · `set_slide` | reorder / patch a slide (notes, camera, …) |
 | `set-theme <deck> <theme>` | `set_deck_theme` | flux-dark\|light\|midnight\|slate\|sepia\|contrast |
-| `add-text <deck> <s> "…"` · `add-math <deck> <s> "\tex"` · `add-embed-figure <deck> <s> <figId>` | `add_slide_text` · `add_slide_math` · `add_slide_figure` | add content (embed-figure keeps panels addressable) |
-| `add-beat <deck> <s> [--label L]` · `set-animation <deck> <s> <beat> --target E [--preset P …]` | `add_beat` · `set_animation` | build timeline + animation tracks |
+| `add-text <deck> <s> "…"` · `add-figure <deck> <s> <figId>` | `add_slide_text` · `add_slide_figure` | add content (add-figure COPIES a project figure in — panels stay addressable; slide text is the figure text element: no math/rich-text slide elements) |
+| `add-beat <deck> <s> [--label L]` · `set-animation <deck> <s> <beat> --target E [--preset P …]` | `add_beat` · `set_animation` | build timeline + appearance tracks (drawOn/writeOn/fades, trim windows) |
+| `set-transform <deck> <s> <beat> --target E […]` · `apply-anim-template <deck> <s>` · `group-tracks` / `ungroup-tracks` | `set_transform` · `apply_anim_template` · `group_tracks` / `ungroup_tracks` | TRANSFORM tracks (element tweens to a changed version of itself; plot data-morphs) / role-matched templates / animator lanes |
 | `validate-deck [deck]` · `export-deck <deck> [--out F]` | `validate_deck` · `export_deck` | schema-check / export one offline `.html` |
 
 ## MCP server (richer: typed verbs + inline figure PNGs)
@@ -97,13 +97,14 @@ With the session export above, `render-figure growth --png` just works.
 Start per-project (the root is fixed at launch):
 
 ```bash
-/usr/bin/node /home/driessen2/flux/dist/flux-mcp.mjs /data/microns_analysis/paper
+{{FLUX_MCP}} /path/to/project
 ```
 
-Usually you do not start it by hand: configure it for the active agent with either a Codex
-project `.codex/config.toml` or a Claude Code `.mcp.json` (see
-`manuscript-and-review.md` / the analysis-dir glue). Prefer MCP when you want to **see** a
-figure (`get_figure_image` returns the PNG inline) or act on the user's live selection.
+Usually you do not start it by hand: the **principal and dispatched workers get it wired
+automatically** via the `{mcpJson}` placeholder in `agents.json` (see `AGENTS-CONFIG.md`),
+and standalone sessions configure it per analysis dir with `.codex/config.toml` /
+`.mcp.json` (templates in `TEMPLATES.md`). Prefer MCP when you want to **see** a figure
+(`get_figure_image` returns the PNG inline) or act on the user's live selection.
 
 ## Provenance & locks
 

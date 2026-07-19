@@ -58,10 +58,23 @@ Workers do not read `UserContext/` or the notebook — the brief contains everyt
 
 ## The other stock files here
 
+Roles and the scheme:
+
 - `PRINCIPAL.md` — the Principal's role: boot, standup, delegation, promotion, review.
 - `WORKERS.md` — how a dispatched worker operates and reports.
-- `FLUX-CLI.md` — driving Flux headless: the CLI/MCP essentials.
-- `PROJECT-GUIDE.md` — the full inside-a-project reference: layout, ownership,
-  conventions, the complete verb surface, the live bridge, safety.
 - `AGENTS-CONFIG.md` — the `agents.json` roster format (which CLI is the principal,
   which are workers).
+
+Working references (read on demand — briefs and the docs above point into these):
+
+- `FLUX-CLI.md` — driving Flux headless: the CLI/MCP essentials (start here).
+- `PROJECT-GUIDE.md` — the full inside-a-project reference: layout, ownership,
+  conventions, the complete verb surface, the live bridge, safety.
+- `WORKFLOW.md` — the end-to-end session playbook (orient → plots → figures →
+  write-up → review), with copy-paste commands.
+- `CLI-REFERENCE.md` — the complete verb cheat-sheet (CLI ↔ MCP) + root resolution.
+- `PLOTS-AND-STYLE.md` — fluxplot + the house (Flexoki) style; recipes + regeneration.
+- `PROJECT-AND-FIGURES.md` — the on-disk tree, the figure model, compose/look/restyle.
+- `MANUSCRIPT-AND-REVIEW.md` — Quarto authoring, comments, the feedback ledger, live edits.
+- `SLIDES.md` — Flux Slide: build + animate a talk, export one offline `.html`.
+- `TEMPLATES.md` — analysis-dir glue (AGENTS/CLAUDE stubs, per-project MCP wiring).

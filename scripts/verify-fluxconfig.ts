@@ -152,7 +152,10 @@ if (process.platform !== "win32") {
     assert(!fs.existsSync(path.join(cfg, "Guidelines")), "no legacy Guidelines dir on a fresh machine");
     const fc1 = path.join(cfg, "Context", "FluxContext");
     assert(fs.readFileSync(path.join(fc1, "PRINCIPAL.md"), "utf8").includes("Boot sequence"), "FluxContext stock docs synced");
-    assert(!fs.readFileSync(path.join(fc1, "FLUX-CLI.md"), "utf8").includes("{{FLUX_CLI}}"), "FluxContext placeholders substituted");
+    const unsubbed = fs.readdirSync(fc1).filter(
+      (n) => n.endsWith(".md") && /\{\{FLUX_(CLI|MCP|MCP_PATH)\}\}/.test(fs.readFileSync(path.join(fc1, n), "utf8")),
+    );
+    assert(unsubbed.length === 0, `every synced FluxContext doc substituted its placeholders (${unsubbed.join(", ") || "all clean"})`);
     assert(JSON.parse(fs.readFileSync(path.join(cfg, "agents.json"), "utf8")).principal.command.length > 0, "agents.json roster seeded");
     assert(info.agentsConfigPath === path.join(cfg, "agents.json"), "configInfo reports agentsConfigPath");
     assert(info.userContextPath === uc1 && info.fluxContextPath === fc1, "configInfo reports the Context paths");

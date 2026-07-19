@@ -1,11 +1,14 @@
-# The end-to-end playbook
+# The end-to-end playbook (stock — shipped with Flux)
 
-The concrete session recipe. Read `SKILL.md` for the mental model; this is the "what to actually
-do." Commands assume you've `cd`'d into the Flux project and run
-`export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent` (see `cli.md`). `F=` below is shorthand:
+The concrete session recipe: analysis results → blessed figures → write-up → review.
+`README.md` (sibling) is the mental model — workshop vs. showroom, the two Context
+folders; this is the "what to actually do." Commands assume you've `cd`'d into the Flux
+project and run `export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent` (principals use
+`FLUX_CLIENT=principal`, dispatched workers `worker` — see `CLI-REFERENCE.md`).
+`F=` below is shorthand:
 
 ```bash
-F="/usr/bin/node /home/driessen2/flux/dist/flux-cli.mjs"
+F="{{FLUX_CLI}}"
 ```
 
 ## 0. Orient
@@ -31,8 +34,9 @@ $F feedback && $F comments       # open review items (context-stamped notes + th
 - Write/extend a plotting script in the **analysis dir** (the workshop). Use `fluxplot` + the
   house style, name every series, and save into the project's `plots/` with a recipe
   (`fx.save(fig, "plots/<name>.svg", script=__file__, params=…, inputs=…)`). Full detail +
-  example: `plots-and-style.md`.
-- Run it with the env that has `fluxplot` (the user's `uv` env). Then validate each plot:
+  example: `PLOTS-AND-STYLE.md`.
+- Run it with the environment that has `fluxplot` installed (the user's setup is in
+  `UserContext/` — check there for env paths/conventions). Then validate each plot:
 
 ```bash
 $F validate-plot plots/<name>.svg     # manifest valid + every part addressable + geometry sane
@@ -54,7 +58,7 @@ $F render-figure fig1 --png --out /tmp/fig1.png      # re-look. Repeat until rig
 $F render-canvas --png --out /tmp/canvas.png         # the WHOLE canvas — check figure layout too
 ```
 
-Details + the canvas/figure/panel model: `project-and-figures.md`.
+Details + the canvas/figure/panel model: `PROJECT-AND-FIGURES.md`.
 
 ## 3. Write it up
 
@@ -73,7 +77,7 @@ $F validate                              # lint: EMPTY figures (they shift numbe
                                          # embedded in any doc, overlapping canvas frames
 ```
 
-Authoring + cross-refs: `manuscript-and-review.md`.
+Authoring + cross-refs: `MANUSCRIPT-AND-REVIEW.md`.
 
 ## 4. Show the user
 
@@ -81,16 +85,22 @@ Render the figures to PNGs and present them (inline if you have MCP `get_figure_
 short written summary of what each shows and how it was made. End by telling the user they can
 mark up the documents in the Flux app and you'll address the comments.
 
-## 5. Review loop (when the user says "address my comments")
+## 5. Review loop (a send arrived, or the user says "address my feedback")
 
 ```bash
-$F comments                    # list open threads: each has an id + anchor.quote (the targeted text)
-# for each: find the quote in the .qmd, make the change (set-manuscript / edit the file), then:
+$F feedback                    # context-stamped notes: each carries WHAT the user was looking at
+$F comments                    # margin threads: each has an id + anchor.quote (the targeted text)
+# for each item: make the change (regenerate / restyle / edit the .qmd), then close it:
+$F resolve-feedback <id|text> --note "Done: <what you changed>."
 $F resolve-comment <id> --note "Done: <what you changed>."
+# unsure about an item? ask in the user's margin instead of guessing:
+$F add-comment --quote "the exact doc text" --body "your question"
 ```
 
-Full procedure + the on-disk comment format: `manuscript-and-review.md`. With the app open, your
-prose edits and your resolves both refresh live.
+Full procedure + the on-disk formats: `MANUSCRIPT-AND-REVIEW.md`. With the app open, your
+prose edits, resolves, and new threads all refresh live in the user's margin. When feedback
+expresses a STANDING preference (not a one-off), also promote it into `Context/RULES.md`
+(see `PRINCIPAL.md` §promotion).
 
 ## 6. Iterate / regenerate (no stale clutter)
 
@@ -122,9 +132,9 @@ and **look** → `restyle` the series to Flexoki colors → `set-caption` and ci
 ## CLI vs MCP — quick guidance
 
 - **CLI** (this doc) always works; every verb resolves the root as `--root` → `$FLUX_PROJECT` →
-  cwd (a leading positional root like `.` is still accepted — `cli.md`).
+  cwd (a leading positional root like `.` is still accepted — `CLI-REFERENCE.md`).
 - **MCP** is nicer for **looking** (`get_figure_image` → inline PNG) and for **live** edits on
   the user's selection. Wire it per-project with `.codex/config.toml` for Codex or `.mcp.json`
-  for Claude Code (`manuscript-and-review.md`).
+  for Claude Code (`MANUSCRIPT-AND-REVIEW.md`).
 - Either way, **the files are the contract** — when in doubt, read/write the files directly and
   run `reindex` / `validate`.

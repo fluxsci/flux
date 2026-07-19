@@ -403,26 +403,31 @@ async function ensureUserContext(cfg, events) {
   }
 }
 
-/** Resolve how THIS install runs the flux CLI/MCP (baked into the stock docs). */
+/** Resolve how THIS install runs the flux CLI/MCP (baked into the stock docs).
+ *  `mcpPath` is the bare server script path for JSON config templates
+ *  ({{FLUX_MCP_PATH}}); `cli`/`mcp` are full runnable command strings. */
 function resolveOwnCliCommandsSync() {
   const appRoot = path.resolve(__dirname, "..");
   if (process.resourcesPath && __dirname.includes("app.asar")) {
     const base = path.join(process.resourcesPath, "app.asar.unpacked", "dist");
     const cli = path.join(base, "flux-cli.mjs");
     if (fsSync.existsSync(cli)) {
+      const mcpPath = path.join(base, "flux-mcp.mjs");
       const wrap = (p) => `ELECTRON_RUN_AS_NODE=1 "${process.execPath}" "${p}"`;
-      return { cli: wrap(cli), mcp: wrap(path.join(base, "flux-mcp.mjs")) };
+      return { cli: wrap(cli), mcp: wrap(mcpPath), mcpPath };
     }
   }
   const distCli = path.join(appRoot, "dist", "flux-cli.mjs");
   if (fsSync.existsSync(distCli)) {
-    return { cli: `node "${distCli}"`, mcp: `node "${path.join(appRoot, "dist", "flux-mcp.mjs")}"` };
+    const mcpPath = path.join(appRoot, "dist", "flux-mcp.mjs");
+    return { cli: `node "${distCli}"`, mcp: `node "${mcpPath}"`, mcpPath };
   }
   const srcCli = path.join(appRoot, "flux-cli.ts");
   if (fsSync.existsSync(srcCli)) {
-    return { cli: `npx tsx "${srcCli}"`, mcp: `npx tsx "${path.join(appRoot, "flux-mcp.ts")}"` };
+    const mcpPath = path.join(appRoot, "flux-mcp.ts");
+    return { cli: `npx tsx "${srcCli}"`, mcp: `npx tsx "${mcpPath}"`, mcpPath };
   }
-  return { cli: "flux", mcp: "flux-mcp" }; // last resort: assume on PATH
+  return { cli: "flux", mcp: "flux-mcp", mcpPath: "flux-mcp" }; // last resort: assume on PATH
 }
 
 function fluxContextStampPath(cfg) {
@@ -463,7 +468,8 @@ async function syncFluxContext(cfg, events) {
   for (const name of names) {
     const out = FLUX_CONTEXT_FILES[name]
       .replaceAll("{{FLUX_CLI}}", cmds.cli)
-      .replaceAll("{{FLUX_MCP}}", cmds.mcp);
+      .replaceAll("{{FLUX_MCP}}", cmds.mcp)
+      .replaceAll("{{FLUX_MCP_PATH}}", cmds.mcpPath);
     const p = path.join(dir, name);
     try {
       if (fsSync.readFileSync(p, "utf8") === out) continue;

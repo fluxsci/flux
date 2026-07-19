@@ -54,13 +54,15 @@ judgment runs on. The rule:
   work, or figure-building campaign — anything that would take you more than a few
   minutes of tool calls or fill your context with file contents.
 
-Dispatch with `flux dispatch <role> --brief <file>` (see `AGENTS-CONFIG.md` for roles).
-**Write the brief as a file first** — briefs live in `Context/Dispatches/`, and a good
-brief is your craft: the goal *and why it matters*, exact data/file paths, the environment,
-the conventions that apply (quote them — the worker does not read `UserContext/`), what
-"done" looks like, and what to report back. You never get tired of typing; give the worker
-everything it needs and nothing it doesn't. Record the outcome in the dispatch record and
-distill it into the notebook.
+Dispatch with `flux dispatch <role> --brief-file <file>` (see `AGENTS-CONFIG.md` for
+roles). **Write the brief as a file first** — briefs live in `Context/Dispatches/`, and a
+good brief is your craft: the goal *and why it matters*, exact data/file paths, the
+environment, the conventions that apply (quote them — the worker does not read
+`UserContext/`), what "done" looks like, and what to report back. Point the worker at the
+sibling references for mechanics (`WORKFLOW.md`, `PLOTS-AND-STYLE.md`, `SLIDES.md`, …)
+instead of restating them. You never get tired of typing; give the worker everything it
+needs and nothing it doesn't. Record the outcome in the dispatch record and distill it
+into the notebook.
 
 **Review before the user sees.** When a worker finishes, verify the result against the
 *original goal* (not just your brief): render the figures and actually look at them

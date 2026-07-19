@@ -9,11 +9,12 @@ series' line, its 4th point, the x-axis title) has a **stable id** — which is 
 restyle parts and keep your hand-tuning when a plot is regenerated.
 
 Your analysis env must have `fluxplot` installed (plus `cmasher` for continuous colormaps:
-`pip install "fluxplot[style]"`). The user works in `uv` envs (under `/home/driessen2/uv_envs`);
-run plotting scripts with that env's Python. If `fluxplot` is missing, install it into the active
-env (`uv pip install "fluxplot[style]"`) — ask first if you're unsure which env to use.
+`pip install "fluxplot[style]"`). **The user's plotting environment (which env manager, where
+the envs live) is a UserContext fact — check `UserContext/` before running scripts.** If
+`fluxplot` is missing, install it into the active env — ask first if you're unsure which
+env to use.
 
-Everything you need lives in the library — there is **no skill-bundled plotting code**:
+Everything you need lives in the library — Flux bundles **no plotting code** of its own:
 `fp.line/scatter/...`, `fp.save`, `fp.params`, and the house style `fp.style` (`fp.use_light()`).
 
 ## The house style — `fluxplot.style`
@@ -94,7 +95,7 @@ plots/growth.recipe.json    ← recipe (how it was made — re-runnable; used to
   `"wt"`, `"ko"`…). The name *is* the addressable id (`control.line`, `control.point.3`) Flux
   uses to restyle and to keep overrides across regeneration.
 - **One concept per plot.** Compose multiple plots into a multi-panel *figure* in Flux (see
-  `project-and-figures.md`) rather than cramming subplots into one SVG.
+  `PROJECT-AND-FIGURES.md`) rather than cramming subplots into one SVG.
 - **Color from the house style:** un-coloured series get the Flexoki cycle automatically; reach
   a specific hue with `fx.FLEXOKI["blue"]` or `fx.CYCLE_LIGHT[i]`. Continuous data: pass
   `cmap=fx.SEQUENTIAL` / `fx.DIVERGING` (or `fx.FLEXOKI_DIVERGING` for a white-centred map, also
@@ -105,7 +106,7 @@ plots/growth.recipe.json    ← recipe (how it was made — re-runnable; used to
 ## Validate every plot
 
 ```bash
-npx tsx /home/driessen2/flux/flux-cli.ts validate-plot plots/growth.svg
+{{FLUX_CLI}} validate-plot plots/growth.svg
 ```
 
 This checks the manifest is schema-valid **and** that every id it references exists in the SVG
@@ -127,14 +128,14 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
 - **Headless / app closed:** composed figures render from a COPY of the plot (`fig/assets/`) —
   after regenerating, refresh it in place:
   ```bash
-  npx tsx /home/driessen2/flux/flux-cli.ts sync-figure fig3      # or omit the id for all figures
+  {{FLUX_CLI}} sync-figure fig3      # or omit the id for all figures
   ```
   Captions, positions and restyles all survive. Never `delete-figure` + re-compose just to pick
   up a regenerated plot (that destroys them); `render-figure` warns when panels are stale.
 - Parameterized: because the script reads tunables via `fp.params({...})` (which honors a
   `FLUX_PARAMS` override), you can regenerate with different settings without editing code:
   ```bash
-  npx tsx /home/driessen2/flux/flux-cli.ts rerun-plot plots/growth.recipe.json --test mann-whitney
+  {{FLUX_CLI}} rerun-plot plots/growth.recipe.json --test mann-whitney
   ```
   The recipe `fp.save` wrote records the interpreter + script + params (as relative paths), so
   this re-executes the script with the override and re-emits the plot in place. (This is automatic

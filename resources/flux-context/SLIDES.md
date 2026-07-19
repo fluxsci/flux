@@ -23,8 +23,8 @@ ops directly; when driving from the shell, use the CLI verbs (thin wrappers over
 ## CLI + MCP verbs (the agent entry point)
 
 Every verb below is BOTH a CLI verb (`flux <verb>`) and an MCP tool (name in parens) — one
-core, two surfaces (see `references/cli.md` for the wrapper + the one gotcha). They lock +
-journal, so they coexist with a live human editor.
+core, two surfaces (see `CLI-REFERENCE.md` for the invocation + root-resolution rules).
+They lock + journal, so they coexist with a live human editor.
 
 ```
 # deck structure
@@ -108,7 +108,8 @@ flux set-transform talk s1 b2 el_plot --state '{"width": 500}' --to-asset growth
 
 ## Authoring a deck in Node (bulk / precise work)
 
-For anything beyond a slide or two, script it with the pure ops + `flux-core/slides.ts`:
+For anything beyond a slide or two, script it with the pure ops + `flux-core/slides.ts`
+(run the script from the Flux repo checkout — the imports below are repo-relative):
 
 ```ts
 import * as core from "./flux-core/slides";
@@ -160,7 +161,7 @@ templates (bundles with role/type matchers) at `<FluxConfig>/presets/anim-templa
 template lands on a y-axis) or by element type + document order — partial matches are
 reported, never invented.
 
-## The constitution (do not violate — `notes/style_principles.md`)
+## The constitution (do not violate)
 
 - **P1 Instantaneous authoring** — adding a slide/element/beat is immediate; never block the author.
 - **P2/P3 Signature motion is rare & meaningful** — transforms and big builds earn their moment;
@@ -191,5 +192,5 @@ reported, never invented.
 - The real test for a talk: export it and **open the `.html` offline** — title, builds, trims,
   transforms, and morphs must all play with arrow keys and a clicker, no network.
 
-Related: `references/project-and-figures.md` (figures you copy in), `references/plots-and-style.md`
-(semantic plots you morph), `references/cli.md` (running the verbs).
+Related: `PROJECT-AND-FIGURES.md` (figures you copy in), `PLOTS-AND-STYLE.md`
+(semantic plots you morph), `CLI-REFERENCE.md` (running the verbs).
