@@ -97,7 +97,7 @@ function commentsPath(p: LoadedProject, docRel?: string): string {
   const mp = docRel ?? p.manifest.manuscript.path; // e.g. "manuscript/main.qmd"
   const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
   const isMain = mp === p.manifest.manuscript.path;
-  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.qmd$/, "");
+  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
   return joinPath(p.root, dir, isMain ? "comments.json" : `${base}.comments.json`);
 }
 

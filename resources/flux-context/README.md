@@ -60,7 +60,8 @@ Workers do not read `UserContext/` or the notebook — the brief contains everyt
 
 - `PRINCIPAL.md` — the Principal's role: boot, standup, delegation, promotion, review.
 - `WORKERS.md` — how a dispatched worker operates and reports.
-- `FLUX-CLI.md` — driving Flux headless: the CLI/MCP essentials and where the full
-  references live.
+- `FLUX-CLI.md` — driving Flux headless: the CLI/MCP essentials.
+- `PROJECT-GUIDE.md` — the full inside-a-project reference: layout, ownership,
+  conventions, the complete verb surface, the live bridge, safety.
 - `AGENTS-CONFIG.md` — the `agents.json` roster format (which CLI is the principal,
   which are workers).

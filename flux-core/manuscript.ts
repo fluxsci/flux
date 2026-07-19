@@ -14,6 +14,7 @@ import { loadManifest, saveManifest, safeJoin, exists, writeText, readFigIndex, 
 import { materializeRenders } from "./render";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { slugify } from "../src/lib/project/types";
+import { CONTEXT_DOC_RELS, CONTEXT_PATHS } from "../src/lib/project/contextTemplates";
 
 // --------------------------------------------------------------------------
 // manuscript + documents + references + compile (the Paper-side parity verbs).
@@ -51,37 +52,56 @@ function docTitle(src: string, fallback: string): string {
   return fallback;
 }
 
-/** list the project's documents: main + supplementary + scanned manuscript/**.qmd. */
+/** list the project's documents: main + supplementary + scanned manuscript/**.qmd
+ *  + the Context docs (Context/ + Context/Project, .qmd AND .md — mirrors the
+ *  GUI documents.listDocuments; Transcripts/Dispatches are not documents). */
 export async function listDocuments(
   root: string,
-): Promise<{ path: string; title: string; isMain: boolean }[]> {
+): Promise<{ path: string; title: string; isMain: boolean; isContext?: boolean }[]> {
   const m = await loadManifest(root);
   const mainPath = m.manuscript.path;
   const rels = new Set<string>([mainPath]);
+  const contextRels = new Set<string>();
   for (const s of m.supplementary ?? []) if (s.path) rels.add(s.path);
   const dir = mainPath.includes("/") ? mainPath.slice(0, mainPath.lastIndexOf("/")) : "";
-  const scan = async (d: string) => {
+  const scan = async (d: string, into: Set<string>, exts: string[]) => {
     try {
       for (const e of await fs.readdir(safeJoin(root, d), { withFileTypes: true }))
-        if (e.isFile() && e.name.endsWith(".qmd")) rels.add(d ? `${d}/${e.name}` : e.name);
+        if (e.isFile() && exts.some((x) => e.name.endsWith(x))) into.add(d ? `${d}/${e.name}` : e.name);
     } catch {
       /* dir may not exist */
     }
   };
-  await scan(dir);
-  await scan(dir ? `${dir}/sections` : "sections");
-  const out: { path: string; title: string; isMain: boolean }[] = [];
-  for (const rel of rels) {
+  await scan(dir, rels, [".qmd"]);
+  await scan(dir ? `${dir}/sections` : "sections", rels, [".qmd"]);
+  await scan(CONTEXT_PATHS.dir, contextRels, [".qmd", ".md"]);
+  await scan(CONTEXT_PATHS.projectDir, contextRels, [".qmd", ".md"]);
+  const out: { path: string; title: string; isMain: boolean; isContext?: boolean }[] = [];
+  const entryFor = async (rel: string, isContext: boolean) => {
     const isMain = rel === mainPath;
-    let title = rel.slice(rel.lastIndexOf("/") + 1).replace(/\.qmd$/, "");
+    let title = rel.slice(rel.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
     try {
       title = docTitle(await fs.readFile(safeJoin(root, rel), "utf8"), isMain ? m.title || title : title);
     } catch {
       /* keep filename title */
     }
-    out.push({ path: rel, title, isMain });
-  }
-  out.sort((a, b) => (a.isMain ? -1 : b.isMain ? 1 : a.title.localeCompare(b.title)));
+    out.push({ path: rel, title, isMain, ...(isContext ? { isContext: true } : {}) });
+  };
+  for (const rel of rels) await entryFor(rel, false);
+  for (const rel of contextRels) await entryFor(rel, true);
+  const ctxRank = (rel: string) => {
+    const i = CONTEXT_DOC_RELS.indexOf(rel);
+    return i === -1 ? CONTEXT_DOC_RELS.length : i;
+  };
+  out.sort((a, b) => {
+    if (a.isMain !== b.isMain) return a.isMain ? -1 : 1;
+    if (!!a.isContext !== !!b.isContext) return a.isContext ? 1 : -1;
+    if (a.isContext && b.isContext) {
+      const r = ctxRank(a.path) - ctxRank(b.path);
+      if (r !== 0) return r;
+    }
+    return a.title.localeCompare(b.title);
+  });
   return out;
 }
 

@@ -98,14 +98,9 @@ export function matchesChord(e: KeyboardEvent, chord: string): boolean {
 }
 
 export const PAPER_COMMANDS: PaperCommandRow[] = [
-  {
-    id: "palette",
-    title: () => "Command palette",
-    keys: ["Mod+KeyK"],
-    owner: "window",
-    palette: false, // the palette doesn't list itself (existing behavior)
-    run: (c) => c.togglePalette(),
-  },
+  // NOTE: the ⌘K chord itself moved to the SHELL (Workspace.svelte), which
+  // routes it back here via commandBus.paperPaletteRequest while Paper is
+  // focused — a row here too would double-fire and net to a no-op.
   {
     id: "view-toggle",
     title: (c) => (c.previewActive() ? "Switch to Edit" : "Switch to Preview"),

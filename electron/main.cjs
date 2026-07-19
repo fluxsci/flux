@@ -607,6 +607,8 @@ ipcMain.handle("prefs:get", () => ({
   ...readPrefs(),
   fluxLibResolved: fluxLibDir(),
   fluxConfigResolved: getFluxConfigRoot(),
+  // The machine Context layer (principal-agent scheme) — display/open helpers.
+  contextResolved: fluxPaths.contextPathSync(readPrefs()),
 }));
 ipcMain.handle("prefs:set", (_e, patch) => {
   const cur = readPrefs();
@@ -889,6 +891,11 @@ function subsystemFor(root, abs) {
   if (rel.startsWith("manuscript/")) return "manuscript";
   if (rel.startsWith("references/")) return "references";
   if (rel.startsWith("slides/")) return "slides"; // W10 (SLD-1)
+  // Principal-agent scheme: Context docs (+ their comments sidecars) live-reload
+  // through the same chain as manuscript docs. Transcripts/Dispatches writes
+  // also land here — harmless: the renderer suffix-matches the active doc.
+  if (rel.startsWith("Context/")) return "context";
+  if (rel === ".meta/feedback.ndjson") return "feedback";
   return null;
 }
 
@@ -937,7 +944,11 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   }
   const libRoot = fluxLibDir();
   const targets = [
-    ...["plots", "fig", "manuscript", "references", "slides"].map((d) => path.join(root, d)),
+    ...["plots", "fig", "manuscript", "references", "slides", "Context"].map((d) =>
+      path.join(root, d),
+    ),
+    // The feedback ledger: agent resolves/sends live-refresh the open app.
+    path.join(root, ".meta", "feedback.ndjson"),
     // W10: the machine-global FluxLib (agent adds/enrich/fetch land here too).
     path.join(libRoot, "library.bib"),
     path.join(libRoot, ".fluxlib", "enrich.json"),
@@ -1258,6 +1269,19 @@ ipcMain.handle("shell:showItemInFolder", (_e, p) => {
   fsGuard(abs);
   shell.showItemInFolder(abs);
   return true;
+});
+
+// Open a file in the OS default editor. Deliberately TIGHTER than fsGuard:
+// only files under the FluxConfig root (the Context layer / agents.json) or the
+// open project qualify — this spawns an external program on the path.
+ipcMain.handle("shell:openPath", async (_e, p) => {
+  const abs = path.resolve(String(p || ""));
+  const cfgRoot = getFluxConfigRoot();
+  const underCfg = cfgRoot && (abs + path.sep).startsWith(cfgRoot + path.sep);
+  const underProject = currentRoot && (abs + path.sep).startsWith(currentRoot + path.sep);
+  if (!underCfg && !underProject) return false;
+  const err = await shell.openPath(abs);
+  return !err;
 });
 
 // ---------------------------------------------------------------------------

@@ -38,6 +38,8 @@ const CHANNELS = [
   { channel: "dlg:save", kind: "invoke", scope: "write" },
   { channel: "shell:openExternal", kind: "invoke", scope: "spawn" },
   { channel: "shell:showItemInFolder", kind: "invoke", scope: "spawn" },
+  // Open a context/config file in the OS default editor (FluxConfig-rooted only).
+  { channel: "shell:openPath", kind: "invoke", scope: "spawn" },
   // --- project lifecycle / watcher / locks / journal ---------------------------
   { channel: "watch:setRoot", kind: "invoke", scope: "read" },
   { channel: "lock:acquire", kind: "invoke", scope: "write" },

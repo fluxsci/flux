@@ -45,7 +45,7 @@ function commentsRel(m: ProjectManifest, docRel?: string): string {
   const mp = docRel ?? m.manuscript.path; // e.g. "manuscript/main.qmd"
   const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
   const isMain = mp === m.manuscript.path;
-  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.qmd$/, "");
+  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
   const name = isMain ? "comments.json" : `${base}.comments.json`;
   return dir ? `${dir}/${name}` : name;
 }

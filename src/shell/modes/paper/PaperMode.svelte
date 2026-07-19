@@ -13,8 +13,10 @@
   import { listDocuments, createDocument, type DocEntry } from "./documents/documents";
   import TitlePill from "./TitlePill.svelte";
   import TitleEditor from "./TitleEditor.svelte";
-  import CommandPalette from "./command/CommandPalette.svelte";
-  import type { Command } from "./command/commands";
+  import CommandPalette from "../../command/CommandPalette.svelte";
+  import type { Command } from "../../command/commands";
+  import { paperPaletteRequest, openDocRequest } from "../../command/commandBus";
+  import { contextCommands } from "../../command/globalCommands";
   import { paperLayout } from "./view-mode/paperLayoutStore";
   import { cursorPos, cursorWatcher } from "./outline/activeHeading";
   import SelectionToolbar from "./toolbar/SelectionToolbar.svelte";
@@ -1190,7 +1192,7 @@
     const mp = activeDocPath;
     const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
     const isMain = mp === mainPath;
-    const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.qmd$/, "");
+    const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
     const name = isMain ? "comments.json" : `${base}.comments.json`;
     return dir ? `${dir}/${name}` : name;
   }
@@ -1446,6 +1448,9 @@
   };
   const commands = $derived<Command[]>([
     ...paletteFromTable(cmdCtx),
+    // Context/agent commands (principal-agent scheme) — same set as the shell
+    // GlobalPalette, but opening docs stays in-pane via loadDocument.
+    ...contextCommands({ inPaper: true, openDoc: (rel) => void loadDocument(rel) }),
     ...[25, 50, 75, 100, null].map((pct) => ({
       id: `fig-width-${pct ?? "auto"}`,
       title: pct ? `Figure width ${pct}%` : "Figure width auto",
@@ -1468,10 +1473,30 @@
       : []),
   ]);
 
+  // Shell-routed requests (commandBus): the shell owns Ctrl+K and forwards it
+  // here while Paper is focused; palette "Open mission/notebook/rules" from any
+  // mode lands as an openDocRequest.
+  let seenPalReq = get(paperPaletteRequest);
+  let seenDocReq = get(openDocRequest)?.n ?? 0;
+  $effect(() => {
+    const n = $paperPaletteRequest;
+    if (n !== seenPalReq) {
+      seenPalReq = n;
+      paletteOpen = !paletteOpen;
+    }
+  });
+  $effect(() => {
+    const req = $openDocRequest;
+    if (req && req.n !== seenDocReq) {
+      seenDocReq = req.n;
+      void loadDocument(req.path);
+    }
+  });
+
   $effect(() => {
     if (!focused) return;
     const h = (e: KeyboardEvent) => {
-      // Table-driven chords first (⌘K palette, view toggle, margin panes, …).
+      // Table-driven chords first (view toggle, margin panes, …).
       if (dispatchWindowKey(e, cmdCtx)) return;
       // Esc layering guards — MODAL, kept verbatim (not commands).
       if (e.key === "Escape" && exportOpen) {

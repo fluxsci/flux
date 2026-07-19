@@ -44,12 +44,20 @@ ok(!!deckRel && has(deckRel), `starter deck registered + written (${deckRel})`);
 const schemas = fs.readdirSync(path.join(root, ".meta", "schema"));
 ok(schemas.length >= 7, `.meta/schema/ ships the contract (${schemas.length} files; GUI projects used to get an empty dir)`);
 
-// --- the merged AGENTS.md: orientation AND the verb guide --------------------------------
+// --- AGENTS.md is the Context stub; the verb guide lives in FluxContext ------------------
+// (principal-agent scheme, 2026-07-19: per-project baked guides went stale on
+// every release — PROJECT-GUIDE.md in the machine FluxContext re-syncs with the
+// app. The stock docs themselves are pinned by verify-context-scheme.ts.)
 const agents = read("AGENTS.md");
-ok(/never reorganize it/.test(agents), "AGENTS.md keeps the plots/ ownership rule (orientation half)");
-ok(/compose-figure/.test(agents) && /get_figure_image/.test(agents) && /assign-pdfs/.test(agents), "AGENTS.md enumerates the verb surface (guide half)");
-ok(/Live bridge/.test(agents) && /Safety/.test(agents), "AGENTS.md keeps live-bridge + safety sections");
-ok(!/@sec-…\s+for/.test(agents) && !/`@sec-` /.test(agents), "no stale @sec- cross-ref claim (PAP-14 dropped sec)");
+ok(/Context folders/.test(agents) && /flux config/.test(agents), "AGENTS.md is the Context stub pointer");
+ok(/PRINCIPAL\.md/.test(agents) && /WORKERS\.md/.test(agents), "stub routes principal vs worker roles");
+ok(!/compose-figure/.test(agents), "the verb guide no longer bakes into projects (lives in FluxContext)");
+
+// --- the project Context layer ------------------------------------------------------------
+ok(has("Context/Project/MISSION.qmd"), "Context mission doc scaffolded");
+ok(has("Context/NOTEBOOK.md") && read("Context/NOTEBOOK.md").includes("Session log"), "Context notebook scaffolded (body + session log)");
+ok(has("Context/RULES.md"), "Context project rules scaffolded");
+ok(fs.existsSync(path.join(root, "Context", "Transcripts")) && fs.existsSync(path.join(root, "Context", "Dispatches")), "Transcripts/ + Dispatches/ dirs scaffolded");
 
 // --- validate: the scaffolded tree passes its own shipped schemas ------------------------
 const v = await core.validate(root);
@@ -59,7 +67,7 @@ ok(v.ok, `flux validate passes on a fresh scaffold (${v.checked} files checked)`
 const tree = buildScaffoldTree({ title: "Consolidation Test", author: "A. Author" }, createDeck({ title: "Consolidation Test" }));
 const wroteSet = new Set(tree.files.map(([rel]) => rel.replace(/slides\/[^/]+\//, "slides/<deck>/")));
 const diskSet = new Set(
-  ["project.json", "AGENTS.md", "README.md", ".gitignore", "manuscript/main.qmd", "manuscript/_quarto.yml", "references/library.bib", "fig/index.json", "fig/canvases/canvas-1.json", deckRel.replace(/slides\/[^/]+\//, "slides/<deck>/"), ".meta/journal.ndjson", ...schemas.map((s) => `.meta/schema/${s}`)],
+  ["project.json", "AGENTS.md", "README.md", ".gitignore", "manuscript/main.qmd", "manuscript/_quarto.yml", "references/library.bib", "fig/index.json", "fig/canvases/canvas-1.json", deckRel.replace(/slides\/[^/]+\//, "slides/<deck>/"), ".meta/journal.ndjson", "Context/Project/MISSION.qmd", "Context/NOTEBOOK.md", "Context/RULES.md", ...schemas.map((s) => `.meta/schema/${s}`)],
 );
 ok([...wroteSet].every((f) => diskSet.has(f)) && wroteSet.size === diskSet.size, `one tree, both engines (${wroteSet.size} files)`);
 

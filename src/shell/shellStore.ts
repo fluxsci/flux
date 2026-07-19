@@ -9,6 +9,7 @@ import {
 } from "../lib/project/types";
 import { scaffoldProject } from "../lib/project/scaffold";
 import { loadProject, NotAProjectError } from "../lib/project/load";
+import { ensureProjectContext } from "../lib/project/contextHeal";
 import { startProjectWatch, stopProjectWatch } from "../lib/project/projectWatch";
 import { flushAll } from "./lifecycle";
 import { reconcileProject } from "../lib/references/fluxlibBridge";
@@ -95,6 +96,9 @@ function enterLoaded(loaded: LoadedProject) {
   resetPanes("paper");
   view.set("workspace");
   startProjectWatch(loaded.root); // F1: live-reload agent/script edits
+  // Principal-agent scheme: pre-Context projects gain Context/ on first open
+  // (additive, existence-guarded, best-effort — see contextHeal.ts).
+  void ensureProjectContext(loaded);
   // FluxLib: reconcile this project's cited-subset library.bib against the global
   // library (materialize cited entries, promote project-local-only ones up). Non-
   // blocking; refresh the bib store if anything changed. Failures are non-fatal.

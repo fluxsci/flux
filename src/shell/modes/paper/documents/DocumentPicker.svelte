@@ -19,7 +19,7 @@
 <aside class="docpicker">
   <div class="dp-head">Documents</div>
   <ul>
-    {#each docs as d (d.path)}
+    {#each docs.filter((d) => !d.isContext) as d (d.path)}
       <li>
         <button
           class="dp-item"
@@ -32,6 +32,22 @@
       </li>
     {/each}
   </ul>
+  {#if docs.some((d) => d.isContext)}
+    <div class="dp-head dp-ctx">Context</div>
+    <ul>
+      {#each docs.filter((d) => d.isContext) as d (d.path)}
+        <li>
+          <button
+            class="dp-item"
+            class:active={d.path === activePath}
+            title={d.path}
+            onclick={() => onSelect(d.path)}>
+            <span class="dp-title">{d.title}</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
   <button class="dp-new" onclick={onNew}>+ New document</button>
 </aside>
 
@@ -55,6 +71,11 @@
     letter-spacing: 0.06em;
     color: var(--c-tx-faint);
     padding: 2px 4px 6px;
+  }
+  .dp-ctx {
+    margin-top: 8px;
+    border-top: 1px solid var(--c-line, var(--c-edge));
+    padding-top: 8px;
   }
   ul {
     list-style: none;

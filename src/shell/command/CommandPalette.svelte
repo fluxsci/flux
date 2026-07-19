@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { popIn } from "../../../../lib/motion/actions";
+  import { popIn } from "../../lib/motion/actions";
   import type { Command } from "./commands";
 
   let { commands, onClose }: { commands: Command[]; onClose: () => void } = $props();

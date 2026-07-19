@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld("fig", {
   quartoRender: (root, to, docPath) => ipcRenderer.invoke("quarto:render", { root, to, docPath }),
   // Reveal an exported file in the OS file manager (Finder/Files).
   revealPath: (p) => ipcRenderer.invoke("shell:showItemInFolder", p),
+  openPath: (p) => ipcRenderer.invoke("shell:openPath", p),
 
   // Host platform ("darwin" | "linux" | "win32") — lets the renderer adapt its chrome
   // (e.g. defer to the native macOS traffic lights instead of custom window buttons).

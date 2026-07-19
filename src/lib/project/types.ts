@@ -225,6 +225,8 @@ export interface FileBridge {
   ): Promise<{ ok: boolean; code?: number; log: string; outPath?: string }>;
   // Reveal an exported file in the OS file manager (fsGuard'd in main).
   revealPath?(p: string): Promise<boolean>;
+  /** Open a FluxConfig/project file in the OS default editor. */
+  openPath?(p: string): Promise<boolean>;
   // 2.3 Full-text search across every stored PDF's extracted text. Runs the streaming
   // scan in the bundled CLI (main process) so the renderer never blocks; returns the
   // FulltextResult, or { error }. Electron only. `opts.keys` restricts the scan scope.

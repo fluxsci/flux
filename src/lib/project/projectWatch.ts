@@ -24,9 +24,12 @@ export interface FsChange {
   path: string;
 }
 
-/** External manuscript change → PaperMode reloads the doc if it is clean. */
+/** External manuscript change → PaperMode reloads the doc if it is clean.
+ *  Context/ doc changes ride the same signal (same handler, same protections). */
 export const externalManuscriptChange = writable<(FsChange & { n: number }) | null>(null);
 let mn = 0;
+/** External .meta/feedback.ndjson change (agent resolve/send) → consumers re-read. */
+export const feedbackRevision = writable(0);
 let unsub: (() => void) | null = null;
 
 interface WatchBridge {
@@ -94,7 +97,9 @@ export function startProjectWatch(root: string | null): void {
       void syncPlotsIntoFigures(root, fig).finally(() => bumpFigRevision());
     } else if (info.subsystem === "fig") bumpFigRevision();
     else if (info.subsystem === "references") bumpBibRevision();
-    else if (info.subsystem === "manuscript") externalManuscriptChange.set({ ...info, n: ++mn });
+    else if (info.subsystem === "manuscript" || info.subsystem === "context")
+      externalManuscriptChange.set({ ...info, n: ++mn });
+    else if (info.subsystem === "feedback") feedbackRevision.update((n) => n + 1);
     else if (info.subsystem === "slides") bumpDeckRevision(); // W10 (SLD-1)
     else if (info.subsystem === "fluxlib") {
       // An external write to enrich.json (CLI hydrate, second window) must drop the
