@@ -21,6 +21,20 @@ const DEFAULT_AGENTS = {
       "{prompt}",
     ],
   },
+  // Non-interactive principal for `flux attend` review passes.
+  principalPass: {
+    command: [
+      "claude",
+      "-p",
+      "{prompt}",
+      "--permission-mode",
+      "acceptEdits",
+      "--mcp-config",
+      "{mcpJson}",
+      "--allowedTools",
+      "mcp__flux",
+    ],
+  },
   workers: {
     analysis: {
       command: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits"],
@@ -54,6 +68,10 @@ function readAgentsConfigSync(cfg) {
     if (!raw || typeof raw !== "object") throw new Error("not an object");
     return {
       principal: raw.principal && Array.isArray(raw.principal.command) ? raw.principal : DEFAULT_AGENTS.principal,
+      principalPass:
+        raw.principalPass && Array.isArray(raw.principalPass.command)
+          ? raw.principalPass
+          : DEFAULT_AGENTS.principalPass,
       workers: raw.workers && typeof raw.workers === "object" ? raw.workers : DEFAULT_AGENTS.workers,
       path: p,
       warning: null,
@@ -61,6 +79,7 @@ function readAgentsConfigSync(cfg) {
   } catch (e) {
     return {
       principal: DEFAULT_AGENTS.principal,
+      principalPass: DEFAULT_AGENTS.principalPass,
       workers: DEFAULT_AGENTS.workers,
       path: p,
       warning: fsSync.existsSync(p) ? `agents.json unreadable (${(e && e.message) || e}) — using defaults` : null,

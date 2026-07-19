@@ -75,6 +75,7 @@ export * from "./manuscript";
 export * from "./comments";
 export * from "./feedback";
 export * from "./context";
+export * from "./agents";
 
 // WS2 JSON-schema validation + project lint + validate-plot live in ./validate.
 export * from "./validate";

@@ -46,6 +46,7 @@
       "verify-fluxconfig.ts",
       "verify-feedback.ts",
       "verify-context-scheme.ts",
+      "verify-dispatch.ts",
       "verify-line-arrow.ts",
       "verify-text-wrap.ts",
       "verify-compensate.ts",
@@ -355,6 +356,19 @@
       "run": [
         "verify-feedback.ts",
         "verify-registry-parity.ts"
+      ]
+    },
+    {
+      "glob": "flux-core/agents.ts",
+      "run": [
+        "verify-dispatch.ts",
+        "verify-registry-parity.ts"
+      ]
+    },
+    {
+      "glob": "src/shell/agent/**",
+      "run": [
+        "tier:pure"
       ]
     },
     {

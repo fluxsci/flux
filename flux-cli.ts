@@ -142,6 +142,10 @@ usage: flux <verb> [root] [args] [--flags]
   resolve-feedback <id|text> [--root R] [--note "…"]   mark a feedback note resolved
   send [--root R] [--note "…"]         mark a review-pass boundary in the feedback ledger
   context-init [--root R]              ensure the project's Context/ layer (heal old projects)
+  agents                               show the machine's agent roster (agents.json)
+  agent [root] [--print]               launch YOUR principal agent on this project (interactive)
+  dispatch <role> --brief-file f [--root R] [--name n]   run a worker with a brief, recorded in Context/Dispatches/
+  attend [root] [--interval ms] [--echo]   watch the feedback ledger; Send wakes a principal review pass
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
   rerun-plot <recipe.json> [--param v…] [--only [name]]   re-run a plot's recipe
@@ -254,6 +258,25 @@ async function main() {
       const dir = path.resolve(_[0] ?? ".");
       await core.scaffold(dir, { title: flags.title as string, author: flags.author as string });
       console.error(`✓ scaffolded Flux project at ${dir}`);
+      break;
+    }
+    // Principal-agent scheme: interactive launch + the attend daemon are
+    // deliberately CLI-only legacy verbs (they own the terminal / never return —
+    // inexpressible as registry/MCP tools, like `new`).
+    case "agent": {
+      if (flags.print) {
+        console.log(JSON.stringify(core.principalSpec(root()), null, 2));
+        break;
+      }
+      process.exitCode = await core.runPrincipal(root());
+      break;
+    }
+    case "attend": {
+      await core.attend(root(), {
+        intervalMs: num(flags.interval),
+        echo: !!flags.echo,
+        onEvent: (m) => console.error(`[attend] ${m}`),
+      });
       break;
     }
     case "render-figure": {

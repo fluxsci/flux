@@ -10,8 +10,11 @@
 ```json
 {
   "principal": {
-    "command": ["claude", "{prompt}"],
+    "command": ["claude", "--mcp-config", "{mcpJson}", "--allowedTools", "mcp__flux", "{prompt}"],
     "cwd": "parent"
+  },
+  "principalPass": {
+    "command": ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits"]
   },
   "workers": {
     "analysis": { "command": ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits"] },
@@ -20,10 +23,18 @@
 }
 ```
 
+- **`principal`** — the interactive session (the app's Agent drawer, `flux agent`).
+- **`principalPass`** — the NON-interactive principal `flux attend` runs when the user
+  hits Send (defaults to the principal when omitted — but an interactive command would
+  hang there, so keep a `-p`/`exec`-style entry).
+- **`workers.<role>`** — dispatch targets (`flux dispatch <role> --brief-file <f>`).
+
 - **`command`** — argv array. Placeholders substituted at launch:
   - `{prompt}` — the launch prompt / brief text, inline.
   - `{briefPath}` — absolute path to the brief file (for CLIs that read a file).
   - `{project}` — the Flux project root.
+  - `{mcpJson}` — the flux MCP server spec as JSON (for `claude --mcp-config`). When
+    unavailable, the placeholder AND the flag before it are dropped.
   If neither `{prompt}` nor `{briefPath}` appears, the prompt is appended as the final
   argument.
 - **`cwd`** — `"project"` (the Flux project root), `"parent"` (its parent directory — the

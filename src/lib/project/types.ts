@@ -332,6 +332,18 @@ export interface FileBridge {
     args?: string[];
     env?: Record<string, string>;
   }>;
+  /** Principal-agent scheme: the resolved launch spec for the user's configured
+   *  principal (agents.json roster + boot prompt + MCP wiring + cwd rule). */
+  agentPrincipalSpec?(): Promise<{
+    ok: boolean;
+    error?: string;
+    command?: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    warning?: string | null;
+    agentsPath?: string;
+  }>;
 }
 
 declare global {

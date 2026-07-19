@@ -6,6 +6,8 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const fluxPaths = require("../fluxPaths.cjs");
+const agentsConfig = require("../agentsConfig.cjs");
 
 /**
  * deps:
@@ -91,28 +93,60 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
     // claude then spawns the server itself (cwd = its own, so every path here must be
     // absolute). Dev: the repo's tsx bin runs flux-mcp.ts. Packaged: a bundled
     // dist/flux-mcp.mjs (asar-unpacked, like flux-cli.mjs) on Electron-as-Node.
-    ipc.handle("agent:mcpSpec", () => {
+    ipc.handle("agent:mcpSpec", () => mcpSpecFor());
+
+    // Principal-agent scheme: how the in-app Agent drawer launches the USER'S
+    // configured principal (agents.json roster) for the open project — the
+    // roster command with placeholders resolved, the flux MCP spec embedded
+    // when the command asks for it ({mcpJson}), the standard boot prompt, and
+    // the cwd rule (analysis-workspace parent when it looks like one).
+    ipc.handle("agent:principalSpec", () => {
       const root = getCurrentRoot();
-      const projectRoot = root && fs.existsSync(root) ? root : app.getPath("home");
-      const bundled = app.isPackaged
-        ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "flux-mcp.mjs")
-        : path.join(appRoot, "dist", "flux-mcp.mjs");
-      if (fs.existsSync(bundled)) {
-        return {
-          ok: true,
-          projectRoot,
-          command: process.execPath,
-          args: [bundled, projectRoot],
-          env: { ELECTRON_RUN_AS_NODE: "1" },
-        };
+      if (!root || !fs.existsSync(root)) return { ok: false, error: "no open project" };
+      const cfg = fluxPaths.resolveFluxConfigPathSync();
+      const roster = agentsConfig.readAgentsConfigSync(cfg);
+      const mcp = mcpSpecFor();
+      try {
+        const spec = agentsConfig.resolveAgentSpec(roster.principal, {
+          prompt: agentsConfig.principalBootPrompt(root),
+          projectRoot: root,
+          mcpSpec: mcp.ok ? { command: mcp.command, args: mcp.args, env: mcp.env } : null,
+          client: "principal",
+        });
+        return { ok: true, ...spec, warning: roster.warning, agentsPath: roster.path };
+      } catch (e) {
+        return { ok: false, error: (e && e.message) || String(e) };
       }
-      const tsxBin = path.join(appRoot, "node_modules", ".bin", "tsx");
-      const entry = path.join(appRoot, "flux-mcp.ts");
-      if (!app.isPackaged && fs.existsSync(tsxBin) && fs.existsSync(entry)) {
-        return { ok: true, projectRoot, command: tsxBin, args: [entry, projectRoot] };
-      }
-      return { ok: false, projectRoot };
     });
+  }
+
+  // R3 (FluxReader "Ask Claude") + the principal drawer: how a session should
+  // launch the flux MCP server for the open project. The renderer embeds this
+  // in `claude --mcp-config`; claude then spawns the server itself (cwd = its
+  // own, so every path here must be absolute). Dev: the repo's tsx bin runs
+  // flux-mcp.ts. Packaged: a bundled dist/flux-mcp.mjs (asar-unpacked, like
+  // flux-cli.mjs) on Electron-as-Node.
+  function mcpSpecFor() {
+    const root = getCurrentRoot();
+    const projectRoot = root && fs.existsSync(root) ? root : app.getPath("home");
+    const bundled = app.isPackaged
+      ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "flux-mcp.mjs")
+      : path.join(appRoot, "dist", "flux-mcp.mjs");
+    if (fs.existsSync(bundled)) {
+      return {
+        ok: true,
+        projectRoot,
+        command: process.execPath,
+        args: [bundled, projectRoot],
+        env: { ELECTRON_RUN_AS_NODE: "1" },
+      };
+    }
+    const tsxBin = path.join(appRoot, "node_modules", ".bin", "tsx");
+    const entry = path.join(appRoot, "flux-mcp.ts");
+    if (!app.isPackaged && fs.existsSync(tsxBin) && fs.existsSync(entry)) {
+      return { ok: true, projectRoot, command: tsxBin, args: [entry, projectRoot] };
+    }
+    return { ok: false, projectRoot };
   }
 
   return { registerHandlers, startBridgeFor, stopBridge };

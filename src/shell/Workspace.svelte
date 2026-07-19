@@ -7,9 +7,16 @@
   import Settings from "../lib/Settings.svelte";
   import CommandPalette from "./command/CommandPalette.svelte";
   import FeedbackCapture from "./agent/FeedbackCapture.svelte";
+  import PrincipalDrawer from "./agent/PrincipalDrawer.svelte";
   import { contextCommands } from "./command/globalCommands";
-  import { requestPaperPalette, togglePrincipalDrawer, feedbackCaptureOpen } from "./command/commandBus";
+  import {
+    requestPaperPalette,
+    togglePrincipalDrawer,
+    feedbackCaptureOpen,
+    principalDrawerOpen,
+  } from "./command/commandBus";
   import { initFeedbackStore } from "./agent/feedbackStore";
+  import { initPrincipalSession } from "./agent/principalSession";
   import { focusedMode } from "./paneStore";
   import type { Command } from "./command/commands";
 
@@ -17,6 +24,7 @@
   let globalCommandList = $state<Command[]>([]);
 
   initFeedbackStore();
+  initPrincipalSession();
 
   // The shell owns Ctrl+K: Paper focused → route to PaperMode's richer palette
   // (its own Mod+K chord was retired to keep this single-fire); anywhere else →
@@ -46,7 +54,12 @@
 
 <div class="workspace">
   <ActivityRail />
-  <PaneArea />
+  <div class="ws-main">
+    <PaneArea />
+    {#if $principalDrawerOpen}
+      <PrincipalDrawer />
+    {/if}
+  </div>
   <!-- Shell-global overlays (available in every mode). -->
   <Help />
   <Settings />
@@ -64,6 +77,18 @@
     display: flex;
     height: 100%;
     width: 100%;
+  }
+  /* Column wrapper so the Agent drawer docks under the panes in every mode. */
+  .ws-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .ws-main > :global(.panearea) {
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto; /* its own 100% would stack past the drawer */
   }
   /* CommandPalette positions absolutely inside its nearest positioned ancestor. */
   .global-palette {

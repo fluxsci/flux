@@ -4,11 +4,19 @@
 
 import { get } from "svelte/store";
 import type { Command } from "./commands";
-import { requestOpenDoc, togglePrincipalDrawer, feedbackCaptureOpen } from "./commandBus";
+import {
+  requestOpenDoc,
+  togglePrincipalDrawer,
+  feedbackCaptureOpen,
+  principalDrawerOpen,
+} from "./commandBus";
 import { setFocusedMode } from "../paneStore";
 import { currentProject } from "../shellStore";
 import { fileBridge } from "../../lib/project/types";
 import { CONTEXT_PATHS } from "../../lib/project/contextTemplates";
+import { describeStamp } from "../../lib/project/feedback";
+import { captureStamp } from "../agent/feedbackStore";
+import { ask as askPrincipal } from "../agent/principalSession";
 
 function openInPaper(rel: string): void {
   setFocusedMode("paper");
@@ -44,6 +52,19 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
     cmds.push(
       { id: "agent-drawer", title: "Toggle agent drawer", hint: "Agent", keywords: "principal chat terminal claude codex", run: () => togglePrincipalDrawer() },
       { id: "agent-note", title: "Note to agent", hint: "Agent", keywords: "feedback capture tell", run: () => feedbackCaptureOpen.set(true) },
+      {
+        id: "agent-ask",
+        title: "Ask agent about this",
+        hint: "Agent",
+        keywords: "question selection discuss principal",
+        run: () => {
+          principalDrawerOpen.set(true);
+          void captureStamp().then((s) => {
+            const where = describeStamp(s);
+            if (where) askPrincipal(`Regarding [${where}]:`);
+          });
+        },
+      },
     );
   }
   return cmds;
