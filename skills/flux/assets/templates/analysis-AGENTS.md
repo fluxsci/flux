@@ -12,8 +12,9 @@
 
 ## Presenting results through Flux
 
-- **Machine-wide conventions:** if `~/FluxConfig/Guidelines/` exists, read every document there
-  before making figures or writing.
+- **Machine-wide context:** read every document under `<FluxConfig>/Context/UserContext/`
+  (who the user is + their standing rules; `flux config` prints the path) before making
+  figures or writing, and orient via `<FluxConfig>/Context/FluxContext/README.md`.
 - **Flux project:** `./paper/` (a subfolder of this analysis dir — create with
   `/usr/bin/node /home/driessen2/flux/dist/flux-cli.mjs new ./paper --title "<title>"` if absent).
 - **Plotting environment:** <Python or R environment containing fluxplot and dependencies>.

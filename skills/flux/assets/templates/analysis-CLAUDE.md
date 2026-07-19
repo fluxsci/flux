@@ -12,7 +12,8 @@
 ## Presenting results — use Flux
 Present all figures and write-ups via the global **Flux** skill (works from here).
 
-- **Machine-wide conventions:** if `~/FluxConfig/Guidelines/` exists, read every document there
+- **Machine-wide context:** read every document under `<FluxConfig>/Context/UserContext/`
+  (`flux config` prints the path); orient via `Context/FluxContext/README.md`. Legacy note: if `~/FluxConfig/Guidelines/` still exists, read every document there
   before making figures or writing.
 - **Flux project for this work:** `./paper/` (a subfolder of this analysis dir — create with
   `/usr/bin/node /home/driessen2/flux/dist/flux-cli.mjs new ./paper --title "<title>"` if it doesn't exist).

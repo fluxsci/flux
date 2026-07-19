@@ -9,6 +9,7 @@
     attach,
     detach,
     fitNow,
+    initPrincipalSession,
     isAvailable,
     principalInfo,
     principalNotice,
@@ -21,6 +22,7 @@
   let ro: ResizeObserver | null = null;
 
   onMount(() => {
+    initPrincipalSession();
     if (host) {
       attach(host);
       ro = new ResizeObserver(() => fitNow());
@@ -102,7 +104,7 @@
   }
   .pd-warn {
     font-size: var(--ts-xs, 11px);
-    color: var(--c-warn, #ad8301);
+    color: var(--c-warning);
   }
   .pd-btns {
     margin-left: auto;

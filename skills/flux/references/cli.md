@@ -68,6 +68,10 @@ With the session export above, `render-figure growth --png` just works.
 | `ref <figId> [--doc r]` | `insert_figure_ref` | append `@fig-<label>` to a doc |
 | `add-reference . <bibtex\|--file f>` · `cite-doi <doi>` | `add_reference` · `cite_doi` | grow `references/library.bib` |
 | `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | the **review loop** (see manuscript-and-review.md) |
+| `add-comment --quote "…" --body "…" [--doc r] [--at n]` | `add_comment` | open a NEW thread — ask the human a question in their margin |
+| `feedback [--all]` · `resolve-feedback <id\|text> [--note "…"]` · `send` | `list_feedback` · `resolve_feedback` · `send_feedback` | the **feedback ledger** (context-stamped notes from the app; see manuscript-and-review.md) |
+| `context-init` · `agents` · `dispatch <role> --brief-file f [--name n]` | `ensure_context` · `list_agents` · `dispatch` | heal `Context/` / show the agent roster / run a worker with a brief (recorded in `Context/Dispatches/`) |
+| `agent [root] [--print]` · `attend [root] [--interval ms]` | — | CLI-only: launch YOUR principal interactively / watch the ledger — Send wakes a review pass |
 | `compile [--to pdf\|html\|docx]` | `compile` | render via Quarto (needs `quarto`); reports the output path + figures/citations resolution (unresolved `@keys` named) |
 | `validate [file]` · `validate-plot <svg>` | `validate_project` · `validate_plot` | check writes + lint (EMPTY figures, figures embedded in no doc, overlapping frames) / check a semantic plot (manifest ids + geometry — rejects log-zero bar anchors) |
 | `rerun-plot <recipe.json> [--key v…] [--only [name]]` | `rerun_plot` | **regenerate** a plot from its recipe; `--only` reruns just this recipe's plot from a figure-level script (sibling files untouched) |

@@ -14,12 +14,16 @@ F="/usr/bin/node /home/driessen2/flux/dist/flux-cli.mjs"
 # Locate the project (a folder with project.json) inside the analysis dir, or scaffold one:
 $F new ./paper --title "MICrONS synapse organization" --author "K. Driessen"   # if none exists (confirm first)
 cd ./paper && export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
-$F config                        # machine paths — note guidelinesPath
-# read EVERYTHING in <guidelinesPath>/ (every .md + image) before working —
-# the user's standing conventions for all Flux output
+$F config                        # machine paths — note userContextPath + fluxContextPath
+# read EVERYTHING in <userContextPath>/ (every .md + image) before working —
+# who the user is + their standing rules for all Flux output; then orient in
+# <fluxContextPath>/ (stock: README → PROJECT-GUIDE; principals: PRINCIPAL.md)
 $F list                          # current figures + references
-cat project.json AGENTS.md       # the map + per-project conventions
+cat project.json                       # the map
+cat Context/Project/MISSION.qmd        # the project's goals (the charter)
+cat Context/NOTEBOOK.md Context/RULES.md   # running memory + project rules
 tail -5 .meta/journal.ndjson     # what changed since last session
+$F feedback && $F comments       # open review items (context-stamped notes + threads)
 ```
 
 ## 1. Make plots (in the analysis env → into `plots/`)

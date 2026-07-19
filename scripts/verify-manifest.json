@@ -149,6 +149,7 @@
       "verify-s2.ts"
     ],
     "ui": [
+      "verify-context-gui.mjs",
       "verify-paper-nav.mjs",
       "verify-paper-vim.mjs",
       "verify-paper-keyboard.mjs",
@@ -272,6 +273,7 @@
       "verify-startup.mjs"
     ],
     "electron": [
+      "verify-principal-electron.cjs",
       "verify-w6-flush.cjs",
       "verify-cellpress.cjs",
       "verify-netget.cjs",

@@ -9,6 +9,7 @@ import {
   togglePrincipalDrawer,
   feedbackCaptureOpen,
   principalDrawerOpen,
+  askPrincipal,
 } from "./commandBus";
 import { setFocusedMode } from "../paneStore";
 import { currentProject } from "../shellStore";
@@ -16,7 +17,6 @@ import { fileBridge } from "../../lib/project/types";
 import { CONTEXT_PATHS } from "../../lib/project/contextTemplates";
 import { describeStamp } from "../../lib/project/feedback";
 import { captureStamp } from "../agent/feedbackStore";
-import { ask as askPrincipal } from "../agent/principalSession";
 
 function openInPaper(rel: string): void {
   setFocusedMode("paper");

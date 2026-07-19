@@ -46,11 +46,22 @@ vestigial). It is deliberately **agent-native**: an AI agent is a first-class us
 capabilities as the GUI, through three surfaces:
 
 - **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — both generated from **one
-  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`, ~86 verbs). They operate on
+  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`, ~99 verbs). They operate on
   project files directly through `flux-core/*` (Node).
 - **Live bridge** (`electron/bridgeServer.cjs` + `src/lib/project/liveClient` path) — a loopback
   control server per open project that dispatches ~38 verbs against the **live GUI store**. Its
   switch IS its allow-list; it is deliberately NOT part of the registry.
+- **The Context layer + principal runtime** (principal-agent scheme, 2026-07-19): all agent
+  memory/context lives in two folders — `<FluxConfig>/Context/{UserContext,FluxContext}`
+  (machine: user identity/rules + stock docs synced from `resources/flux-context/` via
+  generated `electron/fluxContextDocs.gen.cjs`) and `<project>/Context/` (MISSION/NOTEBOOK/
+  RULES as first-class paper docs + Transcripts/Dispatches archives). `<FluxConfig>/agents.json`
+  (shared core `electron/agentsConfig.cjs`) names the user's principal/worker CLIs; the in-app
+  Agent drawer (Ctrl+Shift+J, `src/shell/agent/`), `flux agent`, `flux dispatch`, and
+  `flux attend` launch them. The feedback ledger (`.meta/feedback.ndjson`, event-sourced
+  append-only, shared core `src/lib/project/feedback.ts`) carries context-stamped review notes
+  (Ctrl+Shift+M capture). Gates: verify-context-scheme / -feedback / -dispatch (pure),
+  verify-context-gui (ui), verify-principal-electron (electron).
 
 The defining architectural fact is the **dual engine**: every mutation of project data can happen
 through the **GUI renderer** (Svelte stores → bridges → Electron fs IPC) *or* through
@@ -92,6 +103,11 @@ The established shared cores — extend these, don't duplicate them:
 ## 3. Data model and persistence invariants
 
 A project is a folder: `project.json` (manifest), `manuscript/**.qmd` (text is truth),
+`Context/` (the agent layer: `Project/MISSION.qmd` + `NOTEBOOK.md` + `RULES.md` are
+first-class paper documents — discovered by the Context scan in both listDocuments
+twins, comments sidecars derive beside them, watcher subsystem "context" rides the
+manuscript reload chain; `Transcripts/`+`Dispatches/` are archives, not documents;
+pre-Context projects heal on open via contextHeal.ts / `flux context-init`),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
 `slides/<deckId>/deck.json` (0.3.0, **slides-are-figures** + the animation
 rework: a slide's `elements` is the figure `Element` union verbatim + a
@@ -964,6 +980,35 @@ timing (a zero-drop animation can still stutter — quantization and pacing are 
 failure axes). The ladder technique (fractional style writes + screenshot + sub-pixel edge
 centroid computed in-page via canvas) is the cheap way to see what the compositor actually
 paints.
+
+### 2026-07-19 — Principal-agent workflow (Claude Fable 5, `principal-agent`)
+**Work:** Implemented the owner's two-folder Context scheme + principal-agent runtime end to
+end (notes/agent_scheme/, 5 commits): machine Context layer (UserContext w/ Guidelines
+migration; stock FluxContext generated from resources/flux-context/ — the validators.gen
+discipline; agents.json roster via shared electron/agentsConfig.cjs), project Context/
+(scaffold + open-time heal; MISSION/NOTEBOOK/RULES as first-class commentable paper docs),
+shell-owned Ctrl+K palette (moved to src/shell/command/; paper routes via commandBus),
+context-stamped feedback ledger (.meta/feedback.ndjson, event-sourced; Ctrl+Shift+M capture;
+send = review-pass boundary by ledger ORDER), agent question-threads (add_comment), the
+project-wide Agent drawer (Ctrl+Shift+J; PTY of the configured principal; Flux-side
+transcript capture from the xterm buffer), and flux agent/agents/dispatch/attend. New gates:
+verify-context-scheme/-feedback/-dispatch (pure), verify-context-gui (ui),
+verify-principal-electron (electron, real-app chain). Retired contracts updated WITH
+evidence: scaffold AGENTS.md → stub (guide content now FluxContext/PROJECT-GUIDE.md),
+verify-an-manuscript doc counts, verify-paper-commands Mod+K ownership.
+**Learnings:**
+- The startup gate has teeth: importing principalSession (xterm) statically from Workspace
+  put the eager shell 105KB over budget — xterm lives in mode/drawer chunks only; the drawer
+  is `{#await import(...)}`-mounted and prefills ride a queue in commandBus until the module
+  loads.
+- Event-sourced ledgers must fold by ledger ORDER, not timestamp — same-millisecond ties
+  otherwise pull post-send notes into the send boundary (caught by verify-feedback).
+- cjs-module-lexer can fail to surface named exports for generated CJS with very long string
+  literals — `await import()` consumers need the `.default` interop guard (bitten twice:
+  fluxContextDocs.gen.cjs, agentsConfig.cjs).
+- The real-Electron probe recipe (§9) generalizes cleanly: drive the PRELOAD bridge
+  (`window.fig.*`) via executeJavaScript instead of app UI — verify-principal-electron gets
+  roster→spec→PTY→data coverage with zero Svelte coupling.
 
 ### 2026-07-18 (late) — Human↔agent feedback-loop design brainstorm (Claude Fable 5, `main`, no code)
 **Work:** Owner asked for better human↔agent iteration on Flux projects (no app restarts,

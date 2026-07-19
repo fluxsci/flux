@@ -16,6 +16,7 @@ import "@xterm/xterm/css/xterm.css";
 import { fileBridge, joinPath } from "../../lib/project/types";
 import { CONTEXT_PATHS } from "../../lib/project/contextTemplates";
 import { currentProject } from "../shellStore";
+import { registerPrincipalAskSink } from "../command/commandBus";
 
 function bridge() {
   return fileBridge()?.term;
@@ -250,10 +251,12 @@ export function isAvailable(): boolean {
 
 let inited = false;
 /** Idempotent wiring: retire the session when the open project changes (its
- *  transcript + cwd belong to the old one). Called from the Workspace mount. */
+ *  transcript + cwd belong to the old one), and drain queued asks. Called from
+ *  the drawer's mount (this module loads lazily on first open). */
 export function initPrincipalSession(): void {
   if (inited) return;
   inited = true;
+  registerPrincipalAskSink(ask);
   currentProject.subscribe((p) => void syncRoot(p?.path ?? null));
 }
 

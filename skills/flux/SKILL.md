@@ -40,14 +40,18 @@ the workshop; promote only finished results into the project.
    (creating a project is meaningful — confirm the path first), default
    `<analysis-dir>/<deliverable>/` (e.g. `./paper/`):
    `/usr/bin/node /home/driessen2/flux/dist/flux-cli.mjs new ./paper --title "…" --author "…"`
-2. **Read machine-wide Guidelines when present.** Resolve the folder with
-   `flux config` (JSON; note `guidelinesPath` — it also reports the build's
+2. **Read the machine Context layer.** Resolve it with `flux config` (JSON; note
+   `userContextPath` + `fluxContextPath` — it also reports the build's
    version/commit so a stale install is visible; `flux version` prints just
-   that). Read every `.md` and inspect every image under it before making
-   figures or writing — the user's standing conventions for all Flux output.
-   If the folder does not exist, proceed without it.
-3. **Orient (first reads):** `project.json` (the map) → the project's `AGENTS.md`
-   (per-project conventions) → tail `.meta/journal.ndjson` (what changed since last time).
+   that). Read every file (and inspect every image) under `UserContext/` —
+   who the user is (`WHO-AM-I.md`) and their standing rules (`RULES.md` + any
+   siblings) for ALL Flux output. Then orient in `FluxContext/` (stock docs):
+   `README.md` maps the scheme; `PROJECT-GUIDE.md` is the full inside-a-project
+   reference; principals follow `PRINCIPAL.md`, dispatched workers `WORKERS.md`.
+3. **Orient (first reads):** `project.json` (the map) → the project's `Context/`
+   (`Project/MISSION.qmd` = goals, `NOTEBOOK.md` = the running memory,
+   `RULES.md` = project rules) → tail `.meta/journal.ndjson` (what changed since
+   last time) → `flux feedback` + `flux comments` (open review items).
 4. **Set identity + project** for the session:
    `export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent` and **work with the project dir as cwd**.
 
@@ -68,8 +72,10 @@ Claude Code, to wire the Flux MCP server for inline figure PNGs and the live bri
    restyle parts as needed. → `references/project-and-figures.md`
 3. **Write it up** in the Quarto manuscript with `@fig-…` / `[@cite]`. →
    `references/manuscript-and-review.md`
-4. **Review loop:** read the user's comments, address each in the `.qmd`, mark it resolved.
-   → `references/manuscript-and-review.md`
+4. **Review loop:** read the user's comments (`flux comments`) AND context-stamped
+   feedback notes (`flux feedback` — each carries what the user had selected when they
+   wrote it), address each in place, mark each resolved with a note. Ask questions back
+   with `flux add-comment`. → `references/manuscript-and-review.md`
 5. (Optional) **Live edits** while the app is open, via the bridge. → same doc.
 
 The full step-by-step playbook with copy-paste commands is `references/workflow.md` — read it
@@ -77,8 +83,9 @@ before you start a session.
 
 ## Cardinal rules
 
-- **Guidelines are law.** If `~/FluxConfig/Guidelines/` exists, read everything there at
-  session start and follow it. Only the user's live instructions override it.
+- **UserContext is law.** Read everything under `<FluxConfig>/Context/UserContext/` at
+  session start and follow it. Only the user's live instructions override it. The
+  project's `Context/RULES.md` adds project-scoped rules on top.
 - **Blessed results only.** Iterate in the workshop; promote only results that matter into
   the project. Don't dump every exploratory plot into `plots/`.
 - **Regenerate, don't re-save.** Every plot is produced by a script + recipe. To change a
@@ -107,7 +114,9 @@ before you start a session.
 - `references/slides.md` — Flux Slide: build + animate a figure-first talk (beats/presets/the data-space morph) and export one self-contained offline `.html`.
 
 The machine-wide conventions live OUTSIDE this skill, in the user's
-`~/FluxConfig/Guidelines/` folder when it exists — never assume this skill is the whole rulebook.
+`<FluxConfig>/Context/` folders (`UserContext/` = the user's identity + rules;
+`FluxContext/` = the stock Flux docs, incl. the full PROJECT-GUIDE.md) — never assume this
+skill is the whole rulebook.
 
 All plotting lives in the **`fluxplot` library**, not in this skill: the house style
 (`from fluxplot import style as fx`, tuned by editing `fluxplot/src/fluxplot/style.py`), `fp.save`

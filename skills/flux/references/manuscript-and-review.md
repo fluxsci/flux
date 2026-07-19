@@ -73,6 +73,35 @@ Notes: don't rewrite `comments.json` while the user is actively composing a comm
 refresh is skipped during a draft to protect their in-progress work). Resolve a comment only
 after you've actually addressed it in the prose.
 
+**Asking the user something:** open your OWN thread with
+`flux add-comment --quote "exact doc text" --body "your question" [--doc rel] [--at n]` —
+it appears live in their margin; they reply at their leisure. Use it instead of guessing.
+
+## The feedback ledger (context-stamped notes from anywhere in the app)
+
+Comments cover manuscript text; the **feedback ledger** covers everything else. The user hits
+a hotkey anywhere in the app and types a one-liner; the note lands in `.meta/feedback.ndjson`
+**stamped with what they were looking at** — active figure, selected elements, drilled-in plot
+part, paper doc + selection offsets + quoted text, or slide + beat. "Make this bigger" arrives
+with *this* machine-resolved.
+
+```bash
+flux feedback                 # open notes (JSON; `where` = human summary, `context` = full stamp)
+# … address each item (regenerate/restyle/edit) …
+flux resolve-feedback <id|text substring> --note "what you did"   # user sees it close live
+```
+
+A `send` event in the ledger marks a **review-pass boundary** — everything open is a work
+order (this is what wakes `flux attend`). MCP: `list_feedback` / `resolve_feedback`.
+The ledger is event-sourced and append-only — never rewrite it; use the verbs.
+
+## Context docs are documents too
+
+`Context/Project/MISSION.qmd`, `Context/NOTEBOOK.md`, and `Context/RULES.md` open in Flux
+Paper like any document, and comments work ON them — the user may leave threads on the
+mission or on your notebook (treat those as corrections to your understanding/memory and
+address them first).
+
 ## Live edits (optional, figure-only, app must be open)
 
 When the Flux app is open it serves a loopback control bridge (`.meta/live/bridge.json` holds

@@ -21,15 +21,18 @@ try {
   await core.setManuscript(root, "---\ntitle: \"My Paper\"\n---\n\n# Results\n\nFresh prose.\n");
   assert((await core.getManuscript(root)).includes("Fresh prose."), "setManuscript round-trips");
 
-  // documents: main + a new supplementary
+  // documents: main + the scaffolded Context docs (principal-agent scheme:
+  // mission/notebook/rules are first-class documents, grouped last)
   let docs = await core.listDocuments(root);
-  assert(docs.length === 1 && docs[0].isMain && docs[0].title === "My Paper", "listDocuments sees the main doc with its title");
+  assert(docs[0].isMain && docs[0].title === "My Paper", "listDocuments sees the main doc first with its title");
+  assert(docs.length === 4 && docs.filter((d) => d.isContext).length === 3, `listDocuments sees main + 3 Context docs (${docs.length})`);
+  assert(docs[1].path === "Context/Project/MISSION.qmd", "context group ordered mission-first");
   const created = await core.createDocument(root, "Supplementary Methods");
   assert(created.path === "manuscript/supplementary-methods.qmd", `createDocument path (${created.path})`);
   const manifest = JSON.parse(await fs.readFile(path.join(root, "project.json"), "utf8"));
   assert(manifest.supplementary.some((s: { path: string }) => s.path === created.path), "new doc registered in manifest");
   docs = await core.listDocuments(root);
-  assert(docs.length === 2 && !docs.find((d) => d.path === created.path)!.isMain, "listDocuments now sees 2 docs");
+  assert(docs.length === 5 && !docs.find((d) => d.path === created.path)!.isMain, "listDocuments now sees the new doc too");
 
   // figure cross-ref insertion resolves figId → @fig-<label>
   await core.createFigure(root, { id: "growth", name: "Growth" });
