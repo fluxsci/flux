@@ -94,7 +94,7 @@ usage: flux <verb> [root] [args] [--flags]
   cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
   search <query…>                      search FluxLib (e.g. author:smith year:2020)
   lib                                  show the FluxLib path + entry count
-  config                               machine paths (FluxConfig, FluxLib, Guidelines) + build info as JSON;
+  config                               machine paths (FluxConfig, FluxLib, Context, agents.json) + build info as JSON;
                                        first run initializes ~/FluxConfig (and migrates old layouts)
   version                              this build's version/commit/entry (bundle vs source) as JSON
   lib-add <doi|bibtex…|--file f>       add to FluxLib only (no project cite)

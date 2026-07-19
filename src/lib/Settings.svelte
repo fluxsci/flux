@@ -119,7 +119,7 @@
 
       <h3>FluxConfig folder</h3>
       <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
-      <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}) and Guidelines.</p>
+      <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), the agent Context folders, and agents.json.</p>
       <div class="libbtns">
         <button class="ghost" on:click={revealCfg} disabled={!cfgPath}>Reveal</button>
         <button class="ghost" on:click={moveCfg} disabled={libBusy}>{libBusy ? "Moving…" : "Move…"}</button>

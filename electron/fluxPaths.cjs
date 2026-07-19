@@ -20,6 +20,8 @@ const path = require("node:path");
 const os = require("node:os");
 const fsSync = require("node:fs");
 const fsp = require("node:fs/promises");
+const agentsConfig = require("./agentsConfig.cjs");
+const { FLUX_CONTEXT_FILES, FLUX_CONTEXT_HASH } = require("./fluxContextDocs.gen.cjs");
 
 // ---------------------------------------------------------------------------
 // path resolution
@@ -67,9 +69,18 @@ function resolveFluxConfigPathSync(prefs = readPrefsRawSync()) {
   return typeof p === "string" && p.trim() ? path.resolve(p) : defaultFluxConfigPath();
 }
 
-/** Guidelines folder — markdown/image conventions agents always read. */
-function guidelinesPathSync(prefs = readPrefsRawSync()) {
-  return path.join(resolveFluxConfigPathSync(prefs), "Guidelines");
+/** The machine Context layer: <FluxConfig>/Context/{UserContext,FluxContext}.
+ *  UserContext = who the user is + their standing rules (user-owned; the old
+ *  Guidelines folder migrates in). FluxContext = stock docs shipped with Flux
+ *  (app-owned, re-synced on update). */
+function contextPathSync(prefs = readPrefsRawSync()) {
+  return path.join(resolveFluxConfigPathSync(prefs), "Context");
+}
+function userContextPathSync(prefs = readPrefsRawSync()) {
+  return path.join(contextPathSync(prefs), "UserContext");
+}
+function fluxContextPathSync(prefs = readPrefsRawSync()) {
+  return path.join(contextPathSync(prefs), "FluxContext");
 }
 
 /** The ONE FluxLib path decision. Derived from FluxConfig, with two legacy
@@ -188,8 +199,11 @@ async function withConfigLock(fn) {
 //   (a) merge the legacy capital-F config dir into the lowercase one
 //   (b) create FluxConfig + persist the pointer
 //   (c) move FluxLib inside FluxConfig (same-fs rename; EXDEV defers)
-//   (d) seed Guidelines/ (once — user-owned afterwards)
-//   (e) record everything in <FluxConfig>/.fluxconfig.json (audit + fast-path)
+//   (d) ensure Context/UserContext (Guidelines migrates in; WHO-AM-I + RULES
+//       seeded once — user-owned afterwards)
+//   (e) sync Context/FluxContext (stock docs, re-synced on content-hash change)
+//   (f) seed agents.json (once — user-owned afterwards)
+//   (g) record everything in <FluxConfig>/.fluxconfig.json (audit + fast-path)
 // Idempotent: every step is existence-guarded; later runs hit a statSync-only
 // fast path. Failures never throw past this function's contract lightly — a
 // deferred/failed move leaves the resolver fallbacks working and is recorded.
@@ -220,7 +234,10 @@ function configInfoSync(prefs = readPrefsRawSync()) {
   return {
     fluxConfigPath: resolveFluxConfigPathSync(prefs),
     fluxLibPath: resolveFluxLibPathSync(prefs),
-    guidelinesPath: guidelinesPathSync(prefs),
+    contextPath: contextPathSync(prefs),
+    userContextPath: userContextPathSync(prefs),
+    fluxContextPath: fluxContextPathSync(prefs),
+    agentsConfigPath: agentsConfig.agentsConfigPathSync(resolveFluxConfigPathSync(prefs)),
     userDataDir: userDataDir(),
   };
 }
@@ -331,13 +348,135 @@ async function migrateFluxLib(cfg, events) {
   }
 }
 
-async function seedGuidelines(cfg, events) {
+// ---------------------------------------------------------------------------
+// The machine Context layer (principal-agent scheme, 2026-07).
+//   <cfg>/Context/UserContext/  — user-owned: WHO-AM-I.md + RULES.md (+ any
+//     files the user adds). The pre-Context Guidelines/ folder migrates in.
+//   <cfg>/Context/FluxContext/  — stock docs from fluxContextDocs.gen.cjs,
+//     re-synced whenever their content hash changes ({{FLUX_CLI}}/{{FLUX_MCP}}
+//     placeholders substituted with this install's resolved commands).
+//   <cfg>/agents.json           — the agent roster (electron/agentsConfig.cjs).
+// ---------------------------------------------------------------------------
+
+async function ensureUserContext(cfg, events) {
+  const uc = path.join(cfg, "Context", "UserContext");
+  await fsp.mkdir(uc, { recursive: true });
+
+  // Migrate the pre-Context Guidelines folder (if any) into UserContext.
   const g = path.join(cfg, "Guidelines");
-  if (fsSync.existsSync(g)) return; // user-owned — never re-seed, even if emptied
-  await fsp.mkdir(g, { recursive: true });
-  await fsp.writeFile(path.join(g, "README.md"), GUIDELINES_README);
-  await fsp.writeFile(path.join(g, "base_rules.md"), GUIDELINES_BASE_RULES);
-  events.push({ action: "seed-guidelines", detail: `${g} (README.md, base_rules.md)` });
+  if (fsSync.existsSync(g)) {
+    for (const name of await fsp.readdir(g)) {
+      const from = path.join(g, name);
+      if (name === "README.md") {
+        try {
+          if (fsSync.readFileSync(from, "utf8") === GUIDELINES_README) {
+            await fsp.rm(from); // untouched stock seed — superseded by FluxContext/README.md
+            continue;
+          }
+        } catch {
+          /* unreadable — migrate as-is */
+        }
+      }
+      let to = path.join(uc, name);
+      if (fsSync.existsSync(to)) to = path.join(uc, "migrated-" + name);
+      await fsp.rename(from, to);
+    }
+    if ((await fsp.readdir(g).catch(() => ["x"])).length === 0) await fsp.rmdir(g).catch(() => {});
+    events.push({ action: "migrate-guidelines", detail: `${g} -> ${uc}` });
+  }
+
+  // The old seed name becomes the canonical RULES.md when none exists yet.
+  const baseRules = path.join(uc, "base_rules.md");
+  const rules = path.join(uc, "RULES.md");
+  if (fsSync.existsSync(baseRules) && !fsSync.existsSync(rules)) {
+    await fsp.rename(baseRules, rules);
+    events.push({ action: "promote-base-rules", detail: `${baseRules} -> ${rules}` });
+  }
+  if (!fsSync.existsSync(rules)) {
+    await fsp.writeFile(rules, GUIDELINES_BASE_RULES);
+    events.push({ action: "seed-user-rules", detail: rules });
+  }
+  const who = path.join(uc, "WHO-AM-I.md");
+  if (!fsSync.existsSync(who)) {
+    await fsp.writeFile(who, WHO_AM_I_SEED);
+    events.push({ action: "seed-who-am-i", detail: who });
+  }
+}
+
+/** Resolve how THIS install runs the flux CLI/MCP (baked into the stock docs). */
+function resolveOwnCliCommandsSync() {
+  const appRoot = path.resolve(__dirname, "..");
+  if (process.resourcesPath && __dirname.includes("app.asar")) {
+    const base = path.join(process.resourcesPath, "app.asar.unpacked", "dist");
+    const cli = path.join(base, "flux-cli.mjs");
+    if (fsSync.existsSync(cli)) {
+      const wrap = (p) => `ELECTRON_RUN_AS_NODE=1 "${process.execPath}" "${p}"`;
+      return { cli: wrap(cli), mcp: wrap(path.join(base, "flux-mcp.mjs")) };
+    }
+  }
+  const distCli = path.join(appRoot, "dist", "flux-cli.mjs");
+  if (fsSync.existsSync(distCli)) {
+    return { cli: `node "${distCli}"`, mcp: `node "${path.join(appRoot, "dist", "flux-mcp.mjs")}"` };
+  }
+  const srcCli = path.join(appRoot, "flux-cli.ts");
+  if (fsSync.existsSync(srcCli)) {
+    return { cli: `npx tsx "${srcCli}"`, mcp: `npx tsx "${path.join(appRoot, "flux-mcp.ts")}"` };
+  }
+  return { cli: "flux", mcp: "flux-mcp" }; // last resort: assume on PATH
+}
+
+function fluxContextStampPath(cfg) {
+  return path.join(cfg, "Context", "FluxContext", ".version");
+}
+
+/** Cheap staleness probe for the ensureFluxConfig fast path. */
+function fluxContextUpToDateSync(cfg) {
+  try {
+    if (JSON.parse(fsSync.readFileSync(fluxContextStampPath(cfg), "utf8")).hash !== FLUX_CONTEXT_HASH) return false;
+  } catch {
+    return false;
+  }
+  if (!fsSync.existsSync(agentsConfig.agentsConfigPathSync(cfg))) return false;
+  if (fsSync.existsSync(path.join(cfg, "Guidelines"))) return false;
+  const uc = path.join(cfg, "Context", "UserContext");
+  return fsSync.existsSync(path.join(uc, "RULES.md")) && fsSync.existsSync(path.join(uc, "WHO-AM-I.md"));
+}
+
+async function syncFluxContext(cfg, events) {
+  const dir = path.join(cfg, "Context", "FluxContext");
+  let cur = null;
+  try {
+    cur = JSON.parse(fsSync.readFileSync(fluxContextStampPath(cfg), "utf8"));
+  } catch {
+    /* first sync */
+  }
+  const upToDate = cur && cur.hash === FLUX_CONTEXT_HASH;
+  // When the hash is current, only heal MISSING files — never rewrite existing
+  // ones (a dev CLI and a packaged app resolve different {{FLUX_CLI}} strings;
+  // rewriting on every engine switch would churn the folder).
+  const names = Object.keys(FLUX_CONTEXT_FILES).filter(
+    (n) => !upToDate || !fsSync.existsSync(path.join(dir, n)),
+  );
+  if (upToDate && names.length === 0) return;
+  await fsp.mkdir(dir, { recursive: true });
+  const cmds = resolveOwnCliCommandsSync();
+  for (const name of names) {
+    const out = FLUX_CONTEXT_FILES[name]
+      .replaceAll("{{FLUX_CLI}}", cmds.cli)
+      .replaceAll("{{FLUX_MCP}}", cmds.mcp);
+    const p = path.join(dir, name);
+    try {
+      if (fsSync.readFileSync(p, "utf8") === out) continue;
+    } catch {
+      /* absent — write */
+    }
+    await fsp.writeFile(p, out);
+  }
+  await fsp.writeFile(
+    fluxContextStampPath(cfg),
+    JSON.stringify({ hash: FLUX_CONTEXT_HASH, cli: cmds.cli, synced: new Date().toISOString() }, null, 2) + "\n",
+  );
+  events.push({ action: "sync-fluxcontext", detail: `${dir} (${names.length} files, ${FLUX_CONTEXT_HASH})` });
 }
 
 async function appendMarker(cfg, events) {
@@ -369,7 +508,8 @@ async function ensureFluxConfig() {
     fsSync.existsSync(markerPath(resolveFluxConfigPathSync(pre))) &&
     typeof pre.fluxConfigPath === "string" &&
     !("fluxLibPath" in pre) &&
-    !legacyDirDistinct()
+    !legacyDirDistinct() &&
+    fluxContextUpToDateSync(resolveFluxConfigPathSync(pre))
   ) {
     return configInfoSync(pre);
   }
@@ -379,7 +519,11 @@ async function ensureFluxConfig() {
       await mergeLegacyConfigDir(events);
       const cfg = await ensureConfigDirAndPointer(events);
       await migrateFluxLib(cfg, events);
-      await seedGuidelines(cfg, events);
+      await ensureUserContext(cfg, events);
+      await syncFluxContext(cfg, events);
+      if (agentsConfig.seedAgentsConfigSync(cfg)) {
+        events.push({ action: "seed-agents-config", detail: agentsConfig.agentsConfigPathSync(cfg) });
+      }
       await appendMarker(cfg, events);
       return { ...configInfoSync(), events };
     });
@@ -458,11 +602,25 @@ async function moveFluxConfig(parentDir) {
 }
 
 // ---------------------------------------------------------------------------
-// Guidelines seed content. These constants are only the FIRST-RUN seed — the
-// live copy is the user's <FluxConfig>/Guidelines/, which they own outright.
-// Embedded as strings (not a repo asset file) so the packaged app and the
-// esbuild CLI/MCP bundles carry them with zero packaging changes.
+// UserContext seed content. GUIDELINES_README survives only as the byte-compare
+// reference for dropping the untouched stock README during Guidelines→
+// UserContext migration; GUIDELINES_BASE_RULES doubles as the fresh-machine
+// RULES.md seed. Embedded as strings (not repo asset files) so the packaged
+// app and the esbuild CLI/MCP bundles carry them with zero packaging changes.
 // ---------------------------------------------------------------------------
+
+const WHO_AM_I_SEED = `# Who am I
+
+<!-- Fill this out — every Flux agent reads it at session start. The more your
+     agents know about you, the less you have to repeat yourself. Suggested
+     content: your background and CV highlights, publications, research
+     interests, technical strengths and weaknesses, what you are currently
+     working on, and your tastes (writing style, figures, statistics). You can
+     also add sibling files (or images) in this folder; agents read everything
+     in UserContext/. -->
+
+*(not filled out yet)*
+`;
 
 const GUIDELINES_README = `# Flux Guidelines
 
@@ -492,12 +650,16 @@ module.exports = {
   defaultFluxConfigPath,
   resolveFluxConfigPathSync,
   resolveFluxLibPathSync,
-  guidelinesPathSync,
+  contextPathSync,
+  userContextPathSync,
+  fluxContextPathSync,
   readPrefsRawSync,
   writePrefsAtomic,
   ensureFluxConfig,
   moveFluxConfig,
   configInfoSync,
+  resolveOwnCliCommandsSync,
   GUIDELINES_README,
   GUIDELINES_BASE_RULES,
+  WHO_AM_I_SEED,
 };

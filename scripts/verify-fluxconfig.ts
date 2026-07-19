@@ -146,8 +146,16 @@ if (process.platform !== "win32") {
     assert(fs.existsSync(path.join(cfg, "FluxLib", "library.bib")), "FluxLib moved into FluxConfig");
     assert(fs.existsSync(path.join(cfg, "FluxLib", "items", "x", "a.pdf")), "items moved intact");
     assert((fs.statSync(path.join(cfg, "FluxLib", "keys.json")).mode & 0o777) === 0o600, "keys.json stayed 0600");
-    assert(fs.readFileSync(path.join(cfg, "Guidelines", "base_rules.md"), "utf8").includes("panel labels"), "Guidelines seeded with base rules");
-    assert(fs.existsSync(path.join(cfg, "Guidelines", "README.md")), "Guidelines README seeded");
+    const uc1 = path.join(cfg, "Context", "UserContext");
+    assert(fs.readFileSync(path.join(uc1, "RULES.md"), "utf8").includes("panel labels"), "UserContext RULES.md seeded with base rules");
+    assert(fs.existsSync(path.join(uc1, "WHO-AM-I.md")), "UserContext WHO-AM-I.md seeded");
+    assert(!fs.existsSync(path.join(cfg, "Guidelines")), "no legacy Guidelines dir on a fresh machine");
+    const fc1 = path.join(cfg, "Context", "FluxContext");
+    assert(fs.readFileSync(path.join(fc1, "PRINCIPAL.md"), "utf8").includes("Boot sequence"), "FluxContext stock docs synced");
+    assert(!fs.readFileSync(path.join(fc1, "FLUX-CLI.md"), "utf8").includes("{{FLUX_CLI}}"), "FluxContext placeholders substituted");
+    assert(JSON.parse(fs.readFileSync(path.join(cfg, "agents.json"), "utf8")).principal.command.length > 0, "agents.json roster seeded");
+    assert(info.agentsConfigPath === path.join(cfg, "agents.json"), "configInfo reports agentsConfigPath");
+    assert(info.userContextPath === uc1 && info.fluxContextPath === fc1, "configInfo reports the Context paths");
     const marker = JSON.parse(fs.readFileSync(path.join(cfg, ".fluxconfig.json"), "utf8"));
     assert(Array.isArray(marker.events) && marker.events.some((e: { action: string }) => e.action === "move-fluxlib"), "marker records the FluxLib move");
 
@@ -195,6 +203,21 @@ if (process.platform !== "win32") {
     assert(!marker6.events.some((e: { action: string }) => e.action === "stranded-fluxlib-warning"), "symlinked legacy lib is not flagged as stranded");
     const prefs6 = JSON.parse(fs.readFileSync(path.join(f6.xdg, "flux", "preferences.json"), "utf8"));
     assert(!("fluxLibPath" in prefs6) && prefs6.fluxConfigPath, "re-merge drops the re-persisted fluxLibPath again");
+
+    // -- pre-Context machine: Guidelines/ migrates into Context/UserContext
+    const f7 = freshFixture("t7");
+    const g7 = path.join(f7.home, "FluxConfig", "Guidelines");
+    fs.mkdirSync(g7, { recursive: true });
+    fs.writeFileSync(path.join(g7, "README.md"), fp.GUIDELINES_README); // untouched stock seed
+    fs.writeFileSync(path.join(g7, "base_rules.md"), "# my edited rules\nuse panel labels always\n");
+    fs.writeFileSync(path.join(g7, "style_notes.md"), "serif everywhere\n");
+    await fp.ensureFluxConfig();
+    const uc7 = path.join(f7.home, "FluxConfig", "Context", "UserContext");
+    assert(!fs.existsSync(g7), "Guidelines dir gone after migration");
+    assert(fs.readFileSync(path.join(uc7, "RULES.md"), "utf8").includes("my edited rules"), "user-edited base_rules became RULES.md");
+    assert(fs.readFileSync(path.join(uc7, "style_notes.md"), "utf8").includes("serif"), "extra guideline files migrated intact");
+    assert(!fs.existsSync(path.join(uc7, "README.md")), "untouched stock Guidelines README dropped, not migrated");
+    assert(fs.existsSync(path.join(uc7, "WHO-AM-I.md")), "WHO-AM-I.md seeded alongside migrated files");
 
     // -- moveFluxConfig (Settings "Move…"): same-fs rename + destination guards
     const f5 = freshFixture("t5");

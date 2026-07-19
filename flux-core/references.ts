@@ -187,7 +187,8 @@ export async function libraryInfo(): Promise<{
 }
 
 // One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib
-// move, Guidelines seed) — idempotent + fast after the first run.
+// move, Context layer sync, agents.json seed) — idempotent + fast after the
+// first run.
 export { ensureFluxConfig } from "./fluxlib";
 
 /** Machine-level paths for `flux config` / MCP config_paths. Runs
@@ -196,7 +197,10 @@ export { ensureFluxConfig } from "./fluxlib";
 export async function configInfo(): Promise<{
   fluxConfigPath: string;
   fluxLibPath: string;
-  guidelinesPath: string;
+  contextPath: string;
+  userContextPath: string;
+  fluxContextPath: string;
+  agentsConfigPath: string;
   userDataDir: string;
   build: BuildInfo;
 }> {
@@ -204,7 +208,10 @@ export async function configInfo(): Promise<{
   return {
     fluxConfigPath: info.fluxConfigPath,
     fluxLibPath: info.fluxLibPath,
-    guidelinesPath: info.guidelinesPath,
+    contextPath: info.contextPath,
+    userContextPath: info.userContextPath,
+    fluxContextPath: info.fluxContextPath,
+    agentsConfigPath: info.agentsConfigPath,
     userDataDir: info.userDataDir,
     build: buildInfo(),
   };

@@ -79,13 +79,21 @@ export async function resolveFluxConfigPath(): Promise<string> {
   return fluxPaths.resolveFluxConfigPathSync(await getPreferences());
 }
 
-/** <FluxConfig>/Guidelines — the machine-wide conventions agents always read. */
-export async function guidelinesPath(): Promise<string> {
-  return fluxPaths.guidelinesPathSync(await getPreferences());
+/** <FluxConfig>/Context — the machine context layer agents always read
+ *  (UserContext = the user's identity + rules; FluxContext = stock docs). */
+export async function contextPath(): Promise<string> {
+  return fluxPaths.contextPathSync(await getPreferences());
+}
+export async function userContextPath(): Promise<string> {
+  return fluxPaths.userContextPathSync(await getPreferences());
+}
+export async function fluxContextPath(): Promise<string> {
+  return fluxPaths.fluxContextPathSync(await getPreferences());
 }
 
 /** One-time machine init/migration (FluxConfig + lowercase config dir +
- *  FluxLib move + Guidelines seed). Idempotent, locked, fast after first run. */
+ *  FluxLib move + Context layer sync + agents.json seed). Idempotent, locked,
+ *  fast after first run. */
 export const ensureFluxConfig = fluxPaths.ensureFluxConfig;
 
 const libBib = (lib: string) => path.join(lib, "library.bib");
