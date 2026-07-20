@@ -15,9 +15,13 @@ export async function loadOrganize(): Promise<OrganizeData> {
   const lib = await resolveFluxLibPath();
   if (!lib) return emptyOrganize();
   try {
+    // exists() first: a rejected fs:readText is CAUGHT here, but Electron logs
+    // every rejected IPC handler to the launching terminal — an unorganized
+    // library would print an ENOENT "error" on each launch.
+    if (!(await fb.exists(organizePath(lib)))) return emptyOrganize();
     return normalizeOrganize(JSON.parse(await fb.readText(organizePath(lib))));
   } catch {
-    return emptyOrganize(); // absent/corrupt → start empty
+    return emptyOrganize(); // corrupt / racing delete → start empty
   }
 }
 
