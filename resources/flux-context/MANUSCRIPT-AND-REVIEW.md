@@ -54,15 +54,17 @@ main doc, `<dir>/<base>.comments.json` for others — **never inside the `.qmd`*
 comment applies. **Procedure when the user says "address my comments":**
 
 ```bash
-# 1. list the open threads (JSON: id, quote, messages)
-{{FLUX_CLI}} comments            # add --all to include resolved
+# 1. list open threads across EVERY project document (JSON: doc, id, quote, messages)
+{{FLUX_CLI}} comments            # add --all for resolved; --doc rel targets one document
 # 2. for each thread: locate anchor.quote in the .qmd, make the requested change
 {{FLUX_CLI}} manuscript          # read, edit, then:
 {{FLUX_CLI}} set-manuscript --file revised.qmd
 # 3. mark it resolved (by id or a unique substring of the quote), optionally reply
-{{FLUX_CLI}} resolve-comment c… --note "Added the Smith 2020 citation."
+{{FLUX_CLI}} resolve-comment c… --note "Added the Smith 2020 citation."  # unique project-wide id
 ```
 
+Bare `comments` and `resolve-comment` are project-wide so secondary and Context-document
+threads cannot be missed; pass `--doc rel` only when deliberately targeting one document.
 `resolve-comment` flips `resolved:true`, appends your reply (stamped with your client identity +
 time), holds the `manuscript` lock, and journals it. MCP equivalents: `list_comments`,
 `resolve_comment`. You *can* edit `comments.json` directly, but prefer the verb — it's

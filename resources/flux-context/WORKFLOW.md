@@ -26,7 +26,7 @@ cat project.json                       # the map
 cat Context/Project/MISSION.qmd        # the project's goals (the charter)
 cat Context/NOTEBOOK.md Context/RULES.md   # running memory + project rules
 tail -5 .meta/journal.ndjson     # what changed since last session
-$F feedback && $F comments       # open review items (context-stamped notes + threads)
+$F feedback && $F comments       # open notes + project-wide document threads (each names its doc)
 ```
 
 ## 1. Make plots (in the analysis env → into `plots/`)
@@ -90,10 +90,11 @@ mark up the documents in the Flux app and you'll address the comments.
 
 ```bash
 $F feedback                    # context-stamped notes: each carries WHAT the user was looking at
-$F comments                    # margin threads: each has an id + anchor.quote (the targeted text)
+$F comments                    # all docs: each thread has doc + id + anchor.quote
+$F comments --doc manuscript/main.qmd   # optional: target one document only
 # for each item: make the change (regenerate / restyle / edit the .qmd), then close it:
 $F resolve-feedback <id|text> --note "Done: <what you changed>."
-$F resolve-comment <id> --note "Done: <what you changed>."
+$F resolve-comment <id> --note "Done: <what you changed>."   # project-wide unique id
 # unsure about an item? ask in the user's margin instead of guessing:
 $F add-comment --quote "the exact doc text" --body "your question"
 ```

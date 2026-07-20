@@ -66,7 +66,7 @@ With the session export above, `render-figure growth --png` just works.
 | `docs` · `new-doc <name>` | `list_documents` · `create_document` | list / add documents |
 | `ref <figId> [--doc r]` | `insert_figure_ref` | append `@fig-<label>` to a doc |
 | `add-reference . <bibtex\|--file f>` · `cite-doi <doi>` | `add_reference` · `cite_doi` | grow `references/library.bib` |
-| `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | the **review loop** (see MANUSCRIPT-AND-REVIEW.md) |
+| `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | project-wide list/unique resolve by default; `--doc` targets one document (see MANUSCRIPT-AND-REVIEW.md) |
 | `add-comment --quote "…" --body "…" [--doc r] [--at n]` | `add_comment` | open a NEW thread — ask the human a question in their margin |
 | `feedback [--all]` · `resolve-feedback <id\|text> [--note "…"]` · `send` | `list_feedback` · `resolve_feedback` · `send_feedback` | the **feedback ledger** (context-stamped notes from the app; see MANUSCRIPT-AND-REVIEW.md) |
 | `context-init` · `agents` · `dispatch <name> --brief-file f [--model m] [--effort e] [--family fam]` | `ensure_context` · `list_agents` · `dispatch` | heal `Context/` / show the roster matrix / run a worker with a brief (recorded in `Context/Dispatches/`; model/effort default to the session's worker policy — a principal-decides policy REQUIRES the flags) |

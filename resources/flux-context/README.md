@@ -34,7 +34,7 @@ in this order:
 3. `<project>/Context/Project/MISSION.qmd` — what this project is driving toward.
 4. `<project>/Context/RULES.md` — this project's standing rules.
 5. `<project>/Context/NOTEBOOK.md` — your memory: decisions, state, what's been tried.
-6. `<project>/.meta/journal.ndjson` (tail) + open feedback/comments — what just changed.
+6. `<project>/.meta/journal.ndjson` (tail) + open feedback and project-wide comments — what just changed.
 
 `Transcripts/` and `Dispatches/` are **archives**: searched when the notebook points at
 them or when you need verbatim history — never bulk-read at session start.

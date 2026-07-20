@@ -5,6 +5,7 @@ import * as fs from "node:fs/promises";
 import { CLIENT, stamp, journal } from "./journal";
 import { withLock } from "./locks";
 import { loadManifest, safeJoin, exists, writeText } from "./model";
+import { listDocuments } from "./manuscript";
 import type { ProjectManifest } from "../src/lib/project/types";
 
 // --------------------------------------------------------------------------
@@ -34,6 +35,10 @@ export interface CommentThread {
   resolved: boolean;
   messages: CommentMessage[];
 }
+export interface DocumentCommentThread extends CommentThread {
+  /** Project-relative document path whose sidecar owns this thread. */
+  doc: string;
+}
 interface CommentsFile {
   version: 1;
   threads: CommentThread[];
@@ -62,6 +67,22 @@ export async function listComments(root: string, docRel?: string): Promise<Comme
   } catch {
     return [];
   }
+}
+
+/** Project-wide review discovery. With no docRel, scan every canonical project
+ *  document (including Context documents) and attach the owning document path
+ *  to every thread. Passing docRel keeps the same enriched shape while targeting
+ *  one document. */
+export async function listProjectComments(
+  root: string,
+  docRel?: string,
+): Promise<DocumentCommentThread[]> {
+  const docs = docRel ? [docRel] : (await listDocuments(root)).map((doc) => doc.path);
+  const out: DocumentCommentThread[] = [];
+  for (const doc of docs) {
+    for (const thread of await listComments(root, doc)) out.push({ ...thread, doc });
+  }
+  return out;
 }
 
 /** Context kept around the quote for re-anchoring (mirrors the GUI's CTX). */
@@ -187,4 +208,29 @@ export async function resolveComment(
     resolved: threads.filter((t) => t.resolved).length,
     total: threads.length,
   };
+}
+
+/** Resolve a unique open comment across the whole project by default. Passing
+ *  docRel preserves the targeted single-document behavior. */
+export async function resolveProjectComment(
+  root: string,
+  idOrQuote: string,
+  opts: { docRel?: string; note?: string; author?: string } = {},
+): Promise<ResolveCommentResult> {
+  if (opts.docRel) return resolveComment(root, idOrQuote, opts);
+  const open = (await listProjectComments(root)).filter((thread) => !thread.resolved);
+  let hits = open.filter((thread) => thread.id === idOrQuote);
+  if (hits.length === 0) {
+    const needle = idOrQuote.toLowerCase();
+    hits = open.filter((thread) => (thread.anchor?.quote ?? "").toLowerCase().includes(needle));
+  }
+  if (hits.length === 0) throw new Error(`no open comment matches "${idOrQuote}" in project documents`);
+  if (hits.length > 1) {
+    throw new Error(
+      `"${idOrQuote}" matches ${hits.length} open comments across project documents; ` +
+        `pass --doc or use one of: ${hits.map((thread) => `${thread.doc}:${thread.id}`).join(", ")}`,
+    );
+  }
+  const hit = hits[0];
+  return resolveComment(root, hit.id, { ...opts, docRel: hit.doc });
 }

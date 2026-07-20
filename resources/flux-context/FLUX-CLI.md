@@ -31,8 +31,8 @@ result. This file is the orientation; the full references are siblings — `WORK
 `rerun-plot plots/<name>.recipe.json --param value`. Per-part restyles
 (`restyle <fig> <part> --stroke …`) survive regeneration.
 
-**Review:** `comments` lists the user's document threads (each anchors to exact quoted
-text); `feedback` lists context-stamped notes from the app (each carries what the user had
+**Review:** bare `comments` lists the user's threads across every project document (each
+names its document and anchors to exact quoted text; `--doc` targets one); `feedback` lists context-stamped notes from the app (each carries what the user had
 selected). Address the item in place, then `resolve-comment <id> --note "…"` /
 `resolve-feedback <id> --note "…"` — the open app closes the thread live. Ask questions
 with `add-comment --quote "…" --body "…"`.

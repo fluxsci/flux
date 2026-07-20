@@ -126,6 +126,11 @@ clean break — they fail validation and quarantine, no migration),
 
 Persistence invariants (all machine-checked — do not weaken):
 
+- **Review discovery is project-wide by default**: headless `comments` / `list_comments`
+  scans every canonical document (including Context documents) and attaches the owning
+  document path; `resolve-comment` without `--doc` resolves only a unique open match across
+  the project. `--doc` is an explicit single-document narrowing, never a boot requirement.
+
 - **Every canonical write is atomic** (`tmp + fsync + rename`; `flux-core/fsx.ts`,
   `atomicWriteMain` in `electron/ipc/files.cjs`). Directory entries are fsynced after rename
   batches (`fsyncDir`).
@@ -1130,3 +1135,11 @@ verify-slide-tween; pure 137/137, ui sweep green, export assets regenerated.
 - verify-p4-figure pins FIG-contract text by grepping SOURCE files — moving a function to
   another module (Inspector.setDim → ops.setBoxDim) fails the gate until its `read()` list
   follows; update it in the same change.
+
+### 2026-07-20 — Project-wide comment discovery default (Codex GPT-5.6 Sol, main)
+**Work:** Changed the headless comments review loop so bare list/resolve operations cover every
+canonical project document and report the owning path; retained `--doc` as an explicit targeted
+mode, updated stock Context guidance, and added a multi-document regression fixture.
+**Learnings:**
+- Agent boot safety belongs in the product default, not only in prompt discipline: when review
+  state is stored per document, the zero-argument discovery command must aggregate all documents.

@@ -1418,14 +1418,14 @@ export const VERBS: VerbDef[] = [
     cli: "comments",
     cliRoot: "flags",
     summary:
-      "List a document's review comments (the human's margin comments). Open threads by default. Each thread's anchor.quote is the EXACT manuscript text the comment targets — find that text in the .qmd, address it, then call resolve_comment. Omit doc for the main manuscript.",
+      "List review comments (the human's margin comments) across every project document by default; pass doc to target one document. Open threads by default. Every thread includes its document path, and anchor.quote is the EXACT targeted text — address it, then call resolve_comment.",
     params: { doc: z.string().optional(), includeResolved: z.boolean().optional() },
     cliArgs: [
       { kind: "flag", at: "doc", into: "doc" },
       { kind: "flag", at: "all", into: "includeResolved", as: "boolean" },
     ],
     handler: async (ctx, a) => {
-      const threads = await core.listComments(ctx.root, a.doc as string | undefined);
+      const threads = await core.listProjectComments(ctx.root, a.doc as string | undefined);
       return a.includeResolved ? threads : threads.filter((t) => !t.resolved);
     },
     render: {
@@ -1433,8 +1433,9 @@ export const VERBS: VerbDef[] = [
       // MCP returns the full threads.
       human: (r) => ({
         out: JSON.stringify(
-          (r as { id: string; resolved?: boolean; anchor?: { quote?: string }; messages: unknown }[]).map((t) => ({
+          (r as { id: string; doc: string; resolved?: boolean; anchor?: { quote?: string }; messages: unknown }[]).map((t) => ({
             id: t.id,
+            doc: t.doc,
             resolved: t.resolved,
             quote: t.anchor?.quote ?? "",
             messages: t.messages,
@@ -1451,7 +1452,7 @@ export const VERBS: VerbDef[] = [
     cli: "resolve-comment",
     cliRoot: "flags",
     summary:
-      "Mark a review comment resolved — by thread id, or a substring of its quoted text (must match exactly one). Optionally append a reply note. Holds the manuscript lock + journals. Call this AFTER addressing the comment in the .qmd (set_manuscript). Omit doc for the main manuscript.",
+      "Mark a review comment resolved — by thread id, or a substring of its quoted text. Searches every project document by default and requires a unique open match; pass doc to target one document. Optionally appends a reply note. Call this AFTER addressing the comment.",
     params: { id: z.string(), doc: z.string().optional(), note: z.string().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "id", required: true },
@@ -1459,7 +1460,10 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "note", into: "note" },
     ],
     handler: (ctx, a) =>
-      core.resolveComment(ctx.root, s(a.id), { docRel: a.doc as string | undefined, note: a.note as string | undefined }),
+      core.resolveProjectComment(ctx.root, s(a.id), {
+        docRel: a.doc as string | undefined,
+        note: a.note as string | undefined,
+      }),
     render: {
       human: (r) => {
         const c = r as { id: string; resolved: number; total: number };

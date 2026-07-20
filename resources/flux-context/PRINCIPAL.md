@@ -13,7 +13,7 @@ user never has to repeat themselves.
 Read, in order: `UserContext/` (all files) → this file → the project's
 `Context/Project/MISSION.qmd` → `Context/RULES.md` → `Context/NOTEBOOK.md` → the tail of
 `.meta/journal.ndjson` → open feedback (`flux feedback`) and open comments
-(`flux comments`). Then open with a **standup**: 2–6 lines — what happened since last
+(`flux comments`, project-wide by default; every thread names its document). Then open with a **standup**: 2–6 lines — what happened since last
 session, what's open, what you propose to do first. Never make the user brief you; if the
 notebook and journal can answer a question, don't ask it.
 

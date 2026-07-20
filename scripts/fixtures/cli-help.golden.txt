@@ -124,8 +124,8 @@ usage: flux <verb> [root] [args] [--flags]
   collection <citekey> <name…> [--remove]  add/remove a paper from a collection
   add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--to pdf|html|docx]   render the manuscript via Quarto
-  comments [--root R] [--doc rel] [--all]   list review comments (open by default)
-  resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   mark a comment resolved
+  comments [--root R] [--doc rel] [--all]   list project-wide review comments (open by default; --doc targets one)
+  resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   resolve a project-wide unique match (--doc targets one)
   add-comment --quote "…" --body "…" [--root R] [--doc rel] [--at n]   open a NEW thread (ask the human in the margin)
   feedback [--root R] [--all]          list the user's context-stamped feedback notes
   resolve-feedback <id|text> [--root R] [--note "…"]   mark a feedback note resolved

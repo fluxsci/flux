@@ -18,6 +18,7 @@ function assert(cond: unknown, msg: string) {
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-comments-"));
 const commentsPath = path.join(root, "manuscript", "comments.json");
+let secondaryCommentsPath = "";
 const readJournal = async () => {
   const txt = await fs.readFile(path.join(root, ".meta", "journal.ndjson"), "utf8").catch(() => "");
   return txt.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -30,6 +31,9 @@ try {
     root,
     "# Title\n\nMycelial growth slowed under nutrient stress. The control group recovered.\n",
   );
+  const secondary = await core.createDocument(root, "Secondary");
+  await core.setManuscript(root, "# Secondary\n\nA cortical group reaches distal cortex.\n", secondary.path);
+  secondaryCommentsPath = path.join(root, "manuscript", "secondary.comments.json");
 
   // Seed two open comment threads (the shape the GUI's writeComments emits).
   const seed = {
@@ -50,12 +54,57 @@ try {
     ],
   };
   await fs.writeFile(commentsPath, JSON.stringify(seed, null, 2) + "\n");
+  await fs.writeFile(
+    secondaryCommentsPath,
+    JSON.stringify(
+      {
+        version: 1,
+        threads: [
+          {
+            id: "c_secondary",
+            anchor: { start: 15, end: 29, quote: "cortical group", prefix: "A ", suffix: " reaches distal" },
+            resolved: false,
+            messages: [{ author: "Kort", body: "show this cohort", createdAt: "2026-06-29T17:02:00.000Z" }],
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 
   // 1. listComments reads the threads; anchor.quote is the exact targeted text.
   let threads = await core.listComments(root);
   assert(threads.length === 2, "listComments returns both threads");
   assert(threads.every((t) => !t.resolved), "both threads start open");
   assert(threads[0].anchor.quote === "growth slowed", "anchor.quote is the exact targeted text");
+
+  // 1b. Project-wide discovery includes every document and names its owner.
+  let projectThreads = await core.listProjectComments(root);
+  assert(projectThreads.length === 3, "project-wide listing returns main + secondary threads");
+  assert(
+    projectThreads.filter((t) => t.doc === "manuscript/main.qmd").length === 2 &&
+      projectThreads.filter((t) => t.doc === secondary.path).length === 1,
+    "project-wide threads carry the correct document paths",
+  );
+  const targeted = await core.listProjectComments(root, secondary.path);
+  assert(targeted.length === 1 && targeted[0].id === "c_secondary", "targeted listing returns one document");
+
+  // 1c. Project-wide resolution is unique-match safe, then reaches a secondary sidecar.
+  let ambiguous = false;
+  try {
+    await core.resolveProjectComment(root, "group");
+  } catch (e) {
+    ambiguous = /matches 2 open comments across project documents/.test(String((e as Error).message));
+  }
+  assert(ambiguous, "ambiguous project-wide quote resolution fails safely");
+  const rs = await core.resolveProjectComment(root, "c_secondary", { note: "secondary addressed" });
+  assert(rs.id === "c_secondary" && rs.resolved === 1, "project-wide id resolves a secondary-document thread");
+  projectThreads = await core.listProjectComments(root);
+  assert(
+    projectThreads.filter((t) => !t.resolved).length === 2,
+    "project-wide open/resolved filtering sees only the two open main threads",
+  );
 
   // 2. the seeded file is valid against the bundled comments schema.
   assert((await core.validate(root, "manuscript/comments.json")).ok, "comments.json validates against the bundled schema");
@@ -84,8 +133,12 @@ try {
 
   // 6. every resolve journaled a resolve_comment line (client=cli, ts, target).
   const resolves = (await readJournal()).filter((e) => e.action === "resolve_comment");
-  assert(resolves.length === 2 && resolves.every((e) => e.client === "cli" && e.ts), "two resolve_comment lines journaled (client=cli, ts)");
-  assert(resolves.every((e) => e.target === "manuscript/comments.json"), "journal records the comments target path");
+  assert(resolves.length === 3 && resolves.every((e) => e.client === "cli" && e.ts), "three resolve_comment lines journaled (client=cli, ts)");
+  assert(
+    resolves.filter((e) => e.target === "manuscript/comments.json").length === 2 &&
+      resolves.filter((e) => e.target === "manuscript/secondary.comments.json").length === 1,
+    "journal records each resolved thread's owning sidecar",
+  );
 
   // 7. resolve DEFERS while a human holds the manuscript lock (no clobber).
   const reopened = await core.listComments(root);
