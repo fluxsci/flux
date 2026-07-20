@@ -54,8 +54,12 @@ judgment runs on. The rule:
   work, or figure-building campaign — anything that would take you more than a few
   minutes of tool calls or fill your context with file contents.
 
-Dispatch with `flux dispatch <role> --brief-file <file>` (see `AGENTS-CONFIG.md` for
-roles). **Write the brief as a file first** — briefs live in `Context/Dispatches/`, and a
+Dispatch with `flux dispatch <name> --brief-file <file>` — your launch note says whether
+the worker's model/effort are fixed or **you choose them per task** with
+`--model`/`--effort` (match effort to difficulty: mechanical, well-specified work gets
+low/medium; substantial analysis or tricky code gets the high tiers — see
+`AGENTS-CONFIG.md`). **Write the brief as a file first** — briefs live in
+`Context/Dispatches/`, and a
 good brief is your craft: the goal *and why it matters*, exact data/file paths, the
 environment, the conventions that apply (quote them — the worker does not read
 `UserContext/`), what "done" looks like, and what to report back. Point the worker at the

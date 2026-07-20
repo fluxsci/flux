@@ -1,47 +1,73 @@
 // electron/agentsConfig.cjs — the machine-level agent roster (<FluxConfig>/
-// agents.json): which CLI is the principal, which are dispatchable workers.
-// CJS shared by every surface (the fluxPaths idiom): Electron main requires it
-// for the in-app principal drawer; flux-core/agents.ts wraps it for the
-// `agent` / `agents` / `dispatch` / `attend` verbs. No require("electron") —
-// must run under plain Node.
+// agents.json). CJS shared by every surface (the fluxPaths idiom): Electron
+// main requires it for the in-app principal drawer; flux-core/agents.ts wraps
+// it for the `principal` / `agents` / `dispatch` / `attend` verbs. No
+// require("electron") — must run under plain Node.
+//
+// SCHEMA (2026-07-20, the launch-picker rework): the roster is a matrix, not
+// fixed commands. `families` holds per-vendor command TEMPLATES (interactive +
+// exec) with {model}/{effort} placeholders plus the picker's model/effort
+// lists; `defaults` holds the standing selections (worker values may be
+// "principal-decides" — the principal then picks per dispatch). The previous
+// fixed-entry schema (principal/principalPass/workers argv arrays) is still
+// resolved as a LEGACY roster so a hand-rolled config keeps working.
 "use strict";
 const path = require("node:path");
 const fsSync = require("node:fs");
 
+const DECIDES = "principal-decides";
+
 /** Documented in the stock FluxContext AGENTS-CONFIG.md (kept in sync). */
 const DEFAULT_AGENTS = {
   _docs: "Agent roster. Format: <FluxConfig>/Context/FluxContext/AGENTS-CONFIG.md",
-  principal: {
-    command: [
-      "claude",
-      "--mcp-config",
-      "{mcpJson}",
-      "--allowedTools",
-      "mcp__flux",
-      "{prompt}",
-    ],
-  },
-  // Non-interactive principal for `flux attend` review passes.
-  principalPass: {
-    command: [
-      "claude",
-      "-p",
-      "{prompt}",
-      "--permission-mode",
-      "acceptEdits",
-      "--mcp-config",
-      "{mcpJson}",
-      "--allowedTools",
-      "mcp__flux",
-    ],
-  },
-  workers: {
-    analysis: {
-      command: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits"],
+  families: {
+    codex: {
+      models: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+      efforts: ["low", "medium", "high", "xhigh"],
+      interactive: [
+        "codex",
+        "--model", "{model}",
+        "-c", "model_reasoning_effort={effort}",
+        "-c", "approval_policy=on-request",
+        "-c", "approvals_reviewer=auto_review",
+        "-c", "sandbox_mode=workspace-write",
+        "{prompt}",
+      ],
+      exec: [
+        "codex", "exec", "--skip-git-repo-check",
+        "--model", "{model}",
+        "-c", "model_reasoning_effort={effort}",
+        "-c", "approval_policy=on-request",
+        "-c", "approvals_reviewer=auto_review",
+        "-c", "sandbox_mode=workspace-write",
+        "{prompt}",
+      ],
     },
-    engineer: {
-      command: ["codex", "exec", "--full-auto", "{prompt}"],
+    claude: {
+      models: ["fable", "opus", "sonnet"],
+      // Claude Code takes no per-launch effort flag today — "default" makes the
+      // {effort}-bearing args drop cleanly if a template ever carries one.
+      efforts: ["default"],
+      interactive: [
+        "claude",
+        "--model", "{model}",
+        "--mcp-config", "{mcpJson}",
+        "--allowedTools", "mcp__flux",
+        "{prompt}",
+      ],
+      exec: [
+        "claude", "-p", "{prompt}",
+        "--model", "{model}",
+        "--permission-mode", "acceptEdits",
+        "--mcp-config", "{mcpJson}",
+        "--allowedTools", "mcp__flux",
+      ],
     },
+  },
+  defaults: {
+    principal: { family: "codex", model: "gpt-5.6-sol", effort: "xhigh" },
+    worker: { family: "codex", model: DECIDES, effort: DECIDES },
+    pass: { family: "codex", model: "gpt-5.6-sol", effort: "xhigh" },
   },
 };
 
@@ -60,31 +86,86 @@ function seedAgentsConfigSync(cfg) {
   return true;
 }
 
-/** Parsed roster; falls back to defaults (with a warning field) on bad JSON. */
+/** Parsed roster. New-schema files return {legacy:false, families, defaults};
+ *  old fixed-command files return {legacy:true, principal, principalPass,
+ *  workers}. Corrupt files fall back to defaults with a warning — never throw. */
 function readAgentsConfigSync(cfg) {
   const p = agentsConfigPathSync(cfg);
   try {
     const raw = JSON.parse(fsSync.readFileSync(p, "utf8"));
     if (!raw || typeof raw !== "object") throw new Error("not an object");
-    return {
-      principal: raw.principal && Array.isArray(raw.principal.command) ? raw.principal : DEFAULT_AGENTS.principal,
-      principalPass:
-        raw.principalPass && Array.isArray(raw.principalPass.command)
-          ? raw.principalPass
-          : DEFAULT_AGENTS.principalPass,
-      workers: raw.workers && typeof raw.workers === "object" ? raw.workers : DEFAULT_AGENTS.workers,
-      path: p,
-      warning: null,
-    };
+    if (raw.families && typeof raw.families === "object") {
+      return {
+        legacy: false,
+        families: raw.families,
+        defaults: { ...DEFAULT_AGENTS.defaults, ...(raw.defaults || {}) },
+        path: p,
+        warning: null,
+      };
+    }
+    if (raw.principal && Array.isArray(raw.principal.command)) {
+      return {
+        legacy: true,
+        principal: raw.principal,
+        principalPass:
+          raw.principalPass && Array.isArray(raw.principalPass.command) ? raw.principalPass : raw.principal,
+        workers: raw.workers && typeof raw.workers === "object" ? raw.workers : {},
+        path: p,
+        warning: null,
+      };
+    }
+    throw new Error("neither families nor a principal command");
   } catch (e) {
     return {
-      principal: DEFAULT_AGENTS.principal,
-      principalPass: DEFAULT_AGENTS.principalPass,
-      workers: DEFAULT_AGENTS.workers,
+      legacy: false,
+      families: DEFAULT_AGENTS.families,
+      defaults: DEFAULT_AGENTS.defaults,
       path: p,
       warning: fsSync.existsSync(p) ? `agents.json unreadable (${(e && e.message) || e}) — using defaults` : null,
     };
   }
+}
+
+// --- last-used picker selection (machine-level, operational — a dotfile so
+// --- agents.json itself stays purely the user's config) ----------------------
+
+function lastUsedPathSync(cfg) {
+  return path.join(cfg, ".agents-last.json");
+}
+
+function readLastUsedSync(cfg) {
+  try {
+    const v = JSON.parse(fsSync.readFileSync(lastUsedPathSync(cfg), "utf8"));
+    return v && typeof v === "object" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastUsedSync(cfg, sel) {
+  try {
+    const p = lastUsedPathSync(cfg);
+    const tmp = p + ".tmp-" + process.pid;
+    fsSync.writeFileSync(tmp, JSON.stringify({ ...sel, ts: new Date().toISOString() }, null, 2) + "\n");
+    fsSync.renameSync(tmp, p);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** The standing selection: last-used picker choice → roster defaults. */
+function standingSelectionSync(cfg, roster) {
+  const last = readLastUsedSync(cfg);
+  const d = roster.defaults || {};
+  const norm = (sel, dflt) => ({
+    family: (sel && sel.family) || (dflt && dflt.family) || "codex",
+    model: (sel && sel.model) || (dflt && dflt.model) || DECIDES,
+    effort: (sel && sel.effort) || (dflt && dflt.effort) || DECIDES,
+  });
+  return {
+    principal: norm(last && last.principal, d.principal),
+    worker: norm(last && last.worker, d.worker),
+  };
 }
 
 /** Does the project's parent dir look like an analysis workspace? */
@@ -97,13 +178,13 @@ function parentIsWorkspaceSync(projectRoot) {
 }
 
 /**
- * Resolve one roster entry into a concrete launch spec.
+ * Resolve one FIXED entry (legacy schema) into a concrete launch spec.
  *   entry: { command: string[], cwd?: "project"|"parent"|<abs>, env?: {} }
- *   opts:  { prompt?, briefPath?, projectRoot, mcpSpec?, client }
- * Placeholders in argv: {prompt} {briefPath} {project} {mcpJson}. When neither
+ *   opts:  { prompt?, briefPath?, projectRoot, mcpSpec?, client, extraEnv? }
+ * Whole-arg placeholders: {prompt} {briefPath} {project} {mcpJson}. When neither
  * {prompt} nor {briefPath} appears and a prompt is given, it is appended as the
- * final argument. Args that resolve to an empty/unavailable placeholder are
- * dropped WITH their preceding flag (e.g. no mcpSpec → "--mcp-config" goes too).
+ * final argument. Args resolving to an unavailable placeholder are dropped WITH
+ * their preceding flag (e.g. no mcpSpec → "--mcp-config" goes too).
  */
 function resolveAgentSpec(entry, opts) {
   if (!entry || !Array.isArray(entry.command) || entry.command.length === 0) {
@@ -136,7 +217,6 @@ function resolveAgentSpec(entry, opts) {
       if (a === "{prompt}" || a === "{briefPath}") usedPromptSlot = true;
       const v = values[a];
       if (v === null) {
-        // unavailable placeholder: drop it, and the flag right before it
         if (args.length > 0 && args[args.length - 1].startsWith("-")) args.pop();
         continue;
       }
@@ -155,17 +235,95 @@ function resolveAgentSpec(entry, opts) {
 
   const env = {
     ...(entry.env && typeof entry.env === "object" ? entry.env : {}),
+    ...(opts.extraEnv && typeof opts.extraEnv === "object" ? opts.extraEnv : {}),
     FLUX_PROJECT: projectRoot,
     FLUX_CLIENT: opts.client || "agent",
   };
   return { command: args[0], args: args.slice(1), cwd, env };
 }
 
-/** The standard principal boot prompt. `cli` is this machine's resolved flux
- *  invocation (fluxPaths.resolveOwnCliCommandsSync().cli) — baked in because
- *  `flux` is usually NOT on PATH and "command not found" on the very first
- *  instruction is a needless detour (callers without a resolver may omit it). */
-function principalBootPrompt(projectRoot, cli) {
+/**
+ * Resolve a FAMILY template (new schema) into a launch spec.
+ *   roster: readAgentsConfigSync result (legacy:false)
+ *   kind:   "interactive" | "exec"
+ *   sel:    { family, model, effort } — model/effort of "default"/DECIDES/empty
+ *           drop their {…}-bearing args (with the preceding flag).
+ *   opts:   as resolveAgentSpec.
+ * {model}/{effort} substitute as SUBSTRINGS (e.g. "reasoning={effort}").
+ */
+function resolveFamilyLaunch(roster, kind, sel, opts) {
+  const families = roster.families || {};
+  const fam = families[sel && sel.family];
+  if (!fam) {
+    const names = Object.keys(families).join(", ") || "(none)";
+    throw new Error(`no agent family "${sel && sel.family}" in ${roster.path || "agents.json"} — families: ${names}`);
+  }
+  const template = fam[kind];
+  if (!Array.isArray(template) || template.length === 0) {
+    throw new Error(`family "${sel.family}" has no "${kind}" command template`);
+  }
+  const usable = (v) => typeof v === "string" && v && v !== "default" && v !== DECIDES;
+  const subs = { "{model}": sel.model, "{effort}": sel.effort };
+  const command = [];
+  for (const a of template) {
+    const holes = Object.keys(subs).filter((k) => a.includes(k));
+    if (holes.length) {
+      if (holes.some((k) => !usable(subs[k]))) {
+        if (command.length > 0 && command[command.length - 1].startsWith("-")) command.pop();
+        continue;
+      }
+      let out = a;
+      for (const k of holes) out = out.split(k).join(subs[k]);
+      command.push(out);
+    } else {
+      command.push(a);
+    }
+  }
+  return resolveAgentSpec({ command, cwd: fam.cwd, env: fam.env }, opts);
+}
+
+// --- worker policy (the picker's worker row, carried to dispatch) ------------
+
+/** Serialize the worker selection for the principal's environment. */
+function workerPolicyEnv(sel) {
+  return JSON.stringify({
+    family: sel.family,
+    model: sel.model || DECIDES,
+    effort: sel.effort || DECIDES,
+  });
+}
+
+function parseWorkerPolicy(raw) {
+  try {
+    const v = JSON.parse(raw ?? "");
+    return v && typeof v === "object" && v.family ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The boot-prompt note telling the principal how to dispatch under `sel`. */
+function workerMenuNote(roster, sel, cli) {
+  if (roster.legacy) {
+    return `Dispatch workers with \`${cli} dispatch <name> --brief-file <f>\` (fixed worker roles from agents.json).`;
+  }
+  const fam = (roster.families || {})[sel.family] || {};
+  const models = (fam.models || []).join(", ") || "(see agents.json)";
+  const efforts = (fam.efforts || []).join(", ") || "(see agents.json)";
+  const decides = sel.model === DECIDES || sel.effort === DECIDES;
+  if (decides) {
+    return (
+      `Dispatch workers with \`${cli} dispatch <name> --model <m> --effort <e> --brief-file <f>\`. ` +
+      `YOU choose each worker's model+effort per task (family ${sel.family} — models: ${models}; efforts: ${efforts}). ` +
+      `Match effort to difficulty: mechanical/well-specified work low/medium; substantial analysis or tricky code high/${(fam.efforts || []).slice(-1)[0] || "xhigh"}.`
+    );
+  }
+  return `Dispatch workers with \`${cli} dispatch <name> --brief-file <f>\` (worker fixed: ${sel.family}/${sel.model}/${sel.effort}; override with --model/--effort only when a task clearly needs it).`;
+}
+
+/** The standard principal boot prompt. `cli` = this machine's resolved flux
+ *  invocation; `workerNote` (workerMenuNote) tells it how to dispatch. */
+function principalBootPrompt(projectRoot, cli, workerNote) {
   const flux = cli || "flux";
   return (
     "You are the Principal for the Flux project at " +
@@ -176,12 +334,13 @@ function principalBootPrompt(projectRoot, cli) {
     flux +
     " config` to locate the machine Context folder, then follow the boot " +
     "sequence in its FluxContext/PRINCIPAL.md (read UserContext, the project's " +
-    "Context/, the journal tail, and open feedback/comments), and open with a standup."
+    "Context/, the journal tail, and open feedback/comments), and open with a standup." +
+    (workerNote ? " " + workerNote : "")
   );
 }
 
 /** The attend-pass prompt: a non-interactive review pass over open feedback. */
-function passPrompt(projectRoot, cli) {
+function passPrompt(projectRoot, cli, workerNote) {
   const flux = cli || "flux";
   return (
     "Review pass for the Flux project at " +
@@ -192,17 +351,26 @@ function passPrompt(projectRoot, cli) {
     flux +
     " config`): boot, then drain ALL open feedback notes and comments — address " +
     "each in place, resolve each with a note, update the notebook session log. Do not " +
-    "wait for user input; propose (don't perform) anything destructive."
+    "wait for user input; propose (don't perform) anything destructive." +
+    (workerNote ? " " + workerNote : "")
   );
 }
 
 module.exports = {
+  DECIDES,
   DEFAULT_AGENTS,
   agentsConfigPathSync,
   seedAgentsConfigSync,
   readAgentsConfigSync,
+  readLastUsedSync,
+  writeLastUsedSync,
+  standingSelectionSync,
   parentIsWorkspaceSync,
   resolveAgentSpec,
+  resolveFamilyLaunch,
+  workerPolicyEnv,
+  parseWorkerPolicy,
+  workerMenuNote,
   principalBootPrompt,
   passPrompt,
 };

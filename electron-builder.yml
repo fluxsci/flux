@@ -25,6 +25,8 @@ files:
   - package.json
   - "!**/node_modules/**/*"
   - node_modules/@lydell/**/*
+  # flux principal's transcript capture (pure JS; required by the unpacked CLI)
+  - node_modules/@xterm/headless/**/*
 
 asar: true
 # @lydell/node-pty ships prebuilt binaries (no local compile, so no rebuild),
@@ -32,6 +34,9 @@ asar: true
 npmRebuild: false
 asarUnpack:
   - node_modules/@lydell/**
+  # flux principal (ELECTRON_RUN_AS_NODE child / external node) resolves these
+  # beside the unpacked CLI bundle — they must live on real disk.
+  - node_modules/@xterm/headless/**
   # W13: the slide-export CLI runs in a child launched with ELECTRON_RUN_AS_NODE,
   # which has NO asar support — so the bundle + its prebaked export assets must be
   # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.

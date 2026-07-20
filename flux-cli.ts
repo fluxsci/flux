@@ -143,8 +143,11 @@ usage: flux <verb> [root] [args] [--flags]
   send [--root R] [--note "…"]         mark a review-pass boundary in the feedback ledger
   context-init [--root R]              ensure the project's Context/ layer (heal old projects)
   agents                               show the machine's agent roster (agents.json)
-  agent [root] [--print]               launch YOUR principal agent on this project (interactive)
-  dispatch <role> --brief-file f [--root R] [--name n]   run a worker with a brief, recorded in Context/Dispatches/
+  principal [root] [--print] [--no-picker] [--no-transcript]   the launch picker + YOUR principal,
+                                       in THIS terminal, with transcript capture (alias: agent);
+                                       [--model m] [--effort e] [--family f] [--worker-model m] [--worker-effort e] skip the picker
+  dispatch <name> --brief-file f [--model m] [--effort e] [--family fam] [--root R]   run a worker with a brief,
+                                       recorded in Context/Dispatches/ (model/effort default to the session's worker policy)
   attend [root] [--interval ms] [--echo]   watch the feedback ledger; Send wakes a principal review pass
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
@@ -263,12 +266,22 @@ async function main() {
     // Principal-agent scheme: interactive launch + the attend daemon are
     // deliberately CLI-only legacy verbs (they own the terminal / never return —
     // inexpressible as registry/MCP tools, like `new`).
+    case "principal":
     case "agent": {
       if (flags.print) {
         console.log(JSON.stringify(core.principalSpec(root()), null, 2));
         break;
       }
-      process.exitCode = await core.runPrincipal(root());
+      process.exitCode = await core.runPrincipal(root(), {
+        family: flags.family as string | undefined,
+        model: flags.model as string | undefined,
+        effort: flags.effort as string | undefined,
+        workerFamily: flags["worker-family"] as string | undefined,
+        workerModel: flags["worker-model"] as string | undefined,
+        workerEffort: flags["worker-effort"] as string | undefined,
+        noPicker: !!flags["no-picker"],
+        noTranscript: !!flags["no-transcript"],
+      });
       break;
     }
     case "attend": {

@@ -96,24 +96,43 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
     ipc.handle("agent:mcpSpec", () => mcpSpecFor());
 
     // Principal-agent scheme: how the in-app Agent drawer launches the USER'S
-    // configured principal (agents.json roster) for the open project — the
-    // roster command with placeholders resolved, the flux MCP spec embedded
-    // when the command asks for it ({mcpJson}), the standard boot prompt, and
-    // the cwd rule (analysis-workspace parent when it looks like one).
-    ipc.handle("agent:principalSpec", () => {
+    // configured principal for the open project. Two modes:
+    //   {probe:true}       → roster info for the drawer's launch picker
+    //                        (families' model/effort menus + the standing selection)
+    //   {selection?}       → the resolved launch spec (family templates on the
+    //                        new schema, fixed entries on legacy rosters), with
+    //                        the boot prompt + worker-policy env; a provided
+    //                        selection is persisted as last-used.
+    ipc.handle("agent:principalSpec", (_e, opts) => {
       const root = getCurrentRoot();
       if (!root || !fs.existsSync(root)) return { ok: false, error: "no open project" };
       const cfg = fluxPaths.resolveFluxConfigPathSync();
       const roster = agentsConfig.readAgentsConfigSync(cfg);
+      const standing = agentsConfig.standingSelectionSync(cfg, roster);
+      if (opts && opts.probe) {
+        const families = {};
+        for (const [name, fam] of Object.entries(roster.families || {})) {
+          families[name] = { models: fam.models || [], efforts: fam.efforts || [] };
+        }
+        return { ok: true, probe: true, legacy: !!roster.legacy, families, selection: standing, warning: roster.warning };
+      }
+      const selection = (opts && opts.selection) || standing;
       const mcp = mcpSpecFor();
       try {
-        const prompt = agentsConfig.principalBootPrompt(root, fluxPaths.resolveOwnCliCommandsSync().cli);
-        const spec = agentsConfig.resolveAgentSpec(roster.principal, {
+        const cli = fluxPaths.resolveOwnCliCommandsSync().cli;
+        const workerNote = agentsConfig.workerMenuNote(roster, selection.worker, cli);
+        const prompt = agentsConfig.principalBootPrompt(root, cli, workerNote);
+        const common = {
           prompt,
           projectRoot: root,
           mcpSpec: mcp.ok ? { command: mcp.command, args: mcp.args, env: mcp.env } : null,
           client: "principal",
-        });
+          extraEnv: { FLUX_WORKER_POLICY: agentsConfig.workerPolicyEnv(selection.worker) },
+        };
+        const spec = roster.legacy
+          ? agentsConfig.resolveAgentSpec(roster.principal, common)
+          : agentsConfig.resolveFamilyLaunch(roster, "interactive", selection.principal, common);
+        if (opts && opts.selection) agentsConfig.writeLastUsedSync(cfg, selection);
         // `prompt` rides along so the renderer can offer copy-to-clipboard (the
         // user pasting it into their own terminal session).
         return { ok: true, ...spec, prompt, warning: roster.warning, agentsPath: roster.path };

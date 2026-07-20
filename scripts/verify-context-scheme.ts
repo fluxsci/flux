@@ -84,7 +84,58 @@ try {
   ok(ac.seedAgentsConfigSync(cfg) === true, "agents.json seeded on first run");
   ok(ac.seedAgentsConfigSync(cfg) === false, "seed is once-only (user-owned afterwards)");
   const roster = ac.readAgentsConfigSync(cfg);
-  ok(Array.isArray(roster.principal.command) && roster.workers.analysis, "roster parses with principal + workers");
+  ok(!roster.legacy && roster.families.codex && roster.families.claude, "seeded roster is the family-template schema");
+  ok(roster.defaults.worker.model === ac.DECIDES && roster.defaults.principal.effort === "xhigh", "defaults: principal fixed, worker principal-decides");
+
+  // family templates: {model}/{effort} substitute as SUBSTRINGS; a decides/default
+  // value drops the arg WITH its flag; the boot prompt/env still flow through.
+  const projectF = path.join(scratch, "ws", "paper");
+  fs.mkdirSync(projectF, { recursive: true });
+  const famSpec = ac.resolveFamilyLaunch(roster, "exec", { family: "codex", model: "gpt-5.6-luna", effort: "medium" }, {
+    prompt: "brief text",
+    projectRoot: projectF,
+    mcpSpec: null,
+    client: "worker",
+  });
+  ok(famSpec.command === "codex" && famSpec.args.includes("gpt-5.6-luna"), "family template substitutes {model}");
+  ok(famSpec.args.includes("model_reasoning_effort=medium"), "family template substitutes {effort} inside a composite arg");
+  const noEffort = ac.resolveFamilyLaunch(roster, "exec", { family: "codex", model: "gpt-5.6-sol", effort: "default" }, {
+    prompt: "x",
+    projectRoot: projectF,
+    mcpSpec: null,
+    client: "worker",
+  });
+  ok(!noEffort.args.some((a: string) => a.includes("model_reasoning_effort")) && !noEffort.args.includes("-c") === false, "effort=default drops the effort arg + its flag");
+  ok(noEffort.args.filter((a: string) => a === "-c").length === 3, "only the effort -c pair dropped (approval trio intact)");
+  let famErr = "";
+  try {
+    ac.resolveFamilyLaunch(roster, "exec", { family: "gemini", model: "x", effort: "y" }, { prompt: "x", projectRoot: projectF, client: "worker" });
+  } catch (e) {
+    famErr = String(e);
+  }
+  ok(/no agent family "gemini"/.test(famErr) && /codex/.test(famErr), "unknown family errors with the available list");
+
+  // standing selection: defaults, then last-used wins
+  const sel0 = ac.standingSelectionSync(cfg, roster);
+  ok(sel0.principal.model === "gpt-5.6-sol" && sel0.worker.model === ac.DECIDES, "standing selection = defaults before any pick");
+  ac.writeLastUsedSync(cfg, { principal: { family: "codex", model: "gpt-5.6-terra", effort: "high" }, worker: { family: "codex", model: "gpt-5.6-luna", effort: "low" } });
+  const sel1 = ac.standingSelectionSync(cfg, roster);
+  ok(sel1.principal.model === "gpt-5.6-terra" && sel1.worker.effort === "low", "last-used picker choice overrides defaults");
+
+  // worker policy env + menu notes
+  const pol = ac.parseWorkerPolicy(ac.workerPolicyEnv({ family: "codex", model: ac.DECIDES, effort: ac.DECIDES }));
+  ok(pol.family === "codex" && pol.model === ac.DECIDES, "worker policy round-trips through the env");
+  const menuDecide = ac.workerMenuNote(roster, { family: "codex", model: ac.DECIDES, effort: ac.DECIDES }, "flux");
+  ok(/--model <m> --effort <e>/.test(menuDecide) && /gpt-5.6-terra/.test(menuDecide) && /Match effort to difficulty/.test(menuDecide), "decide-mode menu lists models/efforts + guidance");
+  const menuFixed = ac.workerMenuNote(roster, { family: "codex", model: "gpt-5.6-sol", effort: "medium" }, "flux");
+  ok(/worker fixed: codex\/gpt-5.6-sol\/medium/.test(menuFixed), "fixed-mode note names the pinned worker");
+
+  // legacy rosters still resolve (fixed principal/workers commands)
+  const legacyCfg = path.join(scratch, "LegacyConfig");
+  fs.mkdirSync(legacyCfg, { recursive: true });
+  fs.writeFileSync(path.join(legacyCfg, "agents.json"), JSON.stringify({ principal: { command: ["mytool", "{prompt}"] }, workers: { analysis: { command: ["mytool", "-p", "{prompt}"] } } }));
+  const legacy = ac.readAgentsConfigSync(legacyCfg);
+  ok(legacy.legacy === true && legacy.principalPass.command[0] === "mytool", "legacy fixed-command roster detected (pass falls back to principal)");
 
   // resolve: placeholder substitution + mcp wiring
   const project = path.join(scratch, "ws", "paper");
@@ -114,10 +165,10 @@ try {
   ok(ac.resolveAgentSpec({ command: ["x"] }, { projectRoot: project, client: "worker" }).cwd === path.join(scratch, "ws"), "cwd = parent when it looks like an analysis workspace");
   ok(ac.resolveAgentSpec({ command: ["x"], cwd: "project" }, { projectRoot: project, client: "worker" }).cwd === project, "explicit cwd override wins");
 
-  // corrupt roster falls back with warning
+  // corrupt roster falls back with warning (to the DEFAULT family schema)
   fs.writeFileSync(path.join(cfg, "agents.json"), "{not json");
   const bad = ac.readAgentsConfigSync(cfg);
-  ok(bad.warning !== null && Array.isArray(bad.principal.command), "corrupt agents.json → defaults + warning, never a throw");
+  ok(bad.warning !== null && !bad.legacy && bad.families.codex, "corrupt agents.json → default families + warning, never a throw");
 
   // boot/pass prompts point at the doctrine, with the machine CLI baked in
   // (the "flux: command not found" first-instruction detour, 2026-07-19).

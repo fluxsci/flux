@@ -88,7 +88,7 @@ The principal drains both queues (`flux comments`, `flux feedback`), addresses e
 
 ## While you're away
 
-Leave `flux attend` running in a terminal. It watches the ledger; when you hit **Send**, it wakes one non-interactive principal pass (the `principalPass` roster entry) that drains the queue, resolves items, and updates the notebook — serialized, logged under `.meta/agent/passes/`, and idempotent across restarts. Only *new* sends trigger.
+Leave `flux attend` running in a terminal. It watches the ledger; when you hit **Send**, it wakes one non-interactive principal pass (the roster's `pass` default) that drains the queue, resolves items, and updates the notebook — serialized, logged under `.meta/agent/passes/`, and idempotent across restarts. Only *new* sends trigger.
 
 # The app surfaces
 
@@ -112,32 +112,54 @@ flux feedback [--all]      # the ledger: open notes with their context stamps
 flux resolve-feedback <id|text> --note "what I did"
 flux send                  # mark a review-pass boundary
 flux comments / resolve-comment / add-comment   # the comment loop (both directions)
-flux agents                # show the roster
-flux agent [--print]       # launch YOUR principal on this project, interactively
-flux dispatch <role> --brief-file brief.md --name "new-dataset"
+flux agents                # show the roster matrix
+flux principal [--print]   # the launch picker + YOUR principal, in this terminal (alias: agent)
+flux dispatch <name> --brief-file brief.md --model gpt-5.6-sol --effort medium
 flux attend [--interval ms] [--echo]            # the send-wakes-a-pass watcher
 ```
 
+# Launching the principal: the picker
+
+The preferred flow is terminal-first: `cd` into (or near) a project and run
+**`flux principal`**. A minimal picker appears — Principal row and Workers row, each
+family · model · effort, pre-filled with your last choice so a bare **Enter launches
+immediately**; `p`/`w` customize a row, `q` quits. The Workers row supports
+**"principal decides"**: the principal then picks each worker's model and effort per
+task (`flux dispatch <name> --model … --effort …`), guided by a menu injected into its
+boot prompt — cheap mechanical work gets low effort, hard analysis gets the high tiers.
+Every dispatch records which agent actually ran in its `result.md`.
+
+Sessions launched this way are **PTY-wrapped**: your terminal behaves normally (any
+stack — ghostty, zellij, tmux, ssh), while Flux serializes the rendered conversation to
+`Context/Transcripts/` exactly like the drawer does. `--no-transcript` opts out;
+`--no-picker` (or explicit `--model`/`--effort` flags) skips the picker; `--print` shows
+the resolved launch without running it. The in-app drawer (**Ctrl+Shift+J**) presents
+the same picker before its first session.
+
 # The agent roster — `agents.json` {#sec-roster}
 
-`<FluxConfig>/agents.json` names the actual CLIs. The full format reference is `FluxContext/AGENTS-CONFIG.md`; the shape:
+`<FluxConfig>/agents.json` describes the CLIs as a **matrix** the pickers read: per-vendor command **templates** (`families`, with `{model}`/`{effort}` placeholders plus each family's model and effort menus) and standing **defaults** for the principal, workers, and attend passes. The full format reference is `FluxContext/AGENTS-CONFIG.md`; the shape:
 
 ``` json
 {
-  "principal":     { "command": ["claude", "--mcp-config", "{mcpJson}",
-                                 "--allowedTools", "mcp__flux", "{prompt}"] },
-  "principalPass": { "command": ["claude", "-p", "{prompt}",
-                                 "--permission-mode", "acceptEdits"] },
-  "workers": {
-    "analysis": { "command": ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits"] },
-    "engineer": { "command": ["codex", "exec", "--full-auto", "{prompt}"] }
+  "families": {
+    "codex":  { "models": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+                "efforts": ["low", "medium", "high", "xhigh"],
+                "interactive": ["codex", "--model", "{model}", "…", "{prompt}"],
+                "exec":        ["codex", "exec", "--model", "{model}", "…", "{prompt}"] },
+    "claude": { "models": ["fable", "opus", "sonnet"], "efforts": ["default"], "…": "…" }
+  },
+  "defaults": {
+    "principal": { "family": "codex", "model": "gpt-5.6-sol", "effort": "xhigh" },
+    "worker":    { "family": "codex", "model": "principal-decides", "effort": "principal-decides" },
+    "pass":      { "family": "codex", "model": "gpt-5.6-sol", "effort": "xhigh" }
   }
 }
 ```
 
-Placeholders resolved at launch: `{prompt}` (the boot prompt or brief), `{briefPath}`, `{project}`, and `{mcpJson}` (the flux MCP server spec, so the principal gets typed Flux tools and inline figure PNGs). Each entry may set `cwd` (`"project"`, `"parent"`, or an absolute path — default is the parent directory when it looks like an analysis workspace, else the project) and extra `env`. `FLUX_PROJECT` and `FLUX_CLIENT` are always set for the child.
+Placeholders resolve at launch (`{model}`/`{effort}` substitute inside composite args; `{prompt}`, `{briefPath}`, `{project}`, `{mcpJson}` as before); `FLUX_PROJECT`, `FLUX_CLIENT`, and `FLUX_WORKER_POLICY` (the picker's worker row) are always set on the child. A legacy roster of fixed argv entries still resolves — the pickers simply deactivate.
 
-**This file is the whole vendor coupling.** The principal is a role defined by what it reads (the Context folders) and how it's launched (this roster) — change the command array and your collaborator gets a new brain with the same memory.
+**This file is the whole vendor coupling.** The principal is a role defined by what it reads (the Context folders) and how it's launched (this matrix) — pick a different family in the picker and your collaborator gets a new brain with the same memory.
 
 # Where the "skill" fits
 

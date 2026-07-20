@@ -39,6 +39,11 @@ try {
 const FLUX_BUILD = { version: pkg.version, commit, builtAt: new Date().toISOString() };
 
 const EXTERNAL = [
+  // Principal PTY transcript wrapper (flux principal): native pty + the pure-JS
+  // headless terminal must resolve at runtime, not bundle (the pty is native;
+  // headless is kept external so app + CLI share one copy).
+  "@lydell/node-pty",
+  "@xterm/headless",
   // Dev-only fresh-compute fallback in exportDeck.ts; never reached packaged.
   "esbuild",
   // Native module (.node), lazily imported only by the render-figure-PNG verb

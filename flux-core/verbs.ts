@@ -1568,13 +1568,10 @@ export const VERBS: VerbDef[] = [
     name: "list_agents",
     cli: "agents",
     summary:
-      "Show the machine's agent roster (<FluxConfig>/agents.json): the principal command, the non-interactive pass command, and the dispatchable worker roles. Edit that file to change agents — see FluxContext/AGENTS-CONFIG.md.",
+      "Show the machine's agent roster (<FluxConfig>/agents.json): the FAMILIES (per-vendor command templates with their model/effort menus) and the standing defaults for principal/worker/pass — worker values of 'principal-decides' mean dispatch requires --model/--effort. Edit that file to change agents — see FluxContext/AGENTS-CONFIG.md.",
     params: {},
     cliArgs: [],
-    handler: () => {
-      const r = core.readRoster();
-      return { path: r.path, warning: r.warning, principal: r.principal, principalPass: r.principalPass, workers: r.workers };
-    },
+    handler: () => core.readRoster(),
     render: {
       human: (r) => ({ out: JSON.stringify(r, null, 2) }),
       mcp: (r) => text(JSON.stringify(r, null, 2)),
@@ -1585,18 +1582,24 @@ export const VERBS: VerbDef[] = [
     cli: "dispatch",
     cliRoot: "flags",
     summary:
-      "Dispatch a WORKER agent (a role from agents.json) with a brief, and wait for it. The brief is the worker's whole contract — write it complete (goal + why, exact paths, environment, conventions, what done looks like, what to report). Recorded under Context/Dispatches/<stamp>-<name>/ (brief.md, log.txt, result.md); returns the report tail. Principals: prefer --brief-file (briefs are reviewable craft).",
+      "Dispatch a WORKER agent with a brief, and wait for it. <name> labels the dispatch; the worker's model/effort resolve from --family/--model/--effort → the session's worker policy (FLUX_WORKER_POLICY, set at principal launch) → the roster defaults — a standing 'principal-decides' policy means YOU pass --model/--effort per task (match effort to difficulty). The brief is the worker's whole contract — write it complete (goal + why, exact paths, environment, conventions, what done looks like, what to report). Recorded under Context/Dispatches/<stamp>-<name>/ (brief.md, log.txt, result.md + the agent used); returns the report tail. Prefer --brief-file (briefs are reviewable craft).",
     params: {
       role: z.string(),
       brief: z.string().optional(),
       briefFile: z.string().optional(),
       name: z.string().optional(),
+      family: z.string().optional(),
+      model: z.string().optional(),
+      effort: z.string().optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "role", required: true },
       { kind: "flag", at: "brief", into: "brief" },
       { kind: "flag", at: "brief-file", into: "briefFile" },
       { kind: "flag", at: "name", into: "name" },
+      { kind: "flag", at: "family", into: "family" },
+      { kind: "flag", at: "model", into: "model" },
+      { kind: "flag", at: "effort", into: "effort" },
     ],
     handler: (ctx, a) =>
       core.dispatch(ctx.root, {
@@ -1604,18 +1607,21 @@ export const VERBS: VerbDef[] = [
         brief: a.brief as string | undefined,
         briefFile: a.briefFile as string | undefined,
         name: a.name as string | undefined,
+        family: a.family as string | undefined,
+        model: a.model as string | undefined,
+        effort: a.effort as string | undefined,
       }),
     render: {
       human: (r) => {
-        const d = r as { dir: string; exitCode: number; ms: number; report: string };
+        const d = r as { dir: string; exitCode: number; ms: number; report: string; agent: string };
         return {
-          out: JSON.stringify({ dir: d.dir, exitCode: d.exitCode, seconds: +(d.ms / 1000).toFixed(1), report: d.report }, null, 2),
+          out: JSON.stringify({ dir: d.dir, agent: d.agent, exitCode: d.exitCode, seconds: +(d.ms / 1000).toFixed(1), report: d.report }, null, 2),
           exit: d.exitCode === 0 ? 0 : 1,
         };
       },
       mcp: (r) => {
-        const d = r as { dir: string; exitCode: number; report: string };
-        return text(`dispatch ${d.exitCode === 0 ? "succeeded" : `FAILED (exit ${d.exitCode})`} — record: ${d.dir}\n\n${d.report}`);
+        const d = r as { dir: string; exitCode: number; report: string; agent: string };
+        return text(`dispatch (${d.agent}) ${d.exitCode === 0 ? "succeeded" : `FAILED (exit ${d.exitCode})`} — record: ${d.dir}\n\n${d.report}`);
       },
     },
   },

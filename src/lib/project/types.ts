@@ -333,10 +333,25 @@ export interface FileBridge {
     env?: Record<string, string>;
   }>;
   /** Principal-agent scheme: the resolved launch spec for the user's configured
-   *  principal (agents.json roster + boot prompt + MCP wiring + cwd rule). */
-  agentPrincipalSpec?(): Promise<{
+   *  principal (agents.json roster + boot prompt + MCP wiring + cwd rule).
+   *  {probe:true} returns the picker info instead; a provided selection is
+   *  persisted as last-used. */
+  agentPrincipalSpec?(opts?: {
+    probe?: boolean;
+    selection?: {
+      principal: { family: string; model: string; effort: string };
+      worker: { family: string; model: string; effort: string };
+    };
+  }): Promise<{
     ok: boolean;
     error?: string;
+    probe?: boolean;
+    legacy?: boolean;
+    families?: Record<string, { models: string[]; efforts: string[] }>;
+    selection?: {
+      principal: { family: string; model: string; effort: string };
+      worker: { family: string; model: string; effort: string };
+    };
     command?: string;
     args?: string[];
     cwd?: string;

@@ -156,7 +156,8 @@ if (process.platform !== "win32") {
       (n) => n.endsWith(".md") && /\{\{(FLUX_(CLI|MCP|MCP_PATH|REPO)|LIGHTTABLE_DIR)\}\}/.test(fs.readFileSync(path.join(fc1, n), "utf8")),
     );
     assert(unsubbed.length === 0, `every synced FluxContext doc substituted its placeholders (${unsubbed.join(", ") || "all clean"})`);
-    assert(JSON.parse(fs.readFileSync(path.join(cfg, "agents.json"), "utf8")).principal.command.length > 0, "agents.json roster seeded");
+    const seededRoster = JSON.parse(fs.readFileSync(path.join(cfg, "agents.json"), "utf8"));
+    assert(seededRoster.families && seededRoster.defaults.principal.family, "agents.json roster seeded (family-template schema)");
     assert(info.agentsConfigPath === path.join(cfg, "agents.json"), "configInfo reports agentsConfigPath");
     assert(info.userContextPath === uc1 && info.fluxContextPath === fc1, "configInfo reports the Context paths");
     const marker = JSON.parse(fs.readFileSync(path.join(cfg, ".fluxconfig.json"), "utf8"));

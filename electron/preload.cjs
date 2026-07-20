@@ -172,7 +172,7 @@ contextBridge.exposeInMainWorld("fig", {
   // project — embedded by the agent drawer in `claude --mcp-config` so the spawned
   // session can see the paper (get_reading_context / get_paper_text / annotations).
   agentMcpSpec: () => ipcRenderer.invoke("agent:mcpSpec"),
-  agentPrincipalSpec: () => ipcRenderer.invoke("agent:principalSpec"),
+  agentPrincipalSpec: (opts) => ipcRenderer.invoke("agent:principalSpec", opts),
 
   // Integrated terminal: drive a native shell (PTY) living in the main process.
   // write/resize are fire-and-forget; onData/onExit return an unsubscribe fn and

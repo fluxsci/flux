@@ -35,8 +35,9 @@ const waitFor = async (cond: () => boolean, ms: number): Promise<boolean> => {
 };
 
 try {
-  // Scratch FluxConfig with stub node workers (vendor-agnostic by construction:
-  // the "agents" here are 5-line node scripts).
+  // Scratch FluxConfig with a stub FAMILY (vendor-agnostic by construction:
+  // the "agents" here are 5-line node scripts; the exec template records the
+  // substituted {model}/{effort} so resolution is assertable).
   const cfg = path.join(process.env.HOME, "FluxConfig");
   fs.mkdirSync(cfg, { recursive: true });
   const stubWorker = path.join(scratch, "stub-worker.mjs");
@@ -44,6 +45,7 @@ try {
     stubWorker,
     `const prompt = process.argv[2] ?? "";
 console.log("WORKER client=" + process.env.FLUX_CLIENT + " project=" + (process.env.FLUX_PROJECT ? "set" : "unset"));
+console.log("AGENT model=" + (process.argv[3] ?? "?") + " effort=" + (process.argv[4] ?? "?"));
 console.log("BRIEF: " + prompt.slice(0, 60));
 if (prompt.includes("PLEASE FAIL")) process.exit(3);
 console.log("REPORT: analysis complete, 2 plots written");
@@ -58,16 +60,29 @@ console.log("PASS OK");
 `,
   );
   const passMarker = path.join(scratch, "pass-marker.txt");
-  fs.writeFileSync(
-    path.join(cfg, "agents.json"),
-    JSON.stringify({
-      principal: { command: ["node", stubWorker, "{prompt}"] },
-      principalPass: { command: ["node", stubPass], env: { PASS_MARKER: passMarker }, cwd: "project" },
-      workers: {
-        analysis: { command: ["node", stubWorker, "{prompt}"], cwd: "project" },
+  const newRoster = {
+    families: {
+      stubw: {
+        models: ["m1", "m2"],
+        efforts: ["low", "medium", "high"],
+        exec: ["node", stubWorker, "{prompt}", "{model}", "{effort}"],
+        cwd: "project",
       },
-    }),
-  );
+      stubp: {
+        models: ["pm"],
+        efforts: ["pe"],
+        exec: ["node", stubPass],
+        env: { PASS_MARKER: passMarker },
+        cwd: "project",
+      },
+    },
+    defaults: {
+      principal: { family: "stubw", model: "m1", effort: "high" },
+      worker: { family: "stubw", model: "principal-decides", effort: "principal-decides" },
+      pass: { family: "stubp", model: "pm", effort: "pe" },
+    },
+  };
+  fs.writeFileSync(path.join(cfg, "agents.json"), JSON.stringify(newRoster));
 
   const core = await import("../flux-core/index");
   const root = path.join(scratch, "proj");
@@ -75,13 +90,29 @@ console.log("PASS OK");
 
   // --- roster ---------------------------------------------------------------
   const roster = core.readRoster();
-  ok(roster.path === path.join(cfg, "agents.json") && !roster.warning, "roster resolves from scratch FluxConfig");
+  ok(roster.path === path.join(cfg, "agents.json") && !roster.warning && !roster.legacy, "family roster resolves from scratch FluxConfig");
 
-  // --- dispatch happy path ---------------------------------------------------
+  // --- principal-decides discipline ------------------------------------------
   const briefFile = path.join(scratch, "brief.md");
   fs.writeFileSync(briefFile, "# Task\n\nAnalyze the new dataset and report.\n");
-  const r1 = await core.dispatch(root, { role: "analysis", briefFile, name: "New Dataset" });
-  ok(r1.exitCode === 0, "dispatch: stub worker succeeded");
+  let undecided = "";
+  try {
+    await core.dispatch(root, { role: "analysis", briefFile });
+  } catch (e) {
+    undecided = String(e);
+  }
+  ok(/--model \+ --effort unset/.test(undecided) && /models m1, m2/.test(undecided), "dispatch: principal-decides policy demands flags, with the menu in the error");
+
+  // --- env policy (the picker's worker row) ----------------------------------
+  process.env.FLUX_WORKER_POLICY = JSON.stringify({ family: "stubw", model: "m2", effort: "low" });
+  const rEnv = await core.dispatch(root, { role: "analysis", briefFile, name: "env-policy" });
+  delete process.env.FLUX_WORKER_POLICY;
+  ok(rEnv.exitCode === 0 && rEnv.agent === "stubw/m2/low", `dispatch: FLUX_WORKER_POLICY resolves the worker (${rEnv.agent})`);
+  ok(/AGENT model=m2 effort=low/.test(fs.readFileSync(path.join(root, rEnv.dir, "log.txt"), "utf8")), "dispatch: policy values reached the worker argv");
+
+  // --- explicit flags beat everything ----------------------------------------
+  const r1 = await core.dispatch(root, { role: "analysis", briefFile, name: "New Dataset", model: "m1", effort: "medium" });
+  ok(r1.exitCode === 0 && r1.agent === "stubw/m1/medium", "dispatch: explicit --model/--effort resolve the worker");
   ok(/^Context\/Dispatches\/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-new-dataset$/.test(r1.dir), `dispatch: record dir named + slugged (${r1.dir})`);
   const dirAbs = path.join(root, r1.dir);
   ok(fs.readFileSync(path.join(dirAbs, "brief.md"), "utf8").includes("Analyze the new dataset"), "dispatch: brief.md recorded verbatim");
@@ -89,21 +120,41 @@ console.log("PASS OK");
   ok(/client=worker project=set/.test(log), "dispatch: worker got FLUX_CLIENT=worker + FLUX_PROJECT");
   ok(/BRIEF: # Task/.test(log), "dispatch: {prompt} carried the brief text");
   ok(/REPORT: analysis complete/.test(r1.report), "dispatch: report tail returned to the caller");
-  ok(fs.readFileSync(path.join(dirAbs, "result.md"), "utf8").includes("- exit: 0"), "dispatch: result.md records the outcome");
+  const resultMd = fs.readFileSync(path.join(dirAbs, "result.md"), "utf8");
+  ok(resultMd.includes("- exit: 0") && resultMd.includes("- agent: stubw/m1/medium"), "dispatch: result.md records outcome + the agent used");
   const journal = fs.readFileSync(path.join(root, ".meta", "journal.ndjson"), "utf8");
   ok(/"action":"dispatch"/.test(journal) && /"action":"dispatch_done"/.test(journal), "dispatch: journaled start + done");
 
-  // --- dispatch failure + unknown role ---------------------------------------
-  const r2 = await core.dispatch(root, { role: "analysis", brief: "PLEASE FAIL now", name: "boom" });
+  // --- dispatch failure + unknown family --------------------------------------
+  const r2 = await core.dispatch(root, { role: "analysis", brief: "PLEASE FAIL now", name: "boom", model: "m1", effort: "low" });
   ok(r2.exitCode === 3, "dispatch: worker exit code propagates");
   ok(fs.existsSync(path.join(root, r2.dir, "result.md")), "dispatch: failure still records result.md");
   let unknown = "";
   try {
-    await core.dispatch(root, { role: "nope", brief: "x" });
+    await core.dispatch(root, { role: "x", brief: "x", family: "nope", model: "m", effort: "e" });
   } catch (e) {
     unknown = String(e);
   }
-  ok(/no worker role "nope"/.test(unknown) && /analysis/.test(unknown), "dispatch: unknown role lists available roles");
+  ok(/no agent family "nope"/.test(unknown) && /stubw/.test(unknown), "dispatch: unknown family lists available families");
+
+  // --- legacy fixed-command rosters still dispatch by role --------------------
+  fs.writeFileSync(
+    path.join(cfg, "agents.json"),
+    JSON.stringify({
+      principal: { command: ["node", stubWorker, "{prompt}"] },
+      workers: { analysis: { command: ["node", stubWorker, "{prompt}", "legacy-m", "legacy-e"], cwd: "project" } },
+    }),
+  );
+  const rLegacy = await core.dispatch(root, { role: "analysis", briefFile, name: "legacy" });
+  ok(rLegacy.exitCode === 0 && rLegacy.agent === "legacy:analysis", "dispatch: legacy roster resolves by role");
+  let legacyUnknown = "";
+  try {
+    await core.dispatch(root, { role: "nope", brief: "x" });
+  } catch (e) {
+    legacyUnknown = String(e);
+  }
+  ok(/no worker role "nope"/.test(legacyUnknown), "dispatch: legacy unknown role lists roles");
+  fs.writeFileSync(path.join(cfg, "agents.json"), JSON.stringify(newRoster)); // restore family schema
 
   // --- runPass ----------------------------------------------------------------
   const passCode = await core.runPass(root);

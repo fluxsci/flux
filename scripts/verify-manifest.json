@@ -47,6 +47,7 @@
       "verify-feedback.ts",
       "verify-context-scheme.ts",
       "verify-dispatch.ts",
+      "verify-principal-pty.ts",
       "verify-line-arrow.ts",
       "verify-text-wrap.ts",
       "verify-compensate.ts",
@@ -364,7 +365,16 @@
       "glob": "flux-core/agents.ts",
       "run": [
         "verify-dispatch.ts",
+        "verify-principal-pty.ts",
         "verify-registry-parity.ts"
+      ]
+    },
+    {
+      "glob": "electron/agentsConfig.cjs",
+      "run": [
+        "verify-context-scheme.ts",
+        "verify-dispatch.ts",
+        "verify-principal-pty.ts"
       ]
     },
     {

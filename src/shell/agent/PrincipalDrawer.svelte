@@ -11,13 +11,56 @@
     fitNow,
     initPrincipalSession,
     isAvailable,
+    launch,
     principalInfo,
     principalNotice,
     principalStatus,
+    probeRoster,
+    resetToIdle,
     restart,
+    type PrincipalSelection,
   } from "./principalSession";
   import { principalDrawerOpen } from "../command/commandBus";
   import { copyPrincipalPrompt } from "../command/globalCommands";
+
+  const DECIDES = "principal-decides";
+  let families = $state<Record<string, { models: string[]; efforts: string[] }>>({});
+  let legacyRoster = $state(false);
+  let sel = $state<PrincipalSelection | null>(null);
+  let probing = $state(false);
+
+  const showPicker = $derived(isAvailable() && $principalStatus === "idle");
+
+  async function loadProbe() {
+    if (probing) return;
+    probing = true;
+    try {
+      const p = await probeRoster();
+      if (p?.ok && p.probe) {
+        families = p.families ?? {};
+        legacyRoster = !!p.legacy;
+        sel = p.selection ?? null;
+      }
+    } finally {
+      probing = false;
+    }
+  }
+  $effect(() => {
+    if (showPicker && !sel) void loadProbe();
+  });
+
+  function famOptions(fam: string): { models: string[]; efforts: string[] } {
+    return families[fam] ?? { models: [], efforts: [] };
+  }
+  function onFamilyChange(row: "principal" | "worker") {
+    if (!sel) return;
+    const f = famOptions(sel[row].family);
+    if (!f.models.includes(sel[row].model) && sel[row].model !== DECIDES) sel[row].model = f.models[0] ?? "";
+    if (!f.efforts.includes(sel[row].effort) && sel[row].effort !== DECIDES) sel[row].effort = f.efforts[0] ?? "";
+  }
+  function doLaunch() {
+    if (sel) void launch($state.snapshot(sel) as PrincipalSelection);
+  }
 
   let host = $state<HTMLDivElement | undefined>(undefined);
   let ro: ResizeObserver | null = null;
@@ -132,12 +175,47 @@
       </button>
       {#if $principalStatus === "exited"}
         <button class="pd-btn" onclick={() => void restart()}>Restart</button>
+        <button class="pd-btn" onclick={() => void resetToIdle()}>New session…</button>
       {/if}
       <button class="pd-btn" onclick={close} title="Ctrl+Shift+J">Close</button>
     </div>
   </div>
   {#if isAvailable()}
-    <div class="pd-term" bind:this={host}></div>
+    {#if showPicker}
+      <div class="pd-picker">
+        {#if legacyRoster}
+          <div class="pk-note">Legacy roster (fixed commands in agents.json) — the picker is inactive.</div>
+          <button class="pk-launch" onclick={doLaunch} disabled={!sel}>Launch principal</button>
+        {:else if sel}
+          {#each [["principal", "Principal"], ["worker", "Workers"]] as [row, label] (row)}
+            <div class="pk-row">
+              <span class="pk-label">{label}</span>
+              <select
+                bind:value={sel[row as "principal" | "worker"].family}
+                onchange={() => onFamilyChange(row as "principal" | "worker")}>
+                {#each Object.keys(families) as f (f)}<option value={f}>{f}</option>{/each}
+              </select>
+              <select bind:value={sel[row as "principal" | "worker"].model}>
+                {#if row === "worker"}<option value={DECIDES}>principal decides</option>{/if}
+                {#each famOptions(sel[row as "principal" | "worker"].family).models as m (m)}
+                  <option value={m}>{m}</option>
+                {/each}
+              </select>
+              <select bind:value={sel[row as "principal" | "worker"].effort}>
+                {#if row === "worker"}<option value={DECIDES}>principal decides</option>{/if}
+                {#each famOptions(sel[row as "principal" | "worker"].family).efforts as e (e)}
+                  <option value={e}>{e}</option>
+                {/each}
+              </select>
+            </div>
+          {/each}
+          <button class="pk-launch" onclick={doLaunch}>Launch principal</button>
+        {:else}
+          <div class="pk-note">Reading the agent roster…</div>
+        {/if}
+      </div>
+    {/if}
+    <div class="pd-term" class:hidden={showPicker} bind:this={host}></div>
   {:else}
     <div class="pd-unavail">
       The Agent drawer needs the Flux desktop app (a real PTY). In the browser dev
@@ -221,6 +299,55 @@
     flex: 1 1 auto;
     min-height: 0;
     padding: 4px 6px 6px;
+  }
+  .pd-term.hidden {
+    display: none;
+  }
+  .pd-picker {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 16px 22px;
+  }
+  .pk-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pk-label {
+    width: 72px;
+    font-size: var(--ts-xs, 11px);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--c-tx-faint);
+  }
+  .pk-row select {
+    font: inherit;
+    font-size: var(--ts-sm, 13px);
+    background: var(--c-surface);
+    color: var(--c-tx);
+    border: 1px solid var(--c-edge);
+    border-radius: var(--r-1, 4px);
+    padding: 3px 6px;
+  }
+  .pk-launch {
+    margin-top: 4px;
+    font: inherit;
+    font-size: var(--ts-sm, 13px);
+    background: var(--c-accent);
+    color: var(--flx-paper, #fff);
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-1, 4px);
+    padding: 5px 14px;
+    cursor: pointer;
+  }
+  .pk-note {
+    color: var(--c-tx-faint);
+    font-size: var(--ts-sm, 13px);
   }
   .pd-unavail {
     flex: 1 1 auto;

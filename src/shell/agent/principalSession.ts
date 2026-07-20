@@ -15,8 +15,18 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { fileBridge, joinPath } from "../../lib/project/types";
 import { CONTEXT_PATHS } from "../../lib/project/contextTemplates";
+import {
+  serializeTerminalBuffer,
+  transcriptDoc,
+  transcriptStamp,
+} from "../../lib/terminal/bufferText";
 import { currentProject } from "../shellStore";
 import { registerPrincipalAskSink } from "../command/commandBus";
+
+export interface PrincipalSelection {
+  principal: { family: string; model: string; effort: string };
+  worker: { family: string; model: string; effort: string };
+}
 
 function bridge() {
   return fileBridge()?.term;
@@ -65,39 +75,19 @@ let askTimer: ReturnType<typeof setTimeout> | null = null;
 
 const TRANSCRIPT_FLUSH_MS = 30_000;
 
-/** Serialize the terminal's whole buffer (scrollback + screen) to plain text. */
-function bufferText(term: Terminal): string {
-  const buf = term.buffer.normal;
-  const lines: string[] = [];
-  for (let i = 0; i < buf.length; i++) {
-    lines.push(buf.getLine(i)?.translateToString(true) ?? "");
-  }
-  // Trim the trailing run of blank lines (the unused screen rows).
-  let end = lines.length;
-  while (end > 0 && lines[end - 1].trim() === "") end--;
-  return lines.slice(0, end).join("\n");
-}
-
 async function flushTranscript(force = false): Promise<void> {
   const s = session;
   const fb = fileBridge();
   if (!s || !fb || !s.transcriptPath || !s.opened) return;
   try {
-    const body = bufferText(s.term);
+    const body = serializeTerminalBuffer(s.term);
     const sig = `${body.length}:${body.slice(-80)}`;
     if (!force && sig === s.lastFlushedSig) return;
     s.lastFlushedSig = sig;
-    const head = `# Principal session — ${s.startedAt}\n\n\`\`\`text\n`;
-    await fb.writeText(s.transcriptPath, head + body + "\n```\n");
+    await fb.writeText(s.transcriptPath, transcriptDoc(s.startedAt, body));
   } catch {
     /* transcripts are best-effort — never break the session over them */
   }
-}
-
-function transcriptStamp(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
 
 function ensure(): Session {
@@ -171,7 +161,7 @@ function stopTranscriptTimer() {
   }
 }
 
-async function start(s: Session): Promise<void> {
+async function start(s: Session, selection?: PrincipalSelection): Promise<void> {
   const br = bridge();
   const fb = fileBridge();
   if (!br || !fb?.agentPrincipalSpec) {
@@ -179,7 +169,7 @@ async function start(s: Session): Promise<void> {
     return;
   }
   setStatus("connecting");
-  const spec = await fb.agentPrincipalSpec().catch(() => null);
+  const spec = await fb.agentPrincipalSpec(selection ? { selection } : undefined).catch(() => null);
   if (!spec?.ok || !spec.command) {
     setStatus("exited");
     s.term.write(
@@ -260,6 +250,37 @@ export function initPrincipalSession(): void {
   currentProject.subscribe((p) => void syncRoot(p?.path ?? null));
 }
 
+let lastSelection: PrincipalSelection | null = null;
+
+/** Probe the roster for the drawer's launch picker (families + standing choice). */
+export async function probeRoster() {
+  return fileBridge()?.agentPrincipalSpec?.({ probe: true }).catch(() => null) ?? null;
+}
+
+/** Launch a session with the picker's selection (persisted as last-used). */
+export async function launch(selection: PrincipalSelection): Promise<void> {
+  const s = ensure();
+  if (s.ptyId) return; // already running
+  lastSelection = selection;
+  await start(s, selection);
+  s.term.focus();
+}
+
+/** Back to the picker: kill anything running and return to idle. */
+export async function resetToIdle(): Promise<void> {
+  const s = session;
+  const br = bridge();
+  if (s?.ptyId && br) {
+    await flushTranscript(true);
+    await br.kill(s.ptyId);
+    s.ptyId = null;
+  }
+  stopTranscriptTimer();
+  if (s?.opened) s.term.reset();
+  principalInfo.set(null);
+  setStatus(bridge() ? "idle" : "unavailable");
+}
+
 export function attach(container: HTMLElement): void {
   const s = ensure();
   container.appendChild(s.el);
@@ -270,7 +291,7 @@ export function attach(container: HTMLElement): void {
   requestAnimationFrame(() => {
     fitNow();
     s.term.focus();
-    if (status === "idle" && bridge()) void start(s);
+    // No auto-start: the drawer's picker calls launch() explicitly.
   });
 }
 
@@ -308,7 +329,7 @@ export async function restart(): Promise<void> {
   }
   stopTranscriptTimer();
   s.term.reset();
-  await start(s);
+  await start(s, lastSelection ?? undefined);
   s.term.focus();
 }
 

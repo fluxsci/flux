@@ -45,6 +45,9 @@ async function driven() {
       try {
         // Register the project (sets main's currentRoot — the principalSpec anchor).
         out.watched = await window.fig.watchRoot(${JSON.stringify(projectDir)});
+        // Picker probe: families + standing selection for the drawer UI.
+        const probe = await window.fig.agentPrincipalSpec({ probe: true });
+        out.probe = !!(probe.ok && probe.probe && probe.families.stub && probe.selection.principal.model);
         const spec = await window.fig.agentPrincipalSpec();
         out.spec = { ok: spec.ok, error: spec.error ?? null, command: spec.command, cwd: spec.cwd,
                      promptArg: (spec.args ?? []).find((a) => a.includes("Principal")) ? "yes" : "no" };

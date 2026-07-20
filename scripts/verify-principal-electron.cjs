@@ -55,7 +55,21 @@ setInterval(() => {}, 1000); // stay alive until reaped (a real TUI would)
   );
   fs.writeFileSync(
     path.join(cfg.fluxConfigPath, "agents.json"),
-    JSON.stringify({ principal: { command: ["node", stub, "{prompt}"], cwd: "project" }, workers: {} }),
+    JSON.stringify({
+      families: {
+        stub: {
+          models: ["probe-model"],
+          efforts: ["probe-effort"],
+          interactive: ["node", stub, "{prompt}"],
+          cwd: "project",
+        },
+      },
+      defaults: {
+        principal: { family: "stub", model: "probe-model", effort: "probe-effort" },
+        worker: { family: "stub", model: "principal-decides", effort: "principal-decides" },
+        pass: { family: "stub", model: "probe-model", effort: "probe-effort" },
+      },
+    }),
   );
 
   // 3. Scratch project.
@@ -71,6 +85,11 @@ setInterval(() => {}, 1000); // stay alive until reaped (a real TUI would)
     { env: { ...env, PROBE_PROJECT: project, FLUX_NO_MIGRATE: "1" }, encoding: "utf8", timeout: 120_000 },
   );
   const out = (probe.stdout || "") + (probe.stderr || "");
+  if (/Missing X server or \$DISPLAY/.test(out)) {
+    // §9 environment class: agent shells run detached; a locked/greeter seat
+    // refuses X connections. Name the cause instead of a bare boot failure.
+    console.error("✗ ENVIRONMENT: no reachable display (X refused / seat locked?) — run from the desktop seat");
+  }
   const bootLine = out.split("\n").find((l) => l.startsWith("PROBE windows="));
   ok(bootLine && /windows=[1-9]/.test(bootLine), `positive boot evidence (${bootLine || "NONE"})`);
   const resLine = out.split("\n").find((l) => l.startsWith("PROBE result="));
@@ -81,6 +100,7 @@ setInterval(() => {}, 1000); // stay alive until reaped (a real TUI would)
     /* fallthrough */
   }
   ok(res?.watched === true, "watchRoot registered the probe project");
+  ok(res?.probe === true, "picker probe returns families + standing selection");
   ok(res?.spec?.ok === true, `agent:principalSpec resolved (${res?.spec?.error ?? "ok"})`);
   ok(res?.spec?.cwd === project, `cwd rule honored (${res?.spec?.cwd})`);
   ok(res?.spec?.promptArg === "yes", "boot prompt substituted into argv");

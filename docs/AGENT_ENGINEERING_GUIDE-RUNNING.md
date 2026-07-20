@@ -1033,6 +1033,33 @@ docs.
   going from 1 to 57 checked verbs found nothing new only because the content had JUST been
   hand-audited.
 
+### 2026-07-20 — Launch picker, family-template roster, PTY transcripts (Claude Fable 5, `main`)
+**Work:** Owner's model-routing rework. agents.json is now a MATRIX (families = per-vendor
+interactive/exec templates with {model}/{effort} substring placeholders + picker menus;
+defaults for principal/worker/pass; worker values may be "principal-decides"; legacy
+fixed-command rosters still resolve). `flux principal` (alias agent) = terminal picker
+(readline, Enter-through on last-used, p/w customize, q quits) + the session runs inside a
+node-pty interposer feeding @xterm/headless — transcripts land in Context/Transcripts from
+ANY terminal stack, identical to the drawer's (shared serializer
+src/lib/terminal/bufferText.ts). Worker policy rides FLUX_WORKER_POLICY env → `dispatch`
+gained --family/--model/--effort (decide-policy errors with the menu; agent used recorded in
+result.md + journal). Drawer gained the same pre-launch picker (agent:principalSpec
+{probe}/{selection} modes, last-used persisted in <FluxConfig>/.agents-last.json). Deps:
+@xterm/headless (pure JS; CLI-external + asarUnpacked). Gates: verify-principal-pty (17 —
+drives the REAL picker through an outer pty), dispatch 23, context-scheme 47, fluxconfig,
+parity (goldens regen); pure 141/141; context-gui 17/17. Owner's live roster migrated
+(backup: agents.json.bak-legacy).
+**Learnings:**
+- node-pty does NOT replay exit events — attach onExit before any interaction, or an
+  early-exiting child (picker `q`) resolves as a timeout.
+- The desktop seat can become unreachable overnight (gdm greeter active → X sockets refuse,
+  Wayland socket refuses): verify-principal-electron is environment-blocked in that state
+  (now prints an explicit ENVIRONMENT diagnosis). Re-run from an unlocked seat; the pure
+  pty gate covers the resolver/launch logic in the meantime.
+- Family templates substitute {model}/{effort} as SUBSTRINGS with the drop-arg+flag rule for
+  "default"/"principal-decides" — one mechanism serves codex's composite `-c k={effort}`
+  args and claude's flagless effort story.
+
 ### 2026-07-18 (late) — Human↔agent feedback-loop design brainstorm (Claude Fable 5, `main`, no code)
 **Work:** Owner asked for better human↔agent iteration on Flux projects (no app restarts,
 agent-agnostic, no context re-explaining). Surveyed the existing surfaces and wrote the design
