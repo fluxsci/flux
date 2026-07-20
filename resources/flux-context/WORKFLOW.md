@@ -35,8 +35,9 @@ $F feedback && $F comments       # open review items (context-stamped notes + th
   house style, name every series, and save into the project's `plots/` with a recipe
   (`fx.save(fig, "plots/<name>.svg", script=__file__, params=…, inputs=…)`). Full detail +
   example: `PLOTS-AND-STYLE.md`.
-- Run it with the environment that has `fluxplot` installed (the user's setup is in
-  `UserContext/` — check there for env paths/conventions). Then validate each plot:
+- Run it through the project's **uv** environment (`uv run …` — every analysis project
+  gets a uv project with fluxplot as a dependency; the standing rules are
+  `PYTHON-CONVENTIONS.md`, machine specifics in `UserContext/`). Then validate each plot:
 
 ```bash
 $F validate-plot plots/<name>.svg     # manifest valid + every part addressable + geometry sane

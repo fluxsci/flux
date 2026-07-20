@@ -1,0 +1,142 @@
+---
+title: "Installing Flux"
+subtitle: "The app, and the small set of external tools that make it fully capable"
+toc: true
+number-sections: true
+---
+
+Flux itself is one app, but its full capability rests on a small set of external tools:
+a Node runtime for the agent layer, Quarto (+ TeX) for compiling manuscripts, a Python
+environment with **fluxplot** for semantic plots, and the house fonts for faithful
+rendering. This page is the complete checklist for a fresh machine.
+
+# Installing Flux itself
+
+## From a packaged release
+
+Grab the artifact for your platform from the GitHub Releases page (`.dmg` for macOS,
+`.AppImage`/`.deb` for Linux) and install normally.
+
+**macOS note:** unsigned builds are ad-hoc signed so they run, but a *downloaded* app is
+Gatekeeper-quarantined — the first launch needs right-click → Open (or
+`xattr -dr com.apple.quarantine /Applications/Flux.app`). A locally-built app (below) has
+no such friction.
+
+## From source
+
+```bash
+git clone https://github.com/kortdriessen/flux ~/flux
+cd ~/flux
+npm ci                     # needs Node ≥ 22.12 (see below)
+npm run dist:mac           # or dist:linux → installers in release/
+```
+
+For development instead of packaging: `npm run electron:dev` (Vite dev server + Electron,
+hot reload). A source checkout is also currently required for the **Lighttable** sidecar
+(image-set triage viewer) — it isn't bundled into packaged builds.
+
+# The critical companions
+
+## Node.js ≥ 22.12
+
+The entire agent layer — the `flux` CLI, the MCP server, worker dispatch, the attend
+watcher — runs on your system `node`, and the machine-context docs bake `node …` commands
+in at sync time. Install via your platform's usual channel (nvm, Homebrew, apt) and check:
+
+```bash
+node --version    # v22.12+
+```
+
+## Quarto + TinyTeX
+
+Quarto compiles manuscripts to HTML/DOCX/PDF (it bundles its own pandoc — no separate
+install). **PDF output additionally needs a TeX distribution**; TinyTeX via Quarto is the
+easy path:
+
+```bash
+# install quarto from quarto.org (or brew install quarto / apt)
+quarto install tinytex
+quarto check               # verify both halves
+```
+
+Without TinyTeX, `flux compile --to pdf` fails while `--to html|docx` still work.
+
+## uv + Python + fluxplot (the keystone)
+
+[uv](https://docs.astral.sh/uv/) is the recommended Python project/environment manager —
+Flux's agent conventions assume it (agents set up a uv project per analysis, with
+fluxplot as a dependency).
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh          # install uv
+git clone https://github.com/kortdriessen/fluxplot ~/fluxplot   # fluxplot lives HERE
+```
+
+**fluxplot must be cloned to `~/fluxplot`** — that's the conventional location agents
+look for (and add as a dependency) when setting up analysis projects. In any analysis
+project:
+
+```bash
+uv init
+uv add --editable ~/fluxplot
+uv add cmasher             # the continuous-colormap extra fluxplot[style] uses
+```
+
+Why it's the keystone: fluxplot emits *semantic* SVGs — every series, point, and axis
+label carries a stable id. That is what makes Flux figures restylable per-part,
+regenerable without losing hand-tuning, and morphable in slides. Without it, plots
+import as opaque images.
+
+## Fonts
+
+Fluxplot saves plot text as *real text*, and Flux rasterizes figures with the fonts
+installed on the machine. The house style's stacks lead with **Arial / Helvetica**
+(sans) and **Georgia / Times New Roman / Latin Modern** (serif), falling back to DejaVu.
+
+- **macOS**: Arial, Helvetica, Georgia, Times New Roman are system fonts — you're
+  covered. (DejaVu is *not* present; avoid relying on it in cross-machine workflows.)
+- **Linux**: install the MS core fonts (`ttf-mscorefonts-installer` on Debian/Ubuntu) or
+  accept the DejaVu look. Latin Modern comes with TeX (`fonts-lmodern`).
+- **Rule of thumb**: keep the *generating* machine and the *rendering* machine font-
+  consistent — matplotlib embeds whichever family it actually picked, and the renderer
+  substitutes anything missing, which shifts text metrics subtly.
+
+## Agent CLIs (for the collaboration system)
+
+The principal-agent workflow launches whatever CLIs your roster
+(`~/FluxConfig/agents.json`) names — typically [Codex](https://github.com/openai/codex)
+and/or [Claude Code](https://claude.com/claude-code). Install and authenticate at least
+one. See `docs/agent_context_and_collaboration_system.qmd` for the full system.
+
+# First run
+
+Launching the app (or running any `flux` CLI verb) initializes `~/FluxConfig`: the
+Context layer (your `UserContext/` + the stock `FluxContext/` docs, with this machine's
+paths baked in), the reference library home, and a default `agents.json`. Then:
+
+1. Fill out `~/FluxConfig/Context/UserContext/WHO-AM-I.md`.
+2. Adjust `UserContext/RULES.md` and `agents.json` to taste.
+3. Moving machines? `~/FluxConfig` is portable — copy `UserContext/`, `agents.json`, and
+   `FluxLib/` over; `FluxContext/` re-syncs itself.
+
+# Verify the setup
+
+```bash
+node --version                            # ≥ 22.12
+quarto check                              # quarto + tinytex
+uv --version
+uv run python -c "import fluxplot"        # inside an analysis project
+node ~/flux/dist/flux-cli.mjs config      # prints machine paths + build info
+```
+
+# Troubleshooting
+
+| Symptom | Cause → fix |
+|---|---|
+| `compile --to pdf` fails; html works | No TeX → `quarto install tinytex` |
+| Plots import as flat images; `restyle` finds no parts | Plot not saved via `fp.save` (or fluxplot missing) → check `flux validate-plot` |
+| Figure PNGs render with wrong/shifted text | Missing fonts on this machine → install the stacks above; keep machines consistent |
+| Agent drawer: `codex: command not found` (macOS, launched from Dock) | GUI apps get a minimal `PATH` → use the absolute CLI path in `agents.json` |
+| `codex exec` refuses to run in a directory | Untrusted non-git dir → the roster's `--skip-git-repo-check` flag (seeded by default) |
+| `flux` CLI verb missing that the docs mention | Stale bundle → `npm run build:cli` in the repo; `flux version` shows the build |
+| Nothing live-reloads in the open app | Watcher failed to start (a toast said so at open) → reopen the project |

@@ -438,6 +438,14 @@ function resolveLighttableDirSync() {
   return fsSync.existsSync(candidate) ? candidate : "<flux-repo>/lighttable";
 }
 
+/** The Flux source checkout ({{FLUX_REPO}}): resolved when this install IS one
+ *  (marker: flux-cli.ts at the root); a generic literal otherwise. Stock docs
+ *  use it for repo-only references (docs/, the sidecar) with a check-first note. */
+function resolveRepoDirSync() {
+  const candidate = path.resolve(__dirname, "..");
+  return fsSync.existsSync(path.join(candidate, "flux-cli.ts")) ? candidate : "<flux-repo>";
+}
+
 function fluxContextStampPath(cfg) {
   return path.join(cfg, "Context", "FluxContext", ".version");
 }
@@ -478,7 +486,8 @@ async function syncFluxContext(cfg, events) {
       .replaceAll("{{FLUX_CLI}}", cmds.cli)
       .replaceAll("{{FLUX_MCP}}", cmds.mcp)
       .replaceAll("{{FLUX_MCP_PATH}}", cmds.mcpPath)
-      .replaceAll("{{LIGHTTABLE_DIR}}", resolveLighttableDirSync());
+      .replaceAll("{{LIGHTTABLE_DIR}}", resolveLighttableDirSync())
+      .replaceAll("{{FLUX_REPO}}", resolveRepoDirSync());
     const p = path.join(dir, name);
     try {
       if (fsSync.readFileSync(p, "utf8") === out) continue;

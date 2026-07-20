@@ -8,11 +8,11 @@ matplotlib via thin helpers, and `fp.save()` emits a **semantic SVG** whose ever
 series' line, its 4th point, the x-axis title) has a **stable id** — which is what lets Flux
 restyle parts and keep your hand-tuning when a plot is regenerated.
 
-Your analysis env must have `fluxplot` installed (plus `cmasher` for continuous colormaps:
-`pip install "fluxplot[style]"`). **The user's plotting environment (which env manager, where
-the envs live) is a UserContext fact — check `UserContext/` before running scripts.** If
-`fluxplot` is missing, install it into the active env — ask first if you're unsure which
-env to use.
+Your analysis env must have `fluxplot` installed (plus `cmasher` for continuous
+colormaps). Environments are **uv projects** with fluxplot added as an editable
+dependency from `~/fluxplot` — the setup rules live in `PYTHON-CONVENTIONS.md`
+(machine specifics in `UserContext/`). If `fluxplot` is missing there, follow that doc
+rather than ad-hoc installing.
 
 Everything you need lives in the library — Flux bundles **no plotting code** of its own:
 `fp.line/scatter/...`, `fp.save`, `fp.params`, and the house style `fp.style` (`fp.use_light()`).

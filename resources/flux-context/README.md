@@ -73,6 +73,8 @@ Working references (read on demand — briefs and the docs above point into thes
 - `WORKFLOW.md` — the end-to-end session playbook (orient → plots → figures →
   write-up → review), with copy-paste commands.
 - `CLI-REFERENCE.md` — the complete verb cheat-sheet (CLI ↔ MCP) + root resolution.
+- `PYTHON-CONVENTIONS.md` — how analysis Python is set up: uv projects/libraries,
+  fluxplot as a dependency (standing rules for principals AND workers).
 - `PLOTS-AND-STYLE.md` — fluxplot + the house (Flexoki) style; recipes + regeneration.
 - `PROJECT-AND-FIGURES.md` — the on-disk tree, the figure model, compose/look/restyle.
 - `MANUSCRIPT-AND-REVIEW.md` — Quarto authoring, comments, the feedback ledger, live edits.
