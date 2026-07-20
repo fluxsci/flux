@@ -131,6 +131,10 @@ Persistence invariants (all machine-checked — do not weaken):
   document path; `resolve-comment` without `--doc` resolves only a unique open match across
   the project. `--doc` is an explicit single-document narrowing, never a boot requirement.
 
+- **Document-role changes preserve review discovery**: the current main document reads both
+  `comments.json` and its document-named `<base>.comments.json` sidecar, deduplicated by thread
+  id. Promoting a secondary manuscript to main must never make its existing comments vanish.
+
 - **Every canonical write is atomic** (`tmp + fsync + rename`; `flux-core/fsx.ts`,
   `atomicWriteMain` in `electron/ipc/files.cjs`). Directory entries are fsynced after rename
   batches (`fsyncDir`).

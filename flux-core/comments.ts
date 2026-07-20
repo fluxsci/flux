@@ -55,18 +55,47 @@ function commentsRel(m: ProjectManifest, docRel?: string): string {
   return dir ? `${dir}/${name}` : name;
 }
 
+/** Candidate sidecars for a document, in write-preference order. A document
+ *  that becomes the main manuscript changes its historical canonical sidecar
+ *  name from `<base>.comments.json` to `comments.json`. Keep reading the
+ *  document-named sidecar as well so changing document roles can never hide
+ *  existing review threads. */
+function commentsRels(m: ProjectManifest, docRel?: string): string[] {
+  const mp = docRel ?? m.manuscript.path;
+  const primary = commentsRel(m, mp);
+  if (mp !== m.manuscript.path) return [primary];
+  const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
+  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
+  const named = dir ? `${dir}/${base}.comments.json` : `${base}.comments.json`;
+  return named === primary ? [primary] : [primary, named];
+}
+
+async function readCommentsFile(root: string, rel: string): Promise<CommentsFile | null> {
+  const p = safeJoin(root, rel);
+  if (!(await exists(p))) return null;
+  try {
+    const data = JSON.parse(await fs.readFile(p, "utf8")) as CommentsFile;
+    return { version: 1, threads: Array.isArray(data.threads) ? data.threads : [] };
+  } catch {
+    return null;
+  }
+}
+
 /** list-comments: read a document's comment threads (defaults to the main .qmd).
  *  Returns all threads; the caller filters resolved vs. open. Empty if none. */
 export async function listComments(root: string, docRel?: string): Promise<CommentThread[]> {
   const m = await loadManifest(root);
-  const p = safeJoin(root, commentsRel(m, docRel));
-  if (!(await exists(p))) return [];
-  try {
-    const data = JSON.parse(await fs.readFile(p, "utf8")) as CommentsFile;
-    return Array.isArray(data.threads) ? data.threads : [];
-  } catch {
-    return [];
+  const out: CommentThread[] = [];
+  const seen = new Set<string>();
+  for (const rel of commentsRels(m, docRel)) {
+    const file = await readCommentsFile(root, rel);
+    for (const thread of file?.threads ?? []) {
+      if (seen.has(thread.id)) continue;
+      seen.add(thread.id);
+      out.push(thread);
+    }
   }
+  return out;
 }
 
 /** Project-wide review discovery. With no docRel, scan every canonical project
@@ -171,42 +200,64 @@ export async function resolveComment(
   opts: { docRel?: string; note?: string; author?: string } = {},
 ): Promise<ResolveCommentResult> {
   const m = await loadManifest(root);
-  const rel = commentsRel(m, opts.docRel);
-  const p = safeJoin(root, rel);
-  if (!(await exists(p))) throw new Error(`no comments file: ${rel}`);
-  let file: CommentsFile;
-  try {
-    file = JSON.parse(await fs.readFile(p, "utf8")) as CommentsFile;
-  } catch {
-    throw new Error(`comments file is not valid JSON: ${rel}`);
+  const files: Array<{ rel: string; file: CommentsFile }> = [];
+  for (const rel of commentsRels(m, opts.docRel)) {
+    const p = safeJoin(root, rel);
+    if (!(await exists(p))) continue;
+    let file: CommentsFile;
+    try {
+      file = JSON.parse(await fs.readFile(p, "utf8")) as CommentsFile;
+    } catch {
+      throw new Error(`comments file is not valid JSON: ${rel}`);
+    }
+    files.push({ rel, file: { version: 1, threads: Array.isArray(file.threads) ? file.threads : [] } });
   }
-  const threads = Array.isArray(file.threads) ? file.threads : [];
-  let thread = threads.find((t) => t.id === idOrQuote);
-  if (!thread) {
+  if (files.length === 0) throw new Error(`no comments file: ${commentsRel(m, opts.docRel)}`);
+
+  let hit = files
+    .flatMap(({ rel, file }) => file.threads.map((thread) => ({ rel, file, thread })))
+    .find(({ thread }) => thread.id === idOrQuote);
+  if (!hit) {
     const needle = idOrQuote.toLowerCase();
-    const hits = threads.filter((t) => (t.anchor?.quote ?? "").toLowerCase().includes(needle));
-    if (hits.length === 0) throw new Error(`no comment matches "${idOrQuote}" in ${rel}`);
+    const hits = files.flatMap(({ rel, file }) =>
+      file.threads
+        .filter((thread) => (thread.anchor?.quote ?? "").toLowerCase().includes(needle))
+        .map((thread) => ({ rel, file, thread })),
+    );
+    if (hits.length === 0)
+      throw new Error(
+        `no comment matches "${idOrQuote}" in ${files.map(({ rel }) => rel).join(", ")}`,
+      );
     if (hits.length > 1)
       throw new Error(
-        `"${idOrQuote}" matches ${hits.length} comments; use the thread id (one of: ${hits.map((t) => t.id).join(", ")})`,
+        `"${idOrQuote}" matches ${hits.length} comments; use the thread id (one of: ${hits.map(({ thread }) => thread.id).join(", ")})`,
       );
-    thread = hits[0];
+    hit = hits[0];
   }
+  if (!hit) throw new Error(`no comment matches "${idOrQuote}"`);
+  const { rel, file, thread } = hit;
   thread.resolved = true;
   if (opts.note) {
     thread.messages = thread.messages ?? [];
     thread.messages.push({ author: opts.author ?? CLIENT, body: opts.note, createdAt: stamp() });
   }
-  const out: CommentsFile = { version: 1, threads };
+  const p = safeJoin(root, rel);
+  const out: CommentsFile = { version: 1, threads: file.threads };
   await withLock(root, "manuscript", CLIENT, async () => {
     await writeText(p, JSON.stringify(out, null, 2) + "\n");
   });
   await journal(root, { action: "resolve_comment", target: rel, thread: thread.id });
+  const merged = new Map<string, CommentThread>();
+  for (const source of files) {
+    for (const candidate of source.file.threads) {
+      if (!merged.has(candidate.id)) merged.set(candidate.id, candidate);
+    }
+  }
   return {
     id: thread.id,
     quote: thread.anchor?.quote ?? "",
-    resolved: threads.filter((t) => t.resolved).length,
-    total: threads.length,
+    resolved: [...merged.values()].filter((candidate) => candidate.resolved).length,
+    total: merged.size,
   };
 }
 

@@ -18,6 +18,7 @@ function assert(cond: unknown, msg: string) {
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-comments-"));
 const commentsPath = path.join(root, "manuscript", "comments.json");
+const namedMainCommentsPath = path.join(root, "manuscript", "main.comments.json");
 let secondaryCommentsPath = "";
 const readJournal = async () => {
   const txt = await fs.readFile(path.join(root, ".meta", "journal.ndjson"), "utf8").catch(() => "");
@@ -55,6 +56,24 @@ try {
   };
   await fs.writeFile(commentsPath, JSON.stringify(seed, null, 2) + "\n");
   await fs.writeFile(
+    namedMainCommentsPath,
+    JSON.stringify(
+      {
+        version: 1,
+        threads: [
+          {
+            id: "c_named_main",
+            anchor: { start: 23, end: 38, quote: "nutrient stress", prefix: "under ", suffix: ". The control" },
+            resolved: false,
+            messages: [{ author: "Kort", body: "keep after promoting this document", createdAt: "2026-06-29T17:00:30.000Z" }],
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  await fs.writeFile(
     secondaryCommentsPath,
     JSON.stringify(
       {
@@ -75,15 +94,15 @@ try {
 
   // 1. listComments reads the threads; anchor.quote is the exact targeted text.
   let threads = await core.listComments(root);
-  assert(threads.length === 2, "listComments returns both threads");
-  assert(threads.every((t) => !t.resolved), "both threads start open");
+  assert(threads.length === 3, "listComments merges canonical + document-named main sidecars");
+  assert(threads.every((t) => !t.resolved), "all main-document threads start open");
   assert(threads[0].anchor.quote === "growth slowed", "anchor.quote is the exact targeted text");
 
   // 1b. Project-wide discovery includes every document and names its owner.
   let projectThreads = await core.listProjectComments(root);
-  assert(projectThreads.length === 3, "project-wide listing returns main + secondary threads");
+  assert(projectThreads.length === 4, "project-wide listing returns main + secondary threads");
   assert(
-    projectThreads.filter((t) => t.doc === "manuscript/main.qmd").length === 2 &&
+    projectThreads.filter((t) => t.doc === "manuscript/main.qmd").length === 3 &&
       projectThreads.filter((t) => t.doc === secondary.path).length === 1,
     "project-wide threads carry the correct document paths",
   );
@@ -102,8 +121,8 @@ try {
   assert(rs.id === "c_secondary" && rs.resolved === 1, "project-wide id resolves a secondary-document thread");
   projectThreads = await core.listProjectComments(root);
   assert(
-    projectThreads.filter((t) => !t.resolved).length === 2,
-    "project-wide open/resolved filtering sees only the two open main threads",
+    projectThreads.filter((t) => !t.resolved).length === 3,
+    "project-wide open/resolved filtering sees only the three open main threads",
   );
 
   // 2. the seeded file is valid against the bundled comments schema.
@@ -111,7 +130,7 @@ try {
 
   // 3. resolveComment by id flips resolved + appends the reply note.
   const r1 = await core.resolveComment(root, "c_one", { note: "added the citation" });
-  assert(r1.resolved === 1 && r1.total === 2, "resolve-by-id reports 1/2 resolved");
+  assert(r1.resolved === 1 && r1.total === 3, "resolve-by-id reports 1/3 resolved");
   threads = await core.listComments(root);
   const one = threads.find((t) => t.id === "c_one")!;
   assert(one.resolved === true, "thread c_one is now resolved on disk");
@@ -120,7 +139,12 @@ try {
 
   // 4. resolveComment by a unique quote substring resolves the other thread.
   const r2 = await core.resolveComment(root, "control group");
-  assert(r2.id === "c_two" && r2.resolved === 2, "resolve-by-quote matched c_two (2/2 resolved)");
+  assert(r2.id === "c_two" && r2.resolved === 2, "resolve-by-quote matched c_two (2/3 resolved)");
+
+  // 4b. A main document's older document-named sidecar remains discoverable
+  // and resolvable after its role changes to main.
+  const r3 = await core.resolveProjectComment(root, "c_named_main", { note: "role change preserved" });
+  assert(r3.id === "c_named_main" && r3.resolved === 3, "document-named main sidecar resolves (3/3)");
 
   // 5. a non-matching string is rejected (never silently mis-resolves).
   let threw = false;
@@ -133,10 +157,11 @@ try {
 
   // 6. every resolve journaled a resolve_comment line (client=cli, ts, target).
   const resolves = (await readJournal()).filter((e) => e.action === "resolve_comment");
-  assert(resolves.length === 3 && resolves.every((e) => e.client === "cli" && e.ts), "three resolve_comment lines journaled (client=cli, ts)");
+  assert(resolves.length === 4 && resolves.every((e) => e.client === "cli" && e.ts), "four resolve_comment lines journaled (client=cli, ts)");
   assert(
     resolves.filter((e) => e.target === "manuscript/comments.json").length === 2 &&
-      resolves.filter((e) => e.target === "manuscript/secondary.comments.json").length === 1,
+      resolves.filter((e) => e.target === "manuscript/secondary.comments.json").length === 1 &&
+      resolves.filter((e) => e.target === "manuscript/main.comments.json").length === 1,
     "journal records each resolved thread's owning sidecar",
   );
 

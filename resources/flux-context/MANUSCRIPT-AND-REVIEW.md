@@ -65,6 +65,9 @@ comment applies. **Procedure when the user says "address my comments":**
 
 Bare `comments` and `resolve-comment` are project-wide so secondary and Context-document
 threads cannot be missed; pass `--doc rel` only when deliberately targeting one document.
+If a document is promoted to the main manuscript, Flux also reads its existing
+`<base>.comments.json` alongside `comments.json`; changing document roles must not hide an
+open review queue.
 `resolve-comment` flips `resolved:true`, appends your reply (stamped with your client identity +
 time), holds the `manuscript` lock, and journals it. MCP equivalents: `list_comments`,
 `resolve_comment`. You *can* edit `comments.json` directly, but prefer the verb — it's
