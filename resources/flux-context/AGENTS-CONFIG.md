@@ -3,7 +3,7 @@
 `<FluxConfig>/agents.json` describes the agent CLIs on this machine as a **matrix**:
 per-vendor command **templates** (`families`) plus the standing **defaults** for the
 principal, workers, and attend passes. The launch pickers (`flux principal` in a
-terminal, the app's Agent drawer) read this matrix; a session's choices are remembered
+terminal) read this matrix; a session's choices are remembered
 in `.agents-last.json` beside it. Swapping vendors or models is a picker choice, not a
 config edit.
 
@@ -48,7 +48,7 @@ config edit.
 
 ## Families
 
-- **`interactive`** — the argv for a live session (the drawer, `flux principal`).
+- **`interactive`** — the argv for a live session (`flux principal`).
 - **`exec`** — the argv for headless runs (dispatched workers, attend passes). Codex
   needs `--skip-git-repo-check` here (it refuses untrusted non-git dirs headlessly).
 - **`models` / `efforts`** — the picker menus (typing an unlisted value still works;

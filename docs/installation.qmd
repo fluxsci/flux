@@ -112,7 +112,10 @@ one. See `docs/agent_context_and_collaboration_system.qmd` for the full system.
 
 Launching the app (or running any `flux` CLI verb) initializes `~/FluxConfig`: the
 Context layer (your `UserContext/` + the stock `FluxContext/` docs, with this machine's
-paths baked in), the reference library home, and a default `agents.json`. Then:
+paths baked in), the reference library home, and a default `agents.json`. It also
+installs a **`flux` command shim into `~/.local/bin`** when that directory exists — so
+`flux principal`, `flux config`, etc. work by name (the shim carries a managed marker;
+replace it with your own file to opt out, and it will never be touched again). Then:
 
 1. Fill out `~/FluxConfig/Context/UserContext/WHO-AM-I.md`.
 2. Adjust `UserContext/RULES.md` and `agents.json` to taste.
@@ -136,7 +139,7 @@ node ~/flux/dist/flux-cli.mjs config      # prints machine paths + build info
 | `compile --to pdf` fails; html works | No TeX → `quarto install tinytex` |
 | Plots import as flat images; `restyle` finds no parts | Plot not saved via `fp.save` (or fluxplot missing) → check `flux validate-plot` |
 | Figure PNGs render with wrong/shifted text | Missing fonts on this machine → install the stacks above; keep machines consistent |
-| Agent drawer: `codex: command not found` (macOS, launched from Dock) | GUI apps get a minimal `PATH` → use the absolute CLI path in `agents.json` |
+| `flux: command not found` | `~/.local/bin` missing or not on `PATH` → create it and re-run any flux verb (the shim installs itself), or use the full `node …/dist/flux-cli.mjs` path |
 | `codex exec` refuses to run in a directory | Untrusted non-git dir → the roster's `--skip-git-repo-check` flag (seeded by default) |
 | `flux` CLI verb missing that the docs mention | Stale bundle → `npm run build:cli` in the repo; `flux version` shows the build |
 | Nothing live-reloads in the open app | Watcher failed to start (a toast said so at open) → reopen the project |

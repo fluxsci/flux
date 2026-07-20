@@ -10,7 +10,7 @@
 │   ├── Project/MISSION.qmd      #   goals/charter (co-owned with the user)
 │   ├── NOTEBOOK.md              #   the principal's running memory (agent-owned)
 │   ├── RULES.md                 #   project rules (promoted from feedback)
-│   ├── Transcripts/             #   drawer-session transcripts (machine-captured)
+│   ├── Transcripts/             #   principal-session transcripts (machine-captured)
 │   └── Dispatches/              #   worker dispatch records (brief/log/result)
 ├── manuscript/                  # USER-OWNED prose — source of truth
 │   ├── main.qmd                 #   the Quarto manuscript

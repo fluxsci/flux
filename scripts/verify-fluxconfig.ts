@@ -96,6 +96,7 @@ if (process.platform !== "win32") {
     const xdg = path.join(scratch, name, "xdg");
     process.env.HOME = home;
     process.env.XDG_CONFIG_HOME = xdg;
+    fs.mkdirSync(path.join(home, ".local", "bin"), { recursive: true }); // the CLI shim target
     const lib = opts.customLibDir ? path.join(home, opts.customLibDir) : path.join(home, "FluxLib");
     fs.mkdirSync(path.join(lib, "items", "x"), { recursive: true });
     fs.mkdirSync(path.join(lib, "pdfs_to_assign"), { recursive: true });
@@ -158,6 +159,11 @@ if (process.platform !== "win32") {
     assert(unsubbed.length === 0, `every synced FluxContext doc substituted its placeholders (${unsubbed.join(", ") || "all clean"})`);
     const seededRoster = JSON.parse(fs.readFileSync(path.join(cfg, "agents.json"), "utf8"));
     assert(seededRoster.families && seededRoster.defaults.principal.family, "agents.json roster seeded (family-template schema)");
+    const shim = path.join(f1.home, ".local", "bin", "flux");
+    assert(fs.existsSync(shim) && (fs.statSync(shim).mode & 0o111) !== 0, "flux PATH shim installed executable in ~/.local/bin");
+    assert(fs.readFileSync(shim, "utf8").includes("managed by Flux") && /exec .*flux-cli/.test(fs.readFileSync(shim, "utf8")), "shim carries the managed marker + real CLI");
+    fs.writeFileSync(shim, "#!/bin/sh\necho my own flux\n", { mode: 0o755 }); // user replaces it → opt-out
+    // (asserted after the no-op re-run below: the user's file must survive)
     assert(info.agentsConfigPath === path.join(cfg, "agents.json"), "configInfo reports agentsConfigPath");
     assert(info.userContextPath === uc1 && info.fluxContextPath === fc1, "configInfo reports the Context paths");
     const marker = JSON.parse(fs.readFileSync(path.join(cfg, ".fluxconfig.json"), "utf8"));
@@ -168,6 +174,7 @@ if (process.platform !== "win32") {
     const again = await fp.ensureFluxConfig();
     assert(again.fluxLibPath === info.fluxLibPath, "re-run resolves identically");
     assert(snapshot(path.join(scratch, "t1")) === before, "re-run is a no-op (snapshot unchanged)");
+    assert(fs.readFileSync(shim, "utf8").includes("my own flux"), "a user-owned (unmarked) flux shim is never clobbered");
 
     // -- resolver honors post-migration + pre-migration states
     assert(fp.resolveFluxLibPathSync({ fluxConfigPath: cfg }) === path.join(cfg, "FluxLib"), "resolver: derived wins when it exists");

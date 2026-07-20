@@ -83,7 +83,6 @@ const CHANNELS = [
   // --- capture (flux:// deep links) ---------------------------------------------
   { channel: "capture:add", kind: "push", scope: "read" },
   // --- agent bridge ---------------------------------------------------------------
-  { channel: "agent:mcpSpec", kind: "invoke", scope: "read" },
   // The principal drawer's launch spec (agents.json roster + boot prompt + MCP wiring).
   { channel: "agent:principalSpec", kind: "invoke", scope: "read" },
   { channel: "bridge:dispatch", kind: "push", scope: "read" },

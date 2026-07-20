@@ -13,7 +13,7 @@ import CommentsView from "./views/CommentsView.svelte";
 import TerminalView from "./views/TerminalView.svelte";
 import ReferenceSearchPane from "./panes/ReferenceSearchPane.svelte";
 import CitationGroupPane from "./panes/CitationGroupPane.svelte";
-import { focus as focusTerminal } from "./terminalSession";
+import { focus as focusTerminal } from "../../../terminal/terminalSession";
 
 export const PANES: PaneDescriptor[] = [
   {

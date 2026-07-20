@@ -17,7 +17,7 @@ import { writable, type Writable } from "svelte/store";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { fileBridge } from "../../../../lib/project/types";
+import { fileBridge } from "../../lib/project/types";
 
 // SHL-16: the PTY bridge (window.fig.term) is now typed centrally on FileBridge; reach it
 // through fileBridge() so there's no ad-hoc window cast. Undefined under the web fallback.
@@ -209,6 +209,18 @@ export function fitNow(): void {
 
 export function focus(): void {
   session?.term.focus();
+}
+
+/** Prefill text into the running session's input — NEVER submits (no newline).
+ *  The reader's "Ask AI" writes questions here; whatever the user runs in this
+ *  terminal (a shell, `flux principal`, …) receives the keystrokes. */
+export function prefill(text: string): void {
+  const s = session;
+  const br = bridge();
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!s?.ptyId || !br || !t) return;
+  br.write(s.ptyId, t + " ");
+  s.term.focus();
 }
 
 /** Kill any running shell and start a fresh one, clearing the screen. */

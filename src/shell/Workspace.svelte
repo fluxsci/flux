@@ -8,12 +8,7 @@
   import CommandPalette from "./command/CommandPalette.svelte";
   import FeedbackCapture from "./agent/FeedbackCapture.svelte";
   import { contextCommands } from "./command/globalCommands";
-  import {
-    requestPaperPalette,
-    togglePrincipalDrawer,
-    feedbackCaptureOpen,
-    principalDrawerOpen,
-  } from "./command/commandBus";
+  import { requestPaperPalette, feedbackCaptureOpen } from "./command/commandBus";
   import { initFeedbackStore } from "./agent/feedbackStore";
   import { focusedMode } from "./paneStore";
   import type { Command } from "./command/commands";
@@ -36,9 +31,6 @@
           globalCommandList = contextCommands({ inPaper: false });
           globalPaletteOpen = !globalPaletteOpen;
         }
-      } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyJ") {
-        e.preventDefault();
-        togglePrincipalDrawer();
       } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyM") {
         e.preventDefault();
         feedbackCaptureOpen.update((v) => !v);
@@ -51,16 +43,7 @@
 
 <div class="workspace">
   <ActivityRail />
-  <div class="ws-main">
-    <PaneArea />
-    {#if $principalDrawerOpen}
-      <!-- Lazily imported: xterm must never enter the eager startup bundle
-           (verify-startup 800KB budget — the drawer is the only consumer). -->
-      {#await import("./agent/PrincipalDrawer.svelte") then Drawer}
-        <Drawer.default />
-      {/await}
-    {/if}
-  </div>
+  <PaneArea />
   <!-- Shell-global overlays (available in every mode). -->
   <Help />
   <Settings />
@@ -78,18 +61,6 @@
     display: flex;
     height: 100%;
     width: 100%;
-  }
-  /* Column wrapper so the Agent drawer docks under the panes in every mode. */
-  .ws-main {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .ws-main > :global(.panearea) {
-    flex: 1 1 0;
-    min-height: 0;
-    height: auto; /* its own 100% would stack past the drawer */
   }
   /* CommandPalette positions absolutely inside its nearest positioned ancestor. */
   .global-palette {

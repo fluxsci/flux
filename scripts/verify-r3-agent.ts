@@ -1,11 +1,13 @@
-// R3 — FluxReader "Ask Claude" context handoff. Two parts:
+// R3 — FluxReader "Ask AI" context handoff (terminal-first rework, 2026-07-20:
+// the bespoke AgentDrawer is retired — the reader mounts the SHARED terminal
+// session and PREFILLS questions; agents get reader state via the flux MCP's
+// get_reading_context). Two parts:
 // presence: main-process / build-config source shapes — not headless-drivable (WS-7.5).
-//  1. LIVE: launch the flux MCP server exactly the way agent:mcpSpec tells `claude` to
-//     (repo tsx bin + flux-mcp.ts) and drive a real stdio JSON-RPC handshake through
-//     tools/call get_reading_context — proving the spawned session can see the reader.
-//  2. SOURCE: assert the wiring (main handler, preload, AgentDrawer --mcp-config +
-//     initial prompt + ask() queue, ReaderMode popover/✦ routing) — the pty/claude UI
-//     itself can't run in the headless harness.
+//  1. LIVE: launch the flux MCP server both ways a principal launch resolves it
+//     (repo tsx + flux-mcp.ts; the packaged bundle) and drive a real stdio
+//     JSON-RPC handshake through tools/call get_reading_context.
+//  2. SOURCE: assert the wiring (agent.cjs mcpSpecFor + roster {mcpJson} embed,
+//     ReaderMode terminal pane + prefill routing, PdfView ✦ menu).
 //   Run: npx tsx scripts/verify-r3-agent.ts
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -124,34 +126,24 @@ if (existsSync(cliBundle)) {
 }
 
 // --- 2. source wiring -----------------------------------------------------------------
-console.log("\nR3 — main/preload/bridge wiring (source):");
-// WS-9.4b: agent:mcpSpec lives in the AGENT family module now.
+console.log("\nR3 — main-process MCP resolution (source):");
 const agentCjs = read("electron/ipc/agent.cjs");
-assert(/ipc\.handle\("agent:mcpSpec"/.test(agentCjs), "main exposes agent:mcpSpec (agent family)");
-assert(/node_modules", "\.bin", "tsx"/.test(agentCjs) && /flux-mcp\.ts/.test(agentCjs), "dev spec = repo tsx bin + flux-mcp.ts (absolute — claude spawns from its own cwd)");
+assert(/function mcpSpecFor\(/.test(agentCjs), "agent family resolves the MCP spec (mcpSpecFor)");
+assert(/node_modules", "\.bin", "tsx"/.test(agentCjs) && /flux-mcp\.ts/.test(agentCjs), "dev spec = repo tsx bin + flux-mcp.ts (absolute — the agent spawns from its own cwd)");
 assert(/app\.asar\.unpacked", "dist", "flux-mcp\.mjs"/.test(agentCjs) && /ELECTRON_RUN_AS_NODE/.test(agentCjs), "packaged spec = unpacked bundle on Electron-as-Node");
+assert(/mcpSpec: mcp\.ok \? \{ command: mcp\.command/.test(agentCjs), "principalSpec embeds the MCP spec ({mcpJson} roster placeholder)");
 assert(/^\s*- dist\/flux-mcp\.mjs/m.test(read("electron-builder.yml")), "electron-builder.yml asar-unpacks dist/flux-mcp.mjs (the packaged spawn path)");
-const preload = read("electron/preload.cjs");
-assert(/agentMcpSpec: \(\) => ipcRenderer\.invoke\("agent:mcpSpec"\)/.test(preload), "preload exposes fig.agentMcpSpec");
-assert(/agentMcpSpec\?\(\): Promise/.test(read("src/lib/project/types.ts")), "FileBridge types agentMcpSpec");
+assert(!/agent:mcpSpec/.test(read("electron/ipc/contract.cjs")), "the retired agent:mcpSpec channel is gone from the contract");
 
-console.log("\nR3 — AgentDrawer (source):");
-const ad = read("src/shell/modes/reader/AgentDrawer.svelte");
-assert(/--mcp-config/.test(ad) && /mcpServers: \{ flux: server \}/.test(ad), "spawns claude with --mcp-config registering the flux server");
-assert(/--allowedTools", "mcp__flux"/.test(ad), "pre-allows the flux MCP tools (no permission prompt for context reads)");
-assert(/get_reading_context/.test(ad), "initial prompt tells the session to read the live reading context");
-assert(/reader-context\.json/.test(ad), "no-MCP fallback points at ~/FluxLib/.fluxlib/reader-context.json directly");
-assert(/paper\?\.title/.test(ad) && /paper\?\.citekey/.test(ad), "initial prompt names the open paper (title + citekey)");
-assert(/export function ask\(/.test(ad) && /pendingAsks/.test(ad), "exposes ask() with a queue for pre-boot questions");
-
-console.log("\nR3 — ReaderMode/PdfView routing (source):");
+console.log("\nR3 — reader terminal + prefill routing (source):");
 const rm = read("src/shell/modes/reader/ReaderMode.svelte");
-assert(/async function askAgent\(/.test(rm) && /agentDrawer\?\.ask\(/.test(rm), "askAgent opens the drawer and prefills the question");
-// The popover annotation may be passed as `popAnn!` or a pinned `{@const ann}` — either
-// wires the highlight into askClaudeAbout; assert the routing, not the variable name.
-assert(/onAsk=\{\(\) => askClaudeAbout\(\w+!?\)\}/.test(rm), "popover Ask Claude routes the highlight into the session");
-assert(/onAskSelection=\{\(text, page\)/.test(rm), "selection ✦ routes the passage into the session");
-assert(/paper=\{\$readerKey \? \{ citekey: \$readerKey, title: entry\?\.title \} : null\}/.test(rm), "drawer receives the open paper");
+assert(/import TerminalPane from "\.\.\/\.\.\/terminal\/TerminalPane\.svelte"/.test(rm), "reader mounts the SHARED terminal pane (one session with the paper margin)");
+assert(/async function askAgent\(/.test(rm) && /terminalPrefill\(/.test(rm), "askAgent opens the pane and PREFILLS the question (never submits)");
+assert(/onAsk=\{\(\) => askClaudeAbout\(\w+!?\)\}/.test(rm), "popover Ask routes the highlight into the terminal");
+assert(/onAskSelection=\{\(text, page\)/.test(rm), "selection ✦ routes the passage into the terminal");
+const ts = read("src/shell/terminal/terminalSession.ts");
+assert(/export function prefill\(/.test(ts) && /t \+ " "/.test(ts), "terminalSession.prefill writes WITHOUT a newline (prefill, not submit)");
+assert(/reader-context\.json/.test(read("src/lib/references/items.ts")), "reader still publishes reader-context.json (any session can get_reading_context)");
 const pv = read("src/shell/modes/reader/PdfView.svelte");
 assert(/onAskSelection\?: \(text: string, page: number\)/.test(pv) && /class="mask"/.test(pv), "selection menu carries the ✦ ask button");
 

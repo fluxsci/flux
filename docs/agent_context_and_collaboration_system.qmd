@@ -1,144 +1,126 @@
 ---
 title: "The agent context & collaboration system"
-subtitle: "How Flux makes an AI agent a real collaborator on your projects"
+subtitle: "One principal per project, workers on demand, files as the memory"
 toc: true
 number-sections: true
 ---
 
-Flux is built so that an AI agent is a **first-class user** — everything the app can do, an agent can do through files and typed verbs. The context & collaboration system builds the layer above that: a **standing collaborator** (the *principal*) that knows who you are, knows each project's goals and history, takes your feedback without you leaving the app, and dispatches focused *worker* agents to do the heavy lifting.
+Flux treats an AI agent as a first-class user: everything the app can do, an agent can do
+through files and typed verbs. On top of that sits a **standing collaborator per project —
+the principal** — which knows who you are and what the project is trying to achieve,
+takes your feedback without you leaving the app, and **dispatches worker agents** for
+substantial analysis and coding.
 
-The design has one organizing principle: **the files are the memory.** Everything the system knows — about you, about a project, about what has been tried and decided — lives in two plain-text `Context` folders. Any agent CLI that can read files (Claude Code, Codex, a future local model) can be the principal or a worker; swapping vendors is editing one config file, and nothing about your projects changes.
+Two principles carry the whole design:
 
-# The model
+1. **The files are the memory.** Everything the system knows lives in two plain-text
+   `Context` folders. Any agent CLI can be the principal or a worker; swapping vendors
+   or models is a launch-time choice, and continuity comes from *rehydration* — the
+   principal writes its memory down as it works, so a fresh session picks up exactly
+   where the last one stopped.
+2. **Your terminal is the cockpit.** Sessions run in *your* terminals (as many as you
+   like, across projects); the Flux app is the review surface — figures, manuscripts,
+   comments, feedback — and works independently alongside them.
 
-You talk to **one principal agent** per project — think of it as your senior postdoc. It reads your identity and standing rules, the project's mission, and its own running notebook at the start of every session, so it opens with a standup instead of asking you to re-explain anything. It handles judgment, conversation, and light edits itself, and **dispatches workers** — one-task agents launched with a complete written brief — for substantial analysis or coding. You review everything inside the Flux app and send feedback with a hotkey; the principal drains the queue and closes each item where you can see it.
+# Talking to the principal
 
-Continuity comes from **rehydration, not process longevity**: the principal writes its memory down as it works, so a fresh session (tomorrow, or on a different model) picks up exactly where the last one stopped.
+From a terminal in (or near) a Flux project:
+
+```bash
+flux principal
+```
+
+A minimal picker appears — **Principal** and **Workers** rows, each *family · model ·
+effort*, pre-filled with your last choice — so a bare **Enter launches immediately**
+(`p`/`w` customize a row, `q` quits). The session then runs right there, in whatever
+terminal stack you use (ghostty, zellij, tmux, ssh — all fine), with three things done
+for you:
+
+- **Boot**: the agent receives the machine-resolved boot prompt and reads its way in —
+  your `UserContext`, the stock doctrine, the project's mission/notebook/rules, the
+  journal tail, open feedback — then opens with a **standup**. On a fresh project it
+  *interviews you* and drafts the mission instead.
+- **Transcripts**: the rendered conversation is captured to `Context/Transcripts/`
+  (a PTY interposer + headless terminal — works identically under any terminal;
+  `--no-transcript` opts out).
+- **Environment**: `FLUX_PROJECT`, identity, the worker policy, and MCP wiring are set
+  so the typed Flux tools (inline figure PNGs, the live bridge) point at the right
+  project.
+
+Run as many principals as you have projects — one per zellij pane if you like. The
+sessions are independent; each project's Context keeps its own memory.
+
+**Resuming:** prefer a fresh `flux principal` — rehydration reads *current* files, while
+a resumed conversation remembers stale ones. For genuinely mid-thought work, the vendor's
+own resume works (e.g. `codex resume <id>` — the id is printed at session end and
+captured in the transcript); run it from the project directory so MCP roots correctly.
+
+# Workers
+
+The principal dispatches workers itself:
+
+```bash
+flux dispatch <name> --brief-file brief.md [--model m --effort e]
+```
+
+Under the default **"principal decides"** policy, the principal picks each worker's
+model and effort per task (its boot prompt carries the menu and guidance: mechanical
+work low/medium, hard analysis high tiers); a fixed policy from the picker applies
+automatically. Every dispatch is recorded in `Context/Dispatches/<stamp>-<name>/` —
+`brief.md` (the exact instructions), `log.txt` (live-streaming output; `tail -f` it to
+watch a worker think), and `result.md` (outcome + the agent used). The principal reviews
+each result against the mission before you see it.
 
 # Where everything lives
 
-## Machine level — `<FluxConfig>/Context/`
+Run `flux config` for this machine's resolved paths.
 
-Run `flux config` to print the resolved paths on your machine.
+**Machine level — `<FluxConfig>/`:**
 
-| Path | What it is | Who writes it |
-|-----------------------|------------------------|------------------------|
-| `Context/UserContext/WHO-AM-I.md` | Who you are: background, interests, strengths, taste. Every agent reads it at session start — the more it knows, the less you repeat yourself. | **You** |
-| `Context/UserContext/RULES.md` | Your standing rules for *all* Flux work (figure conventions, writing style, statistics habits). Add sibling files or images freely — agents read everything in the folder. | **You** (agents may propose edits) |
-| `Context/FluxContext/` | Stock documentation shipped with Flux and re-synced on every update — **the single canonical home of all agent-facing Flux knowledge.** Role docs: `README.md` (the map of this whole scheme), `PRINCIPAL.md` (the principal's role & doctrine), `WORKERS.md` (dispatched workers), `AGENTS-CONFIG.md` (the roster format). Working references: `FLUX-CLI.md`, `WORKFLOW.md` (the session playbook), `CLI-REFERENCE.md` (every verb), `PLOTS-AND-STYLE.md`, `PROJECT-AND-FIGURES.md`, `MANUSCRIPT-AND-REVIEW.md`, `SLIDES.md`, `PROJECT-GUIDE.md`, `TEMPLATES.md`. Machine-specific CLI/MCP invocations are baked in at sync time. | **Flux** — never edit these |
-| `<FluxConfig>/agents.json` | The **agent roster**: which CLI is your principal, which are dispatchable workers (see @sec-roster). | **You** |
+| Path | What | Who writes |
+|---|---|---|
+| `Context/UserContext/` | `WHO-AM-I.md` (you) + `RULES.md` (your standing rules) + any files you add | **You** |
+| `Context/FluxContext/` | The stock docs — the single canonical home of agent-facing Flux knowledge (doctrine, workflow, every verb, slides, python/uv conventions, Lighttable…). Re-synced on every Flux update with machine paths baked in. | **Flux** |
+| `agents.json` | The roster **matrix**: per-vendor command templates + their model/effort menus, and standing defaults (see @sec-roster) | **You** |
 
-If you used Flux before this system existed, your old `Guidelines/` folder was migrated into `UserContext/` automatically on first run (your `base_rules.md` became `RULES.md`; every other file moved intact).
+**Project level — `<project>/Context/`** (scaffolded for new projects; healed into old
+ones on first open, or via `flux context-init`):
 
-## Project level — `<project>/Context/`
+| Path | What | Who writes |
+|---|---|---|
+| `Project/MISSION.qmd` | The charter: question, data, deliverable, scope | Co-owned — you have final say |
+| `NOTEBOOK.md` | The principal's memory: state, decisions + why, dead ends, session log | **The agent** — you read + comment |
+| `RULES.md` | Project rules; recurring feedback gets promoted here | Co-owned |
+| `Transcripts/` | Session transcripts (machine-captured) | **Flux** |
+| `Dispatches/` | Worker briefs/logs/results | **The principal** |
 
-Created for new projects and **healed into existing projects the first time you open them** (additive only — nothing of yours is touched). Also available on demand: `flux context-init`.
+Mission, notebook, and rules are **first-class Flux Paper documents** — they appear in
+the document picker's Context group, and **margin comments work on them**: annotate your
+agent's understanding or memory and it treats those threads as corrections. The
+operational machinery (`.meta/feedback.ndjson` ledger, `journal.ndjson` provenance,
+attend state) lives in `.meta/` and takes care of itself.
 
-| Path | What it is | Who writes it |
-|------------------------|------------------------|------------------------|
-| `Context/Project/MISSION.qmd` | The project charter: question, data, prior work, deliverable, scope. The principal drafts it by *interviewing you* at project start and consults it whenever it needs to know "what are we driving toward?" | Co-owned — **you have final say** |
-| `Context/NOTEBOOK.md` | The principal's full memory of the project: current state, decisions *and why*, what's been tried (including dead ends), open questions, plus an append-only session log. This is what makes the agent coherent across sessions. | **The agent** — you read it and leave comments |
-| `Context/RULES.md` | Standing rules for *this* project only. When your feedback expresses a preference rather than a one-off fix, the principal promotes it here — so session ten needs less correcting than session one. | Co-owned |
-| `Context/Transcripts/` | Timestamped transcripts of principal sessions run in the app's Agent drawer, captured by Flux itself from the terminal buffer. An archive — searched when needed, never required reading. | **Flux** (append-only) |
-| `Context/Dispatches/` | One folder per worker dispatch: `brief.md` (the exact instructions the principal wrote), `log.txt` (full output), `result.md` (outcome). The audit trail of your principal's delegation — worth spot-checking. | **The principal** |
+# The review loop (in the app)
 
-The three Context documents are **first-class Flux Paper documents**: they appear in a separate "Context" group of the document picker, open in the editor like any manuscript, and **review comments work on them** — you can annotate your agent's mission or its memory in the margin, and it treats those threads as corrections to address first.
+- **Comments** on any document — threaded, anchored to exact text.
+- **Ctrl+Shift+M** anywhere — "Note to agent": one line, automatically **stamped with
+  what you're looking at** (figure/element/plot part, document + selected text, slide +
+  beat). **Send** marks the boundary: everything open becomes the work order.
+- The principal drains both queues (`flux feedback`, `flux comments`), fixes each item,
+  and resolves it with a note — threads close live in your margin. When unsure, it asks
+  *you* via a margin comment instead of guessing.
+- **While you're away**: leave `flux attend` running — your Send wakes one
+  non-interactive principal pass that drains the queue and updates the notebook.
+- **In the reader**: ✦ Ask AI opens the shared in-app terminal pane and *prefills* a
+  question about your selection or highlight (run `flux principal` in that pane — or
+  anywhere; any session can read the live reader state via `get_reading_context`). The
+  same shared terminal is available in the Paper margin.
+- **⌘K palette**: open mission/notebook/rules, global rules, Note to agent, and *Copy
+  principal prompt* (paste the boot prompt into any existing session).
 
-`AGENTS.md` at the project root is now just a stub that routes any agent to the two Context folders (the old baked-in verb guide moved to `FluxContext/PROJECT-GUIDE.md`, where it updates with the app instead of going stale per-project).
+# The roster — `agents.json` {#sec-roster}
 
-## Operational files — `.meta/`
-
-These are machinery, not memory — you normally never touch them.
-
-| Path | What it is |
-|------------------------------------|------------------------------------|
-| `.meta/feedback.ndjson` | The **feedback ledger**: your context-stamped notes, resolves, and send events. Event-sourced and append-only. |
-| `.meta/journal.ndjson` | The provenance journal — every write, who made it, when. |
-| `.meta/agent/status.json` | The attend watcher's heartbeat (`idle` / `working` / `done`). |
-| `.meta/agent/passes/` | Logs of non-interactive review passes. |
-| `manuscript/comments.json` | Review-comment threads for the main document (`<base>.comments.json` beside other documents, including Context docs). |
-
-# The workflow
-
-## One-time setup (per machine)
-
-1.  Fill out `Context/UserContext/WHO-AM-I.md` — the seeded file says what to include.
-2.  Skim `Context/UserContext/RULES.md` (your migrated conventions) and adjust.
-3.  Optionally edit `agents.json` if you don't want the defaults (@sec-roster).
-
-## Starting a project
-
-Open (or scaffold) a project and press **Ctrl+Shift+J** — the Agent drawer opens with your principal booted on this project. On a fresh project the mission is still the template, so the principal **interviews you**: what's the question, where's the data, what's been done, what's the deliverable. It drafts `MISSION.qmd` from your answers; you read it in Flux Paper, edit or comment, and it revises until the charter reads true. That conversation is the last time you explain the project to anyone.
-
-## A working session
-
-Open the drawer (the session persists across mode switches; the conversation survives closing and reopening the drawer). The principal boots by reading UserContext → its doctrine → the mission → the notebook → the journal tail → open feedback, then gives a **standup**: what happened since last time, what's open, what it proposes first.
-
-Talk at whatever level you want to think at. Light work it does directly; for anything substantial it writes a brief and runs `flux dispatch <role> --brief-file …` — the worker executes in the background, everything recorded under `Context/Dispatches/`. The principal reviews the result against the mission (rendering and *looking at* figures) before showing you. As it works, it keeps `NOTEBOOK.md` current — which you can watch live, since the app reloads Context docs like any external edit.
-
-## The review loop
-
-You review entirely inside the app:
-
--   **Comments** on any document (including Context docs) — threaded, anchored to exact text.
--   **Ctrl+Shift+M** anywhere — "Note to agent." Type one line; the note is **stamped with what you're looking at**: the active figure, selected elements, a drilled-in plot part, the document + selected text, or the slide + beat. "Make this bigger" arrives with *this* machine-resolved. The popover previews the stamp before you save.
--   **Send** (button in the popover, or the palette) — marks the review-pass boundary: everything open is now the agent's work order.
-
-The principal drains both queues (`flux comments`, `flux feedback`), addresses each item, and resolves it with a note — you watch threads close and toasts appear live. When it isn't sure, it opens a comment thread *asking you* (`flux add-comment`) instead of guessing; answer in the margin whenever you like.
-
-## While you're away
-
-Leave `flux attend` running in a terminal. It watches the ledger; when you hit **Send**, it wakes one non-interactive principal pass (the roster's `pass` default) that drains the queue, resolves items, and updates the notebook — serialized, logged under `.meta/agent/passes/`, and idempotent across restarts. Only *new* sends trigger.
-
-# The app surfaces
-
-| Surface | Shortcut | What it does |
-|------------------------|------------------------|------------------------|
-| Command palette | **Ctrl+K** | Global commands everywhere (in Paper it opens Paper's full palette, which includes these): Open mission / notebook / project rules, open global rules / WHO-AM-I, toggle the drawer, Note to agent, Ask agent about this. |
-| Agent drawer | **Ctrl+Shift+J** | Your principal in a real terminal, docked below the canvas in every mode. Transcripts are captured automatically. |
-| Note to agent | **Ctrl+Shift+M** | The context-stamped feedback capture (+ the Send button). |
-| Document picker | — | Context docs in their own group in the Paper sidebar. |
-
-"Ask agent about this" opens the drawer and prefills (never auto-submits) a line describing your current selection.
-
-# The command line
-
-Everything above is also a verb — same behavior for any agent or script, and every verb is an MCP tool where that makes sense:
-
-``` bash
-flux config                # machine paths (Context, agents.json) + build info
-flux context-init          # heal Context/ into a pre-existing project
-flux feedback [--all]      # the ledger: open notes with their context stamps
-flux resolve-feedback <id|text> --note "what I did"
-flux send                  # mark a review-pass boundary
-flux comments / resolve-comment / add-comment   # the comment loop (both directions)
-flux agents                # show the roster matrix
-flux principal [--print]   # the launch picker + YOUR principal, in this terminal (alias: agent)
-flux dispatch <name> --brief-file brief.md --model gpt-5.6-sol --effort medium
-flux attend [--interval ms] [--echo]            # the send-wakes-a-pass watcher
-```
-
-# Launching the principal: the picker
-
-The preferred flow is terminal-first: `cd` into (or near) a project and run
-**`flux principal`**. A minimal picker appears — Principal row and Workers row, each
-family · model · effort, pre-filled with your last choice so a bare **Enter launches
-immediately**; `p`/`w` customize a row, `q` quits. The Workers row supports
-**"principal decides"**: the principal then picks each worker's model and effort per
-task (`flux dispatch <name> --model … --effort …`), guided by a menu injected into its
-boot prompt — cheap mechanical work gets low effort, hard analysis gets the high tiers.
-Every dispatch records which agent actually ran in its `result.md`.
-
-Sessions launched this way are **PTY-wrapped**: your terminal behaves normally (any
-stack — ghostty, zellij, tmux, ssh), while Flux serializes the rendered conversation to
-`Context/Transcripts/` exactly like the drawer does. `--no-transcript` opts out;
-`--no-picker` (or explicit `--model`/`--effort` flags) skips the picker; `--print` shows
-the resolved launch without running it. The in-app drawer (**Ctrl+Shift+J**) presents
-the same picker before its first session.
-
-# The agent roster — `agents.json` {#sec-roster}
-
-`<FluxConfig>/agents.json` describes the CLIs as a **matrix** the pickers read: per-vendor command **templates** (`families`, with `{model}`/`{effort}` placeholders plus each family's model and effort menus) and standing **defaults** for the principal, workers, and attend passes. The full format reference is `FluxContext/AGENTS-CONFIG.md`; the shape:
+The full reference is `FluxContext/AGENTS-CONFIG.md`. Shape:
 
 ``` json
 {
@@ -157,24 +139,29 @@ the same picker before its first session.
 }
 ```
 
-Placeholders resolve at launch (`{model}`/`{effort}` substitute inside composite args; `{prompt}`, `{briefPath}`, `{project}`, `{mcpJson}` as before); `FLUX_PROJECT`, `FLUX_CLIENT`, and `FLUX_WORKER_POLICY` (the picker's worker row) are always set on the child. A legacy roster of fixed argv entries still resolves — the pickers simply deactivate.
+Families are command *templates* (`{model}`/`{effort}` substitute inside args; `{prompt}`,
+`{mcpJson}`, etc. resolve at launch); the picker menus come from each family's lists.
+**This file is the whole vendor coupling** — pick a different family and your
+collaborator gets a new brain with the same memory.
 
-**This file is the whole vendor coupling.** The principal is a role defined by what it reads (the Context folders) and how it's launched (this matrix) — pick a different family in the picker and your collaborator gets a new brain with the same memory.
+# Design properties
 
-# Where the "skill" fits
-
-Agent-CLI *skills* (the `~/.claude/skills/` and `~/.agents/skills/` conventions) exist so a **bare, self-started session** can discover Flux unprompted. Since the principal and workers are launched *by* Flux with explicit pointers into FluxContext, they don't use the skill mechanism at all. What remains in the vendor skill directories is a deliberate **stub**: a few lines that trigger on Flux-related requests and route the agent to `<FluxConfig>/Context/` — it carries no knowledge of its own, so it never goes stale. All real content lives in FluxContext and updates with the app.
-
-# Design properties worth knowing
-
--   **Agent-agnostic by construction.** Context is plain files; feedback and dispatch are files + spawned CLIs; transcripts are captured by the terminal host, not the agent. Nothing depends on any vendor's session store.
--   **Crash-safe.** The ledger is append-only (concurrent app + agent writers can't corrupt it); attend state survives restarts; a dead pass leaves notes open.
--   **Auditable.** Briefs, worker logs, transcripts, the journal, and the notebook give you a complete record of what your agents did and why.
--   **Self-improving.** The promotion discipline (feedback → RULES) and the notebook discipline (decisions written down as they're made) are stated in the stock `PRINCIPAL.md` doctrine — corrections compound instead of repeating.
+- **Agent-agnostic by construction**: plain files, spawned CLIs, terminal-host
+  transcripts — no vendor session stores, formats, or UI surfaces to chase.
+- **Crash-safe**: the ledger is append-only; attend state survives restarts; a dead
+  session loses nothing that was written down.
+- **Auditable**: briefs, worker logs, transcripts, the journal, and the notebook record
+  what every agent did and why — including which model/effort ran each task.
+- **Self-improving**: feedback that expresses a preference gets promoted into RULES;
+  decisions land in the notebook as they're made. Session ten needs less correcting
+  than session one.
 
 # Troubleshooting
 
--   **Drawer says "unavailable"** — you're in the browser dev shell; the drawer needs the desktop app's PTY. Use `flux agent` in an external terminal instead.
--   **Drawer errors on launch** — the roster command isn't installed or the JSON is invalid; `flux agents` shows what resolved (a corrupt file falls back to defaults with a warning).
--   **A verb reports `deferred: … is locked`** — you're mid-edit in the app; the agent retries in a moment. This is the coexistence model working, not a bug.
--   **An old project has no Context docs** — open it once in the app, or run `flux context-init`.
+- `flux: command not found` → `~/.local/bin` missing or off PATH (the shim installs
+  there on first run); the full path always works — see `docs/installation.qmd`.
+- A verb says `deferred: … is locked` → you're mid-edit in the app; the agent retries.
+  That's the coexistence model working.
+- Old project without `Context/` → open it once in the app, or `flux context-init`.
+- The picker shows a "legacy roster" note → your `agents.json` uses the old
+  fixed-command form; it still works, or reseed with the matrix schema.

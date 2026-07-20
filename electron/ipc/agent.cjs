@@ -93,12 +93,12 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
     // claude then spawns the server itself (cwd = its own, so every path here must be
     // absolute). Dev: the repo's tsx bin runs flux-mcp.ts. Packaged: a bundled
     // dist/flux-mcp.mjs (asar-unpacked, like flux-cli.mjs) on Electron-as-Node.
-    ipc.handle("agent:mcpSpec", () => mcpSpecFor());
-
-    // Principal-agent scheme: how the in-app Agent drawer launches the USER'S
-    // configured principal for the open project. Two modes:
-    //   {probe:true}       → roster info for the drawer's launch picker
-    //                        (families' model/effort menus + the standing selection)
+    // Principal-agent scheme: how the renderer resolves the USER'S
+    // configured principal for the open project (the palette's copy-prompt +
+    // the real-app gate; the interactive launch itself is `flux principal` in
+    // the user's own terminal — the in-app drawer was retired 2026-07-20).
+    // Two modes:
+    //   {probe:true}       → roster info (families' menus + standing selection)
     //   {selection?}       → the resolved launch spec (family templates on the
     //                        new schema, fixed entries on legacy rosters), with
     //                        the boot prompt + worker-policy env; a provided
@@ -142,10 +142,9 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
     });
   }
 
-  // R3 (FluxReader "Ask Claude") + the principal drawer: how a session should
-  // launch the flux MCP server for the open project. The renderer embeds this
-  // in `claude --mcp-config`; claude then spawns the server itself (cwd = its
-  // own, so every path here must be absolute). Dev: the repo's tsx bin runs
+  // How a principal launch embeds the flux MCP server for the open project
+  // ({mcpJson} roster placeholder; the agent spawns the server itself — cwd is
+  // its own, so every path must be absolute). Dev: the repo's tsx bin runs
   // flux-mcp.ts. Packaged: a bundled dist/flux-mcp.mjs (asar-unpacked, like
   // flux-cli.mjs) on Electron-as-Node.
   function mcpSpecFor() {

@@ -20,25 +20,5 @@ export function requestOpenDoc(path: string): void {
   openDocRequest.set({ path, n: ++dn });
 }
 
-/** The principal Agent drawer (PrincipalDrawer.svelte, mounted in Workspace). */
-export const principalDrawerOpen = writable(false);
-export function togglePrincipalDrawer(): void {
-  principalDrawerOpen.update((v) => !v);
-}
-
-/** Prefill queue for the principal terminal. The session module (xterm) is
- *  dynamically imported on first drawer open (startup-budget discipline), so
- *  asks buffer here until it registers its sink. */
-const askQueue: string[] = [];
-let askSink: ((text: string) => void) | null = null;
-export function askPrincipal(text: string): void {
-  if (askSink) askSink(text);
-  else askQueue.push(text);
-}
-export function registerPrincipalAskSink(fn: (text: string) => void): void {
-  askSink = fn;
-  for (const t of askQueue.splice(0)) fn(t);
-}
-
 /** The feedback capture popover (FeedbackCapture.svelte, mounted in Workspace). */
 export const feedbackCaptureOpen = writable(false);

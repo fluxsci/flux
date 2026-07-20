@@ -111,7 +111,7 @@ const [paperMode, completions, commentsView, chips, renderMs, paneStore, termSes
     read("src/shell/modes/paper/science/chips.ts"),
     read("src/shell/modes/paper/render/renderManuscript.ts"),
     read("src/shell/paneStore.ts"),
-    read("src/shell/modes/paper/margin/terminalSession.ts"),
+    read("src/shell/terminal/terminalSession.ts"),
     read("src/shell/modes/paper/science/grammar.ts"),
   ]);
 assert(

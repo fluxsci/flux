@@ -129,50 +129,12 @@ const key = (code, opts = {}) =>
   ok(true, "Send appends the review-pass boundary");
 }
 
-// --- 5. Agent drawer: graceful no-PTY fallback + resize + copy --------------
+// --- 5. the drawer is GONE (terminal-first rework, 2026-07-20) --------------
 {
   await key("KeyJ", { ctrlKey: true, shiftKey: true });
-  await waitFor(page, () => !!document.querySelector(".pd"), null, { timeout: 5000, label: "drawer open" });
-  const unavail = await page.evaluate(() => document.querySelector(".pd-unavail")?.textContent ?? "");
-  ok(/desktop app/.test(unavail), "drawer explains the no-PTY (browser) fallback");
-
-  // Drag the top gutter up 120px → the drawer grows (persisted height).
-  // (State → DOM flush is a microtask in Svelte 5 — await a frame before measuring.)
-  const grew = await page.evaluate(async () => {
-    const pd = document.querySelector(".pd");
-    const g = document.querySelector(".pd-gutter");
-    if (!pd || !g) return { before: 0, after: 0 };
-    const before = pd.clientHeight;
-    const r = g.getBoundingClientRect();
-    const opts = (y) => ({ bubbles: true, clientX: r.left + 40, clientY: y, pointerId: 7 });
-    g.dispatchEvent(new PointerEvent("pointerdown", opts(r.top + 4)));
-    g.dispatchEvent(new PointerEvent("pointermove", opts(r.top + 4 - 120)));
-    g.dispatchEvent(new PointerEvent("pointerup", opts(r.top + 4 - 120)));
-    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-    return { before, after: pd.clientHeight, saved: localStorage.getItem("flux.principalDrawer.heightPx") };
-  });
-  ok(grew.after >= grew.before + 100, `gutter drag grows the drawer (${grew.before} → ${grew.after}px)`);
-  ok(Math.abs(Number(grew.saved) - grew.after) <= 2, `resized height persists (saved ${grew.saved} ≈ ${grew.after}px; border box)`);
-  const reset = await page.evaluate(async () => {
-    const g = document.querySelector(".pd-gutter");
-    g?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
-    return {
-      saved: localStorage.getItem("flux.principalDrawer.heightPx"),
-      styled: document.querySelector(".pd")?.getAttribute("style") || "",
-    };
-  });
-  ok(reset.saved === null && !/flex-basis/.test(reset.styled), "double-click resets to the default height");
-
-  const copyBtn = await page.evaluate(() => {
-    const b = [...document.querySelectorAll(".pd-btn")].find((x) => /Copy prompt/.test(x.textContent ?? ""));
-    return b ? { disabled: b.disabled } : null;
-  });
-  ok(copyBtn && copyBtn.disabled === true, "Copy-prompt button present (disabled without the desktop bridge)");
-
-  await key("KeyJ", { ctrlKey: true, shiftKey: true });
-  await waitFor(page, () => !document.querySelector(".pd"), null, { timeout: 5000, label: "drawer closed" });
-  ok(true, "Ctrl+Shift+J toggles the drawer");
+  await new Promise((r) => setTimeout(r, 400)); // annotated: give a would-be drawer time to mount
+  const drawer = await page.evaluate(() => !!document.querySelector(".pd"));
+  ok(!drawer, "Ctrl+Shift+J no longer opens an in-app drawer (flux principal owns sessions)");
 }
 
 // --- 6. figure mode gets the GLOBAL palette ---------------------------------
@@ -187,7 +149,8 @@ const key = (code, opts = {}) =>
   const titles = await page.evaluate(() =>
     [...document.querySelectorAll(".global-palette .cp li .ct")].map((n) => n.textContent?.trim()),
   );
-  ok(titles.includes("Open mission") && titles.includes("Toggle agent drawer"), "global palette carries the context/agent commands");
+  ok(titles.includes("Open mission") && titles.includes("Copy principal prompt"), "global palette carries the context/agent commands");
+  ok(!titles.includes("Toggle agent drawer"), "the retired drawer command is gone from the palette");
   await page.keyboard.press("Escape");
 }
 

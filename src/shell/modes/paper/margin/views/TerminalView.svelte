@@ -9,7 +9,7 @@
     isAvailable,
     termStatus,
     termInfo,
-  } from "../terminalSession";
+  } from "../../../../terminal/terminalSession";
 
   // The pane frame provides the chrome, so this is content-only: a slim
   // context bar plus the xterm mount. The shell itself is owned by

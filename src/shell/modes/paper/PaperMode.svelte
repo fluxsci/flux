@@ -67,7 +67,7 @@
   import { summonPane, closeActivePane, closeAllPanes } from "./margin/marginPanes";
   import { BG_SOURCES, rerollBgSeed } from "./margin/bgSources";
   import { settings } from "../../../lib/settings";
-  import * as terminalSession from "./margin/terminalSession";
+  import * as terminalSession from "../../terminal/terminalSession";
   import { writeCiteGroup, removeCite as removeCiteOp, citationGroupAt } from "./scholar/citeOps";
   import PreviewPane from "./render/PreviewPane.svelte";
   import { renderManuscript } from "./render/renderManuscript";

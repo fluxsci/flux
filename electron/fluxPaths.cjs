@@ -446,6 +446,50 @@ function resolveRepoDirSync() {
   return fsSync.existsSync(path.join(candidate, "flux-cli.ts")) ? candidate : "<flux-repo>";
 }
 
+// ---------------------------------------------------------------------------
+// The `flux` PATH shim: ~/.local/bin/flux → this install's CLI, so `flux
+// principal` etc. work by name. Managed-marker policy: we only create or
+// rewrite a file that WE wrote (marker line) — a user's own `flux` binary is
+// never touched, and replacing the shim with an unmarked file opts out.
+// ---------------------------------------------------------------------------
+
+const SHIM_MARKER = "# flux-cli shim (managed by Flux — replace with your own file to opt out)"; // flux-cap-ok
+
+function cliShimPathSync() {
+  return path.join(os.homedir(), ".local", "bin", "flux");
+}
+
+function cliShimUpToDateSync() {
+  const binDir = path.dirname(cliShimPathSync());
+  if (!fsSync.existsSync(binDir)) return true; // no ~/.local/bin — nothing to manage
+  try {
+    const cur = fsSync.readFileSync(cliShimPathSync(), "utf8");
+    if (!cur.includes(SHIM_MARKER)) return true; // user's own file — leave alone
+    return cur.includes(resolveOwnCliCommandsSync().cli);
+  } catch {
+    return false; // absent → install on the next full run
+  }
+}
+
+async function installCliShim(events) {
+  const shim = cliShimPathSync();
+  const binDir = path.dirname(shim);
+  if (!fsSync.existsSync(binDir)) return; // don't invent ~/.local/bin
+  const { cli } = resolveOwnCliCommandsSync();
+  if (cli === "flux") return; // last-resort resolution — nothing real to point at
+  let cur = null;
+  try {
+    cur = fsSync.readFileSync(shim, "utf8");
+  } catch {
+    /* absent */
+  }
+  if (cur !== null && !cur.includes(SHIM_MARKER)) return; // user-owned — never clobber
+  const body = `#!/bin/sh\n${SHIM_MARKER}\nexec ${cli} "$@"\n`;
+  if (cur === body) return;
+  await fsp.writeFile(shim, body, { mode: 0o755 });
+  events.push({ action: "install-cli-shim", detail: shim });
+}
+
 function fluxContextStampPath(cfg) {
   return path.join(cfg, "Context", "FluxContext", ".version");
 }
@@ -459,6 +503,7 @@ function fluxContextUpToDateSync(cfg) {
   }
   if (!fsSync.existsSync(agentsConfig.agentsConfigPathSync(cfg))) return false;
   if (fsSync.existsSync(path.join(cfg, "Guidelines"))) return false;
+  if (!cliShimUpToDateSync()) return false;
   const uc = path.join(cfg, "Context", "UserContext");
   return fsSync.existsSync(path.join(uc, "RULES.md")) && fsSync.existsSync(path.join(uc, "WHO-AM-I.md"));
 }
@@ -545,6 +590,7 @@ async function ensureFluxConfig() {
       await migrateFluxLib(cfg, events);
       await ensureUserContext(cfg, events);
       await syncFluxContext(cfg, events);
+      await installCliShim(events);
       if (agentsConfig.seedAgentsConfigSync(cfg)) {
         events.push({ action: "seed-agents-config", detail: agentsConfig.agentsConfigPathSync(cfg) });
       }

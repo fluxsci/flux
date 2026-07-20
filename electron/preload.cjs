@@ -171,7 +171,6 @@ contextBridge.exposeInMainWorld("fig", {
   // R3 (FluxReader "Ask Claude"): how to launch the flux MCP server for the open
   // project — embedded by the agent drawer in `claude --mcp-config` so the spawned
   // session can see the paper (get_reading_context / get_paper_text / annotations).
-  agentMcpSpec: () => ipcRenderer.invoke("agent:mcpSpec"),
   agentPrincipalSpec: (opts) => ipcRenderer.invoke("agent:principalSpec", opts),
 
   // Integrated terminal: drive a native shell (PTY) living in the main process.

@@ -31,7 +31,8 @@
   import type { ReaderContext } from "../../../lib/references/items";
   import { matchRefToBriefs, type CitePreviewRequest, type FlatOutlineItem } from "../../../lib/pdf/citePreview";
   import PdfView from "./PdfView.svelte";
-  import AgentDrawer from "./AgentDrawer.svelte";
+  import TerminalPane from "../../terminal/TerminalPane.svelte";
+  import { prefill as terminalPrefill } from "../../terminal/terminalSession";
   import HighlightPopover from "./HighlightPopover.svelte";
   import CitePreview from "./CitePreview.svelte";
   import FigurePanel from "./FigurePanel.svelte";
@@ -183,20 +184,23 @@
     }
   }
 
-  // Agent drawer (Claude Code) + the human's live text selection (pushed to the agent).
+  // The shared terminal pane (terminalSession — the SAME persistent shell the
+  // Paper margin mounts) + the human's live text selection (pushed via
+  // reader-context.json for any agent session's get_reading_context).
   let agentOpen = $state(false);
-  let agentDrawer = $state<AgentDrawer | undefined>();
   let selection = $state("");
   let selPage = $state<number | undefined>(undefined);
   let ctxTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // R3: open the drawer (if needed) and prefill a question about a passage. The quote
-  // grounds the agent; the live context file / MCP tools carry the full state.
+  // R3 (terminal-first rework): "Ask AI" opens the shared terminal and PREFILLS
+  // a question about the passage — never submits. Run whatever agent you like
+  // there (`flux principal` typically); the quote grounds it, and the live
+  // context file / MCP get_reading_context carry the full reader state.
   async function askAgent(prefix: string, quote: string) {
     agentOpen = true;
-    await tick(); // mount the drawer before asking (it queues until claude is ready)
+    await tick(); // mount the terminal pane before prefilling
     const q = quote.length > 220 ? quote.slice(0, 220) + "…" : quote;
-    agentDrawer?.ask(`${prefix} "${q}" —`);
+    terminalPrefill(`${prefix} "${q}" —`);
   }
 
   // Highlight popover (click a highlight on the page, or ✎ on a sidebar row).
@@ -832,7 +836,7 @@
         <button class="tgl" class:on={showAnnots} onclick={() => (showAnnots = !showAnnots)} title="Toggle annotations"
           >Notes ({annotations.length}) ✎</button>
         <button class="tgl agentbtn" class:on={agentOpen} onclick={() => (agentOpen = !agentOpen)}
-          title="Ask Claude Code about this paper — it sees your selection + highlights (⌘/Ctrl-J)">✦ Ask Claude</button>
+          title="Open the terminal — run `flux principal` there; Ask-AI prefills questions about your selection/highlights (⌘/Ctrl-J)">✦ Ask AI</button>
       </div>
       <div class="rbody">
         {#if showRefs}
@@ -907,10 +911,12 @@
           </div>
           {#if agentOpen}
             <div class="agentpane">
-              <AgentDrawer
-                bind:this={agentDrawer}
-                paper={$readerKey ? { citekey: $readerKey, title: entry?.title } : null}
-                onClose={() => (agentOpen = false)} />
+              <div class="agentpane-bar">
+                <span class="agentpane-title">Terminal</span>
+                <span class="agentpane-hint">run `flux principal` here — Ask AI prefills questions</span>
+                <button class="agentpane-close" onclick={() => (agentOpen = false)} title="Ctrl+J">Close</button>
+              </div>
+              <TerminalPane />
             </div>
           {/if}
         </div>
@@ -1397,6 +1403,42 @@
     flex: 0 0 42%;
     min-height: 140px;
     border-top: 1px solid var(--c-line-strong);
+    display: flex;
+    flex-direction: column;
+  }
+  .agentpane-bar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 3px 10px;
+    border-bottom: 1px solid var(--c-line);
+    background: var(--c-surface);
+  }
+  .agentpane-title {
+    font-size: var(--ts-xs, 11px);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--c-tx-faint);
+  }
+  .agentpane-hint {
+    font-size: var(--ts-xs, 11px);
+    color: var(--c-tx-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .agentpane-close {
+    margin-left: auto;
+    font: inherit;
+    font-size: var(--ts-xs, 11px);
+    background: none;
+    border: 1px solid var(--c-edge);
+    border-radius: var(--r-1, 4px);
+    color: var(--c-tx-2);
+    padding: 1px 8px;
+    cursor: pointer;
   }
   .agentbtn.on {
     border-color: var(--c-accent);
