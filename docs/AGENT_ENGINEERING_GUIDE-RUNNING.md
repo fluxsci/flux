@@ -1060,6 +1060,24 @@ parity (goldens regen); pure 141/141; context-gui 17/17. Owner's live roster mig
   "default"/"principal-decides" — one mechanism serves codex's composite `-c k={effort}`
   args and claude's flagless effort story.
 
+### 2026-07-20 (later) — Agent drawers retired; terminal-first canonical (Claude Fable 5, `main`)
+**Work:** Owner decision: principal sessions live in the user's own terminals (`flux
+principal`); the app is an independent review surface. Deleted PrincipalDrawer/
+principalSession (+ Ctrl+Shift+J, picker panel, gutter) AND the reader's AgentDrawer;
+reader ✦ Ask-AI now opens the SHARED terminal (terminalSession.ts moved to
+src/shell/terminal/, one session for Paper margin + reader via TerminalPane.svelte) and
+PREFILLS the question via the new prefill() export. agent:mcpSpec channel removed
+(mcpSpecFor stays internal, feeding {mcpJson}). ensureFluxConfig now installs a managed
+~/.local/bin/flux shim (marker policy; never clobbers a user file). context-gui asserts
+NO drawer; verify-r3-agent rewritten; p4-paper repointed; fluxconfig gains shim asserts.
+Full acceptance green incl. verify-principal-electron 15/15 once the seat unlocked.
+**Learnings:**
+- One persistent in-app terminal serving multiple mounts (margin + reader) beats bespoke
+  per-surface agent terminals: attach/detach of a module-scoped session generalizes for
+  free, and prefill-never-submit is the right in-app↔session interface.
+- run-verifies.mjs must be launched from the repo root — from another cwd it dies before
+  printing a usable error (looked like a bare "Node.js v22.17.0" line).
+
 ### 2026-07-18 (late) — Human↔agent feedback-loop design brainstorm (Claude Fable 5, `main`, no code)
 **Work:** Owner asked for better human↔agent iteration on Flux projects (no app restarts,
 agent-agnostic, no context re-explaining). Surveyed the existing surfaces and wrote the design
