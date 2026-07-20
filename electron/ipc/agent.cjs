@@ -107,7 +107,7 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
       const roster = agentsConfig.readAgentsConfigSync(cfg);
       const mcp = mcpSpecFor();
       try {
-        const prompt = agentsConfig.principalBootPrompt(root);
+        const prompt = agentsConfig.principalBootPrompt(root, fluxPaths.resolveOwnCliCommandsSync().cli);
         const spec = agentsConfig.resolveAgentSpec(roster.principal, {
           prompt,
           projectRoot: root,

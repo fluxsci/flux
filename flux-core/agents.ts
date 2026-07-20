@@ -67,7 +67,7 @@ export function readRoster(): {
 export function principalSpec(root: string): AgentSpec {
   const roster = readRoster();
   return agentsConfig.resolveAgentSpec(roster.principal, {
-    prompt: agentsConfig.principalBootPrompt(root),
+    prompt: agentsConfig.principalBootPrompt(root, fluxPaths.resolveOwnCliCommandsSync().cli),
     projectRoot: root,
     mcpSpec: mcpSpecForCli(root),
     client: "principal",
@@ -229,7 +229,7 @@ export async function runPass(root: string, opts: { echo?: boolean } = {}): Prom
   const roster = readRoster();
   const entry = roster.principalPass ?? roster.principal;
   const spec: AgentSpec = agentsConfig.resolveAgentSpec(entry, {
-    prompt: agentsConfig.passPrompt(root),
+    prompt: agentsConfig.passPrompt(root, fluxPaths.resolveOwnCliCommandsSync().cli),
     projectRoot: root,
     mcpSpec: mcpSpecForCli(root),
     client: "principal",

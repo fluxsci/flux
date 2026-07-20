@@ -161,24 +161,36 @@ function resolveAgentSpec(entry, opts) {
   return { command: args[0], args: args.slice(1), cwd, env };
 }
 
-/** The standard principal boot prompt: everything else lives in the files. */
-function principalBootPrompt(projectRoot) {
+/** The standard principal boot prompt. `cli` is this machine's resolved flux
+ *  invocation (fluxPaths.resolveOwnCliCommandsSync().cli) — baked in because
+ *  `flux` is usually NOT on PATH and "command not found" on the very first
+ *  instruction is a needless detour (callers without a resolver may omit it). */
+function principalBootPrompt(projectRoot, cli) {
+  const flux = cli || "flux";
   return (
     "You are the Principal for the Flux project at " +
     projectRoot +
-    ". Run `flux config` to locate the machine Context folder, then follow the boot " +
+    ". The flux CLI on this machine is: " +
+    flux +
+    " — run `" +
+    flux +
+    " config` to locate the machine Context folder, then follow the boot " +
     "sequence in its FluxContext/PRINCIPAL.md (read UserContext, the project's " +
     "Context/, the journal tail, and open feedback/comments), and open with a standup."
   );
 }
 
 /** The attend-pass prompt: a non-interactive review pass over open feedback. */
-function passPrompt(projectRoot) {
+function passPrompt(projectRoot, cli) {
+  const flux = cli || "flux";
   return (
     "Review pass for the Flux project at " +
     projectRoot +
-    ". You are the Principal. Follow FluxContext/PRINCIPAL.md (locate it via " +
-    "`flux config`): boot, then drain ALL open feedback notes and comments — address " +
+    ". You are the Principal. The flux CLI on this machine is: " +
+    flux +
+    " — follow FluxContext/PRINCIPAL.md (locate it via `" +
+    flux +
+    " config`): boot, then drain ALL open feedback notes and comments — address " +
     "each in place, resolve each with a note, update the notebook session log. Do not " +
     "wait for user input; propose (don't perform) anything destructive."
   );

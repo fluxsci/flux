@@ -119,9 +119,12 @@ try {
   const bad = ac.readAgentsConfigSync(cfg);
   ok(bad.warning !== null && Array.isArray(bad.principal.command), "corrupt agents.json → defaults + warning, never a throw");
 
-  // boot/pass prompts point at the doctrine
-  ok(/PRINCIPAL\.md/.test(ac.principalBootPrompt(project)) && /flux config/.test(ac.principalBootPrompt(project)), "boot prompt routes through flux config → PRINCIPAL.md");
-  ok(/resolve each with a note/.test(ac.passPrompt(project)), "pass prompt demands per-item resolution");
+  // boot/pass prompts point at the doctrine, with the machine CLI baked in
+  // (the "flux: command not found" first-instruction detour, 2026-07-19).
+  const boot = ac.principalBootPrompt(project, 'node "/x/dist/flux-cli.mjs"');
+  ok(/PRINCIPAL\.md/.test(boot) && /node "\/x\/dist\/flux-cli\.mjs" config/.test(boot), "boot prompt bakes the resolved CLI into its config instruction");
+  ok(/flux config/.test(ac.principalBootPrompt(project)), "boot prompt falls back to bare `flux` without a resolver");
+  ok(/resolve each with a note/.test(ac.passPrompt(project)) && /node "\/x\/dist\/flux-cli\.mjs"/.test(ac.passPrompt(project, 'node "/x/dist/flux-cli.mjs"')), "pass prompt demands per-item resolution + bakes the CLI");
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }
