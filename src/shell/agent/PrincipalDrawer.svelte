@@ -17,9 +17,64 @@
     restart,
   } from "./principalSession";
   import { principalDrawerOpen } from "../command/commandBus";
+  import { copyPrincipalPrompt } from "../command/globalCommands";
 
   let host = $state<HTMLDivElement | undefined>(undefined);
   let ro: ResizeObserver | null = null;
+
+  // Drag-resizable height, persisted. Default = the old fixed 42%.
+  const HEIGHT_KEY = "flux.principalDrawer.heightPx";
+  const MIN_H = 160;
+  let heightPx = $state<number | null>(null);
+  try {
+    const saved = Number(localStorage.getItem(HEIGHT_KEY));
+    if (saved >= MIN_H) heightPx = saved;
+  } catch {
+    /* no persistence — default height */
+  }
+  let dragging = false;
+  let dragStartY = 0;
+  let dragStartH = 0;
+  let pdEl = $state<HTMLDivElement | undefined>(undefined);
+
+  function maxH(): number {
+    const parent = pdEl?.parentElement?.clientHeight ?? window.innerHeight;
+    return Math.max(MIN_H, Math.floor(parent * 0.85));
+  }
+  function onGutterDown(e: PointerEvent) {
+    // No preventDefault here — it would suppress the derived dblclick (reset).
+    dragging = true;
+    dragStartY = e.clientY;
+    dragStartH = pdEl?.clientHeight ?? 300;
+    document.body.style.userSelect = "none";
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* capture keeps real drags alive off-element; its failure must not kill the drag */
+    }
+  }
+  function onGutterMove(e: PointerEvent) {
+    if (!dragging) return;
+    heightPx = Math.min(maxH(), Math.max(MIN_H, dragStartH + (dragStartY - e.clientY)));
+  }
+  function onGutterUp() {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.userSelect = "";
+    try {
+      if (heightPx !== null) localStorage.setItem(HEIGHT_KEY, String(Math.round(heightPx)));
+    } catch {
+      /* non-persistent env */
+    }
+  }
+  function onGutterReset() {
+    heightPx = null; // back to the 42% default
+    try {
+      localStorage.removeItem(HEIGHT_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
 
   onMount(() => {
     initPrincipalSession();
@@ -39,7 +94,22 @@
   }
 </script>
 
-<div class="pd" role="region" aria-label="Agent drawer">
+<div
+  class="pd"
+  role="region"
+  aria-label="Agent drawer"
+  bind:this={pdEl}
+  style={heightPx !== null ? `flex-basis:${heightPx}px` : ""}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="pd-gutter"
+    title="Drag to resize · double-click to reset"
+    onpointerdown={onGutterDown}
+    onpointermove={onGutterMove}
+    onpointerup={onGutterUp}
+    onpointercancel={onGutterUp}
+    ondblclick={onGutterReset}>
+  </div>
   <div class="pd-bar">
     <span class="pd-title">Principal</span>
     {#if $principalInfo}
@@ -53,6 +123,13 @@
       <span class="pd-warn" title={$principalNotice}>⚠ roster</span>
     {/if}
     <div class="pd-btns">
+      <button
+        class="pd-btn"
+        disabled={!isAvailable()}
+        onclick={() => void copyPrincipalPrompt()}
+        title="Copy the boot prompt — paste it into your own terminal session instead (note: no transcript capture there)">
+        Copy prompt
+      </button>
       {#if $principalStatus === "exited"}
         <button class="pd-btn" onclick={() => void restart()}>Restart</button>
       {/if}
@@ -78,6 +155,21 @@
     flex-direction: column;
     border-top: 1.5px solid var(--c-line-strong, var(--c-edge));
     background: var(--c-bg);
+    position: relative;
+  }
+  /* The resize gutter rides the drawer's top edge (outside the terminal's
+     scroll area) — a slim hit zone that widens the border visually on hover. */
+  .pd-gutter {
+    position: absolute;
+    top: -4px;
+    left: 0;
+    right: 0;
+    height: 9px;
+    cursor: ns-resize;
+    z-index: 5;
+  }
+  .pd-gutter:hover {
+    background: color-mix(in oklab, var(--c-accent) 30%, transparent);
   }
   .pd-bar {
     flex: 0 0 auto;

@@ -341,6 +341,8 @@ export interface FileBridge {
     args?: string[];
     cwd?: string;
     env?: Record<string, string>;
+    /** The boot prompt, standalone (for copy-to-clipboard → the user's own terminal). */
+    prompt?: string;
     warning?: string | null;
     agentsPath?: string;
   }>;

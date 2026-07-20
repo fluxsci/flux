@@ -17,6 +17,26 @@ import { fileBridge } from "../../lib/project/types";
 import { CONTEXT_PATHS } from "../../lib/project/contextTemplates";
 import { describeStamp } from "../../lib/project/feedback";
 import { captureStamp } from "../agent/feedbackStore";
+import { pushToast } from "../../lib/toast";
+
+/** Copy the principal's boot prompt for pasting into the user's OWN terminal
+ *  session (the drawer-free path — no transcript capture there, by design). */
+export async function copyPrincipalPrompt(): Promise<void> {
+  const fb = fileBridge();
+  const spec = await fb?.agentPrincipalSpec?.().catch(() => null);
+  if (!spec?.ok || !spec.prompt) {
+    pushToast("error", "Couldn't resolve the principal prompt", spec?.error ? { detail: spec.error } : undefined);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(spec.prompt);
+    pushToast("success", "Principal prompt copied", {
+      detail: "Paste into your own terminal session. Note: only drawer sessions get transcripts.",
+    });
+  } catch {
+    pushToast("error", "Clipboard unavailable");
+  }
+}
 
 function openInPaper(rel: string): void {
   setFocusedMode("paper");
@@ -52,6 +72,13 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
     cmds.push(
       { id: "agent-drawer", title: "Toggle agent drawer", hint: "Agent", keywords: "principal chat terminal claude codex", run: () => togglePrincipalDrawer() },
       { id: "agent-note", title: "Note to agent", hint: "Agent", keywords: "feedback capture tell", run: () => feedbackCaptureOpen.set(true) },
+      {
+        id: "agent-copy-prompt",
+        title: "Copy principal prompt",
+        hint: "Agent",
+        keywords: "clipboard boot terminal external paste",
+        run: () => void copyPrincipalPrompt(),
+      },
       {
         id: "agent-ask",
         title: "Ask agent about this",

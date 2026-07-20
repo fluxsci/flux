@@ -107,13 +107,16 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
       const roster = agentsConfig.readAgentsConfigSync(cfg);
       const mcp = mcpSpecFor();
       try {
+        const prompt = agentsConfig.principalBootPrompt(root);
         const spec = agentsConfig.resolveAgentSpec(roster.principal, {
-          prompt: agentsConfig.principalBootPrompt(root),
+          prompt,
           projectRoot: root,
           mcpSpec: mcp.ok ? { command: mcp.command, args: mcp.args, env: mcp.env } : null,
           client: "principal",
         });
-        return { ok: true, ...spec, warning: roster.warning, agentsPath: roster.path };
+        // `prompt` rides along so the renderer can offer copy-to-clipboard (the
+        // user pasting it into their own terminal session).
+        return { ok: true, ...spec, prompt, warning: roster.warning, agentsPath: roster.path };
       } catch (e) {
         return { ok: false, error: (e && e.message) || String(e) };
       }
