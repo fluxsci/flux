@@ -77,4 +77,6 @@ Working references (read on demand — briefs and the docs above point into thes
 - `PROJECT-AND-FIGURES.md` — the on-disk tree, the figure model, compose/look/restyle.
 - `MANUSCRIPT-AND-REVIEW.md` — Quarto authoring, comments, the feedback ledger, live edits.
 - `SLIDES.md` — Flux Slide: build + animate a talk, export one offline `.html`.
+- `LIGHTTABLE.md` — the image-set triage sidecar: the collection/set/filename-alignment
+  convention ("a lighttable directory of X") and how to launch it.
 - `TEMPLATES.md` — analysis-dir glue (AGENTS/CLAUDE stubs, per-project MCP wiring).

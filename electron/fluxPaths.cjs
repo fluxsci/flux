@@ -430,6 +430,14 @@ function resolveOwnCliCommandsSync() {
   return { cli: "flux", mcp: "flux-mcp", mcpPath: "flux-mcp" }; // last resort: assume on PATH
 }
 
+/** The Lighttable sidecar dir ({{LIGHTTABLE_DIR}}): resolved when this install is
+ *  a source checkout; a generic literal otherwise (packaged installs don't carry
+ *  the sidecar — the stock doc tells agents to check existence first). */
+function resolveLighttableDirSync() {
+  const candidate = path.join(path.resolve(__dirname, ".."), "lighttable");
+  return fsSync.existsSync(candidate) ? candidate : "<flux-repo>/lighttable";
+}
+
 function fluxContextStampPath(cfg) {
   return path.join(cfg, "Context", "FluxContext", ".version");
 }
@@ -469,7 +477,8 @@ async function syncFluxContext(cfg, events) {
     const out = FLUX_CONTEXT_FILES[name]
       .replaceAll("{{FLUX_CLI}}", cmds.cli)
       .replaceAll("{{FLUX_MCP}}", cmds.mcp)
-      .replaceAll("{{FLUX_MCP_PATH}}", cmds.mcpPath);
+      .replaceAll("{{FLUX_MCP_PATH}}", cmds.mcpPath)
+      .replaceAll("{{LIGHTTABLE_DIR}}", resolveLighttableDirSync());
     const p = path.join(dir, name);
     try {
       if (fsSync.readFileSync(p, "utf8") === out) continue;

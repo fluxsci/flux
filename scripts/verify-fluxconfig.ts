@@ -153,7 +153,7 @@ if (process.platform !== "win32") {
     const fc1 = path.join(cfg, "Context", "FluxContext");
     assert(fs.readFileSync(path.join(fc1, "PRINCIPAL.md"), "utf8").includes("Boot sequence"), "FluxContext stock docs synced");
     const unsubbed = fs.readdirSync(fc1).filter(
-      (n) => n.endsWith(".md") && /\{\{FLUX_(CLI|MCP|MCP_PATH)\}\}/.test(fs.readFileSync(path.join(fc1, n), "utf8")),
+      (n) => n.endsWith(".md") && /\{\{(FLUX_(CLI|MCP|MCP_PATH)|LIGHTTABLE_DIR)\}\}/.test(fs.readFileSync(path.join(fc1, n), "utf8")),
     );
     assert(unsubbed.length === 0, `every synced FluxContext doc substituted its placeholders (${unsubbed.join(", ") || "all clean"})`);
     assert(JSON.parse(fs.readFileSync(path.join(cfg, "agents.json"), "utf8")).principal.command.length > 0, "agents.json roster seeded");

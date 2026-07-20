@@ -52,11 +52,13 @@ const docs = (docsMod.FLUX_CONTEXT_FILES ? docsMod : docsMod.default) as {
     "MANUSCRIPT-AND-REVIEW.md",
     "SLIDES.md",
     "TEMPLATES.md",
+    "LIGHTTABLE.md",
   ];
   ok(expect.every((n) => n in files) && Object.keys(files).length === expect.length, `stock set complete (${expect.length} docs)`);
   ok(/add-figure/.test(files["CLI-REFERENCE.md"]) && !/add-math/.test(files["CLI-REFERENCE.md"]), "CLI-REFERENCE reflects the post-migration slide surface (no retired verbs)");
   ok(/feedback/.test(files["WORKFLOW.md"]) && /resolve-feedback/.test(files["WORKFLOW.md"]), "WORKFLOW's review loop covers the feedback ledger");
   ok(/\{\{FLUX_MCP_PATH\}\}/.test(files["TEMPLATES.md"]), "TEMPLATES keeps the MCP path placeholder in the SOURCE");
+  ok(/aligned by filename|SAME item filenames/.test(files["LIGHTTABLE.md"]) && /\{\{LIGHTTABLE_DIR\}\}/.test(files["LIGHTTABLE.md"]), "LIGHTTABLE carries the alignment convention + dir placeholder");
   const machineSpecific = Object.entries(files).filter(([, body]) => /driessen2|\/home\/[a-z]/.test(body));
   ok(machineSpecific.length === 0, `stock docs carry no machine-specific paths (${machineSpecific.map(([n]) => n).join(", ") || "clean"})`);
   ok(/Boot sequence/.test(files["PRINCIPAL.md"]) && /notebook law/i.test(files["PRINCIPAL.md"]), "PRINCIPAL.md carries boot sequence + notebook law");
