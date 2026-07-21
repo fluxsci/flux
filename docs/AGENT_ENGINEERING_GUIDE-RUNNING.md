@@ -1226,6 +1226,35 @@ probe (defaults, both modes animate+settle, built-in blink, migration, clean con
   in the same file — the gate greps its own documentation. Reword the comment; keep the pin
   strict (second occurrence of this trap; it is the norm for retirement pins, not an accident).
 
+### 2026-07-21 — Cascade: stepped deltas across a multi-selection (Claude Fable 5, `cascade`)
+**Work:** Shipped the v0.1-final cascade feature end to end: pure core (`src/lib/cascade.ts` —
+the step law `value ⊕ delta·step_k`, selection-unit ranking via `unitKeyOf` (a top-level group
+is ONE rigid rank), ordering resolvers selection/layer/x/y + reverse, per-property
+applicability + clamps; `ops.cascadeElements` + `slideOps.cascadeTracks` apply
+ABSOLUTE-FROM-BASELINE restore-then-apply so live previews are idempotent and a mid-session
+property switch reverts cleanly), OKLCh color ramps (`interp.shiftOklch`, one k-scaled
+conversion), the ⌃⇧C `CascadePopover` (ONE component; the track flavor is injected as an
+adapter from `animator/cascadeTracks.ts`; Arrange-mode gesture lifecycle + the nudgeSession
+editGen guard; Esc rolls back, Enter/outside-click apply), animator entries (PropertiesPane
+button, BeatRail context menu, SlideMode chord routing tracks-vs-elements), and the headless
+surface (`cascade` / `cascade-tracks` registry verbs, 99→101, + live-bridge `"cascade"`).
+Gates: `verify-cascade.ts` (pure), `verify-cascade-gui.mjs` (ui), `verify-cascade-tracks-gui.mjs`
+(ui-extra — incl. the beat-faithful pin: a governed element's cascade routes into its
+transform's t2 while its base stays put), `shiftOklch` pins in verify-color-interp.
+**Learnings:**
+- keyboard.ts's `k === "c"` copy branch had no `!e.shiftKey` guard — Ctrl+Shift+C silently
+  aliased copy until now (third chord-hygiene find after ⌃⇧A/⌃⇧D: assume unshifted
+  mod-branches leak their shifted forms until guarded).
+- `ops.setBoxDim` writes the BOX only — nothing remaps a path's `d` after a W/H write, yet
+  the Inspector and f-menu offer W/H fields on paths. Pre-existing desync (follow-up
+  candidate); cascade excludes paths from width/height for exactly this reason.
+- The slide display-sync (`armDisplaySync`) is a plain `project.subscribe`: ANY mutate on a
+  routed element mirrors into the governing transform's t2, so bare `beginGesture()`+`mutate()`
+  preview loops (Arrange, cascade) need zero extra wiring in slide mode, and
+  `rollbackGesture()` restores project + overlay exactly through the history companion.
+- The CLI HELP in `flux-cli.ts` is a hand-written literal and parity-gated: a new registry
+  verb FAILS verify-registry-parity until its HELP line is added — help is not generated.
+
 ### 2026-07-21 — Lazy figure-asset loading shipped (Claude Fable 5, `main`)
 **Work:** Assessed + executed `notes/lazy_figure_asset_loading_plan.md` (recommended cut:
 Phases 0–1, 3). Project open no longer parses any plot DOM — bytes/manifests/metadata stay
