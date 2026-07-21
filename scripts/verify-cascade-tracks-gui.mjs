@@ -192,6 +192,71 @@ try {
   assert(routed.baseX2 === 360, `ungoverned element's base moves by its rank (got ${routed.baseX2})`);
   await page.evaluate(() => window.__flux.fig.undo());
 
+  // ---- 5. PLAYBACK honors cascaded transform starts (the runMorph delay fix):
+  //         three staggered transforms must MOVE at staggered times in present
+  //         mode, not all at once. Probes scoped to .present .mount (the
+  //         filmstrip renders every slide as a thumbnail beneath the overlay).
+  await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    f.slide.commitDeckLive((d) => {
+      const s = d.slides.find((x) => x.id === sid);
+      s.beats.push({
+        id: "sbeat",
+        tracks: [
+          { id: "sA", target: "cr1", preset: "transform", start: 0, duration: 500, easing: "smooth", to: { state: { x: 200 } } },
+          { id: "sB", target: "cr2", preset: "transform", start: 700, duration: 500, easing: "smooth", to: { state: { x: 400 } } },
+          { id: "sC", target: "cr3", preset: "transform", start: 1400, duration: 500, easing: "smooth", to: { state: { x: 600 } } },
+        ],
+      });
+    });
+  });
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".deckbar button")].find((b) => /Present/.test(b.textContent || ""))?.click();
+  });
+  await waitFor(page, () => !!document.querySelector('.present .mount [data-el-id="cr1"]'), null, { timeout: 8000, label: "present mounted" });
+  await page.keyboard.press("ArrowRight"); // cbeat (fades + the empty tX transform)
+  await new Promise((r) => setTimeout(r, 900)); // annotated sleep: let cbeat's 400ms fades settle — nothing distinctive to condition-wait on
+  // rAF collector: per-frame effective x (frozen left + composite translate-x)
+  // of all three rects, stamped with elapsed ms, for ~2.6s from the advance.
+  await page.evaluate(`(() => {
+    window.__pxs = [];
+    var t0 = performance.now();
+    var effX = function (id) {
+      var w = document.querySelector('.present .mount [data-el-id="' + id + '"]');
+      if (!w) return NaN;
+      var m = /translate\\(([-0-9.]+)px/.exec(w.style.transform || "");
+      return (parseFloat(w.style.left) || 0) + (m ? parseFloat(m[1]) : 0);
+    };
+    var collect = function () {
+      var t = performance.now() - t0;
+      window.__pxs.push([t, effX("cr1"), effX("cr2"), effX("cr3")]);
+      if (t < 2600) requestAnimationFrame(collect);
+      else window.__pxsDone = true;
+    };
+    requestAnimationFrame(collect);
+  })()`);
+  await page.keyboard.press("ArrowRight"); // sbeat — the staggered trio
+  await page.waitForFunction("window.__pxsDone === true", { timeout: 12000 });
+  const stagger = await page.evaluate(() => {
+    const base = { 1: 100, 2: 300, 3: 500 };
+    const firstMove = (col) => {
+      for (const row of window.__pxs) if (Number.isFinite(row[col]) && Math.abs(row[col] - base[col]) > 2) return row[0];
+      return null;
+    };
+    const last = window.__pxs[window.__pxs.length - 1];
+    return { m1: firstMove(1), m2: firstMove(2), m3: firstMove(3), end: [last[1], last[2], last[3]], n: window.__pxs.length };
+  });
+  assert(stagger.m1 != null && stagger.m2 != null && stagger.m3 != null, `all three transforms moved (starts ${stagger.m1}/${stagger.m2}/${stagger.m3}ms, ${stagger.n} samples)`);
+  assert(stagger.m2 - stagger.m1 >= 400, `cr2 starts ≥400ms after cr1 (authored gap 700ms; got ${Math.round(stagger.m2 - stagger.m1)}ms)`);
+  assert(stagger.m3 - stagger.m2 >= 400, `cr3 starts ≥400ms after cr2 (authored gap 700ms; got ${Math.round(stagger.m3 - stagger.m2)}ms)`);
+  assert(
+    Math.abs(stagger.end[0] - 200) < 2 && Math.abs(stagger.end[1] - 400) < 2 && Math.abs(stagger.end[2] - 600) < 2,
+    `every delayed transform still lands exactly on t2 (${stagger.end.map((v) => Math.round(v)).join("/")})`,
+  );
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector(".present"), null, { timeout: 5000, label: "present closed" });
+
   const errs = realErrors(page);
   assert(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));

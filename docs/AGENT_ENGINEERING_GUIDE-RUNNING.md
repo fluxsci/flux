@@ -1254,6 +1254,15 @@ transform's t2 while its base stays put), `shiftOklch` pins in verify-color-inte
   `rollbackGesture()` restores project + overlay exactly through the history companion.
 - The CLI HELP in `flux-cli.ts` is a hand-written literal and parity-gated: a new registry
   verb FAILS verify-registry-parity until its HELP line is added — help is not generated.
+- **Owner-found player bug (pre-existing, fixed same day):** the rAF morph driver
+  (`player.ts runMorph` — the WHOLE transform/morph/countUp family) dropped `track.start`;
+  only the WAAPI keyframe path passed it as `delay`, so appearances staggered but transforms
+  all fired at t=0. A start cascade over transforms made the loss obvious. Fix: runMorph
+  takes `delay` and HOLDS WITHOUT SEEKING until it elapses (a seek(0) during the wait would
+  clear drawOn dash state — the morph.ts t=0/t>0 dash contract). Player edits ride into the
+  export runtime — re-run `npx tsx scripts/gen-export-assets.ts` after ANY player change
+  (this session's second reminder). Playback pin: verify-cascade-tracks-gui §5 (rAF-sampled
+  move-start times, 700ms authored gaps measured at 700ms).
 
 ### 2026-07-21 — Lazy figure-asset loading shipped (Claude Fable 5, `main`)
 **Work:** Assessed + executed `notes/lazy_figure_asset_loading_plan.md` (recommended cut:

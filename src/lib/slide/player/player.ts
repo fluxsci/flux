@@ -399,18 +399,26 @@ export function applyStatic(specs: Spec[], beatIndex: number): void {
   }
 }
 
-/** Drive a morph over `duration` via rAF, easing time with manim's smoothstep.
+/** Drive a morph over `duration` via rAF, easing time with manim's smoothstep,
+ *  after `delay` ms (the track's within-beat `start` — the WAAPI path gets it as
+ *  animate()'s delay; the whole morph family silently dropped it until a start
+ *  cascade over transforms made the loss obvious). During the delay the driver
+ *  holds WITHOUT seeking — the element already sits at its pre-state, and a
+ *  seek(0) here would clear drawOn dash state prematurely (the t=0/t>0 dash
+ *  contract in morph.ts). Reduced motion still snaps straight to the end.
  *  Returns a Playable so the sequencer awaits + can interrupt it like a WAAPI anim. */
-function runMorph(m: MorphController, duration: number, reduced: boolean, ease: (t: number) => number = smoothstep): Playable {
+function runMorph(m: MorphController, duration: number, reduced: boolean, ease: (t: number) => number = smoothstep, delay = 0): Playable {
   let raf = 0, start = 0, cancelled = false;
   let resolveFinished: () => void = () => {};
   const finished = new Promise<void>((resolve) => {
     resolveFinished = resolve;
-    if (reduced || duration <= 0) { m.seek(1); resolve(); return; }
+    if (reduced || (duration <= 0 && delay <= 0)) { m.seek(1); resolve(); return; }
     const step = (ts: number) => {
       if (cancelled) return;
       if (!start) start = ts;
-      const t = Math.min(1, (ts - start) / duration);
+      const el = ts - start - delay; // negative while the start offset waits
+      if (el < 0) { raf = requestAnimationFrame(step); return; }
+      const t = duration > 0 ? Math.min(1, el / duration) : 1;
       m.seek(ease(t));
       if (t < 1) raf = requestAnimationFrame(step);
       else resolve();
@@ -456,7 +464,7 @@ function playSpecs(specs: Spec[], lo: number, hi: number, reduced: boolean): Pla
     if (s.beatIndex < lo || s.beatIndex > hi) continue;
     s.prep?.();
     if (s.enter) clearStaleHidesForEnter(s);
-    if (s.morph) { out.push(runMorph(s.morph, s.duration, reduced, s.morphEase)); continue; }
+    if (s.morph) { out.push(runMorph(s.morph, s.duration, reduced, s.morphEase, s.delay)); continue; }
     // Camera: start from the layer's LIVE transform so a second move continues from
     // the first's pose instead of snapping back to identity (B8).
     if (s.camera && s.keyframes.length >= 2) {
