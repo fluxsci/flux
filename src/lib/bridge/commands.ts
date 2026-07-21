@@ -13,6 +13,7 @@ import { reflowTexts } from "../text";
 import { flipElements } from "../geometry";
 import type { AlignKind } from "../geometry";
 import type { PartOverride, TextStyle, VectorNode } from "../types";
+import type { CascadeSpec } from "../cascade";
 
 export type Command = { type: string } & Record<string, unknown>;
 
@@ -30,6 +31,7 @@ export const ALLOWED_COMMANDS = [
   "align",
   "distribute",
   "auto_label",
+  "cascade",
   "group",
   "ungroup",
   // figure-v1 P7: named nestable groups (registry verbs).
@@ -216,6 +218,31 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
         return { styles: Array.isArray(list) ? list : [], scope: "global" };
       }
       return { styles: get(store.project).textStyles ?? [], scope: "project" };
+    }
+
+    case "cascade": {
+      // Stepped delta across the selection/ids — the SAME pure core as the
+      // ⌃⇧C popover and the headless verb. Flat args like rotate/scale:
+      // {property, delta?|factor?, dl?/dc?/dh?, order?, reverse?, firstFixed?}.
+      const list = ids(c);
+      const f = fig(c);
+      if (!f) throw new Error("cascade: no active figure");
+      if (typeof c.property !== "string") throw new Error("cascade: need a property");
+      const spec: CascadeSpec = {
+        property: c.property as CascadeSpec["property"],
+        ...(num(c.factor) != null ? { mode: "mul" as const, factor: num(c.factor) } : { delta: num(c.delta) ?? 0 }),
+        ...(num(c.dl) != null || num(c.dc) != null || num(c.dh) != null
+          ? { color: { dL: num(c.dl) ?? 0, dC: num(c.dc) ?? 0, dH: num(c.dh) ?? 0 } }
+          : {}),
+        ...(typeof c.order === "string" ? { order: c.order as CascadeSpec["order"] } : {}),
+        ...(c.reverse === true ? { reverse: true } : {}),
+        ...(c.firstFixed === true ? { firstFixed: true } : {}),
+      };
+      store.commit((p) => {
+        ops.cascadeElements(p, f, list, spec);
+        reflowTexts(p, list);
+      });
+      return { cascaded: list.length, property: spec.property };
     }
 
     case "rotate": {

@@ -11,6 +11,7 @@ import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { buildPartIndex } from "../src/lib/plot/parse";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import * as ops from "../src/lib/ops";
+import type { CascadeSpec } from "../src/lib/cascade";
 import * as slideOps from "../src/lib/slide/ops";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import * as fluxlib from "./fluxlib";
@@ -472,6 +473,17 @@ export async function scaleElements(
 ): Promise<void> {
   await mutateFigModel(root, "scale", ({ project }) => {
     ops.scaleElements(project, ids, factor, pivot);
+  });
+}
+
+/** cascade: apply a stepped delta across elements — the unit at rank k (in
+ *  spec.order over `ids`; default = the ids order) gets value ⊕ delta·step_k,
+ *  step = k with firstFixed, else k+1. A whole group is ONE rigid rank. The
+ *  math/guards live in the shared pure core (ops.cascadeElements). */
+export async function cascadeElements(root: string, figId: string, ids: string[], spec: CascadeSpec): Promise<void> {
+  await mutateFigModel(root, "cascade", ({ project }) => {
+    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    ops.cascadeElements(project, figId, ids, spec);
   });
 }
 

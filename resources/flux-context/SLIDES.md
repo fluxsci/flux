@@ -58,6 +58,12 @@ flux set-morph <deck> <slideId> <beatId> <elId> <toAssetId> [--duration ms]     
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
 flux ungroup-tracks <deck> <slideId> <beatId> t1,t2…              # (ungroup_tracks)
+flux cascade-tracks <deck> <slideId> <property> t1,t2… [--delta n | --factor n]
+     [--order timeline|list] [--reverse] [--first-fixed]          # (cascade_tracks)  stepped timing delta
+                                               # across tracks: rank k gets value+delta·step (step = k with
+                                               # --first-fixed, else k+1); property ∈ start|duration|
+                                               # influence.in|influence.out|stagger.perMs; a start cascade
+                                               # with --first-fixed IS the classic stagger
 flux apply-anim-template <deck> <slideId> <name|path.json> [--element id [--part axis.y] | --elements a,b,c] [--beat id]
                                                # (apply_anim_template)  bind a saved preset bundle by role/type
 

@@ -87,6 +87,11 @@ usage: flux <verb> [root] [args] [--flags]
   align <figId> <left|right|top|bottom|centerH|centerV> [--ids a,b,c] [--root R]   align elements
   bring-inside <figId> [--ids a,b,c] [--root R]   translate elements inside the
             frame (minimal move, never resized; oversized ones cover the frame)
+  cascade <figId> <property> <id…> [--delta n | --factor n] [--dl n --dc n --dh n]
+            [--order selection|layer|x|y] [--reverse] [--first-fixed] [--root R]
+            stepped delta across elements: rank k gets value+delta·step (step =
+            k with --first-fixed, else k+1); groups are ONE rigid rank; colors
+            shift per step in OKLCh (--dl/--dc/--dh)
   group <id…> [--name N] [--parent G] [--root R]   group ≥2 units → one NAMED
             nestable group (whole top groups nest instead of dissolving)
   ungroup <id…> [--root R]             dissolve each id's top-level group
@@ -172,6 +177,7 @@ usage: flux <verb> [root] [args] [--flags]
   set-transform <deckId> <slideId> <beatId> <elementId> [--state '<json patch>' --replace-state --start ms --duration ms --easing e --to-asset id]   the t1→t2 state tween (one per element per beat)
   group-tracks <deckId> <slideId> <beatId> t1,t2… [--label L]   bundle lanes under a collapsible TrackGroup
   ungroup-tracks <deckId> <slideId> <beatId> t1,t2…   dissolve the lanes' groups
+  cascade-tracks <deckId> <slideId> <start|duration|influence.in|influence.out|stagger.perMs> t1,t2… [--delta n | --factor n] [--order timeline|list] [--reverse] [--first-fixed]   stepped timing delta across tracks (rank k gets value+delta·step)
   apply-anim-template <deckId> <slideId> <name|path.json> [--element id [--part axis.y] | --elements a,b,c] [--beat id]   bind a saved preset bundle by role/type
   set-beat <deckId> <slideId> <beatId> [--label L --advance click|with-prev|auto --auto-delay ms]   patch a beat
   reorder-beats <deckId> <slideId> --order b2,b1   set beat order (beat 0 pinned)

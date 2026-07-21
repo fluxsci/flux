@@ -11,6 +11,7 @@ import { text } from "./registry";
 import * as core from "./index";
 import * as model from "./model";
 import * as references from "./references";
+import { ELEMENT_CASCADE_PROPS, TRACK_CASCADE_PROPS, type CascadeSpec, type TrackCascadeSpec } from "../src/lib/cascade";
 
 // --- shared bits -------------------------------------------------------------
 
@@ -29,6 +30,27 @@ const n = (v: unknown): number => v as number;
 /** pivotX/pivotY → the {x,y} pivot core takes (both or nothing). */
 const pivotOf = (a: Record<string, unknown>): { x: number; y: number } | undefined =>
   a.pivotX != null && a.pivotY != null ? { x: n(a.pivotX), y: n(a.pivotY) } : undefined;
+
+/** cascade args → the pure CascadeSpec: --factor selects ×-mode (value ·
+ *  factor^step), else +delta; --dl/--dc/--dh form the per-step OKLCh shift
+ *  for the color properties. */
+const cascadeSpecOf = (a: Record<string, unknown>): CascadeSpec => ({
+  property: a.property as CascadeSpec["property"],
+  ...(a.factor != null ? { mode: "mul" as const, factor: n(a.factor) } : { delta: n(a.delta ?? 0) }),
+  ...(a.dl != null || a.dc != null || a.dh != null
+    ? { color: { dL: n(a.dl ?? 0), dC: n(a.dc ?? 0), dH: n(a.dh ?? 0) } }
+    : {}),
+  ...(a.order != null ? { order: a.order as CascadeSpec["order"] } : {}),
+  ...(a.reverse ? { reverse: true } : {}),
+  ...(a.firstFixed ? { firstFixed: true } : {}),
+});
+const trackCascadeSpecOf = (a: Record<string, unknown>): TrackCascadeSpec => ({
+  property: a.property as TrackCascadeSpec["property"],
+  ...(a.factor != null ? { mode: "mul" as const, factor: n(a.factor) } : { delta: n(a.delta ?? 0) }),
+  ...(a.order != null ? { order: a.order as TrackCascadeSpec["order"] } : {}),
+  ...(a.reverse ? { reverse: true } : {}),
+  ...(a.firstFixed ? { firstFixed: true } : {}),
+});
 
 // The element-style surface set_style accepts (schema AND patch keys).
 const STYLE_KEYS = [
@@ -411,6 +433,44 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (_r, a) => ({ err: `✓ brought ${a.ids ? sArr(a.ids).length + " element(s)" : "all elements"} inside ${a.figureId}` }),
       mcp: (_r, a) => text(`brought ${a.ids ? sArr(a.ids).length + " element(s)" : "all elements"} inside ${a.figureId}`),
+    },
+  },
+  {
+    name: "cascade",
+    cli: "cascade",
+    cliRoot: "flags",
+    summary:
+      "Cascade one property across elements: the unit at rank k (0-indexed, ordered by --order over the given ids; default = the ids order) gets value + delta·step, where step = k with --first-fixed, else k+1. --factor switches to multiplicative (value · factor^step). property ∈ x|y|rotation|width|height|opacity|strokeWidth|cornerRadius|fontSize|fill|stroke|color; the color properties shift per step in OKLCh via --dl/--dc/--dh ('none'/unparseable values keep their rank, unchanged). A whole group is ONE rank (x/y translate and rotation turns it rigidly); elements the property doesn't apply to are excluded and consume no rank; fontSize deltas are in pt; width/height need single (non-path, non-line) elements. GUI: Ctrl+Shift+C.",
+    params: {
+      figureId: z.string(),
+      property: z.enum(ELEMENT_CASCADE_PROPS),
+      ids: z.array(z.string()),
+      delta: z.number().optional(),
+      factor: z.number().positive().optional(),
+      dl: z.number().optional(),
+      dc: z.number().optional(),
+      dh: z.number().optional(),
+      order: z.enum(["selection", "layer", "x", "y"]).optional(),
+      reverse: z.boolean().optional(),
+      firstFixed: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "figureId", required: true },
+      { kind: "pos", at: 1, into: "property", required: true },
+      { kind: "rest", at: 2, into: "ids", required: true },
+      { kind: "flag", at: "delta", into: "delta", as: "number" },
+      { kind: "flag", at: "factor", into: "factor", as: "number" },
+      { kind: "flag", at: "dl", into: "dl", as: "number" },
+      { kind: "flag", at: "dc", into: "dc", as: "number" },
+      { kind: "flag", at: "dh", into: "dh", as: "number" },
+      { kind: "flag", at: "order", into: "order" },
+      { kind: "flag", at: "reverse", into: "reverse", as: "boolean" },
+      { kind: "flag", at: "first-fixed", into: "firstFixed", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.cascadeElements(ctx.root, s(a.figureId), sArr(a.ids), cascadeSpecOf(a)),
+    render: {
+      human: (_r, a) => ({ err: `✓ cascaded ${a.property} across ${sArr(a.ids).length} element(s)` }),
+      mcp: (_r, a) => text(`cascaded ${a.property} across ${sArr(a.ids).length} element(s)`),
     },
   },
   {
@@ -2316,6 +2376,41 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (_r, a) => ({ err: `✓ ungrouped on beat ${a.beatId}` }),
       mcp: (_r, a) => text(`ungrouped tracks on beat ${a.beatId}`),
+    },
+  },
+  {
+    name: "cascade_tracks",
+    cli: "cascade-tracks",
+    cliRoot: "flags",
+    summary:
+      "Cascade one timing property across animation tracks: the track at rank k (0-indexed) gets value + delta·step, where step = k with --first-fixed, else k+1; --factor switches to multiplicative (value · factor^step). property ∈ start|duration|influence.in|influence.out|stagger.perMs. --order timeline (beat index, then lane — the default) or list (the given track order). Clamps: start ≥ 0 ms, duration ≥ 50 ms, influence 0–100 (both-zero deletes the velocity profile), perMs ≥ 0 (only stagger-bearing tracks rank). GUI: ⌃⇧C in the animator with ≥2 tracks selected.",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      property: z.enum(TRACK_CASCADE_PROPS),
+      trackIds: z.array(z.string()),
+      delta: z.number().optional(),
+      factor: z.number().positive().optional(),
+      order: z.enum(["timeline", "list"]).optional(),
+      reverse: z.boolean().optional(),
+      firstFixed: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "property", required: true },
+      { kind: "rest", at: 3, into: "trackIds" },
+      { kind: "flag", at: "tracks", into: "trackIds", as: "csv" },
+      { kind: "flag", at: "delta", into: "delta", as: "number" },
+      { kind: "flag", at: "factor", into: "factor", as: "number" },
+      { kind: "flag", at: "order", into: "order" },
+      { kind: "flag", at: "reverse", into: "reverse", as: "boolean" },
+      { kind: "flag", at: "first-fixed", into: "firstFixed", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.cascadeTracksVerb(ctx.root, s(a.deckId), s(a.slideId), sArr(a.trackIds), trackCascadeSpecOf(a)),
+    render: {
+      human: (r, a) => ({ err: `✓ cascaded ${a.property} across ${(r as { changed: number }).changed} track(s)` }),
+      mcp: (r, a) => text(`cascaded ${a.property} across ${(r as { changed: number }).changed} track(s)`),
     },
   },
   {

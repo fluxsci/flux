@@ -22,6 +22,7 @@ import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
+import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel } from "./model";
 import { animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
@@ -377,6 +378,25 @@ export async function ungroupTracksVerb(
   await mutateDeck(root, deckId, "ungroup_tracks", (deck) => {
     mustSlide(deck, slideId);
     slideOps.ungroupTracks(deck, slideId, beatId, trackIds);
+  });
+}
+
+/** cascade-tracks: apply a stepped delta across tracks' timing — the track at
+ *  rank k gets value ⊕ delta·step_k (step = k with firstFixed, else k+1), in
+ *  timeline (beat, then lane) or list (given) order. Same pure core the GUI
+ *  popover runs (slideOps.cascadeTracks). */
+export async function cascadeTracksVerb(
+  root: string,
+  deckId: string,
+  slideId: string,
+  trackIds: string[],
+  spec: TrackCascadeSpec,
+): Promise<{ changed: number }> {
+  return mutateDeck(root, deckId, "cascade_tracks", (deck) => {
+    mustSlide(deck, slideId);
+    const changed = slideOps.cascadeTracks(deck, slideId, trackIds, spec);
+    if (!changed) throw new Error(`no matching tracks on ${slideId}`);
+    return { changed };
   });
 }
 
