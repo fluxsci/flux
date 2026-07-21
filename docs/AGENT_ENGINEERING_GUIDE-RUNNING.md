@@ -169,6 +169,30 @@ Persistence invariants (all machine-checked — do not weaken):
   (64MB / 200 entries).
 - Big collections use windowing (`VirtualFixedList.svelte` for the sidebar; hand-rolled row window
   in `LibraryMode`) — all N rows in the DOM is never acceptable at 5k scale.
+- **Plot DOM residency is LAZY** (2026-07-21, plan: `notes/lazy_figure_asset_loading_plan.md`).
+  Project open loads asset BYTES (`assetData`), sidecar manifests/recipes, and `model.assets`
+  metadata eagerly — all cheap — but the parsed pristine SVG DOM (`plot/store.ts plotDom`, the
+  dominant memory cost at ~180k renderer nodes per dense figure) is populated ON DEMAND: a
+  mounted `PlotElement` with no cached DOM renders the full-fidelity `<image>` fallback and
+  calls `requestPlotDom` (a self-terminating, ~6ms-sliced macrotask parse queue), and
+  `cachePlot`'s `plotGen[id]` bump is what flips it inline. Viewport culling is therefore the
+  residency policy; an LRU under `plotResidency.nodeCap` (150k element nodes, SOFT — mounted
+  plots are never evicted; refcounts via `retainPlot`/`releasePlot`; runtime cap changes go
+  through `applyPlotNodeCap`) keeps resident cost O(working set) instead of O(project).
+  Hard invariants: (1) `model.assets` stays 100% resident — the fig/ index is regenerated from
+  it on save, so pruning it would orphan asset bytes (verify-lazy-save-safety); (2) every GUI
+  figure export funnels through `io.ts buildFigureSvg` → `ensureFigurePlots` (synchronous
+  parse) so per-part overrides always bake instead of falling to the raster
+  (verify-lazy-export-overrides); (3) anything reading `hasPlotDom`/`plotDom` reactively must
+  depend on `$plotGen[id]` or it will never see the lazy upgrade (verify-lazy-load-gui);
+  (4) slide mode stays EAGER (`resolveDeckAssets`) and eviction is tenancy-gated to figure
+  mode — deck morph targets and filmstrip thumbnails have no mount-driven reload path.
+  Import/hot-swap/preset-insert still cache eagerly (a new plot is about to be visible).
+  Vanilla svgs derive their manifest at first parse, so the X-ray is empty for them until
+  first view (accepted). Measured @12 dense figures (real rasterized-FluxProjection density):
+  open 2.55s → 0.88s, renderer nodes 2.25M → ~307k FLAT in figure count, parsed docs 168 → 14;
+  cold figure-focus ~330–500ms (raster paints immediately, upgrades under the 1s navigation
+  budget), warm re-focus ~20ms and re-parses nothing. Gate: `verify-scale-lazy-assets.mjs`.
 - The **paper editor** (CodeMirror 6) is the most latency-sensitive surface in the app. The
   mechanisms that keep it instantaneous (§6) and glitch-free — engineering constraints, not
   aesthetics; understand them before changing them: decorations are a pure function of the
@@ -461,6 +485,15 @@ at Home) is the gate. Mode warms belong in `requestIdleCallback`.
   `overrides` diff). Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
+- **Lazy-residency deferrals (2026-07-21):** slide-mode lazy asset loading (plan Phase 2 —
+  `resolveDeckAssets` stays eager; the player/morph/thumbnail consumers have no mount-driven
+  reload path, and scale-slide is green at 31 plot slides) and lazy `assetData` bytes (Phase 4
+  stretch — the remaining ~89 MB linear byte cost @12 dense figures, incl. paper-mode
+  `readFigSource`'s analogous all-assets base64) are deliberately NOT built. Revisit when a
+  real deck or the paper side actually hits the ceiling; the design lives in
+  `notes/lazy_figure_asset_loading_plan.md` §5.7. The per-plot complexity budget + warning
+  (single pathological plot, node-explosion memory) also remains open — `plotResidency` is an
+  AGGREGATE budget, not a per-plot guard.
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
 
@@ -1192,3 +1225,30 @@ probe (defaults, both modes animate+settle, built-in blink, migration, clean con
 - A negative source pin ("X stays retired") and a comment that NAMES X literally cannot coexist
   in the same file — the gate greps its own documentation. Reword the comment; keep the pin
   strict (second occurrence of this trap; it is the norm for retirement pins, not an accident).
+
+### 2026-07-21 — Lazy figure-asset loading shipped (Claude Fable 5, `main`)
+**Work:** Assessed + executed `notes/lazy_figure_asset_loading_plan.md` (recommended cut:
+Phases 0–1, 3). Project open no longer parses any plot DOM — bytes/manifests/metadata stay
+eager, `plotDom` fills on demand from `PlotElement` mounts via a time-sliced parse queue,
+LRU-evicted under a 150k-element soft cap (mounted plots pinned; tenancy-gated to figure
+mode). Export gate (`buildFigureSvg` → `ensureFigurePlots`), `$plotGen` reactivity fix, and
+the save-safety invariant (`model.assets` 100% resident) hold; details promoted to §4.
+Measured @12 dense figures: open 2.55s → 0.88s, renderer nodes 2.25M → 307k flat.
+New gates: `verify-scale-lazy-assets` (scale) + `verify-lazy-{save-safety,load-gui,
+export-overrides}` (ui); `verify-vanilla-inline`'s load-time-eager asserts superseded with
+evidence. Phase 2 (slide) + Phase 4 (lazy bytes) deliberately deferred (§10). Also fixed a
+pre-existing runner bug: `.mjs` verify children now get the tsx loader (`verify-scale-fulltext`
+imports flux-core `.ts` and could never pass under the runner).
+**Learnings:**
+- The plan's simulation UNDERSTATED reality: real `loadFigInto` open cost is ~204ms/figure
+  (base64 + validation on top of the parse), and renderer node accounting runs ~6× element
+  count for attribute-heavy SVG — measure in the real app before sizing a fix.
+- The ACTIVE figure always renders, but its ELEMENTS are still viewport-culled — "switch to a
+  figure" in probes/gates must pan the viewport (focusFigure math), or nothing mounts and
+  mount-driven machinery silently never runs.
+- A `<image href="data:image/svg…">` fallback leaves Chrome SVG-image-cache documents behind
+  (~one figure's worth, flat) after the inline upgrade — bounded, but visible in
+  Documents/Nodes metrics; don't mistake it for a leak.
+- Caches with an eviction policy need an explicit "apply the policy now" seam
+  (`applyPlotNodeCap`) — eviction that only runs on growth is untestable and unusable for
+  runtime cap changes.

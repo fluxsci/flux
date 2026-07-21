@@ -8,7 +8,8 @@
 //    deleted v1 kind), loaded through the REAL loader path (memBridge write →
 //    bridge.loadFigInto → normalizeProject → migrateProject), arrives as a
 //    `type:"plot"` element with `overrides:{}` + `source.svgPath` from the asset
-//    entry — and renders inline (loadFigInto now caches EVERY svg asset).
+//    entry — and renders inline once viewed (lazy residency defers the parse
+//    to first view; the <image> fallback covers the gap).
 //  - side-by-side with a fluxplot: both inline; only the fluxplot keeps a real
 //    (non-derived) manifest. Screenshot saved for the evidence trail.
 //   Run (dev server on :1420 must be up): node scripts/verify-vanilla-inline.mjs
@@ -75,9 +76,19 @@ try {
   assert(legacy.overrides === "{}", `…with overrides seeded {} (got ${legacy.overrides})`);
   assert(legacy.svgPath === "assets/legacy-asset.svg", `…source.svgPath from the asset entry (got ${legacy.svgPath})`);
   assert(legacy.manifestPath == null, "…and NO manifestPath (vanilla discriminator preserved)");
-  assert(legacy.domCached, "loadFigInto cached the sidecar-less svg asset (P4 loader parity)");
-  assert(legacy.manifestSpec === "fluxplot-derived/1", `…with a DERIVED manifest (spec ${legacy.manifestSpec})`);
-  await sleep(400);
+  // Lazy residency (2026-07-21, notes/lazy_figure_asset_loading_plan.md):
+  // loadFigInto no longer parses svg assets up front — the parse happens on
+  // first view (PlotElement mount → parse queue), and a vanilla file's
+  // DERIVED manifest appears with that first parse. The two checks below
+  // supersede the old "loadFigInto caches EVERY svg" P4-parity asserts.
+  assert(!legacy.domCached, "loadFigInto DEFERS the sidecar-less svg parse (lazy residency)");
+  assert(legacy.manifestSpec == null, `…and derives no manifest until first view (spec ${legacy.manifestSpec})`);
+  await page.waitForFunction(() => window.__flux.plot.plotDom.has("legacy-asset"), { timeout: 10000 });
+  const legacyAfter = await page.evaluate(() => ({
+    manifestSpec: window.__flux.get(window.__flux.plot.plotManifests)["legacy-asset"]?.spec ?? null,
+  }));
+  assert(legacyAfter.manifestSpec === "fluxplot-derived/1", `…then first view caches it WITH a derived manifest (spec ${legacyAfter.manifestSpec})`);
+  await sleep(200);
   assert(
     await page.evaluate(() => !!document.getElementById("legacy-el__figure_1")),
     "the converted legacy element renders INLINE (prefixed matplotlib root id live in the DOM)",

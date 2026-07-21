@@ -1,5 +1,5 @@
 {
-  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping.",
+  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) — this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) — the tier exists for pathMap's electron/** mapping.",
   "tiers": {
     "pure": [
       "verify-an-bridge.ts",
@@ -202,7 +202,10 @@
       "verify-slide-present-gui.mjs",
       "verify-slide-tenancy-gui.mjs",
       "verify-slide-import-gui.mjs",
-      "verify-snip-gui.mjs"
+      "verify-snip-gui.mjs",
+      "verify-lazy-save-safety.mjs",
+      "verify-lazy-load-gui.mjs",
+      "verify-lazy-export-overrides.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -266,7 +269,8 @@
       "verify-scale-figure.mjs",
       "verify-scale-paper.mjs",
       "verify-scale-fulltext.mjs",
-      "verify-scale-slide.mjs"
+      "verify-scale-slide.mjs",
+      "verify-scale-lazy-assets.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs"
@@ -385,10 +389,32 @@
       ]
     },
     {
+      "glob": "src/lib/PlotElement.svelte",
+      "run": [
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/project/figbridge.ts",
+      "run": [
+        "tier:pure",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
       "glob": "src/lib/plot/**",
       "run": [
         "tier:pure",
-        "tier:scale"
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
       ]
     },
     {
@@ -459,6 +485,7 @@
     "verify-slide-export-w6.ts": 300000,
     "verify-slide-tenancy-gui.mjs": 180000,
     "verify-scale-slide.mjs": 180000,
-    "verify-slide-export-transform.ts": 300000
+    "verify-slide-export-transform.ts": 300000,
+    "verify-scale-lazy-assets.mjs": 180000
   }
 }

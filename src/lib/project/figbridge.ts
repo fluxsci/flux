@@ -27,7 +27,7 @@ import {
   clearAssetDirty,
   clearAllAssetsDirty,
 } from "../assets";
-import { plotManifests, plotRecipes, cachePlot, clearPlots } from "../plot/store";
+import { plotManifests, plotRecipes, clearPlots, primePlotSidecars } from "../plot/store";
 import { captureSnipMeta, clearSnipMeta } from "../snipMeta";
 import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
@@ -200,8 +200,18 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
 
   // WS-5.6: the shared normalization — same tree, same in-memory model as
   // flux-core (name/path/size fallbacks; dpi kept only when present).
+  //
+  // LAZY residency (2026-07-21, plan §5.2): `model.assets` + `assetData` bytes
+  // + sidecar manifests/recipes load eagerly (all cheap, and the metadata is
+  // the save-safety invariant — the index regenerates from model.assets, so it
+  // must stay 100% resident). The DOM PARSE is what's deferred: PlotElement
+  // requests it on mount (requestPlotDom), plots render the full-fidelity
+  // <image> fallback until it lands, and an LRU bounds the resident set —
+  // O(active figure) instead of O(project). Mirrors io.ts openProject exactly.
   const assets: Asset[] = normalizeIndexAssets(index);
   const data: Record<string, string> = {};
+  const primedManifests: Record<string, FluxPlotManifest> = {};
+  const primedRecipes: Record<string, unknown> = {};
   clearPlots();
   clearSnipMeta(); // project-load boundary — snip provenance re-derives from the bytes below
   for (const a of assets) {
@@ -210,25 +220,21 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
       data[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
       if (a.kind === "png") captureSnipMeta(a.id, bytes);
-      // Cache EVERY svg's DOM (+ manifest/recipe when the asset-local sidecar
-      // exists; a vanilla svg gets a DERIVED manifest inside cachePlot), so the
-      // inlined rendering + part overrides reconnect on reload — mirrors
-      // io.ts openProject exactly (figure-v1 P4).
       if (a.kind === "svg") {
-        let manifest: FluxPlotManifest | undefined;
-        let recipe: unknown;
         const mpath = joinPath(root, SUB, "assets", `${a.id}.fluxplot.json`);
         if (await fig.exists(mpath)) {
-          manifest = JSON.parse(await fig.readText(mpath)) as FluxPlotManifest;
+          primedManifests[a.id] = JSON.parse(await fig.readText(mpath)) as FluxPlotManifest;
           const rpath = joinPath(root, SUB, "assets", `${a.id}.recipe.json`);
-          if (await fig.exists(rpath)) recipe = JSON.parse(await fig.readText(rpath));
+          if (await fig.exists(rpath)) primedRecipes[a.id] = JSON.parse(await fig.readText(rpath));
         }
-        cachePlot(a.id, new TextDecoder().decode(bytes), manifest, recipe);
+        // Vanilla svg (no sidecar): its DERIVED manifest appears on first
+        // parse, same retroactive-deriver rule as the old eager path.
       }
     } catch {
       /* missing asset bytes — skip */
     }
   }
+  primePlotSidecars(primedManifests, primedRecipes);
   assetData.set(data);
   clearAllAssetsDirty(); // W8: freshly loaded — every asset is in sync with disk
 

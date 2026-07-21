@@ -41,7 +41,7 @@ import { injectPngDpi, readPngDpi } from "./figure/pngDpi";
 import { captureSnipMeta, clearSnipMeta } from "./snipMeta";
 import { planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
-import { cachePlot, clearPlots, plotManifests, plotRecipes } from "./plot/store";
+import { cachePlot, clearPlots, ensurePlotDom, plotManifests, plotRecipes, primePlotSidecars } from "./plot/store";
 import { isDerivedManifest } from "./plot/derive";
 import { plotToSvgMarkup } from "./plot/export";
 import type { FluxPlotManifest } from "./plot/types";
@@ -529,27 +529,28 @@ export async function openProject() {
 
     clearPlots();
     clearSnipMeta();
+    // LAZY residency (2026-07-21, plan §5.2): bytes + sidecar manifests load
+    // eagerly (cheap; assetData is the <image> fallback), the DOM parse
+    // defers to PlotElement's mount request — the standalone twin of the
+    // figbridge.loadFigInto shape.
     const fresh: Record<string, string> = {};
+    const primedManifests: Record<string, FluxPlotManifest> = {};
+    const primedRecipes: Record<string, unknown> = {};
     for (const asset of p.assets) {
       if (!asset.path) continue;
       const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
       fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
       if (asset.kind === "png") captureSnipMeta(asset.id, bytes);
-      // Cache EVERY svg's DOM (+ manifest/recipe when sidecars exist; a vanilla
-      // svg gets a derived manifest inside cachePlot) so inlined rendering +
-      // part overrides reconnect on reload.
       if (asset.kind === "svg") {
-        let manifest: FluxPlotManifest | undefined;
-        let recipe: unknown;
         const mpath = joinPath(dir, `assets/${asset.id}.fluxplot.json`);
         if (await window.fig.exists(mpath)) {
-          manifest = JSON.parse(await window.fig.readText(mpath)) as FluxPlotManifest;
+          primedManifests[asset.id] = JSON.parse(await window.fig.readText(mpath)) as FluxPlotManifest;
           const rpath = joinPath(dir, `assets/${asset.id}.recipe.json`);
-          if (await window.fig.exists(rpath)) recipe = JSON.parse(await window.fig.readText(rpath));
+          if (await window.fig.exists(rpath)) primedRecipes[asset.id] = JSON.parse(await window.fig.readText(rpath));
         }
-        cachePlot(asset.id, new TextDecoder().decode(bytes), manifest, recipe);
       }
     }
+    primePlotSidecars(primedManifests, primedRecipes);
     assetData.set(fresh);
     loadProject(p, dir);
   } catch (e) {
@@ -560,7 +561,20 @@ export async function openProject() {
 // ---------------------------------------------------------------------------
 // Export a figure to SVG / PNG / PDF.
 // ---------------------------------------------------------------------------
-function buildSvg(fig: Figure): string {
+
+/** Lazy-residency export gate (plan §5.6): parse any of this figure's plots
+ *  that aren't resident (deferred at open, or LRU-evicted) before serializing,
+ *  so plotToSvgMarkup bakes real vector parts + per-part overrides instead of
+ *  silently falling to the <image> fallback. Synchronous — the bytes are
+ *  already resident in assetData. */
+export function ensureFigurePlots(fig: Figure): void {
+  for (const el of fig.elements) if (el.type === "plot") ensurePlotDom(el.assetId);
+}
+
+/** Serialize a figure to standalone SVG markup with plots inlined (exported
+ *  for the lazy-residency gates; every GUI export path funnels through here). */
+export function buildFigureSvg(fig: Figure): string {
+  ensureFigurePlots(fig);
   const data = get(assetData);
   const p = get(project);
   return figureToSvg(
@@ -572,6 +586,7 @@ function buildSvg(fig: Figure): string {
     (id) => assetDisplaySize(p, id) ?? undefined,
   );
 }
+const buildSvg = buildFigureSvg;
 
 // 3.2: save one paper's highlights/notes as a Markdown digest via the OS save dialog.
 // Callers pass the already-loaded annotations + entry metadata (reader/library both have them).
