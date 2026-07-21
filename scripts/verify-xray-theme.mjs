@@ -9,7 +9,7 @@
 //   · prefers-reduced-motion: reduce disables the boot entirely
 //   · evidence screenshot → flux_figure_upgrades_fixes/evidence-xray.png
 //   Run (dev server on :1420): node scripts/verify-xray-theme.mjs
-import { readFileSync, copyFileSync } from "node:fs";
+import { readFileSync, copyFileSync, mkdirSync } from "node:fs";
 import { launch, gotoApp, clickMode, shot, sleep, realErrors } from "./lib/driver.mjs";
 
 let fails = 0;
@@ -147,6 +147,7 @@ try {
   });
   const outPath = `${process.env.FLUX_OUT || "test-results/out"}/xray-theme.png`;
   await page.screenshot({ path: outPath, clip });
+  mkdirSync("flux_figure_upgrades_fixes", { recursive: true }); // local evidence dir — not tracked
   copyFileSync(outPath, "flux_figure_upgrades_fixes/evidence-xray.png");
   console.log("  evidence → flux_figure_upgrades_fixes/evidence-xray.png");
   await shot(page, "xray-theme-full");

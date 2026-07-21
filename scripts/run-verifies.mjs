@@ -207,10 +207,10 @@ function runScript(name) {
   // Children run THIS runner's runtime (process.execPath), never whatever `node`
   // happens to be first on PATH — the WS-0b version gate must cover the whole
   // tier. `--import tsx` replaces the npx→tsx wrapper chain (same loader, one
-  // process, ~0.4s less overhead per script).
-  const [cmd, cargs] = name.endsWith(".ts")
-    ? [process.execPath, ["--import", "tsx", file]]
-    : [process.execPath, [file]];
+  // process, ~0.4s less overhead per script). It loads for .mjs children too:
+  // some (verify-scale-fulltext.mjs) import flux-core .ts modules directly and
+  // plain node can't — the loader is a no-op for pure-JS scripts.
+  const [cmd, cargs] = [process.execPath, ["--import", "tsx", file]];
   const timeout = manifest.timeouts?.[name] ?? opt.timeout;
   return new Promise((resolve) => {
     const t0 = Date.now();
