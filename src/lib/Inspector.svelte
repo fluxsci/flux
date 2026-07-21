@@ -4,7 +4,7 @@
   import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot } from "./store";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextStyle } from "./types";
-  import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle } from "./keyboard";
+  import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle, openCascade } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
@@ -375,6 +375,12 @@
     <div class="row">
       <button disabled={sel.length < 2} on:click={() => doDistribute("h")}>Distribute H</button>
       <button disabled={sel.length < 2} on:click={() => doDistribute("v")}>Distribute V</button>
+    </div>
+    <div class="row">
+      <button
+        title="Cascade a property across the selection — each object steps by a delta (Ctrl+Shift+C)"
+        disabled={sel.length < 2}
+        on:click={openCascade}>Cascade… <span class="hk">⌃⇧C</span></button>
     </div>
     {#if sel.length >= 2}
       <div class="row gaprow">

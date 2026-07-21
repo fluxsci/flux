@@ -26,6 +26,7 @@
   import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, autoPxPerMs, snapMs, isDanglingTrack } from "./shared";
   import { hoverTrackId, timelinePxPerMs, requestFlash } from "./animatorState";
   import { toggleSelectedDisabled, deleteSelectedTracks, duplicateSelectedTracks, moveSelectedToBeat } from "./trackActions";
+  import { openTrackCascade } from "./cascadeTracks";
   import TimelineMenu, { type MenuItem } from "./TimelineMenu.svelte";
 
   let {
@@ -385,6 +386,7 @@
     const items: MenuItem[] = [
       { label: `Duplicate${n > 1 ? ` ${n}` : ""} (⌘D)`, action: () => duplicateSelectedTracks() },
       { label: anyEnabled ? "Disable (x)" : "Enable (x)", action: () => toggleSelectedDisabled() },
+      ...(n > 1 ? [{ label: `Cascade ${n}… (⌃⇧C)`, action: () => openTrackCascade() }] : []),
       { label: `Group${n > 1 ? ` ${n}` : ""} (⌘G)`, action: () => groupSelection() },
       ...(anyGrouped ? [{ label: "Ungroup (⌘⇧G)", action: () => ungroupSelection() }] : []),
       { divider: true, label: "" },

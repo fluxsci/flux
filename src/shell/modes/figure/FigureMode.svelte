@@ -20,6 +20,7 @@
   import Canvas from "../../../lib/Canvas.svelte";
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
+  import CascadePopover from "../../../lib/CascadePopover.svelte";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
@@ -170,7 +171,7 @@
   <Toolbar />
   <div class="body">
     <Sidebar paneActive={active} />
-    <main class="canvas-wrap"><Canvas paneActive={active} /><ArrangeHud /></main>
+    <main class="canvas-wrap"><Canvas paneActive={active} /><ArrangeHud /><CascadePopover /></main>
     <!-- The Inspector steps aside while the caption editor is open, giving the
          caption page room (and keeping the figure read-only / distraction-free).
          Ctrl+Shift+B (keyboard.ts) hides it entirely. -->

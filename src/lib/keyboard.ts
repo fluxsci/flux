@@ -25,6 +25,7 @@ import {
   getActiveFigure,
   arrange,
   lastArrangeRows,
+  cascadeState,
   rollbackGesture,
   gestureCancelHook,
   xrayOpen,
@@ -38,6 +39,7 @@ import type { Element, GroupDef } from "./types";
 import { FLUX_CLIP_MARKER, decidePaste, pastedImageName } from "./clipboardPaste";
 import { importDroppedFiles } from "./io";
 import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf, unitOf } from "./groups";
+import { cascadeUnits } from "./cascade";
 import {
   alignElements,
   distributeElements,
@@ -186,6 +188,16 @@ function arrangeToggleRowCol() {
 function arrangeGridMode() {
   const st = get(arrange);
   if (st) applyArrange(balancedRows(st.n));
+}
+
+// Open the cascade popover on the current selection (chord + Inspector
+// button). Silent no-op below 2 selection UNITS (a whole group is one unit) —
+// the bringInside posture for an inapplicable chord.
+export function openCascade() {
+  const fig = activeFig();
+  if (!fig) return;
+  if (cascadeUnits(fig, [...get(selection)]).length < 2) return;
+  cascadeState.set({ kind: "elements" });
 }
 
 // One-shot grid arrange for the Inspector buttons (each = one undo entry).
@@ -641,8 +653,10 @@ function openXray() {
 }
 
 export function handleKey(e: KeyboardEvent) {
-  // the FluxFig Menu / Settings / Help / X-Ray / Importer own all keys while open.
-  if (get(fluxFigMenuOpen) || get(settingsOpen) || get(helpOpen) || get(xrayOpen) || get(importerOpen)) return;
+  // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover
+  // own all keys while open.
+  if (get(fluxFigMenuOpen) || get(settingsOpen) || get(helpOpen) || get(xrayOpen) || get(importerOpen) || get(cascadeState))
+    return;
 
   // Node-edit mode (Feature 1) owns the keyboard: Canvas.svelte handles
   // Enter/Esc/Delete/Tab on the vector nodes. Yield everything so Delete doesn't
@@ -814,6 +828,14 @@ export function handleKey(e: KeyboardEvent) {
       bringInsideSelected();
       return;
     }
+    // Ctrl/Cmd+Shift+C: cascade a property across the selection. Handled
+    // BEFORE the plain-copy branch below, which historically caught the
+    // shifted chord as an undocumented copy alias (same hygiene as ⌃⇧A/⌃⇧D).
+    if (k === "c" && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      openCascade();
+      return;
+    }
     if (k === "z") {
       e.preventDefault();
       e.shiftKey ? redo() : undo();
@@ -831,7 +853,8 @@ export function handleKey(e: KeyboardEvent) {
       const fid = frameSelected();
       if (fid) duplicateFigure(fid);
       else duplicateSelected();
-    } else if (k === "c") {
+    } else if (k === "c" && !e.shiftKey) {
+      // !shiftKey: Ctrl+Shift+C is the cascade chord (handled above).
       copySelected();
       // NOTE: no Ctrl+V branch — pasting rides the native "paste" event
       // (handleEditorPaste), which arbitrates elements vs OS-clipboard images.

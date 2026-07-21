@@ -220,6 +220,17 @@ export interface ArrangeState {
 export const arrange = writable<ArrangeState | null>(null);
 export const lastArrangeRows = writable<number>(2);
 
+// Cascade popover (Ctrl+Shift+C): apply a stepped delta across the selection
+// (elements) or the animator's selected tracks. While non-null the popover is
+// open and owns the keyboard (handleKey gates on it, like the f-menu). The
+// session itself (baseline, gesture, preview) lives in CascadePopover.svelte;
+// the track flavor is driven through an injected adapter so src/lib never
+// imports slide-mode code.
+export interface CascadeUiState {
+  kind: "elements" | "tracks";
+}
+export const cascadeState = writable<CascadeUiState | null>(null);
+
 // The x/y delta used by the next Ctrl+D duplicate. Seeded by alt-drag-copy so
 // repeated duplicates step by the same offset (Figma-style). Defaults to a
 // small nudge for a plain Ctrl+D with no prior alt-drag.

@@ -42,6 +42,7 @@
     embeddedProjectRoot,
     registerHistoryCompanion,
     gestureCancelHook,
+    cascadeState,
   } from "../../../lib/store";
   import {
     listProjectDecks,
@@ -77,6 +78,8 @@
   import Canvas from "../../../lib/Canvas.svelte";
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
+  import CascadePopover from "../../../lib/CascadePopover.svelte";
+  import { trackCascadeAdapter, openTrackCascade } from "./animator/cascadeTracks";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
@@ -644,6 +647,9 @@
   // --- keyboard: slide navigation first, then the FIGURE keymap wholesale --------
   function onKey(e: KeyboardEvent) {
     if (presentOpen) return; // the presenter overlay owns the keyboard
+    // The cascade popover owns the keyboard while open (its own window
+    // listener registers later, so this handler must yield first).
+    if (get(cascadeState)) return;
     const tag = (e.target as HTMLElement)?.tagName;
     const typing = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
     if (!typing) {
@@ -662,6 +668,9 @@
         if (k === "a") { e.preventDefault(); addAppearance(false); return; }
         if (k === "d") { e.preventDefault(); addAppearance(true); return; }
         if (k === "t") { e.preventDefault(); addOrToggleTransform(); return; }
+        // ⌃⇧C with ≥2 tracks selected = TRACK cascade; with fewer it falls
+        // through to the figure keymap, which opens the ELEMENT cascade.
+        if (k === "c" && get(selTrackIds).length >= 2) { e.preventDefault(); openTrackCascade(); return; }
       }
       // Esc: an in-flight canvas gesture aborts first (FIG-12); then an
       // active endpoint checkout exits (restoring the base state); then the
@@ -853,6 +862,7 @@
         {#if ready && overlay}
           <Canvas frame paneActive={active} />
           <ArrangeHud />
+          <CascadePopover tracks={trackCascadeAdapter} />
           {#if previewing}
             <div class="preview-overlay">
               <div class="preview-viewport" bind:clientWidth={pvW} bind:clientHeight={pvH}>

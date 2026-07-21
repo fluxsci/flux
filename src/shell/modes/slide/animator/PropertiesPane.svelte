@@ -17,6 +17,7 @@
   import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel } from "./shared";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
+  import { openTrackCascade } from "./cascadeTracks";
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
   import { pushToast } from "../../../../lib/toast";
@@ -365,6 +366,9 @@
     <div class="acts">
       <button class="mini" title="Duplicate the selected track(s) — ⌘D" onclick={duplicateSelectedTracks}>⧉</button>
       <button class="mini" class:warn={anyDisabled} title={anyDisabled ? "Enable (x)" : "Disable — kept but not played (x)"} onclick={toggleSelectedDisabled}>{anyDisabled ? "◌" : "⏻"}</button>
+      {#if selTracks.length >= 2}
+        <button class="mini" title="Cascade a timing property across the selected tracks — ⌃⇧C" onclick={openTrackCascade}>⋯⃕</button>
+      {/if}
       <span class="sp"></span>
       <button class="del" onclick={deleteSelectedTracks}>Delete</button>
     </div>

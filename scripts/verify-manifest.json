@@ -189,6 +189,7 @@
       "verify-importer-multi.mjs",
       "verify-vanilla-inline.mjs",
       "verify-bring-inside-gui.mjs",
+      "verify-cascade-gui.mjs",
       "verify-text-resize.mjs",
       "verify-text-biu.mjs",
       "verify-text-styles.mjs",
@@ -262,7 +263,8 @@
       "verify-w4-wiring.mjs",
       "verify-w5-lifecycle.mjs",
       "verify-paste-image.mjs",
-      "figenh-18-pathmodes.ts"
+      "figenh-18-pathmodes.ts",
+      "verify-cascade-tracks-gui.mjs"
     ],
     "scale": [
       "verify-scale-library.mjs",
