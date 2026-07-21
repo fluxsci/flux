@@ -141,10 +141,10 @@ async function typeBurst() {
 }
 
 const results = {};
-for (const mode of ["classic", "monkeytype", "chase", "chase-trail"]) {
+for (const mode of ["chase", "smooth"]) {
   await page.evaluate((m) => {
     const cur = JSON.parse(localStorage.getItem("flux.settings") || "{}");
-    localStorage.setItem("flux.settings", JSON.stringify({ ...cur, paperCaretFeel: m, paperCaretSoftBlink: false, paperSmoothLineScroll: false }));
+    localStorage.setItem("flux.settings", JSON.stringify({ ...cur, paperCaretFeel: m }));
   }, mode);
   await page.reload({ waitUntil: "domcontentloaded" });
   await sleep(1500);
@@ -158,11 +158,7 @@ for (const mode of ["classic", "monkeytype", "chase", "chase-trail"]) {
   console.log(`  ${mode.padEnd(12)} n=${all.length} p50=${results[mode].p50}ms p95=${results[mode].p95}ms`);
 }
 
-const base = results.classic.p95;
-console.log("\nDeltas vs classic p95:");
-for (const m of ["monkeytype", "chase", "chase-trail"]) {
-  console.log(`  ${m.padEnd(12)} ${round(results[m].p95 - base)}ms`);
-}
+console.log(`\nsmooth − chase p95 delta: ${round(results.smooth.p95 - results.chase.p95)}ms`);
 clearTimeout(hardExit);
 cleanup();
 process.exit(0);

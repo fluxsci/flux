@@ -15,8 +15,11 @@
 //      deep frame pipeline that added ~50ms of input→paint latency to every
 //      keystroke in the adjacent editor (measured 88ms rAF vs 40ms setTimeout).
 //      The background must stay ALWAYS-ON (owner spec) but OFF the rAF lifecycle.
-//   2. The caret glide is user-configurable via --flux-caret-ms with the tuned
-//      70ms default preserved (owner unlocked configurability July 2026).
+//   2. (retired 2026-07-21) The --flux-caret-ms CSS caret glide was superseded
+//      by the overlay caret (editing/caretFeel.ts, owner decision out of the
+//      caret-feel lab; measured 16ms BETTER keystroke-INP p95 than the CSS
+//      transition). Its invariants — incl. the E43 no-ambient-rAF discipline
+//      for the caret ticker — are pinned by scripts/verify-caret-feel.ts.
 //
 // Run: npx tsx scripts/verify-writer-latency.ts
 
@@ -49,25 +52,12 @@ assert(!/cancelAnimationFrame/.test(bg), "no stale cancelAnimationFrame (which c
 // The dev-only loop control the INP probe/gate depend on.
 assert(/pause:\s*\(\)\s*=>\s*stopLoop\(\)/.test(bg) && /resume:\s*\(\)\s*=>\s*startLoop\(\)/.test(bg), "dev-only __fluxMargin.bg.pause()/resume() are exposed for the INP probe");
 
-// ---- 2. Caret glide: configurable via --flux-caret-ms, default 70ms ----------
+// ---- 2. Caret motion: owned by the overlay caret (see header) ----------------
+// The CSS-glide pins that lived here are retired; verify-caret-feel.ts is the
+// caret contract gate. Keep one negative pin so the old mechanism can't creep
+// back in beside the overlay (double animation = double latency).
 const theme = read("src/shell/modes/paper/flux-theme.ts");
-assert(
-  /transition:\s*"left var\(--flux-caret-ms,\s*70ms\) ease-out, top var\(--flux-caret-ms,\s*70ms\) ease-out"/.test(theme),
-  "flux-theme .cm-cursor transition reads var(--flux-caret-ms, 70ms) (default preserved)",
-);
-
-const settings = read("src/lib/settings.ts");
-assert(/paperCaretMs:\s*number/.test(settings), "Settings type declares paperCaretMs: number");
-assert(/paperCaretMs:\s*70\b/.test(settings), "paperCaretMs default is the tuned 70ms");
-
-const pm = read("src/shell/modes/paper/PaperMode.svelte");
-assert(
-  /--flux-caret-ms:\s*\{?\$settings\.paperCaretMs\}?ms/.test(pm),
-  "PaperMode sets --flux-caret-ms from $settings.paperCaretMs on section.paper",
-);
-
-const settingsUi = read("src/lib/Settings.svelte");
-assert(/paperCaretMs/.test(settingsUi), "Settings UI exposes a paperCaretMs control");
+assert(!/--flux-caret-ms/.test(theme), "the retired --flux-caret-ms CSS glide has not crept back into flux-theme");
 
 // ---- report ------------------------------------------------------------------
 console.log(failed === 0 ? "\nWRITER-LATENCY GUARD: PASS" : `\nWRITER-LATENCY GUARD: FAIL (${failed})`);

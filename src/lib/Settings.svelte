@@ -91,12 +91,10 @@
     const n = parseFloat(raw);
     settings.update((v) => ({ ...v, [key]: Number.isFinite(n) ? Math.round(n) : 0 }));
   }
-  // Caret-feel lab (EXPERIMENTAL, caret-feel branch) — see editing/caretFeel.ts.
+  // Paper caret motion — see editing/caretFeel.ts.
   const caretFeels: { v: Settings["paperCaretFeel"]; l: string }[] = [
-    { v: "classic", l: "Classic" },
-    { v: "monkeytype", l: "Monkeytype" },
     { v: "chase", l: "Chase" },
-    { v: "chase-trail", l: "Chase + trail" },
+    { v: "smooth", l: "Smooth" },
   ];
   const marginScenes: { v: Settings["paperMarginScene"]; l: string }[] = [
     { v: "harmonograph", l: "Harmonograph" },
@@ -260,40 +258,13 @@
         Clean dynamic margin — close all panes when focus returns to the editor
       </label>
 
-      <h3>Paper — caret glide ({$settings.paperCaretMs === 0 ? "instant" : `${$settings.paperCaretMs} ms`})</h3>
-      <input
-        type="range"
-        min="0"
-        max="140"
-        step="10"
-        value={$settings.paperCaretMs}
-        on:input={(e) => settings.update((v) => ({ ...v, paperCaretMs: Math.round(parseFloat(e.currentTarget.value) || 0) }))}
-      />
-      <p class="hint">How smoothly the caret glides between positions. 70&nbsp;ms is the Flux default; lower feels snappier and 0 is instant (no glide). Applies to Classic mode only.</p>
-
-      <h3>Paper — caret feel (experimental)</h3>
+      <h3>Paper — caret motion</h3>
       <div class="seg">
         {#each caretFeels as f}
           <button class:on={$settings.paperCaretFeel === f.v} on:click={() => settings.update((v) => ({ ...v, paperCaretFeel: f.v }))}>{f.l}</button>
         {/each}
       </div>
-      <p class="hint">Classic = the shipped CSS glide. Monkeytype = fixed 90&nbsp;ms near-linear tween that retargets mid-flight. Chase = exponential pursuit (arrives fast, settles softly). Chase&nbsp;+&nbsp;trail adds a subtle ink-streak on glides.</p>
-      <label class="chk">
-        <input
-          type="checkbox"
-          checked={$settings.paperCaretSoftBlink}
-          on:change={(e) => settings.update((v) => ({ ...v, paperCaretSoftBlink: e.currentTarget.checked }))}
-        />
-        Soft caret blink — gentle idle pulse instead of the hard on/off, stops after ~9&nbsp;s
-      </label>
-      <label class="chk">
-        <input
-          type="checkbox"
-          checked={$settings.paperSmoothLineScroll}
-          on:change={(e) => settings.update((v) => ({ ...v, paperSmoothLineScroll: e.currentTarget.checked }))}
-        />
-        Smooth line scroll — typing at the page edge scrolls smoothly instead of jumping
-      </label>
+      <p class="hint">Chase — the caret pursues its target, arriving fast and settling softly. Smooth — a constant-pace 90&nbsp;ms glide.</p>
 
       <p class="tip">Open the FluxFig Menu with <b>F</b> while objects are selected.</p>
       <button class="close" on:click={() => settingsOpen.set(false)}>Done</button>

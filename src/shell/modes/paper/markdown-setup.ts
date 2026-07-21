@@ -74,9 +74,9 @@ export function createEditorExtensions(
     markdown({ extensions: [GFM] }),
     syntaxHighlighting(fluxHighlight),
     fluxTheme,
-    // Caret-feel lab (EXPERIMENTAL, caret-feel branch): overlay caret motion
-    // models + blink/scroll polish. Must sit AFTER drawSelection so its
-    // measure pass runs after the cursor layer's (it mirrors that geometry).
+    // The overlay caret (chase/smooth motion + built-in soft blink). Must sit
+    // AFTER drawSelection so its measure pass runs after the cursor layer's
+    // (it mirrors that geometry).
     caretFeel(),
     search({ top: true }), // PAP-10: find/replace (Cmd/Ctrl-F, Cmd/Ctrl-Alt-F)
     searchPanelTheme,

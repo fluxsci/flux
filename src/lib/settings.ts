@@ -1,10 +1,11 @@
 import { writable } from "svelte/store";
 
 export type FluxFigMenuSize = "sm" | "md" | "lg";
-// EXPERIMENT (caret-feel branch): paper caret motion model. "classic" = the
-// shipped CSS-transition glide; the others are overlay-caret experiments
-// (see src/shell/modes/paper/editing/caretFeel.ts).
-export type PaperCaretFeel = "classic" | "monkeytype" | "chase" | "chase-trail";
+// Paper caret motion model (src/shell/modes/paper/editing/caretFeel.ts):
+// "chase" = exponential pursuit (default); "smooth" = fixed-duration
+// monkeytype-style tween. Owner decision 2026-07-21 out of the caret-feel lab
+// (classic CSS glide and chase-trail were cut; soft blink is built-in).
+export type PaperCaretFeel = "chase" | "smooth";
 export type FluxFigMenuPos = "center" | "top" | "left" | "right"; // "top" is legacy → treated as center
 export type FluxFigMenuAnim = "draw" | "fade"; // self-drawing line vs. quick fade
 export type XrayPos = "above" | "below"; // which side of the FluxFig menu the X-ray docks to
@@ -28,10 +29,7 @@ export interface Settings {
   paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
   paperMaxMarginPanes: number; // max dynamic panes open at once
   paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
-  paperCaretMs: number; // caret glide duration in ms (0 = instant). 70 = the tuned "smooth caret". Classic mode only.
-  paperCaretFeel: PaperCaretFeel; // EXPERIMENT: caret motion model (caret-feel branch)
-  paperCaretSoftBlink: boolean; // EXPERIMENT: soft idle pulse instead of the hard steps(1) blink
-  paperSmoothLineScroll: boolean; // EXPERIMENT: replay typing-caused line-scroll jumps smoothly
+  paperCaretFeel: PaperCaretFeel; // caret motion model — chase (default) | smooth
   // App — updates.
   updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
@@ -54,10 +52,7 @@ const DEFAULTS: Settings = {
   paperMarginScene: "harmonograph",
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,
-  paperCaretMs: 70,
-  paperCaretFeel: "classic",
-  paperCaretSoftBlink: false,
-  paperSmoothLineScroll: false,
+  paperCaretFeel: "chase",
   updateCheck: true,
 };
 
@@ -82,6 +77,14 @@ function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   delete out.xrayDx;
   delete out.xrayDy;
   if (out.fluxFigMenuPos === "top") out.fluxFigMenuPos = "center";
+  // caret-feel (2026-07-21): the lab collapsed to chase|smooth — "monkeytype"
+  // was renamed "smooth"; "classic"/"chase-trail" and the soft-blink /
+  // line-scroll / glide-ms settings were retired (soft blink is built-in).
+  if (out.paperCaretFeel === "monkeytype") out.paperCaretFeel = "smooth";
+  else if (out.paperCaretFeel !== "smooth" && out.paperCaretFeel !== "chase") delete out.paperCaretFeel;
+  delete out.paperCaretMs;
+  delete out.paperCaretSoftBlink;
+  delete out.paperSmoothLineScroll;
   return out;
 }
 

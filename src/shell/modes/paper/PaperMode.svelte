@@ -1533,7 +1533,7 @@
   });
 </script>
 
-<section class="paper" style="--flux-caret-ms: {$settings.paperCaretMs}ms">
+<section class="paper">
   <div class="work" bind:this={workEl}>
     {#if $paperLayout.outlinerOpen}
       <div class="leftrail">

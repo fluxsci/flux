@@ -2,10 +2,12 @@
 // the editor matches the shell (serif body, accent, dark) and re-themes for
 // free when tokens change.
 //
-// Two tuned constants live here: the .cm-cursor smooth-caret transition (its
-// duration is the user-tunable --flux-caret-ms, default 70ms) and the identical
-// active/inactive metrics of .cm-flux-embedsrc/.cm-flux-tablesrc (any metric
-// change on caret entry reflows the line and breaks goal-column navigation).
+// One tuned constraint lives here: the identical active/inactive metrics of
+// .cm-flux-embedsrc/.cm-flux-tablesrc (any metric change on caret entry
+// reflows the line and breaks goal-column navigation). Caret motion is the
+// overlay caret's job (editing/caretFeel.ts) — the old .cm-cursor CSS
+// transition glide and its Settings-driven duration var were retired with
+// it, 2026-07-21 (verify-caret-feel.ts pins that they stay gone).
 
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle } from "@codemirror/language";
@@ -38,14 +40,6 @@ export const fluxTheme = EditorView.theme(
     ".cm-cursor, .cm-dropCursor": {
       borderLeftColor: "var(--c-accent)",
       borderLeftWidth: "2px",
-    },
-    // Obsidian-signature smooth caret: drawSelection reuses the cursor node
-    // across moves, so a short position transition animates it. The duration is
-    // user-tunable via --flux-caret-ms (Settings › Paper › caret glide; set on
-    // section.paper), defaulting to the tuned 70ms; kept brief so fast typing
-    // doesn't smear, and 0ms yields an instant (non-animated) caret.
-    ".cm-cursor": {
-      transition: "left var(--flux-caret-ms, 70ms) ease-out, top var(--flux-caret-ms, 70ms) ease-out",
     },
     ".cm-foldPlaceholder": {
       display: "inline-block",

@@ -1177,3 +1177,18 @@ ticker does NOT tax INP (the E43 concern), it beats the classic left/top CSS tra
   header documents the recipe).
 - Event-Timing keydown durations quantize to 8ms buckets — compare INP across conditions in the
   same run, not against absolute budgets.
+
+### 2026-07-21 — Caret-feel lab shipped: chase default, smooth option (Claude Fable 5, `caret-feel` → merged to `main`)
+**Work:** Owner A/B verdict on the lab: chase is the DEFAULT paper caret, monkeytype mode kept
+as "smooth", classic CSS glide + chase-trail + smooth-line-scroll CUT, soft blink BUILT-IN (no
+setting). The only caret setting is now Settings › Paper › "Caret motion" (chase | smooth).
+Retired `paperCaretMs`/`--flux-caret-ms` (flux-theme transition rule deleted, PaperMode var
+binding removed) with persisted-settings migration (monkeytype→smooth, retired keys deleted).
+verify-writer-latency.ts §2's classic-glide pins were superseded WITH evidence (INP measured
+16ms better; the caret contract gate is verify-caret-feel.ts, which now also pins that the old
+CSS glide stays gone). Verified: pure 142/142, paper-gate 15/15, check 0/0, live final-contract
+probe (defaults, both modes animate+settle, built-in blink, migration, clean console).
+**Learnings:**
+- A negative source pin ("X stays retired") and a comment that NAMES X literally cannot coexist
+  in the same file — the gate greps its own documentation. Reword the comment; keep the pin
+  strict (second occurrence of this trap; it is the norm for retirement pins, not an accident).
