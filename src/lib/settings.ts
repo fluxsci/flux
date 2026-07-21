@@ -1,6 +1,10 @@
 import { writable } from "svelte/store";
 
 export type FluxFigMenuSize = "sm" | "md" | "lg";
+// EXPERIMENT (caret-feel branch): paper caret motion model. "classic" = the
+// shipped CSS-transition glide; the others are overlay-caret experiments
+// (see src/shell/modes/paper/editing/caretFeel.ts).
+export type PaperCaretFeel = "classic" | "monkeytype" | "chase" | "chase-trail";
 export type FluxFigMenuPos = "center" | "top" | "left" | "right"; // "top" is legacy → treated as center
 export type FluxFigMenuAnim = "draw" | "fade"; // self-drawing line vs. quick fade
 export type XrayPos = "above" | "below"; // which side of the FluxFig menu the X-ray docks to
@@ -24,7 +28,10 @@ export interface Settings {
   paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
   paperMaxMarginPanes: number; // max dynamic panes open at once
   paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
-  paperCaretMs: number; // caret glide duration in ms (0 = instant). 70 = the tuned "smooth caret".
+  paperCaretMs: number; // caret glide duration in ms (0 = instant). 70 = the tuned "smooth caret". Classic mode only.
+  paperCaretFeel: PaperCaretFeel; // EXPERIMENT: caret motion model (caret-feel branch)
+  paperCaretSoftBlink: boolean; // EXPERIMENT: soft idle pulse instead of the hard steps(1) blink
+  paperSmoothLineScroll: boolean; // EXPERIMENT: replay typing-caused line-scroll jumps smoothly
   // App — updates.
   updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
@@ -48,6 +55,9 @@ const DEFAULTS: Settings = {
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,
   paperCaretMs: 70,
+  paperCaretFeel: "classic",
+  paperCaretSoftBlink: false,
+  paperSmoothLineScroll: false,
   updateCheck: true,
 };
 

@@ -26,6 +26,7 @@ import { syntaxHighlighting, codeFolding, foldKeymap } from "@codemirror/languag
 import type { Extension } from "@codemirror/state";
 import { fluxTheme, fluxHighlight } from "./flux-theme";
 import { livePreview } from "./live-preview/livePreview";
+import { caretFeel } from "./editing/caretFeel";
 
 // PAP-10: a themed find/replace panel (Cmd/Ctrl-F). CodeMirror ships the behavior; this just
 // dresses the panel in the manuscript surface's tokens so it doesn't look like a raw browser box.
@@ -73,6 +74,10 @@ export function createEditorExtensions(
     markdown({ extensions: [GFM] }),
     syntaxHighlighting(fluxHighlight),
     fluxTheme,
+    // Caret-feel lab (EXPERIMENTAL, caret-feel branch): overlay caret motion
+    // models + blink/scroll polish. Must sit AFTER drawSelection so its
+    // measure pass runs after the cursor layer's (it mirrors that geometry).
+    caretFeel(),
     search({ top: true }), // PAP-10: find/replace (Cmd/Ctrl-F, Cmd/Ctrl-Alt-F)
     searchPanelTheme,
     // PAP-11: native spellcheck on the editable content (off by default in CodeMirror). Grammar-

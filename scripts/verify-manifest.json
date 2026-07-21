@@ -139,6 +139,7 @@
       "verify-w4-autosave.ts",
       "verify-w9-roundtrip.ts",
       "verify-writer-latency.ts",
+      "verify-caret-feel.ts",
       "verify-tokens.mjs",
       "verify-tokens-sync.ts",
       "verify-registry-parity.ts",

@@ -1147,3 +1147,33 @@ mode, updated stock Context guidance, and added a multi-document regression fixt
 **Learnings:**
 - Agent boot safety belongs in the product default, not only in prompt discipline: when review
   state is stored per document, the zero-argument discovery command must aggregate all documents.
+
+### 2026-07-20 — Caret-feel lab: typing-feel experiments (Claude Fable 5, `caret-feel`)
+**Work:** Deep-dived monkeytype's typing feel (90–150ms near-linear `inOut(1.25)` retargeting
+tween on one overlay div; soft triangle blink at idle only; 125ms line-scroll-then-rebase) and
+the wider landscape (Neovide springs/smear, kitty's snap-caret-plus-trail, JetBrains "Snappy",
+VS Code's fixed-tween complaints), then built four caret modes behind Settings › Paper › "Caret
+feel" (EXPERIMENTAL): classic (shipped CSS glide, default), monkeytype, chase (exponential
+pursuit, τ 22/40ms typing/nav), chase-trail (leading/trailing edges at τ 14/48ms → smear), plus
+independent soft-blink and smooth-line-scroll toggles. One ViewPlugin
+(`editing/caretFeel.ts`) owns an overlay caret + transient self-terminating rAF ticker.
+Verified: pure 142/142 (new `verify-caret-feel.ts`), paper-gate 15/15, live behavioral probe
+(all modes animate/settle/teleport-gate; console clean), and a real-Electron per-mode INP probe
+(`scripts/perf/caret-feel-inp.mjs`): overlay modes p95 32ms vs classic 48ms — the transient
+ticker does NOT tax INP (the E43 concern), it beats the classic left/top CSS transition.
+**Learnings:**
+- CM manages `view.dom`'s class attribute (`updateAttrs` rewrites it every update) — a plugin's
+  state classes must live on `scrollDOM` (vim's `cm-vimMode` precedent), or they silently vanish.
+- In CM's measure cycle ALL reads run before ALL writes, and `scrollTarget` is applied after
+  both (still pre-paint, same task): mirror another layer's inline styles from your WRITE phase
+  (style-attr access forces no layout), and observe post-scroll state via `queueMicrotask` from
+  the measure — a scroll-event listener is one frame too late (paints the jump first).
+- In vim mode the whole cursor layer is swapped (`.cm-vimCursorLayer`; fat pieces carry NO
+  `.cm-cursor` class and hold the glyph as text) — caret work must scope to
+  `.cm-cursorLayer:not(.cm-vimCursorLayer)` and bail under `.cm-vimMode`.
+- The §9 HMR-instance trap generalizes to Electron probes: driving `openProjectAt` via in-page
+  `import()` against a long-lived dev server mutates the WRONG store instance ("no Paper
+  button"). Perf probes that import app modules need a freshly-spawned dev server (the probe
+  header documents the recipe).
+- Event-Timing keydown durations quantize to 8ms buckets — compare INP across conditions in the
+  same run, not against absolute budgets.
