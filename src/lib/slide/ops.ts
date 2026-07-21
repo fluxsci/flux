@@ -21,6 +21,7 @@ import { DEFAULT_TEXT_STYLES } from "../migrate";
 import { DEFAULT_THEME_ID } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
 import { familyOf } from "./family";
+import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
 import {
   DECK_SCHEMA_VERSION,
   type Deck,
@@ -32,6 +33,8 @@ import {
   type StageSize,
   type Camera,
   type TransitionKind,
+  type Influence,
+  type Stagger,
 } from "./types";
 
 // 16:9 on the FIGURE ruler (96 units/inch): a ~6.7″ × 3.75″ frame, so a
@@ -791,6 +794,101 @@ export function setTransform(
   if (opts.easing != null) t.easing = opts.easing;
   if (opts.influence != null) t.influence = opts.influence;
   return t;
+}
+
+/** The cascade-editable timing fields of one track at session start. */
+export interface TrackCascadeBaseline {
+  start?: number;
+  duration?: number;
+  influence?: Influence;
+  stagger?: Stagger;
+}
+
+/** Cascade one timing property across the given tracks of one slide: the
+ *  track at rank k gets `value ⊕ delta·step_k` (step = k with firstFixed,
+ *  else k+1). Order: "timeline" (beat index, then lane index — default) or
+ *  "list" (the trackIds order, i.e. the animator's selection order).
+ *  Same ABSOLUTE-FROM-BASELINE law as ops.cascadeElements: the editable
+ *  timing fields are restored from `baseline` (default: snapshot now) before
+ *  targets are written, so live re-previews are idempotent and a mid-session
+ *  property switch reverts the previous property's writes. Clamps match the
+ *  animator's own floors (start ≥ 0, duration ≥ 50 ms, influence 0–100,
+ *  perMs ≥ 0); `stagger.perMs` applies only to tracks that HAVE a stagger —
+ *  others are excluded before ranking. Returns the count written. */
+export function cascadeTracks(
+  deck: Deck,
+  slideId: Id,
+  trackIds: Id[],
+  spec: TrackCascadeSpec,
+  baseline?: Map<Id, TrackCascadeBaseline>,
+): number {
+  const s = slideById(deck, slideId);
+  if (!s) return 0;
+  const want = new Set(trackIds);
+  const found: { t: Track; beatIdx: number; lane: number }[] = [];
+  s.beats.forEach((b, bi) => {
+    b.tracks.forEach((t, li) => {
+      if (t.id && want.has(t.id)) found.push({ t, beatIdx: bi, lane: li });
+    });
+  });
+  if (!found.length) return 0;
+  const base = baseline ?? new Map<Id, TrackCascadeBaseline>();
+  for (const { t } of found) {
+    if (!t.id) continue;
+    if (!base.has(t.id))
+      base.set(t.id, {
+        start: t.start,
+        duration: t.duration,
+        influence: t.influence ? { ...t.influence } : undefined,
+        stagger: t.stagger ? { ...t.stagger } : undefined,
+      });
+    const b0 = base.get(t.id)!;
+    if (b0.start === undefined) delete t.start;
+    else t.start = b0.start;
+    if (b0.duration === undefined) delete t.duration;
+    else t.duration = b0.duration;
+    if (b0.influence === undefined) delete t.influence;
+    else t.influence = { ...b0.influence };
+    if (b0.stagger === undefined) delete t.stagger;
+    else t.stagger = { ...b0.stagger };
+  }
+  let list = found.filter(({ t }) => (spec.property === "stagger.perMs" ? !!t.stagger : true));
+  if (spec.order === "list") {
+    const pos = new Map(trackIds.map((id, i) => [id, i] as const));
+    list.sort((a, b) => (pos.get(a.t.id!) ?? 0) - (pos.get(b.t.id!) ?? 0));
+  } else {
+    list.sort((a, b) => a.beatIdx - b.beatIdx || a.lane - b.lane);
+  }
+  if (spec.reverse) list.reverse();
+  for (let rank = 0; rank < list.length; rank++) {
+    const t = list[rank].t;
+    const step = stepOf(rank, spec.firstFixed);
+    const b0 = base.get(t.id!)!;
+    switch (spec.property) {
+      case "start":
+        t.start = clampTrackValue("start", cascadeValue(b0.start ?? 0, spec, step));
+        break;
+      case "duration":
+        t.duration = clampTrackValue("duration", cascadeValue(b0.duration ?? 400, spec, step));
+        break;
+      case "influence.in":
+      case "influence.out": {
+        const side = spec.property === "influence.in" ? "in" : "out";
+        const inf: Influence = { in: b0.influence?.in ?? 0, out: b0.influence?.out ?? 0 };
+        inf[side] = clampTrackValue(spec.property, cascadeValue(inf[side], spec, step));
+        // Both zero ⇒ no velocity profile at all (PropertiesPane parity).
+        if (!inf.in && !inf.out) delete t.influence;
+        else t.influence = inf;
+        break;
+      }
+      case "stagger.perMs": {
+        const st = b0.stagger!;
+        t.stagger = { ...st, perMs: clampTrackValue("stagger.perMs", cascadeValue(st.perMs, spec, step)) };
+        break;
+      }
+    }
+  }
+  return list.length;
 }
 
 export function removeAnimation(

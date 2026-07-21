@@ -108,6 +108,31 @@ function fromOklab(c: Lab): RGBA {
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+/** A per-step OKLCh delta (cascade color ramps). dH is in DEGREES. */
+export interface OklchDelta {
+  dL?: number;
+  dC?: number;
+  dH?: number;
+}
+
+/** Shift a model color string k steps in OKLCh: L + k·dL (clamped 0..1),
+ *  C + k·dC (floored at 0), H + k·dH (wraps). The k-scaled delta is applied in
+ *  ONE conversion — never iterate single steps, per-step clamping would
+ *  accumulate error. Returns null for "none"/unparseable (callers skip the
+ *  write and keep the value untouched). Alpha is preserved. */
+export function shiftOklch(s: string, d: OklchDelta, k: number): string | null {
+  if (isNone(s)) return null;
+  const c = parseColor(s);
+  if (!c) return null;
+  const lab = toOklab(c);
+  const C = Math.hypot(lab.a, lab.b);
+  const H = Math.atan2(lab.b, lab.a);
+  const L2 = clamp01(lab.L + k * (d.dL ?? 0));
+  const C2 = Math.max(0, C + k * (d.dC ?? 0));
+  const H2 = H + (k * (d.dH ?? 0) * Math.PI) / 180;
+  return formatColor(fromOklab({ L: L2, a: C2 * Math.cos(H2), b: C2 * Math.sin(H2), alpha: lab.alpha }));
+}
+
 /** Interpolate two model color strings at t ∈ [0,1]:
  *  • both parseable → OKLab blend (+ linear alpha), formatted as hex
  *  • "none" ↔ color → the color with its alpha ramped from/to 0

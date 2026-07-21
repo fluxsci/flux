@@ -60,6 +60,19 @@ import {
 } from "./geometry";
 import { scaleRemap } from "./editing";
 import { figurePanels } from "./captions";
+import {
+  cascadeUnits,
+  orderUnits,
+  stepOf,
+  cascadeValue,
+  clampElementValue,
+  memberAccepts,
+  unitAccepts,
+  isColorProp,
+  PT_TO_PX,
+  type CascadeSpec,
+} from "./cascade";
+import { shiftOklch } from "./color/interp";
 
 // Default frame size — a full-page journal figure, 180 × 225 mm (the Nature-family
 // maximum figure size), expressed in the canvas's 96 dpi design px: 180/25.4×96 ≈ 680,
@@ -504,6 +517,96 @@ export function bringInside(p: Project, figId: Id, ids?: Id[]): void {
       e.y += dy;
     }
   }
+}
+
+/** Cascade one property across the selection: the unit at rank k (in the
+ *  spec's order) gets `value ⊕ delta·step_k` — step_k = k with firstFixed,
+ *  else k+1. A top-level group is ONE rank (x/y translate rigidly; rotation
+ *  rotates rigidly about the unit's bbox centre; style props step each
+ *  ACCEPTING member from its own base value with the unit's step). Units the
+ *  property doesn't apply to are excluded before ranking. Application is
+ *  ABSOLUTE-FROM-BASELINE: elements are first restored from `baseline` (their
+ *  state at cascade-session start; defaults to a snapshot taken now), then
+ *  targets computed from those base values are written — so a live preview
+ *  re-running with new parameters is idempotent, never compounding, and a
+ *  mid-session property switch fully reverts the previous property's writes.
+ *  Style/color writes route through setElementStyle (type guards, path
+ *  cornerRadius refit, text layout invalidation); W/H through setBoxDim with
+ *  the BASELINE dims as the aspect base (the f-menu live-edit lesson). Color
+ *  props shift per step in OKLCh; "none"/unparseable values keep their rank
+ *  but are left untouched. */
+export function cascadeElements(p: Project, figId: Id, ids: Id[], spec: CascadeSpec, baseline?: Map<Id, Element>): void {
+  const f = figById(p, figId);
+  if (!f) return;
+  // Complete the baseline (one-shot headless calls pass none), then RESTORE:
+  // every targeted element returns to its baseline state in place (same z
+  // slot, fresh identity — identity-keyed render memos re-run, which is the
+  // correct invalidation since values change anyway).
+  const base = baseline ?? new Map<Id, Element>();
+  const wanted = new Set(ids);
+  for (const e of f.elements) if (wanted.has(e.id) && !base.has(e.id)) base.set(e.id, structuredClone(e));
+  for (let i = 0; i < f.elements.length; i++) {
+    const b = wanted.has(f.elements[i].id) ? base.get(f.elements[i].id) : undefined;
+    if (b) f.elements[i] = structuredClone(b);
+  }
+  // Units are built AFTER the restore (fresh references), ordered on restored
+  // (= baseline) geometry so spatial ranks stay stable while cascading x/y.
+  const units = orderUnits(
+    cascadeUnits(f, ids).filter((u) => unitAccepts(u, spec.property)),
+    f,
+    spec.order,
+    spec.reverse,
+  );
+  // fontSize add-deltas are authored in pt; the model stores px.
+  const eff = spec.property === "fontSize" ? { ...spec, delta: (spec.delta ?? 0) * PT_TO_PX } : spec;
+  units.forEach((u, rank) => {
+    const step = stepOf(rank, spec.firstFixed);
+    const prop = spec.property;
+    if (prop === "x" || prop === "y") {
+      const b = selectionBBox(u.els);
+      if (!b) return;
+      const anchor = prop === "x" ? b.x : b.y;
+      const d = cascadeValue(anchor, eff, step) - anchor;
+      if (!d) return;
+      for (const e of u.els) {
+        if (prop === "x") e.x += d;
+        else e.y += d;
+      }
+    } else if (prop === "rotation") {
+      // Unit rotation value = the first member's angle (single-member units:
+      // exactly that element's rotation). The unit turns rigidly by the delta.
+      const baseRot = u.els[0].rotation ?? 0;
+      const d = cascadeValue(baseRot, eff, step) - baseRot;
+      if (!d) return;
+      const b = selectionBBox(u.els);
+      if (!b) return;
+      rotateAbout(u.els, { x: b.x + b.w / 2, y: b.y + b.h / 2 }, d);
+    } else if (prop === "width" || prop === "height") {
+      const el = u.els[0]; // unitAccepts pinned single-element units
+      if (!("width" in el) || !("height" in el)) return;
+      const baseDims = { w: el.width, h: el.height };
+      const cur = prop === "width" ? el.width : el.height;
+      const target = clampElementValue(prop, cascadeValue(cur, eff, step));
+      setBoxDim(el, prop === "width" ? "w" : "h", target, baseDims);
+    } else if (isColorProp(prop)) {
+      for (const e of u.els) {
+        if (!memberAccepts(e, prop)) continue;
+        const cur = (e as unknown as Record<string, unknown>)[prop];
+        if (typeof cur !== "string") continue;
+        const next = shiftOklch(cur, spec.color ?? {}, step);
+        if (next != null && next !== cur) setElementStyle(p, [e.id], { [prop]: next });
+      }
+    } else {
+      // Numeric style props: opacity / strokeWidth / cornerRadius / fontSize.
+      for (const e of u.els) {
+        if (!memberAccepts(e, prop)) continue;
+        const rec = e as unknown as Record<string, unknown>;
+        const cur = prop === "opacity" ? ((e.opacity ?? 1) as number) : ((rec[prop] ?? 0) as number);
+        const target = clampElementValue(prop, cascadeValue(cur, eff, step));
+        if (target !== cur) setElementStyle(p, [e.id], { [prop]: target });
+      }
+    }
+  });
 }
 
 // --- ruler guides (Feature 11) — figure-local guide lines elements snap to ---

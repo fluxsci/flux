@@ -4,7 +4,7 @@
 // none-handling (alpha-0 endpoint of the other side), endpoint identity, and
 // degenerate/unparseable inputs stepping at t=0.5.
 // Run: npx tsx scripts/verify-color-interp.ts
-import { parseColor, formatColor, lerpColor, isNone } from "../src/lib/color/interp";
+import { parseColor, formatColor, lerpColor, isNone, shiftOklch } from "../src/lib/color/interp";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -72,5 +72,23 @@ assert(lerpColor("none", "none", 0.5) === "none", "none→none stays none");
 assert(lerpColor("url(#grad)", "#ff0000", 0.49) === "url(#grad)", "unparseable A holds until t=0.5");
 assert(lerpColor("url(#grad)", "#ff0000", 0.5) === "#ff0000", "…then steps to B at t=0.5");
 assert(lerpColor("#ff0000", "oklch(70% 0.1 200)", 0.6) === "oklch(70% 0.1 200)", "unparseable B steps the same way");
+
+// --- shiftOklch (cascade color ramps) ----------------------------------------
+assert(shiftOklch("none", { dH: 30 }, 1) === null, "shiftOklch: none → null (caller skips)");
+assert(shiftOklch("url(#grad)", { dH: 30 }, 1) === null, "shiftOklch: unparseable → null");
+{
+  const back = parseColor(shiftOklch("#3a7bd5", { dH: 360 }, 1)!)!;
+  const orig = parseColor("#3a7bd5")!;
+  assert(near(back.r, orig.r) && near(back.g, orig.g) && near(back.b, orig.b), "shiftOklch: dH=360 is identity within rounding");
+}
+assert(parseColor(shiftOklch("#888888", { dL: 1 }, 1)!)!.r === 255, "shiftOklch: dL clamps at L=1");
+assert(parseColor(shiftOklch("#888888", { dL: -1 }, 1)!)!.r === 0, "shiftOklch: dL floors at L=0");
+{
+  // ONE k-scaled conversion (not k iterated steps): 2 steps of 20° = 1 step of 40°
+  const two = shiftOklch("#1b9e77", { dH: 20 }, 2)!;
+  const one = shiftOklch("#1b9e77", { dH: 40 }, 1)!;
+  assert(two === one, "shiftOklch: k steps apply as one k-scaled delta");
+}
+assert(shiftOklch("#ff000080", { dC: -0.05 }, 1)!.length === 9, "shiftOklch: alpha rides through");
 
 console.log("\nCOLOR INTERP (OKLab core): PASS");
