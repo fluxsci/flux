@@ -31,8 +31,8 @@ config edit.
     "claude": {
       "models": ["fable", "opus", "sonnet"],
       "efforts": ["default"],
-      "interactive": ["claude", "--model", "{model}",
-                      "--mcp-config", "{mcpJson}", "--allowedTools", "mcp__flux", "{prompt}"],
+      "interactive": ["claude", "{prompt}", "--model", "{model}",
+                      "--mcp-config", "{mcpJson}", "--allowedTools", "mcp__flux"],
       "exec": ["claude", "-p", "{prompt}", "--model", "{model}",
                "--permission-mode", "acceptEdits",
                "--mcp-config", "{mcpJson}", "--allowedTools", "mcp__flux"]
@@ -66,6 +66,14 @@ config edit.
 | `{mcpJson}` | the flux MCP server spec as JSON (for `claude --mcp-config`); unavailable → dropped with its flag |
 
 `FLUX_PROJECT` and `FLUX_CLIENT` (`principal`/`worker`) are always set on the child.
+
+> **Ordering trap — put `{prompt}` before any variadic option.** Claude Code's
+> `--allowedTools <tools...>` is *variadic*: it greedily consumes every following
+> argument until the next flag. A `{prompt}` placed after it is swallowed as a
+> tool value and the session launches with no prompt (a blank Claude Code
+> window). Lead the `interactive` template with `{prompt}` (right after the
+> binary), or keep the prompt ahead of the variadic flag. `exec` is already safe
+> because its `{prompt}` rides `-p` up front.
 **MCP for Codex** wires globally instead: `~/.codex/config.toml` with NO root argument —
 the server resolves the project from `FLUX_PROJECT`:
 

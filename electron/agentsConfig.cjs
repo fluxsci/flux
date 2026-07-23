@@ -48,12 +48,16 @@ const DEFAULT_AGENTS = {
       // Claude Code takes no per-launch effort flag today — "default" makes the
       // {effort}-bearing args drop cleanly if a template ever carries one.
       efforts: ["default"],
+      // {prompt} MUST lead (right after "claude"): Claude Code's `--allowedTools
+      // <tools...>` is a VARIADIC option, so a prompt placed AFTER it is greedily
+      // swallowed as another tool value — the session then launches with no boot
+      // prompt (a blank Claude Code session). Keep the prompt in front of every
+      // variadic option. (exec is already safe — its {prompt} rides -p up front.)
       interactive: [
-        "claude",
+        "claude", "{prompt}",
         "--model", "{model}",
         "--mcp-config", "{mcpJson}",
         "--allowedTools", "mcp__flux",
-        "{prompt}",
       ],
       exec: [
         "claude", "-p", "{prompt}",

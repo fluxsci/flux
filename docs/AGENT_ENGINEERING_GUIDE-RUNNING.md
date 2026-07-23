@@ -1290,3 +1290,32 @@ imports flux-core `.ts` and could never pass under the runner).
 - Caches with an eviction policy need an explicit "apply the policy now" seam
   (`applyPlotNodeCap`) — eviction that only runs on growth is untestable and unusable for
   runtime cap changes.
+
+### 2026-07-22 — `flux principal` → Claude launched blank; codex MCP diagnosis (Claude Opus 4.8, `main` working tree)
+**Work:** `flux principal` with a **claude** principal opened a blank Claude Code session (no
+boot prompt); codex worked. Root cause: the `claude` **interactive** template ended
+`… --allowedTools mcp__flux {prompt}`, but Claude Code's `--allowedTools <tools…>` is a
+**variadic** option (its parser greedily eats every following arg until the next flag), so it
+swallowed the boot prompt as a tool value and Claude launched with no prompt. Fix: lead the
+template with `{prompt}` (right after `claude`), mirroring the already-safe `exec` template.
+Applied to `electron/agentsConfig.cjs` DEFAULT_AGENTS, `resources/flux-context/AGENTS-CONFIG.md`
+(+ regen `fluxContextDocs.gen.cjs`), and the live `~/FluxConfig/agents.json`. New regression
+assertions in `verify-context-scheme.ts` (prompt never adjacent-after a variadic flag, both
+templates). `npm run check` 0/0; gate green (51 checks). The in-app drawer resolves the same
+template, so it was covered by one fix. Codex MCP warnings in the screenshot are a **separate**
+pre-existing issue: `~/.codex/config.toml` points `[mcp_servers.flux]` at `dist/flux-mcp.mjs`,
+which this live-source checkout never builds (`npm run build:cli` emits it) → server dies on
+launch → "connection closed: initialize response". Also found a real repo bug: the stock doc's
+codex config (`command="node"`, `args=["{{FLUX_MCP_PATH}}"]`) is broken for **source** installs
+because `resolveOwnCliCommandsSync` fills `mcpPath` with a bare `flux-mcp.ts` and `node` can't
+run `.ts` (only the dist/`.mjs` branch works with plain `node`).
+**Learnings:**
+- **CLI arg templates must respect variadic options.** Any `<x...>`-style option (commander/
+  yargs) consumes forward until the next flag — never place a positional (`{prompt}`) directly
+  after one. Put positionals first, or keep them ahead of the variadic flag. Prove arg binding
+  cheaply with the real binary in `-p`/print mode (stdin closed so it can't hang), not by
+  reasoning about the parser.
+- The flux launcher's own MCP wiring falls back tsx-source → works; **codex's global
+  `~/.codex/config.toml` is independent** and hardcodes a path — a live-source box needs it
+  pointed at a tsx invocation (`node22 node_modules/tsx/dist/cli.mjs flux-mcp.ts`, proven under
+  `env -i`), not the unbuilt dist bundle. The box's default `node` is v20; pin node22.

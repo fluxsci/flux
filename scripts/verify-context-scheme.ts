@@ -107,6 +107,25 @@ try {
   });
   ok(!noEffort.args.some((a: string) => a.includes("model_reasoning_effort")) && !noEffort.args.includes("-c") === false, "effort=default drops the effort arg + its flag");
   ok(noEffort.args.filter((a: string) => a === "-c").length === 3, "only the effort -c pair dropped (approval trio intact)");
+
+  // Claude's `--allowedTools <tools...>` is a VARIADIC option: a {prompt} placed
+  // immediately after it is swallowed as a tool value and the session launches
+  // blank. Guard every claude template (interactive + exec) against that ordering.
+  const bootPrompt = "You are the Principal for the Flux project at /x. BOOT NOW.";
+  const VARIADIC_OPTS = new Set(["--allowedTools", "--allowed-tools"]);
+  for (const kind of ["interactive", "exec"] as const) {
+    const cs = ac.resolveFamilyLaunch(roster, kind, { family: "claude", model: "sonnet", effort: "default" }, {
+      prompt: bootPrompt,
+      projectRoot: projectF,
+      mcpSpec: { command: "node", args: ["/x/flux-mcp.mjs", projectF] },
+      client: "principal",
+    });
+    const argv = [cs.command, ...cs.args];
+    ok(argv.includes(bootPrompt), `claude ${kind}: boot prompt survives as its own arg`);
+    const afterVariadic = argv.some((a, i) => i > 0 && VARIADIC_OPTS.has(argv[i - 1]) && a === bootPrompt);
+    ok(!afterVariadic, `claude ${kind}: {prompt} is not swallowed by a variadic option (--allowedTools)`);
+  }
+
   let famErr = "";
   try {
     ac.resolveFamilyLaunch(roster, "exec", { family: "gemini", model: "x", effort: "y" }, { prompt: "x", projectRoot: projectF, client: "worker" });
