@@ -467,7 +467,7 @@
           on:commit={(e) => updateSelected((el) => (el.y = e.detail))}
           on:scrub={(e) => scrubSelected((el) => (el.y = e.detail))} />
       </div>
-      {#if "width" in single && single.type !== "line"}
+      {#if "width" in single && ops.supportsBoxDim(single.type)}
         <div class="row wh">
           <NumberField label="W" value={single.width} min={1}
             on:commit={(e) => updateSelected((el) => setDim(el, "w", e.detail))}

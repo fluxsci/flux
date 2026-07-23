@@ -311,7 +311,7 @@
     const strokeEl = els.find(
       (e) => e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line",
     );
-    const boxEl = els.find((e) => "width" in e && e.type !== "line");
+    const boxEl = els.find((e) => "width" in e && ops.supportsBoxDim(e.type));
 
     // Geometry (all element types; position reads the primary)
     num("x", "x position", "Geometry", () => Math.round(primary.x), (e, v) => (e.x = v));

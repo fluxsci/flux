@@ -8,7 +8,7 @@ import type { Project, Element, RectElement, TextElement, EllipseElement } from 
 import type { Deck } from "../src/lib/slide/types";
 import * as ops from "../src/lib/ops";
 import * as slideOps from "../src/lib/slide/ops";
-import { stepOf, cascadeValue, PT_TO_PX } from "../src/lib/cascade";
+import { stepOf, cascadeValue, PT_TO_PX, supportsBoxDim } from "../src/lib/cascade";
 import { shiftOklch, parseColor } from "../src/lib/color/interp";
 
 function assert(cond: unknown, msg: string) {
@@ -247,6 +247,15 @@ assert(threw, "mul with factor ≤ 0 throws");
   ops.cascadeElements(p, figId, [g1.id, g2.id, solo.id], { property: "width", delta: 50 });
   assert(el(p, g1.id).width === 100 && el(p, g2.id).width === 100, "group unit excluded from width cascade");
   assert(el(p, solo.id).width === 150, "the single-element unit is rank 0 (step 1)");
+
+  // supportsBoxDim is the ONE box-dimension gate — the cascade, the Inspector
+  // W/H fields, and the FluxFig-menu W/H keys all consume it. path/line desync
+  // their geometry from the box, so they must be excluded from every W/H surface.
+  assert(!supportsBoxDim("path") && !supportsBoxDim("line"), "path/line excluded from W/H (supportsBoxDim)");
+  assert(
+    ["rect", "ellipse", "image", "plot", "text"].every((t) => supportsBoxDim(t)),
+    "rect/ellipse/image/plot/text accept W/H (supportsBoxDim)",
+  );
 }
 
 // --- 12. fontSize is authored in pt (model px = pt·4/3) ----------------------------

@@ -72,6 +72,9 @@ import {
   PT_TO_PX,
   type CascadeSpec,
 } from "./cascade";
+// Re-export the one box-dimension predicate so the W/H-field surfaces (Inspector,
+// FluxFig menu) can gate on the same rule setBoxDim/cascade use (excludes path/line).
+export { supportsBoxDim } from "./cascade";
 import { shiftOklch } from "./color/interp";
 
 // Default frame size — a full-page journal figure, 180 × 225 mm (the Nature-family

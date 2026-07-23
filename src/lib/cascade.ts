@@ -141,10 +141,15 @@ export function orderUnits(units: CascadeUnit[], fig: Figure, order: CascadeOrde
 export const PT_TO_PX = 4 / 3;
 
 const STROKED = new Set(["line", "rect", "ellipse", "path"]);
-/** Types whose W/H edits go through ops.setBoxDim safely. Paths are EXCLUDED:
- *  setBoxDim writes the box only and nothing remaps `d` (the Inspector/f-menu
- *  offering W/H on paths is a pre-existing desync, not a contract). */
+/** Types whose W/H edits go through ops.setBoxDim safely. `path` and `line` are
+ *  EXCLUDED: setBoxDim writes the box only and nothing remaps a path's `d`/nodes
+ *  or a line's endpoints, so a W/H edit would desync the rendered geometry from
+ *  its box. This is the ONE source of truth — the cascade, the Inspector W/H
+ *  fields, and the FluxFig-menu W/H keys all gate on `supportsBoxDim`. */
 const BOX_DIM = new Set(["rect", "ellipse", "image", "plot", "text"]);
+export function supportsBoxDim(type: string): boolean {
+  return BOX_DIM.has(type);
+}
 
 export function isColorProp(prop: ElementCascadeProp): prop is "fill" | "stroke" | "color" {
   return prop === "fill" || prop === "stroke" || prop === "color";
