@@ -95,32 +95,36 @@ try {
   assert(res.warnings.some((w) => w.includes("no parts tree")), "exportDeck surfaces gather warnings");
 
   // --- 4: sidecar staleness guard — tamper the hash, expect skip + fresh compute.
-  // loadExportAssets caches per process, so drive it in a SUBPROCESS with the
-  // tampered sidecar preferred (repo dist/ candidate).
-  const sidecarPath = path.join(repoRoot, "dist", "slide-export-assets.json");
-  const sidecarRaw = await fs.readFile(sidecarPath, "utf8");
-  const sidecar = JSON.parse(sidecarRaw) as { sourcesHash?: string; sources?: string[] };
-  assert(!!sidecar.sources?.length && !!sidecar.sourcesHash, "sidecar carries sources + hash (regen via scripts/gen-export-assets.ts)");
-  try {
-    await fs.writeFile(sidecarPath, JSON.stringify({ ...sidecar, sourcesHash: "0".repeat(64) }));
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const run = promisify(execFile);
-    const probe = `
-      import { exportDeckHtml } from ${JSON.stringify(path.join(repoRoot, "src/lib/slide/export/exportDeck.ts"))};
-      import * as slides from ${JSON.stringify(path.join(repoRoot, "flux-core/slides.ts"))};
-      const { payload } = await slides.gatherDeckPayload(${JSON.stringify(root)}, "parity");
-      const r = await exportDeckHtml(payload);
-      console.log("BYTES:" + r.bytes);
-    `;
-    const probePath = path.join(root, "probe.mts");
-    await fs.writeFile(probePath, probe);
-    const { stdout, stderr } = await run("npx", ["tsx", probePath], { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 });
-    assert(/stale .*slide-export-assets\.json/.test(stderr), "tampered sidecar hash → stale warning logged");
-    assert(/BYTES:\d+/.test(stdout), "export still succeeds via fresh compute");
-  } finally {
-    await fs.writeFile(sidecarPath, sidecarRaw);
-  }
+  // Hermetic: bake a REAL sidecar in-process via computeExportAssets() (the same
+  // producer scripts/gen-export-assets.ts uses) into this test's temp dir, then
+  // drive the export in a SUBPROCESS pointed at the tampered temp sidecar through
+  // the FLUX_EXPORT_SIDECAR override — no dependency on a built dist/ artifact and
+  // no mutation of the shared repo tree. (loadExportAssets caches per process, so
+  // the tamper must be observed by a fresh process.)
+  const { computeExportAssets } = await import("../src/lib/slide/export/exportDeck");
+  const sidecar = await computeExportAssets();
+  assert(!!sidecar.sources?.length && !!sidecar.sourcesHash, "computed sidecar carries sources + hash (staleness guard inputs)");
+  const sidecarPath = path.join(root, "slide-export-assets.json");
+  await fs.writeFile(sidecarPath, JSON.stringify({ ...sidecar, sourcesHash: "0".repeat(64) }));
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+  const probe = `
+    import { exportDeckHtml } from ${JSON.stringify(path.join(repoRoot, "src/lib/slide/export/exportDeck.ts"))};
+    import * as slides from ${JSON.stringify(path.join(repoRoot, "flux-core/slides.ts"))};
+    const { payload } = await slides.gatherDeckPayload(${JSON.stringify(root)}, "parity");
+    const r = await exportDeckHtml(payload);
+    console.log("BYTES:" + r.bytes);
+  `;
+  const probePath = path.join(root, "probe.mts");
+  await fs.writeFile(probePath, probe);
+  const { stdout, stderr } = await run("npx", ["tsx", probePath], {
+    cwd: repoRoot,
+    maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, FLUX_EXPORT_SIDECAR: sidecarPath },
+  });
+  assert(/stale .*slide-export-assets\.json/.test(stderr), "tampered sidecar hash → stale warning logged");
+  assert(/BYTES:\d+/.test(stdout), "export still succeeds via fresh compute");
 
   console.log("\nSLIDE EXPORT PARITY (WS1) TESTS PASSED");
 } finally {

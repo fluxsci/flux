@@ -108,10 +108,14 @@ export async function computeExportAssets(): Promise<ExportAssets> {
 }
 
 /** Candidate locations for the prebuilt sidecar, most-specific first:
+ *  0. an explicit `FLUX_EXPORT_SIDECAR` override (test seam — lets a hermetic gate
+ *     point at its own temp sidecar instead of the shared `dist/` artifact),
  *  1. next to this module (packaged: the CLI bundle + sidecar are unpacked siblings),
  *  2. repoRoot/dist (dev, after `npm run build`). */
 function sidecarCandidates(): string[] {
+  const override = process.env.FLUX_EXPORT_SIDECAR;
   return [
+    ...(override ? [override] : []),
     path.join(here, "slide-export-assets.json"),
     path.join(repoRoot, "dist", "slide-export-assets.json"),
   ];
