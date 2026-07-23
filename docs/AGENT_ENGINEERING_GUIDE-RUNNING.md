@@ -228,8 +228,17 @@ Persistence invariants (all machine-checked — do not weaken):
   GOVERNING transform's `to.state` ("you edit what you see"; beat 0 edits
   the base). `refreshBeatDisplay()` in slide/store.ts is the one reconciler
   (beat/slide changes, every deck op, undo/redo); it skips no-op writes so
-  coalesced commit runs keep their editGen continuity. Gate:
-  `verify-beat-display-gui.mjs`.
+  coalesced commit runs keep their editGen continuity, and it writes through
+  `store.mutateDisplay` (bumps editGen for coalescing but NEVER sets `dirty`) —
+  recomposing what a beat SHOWS is not a user edit, so plain beat navigation
+  must not dirty the deck or trigger an autosave (V0.1 A2: it used to, which
+  rewrote deck.json per nav and raised a spurious external-change banner that
+  biased toward a data-losing Overwrite). `clearBeatDisplay` (slide-switch base
+  restore) uses `mutateDisplay` for the same reason. Deck saves also skip a
+  content-identical rewrite (`sameDeckContent` ignores the always-changing
+  `modified` stamp) — the §3 byte-identical invariant, extended to decks. Gate:
+  `verify-beat-display-gui.mjs` (scrubbing every beat leaves the deck clean +
+  deck.json byte-identical; a real edit still dirties + rewrites).
   When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
@@ -1377,3 +1386,41 @@ changes (library single-fire, palette in Figure, `?` on Home) with a clean conso
 - The Workspace `Mod+K` router is now the precedent for mode-claimed shell chords: the
   claiming mode keeps its own focused-scoped listener, and the shell router gets an
   explicit stand-down branch — never two competing window listeners on one chord.
+
+### 2026-07-23 — V0.1 final hardening sweep (Claude Fable 5, `v0.1-hardening`)
+**Work:** Owner's final pre-V0.1 fortification pass — three read-only audit agents (security ·
+data-integrity · complexity/release) over everything that landed after the 2026-07-11 fortify
+engagement, every significant finding re-verified at file:line, then a bounded fix set. **No
+ship-blockers found** (fortify guards intact on new code, twin-engine clean, no secrets, no
+RCE-without-user-action). Landed: **A1** made the pure tier hermetic — `verify-slide-export-parity`
+read a `dist/` build artifact, so `npm test` failed on a clean checkout AND in CI (pure runs
+BEFORE build, ci.yml:35 vs :43); fixed with a `FLUX_EXPORT_SIDECAR` test seam. **A2** (highest-value)
+stopped beat navigation from dirtying the deck — `refreshBeatDisplay`/`clearBeatDisplay` now write
+via new `store.mutateDisplay` (editGen bump, no `dirty`) and deck save skips content-identical
+rewrites; this closed a real data-loss path (nav → autosave → spurious "changed on disk" → Overwrite
+drops an agent's edit). **A3** excluded path/line from the W/H fields (Inspector + FluxFigMenu now
+gate on `cascade.supportsBoxDim`, re-exported from ops) — `setBoxDim` never remapped a path's `d`.
+**A4** made machine-global prefs/textstyles writes atomic (`atomicWriteSync` tmp+fsync+rename) +
+a corrupt-prefs backup guard — a truncated `preferences.json` had silently re-resolved FluxConfig/
+FluxLib to the fallback. **B1/B2/B3** electron security: recipe:run workspace-trust prompt (owner
+chose "trust prompt on first run"), proxy-capture window `setWindowOpenHandler` deny + scheme-limited
+nav, print window `javascript:false` + CSP. **C** release hygiene (unused `dompurify` dropped, two
+`notes/` docs untracked, personal path out of `verify-figname`, dead `build-showcase-deck.ts`
+deleted, Tauri gitignore lines, resvg comment). Deferred by owner: per-plot complexity budget.
+New gates: `verify-prefs-atomic`, `verify-electron-hardening` (both pure+presence), plus the
+`verify-beat-display-gui` nav-no-dirty extension. Pure tier **146/146 green with `dist/` absent**
+(hermetic proof); check 0/0; slide-tenancy + menu + beat-display ui gates green.
+**Learnings:**
+- A "hermetic" pure gate that reads a `dist/` build artifact isn't hermetic — it fails on a fresh
+  clone and (since CI runs `--tier pure` before `npm run build`) in CI too. Gates must generate
+  what they need in-process or move to the bundle tier. Prove it by running with `dist/` moved away.
+- Separating "display write" from "user edit" is the clean fix for any reconciler that mirrors
+  derived state into a store: bump editGen (keep coalescing/undo byte-identical) but never set
+  `dirty`. Recomputing what is SHOWN must be invisible to autosave/divergence.
+- The retirement-pin trap bites again (3rd time in this guide): a negative source pin
+  (`verify-slide-figure-separation` greps slideBridge for `executeFigSave`) and a *comment* naming
+  that token can't coexist — an A2 comment mentioning `executeFigSave` failed the gate. Reword.
+- This tree had a concurrent agent session with unrelated work in flight (references/enrich/
+  library/reader) the whole time — the explicit-paths-only rule is not optional; every commit here
+  staged named paths and was diffed to confirm zero foreign content. `README.md` was fixed by that
+  other session (my edit lost a "modified since read" race), so C3 needed no action.
