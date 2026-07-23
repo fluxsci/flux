@@ -1,8 +1,6 @@
 ---
 title: "The agent context & collaboration system"
 subtitle: "One principal per project, workers on demand, files as the memory"
-toc: true
-number-sections: true
 ---
 
 Flux treats an AI agent as a first-class user: everything the app can do, an agent can do
@@ -159,7 +157,7 @@ collaborator gets a new brain with the same memory.
 # Troubleshooting
 
 - `flux: command not found` → `~/.local/bin` missing or off PATH (the shim installs
-  there on first run); the full path always works — see `docs/installation.qmd`.
+  there on first run); the full path always works — see [Installing Flux](../installation.qmd).
 - A verb says `deferred: … is locked` → you're mid-edit in the app; the agent retries.
   That's the coexistence model working.
 - Old project without `Context/` → open it once in the app, or `flux context-init`.

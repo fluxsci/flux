@@ -1,0 +1,58 @@
+---
+title: "Flux from the command line"
+subtitle: "The headless surfaces — what exists, how to invoke it, and where the canonical reference lives"
+---
+
+Everything the app can do, a terminal (or an AI agent) can do. Flux ships three headless
+surfaces over one shared core:
+
+- **The `flux` CLI** — around a hundred typed commands ("verbs") that operate on a project's
+  files directly: compose figures, restyle plot parts, manage references, compile the
+  manuscript, build slide decks.
+- **The MCP server** — the same verbs exposed as typed tools for AI agents, plus a few
+  agent-only niceties (inline figure PNGs so an agent can *look* at its work).
+- **The live bridge** — while the app is open, commands can act on the *running* GUI: read
+  what you have selected, apply an edit as an undoable action you watch happen.
+
+You never have to use any of this — the app is complete on its own. But it's what makes the
+[agent collaboration system](../agents/collaboration.qmd) possible, and it's handy for scripting.
+
+# Invoking
+
+On first run Flux installs a `flux` shim into `~/.local/bin`, so in any terminal:
+
+```bash
+flux help                 # every verb, always current
+flux config               # this machine's resolved paths (FluxConfig, FluxLib, …)
+flux list                 # figures + references of the current project
+```
+
+Commands find their project as: an explicit `--root`, else the `FLUX_PROJECT` environment
+variable, else the current directory. `cd` into a project (or export `FLUX_PROJECT`) and go.
+
+# A taste
+
+```bash
+flux compose-figure plots/*.svg --id fig1 --rows 2   # plots → one labeled multi-panel figure
+flux render-figure fig1 --png --out /tmp/fig1.png    # render it to look at
+flux restyle fig1 control.line --stroke '#205EA6'    # restyle one series (survives regeneration)
+flux cite-doi 10.1038/nature12373                    # fetch a reference into the project
+flux compile --to pdf                                # compile the manuscript via Quarto
+```
+
+Edits made headless show up **live** in the open app, and if you're mid-edit in the app when a
+command arrives, it defers politely instead of clobbering ([how coexistence
+works](../concepts/projects-and-files.qmd)).
+
+# The canonical reference (deliberately not duplicated here)
+
+The complete, annotated verb reference is a document that ships *with Flux* and is
+**machine-checked against the code** — its verb tables are pinned by the test suite, so it
+cannot drift. That's why these docs don't restate it:
+
+- `flux help` — the always-current list, straight from the binary.
+- `~/FluxConfig/Context/FluxContext/CLI-REFERENCE.md` — the full reference, synced to your
+  machine with real paths baked in (alongside guides to the project format, plotting
+  conventions, slides, and the review loop — the `FluxContext/` folder is the same doctrine
+  your agents read).
+- In the source repo: `resources/flux-context/CLI-REFERENCE.md`.

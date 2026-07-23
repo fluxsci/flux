@@ -1,0 +1,70 @@
+---
+title: "Projects are folders, files are the truth"
+subtitle: "How Flux saves, why nothing is ever trapped, and how humans and agents share one project safely"
+---
+
+Flux's deepest design decision is that a project is **just a folder**, and everything in it is
+an ordinary, readable file. Your manuscript is a plain-text Quarto file. Your bibliography is a
+BibTeX file. Your figures and slides are JSON you can open in any editor. There is no database,
+no proprietary container, no cloud copy — which means no lock-in, easy backups, clean version
+control, and a project you can inspect, script, or hand to an AI agent with nothing more than a
+file path. ([The full folder tour](../reference/project-layout.qmd).)
+
+# Source files and derived files
+
+Every file in a project is one of three kinds:
+
+- **Yours to edit freely** — `manuscript/*.qmd` (the prose), `references/library.bib` (the
+  project's citations), and `plots/` (where your analysis code drops its output). These are the
+  source of truth; edit them in Flux, in another editor, or from a script — all equivalent.
+- **App-managed** — `fig/` (figure compositions) and `slides/` (decks). These are readable
+  JSON, but they're maintained by the app and its commands so that indexes, captions, and
+  cross-references stay coherent. Look inside whenever you like; make changes through Flux (or
+  the [`flux` command line](../reference/cli.qmd)) rather than by hand.
+- **Derived** — rendered figures (`fig/renders/`), compiled output (`exports/`), and various
+  caches. Everything derived is rebuildable: if it's stale or missing, Flux regenerates it.
+  Derived files are safe to leave out of backups and version control.
+
+# Saving: you don't
+
+There is no Save button. Flux autosaves continuously as you work, and the writes themselves are
+**crash-safe**: every file is written atomically (a torn, half-written file can't be left on
+disk, even if the machine dies mid-save), and multi-file saves happen in an order that can't be
+caught halfway — the figure index is only ever written after the files it points to exist.
+Nothing you did in the seconds before a crash is more at risk than the file system itself.
+
+What you do get is **deep undo**: **Ctrl+Z** in the editors walks back through your editing
+history, including edits an agent made live while you watched.
+
+# When someone else edits a file
+
+Because the files are ordinary, other programs will sometimes write them — your own editor, a
+script regenerating a plot, an AI agent revising the manuscript. Flux watches the project and
+handles this without drama:
+
+- If you have **no unsaved edits** in the affected file, the app quietly live-reloads it. A
+  regenerated plot hot-swaps into your figure in place, keeping the styling you did on top.
+- If you **were mid-edit**, Flux shows a banner instead: reload their version, or keep yours.
+  It never silently overwrites anyone's work — in either direction.
+
+# Sharing a project with agents
+
+The same folder is the agents' workspace, and two mechanisms keep the coexistence safe:
+
+- **Locks.** While you're actively mid-edit, the app holds an advisory lock; an agent command
+  arriving at that moment defers with a polite "locked" message and retries, instead of
+  clobbering the state under your cursor.
+- **The journal.** Every write to the project is logged in `.meta/journal.ndjson` — who (you,
+  which agent), what, and when. If something looks different than you left it, the journal says
+  exactly what happened.
+
+The rest of the agent machinery — memory, feedback, transcripts — is the
+[collaboration system](../agents/collaboration.qmd).
+
+# Version control and portability
+
+Projects are deliberately git-friendly: plain text and JSON, stable keys, small diffs. Committing
+a project works exactly as you'd expect, and the derived directories are the only things worth
+ignoring. A project is also **self-contained** — its `references/library.bib` holds real copies
+of the entries it cites (not pointers into your [machine library](library-and-fluxlib.qmd)), so
+zipping the folder, cloning it, or opening it on another machine just works.

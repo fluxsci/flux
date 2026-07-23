@@ -1,0 +1,76 @@
+---
+title: "Semantic plots"
+subtitle: "Why plots stay live inside Flux — the fluxplot contract"
+---
+
+Most tools treat a saved plot as a picture. Flux treats it as a **structure**: when a plot is
+made with [fluxplot](https://github.com/kortdriessen/fluxplot), every meaningful part of it — a
+series' line, its 4th data point, the x-axis title — carries a **stable name**. That one idea is
+what makes Flux figures feel alive:
+
+- **Click into a plot and restyle a part** — one line's color, one label's size — in
+  [Figure mode](../modes/figure.qmd), without touching your analysis code.
+- **Regenerate without losing your tuning.** Re-run the analysis script and the plot updates in
+  place; your per-part restyles survive, because they're keyed to the part *names*, not to
+  pixels.
+- **Animate at the level of parts** in [Slide mode](../modes/slide.qmd) — fade one series in,
+  draw a curve on, morph one chart into another.
+
+# What fluxplot is
+
+`fluxplot` is an ordinary Python library you use in your analysis environment — "matplotlib,
+but every meaningful thing has a name." You plot through thin helpers that take a series name,
+then save with `fp.save()`:
+
+```python
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import fluxplot as fp
+from fluxplot import style as fx
+fx.use_light()                       # the house style (Flexoki palette, clean look)
+
+fig, ax = plt.subplots(figsize=(6.4, 4.8))
+fp.line(ax, t, control,   series="control",   marker="o", label="Control")
+fp.line(ax, t, treatment, series="treatment", marker="s", label="Treatment")
+ax.set_xlabel("Time (h)"); ax.set_ylabel("OD600"); ax.legend()
+
+fp.save(fig, "plots/growth.svg",
+        recipe=dict(script=__file__, params=p, inputs=["data/growth.csv"]))
+```
+
+Saving into your project's `plots/` folder writes **three files that travel together**:
+
+```
+plots/growth.svg            ← the plot, with named, addressable parts
+plots/growth.fluxplot.json  ← the manifest: data, coordinates, parts inventory
+plots/growth.recipe.json    ← the recipe: how it was made, so it can be re-made
+```
+
+Two conventions matter more than any others: **name every series** (consistently across related
+plots — the name is the handle Flux restyles by), and **always pass the recipe** with
+`script=__file__` — a plot without a recipe can't be regenerated. The full API and style guide
+ship with fluxplot itself; setup is covered in [Installation](../installation.qmd).
+
+# True physical size
+
+Plots import at their **true printed size**: a matplotlib `figsize=(6.4, 4.8)` panel lands on
+the canvas at exactly 6.4 × 4.8 inches, and what you lay out is what prints. Flux never silently
+rescales an import to fit — if a plot is bigger than its figure frame, it overflows visibly
+(with a toast pointing at **Ctrl+Shift+I** to bring it inside). Sizing decisions belong to you
+and your plotting code, not to an importer.
+
+# Regenerate, don't re-save
+
+To change a plot, **re-run the script** rather than hand-editing the output. With the app open,
+the regenerated plot hot-swaps into your figures live, restyles intact. And because the recipe
+records the script, its parameters, and its inputs, a plot can be regenerated *with different
+parameters* — from the app or the command line — without editing code.
+
+# What about plots from anywhere else?
+
+Any SVG or PNG imports into a figure just fine — it's simply a static image: it composes,
+scales, and exports like anything else, but has no named parts to restyle or animate, and no
+recipe to regenerate from. The semantic superpowers are the fluxplot contract. (If a
+fluxplot-saved plot imports as a flat image, something's wrong — `flux validate-plot
+plots/<name>.svg` says what.)

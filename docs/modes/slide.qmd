@@ -1,0 +1,119 @@
+---
+title: "Slide"
+subtitle: "Figure-first talks: compose slides like figures, reveal them beat by beat, export one file that plays anywhere"
+---
+
+Slide turns project content into talks. A project can hold several **decks**; each deck is a
+filmstrip of slides you compose on a stage — and the stage *is* the
+[figure editor](figure.qmd): the same tools, the same Inspector, the same
+[live plots](../concepts/semantic-plots.qmd). Anything you can do to a figure, you can do to a
+slide; figures travel between the two worlds without translation.
+
+# Decks and the filmstrip
+
+The deck list sits above the filmstrip: create (**+ New deck**), duplicate, or remove decks —
+each is one readable file in the project. The filmstrip shows live thumbnails: drag to
+reorder, duplicate or delete from a thumb, **+ Add slide** for a new slide (layouts seed
+starter text — title, section, two-column, or *blank* for a clean stage), and **+ Preset**
+inserts a slide from your machine-global **slide preset library** (save any slide there from
+the Slide panel — its animation, background, and media travel with it).
+
+The right rail holds the **Slide panel** (name, per-slide **background**, transition, speaker
+notes) and the **Deck panel**: the **theme** — seven built-ins from *Flux Dark* through *Flux
+Light*, *Paper*, *Midnight*, *Slate*, *Sepia*, and *Contrast* — and the **stage size** (16:9,
+4:3, 16:10). **Ctrl+Shift+B** hides the whole rail.
+
+# Beats
+
+Animation is built around **beats**: each slide reveals or changes things step by step, the
+way you'd build an argument. Beat 0 is *Start* — the slide at rest; each further beat is one
+press of the advance key. A beat can also play **with** the previous one, or **auto** after a
+delay, so multi-part builds land as one gesture.
+
+The canvas is **beat-faithful**: it always shows the slide *as it exists at the selected
+beat*, and editing simply changes what you see — edit at beat 3 and you're shaping beat 3's
+state; edit at *Start* and you're shaping the resting slide.
+
+# The Animator
+
+**Animate ⏱** opens the animator dock. Beats appear as chips; the expanded beat shows its
+**tracks** as lanes on a millisecond ruler — drag a lane to retime it, drag its right edge for
+duration, drag it onto another beat to move it (**Alt** copies), and group related lanes into
+collapsible boxes. The **Properties** mini-pane edits the selected track: preset, start,
+duration, easing and influence, and — for staggered tracks — order and direction.
+
+To animate something: select it on the stage (**Ctrl+click** drills to a plot *part* — a
+single series can animate on its own), then
+
+- **Ctrl+Shift+A** — add an **appearance** (enter),
+- **Ctrl+Shift+D** — add a **disappearance** (exit),
+- **Ctrl+Shift+T** — add a **transform** (see below).
+
+Each element type gets a sensible default (text fades and rises, shapes pop, lines and paths
+draw on), and **✨ Auto-animate** builds a whole entrance sequence for a selected plot from its
+anatomy — series draw on, points stagger in. **▶ Preview** plays the build on the stage;
+**☆ Library** holds your saved animation presets and multi-track templates.
+
+## Appearances
+
+The preset menu covers entrances (**fade**, **fadeRise**, **popIn**, **growBaseline**,
+**drawOn**, **writeOn**), exits (**fadeOut**, **popOut**, **drawOff**, **wipeOut**), emphasis
+(**highlight**, **dim**), **stagger** — members of a group or points of a series arrive in
+sequence, ordered by position or index, from either end or the center — and **countUp**, which
+tweens a number in a text element ("n = 1,247" counts up in place). Draw-on/off expose full
+**trim path** control (direction, anchor, single/both-ends/middle-out, partial windows), and
+wipes pick their direction.
+
+## Transforms and morphs
+
+A **transform** tweens an element into a *different version of itself* between two beats. Add
+one and its **t₂** endpoint checks out onto the canvas: edit the object with every ordinary
+tool — move it, resize it, recolor it, rewrite its text, hide plot parts — then **Escape**.
+The animator records the difference and plays it as motion; the lane shows **t₁ — t₂**
+handles, and clicking either endpoint re-opens it for editing. Chained transforms across beats
+compose, colors blend perceptually, rewritten numbers digit-tween.
+
+For plots, a transform can also carry a **data morph**: pick a target plot with **⇄ Morph**
+(or the track's *data morph* dropdown) and one chart tweens into the other — axes, series and
+all. Morphs are for structurally matched pairs (same series, same axes family); incompatible
+targets are flagged rather than mangled.
+
+**🎥 Zoom** adds a camera move to the selected element (**⤢ Reset** pulls back) — build-a-tour
+zooms without leaving the beat model.
+
+## Cascading tracks
+
+Select several tracks and press **Ctrl+Shift+C**: the same [cascade](figure.qmd#cascade)
+popover, over animation — stagger **start**, **duration**, **per-item stagger**, or easing
+**influence** in even steps across the selection. Five drawOns starting 120 ms apart is one
+gesture, not arithmetic.
+
+# Presenting
+
+**F5** presents from the start (**Shift+F5** from the current slide). Arrow keys and **Space**
+advance beats (**Shift+arrows** jump whole slides), a typed **number + Enter** jumps to a
+slide, **B**/**W** blank to black/white, **S** shows presenter notes, **F** toggles
+fullscreen, **R** resets the timer, **Escape** leaves. Click zones work too: left quarter
+back, elsewhere forward.
+
+# Export
+
+**Export** writes the deck to **one self-contained `.html`** in the project's `exports/` —
+every slide, beat, animation, morph, and font, playing in any web browser with the same keys
+as Present mode. No Flux on the presenting machine, no network, nothing to install: open the
+file, give the talk.
+
+# Between figures and slides
+
+**Send to deck…** (in Figure mode's Inspector) turns a figure into a slide;
+**Send to canvas…** (in the Slide panel) turns a slide into a paper figure — it becomes
+citable as `@fig-…` like any other. Both directions keep plots live.
+
+# Troubleshooting
+
+| Symptom | Cause → fix |
+|---|---|
+| The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
+| A morph target is listed but disabled | The plots aren't structurally compatible (different series/axes) → use a crossfade (exit + enter) instead |
+| A track shows ⚠ | Its element was deleted → re-target or delete the track (it's kept so you can re-link) |
+| Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |

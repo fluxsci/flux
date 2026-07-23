@@ -1,0 +1,47 @@
+---
+title: "One library, many projects"
+subtitle: "How the machine-global FluxLib and each project's cited subset fit together"
+---
+
+Flux's reference system has two layers, and the split is what lets a permanent reading library
+coexist with fully self-contained projects:
+
+- **FluxLib** — the machine-global library. One collection of papers for *you*, shared by every
+  project on the machine. This is what [Library mode](../modes/library.qmd) manages: every paper
+  you save, its PDF, your highlights and notes, tags, collections, reading status.
+- **The project's cited subset** — each project carries its own `references/library.bib`
+  holding real copies of just the entries it cites. Citing a paper in a manuscript materializes
+  its entry from FluxLib into the project.
+
+The point of the split: your library can grow to thousands of papers without bloating any
+project, and a project still **zips, clones, and compiles standalone** — hand the folder to a
+collaborator and every citation resolves, no FluxLib required.
+
+# The citekey is the join key
+
+Every paper has one stable **citation key** (`smith2021growth`-style). That key is how you cite
+it in any manuscript (`[@smith2021growth]`), the name of its folder in the library, and the
+handle agents use to fetch, annotate, or discuss it. Keys are permanent join keys — they never
+change out from under a project.
+
+# What's inside FluxLib
+
+FluxLib lives at `<FluxConfig>/FluxLib` (by default `~/FluxConfig/FluxLib`; `flux config`
+prints this machine's paths). Like [projects](projects-and-files.qmd), it's plain files with a
+clear source-vs-derived split:
+
+- `library.bib` — the canonical BibTeX. The one honest source of truth for your references;
+  you could open it in any reference tool ever written.
+- `items/<citekey>/` — everything belonging to one paper: the PDF, a `supplements/` folder for
+  supplementary files, your annotations, and the extracted text that powers full-text search.
+- `pdfs_to_assign/` — the watched **inbox folder**: drop PDFs here and Flux identifies each one
+  from its own contents and files it under the right paper (refusing, rather than guessing, when
+  it isn't sure).
+- `.fluxlib/` — derived indexes (search, full-text, enrichment). Rebuildable caches, never the
+  truth: delete them and Flux regenerates them from the files above.
+
+# Portability
+
+Because it's all files, moving machines is copying a folder: `~/FluxConfig` carries your
+library (`FluxLib/`), your agent context (`Context/UserContext/`), and your agent roster
+(`agents.json`). Back it up like you'd back up your documents — it *is* documents.

@@ -1,0 +1,67 @@
+---
+title: "Welcome to Flux"
+subtitle: "One desktop studio for the paper, the figures, the slides, the reading, and the library"
+---
+
+Flux is a desktop studio for scientific work. Instead of juggling a word processor, a figure
+tool, a slide app, a PDF reader, and a reference manager, Flux puts all five in one place,
+working on one project. You write the paper, build the figures, keep your reading library,
+annotate PDFs, and make the talk — and everything stays connected: figures you build appear in
+your manuscript by reference, papers you save can be cited with a keystroke, and the same figure
+can drop straight into a slide.
+
+# Projects
+
+A Flux project is just a folder on your computer. Everything in it is an ordinary file — your
+manuscript is a text file, your figures and slides are readable files beside it — so nothing is
+ever trapped inside the app. From the Home screen you can create a new project, open an existing
+folder, or jump back into a recent one. ([What every file in the folder is](reference/project-layout.qmd).)
+
+# The five modes
+
+Down the side of the window is a rail with the five modes. Click one to switch. Each mode is a
+full workspace, and they all look at the same project.
+
+- **[Paper](modes/paper.qmd)** — the manuscript editor. Clean, fast writing in plain text with
+  live formatting; citations and figure references are live chips that keep themselves numbered.
+- **[Figure](modes/figure.qmd)** — a Figma-style canvas for publication figures. Imported plots
+  stay *live*: click a single line or label inside a plot and restyle it, without re-running
+  your analysis.
+- **[Slide](modes/slide.qmd)** — the deck builder. Compose slides from your figures, reveal
+  them beat by beat, animate plots at the level of their parts, and export a talk that plays in
+  any browser.
+- **[Reader](modes/reader.qmd)** — the PDF reader. Highlights and notes that anchor to the text
+  itself and survive re-downloads, plus figure pop-outs and citation peeking.
+- **[Library](modes/library.qmd)** — the reference manager. Your permanent collection of
+  papers, searchable down to the full text of every PDF, shared by all your projects.
+
+# Saving
+
+You don't save. Flux autosaves continuously, keeps write-safety guarantees behind the scenes,
+and has deep undo (**Ctrl+Z**) in the editors. If some other program (or an AI assistant)
+changes a file while you have it open, Flux notices and asks whether to reload their version or
+keep yours — it never silently overwrites anyone's work. ([How that works](concepts/projects-and-files.qmd).)
+
+# AI assistants
+
+Flux is built so an AI agent can be a real collaborator: everything you can do in the app, an
+agent can do through Flux's command-line and assistant interfaces — compose figures, edit the
+manuscript, fetch papers, restyle plots — while you watch the results appear live. You can
+ignore this entirely, or lean on it heavily; the app works the same either way. When you're
+ready, [the collaboration system](agents/collaboration.qmd) explains the whole setup.
+
+# Where to go next
+
+1. [Install Flux and its companions](installation.qmd) — the app plus the small set of external
+   tools (Quarto, Python + fluxplot, fonts) that make it fully capable.
+2. [Getting started](getting-started.qmd) — a first project, end to end: add a paper, read it,
+   make a plot, build a figure, cite it, export a PDF.
+3. Then dip into the mode guides above as you need them, with the
+   [keyboard shortcut reference](reference/shortcuts.qmd) beside you.
+
+::: {.callout-note}
+## Keyboard shortcuts in these docs
+
+Shortcuts are written Linux/Windows-style: **Ctrl+Z**, **Alt+R**. On macOS, read **Ctrl** as
+**⌘ Cmd** (and **Alt** as **⌥ Option**) throughout.
+:::

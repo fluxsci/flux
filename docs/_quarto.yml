@@ -1,0 +1,59 @@
+# Flux user documentation — Quarto website project.
+#
+# Read locally:   quarto preview docs        (from the repo root)
+# Render:         quarto render docs         → docs/_site (gitignored)
+# Publish later:  quarto publish gh-pages docs — no rewriting needed.
+#
+# Conventions (enforced by scripts/verify-docs.ts):
+#   - render lists .qmd globs ONLY — AGENT_ENGINEERING_GUIDE-RUNNING.md is
+#     contributor-facing and must never enter the site.
+#   - every .qmd appears in the sidebar below (no orphan pages).
+#   - per-page frontmatter is title + subtitle only; toc/numbering/theme are
+#     set once here so pages cannot drift.
+
+project:
+  type: website
+  render:
+    - "*.qmd"
+    - "**/*.qmd"
+
+website:
+  title: "Flux"
+  search: true
+  sidebar:
+    style: docked
+    contents:
+      - section: "Start here"
+        contents:
+          - index.qmd
+          - installation.qmd
+          - getting-started.qmd
+      - section: "The five modes"
+        contents:
+          - modes/paper.qmd
+          - modes/figure.qmd
+          - modes/slide.qmd
+          - modes/reader.qmd
+          - modes/library.qmd
+      - section: "Working with agents"
+        contents:
+          - agents/collaboration.qmd
+      - section: "Under the hood"
+        contents:
+          - concepts/projects-and-files.qmd
+          - concepts/semantic-plots.qmd
+          - concepts/library-and-fluxlib.qmd
+      - section: "Reference"
+        contents:
+          - reference/shortcuts.qmd
+          - reference/cli.qmd
+          - reference/project-layout.qmd
+
+format:
+  html:
+    toc: true
+    number-sections: true
+    theme: cosmo
+
+execute:
+  enabled: false

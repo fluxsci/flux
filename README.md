@@ -9,6 +9,13 @@ citations) — entirely offline and on your own machine.
 
 > **Status:** early (v0.1), under active development.
 
+## Documentation
+
+The user docs live in [`docs/`](docs/) — start at [`docs/index.qmd`](docs/index.qmd)
+(what Flux is, the five modes, a getting-started walkthrough, and full guides). They're
+a Quarto site: run `quarto preview docs` for the nicely rendered, searchable version
+(every full Flux setup has Quarto — see the [install guide](docs/installation.qmd)).
+
 ## Install
 
 Download the latest build from the [**Releases**](https://github.com/kortdriessen/flux/releases)

@@ -1,0 +1,89 @@
+---
+title: "Reader"
+subtitle: "Read the papers in your library, with annotations that stick"
+---
+
+Reader is where you actually read. Open a paper from the [Library](library.qmd) (the **Read**
+action on a row, or **Ctrl+Shift+click**) and you get a fast PDF view whose highlights and
+notes anchor to the *text itself* — they survive re-downloads, re-opens, and zooming, and they
+belong to the paper, not to any one project.
+
+# Getting around
+
+The toolbar carries the essentials: zoom (**+** / **−**, **0** fits the width, **⤢** fits the
+page height; **Ctrl+scroll** or a pinch zooms at the cursor), a page-layout picker (**1-up**,
+**2-up**, **Grid**, **Row**), and a page-number box to jump anywhere. **PageUp/PageDown** and
+**Home/End** work as you'd expect, and after you follow a link or outline entry, the **←**
+button in the toolbar takes you back to where you were.
+
+Two sidebars flank the page:
+
+- **References** — the paper's own reference list (once the paper is
+  [enriched](library.qmd#enrich)): each entry expands to its abstract, can be added to your
+  library with **+ FluxLib**, or opened by DOI.
+- **Outline** — the PDF's bookmarks, click to jump.
+
+Each paper remembers its own page, zoom, and layout between sessions.
+
+# Highlights and notes
+
+Select any text and a small color menu appears — five highlight colors (yellow, green, blue,
+pink, orange). Click one and the highlight is saved. Click a highlight later to open its
+popover: recolor it, attach a **comment**, copy the text, or delete it. The **Notes** sidebar
+lists every annotation with its page; click one to scroll to it, and edit or delete from there.
+
+Annotations are anchored by the quoted text (with a little context on each side), not by pixel
+positions — so they re-attach correctly even if the PDF is re-fetched. If a paper's text
+changes so much that a quote can't be found, the note is kept and marked *detached* rather
+than lost.
+
+**Export notes…** (in the Notes sidebar, and on the paper's row in the Library) writes all of a
+paper's highlights and comments to a tidy Markdown file — grouped by page, quotes with your
+notes beneath, citation and DOI in the header — ready to drop into your own notes system.
+
+# Find
+
+**Ctrl+F** opens find-in-document: matches highlight throughout, **Enter** / **Shift+Enter**
+step forward and back, **Escape** closes. (Arriving from a full-text `ft:` search in the
+Library lands you here with the search already active.)
+
+# Figures and snips
+
+- **Alt+drag** a region of the page to **pop out a figure**: the region floats in its own
+  panel beside the text — study a figure and the paragraph discussing it side by side, drag it
+  around, resize it, jump back to its page.
+- **Ctrl+Alt+drag** a region to capture a **paper snip**: a high-resolution PNG saved into
+  your current project's `plots/paper_snips/`, after a quick naming popover. The snip carries
+  its provenance — paper, page, and formatted citation — *inside the file*, so when you later
+  place it in a [figure](figure.qmd) or slide, "copy citation" still knows where it came from.
+  (Snips need a project open, since they save into it.)
+
+# Citation peek
+
+Hover any citation link in the PDF and a card shows what it cites — authors, year, title, and
+how often it's been cited — with one-click **+ FluxLib** to grab it, or a jump to the
+bibliography entry. Follow it, and **←** brings you back.
+
+# Supplements
+
+The **⧉ PDF** switcher in the toolbar flips between the main paper and its supplementary
+files, and **Add supplement…** attaches new ones. Supplements live beside the paper in your
+library; highlights always anchor to the main text.
+
+# Ask AI
+
+**✦ Ask AI** (**Ctrl+J**) opens the shared terminal pane — run `flux principal` there and
+you have [your standing collaborator](../agents/collaboration.qmd) beside the paper. The **✦**
+button on a text selection or a highlight *prefills* a grounded question about that exact
+passage (it never sends on its own — you press Enter). Agents can also read your live reading
+context — which paper, which page, your highlights — so "what does this figure mean?" needs no
+copy-pasting.
+
+# Troubleshooting
+
+| Symptom | Cause → fix |
+|---|---|
+| "No PDF on disk" when opening | The paper's PDF isn't fetched yet → **Get PDF** in the Library |
+| Reference list is empty | The paper isn't enriched → **Enrich** in the Library |
+| A highlight shows as *detached* | The stored quote no longer matches this PDF's text — the note is preserved; re-highlight to re-anchor it |
+| Snip capture says "Open a project" | Snips save into the current project's `plots/` — open one first |

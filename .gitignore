@@ -28,6 +28,10 @@ fluxplot/
 # Screenshot artifacts from scripts/verify-*.mjs runs
 test-results/
 
+# Quarto render output for the user docs (docs/ is a Quarto website project)
+docs/_site/
+docs/.quarto/
+
 flux_figure_upgrades_fixes/
 
 default_conventions/

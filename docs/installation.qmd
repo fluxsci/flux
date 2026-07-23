@@ -1,8 +1,6 @@
 ---
 title: "Installing Flux"
 subtitle: "The app, and the small set of external tools that make it fully capable"
-toc: true
-number-sections: true
 ---
 
 Flux itself is one app, but its full capability rests on a small set of external tools:
@@ -106,7 +104,8 @@ installed on the machine. The house style's stacks lead with **Arial / Helvetica
 The principal-agent workflow launches whatever CLIs your roster
 (`~/FluxConfig/agents.json`) names — typically [Codex](https://github.com/openai/codex)
 and/or [Claude Code](https://claude.com/claude-code). Install and authenticate at least
-one. See `docs/agent_context_and_collaboration_system.qmd` for the full system.
+one. See [the agent context & collaboration system](agents/collaboration.qmd) for the
+full system.
 
 # First run
 

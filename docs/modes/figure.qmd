@@ -1,0 +1,130 @@
+---
+title: "Figure"
+subtitle: "A Figma-style canvas for publication figures, where imported plots stay live"
+---
+
+Figure is where figures get built. A project has one or more **canvases** (pages); each canvas
+holds **figures** (the framed panels that will appear in your paper); each figure holds
+**elements** — imported plots, text, shapes, arrows, images. The key idea:
+[plots made with fluxplot stay *live* after import](../concepts/semantic-plots.qmd). Flux
+understands their parts, so you can click a single line, axis, or label inside a plot and
+restyle it without re-running your analysis — and if you do regenerate the plot, your styling
+survives.
+
+# The workspace
+
+- **Tools** are single keys — **V** select, **K** scale, **H** hand (pan), **T** text,
+  **R** rectangle, **O** ellipse, **L** line, **A** arrow, **P** pen.
+- The **sidebar** lists Canvases (pages — add, rename, delete), Figures on the active canvas
+  (numbered by order; double-click renames), and **Layers** — the z-ordered element tree, with
+  per-row show/hide, lock, drag-to-reorder, and collapsible groups.
+- The **Inspector** on the right carries alignment, position/size, text, stroke/fill, colors,
+  and per-figure settings; **Ctrl+Shift+B** hides it for a clean canvas.
+- **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, zoom controls in the toolbar (5%–1600%).
+
+# Getting plots in
+
+- **Alt+I** opens the plot importer: it searches everything under the project's `plots/`
+  folder, marking **◆ semantic** plots (fluxplot-saved, with addressable parts) apart from
+  **◇ plain** images. **Space** picks several; **Ctrl+Enter** inserts them all.
+- **Drag files in** from your file manager (an SVG with its `.fluxplot.json` sibling imports
+  as a semantic plot), or **paste an image** straight from the clipboard.
+- Everything imports at **true physical size** — a 6.4 × 4.8 inch plot lands exactly that
+  big, never silently rescaled. If an import is larger than its figure frame, a toast says so:
+  **Ctrl+Shift+I** brings the selection inside the frame (moving it, never resizing it).
+
+# Selecting inside plots
+
+Selection follows Figma's logic, tuned for plots:
+
+- A **plain click** (or drag) anywhere on a plot always takes the **whole plot** — you can
+  never accidentally drag one bar out of a chart.
+- **Ctrl+click** pierces to the exact **part** under the cursor — a series' line, one point, an
+  axis label — even on an unselected plot. Hold **Ctrl** and hover to preview what you'd get.
+- **Double-click** descends a level: into a group, into a plot's parts, into text editing,
+  into a path's nodes.
+- Whatever part you've drilled stays plain-draggable, and **Escape** steps back out one level
+  at a time.
+
+With a part selected, press **F** to restyle it — color, width, size, font, opacity, visibility,
+even a positional nudge in the plot's own units. Part edits are stored as overrides keyed to
+the part's stable name, so **they survive regeneration** of the plot.
+
+**Alt+P** opens the **X-ray**: the anatomy of the selected plot (or group) as a tree. Walk it
+with the arrow keys, hide/show any part with **x**, press **Enter** to select a part and open
+its properties, and — for recipe-backed plots — hit **Regenerate** to re-run the script that
+made it, right from the panel.
+
+# Everyday editing
+
+Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to
+duplicate, **Shift+drag** to constrain to an axis. **Ctrl+G** groups (**Ctrl+Shift+G**
+ungroups), **]** brings to front and **[** sends to back (with **Ctrl** they move one step),
+**Shift+H** / **Shift+V** flip, **Delete** removes, **Escape** cancels whatever you're midway
+through. The Inspector's Align row lines selections up, distributes them, and sets exact gaps.
+
+Press **F** with anything selected for the **property menu** — the fastest way to edit. Every
+field has a hotkey letter, numbers scrub like Figma's, and **s** searches the properties. It
+carries the essentials (position, size with **aspect lock**, rotation, opacity) plus the deep
+cuts: dashed strokes with dash/gap control, **arrowheads** on lines *and* open paths (filled or
+V-line, sized, with round/flat/square caps), **corner radius** on rectangles *and* paths,
+no-fill/no-stroke, text styling — and **save as preset** for anything you want to reuse.
+
+# Drawing
+
+The shape tools do what you expect; the **pen** (P) is placement-assisted: click to place
+points; a ring appears when you're close enough to your first point to **close** the shape;
+**Shift** constrains segments to 0/45/90°; dashed guides snap to alignments with earlier
+nodes, and tick marks snap **equal edge lengths** — perfect squares and 45-45-90 triangles
+from sloppy clicks. **Enter** finishes an open curve; while the background grid is showing,
+the pen snaps to its vertices.
+
+**Double-click a path** (or press **Enter** on it) to edit its nodes. Inside node-edit:
+**v** moves nodes (**Shift+drag** constrains along the axes or the flanking tangents),
+**p** continues drawing — connect to an endpoint to extend or merge the path — **d** deletes
+nodes, and **Ctrl+drag** on a segment **bends** it. The Inspector's *Closed path* checkbox
+opens or closes any path.
+
+# Cascade
+
+Select several things and press **Ctrl+Shift+C**: the **cascade** popover applies a *stepped
+delta* across the selection — each object offset a bit more than the last. Pick the property
+(position, rotation, opacity, size, stroke width, font size, or a color), the step (add or
+multiply), and the ordering (selection, layers, left→right, top→bottom); colors ramp
+perceptually in OKLCh (ΔL/ΔC/ΔH per step). The preview is live; **Enter** applies as one undo
+step, **Escape** puts everything back. Fanned annotations, graded palettes, staircase layouts —
+one gesture.
+
+# Panels and captions
+
+- Mark a text element as a **panel label** with **Alt+L**; **Auto-letter panels** (in the
+  Inspector's Figure section) letters them a, b, c… in reading order.
+- **Alt+C** opens the **caption editor** — a manuscript-style caption page beside the figure,
+  one block per panel. Captions live with the figure and flow into your
+  [manuscript](paper.qmd) and exports automatically.
+- **Alt+G** enters **arrange**: reflow a messy selection into a tidy row, column, or grid from
+  the keyboard, live, as one undo step.
+- **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.
+
+# Reusable designs
+
+**Ctrl+P** opens your **preset library** — a personal, machine-global collection of styled
+shapes, arrows, callouts, and whole groups (a badge, a labelled bracket), organized in folders,
+inserted with a click. Save anything from the **F** menu's *save as preset*; a group preset
+arrives as one unit you can move as one or ungroup.
+
+# Exporting figures
+
+The Inspector's Export section renders the selected figure to **PNG**, **SVG**, or **PDF** —
+or, for submissions, a **journal-spec raster**: pick a target width (single/double column
+presets or custom mm), a DPI, transparency, and export TIFF or PNG at exact print size.
+**Send to deck…** turns the figure into a [slide](slide.qmd), still linked to the same plots.
+
+# Troubleshooting
+
+| Symptom | Cause → fix |
+|---|---|
+| Ctrl+click won't select a part | The plot isn't semantic (imported without its manifest) → re-save via `fp.save` and re-import, or check `flux validate-plot` |
+| An import landed huge / outside the frame | True-size import of a large plot → **Ctrl+Shift+I** to bring it inside, then resize deliberately |
+| Restyles vanished after regenerating | The plot's series names changed in the script → keep `series=` names stable ([why](../concepts/semantic-plots.qmd)) |
+| "These figures changed on disk" banner | Another tool or agent edited them → **Reload theirs** or **Overwrite with mine** — nothing is lost silently |

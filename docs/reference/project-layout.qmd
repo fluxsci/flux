@@ -1,0 +1,59 @@
+---
+title: "Inside a project folder"
+subtitle: "What every file and directory in a Flux project is, and which ones are yours"
+---
+
+A Flux project is a plain folder whose marker is `project.json`. Here is the canonical tree:
+
+```
+<project>/
+├── project.json                 # the map: title, authors, documents, figures, references
+├── manuscript/                  # YOURS — the prose (source of truth)
+│   ├── main.qmd                 #   the main manuscript (Quarto markdown)
+│   └── comments.json            #   margin-comment threads (a sidecar — never inside the .qmd)
+├── plots/                       # YOURS — analysis output lands here, any structure you like
+│   └── growth.{svg,fluxplot.json,recipe.json}   # a semantic plot + manifest + recipe
+├── fig/                         # APP-MANAGED — the figure subsystem
+│   ├── index.json               #   canvases + figures rollup
+│   ├── canvases/<id>.json       #   the real compositions (figures → elements)
+│   ├── captions/<id>.md         #   each figure's composed caption
+│   ├── assets/                  #   Flux's imported copies of your plots
+│   └── renders/                 #   derived static renders
+├── slides/<deckId>/deck.json    # APP-MANAGED — one deck per folder (+ its assets/)
+├── references/library.bib       # YOURS — the project's cited subset (BibTeX)
+├── Context/                     # the agent layer
+│   ├── Project/MISSION.qmd      #   the charter (co-owned: you have final say)
+│   ├── NOTEBOOK.md              #   the principal agent's running memory
+│   ├── RULES.md                 #   project rules (recurring feedback lands here)
+│   ├── Transcripts/             #   captured agent-session transcripts
+│   └── Dispatches/              #   worker briefs, logs, and results
+├── styles/  assets/  exports/   # figure styles · media · compiled output (derived)
+└── .meta/                       # tool state: journal, feedback ledger, locks, schemas
+```
+
+# Ownership at a glance
+
+| Kind | Paths | Rule |
+|---|---|---|
+| **Yours — edit freely** | `manuscript/**.qmd`, `plots/`, `references/library.bib` | Source of truth. Edit in Flux, another editor, or a script — all equivalent. |
+| **Co-owned with agents** | `Context/` | Mission and rules are shared; `NOTEBOOK.md` is the agent's memory — read and comment rather than rewrite. |
+| **App-managed** | `fig/`, `slides/` | Readable JSON, but change it through the app or [`flux` commands](cli.qmd) so indexes and captions stay coherent. |
+| **Derived** | `fig/renders/`, `exports/`, caches | Rebuildable output. Safe to ignore in backups and version control. |
+
+# Notes on specific pieces
+
+- **`project.json`** is a derived rollup — a fast map of the project, rebuilt from the real
+  files (`flux reindex` refreshes it if a script edited things directly).
+- **Comments live beside documents, never in them.** The main manuscript's threads are
+  `manuscript/comments.json`; any other document's are `<name>.comments.json` next to it. Your
+  `.qmd` prose stays clean.
+- **`plots/` is a drop-zone with no imposed structure** — organize it however your analysis
+  does. Flux only reads it, copying what you compose into `fig/assets/`. See
+  [semantic plots](../concepts/semantic-plots.qmd) for the three-file contract.
+- **`.meta/`** holds the operational machinery: `journal.ndjson` (every write: who/what/when),
+  `feedback.ndjson` (your context-stamped notes to agents), advisory `locks/`, JSON `schema/`
+  for every file type, and the live-bridge descriptor while the app is open.
+- **`Context/`** is explained in full in [the collaboration system](../agents/collaboration.qmd).
+
+For the philosophy behind the layout — source vs. derived, crash safety, live reload —
+see [Projects are folders, files are the truth](../concepts/projects-and-files.qmd).

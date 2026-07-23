@@ -46,6 +46,7 @@
       "verify-fluxconfig.ts",
       "verify-feedback.ts",
       "verify-context-scheme.ts",
+      "verify-docs.ts",
       "verify-dispatch.ts",
       "verify-principal-pty.ts",
       "verify-line-arrow.ts",
@@ -345,6 +346,12 @@
       "glob": "resources/flux-context/**",
       "run": [
         "verify-context-scheme.ts"
+      ]
+    },
+    {
+      "glob": "docs/**",
+      "run": [
+        "verify-docs.ts"
       ]
     },
     {

@@ -1,0 +1,148 @@
+---
+title: "Keyboard shortcuts"
+subtitle: "The complete chord reference, mode by mode"
+---
+
+Shortcuts are written Linux/Windows-style. **Ctrl** here means **⌘ Cmd** on macOS (macOS
+accepts either), and **Alt** means **⌥ Option**. Press **?** inside the app for the built-in
+quick reference. One rule worth knowing: whatever is mid-flight, **Escape** backs out one
+level at a time — a gesture, a sub-mode, a pane, an overlay.
+
+# Everywhere in a project
+
+| Shortcut | Action |
+|---|---|
+| **Ctrl+K** | Command palette (in Paper: the full Paper palette) |
+| **Ctrl+Shift+M** | Note to agent — a one-liner stamped with what you're looking at |
+| **?** | Keyboard shortcut overlay |
+| **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
+
+Mode switching is by the rail on the left; **Alt+click** (or **Ctrl+click**) a rail icon opens
+that mode in a split pane.
+
+# Paper
+
+| Shortcut | Action |
+|---|---|
+| **Ctrl+Shift+E** | Toggle edit ↔ full-width preview (**Escape** exits preview) |
+| **Alt+O** | Show/hide the left panel (outline & documents) |
+| **Alt+D** | Show/hide the dynamic margin |
+| **Alt+R** | Reference search pane |
+| **Alt+F** | Figures pane |
+| **Alt+A** | Comments pane |
+| **Alt+C** | Edit the citation at the cursor |
+| **Alt+T** or **Ctrl+`** | Terminal pane |
+| **Alt+P** / **Ctrl+Alt+P** | Close the active margin pane / close all panes |
+| **Ctrl+Alt+M** | Comment on the current selection |
+| **Ctrl+Enter** | Follow the item under the caret (figure ref → figure; citation → group editor) |
+| **Ctrl+F** / **Ctrl+Alt+F** | Find / find & replace |
+| **Ctrl+B** / **Ctrl+I** / **Ctrl+E** | Bold / italic / inline code |
+| **Ctrl+Shift+1…4** / **Ctrl+Shift+0** | Heading level / back to paragraph |
+| **Ctrl+Shift+8** / **Ctrl+Shift+7** / **Ctrl+Shift+.** | Bullet list / numbered list / blockquote |
+| **Ctrl+Shift+K** | Insert link |
+| **Ctrl+Alt+−** / **Ctrl+Alt+=** | Figure embed width down / up (caret on the embed line) |
+| **Ctrl+Shift+[** / **Ctrl+Shift+]** | Fold / unfold the current section (macOS: **⌘⌥[** / **⌘⌥]**) |
+
+Typing triggers: **@** cite · **@@** figure-reference picker · **/** block palette at the
+start of a line. Vim mode (plain or flux-ViM) is enabled from the palette —
+see the [Paper guide](../modes/paper.qmd#vim-and-how-the-caret-feels).
+
+# Figure
+
+Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · **R** rectangle ·
+**O** ellipse · **L** line · **A** arrow · **P** pen.
+
+| Shortcut | Action |
+|---|---|
+| **F** | Property menu for the selection (each row shows its own key; **s** searches) |
+| **X** | Hide/show the selection (or drilled plot part) |
+| **Alt+I** | Import a plot from `plots/` |
+| **Ctrl+Shift+K** | Import image files |
+| **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
+| **Alt+P** | X-ray the selected plot or group |
+| **Alt+C** | Caption editor |
+| **Alt+L** | Mark selected text as a panel label |
+| **Alt+G** | Arrange mode — then **A** row/column, **G** grid, **D**/**F** rows, **Enter** apply |
+| **Ctrl+Shift+C** | Cascade a stepped delta across the selection |
+| **Ctrl+P** | Insert a design preset |
+| **Ctrl+G** / **Ctrl+Shift+G** | Group / ungroup |
+| **Ctrl+D** | Duplicate (repeats continue the offset) |
+| **Ctrl+A** / **Ctrl+C** / **Ctrl+V** | Select all / copy / paste |
+| **Ctrl+Alt+C** / **Ctrl+Alt+V** | Copy style / paste style |
+| **Ctrl+Alt+A** | Select all elements with the same fill (**+Shift**: whole project) |
+| **Alt+A** / **Alt+W** / **Alt+S** / **Alt+D** | Align left / top / bottom / right |
+| **Alt+H** / **Alt+V** | Center horizontally / vertically |
+| **Shift+H** / **Shift+V** | Flip horizontal / vertical |
+| **[** / **]** | Send to back / bring to front (**+Ctrl**: one step; **+Ctrl+Shift**: all the way) |
+| **Arrows** | Nudge 1 px (**Shift**: 10 px) — also nudges a drilled plot part |
+| **Ctrl+B** / **I** / **U** | Bold / italic / underline on text (and text-like plot parts) |
+| **Ctrl+Shift+L** | Lock / unlock |
+| **Shift+R** / **Shift+G** | Rulers / background grid |
+| **Ctrl+Shift+B** | Hide/show the right rail |
+| **Delete** | Delete selection |
+
+Mouse: plain click = whole plot/group · **Ctrl+click** = pierce to the part under the cursor
+(hold Ctrl to preview) · **double-click** = descend (group → inside; text → edit; plot → part;
+path → node edit) · **Shift+click** = add to selection · **Alt+drag** = duplicate ·
+**Shift+drag** = axis-constrain · **Ctrl+drag a resize handle** = crop · **Alt while
+dragging** = disable snapping · **Shift while resizing** = keep aspect · **Space+drag** /
+middle button = pan · **Ctrl+wheel** = zoom · **Shift+wheel** = horizontal pan.
+
+In path node-edit (Enter or double-click a path): **v** edit · **p** pen (extend/merge at
+endpoints) · **d** delete nodes · **Ctrl+drag a segment** bends it · **Enter** finishes ·
+**Escape** ladders out.
+
+# Slide
+
+Everything in the Figure table works on the stage. Additionally:
+
+| Shortcut | Action |
+|---|---|
+| **F5** / **Shift+F5** | Present from the start / from the current slide |
+| **↓** / **↑** (nothing selected) | Next / previous slide |
+| **Ctrl+Shift+A** | Add appearance for the selection *(animator open)* |
+| **Ctrl+Shift+D** | Add disappearance *(animator open)* |
+| **Ctrl+Shift+T** | Add transform, or toggle t₁ ↔ t₂ *(animator open)* |
+| **Ctrl+Shift+C** | Cascade across selected tracks (falls back to element cascade) |
+| **Escape** | Leave a t₁/t₂ endpoint checkout, then the usual ladder |
+
+In the animator dock: **←/→** beats · **↑/↓** tracks · **Ctrl+D** duplicate tracks ·
+**Ctrl+G**/**Ctrl+Shift+G** group/ungroup tracks · **Alt+←/→** nudge start ·
+**Alt+Shift+←/→** trim duration · **[** / **]** move track to previous/next beat ·
+**x** disable · **Delete** remove · **Enter** jump to the properties fields.
+
+While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) ·
+**← / Backspace / PageUp** previous (**+Shift**: previous slide) · **↑/↓** whole slides ·
+**Home/End** first/last · type a **number + Enter** to jump · **B**/**W** blank black/white ·
+**S** presenter notes · **F** fullscreen · **R** reset timer · **M** reduce motion ·
+**Escape** exit. Click left quarter = back, elsewhere = forward.
+
+# Reader
+
+| Shortcut | Action |
+|---|---|
+| **Ctrl+F** | Find in document (**Enter** / **Shift+Enter** step matches) |
+| **+** / **−** / **0** | Zoom in / out / fit width |
+| **PageUp** / **PageDown** | Previous / next page |
+| **Home** / **End** | First / last page |
+| **Ctrl+J** | Toggle the Ask-AI terminal pane |
+| **Escape** | Close the topmost thing (menu → popover → find → terminal) |
+
+Mouse: select text → highlight colors appear · **Alt+drag** = pop out a figure region ·
+**Ctrl+Alt+drag** = save a [paper snip](../modes/reader.qmd#figures-and-snips) ·
+**Ctrl+wheel** / pinch = zoom at the cursor.
+
+# Library
+
+| Shortcut | Action |
+|---|---|
+| **↑** / **↓** | Move the row highlight (↑ from the top returns to search) |
+| **Enter** | Copy the highlighted row's citation key |
+| **Space** | Tick the row's checkbox |
+| **Escape** (or just typing) | Back to the search box |
+| **Alt+F** | Fetch PDFs for the checked rows |
+| **Alt+Delete** | Delete the checked (or highlighted) rows — with Undo |
+| **Ctrl+K** | Jump to the add-by-DOI box |
+
+Mouse on a row: click = copy citekey · **Ctrl+click** = details · **Ctrl+Shift+click** = open
+the PDF (fetching it if needed) · **Alt+click** = open the DOI.

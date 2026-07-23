@@ -1,0 +1,119 @@
+---
+title: "Paper"
+subtitle: "The manuscript editor — clean, fast writing where citations and figures take care of themselves"
+---
+
+Paper is where you write. Your document is plain text with light formatting — headings,
+**bold**, math like `$E = mc^2$`, tables — and Flux renders the pretty version live, in place.
+The file on disk stays an ordinary Quarto `.qmd` the whole time: formatting marks hide
+themselves except on the line you're editing, so the screen reads like a manuscript while the
+text stays honest.
+
+# The writing surface
+
+- **The title pill** above the text shows the title and authors; click it to edit them (they're
+  stored as the document's front matter). The small dot on the pill is the autosave
+  indicator — you never save by hand.
+- **Alt+O** toggles the left rail: the **Outline** (click a heading to jump) and the
+  **Documents** picker — a project can hold several manuscripts (the main one wears a *main*
+  badge, **+ New document** adds more), plus the *Context* group where your
+  [agent's mission, notebook, and rules](../agents/collaboration.qmd) open as ordinary
+  documents.
+- Type **/** at the start of a line for the block palette: `/figure`, `/table`, `/equation`,
+  `/citation`, `/heading`, `/callout`, and friends.
+- **Ctrl+K** opens the command palette — everything in this guide is also in there by name.
+- **Ctrl+Shift+E** shows the full-width reading preview (**Escape** returns); the ⌘K palette
+  also switches between continuous and paginated views. Fold a section with **Ctrl+Shift+[**
+  (unfold: **Ctrl+Shift+]**). Spellcheck is on by default, and the word count in the status
+  bar opens a full statistics pane.
+
+# Citations
+
+Type **@** and start a name — the autocomplete searches your whole
+[library](library.qmd) plus the project's own bibliography. Picking one inserts a **citation
+chip**: rendered as *(Author, Year)* or as collapsed numerals like *[3,5,9–14]*, your choice —
+toggle **Au–Yr** / **[1]** in the References pane (it's stored per document). Numbers assign
+themselves in order of appearance and stay correct as you edit.
+
+The bibliography maintains itself. Citing a paper from your library copies its entry into the
+project's `references/library.bib` automatically, so the project stays
+[self-contained](../concepts/projects-and-files.qmd). Even quicker: **paste a DOI** (or a
+doi.org link) straight into the text — Flux fetches the metadata, adds the reference, and
+leaves a citation chip where you pasted.
+
+**Double-click a citation chip** to edit its group — add, remove, and reorder the references
+cited at that spot as one unit. **Alt+R** opens Reference Search in the margin (mark rows with
+**Space**, insert them as one citation with **Enter**); **Alt+C** edits the citation under the
+caret.
+
+# Figures
+
+Insert a figure with `/figure` (or **Ctrl+K → Insert figure…**). In the text, the embed is a
+compact **⌗ name chip** with the live figure rendered beneath it — the real thing from
+[Figure mode](figure.qmd), with its caption. Captions live on the figure itself (edited in
+Figure mode's caption editor), so figure and caption can never drift apart; exports carry them
+automatically. Hover the figure for width controls (50% · 75% · 100% · Auto — or drag the
+grip), and **Open in Figure** jumps to editing it.
+
+Reference a figure with `@fig-...` — it becomes a live **"Fig 3"** chip whose number stays
+correct as figures are added, removed, or reordered (`@tbl-`, `@sec-`, and `@eq-` work the same
+way for tables, sections, and equations). Type **@@** for the figure picker, which can also
+select specific panels (*Fig 3a,c*). **Double-click** any reference chip to jump to the thing
+it points to; **Ctrl+Enter** follows the reference under the caret.
+
+Tables and display math follow the same pattern as embeds: the source stays as a compact
+editable line, the rendered table or equation appears below it, numbered when labeled.
+
+# The margin
+
+Helper panes summon beside your text and stack in one column:
+
+| Shortcut | Pane |
+|---|---|
+| **Alt+R** | Reference search — the whole library, filterable (`author:smith year:2020`) |
+| **Alt+F** | Figures — zoom/pan any figure, insert it, or open it in Figure mode |
+| **Alt+A** | Comments — the review threads on this document |
+| **Alt+C** | Citation group — edit the citation at the caret |
+| **Alt+T** | Terminal — a real shell (this is where `flux principal` runs nicely) |
+
+**Alt+P** closes the active pane, and **Escape** always returns focus to your writing.
+**Alt+D** hides the margin column entirely. (When idle, the margin shows an ambient
+background — pick your scene in Settings › Paper.)
+
+# Comments and review
+
+Select text and click the comment button in the floating toolbar (or press **Ctrl+Alt+M**) to
+start a thread anchored to that exact passage. Threads live in the Comments pane: reply,
+**Resolve**, reopen, delete. They're stored beside the document — never inside your prose —
+and they're the shared review channel with [agents](../agents/collaboration.qmd): an agent
+addressing your comments resolves them with a note, and you watch threads close live in your
+margin. If the underlying text is edited away, a comment is kept as *Detached* rather than
+lost.
+
+**Ctrl+F** is find; **Ctrl+Alt+F** adds replace.
+
+# Export
+
+The **Export** button in the status bar produces **PDF**, **HTML**, or **Word**. PDF and HTML
+render in-app and save where you choose (defaulting to the project's `exports/`); Word runs
+through Quarto (the button says so if Quarto isn't installed — see
+[Installation](../installation.qmd)). Figure renders, captions, and panel references are all
+resolved during export, and failures surface as a toast with the log's tail.
+
+# Vim, and how the caret feels
+
+For keyboard fans, **Ctrl+K → Enable Vim mode** turns on modal editing, with two flavors:
+plain **Vim**, or **flux-ViM** — Vim plus Flux's opt-in refinements (the first: `jj` in insert
+mode is Escape). If none of this means anything to you, ignore it happily.
+
+Separately, Settings › Paper offers **Caret motion**: *chase* (the default — the caret
+pursues your typing with a lively, immediate feel) or *smooth* (a fixed soft glide).
+
+# Troubleshooting
+
+| Symptom | Cause → fix |
+|---|---|
+| A citation chip shows your typed text, dimmed | The key isn't in the project bib or library → check the spelling, or add the paper to the [Library](library.qmd) first |
+| Word export is disabled | Quarto isn't installed → [install it](../installation.qmd), restart Flux |
+| A figure embed shows no caption | The figure has no caption yet → write it in Figure mode (**Alt+C** there) |
+| A comment shows as *Detached* | Its anchored text was edited away — the thread is preserved; re-select and start a fresh one if needed |

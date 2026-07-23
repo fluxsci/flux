@@ -1,0 +1,142 @@
+---
+title: "Getting started"
+subtitle: "A first project, end to end: add a paper, read it, make a plot, build the figure, cite both, export a PDF"
+---
+
+This walkthrough touches all five modes once, in the order a real project uses them. Twenty
+minutes, one running example — a little growth-curve study. You'll need the app installed;
+step 3 also uses the Python toolchain ([Installation](installation.qmd) covers both — and if
+you don't have Python set up yet, you can skip step 3 and import any SVG or PNG you have lying
+around instead).
+
+# Create a project
+
+Make a working folder for the study, then launch Flux and create a new project from the Home
+screen — put it *inside* that folder and call it `paper`:
+
+```
+growth-study/          ← your working folder (analysis code will live here)
+└── paper/             ← the Flux project you just created
+```
+
+A Flux project is [just a folder](concepts/projects-and-files.qmd) — everything you do from
+here lands in readable files inside it. And notice what you won't do for the rest of this
+tutorial: save. Flux [autosaves continuously](concepts/projects-and-files.qmd#saving-you-dont).
+
+# Add a paper to your library
+
+Open **Library** in the mode rail. Paste a DOI into the add box at the top — any paper you
+like, e.g. `10.1126/science.1070919` — and press Enter. The paper lands in
+[your machine-global library](concepts/library-and-fluxlib.qmd), shared by every project.
+
+Two buttons worth pressing now: **Enrich** (fills in the abstract, topics, and citation
+counts) and the row's **⬇** (fetches an open-access PDF). Then click the row once — that
+copies its citation key, which you'll paste into the manuscript in step 5.
+
+# Read and mark it up
+
+**Ctrl+Shift+click** the paper's row to open it in the **Reader**. Select an interesting
+sentence — a color menu pops up; pick one and you've made a highlight. Click the highlight to
+attach a note. Annotations anchor to the text itself and stay with the paper forever; the
+Notes sidebar can export them all as Markdown whenever you want.
+([More on the Reader.](modes/reader.qmd))
+
+# Make a plot
+
+Back in a terminal, set up the analysis environment in `growth-study/` and generate a plot
+with [fluxplot](concepts/semantic-plots.qmd) — the library that makes plots *live* inside
+Flux:
+
+```bash
+cd growth-study
+uv init
+uv add --editable ~/fluxplot
+uv add cmasher numpy matplotlib
+```
+
+Save this as `make_growth.py`:
+
+```python
+import matplotlib
+matplotlib.use("Agg")
+import numpy as np
+import matplotlib.pyplot as plt
+import fluxplot as fp
+from fluxplot import style as fx
+fx.use_light()
+
+rng = np.random.default_rng(7)
+t = np.linspace(0, 24, 9)
+control   = 0.05 * np.exp(0.28 * t) * rng.normal(1, 0.04, t.size)
+treatment = 0.05 * np.exp(0.22 * t) * rng.normal(1, 0.04, t.size)
+
+fig, ax = plt.subplots(figsize=(6.4, 4.8))
+fp.line(ax, t, control,   series="control",   marker="o", label="Control")
+fp.line(ax, t, treatment, series="treatment", marker="s", label="Treatment")
+ax.set_xlabel("Time (h)"); ax.set_ylabel("OD600")
+ax.set_yscale("log"); ax.legend()
+fx.despine(ax)
+fx.title(ax, "Growth under nutrient stress", "control vs treatment")
+
+fp.save(fig, "paper/plots/growth.svg",
+        recipe=dict(script=__file__, params={}, inputs=[]))
+```
+
+```bash
+uv run python make_growth.py
+```
+
+That wrote three files into the project's `plots/` — the plot, its parts manifest, and the
+recipe to regenerate it. The two `series=` names are the handles everything downstream uses.
+
+# Build the figure
+
+Open **Figure** mode and press **Alt+I** — the importer lists `growth.svg` with a **◆
+semantic** badge. Insert it: it lands at its true printed size (6.4 × 4.8 inches, exactly).
+
+Now the trick that makes Flux Flux: **Ctrl+click** the control series' line. You've selected
+one *part* of the plot. Press **F** and change its stroke color. That restyle is keyed to the
+series name, so re-running `make_growth.py` later — different data, more points — updates the
+plot in place *and keeps your styling*. Try **Alt+P** too: the X-ray shows the plot's whole
+anatomy, and can regenerate it from its recipe.
+
+Finish with a caption: **Alt+C** opens the caption editor beside the figure — write one
+sentence and click back onto the canvas. ([More on Figure mode.](modes/figure.qmd))
+
+# Write and cite
+
+Open **Paper**. Write a sentence or two, then:
+
+- Type `/figure` and pick your figure — it embeds as a chip with the live figure and your
+  caption rendered beneath.
+- Type `@@` to insert a reference to it ("Fig 1") in the prose. The number maintains itself.
+- Type `@` and the first author's name of the paper from step 2 — pick it, and it becomes a
+  citation chip; the bibliography updates itself. (Pasting a DOI straight into the text works
+  too.)
+
+([More on Paper mode.](modes/paper.qmd))
+
+# Export
+
+Click **Export** in the status bar and choose **PDF**. The manuscript renders with the figure,
+its caption, the reference list — everything resolved — into the project's `exports/`.
+
+# Encore: make it a slide
+
+In Figure mode, the Inspector's **Send to deck…** turns your figure into a slide. Open
+**Slide** mode, press **Animate ⏱**, select the plot and click **✨ Auto-animate** — then
+**F5**. Your growth curves draw themselves onto the screen, beat by beat. **Export** here
+produces a single `.html` file that plays the talk in any browser.
+([More on Slide mode.](modes/slide.qmd))
+
+# Where next
+
+You've now seen the loop: read → plot → compose → write → cite → export, all in one folder.
+From here:
+
+- The five mode guides go deep on each workspace, with the
+  [shortcut reference](reference/shortcuts.qmd) beside them.
+- When the study grows, [regenerate plots instead of re-saving them](concepts/semantic-plots.qmd#regenerate-dont-re-save).
+- And when you're ready for a collaborator who does the composing and citing *for* you, meet
+  the [agent system](agents/collaboration.qmd): the same three steps you just did by hand are
+  one instruction to `flux principal`.

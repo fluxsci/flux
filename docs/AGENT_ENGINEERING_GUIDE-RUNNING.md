@@ -350,7 +350,9 @@ required — every shell needs `export PATH="$HOME/.local/node22/bin:$PATH"` on 
 in a shared core (§2); (b) find the gates that cover the area (grep the manifest + this guide's
 table) and run them for a green baseline; (c) plan the NEW gate — features without verification
 don't land; (d) classify the feature's interactions into Nielsen bands (§6); (e) check §10 that
-you're not rebuilding something deliberately deferred or rejected.
+you're not rebuilding something deliberately deferred or rejected; (f) if it changes
+user-visible behavior, update the affected `docs/` user-docs page in the same session
+(see the user-docs recipe below).
 
 **Add a CLI/MCP verb:** one `VerbDef` in `flux-core/verbs.ts` (name, cli, one summary, one zod
 shape, `cliArgs` mapping, handler calling `flux-core/*`, per-surface renders). Both surfaces are
@@ -374,6 +376,21 @@ schema version ONLY for breaking changes (minor slot) → extend `verify-loadgat
 **Perf investigation:** reproduce via a scale gate or a throwaway probe against the dev server;
 read §9's measurement traps first; prefer structural fixes (window, gate, scope, cache-by-rev)
 and structural budgets; record before/after in the commit.
+
+**Update the user docs** (`docs/` is a Quarto website — the V0.1 user documentation, distinct
+from this guide): pages are `.qmd`, enumerated by `docs/_quarto.yml`'s sidebar; preview with
+`quarto preview docs`. Conventions (gated by `verify-docs.ts`, pure tier): user-facing register
+(the index.qmd voice — plain language, UI things called by their UI names, no internal jargon);
+per-page frontmatter is `title` + `subtitle` ONLY (toc/numbering/theme are centralized in
+`_quarto.yml`); real relative links between pages; shortcuts **bold**, written Ctrl-style with
+the one macOS ⌘ note in index.qmd; per-page Troubleshooting sections; and **never restate
+gated reference content** — the CLI verb tables live in `resources/flux-context/CLI-REFERENCE.md`
+(registry-parity-gated), so user docs link there instead of copying. A new page = the file +
+a sidebar entry in `_quarto.yml` (the gate fails on orphans, broken links, frontmatter drift,
+or a render glob that could pull this guide into the site). **A user-visible behavior change
+updates the affected docs page in the same session** — the same discipline as gates. Facts in
+the mode guides were swept from source (chords from `keyboard.ts`/`commands.ts` etc.); when a
+chord or label changes, grep `docs/` for the old one.
 
 ## 9. Known traps (each of these cost real time)
 
@@ -1319,3 +1336,24 @@ run `.ts` (only the dist/`.mjs` branch works with plain `node`).
   `~/.codex/config.toml` is independent** and hardcodes a path — a live-source box needs it
   pointed at a tsx invocation (`node22 node_modules/tsx/dist/cli.mjs flux-mcp.ts`, proven under
   `env -i`), not the unbuilt dist bundle. The box's default `node` is v20; pin node22.
+
+### 2026-07-23 — V0.1 user documentation corpus (Claude Fable 5, `main`)
+**Work:** Built the user docs as a Quarto website project in `docs/` (15 `.qmd` pages:
+index/installation/getting-started, the five mode guides, agents/collaboration, three
+concepts pages, three reference pages incl. full per-mode shortcut tables), with every
+UI label and chord swept from source by Explore agents (file:line-verified). `INTRO.md` →
+`index.qmd`; `agent_context_and_collaboration_system.qmd` → `agents/collaboration.qmd`.
+New pure gate `verify-docs.ts` (+ manifest entry + `docs/**` pathMap): sidebar completeness,
+relative-link integrity, title+subtitle-only frontmatter, `.qmd`-only render globs (this
+guide stays out of the site), machine-path hygiene. `quarto render docs` clean; README got a
+Documentation section. Authoring conventions + the docs-ride-the-commit rule promoted into §8.
+**Learnings:**
+- The docs sweep surfaced real app inconsistencies (report, don't paper over in docs):
+  Library tooltips still say `~/FluxLib/…` (real default `~/FluxConfig/FluxLib/…`); the
+  single-row Get-PDF miss toast claims "library proxy support is coming" though proxy routes
+  exist elsewhere; `Help.svelte` lists Slide-stage `+/−/0` zoom keys with no handler; Help/
+  shell chords don't work on Home (Workspace-mounted); Library's `Mod+K` (focus add box)
+  overlaps the shell palette binding — both window listeners fire; a stale `Ctrl+Shift+J`
+  drawer comment survives in `Workspace.svelte`; `src/shell/modes/slide/README.md` still
+  describes the retired S/A/M animator.
+- js-yaml in this tree exposes no ESM default export — `import * as yaml from "js-yaml"`.
