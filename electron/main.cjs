@@ -111,17 +111,53 @@ const { TMP_WRITE_RE } = require("./ipc/files.cjs");
 // the same userData dir, so both sides agree on where the library lives.
 // ---------------------------------------------------------------------------
 const prefsFile = () => path.join(app.getPath("userData"), "preferences.json");
+
+// Crash-safe SYNC write for machine-global state (prefs/textstyles). writePrefs
+// is called inline from sync path resolvers, so it can't go async — but a
+// truncated write (crash mid-write, or two Flux processes racing) would make
+// readPrefs() silently fall back to defaults and re-resolve FluxConfig/FluxLib to
+// the WRONG location. tmp + fsync + rename is atomic on POSIX (the preset writer
+// already does tmp+rename for its files; this adds the fsync for durability).
+let atomicSyncSeq = 0;
+function atomicWriteSync(p, str) {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = path.join(path.dirname(p), `.${path.basename(p)}.tmp-${process.pid}-${++atomicSyncSeq}`);
+  noteWrite(tmp);
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeSync(fd, str);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, p);
+  noteWrite(p);
+}
+
+let _prefsCorruptHandled = false;
 function readPrefs() {
   try {
     return JSON.parse(fs.readFileSync(prefsFile(), "utf8"));
-  } catch {
+  } catch (e) {
+    // A MISSING file is normal (first run) → defaults, silently. A file that
+    // EXISTS but won't parse is corruption: preserve it once (it holds the
+    // fluxConfigPath pointer) and warn, rather than silently adopting the
+    // fallback FluxConfig/FluxLib resolution as if nothing were wrong.
+    if (e && e.code !== "ENOENT" && !_prefsCorruptHandled) {
+      _prefsCorruptHandled = true;
+      try {
+        const bak = prefsFile() + `.corrupt-${Date.now()}`;
+        fs.copyFileSync(prefsFile(), bak);
+        console.error(`[flux] preferences.json is unreadable — backed up to ${bak} and continuing with defaults; re-check your FluxConfig folder in Settings.`);
+      } catch {
+        /* best-effort backup — never let a prefs read throw */
+      }
+    }
     return { schemaVersion: "0.1.0" };
   }
 }
 function writePrefs(next) {
-  fs.mkdirSync(path.dirname(prefsFile()), { recursive: true });
-  noteWrite(prefsFile());
-  fs.writeFileSync(prefsFile(), JSON.stringify(next, null, 2) + "\n");
+  atomicWriteSync(prefsFile(), JSON.stringify(next, null, 2) + "\n");
 }
 // FluxLib is DERIVED from FluxConfig (<cfg>/FluxLib, legacy fallbacks
 // pre-migration) — cached because fsGuard consults it on every guarded fs op.
@@ -647,9 +683,7 @@ ipcMain.handle("textstyles:get", () => {
   }
 });
 ipcMain.handle("textstyles:set", (_e, styles) => {
-  fs.mkdirSync(path.dirname(textStylesFile()), { recursive: true });
-  noteWrite(textStylesFile());
-  fs.writeFileSync(
+  atomicWriteSync(
     textStylesFile(),
     JSON.stringify({ schemaVersion: "0.1.0", styles: Array.isArray(styles) ? styles : [] }, null, 2) + "\n",
   );
