@@ -404,7 +404,7 @@ function sameDeckContent(aText: string, bText: string): boolean {
  *  pipeline land here, never in fig/assets/). Conflict-guarded; tenancy-
  *  asserted (a kept-alive cross-mode save is structurally impossible). A
  *  content-identical deck (a beat-nav reconcile or redundant autosave) is
- *  skipped — no rewrite, no `modified` bump — matching executeFigSave. */
+ *  skipped — no rewrite, no `modified` bump — like the fig/ save's skip. */
 export async function saveDeckFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
   assertStoreTenant("slide", "deck save");
   const fig = fileBridge();
