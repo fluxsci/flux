@@ -1,0 +1,92 @@
+---
+title: "Lighttable"
+subtitle: "A companion app for image-set triage — the digital contact sheet before the figure"
+---
+
+Lighttable is a small, fast desktop app that ships in the Flux repository as a **companion**
+— not one of Flux's modes, but the step *before* them. Analysis batches produce piles of
+images: a parameter sweep at five settings, per-cell outputs across conditions, one plot per
+model. Lighttable is the light table you spread them on: a grid of every image in one
+variant, **instant flipping between variants** (each cell swaps in place, like a flip-book),
+fullscreen inspection, and side-by-side comparison of one item across every variant.
+
+You explore the many in Lighttable; you [compose the chosen few in Flux](modes/figure.qmd).
+
+# How it thinks: collections, sets, items
+
+Lighttable opens a **collection** — a plain folder whose subfolders are **sets** (one per
+variant), each holding one image per **item**, aligned by filename:
+
+```
+sweep/                        ← the collection (the folder you open)
+├── smoothing-0.1/            ← a set: one variant of the batch
+│   ├── cell_007.png          ← an item, keyed by its filename
+│   ├── cell_012.png
+│   └── …
+├── smoothing-0.5/            ← another set — same item filenames
+│   ├── cell_007.png
+│   └── …
+└── smoothing-2.0/
+    └── …
+```
+
+The alignment is the whole trick: `smoothing-0.1/cell_007.png` and
+`smoothing-2.0/cell_007.png` are *the same cell*, so switching sets flips every image in
+place. A set missing an item shows a placeholder — the grid never shifts, so partial sets
+are fine. Sets are flat (no nesting inside), loose images in the collection root form an
+"All" set, and the usual image formats work (PNG, JPEG, WebP, SVG, GIF, AVIF, BMP). Name
+items consistently and zero-pad (`cell_007`, not `cell_7`) — sorting is natural everywhere.
+
+Making a collection is ordinary analysis code: loop conditions × items and save each image
+to `<collection>/<condition>/<item>.png`. Plain matplotlib is fine here — these are triage
+images, not blessed figures. When a winner emerges, regenerate it properly
+[via fluxplot into the project's `plots/`](concepts/semantic-plots.qmd).
+
+# Running it
+
+Lighttable runs from the Flux **source checkout** (it isn't bundled into the packaged app):
+
+```bash
+cd ~/flux/lighttable
+npm install                  # first run only
+npm start -- ~/sweep         # build + run, opening the collection
+```
+
+Once it's open you can also drop a folder onto the window, use the Open picker, or pick
+from Recents.
+
+# Using it
+
+**The grid.** Arrow keys move; **Enter** (or clicking a cell) opens the image fullscreen;
+**1–9** jump straight to set N and **Tab** cycles sets — this is the flip-book. **[** and
+**]** change the column count, **/** searches items, **c** toggles filename captions, and
+**Escape** backs out of whatever you're in.
+
+**Detail view** (fullscreen one image): **←/→** step through items (skipping gaps),
+**↑/↓** flip sets *without leaving the image*, **Enter** toggles fit vs. 1:1, **-/=** zoom.
+
+**Compare view**: **Ctrl+click** a cell (or **Ctrl+Enter**) lays out that one item across
+**all** sets at once, tiles packed as large as they fit and captioned by set name — the
+"which smoothing do I believe?" view. Click a tile to fullscreen it; **Escape** steps back.
+
+**Sister collections**: click the collection name (top-left) to see the folders sitting
+*beside* the current one and switch with one click — so `triage/monday_sweep/`,
+`triage/tuesday_sweep/` becomes one-click history. **Ctrl+click** the name for the folder
+picker. Grid spacing is adjustable in the **⋯** menu.
+
+# Where it stops
+
+Lighttable knows nothing about Flux projects — no captions, no manifests, no citations,
+just folders of images, kept deliberately separate so it stays instant at any batch size.
+When an image graduates from "candidate" to "figure panel", that's your cue to leave the
+light table: regenerate it with [fluxplot](concepts/semantic-plots.qmd) and build the real
+thing in [Figure mode](modes/figure.qmd).
+
+# Troubleshooting
+
+| Symptom | Cause → fix |
+|---|---|
+| `npm start` fails immediately | Dependencies not installed → `npm install` inside `lighttable/` first |
+| No Lighttable on this machine | It needs the source checkout — packaged Flux doesn't bundle it ([Installation](installation.qmd)) |
+| Cells shift when flipping sets | Item filenames differ between sets → align the names (same key per item in every set) |
+| Wrong order (`cell_10` before `cell_7`) | Un-padded numbers → zero-pad the filenames |

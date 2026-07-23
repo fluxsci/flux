@@ -91,7 +91,7 @@ export interface HydrateResult {
 
 /**
  * Hydrate FluxLib entries from OpenAlex into the rebuildable sidecar
- * `~/FluxLib/.fluxlib/enrich.json`. Incremental by default (skips already-hydrated
+ * `<FluxLib>/.fluxlib/enrich.json`. Incremental by default (skips already-hydrated
  * entries); `refresh` re-fetches all; `key` limits to one citekey. Never touches the
  * `.bib`. Batches 50 DOIs/request; polite delays between calls.
  */

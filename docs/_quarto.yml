@@ -38,6 +38,9 @@ website:
       - section: "Working with agents"
         contents:
           - agents/collaboration.qmd
+      - section: "Companions"
+        contents:
+          - lighttable.qmd
       - section: "Under the hood"
         contents:
           - concepts/projects-and-files.qmd

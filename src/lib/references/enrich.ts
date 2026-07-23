@@ -1,5 +1,5 @@
 // Pure join between RefEntry[] (from the .bib) and the derived EnrichEntry sidecar
-// (~/FluxLib/.fluxlib/enrich.json), keyed by citekey. No I/O — both the Node engine
+// (<FluxLib>/.fluxlib/enrich.json), keyed by citekey. No I/O — both the Node engine
 // and the renderer read their own enrich.json and call mergeEnrich for display/search.
 import type { RefEntry, EnrichEntry } from "./types";
 

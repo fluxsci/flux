@@ -1,6 +1,6 @@
 <script lang="ts">
   // FluxReader — the PDF reading mode. Loads the paper named by readerKey from
-  // ~/FluxLib/items/<citekey>/ (PDF bytes + annotations) and renders it with PdfView,
+  // <FluxLib>/items/<citekey>/ (PDF bytes + annotations) and renders it with PdfView,
   // flanked by a reference sidebar (the paper's OpenAlex referenced_works → add to
   // FluxLib) and an annotations panel (this paper's highlights → click to scroll,
   // delete). Highlights persist to items/<citekey>/annotations.json.
@@ -682,7 +682,7 @@
     if (page != null) selPage = page;
   }
 
-  // Push the live reading context to ~/FluxLib/.fluxlib/reader-context.json (debounced)
+  // Push the live reading context to <FluxLib>/.fluxlib/reader-context.json (debounced)
   // so the agent's get_reading_context tool can see the paper + selection + highlights.
   $effect(() => {
     const key = $readerKey;

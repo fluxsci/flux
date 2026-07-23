@@ -41,7 +41,7 @@ export interface EnrichTopic {
 
 /**
  * Derived Tier-1/2 enrichment for a FluxLib entry, keyed by citekey and stored in
- * the rebuildable sidecar `~/FluxLib/.fluxlib/enrich.json` — NOT in the canonical
+ * the rebuildable sidecar `<FluxLib>/.fluxlib/enrich.json` — NOT in the canonical
  * `.bib`. Sourced primarily from OpenAlex (abstract, topics, citation graph, IDs),
  * with CrossRef abstract backfill. Everything past `key` is optional: absence just
  * means "not hydrated yet". `embedding` is RESERVED for the (deferred) semantic-

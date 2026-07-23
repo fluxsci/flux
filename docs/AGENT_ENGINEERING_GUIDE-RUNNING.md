@@ -1357,3 +1357,23 @@ Documentation section. Authoring conventions + the docs-ride-the-commit rule pro
   drawer comment survives in `Workspace.svelte`; `src/shell/modes/slide/README.md` still
   describes the retired S/A/M animator.
 - js-yaml in this tree exposes no ESM default export — `import * as yaml from "js-yaml"`.
+
+### 2026-07-23 (later) — Docs-sweep cleanup batch + Lighttable page (Claude Fable 5, `main`)
+**Work:** Fixed the app inconsistencies the docs sweeps surfaced: Library `Mod+K` now
+single-fires (the Workspace router stands down when Library is focused — the add box owns
+the chord, per Help); `Help` moved from Workspace to Shell so `?` works on Home; Help's
+phantom Slide `+/−/0` zoom rows removed (F5/⇧F5 documented instead); the single-row
+Get-PDF miss toast is proxy-aware (no more "support is coming"); every stale
+`~/FluxLib/...` path in tooltips/CLI help/code comments now reads `<FluxLib>/...`
+(the `keys` verb prints the RESOLVED path via newly-exported `core.resolveFluxLibPath`;
+cli-help golden regenerated — exactly the 3 path lines); the stale Ctrl+Shift+J comment
+is gone; `src/shell/modes/slide/README.md` rewritten to the post-rework Animator (no
+parts tree / S|A|M; BeatRail + PropertiesPane + chords; current gate names). Docs: new
+"Companions" sidebar section + `lighttable.qmd`; shortcuts.qmd notes the Mod+K routing.
+Verified: check 0/0, pure 145/145, ui gates context-gui/shell-complete/p5-shell/
+lib-actions/lib-organize green, plus a live :1420 probe pinning the three behavior
+changes (library single-fire, palette in Figure, `?` on Home) with a clean console.
+**Learnings:**
+- The Workspace `Mod+K` router is now the precedent for mode-claimed shell chords: the
+  claiming mode keeps its own focused-scoped listener, and the shell router gets an
+  explicit stand-down branch — never two competing window listeners on one chord.

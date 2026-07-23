@@ -1,5 +1,5 @@
 // Background "assign PDFs" job — the GUI twin of flux-core/assign.ts. A MODULE-LEVEL Svelte-5
-// runes singleton (like pdfFetchJob) so a scan survives mode switches. Scans ~/FluxLib/
+// runes singleton (like pdfFetchJob) so a scan survives mode switches. Scans <FluxLib>/
 // pdfs_to_assign/, identifies each PDF from its content via the SHARED pure core (pdfIdentify.ts),
 // and files it: attach to an existing reference lacking a PDF, keep as a supplement if it already
 // has a (different) PDF, or add the reference then attach. Unidentified PDFs move to _unresolved/

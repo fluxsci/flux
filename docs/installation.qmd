@@ -30,8 +30,9 @@ npm run dist:mac           # or dist:linux → installers in release/
 ```
 
 For development instead of packaging: `npm run electron:dev` (Vite dev server + Electron,
-hot reload). A source checkout is also currently required for the **Lighttable** sidecar
-(image-set triage viewer) — it isn't bundled into packaged builds.
+hot reload). A source checkout is also currently required for
+[**Lighttable**](lighttable.qmd), the image-set triage companion — it isn't bundled into
+packaged builds.
 
 # The critical companions
 

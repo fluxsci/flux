@@ -112,10 +112,10 @@ usage: flux <verb> [root] [args] [--flags]
   citing <key|doi|Wid> [--s2] [--sort date]   works citing this (--s2 = Semantic Scholar + contexts)
   by-author <key|Aid>                  other works by this entry's first author
   related <key|Wid>                    related papers (OpenAlex similarity)
-  keys [--openalex K] [--s2 K] [--mailto M]   show/set API keys (~/FluxLib/keys.json)
-  fetch-pdfs [--refresh] [--key K]     download OA PDFs into ~/FluxLib/items/<citekey>/
+  keys [--openalex K] [--s2 K] [--mailto M]   show/set API keys (<FluxLib>/keys.json)
+  fetch-pdfs [--refresh] [--key K]     download OA PDFs into <FluxLib>/items/<citekey>/
   ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
-  assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in ~/FluxLib/pdfs_to_assign/
+  assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in <FluxLib>/pdfs_to_assign/
   search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
   annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
                                        --key K --md: export the paper's notes as Markdown

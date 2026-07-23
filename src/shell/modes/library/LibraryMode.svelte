@@ -91,7 +91,7 @@
   // PDF acquisition (FluxFinder) — which keys have a PDF on disk + fetch progress.
   let pdfKeys = $state.raw<Set<string>>(new Set());
   let fetchingKey = $state(""); // citekey currently fetching (per-row)
-  // "Assign PDFs" watched inbox (~/FluxLib/pdfs_to_assign/) — count of pending files + the
+  // "Assign PDFs" watched inbox (<FluxLib>/pdfs_to_assign/) — count of pending files + the
   // module-level scan job (survives mode switches, mirrors pdfFetchJob).
   let inboxCount = $state(0);
   const assigning = $derived(assignJob.running);
@@ -112,7 +112,7 @@
 
   // 2.4 bulk-import modal (.bib/.ris → FluxLib, optional Zotero PDF attach).
   let importOpen = $state(false);
-  // API keys panel — stored in ~/FluxLib/keys.json (machine-global, every project).
+  // API keys panel — stored in <FluxLib>/keys.json (machine-global, every project).
   let keysOpen = $state(false);
   let keyOpenAlex = $state("");
   let keyS2 = $state("");
@@ -870,7 +870,9 @@
         addStatus = "error";
         addError =
           r.status === "no-oa"
-            ? "No open-access PDF found (library proxy support is coming)."
+            ? proxyConfigured
+              ? 'No open-access PDF found — try "Get via library ⚿" in the row\'s details.'
+              : "No open-access PDF found — for paywalled PDFs, set up your library proxy in ⚙ Keys."
             : r.status === "no-id"
               ? "No DOI / PMCID on this entry — Enrich it first."
               : r.error || "PDF fetch failed.";
@@ -1325,7 +1327,7 @@
           onclick={() => void runAssign()}
           title={assigning
             ? "Click to stop the running scan"
-            : `Identify each PDF in ~/FluxLib/pdfs_to_assign/ from its content and file it into the matching reference (add the reference if it's new). ${inboxCount} waiting.`}>
+            : `Identify each PDF in FluxLib's pdfs_to_assign/ inbox from its content and file it into the matching reference (add the reference if it's new). ${inboxCount} waiting.`}>
           {#if assigning}
             Assigning {assignJob.done}/{assignJob.total} ✕
           {:else}
@@ -1404,7 +1406,7 @@
         </div>
       {/if}
       <div class="kfoot">
-        <span class="khint">Stored in ~/FluxLib/keys.json · used across every project · keyless still works</span>
+        <span class="khint">Stored in FluxLib/keys.json · used across every project · keyless still works</span>
         <button onclick={saveKeysPanel}>{keysSaved ? "Saved ✓" : "Save keys"}</button>
       </div>
     </div>

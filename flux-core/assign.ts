@@ -1,5 +1,5 @@
 // flux-core/assign.ts — the watched-inbox engine (canonical impl behind the CLI + MCP; the GUI
-// has a renderer twin sharing the same pure pdfIdentify core). Scans ~/FluxLib/pdfs_to_assign/,
+// has a renderer twin sharing the same pure pdfIdentify core). Scans <FluxLib>/pdfs_to_assign/,
 // identifies each PDF from its own content (DOI-first, cross-validated — see pdfIdentify.ts), and
 // files it: attach to an existing reference that lacks a PDF, keep as a supplement if that
 // reference already has a (different) PDF, or add the reference then attach. Anything not

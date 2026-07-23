@@ -38,8 +38,8 @@ export type { AnnotationHit } from "./annotate";
 // Reference/config verbs (add/cite/import, DOI lookup, annotations digest,
 // library/config info, reconcile) live in ./references.
 export * from "./references";
-// API keys (machine-global ~/FluxLib/keys.json + env), shared by CLI/MCP/GUI.
-export { loadKeys, saveKeys, getSecret } from "./fluxlib";
+// API keys (machine-global <FluxLib>/keys.json + env), shared by CLI/MCP/GUI.
+export { loadKeys, saveKeys, getSecret, resolveFluxLibPath } from "./fluxlib";
 export type { FluxKeys } from "./fluxlib";
 // 3.3 library organization (tags / status / collections) sidecar.
 export { loadOrganize, organizeSetTags, organizeSetStatus, organizeSetCollections } from "./fluxlib";

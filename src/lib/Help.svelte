@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Shell-global keyboard reference. Mounted once (Workspace); opened with `?`
-  // from anywhere or the rail's help button (the `helpOpen` store). Tabs cover
-  // every mode; opening jumps to the mode you're focused on.
+  // Shell-global keyboard reference. Mounted once (Shell — so `?` works on Home
+  // too); opened with `?` from anywhere or the rail's help button (the `helpOpen`
+  // store). Tabs cover every mode; opening jumps to the mode you're focused on.
   import { helpOpen } from "./settings";
   import { focusedMode } from "../shell/paneStore";
 
@@ -192,9 +192,8 @@
         {
           title: "Stage",
           items: [
-            ["+ / −", "Zoom in / out"],
-            ["0", "Reset view"],
-            ["F5", "Start presenting"],
+            ["F5", "Present from the start"],
+            ["⇧F5", "Present from this slide"],
           ],
         },
         {

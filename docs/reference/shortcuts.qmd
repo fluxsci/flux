@@ -12,9 +12,9 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 
 | Shortcut | Action |
 |---|---|
-| **Ctrl+K** | Command palette (in Paper: the full Paper palette) |
+| **Ctrl+K** | Command palette (in Paper: the full Paper palette; in Library it goes to the add box instead) |
 | **Ctrl+Shift+M** | Note to agent — a one-liner stamped with what you're looking at |
-| **?** | Keyboard shortcut overlay |
+| **?** | Keyboard shortcut overlay (works on the Home screen too) |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
 
 Mode switching is by the rail on the left; **Alt+click** (or **Ctrl+click**) a rail icon opens

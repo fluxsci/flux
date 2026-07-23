@@ -5,6 +5,7 @@
   import Home from "./Home.svelte";
   import Workspace from "./Workspace.svelte";
   import Toasts from "./Toasts.svelte";
+  import Help from "../lib/Help.svelte";
   import { view } from "./shellStore";
   import { DUR } from "../lib/motion/tokens";
   import { get } from "svelte/store";
@@ -119,6 +120,10 @@
   </div>
 
   <Toasts raised={capture !== null} />
+
+  <!-- Keyboard reference: mounted at the Shell so "?" works on Home too, not
+       just inside a project (its own listener ignores typing targets). -->
+  <Help />
 
   {#if capture}
     <div

@@ -1,6 +1,6 @@
 // flux-core/fluxlib.ts — the FluxLib engine (Node, used by the CLI + MCP).
 //
-// FluxLib is the machine-global reference library (default ~/FluxLib): the single
+// FluxLib is the machine-global reference library (always <FluxConfig>/FluxLib; default ~/FluxConfig/FluxLib): the single
 // place references are *managed*. Each project keeps a materialized cited-subset
 // references/library.bib (so a project still zips/clones/renders standalone — the
 // self-containment tenet). See notes/Flux_Project_Format.md §6 and the FluxLib plan.
@@ -379,7 +379,7 @@ export const organizeSetCollections = (key: string, collections: string[], libPa
   mutateOrganize((d) => setCollections(d, key, collections), libPath);
 
 // --------------------------------------------------------------------------
-// API keys / secrets — machine-global (shared across every project) in ~/FluxLib
+// API keys / secrets — machine-global (shared across every project) in <FluxLib>
 // --------------------------------------------------------------------------
 
 const libKeysPath = (lib: string) => path.join(lib, "keys.json");
@@ -391,7 +391,7 @@ export interface FluxKeys {
   [k: string]: unknown;
 }
 
-/** Read `~/FluxLib/keys.json` (`{}` if absent). Plaintext, machine-global. */
+/** Read `<FluxLib>/keys.json` (`{}` if absent). Plaintext, machine-global. */
 export async function loadKeys(libPath?: string): Promise<FluxKeys> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
   try {
@@ -401,7 +401,7 @@ export async function loadKeys(libPath?: string): Promise<FluxKeys> {
   }
 }
 
-/** Merge-write keys into `~/FluxLib/keys.json` (creates FluxLib if needed). */
+/** Merge-write keys into `<FluxLib>/keys.json` (creates FluxLib if needed). */
 export async function saveKeys(patch: FluxKeys, libPath?: string): Promise<FluxKeys> {
   const lib = await ensureFluxLib(libPath);
   return withLockAt(
@@ -423,7 +423,7 @@ const SECRET_ENV: Record<string, string> = {
   s2Key: "S2_API_KEY",
 };
 
-/** Resolve a credential: env var → `~/FluxLib/keys.json` → undefined.
+/** Resolve a credential: env var → `<FluxLib>/keys.json` → undefined.
  *  Lets agents/CI override via env while the GUI user stores keys in the file. */
 export async function getSecret(
   name: "mailto" | "openAlexKey" | "s2Key",

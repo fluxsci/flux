@@ -3,7 +3,6 @@
   import { get } from "svelte/store";
   import ActivityRail from "./ActivityRail.svelte";
   import PaneArea from "./PaneArea.svelte";
-  import Help from "../lib/Help.svelte";
   import Settings from "../lib/Settings.svelte";
   import CommandPalette from "./command/CommandPalette.svelte";
   import FeedbackCapture from "./agent/FeedbackCapture.svelte";
@@ -19,12 +18,15 @@
   initFeedbackStore();
 
   // The shell owns Ctrl+K: Paper focused → route to PaperMode's richer palette
-  // (its own Mod+K chord was retired to keep this single-fire); anywhere else →
-  // the shell GlobalPalette. Ctrl+Shift+J toggles the principal drawer globally.
+  // (its own Mod+K chord was retired to keep this single-fire); Library focused →
+  // LibraryMode's own listener claims it (jump to the add box, per Help), so the
+  // shell stands down; anywhere else → the shell GlobalPalette. Ctrl+Shift+M
+  // toggles the feedback capture ("Note to agent").
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && !e.altKey && !e.shiftKey && e.code === "KeyK") {
+        if (get(focusedMode) === "library") return;
         e.preventDefault();
         if (get(focusedMode) === "paper") requestPaperPalette();
         else {
@@ -44,8 +46,8 @@
 <div class="workspace">
   <ActivityRail />
   <PaneArea />
-  <!-- Shell-global overlays (available in every mode). -->
-  <Help />
+  <!-- Workspace-global overlays (Help lives one level up in Shell, so "?" also
+       works on the Home screen). -->
   <Settings />
   {#if globalPaletteOpen}
     <div class="global-palette">

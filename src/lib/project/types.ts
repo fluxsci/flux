@@ -213,7 +213,7 @@ export interface FileBridge {
   proxySetCredentials?(username: string, password: string): Promise<{ ok?: boolean; error?: string }>;
   proxyHasCredentials?(): Promise<{ username: string; hasPassword: boolean; available: boolean }>;
   proxyClearCredentials?(): Promise<{ ok?: boolean }>;
-  // Machine-global API-key store (~/FluxLib/keys.json), shared across all projects.
+  // Machine-global API-key store (<FluxLib>/keys.json), shared across all projects.
   keysGet?(): Promise<Record<string, unknown>>;
   keysSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   openExternal?(url: string): Promise<void>;
