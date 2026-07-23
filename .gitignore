@@ -10,9 +10,6 @@ dist-ssr
 .idea
 .DS_Store
 
-# Rust / Tauri
-src-tauri/target
-
 # Packaging output (electron-builder)
 release/
 

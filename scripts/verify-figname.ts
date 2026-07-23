@@ -49,9 +49,12 @@ eq("order-independent", figRefText(F, ["e", "c", "a", "b"]), "@fig-x-a-c,e");
 eq("all five", figRefText(F, ["a", "b", "c", "d", "e"]), "@fig-x-a-e");
 eq("unknown letters ignored", figRefText(F, ["z"]), "@fig-x");
 
-// --- the real fluxv1 project index (regression for the reported bug) --------
-const IDX = "/home/driessen2/fluxv1/fig/index.json";
-if (existsSync(IDX)) {
+// --- optional real-project index regression (the originally-reported bug) ---
+// Point FLUX_FIGNAME_IDX at a real fig/index.json to exercise it; the gate is
+// hermetic and simply skips this leg when the env var is unset (no personal path
+// baked into a committed gate).
+const IDX = process.env.FLUX_FIGNAME_IDX;
+if (IDX && existsSync(IDX)) {
   const idx = JSON.parse(readFileSync(IDX, "utf8")) as {
     figures: { name: string; order: number }[];
   };
@@ -62,7 +65,7 @@ if (existsSync(IDX)) {
   const renamedFollows = nums.some((n) => n === "RENAMED") || !idx.figures.some((f) => /RENAMED/.test(f.name));
   eq("fluxv1 rename propagates", renamedFollows, true);
 } else {
-  console.log("fluxv1 index not present — skipping project regression");
+  console.log("FLUX_FIGNAME_IDX not set — skipping optional project regression");
 }
 
 if (fail) {

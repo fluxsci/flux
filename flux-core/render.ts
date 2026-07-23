@@ -253,7 +253,10 @@ async function rasterizePng(svg: string, scale: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--input-type=module", "-e", RASTER_CHILD], {
       // Resolve @resvg/resvg-js from THIS module's location — works from the
-      // repo (tsx), from dist/flux-{cli,mcp}.mjs, and packaged (external dep).
+      // repo checkout (tsx) and from dist/flux-{cli,mcp}.mjs while node_modules
+      // is present. NOTE: resvg is deliberately NOT shipped/asarUnpacked in the
+      // packaged app (native raster stays out of the app process), so render-figure
+      // is a checkout/CLI-with-node_modules capability, not a packaged-binary one.
       env: { ...process.env, FLUX_RESVG_FROM: import.meta.url, FLUX_RESVG_SCALE: String(scale) },
       stdio: ["pipe", "pipe", "pipe"],
     });
