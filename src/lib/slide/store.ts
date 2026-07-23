@@ -34,6 +34,7 @@ import {
   loadProject,
   commit,
   mutate,
+  mutateDisplay,
   editGen,
   clearSelection,
   selection,
@@ -403,7 +404,12 @@ export function refreshBeatDisplay(): void {
   }
   for (const [id] of [...displayRoutes]) if (!wanted.has(id)) displayRoutes.delete(id);
   if (writes.size) {
-    mutate((proj) => {
+    // mutateDisplay, NOT mutate: this reconciler runs on plain beat navigation /
+    // slide switch, and a composed-display write must never mark the deck dirty
+    // (it would autosave deck.json on every beat click and pop a spurious
+    // external-change banner). editGen still advances so commit-coalescing is
+    // unchanged; genuine edits dirty via armDisplaySync's normal mutate.
+    mutateDisplay((proj) => {
       const f2 = proj.figures.find((f) => f.id === sid);
       if (!f2) return;
       for (const [id, el] of writes) {
@@ -522,7 +528,10 @@ export function clearBeatDisplay(): void {
   endpointEdit.set(null);
   if (checkoutBaselines.size) {
     const sid = get(activeFigureId);
-    mutate((p) => {
+    // mutateDisplay: restoring composed displays to their base is teardown, not a
+    // user edit — it must not dirty the deck (a pending real edit's dirty still
+    // stands; mutateDisplay only refrains from SETTING it).
+    mutateDisplay((p) => {
       const fig = p.figures.find((f) => f.id === sid);
       if (!fig) return;
       for (const [id, base] of checkoutBaselines) {

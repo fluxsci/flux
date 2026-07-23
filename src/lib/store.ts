@@ -379,6 +379,22 @@ export function mutate(fn: (p: Project) => void) {
   markEdited();
 }
 
+// DISPLAY-ONLY mutate (the slide beat-faithful reconciler, refreshBeatDisplay):
+// notify subscribers and advance editGen — so undo-coalescing stays byte-
+// identical to `mutate` — but DO NOT set `dirty`. Recomputing what a beat SHOWS
+// (a composed transform state substituted into the figure store) is not a user
+// edit: it must never trigger an autosave, because a plain beat navigation would
+// otherwise rewrite deck.json and raise a spurious "changed on disk" conflict.
+// Genuine edits on a displayed element still dirty through the normal `mutate`
+// path (armDisplaySync mirrors them into the governing transform's t2).
+export function mutateDisplay(fn: (p: Project) => void) {
+  project.update((p) => {
+    fn(p);
+    return p;
+  });
+  editGen.n++;
+}
+
 export function undo() {
   if (!past.length) return;
   pushFuture(snapshot(get(project)));

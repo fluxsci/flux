@@ -235,6 +235,43 @@ try {
   ok(thumbBg.bgs.every((b) => b === thumbBg.bgs[0]) && thumbBg.bgs[0] === thumbBg.themeBg,
     `thumb backgrounds match the slide's own resting background (${thumbBg.bgs[0]})`);
 
+  // --- A2: plain beat navigation must NOT dirty the deck or rewrite deck.json ----
+  // A beat-nav reconcile composes the SAME base deck; dirtying it turned a mere
+  // navigation into an autosave + a spurious "changed on disk" Overwrite banner
+  // (drop-an-agent's-edit). refreshBeatDisplay now writes via mutateDisplay (no
+  // dirty), and the deck save skips a content-identical rewrite.
+  await page.evaluate(() => window.__flux.lifecycle.flushById("slide"));
+  await sleep(400);
+  const navProbe = await page.evaluate(async () => {
+    const f = window.__flux;
+    const root = f.get(f.shell.projectModel).root;
+    const id = f.get(f.slide.deckOverlay).id;
+    const path = `${root}/slides/${id}/deck.json`;
+    const before = await window.fig.readText(path).catch(() => "");
+    const cleanAfterFlush = f.get(f.fig.dirty);
+    for (let r = 0; r < 3; r++) for (const b of [0, 1, 2, 1, 0]) f.slide.activeBeat.set(b);
+    await new Promise((res) => setTimeout(res, 60));
+    return { cleanAfterFlush, dirtyAfterNav: f.get(f.fig.dirty), before, path };
+  });
+  ok(navProbe.cleanAfterFlush === false, `deck is clean after flush (dirty=${navProbe.cleanAfterFlush})`);
+  ok(navProbe.dirtyAfterNav === false, `scrubbing every beat left the deck CLEAN — navigation is not an edit (dirty=${navProbe.dirtyAfterNav})`);
+  await page.evaluate(() => window.__flux.lifecycle.flushById("slide"));
+  await sleep(400);
+  const navAfter = await page.evaluate(async (path) => window.fig.readText(path).catch(() => ""), navProbe.path);
+  ok(navAfter === navProbe.before, "deck.json is byte-identical after beat scrubbing (no per-nav rewrite)");
+  // contrast: a REAL edit both dirties and rewrites
+  await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    f.fig.commit((p) => { p.figures.find((x) => x.id === sid).elements.find((e) => e.id === "bd-rect").width = 199; });
+  });
+  await sleep(150);
+  ok(await page.evaluate(() => window.__flux.get(window.__flux.fig.dirty)) === true, "a real edit DOES dirty the deck");
+  await page.evaluate(() => window.__flux.lifecycle.flushById("slide"));
+  await sleep(400);
+  const navAfter2 = await page.evaluate(async (path) => window.fig.readText(path).catch(() => ""), navProbe.path);
+  ok(navAfter2 !== navProbe.before, "…and a real edit DID rewrite deck.json");
+
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
 } finally {

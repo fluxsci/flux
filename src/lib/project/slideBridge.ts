@@ -382,11 +382,29 @@ async function registerDeck(root: string, deck: Deck): Promise<void> {
   await writeManifest(root, m);
 }
 
+/** Two serialized decks are content-equal iff they match after dropping the
+ *  `modified` timestamp — the deck's only always-changing field. Lets the save
+ *  path skip a byte-identical rewrite (the fig/ invariant, extended to decks)
+ *  even though every save would otherwise restamp `modified`. */
+function sameDeckContent(aText: string, bText: string): boolean {
+  try {
+    const a = JSON.parse(aText) as Record<string, unknown>;
+    const b = JSON.parse(bText) as Record<string, unknown>;
+    delete a.modified;
+    delete b.modified;
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 /** Persist the live deck (figure store + overlay recombined) to
  *  slides/<id>/deck.json, plus any new/changed DECK-OWNED asset bytes into
  *  slides/<id>/assets/ (the slide-mode asset sink — imports through the figure
  *  pipeline land here, never in fig/assets/). Conflict-guarded; tenancy-
- *  asserted (a kept-alive cross-mode save is structurally impossible). */
+ *  asserted (a kept-alive cross-mode save is structurally impossible). A
+ *  content-identical deck (a beat-nav reconcile or redundant autosave) is
+ *  skipped — no rewrite, no `modified` bump — matching executeFigSave. */
 export async function saveDeckFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
   assertStoreTenant("slide", "deck save");
   const fig = fileBridge();
@@ -422,7 +440,6 @@ export async function saveDeckFrom(root: string, opts: { force?: boolean } = {})
     }
   }
 
-  d.modified = stamp();
   await fig.mkdir(joinPath(root, "slides", d.id));
   await fig.mkdir(joinPath(root, "slides", d.id, "assets"));
 
@@ -446,6 +463,16 @@ export async function saveDeckFrom(root: string, opts: { force?: boolean } = {})
     clearAssetDirty(a.id);
   }
 
+  // Byte-identical skip (the fig/ invariant, extended to decks): a beat-nav /
+  // slide-switch reconcile composes the SAME deck content, so if only the
+  // `modified` stamp would differ we neither restamp nor rewrite deck.json —
+  // that write-then-diverge was what turned a plain navigation into a spurious
+  // "changed on disk" conflict (and per-nav watcher churn).
+  if (!opts.force && baseline != null && sameDeckContent(JSON.stringify(d, null, 2) + "\n", baseline)) {
+    if (editGen.n === genAtStart) figDirty.set(false);
+    return;
+  }
+  d.modified = stamp();
   const text = JSON.stringify(d, null, 2) + "\n";
   await fig.writeText(abs, text); // atomic via the fs:writeText IPC path
   deckBaseline.set(abs, text); // adopt what we just wrote
