@@ -1017,16 +1017,68 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   return true;
 });
 
+// Recipe WORKSPACE TRUST (SEC-1): a recipe.json carries the command that gets
+// spawned, and fsGuard contains only the file PATHS, not the command — so
+// opening a project authored by someone else and regenerating a plot would run
+// arbitrary code. We therefore require the containing project to be TRUSTED
+// before the first spawn, keyed by the resolved project-root path (moving/
+// copying a project re-prompts — conservative on purpose). Trust persists in
+// the atomic prefs (A4).
+function findProjectRoot(startDir) {
+  let dir = path.resolve(startDir);
+  for (let i = 0; i < 40; i++) {
+    if (fs.existsSync(path.join(dir, "project.json"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+function isRecipeTrusted(key) {
+  const list = readPrefs().trustedRecipeRoots;
+  return Array.isArray(list) && list.includes(key);
+}
+function trustRecipeRoot(key) {
+  const prefs = readPrefs();
+  const list = Array.isArray(prefs.trustedRecipeRoots) ? prefs.trustedRecipeRoots : [];
+  if (!list.includes(key)) writePrefs({ ...prefs, trustedRecipeRoots: [...list, key] });
+}
+/** Confirm-once-per-project gate before spawning a recipe command. Returns true
+ *  to proceed. Shows the exact command; a checkbox persists trust. */
+async function confirmRecipeTrust(recipePath, recipe) {
+  const key = findProjectRoot(path.dirname(recipePath)) ?? path.dirname(recipePath);
+  if (isRecipeTrusted(key)) return true;
+  const cmdline = [recipe.command, ...(recipe.args || [])].join(" ");
+  const { response, checkboxChecked } = await dialog.showMessageBox(mainWindow, {
+    type: "warning",
+    buttons: ["Cancel", "Run"],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+    title: "Run this project's plot recipe?",
+    message: "Regenerating this plot runs a command from the project on your computer.",
+    detail: `Project:\n${key}\n\nCommand:\n${cmdline}\n\nOnly run recipes from projects you trust — a recipe can run ANY command with your permissions.`,
+    checkboxLabel: "Trust this project's recipes from now on",
+    checkboxChecked: false,
+  });
+  if (response !== 1) return false;
+  if (checkboxChecked) trustRecipeRoot(key);
+  return true;
+}
+
 // F2: re-run a plot's recipe (the user's own generating script, gated behind an
 // explicit action). Returns the emitted SVG/manifest text so the renderer can
 // hot-swap it in place. Mirrors flux-core.runRecipe; persists merged params.
 ipcMain.handle("recipe:run", async (_e, { recipePath, params = {} }) => {
   // W12 (SHL-6): the recipe file carries the command that gets spawned + is rewritten
   // in place, so it must live under an allowed root — a planted recipe outside the
-  // project can't be pointed at here. (Regenerating a plot IS meant to run the user's
-  // configured command; containment is on the file paths, not the command itself.)
+  // project can't be pointed at here.
   fsGuard(recipePath);
   const recipe = JSON.parse(await fs.promises.readFile(recipePath, "utf8"));
+  // SEC-1: arbitrary-command execution gate — the project must be trusted first.
+  if (!(await confirmRecipeTrust(recipePath, recipe))) {
+    return { code: -1, stdout: "", stderr: "Recipe run cancelled — this project is not trusted to run commands." };
+  }
   const dir = path.dirname(recipePath);
   const merged = { ...(recipe.params || {}), ...params };
   const args = [...(recipe.args || [])];
@@ -1159,7 +1211,13 @@ function runPrintExclusive(fn) {
 }
 function getPrintWin() {
   if (!printWin || printWin.isDestroyed()) {
-    printWin = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+    // javascript:false — the print window materializes figure/manuscript content
+    // as a live DOM, but every print path feeds STATIC output (buildSvg for
+    // figures; renderManuscript's KaTeX-prerendered, html:false HTML for docs),
+    // so no page script is ever needed. Disabling JS means an unsanitized path
+    // could never execute/exfiltrate even though this file:// load gets no
+    // session CSP. printToPDF itself runs in the main process (JS-independent).
+    printWin = new BrowserWindow({ show: false, webPreferences: { offscreen: true, javascript: false } });
   }
   return printWin;
 }
@@ -1189,7 +1247,11 @@ async function printHtmlToPdf(html, outPath, pdfOpts, tmpTag) {
 
 ipcMain.handle("export:pdf", async (_e, { svg, outPath, w, h }) => {
   fsGuard(outPath); // W12 (SHL-6): was an unguarded write of any path
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0}</style></head><body>${svg}</body></html>`;
+  // Defense-in-depth CSP: block scripts/plugins outright (the window also runs
+  // javascript:false). Everything else stays permissive so embedded figure
+  // assets (data:/blob: images, inline styles) still render.
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src * data: blob: 'unsafe-inline'; script-src 'none'; object-src 'none'">`;
+  const html = `<!doctype html><html><head><meta charset="utf-8">${csp}<style>html,body{margin:0;padding:0}</style></head><body>${svg}</body></html>`;
   const microns = (px) => Math.round((px / 96) * 25400);
   return printHtmlToPdf(
     html,

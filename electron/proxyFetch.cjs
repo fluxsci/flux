@@ -121,6 +121,17 @@ function createProxyEngine(deps) {
     if (win && !win.isDestroyed()) return win;
     win = new BrowserWindow({ show: false, width: 1200, height: 900, webPreferences: { partition: PROXY_PARTITION } }); // NOT offscreen — detected as headless
     const wc = win.webContents;
+    // Hostile-page containment: this window loads live, untrusted publisher HTML/JS (its whole
+    // job), carrying the authenticated proxy session — so lock the escape hatches our own code
+    // never uses. (1) Deny window.open: we never spawn child windows, and a captured page must
+    // not pop a visible child that inherits the proxy session. (2) Allow only http(s)/about
+    // navigations — the only schemes the capture ever uses — so a page can't redirect the window
+    // to a file:// or custom-scheme handler. loadURL() from the main process does NOT emit
+    // will-navigate, so this never blocks our own driving of the capture.
+    wc.setWindowOpenHandler(() => ({ action: "deny" }));
+    const allowNav = (u) => /^(https?:|about:)/i.test(u || "");
+    wc.on("will-navigate", (e, u) => { if (!allowNav(u)) e.preventDefault(); });
+    wc.on("will-redirect", (e, u) => { if (!allowNav(u)) e.preventDefault(); });
     dbg = wc.debugger;
     cdpOk = false;
     // Strip the "Electron/x" + "flux/x" tokens from the User-Agent: a research tool shouldn't
