@@ -19,7 +19,7 @@ import { lightEntry } from "../src/lib/references/bibtex";
 import { identify, reconcile, type PaperMeta, type SearchHit, type IdResult, type IdentifyDeps } from "../src/lib/references/pdfIdentify";
 import { searchWorld } from "./enrich";
 
-const UA = "Flux/0.1 (pdf assign; +https://github.com/kortdriessen/flux)";
+const UA = "Flux/0.1 (pdf assign; +https://github.com/fluxsci/flux)";
 /** Politeness gap between successive DOI resolutions (Crossref/doi.org are limiter-exempt). */
 const RESOLVE_GAP_MS = 200;
 /** This many consecutive transient (network) results aborts the scan — we're offline. */

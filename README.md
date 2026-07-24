@@ -18,7 +18,7 @@ a Quarto site: run `quarto preview docs` for the nicely rendered, searchable ver
 
 ## Install
 
-Download the latest build from the [**Releases**](https://github.com/kortdriessen/flux/releases)
+Download the latest build from the [**Releases**](https://github.com/fluxsci/flux/releases)
 page, then follow the steps for your platform.
 
 ### macOS
@@ -113,7 +113,7 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 **1 · Clone the repo**
 
 ```sh
-git clone https://github.com/kortdriessen/flux.git
+git clone https://github.com/fluxsci/flux.git
 cd flux
 ```
 
@@ -269,7 +269,7 @@ ships an in-repo `AGENTS.md`.
 
 ## Related
 
-- [**fluxplot**](https://github.com/kortdriessen/fluxplot) — the companion Python
+- [**fluxplot**](https://github.com/fluxsci/fluxplot) — the companion Python
   library that emits _semantic_ SVG plots (with `*.fluxplot.json` sidecars) that
   Flux imports as fully editable figures.
 

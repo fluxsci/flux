@@ -41,7 +41,7 @@ assert(versionIsNewer("garbage", "0.1.0") === false, "unparseable latest reads a
 
 // --- 2. pickRelease ------------------------------------------------------------------
 console.log("\nupdate-check — pickRelease (pure):");
-const FB = "https://github.com/kortdriessen/flux/releases/latest";
+const FB = "https://github.com/fluxsci/flux/releases/latest";
 const newer = pickRelease({ tag_name: "v0.2.0", html_url: "https://example.com/r/0.2.0" }, "0.1.0", FB);
 assert(newer?.version === "0.2.0" && newer?.url === "https://example.com/r/0.2.0", "newer release → { version (v-stripped), html_url }");
 const viaName = pickRelease({ name: "0.3.0" }, "0.1.0", FB);
@@ -59,7 +59,7 @@ assert(/pickRelease\b/.test(main) && /require\("\.\/updateCheck\.cjs"\)/.test(ma
 assert(/if \(!app\.isPackaged\) return null/.test(main), "handler is packaged-only (dev never self-checks)");
 assert(/UPDATE_THROTTLE_MS\b/.test(main) && /lastUpdateCheck/.test(main), "handler throttles to ≤1/day via prefs.lastUpdateCheck");
 assert(/writePrefs\(\{ \.\.\.prefs, lastUpdateCheck:/.test(main), "records the attempt up front so repeated launches don't re-hit GitHub");
-assert(/api\.github\.com\/repos\/kortdriessen\/flux\/releases\/latest/.test(main), "fetches the GitHub releases/latest endpoint");
+assert(/api\.github\.com\/repos\/fluxsci\/flux\/releases\/latest/.test(main), "fetches the GitHub releases/latest endpoint");
 assert(/AbortSignal\.timeout\(/.test(main), "the fetch is time-boxed (offline can't hang startup)");
 
 // --- 4. preload + types + memBridge --------------------------------------------------

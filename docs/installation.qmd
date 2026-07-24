@@ -23,7 +23,7 @@ no such friction.
 ## From source
 
 ```bash
-git clone https://github.com/kortdriessen/flux ~/flux
+git clone https://github.com/fluxsci/flux ~/flux
 cd ~/flux
 npm ci                     # needs Node ≥ 22.12 (see below)
 npm run dist:mac           # or dist:linux → installers in release/
@@ -68,7 +68,7 @@ fluxplot as a dependency).
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh          # install uv
-git clone https://github.com/kortdriessen/fluxplot ~/fluxplot   # fluxplot lives HERE
+git clone https://github.com/fluxsci/fluxplot ~/fluxplot   # fluxplot lives HERE
 ```
 
 **fluxplot must be cloned to `~/fluxplot`** — that's the conventional location agents

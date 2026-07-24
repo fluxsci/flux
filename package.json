@@ -10,7 +10,7 @@
     "email": "sleepanimal@gmail.com"
   },
   "license": "MIT",
-  "homepage": "https://github.com/kortdriessen/flux",
+  "homepage": "https://github.com/fluxsci/flux",
   "bin": {
     "flux": "dist/flux-cli.mjs"
   },

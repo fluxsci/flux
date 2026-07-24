@@ -4,7 +4,7 @@ subtitle: "Why plots stay live inside Flux — the fluxplot contract"
 ---
 
 Most tools treat a saved plot as a picture. Flux treats it as a **structure**: when a plot is
-made with [fluxplot](https://github.com/kortdriessen/fluxplot), every meaningful part of it — a
+made with [fluxplot](https://github.com/fluxsci/fluxplot), every meaningful part of it — a
 series' line, its 4th data point, the x-axis title — carries a **stable name**. That one idea is
 what makes Flux figures feel alive:
 

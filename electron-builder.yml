@@ -1,4 +1,4 @@
-appId: com.kortdriessen.flux
+appId: com.fluxsci.flux
 productName: Flux
 copyright: © 2026 Kort Driessen
 
@@ -85,6 +85,6 @@ dmg:
 
 publish:
   provider: github
-  owner: kortdriessen
+  owner: fluxsci
   repo: flux
   releaseType: draft

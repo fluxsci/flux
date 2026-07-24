@@ -26,7 +26,7 @@ uv run python analysis/make_plots.py   # run everything through uv
 - **fluxplot lives at `~/fluxplot`** (a local clone — it's an editable path dependency,
   in `pyproject.toml` via uv's sources). If it is NOT there, either ask the user to
   clone it or clone it yourself:
-  `git clone https://github.com/kortdriessen/fluxplot ~/fluxplot`.
+  `git clone https://github.com/fluxsci/fluxplot ~/fluxplot`.
 - Every plotting script then follows `PLOTS-AND-STYLE.md` (house style, named series,
   `fp.save` with a recipe into the Flux project's `plots/`).
 

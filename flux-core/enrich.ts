@@ -35,7 +35,7 @@ import {
   getSecret,
 } from "./fluxlib";
 
-const UA = "Flux/0.1 (reference hydration; +https://github.com/kortdriessen/flux)";
+const UA = "Flux/0.1 (reference hydration; +https://github.com/fluxsci/flux)";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

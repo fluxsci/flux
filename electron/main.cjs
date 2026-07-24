@@ -882,8 +882,8 @@ ipcMain.handle("slidelib:delete", (_e, rel) => {
 // daily throttle (prefs.lastUpdateCheck), and the fetch (no renderer CORS/UA
 // issues). Best-effort — any failure resolves to null (never nags, never errors).
 // ---------------------------------------------------------------------------
-const RELEASES_API = "https://api.github.com/repos/kortdriessen/flux/releases/latest";
-const RELEASES_PAGE = "https://github.com/kortdriessen/flux/releases/latest";
+const RELEASES_API = "https://api.github.com/repos/fluxsci/flux/releases/latest";
+const RELEASES_PAGE = "https://github.com/fluxsci/flux/releases/latest";
 const UPDATE_THROTTLE_MS = 24 * 60 * 60 * 1000;
 
 ipcMain.handle("update:check", async () => {
