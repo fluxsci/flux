@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld("fig", {
   // Reveal an exported file in the OS file manager (Finder/Files).
   revealPath: (p) => ipcRenderer.invoke("shell:showItemInFolder", p),
   openPath: (p) => ipcRenderer.invoke("shell:openPath", p),
+  // Launch the Lighttable sidecar app (convenience spawn; source checkout only).
+  launchLighttable: () => ipcRenderer.invoke("lighttable:launch"),
 
   // Host platform ("darwin" | "linux" | "win32") — lets the renderer adapt its chrome
   // (e.g. defer to the native macOS traffic lights instead of custom window buttons).

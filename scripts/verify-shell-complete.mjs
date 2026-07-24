@@ -63,6 +63,18 @@ const railGear = 'nav.rail button[aria-label="Settings"]';
 ok(await page.$eval(railHelp, (e) => !!e).catch(() => false), "the rail has a keyboard-shortcuts button");
 ok(await page.$eval(railGear, (e) => !!e).catch(() => false), "the rail has a Settings gear");
 
+// --- Lighttable launcher ----------------------------------------------------
+// The fixture bridge stubs the launch with an error result, so a click must
+// surface the "unavailable" toast — proving the button→bridge wiring end to end.
+const railLt = 'nav.rail button[aria-label="Lighttable"]';
+ok(await page.$eval(railLt, (e) => !!e).catch(() => false), "the rail has a Lighttable launcher");
+await page.click(railLt).catch(() => {});
+await sleep(300);
+const ltToast = await page.$eval(".toasts .toast .t-msg", (e) => e.textContent || "").catch(() => "");
+ok(/Lighttable/.test(ltToast), "clicking it in the fixture surfaces the launch-result toast", JSON.stringify(ltToast));
+await page.click(".toasts .toast .t-x").catch(() => {});
+await sleep(150);
+
 await page.click(railHelp);
 await sleep(200);
 ok(await helpOpen(), "the rail help button opens the reference");

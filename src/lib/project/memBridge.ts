@@ -337,6 +337,9 @@ export function createMemBridge(): FileBridge & {
     async openExternal() {
       /* no-op in the fixture */
     },
+    async launchLighttable() {
+      return { ok: false, error: "Lighttable is unavailable in the browser fixture." };
+    },
     async checkForUpdate() {
       return null; // never self-checks in the dev fixture (packaged-only feature)
     },

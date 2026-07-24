@@ -1380,6 +1380,36 @@ ipcMain.handle("shell:openPath", async (_e, p) => {
   return !err;
 });
 
+// Launch the Lighttable sidecar (`lighttable/` beside this checkout — a separate
+// app, see CLAUDE.md "Sidecars"). A convenience spawn only: no code or state
+// crosses the boundary, and the child is detached so it outlives Flux. Second
+// presses are handled by Lighttable's own single-instance lock (focuses the
+// existing window). Source-checkout only — the packaged app doesn't bundle it.
+ipcMain.handle("lighttable:launch", async () => {
+  const ltDir = path.join(__dirname, "..", "lighttable");
+  try {
+    // electron's install layout: dist/<contents of path.txt> is the binary
+    // (platform-dependent name) — the same resolution `require("electron")` does.
+    const binName = fs
+      .readFileSync(path.join(ltDir, "node_modules", "electron", "path.txt"), "utf8")
+      .trim();
+    const bin = path.join(ltDir, "node_modules", "electron", "dist", binName);
+    if (!fs.existsSync(bin)) throw new Error("electron binary missing");
+    if (!fs.existsSync(path.join(ltDir, "dist", "index.html"))) {
+      return { ok: false, error: "Lighttable isn't built yet — run `npm run build` in lighttable/ once." };
+    }
+    const env = { ...process.env };
+    // Inherited from a dev shell this would turn the child into plain Node.
+    delete env.ELECTRON_RUN_AS_NODE;
+    const child = spawn(bin, [ltDir], { cwd: ltDir, detached: true, stdio: "ignore", env });
+    child.on("error", () => {});
+    child.unref();
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Lighttable isn't installed — run `npm install` in lighttable/ (source checkout only)." };
+  }
+});
+
 // ---------------------------------------------------------------------------
 // IPC: integrated terminal. The renderer's xterm.js front-end drives a native
 // login shell ($SHELL on macOS/Linux) running in a real PTY here, so colors,

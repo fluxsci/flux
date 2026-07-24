@@ -1424,3 +1424,13 @@ New gates: `verify-prefs-atomic`, `verify-electron-hardening` (both pure+presenc
   library/reader) the whole time — the explicit-paths-only rule is not optional; every commit here
   staged named paths and was diffed to confirm zero foreign content. `README.md` was fixed by that
   other session (my edit lost a "modified since read" race), so C3 needed no action.
+
+### 2026-07-24 — Lighttable launcher button in the rail (Claude Fable 5, `main`)
+**Work:** Owner request: a convenience button near the Settings gear that launches the
+Lighttable sidecar. Added `lighttable:launch` (invoke/spawn) — main resolves the sidecar's own
+electron binary via `lighttable/node_modules/electron/path.txt` and spawns it detached (no code
+crosses the sidecar boundary; second presses hit Lighttable's single-instance lock and focus the
+existing window). Rail button in `ActivityRail.svelte` (new `lighttable` icon), optional
+`FileBridge.launchLighttable`, memBridge stub, error toast on failure. Gate:
+`verify-shell-complete` now pins the button and the click→toast wiring in the fixture; docs
+`lighttable.qmd` updated.

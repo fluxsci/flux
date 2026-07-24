@@ -3,6 +3,8 @@
   import { goHome, type ModeId } from "./shellStore";
   import { focusedMode, setFocusedMode, splitWith } from "./paneStore";
   import { helpOpen, settingsOpen } from "../lib/settings";
+  import { fileBridge } from "../lib/project/types";
+  import { pushToast } from "../lib/toast";
 
   const modes: { id: ModeId; label: string; icon: string }[] = [
     { id: "figure", label: "Figure", icon: "figure" },
@@ -17,6 +19,13 @@
   function pick(e: MouseEvent, mode: ModeId) {
     if (e.altKey || e.metaKey) splitWith(mode);
     else setFocusedMode(mode);
+  }
+
+  // Launch the Lighttable sidecar app (a separate image-set viewer — no
+  // project integration; the main process just spawns it).
+  async function launchLighttable() {
+    const res = await fileBridge()?.launchLighttable?.();
+    if (res && !res.ok) pushToast("error", "Could not launch Lighttable", { detail: res.error });
   }
 </script>
 
@@ -44,6 +53,9 @@
 
   <span class="grow" aria-hidden="true"></span>
 
+  <button class="item foot" title="Lighttable — browse image sets" aria-label="Lighttable" onclick={launchLighttable}>
+    <Icon name="lighttable" size={19} />
+  </button>
   <button class="item foot" title="Settings" aria-label="Settings" onclick={() => settingsOpen.set(true)}>
     <Icon name="settings" size={19} />
   </button>

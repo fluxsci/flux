@@ -40,6 +40,9 @@ const CHANNELS = [
   { channel: "shell:showItemInFolder", kind: "invoke", scope: "spawn" },
   // Open a context/config file in the OS default editor (FluxConfig-rooted only).
   { channel: "shell:openPath", kind: "invoke", scope: "spawn" },
+  // Launch the Lighttable sidecar app (lighttable/ in the source checkout). A
+  // convenience spawn only — no code or state crosses the sidecar boundary.
+  { channel: "lighttable:launch", kind: "invoke", scope: "spawn" },
   // --- project lifecycle / watcher / locks / journal ---------------------------
   { channel: "watch:setRoot", kind: "invoke", scope: "read" },
   // The feedback ledger (append-only .meta/feedback.ndjson — principal-agent scheme).
