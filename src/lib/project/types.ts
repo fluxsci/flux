@@ -381,6 +381,12 @@ export function basename(p: string): string {
   return parts[parts.length - 1] || p;
 }
 
+/** Absolute-path test for renderer code (no node:path here): POSIX `/…` plus
+ *  the Windows forms — drive-letter `C:\…`/`C:/…` and UNC `\\server\…`. */
+export function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+}
+
 export function slugify(s: string): string {
   return (
     s

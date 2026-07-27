@@ -70,7 +70,7 @@ export function reimportPlot(
 }
 
 // ---------------------------------------------------------------------------
-// Small path helpers (POSIX; the app targets Linux primarily).
+// Small path helpers ("/"-joined — Node accepts forward slashes on Windows).
 // ---------------------------------------------------------------------------
 function joinPath(...parts: string[]): string {
   return parts
@@ -79,7 +79,12 @@ function joinPath(...parts: string[]): string {
     .join("/");
 }
 function basename(p: string): string {
-  return p.split("/").pop() ?? p;
+  // Backslash is a LEGAL filename char on POSIX, so only treat it as a
+  // separator for Windows-looking inputs (drive/UNC prefix, or backslashes
+  // with no forward slash); everything else keeps the exact POSIX behavior.
+  const winish =
+    /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\") || (p.includes("\\") && !p.includes("/"));
+  return (winish ? p.split(/[\\/]/) : p.split("/")).pop() ?? p;
 }
 
 // ---------------------------------------------------------------------------

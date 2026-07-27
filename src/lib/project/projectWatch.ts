@@ -17,6 +17,7 @@ import { invalidateEnrichCache } from "../references/fluxlibBridge";
 import { project } from "../store";
 import { assetData, dataUrlToBytes } from "../assets";
 import { reimportPlot } from "../io";
+import { isAbsolutePath } from "./types";
 import type { FluxPlotManifest } from "../plot/types";
 
 export interface FsChange {
@@ -56,7 +57,7 @@ async function syncPlotsIntoFigures(root: string, fig: WatchBridge): Promise<num
       if (el.type !== "plot") continue;
       const aid = (el as { assetId?: string }).assetId;
       const src = (el as { source?: { svgPath?: string } }).source?.svgPath;
-      if (aid && src) srcOf.set(aid, src.startsWith("/") ? src : `${root.replace(/\/+$/, "")}/${src}`);
+      if (aid && src) srcOf.set(aid, isAbsolutePath(src) ? src : `${root.replace(/\/+$/, "")}/${src}`);
     }
   }
   const cached = get(assetData);
