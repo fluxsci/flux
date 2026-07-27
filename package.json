@@ -30,7 +30,7 @@
     "release:check": "node scripts/release-check.mjs",
     "flux": "tsx flux-cli.ts",
     "flux:mcp": "tsx flux-mcp.ts",
-    "electron:dev": "concurrently -k -n vite,electron \"npm run dev\" \"wait-on tcp:127.0.0.1:1420 && VITE_DEV_SERVER_URL=http://127.0.0.1:1420 electron .\"",
+    "electron:dev": "concurrently -k -n vite,electron \"npm run dev\" \"wait-on tcp:127.0.0.1:1420 && node scripts/electron-dev.mjs\"",
     "electron:build": "vite build && electron .",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
