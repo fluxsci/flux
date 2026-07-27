@@ -6,6 +6,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const { resolvePtySpawn } = require("../execResolve.cjs");
 void path;
 
 /**
@@ -45,8 +46,15 @@ function createTerminalFamily({ app, nodePty, getCurrentRoot }) {
       if (!nodePty) return { ok: false, error: "Terminal backend unavailable (node-pty not loaded)." };
       const wc = e.sender;
       // Optional command (e.g. the agent drawer spawns `claude`); default = the login shell.
-      const command = typeof opts.command === "string" && opts.command.trim() ? opts.command : defaultShell();
-      const cmdArgs = Array.isArray(opts.args) ? opts.args.map(String) : [];
+      // An explicit command goes through resolvePtySpawn (identity off win32) so a
+      // .cmd shim like npm's `claude` launches; the default shell is spawned as-is.
+      let command = defaultShell();
+      let cmdArgs = Array.isArray(opts.args) ? opts.args.map(String) : [];
+      if (typeof opts.command === "string" && opts.command.trim()) {
+        const r = resolvePtySpawn(opts.command.trim(), cmdArgs);
+        command = r.command;
+        cmdArgs = r.args;
+      }
       // Open in the requested dir, else the open project root, else home.
       const wanted = opts.cwd;
       const projRoot = getCurrentRoot();

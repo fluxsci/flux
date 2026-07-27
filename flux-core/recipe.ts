@@ -4,6 +4,7 @@
 
 import { spawn } from "node:child_process";
 import * as path from "node:path";
+import { resolveSpawn } from "../electron/execResolve.cjs";
 import { stamp, journal } from "./journal";
 import { readJSON, writeText, findProjectRoot } from "./model";
 
@@ -53,9 +54,11 @@ export async function runRecipe(
 
   const { code, stdout, stderr } = await new Promise<{ code: number; stdout: string; stderr: string }>(
     (resolve, reject) => {
-      const child = spawn(recipe.command, args, {
+      const rs = resolveSpawn(recipe.command, args);
+      const child = spawn(rs.command, rs.args, {
         cwd,
         env: { ...process.env, FLUX_PARAMS: JSON.stringify(params), ...(only ? { FLUXPLOT_ONLY: only } : {}) },
+        windowsVerbatimArguments: rs.windowsVerbatimArguments,
       });
       let out = "";
       let err = "";

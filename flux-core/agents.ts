@@ -22,6 +22,7 @@ import * as path from "node:path";
 import * as readline from "node:readline/promises";
 import * as fluxPathsMod from "../electron/fluxPaths.cjs";
 import * as agentsConfigMod from "../electron/agentsConfig.cjs";
+import { resolveSpawn, resolvePtySpawn } from "../electron/execResolve.cjs";
 import { parseLedger, foldLedger, FEEDBACK_REL } from "../src/lib/project/feedback";
 import { CONTEXT_PATHS } from "../src/lib/project/contextTemplates";
 import {
@@ -214,7 +215,8 @@ async function runPtyWithTranscript(spec: AgentSpec, transcriptPath: string): Pr
     }
   };
 
-  const child = pty.spawn(spec.command, spec.args, {
+  const rp = resolvePtySpawn(spec.command, spec.args);
+  const child = pty.spawn(rp.command, rp.args, {
     name: process.env.TERM || "xterm-256color",
     cols,
     rows,
@@ -274,10 +276,12 @@ async function runPtyWithTranscript(spec: AgentSpec, transcriptPath: string): Pr
 
 function runInherit(spec: AgentSpec): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(spec.command, spec.args, {
+    const rs = resolveSpawn(spec.command, spec.args);
+    const child = spawn(rs.command, rs.args, {
       cwd: spec.cwd,
       env: { ...process.env, ...spec.env },
       stdio: "inherit",
+      windowsVerbatimArguments: rs.windowsVerbatimArguments,
     });
     child.on("error", reject);
     child.on("close", (code) => resolve(code ?? 0));
@@ -434,10 +438,12 @@ export async function dispatch(
   const t0 = Date.now();
   const log = fsSync.createWriteStream(logPath);
   const exitCode = await new Promise<number>((resolve, reject) => {
-    const child = spawn(spec.command, spec.args, {
+    const rs = resolveSpawn(spec.command, spec.args);
+    const child = spawn(rs.command, rs.args, {
       cwd: spec.cwd,
       env: { ...process.env, ...spec.env },
       stdio: ["ignore", "pipe", "pipe"],
+      windowsVerbatimArguments: rs.windowsVerbatimArguments,
     });
     child.stdout.on("data", (b: Buffer) => {
       log.write(b);
@@ -532,10 +538,12 @@ export async function runPass(root: string, opts: { echo?: boolean } = {}): Prom
   await journal(root, { action: "attend_pass_start" });
   const log = fsSync.createWriteStream(logPath);
   const code = await new Promise<number>((resolve) => {
-    const child = spawn(spec.command, spec.args, {
+    const rs = resolveSpawn(spec.command, spec.args);
+    const child = spawn(rs.command, rs.args, {
       cwd: spec.cwd,
       env: { ...process.env, ...spec.env },
       stdio: ["ignore", "pipe", "pipe"],
+      windowsVerbatimArguments: rs.windowsVerbatimArguments,
     });
     child.stdout.on("data", (b: Buffer) => {
       log.write(b);

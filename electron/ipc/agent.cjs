@@ -162,7 +162,14 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
         env: { ELECTRON_RUN_AS_NODE: "1" },
       };
     }
-    const tsxBin = path.join(appRoot, "node_modules", ".bin", "tsx");
+    // npm's .bin/tsx is an extensionless sh script; the spawnable Windows twin
+    // is tsx.cmd (the MCP consumer launches whatever path we hand it).
+    const tsxBin = path.join(
+      appRoot,
+      "node_modules",
+      ".bin",
+      process.platform === "win32" ? "tsx.cmd" : "tsx",
+    );
     const entry = path.join(appRoot, "flux-mcp.ts");
     if (!app.isPackaged && fs.existsSync(tsxBin) && fs.existsSync(entry)) {
       return { ok: true, projectRoot, command: tsxBin, args: [entry, projectRoot] };

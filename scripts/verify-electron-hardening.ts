@@ -33,9 +33,12 @@ h.section("B1 — recipe:run workspace trust");
 const rr = recipeRunHandler();
 h.ok(!!rr, "recipe:run handler present");
 const trustIdx = rr.indexOf("confirmRecipeTrust");
-const spawnIdx = rr.indexOf("spawn(recipe.command");
+// The recipe command's first touch is resolveSpawn(recipe.command, …) (the
+// win32 .cmd-shim seam, electron/execResolve.cjs) feeding spawn(rs.command…).
+const spawnIdx = rr.indexOf("resolveSpawn(recipe.command");
 h.ok(trustIdx >= 0, "recipe:run calls confirmRecipeTrust");
-h.ok(spawnIdx >= 0 && trustIdx < spawnIdx, "the trust gate runs BEFORE spawn(recipe.command)");
+h.ok(spawnIdx >= 0 && trustIdx < spawnIdx, "the trust gate runs BEFORE resolveSpawn/spawn(recipe.command)");
+h.ok(rr.indexOf("spawn(rs.command") > spawnIdx, "spawn launches the RESOLVED command (never a bare recipe.command)");
 h.ok(/if \(!\(await confirmRecipeTrust[\s\S]{0,120}return \{/.test(rr), "an untrusted recipe returns early (no spawn)");
 h.ok(/function confirmRecipeTrust/.test(main) && /dialog\.showMessageBox/.test(main), "confirmRecipeTrust prompts via dialog.showMessageBox");
 h.ok(/function isRecipeTrusted/.test(main) && /trustedRecipeRoots/.test(main), "trust is persisted per project (trustedRecipeRoots in prefs)");

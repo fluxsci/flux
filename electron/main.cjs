@@ -13,6 +13,7 @@ const { resolveToDoi } = require("./resolveDoi.cjs");
 const { pickRelease } = require("./updateCheck.cjs");
 const { parseFluxUrl, fluxUrlFromArgv } = require("./fluxUrl.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
+const { resolveSpawn } = require("./execResolve.cjs");
 
 // Machine config is ALWAYS the lowercase app dir (~/.config/flux on Linux) —
 // pinned before ANYTHING touches userData (the single-instance lock, prefs,
@@ -322,7 +323,10 @@ ipcMain.handle("lock:release", (_e, { scope = "project", name }) => {
 // GPU config. On NVIDIA the default XWayland path can segfault the GPU process;
 // native Wayland (what the Figma desktop app uses on this machine) is stable.
 // `ozone-platform-hint=auto` picks Wayland when available, else X11 elsewhere.
-app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+// Ozone is Linux-only Chromium plumbing — don't emit the switch elsewhere.
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+}
 // SHL-15: a stable V1 respects Chromium's GPU blocklist by default (it exists to avoid
 // crashes on known-bad driver combos) rather than forcing accel over it, and
 // enable-gpu-rasterization is a modern-Chromium default so it's dropped as redundant.
@@ -374,7 +378,12 @@ function buildAppMenu() {
 
 function createWindow() {
   const isMac = process.platform === "darwin";
+  // Windows dev runs (`npx electron .`) have no packaged exe icon — point the
+  // window at the repo's .ico so the taskbar doesn't show the Electron default.
+  // macOS/Linux keep today's exact window options.
+  const winIcon = path.join(__dirname, "..", "build", "icons", "icon.ico");
   const win = new BrowserWindow({
+    ...(process.platform === "win32" && fs.existsSync(winIcon) ? { icon: winIcon } : {}),
     width: 1400,
     height: 900,
     minWidth: 940,
@@ -1085,9 +1094,11 @@ ipcMain.handle("recipe:run", async (_e, { recipePath, params = {} }) => {
   for (const [k, v] of Object.entries(merged)) args.push(`--${k}`, String(v));
   const cwd = path.resolve(dir, recipe.cwd || ".");
   const res = await new Promise((resolve) => {
-    const child = spawn(recipe.command, args, {
+    const rs = resolveSpawn(recipe.command, args);
+    const child = spawn(rs.command, rs.args, {
       cwd,
       env: { ...process.env, FLUX_PARAMS: JSON.stringify(merged) },
+      windowsVerbatimArguments: rs.windowsVerbatimArguments,
     });
     let out = "";
     let err = "";
@@ -1304,7 +1315,8 @@ ipcMain.handle("shell:openExternal", (_e, url) => {
 ipcMain.handle("quarto:available", async () => {
   return new Promise((resolve) => {
     try {
-      const p = spawn("quarto", ["--version"]);
+      const q = resolveSpawn("quarto", ["--version"]);
+      const p = spawn(q.command, q.args, { windowsVerbatimArguments: q.windowsVerbatimArguments });
       let out = "";
       p.stdout.on("data", (d) => (out += d));
       p.on("error", () => resolve({ installed: false }));
@@ -1328,8 +1340,10 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath }) => {
   }
   return new Promise((resolve) => {
     try {
-      const p = spawn("quarto", ["render", rel, "--to", to || "pdf"], {
+      const q = resolveSpawn("quarto", ["render", rel, "--to", to || "pdf"]);
+      const p = spawn(q.command, q.args, {
         cwd: rootAbs,
+        windowsVerbatimArguments: q.windowsVerbatimArguments,
       });
       let log = "";
       // (A quarto:log live-stream push used to fire here — nothing ever

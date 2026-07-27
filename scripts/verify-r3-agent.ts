@@ -129,7 +129,7 @@ if (existsSync(cliBundle)) {
 console.log("\nR3 — main-process MCP resolution (source):");
 const agentCjs = read("electron/ipc/agent.cjs");
 assert(/function mcpSpecFor\(/.test(agentCjs), "agent family resolves the MCP spec (mcpSpecFor)");
-assert(/node_modules", "\.bin", "tsx"/.test(agentCjs) && /flux-mcp\.ts/.test(agentCjs), "dev spec = repo tsx bin + flux-mcp.ts (absolute — the agent spawns from its own cwd)");
+assert(/node_modules",\s*"\.bin",/.test(agentCjs) && /"tsx\.cmd" : "tsx"/.test(agentCjs) && /flux-mcp\.ts/.test(agentCjs), "dev spec = repo tsx bin + flux-mcp.ts (absolute; tsx.cmd twin on win32 — the agent spawns from its own cwd)");
 assert(/app\.asar\.unpacked", "dist", "flux-mcp\.mjs"/.test(agentCjs) && /ELECTRON_RUN_AS_NODE/.test(agentCjs), "packaged spec = unpacked bundle on Electron-as-Node");
 assert(/mcpSpec: mcp\.ok \? \{ command: mcp\.command/.test(agentCjs), "principalSpec embeds the MCP spec ({mcpJson} roster placeholder)");
 assert(/^\s*- dist\/flux-mcp\.mjs/m.test(read("electron-builder.yml")), "electron-builder.yml asar-unpacks dist/flux-mcp.mjs (the packaged spawn path)");

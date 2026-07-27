@@ -127,6 +127,7 @@
       "verify-electron-no-undef.ts",
       "verify-electron-hardening.ts",
       "verify-prefs-atomic.ts",
+      "verify-win-spawn.ts",
       "verify-slide-presets.ts",
       "verify-snip-headless.ts",
       "verify-snips.ts",

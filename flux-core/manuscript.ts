@@ -4,6 +4,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
+import { resolveSpawn } from "../electron/execResolve.cjs";
 import { composeCaption } from "../src/lib/captions";
 import { collectEmbedLabels, transformQmdForExport, normalizeEmbedAlts } from "../src/lib/exportQmd";
 import * as ops from "../src/lib/ops";
@@ -263,7 +264,11 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
   let log = "";
   try {
     ({ code, log } = await new Promise<{ code: number; log: string }>((resolve, reject) => {
-      const child = spawn("quarto", ["render", m.manuscript.path, "--to", to], { cwd: root });
+      const q = resolveSpawn("quarto", ["render", m.manuscript.path, "--to", to]);
+      const child = spawn(q.command, q.args, {
+        cwd: root,
+        windowsVerbatimArguments: q.windowsVerbatimArguments,
+      });
       let out = "";
       child.stdout.on("data", (d) => (out += d));
       child.stderr.on("data", (d) => (out += d));
