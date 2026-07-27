@@ -413,7 +413,13 @@ function resolveOwnCliCommandsSync() {
     const cli = path.join(base, "flux-cli.mjs");
     if (fsSync.existsSync(cli)) {
       const mcpPath = path.join(base, "flux-mcp.mjs");
-      const wrap = (p) => `ELECTRON_RUN_AS_NODE=1 "${process.execPath}" "${p}"`;
+      // One runnable string per platform: POSIX inline-env, or a cmd /s /c
+      // wrapper on Windows (cmd strips the outer quotes; `set X=1&&` with no
+      // space keeps the env value clean).
+      const wrap = (p) =>
+        process.platform === "win32"
+          ? `cmd /d /s /c "set ELECTRON_RUN_AS_NODE=1&& "${process.execPath}" "${p}""`
+          : `ELECTRON_RUN_AS_NODE=1 "${process.execPath}" "${p}"`;
       return { cli: wrap(cli), mcp: wrap(mcpPath), mcpPath };
     }
   }
@@ -456,7 +462,11 @@ function resolveRepoDirSync() {
 const SHIM_MARKER = "# flux-cli shim (managed by Flux — replace with your own file to opt out)"; // flux-cap-ok
 
 function cliShimPathSync() {
-  return path.join(os.homedir(), ".local", "bin", "flux");
+  // Same policy on every platform: only manage a shim if the user maintains a
+  // ~/.local/bin (on Windows that means they PATH'd it themselves; there is no
+  // conventional auto-on-PATH user bin dir to invent). Batch twin on win32.
+  const name = process.platform === "win32" ? "flux.cmd" : "flux";
+  return path.join(os.homedir(), ".local", "bin", name);
 }
 
 function cliShimUpToDateSync() {
@@ -484,7 +494,12 @@ async function installCliShim(events) {
     /* absent */
   }
   if (cur !== null && !cur.includes(SHIM_MARKER)) return; // user-owned — never clobber
-  const body = `#!/bin/sh\n${SHIM_MARKER}\nexec ${cli} "$@"\n`;
+  // The cmd body ends with `${cli} %*` so cliShimUpToDateSync's includes(cli)
+  // staleness probe works for both shim flavors. CRLF is the batch convention.
+  const body =
+    process.platform === "win32"
+      ? `@echo off\r\nrem ${SHIM_MARKER}\r\n${cli} %*\r\n`
+      : `#!/bin/sh\n${SHIM_MARKER}\nexec ${cli} "$@"\n`;
   if (cur === body) return;
   await fsp.writeFile(shim, body, { mode: 0o755 });
   events.push({ action: "install-cli-shim", detail: shim });
