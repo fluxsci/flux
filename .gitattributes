@@ -1,0 +1,7 @@
+# All text stays LF — in the repo AND in every checkout, Windows included
+# (overrides core.autocrlf=true defaults). Runtime code and verify fixtures
+# read checked-out files with \n expectations, and every modern Windows editor
+# handles LF. Binaries (fonts/images) are auto-detected and untouched.
+# Verified a no-op for existing checkouts when added: the whole index was
+# already LF (git ls-files --eol, 2026-07-27).
+* text=auto eol=lf
