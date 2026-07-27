@@ -73,8 +73,14 @@ function createFileCore({ app, dialog, roots, setPendingRoot }) {
   function approveDir(p) {
     if (p) approvedDirs.add(path.resolve(path.dirname(p)));
   }
+  // Windows filesystems are case-insensitive (and a dialog result vs. a
+  // renderer-echoed path can differ in drive-letter case), so containment
+  // folds case there; POSIX keeps today's exact case-sensitive compare.
+  const foldCase = process.platform === "win32" ? (s) => s.toLowerCase() : (s) => s;
   function underDir(ab, dir) {
-    return ab === dir || ab.startsWith(dir + path.sep);
+    const a = foldCase(ab);
+    const d = foldCase(dir);
+    return a === d || a.startsWith(d + path.sep);
   }
   function fsGuard(p) {
     // WS-9.3: deny-by-default. The old currentRoot-null early-return allowed
