@@ -99,6 +99,7 @@ The established shared cores — extend these, don't duplicate them:
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
+| External-command launch (quarto, recipes, agent roster) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
 
 ## 3. Data model and persistence invariants
 
@@ -1434,3 +1435,31 @@ existing window). Rail button in `ActivityRail.svelte` (new `lighttable` icon), 
 `FileBridge.launchLighttable`, memBridge stub, error toast on failure. Gate:
 `verify-shell-complete` now pins the button and the click→toast wiring in the fixture; docs
 `lighttable.qmd` updated.
+
+### 2026-07-27 — Windows portability: the clone→build→run path (Claude Fable 5, `main`)
+**Work:** Full win32 audit (no blockers found for `npm install → npm run build → npx electron .`;
+all native deps ship win32 prebuilds) and the degraded-item fixes, every one gated behind
+win32-only branches so POSIX behavior is byte-identical: NEW `electron/execResolve.cjs`(+`.d.cts`)
+— the ONE seam for launching external commands by bare name (§2 table row), wired into quarto
+(main.cjs + manuscript.ts), recipes (main.cjs + recipe.ts), and the agent roster (agents.ts
+spawn+pty, terminal.cjs `pty:create`), gated by `verify-win-spawn.ts` (pure, all branches
+simulated via injectable {platform, env, exists}). Also: renderer `isAbsolutePath` (types.ts →
+projectWatch hot-swap) + win32-aware `basename` in io.ts; fsGuard case-fold on win32; `tsx.cmd`
+MCP dev fallback; linux-gated ozone switch + win32 window icon; `flux.cmd` shim twin +
+cmd-wrapped packaged CLI string in fluxPaths; `electron:dev` now tails into
+`scripts/electron-dev.mjs` (cmd.exe has no inline env); `.gitattributes` `* text=auto eol=lf`
+(verified no-op: the index was already 100% LF). Two source-shape probes re-anchored to the new
+spellings (hardening B1 spawn probe, r3 tsx probe) — same contracts, evidence in the commits.
+**Learnings:**
+- Since Node's CVE-2024-27980 fix, `spawn()` throws EINVAL for `.cmd`/`.bat` without a shell —
+  and npm installs CLIs (claude, codex, tsx) as exactly those shims on Windows. Any NEW spawn of
+  an external command must go through `resolveSpawn`/`resolvePtySpawn` (execResolve.cjs): it
+  prefers a real `.exe` anywhere on PATH (no shell at all) and otherwise wraps in
+  `ComSpec /d /s /c` — child_process needs `windowsVerbatimArguments` spread from the resolver;
+  node-pty instead takes the wrap as ONE command-line STRING (it re-quotes arrays).
+- The fluxPaths injectable-platform pattern scales: pure gates can exercise every win32 branch
+  from Linux. What still cannot be simulated is real hardware — Windows remains untested
+  end-to-end; first testers should start at quarto compile, the agent drawer, and recipe re-run
+  (the resolver seams).
+- `env.Path ?? env.PATH` is wrong for env fallbacks — an EMPTY string must fall through too
+  (use `||`). The pure gate caught this before it shipped.
