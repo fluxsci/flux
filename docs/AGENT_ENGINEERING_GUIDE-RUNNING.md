@@ -441,7 +441,12 @@ chord or label changes, grep `docs/` for the old one.
 **Bundle/startup:** a static import from any eager shell module (`Shell.svelte`, stores,
 `src/lib/references/*` used by Shell) into `src/shell/modes/**` drags an entire mode chunk into
 Home. Dynamic-import at the call site; `verify-startup.mjs` (800KB eager budget, no mode chunks
-at Home) is the gate. Mode warms belong in `requestIdleCallback`.
+at Home) is the gate. Mode warms belong in `requestIdleCallback`. Also: `npm run check` covers
+`src/**` ONLY — `flux-core/**` and `scripts/**` are outside the type-checker, so a name missing
+from `flux-core/index.ts`'s explicit re-export lists is silently `undefined` at runtime with no
+static signal except esbuild's `import-is-undefined` warning during `npm run build`. Treat that
+warning as an error (it shipped a dead `cascade-tracks` verb); registry-parity §(e) now pins
+every `core.<name>` reference in verbs.ts against the real index surface.
 
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
 - An inline-level `<svg>` sits on the host line box's **text baseline** — small-height svgs get
@@ -1463,3 +1468,20 @@ spellings (hardening B1 spawn probe, r3 tsx probe) — same contracts, evidence 
   (the resolver seams).
 - `env.Path ?? env.PATH` is wrong for env fallbacks — an EMPTY string must fall through too
   (use `||`). The pure gate caught this before it shipped.
+
+### 2026-07-28 — cascade-tracks verb was dead headless: missing index.ts re-export (Claude Fable 5, `main`)
+**Work:** Chased the `npm run build` warning `Import "cascadeTracksVerb" will always be
+undefined` — a real bug: the 2026-07-21 cascade session exported `cascadeTracksVerb` from
+`flux-core/slides.ts` but never added it to index.ts's explicit `./slides` re-export list, so
+the `cascade-tracks` / `cascade_tracks` verb threw `core.cascadeTracksVerb is not a function`
+on every CLI/MCP/tsx-source invocation (the GUI ⌃⇧C path was unaffected — slideBridge calls
+slideOps directly). Fixed the export; two new pins: registry-parity gained §(e) — every
+`core.<name>` in verbs.ts statically resolves against the imported flux-core/index namespace
+(99 refs) — and verify-slide-headless-e2e now EXECUTES cascade-tracks through the real CLI
+(first-fixed start cascade, asserted 0/250 on disk). check 0/0; both bundle warnings gone.
+**Learnings:**
+- flux-core is outside `npm run check`'s scope, so index.ts's explicit re-export lists have no
+  static safety net — esbuild's `import-is-undefined` build warning is the ONLY signal and must
+  be treated as an error (promoted to §9 Bundle/startup).
+- Parse-level parity (goldens, tools/list) never invokes handlers: a new verb needs at least one
+  gate that EXECUTES it headless, or a broken handler ships green.

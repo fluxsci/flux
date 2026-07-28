@@ -124,6 +124,8 @@ export {
   groupTracksVerb,
   ungroupTracksVerb,
   applyAnimTemplateVerb,
+  // Cascade — stepped timing deltas across tracks (⌃⇧C's headless twin)
+  cascadeTracksVerb,
   type DeckSummary,
   type ValidateDeckResult,
 } from "./slides";

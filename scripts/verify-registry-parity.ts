@@ -8,7 +8,11 @@
 //       (CLI exit codes incl. 75 for locks; MCP isError);
 //   (d) surface inventory — every registry verb appears in the CLI help AND
 //       the MCP tool list, and every `flux <verb>` the agent skill doc
-//       (skills/flux/references/cli.md) names exists on the CLI surface.
+//       (skills/flux/references/cli.md) names exists on the CLI surface;
+//   (e) core-import integrity — every `core.<name>` a verb handler references
+//       resolves against flux-core/index's REAL export surface (the explicit
+//       re-export lists can silently drop one; the verb then crashes only
+//       when invoked).
 // Regenerate goldens deliberately:  REGEN_GOLDEN=1 npx tsx scripts/verify-registry-parity.ts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -188,6 +192,24 @@ try {
     for (const m of legacy.matchAll(/case "([a-z0-9-]+)":/g)) cliSurface.add(m[1]);
     const ghosts = [...named].filter((v) => !cliSurface.has(v) && !["help", "version"].includes(v));
     assert(!ghosts.length, `every skill-doc verb exists on the CLI surface${ghosts.length ? ` — GHOSTS: ${ghosts.join(", ")}` : ` (${named.size} checked)`}`);
+  }
+
+  // ---- (e) core-import integrity ------------------------------------------------------
+  // verbs.ts reaches flux-core through `import * as core from "./index"`; a function
+  // that exists in a flux-core module but is missing from index.ts's explicit
+  // re-export list is silently undefined at runtime — the verb crashes only when
+  // invoked, and only esbuild's import-is-undefined build warning ever hints at it
+  // (how the cascade_tracks handler shipped broken). Pin every reference statically.
+  {
+    const verbsSrc = await fs.readFile(path.join(REPO, "flux-core", "verbs.ts"), "utf8");
+    const refs = new Set([...verbsSrc.matchAll(/\bcore\.([A-Za-z0-9_$]+)/g)].map((m) => m[1]));
+    const missing = [...refs].filter((n) => !(n in core));
+    assert(
+      !missing.length,
+      missing.length
+        ? `core.* references in verbs.ts missing from flux-core/index: ${missing.join(", ")}`
+        : `every core.* reference in verbs.ts resolves against flux-core/index (${refs.size} checked)`,
+    );
   }
 } finally {
   await client.close().catch(() => {});

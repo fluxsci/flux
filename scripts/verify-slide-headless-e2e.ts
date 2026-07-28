@@ -53,6 +53,23 @@ try {
   const beatId = beatOut.trim();
   await flux("set-animation", "talk", slideId, beatId, "--target", textId, "--preset", "fadeRise", "--duration", "400");
   await flux("set-animation", "talk", slideId, beatId, "--target", figIds[0], "--preset", "fade", "--duration", "300");
+
+  // --- cascade-tracks EXECUTES through the registry (not just parses) ---------------
+  // The handler crosses index.ts's explicit re-export list, which once silently
+  // dropped cascadeTracksVerb — this is the invocation pin behind registry-parity (e).
+  const beatTracks = async () =>
+    (JSON.parse(await fs.readFile(path.join(root, "slides", "talk", "deck.json"), "utf8")) as
+      { slides: { id: string; beats: { id: string; tracks: { id: string; start?: number }[] }[] }[] })
+      .slides.find((s) => s.id === slideId)!.beats.find((b) => b.id === beatId)!.tracks;
+  const cascIds = (await beatTracks()).map((t) => t.id);
+  assert(cascIds.length === 2, `the reveal beat carries 2 tracks (got ${cascIds.length})`);
+  const { stderr: cascErr } = await flux("cascade-tracks", "talk", slideId, "start",
+    "--tracks", cascIds.join(","), "--delta", "250", "--first-fixed");
+  assert(/cascaded start across 2 track/.test(cascErr), "cascade-tracks reported both tracks");
+  const starts = (await beatTracks()).map((t) => t.start ?? 0);
+  assert(starts[0] === 0 && starts[1] === 250,
+    `first-fixed start cascade stepped 0/250 in lane order (got ${starts.join("/")})`);
+
   const { stderr: exportErr } = await flux("export-deck", "talk");
   assert(/exported/i.test(exportErr), "export-deck reported success");
 
