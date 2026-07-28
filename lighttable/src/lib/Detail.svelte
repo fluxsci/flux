@@ -3,6 +3,9 @@
   // as an underlay while the full-res original decodes — never a blank frame.
   // Zoom model: "fit" mode is pure CSS (object-fit: contain); user zoom
   // renders the image at natural size inside a translated+scaled wrapper.
+  // Controls: Ctrl/⌘+scroll zooms at the cursor (trackpad pinch arrives as
+  // ctrl+wheel), plain scroll pans ↑↓, Shift+scroll pans ↔, and holding
+  // Space + drag pans freely (the hand tool).
   import { store } from "./store.svelte";
 
   const setId = $derived(store.currentSet?.id ?? "");
@@ -114,25 +117,91 @@
     };
   });
 
+  // Ctrl/⌘+scroll = zoom at the cursor; the exponential factor makes mouse
+  // notches (±120) and fine trackpad-pinch deltas both feel right. Plain
+  // scroll = pan ↑↓; Shift+scroll = pan ↔ (some platforms pre-swap shifted
+  // wheel into deltaX — native deltaX always pans ↔, so both arrivals work).
   function onWheel(e: WheelEvent) {
     if (!stage) return;
-    const r = stage.getBoundingClientRect();
-    const cx = e.clientX - r.left - r.width / 2;
-    const cy = e.clientY - r.top - r.height / 2;
-    zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, cx, cy);
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault(); // Chromium page-zooms on ctrl+wheel otherwise
+      const r = stage.getBoundingClientRect();
+      const cx = e.clientX - r.left - r.width / 2;
+      const cy = e.clientY - r.top - r.height / 2;
+      zoomBy(Math.pow(1.0015, -e.deltaY), cx, cy);
+      return;
+    }
+    if (!userZoomed) return;
+    e.preventDefault();
+    let dx = e.deltaX;
+    let dy = e.deltaY;
+    if (e.shiftKey && dx === 0) {
+      dx = dy;
+      dy = 0;
+    }
+    tx -= dx;
+    ty -= dy;
   }
 
+  // Svelte's `onwheel` attribute registers a passive listener; zoom needs
+  // preventDefault (to stop ctrl+wheel page zoom), so attach by hand.
+  $effect(() => {
+    const el = stage;
+    if (!el) return;
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  });
+
+  // Drag-pan is the hand tool: it requires holding Space. A bare click-drag
+  // neither pans nor closes the viewer.
+  let spaceHeld = $state(false);
   let dragging = $state(false);
   let lastX = 0;
   let lastY = 0;
+  let pressX = 0;
+  let pressY = 0;
+  let pressedOnBackdrop = false;
+  let moved = false;
+
+  $effect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      spaceHeld = true;
+      e.preventDefault();
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === "Space") spaceHeld = false;
+    };
+    const clear = () => {
+      spaceHeld = false;
+      dragging = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", clear);
+    };
+  });
+
   function onPointerDown(e: PointerEvent) {
-    if (!userZoomed) return;
+    pressedOnBackdrop = e.target === stage;
+    pressX = e.clientX;
+    pressY = e.clientY;
+    moved = false;
+    if (!spaceHeld || !userZoomed) return;
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
   }
   function onPointerMove(e: PointerEvent) {
+    if (e.buttons & 1 && Math.abs(e.clientX - pressX) + Math.abs(e.clientY - pressY) > 3) moved = true;
     if (!dragging) return;
     tx += e.clientX - lastX;
     ty += e.clientY - lastY;
@@ -143,8 +212,12 @@
     dragging = false;
   }
 
-  // Click on the backdrop (not the image) returns to the grid.
+  // Click on the backdrop (not the image) returns to the grid. Guards:
+  // pointer capture during a Space-pan retargets the release click to the
+  // stage itself, so e.target alone can't tell a backdrop click from a pan —
+  // close only for a stationary press that STARTED on the backdrop, sans pan.
   function onStageClick(e: MouseEvent) {
+    if (moved || !pressedOnBackdrop || spaceHeld) return;
     if (e.target === stage) store.closeDetail();
   }
 </script>
@@ -152,8 +225,9 @@
 <div class="detail" data-detail>
   <div
     class="stage"
+    class:panready={spaceHeld && userZoomed}
+    class:dragging
     bind:this={stage}
-    onwheel={onWheel}
     onclick={onStageClick}
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
@@ -171,7 +245,6 @@
       {:else}
         <div
           class="zoomwrap"
-          class:dragging
           style:width={`${natW}px`}
           style:height={`${natH}px`}
           style:margin-left={`${-natW / 2}px`}
@@ -225,14 +298,16 @@
     padding: 16px;
     box-sizing: border-box;
   }
+  .stage.panready {
+    cursor: grab;
+  }
+  .stage.dragging {
+    cursor: grabbing;
+  }
   .zoomwrap {
     position: absolute;
     left: 50%;
     top: 50%;
-    cursor: grab;
-  }
-  .zoomwrap.dragging {
-    cursor: grabbing;
   }
   .zoomwrap img {
     width: 100%;

@@ -30,6 +30,7 @@ export type GridDebug = {
   cellPx: number;
   cellH: number;
   rowH: number;
+  thumbPx: number; // requested thumb bucket; 0 = serving the original file
   dom: number;
 };
 

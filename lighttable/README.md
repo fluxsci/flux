@@ -51,12 +51,15 @@ png/jpg/jpeg/webp/gif/avif/bmp/svg; flat sets (no recursion); natural sort every
 | Key | Grid | Detail | Compare |
 |---|---|---|---|
 | `←→↑↓` | move selection (↑↓ = row) | ←→ item (skips missing), ↑↓ set | ←→ item |
-| `Enter`/`Space` | open Detail | toggle fit / 1:1 | Detail (current set) |
+| `Enter`/`Space` | open Detail | toggle fit / 1:1 (`Enter` only) | Detail (current set) |
 | `Ctrl+Enter` | **Compare** — this item across ALL sets | — | — |
 | `Esc` | clear search | back to grid / compare | back to grid |
 | `1`–`9` | jump to set N | same | — |
 | `Tab`/`Shift+Tab` | next / prev set | same | — |
 | `[` `]` (or `-` `=`) | fewer / more columns | zoom out / in (`0` = fit) | — |
+| scroll | — | pan ↑↓ (`Shift` = ↔) | — |
+| `Ctrl+scroll` | — | zoom at cursor (pinch works) | — |
+| hold `Space` + drag | — | pan | — |
 | `/` | focus search | — | — |
 | `c` | toggle captions | same | same |
 | `Home`/`End` | first / last item | first / last present item | first / last item |
@@ -64,9 +67,12 @@ png/jpg/jpeg/webp/gif/avif/bmp/svg; flat sets (no recursion); natural sort every
 
 Mouse: click a cell = fullscreen it; **Ctrl+click** a cell = Compare (that item across all
 sets, tiles packed as large as they fit, captioned by set name; click a tile to fullscreen
-it, Esc steps back). Top-left collection name: click = **sister folders** (directories
-beside the current collection — switch with one click); **Ctrl+click** = native folder
-picker. Grid H/V gaps are adjustable in the `⋯` menu (persisted).
+it, Esc steps back). In Detail: **Ctrl+scroll** zooms at the cursor (trackpad pinch too),
+plain scroll pans ↑↓, **Shift+scroll** pans ↔, hold **Space** + drag = free pan; a click on
+the backdrop beside a zoomed image returns to the grid. Top-left collection name: click =
+**sister folders** (directories beside the current collection — switch with one click);
+**Ctrl+click** = native folder picker. Grid H/V gaps are adjustable in the `⋯` menu
+(persisted).
 
 ## Architecture (short)
 

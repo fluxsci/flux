@@ -3,6 +3,7 @@
   // the window; decodes off-DOM before swapping src so a set switch is a hard
   // cut (old image stays until the new one can paint — never a blank frame).
   // A generation counter drops responses that arrive after the cell moved on.
+  // px 0 = the cell outgrew the largest thumb bucket — load the original.
   import { store } from "./store.svelte";
 
   let {
@@ -31,7 +32,7 @@
       return;
     }
     void (async () => {
-      const url = await store.api?.thumbUrl(s, k, p);
+      const url = p === 0 ? await store.api?.fullUrl(s, k) : await store.api?.thumbUrl(s, k, p);
       if (my !== gen || !url) return;
       const im = new Image();
       im.decoding = "async";
@@ -103,8 +104,11 @@
     box-shadow: 0 0 0 3px var(--c-accent-tint);
   }
   img {
-    max-width: 100%;
-    max-height: 100%;
+    /* Fill the cell in BOTH directions — small sources upscale rather than
+       float in the middle of a large cell (the cell aspect tracks the images'
+       measured aspect, so contain-letterboxing stays negligible). */
+    width: 100%;
+    height: 100%;
     object-fit: contain;
   }
   .missing {

@@ -8,7 +8,7 @@
   // scroll height and the window container is translateY'd into place. Cells
   // are keyed by item KEY, so a set switch swaps images inside stable DOM
   // nodes — the flip-book hard cut.
-  import { store, GRID_PAD, CAPTION_H, OVERSCAN_ROWS, bucketFor } from "./store.svelte";
+  import { store, GRID_PAD, CAPTION_H, OVERSCAN_ROWS, bucketFor, BUCKETS } from "./store.svelte";
   import Cell from "./Cell.svelte";
 
   let viewport = $state<HTMLDivElement | null>(null);
@@ -48,7 +48,12 @@
     return out;
   });
   // Thumbs are keyed by longest edge — bucket by the cell's longer side.
-  const pxBucket = $derived(bucketFor(Math.max(cellW, cellH) * (window.devicePixelRatio || 1)));
+  // Past the largest bucket a thumb could only be UPSCALED (blurry) into the
+  // cell: 0 means "serve the original file" (Cell switches to fullUrl).
+  const pxBucket = $derived.by(() => {
+    const want = Math.max(cellW, cellH) * (window.devicePixelRatio || 1);
+    return want > BUCKETS[BUCKETS.length - 1] ? 0 : bucketFor(want);
+  });
   const setId = $derived(store.currentSet?.id ?? "");
 
   // Imperative hooks for the keymap (closures read the current derived values).
@@ -119,7 +124,7 @@
 
   // Dev introspection for the gates (bounded-DOM structural budget).
   $effect(() => {
-    store.gridDebug = { firstRow, lastRow, cellPx: cellW, cellH, rowH, dom: endIdx - startIdx };
+    store.gridDebug = { firstRow, lastRow, cellPx: cellW, cellH, rowH, thumbPx: pxBucket, dom: endIdx - startIdx };
   });
 </script>
 

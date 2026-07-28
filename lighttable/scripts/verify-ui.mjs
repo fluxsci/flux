@@ -175,6 +175,77 @@ await waitFor(async () => (await state(p1, "view")) === "grid", { desc: "back to
 check("Esc returns to Grid with the viewed item selected", (await state(p1, "selectedKey")) === "item_003");
 check("selected ring on the viewed item", (await p1.$eval("[data-cell].selected", (e) => e.dataset.key)) === "item_003");
 
+section("mock=default: detail zoom/pan interaction model");
+// The wheel is modal: Ctrl+scroll zooms at the cursor, plain scroll pans ↑↓,
+// Shift+scroll pans ↔, and drag pans ONLY while Space is held (hand tool).
+// Real mouse/keyboard input throughout — pointer capture retargets the pan's
+// release click to the stage, which used to read as a backdrop click and
+// kick the user back to the grid mid-pan (the regression this section pins).
+await p1.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+await p1.waitForSelector("[data-detail]", { timeout: 3000 });
+await waitFor(async () => await p1.$('[data-detail] img.fit:not([alt=""])'), { desc: "full-res image decoded" });
+await p1.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+await p1.waitForSelector(".zoomwrap", { timeout: 3000 });
+check("Enter toggles to 1:1 zoom", (await p1.$eval(".detail .zoom", (e) => e.textContent)) === "100%");
+await p1.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "0", bubbles: true, cancelable: true })));
+await waitFor(async () => !(await p1.$(".zoomwrap")), { desc: "'0' back to fit" });
+const stageBox = await (await p1.$("[data-detail] .stage")).boundingBox();
+const scx = stageBox.x + stageBox.width / 2;
+const scy = stageBox.y + stageBox.height / 2;
+const pan = () =>
+  p1.$eval(".zoomwrap", (el) => {
+    const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(el.style.transform);
+    return { x: +m[1], y: +m[2] };
+  });
+await p1.mouse.move(scx, scy);
+await p1.keyboard.down("Control");
+await p1.mouse.wheel({ deltaY: -240 });
+await p1.keyboard.up("Control");
+await p1.waitForSelector(".zoomwrap", { timeout: 3000 });
+const zoomPct = parseInt(await p1.$eval(".detail .zoom", (e) => e.textContent), 10);
+check(`Ctrl+scroll zooms in from fit (${zoomPct}%)`, zoomPct > 110);
+let before = await pan();
+await p1.mouse.wheel({ deltaY: 120 });
+await sleep(50);
+let after = await pan();
+check(`plain scroll pans ↑↓ (dy ${(after.y - before.y).toFixed(1)})`, Math.abs(after.y - before.y + 120) < 2 && Math.abs(after.x - before.x) < 2);
+before = after;
+await p1.keyboard.down("Shift");
+await p1.mouse.wheel({ deltaY: 120 });
+await p1.keyboard.up("Shift");
+await sleep(50);
+after = await pan();
+check(`Shift+scroll pans ↔ (dx ${(after.x - before.x).toFixed(1)})`, Math.abs(after.x - before.x + 120) < 2 && Math.abs(after.y - before.y) < 2);
+// Bare click-drag from the image out onto the backdrop: no pan, no close.
+before = after;
+await p1.mouse.move(scx, scy);
+await p1.mouse.down();
+await p1.mouse.move(scx + 300, scy + 200, { steps: 6 });
+await p1.mouse.up();
+await sleep(100);
+after = await pan();
+check("bare drag stays in detail (the original bug)", (await state(p1, "view")) === "detail");
+check("bare drag does not pan", after.x === before.x && after.y === before.y);
+// Hold Space + drag = pan.
+await p1.keyboard.down("Space");
+await p1.mouse.move(scx, scy);
+await p1.mouse.down();
+await p1.mouse.move(scx + 60, scy + 40, { steps: 6 });
+await p1.mouse.up();
+await p1.keyboard.up("Space");
+await sleep(100);
+const panned = await pan();
+check("Space+drag stays in detail", (await state(p1, "view")) === "detail");
+check(`Space+drag pans (+${(panned.x - after.x).toFixed(1)},+${(panned.y - after.y).toFixed(1)})`, Math.abs(panned.x - after.x - 60) < 2 && Math.abs(panned.y - after.y - 40) < 2);
+// The pans moved the image center to (scx-60, scy-80) — click ON the image.
+const imgBox = await (await p1.$(".zoomwrap")).boundingBox();
+await p1.mouse.click(imgBox.x + imgBox.width / 2, imgBox.y + imgBox.height / 2);
+await sleep(100);
+check("clicking the zoomed image stays in detail", (await state(p1, "view")) === "detail");
+await p1.mouse.click(stageBox.x + 40, stageBox.y + 40); // stationary backdrop click
+await waitFor(async () => (await state(p1, "view")) === "grid", { desc: "backdrop click closes detail" });
+check("stationary backdrop click still closes detail", true);
+
 section("mock=default: search");
 await timed(p1, "search keystroke filters", () =>
   p1.evaluate(async () => {
@@ -241,6 +312,40 @@ await p1.evaluate(() => {
 });
 await p1.keyboard.press("Escape");
 await p1.click(".grid-viewport").catch(() => {});
+
+section("mock=default: low column counts fill the cells");
+// At 1 column the ~1400px cell exceeds the largest thumb bucket: the grid
+// must request the ORIGINAL file (thumbPx 0) and the 128×96 mock image must
+// stretch to fill the cell — a thumb parked at natural size in the middle of
+// a huge cell was the bug.
+const colsBefore = await state(p1, "cols");
+await p1.evaluate(() => {
+  while (window.__ltState.cols > 1)
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "[", bubbles: true, cancelable: true }));
+});
+await waitFor(async () => (await state(p1, "cols")) === 1, { desc: "cols -> 1" });
+check("past the largest bucket the grid asks for the original (thumbPx 0)", (await p1.evaluate(() => window.__ltState.grid)).thumbPx === 0);
+await waitFor(
+  async () =>
+    await p1.evaluate(() => {
+      const img = document.querySelector("[data-cell] img");
+      if (!img || !img.complete) return false;
+      const surf = img.closest(".surface");
+      return Math.abs(img.clientWidth - surf.clientWidth) <= 2 && Math.abs(img.clientHeight - surf.clientHeight) <= 2;
+    }),
+  { desc: "1-col image stretches to fill its cell" }
+);
+const fill = await p1.evaluate(() => {
+  const img = document.querySelector("[data-cell] img");
+  const surf = img.closest(".surface");
+  return `${img.clientWidth}×${img.clientHeight} in ${surf.clientWidth}×${surf.clientHeight}`;
+});
+check(`1-col cell image fills the cell (${fill})`, true);
+await p1.evaluate((n) => {
+  while (window.__ltState.cols < n)
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "]", bubbles: true, cancelable: true }));
+}, colsBefore);
+await waitFor(async () => (await state(p1, "cols")) === colsBefore, { desc: "cols restored" });
 
 section("mock=default: compare view (one item across all sets)");
 await p1.evaluate(() => {

@@ -134,9 +134,10 @@ export function handleKey(e: KeyboardEvent, s: Store): void {
         s.stepSet(1);
         break;
       case "Enter":
-      case " ":
         s.detailApi?.toggleFit();
         break;
+      // " " (Space) is deliberately absent: hold-Space+drag is the pan hand
+      // tool, owned by Detail.svelte's own key tracking.
       case "Escape":
         s.closeDetail();
         break;
