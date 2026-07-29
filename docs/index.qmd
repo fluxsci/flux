@@ -20,7 +20,9 @@ folder, or jump back into a recent one. ([What every file in the folder is](refe
 # The five modes
 
 Down the side of the window is a rail with the five modes. Click one to switch. Each mode is a
-full workspace, and they all look at the same project.
+full workspace, and they all look at the same project. (At the bottom of the rail: the
+Lighttable launcher, a Docs button that opens this documentation in your browser, Settings,
+and the keyboard-shortcut reference.)
 
 - **[Paper](modes/paper.qmd)** — the manuscript editor. Clean, fast writing in plain text with
   live formatting; citations and figure references are live chips that keep themselves numbered.

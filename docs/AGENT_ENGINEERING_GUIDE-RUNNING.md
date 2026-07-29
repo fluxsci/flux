@@ -1505,3 +1505,18 @@ Gates: fluxconfig, context-scheme, registry-parity, check 0/0.
   comment + empty body — never anyone's actual conventions. The fluxconfig gate now pins this.
 - Stock FluxContext docs are product text synced to every machine — examples in them must use
   placeholder names/paths, not the owner's.
+
+### 2026-07-29 (later) — Docs button in the rail (Claude Fable 5, `main`)
+**Work:** New rail-foot button (bookText icon, between Lighttable and Settings) opens the
+rendered user docs in the OS browser. Mirrors the lighttable:launch pattern end to end:
+`docs:open` invoke channel (contract.cjs, scope spawn) → main handler `shell.openPath`s
+`<repo>/docs/_site/index.html`, with a "run `quarto render docs` once" error toast when
+_site is missing (a button press must not hide a multi-second render) → preload `openDocs` →
+optional `FileBridge.openDocs` → ActivityRail button. Source-checkout only, like Lighttable.
+Docs updated (index.qmd rail-foot sentence; lighttable.qmd "above the Settings gear" was now
+stale). Gates: ipc-contract, docs (120), check 0/0; visual check on :1420 (button renders,
+0 console errors).
+**Learnings:**
+- Rail-foot buttons that reach the OS all follow one shape: contract entry → main handler
+  returning `{ok, error}` → preload one-liner → optional bridge method → toast on `!ok`.
+  Copy lighttable:launch, don't improvise.

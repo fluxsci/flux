@@ -55,8 +55,8 @@ npm start -- ~/sweep         # build + run, opening the collection
 Once it's open you can also drop a folder onto the window, use the Open picker, or pick
 from Recents.
 
-From inside Flux, the Lighttable button at the bottom of the left rail (above the Settings
-gear) launches it directly — a fresh window if it isn't running, or the existing one
+From inside Flux, the Lighttable button at the bottom of the left rail (above the Docs
+button and Settings gear) launches it directly — a fresh window if it isn't running, or the existing one
 brought to front. The button needs the one-time `npm install` / `npm run build` above; if
 either is missing it tells you which.
 

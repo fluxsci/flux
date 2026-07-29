@@ -1424,6 +1424,19 @@ ipcMain.handle("lighttable:launch", async () => {
   }
 });
 
+// Open the user documentation (the docs/ Quarto site beside this checkout) in
+// the OS browser. Rendered output only — a button press must not hide a
+// multi-second `quarto render` behind it, so a missing _site says how to build
+// it instead. Source-checkout only, like lighttable:launch.
+ipcMain.handle("docs:open", async () => {
+  const index = path.join(__dirname, "..", "docs", "_site", "index.html");
+  if (!fs.existsSync(index)) {
+    return { ok: false, error: "Docs aren't rendered yet — run `quarto render docs` in the Flux repo once (source checkout only)." };
+  }
+  const err = await shell.openPath(index);
+  return err ? { ok: false, error: err } : { ok: true };
+});
+
 // ---------------------------------------------------------------------------
 // IPC: integrated terminal. The renderer's xterm.js front-end drives a native
 // login shell ($SHELL on macOS/Linux) running in a real PTY here, so colors,

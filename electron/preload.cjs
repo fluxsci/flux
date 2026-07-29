@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld("fig", {
   openPath: (p) => ipcRenderer.invoke("shell:openPath", p),
   // Launch the Lighttable sidecar app (convenience spawn; source checkout only).
   launchLighttable: () => ipcRenderer.invoke("lighttable:launch"),
+  // Open the rendered user docs (docs/_site) in the OS browser.
+  openDocs: () => ipcRenderer.invoke("docs:open"),
 
   // Host platform ("darwin" | "linux" | "win32") — lets the renderer adapt its chrome
   // (e.g. defer to the native macOS traffic lights instead of custom window buttons).

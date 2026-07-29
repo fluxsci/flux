@@ -27,6 +27,12 @@
     const res = await fileBridge()?.launchLighttable?.();
     if (res && !res.ok) pushToast("error", "Could not launch Lighttable", { detail: res.error });
   }
+
+  // Open the user documentation (the rendered docs/ site) in the OS browser.
+  async function openDocs() {
+    const res = await fileBridge()?.openDocs?.();
+    if (res && !res.ok) pushToast("error", "Could not open the docs", { detail: res.error });
+  }
 </script>
 
 <nav class="rail">
@@ -55,6 +61,9 @@
 
   <button class="item foot" title="Lighttable — browse image sets" aria-label="Lighttable" onclick={launchLighttable}>
     <Icon name="lighttable" size={19} />
+  </button>
+  <button class="item foot" title="Documentation — the Flux user guide" aria-label="Documentation" onclick={openDocs}>
+    <Icon name="bookText" size={19} />
   </button>
   <button class="item foot" title="Settings" aria-label="Settings" onclick={() => settingsOpen.set(true)}>
     <Icon name="settings" size={19} />
