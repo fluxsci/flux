@@ -1485,3 +1485,23 @@ slideOps directly). Fixed the export; two new pins: registry-parity gained §(e)
   be treated as an error (promoted to §9 Bundle/startup).
 - Parse-level parity (goldens, tools/list) never invokes handlers: a new verb needs at least one
   gate that EXECUTES it headless, or a broken handler ships green.
+
+### 2026-07-29 — UserContext seeds are BLANK by design (Claude Fable 5, `main`)
+**Work:** Owner directive: nothing user-specific may be seeded into FluxConfig. The
+fresh-machine `UserContext/RULES.md` seed (`GUIDELINES_BASE_RULES` in fluxPaths.cjs) was the
+owner's actual conventions (panel labels, caption style, one-canvas-per-qmd, …) — replaced with
+a blank purpose-comment template and renamed `USER_RULES_SEED` (WHO-AM-I was already blank).
+verify-fluxconfig now asserts BOTH seeds are blank (no pre-filled conventions) instead of
+asserting the old content. Also genericized owner strings in agent/user-facing product text:
+stock FluxContext docs (`"MICrONS synapse organization" --author "K. Driessen"` →
+`"Synapse organization" --author "A. Author"` in WORKFLOW.md; `/data/microns_analysis/` →
+`/data/my_analysis/` in CLI-REFERENCE + MANUSCRIPT-AND-REVIEW; regenerated gen.cjs, hash
+9a846d90c7af7fa3) and the `citation` verb description ("Driessen et al." → "Smith et al.").
+memBridge.ts's dev-only fixture keeps the owner's name (never ships). Legacy migration
+unchanged: an existing/edited RULES.md or base_rules.md is user-owned and never rewritten.
+Gates: fluxconfig, context-scheme, registry-parity, check 0/0.
+**Learnings:**
+- Seed content policy (standing): everything under `UserContext/` is seeded as a purpose
+  comment + empty body — never anyone's actual conventions. The fluxconfig gate now pins this.
+- Stock FluxContext docs are product text synced to every machine — examples in them must use
+  placeholder names/paths, not the owner's.

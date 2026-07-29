@@ -15,7 +15,7 @@ F="{{FLUX_CLI}}"
 
 ```bash
 # Locate the project (a folder with project.json) inside the analysis dir, or scaffold one:
-$F new ./paper --title "MICrONS synapse organization" --author "K. Driessen"   # if none exists (confirm first)
+$F new ./paper --title "Synapse organization" --author "A. Author"   # if none exists (confirm first)
 cd ./paper && export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
 $F config                        # machine paths — note userContextPath + fluxContextPath
 # read EVERYTHING in <userContextPath>/ (every .md + image) before working —

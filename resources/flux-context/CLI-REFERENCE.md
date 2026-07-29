@@ -20,7 +20,7 @@ rebuild (`npm run build:cli` in the Flux repo).
 Then set your identity and pin the project for the session:
 
 ```bash
-cd /data/microns_analysis/paper          # the Flux project (has project.json)
+cd /data/my_analysis/paper               # the Flux project (has project.json)
 export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
 ```
 

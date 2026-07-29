@@ -181,7 +181,7 @@ export interface CitationResult {
   bibEntry: boolean;
 }
 
-/** The minimal text citation for a FluxLib key ("Driessen et al., 2026, Nat. Neurosci."). */
+/** The minimal text citation for a FluxLib key ("Smith et al., 2026, Nat. Neurosci."). */
 export async function getCitation(key: string, libPath?: string): Promise<CitationResult> {
   const idx = await loadIndex(libPath ?? (await resolveFluxLibPath()));
   const entry = idx.entries[key] ?? null;

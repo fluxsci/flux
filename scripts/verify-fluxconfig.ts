@@ -148,8 +148,16 @@ if (process.platform !== "win32") {
     assert(fs.existsSync(path.join(cfg, "FluxLib", "items", "x", "a.pdf")), "items moved intact");
     assert((fs.statSync(path.join(cfg, "FluxLib", "keys.json")).mode & 0o777) === 0o600, "keys.json stayed 0600");
     const uc1 = path.join(cfg, "Context", "UserContext");
-    assert(fs.readFileSync(path.join(uc1, "RULES.md"), "utf8").includes("panel labels"), "UserContext RULES.md seeded with base rules");
-    assert(fs.existsSync(path.join(uc1, "WHO-AM-I.md")), "UserContext WHO-AM-I.md seeded");
+    const seededRules = fs.readFileSync(path.join(uc1, "RULES.md"), "utf8");
+    assert(seededRules.includes("(none yet)"), "UserContext RULES.md seeded");
+    // UserContext seeds must be BLANK: purpose comment + empty body, never
+    // anyone's actual conventions (rules, styles, names) pre-filled.
+    assert(
+      !/panel label|caption|manuscript|canvas per/i.test(seededRules),
+      "UserContext RULES.md seed carries no pre-filled conventions",
+    );
+    const seededWho = fs.readFileSync(path.join(uc1, "WHO-AM-I.md"), "utf8");
+    assert(seededWho.includes("not filled out yet"), "UserContext WHO-AM-I.md seeded blank");
     assert(!fs.existsSync(path.join(cfg, "Guidelines")), "no legacy Guidelines dir on a fresh machine");
     const fc1 = path.join(cfg, "Context", "FluxContext");
     assert(fs.readFileSync(path.join(fc1, "PRINCIPAL.md"), "utf8").includes("Boot sequence"), "FluxContext stock docs synced");

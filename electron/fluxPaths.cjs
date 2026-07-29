@@ -393,7 +393,7 @@ async function ensureUserContext(cfg, events) {
     events.push({ action: "promote-base-rules", detail: `${baseRules} -> ${rules}` });
   }
   if (!fsSync.existsSync(rules)) {
-    await fsp.writeFile(rules, GUIDELINES_BASE_RULES);
+    await fsp.writeFile(rules, USER_RULES_SEED);
     events.push({ action: "seed-user-rules", detail: rules });
   }
   const who = path.join(uc, "WHO-AM-I.md");
@@ -687,11 +687,13 @@ async function moveFluxConfig(parentDir) {
 }
 
 // ---------------------------------------------------------------------------
-// UserContext seed content. GUIDELINES_README survives only as the byte-compare
-// reference for dropping the untouched stock README during Guidelines→
-// UserContext migration; GUIDELINES_BASE_RULES doubles as the fresh-machine
-// RULES.md seed. Embedded as strings (not repo asset files) so the packaged
-// app and the esbuild CLI/MCP bundles carry them with zero packaging changes.
+// UserContext seed content — BLANK by design: everything in UserContext/ is
+// the user's own; Flux never pre-fills it with anyone's conventions (seeds
+// explain the file's purpose, then leave it empty). GUIDELINES_README survives
+// only as the byte-compare reference for dropping the untouched stock README
+// during Guidelines→UserContext migration. Embedded as strings (not repo asset
+// files) so the packaged app and the esbuild CLI/MCP bundles carry them with
+// zero packaging changes.
 // ---------------------------------------------------------------------------
 
 const WHO_AM_I_SEED = `# Who am I
@@ -715,18 +717,15 @@ of every session and follow it. Add, edit, or remove files freely — this
 folder is yours; Flux seeds it once and never rewrites it.
 `;
 
-const GUIDELINES_BASE_RULES = `# Base conventions to follow when working in flux projects:
-- Any atomic write-up or 'paper' should correspond to a single .qmd document, and all figures should be made on a single canvas - i.e. you should use a single canvas per .qmd document. If a new subproject or write up is distinct enough to warrant its own .qmd document, then all figures for that subproject should be made on a single canvas. This is not a 100% hard rule, but a general practice to follow to keep things organized.
-- Always use panel labels (a, b, c, etc.) when creating multi-plot figures (very common) and refernce the specific and relevant panel(s) when writing.
-- Always keep figure captions up to date and in the style of major scientific journals (e.g. Nature, Science, Cell, etc.).
-- Add references to project's FluxLib when needed.
-- Always review figures visually to confirm they are as expected and do not contain any errors or artifacts.
+const USER_RULES_SEED = `# Rules
 
-(New additions)
----
-- When writing up manuscripts or technical reports, do NOT have a figures section at the end of the document, instead, figures should be embedded one single time, wherever they are the most relevant in the text (for a scientific manuscript, this is almost always in the relevant section of the results).
+<!-- Your standing rules for ALL Flux work on this machine — every Flux agent
+     reads this at session start and follows it. Add whatever conventions you
+     want enforced everywhere (figure style, writing habits, workflow rules);
+     rules for one project live in that project's Context/RULES.md instead.
+     Flux seeds this file blank once and never rewrites it. -->
 
-- Always use the default saved font styles where appropriate - e.g. Panel Labels should use the 'Panel Label' style
+- *(none yet)*
 `;
 
 module.exports = {
@@ -745,6 +744,6 @@ module.exports = {
   configInfoSync,
   resolveOwnCliCommandsSync,
   GUIDELINES_README,
-  GUIDELINES_BASE_RULES,
+  USER_RULES_SEED,
   WHO_AM_I_SEED,
 };

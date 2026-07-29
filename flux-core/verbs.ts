@@ -2710,7 +2710,7 @@ export const VERBS: VerbDef[] = [
     cli: "cite",
     cliRoot: "flags",
     summary:
-      'The minimal text citation for a FluxLib key ("Driessen et al., 2026, Nat. Neurosci." — in-text author-year + ISO-4-abbreviated journal), for figure captions and slides.',
+      'The minimal text citation for a FluxLib key ("Smith et al., 2026, Nat. Neurosci." — in-text author-year + ISO-4-abbreviated journal), for figure captions and slides.',
     params: { key: z.string() },
     cliArgs: [{ kind: "pos", at: 0, into: "key", required: true }],
     handler: (_ctx, a) => core.getCitation(s(a.key)),

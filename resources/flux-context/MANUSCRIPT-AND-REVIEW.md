@@ -138,7 +138,7 @@ project (ready-to-copy versions of these: `TEMPLATES.md`). For **Codex**,
 ```toml
 [mcp_servers.flux]
 command = "node"
-args = ["{{FLUX_MCP_PATH}}", "/data/microns_analysis/paper"]
+args = ["{{FLUX_MCP_PATH}}", "/data/my_analysis/paper"]
 
 [mcp_servers.flux.env]
 FLUX_CLIENT = "codex"
@@ -149,7 +149,7 @@ For **Claude Code**, use `<analysis-dir>/.mcp.json`:
 ```json
 { "mcpServers": { "flux": {
   "command": "node",
-  "args": ["{{FLUX_MCP_PATH}}", "/data/microns_analysis/paper"],
+  "args": ["{{FLUX_MCP_PATH}}", "/data/my_analysis/paper"],
   "env": { "FLUX_CLIENT": "claude" }
 } } }
 ```

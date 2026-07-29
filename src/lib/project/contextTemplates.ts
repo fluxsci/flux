@@ -1,8 +1,8 @@
 // The project-level Context/ layer: seed content for scaffold + heal.
 // Pure module (no Svelte, no DOM, no Node) — shared by the GUI scaffold path and
-// flux-core (twin-engine rule). The machine-level twin (UserContext defaults) lives
-// in flux-core/contextConfig.ts; the stock FluxContext docs ship as real files in
-// resources/flux-context/.
+// flux-core (twin-engine rule). The machine-level twin (the blank UserContext
+// seeds) lives in electron/fluxPaths.cjs; the stock FluxContext docs ship in
+// resources/flux-context/ (generated into electron/fluxContextDocs.gen.cjs).
 
 /** Project-relative paths of the Context layer. One source of truth. */
 export const CONTEXT_DIR = "Context";
