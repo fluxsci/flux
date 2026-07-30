@@ -1,0 +1,181 @@
+---
+title: "Zotero integration"
+subtitle: "Keep adding papers in Zotero — new references and their PDFs flow into FluxLib automatically"
+---
+
+If you already live in Zotero — or your papers arrive through its excellent browser
+connector — you don't have to choose between Zotero and Flux. Connect them once and
+Zotero becomes an intake valve for [FluxLib](../concepts/library-and-fluxlib.qmd): anything
+you add there appears in Flux, with its PDF, ready to read, annotate, cite, and search.
+
+# What it does — and what it never does
+
+The connection is **one-way and additive**. On every sync, Flux reads a Zotero *export
+file* (set up below) and brings in whatever FluxLib doesn't already have. That's the whole
+contract. Concretely:
+
+- **New Zotero references are added** to FluxLib, keeping their Better BibTeX citation keys.
+- **Their PDFs come along** — copied into FluxLib or linked in place, your choice (see
+  [PDFs: copied or linked](#pdfs-copied-or-linked)).
+- **Papers you already have are recognized and left alone.** Matching is by DOI first, then
+  by title + author + year for entries without one. Your existing citekeys, PDFs, notes, and
+  annotations are never touched.
+- **Nothing is ever written back to Zotero.** Flux never modifies your Zotero library, its
+  database, or its files.
+- **Deleting or editing in Zotero changes nothing in Flux.** FluxLib is your permanent
+  collection; Zotero is just one of the doors into it.
+
+Syncing is safe to run any number of times — a second sync of the same export is a no-op.
+
+# One-time setup in Zotero
+
+Flux reads a **Better BibTeX auto-export**: a `.bib` file that Zotero keeps rewriting on its
+own whenever your library changes. Setting that up takes two minutes:
+
+1. **Install the Better BibTeX plugin** (free, open source). Download the `.xpi` from
+   [retorque.re/zotero-better-bibtex](https://retorque.re/zotero-better-bibtex/) and in
+   Zotero choose **Tools → Plugins → gear menu → Install Plugin From File…**, then restart
+   Zotero.
+2. **Create the auto-export.** Right-click your library (or a single collection — see
+   [Very large libraries](#very-large-libraries)) and choose **Export Library…**. Set the
+   format to **Better BibTeX**, and tick **Keep updated** — this is the crucial checkbox.
+   Save the `.bib` file anywhere you like; next to your Zotero data folder is a fine choice.
+
+From now on, Better BibTeX silently rewrites that file every time your Zotero library
+changes. That file is the entire interface between the two apps — Flux never talks to
+Zotero itself, so nothing here depends on Zotero being open.
+
+# Connecting Flux
+
+In [Library](../modes/library.qmd), click the **Zotero** button in the header and point
+Flux at the export:
+
+- **Choose .bib…** — the auto-export file you just created.
+- **Zotero folder…** — your Zotero data folder (usually `~/Zotero`; its `storage` subfolder
+  holds the PDFs). Flux needs this to find PDFs that the export references by relative
+  path. If you skip it, PDFs stored with absolute paths still work.
+- **Copy vs. link** — how PDFs are brought in; see the next section.
+- **Sync automatically** — on by default: Flux syncs at startup and live while the app is
+  open. Turn it off if you'd rather sync only from the button.
+
+Click **Connect & sync** and the first sync runs immediately. A toast reports what happened
+("12 added · 3 already known · 9 PDFs copied"). The button in the Library header shows
+**Zotero ✓** while connected; click it any time for status, **Sync now**, settings, or
+**Disconnect**.
+
+# When syncs happen
+
+- **At startup**, quietly, shortly after the app opens (it never delays launch).
+- **Live**, while Flux is open: when Zotero changes your library, Better BibTeX rewrites
+  the export, and Flux notices within a couple of seconds.
+- **On demand**, from **Sync now** in the Zotero panel.
+
+Automatic syncs cost essentially nothing when there's nothing to do: Flux checks the export
+file's timestamp and size first, and if they haven't changed since the last successful
+sync, it skips all work — no reading, no parsing, no toast. **Sync now** is different: it
+always performs a complete pass, which also picks up PDFs that appeared in Zotero's folder
+*after* their reference was synced (see below).
+
+# PDFs: copied or linked
+
+When a synced reference declares a PDF, Flux brings it in one of two ways — chosen at
+connect time, changeable later under **Settings…**:
+
+- **Copy PDFs into FluxLib** (the default). The PDF is stored in FluxLib itself, so your
+  FluxLib folder remains a complete, self-contained archive — back it up or move it to a
+  new machine and every paper comes along. Recommended for most libraries: the one-time
+  disk cost of a typical collection is a few gigabytes.
+- **Link to Zotero's PDFs.** Flux stores only a small pointer to the PDF where it already
+  lives in Zotero's folder — one copy on disk, no duplication. The tradeoff: Zotero's
+  folder must stay where it is. If a linked file is later moved or deleted, that paper
+  simply shows as having no PDF (nothing else breaks), and a **Sync now** re-links it if
+  it reappears.
+
+Either way, Flux extracts the paper's text so [full-text search](../modes/library.qmd#finding-papers)
+(`ft:`) covers it — unless you deferred that (next section).
+
+Two behaviors worth knowing:
+
+- **Late PDFs are backfilled.** If a reference synced before its PDF existed (say, Zotero
+  grabbed the metadata but the PDF download came later), the next sync attaches the PDF to
+  the existing entry. Existing PDFs are never replaced.
+- **PDFs Flux fetched itself always win.** A stored PDF in FluxLib is never displaced by a
+  Zotero copy or pointer.
+
+# Very large libraries
+
+If you connect a huge export (thousands of references), the connect dialog notices the file
+size and preselects the sensible posture automatically: **link** mode, with **Extract
+searchable text during sync** turned off. In that configuration the sync never opens a
+single PDF — it just records where each one lives — so even a first sync of a 15,000-PDF
+library finishes in seconds rather than grinding through every file. This matters doubly
+when Zotero's folder lives on a cloud drive (Google Drive, Dropbox), where reading every
+PDF once would mean streaming your entire collection over the network.
+
+With text extraction deferred, a paper becomes full-text-searchable after the first time
+you open it in the [Reader](../modes/reader.qmd) (Flux extracts and caches the text
+quietly at that moment). Until then it's still findable by title, author, abstract, and
+all other metadata.
+
+Two tips for the truly gigantic:
+
+- **Export a collection, not the whole library.** Better BibTeX itself slows down keeping
+  a 30,000-entry export current — it rewrites the entire file on every change. Right-click
+  a *collection* and auto-export that instead; the sync is additive, so you lose nothing
+  by starting focused.
+- Keep only the PDFs on the cloud drive — Zotero's own database (`zotero.sqlite`) on a
+  synced folder is a well-known source of corruption. That's Zotero advice, not Flux
+  advice, but it protects the files your links point at.
+
+# Fitting into a library you already have
+
+Connecting Zotero to an established FluxLib is seamless — the first sync just recognizes
+everything you already have (by DOI, or title + author + year) and skips it. The only
+cosmetic effect: new arrivals keep their Better BibTeX citation keys, which is also the
+exact format Flux itself generates (`smithNeuralBasis2021`-style), so keys look uniform
+regardless of which door a paper came through. The rare duplicate — the same paper with no
+DOI *and* meaningfully different metadata in the two places, like a preprint versus its
+published version — comes in as a second entry; delete whichever you don't want.
+
+# Capturing papers from your browser
+
+Once connected, the [Zotero Connector](https://www.zotero.org/download/connectors) browser
+extension becomes the best way to capture papers from the web: one click on any paper page
+saves it to Zotero — with publisher-quality metadata and, where possible, the PDF — and it
+flows into FluxLib on the next sync. This works alongside Flux's own
+[bookmarklet and add-by-DOI box](../modes/library.qmd#getting-papers-in); use whichever is
+in reach.
+
+# Syncing from the command line (and agents)
+
+The same sync runs headlessly as `flux zotero-sync` — useful in scripts, cron jobs, and
+for AI agents keeping your library current. Like automatic syncs, it skips an unchanged
+export; `--force` performs a complete pass. See the [command-line reference](../reference/cli.qmd)
+for all flags.
+
+# Disconnecting
+
+**Disconnect** in the Zotero panel forgets the connection settings — nothing else.
+Everything already synced stays in FluxLib exactly as it is. (If you used **link** mode,
+those papers' PDFs still live in Zotero's folder, so keep it around or re-sync in copy
+mode first.)
+
+# Troubleshooting
+
+- **"PDFs not found" in the sync toast.** The export references PDFs by paths Flux
+  couldn't resolve — usually the **Zotero folder** setting is missing or points to the
+  wrong place. Open the Zotero panel → **Settings…** and point it at the folder whose
+  `storage` subfolder holds the PDFs, then **Sync now**.
+- **A linked paper won't open.** Its file moved — most often because Zotero's folder was
+  relocated or a cloud drive is offline. Restore the folder (or reconnect and **Sync now**
+  to re-link), or switch to copy mode if this keeps happening.
+- **Full-text search doesn't find a paper you know is there.** If you deferred text
+  extraction (large-library setup), the paper's text is indexed after you first open it in
+  the Reader. Open it once, or run a sync with text extraction enabled.
+- **New Zotero papers aren't appearing.** Check that the auto-export still exists and has
+  **Keep updated** ticked (in Zotero: **Edit → Settings → Better BibTeX → Automatic
+  export**, or right-click the export entry under the collection). Then **Sync now** —
+  its toast will tell you what it found.
+- **The same paper appears twice.** It lacked a DOI and its metadata differed between
+  Zotero and FluxLib (common with preprints). Delete the copy you don't want; the sync
+  won't re-add it as long as the survivor matches by DOI or title + author + year.

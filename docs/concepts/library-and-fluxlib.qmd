@@ -21,7 +21,7 @@ collaborator and every citation resolves, no FluxLib required.
 
 Every paper has one stable **citation key** (`smithNeuralBasis2021`-style — the same format
 Zotero's Better BibTeX plugin uses, so keys arriving from a [Zotero
-sync](../modes/library.qmd) and keys Flux mints itself look alike). That key is how you cite
+sync](../integrations/zotero.qmd) and keys Flux mints itself look alike). That key is how you cite
 it in any manuscript (`[@smithNeuralBasis2021]`), the name of its folder in the library, and
 the handle agents use to fetch, annotate, or discuss it. Keys are permanent join keys — they
 never change out from under a project.

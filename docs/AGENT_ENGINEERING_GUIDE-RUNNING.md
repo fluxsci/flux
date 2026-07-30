@@ -1616,3 +1616,12 @@ extra full sync). Gate passes 2/6–8 + two CLI legs (skip render + `--force`); 
   ("re-sync is a no-op") now asserts the SKIP, and full-parse idempotency moved behind
   `--force` + a rewrite pass. When a fast path lands, audit existing gates for assertions that
   silently exercised the slow path.
+
+### 2026-07-29 (evening, 2) — Zotero integration user-docs page (Claude Fable 5, `main`)
+**Work:** New `docs/integrations/zotero.qmd` (sidebar section "Integrations") — the full user
+guide: BBT setup (Keep updated), connect flow, sync timing + the stat skip, copy-vs-link,
+backfill, deferred text, very-large-library posture (collection exports; sqlite-on-cloud
+warning), dedupe with an existing FluxLib, browser-connector capture, CLI pointer (links to
+reference/cli.qmd — no verb-table restating), disconnect semantics, troubleshooting.
+Cross-links repointed (library.qmd bullet, concepts citekey section). verify-docs 127,
+`quarto render docs` clean (17 pages).

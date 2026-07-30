@@ -38,6 +38,9 @@ website:
       - section: "Working with agents"
         contents:
           - agents/collaboration.qmd
+      - section: "Integrations"
+        contents:
+          - integrations/zotero.qmd
       - section: "Companions"
         contents:
           - lighttable.qmd
