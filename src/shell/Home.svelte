@@ -35,7 +35,10 @@
 <div class="home">
   <div class="hero" class:animate>
     <div class="brandblock">
-      <Logomark size={132} animated={animate} />
+      <!-- The mark's bloom is always on (a one-shot signature moment): the OS
+           reduce-motion query false-positives on GTK desktops (guide §9), so
+           only the text/actions reveal below respects it. -->
+      <Logomark size={120} animated={true} />
       <h1 class="wordmark">Flux</h1>
     </div>
 
@@ -175,7 +178,7 @@
     margin: var(--sp-2) 0 0;
     padding: var(--sp-2) var(--sp-4);
     font-size: var(--ts-sm);
-    color: #f89a8a; /* flexoki red-200 */
+    color: var(--flx-red-200);
     background: color-mix(in oklab, #d14d41 12%, transparent);
     border: 1px solid color-mix(in oklab, #d14d41 28%, transparent);
     border-radius: var(--r-2);
@@ -340,7 +343,7 @@
   }
 
   /* ---- Staggered reveal (applied only when motion is allowed) ----------- */
-  /* The mark draws itself first (Logomark), then text + actions rise in. */
+  /* The mark blooms first (Logomark), then text + actions rise in. */
   .hero.animate .wordmark {
     animation: reveal var(--dur-gentle) var(--ease-enter) both;
     animation-delay: 720ms;
