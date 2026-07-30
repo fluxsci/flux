@@ -120,5 +120,6 @@
   "update_text_style",
   "validate_deck",
   "validate_plot",
-  "validate_project"
+  "validate_project",
+  "zotero_sync"
 ]

@@ -99,6 +99,7 @@ The established shared cores — extend these, don't duplicate them:
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
+| Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
 | External-command launch (quarto, recipes, agent roster) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
 
 ## 3. Data model and persistence invariants
@@ -1520,3 +1521,31 @@ stale). Gates: ipc-contract, docs (120), check 0/0; visual check on :1420 (butto
 - Rail-foot buttons that reach the OS all follow one shape: contract entry → main handler
   returning `{ok, error}` → preload one-liner → optional bridge method → toast on `!ok`.
   Copy lighttable:launch, don't improvise.
+
+### 2026-07-29 — Zotero sync + BBT-style citekeys (Claude Fable 5, `zotero-sync`)
+**Work:** Connected FluxLib to Zotero: a Better-BibTeX "Keep updated" auto-export is a standing
+intake valve — synced on startup (Shell idle kick, dynamic import), live while the app is open
+(new `zotero-bib` watch subsystem over the existing fs:changed channel; the Library re-invokes
+watchRoot after connecting since watch targets resolve at setRoot time), from the Library's new
+Zotero panel (connect / status / Sync now), and headlessly via the `zotero-sync` CLI/MCP verb
+(102 verbs, goldens regenerated). One-way, additive, idempotent (planAdds dedupe). PDFs either
+COPY into items/ (default, self-contained) or LINK — a `paper.link.json` pointer resolved ONLY
+through the readPdf/hasPdf twins, degrading to "PDF missing" when the external file moves; a
+merged entry that lacks a PDF gets BACKFILLED on later syncs. Settings live as `zotero` in
+machine preferences.json; fsGuard roots extend to the configured dirs. Shared pure cores per §2:
+`zoteroSettings.ts` + `zoteroFiles.ts` (attachCandidates / attachPathCandidates — flux-core,
+the GUI sync job, and ImportDialog resolve identically). `makeCitekey` now emits Better BibTeX's
+default `auth.lower + shorttitle(3,3) + year` (e.g. `mullerNeuralBasisDecision2024`) with
+case-insensitive collision suffixes (citekeys name `items/<key>/` dirs, which case-fold on
+macOS/Windows); existing keys are NEVER re-keyed (owner deferred the one-off rekey of this
+machine's library). Gates: `verify-citekey.ts` + `verify-zotero-sync.ts` (hermetic scratch
+HOME/XDG; executes the real CLI). Pure 149/149, check 0/0, lib ui gates 3/3, docs 120,
+build warning-free.
+**Learnings:**
+- `assignJob.svelte.ts` is the canonical template for FluxLib intake engines and copied over
+  cleanly: revision store bumped by a watch subsystem → debounced module-level subscribe →
+  cross-engine heartbeat lock → `runSeq` effect in LibraryMode for the re-list. Reach for it
+  before designing anything watcher-driven from scratch.
+- Watch targets are resolved once, at `watch:setRoot` — any prefs-driven target (the Zotero
+  bib) must re-invoke `watchRoot` after its setting changes, or the watcher silently lags the
+  config until the next project open.

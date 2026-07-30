@@ -80,6 +80,8 @@
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",
       "verify-import-plan.ts",
+      "verify-citekey.ts",
+      "verify-zotero-sync.ts",
       "verify-organize.ts",
       "verify-paper-refnums.ts",
       "verify-pdfidentify.ts",
@@ -454,6 +456,15 @@
     {
       "glob": "flux-core/**",
       "run": [
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/references/{citekey,zoteroFiles,zoteroSettings,zoteroSyncJob.svelte,items,itemsBridge,addPlan,ris}.ts",
+      "run": [
+        "verify-citekey.ts",
+        "verify-import-plan.ts",
+        "verify-zotero-sync.ts",
         "tier:pure"
       ]
     },

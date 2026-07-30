@@ -16,6 +16,7 @@
 
 export const ITEMS_DIR = "items";
 export const PAPER_PDF = "paper.pdf";
+export const PAPER_LINK = "paper.link.json";
 export const SUPPLEMENTS_DIR = "supplements";
 export const SOURCE_JSON = "source.json";
 export const FULLTEXT_TXT = "fulltext.txt";
@@ -65,6 +66,27 @@ export interface ReaderContext {
 }
 export const itemDir = (lib: string, key: string): string => j(lib, ITEMS_DIR, safeKey(key));
 export const pdfPath = (lib: string, key: string): string => j(itemDir(lib, key), PAPER_PDF);
+
+/** Link-mode PDF pointer (Zotero sync `attach: "link"`): instead of copying the PDF
+ *  into items/<key>/paper.pdf, a paper.link.json records the absolute path of the
+ *  externally-managed copy (Zotero's storage). Resolution happens ONLY through the
+ *  readPdf/hasPdf twins (flux-core/items.ts + itemsBridge.ts) — nothing else may
+ *  dereference the pointer, so a moved/deleted external file degrades to a clear
+ *  "PDF missing" instead of scattered failures. paper.pdf, when both exist, wins. */
+export const linkPath = (lib: string, key: string): string => j(itemDir(lib, key), PAPER_LINK);
+export interface PdfLink {
+  path: string; // absolute path of the external PDF (Zotero storage)
+  linkedAt: string; // ISO
+}
+/** Parse a paper.link.json body; null on anything malformed (treated as "no PDF"). */
+export function parsePdfLink(text: string): PdfLink | null {
+  try {
+    const j = JSON.parse(text) as PdfLink;
+    return j && typeof j.path === "string" && j.path.length > 0 ? j : null;
+  } catch {
+    return null;
+  }
+}
 export const sourcePath = (lib: string, key: string): string => j(itemDir(lib, key), SOURCE_JSON);
 export const fulltextPath = (lib: string, key: string): string => j(itemDir(lib, key), FULLTEXT_TXT);
 export const annotationsPath = (lib: string, key: string): string => j(itemDir(lib, key), ANNOTATIONS_JSON);

@@ -97,11 +97,25 @@ const fileCore = require("./ipc/files.cjs").createFileCore({
     pendingRoot, // WS-9.3: the project being opened right now (single slot)
     getFluxConfigRoot(), // FluxLib lives inside; kept separately for the EXDEV-fallback state
     getFluxLibRoot(),
+    // Zotero sync (2026-07-29): when connected, the BBT auto-export's folder and the
+    // Zotero data dir are durable roots — startup sync reads the .bib and link-mode
+    // papers resolve into storage/ without a per-session dialog approval. Evaluated
+    // per call, so connecting/disconnecting applies immediately.
+    ...zoteroRoots(),
   ],
   setPendingRoot: (ab) => {
     pendingRoot = ab;
   },
 });
+
+/** The user-configured Zotero dirs (prefs.zotero), [] when not connected. */
+function zoteroRoots() {
+  const z = readPrefs().zotero;
+  if (!z || typeof z !== "object" || typeof z.bibPath !== "string" || !z.bibPath) return [];
+  const out = [path.dirname(path.resolve(z.bibPath))];
+  if (typeof z.dataDir === "string" && z.dataDir) out.push(path.resolve(z.dataDir));
+  return out;
+}
 const { noteWrite, atomicWriteMain, isSelfWrite, fsGuard, approveDir, underDir } = fileCore;
 const { TMP_WRITE_RE } = require("./ipc/files.cjs");
 
@@ -986,6 +1000,14 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     return false;
   }
   const libRoot = fluxLibDir();
+  // Zotero sync: when connected, watch the BBT auto-export so a Zotero-side change
+  // syncs live while the app is open. Resolved here (not hot-reloaded) — the Library
+  // pane re-invokes watch:setRoot after connecting, so the target stays current.
+  const zoteroPrefs = readPrefs().zotero;
+  const zoteroBib =
+    zoteroPrefs && typeof zoteroPrefs === "object" && typeof zoteroPrefs.bibPath === "string" && zoteroPrefs.bibPath
+      ? path.resolve(zoteroPrefs.bibPath)
+      : null;
   const targets = [
     ...["plots", "fig", "manuscript", "references", "slides", "Context"].map((d) =>
       path.join(root, d),
@@ -998,6 +1020,7 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     path.join(libRoot, "items"),
     // The assign drop-inbox — a landed PDF triggers a scan in the open app.
     path.join(libRoot, "pdfs_to_assign"),
+    ...(zoteroBib ? [zoteroBib] : []),
   ];
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
@@ -1015,7 +1038,10 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   });
   projectWatcher.on("all", (_evt, abs) => {
     if (isSelfWrite(abs)) return;
-    const subsystem = subsystemFor(root, abs) ?? fluxLibSubsystemFor(libRoot, abs);
+    const subsystem =
+      subsystemFor(root, abs) ??
+      fluxLibSubsystemFor(libRoot, abs) ??
+      (zoteroBib && path.resolve(abs) === zoteroBib ? "zotero-bib" : null);
     if (!subsystem) return;
     pending.set(subsystem, abs);
     if (!timer) timer = setTimeout(flush, 200);

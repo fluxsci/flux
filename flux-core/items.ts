@@ -11,12 +11,15 @@ import { atomicWrite } from "./fsx";
 import {
   itemDir,
   pdfPath,
+  linkPath,
+  parsePdfLink,
   sourcePath,
   fulltextPath,
   annotationsPath,
   readerContextPath,
   oaMissesPath,
   supplementsDir,
+  type PdfLink,
   type SourceInfo,
   type ItemStatus,
   type ItemsIndex,
@@ -79,7 +82,30 @@ export async function ensureItemDir(key: string, libPath?: string): Promise<stri
 }
 
 export async function hasPdf(key: string, libPath?: string): Promise<boolean> {
-  return exists(pdfPath(await lib(libPath), key));
+  const L = await lib(libPath);
+  return (await exists(pdfPath(L, key))) || (await exists(linkPath(L, key)));
+}
+
+/** The link-mode pointer for `key`, or null (absent/malformed). */
+export async function readPdfLink(key: string, libPath?: string): Promise<PdfLink | null> {
+  try {
+    return parsePdfLink(await fs.readFile(linkPath(await lib(libPath), key), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Link-mode attach (Zotero sync `attach: "link"`): record a pointer to the external
+ *  PDF instead of copying it. Provenance still lands in source.json; fulltext
+ *  extraction is the CALLER's job (it has the bytes in hand). A stored paper.pdf is
+ *  never displaced by a link — copy beats pointer. */
+export async function writeLinkedPdf(key: string, absPath: string, libPath?: string): Promise<void> {
+  const L = await lib(libPath);
+  await ensureItemDir(key, L);
+  const link: PdfLink = { path: absPath, linkedAt: new Date().toISOString() };
+  await atomicWrite(linkPath(L, key), JSON.stringify(link, null, 2) + "\n");
+  const info: SourceInfo = { key, source: "zotero-link", url: absPath, fetchedAt: link.linkedAt };
+  await atomicWrite(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
 }
 
 /** Write a fetched PDF + its provenance; computes sha256/bytes. Returns the SourceInfo. */
@@ -103,10 +129,18 @@ export async function writePdf(
 }
 
 export async function readPdf(key: string, libPath?: string): Promise<Buffer | null> {
+  const L = await lib(libPath);
   try {
-    return await fs.readFile(pdfPath(await lib(libPath), key));
+    return await fs.readFile(pdfPath(L, key));
   } catch {
-    return null;
+    /* no stored copy — try the link-mode pointer */
+  }
+  const link = await readPdfLink(key, L);
+  if (!link) return null;
+  try {
+    return await fs.readFile(link.path);
+  } catch {
+    return null; // external file moved/deleted — degrades to "PDF missing"
   }
 }
 
@@ -164,7 +198,7 @@ export async function itemStatus(key: string, libPath?: string): Promise<ItemSta
   const src = await readSource(key, L);
   return {
     key,
-    hasPdf: await exists(pdfPath(L, key)),
+    hasPdf: (await exists(pdfPath(L, key))) || (await exists(linkPath(L, key))),
     supplements: await countSupplements(L, key),
     hasFulltext: await exists(fulltextPath(L, key)),
     annotations: await annotationCount(L, key),

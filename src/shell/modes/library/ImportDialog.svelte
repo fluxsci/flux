@@ -7,7 +7,7 @@
   import { fileBridge, joinPath } from "../../../lib/project/types";
   import { sniffFormat, risToBibtex } from "../../../lib/references/ris";
   import { planAdds, type AddPlan } from "../../../lib/references/addPlan";
-  import { bibPdfAttachments } from "../../../lib/references/zoteroFiles";
+  import { bibPdfAttachments, attachPathCandidates } from "../../../lib/references/zoteroFiles";
   import { readLibraryBibText, addToFluxLib } from "../../../lib/references/fluxlibBridge";
   import { writePdfItem } from "../../../lib/references/itemsBridge";
   import { hydrateFluxLib } from "../../../lib/references/enrichBridge";
@@ -110,15 +110,9 @@
   async function resolveAndRead(p: string): Promise<Uint8Array | null> {
     const fb = fileBridge();
     if (!fb) return null;
-    const candidates: string[] = [];
-    if (isAbsolute(p)) candidates.push(p);
-    else {
-      if (baseDir) candidates.push(joinPath(baseDir, p));
-      if (zoteroDir) {
-        candidates.push(joinPath(zoteroDir, p));
-        candidates.push(joinPath(zoteroDir, "storage", p));
-      }
-    }
+    // Candidate ORDER lives in the shared attachPathCandidates (twin with flux-core
+    // importReferences and the Zotero sync job).
+    const candidates = attachPathCandidates(p, { baseDir, zoteroDir, isAbsolute, join: joinPath });
     for (const c of candidates) {
       try {
         const buf = await fb.readFile(c);

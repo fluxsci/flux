@@ -12,7 +12,7 @@
 
 import { get, writable } from "svelte/store";
 import { bumpFigRevision, bumpBibRevision, bumpDeckRevision } from "../../shell/scholar/revisions";
-import { bumpFluxLib, bumpAssignInbox } from "../references/revision";
+import { bumpFluxLib, bumpAssignInbox, bumpZoteroBib } from "../references/revision";
 import { invalidateEnrichCache } from "../references/fluxlibBridge";
 import { project } from "../store";
 import { assetData, dataUrlToBytes } from "../assets";
@@ -109,6 +109,7 @@ export function startProjectWatch(root: string | null): void {
       if (info.path.endsWith("enrich.json")) invalidateEnrichCache();
       bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
     } else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
+    else if (info.subsystem === "zotero-bib") bumpZoteroBib(); // the BBT auto-export was rewritten
   });
 }
 

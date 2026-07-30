@@ -27,7 +27,7 @@ export { fetchPdfForKey, fetchPdfs, ingestPdf } from "./acquire";
 export type { FetchSummary, FetchOneResult } from "./acquire";
 export { assignPdfs } from "./assign";
 export type { AssignSummary, AssignItemResult, AssignAction } from "./assign";
-export { hasPdf, readPdf, readSource, writePdf, readFulltext, writeFulltext, loadItemsIndex, rebuildItemsIndex, itemStatus, readReaderContext } from "./items";
+export { hasPdf, readPdf, readSource, writePdf, readPdfLink, writeLinkedPdf, readFulltext, writeFulltext, loadItemsIndex, rebuildItemsIndex, itemStatus, readReaderContext } from "./items";
 export { extractFulltext, getOrExtractFulltext } from "./fulltext";
 // 2.3: full-text search across every stored PDF's extracted text.
 export { searchFulltext } from "./fulltextSearch";

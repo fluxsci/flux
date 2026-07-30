@@ -1446,6 +1446,52 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "zotero_sync",
+    cli: "zotero-sync",
+    cliRoot: "flags",
+    summary:
+      "Pull new references (and their PDFs) from the connected Zotero Better-BibTeX 'Keep updated' auto-export into the machine-global FluxLib. Idempotent + additive: known entries dedupe by DOI/title-signature, PDFs attach for new entries and backfill PDF-less known ones; nothing is written back to Zotero. Uses the machine `zotero` settings (connect in the app: Library → Zotero) unless overridden with bib/dataDir/attach; `save` persists the overrides as the machine settings.",
+    params: {
+      bib: z.string().optional(),
+      dataDir: z.string().optional(),
+      attach: z.enum(["copy", "link"]).optional(),
+      save: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "flag", at: "bib", into: "bib" },
+      { kind: "flag", at: "data-dir", into: "dataDir" },
+      { kind: "flag", at: "attach", into: "attach" },
+      { kind: "flag", at: "save", into: "save", as: "boolean" },
+    ],
+    handler: (_ctx, a) =>
+      core.zoteroSync({
+        bib: a.bib as string | undefined,
+        dataDir: a.dataDir as string | undefined,
+        attach: a.attach as "copy" | "link" | undefined,
+        save: a.save as boolean | undefined,
+      }),
+    render: {
+      human: (r) => {
+        const c = r as Awaited<ReturnType<typeof core.zoteroSync>>;
+        return {
+          err:
+            `✓ Zotero sync — ${c.line}\n  ${c.settings.bibPath}` +
+            (c.report.attachFailed.length
+              ? `\n  not found: ${c.report.attachFailed.map((f) => `${f.key} (${f.path})`).join(", ")}`
+              : ""),
+        };
+      },
+      mcp: (r) => {
+        const c = r as Awaited<ReturnType<typeof core.zoteroSync>>;
+        return text(
+          `Zotero sync: ${c.line} (bib: ${c.settings.bibPath})` +
+            (c.report.added.length ? `; added: ${c.report.added.join(", ")}` : "") +
+            (c.report.attachFailed.length ? `; PDFs not found for: ${c.report.attachFailed.map((f) => f.key).join(", ")}` : ""),
+        );
+      },
+    },
+  },
+  {
     name: "author_works",
     cli: "by-author",
     cliRoot: "flags",

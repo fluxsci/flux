@@ -19,6 +19,18 @@ header shows the collection and its size; everything below is the grid.
 - **Bulk import.** **Import…** reads a `.bib` or `.ris` file (Zotero, EndNote, Mendeley,
   BibTeX exports), previews what's new vs. already-known before committing, and can pull the
   PDFs a Zotero export references alongside.
+- **Zotero sync.** The **Zotero** button connects FluxLib to a live Zotero library. One-time
+  setup in Zotero: install the [Better BibTeX](https://retorque.re/zotero-better-bibtex/)
+  plugin, right-click your library → **Export Library…** → format **Better BibTeX**, tick
+  **Keep updated**, and save the `.bib` anywhere you like. Point Flux at that file and from
+  then on anything you add in Zotero (including via its browser connector) flows into FluxLib
+  — on startup, live while Flux is open, or on **Sync now**. It's one-way and additive: papers
+  you already have are recognized and left untouched (by DOI, or title+author+year when
+  there's no DOI), and nothing is ever written back to Zotero. PDFs come along too — either
+  **copied** into FluxLib (the default: FluxLib alone stays a complete backup) or **linked**
+  (one copy on disk; papers open from Zotero's folder, which then must stay put). A paper
+  whose PDF shows up in Zotero later is backfilled on the next sync. Agents can run the same
+  sync headlessly (`flux zotero-sync`).
 - **The inbox folder.** Drop PDF files into `~/FluxConfig/FluxLib/pdfs_to_assign/` and Flux
   identifies each one *from its own contents* and files it under the right paper — attaching it
   to an entry that lacks a PDF, keeping it as a supplement if the paper already has one, or

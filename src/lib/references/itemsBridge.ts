@@ -7,6 +7,8 @@ import {
   itemDir,
   itemsBase,
   pdfPath,
+  linkPath,
+  parsePdfLink,
   fulltextPath,
   sourcePath,
   failurePath,
@@ -17,7 +19,9 @@ import {
   supplementFilePath,
   safeSupplementName,
   PAPER_PDF,
+  PAPER_LINK,
   FETCH_FAILURE_JSON,
+  type PdfLink,
   type SourceInfo,
   type FetchFailure,
   type ReaderContext,
@@ -121,7 +125,12 @@ export async function listPdfKeys(): Promise<Set<string>> {
           // Store NFC-normalized: macOS/APFS returns readdir names as NFD while the .bib
           // stores citekeys as NFC — without this, accented keys (buzsáki, yüzgeç…) miss
           // the presence check and their PDFs flicker as "missing" between launches.
-          if (await fb.exists(`${itemsBase(lib)}/${name}/${PAPER_PDF}`)) out.add(name.normalize("NFC"));
+          // A link-mode pointer (paper.link.json — Zotero sync) counts as having the PDF.
+          if (
+            (await fb.exists(`${itemsBase(lib)}/${name}/${PAPER_PDF}`)) ||
+            (await fb.exists(`${itemsBase(lib)}/${name}/${PAPER_LINK}`))
+          )
+            out.add(name.normalize("NFC"));
         } catch {
           /* ignore */
         }
@@ -181,7 +190,22 @@ export async function writePdfItem(
   return true;
 }
 
-/** Read a stored PDF's bytes (ArrayBuffer) for the reader, or null if absent. */
+/** The link-mode pointer for `key`, or null (absent/malformed). */
+export async function readerPdfLink(key: string): Promise<PdfLink | null> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return null;
+  try {
+    return parsePdfLink(await fb.readText(linkPath(lib, key)));
+  } catch {
+    return null;
+  }
+}
+
+/** Read a stored PDF's bytes (ArrayBuffer) for the reader, or null if absent.
+ *  A stored paper.pdf wins; else a link-mode pointer (Zotero sync `attach: "link"`)
+ *  resolves to the external file — a moved/deleted external copy degrades to null
+ *  ("PDF missing"), never a scattered error. */
 export async function readerPdfBytes(key: string): Promise<ArrayBuffer | null> {
   const s = seededItem(key);
   if (s) return s.pdf.slice().buffer; // headless harness fixture (devSeed.ts)
@@ -190,7 +214,14 @@ export async function readerPdfBytes(key: string): Promise<ArrayBuffer | null> {
   if (!fb || !lib) return null;
   const p = pdfPath(lib, key);
   try {
-    return (await fb.exists(p)) ? await fb.readFile(p) : null;
+    if (await fb.exists(p)) return await fb.readFile(p);
+  } catch {
+    return null;
+  }
+  const link = await readerPdfLink(key);
+  if (!link) return null;
+  try {
+    return await fb.readFile(link.path);
   } catch {
     return null;
   }
@@ -202,10 +233,32 @@ export async function readerHasPdf(key: string): Promise<boolean> {
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return false;
   try {
-    return await fb.exists(pdfPath(lib, key));
+    return (await fb.exists(pdfPath(lib, key))) || (await fb.exists(linkPath(lib, key)));
   } catch {
     return false;
   }
+}
+
+/** Link-mode attach (renderer twin of flux-core writeLinkedPdf + the fulltext parity
+ *  of writePdfItem): record a pointer to the external PDF, write provenance, and
+ *  extract fulltext from the external bytes so search works without a stored copy. */
+export async function writeLinkedPdfItem(key: string, absPath: string, bytes: Uint8Array): Promise<boolean> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return false;
+  if (fb.mkdir) await fb.mkdir(itemDir(lib, key));
+  const link: PdfLink = { path: absPath, linkedAt: new Date().toISOString() };
+  await fb.writeText(linkPath(lib, key), JSON.stringify(link, null, 2) + "\n");
+  const source: SourceInfo = { key, source: "zotero-link", url: absPath, fetchedAt: link.linkedAt, bytes: bytes.length };
+  await fb.writeText(sourcePath(lib, key), JSON.stringify(source, null, 2) + "\n");
+  try {
+    const { extractFulltextText } = await import("../pdf/pdfFulltext");
+    const ft = await extractFulltextText(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
+    if (ft.chars > 0) await fb.writeText(fulltextPath(lib, key), ft.text);
+  } catch {
+    /* best-effort — the pointer is filed regardless */
+  }
+  return true;
 }
 
 export async function readerSource(key: string): Promise<SourceInfo | null> {

@@ -7,6 +7,9 @@
   // rationale as shownFetchSeq). Also gates the once-per-session auto-scan on Library mount.
   let shownAssignSeq = 0;
   let assignAutoScanned = false;
+  // The run-seq of the last Zotero sync whose disk changes we've re-listed (the toast itself
+  // comes from the job; this only refreshes the table/pills for a run that landed while away).
+  let shownZoteroSeq = 0;
 </script>
 
 <script lang="ts">
@@ -44,6 +47,8 @@
   import { fileBridge } from "../../../lib/project/types";
   import { BOOKMARKLET_HREF } from "./bookmarklet";
   import ImportDialog from "./ImportDialog.svelte";
+  import ZoteroPanel from "./ZoteroPanel.svelte";
+  import { zoteroSyncJob } from "../../../lib/references/zoteroSyncJob.svelte";
   import { openInReader } from "../reader/readerStore";
   import { fetchPdfForEntry, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
   import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
@@ -112,6 +117,8 @@
 
   // 2.4 bulk-import modal (.bib/.ris → FluxLib, optional Zotero PDF attach).
   let importOpen = $state(false);
+  // Zotero connection panel (BBT auto-export sync — zoteroSyncJob).
+  let zoteroOpen = $state(false);
   // API keys panel — stored in <FluxLib>/keys.json (machine-global, every project).
   let keysOpen = $state(false);
   let keyOpenAlex = $state("");
@@ -500,6 +507,8 @@
         });
       });
     void refreshProxy();
+    // Zotero: make the header button reflect the connection without opening the panel.
+    if (!zoteroSyncJob.settingsLoaded) void zoteroSyncJob.loadSettings();
     // Startup scan: on the first Library mount of the session, auto-process anything already in
     // the watched inbox — but never offline (a network blink must not defer the whole inbox).
     // Re-mounts only re-scan if new files arrived (processed files are removed).
@@ -552,6 +561,19 @@
     showFetchSummary(sum);
     void (async () => {
       [pdfKeys, failures] = await Promise.all([listPdfKeys(), listFailures()]);
+    })();
+  });
+
+  // Zotero sync finished (here or while away) → re-list the library + PDF pills. The
+  // summary toast comes from the job itself; this effect only refreshes what's shown.
+  $effect(() => {
+    if (zoteroSyncJob.running) return;
+    const seq = zoteroSyncJob.runSeq;
+    if (seq <= shownZoteroSeq) return;
+    shownZoteroSeq = seq;
+    void (async () => {
+      await reload();
+      pdfKeys = await listPdfKeys();
     })();
   });
 
@@ -1320,6 +1342,20 @@
         title="Bulk-import references from a .bib or .ris file (Zotero, EndNote, Mendeley, BibTeX) — with an optional pull of their attached PDFs">
         Import…
       </button>
+      <button
+        class="enrich"
+        onclick={() => (zoteroOpen = true)}
+        title={zoteroSyncJob.settings
+          ? "Zotero is connected — new Zotero references flow into FluxLib automatically. Click for status, Sync now, and settings."
+          : "Connect FluxLib to Zotero: point Flux at a Better BibTeX auto-export and anything you add in Zotero appears here (one-way; nothing is written back)."}>
+        {#if zoteroSyncJob.running}
+          Zotero ⟳
+        {:else if zoteroSyncJob.settings}
+          Zotero ✓
+        {:else}
+          Zotero
+        {/if}
+      </button>
       {#if inboxCount > 0 || assigning}
         <button
           class="enrich assignpdfs"
@@ -1841,6 +1877,10 @@
 
   {#if importOpen}
     <ImportDialog onClose={() => (importOpen = false)} onImported={() => void reload()} onEnrich={() => void runEnrich()} />
+  {/if}
+
+  {#if zoteroOpen}
+    <ZoteroPanel projectRoot={projectRoot} onClose={() => (zoteroOpen = false)} />
   {/if}
 </div>
 

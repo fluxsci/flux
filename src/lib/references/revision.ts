@@ -23,3 +23,11 @@ export const assignInboxRevision = writable(0);
 export function bumpAssignInbox(): void {
   assignInboxRevision.update((n) => n + 1);
 }
+
+// Bumped when the watcher sees the connected Zotero auto-export .bib change —
+// the Zotero sync job re-syncs on it (debounced; see zoteroSyncJob.svelte.ts).
+export const zoteroBibRevision = writable(0);
+
+export function bumpZoteroBib(): void {
+  zoteroBibRevision.update((n) => n + 1);
+}

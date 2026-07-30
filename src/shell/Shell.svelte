@@ -72,6 +72,12 @@
     const idle: (fn: () => void) => void =
       typeof requestIdleCallback === "function" ? (fn) => requestIdleCallback(fn) : (fn) => void setTimeout(fn, 250);
     idle(() => warmModes(["paper"]));
+    // Zotero startup sync (2026-07-29): pull anything new from the connected BBT
+    // auto-export once the app is idle. Dynamic import — the job (and, through it,
+    // the bib/import stack) must never ride the eager Home bundle (W15).
+    idle(() => {
+      void import("../lib/references/zoteroSyncJob.svelte").then(({ zoteroSyncJob }) => zoteroSyncJob.maybeAutoSync());
+    });
     // In Electron the preload sets window.fig before this runs; under the dev
     // fixture it can arrive a beat late, so retry briefly until the bridge appears.
     let unsub: (() => void) | undefined;

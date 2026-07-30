@@ -109,3 +109,72 @@ export function bibPdfAttachments(raw: string): ZoteroFile[] {
     (f) => /pdf/i.test(f.mime) || /\.pdf$/i.test(f.path),
   );
 }
+
+// ---------------------------------------------------------------------------------
+// Shared attach planning (twin-engine): which entries of an import/sync should get a
+// PDF attach attempt, and where a declared attachment path may live on disk. Both
+// engines (flux-core importReferences, the GUI Zotero sync job) call these so the
+// "new entries always; merged entries only when PDF-less" backfill rule can't drift.
+// ---------------------------------------------------------------------------------
+
+import { splitBibEntries, lightEntry } from "./bibtex";
+
+export interface AttachCandidate {
+  key: string; // the FINAL FluxLib citekey the PDF belongs to
+  raw: string; // the INCOMING BibTeX block carrying the `file` field
+}
+
+/**
+ * Attach candidates for one import pass: every NEW entry, plus MERGED entries listed
+ * in `needsPdf` (the caller pre-checks which merged keys have no stored PDF/pointer —
+ * an existing PDF is never displaced). Merged entries carry no incoming `raw`, so the
+ * incoming block is recovered from `incomingBibText` by DOI (else exact title).
+ */
+export function attachCandidates(
+  incomingBibText: string,
+  added: { key: string; raw?: string }[],
+  deduped: { key: string; doi?: string; title?: string }[],
+  needsPdf: Set<string>,
+): AttachCandidate[] {
+  const out: AttachCandidate[] = added.filter((e) => e.raw).map((e) => ({ key: e.key, raw: e.raw as string }));
+  const dedupedWanted = deduped.filter((d) => needsPdf.has(d.key));
+  if (dedupedWanted.length) {
+    const blocks = splitBibEntries(incomingBibText);
+    for (const d of dedupedWanted) {
+      const block = blocks.find((r) => {
+        const le = lightEntry(r);
+        return (
+          (!!d.doi && !!le.doi && le.doi.toLowerCase() === d.doi.toLowerCase()) ||
+          (!!d.title && le.title === d.title)
+        );
+      });
+      if (block) out.push({ key: d.key, raw: block });
+    }
+  }
+  return out;
+}
+
+/**
+ * Where a declared attachment path may live, in probe order: absolute as-is, else
+ * under the .bib's own folder, else the Zotero data dir (+ its `storage/`). Path
+ * predicates/joiners are injected so each engine keeps its native path semantics
+ * (node path.* vs the renderer's POSIX joinPath).
+ */
+export function attachPathCandidates(
+  p: string,
+  opts: {
+    baseDir?: string;
+    zoteroDir?: string;
+    isAbsolute: (s: string) => boolean;
+    join: (a: string, b: string) => string;
+  },
+): string[] {
+  if (opts.isAbsolute(p)) return [p];
+  const out: string[] = [];
+  if (opts.baseDir) out.push(opts.join(opts.baseDir, p));
+  if (opts.zoteroDir) {
+    out.push(opts.join(opts.zoteroDir, p));
+    out.push(opts.join(opts.join(opts.zoteroDir, "storage"), p));
+  }
+  return out;
+}
