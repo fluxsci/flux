@@ -138,7 +138,7 @@ export const BG_SOURCES: BgSource[] = [
     sceneId: "inkwind",
     knobs: { lines: 75, flow: 2, length: 1.1, accent: 0.7, hues: 2 /* all flexoki */ },
     life: { rate: 15, maxConcurrent: 1, grow: 20, hold: 2, fade: 3 },
-    opacity: 0.76,
+    opacity: 0.86, // owner-tuned up from 0.76 (2026-07-29) — a touch more presence
     speed: 3.2,
   }),
   ambientSource({
@@ -154,7 +154,8 @@ export const BG_SOURCES: BgSource[] = [
 ];
 
 export type BgSourceId = "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
-export const DEFAULT_BG: BgSourceId = "harmonograph";
+/** Must match the `paperMarginScene` default in src/lib/settings.ts. */
+export const DEFAULT_BG: BgSourceId = "inkwind";
 
 export function bgSourceById(id: string): BgSource {
   return BG_SOURCES.find((s) => s.id === id) ?? BG_SOURCES[0];

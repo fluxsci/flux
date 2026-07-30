@@ -49,7 +49,7 @@ const DEFAULTS: Settings = {
   gridSize: 8,
   snapGrid: false,
   snapPixel: false,
-  paperMarginScene: "harmonograph",
+  paperMarginScene: "inkwind",
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,
   paperCaretFeel: "chase",
