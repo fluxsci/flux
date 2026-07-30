@@ -38,6 +38,7 @@
     position: absolute;
     right: 14px;
     bottom: 10px;
+    transition: bottom var(--dur-instant) var(--ease-standard);
     z-index: 30;
     display: flex;
     align-items: center;
@@ -50,6 +51,11 @@
     font-size: var(--ts-xs);
     color: var(--c-tx-faint);
     pointer-events: none;
+  }
+  /* Vim's bottom status panel spans the column and would cover the pill —
+     ride above it whenever the panel is in the DOM. */
+  :global(.editor-col:has(.cm-vim-panel)) .statusbar {
+    bottom: 36px;
   }
   .seg {
     pointer-events: auto;
