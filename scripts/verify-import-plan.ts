@@ -75,7 +75,7 @@ const ok = (cond: boolean, name: string, extra = "") => {
   ok(sniffFormat(ris) === "ris", "sniffFormat detects RIS");
   ok(sniffFormat("@article{k, title={x}}") === "bibtex", "sniffFormat detects BibTeX");
   const bib = risToBibtex(ris);
-  ok(/^@article\{watson1953/m.test(bib), "RIS→BibTeX: article type + AuthorYearTitle key", bib.split("\n")[0]);
+  ok(/^@article\{watsonMolecularStructureNucleic1953/m.test(bib), "RIS→BibTeX: article type + BBT-style key", bib.split("\n")[0]);
   const e = lightEntry(splitBibEntries(bib)[0]);
   ok(e.doi === "10.1038/171737a0", `DOI cleaned of the URL prefix (${e.doi})`);
   ok(e.authors.join(",") === "Watson,Crick", `both authors parsed (${e.authors.join(",")})`);
