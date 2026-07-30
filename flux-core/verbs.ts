@@ -1455,12 +1455,14 @@ export const VERBS: VerbDef[] = [
       bib: z.string().optional(),
       dataDir: z.string().optional(),
       attach: z.enum(["copy", "link"]).optional(),
+      deferFulltext: z.boolean().optional(),
       save: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "flag", at: "bib", into: "bib" },
       { kind: "flag", at: "data-dir", into: "dataDir" },
       { kind: "flag", at: "attach", into: "attach" },
+      { kind: "flag", at: "defer-fulltext", into: "deferFulltext", as: "boolean" },
       { kind: "flag", at: "save", into: "save", as: "boolean" },
     ],
     handler: (_ctx, a) =>
@@ -1468,6 +1470,7 @@ export const VERBS: VerbDef[] = [
         bib: a.bib as string | undefined,
         dataDir: a.dataDir as string | undefined,
         attach: a.attach as "copy" | "link" | undefined,
+        deferFulltext: a.deferFulltext as boolean | undefined,
         save: a.save as boolean | undefined,
       }),
     render: {

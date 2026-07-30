@@ -16,6 +16,13 @@ export interface ZoteroSettings {
   dataDir?: string; // Zotero data folder (its storage/ holds the PDFs); optional
   attach: "copy" | "link"; // copy PDFs into FluxLib (self-contained) or link to Zotero's copies
   auto: boolean; // sync on startup + live while the app is open
+  // Link mode only: skip reading the PDF at sync time (no byte read, no upfront
+  // full-text extraction — the pointer is written from a stat alone). Text backfills
+  // lazily: the reader extracts on first open, and agents hit getOrExtractFulltext.
+  // The default for HUGE exports (see isBigBib), where reading every linked file
+  // once — e.g. through a cloud-mounted Zotero folder — would make the first sync
+  // an hours-long streaming job.
+  deferFulltext: boolean;
 }
 
 /** Validate the raw `zotero` preferences value. null = not configured (or malformed —
@@ -29,8 +36,19 @@ export function parseZoteroSettings(raw: unknown): ZoteroSettings | null {
     dataDir: typeof o.dataDir === "string" && o.dataDir.trim() ? o.dataDir : undefined,
     attach: o.attach === "link" ? "link" : "copy",
     auto: o.auto !== false,
+    deferFulltext: o.deferFulltext === true,
   };
 }
+
+/** A "big" export — above this the connect dialog suggests link mode + deferred
+ *  full-text. ~5MB ≈ 3–4k entries of typical BBT output (abstracts included). */
+export const BIG_BIB_BYTES = 5_000_000;
+
+export const isBigBib = (bytes: number): boolean => bytes >= BIG_BIB_BYTES;
+
+/** Rough entry count from the file size — a UI hint only ("≈ 12,000 references").
+ *  Real BBT entries run ~1–2KB; 1.5KB keeps the estimate honest either way. */
+export const estimateBibEntries = (bytes: number): number => Math.max(1, Math.round(bytes / 1500));
 
 export interface ZoteroSyncSummary {
   added: number; // new FluxLib entries

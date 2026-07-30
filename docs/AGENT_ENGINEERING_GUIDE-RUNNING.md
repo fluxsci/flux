@@ -1549,3 +1549,22 @@ build warning-free.
 - Watch targets are resolved once, at `watch:setRoot` — any prefs-driven target (the Zotero
   bib) must re-invoke `watchRoot` after its setting changes, or the watcher silently lags the
   config until the next project open.
+
+### 2026-07-29 (later) — Zotero huge-library posture: defer-fulltext + big-export suggestion (Claude Fable 5, `main`)
+**Work:** Two owner-requested follow-ups. (1) `deferFulltext` (ZoteroSettings + `--defer-fulltext`)
+makes link-mode attaches STAT-ONLY: the sync writes the `paper.link.json` pointer without ever
+reading the linked file — at 15k PDFs on a cloud-mounted Zotero folder this is the difference
+between a sub-second sync and an overnight streaming job. Text backfills lazily: flux-core
+`getOrExtractFulltext` (readPdf resolves pointers) and an opportunistic fire-and-forget extract
+in `readerPdfBytes` on first open. (2) The connect dialog stats the picked .bib and, over
+`BIG_BIB_BYTES` (5MB), preselects link+defer with an explanatory note (`isBigBib`/
+`estimateBibEntries` in zoteroSettings.ts, pure). Measured (scratch probe, load-8.5 box): a 30k-
+entry / 22MB bib costs ~50ms to split, ~170ms to lightEntry, ~460ms to re-plan against a full
+library — the steady-state sync cost a no-change stat short-circuit would eliminate (NOT built;
+owner deferred pending the big-bib discussion). Gate: verify-zotero-sync extended (defer pass +
+lazy backfill through the pointer + suggestion helpers); goldens regenerated (`--defer-fulltext`).
+**Learnings:**
+- ft: search does NOT auto-backfill deferred text (fulltextSearch only REPORTS missingText) —
+  a deferred-link paper becomes full-text-searchable after its first reader open or a
+  get_paper_text call. If bulk backfill is ever wanted, iterate getOrExtractFulltext over the
+  index's backfill list; the machinery already exists.

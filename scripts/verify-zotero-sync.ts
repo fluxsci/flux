@@ -35,11 +35,13 @@ const zdir = path.join(scratch, "Zotero");
 const store1 = path.join(zdir, "storage", "ABKEY1");
 const store2 = path.join(zdir, "storage", "ABKEY2");
 const store3 = path.join(zdir, "storage", "ABKEY3");
-for (const d of [store1, store2, store3]) fs.mkdirSync(d, { recursive: true });
+const store4 = path.join(zdir, "storage", "ABKEY4");
+for (const d of [store1, store2, store3, store4]) fs.mkdirSync(d, { recursive: true });
 const samplePdf = fs.readFileSync(path.join(repoRoot, "scripts", "fixtures", "reader-sample.pdf"));
 fs.writeFileSync(path.join(store1, "Smith2021.pdf"), samplePdf);
 fs.writeFileSync(path.join(store2, "Jones2022.pdf"), samplePdf);
 fs.writeFileSync(path.join(store3, "Brown2023.pdf"), samplePdf);
+fs.writeFileSync(path.join(store4, "Green2024.pdf"), samplePdf);
 const bibPath = path.join(zdir, "fluxsync.bib");
 
 const SMITH = `@article{smithNeuralBasis2021,
@@ -73,11 +75,21 @@ const BROWN = `@article{brownDeepThings2023,
   doi = {10.3/c},
   file = {Full Text PDF:storage/ABKEY3/Brown2023.pdf:application/pdf}
 }`;
+const GREEN = `@article{greenLazyMatters2024,
+  title = {Lazy matters},
+  author = {Green, Sam},
+  year = {2024},
+  doi = {10.5/e},
+  file = {Full Text PDF:storage/ABKEY4/Green2024.pdf:application/pdf}
+}`;
 
 async function main() {
   const refs = await import("../flux-core/references");
   const items = await import("../flux-core/items");
-  const { parseZoteroSettings } = await import("../src/lib/references/zoteroSettings");
+  const { getOrExtractFulltext } = await import("../flux-core/fulltext");
+  const { parseZoteroSettings, isBigBib, estimateBibEntries, BIG_BIB_BYTES } = await import(
+    "../src/lib/references/zoteroSettings"
+  );
   const fluxlib = await import("../flux-core/fluxlib");
   const lib = await fluxlib.resolveFluxLibPath();
 
@@ -86,7 +98,12 @@ async function main() {
   ok(parseZoteroSettings({ bibPath: "" }) === null, "blank bibPath -> null");
   ok(parseZoteroSettings("garbage") === null, "malformed settings -> null (never throws)");
   const parsed = parseZoteroSettings({ bibPath: "/x/y.bib" });
-  ok(parsed?.attach === "copy" && parsed?.auto === true, "defaults: attach=copy, auto=true");
+  ok(parsed?.attach === "copy" && parsed?.auto === true && parsed?.deferFulltext === false, "defaults: attach=copy, auto=true, deferFulltext=false");
+  ok(parseZoteroSettings({ bibPath: "/x/y.bib", deferFulltext: true })?.deferFulltext === true, "deferFulltext parses");
+
+  // --- big-export suggestion helpers (the connect dialog's auto-suggest) ------------------
+  ok(!isBigBib(BIG_BIB_BYTES - 1) && isBigBib(BIG_BIB_BYTES), "isBigBib threshold is exact");
+  ok(estimateBibEntries(45_000_000) > 20_000, `45MB estimates a huge library (${estimateBibEntries(45_000_000)})`);
 
   // --- pass 1: two new entries, one PDF, --save ------------------------------------------
   fs.writeFileSync(bibPath, `${SMITH}\n\n${JONES_NO_PDF}\n`);
@@ -122,6 +139,19 @@ async function main() {
   ok(!!viaLink && viaLink.length === samplePdf.length, "readPdf resolves through the pointer");
   fs.renameSync(path.join(store3, "Brown2023.pdf"), path.join(store3, "Brown2023.moved.pdf"));
   ok((await items.readPdf("brownDeepThings2023")) === null, "moved external file degrades to null, not an error");
+
+  // --- pass 5: link + deferFulltext — pointer from a stat alone; text backfills lazily ----
+  fs.appendFileSync(bibPath, `\n${GREEN}\n`);
+  const r5 = await refs.zoteroSync({ attach: "link", deferFulltext: true });
+  ok(r5.summary.added === 1 && r5.summary.linked === 1, `pass 5: deferred link attach (${r5.line})`);
+  const greenDir = path.join(lib, "items", "greenLazyMatters2024");
+  ok(fs.existsSync(path.join(greenDir, "paper.link.json")), "deferred pointer on disk");
+  ok(!fs.existsSync(path.join(greenDir, "fulltext.txt")), "NO fulltext.txt written at sync time (deferred)");
+  ok(!fs.existsSync(path.join(greenDir, "paper.pdf")), "no copied bytes either");
+  // The lazy backfill: getOrExtractFulltext resolves the pointer, extracts, and caches.
+  const lazy = await getOrExtractFulltext("greenLazyMatters2024");
+  ok(!!lazy && lazy.includes("FluxReader Fixture"), "getOrExtractFulltext backfills through the pointer");
+  ok(fs.existsSync(path.join(greenDir, "fulltext.txt")), "backfilled text is cached to fulltext.txt");
 
   // --- the real CLI executes the verb (stored settings; no flags) -------------------------
   const cli = spawnSync(

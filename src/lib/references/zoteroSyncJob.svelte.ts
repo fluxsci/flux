@@ -108,6 +108,7 @@ class ZoteroSyncJob {
       for (const d of res.deduped) if (!(await readerHasPdf(d.key))) needsPdf.add(d.key);
       const candidates = attachCandidates(text, res.added, res.deduped, needsPdf);
       const baseDir = s.bibPath.replace(/[/\\][^/\\]*$/, "");
+      const deferred = s.attach === "link" && s.deferFulltext;
       for (const { key, raw } of candidates) {
         const atts = bibPdfAttachments(raw);
         if (!atts.length) continue;
@@ -117,6 +118,25 @@ class ZoteroSyncJob {
           isAbsolute: isAbsolutePath,
           join: joinPath,
         });
+        if (deferred) {
+          // Stat-only pointer write — never read the linked file at sync time (the
+          // huge-library posture; text backfills on first reader open). Twin of the
+          // flux-core deferFulltext branch.
+          let resolved = "";
+          for (const p of paths) {
+            try {
+              if (await fb.exists(p)) {
+                resolved = p;
+                break;
+              }
+            } catch {
+              /* try the next candidate */
+            }
+          }
+          if (resolved && (await writeLinkedPdfItem(key, resolved))) run.summary.linked++;
+          else run.summary.failed++;
+          continue;
+        }
         let bytes: Uint8Array | null = null;
         let resolved = "";
         for (const p of paths) {

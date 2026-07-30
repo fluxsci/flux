@@ -30,7 +30,10 @@ header shows the collection and its size; everything below is the grid.
   **copied** into FluxLib (the default: FluxLib alone stays a complete backup) or **linked**
   (one copy on disk; papers open from Zotero's folder, which then must stay put). A paper
   whose PDF shows up in Zotero later is backfilled on the next sync. Agents can run the same
-  sync headlessly (`flux zotero-sync`).
+  sync headlessly (`flux zotero-sync`). For very large libraries, the connect dialog detects a
+  big export and preselects linking **without upfront text extraction** — the sync never reads
+  the PDFs at all (it only records where they live), and searchable text fills in quietly as
+  you open papers.
 - **The inbox folder.** Drop PDF files into `~/FluxConfig/FluxLib/pdfs_to_assign/` and Flux
   identifies each one *from its own contents* and files it under the right paper — attaching it
   to an entry that lacks a PDF, keeping it as a supplement if the paper already has one, or

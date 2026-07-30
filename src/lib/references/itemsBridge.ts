@@ -221,7 +221,21 @@ export async function readerPdfBytes(key: string): Promise<ArrayBuffer | null> {
   const link = await readerPdfLink(key);
   if (!link) return null;
   try {
-    return await fb.readFile(link.path);
+    const buf = await fb.readFile(link.path);
+    // Deferred-fulltext backfill: a linked paper whose text extraction was skipped at
+    // sync time (huge-library posture) gets it now, opportunistically — we have the
+    // bytes anyway. Fire-and-forget; the reader never waits on it.
+    void (async () => {
+      try {
+        if (await fb.exists(fulltextPath(lib, key))) return;
+        const { extractFulltextText } = await import("../pdf/pdfFulltext");
+        const ft = await extractFulltextText(new Uint8Array(buf));
+        if (ft.chars > 0) await fb.writeText(fulltextPath(lib, key), ft.text);
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return buf;
   } catch {
     return null;
   }
@@ -240,23 +254,28 @@ export async function readerHasPdf(key: string): Promise<boolean> {
 }
 
 /** Link-mode attach (renderer twin of flux-core writeLinkedPdf + the fulltext parity
- *  of writePdfItem): record a pointer to the external PDF, write provenance, and
- *  extract fulltext from the external bytes so search works without a stored copy. */
-export async function writeLinkedPdfItem(key: string, absPath: string, bytes: Uint8Array): Promise<boolean> {
+ *  of writePdfItem): record a pointer to the external PDF, write provenance, and —
+ *  when the caller has the bytes in hand — extract fulltext so search works without
+ *  a stored copy. `bytes` is ABSENT on a deferred attach (huge libraries: the sync
+ *  never reads the linked file; text backfills lazily on first reader open /
+ *  getOrExtractFulltext). */
+export async function writeLinkedPdfItem(key: string, absPath: string, bytes?: Uint8Array): Promise<boolean> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return false;
   if (fb.mkdir) await fb.mkdir(itemDir(lib, key));
   const link: PdfLink = { path: absPath, linkedAt: new Date().toISOString() };
   await fb.writeText(linkPath(lib, key), JSON.stringify(link, null, 2) + "\n");
-  const source: SourceInfo = { key, source: "zotero-link", url: absPath, fetchedAt: link.linkedAt, bytes: bytes.length };
+  const source: SourceInfo = { key, source: "zotero-link", url: absPath, fetchedAt: link.linkedAt, bytes: bytes?.length };
   await fb.writeText(sourcePath(lib, key), JSON.stringify(source, null, 2) + "\n");
-  try {
-    const { extractFulltextText } = await import("../pdf/pdfFulltext");
-    const ft = await extractFulltextText(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
-    if (ft.chars > 0) await fb.writeText(fulltextPath(lib, key), ft.text);
-  } catch {
-    /* best-effort — the pointer is filed regardless */
+  if (bytes) {
+    try {
+      const { extractFulltextText } = await import("../pdf/pdfFulltext");
+      const ft = await extractFulltextText(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
+      if (ft.chars > 0) await fb.writeText(fulltextPath(lib, key), ft.text);
+    } catch {
+      /* best-effort — the pointer is filed regardless */
+    }
   }
   return true;
 }

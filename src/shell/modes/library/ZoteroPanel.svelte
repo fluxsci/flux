@@ -4,7 +4,7 @@
   // this dialog is only settings + status). Modal idiom mirrors ImportDialog.
   import { fileBridge } from "../../../lib/project/types";
   import { zoteroSyncJob } from "../../../lib/references/zoteroSyncJob.svelte";
-  import type { ZoteroSettings } from "../../../lib/references/zoteroSettings";
+  import { isBigBib, estimateBibEntries, type ZoteroSettings } from "../../../lib/references/zoteroSettings";
 
   let {
     projectRoot = null,
@@ -19,6 +19,8 @@
   let draftDataDir = $state(zoteroSyncJob.settings?.dataDir ?? "");
   let draftAttach = $state<"copy" | "link">(zoteroSyncJob.settings?.attach ?? "copy");
   let draftAuto = $state(zoteroSyncJob.settings?.auto ?? true);
+  let draftDefer = $state(zoteroSyncJob.settings?.deferFulltext ?? false);
+  let bigNote = $state(""); // set when the picked export looks huge (auto-suggest link)
   let editing = $state(!zoteroSyncJob.settings); // no settings yet -> straight to the form
 
   const connected = $derived(zoteroSyncJob.settings !== null);
@@ -32,6 +34,23 @@
       // Default the data dir to the .bib's parent — the common case is exporting
       // into the Zotero data folder itself; the user can still point elsewhere.
       if (!draftDataDir) draftDataDir = draftBib.replace(/[/\\][^/\\]*$/, "");
+      // Huge export → suggest the huge-library posture: link (no duplicate copies)
+      // + deferred text extraction (never stream every PDF through the first sync).
+      // A suggestion only — the radios/checkbox stay fully editable.
+      bigNote = "";
+      try {
+        const st = await fb.stat?.(draftBib);
+        if (st && isBigBib(st.size)) {
+          draftAttach = "link";
+          draftDefer = true;
+          const mb = (st.size / 1e6).toFixed(0);
+          bigNote =
+            `Large export detected (≈${estimateBibEntries(st.size).toLocaleString()} references, ${mb} MB) — ` +
+            `linking without upfront text extraction is preselected. Searchable text fills in as you open papers.`;
+        }
+      } catch {
+        /* stat unavailable — no suggestion */
+      }
     }
   }
   async function chooseDataDir() {
@@ -48,6 +67,7 @@
       dataDir: draftDataDir.trim() || undefined,
       attach: draftAttach,
       auto: draftAuto,
+      deferFulltext: draftAttach === "link" && draftDefer,
     };
     await zoteroSyncJob.saveSettings(next);
     editing = false;
@@ -115,9 +135,13 @@
           <button class="ghost" onclick={chooseDataDir}>Zotero folder…</button>
           <span class="ztxt">{draftDataDir || "for PDFs stored relative to Zotero (usually ~/Zotero)"}</span>
         </div>
+        {#if bigNote}<p class="muted bignote">{bigNote}</p>{/if}
         <div class="row radios">
           <label><input type="radio" bind:group={draftAttach} value="copy" /> Copy PDFs into FluxLib <span class="hint">self-contained — FluxLib alone is a complete backup</span></label>
           <label><input type="radio" bind:group={draftAttach} value="link" /> Link to Zotero's PDFs <span class="hint">one copy on disk — papers open from Zotero's folder, which must stay put</span></label>
+          {#if draftAttach === "link"}
+            <label class="sub"><input type="checkbox" checked={!draftDefer} onchange={() => (draftDefer = !draftDefer)} /> Extract searchable text during sync <span class="hint">off = the sync never reads the PDFs; text fills in as you open papers</span></label>
+          {/if}
         </div>
         <label class="row"><input type="checkbox" bind:checked={draftAuto} /> Sync automatically (on startup, and live when the export changes)</label>
       </div>
@@ -129,7 +153,11 @@
       <div class="body">
         <div class="kv"><span class="k">Export</span><span class="v">{zoteroSyncJob.settings?.bibPath}</span></div>
         <div class="kv"><span class="k">Zotero folder</span><span class="v">{zoteroSyncJob.settings?.dataDir ?? "—"}</span></div>
-        <div class="kv"><span class="k">PDFs</span><span class="v">{zoteroSyncJob.settings?.attach === "link" ? "linked (one copy, in Zotero's folder)" : "copied into FluxLib"}</span></div>
+        <div class="kv"><span class="k">PDFs</span><span class="v">{zoteroSyncJob.settings?.attach === "link"
+          ? zoteroSyncJob.settings?.deferFulltext
+            ? "linked (one copy; searchable text fills in as you open papers)"
+            : "linked (one copy, in Zotero's folder)"
+          : "copied into FluxLib"}</span></div>
         <label class="row"><input type="checkbox" checked={zoteroSyncJob.settings?.auto} onchange={toggleAuto} /> Sync automatically</label>
         {#if lastRunLabel}
           <p class="muted" class:err={!!zoteroSyncJob.lastRun?.error}>Last sync {lastRunLabel}</p>
@@ -212,6 +240,18 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
+  }
+  .sub {
+    margin-left: 22px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--ts-sm);
+    color: var(--c-tx);
+  }
+  .bignote {
+    border-left: 2px solid var(--c-accent);
+    padding-left: 8px;
   }
   .ztxt {
     font-size: var(--ts-xs);

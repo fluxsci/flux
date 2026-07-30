@@ -83,10 +83,19 @@ async function resolveAttachPath(p: string, baseDir?: string, zoteroDir?: string
  *  semantics for big Zotero libraries; fulltext is still extracted so search works).
  *  NEW entries always attach; MERGED entries attach only when they have NO PDF yet
  *  (the re-sync backfill: a paper whose PDF arrived in Zotero after the entry did) —
- *  an existing paper.pdf/pointer is never overwritten. */
+ *  an existing paper.pdf/pointer is never overwritten. Link mode with `deferFulltext`
+ *  never READS the linked file at all (stat-only pointer write; text backfills
+ *  lazily via getOrExtractFulltext / the reader) — the huge-library posture. */
 export async function importReferences(
   text: string,
-  opts: { attachFiles?: boolean; attachMode?: "copy" | "link"; baseDir?: string; zoteroDir?: string; libPath?: string } = {},
+  opts: {
+    attachFiles?: boolean;
+    attachMode?: "copy" | "link";
+    deferFulltext?: boolean;
+    baseDir?: string;
+    zoteroDir?: string;
+    libPath?: string;
+  } = {},
 ): Promise<ImportReport> {
   const format = sniffFormat(text);
   const bib = format === "ris" ? risToBibtex(text) : text;
@@ -115,6 +124,18 @@ export async function importReferences(
     const resolved = await resolveAttachPath(att.path, opts.baseDir, opts.zoteroDir);
     if (!resolved) {
       report.attachFailed.push({ key, path: att.path, error: "file not found" });
+      continue;
+    }
+    if (mode === "link" && opts.deferFulltext) {
+      // Stat-only attach: resolveAttachPath already proved the file exists. No byte
+      // read, no extraction — at 15k linked PDFs on a cloud mount this is the
+      // difference between a sub-second sync and an overnight streaming job.
+      try {
+        await writeLinkedPdf(key, resolved, opts.libPath);
+        report.linked.push({ key, path: resolved });
+      } catch (e) {
+        report.attachFailed.push({ key, path: resolved, error: e instanceof Error ? e.message : String(e) });
+      }
       continue;
     }
     try {
@@ -162,7 +183,14 @@ export async function zoteroSettings(): Promise<ZoteroSettings | null> {
  *  PDFs attach for new entries and backfill PDF-less known ones. With `save`, the
  *  effective settings persist to preferences.json (the CLI's way to connect). */
 export async function zoteroSync(
-  opts: { bib?: string; dataDir?: string; attach?: "copy" | "link"; save?: boolean; libPath?: string } = {},
+  opts: {
+    bib?: string;
+    dataDir?: string;
+    attach?: "copy" | "link";
+    deferFulltext?: boolean;
+    save?: boolean;
+    libPath?: string;
+  } = {},
 ): Promise<ZoteroSyncResult> {
   const stored = await zoteroSettings();
   const bibPath = opts.bib ? path.resolve(opts.bib) : stored?.bibPath;
@@ -176,6 +204,7 @@ export async function zoteroSync(
     dataDir: opts.dataDir ?? stored?.dataDir ?? path.dirname(bibPath),
     attach: opts.attach ?? stored?.attach ?? "copy",
     auto: stored?.auto ?? true,
+    deferFulltext: opts.deferFulltext ?? stored?.deferFulltext ?? false,
   };
   let text: string;
   try {
@@ -186,6 +215,7 @@ export async function zoteroSync(
   const report = await importReferences(text, {
     attachFiles: true,
     attachMode: settings.attach,
+    deferFulltext: settings.deferFulltext,
     baseDir: path.dirname(bibPath),
     zoteroDir: settings.dataDir,
     libPath: opts.libPath,

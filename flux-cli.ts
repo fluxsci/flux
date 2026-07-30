@@ -118,8 +118,9 @@ usage: flux <verb> [root] [args] [--flags]
                                        --attach-files [--zotero-dir d]: pull its PDFs
   reconcile [--root R]                 sync this project's library.bib with FluxLib
   hydrate [--refresh] [--key K]        enrich FluxLib with OpenAlex (abstracts, topics, citations)
-  zotero-sync [--bib f] [--data-dir d] [--attach copy|link] [--save]   pull new references + PDFs from the
-                                       connected Zotero Better-BibTeX auto-export (one-way, idempotent)
+  zotero-sync [--bib f] [--data-dir d] [--attach copy|link] [--defer-fulltext] [--save]   pull new references +
+                                       PDFs from the connected Zotero Better-BibTeX auto-export (one-way,
+                                       idempotent; --defer-fulltext = link without reading the PDFs now)
   discover <query…> [--semantic] [--sort cites|date]   search ALL of OpenAlex (--semantic = by meaning)
   similar <key> [--s2] [--sort cites]  "more like this" (OpenAlex semantic; --s2 = Semantic Scholar recs)
   citing <key|doi|Wid> [--s2] [--sort date]   works citing this (--s2 = Semantic Scholar + contexts)
