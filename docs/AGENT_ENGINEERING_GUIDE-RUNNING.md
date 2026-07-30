@@ -1572,8 +1572,9 @@ lazy backfill through the pointer + suggestion helpers); goldens regenerated (`-
 **Work:** Added `docs/claude-install-flux-mac.md` — a step-by-step runbook a Claude Code
 session on a fresh Mac follows to take a bare `git clone` to fully-ready (Node 22 → npm ci →
 `npm run build` → FluxConfig first-run → claude-family agents.json → Quarto/TinyTeX +
-`quarto render docs` → uv + `~/fluxplot` → verification → optional double-clickable
-`~/Desktop/LAUNCH-FLUX.command`). Zotero is deliberately EXCLUDED (owner decision: the
+`quarto render docs` → uv + `~/fluxplot` → Lighttable sidecar (its own `npm ci` +
+`npm run build`, installed by default — the top-bar button needs `lighttable/dist/`) →
+verification → optional double-clickable `~/Desktop/LAUNCH-FLUX.command`). Zotero is deliberately EXCLUDED (owner decision: the
 install agent does nothing and asks nothing about Zotero — FluxLib starts empty, and the
 connection happens later from the app's Library → Zotero panel; the runbook's final report
 just points at the Zotero docs page). Deliberately a plain `.md`: the render globs are

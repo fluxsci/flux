@@ -57,6 +57,7 @@ Read these before running anything:
 - [ ] Quarto + TinyTeX installed; `quarto check` clean; user docs rendered for the in-app
       Docs button
 - [ ] uv installed; fluxplot cloned to `~/fluxplot` and importable
+- [ ] Lighttable sidecar installed and built (`lighttable/`: its own `npm ci` + `npm run build`)
 - [ ] The app itself launched and the user saw the window
 - [ ] (Optional, user's choice) `LAUNCH-FLUX.command` on the Desktop
 
@@ -170,12 +171,22 @@ substitute plain `vite build` here (it would leave the CLI bundle stale or missi
 Treat any esbuild `import-is-undefined` warning during the build as an error and report it
 — on a fresh tagged clone there should be none.
 
+**Lighttable (install by default):** Flux's top bar has a launcher button for Lighttable —
+the image-set contact-sheet viewer that lives in `lighttable/` as a self-contained sidecar
+app (its own dependencies and its own build; nothing is shared with Flux's). Set it up now
+so the button just works:
+
+```bash
+cd "$FLUX_REPO/lighttable" && npm ci && npm run build && cd "$FLUX_REPO"
+```
+
 ✅ **Check:**
 
 ```bash
 npx electron --version                 # v43.x.x
 test -f dist/index.html && test -f dist/flux-cli.mjs && echo dist-ok
 node dist/flux-cli.mjs version         # prints version + commit + build date
+test -f lighttable/dist/index.html && echo lighttable-ok
 ```
 
 If `npx electron --version` fails with a missing-binary error, the Electron download was
@@ -401,11 +412,8 @@ Two useful pointers for the user at this moment (don't do these for them):
 
 ## 11. Optional extras (offer, don't push)
 
-- **Lighttable** (image-set contact-sheet viewer, a sidecar app in this repo): the top bar
-  has a launcher button for it, which needs its own dependencies once:
-  `cd "$FLUX_REPO/lighttable" && npm ci`. Skip unless the user wants it.
 - **Google Chrome + `FLUX_CHROME`** — only if the user intends to run the full test suite
-  (see step 9).
+  (see step 9). (Lighttable is not optional — it's part of step 3.)
 
 ---
 
@@ -519,6 +527,7 @@ End your session with a summary containing:
 | `flux: command not found` | `~/.local/bin` missing at first run (shim never installed) or not on PATH → `mkdir -p ~/.local/bin`, re-run any verb (`node dist/flux-cli.mjs config`), check the step-2 PATH block |
 | `flux` prints a stale version/commit | `dist/flux-cli.mjs` predates the checkout → `npm run build:cli` (or full `npm run build`) |
 | Docs button shows "Docs aren't rendered yet" | `quarto render docs` hasn't been run in this checkout → run it (step 6) |
+| Lighttable button errors ("isn't installed" / "isn't built yet") | The sidecar's own deps/build are missing → `cd lighttable && npm ci && npm run build` (step 3) |
 | App can't find `quarto`/`claude` when launched from Finder | Finder PATH is minimal → launch via `LAUNCH-FLUX.command` (it exports a full PATH), or from a terminal |
 | `flux compile --to pdf` fails, html/docx fine | No TeX → `quarto install tinytex`, then `quarto check` |
 | Launcher opens Terminal but no Flux window | Baked paths stale (repo moved / node reinstalled) → regenerate the launcher (step 13); check `dist/index.html` exists |
