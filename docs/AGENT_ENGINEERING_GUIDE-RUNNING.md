@@ -1568,3 +1568,34 @@ lazy backfill through the pointer + suggestion helpers); goldens regenerated (`-
   a deferred-link paper becomes full-text-searchable after its first reader open or a
   get_paper_text call. If bulk backfill is ever wanted, iterate getOrExtractFulltext over the
   index's backfill list; the machinery already exists.
+### 2026-07-29 — Agent-facing macOS install runbook (Claude Fable 5, `main`)
+**Work:** Added `docs/claude-install-flux-mac.md` — a step-by-step runbook a Claude Code
+session on a fresh Mac follows to take a bare `git clone` to fully-ready (Node 22 → npm ci →
+`npm run build` → FluxConfig first-run → claude-family agents.json → Quarto/TinyTeX +
+`quarto render docs` → uv + `~/fluxplot` → verification → optional double-clickable
+`~/Desktop/LAUNCH-FLUX.command`). Zotero is deliberately EXCLUDED (owner decision: the
+install agent does nothing and asks nothing about Zotero — FluxLib starts empty, and the
+connection happens later from the app's Library → Zotero panel; the runbook's final report
+just points at the Zotero docs page). Deliberately a plain `.md`: the render globs are
+`.qmd`-only, so it never enters the user site, and verify-docs (120 checks) stays green
+with zero changes.
+**Learnings:**
+- The production-style source launch is `npm run build` once + `./node_modules/.bin/electron .`
+  from the repo (main.cjs falls back to `dist/index.html` when `VITE_DEV_SERVER_URL` is
+  unset). `npx electron <path>` from OUTSIDE the repo may fetch a fresh Electron instead of
+  using the checkout's — always use the repo-local binary.
+- macOS launcher facts: Finder starts `.command` files with a minimal env (no `~/.zshrc`), so
+  a launcher must export a full PATH — and Flux spawns quarto/claude/recipes with the PATH it
+  inherits (execResolve is identity off win32). Launch Electron detached (`nohup … & disown`)
+  or closing the leftover Terminal window kills the app.
+- Fresh-machine trap: `ensureFluxConfig` installs the `flux` shim only if `~/.local/bin`
+  already exists — an installer must `mkdir -p ~/.local/bin` BEFORE the first CLI/app run.
+- Privileged installer steps on macOS can be fully agent-driven:
+  `osascript -e 'do shell script "…" with administrator privileges'` raises the native auth
+  dialog (the password never transits the agent, which has no tty for plain `sudo`). The one
+  exception is Homebrew's installer (refuses root, drives tty-interactive sudo) — a
+  hands-off runbook treats brew as use-if-present and never installs it.
+- Pure tier on macOS: `verify-fluxconfig` + `verify-zotero-sync` fail by construction
+  (XDG-based prefs isolation is a no-op on darwin), and the three slide-export scripts need
+  `FLUX_CHROME` pointed at Chrome's mac path — platform assumptions in the scripts, not
+  regressions.
