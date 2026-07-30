@@ -90,7 +90,7 @@ export async function clickNew(page, { settle = 1500 } = {}) {
   return clicked;
 }
 
-// Click an ActivityRail mode button by its aria-label ("Figure" | "Paper" | "Slide").
+// Click a title-bar mode button by its aria-label ("Figure" | "Paper" | "Slide").
 export async function clickMode(page, label, { settle = 900 } = {}) {
   const ok = await page.evaluate((lbl) => {
     const b = [...document.querySelectorAll("button[aria-label]")].find(

@@ -1,7 +1,8 @@
 <script lang="ts">
   // Shell-global keyboard reference. Mounted once (Shell — so `?` works on Home
-  // too); opened with `?` from anywhere or the rail's help button (the `helpOpen`
-  // store). Tabs cover every mode; opening jumps to the mode you're focused on.
+  // too); opened with `?` from anywhere or the title-bar help button (the
+  // `helpOpen` store). Tabs cover every mode; opening jumps to the mode you're
+  // focused on.
   import { helpOpen } from "./settings";
   import { focusedMode } from "../shell/paneStore";
 
@@ -19,9 +20,10 @@
           items: [
             ["?", "Show / hide this reference"],
             ["Esc", "Close menus & overlays"],
-            ["Click a rail icon", "Switch mode"],
-            ["Alt / ⌘-click rail", "Open a mode in a split pane"],
-            ["Home icon", "Back to the start screen"],
+            ["Click a mode icon (top bar)", "Switch mode"],
+            ["⌃1 – ⌃5", "Switch mode (Figure, Paper, Slide, Library, Reader)"],
+            ["Alt / ⌘-click a mode icon", "Open that mode in a split pane"],
+            ["Flux wordmark", "Back to the start screen"],
             ["⚙", "Settings"],
           ],
         },

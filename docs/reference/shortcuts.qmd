@@ -16,9 +16,10 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 | **Ctrl+Shift+M** | Note to agent — a one-liner stamped with what you're looking at |
 | **?** | Keyboard shortcut overlay (works on the Home screen too) |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
+| **Ctrl+1** … **Ctrl+5** | Switch mode (Figure, Paper, Slide, Library, Reader) |
 
-Mode switching is by the rail on the left; **Alt+click** (or **Ctrl+click**) a rail icon opens
-that mode in a split pane.
+Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Alt+click**
+(or **Cmd+click**) a mode icon opens that mode in a split pane.
 
 # Paper
 

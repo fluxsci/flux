@@ -343,7 +343,7 @@ async function measurePage(page, dsf, url = APP_URL) {
       await page.evaluate((p) => window.__flux.shell.openProjectAt(p), proj);
       await sleep(3000);
     }
-    // Figure mode via the activity rail (driver.clickMode idiom).
+    // Figure mode via the title-bar mode strip (driver.clickMode idiom).
     await page.evaluate(() => {
       const b = [...document.querySelectorAll("button[aria-label]")].find((e) => e.getAttribute("aria-label") === "Figure");
       if (b) b.click();

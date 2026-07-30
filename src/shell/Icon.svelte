@@ -5,12 +5,21 @@
     home: '<path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',
     lighttable:
       '<rect width="18" height="14" x="3" y="3" rx="2"/><path d="M4 21h1"/><path d="M9 21h1"/><path d="M14 21h1"/><path d="M19 21h1"/>',
+    // ---- mode icons (2026-07 top-bar rework) ----
+    // Fixed Flexoki accent details ride var(--flx-*-400) tokens so they stay
+    // theme-managed while the structural strokes keep following currentColor.
     figure:
-      '<rect x="3" y="3" width="7.5" height="7.5" rx="1.2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.2"/>',
+      '<path d="M4.5 4V19.5H21"/><path d="M7.5 16.5 19 7" stroke="var(--flx-blue-400)"/><circle cx="9.7" cy="13.2" r="1.35" fill="var(--flx-orange-400)" stroke="none"/><circle cx="13.2" cy="9.8" r="1.35" fill="var(--flx-cyan-400)" stroke="none"/><circle cx="16.3" cy="11.4" r="1.35" fill="var(--flx-magenta-400)" stroke="none"/>',
     paper:
-      '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+      '<text x="10" y="17.5" text-anchor="middle" font-size="16.5" style="font-family: var(--font-serif); font-weight: 600" fill="currentColor" stroke="none">A</text><path d="M17.6 6v11.4" stroke="var(--flx-blue-300)" stroke-width="2"/>',
     slide:
-      '<path d="M2 3h20"/><path d="M20 3v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3"/><path d="m8 21 4-4 4 4"/>',
+      '<path d="M7 4.5h11a2 2 0 0 1 2 2V14"/><rect x="3.5" y="7.5" width="13" height="10" rx="1.5"/><path d="M8.7 10.4v4.2l3.6-2.1z" fill="var(--flx-orange-400)" stroke="none"/>',
+    library:
+      '<path d="M3.5 8.6 12 3.4l8.5 5.2z"/><path d="M7 11v6.5M12 11v6.5M17 11v6.5" stroke-width="2.4"/><path d="M5.5 19.2h13" stroke="var(--flx-yellow-400)"/><path d="M3.5 21.6h17" stroke="var(--flx-yellow-400)"/>',
+    reader:
+      '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M10 9H8"/><path d="M7.4 13.2h9.2" stroke="var(--flx-yellow-400)" stroke-width="3.4" opacity="0.5"/><path d="M16 13.2H8"/><path d="M14.5 17H8"/>',
+    help:
+      '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a2.8 2.8 0 1 1 4.1 2.5c-.9.5-1.3 1-1.3 1.9"/><circle cx="12" cy="16.8" r="0.7" fill="currentColor" stroke="none"/>',
     plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
     folder:
       '<path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a1 1 0 0 1 .97 1.24l-1.5 6A2 2 0 0 1 18.53 19H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v1.5"/>',

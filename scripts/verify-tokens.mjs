@@ -15,7 +15,7 @@ const SRC = join(root, "src");
 // legitimately defined outside tokens.css and out of scope for this gate.
 const TOKEN_PREFIXES = [
   "--c-", "--ts-", "--sp-", "--r-", "--dur-", "--ease-",
-  "--lh-", "--tracking-", "--elev-", "--font-", "--titlebar-", "--rail-",
+  "--lh-", "--tracking-", "--elev-", "--font-", "--titlebar-",
 ];
 const isToken = (n) => TOKEN_PREFIXES.some((p) => n.startsWith(p));
 

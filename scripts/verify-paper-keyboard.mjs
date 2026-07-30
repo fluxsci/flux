@@ -133,7 +133,7 @@ const cmBox = await page.evaluate(() => {
 if (cmBox) await page.mouse.click(cmBox.x, cmBox.y);
 await sleep(500);
 const backInPaper = await page.evaluate(
-  () => document.querySelector("nav.rail button.active")?.getAttribute("aria-label") === "Paper",
+  () => document.querySelector(".titlebar .modestrip button.active")?.getAttribute("aria-label") === "Paper",
 );
 if (!backInPaper) {
   console.error("could not refocus the Paper pane");

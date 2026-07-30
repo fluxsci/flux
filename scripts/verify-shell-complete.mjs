@@ -1,7 +1,9 @@
 // Phase 4.2 gate (browser) — shell completeness: the global keyboard-shortcut
-// reference (all five modes, `?` + rail button, Esc, typing-guard), the global
-// Settings panel (rail gear, FluxLib-folder + update-check sections, Esc), and
-// the Home recents remove/clear actions.
+// reference (all five modes, `?` + title-bar button, Esc, typing-guard), the
+// global Settings panel (title-bar gear, FluxLib-folder + update-check
+// sections, Esc), the title-bar mode strip (top-bar rework 2026-07: the left
+// activity strip moved into the title bar; Ctrl+1–5 switch modes), and the
+// Home recents remove/clear actions.
 //   Run (dev server on :1420 must be up): node scripts/verify-shell-complete.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
 
@@ -57,33 +59,56 @@ const searchVal = await page.$eval(".search", (el) => el.value).catch(() => "");
 ok(searchVal.includes("?"), "the “?” lands in the field as text instead", JSON.stringify(searchVal));
 await page.$eval(".search", (el) => { el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); }).catch(() => {});
 
-// --- global Help + Settings via the rail ------------------------------------
-const railHelp = 'nav.rail button[aria-label="Keyboard shortcuts"]';
-const railGear = 'nav.rail button[aria-label="Settings"]';
-ok(await page.$eval(railHelp, (e) => !!e).catch(() => false), "the rail has a keyboard-shortcuts button");
-ok(await page.$eval(railGear, (e) => !!e).catch(() => false), "the rail has a Settings gear");
+// --- the title-bar mode strip (top-bar rework) ------------------------------
+ok(!(await page.$("nav.rail")), "the left activity strip is gone (modes live in the title bar)");
+const stripLabels = await page.$$eval(".titlebar .modestrip button", (els) => els.map((e) => e.getAttribute("aria-label")));
+ok(
+  JSON.stringify(stripLabels) === JSON.stringify(["Figure", "Paper", "Slide", "Library", "Reader"]),
+  "the title bar lists all five modes in order",
+  stripLabels.join(","),
+);
+const pressCtrlDigit = async (d) => {
+  await page.keyboard.down("Control");
+  await page.keyboard.press(`Digit${d}`);
+  await page.keyboard.up("Control");
+  await sleep(400);
+};
+const activeMode = () => page.$eval(".titlebar .modestrip button.active", (e) => e.getAttribute("aria-label")).catch(() => "");
+await pressCtrlDigit(2);
+const afterTwo = await activeMode();
+await pressCtrlDigit(4);
+const afterFour = await activeMode();
+ok(afterTwo === "Paper" && afterFour === "Library", `Ctrl+2/Ctrl+4 switch modes (→ ${afterTwo} → ${afterFour})`);
+await clickMode(page, "Paper").catch(() => {});
+await sleep(300);
+
+// --- global Help + Settings via the title bar --------------------------------
+const tbHelp = '.titlebar button[aria-label="Keyboard shortcuts"]';
+const tbGear = '.titlebar button[aria-label="Settings"]';
+ok(await page.$eval(tbHelp, (e) => !!e).catch(() => false), "the title bar has a keyboard-shortcuts button");
+ok(await page.$eval(tbGear, (e) => !!e).catch(() => false), "the title bar has a Settings gear");
 
 // --- Lighttable launcher ----------------------------------------------------
 // The fixture bridge stubs the launch with an error result, so a click must
 // surface the "unavailable" toast — proving the button→bridge wiring end to end.
-const railLt = 'nav.rail button[aria-label="Lighttable"]';
-ok(await page.$eval(railLt, (e) => !!e).catch(() => false), "the rail has a Lighttable launcher");
-await page.click(railLt).catch(() => {});
+const tbLt = '.titlebar button[aria-label="Lighttable"]';
+ok(await page.$eval(tbLt, (e) => !!e).catch(() => false), "the title bar has a Lighttable launcher");
+await page.click(tbLt).catch(() => {});
 await sleep(300);
 const ltToast = await page.$eval(".toasts .toast .t-msg", (e) => e.textContent || "").catch(() => "");
 ok(/Lighttable/.test(ltToast), "clicking it in the fixture surfaces the launch-result toast", JSON.stringify(ltToast));
 await page.click(".toasts .toast .t-x").catch(() => {});
 await sleep(150);
 
-await page.click(railHelp);
+await page.click(tbHelp);
 await sleep(200);
-ok(await helpOpen(), "the rail help button opens the reference");
+ok(await helpOpen(), "the title-bar help button opens the reference");
 await page.keyboard.press("Escape");
 await sleep(150);
 
-await page.click(railGear);
+await page.click(tbGear);
 await sleep(250);
-ok(await setOpen(), "the rail gear opens Settings (reachable from every mode)");
+ok(await setOpen(), "the title-bar gear opens Settings (reachable from every mode)");
 const setText = await page.$eval(setSel, (el) => el.textContent || "").catch(() => "");
 ok(/FluxConfig folder/.test(setText), "Settings shows the FluxConfig folder section (renamed from Library folder in the FluxConfig refactor)");
 ok(/Updates|newer version/.test(setText), "Settings shows the update-check toggle");
@@ -104,7 +129,7 @@ await page.evaluate(() => {
   );
 });
 await gotoApp(page, { url: URL, settle: 2800 });
-await page.click("nav.rail .item.home").catch(() => {});
+await page.click(".titlebar .brand").catch(() => {});
 await sleep(500);
 const rows0 = await page.$$eval(".recent-row", (els) => els.length).catch(() => -1);
 const names0 = await page.$$eval(".recent-row .rname", (els) => els.map((e) => e.textContent)).catch(() => []);

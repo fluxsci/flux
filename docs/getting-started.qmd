@@ -25,7 +25,7 @@ tutorial: save. Flux [autosaves continuously](concepts/projects-and-files.qmd#sa
 
 # Add a paper to your library
 
-Open **Library** in the mode rail. Paste a DOI into the add box at the top — any paper you
+Open **Library** from the mode icons in the top bar. Paste a DOI into the add box at the top — any paper you
 like, e.g. `10.1126/science.1070919` — and press Enter. The paper lands in
 [your machine-global library](concepts/library-and-fluxlib.qmd), shared by every project.
 

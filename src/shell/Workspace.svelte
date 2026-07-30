@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import ActivityRail from "./ActivityRail.svelte";
   import PaneArea from "./PaneArea.svelte";
   import Settings from "../lib/Settings.svelte";
   import CommandPalette from "./command/CommandPalette.svelte";
@@ -9,8 +8,12 @@
   import { contextCommands } from "./command/globalCommands";
   import { requestPaperPalette, feedbackCaptureOpen } from "./command/commandBus";
   import { initFeedbackStore } from "./agent/feedbackStore";
-  import { focusedMode } from "./paneStore";
+  import { focusedMode, setFocusedMode } from "./paneStore";
+  import type { ModeId } from "./shellStore";
   import type { Command } from "./command/commands";
+
+  // Ctrl+1…Ctrl+5, in the title-bar strip's order (top-bar rework, 2026-07).
+  const MODE_ORDER: ModeId[] = ["figure", "paper", "slide", "library", "reader"];
 
   let globalPaletteOpen = $state(false);
   let globalCommandList = $state<Command[]>([]);
@@ -36,6 +39,10 @@
       } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyM") {
         e.preventDefault();
         feedbackCaptureOpen.update((v) => !v);
+      } else if (mod && !e.altKey && !e.shiftKey && /^Digit[1-5]$/.test(e.code)) {
+        // Mode switching by number — mirrors the title-bar strip left to right.
+        e.preventDefault();
+        setFocusedMode(MODE_ORDER[Number(e.code.slice(5)) - 1]);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -44,7 +51,6 @@
 </script>
 
 <div class="workspace">
-  <ActivityRail />
   <PaneArea />
   <!-- Workspace-global overlays (Help lives one level up in Shell, so "?" also
        works on the Home screen). -->

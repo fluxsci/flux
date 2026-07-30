@@ -5,10 +5,12 @@
    The app chrome is dark; the .paper scope below IS the light theme (the
    manuscript page renders on Flexoki paper).
 
-   Brand note: the Flux mark is a twisting double-sine braid in blue/gold/teal.
-   Those three brand colours live ONLY in the logomark (src/shell/Logomark.svelte);
-   the UI accent everywhere else is the single Flexoki blue below (decision: keep
-   the chrome calm and monochrome — "restraint is the luxury", P2).
+   Brand note: the Flux mark is a phyllotaxis bloom — a sunflower spiral of dots
+   coloured through the full Flexoki accent wheel (src/shell/Logomark.svelte;
+   asset: brand/flux-mark-phyllotaxis.svg). The UI accent everywhere else stays
+   the single Flexoki blue below (decision: keep the chrome calm and monochrome —
+   "restraint is the luxury", P2); the mode icons carry small fixed accent
+   details from the 400-grade hues (the --flx-*-400 tokens).
    ============================================================================= */
 :root {
   color-scheme: dark;
@@ -33,6 +35,13 @@
   --flx-blue-400: #4385be;
   --flx-blue-500: #3171b2;
   --flx-blue-600: #205ea6;
+  --flx-red-200:  #f89a8a;
+  /* 400-grade accent hues (legible on the dark chrome) — the mode icons'
+     always-on colour details and the logomark's palette. */
+  --flx-orange-400:  #da702c;
+  --flx-yellow-400:  #d0a215;
+  --flx-cyan-400:    #3aa99f;
+  --flx-magenta-400: #ce5d97;
   /* text-grade 600 tones (legible on cream) — the dynamic panes' outlines */
   --flx-cyan-600:    #24837b;
   --flx-olive-600:   #66800b;
@@ -185,7 +194,6 @@
 
   /* ---- Chrome metrics --------------------------------------------------- */
   --titlebar-h: 38px;
-  --rail-w: 60px;
 }
 
 /* =============================================================================

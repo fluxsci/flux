@@ -278,7 +278,7 @@ quarto check                     # should end with no errors
 Without TinyTeX, `flux compile --to pdf` fails while `--to html|docx` still work — so
 TinyTeX is strongly recommended, not optional-in-practice.
 
-Finally, render the user docs once so the app's rail-foot **Docs** button works (it opens
+Finally, render the user docs once so the app's top-bar **Docs** button works (it opens
 `docs/_site/index.html` and shows an error toast until this has been run):
 
 ```bash
@@ -382,8 +382,8 @@ Launch the built app (production-style — loads `dist/`, no dev server):
 cd "$FLUX_REPO" && ./node_modules/.bin/electron .
 ```
 
-🧑 Ask the user to confirm: the Flux window opens, Home shows the mode rail (Paper, Figure,
-Slide, Reader, Library icons on the left), and — since step 6 ran — the **Docs** button near
+🧑 Ask the user to confirm: the Flux window opens, Home shows the Flux mark and the New/Open
+buttons (the five mode icons appear in the top bar once a project is open), and — since step 6 ran — the **Docs** button near
 the Settings gear opens the user documentation in their browser. Then they can quit it
 (⌘Q), or keep it open.
 
@@ -401,8 +401,8 @@ Two useful pointers for the user at this moment (don't do these for them):
 
 ## 11. Optional extras (offer, don't push)
 
-- **Lighttable** (image-set contact-sheet viewer, a sidecar app in this repo): the rail has
-  a launcher button for it, which needs its own dependencies once:
+- **Lighttable** (image-set contact-sheet viewer, a sidecar app in this repo): the top bar
+  has a launcher button for it, which needs its own dependencies once:
   `cd "$FLUX_REPO/lighttable" && npm ci`. Skip unless the user wants it.
 - **Google Chrome + `FLUX_CHROME`** — only if the user intends to run the full test suite
   (see step 9).

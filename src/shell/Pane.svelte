@@ -4,7 +4,6 @@
   import {
     panes,
     focusPane,
-    splitWith,
     closePane,
     type Pane,
   } from "./paneStore";
@@ -27,23 +26,19 @@
   class="pane"
   class:focused={focused && isSplit}
   onpointerdowncapture={() => focusPane(pane.id)}>
-  <header class="phead">
-    <span class="label">{LABEL[pane.mode]}</span>
-    <div class="ctrls">
-      {#if isSplit}
+  <!-- Single-pane workspaces skip the header entirely (the active title-bar
+       mode icon already names the mode; Alt-click a mode icon to split) —
+       28px of content height back in the common case. -->
+  {#if isSplit}
+    <header class="phead">
+      <span class="label">{LABEL[pane.mode]}</span>
+      <div class="ctrls">
         <button class="pbtn" title="Close pane" onclick={() => closePane(pane.id)}>
           <Icon name="x" size={14} stroke={1.7} />
         </button>
-      {:else}
-        <button
-          class="pbtn"
-          title="Split right"
-          onclick={() => splitWith(pane.mode)}>
-          <Icon name="split" size={15} stroke={1.7} />
-        </button>
-      {/if}
-    </div>
-  </header>
+      </div>
+    </header>
+  {/if}
   <div class="body">
     <ModeContent mode={pane.mode} {focused} />
   </div>
