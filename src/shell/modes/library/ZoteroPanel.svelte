@@ -75,7 +75,9 @@
     // targets are resolved when the watcher starts — see main.cjs watch:setRoot).
     const fb = fileBridge();
     if (projectRoot) void fb?.watchRoot?.(projectRoot);
-    void zoteroSyncJob.sync(); // first sync right away — the point of connecting
+    // First sync right away — the point of connecting. Forced: a reconnect to the
+    // same export must visibly re-scan, not short-circuit on a stale fingerprint.
+    void zoteroSyncJob.sync({ force: true });
   }
 
   async function toggleAuto() {
@@ -166,7 +168,11 @@
       <footer class="if">
         <button class="ghost" onclick={disconnect} title="Forget the connection. Everything already synced stays in FluxLib.">Disconnect</button>
         <button class="ghost" onclick={() => (editing = true)}>Settings…</button>
-        <button class="prim" disabled={zoteroSyncJob.running} onclick={() => void zoteroSyncJob.sync()}>
+        <button
+          class="prim"
+          disabled={zoteroSyncJob.running}
+          title="Full re-scan — also picks up PDFs that appeared in Zotero's folder since the last sync"
+          onclick={() => void zoteroSyncJob.sync({ force: true })}>
           {zoteroSyncJob.running ? "Syncing…" : "Sync now"}
         </button>
       </footer>

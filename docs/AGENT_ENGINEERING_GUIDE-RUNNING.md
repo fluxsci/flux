@@ -1599,3 +1599,20 @@ with zero changes.
   (XDG-based prefs isolation is a no-op on darwin), and the three slide-export scripts need
   `FLUX_CHROME` pointed at Chrome's mac path — platform assumptions in the scripts, not
   regressions.
+
+### 2026-07-29 (evening) — Zotero sync stat short-circuit (Claude Fable 5, `main`)
+**Work:** Landed the no-change short-circuit the "(later)" entry had deferred: both engines
+stamp the export's stat fingerprint ({bibPath, size, mtimeMs}) into
+`<FluxLib>/.fluxlib/zotero-sync.json` after a successful sync, and AUTOMATIC passes (startup,
+watcher, CLI without flags) skip everything when it matches — one ~0.05ms stat instead of
+re-parsing a possibly-huge bib to conclude "0 added". USER-invoked passes always run fully
+(panel "Sync now" and connect both force; CLI `--force`) — a forced pass also picks up attach
+backfill for a PDF that appeared on disk WITHOUT a bib rewrite (the one thing the fingerprint
+can't see). Stat-before-read discipline in both engines: a rewrite landing mid-sync can only
+cause an extra re-run, never a missed one. State file is derived/rebuildable (lost stamp = one
+extra full sync). Gate passes 2/6–8 + two CLI legs (skip render + `--force`); goldens regen'd.
+**Learnings:**
+- Adding a skip path changes the CONTRACT of "run it twice" gates: verify-zotero-sync's pass 2
+  ("re-sync is a no-op") now asserts the SKIP, and full-parse idempotency moved behind
+  `--force` + a rewrite pass. When a fast path lands, audit existing gates for assertions that
+  silently exercised the slow path.

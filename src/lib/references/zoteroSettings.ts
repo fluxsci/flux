@@ -58,6 +58,47 @@ export interface ZoteroSyncSummary {
   failed: number; // attach attempts that found no readable file
 }
 
+// ---------------------------------------------------------------------------------
+// The no-change short-circuit. After each successful sync, both engines stamp the
+// export's stat fingerprint into <FluxLib>/.fluxlib/zotero-sync.json (derived,
+// rebuildable — losing it just means one extra full sync). AUTOMATIC syncs (startup,
+// watcher) stat the export first and skip everything when the fingerprint matches:
+// a ~0.05ms stat instead of re-parsing a possibly-huge bib to conclude "0 added".
+// USER-invoked syncs (Sync now, CLI --force) always run fully — a forced pass can
+// pick up attach-backfill for a PDF that appeared on disk without a bib rewrite.
+// Safe in both directions: any BBT rewrite changes mtime (no false skip), and a
+// wrong "changed" verdict merely costs today's behavior (a full, idempotent sync).
+// ---------------------------------------------------------------------------------
+
+export interface ZoteroSyncState {
+  bibPath: string; // which export this fingerprint belongs to
+  size: number; // bytes at last successful sync
+  mtimeMs: number; // mtime at last successful sync
+  at: string; // ISO of that sync
+}
+
+/** Path of the state file (POSIX-joined, both engines accept it). */
+export const zoteroSyncStatePath = (lib: string): string => `${lib}/.fluxlib/zotero-sync.json`;
+
+/** Parse a state file body; null on anything malformed (treated as "never synced"). */
+export function parseZoteroSyncState(text: string): ZoteroSyncState | null {
+  try {
+    const j = JSON.parse(text) as ZoteroSyncState;
+    return j && typeof j.bibPath === "string" && typeof j.size === "number" && typeof j.mtimeMs === "number" ? j : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the export is byte-for-byte the one already synced (same file, same
+ *  size, same mtime — any BBT rewrite moves the mtime). */
+export function bibUnchanged(state: ZoteroSyncState | null, bibPath: string, size: number, mtimeMs: number): boolean {
+  return !!state && state.bibPath === bibPath && state.size === size && state.mtimeMs === mtimeMs;
+}
+
+/** The line both surfaces show for a short-circuited sync. */
+export const ZOTERO_UP_TO_DATE = "already up to date (export unchanged)";
+
 /** One human line for the GUI toast AND the CLI result — shared so they can't drift. */
 export function summarizeZoteroSync(s: ZoteroSyncSummary): string {
   const parts = [`${s.added} added`];

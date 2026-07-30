@@ -16,10 +16,19 @@
 // and from a dynamic import in Shell's idle callback; pdf.js rides the dynamic import
 // inside writeLinkedPdfItem/writePdfItem. Keep it that way.
 import { fileBridge, joinPath, isAbsolutePath } from "../project/types";
-import { addToFluxLib } from "./fluxlibBridge";
+import { addToFluxLib, resolveFluxLibPath } from "./fluxlibBridge";
 import { writePdfItem, writeLinkedPdfItem, readerHasPdf } from "./itemsBridge";
 import { bibPdfAttachments, attachCandidates, attachPathCandidates } from "./zoteroFiles";
-import { parseZoteroSettings, summarizeZoteroSync, type ZoteroSettings, type ZoteroSyncSummary } from "./zoteroSettings";
+import {
+  parseZoteroSettings,
+  summarizeZoteroSync,
+  zoteroSyncStatePath,
+  parseZoteroSyncState,
+  bibUnchanged,
+  type ZoteroSettings,
+  type ZoteroSyncState,
+  type ZoteroSyncSummary,
+} from "./zoteroSettings";
 import { isPdfBytes } from "./pdfFinder";
 import { bumpFluxLib, zoteroBibRevision } from "./revision";
 import { pushToast } from "../toast";
@@ -77,12 +86,29 @@ class ZoteroSyncJob {
   }
 
   /** One sync pass. `quietWhenClean` suppresses the toast when nothing changed
-   *  (startup/watcher runs — silence is golden on a no-op). */
-  async sync(opts: { quietWhenClean?: boolean } = {}): Promise<ZoteroSyncRun | null> {
+   *  (startup/watcher runs — silence is golden on a no-op). `force` (Sync now)
+   *  bypasses the stat short-circuit — a forced pass can also pick up attach
+   *  backfill for a PDF that appeared on disk without a bib rewrite. */
+  async sync(opts: { quietWhenClean?: boolean; force?: boolean } = {}): Promise<ZoteroSyncRun | null> {
     if (this.running) return null;
     const fb = fileBridge();
     const s = this.settings ?? (await this.loadSettings());
     if (!fb || !s) return null;
+    // The short-circuit: automatic passes skip everything when the export's stat
+    // fingerprint matches the last successful sync (one ~0.05ms stat instead of
+    // re-parsing a possibly-huge bib — see zoteroSettings.ts). Stat unavailable
+    // (memBridge) → just sync.
+    if (!opts.force && fb.stat) {
+      try {
+        const [st, lib] = await Promise.all([fb.stat(s.bibPath), resolveFluxLibPath()]);
+        if (st && lib) {
+          const state = parseZoteroSyncState(await fb.readText(zoteroSyncStatePath(lib)).catch(() => ""));
+          if (bibUnchanged(state, s.bibPath, st.size, st.mtimeMs)) return null; // silent no-op
+        }
+      } catch {
+        /* stat/state hiccup — proceed with a full sync */
+      }
+    }
     // Cross-engine coordination: refuse to race a CLI/MCP sync; hold a heartbeat lock.
     const got = await fb.lockAcquire?.("fluxlib", "zotero-sync");
     if (got && !got.ok) {
@@ -93,6 +119,9 @@ class ZoteroSyncJob {
     this.running = true;
     const run: ZoteroSyncRun = { at: new Date().toISOString(), summary: { added: 0, merged: 0, attached: 0, linked: 0, failed: 0 }, line: "" };
     try {
+      // Pre-read stat for the success stamp (a rewrite landing mid-sync can only make
+      // the next pass re-run, never be missed — same discipline as flux-core).
+      const preStat = await fb.stat?.(s.bibPath).catch(() => null);
       let text: string;
       try {
         text = await fb.readText(s.bibPath);
@@ -162,6 +191,19 @@ class ZoteroSyncJob {
         }
       }
       run.line = summarizeZoteroSync(run.summary);
+      // Stamp the fingerprint so the next automatic pass can short-circuit
+      // (best-effort — a lost stamp only costs one extra full sync).
+      if (preStat) {
+        try {
+          const lib = await resolveFluxLibPath();
+          if (lib) {
+            const state: ZoteroSyncState = { bibPath: s.bibPath, size: preStat.size, mtimeMs: preStat.mtimeMs, at: run.at };
+            await fb.writeText(zoteroSyncStatePath(lib), JSON.stringify(state, null, 2) + "\n");
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
       const activity = run.summary.added || run.summary.attached || run.summary.linked || run.summary.failed;
       if (activity || !opts.quietWhenClean) {
         pushToast(run.summary.failed ? "info" : "success", "Zotero sync", { detail: run.line });

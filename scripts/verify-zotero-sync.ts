@@ -87,9 +87,8 @@ async function main() {
   const refs = await import("../flux-core/references");
   const items = await import("../flux-core/items");
   const { getOrExtractFulltext } = await import("../flux-core/fulltext");
-  const { parseZoteroSettings, isBigBib, estimateBibEntries, BIG_BIB_BYTES } = await import(
-    "../src/lib/references/zoteroSettings"
-  );
+  const { parseZoteroSettings, isBigBib, estimateBibEntries, BIG_BIB_BYTES, parseZoteroSyncState, bibUnchanged, zoteroSyncStatePath } =
+    await import("../src/lib/references/zoteroSettings");
   const fluxlib = await import("../flux-core/fluxlib");
   const lib = await fluxlib.resolveFluxLibPath();
 
@@ -115,9 +114,10 @@ async function main() {
   const smithPdf = path.join(lib, "items", "smithNeuralBasis2021", "paper.pdf");
   ok(fs.existsSync(smithPdf) && fs.readFileSync(smithPdf).length === samplePdf.length, "paper.pdf copied byte-complete");
 
-  // --- pass 2: same bib again — a no-op (idempotent) --------------------------------------
+  // --- pass 2: same bib again — short-circuited from a stat alone (the automatic-pass
+  // contract; full-parse idempotency is pinned by passes 7/8 via --force + rewrite) --------
   const r2 = await refs.zoteroSync({}); // stored settings from --save
-  ok(r2.summary.added === 0 && r2.summary.merged === 2 && r2.summary.attached === 0, `pass 2: re-sync is a no-op (${r2.line})`);
+  ok(r2.skipped === true && r2.summary.added === 0, `pass 2: untouched export short-circuits (${r2.line})`);
 
   // --- pass 3: Zotero gained a PDF for a known entry → BACKFILL; a clashing key re-keys ---
   fs.writeFileSync(bibPath, `${SMITH}\n\n${JONES_WITH_PDF}\n\n${SMITH_CLASH}\n`);
@@ -153,14 +153,32 @@ async function main() {
   ok(!!lazy && lazy.includes("FluxReader Fixture"), "getOrExtractFulltext backfills through the pointer");
   ok(fs.existsSync(path.join(greenDir, "fulltext.txt")), "backfilled text is cached to fulltext.txt");
 
-  // --- the real CLI executes the verb (stored settings; no flags) -------------------------
-  const cli = spawnSync(
-    process.execPath,
-    [path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs"), path.join(repoRoot, "flux-cli.ts"), "zotero-sync"],
-    { cwd: repoRoot, encoding: "utf8", env: { ...process.env } },
-  );
+  // --- pass 6: the stat short-circuit — unchanged export skips from a stat alone ----------
+  const state1 = parseZoteroSyncState(fs.readFileSync(zoteroSyncStatePath(lib), "utf8"));
+  ok(!!state1 && state1.bibPath === bibPath, "success stamped the fingerprint state file");
+  const st = fs.statSync(bibPath);
+  ok(bibUnchanged(state1, bibPath, st.size, st.mtimeMs), "fingerprint matches the untouched export");
+  ok(!bibUnchanged(state1, "/other.bib", st.size, st.mtimeMs), "fingerprint is per-export-path");
+  const r6 = await refs.zoteroSync({});
+  ok(r6.skipped === true && r6.summary.added === 0, `pass 6: unchanged export SKIPPED (${r6.line})`);
+  const r7 = await refs.zoteroSync({ force: true });
+  ok(!r7.skipped && r7.summary.merged === 5, `pass 7: --force re-scans anyway (${r7.line})`);
+  // A rewrite (same content, new mtime) re-syncs — no false skip.
+  fs.writeFileSync(bibPath, fs.readFileSync(bibPath));
+  fs.utimesSync(bibPath, new Date(), new Date(Date.now() + 1500)); // ensure mtime moves even on coarse filesystems
+  const r8 = await refs.zoteroSync({});
+  ok(!r8.skipped && r8.summary.added === 0, `pass 8: rewritten export re-syncs, still idempotent (${r8.line})`);
+  const state2 = parseZoteroSyncState(fs.readFileSync(zoteroSyncStatePath(lib), "utf8"));
+  ok(!!state2 && state2.mtimeMs !== state1?.mtimeMs, "re-sync re-stamped the fingerprint");
+
+  // --- the real CLI executes the verb (stored settings; no flags → skip render) -----------
+  const tsx = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
+  const cliArgs = [tsx, path.join(repoRoot, "flux-cli.ts"), "zotero-sync"];
+  const cli = spawnSync(process.execPath, cliArgs, { cwd: repoRoot, encoding: "utf8", env: { ...process.env } });
   ok(cli.status === 0, `CLI zotero-sync exits 0 (${cli.status})`, cli.stderr?.slice(0, 300));
-  ok(/✓ Zotero sync/.test(cli.stderr ?? ""), "CLI prints the sync summary", cli.stderr?.slice(0, 200));
+  ok(/✓ Zotero sync — already up to date/.test(cli.stderr ?? ""), "CLI short-circuits on the unchanged export", cli.stderr?.slice(0, 200));
+  const cliF = spawnSync(process.execPath, [...cliArgs, "--force"], { cwd: repoRoot, encoding: "utf8", env: { ...process.env } });
+  ok(cliF.status === 0 && /✓ Zotero sync — 0 added/.test(cliF.stderr ?? ""), "CLI --force runs the full pass", cliF.stderr?.slice(0, 200));
 }
 
 main()

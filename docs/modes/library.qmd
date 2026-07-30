@@ -33,7 +33,9 @@ header shows the collection and its size; everything below is the grid.
   sync headlessly (`flux zotero-sync`). For very large libraries, the connect dialog detects a
   big export and preselects linking **without upfront text extraction** — the sync never reads
   the PDFs at all (it only records where they live), and searchable text fills in quietly as
-  you open papers.
+  you open papers. Automatic syncs are effectively free: when the export file hasn't changed
+  since the last sync, Flux notices from the file's timestamp alone and does nothing at all
+  (**Sync now** always performs a full pass).
 - **The inbox folder.** Drop PDF files into `~/FluxConfig/FluxLib/pdfs_to_assign/` and Flux
   identifies each one *from its own contents* and files it under the right paper — attaching it
   to an entry that lacks a PDF, keeping it as a supplement if the paper already has one, or

@@ -9,9 +9,20 @@ import { journal } from "./journal";
 import { buildInfo, type BuildInfo } from "./buildInfo";
 import { writePdf, writeFulltext, writeLinkedPdf, hasPdf } from "./items";
 import { extractFulltext } from "./fulltext";
+import { atomicWrite } from "./fsx";
 import { sniffFormat, risToBibtex } from "../src/lib/references/ris";
 import { bibPdfAttachments, attachCandidates, attachPathCandidates } from "../src/lib/references/zoteroFiles";
-import { parseZoteroSettings, summarizeZoteroSync, type ZoteroSettings, type ZoteroSyncSummary } from "../src/lib/references/zoteroSettings";
+import {
+  parseZoteroSettings,
+  summarizeZoteroSync,
+  zoteroSyncStatePath,
+  parseZoteroSyncState,
+  bibUnchanged,
+  ZOTERO_UP_TO_DATE,
+  type ZoteroSettings,
+  type ZoteroSyncState,
+  type ZoteroSyncSummary,
+} from "../src/lib/references/zoteroSettings";
 import { mergeEnrich } from "../src/lib/references/enrich";
 import { listAnnotations as _listAnnotations } from "./annotate";
 import { annotationsToMarkdown } from "../src/lib/references/annotationsMarkdown";
@@ -170,6 +181,7 @@ export interface ZoteroSyncResult {
   report: ImportReport;
   summary: ZoteroSyncSummary;
   line: string; // the shared human summary
+  skipped?: boolean; // short-circuited: the export's stat fingerprint matched the last sync
 }
 
 /** Read the machine `zotero` settings (null = not configured). */
@@ -181,13 +193,16 @@ export async function zoteroSettings(): Promise<ZoteroSettings | null> {
 /** One Zotero sync pass: re-import the configured (or overridden) BBT auto-export
  *  .bib into FluxLib. Idempotent and additive — known entries dedupe by DOI/signature,
  *  PDFs attach for new entries and backfill PDF-less known ones. With `save`, the
- *  effective settings persist to preferences.json (the CLI's way to connect). */
+ *  effective settings persist to preferences.json (the CLI's way to connect).
+ *  Unless `force`, an export whose stat fingerprint matches the last successful sync
+ *  is SKIPPED outright (see the short-circuit note in zoteroSettings.ts). */
 export async function zoteroSync(
   opts: {
     bib?: string;
     dataDir?: string;
     attach?: "copy" | "link";
     deferFulltext?: boolean;
+    force?: boolean;
     save?: boolean;
     libPath?: string;
   } = {},
@@ -206,6 +221,36 @@ export async function zoteroSync(
     auto: stored?.auto ?? true,
     deferFulltext: opts.deferFulltext ?? stored?.deferFulltext ?? false,
   };
+  // Stat FIRST (also the readability check), so a rewrite that lands mid-sync can only
+  // make the next pass re-run — never be missed. The fingerprint is stamped from this
+  // stat after a successful sync.
+  let bibStat: { size: number; mtimeMs: number };
+  try {
+    const st = await fs.stat(bibPath);
+    bibStat = { size: st.size, mtimeMs: st.mtimeMs };
+  } catch {
+    throw new Error(`Zotero export not readable: ${bibPath} — is the Better BibTeX "Keep updated" export still in place?`);
+  }
+  const lib = opts.libPath ? path.resolve(opts.libPath) : await fluxlib.resolveFluxLibPath();
+  const statePath = zoteroSyncStatePath(lib);
+  if (!opts.force) {
+    let state: ZoteroSyncState | null = null;
+    try {
+      state = parseZoteroSyncState(await fs.readFile(statePath, "utf8"));
+    } catch {
+      /* never synced (or state lost) — proceed */
+    }
+    if (bibUnchanged(state, bibPath, bibStat.size, bibStat.mtimeMs)) {
+      if (opts.save) await fluxlib.setPreferences({ zotero: settings });
+      return {
+        settings,
+        report: { format: "bibtex", added: [], deduped: [], attached: [], linked: [], attachFailed: [] },
+        summary: { added: 0, merged: 0, attached: 0, linked: 0, failed: 0 },
+        line: ZOTERO_UP_TO_DATE,
+        skipped: true,
+      };
+    }
+  }
   let text: string;
   try {
     text = await fs.readFile(bibPath, "utf8");
@@ -221,6 +266,15 @@ export async function zoteroSync(
     libPath: opts.libPath,
   });
   if (opts.save) await fluxlib.setPreferences({ zotero: settings });
+  // Stamp the fingerprint (pre-read stat — see above) so the next automatic pass can
+  // short-circuit. Best-effort: a lost stamp only costs one extra full sync.
+  try {
+    const state: ZoteroSyncState = { bibPath, ...bibStat, at: new Date().toISOString() };
+    await fs.mkdir(path.dirname(statePath), { recursive: true });
+    await atomicWrite(statePath, JSON.stringify(state, null, 2) + "\n");
+  } catch {
+    /* best-effort */
+  }
   const summary: ZoteroSyncSummary = {
     added: report.added.length,
     merged: report.deduped.length,

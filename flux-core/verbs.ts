@@ -1456,6 +1456,7 @@ export const VERBS: VerbDef[] = [
       dataDir: z.string().optional(),
       attach: z.enum(["copy", "link"]).optional(),
       deferFulltext: z.boolean().optional(),
+      force: z.boolean().optional(),
       save: z.boolean().optional(),
     },
     cliArgs: [
@@ -1463,6 +1464,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "data-dir", into: "dataDir" },
       { kind: "flag", at: "attach", into: "attach" },
       { kind: "flag", at: "defer-fulltext", into: "deferFulltext", as: "boolean" },
+      { kind: "flag", at: "force", into: "force", as: "boolean" },
       { kind: "flag", at: "save", into: "save", as: "boolean" },
     ],
     handler: (_ctx, a) =>
@@ -1471,11 +1473,13 @@ export const VERBS: VerbDef[] = [
         dataDir: a.dataDir as string | undefined,
         attach: a.attach as "copy" | "link" | undefined,
         deferFulltext: a.deferFulltext as boolean | undefined,
+        force: a.force as boolean | undefined,
         save: a.save as boolean | undefined,
       }),
     render: {
       human: (r) => {
         const c = r as Awaited<ReturnType<typeof core.zoteroSync>>;
+        if (c.skipped) return { err: `✓ Zotero sync — ${c.line}; --force re-scans\n  ${c.settings.bibPath}` };
         return {
           err:
             `✓ Zotero sync — ${c.line}\n  ${c.settings.bibPath}` +
@@ -1486,6 +1490,7 @@ export const VERBS: VerbDef[] = [
       },
       mcp: (r) => {
         const c = r as Awaited<ReturnType<typeof core.zoteroSync>>;
+        if (c.skipped) return text(`Zotero sync: ${c.line} (bib: ${c.settings.bibPath}; pass force=true to re-scan)`);
         return text(
           `Zotero sync: ${c.line} (bib: ${c.settings.bibPath})` +
             (c.report.added.length ? `; added: ${c.report.added.join(", ")}` : "") +
