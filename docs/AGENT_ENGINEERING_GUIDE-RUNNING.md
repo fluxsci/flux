@@ -1625,3 +1625,32 @@ warning), dedupe with an existing FluxLib, browser-connector capture, CLI pointe
 reference/cli.qmd — no verb-table restating), disconnect semantics, troubleshooting.
 Cross-links repointed (library.qmd bullet, concepts citekey section). verify-docs 127,
 `quarto render docs` clean (17 pages).
+
+### 2026-07-29 — Top-bar rework: rail → titlebar, new icons, phyllotaxis logo (Claude Fable 5, `topbar-rework` → merged to `main`)
+**Work:** Owner-directed appearance rework. (1) The left ActivityRail is GONE — the five mode
+buttons (sliding-underline indicator, Alt/⌘-click-to-split preserved) and the four utility
+buttons (Lighttable/Docs/Settings/Help, smaller+fainter "secondary register", now visible on
+Home too) live in the TitleBar; `--rail-w` removed; single-pane workspaces also drop the 28px
+pane header (the header, with its close button, renders only in splits). Ctrl+1–5 switch modes
+(Workspace's existing window-keydown router). (2) New mode icons in Icon.svelte with always-on
+Flexoki 400-grade accent details via new `--flx-*-400` tokens (figure = axes+scatter+fit,
+library = temple, slide = stacked frames+play, reader = highlight doc, paper = serif "A"+caret,
+help = circled ?). (3) New brand mark: an 88-dot phyllotaxis bloom through the full accent
+wheel — Logomark.svelte (square, one-shot CSS bloom animation on Home, deliberately NOT gated
+on prefers-reduced-motion per the §9 GTK trap), canonical asset `brand/flux-mark-phyllotaxis.svg`,
+real SVG favicon in index.html, and ALL build/icons regenerated (ico/icns are hand-packed
+PNG containers) by new `scripts/gen-app-icons.mjs`; the old twist mark is deleted.
+Gates: check 0/0, pure 149/149, shell-complete (now pins the titlebar strip + no-nav.rail +
+Ctrl+2/4 switching), p5-shell, paper-keyboard (selector re-anchored), paper-gate 15/15,
+slide-tenancy, startup, docs 127.
+**Learnings:**
+- `driver.mjs clickMode()` selects `button[aria-label=…]` with no container, so relocating the
+  mode buttons kept ~40 ui gates green untouched; only the two scripts that hard-coded
+  `nav.rail` needed re-anchoring. Container-agnostic aria-label selectors are the cheap
+  compatibility contract — prefer them in new gates.
+- The "faint red speckle" in an empty References pane that looked like a watermark is the
+  dynamic-margin ambient background (owner-locked feature, §DynamicBackground) — identify
+  before deleting "decorations".
+- Colored icon details ride `var(--flx-*-400)` inside the ICONS path markup (CSS vars resolve
+  fine through `{@html}` inline SVG) while structural strokes stay `currentColor` — accents
+  stay token-managed with zero component API change.
