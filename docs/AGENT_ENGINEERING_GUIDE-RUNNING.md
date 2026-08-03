@@ -1707,3 +1707,28 @@ copy of those pixels anywhere. Gates: new `verify-caption-fit.mjs` (28 checks, u
   AuthorYear citekey format. The BBT-format commit never re-ran it because the citekey `pathMap`
   entry didn't list it — added, so the next format change catches it. When you change a shared
   format, grep the gates for the old shape rather than trusting `--changed`.
+
+### 2026-08-03 (later) — Sidebar figure click centres the view (Claude Fable 5, `caption-fit`)
+**Work:** Owner request: clicking a figure name in the Figure-mode sidebar now goes to that
+figure — activate plus centre at the CURRENT zoom (never reframe; the zoom is the user's
+choice). New `src/lib/viewportNav.ts centerOnFigure()` solves the pan from
+`screen = pan + world * zoom`; Canvas publishes its usable content box to a new
+`store.ts canvasBox` so the math needs no DOM query and no Canvas export. Gate:
+`verify-figure-center.mjs` (16 checks, ui-extra) — exact centring at three zooms, zoom
+untouched, oversized figure centres rather than fitting, ruler inset respected, no dirty flag.
+Also reviewed and tightened the caption work from earlier today (one post-fit hook instead of
+two resync mechanisms — see f39ba4c).
+**Learnings:**
+- **Only the ACTIVE pane should publish shared viewport geometry.** `viewport` is an app-global
+  singleton across split panes and across figure/slide tenancy, so an inactive pane writing its
+  own size would silently retarget the other pane's navigation. Gate the publish on `paneActive`.
+- Ruler strips overlay the host's top/left edges, so "centre in the canvas" is centre in the
+  content box, not the host box. Publishing a BOX (x/y/w/h) instead of a size keeps that
+  knowledge inside Canvas, where `RULER` already lives, instead of leaking to every caller.
+- `activeFigureId` is a plain writable: a same-value `set` notifies nobody. Behaviour that must
+  re-fire on re-selecting the current item (re-centre as a "put me back" gesture) has to be a
+  direct call in the handler, never a store subscriber. Worth an explicit gate assertion — it is
+  invisible in code review.
+- `src/shell/scholar/nav.ts focusFigure()` is misnamed: it pins the figure's top-left at screen
+  (140, 96) and hard-codes `zoom = 0.55`. It is the manuscript @fig-ref jump and was left alone,
+  but it is NOT a centring helper — reach for `centerOnFigure` instead.

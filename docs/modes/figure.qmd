@@ -18,6 +18,9 @@ survives.
 - The **sidebar** lists Canvases (pages — add, rename, delete), Figures on the active canvas
   (numbered by order; double-click renames), and **Layers** — the z-ordered element tree, with
   per-row show/hide, lock, drag-to-reorder, and collapsible groups.
+- **Clicking a figure's name takes you to it** — the view centres on that figure at whatever
+  zoom you are already working at, so a big canvas stays navigable without hunting. Your zoom
+  is never changed for you. Click the name again after panning away to snap back to it.
 - The **Inspector** on the right carries alignment, position/size, text, stroke/fill, colors,
   and per-figure settings; **Ctrl+Shift+B** hides it for a clean canvas.
 - **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, zoom controls in the toolbar (5%–1600%).

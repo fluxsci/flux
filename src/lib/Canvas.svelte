@@ -28,6 +28,7 @@
     hoverId,
     nodeEditId,
     arrange,
+    canvasBox,
   } from "./store";
   import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
   import { perfCounters } from "./dev/perfCounters";
@@ -387,6 +388,15 @@
   // always rendered, so a drag that leaves the viewport never culls what you drag.
   let hostW = 0;
   let hostH = 0;
+  // Publish the usable content box for viewport math that lives outside this
+  // component (centerOnFigure). Only the ACTIVE pane publishes: `viewport` is an
+  // app-global singleton, so in a split the pane the user is acting in must win.
+  // Rulers overlay the top/left edges, so they shrink the box rather than being
+  // every caller's problem.
+  $: if (paneActive && hostW > 0 && hostH > 0) {
+    const inset = $settings.showRulers ? RULER : 0;
+    canvasBox.set({ x: inset, y: inset, w: hostW - inset, h: hostH - inset });
+  }
   const CULL_MARGIN = 600; // screen-px buffer around the viewport
   const CULL_STEP = 400; // re-cull granularity (must be < CULL_MARGIN to avoid popping)
   let cullRect: Rect = { x: -1e9, y: -1e9, w: 2e9, h: 2e9 };

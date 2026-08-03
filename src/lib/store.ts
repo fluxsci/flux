@@ -109,6 +109,21 @@ export const project = writable<Project>(blankProject());
 export const viewport = writable<Viewport>({ panX: 140, panY: 80, zoom: 0.6 });
 export const selection = writable<Set<Id>>(new Set());
 
+/**
+ * The canvas's usable content box in host pixels, published by Canvas.svelte
+ * (which owns the element) so viewport math OUTSIDE the component — centering a
+ * figure from the sidebar — needs no DOM query. `x`/`y` are non-zero only when
+ * the rulers are on, since those strips overlay the host's top/left edges;
+ * keeping that knowledge inside Canvas is why this is a box, not just a size.
+ * All-zero until a canvas mounts, which callers must treat as "don't move".
+ */
+export const canvasBox = writable<{ x: number; y: number; w: number; h: number }>({
+  x: 0,
+  y: 0,
+  w: 0,
+  h: 0,
+});
+
 // ---------------------------------------------------------------------------
 // WS-1 Fix 3 (fortify plan): transient render-invalidation signals — NEVER
 // serialized, invisible to flux-core. Consumers that are expensive per notify

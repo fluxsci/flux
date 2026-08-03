@@ -22,6 +22,7 @@
   import { deriveLayerRows, type LayerRow } from "./figure/derived/layerRows";
   import { perfCounters } from "./dev/perfCounters";
   import VirtualFixedList from "./ui/VirtualFixedList.svelte";
+  import { centerOnFigure } from "./viewportNav";
 
   function addFigure() {
     const cid = $activeCanvasId;
@@ -88,6 +89,16 @@
   function onRenameKey(e: KeyboardEvent) {
     if (e.key === "Enter") commitRename();
     else if (e.key === "Escape") cancelRename();
+  }
+
+  /** Clicking a figure name goes to it: activate, and bring it into view at the
+   *  zoom the user is already working at. Re-clicking the active figure
+   *  re-centres it (the store's same-value set wouldn't notify, so this is a
+   *  direct call, not a subscriber) — which makes the row a "put me back" button
+   *  after panning away. */
+  function goToFigure(id: string) {
+    activeFigureId.set(id);
+    centerOnFigure(id);
   }
 
   // Figures on the active canvas only.
@@ -266,9 +277,9 @@
           {:else}
             <button
               class="item"
-              on:click={() => activeFigureId.set(fig.id)}
+              on:click={() => goToFigure(fig.id)}
               on:dblclick={() => startRename("figure", fig.id, fig.name)}
-              title="Click to switch · double-click to rename">{fig.name}</button
+              title="Click to go to it · double-click to rename">{fig.name}</button
             >
           {/if}
           <button class="del" on:click={() => deleteFigure(fig.id)} title="Delete figure">×</button>

@@ -245,6 +245,7 @@
       "verify-f6b.mjs",
       "verify-f6c.mjs",
       "verify-caption-fit.mjs",
+      "verify-figure-center.mjs",
       "verify-f7.mjs",
       "verify-f8.mjs",
       "verify-m1.mjs",
@@ -453,6 +454,13 @@
       "glob": "src/lib/ui/autogrow.ts",
       "run": [
         "verify-caption-fit.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/{Sidebar.svelte,viewportNav.ts}",
+      "run": [
+        "verify-figure-center.mjs",
+        "tier:pure"
       ]
     },
     {
