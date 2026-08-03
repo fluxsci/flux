@@ -78,7 +78,10 @@ const ris = await page.evaluate(() => ({
 }));
 ok(/RIS/.test(ris.header), "sniffed as RIS", ris.header);
 ok(ris.newPill === "1 new", `RIS preview shows 1 new (${ris.newPill})`);
-ok(/^@dijkstra1959/.test(ris.key), `RIS entry got an AuthorYear key (${ris.key})`);
+// citekey.ts makeCitekey: BBT's <firstauthor><ShortTitle3Words><year> (a2aed28
+// replaced the old AuthorYear form). "A note on two problems in connexion with
+// graphs" → stopwords dropped → NoteTwoProblems.
+ok(/^@dijkstraNoteTwoProblems1959/.test(ris.key), `RIS entry got a BBT-format key (${ris.key})`);
 await page.evaluate(() => [...document.querySelectorAll(".if .ghost")].find((b) => b.textContent?.trim() === "Cancel")?.click());
 await sleep(300);
 

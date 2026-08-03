@@ -480,6 +480,7 @@
         "verify-citekey.ts",
         "verify-import-plan.ts",
         "verify-zotero-sync.ts",
+        "verify-import-gui.mjs",
         "tier:pure"
       ]
     },
