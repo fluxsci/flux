@@ -244,6 +244,7 @@
       "verify-f6.mjs",
       "verify-f6b.mjs",
       "verify-f6c.mjs",
+      "verify-caption-fit.mjs",
       "verify-f7.mjs",
       "verify-f8.mjs",
       "verify-m1.mjs",
@@ -438,6 +439,20 @@
       "glob": "src/shell/modes/slide/**",
       "run": [
         "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/{CaptionEditor.svelte,captions.ts}",
+      "run": [
+        "verify-caption-fit.mjs",
+        "verify-f7.mjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/ui/autogrow.ts",
+      "run": [
+        "verify-caption-fit.mjs"
       ]
     },
     {

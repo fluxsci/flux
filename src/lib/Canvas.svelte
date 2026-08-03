@@ -604,6 +604,24 @@
 
   // --- pan / zoom ---
   function onWheel(e: WheelEvent) {
+    // The caption editor's page scrolls between blocks (captions themselves
+    // never scroll — CaptionEditor.svelte). This handler preventDefaults every
+    // wheel, so without this branch the column could not scroll at all. The
+    // delta is divided by zoom because the column is inside the world-space
+    // scale transform: apparent scroll speed then matches the mouse at any zoom.
+    // At either end it falls through to a canvas pan.
+    if ($captionOpen && !e.ctrlKey && !e.metaKey) {
+      const col = (e.target as HTMLElement | null)?.closest?.(".cap-scroll") as HTMLElement | null;
+      if (col) {
+        const max = col.scrollHeight - col.clientHeight;
+        const next = Math.min(max, Math.max(0, col.scrollTop + e.deltaY / $viewport.zoom));
+        if (next !== col.scrollTop) {
+          e.preventDefault();
+          col.scrollTop = next;
+          return;
+        }
+      }
+    }
     e.preventDefault();
     keepSceneHot(); // promote in the same event turn the pan/zoom burst starts
     const r = hostEl.getBoundingClientRect();

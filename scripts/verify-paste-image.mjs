@@ -96,6 +96,22 @@ try {
   assert(/^pasted-\d{4}-\d{2}-\d{2}-\d{6}\.png$/.test(pasted.assetName), `dated display name (got "${pasted.assetName}")`);
   assert(pasted.kind === "png", "asset kind png");
   assert(pasted.selected, "pasted element is selected");
+
+  // The ORIGINAL is archived under the user-owned plots/ tree. Everything else
+  // in fig/assets/ is a copy of something in plots/ (and re-syncable through
+  // el.source.svgPath); a pasted image has no source, so without this archive
+  // the derived copy would be the only copy of those pixels anywhere.
+  const archived = await waitFor(
+    page,
+    async (name) => {
+      const root = window.__flux.get(window.__flux.fig.embeddedProjectRoot);
+      if (!root) return false;
+      return (await window.fig.exists(`${root}/plots/pasted/${name}`)) ? name : false;
+    },
+    pasted.assetName,
+    { label: "pasted original archived to plots/pasted/" },
+  ).catch(() => null);
+  assert(archived === pasted.assetName, `original archived to plots/pasted/${pasted.assetName}`);
   await shot(page, "paste-01-image");
 
   // --- 2. arbitration: marker + internal elements beat a stale image ---

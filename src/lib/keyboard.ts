@@ -37,7 +37,7 @@ import {
 } from "./store";
 import type { Element, GroupDef } from "./types";
 import { FLUX_CLIP_MARKER, decidePaste, pastedImageName } from "./clipboardPaste";
-import { importDroppedFiles } from "./io";
+import { archivePastedImage, importDroppedFiles } from "./io";
 import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf, unitOf } from "./groups";
 import { cascadeUnits } from "./cascade";
 import {
@@ -486,7 +486,11 @@ export function handleEditorPaste(e: ClipboardEvent, figId: string | null) {
   const file = item?.getAsFile();
   if (!file || !figId) return;
   const ext = /svg/i.test(file.type) ? "svg" : "png";
-  const named = new File([file], pastedImageName(new Date(), ext), { type: file.type });
+  const name = pastedImageName(new Date(), ext);
+  const named = new File([file], name, { type: file.type });
+  // The import writes a derived copy into fig/assets/; this keeps the user's own
+  // copy under plots/, because a pasted image has no source file to re-sync from.
+  void archivePastedImage(named, name);
   void importDroppedFiles([named], figId);
 }
 

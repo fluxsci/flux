@@ -439,6 +439,21 @@ chord or label changes, grep `docs/` for the old one.
   nonzero two-poll-stable box, not a single poll. `TextQuoteSelector`'s field is `quote`, not
   `exact` — a wrong anchor field silently orphans annotations.
 
+**World-space DOM (anything mounted inside the canvas):**
+- Overlays like the caption editor ride `transform: scale($viewport.zoom)`. **Never measure them
+  with `getBoundingClientRect`** — it is transform-scaled, so any value you write back is wrong
+  at zoom ≠ 1. `scrollHeight`/`clientHeight`/`offsetTop`/`offsetHeight` are pre-transform layout
+  px: measure and write in those and the result is zoom-invariant for free.
+- `Canvas.svelte onWheel` calls `preventDefault()` unconditionally, so **no scroll container
+  mounted inside the canvas can scroll natively.** A scrollable overlay needs an explicit branch
+  there: divide `deltaY` by `viewport.zoom` (the container is inside the scale transform) and
+  fall through to the canvas pan once the container hits either end, so chaining reads as one
+  gesture. The same applies to hit-testing — `pointer-events` is off on overlay layers by
+  default, and a wheel/click target has to opt back in.
+- An element that auto-sizes to its content must take **font size as an explicit input**. A
+  font-size change resizes no box, so neither an `input` event nor a `ResizeObserver` fires and
+  the content silently overflows a frozen height. (Reusable action: `src/lib/ui/autogrow.ts`.)
+
 **Bundle/startup:** a static import from any eager shell module (`Shell.svelte`, stores,
 `src/lib/references/*` used by Shell) into `src/shell/modes/**` drags an entire mode chunk into
 Home. Dynamic-import at the call site; `verify-startup.mjs` (800KB eager budget, no mode chunks
@@ -1655,3 +1670,40 @@ slide-tenancy, startup, docs 127.
 - Colored icon details ride `var(--flx-*-400)` inside the ICONS path markup (CSS vars resolve
   fine through `{@html}` inline SVG) while structural strokes stay `currentColor` — accents
   stay token-managed with zero component API change.
+
+### 2026-08-03 — Caption editor: fit-to-content blocks + a scrolling page (Claude Fable 5, `caption-fit`)
+**Work:** Owner-reported wasted space in the caption editor. Every block was pinned at
+`min-height: 150px` with a `flex: 1` two-row textarea, so a one-liner burned the same space as
+a paragraph and anything longer fell into an inner scrollbar that the canvas made unusable.
+New sizing contract: a caption box NEVER scrolls (new `src/lib/ui/autogrow.ts` action), and the
+page is exactly its figure's height with the block column scrolling inside it — so page and
+brace always match. Also: hidden native scrollbar + parchment edge fades, grow-into-view under
+the caret, gap 21→14 / page padding 34→26, and a `captionFontSize` setting (default 13, was a
+hardcoded 15; the block letter derives at ×1.27). Separately, clipboard-pasted images now
+archive their original to `plots/pasted/` (mirrors `plots/paper_snips/`) — a pasted image
+produces an `ImageElement` with no `source`, so `fig/assets/<id>.png` was previously the only
+copy of those pixels anywhere. Gates: new `verify-caption-fit.mjs` (28 checks, ui-extra),
+`verify-paste-image` extended, check 0/0, pure 149/149, ui 56/56, docs 127.
+**Learnings:**
+- **Never `getBoundingClientRect` inside a world-space layer.** The caption page rides
+  `transform: scale(zoom)`; `scrollHeight`/`clientHeight`/`offsetTop` are pre-transform layout
+  px (what you must write back), while gBCR is transform-scaled and corrupts any fit at zoom ≠ 1.
+  The corollary is free: a zoom change needs no re-fit at all.
+- **A font-size change resizes no box**, so neither an input event nor a ResizeObserver fires —
+  an autosizing element must take the font size as an explicit param or it silently overflows a
+  frozen height. Same class of bug as the one-way `value=` + `mutate` round-trip, which fires a
+  redundant `update()` after every keystroke unless the action dedupes on `{value, fs}`.
+- `Canvas.svelte`'s `onWheel` `preventDefault()`s unconditionally, so **no scroll container
+  mounted inside the canvas can scroll** without an explicit escape hatch there. Divide the
+  delta by `viewport.zoom` (the container is inside the scale transform) and fall through to the
+  pan at either end, so scroll-chaining still feels like one gesture.
+- Guard a ResizeObserver on the dimension you actually care about: an unguarded callback refires
+  on your own writes and can raise Chrome's "ResizeObserver loop completed with undelivered
+  notifications", which `realErrors()` fails the gate on.
+- Svelte 5 rejects unknown `on:*` events on DOM elements in svelte-check (`does not exist in
+  type HTMLProps`). Pass a callback through the action's params instead of dispatching a
+  CustomEvent — better typed and one less hop.
+- **Found and fixed a rotted gate:** `verify-import-gui.mjs` asserted the pre-`a2aed28`
+  AuthorYear citekey format. The BBT-format commit never re-ran it because the citekey `pathMap`
+  entry didn't list it — added, so the next format change catches it. When you change a shared
+  format, grep the gates for the old shape rather than trusting `--changed`.

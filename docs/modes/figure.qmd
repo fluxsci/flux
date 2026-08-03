@@ -28,7 +28,9 @@ survives.
   folder, marking **◆ semantic** plots (fluxplot-saved, with addressable parts) apart from
   **◇ plain** images. **Space** picks several; **Ctrl+Enter** inserts them all.
 - **Drag files in** from your file manager (an SVG with its `.fluxplot.json` sibling imports
-  as a semantic plot), or **paste an image** straight from the clipboard.
+  as a semantic plot), or **paste an image** straight from the clipboard. A pasted image has
+  no file behind it, so Flux keeps the original for you in
+  [`plots/pasted/`](../reference/project-layout.qmd).
 - Everything imports at **true physical size** — a 6.4 × 4.8 inch plot lands exactly that
   big, never silently rescaled. If an import is larger than its figure frame, a toast says so:
   **Ctrl+Shift+I** brings the selection inside the frame (moving it, never resizing it).
@@ -101,7 +103,9 @@ one gesture.
   Inspector's Figure section) letters them a, b, c… in reading order.
 - **Alt+C** opens the **caption editor** — a manuscript-style caption page beside the figure,
   one block per panel. Captions live with the figure and flow into your
-  [manuscript](paper.qmd) and exports automatically.
+  [manuscript](paper.qmd) and exports automatically. Each block grows to fit whatever you
+  type, so a caption is never hidden behind a scrollbar; when the blocks outgrow the page,
+  scroll the page itself. Set the typing size in **Settings → Caption editor**.
 - **Alt+G** enters **arrange**: reflow a messy selection into a tidy row, column, or grid from
   the keyboard, live, as one undo step.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.

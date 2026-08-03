@@ -28,9 +28,11 @@ export function decidePaste(i: { text: string; hasImage: boolean; internalCount:
   return i.internalCount > 0 ? "elements" : "none";
 }
 
-/** Display name for a pasted image (Asset.name only — the on-disk filename is
- *  always id-based). Chromium names clipboard files "image.png"; a dated name
- *  keeps multiple pastes tellable-apart in the Layers panel. */
+/** Name for a pasted image: the Asset.name shown in the Layers panel, and the
+ *  filename of the archived original under `plots/pasted/` (io.ts
+ *  archivePastedImage, which dedupes a same-second collision). The DERIVED copy
+ *  in fig/assets/ is always id-based. Chromium names clipboard files
+ *  "image.png"; a dated name keeps multiple pastes tellable-apart. */
 export function pastedImageName(now: Date, ext: "png" | "svg"): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `pasted-${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.${ext}`;

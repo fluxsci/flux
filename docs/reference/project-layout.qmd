@@ -12,7 +12,9 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 │   ├── main.qmd                 #   the main manuscript (Quarto markdown)
 │   └── comments.json            #   margin-comment threads (a sidecar — never inside the .qmd)
 ├── plots/                       # YOURS — analysis output lands here, any structure you like
-│   └── growth.{svg,fluxplot.json,recipe.json}   # a semantic plot + manifest + recipe
+│   ├── growth.{svg,fluxplot.json,recipe.json}   # a semantic plot + manifest + recipe
+│   ├── pasted/                  #   originals of images pasted from the clipboard
+│   └── paper_snips/             #   regions snipped out of PDFs in the reader
 ├── fig/                         # APP-MANAGED — the figure subsystem
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real compositions (figures → elements)
@@ -49,7 +51,11 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
   `.qmd` prose stays clean.
 - **`plots/` is a drop-zone with no imposed structure** — organize it however your analysis
   does. Flux only reads it, copying what you compose into `fig/assets/`. See
-  [semantic plots](../concepts/semantic-plots.qmd) for the three-file contract.
+  [semantic plots](../concepts/semantic-plots.qmd) for the three-file contract. Two
+  subfolders are written *for* you, and are yours to keep or delete: `plots/pasted/` holds
+  the original of every image you paste from the clipboard, and `plots/paper_snips/` holds
+  every region you snip out of a PDF. Both exist so the pixels you contribute live somewhere
+  you own, not only inside the app's `fig/assets/` copy.
 - **`.meta/`** holds the operational machinery: `journal.ndjson` (every write: who/what/when),
   `feedback.ndjson` (your context-stamped notes to agents), advisory `locks/`, JSON `schema/`
   for every file type, and the live-bridge descriptor while the app is open.

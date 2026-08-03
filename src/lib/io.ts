@@ -18,6 +18,7 @@ import {
   embeddedProjectRoot,
 } from "./store";
 import { saveFigFrom } from "./project/figbridge";
+import { dedupSnipName } from "./references/snips";
 import { unionRect, elementBBox } from "./geometry";
 import { gridLayout, emptyRegion } from "./layout";
 import {
@@ -32,7 +33,7 @@ import {
 import { figureToSvg } from "./export";
 import { migrateProject } from "./migrate";
 import { validateModel, sanitizeProjectGeometry } from "./project/validate";
-import { newerSchemaMessage, PROJECT_MODEL_VERSION } from "./project/types";
+import { fileBridge, newerSchemaMessage, PROJECT_MODEL_VERSION } from "./project/types";
 import { assetDisplaySize } from "./ops";
 import { annotationsToMarkdown, type AnnotationMdMeta } from "./references/annotationsMarkdown";
 import type { Annotation } from "./references/annotations";
@@ -286,6 +287,49 @@ export async function importPlotsFromPaths(absPaths: string[]) {
 // one-file case of the batch importer above.
 export async function importPlotFromPath(absPath: string) {
   return importPlotsFromPaths([absPath]);
+}
+
+/** Project-relative home of clipboard-pasted images (under the user-owned
+ *  plots/ drop zone, beside `plots/paper_snips`). */
+export const PASTED_DIR = "plots/pasted";
+
+/**
+ * Keep the user's own copy of a pasted image under `plots/`.
+ *
+ * Everything else in `fig/assets/` is a COPY: the original lives in `plots/` and
+ * the element's `source.svgPath` points back at it, which is what lets
+ * `syncPlotsIntoFigures` / `flux sync-figure` re-sync a regenerated plot. A
+ * pasted screenshot becomes a plain `ImageElement`, which has no source at all —
+ * so without this the derived copy in `fig/assets/` would be the ONLY copy of
+ * those pixels anywhere. Archiving here restores the invariant that every pixel
+ * the user contributed lives somewhere they own.
+ *
+ * Best-effort: a failure toasts but never blocks the import, which is the
+ * user's actual intent.
+ */
+export async function archivePastedImage(file: File, name: string): Promise<void> {
+  const root = get(embeddedProjectRoot);
+  const fb = fileBridge();
+  if (!root || !fb) return; // standalone .flux mode has no project tree to archive into
+  try {
+    const dot = name.lastIndexOf(".");
+    const base = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : "";
+    // dedupSnipName is a generic base+exists deduper (its existence check is
+    // injected precisely so different callers can supply their own) — two pastes
+    // inside the same second would otherwise collide on the timestamped name.
+    const unique = await dedupSnipName(base, (n) =>
+      fb.exists(joinPath(root, PASTED_DIR, `${n}${ext}`)),
+    );
+    await fb.mkdir(joinPath(root, "plots"));
+    await fb.mkdir(joinPath(root, PASTED_DIR));
+    await fb.writeFile(
+      joinPath(root, PASTED_DIR, `${unique}${ext}`),
+      new Uint8Array(await file.arrayBuffer()),
+    );
+  } catch (e) {
+    pushToast("info", "Pasted image wasn't archived to plots/", { detail: errMsg(e) });
+  }
 }
 
 // Files dropped from the OS file explorer onto a specific figure. A dropped svg

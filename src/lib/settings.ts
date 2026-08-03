@@ -25,6 +25,8 @@ export interface Settings {
   gridSize: number; // world units
   snapGrid: boolean; // snap moves/resizes to the grid
   snapPixel: boolean; // round committed coords to whole pixels (crisp export)
+  // Figure — the caption editor (Alt+C).
+  captionFontSize: number; // caption body size in WORLD px (scales with canvas zoom)
   // Paper — the dynamic margin.
   paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
   paperMaxMarginPanes: number; // max dynamic panes open at once
@@ -49,6 +51,7 @@ const DEFAULTS: Settings = {
   gridSize: 8,
   snapGrid: false,
   snapPixel: false,
+  captionFontSize: 13,
   paperMarginScene: "inkwind",
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,

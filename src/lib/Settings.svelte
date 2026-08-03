@@ -230,6 +230,21 @@
         Snap to pixel (round coords on commit — crisp export)
       </label>
 
+      <h3>Caption editor</h3>
+      <label class="chk num">
+        Font size
+        <input
+          type="number"
+          min="9"
+          max="28"
+          step="1"
+          value={$settings.captionFontSize}
+          on:change={(e) => settings.update((v) => ({ ...v, captionFontSize: Math.min(28, Math.max(9, Math.round(parseFloat(e.currentTarget.value) || 13))) }))}
+        />
+        px
+      </label>
+      <p class="hint">The size captions are typed at in the caption page (<b>Alt+C</b>). World px, so it scales with the canvas zoom just like the figure. Every caption grows to fit its text — the page scrolls between them, the boxes never do.</p>
+
       <h3>Paper — dynamic margin background</h3>
       <div class="seg scenes">
         {#each marginScenes as m}
