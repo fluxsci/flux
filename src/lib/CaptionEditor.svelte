@@ -55,17 +55,13 @@
     fadeBottom = max > 1 && colEl.scrollTop < max - 1;
   }
 
-  function scheduleFadeSync() {
-    if (colEl) queueMicrotask(syncFades); // after autogrow's batched flush
-  }
-  // The column's content height moves with the block set, the font size and the
-  // page height, so re-measure after each — the leading names are the deps.
-  $: panels, fs, pageH, colEl, scheduleFadeSync();
-
-  // A caption that grows under the caret must not push it below the fold.
-  // offsetParent is .cap-scroll (position: relative), so offsetTop is already in
-  // the column's content coordinates — layout px throughout, no gBCR, which
-  // would be scaled by the world transform.
+  // Runs after EVERY autogrow fit — keystroke or batched (mount, undo/verb,
+  // font-size change) — so the fades re-measure once heights are settled; no
+  // separate reactive resync needed. A caption that grows under the caret must
+  // also not push it below the fold. offsetParent is .cap-scroll
+  // (position: relative), so offsetTop is already in the column's content
+  // coordinates — layout px throughout, no gBCR, which would be scaled by the
+  // world transform.
   function onGrow(el: HTMLTextAreaElement) {
     if (colEl && document.activeElement === el) {
       const overshoot = el.offsetTop + el.offsetHeight - (colEl.scrollTop + colEl.clientHeight);

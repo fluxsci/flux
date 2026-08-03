@@ -24,8 +24,10 @@ export interface AutogrowParams {
    *  listener nor the ResizeObserver fires and the content would silently
    *  overflow a frozen height. It has to arrive as a param. */
   fs: number;
-  /** Called after a keystroke-driven fit, with the freshly sized element — the
-   *  hook for keeping a growing element in view inside a scroll container. */
+  /** Called after EVERY fit of this element — keystroke or batched (mount,
+   *  external value change, font-size change, fonts-ready). Always runs after
+   *  the new height is written, so it is the safe place to re-measure a scroll
+   *  container or keep the growing element in view. */
   onFit?: (node: HTMLTextAreaElement) => void;
 }
 
@@ -34,6 +36,7 @@ export interface AutogrowParams {
 // fonts-ready pass, and the font-size change — all of which touch every block at
 // once. The keystroke path deliberately bypasses this (see below).
 const pending = new Set<HTMLTextAreaElement>();
+const fitCallbacks = new WeakMap<HTMLTextAreaElement, (node: HTMLTextAreaElement) => void>();
 let flushQueued = false;
 
 function flush() {
@@ -43,6 +46,9 @@ function flush() {
   for (const el of nodes) el.style.height = "0px";
   const heights = nodes.map((el) => el.scrollHeight + ROUND_SLACK);
   nodes.forEach((el, i) => (el.style.height = `${heights[i]}px`));
+  // After all heights are written — so an onFit that measures the scroll
+  // container (fades, keep-in-view) always sees the settled layout.
+  for (const el of nodes) fitCallbacks.get(el)?.(el);
 }
 
 function queueFit(el: HTMLTextAreaElement) {
@@ -57,7 +63,7 @@ let fontsHooked = false;
 
 export function autogrow(node: HTMLTextAreaElement, params: AutogrowParams) {
   let last = { value: params.value, fs: params.fs };
-  let onFit = params.onFit;
+  if (params.onFit) fitCallbacks.set(node, params.onFit);
 
   // Height is measured with box-sizing: border-box and no border/padding on the
   // element (see .cap-text) — if a border is ever added here, the block border
@@ -74,7 +80,7 @@ export function autogrow(node: HTMLTextAreaElement, params: AutogrowParams) {
   const onInput = () => {
     last = { value: node.value, fs: last.fs };
     fit();
-    onFit?.(node);
+    fitCallbacks.get(node)?.(node);
   };
   node.addEventListener("input", onInput);
 
@@ -106,7 +112,8 @@ export function autogrow(node: HTMLTextAreaElement, params: AutogrowParams) {
 
   return {
     update(next: AutogrowParams) {
-      onFit = next.onFit;
+      if (next.onFit) fitCallbacks.set(node, next.onFit);
+      else fitCallbacks.delete(node);
       if (next.value === last.value && next.fs === last.fs) return;
       last = { value: next.value, fs: next.fs };
       queueFit(node);
@@ -116,6 +123,7 @@ export function autogrow(node: HTMLTextAreaElement, params: AutogrowParams) {
       ro.disconnect();
       live.delete(node);
       pending.delete(node);
+      fitCallbacks.delete(node);
     },
   };
 }

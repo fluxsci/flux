@@ -207,6 +207,53 @@ try {
   );
   h.ok(external.fits, "…and the refit result fits");
 
+  // The fade affordances must track a refit, not just a scroll. Sitting at
+  // scrollTop 0, a caption shrink fires no scroll event and no scroll clamp, so
+  // the post-fit pass is the only thing that can clear a now-stale bottom fade.
+  // Give the figure headroom first (its own commit) so the shrink below is a
+  // captions-ONLY change.
+  await page.evaluate(
+    (id) => window.__flux.fig.commit((p) => (p.figures.find((f) => f.id === id).height = 500)),
+    FIG,
+  );
+  await waitForFrame(page);
+  const fadeCleared = await page.evaluate(
+    (id) =>
+      new Promise((resolve) => {
+        const F = window.__flux;
+        const col = document.querySelector(".cap-scroll");
+        col.scrollTop = 0;
+        requestAnimationFrame(() => {
+          const wasOn = !!document.querySelector(".cap-fade.bottom.on");
+          const overflowedBefore = col.scrollHeight > col.clientHeight;
+          F.fig.commit((p) => {
+            p.figures.find((f) => f.id === id).captions = {
+              __figure__: "short.",
+              "el-a": "short.",
+              "el-b": "short.",
+            };
+          });
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() =>
+              resolve({
+                wasOn,
+                overflowedBefore,
+                nowOn: !!document.querySelector(".cap-fade.bottom.on"),
+                overflowsAfter: col.scrollHeight > col.clientHeight,
+              }),
+            ),
+          );
+        });
+      }),
+    FIG,
+  );
+  h.ok(
+    fadeCleared.overflowedBefore && fadeCleared.wasOn,
+    "the bottom fade is on while the column overflows",
+  );
+  h.ok(!fadeCleared.overflowsAfter, "shrinking the captions alone stops the column overflowing");
+  h.ok(!fadeCleared.nowOn, "…and the stale bottom fade clears with it");
+
   // ── the font-size setting ─────────────────────────────────────────────────
   h.section("caption font size setting");
   h.eq(
