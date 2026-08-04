@@ -17,6 +17,8 @@ const seededSupps = new Map<string, Map<string, Uint8Array>>();
 
 export const seededItem = (key: string): SeededItem | undefined => seeded.get(key);
 export const seededSupplements = (key: string): Map<string, Uint8Array> | undefined => seededSupps.get(key);
+/** Seeded items stand in for items/<key>/paper.pdf, so PDF-presence sweeps must see them. */
+export const seededKeys = (): string[] => [...seeded.keys()];
 
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -82,6 +84,12 @@ if (import.meta.env?.DEV && typeof window !== "undefined") {
   w.__fluxSeedReaderItem = seedReaderItem;
   w.__fluxSeedReaderSupplement = seedReaderSupplement;
   w.__fluxSeedScaleLibrary = seedScaleLibrary;
+  // Prime the forward-citation cache so the reader's Cited-by tab is drivable
+  // headlessly (it is otherwise a live OpenAlex query).
+  w.__fluxSeedCiters = async (key: string, sort: string, briefs: unknown[]) => {
+    const { seedCitersCache } = await import("./citersCache");
+    seedCitersCache(key, sort as "cited" | "recent", briefs as never[]);
+  };
   // Verify hook: run the renderer's real pdf.js signal extraction over a base64 PDF and
   // return a serializable summary, so scripts/verify-assign.mjs can prove the in-browser
   // extractPdfSignals path (getMetadata + text) works — the one piece the Node CLI run can't cover.

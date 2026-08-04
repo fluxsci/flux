@@ -157,6 +157,22 @@ export function closeReaderTab(citekey: string): void {
   });
 }
 
+/** Move a tab to another position in strip order (drag-reorder). Order is the only
+ * thing that changes — the open set, the active tab, and every live document
+ * instance are untouched (the strip and the doc slots key on citekey). */
+export function moveReaderTab(citekey: string, toIndex: number): void {
+  readerTabs.update((s) => {
+    const from = s.tabs.findIndex((t) => t.key === citekey);
+    if (from < 0) return s;
+    const to = Math.max(0, Math.min(s.tabs.length - 1, toIndex));
+    if (from === to) return s;
+    const tabs = [...s.tabs];
+    const [moved] = tabs.splice(from, 1);
+    tabs.splice(to, 0, moved);
+    return { ...s, tabs };
+  });
+}
+
 /** Cycle the shown tab of `paneId` (default: the focused pane) in strip order (wraps). */
 export function cycleReaderTab(dir: 1 | -1, paneId?: string): void {
   const s = get(readerTabs);

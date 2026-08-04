@@ -32,7 +32,12 @@
   import { saveAnnotationsMarkdown } from "../../../lib/io";
   import { hlSwatch } from "../../../lib/references/annotationColors";
   import { loadFluxLib } from "../../../lib/references/fluxlibBridge";
-  import { referencedWorksByKey } from "../../../lib/references/enrichBridge";
+  import { referencedWorksByKey, citingWorksByKey } from "../../../lib/references/enrichBridge";
+  import { cachedCiters, cacheCiters, type CitersSort } from "../../../lib/references/citersCache";
+  import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../../lib/references/pdfPresence";
+  import { readerLayout, READER_LAYOUT_DEFAULTS } from "./readerLayoutStore";
+  import { openReaderTab } from "./readerStore";
+  import ReaderLibraryPanel from "./ReaderLibraryPanel.svelte";
   import { addDoiToLibrary } from "../paper/scholar/bibLoad";
   import { bareDoi } from "../../../lib/references/pdfFinder";
   import type { WorldBrief } from "../../../lib/references/openalex";
@@ -122,6 +127,17 @@
   let refs = $state<WorldBrief[]>([]);
   let refsState = $state<"idle" | "loading" | "done" | "error">("idle");
   let addingId = $state("");
+
+  // Forward citations — the papers that cite THIS one. A live OpenAlex query (unlike
+  // the immutable reference list), so it loads lazily on first tab activation and is
+  // cached per sort; ⟳ re-queries. citingWorksByKey THROWS when the paper hasn't been
+  // enriched (no OpenAlex id), which is a distinct empty state from "nobody cites it".
+  let citers = $state<WorldBrief[]>([]);
+  let citersState = $state<"idle" | "loading" | "done" | "error" | "unenriched">("idle");
+  let citersSort = $state<CitersSort>("cited");
+  let citersAt = $state<string | null>(null);
+  // DOI → citekey for everything in FluxLib, so a brief can offer "open its PDF".
+  let libKeyByDoi = $state<Map<string, string>>(new Map());
 
   // R5: per-paper view persistence (page/zoom/layout/sidebars) — localStorage, this
   // machine's reading state, not FluxLib data. Loaded ONCE here, before PdfView mounts.
@@ -311,7 +327,7 @@
     cite = null;
   };
   let navDepth = $state(0);
-  let sideTab = $state<"refs" | "outline">("refs");
+  let sideTab = $state<"refs" | "citers" | "outline">("refs");
   let outline = $state<FlatOutlineItem[] | null>(null); // null = not fetched yet (or doc not ready)
   async function showOutline() {
     sideTab = "outline";
@@ -327,6 +343,49 @@
   $effect(() => {
     if (sideTab === "outline" && outline === null && totalPages > 0) void showOutline();
   });
+
+  async function loadCiters(force = false) {
+    const sort = citersSort;
+    if (!force) {
+      const hit = await cachedCiters(citekey, sort);
+      if (!alive || sort !== citersSort) return;
+      if (hit) {
+        citers = hit.briefs;
+        citersAt = hit.fetchedAt;
+        citersState = "done";
+        return;
+      }
+    }
+    citersState = "loading";
+    try {
+      const list = await citingWorksByKey(citekey, {
+        sort: sort === "cited" ? "cited_by_count:desc" : "publication_date:desc",
+        perPage: 50,
+        page: 1,
+      });
+      if (!alive || sort !== citersSort) return;
+      citers = list;
+      citersState = "done";
+      citersAt = new Date().toISOString();
+      void cacheCiters(citekey, sort, list);
+    } catch (e) {
+      if (!alive || sort !== citersSort) return;
+      // "Enrich this entry first…" is a setup state, not a failure.
+      citersState = /enrich/i.test(errMsg(e)) ? "unenriched" : "error";
+    }
+  }
+  function showCiters() {
+    sideTab = "citers";
+    if (citersState === "idle") void loadCiters();
+  }
+  function setCitersSort(s: CitersSort) {
+    if (citersSort === s) return;
+    citersSort = s;
+    citers = [];
+    citersAt = null;
+    citersState = "idle";
+    void loadCiters();
+  }
   // R5: click a reference row → expand its abstract/details in place.
   let expandedRefId = $state("");
   const toggleRef = (id: string) => (expandedRefId = expandedRefId === id ? "" : id);
@@ -502,6 +561,7 @@
     annotations = af.annotations;
     entry = lib.find((e) => e.key === citekey) ?? null;
     libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
+    libKeyByDoi = new Map(lib.flatMap((e) => { const d = bareDoi(e.doi); return d ? [[d, e.key] as [string, string]] : []; }));
     srcStamp = stampOf(src, b);
     supplements = sup;
     loading = false;
@@ -511,6 +571,10 @@
     loading = false;
     pushToast("error", "Couldn't load this paper", { detail: errMsg(e) });
   });
+  // Which library papers have a PDF on disk — one throttled readdir, shared app-wide
+  // (never a per-row exists() call), so reference rows can offer "open its PDF".
+  refreshPdfKeys();
+
   // Reference list loads independently (network; needs the paper hydrated).
   refsState = "loading";
   void referencedWorksByKey(citekey).then((r) => {
@@ -533,6 +597,7 @@
         if (!alive) return;
         annotations = af.annotations;
         libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
+    libKeyByDoi = new Map(lib.flatMap((e) => { const d = bareDoi(e.doi); return d ? [[d, e.key] as [string, string]] : []; }));
         const b = buffer;
         const stamp = stampOf(src, b);
         if (stamp !== srcStamp) {
@@ -700,6 +765,19 @@
   }
 
   const inLib = (b: WorldBrief) => !!(b.doi && libDois.has(bareDoi(b.doi)!));
+  /** The FluxLib citekey for a brief (matched by DOI), or null if it isn't in the library. */
+  const libKeyOf = (b: WorldBrief) => (b.doi ? (libKeyByDoi.get(bareDoi(b.doi)!) ?? null) : null);
+  /** The citekey to read, i.e. in the library AND with a PDF on disk. */
+  function readableKey(b: WorldBrief): string | null {
+    const k = libKeyOf(b);
+    return k && hasPdfIn($pdfKeys, k) ? k : null;
+  }
+  /** Open a cited/citing paper as a tab in this pane. */
+  function openBriefPdf(b: WorldBrief) {
+    const k = readableKey(b);
+    if (k) openReaderTab(k);
+  }
+  const openDoi = (doi: string) => void fileBridge()?.openExternal?.(`https://doi.org/${bareDoi(doi)}`);
   const title = $derived(entry?.title ?? citekey);
   // Annotations in reading order (page, then first-seen).
   const orderedAnns = $derived([...annotations].sort((a, b) => a.page - b.page));
@@ -737,8 +815,56 @@
     }, 250);
   });
 
+  // --- draggable rail edges → sidebar widths (the figure/slide gutter pattern;
+  // persists via readerLayout). No preventDefault on pointerdown — it would suppress
+  // the derived dblclick (reset affordance); text selection during the drag is blocked
+  // via body user-select instead. The gutters are flex siblings OUTSIDE the scrolling
+  // <aside>s, so they never scroll away.
+  let rbodyEl = $state<HTMLElement | null>(null);
+  const railMax = (min: number) => Math.max(min, Math.round(window.innerWidth * 0.4));
+  function railDrag(apply: (x: number, rect: DOMRect) => void) {
+    return () => {
+      document.body.style.userSelect = "none";
+      const move = (e: PointerEvent) => {
+        if (rbodyEl) apply(e.clientX, rbodyEl.getBoundingClientRect());
+      };
+      const up = () => {
+        document.body.style.userSelect = "";
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    };
+  }
+  const startRefsDrag = railDrag((x, rect) => {
+    const w = Math.max(180, Math.min(railMax(520), x - rect.left));
+    readerLayout.update((s) => ({ ...s, refsW: Math.round(w) }));
+  });
+  const startAnnotsDrag = railDrag((x, rect) => {
+    const w = Math.max(180, Math.min(railMax(560), rect.right - x));
+    readerLayout.update((s) => ({ ...s, annotsW: Math.round(w) }));
+  });
+  const resetRefsW = () => readerLayout.update((s) => ({ ...s, refsW: READER_LAYOUT_DEFAULTS.refsW }));
+  const resetAnnotsW = () => readerLayout.update((s) => ({ ...s, annotsW: READER_LAYOUT_DEFAULTS.annotsW }));
+
+  // Alt+R (the manuscript writer's chord) summons the library search in the right rail.
+  // It is a PANEL, not a transient layer: it stays until you switch tabs or hide the
+  // rail — Escape deliberately does not close it.
+  let librarySearchReq = $state(0);
+  function summonLibrary() {
+    showAnnots = true;
+    readerLayout.update((s) => ({ ...s, rightTab: "library" }));
+    librarySearchReq++; // focus the search box (fresh nonce even when already open)
+  }
+
   function onKey(e: KeyboardEvent) {
     if (!focused) return; // kept-alive hidden panes must not react (inert blocks focus, not window listeners)
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyR") {
+      e.preventDefault();
+      summonLibrary();
+      return;
+    }
     const tag = (e.target as HTMLElement | null)?.tagName;
     const typing = tag === "INPUT" || tag === "TEXTAREA";
     if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
@@ -791,6 +917,45 @@
 </script>
 
 <svelte:window onkeydown={onKey} onpointerdown={onWinPointer} />
+
+<!-- One row shape for both scholarly lists — the paper's references and the papers
+     citing it. A brief that's in FluxLib with a PDF on disk opens as a tab. -->
+{#snippet briefRow(b: WorldBrief)}
+  {@const readable = readableKey(b)}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+  <li
+    class="ref"
+    id={`ref-${b.openalexId}`}
+    class:flash={flashRefId === b.openalexId}
+    class:expanded={expandedRefId === b.openalexId}
+    onclick={() => toggleRef(b.openalexId)}>
+    <div class="rmeta">
+      <span class="rauth">{b.authors.slice(0, 2).join(", ")}{b.authors.length > 2 ? " et al." : ""}{b.year ? ` · ${b.year}` : ""}</span>
+      {#if b.citedByCount != null}<span class="rcite">{b.citedByCount.toLocaleString()}×</span>{/if}
+    </div>
+    <div class="rtitle2" class:unclamped={expandedRefId === b.openalexId} title={b.title}>{b.title}</div>
+    {#if expandedRefId === b.openalexId}
+      {#if b.container}<div class="rcontainer">{b.container}</div>{/if}
+      {#if b.abstract}<div class="rabstract">{b.abstract}</div>{/if}
+    {/if}
+    <div class="ractions">
+      {#if readable}
+        <!-- The PDF is the point — reading it beats every other action on the row. -->
+        <button class="pdfbtn" title="Open this paper's PDF in a tab"
+          onclick={(e) => { e.stopPropagation(); openBriefPdf(b); }}>Open PDF</button>
+      {:else if inLib(b)}
+        <span class="inlib">✓ in library</span>
+      {:else if b.doi}
+        <button class="addbtn" disabled={addingId === b.openalexId} onclick={(e) => { e.stopPropagation(); addRef(b); }}
+          >{addingId === b.openalexId ? "Adding…" : "+ FluxLib"}</button>
+      {/if}
+      {#if expandedRefId === b.openalexId && b.doi}
+        <button class="rdoi" title="Open the DOI in your browser"
+          onclick={(e) => { e.stopPropagation(); openDoi(b.doi!); }}>DOI ↗</button>
+      {/if}
+    </div>
+  </li>
+{/snippet}
 
 <div class="rdoc" bind:this={rootEl} data-doc-key={citekey} data-doc-active={active}>
   {#if loading}
@@ -876,14 +1041,40 @@
         <button class="tgl agentbtn" class:on={agentOpen} onclick={onToggleAgent}
           title="Open the terminal — run `flux principal` there; Ask-AI prefills questions about your selection/highlights (⌘/Ctrl-J)">✦ Ask AI</button>
       </div>
-      <div class="rbody">
+      <div
+        class="rbody"
+        bind:this={rbodyEl}
+        style={`--refs-w:${$readerLayout.refsW}px; --annots-w:${$readerLayout.annotsW}px`}>
         {#if showRefs}
           <aside class="side refs">
             <div class="shead stabs">
               <button class="stab" class:on={sideTab === "refs"} onclick={() => (sideTab = "refs")}>References</button>
+              <button class="stab" class:on={sideTab === "citers"} onclick={showCiters} title="Papers that cite this one">Cited by</button>
               <button class="stab" class:on={sideTab === "outline"} onclick={() => void showOutline()}>Outline</button>
             </div>
-            {#if sideTab === "outline"}
+            {#if sideTab === "citers"}
+              <div class="csort">
+                <button class="cbtn" class:on={citersSort === "cited"} onclick={() => setCitersSort("cited")}>Most cited</button>
+                <button class="cbtn" class:on={citersSort === "recent"} onclick={() => setCitersSort("recent")}>Newest</button>
+                <button class="cbtn refresh" title={citersAt ? `Fetched ${new Date(citersAt).toLocaleString()} — re-query` : "Re-query"}
+                  aria-label="Refresh citers" onclick={() => void loadCiters(true)}>⟳</button>
+              </div>
+              {#if citersState === "loading"}
+                <div class="smsg">Looking up citing papers…</div>
+              {:else if citersState === "unenriched"}
+                <div class="smsg">No OpenAlex id yet — <em>Enrich</em> this paper in the Library to look up its citers.</div>
+              {:else if citersState === "error"}
+                <div class="smsg">Couldn’t reach OpenAlex. <button class="linkbtn" onclick={() => void loadCiters(true)}>Try again</button></div>
+              {:else if citers.length === 0}
+                <div class="smsg">No citing papers found yet.</div>
+              {:else}
+                <ul class="reflist">
+                  {#each citers as b (b.openalexId)}
+                    {@render briefRow(b)}
+                  {/each}
+                </ul>
+              {/if}
+            {:else if sideTab === "outline"}
               {#if outline === null}
                 <div class="smsg">Loading outline…</div>
               {:else if outline.length === 0}
@@ -907,38 +1098,19 @@
             {:else}
               <ul class="reflist">
                 {#each refs as b (b.openalexId)}
-                  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-                  <li
-                    class="ref"
-                    id={`ref-${b.openalexId}`}
-                    class:flash={flashRefId === b.openalexId}
-                    class:expanded={expandedRefId === b.openalexId}
-                    onclick={() => toggleRef(b.openalexId)}>
-                    <div class="rmeta">
-                      <span class="rauth">{b.authors.slice(0, 2).join(", ")}{b.authors.length > 2 ? " et al." : ""}{b.year ? ` · ${b.year}` : ""}</span>
-                      {#if b.citedByCount != null}<span class="rcite">{b.citedByCount.toLocaleString()}×</span>{/if}
-                    </div>
-                    <div class="rtitle2" class:unclamped={expandedRefId === b.openalexId} title={b.title}>{b.title}</div>
-                    {#if expandedRefId === b.openalexId}
-                      {#if b.container}<div class="rcontainer">{b.container}</div>{/if}
-                      {#if b.abstract}<div class="rabstract">{b.abstract}</div>{/if}
-                    {/if}
-                    <div class="ractions">
-                      {#if inLib(b)}
-                        <span class="inlib">✓ in library</span>
-                      {:else if b.doi}
-                        <button class="addbtn" disabled={addingId === b.openalexId} onclick={(e) => { e.stopPropagation(); addRef(b); }}
-                          >{addingId === b.openalexId ? "Adding…" : "+ FluxLib"}</button>
-                      {/if}
-                      {#if expandedRefId === b.openalexId && b.doi}
-                        <a class="rdoi" href={`https://doi.org/${bareDoi(b.doi)}`} target="_blank" rel="noreferrer" onclick={(e) => e.stopPropagation()}>DOI ↗</a>
-                      {/if}
-                    </div>
-                  </li>
+                  {@render briefRow(b)}
                 {/each}
               </ul>
             {/if}
           </aside>
+          <div
+            class="rail-gutter"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize references (double-click resets)"
+            onpointerdown={startRefsDrag}
+            ondblclick={resetRefsW}>
+          </div>
         {/if}
 
         <div class="pdfwrap">
@@ -1020,17 +1192,30 @@
         {/if}
 
         {#if showAnnots}
+          <div
+            class="rail-gutter"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the right panel (double-click resets)"
+            onpointerdown={startAnnotsDrag}
+            ondblclick={resetAnnotsW}>
+          </div>
           <aside class="side annots">
-            <div class="shead">
-              Annotations
-              {#if annotations.length}
+            <div class="shead stabs">
+              <button class="stab" class:on={$readerLayout.rightTab === "annots"}
+                onclick={() => readerLayout.update((s) => ({ ...s, rightTab: "annots" }))}>Annotations</button>
+              <button class="stab" class:on={$readerLayout.rightTab === "library"} title="Search your reference library (Alt+R)"
+                onclick={summonLibrary}>Library</button>
+              {#if $readerLayout.rightTab === "annots" && annotations.length}
                 <button
                   class="expnotes"
                   title="Export these highlights & notes as Markdown"
                   onclick={() => void saveAnnotationsMarkdown(citekey, annotations, { title: entry?.title, authors: entry?.authors, year: entry?.year, doi: entry?.doi })}>Export notes…</button>
               {/if}
             </div>
-            {#if orderedAnns.length === 0}
+            {#if $readerLayout.rightTab === "library"}
+              <ReaderLibraryPanel focusReq={librarySearchReq} onOpenPdf={(k) => openReaderTab(k)} />
+            {:else if orderedAnns.length === 0}
               <div class="smsg">Select text in the PDF and pick a colour to add a highlight.</div>
             {:else}
               <ul class="annlist">
@@ -1313,18 +1498,33 @@
     display: flex;
   }
   .side {
-    flex: 0 0 268px;
-    width: 268px;
     overflow: auto;
     background: var(--c-surface);
     display: flex;
     flex-direction: column;
   }
   .side.refs {
+    flex: 0 0 var(--refs-w, 268px);
+    width: var(--refs-w, 268px);
     border-right: 1px solid var(--c-line);
   }
   .side.annots {
+    flex: 0 0 var(--annots-w, 268px);
+    width: var(--annots-w, 268px);
     border-left: 1px solid var(--c-line);
+  }
+  /* Drag-to-resize rail edges (the figure/slide gutter pattern). Sits OUTSIDE the
+     scrolling aside so it never scrolls away; negative margins overlay the 1px seam
+     without stealing layout width. */
+  .rail-gutter {
+    flex: 0 0 5px;
+    margin: 0 -2px;
+    cursor: col-resize;
+    z-index: 5;
+    background: transparent;
+  }
+  .rail-gutter:hover {
+    background: color-mix(in srgb, var(--c-accent) 35%, transparent);
   }
   .shead {
     position: sticky;
@@ -1361,6 +1561,9 @@
     gap: 4px;
     padding: 5px 8px;
   }
+  .stabs .expnotes {
+    margin-left: auto;
+  }
   .stab {
     border: none;
     background: transparent;
@@ -1376,6 +1579,43 @@
   .stab.on {
     color: var(--c-tx-1);
     background: var(--c-bg);
+  }
+  /* Cited-by controls: sort toggle + refresh (the list is a cached live query). */
+  .csort {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--c-line);
+  }
+  .cbtn {
+    border: 1px solid var(--c-line);
+    background: transparent;
+    color: var(--c-tx-2);
+    border-radius: var(--r-1);
+    padding: 2px 8px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    cursor: pointer;
+  }
+  .cbtn.on {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+  .cbtn.refresh {
+    margin-left: auto;
+    padding: 2px 7px;
+  }
+  .linkbtn {
+    border: none;
+    background: none;
+    color: var(--c-accent);
+    font: inherit;
+    font-size: inherit;
+    font-style: normal;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
   }
   .outlist {
     list-style: none;
@@ -1466,13 +1706,31 @@
     overflow: auto;
   }
   .rdoi {
+    border: none;
+    background: none;
+    font: inherit;
     font-size: var(--ts-xs);
     color: var(--c-accent);
-    text-decoration: none;
+    padding: 0;
     margin-left: 6px;
+    cursor: pointer;
   }
   .rdoi:hover {
     text-decoration: underline;
+  }
+  .pdfbtn {
+    border: 1px solid var(--c-accent);
+    background: var(--c-accent-tint);
+    color: var(--c-accent);
+    border-radius: var(--r-1);
+    padding: 1px 8px;
+    font: inherit;
+    font-size: var(--ts-xs);
+    cursor: pointer;
+  }
+  .pdfbtn:hover {
+    background: var(--c-accent);
+    color: var(--c-on-accent);
   }
   .rmeta {
     display: flex;

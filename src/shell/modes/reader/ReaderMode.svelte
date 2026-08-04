@@ -13,6 +13,7 @@
     closeReaderTab,
     cycleReaderTab,
     openReaderTabInSplit,
+    moveReaderTab,
   } from "./readerStore";
   import ReaderDoc from "./ReaderDoc.svelte";
   import ReaderTabs from "./ReaderTabs.svelte";
@@ -29,9 +30,11 @@
   // Keep-alive: the active document plus the most recently viewed others stay
   // mounted (hidden ModeContent-style — visibility flip, so switching among warm
   // tabs is instantaneous); older tabs render nothing and cold-reopen through the
-  // flux-reader-view restore. The cap bounds the real cost — each live doc holds
-  // its PDF bytes (up to ~3× the file: doc buffer + PdfView's copy + the worker
-  // transfer) plus a pdf.js worker — while the tab COUNT stays uncapped.
+  // flux-reader-view restore. The cap bounds the real cost — each live doc costs
+  // ~2× its file size (the doc's master buffer, plus the copy PdfView TRANSFERS to
+  // its worker: pdf.js sends `data.buffer` in the postMessage transfer list, which
+  // detaches it, which is exactly why the master is copied first) plus a pdf.js
+  // worker and its live page canvases — while the tab COUNT stays uncapped.
   const MAX_LIVE_DOCS = 3;
   let liveKeys = $state<string[]>([]);
   $effect(() => {
@@ -99,7 +102,8 @@
       {activeKey}
       onActivate={(k) => activateReaderTab(k, paneId)}
       onClose={closeReaderTab}
-      onSplit={openReaderTabInSplit} />
+      onSplit={openReaderTabInSplit}
+      onMove={moveReaderTab} />
     <div class="docs">
       {#each liveKeys as key (key)}
         <div class="docslot" class:hidden={key !== activeKey} inert={key !== activeKey}>

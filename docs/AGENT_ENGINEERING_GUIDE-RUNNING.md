@@ -1838,3 +1838,38 @@ per-pane assignments with pin-before-retarget; Alt-click a tab → `openReaderTa
 - A selection-anchored popover renders off-viewport when the target page is scrolled away
   (top: -1200px) and a coordinate click on it silently no-ops — navigate the page into view
   before driving selection UI.
+
+### 2026-08-04 (later) — Reader panels: rails, Cited-by, row PDFs, Alt+R library (Claude Fable 5, `reader-tabs`)
+**Work:** Owner's screenshot review of the reader. Both sidebars are now drag-resizable
+(new `readerLayoutStore.ts`, key `flux.reader.layout`; the FigureMode `railDrag` factory +
+CSS vars on `.rbody`, gutters as flex siblings OUTSIDE the scrolling asides, dblclick
+resets) — widths are module-global while VISIBILITY stays per-paper in `flux-reader-view`.
+Left rail gained a **Cited by** tab (forward citations through the already-shipped
+`citingWorksByKey`; Most-cited ⇄ Newest toggle, ⟳ refresh, and a new derived cache
+`<FluxLib>/.fluxlib/citers.json` — deliberately NOT in enrich.json, whose grid projection
+strips exactly this kind of heavy edge field; a citer list also grows forever, so it needs
+a refresh story a reference list doesn't). Reference/citer rows share ONE `briefRow`
+snippet and offer **Open PDF** when the brief is in FluxLib with a PDF on disk (batched
+`pdfPresence` store, hoisted `modes/paper/scholar/` → `lib/references/`; DOI now opens via
+`fileBridge.openExternal`, the house call). **Alt+R** summons a library-search panel in the
+right rail (new `ReaderLibraryPanel.svelte`, `query.ts`'s `createQueryRunner` +
+`attachHaystacks`, no debounce — §6 flags the Library's 150ms as a bug, not a pattern); it
+is a PANEL, sticky in `readerLayout.rightTab`, and Escape deliberately does not dismiss it.
+Tab drag-reorder (live reorder as the pointer crosses a neighbour's midpoint; keyed each
+means no document remounts). New gate `verify-r8-reader-panels.mjs` (30 checks) joins
+`group:reader-gate` (16); `listPdfKeys` now counts dev-seeded items so the row affordance is
+drivable headlessly. check 0/0, pure 149/149, reader-gate 16/16.
+**Learnings:**
+- **Reader PDF residency is ~2× per open doc, and item 1.6 of the V1 readiness review is
+  CLOSED, not deferred** (review line 97; line 514 is the superseded open-items entry — an
+  earlier note in this session repeated it wrongly). pdf.js passes `data.buffer` in the
+  postMessage TRANSFER list (`GetDocRequest`, pdfjs-dist 6.1.200), so the bytes are detached
+  into the worker rather than cloned — which is exactly why `PdfView` copies the master
+  first (`buffer.slice(0)`): without the copy, the transfer would detach the doc's own
+  buffer and break Switch-PDF and external-change remounts. Only the master-buffer
+  re-architecture (re-read from disk instead of holding a renderer copy) is unbuilt, and it
+  was judged unwarranted. Verify claims like this against `node_modules` before repeating them.
+- A gate that needs a real FluxLib must boot `?fixture=demo`, not `clickNew` — `ensureFluxLib()`
+  returns null without a resolvable lib, so `__fluxSeedScaleLibrary` silently seeds nothing
+  (`{lib: null, entries: 0}`) and every library-dependent assertion fails for the wrong reason.
+- `createQueryRunner()` returns the runner FUNCTION itself, not an object with `.run`.

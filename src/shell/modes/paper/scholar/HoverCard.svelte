@@ -5,7 +5,7 @@
   import type { ChipTarget } from "../science/chipContext";
   import { resolveFigure, renderFigureSvg, figureRefs } from "./figures";
   import { bibEntry, bibEntries, type BibEntry } from "./bib";
-  import { pdfKeys, refreshPdfKeys, hasPdfIn } from "./pdfPresence";
+  import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../../../lib/references/pdfPresence";
 
   let {
     target,

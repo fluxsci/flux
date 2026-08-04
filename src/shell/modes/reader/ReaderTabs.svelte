@@ -12,6 +12,7 @@
     onActivate,
     onClose,
     onSplit,
+    onMove,
   }: {
     tabs: ReaderTab[];
     activeKey: string | null;
@@ -19,21 +20,71 @@
     onClose: (key: string) => void;
     /** Alt/Cmd-click a tab → open it in the other pane (titlebar split convention). */
     onSplit?: (key: string) => void;
+    /** Drag-reorder: move `key` to `toIndex` in strip order. */
+    onMove?: (key: string, toIndex: number) => void;
   } = $props();
 
   const titleByKey = $derived(new Map($fluxLibEntries.map((e) => [e.key, e.title])));
   const label = (key: string) => titleByKey.get(key) || key;
+
+  // Drag-reorder, browser-tab style: the strip reorders LIVE as the pointer crosses a
+  // neighbour's midpoint (no ghost element — the keyed each preserves every tab's DOM
+  // and no document remounts, since only order changes). A drag suppresses the click
+  // that would otherwise activate the tab.
+  let strip = $state<HTMLElement | undefined>();
+  let dragKey: string | null = null;
+  let dragStartX = 0;
+  let dragged = $state(false);
+
+  function onTabPointerDown(e: PointerEvent, key: string) {
+    if (e.button !== 0 || !onMove || tabs.length < 2) return;
+    dragKey = key;
+    dragStartX = e.clientX;
+    dragged = false;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onTabPointerMove(e: PointerEvent) {
+    if (dragKey === null) return;
+    if (!dragged) {
+      if (Math.abs(e.clientX - dragStartX) < 5) return; // a click, not a drag
+      dragged = true;
+      document.body.style.userSelect = "none"; // never preventDefault here (§9: kills dblclick)
+    }
+    const rects = [...(strip?.querySelectorAll<HTMLElement>(".rtab") ?? [])].map((el) => ({
+      key: el.dataset.key!,
+      box: el.getBoundingClientRect(),
+    }));
+    let target = rects.findIndex((r) => e.clientX < r.box.left + r.box.width / 2);
+    if (target < 0) target = rects.length - 1;
+    if (rects[target]?.key !== dragKey) onMove?.(dragKey, target);
+  }
+  function endDrag(e: PointerEvent) {
+    if (dragKey === null) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    dragKey = null;
+    document.body.style.userSelect = "";
+    // Clear AFTER the click that follows this pointerup would have fired.
+    if (dragged) setTimeout(() => (dragged = false), 0);
+  }
 </script>
 
-<div class="rtabs" data-testid="reader-tabs" role="tablist" aria-label="Open papers">
+<div class="rtabs" data-testid="reader-tabs" role="tablist" aria-label="Open papers" bind:this={strip} class:dragging={dragged}>
   {#each tabs as t (t.key)}
     <div class="rtab" class:on={t.key === activeKey} data-key={t.key}>
       <button
         class="rtab-main"
         role="tab"
         aria-selected={t.key === activeKey}
-        title={`${label(t.key)}  (Alt-click: open in split)`}
-        onclick={(e) => (e.altKey || e.metaKey ? (onSplit ?? onActivate)(t.key) : onActivate(t.key))}
+        title={`${label(t.key)}  (Alt-click: open in split · drag to reorder)`}
+        onpointerdown={(e) => onTabPointerDown(e, t.key)}
+        onpointermove={onTabPointerMove}
+        onpointerup={endDrag}
+        onpointercancel={endDrag}
+        onclick={(e) => {
+          if (dragged) return; // this click ends a reorder drag
+          if (e.altKey || e.metaKey) (onSplit ?? onActivate)(t.key);
+          else onActivate(t.key);
+        }}
         onauxclick={(e) => {
           if (e.button === 1) {
             e.preventDefault();
@@ -93,6 +144,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     cursor: pointer;
+  }
+  .rtabs.dragging .rtab-main {
+    cursor: grabbing;
   }
   .rtab-x {
     flex: 0 0 auto;

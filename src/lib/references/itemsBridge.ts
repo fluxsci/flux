@@ -29,7 +29,7 @@ import {
   type OaMissFile,
 } from "./items";
 import { isPdfBytes } from "./pdfFinder";
-import { seededItem, seededSupplements } from "./devSeed";
+import { seededItem, seededSupplements, seededKeys } from "./devSeed";
 import { pushToast } from "../toast";
 
 /** Manual ingest has no size ceiling (unlike netGet's 80MB fetch cap) — warn on huge
@@ -93,6 +93,9 @@ export async function listPdfKeys(): Promise<Set<string>> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   const out = new Set<string>();
+  // Dev-seeded items ARE the item store in headless runs (readerPdfBytes consults the
+  // same map first); empty in production, so this is a no-op there.
+  for (const k of seededKeys()) out.add(safeKey(k).normalize("NFC"));
   if (!fb || !lib) return out;
   // WS-8.5: prefer the derived .fluxlib/items.json (flux-core maintains it)
   // when it is at least as fresh as the items/ DIRECTORY (whose mtime moves on

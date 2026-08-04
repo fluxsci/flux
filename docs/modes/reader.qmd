@@ -16,14 +16,30 @@ page height; **Ctrl+scroll** or a pinch zooms at the cursor), a page-layout pick
 **Home/End** work as you'd expect, and after you follow a link or outline entry, the **←**
 button in the toolbar takes you back to where you were.
 
-Two sidebars flank the page:
+Two sidebars flank the page, and both are **drag-resizable** — pull the edge beside either
+one, or double-click it to go back to the default width. The left sidebar has three tabs:
 
 - **References** — the paper's own reference list (once the paper is
   [enriched](library.qmd#enrich)): each entry expands to its abstract, can be added to your
-  library with **+ FluxLib**, or opened by DOI.
+  library with **+ FluxLib**, or opened by DOI. When an entry is already in your library
+  *and* its PDF is on disk, the row offers **Open PDF** — one click and it's a new tab.
+- **Cited by** — the papers that cite *this* one, looked up from OpenAlex. Sort by **Most
+  cited** (influential follow-ups first) or **Newest**, and hit **⟳** to re-query. The list
+  is cached, so coming back to it is instant and works offline; rows behave exactly like
+  reference rows, Open PDF included. (Needs the paper enriched, for its OpenAlex id.)
 - **Outline** — the PDF's bookmarks, click to jump.
 
-Each paper remembers its own page, zoom, and layout between sessions.
+Each paper remembers its own page, zoom, and layout between sessions; the sidebar widths are
+a workspace setting shared by every paper.
+
+# Searching your library while you read
+
+**Alt+R** — the same chord as the manuscript writer's reference search — opens a **Library**
+panel in the right sidebar, next to your annotations. Search the whole reference library by
+title, author, year, journal, or citekey (`author:siclari year:2017` works, as in the
+Library), and open any hit's **PDF** as a tab or its **DOI** in your browser. Papers already
+open as tabs are marked. The panel is a panel, not a popup: it stays until you switch back to
+the **Annotations** tab, so you can keep it beside you while you read.
 
 # Tabs
 
@@ -35,6 +51,7 @@ demand, restored to their remembered page and zoom.
 
 - **Ctrl+Tab** / **Ctrl+Shift+Tab** (or **Ctrl+PageDown** / **Ctrl+PageUp**) cycle through tabs.
 - **Ctrl+W**, a **middle-click**, or the tab's **×** closes one — the next tab over takes its place.
+- **Drag a tab** along the strip to reorder it.
 - Your open tabs (and which was active) come back when you restart Flux.
 
 ## Two papers side by side

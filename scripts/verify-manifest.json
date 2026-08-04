@@ -1,5 +1,5 @@
 {
-  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) — this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) — the tier exists for pathMap's electron/** mapping.",
+  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping.",
   "tiers": {
     "pure": [
       "verify-an-bridge.ts",
@@ -266,6 +266,7 @@
       "verify-snip-cite-gui.mjs",
       "verify-r6-supplement.mjs",
       "verify-r7-tabs.mjs",
+      "verify-r8-reader-panels.mjs",
       "verify-w1-toast.mjs",
       "verify-w10-matrix.mjs",
       "verify-w17-gestures.mjs",
@@ -336,6 +337,7 @@
       "verify-r5-figure.mjs",
       "verify-r6-supplement.mjs",
       "verify-r7-tabs.mjs",
+      "verify-r8-reader-panels.mjs",
       "verify-snip-gui.mjs",
       "verify-snip-cite-gui.mjs",
       "verify-fulltext-gui.mjs",
@@ -372,6 +374,13 @@
     },
     {
       "glob": "src/shell/modes/reader/**",
+      "run": [
+        "group:reader-gate",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/references/{citersCache,pdfPresence}.ts",
       "run": [
         "group:reader-gate",
         "tier:pure"
