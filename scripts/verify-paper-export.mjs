@@ -87,7 +87,7 @@ ok(toastCase.falseSuccess === false, "no false 'Exported ✓' on failure");
 console.log("B — materializeRenders writes embedded figures to fig/renders/:");
 const mat = await page.evaluate(async () => {
   const figures = await import("/src/shell/modes/paper/scholar/figures.ts");
-  const fig = (id, label, name, order) => ({ id, label, name, order, number: String(order + 1), canvas: "c1", caption: "", panels: [] });
+  const fig = (id, label, name, order) => ({ id, label, name, family: "figure", order, number: order + 1, display: `Fig. ${order + 1}`, captionLabel: `Figure ${order + 1} | `, canvas: "c1", caption: "", panels: [] });
   const shape = (id, name) => ({ id, name, canvasId: "c1", x: 0, y: 0, width: 400, height: 300, background: "#ffffff", elements: [] });
   window.__fluxSeedFigures([fig("f1", "fig-one", "Figure 1", 0), fig("f2", "fig-two", "Figure 2", 1)], { f1: shape("f1", "One"), f2: shape("f2", "Two") }, {});
   const doc = [

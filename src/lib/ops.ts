@@ -33,6 +33,16 @@ import type {
 } from "./types";
 import { newId } from "./ids";
 import {
+  BUILTIN_FAMILIES,
+  DEFAULT_FAMILY,
+  FAMILY_ID_RE,
+  assignFamilyNumber,
+  derivedFigureName,
+  familyById,
+  parseLegacyName,
+  type FigureFamilyDef,
+} from "./figfamily";
+import {
   ancestorsOf,
   chainOf,
   cloneGroupsFor,
@@ -135,7 +145,13 @@ export interface CreateFigureOpts {
   canvasId: Id;
   /** Explicit figure id (a clean slug → stable `@fig-<id>`); else auto-generated. */
   id?: Id;
+  /** Legacy seam: a designation-style name ("Figure 3", "Figure S2") maps to
+   *  family identity; anything else becomes the nickname. Prefer
+   *  family/number/nickname directly. */
   name?: string;
+  family?: string;
+  number?: number;
+  nickname?: string;
   x?: number;
   y?: number;
   width?: number;
@@ -153,7 +169,7 @@ export function createFigure(p: Project, opts: CreateFigureOpts): Figure {
   const y = opts.y ?? (onCanvas.length ? maxBottom + 80 : 0);
   const fig: Figure = {
     id: opts.id ?? newId("fig"),
-    name: opts.name ?? `Figure ${onCanvas.length + 1}`,
+    name: opts.name ?? "",
     canvasId: opts.canvasId,
     x,
     y,
@@ -163,6 +179,20 @@ export function createFigure(p: Project, opts: CreateFigureOpts): Figure {
     elements: [],
   };
   p.figures.push(fig);
+  // Structured identity (figfamily.ts): explicit family/number win; a
+  // designation-style legacy `name` maps to identity; a descriptive one
+  // survives as the nickname. Default = append to the main figure family —
+  // the old `Figure ${count+1}` default duplicated names after a delete.
+  const parsed = opts.name != null && opts.family == null ? parseLegacyName(opts.name) : null;
+  const nickname = opts.nickname ?? (opts.name && !parsed ? opts.name : undefined);
+  if (nickname) fig.nickname = nickname;
+  assignFamilyNumber(
+    p.figures,
+    fig.id,
+    opts.family ?? parsed?.family ?? DEFAULT_FAMILY,
+    opts.number ?? parsed?.number,
+    p.figureFamilies,
+  );
   return fig;
 }
 
@@ -179,6 +209,18 @@ export function deleteFigure(
   const victim = figById(p, figId);
   const cid = victim?.canvasId ?? null;
   p.figures = p.figures.filter((f) => f.id !== figId);
+  // Auto-compact the victim's family (numbers stay contiguous 1..N).
+  // Surgical on purpose: only figures already carrying a family are touched,
+  // so a deck-projected slide store (figures never carry `family`) can route
+  // a delete through here without being stamped.
+  if (victim?.family && victim.number != null) {
+    for (const f of p.figures) {
+      if (f.family === victim.family && f.number != null && f.number > victim.number) {
+        f.number = f.number - 1;
+        f.name = derivedFigureName(familyById(f.family, p.figureFamilies), f.number);
+      }
+    }
+  }
   const remaining = cid ? p.figures.filter((f) => f.canvasId === cid) : [];
   let nextActiveId: Id | null;
   if (cid && remaining.length === 0 && !opts.allowEmpty) {
@@ -228,6 +270,13 @@ export function duplicateFigure(p: Project, figId: Id): Id | null {
     ...(Object.keys(clonedGroups).length ? { groups: clonedGroups } : {}),
   };
   p.figures.push(copy);
+  // Family-managed models: the copy slots in right after its source (insert-
+  // and-shift; name re-derives). A family-less source (deck-projected slide
+  // store) keeps the plain `"<name> copy"` behavior untouched.
+  if (src.family && src.number != null) {
+    if (src.nickname) copy.nickname = `${src.nickname} copy`;
+    assignFamilyNumber(p.figures, copy.id, src.family, src.number + 1, p.figureFamilies);
+  }
   return copy.id;
 }
 
@@ -243,7 +292,96 @@ export function setFigureLayout(
   if (patch.width != null) f.width = patch.width;
   if (patch.height != null) f.height = patch.height;
   if (patch.background != null) f.background = patch.background;
-  if (patch.name != null) f.name = patch.name;
+  if (patch.name != null) {
+    // Backcompat seam on a family-managed figure: a designation-style name
+    // routes through identity ("Figure S3" → supplementary/3, insert-and-
+    // shift), a descriptive one becomes the nickname (the display name is
+    // derived). Family-less figures (deck-projected slide store) keep the
+    // plain rename — a slide's name IS the figure's name there.
+    const parsed = parseLegacyName(patch.name);
+    if (f.family && parsed) {
+      assignFamilyNumber(p.figures, figId, parsed.family, parsed.number, p.figureFamilies);
+    } else if (f.family) {
+      const nick = patch.name.trim();
+      if (nick) f.nickname = nick;
+      else delete f.nickname;
+    } else {
+      f.name = patch.name;
+    }
+  }
+}
+
+/** The figure namer's engine (and the set-figure-family verb target): patch
+ *  family / number (insert-and-shift via the one reorder primitive) and/or
+ *  the nickname (`null` clears it). Returns the ids whose identity changed. */
+export function setFigureIdentity(
+  p: Project,
+  figId: Id,
+  patch: { family?: string; number?: number; nickname?: string | null },
+): Id[] {
+  const f = figById(p, figId);
+  if (!f) return [];
+  if (patch.nickname !== undefined) {
+    const nick = patch.nickname?.trim();
+    if (nick) f.nickname = nick;
+    else delete f.nickname;
+  }
+  if (patch.family !== undefined || patch.number !== undefined) {
+    return assignFamilyNumber(
+      p.figures,
+      figId,
+      patch.family ?? f.family ?? DEFAULT_FAMILY,
+      patch.number,
+      p.figureFamilies,
+    );
+  }
+  return [];
+}
+
+/** Define (or update) a CUSTOM figure family ("movie" → "Mov. {num}{panel}").
+ *  Built-in ids are reserved; missing templates default from the display name. */
+export function defineFigureFamily(
+  p: Project,
+  def: { id: string; displayName: string; refTemplate?: string; captionTemplate?: string },
+): FigureFamilyDef {
+  const id = def.id.trim();
+  if (!FAMILY_ID_RE.test(id)) {
+    throw new Error(`invalid family id "${def.id}" — want a lowercase slug (a-z, 0-9, -)`);
+  }
+  if (BUILTIN_FAMILIES.some((b) => b.id === id)) {
+    throw new Error(`"${id}" is a built-in family`);
+  }
+  const displayName = def.displayName.trim();
+  if (!displayName) throw new Error("family displayName must not be empty");
+  const full: FigureFamilyDef = {
+    id,
+    displayName,
+    refTemplate: def.refTemplate?.trim() || `${displayName} {num}{panel}`,
+    captionTemplate: def.captionTemplate?.trim() || `${displayName} {num} | `,
+  };
+  p.figureFamilies = p.figureFamilies ?? [];
+  const i = p.figureFamilies.findIndex((x) => x.id === id);
+  if (i >= 0) p.figureFamilies[i] = full;
+  else p.figureFamilies.push(full);
+  // An update can change the displayName — re-derive member names.
+  for (const f of p.figures) {
+    if (f.family === id && f.number != null) {
+      f.name = derivedFigureName(full, f.number);
+    }
+  }
+  return full;
+}
+
+/** Remove a custom family definition; members reassign to the main figure
+ *  family, appended in their current order (no dangling family ids). */
+export function removeFigureFamily(p: Project, id: string): void {
+  p.figureFamilies = (p.figureFamilies ?? []).filter((x) => x.id !== id);
+  const members = p.figures
+    .filter((f) => f.family === id)
+    .sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+  for (const f of members) {
+    assignFamilyNumber(p.figures, f.id, DEFAULT_FAMILY, undefined, p.figureFamilies);
+  }
 }
 
 // ---------------------------------------------------------------------------

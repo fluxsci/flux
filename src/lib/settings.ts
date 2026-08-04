@@ -125,6 +125,26 @@ inspectorHidden.subscribe((v) => {
   } catch {}
 });
 
+// Left-rail visibility — Ctrl+B (when no text is selected) hides the figure
+// sidebar, and (same sharing rule as inspectorHidden) the slide filmstrip.
+// Visibility is a boolean, never a zero width: rail widths keep their value
+// across hide/show (figureLayoutStore / slideLayoutStore).
+const LEFTRAIL_KEY = "flux.ui.leftRailHidden";
+export const leftRailHidden = writable<boolean>(
+  (() => {
+    try {
+      return localStorage.getItem(LEFTRAIL_KEY) === "1";
+    } catch {
+      return false;
+    }
+  })(),
+);
+leftRailHidden.subscribe((v) => {
+  try {
+    localStorage.setItem(LEFTRAIL_KEY, v ? "1" : "0");
+  } catch {}
+});
+
 // ---------------------------------------------------------------------------
 // Popup layout: the FluxFig menu is placed by preset (horizontal) + px nudge,
 // and the X-ray docks to it across a fixed horizontal boundary line (above by

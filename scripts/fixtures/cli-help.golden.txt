@@ -29,7 +29,14 @@ usage: flux <verb> [root] [args] [--flags]
                                        figure (GUI Alt+I multi-insert parity: true
                                        physical size, grid-packed; one plot centers)
   create-figure [--root R] [--id slug] [--name N] [--canvas C] [--width --height]
-                                       add a blank figure
+                [--family f --number n --nickname N]   add a blank figure
+  set-figure-family <figId> [--family figure|supplementary|extended-data|<custom>]
+                [--number n] [--nickname N | --clear-nickname] [--root R]
+                                       assign structured identity (insert-and-shift;
+                                       the display name derives from family + number)
+  define-figure-family --id slug --display-name N [--ref-template "Mov. {num}{panel}"]
+                [--caption-template "Movie {num} | "] [--root R]   define/update a custom family
+  remove-figure-family <id> [--root R]  drop a custom family (members → figure family)
   compose-figure <plot.svg…> [--root R] [--id slug] [--name N] [--rows N]
                  [--cols N] [--gap N] [--no-label] [--no-caption]
                                        assemble N plots into a labeled figure

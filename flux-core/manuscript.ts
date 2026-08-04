@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { resolveSpawn } from "../electron/execResolve.cjs";
 import { composeCaption } from "../src/lib/captions";
 import { collectEmbedLabels, transformQmdForExport, normalizeEmbedAlts } from "../src/lib/exportQmd";
+import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
 import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
@@ -227,28 +228,36 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
   const renders = await materializeRenders(root, m.manuscript.path).catch(() => ({ wrote: 0, failed: [] as string[], warnings: [] as string[] }));
 
   // Bare-quarto parity transform, applied IN PLACE and restored after the
-  // render: (1) composed model captions into empty embed alts (Quarto reads
-  // the alt as the figcaption, and only captioned figures get numbers);
-  // (2) panel refs `@fig-x-a` → literal "Figure 3a" (Quarto's crossref only
-  // knows whole figures — they compiled to "?@fig-x-a"). Sources are restored
-  // in `finally`; even an unrestored transform is a valid readable manuscript.
+  // render: family caption leads + composed model captions into empty embed
+  // alts, embed ids demoted, and ALL `@fig-…` refs rewritten to literal
+  // family-formatted text — Quarto's appearance-order numbering can't express
+  // figure families, so it no longer numbers figures at all (exportQmd.ts).
+  // Sources are restored in `finally`; even an unrestored transform is a
+  // valid readable manuscript.
   const docAbs = path.resolve(root, m.manuscript.path);
   const { files, expanded } = await readExpandedQmd(docAbs);
-  const numbers = new Map(collectEmbedLabels(expanded).map((l, i) => [l, i + 1] as const));
   const captions = new Map<string, string>();
+  const figIdentity = new Map<string, { family: FigureFamilyDef; number: number }>();
   const knownLabels = new Set<string>();
   try {
     const { project, index } = await loadFigModel(root);
     for (const f of index.figures ?? []) {
       knownLabels.add(f.label);
       const fig = ops.figById(project, f.id);
+      // Post-load identity is healed (migrateFigureFamilies) — use it verbatim.
+      if (fig?.family && fig.number != null) {
+        figIdentity.set(f.label, {
+          family: familyById(fig.family, project.figureFamilies),
+          number: fig.number,
+        });
+      }
       const cap = fig ? composeCaption(fig) : "";
       if (cap.trim()) captions.set(f.label, cap);
     }
   } catch {
     /* no fig model → nothing to inject */
   }
-  const ctx = { captions, numbers };
+  const ctx = { captions, figures: figIdentity };
   const originals = new Map<string, string>();
   for (const f of files) {
     const text = await fs.readFile(f, "utf8").catch(() => null);

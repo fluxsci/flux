@@ -109,12 +109,27 @@ const ELEMENT_DEF = {
     }),
   ],
 };
+// A figure-family definition (figfamily.ts) — custom families persisted in
+// fig/index.json `families` (rolled up to project.json `figureFamilies`).
+const FAMILY_DEF = {
+  type: "object",
+  required: ["id", "displayName"],
+  properties: {
+    id: { type: "string" },
+    displayName: { type: "string" },
+    refTemplate: { type: "string" },
+    captionTemplate: { type: "string" },
+  },
+};
 const FIGURE_DEF = {
   type: "object",
   required: ["id", "canvasId", "x", "y", "width", "height", "elements"],
   properties: {
     id: { type: "string" },
     name: { type: "string" },
+    family: { type: "string" },
+    number: { type: "number" },
+    nickname: { type: "string" },
     canvasId: { type: "string" },
     x: { type: "number" },
     y: { type: "number" },
@@ -175,11 +190,15 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
             label: { type: "string" },
             order: { type: "number" },
             kind: { type: "string", enum: ["main", "supplementary"] },
+            family: { type: "string" },
+            number: { type: "number" },
+            nickname: { type: "string" },
             canvas: { type: "string" },
             caption: { type: "string" },
           },
         },
       },
+      figureFamilies: { type: "array", items: FAMILY_DEF },
       slides: { type: "array" },
       capabilities: { type: "object" },
     },
@@ -212,6 +231,9 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
             label: { type: "string" },
             order: { type: "number" },
             kind: { type: "string" },
+            family: { type: "string" },
+            number: { type: "number" },
+            nickname: { type: "string" },
             canvas: { type: "string" },
             caption: { type: "string" },
           },
@@ -234,6 +256,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       },
       palette: { type: "array", items: { type: "string" } },
       colorGroups: { type: "array" },
+      families: { type: "array", items: FAMILY_DEF },
     },
   },
 
@@ -276,6 +299,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       palette: { type: "array" },
       colorGroups: { type: "array" },
       textStyles: { type: "array" },
+      figureFamilies: { type: "array", items: FAMILY_DEF },
     },
     definitions: {
       figure: FIGURE_DEF,

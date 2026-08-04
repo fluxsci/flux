@@ -94,7 +94,7 @@
     </div>
     {#if current}
       <div class="meta">
-        <p class="cap"><b>Figure {current.number}.</b> {current.caption || current.name}</p>
+        <p class="cap"><b>{current.captionLabel.trimEnd()}</b> {current.caption || current.nickname || ""}</p>
         <div class="acts">
           <button onclick={() => host.insertFigure(current)}>Insert</button>
           <button class="ghost" onclick={() => host.openFigure(current.id)}>Open in Figure</button>
@@ -106,10 +106,10 @@
         <button
           class="thumb"
           class:sel={f.id === current?.id}
-          title={f.name}
+          title={f.nickname ? `${f.name} — ${f.nickname}` : f.name}
           onclick={() => (selId = f.id)}>
           <div class="art">{@html renderFigureSvg(f.id) ?? ""}</div>
-          <span class="tn">{f.number}</span>
+          <span class="tn">{f.display}</span>
         </button>
       {/each}
     </div>

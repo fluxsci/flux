@@ -17,13 +17,21 @@ await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 }
 await clickMode(page, "Paper").catch(() => {});
 await sleep(600);
 
+// Figure families (2026-08): refs carry structured identity — numeric `number`
+// within the family plus the precomputed family-formatted `display` ("Fig. 1")
+// and `captionLabel` ("Figure 1 | ") that loadFigures derives from figfamily
+// templates. Seeds mirror that shape.
 const FIGS = (swap) => {
   const growth = {
     id: "f1",
     label: "fig-growth",
-    name: "Growth",
+    name: swap ? "Figure 2" : "Figure 1",
+    nickname: "Growth",
+    family: "figure",
     order: swap ? 1 : 0,
-    number: swap ? "2" : "1",
+    number: swap ? 2 : 1,
+    display: swap ? "Fig. 2" : "Fig. 1",
+    captionLabel: swap ? "Figure 2 | " : "Figure 1 | ",
     canvas: "c1",
     caption: swap ? "Growth over 48 h." : "Growth over 24 h.",
     panels: ["a", "b", "c", "d", "e"],
@@ -31,9 +39,13 @@ const FIGS = (swap) => {
   const dose = {
     id: "f2",
     label: "fig-dose",
-    name: "Dose",
+    name: swap ? "Figure 1" : "Figure 2",
+    nickname: "Dose",
+    family: "figure",
     order: swap ? 0 : 1,
-    number: swap ? "1" : "2",
+    number: swap ? 1 : 2,
+    display: swap ? "Fig. 1" : "Fig. 2",
+    captionLabel: swap ? "Figure 1 | " : "Figure 2 | ",
     canvas: "c1",
     caption: "Dose response.",
     panels: [],
@@ -163,7 +175,7 @@ await sleep(300);
 const chipTexts = await page.evaluate(() =>
   [...document.querySelectorAll(".flux-figref")].map((c) => c.textContent ?? ""),
 );
-const chipPanelOk = chipTexts.some((t) => t === "Fig 1a–c,e") && chipTexts.some((t) => t === "Fig 1a");
+const chipPanelOk = chipTexts.some((t) => t === "Fig. 1a–c,e") && chipTexts.some((t) => t === "Fig. 1a");
 
 // --- whole-figure path: @@ → Dose (no panels) → immediate insert ---------------
 await page.evaluate(() => {
@@ -216,10 +228,10 @@ const embedCapAfterSwap = await page.evaluate(
   () => document.querySelector(".flux-embed-cap")?.textContent ?? "",
 );
 const renumberOk =
-  chipsAfterSwap.some((t) => t === "Fig 2a–c,e") &&
-  chipsAfterSwap.some((t) => t === "Fig 2a") &&
-  chipsAfterSwap.some((t) => t === "Fig 1") && // @fig-dose
-  embedCapAfterSwap.startsWith("Figure 2.");
+  chipsAfterSwap.some((t) => t === "Fig. 2a–c,e") &&
+  chipsAfterSwap.some((t) => t === "Fig. 2a") &&
+  chipsAfterSwap.some((t) => t === "Fig. 1") && // @fig-dose
+  embedCapAfterSwap.startsWith("Figure 2 |");
 const captionSyncOk =
   afterSwapDoc.includes("![](../fig/renders/f1.svg){#fig-growth}") &&
   !afterSwapDoc.includes("Growth over 24 h.") &&

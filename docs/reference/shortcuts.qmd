@@ -26,8 +26,8 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 | Shortcut | Action |
 |---|---|
 | **Ctrl+Shift+E** | Toggle edit ↔ full-width preview (**Escape** exits preview) |
-| **Alt+O** | Show/hide the left panel (outline & documents) |
-| **Alt+D** | Show/hide the dynamic margin |
+| **Alt+O** | Show/hide the left panel (outline & documents; drag its edge to resize) |
+| **Alt+D** or **Ctrl+Shift+B** | Show/hide the dynamic margin |
 | **Alt+R** | Reference search pane |
 | **Alt+F** | Figures pane |
 | **Alt+A** | Comments pane |
@@ -76,7 +76,9 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Shift+H** / **Shift+V** | Flip horizontal / vertical |
 | **[** / **]** | Send to back / bring to front (**+Ctrl**: one step; **+Ctrl+Shift**: all the way) |
 | **Arrows** | Nudge 1 px (**Shift**: 10 px) — also nudges a drilled plot part |
+| **Ctrl+R** | Name the figure — family (Figure / Supplementary / Extended Data / custom), number (insert-and-shift), nickname |
 | **Ctrl+B** / **I** / **U** | Bold / italic / underline on text (and text-like plot parts) |
+| **Ctrl+B** (nothing text-like selected) | Hide/show the left sidebar |
 | **Ctrl+Shift+L** | Lock / unlock |
 | **Shift+R** / **Shift+G** | Rulers / background grid |
 | **Ctrl+Shift+B** | Hide/show the right rail |
@@ -87,7 +89,8 @@ Mouse: plain click = whole plot/group · **Ctrl+click** = pierce to the part und
 path → node edit) · **Shift+click** = add to selection · **Alt+drag** = duplicate ·
 **Shift+drag** = axis-constrain · **Ctrl+drag a resize handle** = crop · **Alt while
 dragging** = disable snapping · **Shift while resizing** = keep aspect · **Space+drag** /
-middle button = pan · **Ctrl+wheel** = zoom · **Shift+wheel** = horizontal pan.
+middle button = pan · **Ctrl+wheel** = zoom · **Shift+wheel** = horizontal pan ·
+**drag a rail edge** = resize the sidebar / Inspector (double-click resets).
 
 In path node-edit (Enter or double-click a path): **v** edit · **p** pen (extend/merge at
 endpoints) · **d** delete nodes · **Ctrl+drag a segment** bends it · **Enter** finishes ·
@@ -101,6 +104,7 @@ Everything in the Figure table works on the stage. Additionally:
 |---|---|
 | **F5** / **Shift+F5** | Present from the start / from the current slide |
 | **↓** / **↑** (nothing selected) | Next / previous slide |
+| **Ctrl+B** (nothing text-like selected) | Hide/show the filmstrip |
 | **Ctrl+Shift+A** | Add appearance for the selection *(animator open)* |
 | **Ctrl+Shift+D** | Add disappearance *(animator open)* |
 | **Ctrl+Shift+T** | Add transform, or toggle t₁ ↔ t₂ *(animator open)* |

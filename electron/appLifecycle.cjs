@@ -58,7 +58,11 @@ function appMenuTemplate({ isMac, isDev }) {
   const viewSubmenu = [
     ...(isDev
       ? [
-          { role: "reload" },
+          // Ctrl+F5, not the default CmdOrCtrl+R — the renderer owns ⌃R (the
+          // Figure Namer, keyboard.ts) on every platform, and a dev-only menu
+          // accelerator would shadow it AND silently wipe unsaved renderer
+          // state (same reasoning as F12 for DevTools below).
+          { role: "reload", accelerator: "Ctrl+F5" },
           { role: "forceReload" },
           // Linux/Windows: F12, not the default Ctrl+Shift+I — the renderer
           // owns ⌃⇧I ("bring inside the frame", keyboard.ts) on every

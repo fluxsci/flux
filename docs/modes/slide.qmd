@@ -21,7 +21,8 @@ the Slide panel — its animation, background, and media travel with it).
 The right rail holds the **Slide panel** (name, per-slide **background**, transition, speaker
 notes) and the **Deck panel**: the **theme** — seven built-ins from *Flux Dark* through *Flux
 Light*, *Paper*, *Midnight*, *Slate*, *Sepia*, and *Contrast* — and the **stage size** (16:9,
-4:3, 16:10). **Ctrl+Shift+B** hides the whole rail.
+4:3, 16:10). **Ctrl+Shift+B** hides the whole rail, and both rails resize by dragging their
+inner edge (the filmstrip too; **Ctrl+B** hides it when no text is selected).
 
 # Beats
 

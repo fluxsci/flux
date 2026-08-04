@@ -31,10 +31,12 @@ import {
   xrayOpen,
   xrayRoot,
   importerOpen,
+  figNamer,
   embeddedProjectRoot,
   projectDir,
   type Tool,
 } from "./store";
+import { storeTenant } from "./tenancy";
 import type { Element, GroupDef } from "./types";
 import { FLUX_CLIP_MARKER, decidePaste, pastedImageName } from "./clipboardPaste";
 import { archivePastedImage, importDroppedFiles } from "./io";
@@ -52,7 +54,7 @@ import {
 } from "./geometry";
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
-import { fluxFigMenuOpen, settingsOpen, helpOpen, inspectorHidden } from "./settings";
+import { fluxFigMenuOpen, settingsOpen, helpOpen, inspectorHidden, leftRailHidden } from "./settings";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
@@ -657,9 +659,17 @@ function openXray() {
 }
 
 export function handleKey(e: KeyboardEvent) {
-  // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover
-  // own all keys while open.
-  if (get(fluxFigMenuOpen) || get(settingsOpen) || get(helpOpen) || get(xrayOpen) || get(importerOpen) || get(cascadeState))
+  // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover /
+  // Figure Namer own all keys while open.
+  if (
+    get(fluxFigMenuOpen) ||
+    get(settingsOpen) ||
+    get(helpOpen) ||
+    get(xrayOpen) ||
+    get(importerOpen) ||
+    get(cascadeState) ||
+    get(figNamer)
+  )
     return;
 
   // Node-edit mode (Feature 1) owns the keyboard: Canvas.svelte handles
@@ -758,6 +768,19 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
+  // Ctrl/Cmd+R: the Figure Namer (family · number · nickname). Figure tenant
+  // only — in slide mode the store's "figures" are slides; family identity is
+  // meaningless there and would be folded into the deck. preventDefault always,
+  // so a stray reload accelerator can never fire (dev menu binds reload to
+  // Ctrl+F5 for the same reason — electron/appLifecycle.cjs).
+  if (mod && !e.altKey && !e.shiftKey && e.code === "KeyR") {
+    e.preventDefault();
+    if (storeTenant() !== "figure") return;
+    const fid = frameSelected() ?? get(activeFigureId);
+    if (fid) figNamer.set({ figId: fid });
+    return;
+  }
+
   // Alignment: Alt + A/W/S/D (+ centre on H/V).
   if (e.altKey && !mod) {
     const k = e.key.toLowerCase();
@@ -811,11 +834,18 @@ export function handleKey(e: KeyboardEvent) {
     }
     // Ctrl/Cmd+B/I/U: bold / italic / underline (text elements or a drilled
     // text-kind plot part). NOTE ctrl+I no longer imports — import moved to
-    // Ctrl+Shift+K (Figma uses ⇧⌘K for Place image). No preventDefault when
-    // nothing applicable.
+    // Ctrl+Shift+K (Figma uses ⇧⌘K for Place image). Context-sensitive ⌃B:
+    // when no text is applicable, it falls through to the LEFT-rail toggle
+    // (figure sidebar / slide filmstrip — the shared leftRailHidden store),
+    // pairing with ⌃⇧B's right-rail toggle above.
     if ((k === "b" || k === "i" || k === "u") && !e.shiftKey) {
       const which = k === "b" ? "bold" : k === "i" ? "italic" : "underline";
-      if (toggleBIU(which)) e.preventDefault();
+      if (toggleBIU(which)) {
+        e.preventDefault();
+      } else if (k === "b" && !e.altKey) {
+        e.preventDefault();
+        leftRailHidden.update((v) => !v);
+      }
       return;
     }
     if (k === "k" && e.shiftKey) {

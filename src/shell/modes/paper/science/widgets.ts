@@ -47,16 +47,12 @@ export class FigRefWidget extends WidgetType {
     nums?: PaperNumbering,
   ) {
     super();
+    // Family-formatted display comes from the resolver ("Fig. S4a–c",
+    // "Mov. 3", "Table 2") — no prefix assembly here. sec- never resolves →
+    // the raw-@ fallback, same as any unresolved label.
     const r = resolveFigure(label, nums);
-    const kind = label.startsWith("tbl-")
-      ? "Table "
-      : label.startsWith("sec-")
-        ? "Section "
-        : label.startsWith("eq-")
-          ? "Eq. "
-          : "Fig ";
     this.resolved = !!r;
-    this.display = r ? kind + r.number : "@" + label;
+    this.display = r ? r.display : "@" + label;
   }
   eq(o: FigRefWidget) {
     return o.label === this.label && o.display === this.display;

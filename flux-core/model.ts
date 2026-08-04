@@ -10,7 +10,8 @@ import { withLock } from "./locks";
 import { CLIENT, j, stamp, journal } from "./journal";
 import { atomicWrite, fsyncDir } from "./fsx";
 import type { Figure, Project, Asset, Canvas } from "../src/lib/types";
-import { migrateProject } from "../src/lib/migrate";
+import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../src/lib/migrate";
+import { kindForFamily } from "../src/lib/figfamily";
 import type { ProjectManifest, FigureEntry } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "../src/lib/project/types";
 import {
@@ -158,11 +159,15 @@ export async function loadFigModel(root: string): Promise<{ project: Project; in
     // undefined when the index predates styles → migrate seeds the defaults;
     // an explicit list (even []) from disk is the user's truth.
     ...(index.textStyles !== undefined ? { textStyles: index.textStyles } : {}),
+    ...(index.families !== undefined ? { figureFamilies: index.families } : {}),
   };
   // Same migration the GUI runs in normalizeProject (text autoWidth → sizing,
   // seed default text styles) — flux-core previously did NO element
   // normalization, so v1 docs mutated headless kept legacy fields forever.
   migrateProject(project);
+  // Figure families (fig-subsystem-only): same seeding + healing as the GUI's
+  // loadFigInto, so both engines agree on identity before any mutation runs.
+  migrateFigureFamilies(project, familyHintsFrom(index.figures));
   return { project, index };
 }
 
@@ -233,11 +238,15 @@ export async function reindex(root: string): Promise<{ figures: number }> {
     name: f.name,
     label: f.label,
     order: f.order,
-    kind: f.kind === "supplementary" ? "supplementary" : "main",
+    kind: f.family ? kindForFamily(f.family) : f.kind === "supplementary" ? "supplementary" : "main",
+    ...(f.family ? { family: f.family } : {}),
+    ...(f.number != null ? { number: f.number } : {}),
+    ...(f.nickname ? { nickname: f.nickname } : {}),
     canvas: f.canvas,
     caption: `fig/captions/${f.id}.md`,
   }));
   manifest.figures = figures;
+  manifest.figureFamilies = index?.families ?? [];
   await saveManifest(root, manifest);
   return { figures: figures.length };
 }
@@ -248,7 +257,17 @@ export async function reindex(root: string): Promise<{ figures: number }> {
 export async function listProject(root: string): Promise<{
   title: string;
   documents: string[];
-  figures: { id: string; label: string; name: string; order: number; panels: string[]; elements: number }[];
+  figures: {
+    id: string;
+    label: string;
+    name: string;
+    order: number;
+    family?: string;
+    number?: number;
+    nickname?: string;
+    panels: string[];
+    elements: number;
+  }[];
   references: string | null;
 }> {
   const manifest = await loadManifest(root);
@@ -265,6 +284,9 @@ export async function listProject(root: string): Promise<{
       label: f.label,
       name: f.name,
       order: f.order,
+      ...(f.family ? { family: f.family } : {}),
+      ...(f.number != null ? { number: f.number } : {}),
+      ...(f.nickname ? { nickname: f.nickname } : {}),
       panels: byId[f.id] ? panelLetters(byId[f.id]) : [],
       elements: byId[f.id]?.elements.length ?? 0,
     })),

@@ -4,22 +4,30 @@
 // (Flux_Paper_Plan.md B-data layer).
 
 import { get, writable } from "svelte/store";
-import type { Figure } from "../../../../lib/types";
+import type { Figure, FigureFamilyDef } from "../../../../lib/types";
 import { figureToSvg } from "../../../../lib/export";
 import { readFigSource } from "../../../../lib/project/figbridge";
 import { fileBridge } from "../../../../lib/project/types";
 import { EMBED_RE } from "../science/figureAttrs";
+import {
+  familyById,
+  familyRank,
+  formatCaptionLabel,
+  formatFamilyRef,
+} from "../../../../lib/figfamily";
 
-import { designationFromName } from "./figText";
-
-export { panelSpec, figRefText, designationFromName, nameIsDesignation } from "./figText";
+export { panelSpec, figRefText } from "./figText";
 
 export interface FigureRef {
   id: string;
   label: string; // e.g. "fig-growth" (includes the fig- prefix, Quarto-style)
-  name: string;
-  order: number;
-  number: string; // display number, "1", "2", …
+  name: string; // derived display name ("Supplementary Figure 4")
+  nickname?: string; // free-text recognition aid (searched, shown dim)
+  family: string; // family id; "tbl"/"eq" on the fabricated table/eq refs
+  number: number; // position within family (figfamily.ts — contiguous 1..N)
+  display: string; // whole-figure in-text text: "Fig. S4" / "Mov. 3" / "Table 2"
+  captionLabel: string; // caption lead: "Figure S4 | " ("" for tbl/eq)
+  order: number; // global index order (jump/sort secondary key)
   canvas: string;
   caption: string;
   panels: string[]; // ordered panel letters ["a","b",…]; [] if unknown (F7)
@@ -39,6 +47,8 @@ figureRefs.subscribe((refs) => {
 
 let figuresById: Record<string, Figure> = {};
 let assetData: Record<string, string> = {};
+// Custom family definitions from the project (built-ins live in figfamily.ts).
+let familyDefs: FigureFamilyDef[] = [];
 const renderCache = new Map<string, string>();
 
 export async function loadFigures(root: string | null): Promise<void> {
@@ -46,44 +56,60 @@ export async function loadFigures(root: string | null): Promise<void> {
   const src = await readFigSource(root);
   figuresById = src.figures;
   assetData = src.assetData;
+  familyDefs = src.families;
   renderCache.clear();
+  // Flux-figure is the source of truth: identity is (family, number) —
+  // structured fields healed by the loader, never parsed out of the name —
+  // so renaming/renumbering there relabels every chip/embed/hover/export
+  // live. Pickers/completions list main figures first, then supplementary,
+  // extended-data, customs, each in number order.
   const refs = [...src.indexFigures]
-    .sort((a, b) => a.order - b.order)
-    .map((f, i) => ({
-      id: f.id,
-      label: f.label,
-      name: f.name,
-      order: f.order,
-      // Flux-figure is the source of truth for the designation: a name that IS
-      // one ("Figure 3" → "3", "Figure S2" → "S2") wins, so renaming there
-      // relabels every chip/embed/hover/export live. Descriptive names fall
-      // back to the order-based ordinal.
-      number: designationFromName(f.name) ?? String(i + 1),
-      canvas: f.canvas,
-      caption: f.caption,
-      panels: f.panels ?? [],
-    }));
+    .sort(
+      (a, b) =>
+        familyRank(a.family, familyDefs) - familyRank(b.family, familyDefs) ||
+        a.number - b.number,
+    )
+    .map((f) => {
+      const def = familyById(f.family, familyDefs);
+      return {
+        id: f.id,
+        label: f.label,
+        name: f.name,
+        ...(f.nickname ? { nickname: f.nickname } : {}),
+        family: f.family,
+        number: f.number,
+        display: formatFamilyRef(def, f.number),
+        captionLabel: formatCaptionLabel(def, f.number),
+        order: f.order,
+        canvas: f.canvas,
+        caption: f.caption,
+        panels: f.panels ?? [],
+      };
+    });
   figureRefs.set(refs);
 }
 
-/** Resolve a `@fig-…` label, including sub-panel refs (`fig-x-a` → "1a").
+/** Resolve a `@fig-…` label, including sub-panel refs (`fig-x-a` → "Fig. 1a").
+ *  Returns the family-formatted in-text `display` text ("Fig. S4a–c", "Mov. 3",
+ *  "Table 2") — figfamily templates own the wording, callers render it verbatim.
  *  WS-4.2: table/equation cross-refs resolve against the PER-EDITOR numbering
  *  instance passed in `nums` (chips/hover/caret thread it from the facet);
  *  callers that only ever see fig-… labels (render, materialize) omit it. */
 export function resolveFigure(
   label: string,
   nums?: { tbl: Map<string, number>; eq: Map<string, number> },
-): { ref: FigureRef; number: string; panel?: string } | null {
+): { ref: FigureRef; display: string; panel?: string } | null {
   const exact = refByLabel.get(label);
-  if (exact) return { ref: exact, number: exact.number };
+  if (exact) return { ref: exact, display: exact.display };
   // Table cross-refs are numbered inline (by the table renderer), not from the
   // figure project — resolve them against the numbering registry.
   if (label.startsWith("tbl-")) {
     const n = nums?.tbl.get(label);
     if (n != null) {
+      const display = `Table ${n}`;
       return {
-        ref: { id: "", label, name: "", order: n, number: String(n), canvas: "", caption: "", panels: [] },
-        number: String(n),
+        ref: { id: "", label, name: "", family: "tbl", number: n, display, captionLabel: "", order: n, canvas: "", caption: "", panels: [] },
+        display,
       };
     }
     return null;
@@ -94,9 +120,10 @@ export function resolveFigure(
   if (label.startsWith("eq-")) {
     const n = nums?.eq.get(label);
     if (n != null) {
+      const display = `Eq. ${n}`;
       return {
-        ref: { id: "", label, name: "", order: n, number: String(n), canvas: "", caption: "", panels: [] },
-        number: String(n),
+        ref: { id: "", label, name: "", family: "eq", number: n, display, captionLabel: "", order: n, canvas: "", caption: "", panels: [] },
+        display,
       };
     }
     return null;
@@ -137,10 +164,26 @@ export function resolveFigure(
     }
     if (ok) {
       const panel = parts.join(",");
-      return { ref: base, number: base.number + panel, panel };
+      return {
+        ref: base,
+        display: formatFamilyRef(familyById(base.family, familyDefs), base.number, panel),
+        panel,
+      };
     }
   }
   return null;
+}
+
+/** label → resolved family identity for the export transform (exportQmd.ts):
+ *  the same numbers the editor shows, never re-derived from embed order. */
+export function exportCtxFigures(): Map<string, { family: FigureFamilyDef; number: number }> {
+  const out = new Map<string, { family: FigureFamilyDef; number: number }>();
+  for (const r of get(figureRefs)) {
+    if (!out.has(r.label)) {
+      out.set(r.label, { family: familyById(r.family, familyDefs), number: r.number });
+    }
+  }
+  return out;
 }
 
 export function renderFigureSvg(id: string): string | undefined {
@@ -208,9 +251,11 @@ export function __seedFigures(
   refs: FigureRef[],
   figs: Record<string, Figure>,
   data: Record<string, string> = {},
+  families: FigureFamilyDef[] = [],
 ): void {
   figuresById = figs;
   assetData = data;
+  familyDefs = families;
   renderCache.clear();
   figureRefs.set(refs);
 }

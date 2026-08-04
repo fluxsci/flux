@@ -1,7 +1,8 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { onMount, getContext } from "svelte";
-  import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot } from "./store";
+  import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer } from "./store";
+  import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextStyle } from "./types";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle, openCascade } from "./keyboard";
@@ -738,7 +739,28 @@
   {#if fig && !slideMode}
     <section>
       <h4>Figure</h4>
-      <label class="full">Name<input value={fig.name} on:change={(e) => updateFigure((f) => (f.name = e.currentTarget.value))} /></label>
+      <!-- Identity is family + number (figfamily.ts) — the name is derived, so
+           the row opens the Figure Namer instead of editing text. The nickname
+           stays inline-editable (it's free text). -->
+      <button
+        class="identity"
+        title="Rename (Ctrl+R)"
+        on:click={() => figNamer.set({ figId: fig.id })}>
+        <b>{fig.name}</b>
+        <span class="id-ref">{formatFamilyRef(familyById(fig.family, $project.figureFamilies), fig.number ?? 0)}</span>
+      </button>
+      <label class="full">Nickname
+        <input
+          value={fig.nickname ?? ""}
+          placeholder="optional — search aid"
+          on:change={(e) => {
+            const v = e.currentTarget.value.trim();
+            updateFigure((f) => {
+              if (v) f.nickname = v;
+              else delete f.nickname;
+            });
+          }} />
+      </label>
       <div class="row">
         <NumberField label="X" value={fig.x}
           on:commit={(e) => updateFigure((f) => (f.x = e.detail))}
@@ -821,7 +843,10 @@
 
 <style>
   .inspector {
-    width: 248px;
+    /* Width var set by the host mode (FigureMode drag-resize). SlideMode's
+       `.rail :global(.inspector){width:100%}` override still wins there. */
+    width: var(--insp-w, 248px);
+    flex: 0 0 var(--insp-w, 248px);
     background: var(--c-surface);
     border-left: 1px solid var(--c-line);
     overflow-y: auto;
@@ -985,6 +1010,36 @@
   .fig-act {
     width: 100%;
     margin-top: 6px;
+  }
+  /* Figure identity row — opens the Figure Namer (Ctrl+R). */
+  .identity {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-1, 4px);
+    color: var(--c-tx);
+    font: inherit;
+    padding: 5px 7px;
+    cursor: pointer;
+  }
+  .identity:hover {
+    border-color: var(--c-accent);
+  }
+  .identity b {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .identity .id-ref {
+    margin-left: auto;
+    color: var(--c-accent);
+    font-size: 11px;
+    flex: 0 0 auto;
   }
   /* B/I/U toggles */
   .biu-row {

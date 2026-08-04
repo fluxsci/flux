@@ -32,7 +32,9 @@ import { captureSnipMeta, clearSnipMeta } from "../snipMeta";
 import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { FLEXOKI } from "../flexoki";
-import { migrateProject } from "../migrate";
+import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../migrate";
+import { computeFamilyNumbers } from "../figfamily";
+import type { FigureFamilyDef } from "../figfamily";
 import { validateModel, validateFigIndexFile, sanitizeProjectGeometry } from "./validate";
 import { quarantineCopy } from "./quarantine";
 import { pushToast } from "../toast";
@@ -259,7 +261,13 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
     // undefined (never []) when the index predates styles → migrate seeds the
     // defaults; an explicit empty list from disk stays empty (user cleared it).
     ...(index?.textStyles !== undefined ? { textStyles: index.textStyles } : {}),
+    ...(index?.families !== undefined ? { figureFamilies: index.families } : {}),
   };
+  // Figure families (fig-subsystem-only — never runs on slide-projected
+  // Projects): seed family/number/nickname from index hints + legacy names,
+  // then heal numbers to contiguity. Cross-canvas, so it runs on the full
+  // collection here, not in the per-canvas probes above.
+  migrateFigureFamilies(proj, familyHintsFrom(index?.figures));
   figLoad(proj, null); // normalizes (incl. migrate), resets history, dirty=false
 }
 
@@ -402,21 +410,25 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
 // ---------------------------------------------------------------------------
 export interface FigSourceFigure {
   id: string;
-  name: string;
+  name: string; // derived display name ("Supplementary Figure 4")
   label: string;
   order: number;
+  family: string; // family id — resolved here, never absent (figfamily.ts)
+  number: number; // position within family (healed)
+  nickname?: string;
   canvas: string;
   caption: string;
   panels: string[]; // ordered panel letters ["a","b",…] for sub-panel refs (F7)
 }
 export interface FigSource {
   indexFigures: FigSourceFigure[];
+  families: FigureFamilyDef[]; // custom family defs (built-ins never persisted)
   figures: Record<string, Figure>; // by figure id (with elements, for rendering)
   assetData: Record<string, string>; // by asset id → data URL
 }
 
 export async function readFigSource(root: string): Promise<FigSource> {
-  const empty: FigSource = { indexFigures: [], figures: {}, assetData: {} };
+  const empty: FigSource = { indexFigures: [], families: [], figures: {}, assetData: {} };
   const fig = fileBridge();
   if (!fig) return empty;
 
@@ -449,14 +461,19 @@ export async function readFigSource(root: string): Promise<FigSource> {
   // read-only view for the Paper module / slide embedFigure, so unmigrated
   // on-disk docs must still render through the current element union.
   const srcAssets = normalizeIndexAssets(index);
-  migrateProject({
+  const view = {
     version: 2,
     name: "",
     canvases: [],
     figures: Object.values(figures),
     assets: srcAssets,
     palette: [],
-  });
+    ...(index.families !== undefined ? { figureFamilies: index.families } : {}),
+  } as FigProject;
+  migrateProject(view);
+  // Family identity for the read-only view: same seeding + healing as the
+  // editor load, so paper-side numbering matches what the figure editor shows.
+  migrateFigureFamilies(view, familyHintsFrom(index.figures));
 
   const assetData: Record<string, string> = {};
   for (const a of srcAssets) {
@@ -482,16 +499,35 @@ export async function readFigSource(root: string): Promise<FigSource> {
     }
   }
 
+  // Healed identity per index entry: prefer the migrated in-memory figure;
+  // an index-only entry (unreadable canvas file) falls back to its stored
+  // fields, run through the same healer so numbers stay consistent.
+  const carriers = (index.figures ?? []).map(
+    (f) =>
+      figures[f.id] ??
+      ({ id: f.id, name: f.name, family: f.family, number: f.number } as Figure),
+  );
+  const healedIds = computeFamilyNumbers(carriers);
+
   return {
-    indexFigures: (index.figures ?? []).map((f) => ({
-      id: f.id,
-      name: f.name,
-      label: f.label,
-      order: f.order,
-      canvas: f.canvas,
-      caption: captionMd[f.id] ?? f.caption ?? "",
-      panels: figures[f.id] ? panelLetters(figures[f.id]) : [],
-    })),
+    indexFigures: (index.figures ?? []).map((f) => {
+      const m = figures[f.id];
+      const h = healedIds.get(f.id) ?? { family: "figure", number: f.order };
+      const nickname = m?.nickname ?? f.nickname;
+      return {
+        id: f.id,
+        name: m?.name ?? f.name,
+        label: f.label,
+        order: f.order,
+        family: h.family,
+        number: h.number,
+        ...(nickname ? { nickname } : {}),
+        canvas: f.canvas,
+        caption: captionMd[f.id] ?? f.caption ?? "",
+        panels: figures[f.id] ? panelLetters(figures[f.id]) : [],
+      };
+    }),
+    families: index.families ?? [],
     figures,
     assetData,
   };

@@ -45,8 +45,8 @@
         {
           title: "Panels",
           items: [
-            ["Alt+O", "Left panel — outline & documents"],
-            ["Alt+D", "Dynamic margin"],
+            ["Alt+O", "Left panel — outline & documents (drag its edge to resize)"],
+            ["Alt+D / ⌃⇧B", "Dynamic margin"],
             ["Alt+R", "Reference search"],
             ["Alt+F", "Figures"],
             ["Alt+A", "Comments"],
@@ -118,6 +118,7 @@
           title: "Edit & file",
           items: [
             ["⌃ + Z / Shift + Z", "Undo / redo"],
+            ["⌃ + R", "Name figure — family · number · nickname"],
             ["⌃ + D", "Duplicate"],
             ["⌃ + C / V", "Copy / paste"],
             ["⌃ + B / I / U", "Bold / italic / underline (text or text part)"],
@@ -129,6 +130,14 @@
             ["⌃⇧K", "Import PNG/SVG files"],
             ["Alt + I / P", "Plot importer / X-ray"],
             ["⌃ + S / Shift + S", "Save / save as"],
+          ],
+        },
+        {
+          title: "Panels",
+          items: [
+            ["⌃ + B", "Hide / show the left sidebar (bold wins when text is selected)"],
+            ["⌃⇧B", "Hide / show the right rail (Inspector)"],
+            ["Drag a rail edge", "Resize sidebar / Inspector (double-click resets)"],
           ],
         },
       ],
@@ -196,6 +205,9 @@
           items: [
             ["F5", "Present from the start"],
             ["⇧F5", "Present from this slide"],
+            ["⌃ + B", "Hide / show the filmstrip (bold wins when text is selected)"],
+            ["⌃⇧B", "Hide / show the right rail"],
+            ["Drag a rail edge", "Resize filmstrip / right rail"],
           ],
         },
         {

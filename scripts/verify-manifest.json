@@ -55,7 +55,7 @@
       "verify-crisp-source.ts",
       "verify-xray-tree.ts",
       "verify-fetchflow.ts",
-      "verify-figname.ts",
+      "verify-figfamily.ts",
       "verify-ops.ts",
       "verify-p4-figure.ts",
       "verify-p4-libreader.ts",
@@ -251,6 +251,7 @@
       "verify-m1.mjs",
       "verify-m10-perf.mjs",
       "verify-m11-m14.mjs",
+      "verify-fig-namer.mjs",
       "verify-m15-motion.mjs",
       "verify-margin-bg.mjs",
       "verify-margin-panes.mjs",
@@ -318,7 +319,7 @@
       "verify-citegroup.mjs",
       "verify-paper-extras.mjs",
       "verify-figref.mjs",
-      "verify-figname.ts",
+      "verify-figfamily.ts",
       "verify-citenum.ts",
       "verify-w18-paper.mjs",
       "verify-paper-math.mjs",
@@ -349,6 +350,29 @@
       "run": [
         "group:paper-gate",
         "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/figfamily.ts",
+      "run": [
+        "verify-figfamily.ts",
+        "verify-figfiles-parity.ts",
+        "verify-export-qmd.ts",
+        "verify-figref.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/exportQmd.ts",
+      "run": [
+        "verify-export-qmd.ts",
+        "verify-embed-normalize.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/{FigureNamer.svelte,figureLayoutStore.ts}",
+      "run": [
+        "verify-fig-namer.mjs",
+        "verify-m11-m14.mjs"
       ]
     },
     {

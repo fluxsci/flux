@@ -75,16 +75,18 @@ export function blankFigure(canvasId: Id, name = "Figure 1"): Figure {
 function blankProject(): Project {
   const canvasId = newId("canvas");
   const canvases: Canvas[] = [{ id: canvasId, name: "Canvas 1" }];
-  return {
+  const p: Project = {
     version: 2,
     name: "Untitled",
     canvases,
-    figures: [blankFigure(canvasId)],
+    figures: [],
     assets: [],
     palette: [],
     colorGroups: get(settings).flexokiDefault ? structuredClone(FLEXOKI) : [],
     textStyles: structuredClone(DEFAULT_TEXT_STYLES),
   };
+  ops.createFigure(p, { canvasId }); // stamps family identity ("Figure 1")
+  return p;
 }
 
 // Bring older / partial projects up to the current shape: model migration
@@ -193,6 +195,11 @@ export const xrayRoot = writable<XrayTarget | null>(null);
 // Plot Importer (Alt+I): a quick-open window to search/browse the project's
 // plots/ dir and import a FluxPlot plot.
 export const importerOpen = writable<boolean>(false);
+
+// Figure Namer (Ctrl+R): the fast family · number · nickname popup
+// (FigureNamer.svelte). Lives here (not in the component) so keyboard.ts,
+// Sidebar and Inspector can all open it — the importerOpen layering rule.
+export const figNamer = writable<{ figId: Id } | null>(null);
 
 export const activeFigureId = writable<Id | null>(get(project).figures[0]?.id ?? null);
 // P8: the X-ray root pins a target inside ONE figure — actually switching
@@ -644,7 +651,9 @@ export function addCanvas() {
   const cid = newId("canvas");
   commit((p) => {
     p.canvases.push({ id: cid, name: `Canvas ${p.canvases.length + 1}` });
-    p.figures.push(blankFigure(cid));
+    // Through the ops core so the new figure APPENDS to the figure family
+    // (a raw blankFigure would claim "Figure 1" and collide across canvases).
+    ops.createFigure(p, { canvasId: cid });
   });
   setActiveCanvas(cid);
 }

@@ -1,13 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
-  import {
-    renderFigureSvg,
-    resolveFigure,
-    figRefText,
-    nameIsDesignation,
-    type FigureRef,
-  } from "./figures";
+  import { renderFigureSvg, resolveFigure, figRefText, type FigureRef } from "./figures";
 
   let {
     figures,
@@ -42,7 +36,7 @@
   const filtered = $derived(
     query.trim()
       ? figures.filter((f) =>
-          (f.name + " " + f.label + " " + f.caption)
+          (f.name + " " + (f.nickname ?? "") + " " + f.label + " " + f.caption)
             .toLowerCase()
             .includes(query.toLowerCase()),
         )
@@ -57,10 +51,10 @@
   });
 
   // What Enter will insert, resolved live through the same registry the chips
-  // use — the previewed number IS the number the chip will show.
+  // use — the previewed text IS the text the chip will show ("Fig. S4a–c").
   const resultText = $derived(fig ? figRefText(fig, picked) : "");
-  const resultNum = $derived(
-    fig ? (resolveFigure(resultText.slice(1), nums)?.number ?? fig.number) : "",
+  const resultDisplay = $derived(
+    fig ? (resolveFigure(resultText.slice(1), nums)?.display ?? fig.display) : "",
   );
 
   function cols(): number {
@@ -189,8 +183,8 @@
                 {/if}
               </div>
               <div class="meta">
-                <b>Fig {f.number}</b>
-                {#if f.name && !nameIsDesignation(f.name)}<span class="nm">{f.name}</span>{/if}
+                <b>{f.display}</b>
+                {#if f.nickname}<span class="nm">{f.nickname}</span>{/if}
                 {#if f.panels.length}
                   <span class="pcount">{f.panels.length} panels</span>
                 {/if}
@@ -206,8 +200,8 @@
     {:else if fig}
       <header>
         <button class="back" onclick={backToFigures} title="Back to figures (Esc)">‹</button>
-        <span class="ttl">Fig {fig.number}</span>
-        {#if fig.name && !nameIsDesignation(fig.name)}<span class="nm hd">{fig.name}</span>{/if}
+        <span class="ttl">{fig.display}</span>
+        {#if fig.nickname}<span class="nm hd">{fig.nickname}</span>{/if}
       </header>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div class="panelstage" bind:this={panelsEl} tabindex="-1">
@@ -237,7 +231,7 @@
         </div>
         <div class="foot">
           <span class="will">
-            Insert <b class="chip">Fig {resultNum}</b>
+            Insert <b class="chip">{resultDisplay}</b>
             {#if picked.size === 0}<span class="whole">— whole figure</span>{/if}
           </span>
           <span class="keys"><kbd>a</kbd>–<kbd>z</kbd>/<kbd>Space</kbd> toggle · <kbd>↵</kbd> insert · <kbd>Esc</kbd> back</span>

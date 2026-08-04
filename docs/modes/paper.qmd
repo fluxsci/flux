@@ -77,8 +77,9 @@ Helper panes summon beside your text and stack in one column:
 | **Alt+T** | Terminal — a real shell (this is where `flux principal` runs nicely) |
 
 **Alt+P** closes the active pane, and **Escape** always returns focus to your writing.
-**Alt+D** hides the margin column entirely. (When idle, the margin shows an ambient
-background — pick your scene in Settings › Paper.)
+**Alt+D** (or **Ctrl+Shift+B**) hides the margin column entirely; the outline rail's edge
+drags to resize. (When idle, the margin shows an ambient background — pick your scene in
+Settings › Paper.)
 
 # Comments and review
 

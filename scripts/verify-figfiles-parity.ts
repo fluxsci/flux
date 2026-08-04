@@ -235,6 +235,40 @@ try {
     { schemaVersion: "0.1.0", canvases: [], figures: [{ id: "figA", name: "Old", label: "fig-anchor", order: 1, kind: "main", canvas: "c1", caption: "" }] },
   );
   assert(JSON.parse(prevPlan.index.text).figures[0].label === "fig-anchor", "existing labels NEVER re-derive (rename-safe anchors)");
+
+  // ---- 4. figure families: custom defs round-trip + identity derivation --------
+  {
+    const famPlan = planFigSave(
+      {
+        version: 2, name: "", canvases: [{ id: "c1", name: "C" }], palette: [], assets: [],
+        figureFamilies: [{ id: "movie", displayName: "Movie", refTemplate: "Mov. {num}{panel}", captionTemplate: "Movie {num} | " }],
+        figures: [
+          { id: "figA", canvasId: "c1", name: "x", family: "movie", number: 1, x: 0, y: 0, width: 1, height: 1, elements: [] },
+          { id: "fig_b1_2", canvasId: "c1", name: "Growth curves", x: 0, y: 0, width: 1, height: 1, elements: [] },
+        ],
+      } as unknown as Project,
+      null,
+    );
+    const idx = JSON.parse(famPlan.index.text);
+    assert(idx.families?.[0]?.id === "movie", "custom family defs write back explicitly (silent-wipe guard)");
+    assert(idx.figures[0].name === "Movie 1" && idx.figures[0].kind === "main", "derived name uses the custom template; kind derives from family");
+    assert(idx.figures[1].family === "figure" && idx.figures[1].number === 1 && idx.figures[1].nickname === "Growth curves",
+      "family-less figure heals in-plan: figure family + nickname capture");
+    assert(idx.figures[1].label === "fig-growth-curves", "nickname feeds the fresh label");
+    // Idempotence: replanning the SAME model over the written index is byte-identical.
+    const again = planFigSave(
+      {
+        version: 2, name: "", canvases: [{ id: "c1", name: "C" }], palette: [], assets: [],
+        figureFamilies: [{ id: "movie", displayName: "Movie", refTemplate: "Mov. {num}{panel}", captionTemplate: "Movie {num} | " }],
+        figures: [
+          { id: "figA", canvasId: "c1", name: "x", family: "movie", number: 1, x: 0, y: 0, width: 1, height: 1, elements: [] },
+          { id: "fig_b1_2", canvasId: "c1", name: "Growth curves", x: 0, y: 0, width: 1, height: 1, elements: [] },
+        ],
+      } as unknown as Project,
+      idx,
+    );
+    assert(again.index.text === famPlan.index.text, "family plan is idempotent over its own index");
+  }
 } finally {
   await fs.rm(work, { recursive: true, force: true });
 }

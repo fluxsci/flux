@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
-  import { renderFigureSvg, nameIsDesignation, type FigureRef } from "./figures";
+  import { renderFigureSvg, type FigureRef } from "./figures";
 
   let {
     figures,
@@ -24,7 +24,7 @@
   const filtered = $derived(
     query.trim()
       ? figures.filter((f) =>
-          (f.name + " " + f.label + " " + f.caption)
+          (f.name + " " + (f.nickname ?? "") + " " + f.label + " " + f.caption)
             .toLowerCase()
             .includes(query.toLowerCase()),
         )
@@ -118,8 +118,8 @@
               {/if}
             </div>
             <div class="meta">
-              <b>Fig {f.number}</b>
-              {#if f.name && !nameIsDesignation(f.name)}<span class="nm">{f.name}</span>{/if}
+              <b>{f.display}</b>
+              {#if f.nickname}<span class="nm">{f.nickname}</span>{/if}
             </div>
           </div>
         {/each}

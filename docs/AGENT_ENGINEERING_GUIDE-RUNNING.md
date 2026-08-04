@@ -1732,3 +1732,56 @@ two resync mechanisms — see f39ba4c).
 - `src/shell/scholar/nav.ts focusFigure()` is misnamed: it pins the figure's top-left at screen
   (140, 96) and hard-codes `zoom = 0.55`. It is the manuscript @fig-ref jump and was left alone,
   but it is NOT a centring helper — reach for `centerOnFigure` instead.
+
+### 2026-08-04 — Figure families: structured identity + the Ctrl+R namer + rail parity (Claude Fable 5, `fig-families`)
+**Work:** Owner-reported bug: figure "numbers" in the writer were regex-parsed out of the free-
+text figure NAME (`designationFromName` — greedy capture, positional-ordinal fallback), so
+"Sup. Figure 1" rendered as "Fig 2 Sup. Figure 1" in chips/pickers and exports numbered by a
+THIRD rule (embed order). Replaced with structured identity: every figure = **family + number**
+(+ optional free-text **nickname**), with per-family in-text/caption templates. New pure shared
+core `src/lib/figfamily.ts` (built-ins figure / supplementary / extended-data + per-project
+custom families like movie → "Mov. 3b"; `computeFamilyNumbers` heals numbers to contiguous
+1..N; `assignFamilyNumber` is the ONE insert-and-shift reorder primitive). `Figure.name` is now
+DERIVED (`"Supplementary Figure 4"`) for backcompat (export filenames, canvas labels, slide
+folding); index `kind` derives via `kindForFamily`. Migration `migrateFigureFamilies` is
+deliberately NOT in `migrateProject` (slide decks project through it — slides must never be
+renamed); it runs in the fig-subsystem loaders only, seeds from index hints (agent-set kind
+survives), parses legacy names, and captures unparseable names as nicknames (which also feed
+first-save `deriveLabel` → `fig-growth-curves`, plus a `-2` de-dup). Paper chain: `FigureRef`
+carries precomputed `display`/`captionLabel`; `resolveFigure` returns the formatted display;
+every hard-coded "Fig "/"Figure N." site now renders templates. Export stops delegating figure
+numbering to Quarto entirely (it can't express families): family caption leads baked into alts,
+embed ids DEMOTED `{#fig-x}` → `{#x-fig-x}`, ALL refs literalized. **Deliberate trade-off:**
+exported-HTML anchors change form and Quarto lists-of-figures lose entries. UI: `FigureNamer.svelte`
+(Ctrl+R; number pre-selected → digits → Enter; ↑/↓ cycles family; inline "+ New family…" staged
+until commit; ONE undo entry), sidebar dblclick opens it (figure rows no longer inline-rename),
+family badges ("2"/"S2"/"ED3"/"M1"), Inspector identity row + nickname field. Rails: drag-resize
++ hide across all modes (`figureLayoutStore`, slide right-rail gutter activating the dormant
+`inspectorW`, paper `outlinerW`; shared `leftRailHidden` — context-sensitive Ctrl+B toggles it
+when no text is selected, Ctrl+Shift+B keeps the right rail and now also toggles paper's margin).
+Agent surface: verbs `set-figure-family` / `define-figure-family` / `remove-figure-family`,
+`create-figure --family/--number/--nickname`, bridge `set_figure_family`; `set-figure-layout
+--name` re-routed (designation → identity, else nickname). Electron dev menu reload moved to
+Ctrl+F5 (renderer owns ⌃R — same reasoning as F12 for DevTools). Gates: new `verify-figfamily.ts`
+(replaces verify-figname), `verify-fig-namer.mjs`; rewrote `verify-m11-m14.mjs` (namer era) and
+the export/figref/embed-caption/f6 expectations; parity gate pins nickname-labels + heal
+idempotence; registry goldens regenerated (3 new verbs). check 0/0, pure 149/149, paper-gate 15/15.
+**Learnings:**
+- **Family number = position can't be derived from array order**: canvas files partition
+  `Project.figures` (canvas-then-file load order), so cross-canvas numbering needs an explicit
+  stored `number` + a load/mutate-time normalizer (hand-edited gaps/dupes heal deterministically).
+- **Keep new figure-model migrations OUT of `migrateProject`**: slide decks project through
+  `normalizeProject → migrateProject` (slide/store.ts), so anything name/identity-shaped there
+  would rename slides. Fig-subsystem-only migrations belong in the loaders (loadFigInto /
+  loadFigModel / readFigSource / io.ts / convert.ts), each passing index hints.
+- **Ops-level slide safety is structural, not situational**: `deleteFigure`/`duplicateFigure`
+  only touch figures already carrying `family` — deck-projected figures never do, so a stray
+  slide-mode code path through the shared ops can't stamp/rename slides.
+- `flux-core/render.ts` was deliberately NOT wired into the family migration: it builds a
+  single-figure pseudo-project, and healing a 1-element slice renumbers it to 1 — a wrong
+  watermark. Healing is only meaningful over the full collection.
+- The old `Figure ${count+1}` default (count-not-max) duplicated names after a delete; identity
+  now appends via the normalizer, and `blankFigure` call sites route through `ops.createFigure`
+  so a new canvas's backfill figure APPENDS instead of claiming "Figure 1".
+- `EmbedWidget.eq()`/`updateDOM` compare cached display fields — a new derived field
+  (`captionLabel`) MUST join those comparisons or family renumbering never repaints embeds.

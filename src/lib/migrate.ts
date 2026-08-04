@@ -11,6 +11,7 @@
 
 import type { Project, SemanticPlotElement, TextStyle } from "./types";
 import { enforceZContiguity, gcGroups, nextGroupName } from "./groups";
+import { applyFamilyNumbers, derivedFigureName, familyById, parseLegacyName } from "./figfamily";
 
 // Seeded once per project when it has no textStyles at all (absent ≠ emptied:
 // a user who deleted every style keeps their empty list). Fixed ids so
@@ -70,4 +71,81 @@ export function migrateProject(p: Project): Project {
   if (!Array.isArray(p.textStyles)) p.textStyles = structuredClone(DEFAULT_TEXT_STYLES);
   (p as { version: number }).version = 2;
   return p;
+}
+
+/** Per-figure hints from a fig/index.json written before (or alongside) the
+ *  canvas files — index-side identity the canvas figure may predate. */
+export interface FamilyHint {
+  family?: string;
+  number?: number;
+  nickname?: string;
+  kind?: string;
+}
+
+/** Build the per-figure hint map from a fig/index.json `figures` array (both
+ *  engines' loaders call this with their parsed index). */
+export function familyHintsFrom(
+  figures?:
+    | readonly { id: string; family?: string; number?: number; nickname?: string; kind?: string }[]
+    | null,
+): Map<string, FamilyHint> {
+  const m = new Map<string, FamilyHint>();
+  for (const f of figures ?? []) {
+    m.set(f.id, {
+      ...(f.family ? { family: f.family } : {}),
+      ...(f.number != null ? { number: f.number } : {}),
+      ...(f.nickname ? { nickname: f.nickname } : {}),
+      ...(f.kind ? { kind: f.kind } : {}),
+    });
+  }
+  return m;
+}
+
+/** Figure-family migration (figfamily.ts) — deliberately NOT part of
+ *  migrateProject: slide decks project through normalizeProject →
+ *  migrateProject (slide/store.ts) and must never have their slides renamed
+ *  "Figure N". Only fig-subsystem loaders call this. Pure, idempotent,
+ *  feature-detected: figures that already carry a family pass through
+ *  untouched (the trailing normalizer is a fixpoint on healed input).
+ *
+ *  Per figure lacking a family:
+ *  1. index hints win (an agent may have hand-set family/number/nickname);
+ *  2. a legacy index `kind: "supplementary"` seeds the supplementary family
+ *     (agent-set kinds on descriptive-named figures must survive);
+ *  3. else the legacy name is parsed ("Figure S2" → supplementary/2);
+ *  4. else DEFAULT_FAMILY, appended in existing order.
+ *  A descriptive name that didn't parse ("Growth curves") is preserved as the
+ *  figure's nickname before the derived name overwrites it.
+ *
+ *  Returns true when anything changed. */
+export function migrateFigureFamilies(
+  p: Project,
+  hints?: Map<string, FamilyHint>,
+): boolean {
+  let changed = false;
+  for (const f of p.figures ?? []) {
+    if (f.family) continue;
+    const h = hints?.get(f.id);
+    const parsed = parseLegacyName(f.name ?? "");
+    const family =
+      h?.family ?? (h?.kind === "supplementary" ? "supplementary" : parsed?.family);
+    const number =
+      h?.number ?? (parsed && (!family || parsed.family === family) ? parsed.number : undefined);
+    if (family) f.family = family;
+    if (number != null) f.number = number;
+    const nickname = h?.nickname ?? (parsed ? undefined : f.name?.trim() || undefined);
+    if (nickname && !f.nickname) {
+      // Don't nickname a figure whose name is just the derived form of the
+      // hinted identity ("Figure 2" hinted figure/2 parses; but a hinted
+      // supplementary kind with name "Figure 3" would otherwise nickname it).
+      const wouldDerive =
+        f.family && f.number != null
+          ? derivedFigureName(familyById(f.family, p.figureFamilies), f.number)
+          : null;
+      if (nickname !== wouldDerive) f.nickname = nickname;
+    }
+    changed = true;
+  }
+  const healed = applyFamilyNumbers(p.figures ?? [], p.figureFamilies);
+  return changed || healed.length > 0;
 }

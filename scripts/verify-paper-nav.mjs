@@ -29,7 +29,7 @@ const setup = await page.evaluate(async () => {
 
   // Seed one real figure so the embed renders an actual SVG (not the missing box).
   window.__fluxSeedFigures(
-    [{ id: "f1", label: "fig-growth", name: "Growth", order: 0, number: "1", canvas: "c1", caption: "Growth", panels: [] }],
+    [{ id: "f1", label: "fig-growth", name: "Figure 1", nickname: "Growth", family: "figure", order: 0, number: 1, display: "Fig. 1", captionLabel: "Figure 1 | ", canvas: "c1", caption: "Growth", panels: [] }],
     { f1: { id: "f1", name: "Growth", canvasId: "c1", x: 0, y: 0, width: 800, height: 500, background: "#ffffff", elements: [] } },
     {},
   );

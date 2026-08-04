@@ -1,6 +1,8 @@
 // Types mirroring the on-disk project format (SciForge_Project_Format.md).
 // App-name-agnostic: the manifest is project.json, state lives in .meta/.
 
+import type { FigureFamilyDef } from "../figfamily";
+
 export const PROJECT_SCHEMA_VERSION = "0.1.0";
 // WS-5.2: named per-file format versions (the write sites used bare literals)
 // + THE forward-version comparator every load path shares. While formats are
@@ -52,10 +54,15 @@ export interface ReferencesRef {
 
 export interface FigureEntry {
   id: string;
-  name: string;
+  name: string; // derived: `${family displayName} ${number}` (figfamily.ts)
   label: string;
   order: number;
-  kind: "main" | "supplementary";
+  kind: "main" | "supplementary"; // derived from family; kept for older tooling
+  // Structured identity — optional: manifests written before figure families
+  // lack them (reindex rolls them up from fig/index.json).
+  family?: string;
+  number?: number;
+  nickname?: string;
   canvas: string;
   caption: string;
 }
@@ -82,6 +89,9 @@ export interface ProjectManifest {
   supplementary: { path: string }[];
   references: ReferencesRef;
   figures: FigureEntry[];
+  // Custom figure families (rollup of fig/index.json `families`; built-ins
+  // never persisted). Optional: pre-family manifests lack it.
+  figureFamilies?: FigureFamilyDef[];
   slides: SlideEntry[];
   capabilities: Record<string, string>;
 }

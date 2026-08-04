@@ -40,7 +40,7 @@ import {
   type CanvasFile,
   type FigSaveIO,
 } from "./figfiles";
-import { migrateProject } from "../migrate";
+import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../migrate";
 import { project as figProject } from "../store";
 import { getAssetData } from "../assets";
 import { dataUrlToBytes } from "../assets";
@@ -130,8 +130,11 @@ export async function sendSlideToCanvas(
     palette: index?.palette ?? [],
     colorGroups: (index?.colorGroups as FigProject["colorGroups"]) ?? [],
     ...(index?.textStyles !== undefined ? { textStyles: index.textStyles } : {}),
+    ...(index?.families !== undefined ? { figureFamilies: index.families } : {}),
   };
   migrateProject(model);
+  // Family identity before createFigure appends to it (fig-subsystem loader).
+  migrateFigureFamilies(model, familyHintsFrom(index?.figures));
 
   // 2. Target canvas (create one when asked).
   let cid = canvasId;

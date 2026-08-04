@@ -17,12 +17,6 @@ import { bibEntries } from "./bib";
 import { fluxLibEntries } from "../../../../lib/references/revision";
 import { slashHandlers } from "../science/chipContext";
 
-function refKind(label: string): string {
-  if (label.startsWith("tbl-")) return "Table";
-  if (label.startsWith("sec-")) return "Section";
-  if (label.startsWith("eq-")) return "Eq.";
-  return "Figure";
-}
 
 // The two `@` grammars are kept intentionally separate at the input layer:
 // plain `@` completes CITATIONS only (figures go through `@@` → FigRefPicker).
@@ -43,8 +37,8 @@ function atSource(ctx: CompletionContext): CompletionResult | null {
     for (const f of get(figureRefs)) {
       options.push({
         label: "@" + f.label,
-        detail: `${refKind(f.label)} ${f.number}`,
-        info: f.name || f.caption,
+        detail: f.display, // family-formatted ("Fig. S4", "Mov. 3")
+        info: f.nickname || f.caption || f.name,
         apply: "@" + f.label,
         type: "figure",
       });

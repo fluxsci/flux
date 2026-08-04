@@ -918,7 +918,8 @@ export const VERBS: VerbDef[] = [
     name: "set_figure_layout",
     cli: "set-figure-layout",
     cliRoot: "flags",
-    summary: "Set a figure's frame: position (x,y), size (width,height), background color, and/or name. Only the fields you pass change.",
+    summary:
+      "Set a figure's frame: position (x,y), size (width,height), background color, and/or name. Only the fields you pass change. Note --name on a family-managed figure routes through identity: a designation (\"Figure S3\") maps to family+number, anything else becomes the nickname — prefer set-figure-family.",
     params: {
       figureId: z.string(),
       x: z.number().optional(),
@@ -1093,13 +1094,17 @@ export const VERBS: VerbDef[] = [
     name: "create_figure",
     cli: "create-figure",
     cliRoot: "flags",
-    summary: "Create a blank figure (optionally a clean slug id → @fig-<id>, name, canvas, size).",
+    summary:
+      "Create a blank figure (optionally a clean slug id → @fig-<id>, canvas, size, family identity). Family: figure (default) / supplementary / extended-data / a custom family; number inserts at that position (later figures shift); nickname is the free-text search aid.",
     params: {
       id: z.string().optional(),
       name: z.string().optional(),
       canvasId: z.string().optional(),
       width: z.number().optional(),
       height: z.number().optional(),
+      family: z.string().optional(),
+      number: z.number().int().min(1).optional(),
+      nickname: z.string().optional(),
     },
     cliArgs: [
       { kind: "flag", at: "id", into: "id" },
@@ -1107,11 +1112,115 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "canvas", into: "canvasId" },
       { kind: "flag", at: "width", into: "width", as: "number" },
       { kind: "flag", at: "height", into: "height", as: "number" },
+      { kind: "flag", at: "family", into: "family" },
+      { kind: "flag", at: "number", into: "number", as: "number" },
+      { kind: "flag", at: "nickname", into: "nickname" },
     ],
     handler: (ctx, a) => core.createFigure(ctx.root, a as Parameters<typeof core.createFigure>[1]),
     render: {
-      human: (r) => ({ err: `✓ created figure ${(r as { figureId: string }).figureId}` }),
-      mcp: (r) => text(`created figure ${(r as { figureId: string }).figureId}`),
+      human: (r) => {
+        const c = r as { figureId: string; name: string };
+        return { err: `✓ created figure ${c.figureId} (${c.name})` };
+      },
+      mcp: (r) => {
+        const c = r as { figureId: string; name: string };
+        return text(`created figure ${c.figureId} (${c.name})`);
+      },
+    },
+  },
+  {
+    name: "set_figure_family",
+    cli: "set-figure-family",
+    cliRoot: "flags",
+    summary:
+      "Assign a figure's structured identity: family (figure / supplementary / extended-data / a custom family) and/or number within it (insert-and-shift — the rest of the family renumbers, refs stay valid) and/or nickname (--clear-nickname removes it). The display name derives from family + number.",
+    params: {
+      figureId: z.string(),
+      family: z.string().optional(),
+      number: z.number().int().min(1).optional(),
+      nickname: z.string().nullable().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "figureId", required: true },
+      { kind: "flag", at: "family", into: "family" },
+      { kind: "flag", at: "number", into: "number", as: "number" },
+      { kind: "flag", at: "nickname", into: "nickname" },
+      { kind: "flag", at: "clear-nickname", into: "clearNickname", as: "boolean" },
+    ],
+    handler: (ctx, a) => {
+      const nickname = a.clearNickname ? null : (a.nickname as string | undefined);
+      if (a.family === undefined && a.number === undefined && nickname === undefined) {
+        throw new Error("pass at least one of --family / --number / --nickname / --clear-nickname");
+      }
+      return core.setFigureIdentity(ctx.root, s(a.figureId), {
+        family: a.family as string | undefined,
+        number: a.number as number | undefined,
+        ...(nickname !== undefined ? { nickname } : {}),
+      });
+    },
+    render: {
+      human: (r, a) => {
+        const c = r as { name: string; renumbered: number };
+        const shifted = c.renumbered ? ` (${c.renumbered} other figure(s) renumbered)` : "";
+        return { err: `✓ ${a.figureId} → ${c.name}${shifted}` };
+      },
+      mcp: (r, a) => {
+        const c = r as { name: string; renumbered: number };
+        return text(`${a.figureId} → ${c.name}; ${c.renumbered} other figure(s) renumbered`);
+      },
+    },
+  },
+  {
+    name: "define_figure_family",
+    cli: "define-figure-family",
+    cliRoot: "flags",
+    summary:
+      'Define (or update) a CUSTOM figure family. Templates use {num} and {panel}: e.g. --id movie --display-name Movie --ref-template "Mov. {num}{panel}" --caption-template "Movie {num} | ". Omitted templates default from the display name.',
+    params: {
+      id: z.string(),
+      displayName: z.string(),
+      refTemplate: z.string().optional(),
+      captionTemplate: z.string().optional(),
+    },
+    cliArgs: [
+      { kind: "flag", at: "id", into: "id" },
+      { kind: "flag", at: "display-name", into: "displayName" },
+      { kind: "flag", at: "ref-template", into: "refTemplate" },
+      { kind: "flag", at: "caption-template", into: "captionTemplate" },
+    ],
+    handler: (ctx, a) =>
+      core.defineFigureFamily(ctx.root, {
+        id: s(a.id),
+        displayName: s(a.displayName),
+        refTemplate: a.refTemplate as string | undefined,
+        captionTemplate: a.captionTemplate as string | undefined,
+      }),
+    render: {
+      human: (r) => {
+        const c = r as { id: string; refTemplate: string; captionTemplate: string };
+        return { err: `✓ family "${c.id}": in-text "${c.refTemplate}", caption "${c.captionTemplate}"` };
+      },
+      mcp: (r) => {
+        const c = r as { id: string; refTemplate: string; captionTemplate: string };
+        return text(`family "${c.id}": in-text "${c.refTemplate}", caption "${c.captionTemplate}"`);
+      },
+    },
+  },
+  {
+    name: "remove_figure_family",
+    cli: "remove-figure-family",
+    cliRoot: "flags",
+    summary:
+      "Remove a custom figure family; its member figures move to the main figure family (appended at the end).",
+    params: { id: z.string() },
+    cliArgs: [{ kind: "pos", at: 0, into: "id", required: true }],
+    handler: (ctx, a) => core.removeFigureFamily(ctx.root, s(a.id)),
+    render: {
+      human: (r, a) => {
+        const c = r as { moved: number };
+        return { err: `✓ removed family "${a.id}"${c.moved ? ` (${c.moved} figure(s) moved to the figure family)` : ""}` };
+      },
+      mcp: (r, a) => text(`removed family "${a.id}"; ${(r as { moved: number }).moved} figure(s) moved`),
     },
   },
   {

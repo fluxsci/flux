@@ -17,7 +17,7 @@ const res = await page.evaluate(async () => {
   const raf = () => new Promise((r) => requestAnimationFrame(r));
   const CAPTION = "Growth under stress. **a**, Control. **b**, Treatment.";
   window.__fluxSeedFigures(
-    [{ id: "f1", label: "fig-growth", name: "Growth", order: 0, number: "1", canvas: "c1", caption: CAPTION, panels: ["a", "b"] }],
+    [{ id: "f1", label: "fig-growth", name: "Figure 1", nickname: "Growth", family: "figure", order: 0, number: 1, display: "Fig. 1", captionLabel: "Figure 1 | ", canvas: "c1", caption: CAPTION, panels: ["a", "b"] }],
     { f1: { id: "f1", name: "Growth", canvasId: "c1", x: 0, y: 0, width: 800, height: 500, background: "#ffffff", elements: [] } },
     {},
   );
@@ -46,7 +46,7 @@ const res = await page.evaluate(async () => {
   const html = (await renderManuscript(view.state.doc.toString(), { paginated: false })).full;
 
   return {
-    prefixOk: (cap?.querySelector("b")?.textContent ?? "") === "Figure 1.",
+    prefixOk: (cap?.querySelector("b")?.textContent ?? "") === "Figure 1 |",
     modelCaption: (cap?.textContent ?? "").includes("Growth under stress.") && (cap?.textContent ?? "").includes("a, Control."),
     boldPanels: (cap?.querySelectorAll("strong").length ?? 0) >= 2,
     singleAccentB: (cap?.querySelectorAll("b").length ?? 0) === 1,

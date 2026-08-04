@@ -14,7 +14,7 @@ await clickMode(page, "Paper").catch(() => {});
 await sleep(600);
 
 const seed = (name) => ({
-  figs: [{ id: "f1", label: "fig-growth", name, order: 0, number: "1", canvas: "c1", caption: "Growth over 24 h.", panels: [] }],
+  figs: [{ id: "f1", label: "fig-growth", name, family: "figure", order: 0, number: 1, display: "Fig. 1", captionLabel: "Figure 1 | ", canvas: "c1", caption: "Growth over 24 h.", panels: [] }],
   canvases: { f1: { id: "f1", name, canvasId: "c1", x: 0, y: 0, width: 800, height: 500, background: "#ffffff", elements: [] } },
 });
 

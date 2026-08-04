@@ -11,6 +11,9 @@
 // inspectable.
 // ---------------------------------------------------------------------------
 
+import type { FigureFamilyDef } from "./figfamily";
+export type { FigureFamilyDef } from "./figfamily";
+
 export type Id = string;
 
 export interface Project {
@@ -28,6 +31,10 @@ export interface Project {
   // exists (FileBridge read/writeGlobalTextStyles); applying a library style
   // COPIES it in here (copy-on-apply — no live cross-project sync).
   textStyles?: TextStyle[];
+  // Custom figure families (figfamily.ts). Built-ins ("figure" /
+  // "supplementary" / "extended-data") are NEVER persisted — only user-defined
+  // families ("movie" → "Mov. {num}{panel}") live here.
+  figureFamilies?: FigureFamilyDef[];
 }
 
 // A named, reusable text style ("Panel Label" = Arial 8 pt bold). fontSize is
@@ -81,7 +88,23 @@ export interface GroupDef {
 
 export interface Figure {
   id: Id;
+  // DERIVED display name — `${family displayName} ${number}` ("Supplementary
+  // Figure 4"). Kept on disk for every legacy consumer (export filenames,
+  // canvas frame label, slide folding, headless watermark); the figure's real
+  // identity is (family, number) below. figfamily.applyFamilyNumbers re-derives
+  // it whenever identity changes.
   name: string;
+  // Structured identity (figfamily.ts). `family` is a family id ("figure" /
+  // "supplementary" / "extended-data" / custom slug); `number` is the figure's
+  // POSITION within that family (contiguous 1..N — healed on load, normalized
+  // by every mutation). Optional in the type because legacy files and
+  // slide-projected deck figures lack them; fig-subsystem loaders guarantee
+  // them via migrateFigureFamilies before consumers read them.
+  family?: string;
+  number?: number;
+  // Optional free-text recognition aid ("growth curves") — shown dim in lists,
+  // searched by pickers, feeds first-save label derivation. Never derived.
+  nickname?: string;
   // Which canvas (page) this figure lives on.
   canvasId: Id;
   // Position + size on the infinite canvas (world units == points/px at 1x).

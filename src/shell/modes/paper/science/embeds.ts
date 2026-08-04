@@ -47,7 +47,7 @@ function estCaptionHeight(caption: string, frac: number | null): number {
 interface EmbedDomState {
   label: string;
   caption: string;
-  number: string | null;
+  captionLabel: string | null;
   svg: string | undefined;
   width: string | null;
 }
@@ -64,7 +64,7 @@ function applyWidth(wrap: HTMLElement, width: string | null): void {
 }
 
 class FigureEmbedWidget extends WidgetType {
-  readonly number: string | null;
+  readonly captionLabel: string | null;
   readonly svg: string | undefined;
   readonly figId: string | undefined;
   readonly width: string | null;
@@ -78,7 +78,7 @@ class FigureEmbedWidget extends WidgetType {
     super();
     this.width = parseEmbedAttrs(attrsRaw).width;
     const r = resolveFigure(label);
-    this.number = r ? r.number : null;
+    this.captionLabel = r ? r.ref.captionLabel : null;
     this.figId = r?.ref.id;
     // The caption under the figure comes from the FIGURE MODEL (composed
     // fig/captions source, live-synced via refreshChips) — the alt text is
@@ -109,7 +109,7 @@ class FigureEmbedWidget extends WidgetType {
     return (
       o.label === this.label &&
       o.caption === this.caption &&
-      o.number === this.number &&
+      o.captionLabel === this.captionLabel &&
       o.svg === this.svg &&
       o.width === this.width
     );
@@ -135,7 +135,9 @@ class FigureEmbedWidget extends WidgetType {
     const cap = document.createElement("div");
     cap.className = "flux-embed-cap";
     const lbl = document.createElement("b");
-    lbl.textContent = `Figure ${this.number ?? "?"}.`;
+    // Family caption lead ("Figure S4 |") — templates end with a space, the
+    // caption append below supplies the separator, so trim here.
+    lbl.textContent = (this.captionLabel ?? "Figure ? | ").trimEnd();
     cap.appendChild(lbl);
     if (this.caption) {
       cap.appendChild(document.createTextNode(" "));
@@ -178,7 +180,7 @@ class FigureEmbedWidget extends WidgetType {
     domState.set(wrap, {
       label: this.label,
       caption: this.caption,
-      number: this.number,
+      captionLabel: this.captionLabel,
       svg: this.svg,
       width: this.width,
     });
@@ -193,7 +195,7 @@ class FigureEmbedWidget extends WidgetType {
       !prev ||
       prev.label !== this.label ||
       prev.caption !== this.caption ||
-      prev.number !== this.number ||
+      prev.captionLabel !== this.captionLabel ||
       prev.svg !== this.svg
     )
       return false;

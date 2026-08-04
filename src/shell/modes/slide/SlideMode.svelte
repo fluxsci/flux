@@ -59,7 +59,7 @@
   } from "../../../lib/project/slideBridge";
   import * as slideOps from "../../../lib/slide/ops";
   import { slideDefaultBackground } from "../../../lib/slide/deckProject";
-  import { inspectorHidden } from "../../../lib/settings";
+  import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
   import type { Deck, TransitionKind } from "../../../lib/slide/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
@@ -392,6 +392,34 @@
   }
   function resetFilmW() {
     slideLayout.update((s) => ({ ...s, filmstripW: FILM_DEFAULT_W }));
+  }
+
+  // --- draggable rail edge → right-rail width (same pattern; the store's
+  // inspectorW was persisted-but-dormant until this gutter landed) -------------
+  let railResize = $state(false);
+  let slideBodyEl = $state<HTMLElement | null>(null);
+  const RAIL_DEFAULT_W = 248;
+  const railMaxW = () => Math.max(RAIL_DEFAULT_W, Math.round(window.innerWidth * 0.4));
+  function startRailDrag(e: PointerEvent) {
+    void e; // no preventDefault — it would kill the derived dblclick (reset)
+    railResize = true;
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", moveRailDrag);
+    window.addEventListener("pointerup", endRailDrag);
+  }
+  function moveRailDrag(e: PointerEvent) {
+    if (!railResize || !slideBodyEl) return;
+    const w = Math.max(200, Math.min(railMaxW(), slideBodyEl.getBoundingClientRect().right - e.clientX));
+    slideLayout.update((s) => ({ ...s, inspectorW: Math.round(w) }));
+  }
+  function endRailDrag() {
+    railResize = false;
+    document.body.style.userSelect = "";
+    window.removeEventListener("pointermove", moveRailDrag);
+    window.removeEventListener("pointerup", endRailDrag);
+  }
+  function resetRailW() {
+    slideLayout.update((s) => ({ ...s, inspectorW: RAIL_DEFAULT_W }));
   }
 
   // --- viewport: fit the stage frame into the canvas pane -----------------------
@@ -818,7 +846,10 @@
   <!-- the SHARED figure toolbar: tools, undo/redo, rulers, zoom -->
   <Toolbar />
 
-  <div class="body" style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
+  <div class="body" bind:this={slideBodyEl} style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
+    {#if $leftRailHidden}
+      <button class="edgetab left" title="Show slides (Ctrl+B)" onclick={() => leftRailHidden.set(false)}>›</button>
+    {:else}
     <!-- filmstrip -->
     <aside class="filmstrip" bind:this={filmEl}>
       {#if pm}
@@ -855,6 +886,7 @@
          never scrolls away; a flex sibling with negative margins overlays the seam -->
     <div class="film-gutter" class:active={filmResize} role="separator" aria-orientation="vertical"
       aria-label="Resize slide list" onpointerdown={startFilmDrag} ondblclick={resetFilmW}><span class="grip"></span></div>
+    {/if}
 
     <!-- stage: the SHARED figure canvas in frame mode -->
     <main class="stage-col">
@@ -885,6 +917,8 @@
     <!-- right rail: the SHARED inspector + the slide/deck panels.
          Ctrl+Shift+B (shared keyboard.ts chord) hides the whole rail. -->
     {#if !$inspectorHidden}
+    <div class="film-gutter" class:active={railResize} role="separator" aria-orientation="vertical"
+      aria-label="Resize right rail" onpointerdown={startRailDrag} ondblclick={resetRailW}><span class="grip"></span></div>
     <aside class="rail">
       <Inspector />
       {#if overlay && activeSlide}
@@ -940,6 +974,8 @@
         </section>
       {/if}
     </aside>
+    {:else}
+      <button class="edgetab right" title="Show right rail (Ctrl+Shift+B)" onclick={() => inspectorHidden.set(false)}>‹</button>
     {/if}
   </div>
 
@@ -1045,7 +1081,7 @@
   }
   .disk-toast button:hover { background: var(--c-line); }
   .disk-toast button.ghost { background: transparent; }
-  .body { display: flex; flex: 1; min-height: 0; }
+  .body { display: flex; flex: 1; min-height: 0; position: relative; }
   .filmstrip {
     flex: 0 0 var(--film-w, 172px); overflow-y: auto; border-right: 1px solid var(--c-line);
     background: var(--c-bg-raised); padding: 10px; display: flex; flex-direction: column; gap: 10px;
@@ -1082,6 +1118,15 @@
   }
   .film-gutter .grip { width: 1px; background: transparent; transition: background 0.12s; }
   .film-gutter:hover .grip, .film-gutter.active .grip { background: var(--c-accent, #4385be); width: 2px; }
+  /* Slim hover-revealed reopen affordance for a hidden rail (FigureMode twin). */
+  .edgetab {
+    position: absolute; top: 0; bottom: 0; width: 12px; border: none; padding: 0;
+    background: transparent; color: var(--c-tx-muted, #878580); font-size: 14px;
+    cursor: pointer; opacity: 0.25; z-index: 7;
+  }
+  .edgetab:hover { opacity: 1; background: color-mix(in srgb, var(--c-accent, #4385be) 18%, transparent); }
+  .edgetab.left { left: 0; }
+  .edgetab.right { right: 0; }
   .stage-col { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
   .canvas-wrap { flex: 1; min-height: 0; position: relative; }
   .preview-overlay {

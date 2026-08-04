@@ -9,6 +9,8 @@ import { writable } from "svelte/store";
 
 export interface PaperLayout {
   outlinerOpen: boolean;
+  /** Outliner (left rail) width in px. */
+  outlinerW: number;
   /** Left gutter as a fraction [0,1] of the editor-column width; null = centered default. */
   gutterL: number | null;
   /** Right gutter as a fraction [0,1] of the editor-column width; null = centered default. */
@@ -28,6 +30,7 @@ const KEY = "flux.paper.layout";
 // then persists, so returning users keep whatever they last set.
 const DEFAULTS: PaperLayout = {
   outlinerOpen: true,
+  outlinerW: 224,
   gutterL: null,
   gutterR: null,
   dynMarginOpen: true,

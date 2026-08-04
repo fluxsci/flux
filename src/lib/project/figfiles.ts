@@ -19,10 +19,17 @@
 // reorder the steps in executeFigSave.
 // ---------------------------------------------------------------------------
 
-import type { Project, Figure, Asset, TextStyle } from "../types";
+import type { Project, Figure, Asset, TextStyle, FigureFamilyDef } from "../types";
 import { slugify } from "./types";
 import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
 import { composeCaption } from "../captions";
+import {
+  computeFamilyNumbers,
+  derivedFigureName,
+  familyById,
+  kindForFamily,
+  parseLegacyName,
+} from "../figfamily";
 
 export { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION };
 
@@ -36,10 +43,15 @@ export interface FigIndexCanvas {
 }
 export interface FigIndexFigure {
   id: string;
-  name: string;
+  name: string; // derived: `${family displayName} ${number}`
   label: string;
   order: number;
-  kind: string; // "main" | "supplementary" (writes validate; reads tolerate)
+  kind: string; // DERIVED from family (kindForFamily); kept for older tooling
+  // Structured identity (figfamily.ts). Always written; optional in the type
+  // because legacy indexes predate them (loaders seed via migrateFigureFamilies).
+  family?: string;
+  number?: number;
+  nickname?: string;
   canvas: string;
   caption: string;
 }
@@ -67,6 +79,10 @@ export interface FigIndexFile {
   // <userData>/textstyles.json). Loaded into Project.textStyles and written
   // back EXPLICITLY on save — omitting either side silently wipes them.
   textStyles?: TextStyle[];
+  // Custom figure families (figfamily.ts; built-ins never persisted). Loaded
+  // into Project.figureFamilies and written back EXPLICITLY on save — same
+  // silent-wipe guard as textStyles.
+  families?: FigureFamilyDef[];
 }
 export interface CanvasFile {
   schemaVersion: string;
@@ -165,12 +181,34 @@ function canvasesForSave(
 
 /** Build the complete, deterministic write set for a fig/ save — the SAME
  *  bytes from both engines for the same model (verify-figfiles-parity.ts).
- *  `prev` is the index the engine believes is on disk: labels and kinds are
- *  PRESERVED from it (labels anchor @fig-… references in manuscripts; kind is
- *  agent-settable and the GUI must not revert it), captions/order/names are
- *  derived fresh from the model. */
+ *  `prev` is the index the engine believes is on disk: labels are PRESERVED
+ *  from it (they anchor @fig-… references in manuscripts); names, family
+ *  identity, kind, captions and order are derived fresh from the model. */
 export function planFigSave(model: Project, prev: FigIndexFile | null): FigSavePlan {
   const canvases = canvasesForSave(model, prev);
+
+  // Structured identity (figfamily.ts): loaders normalize on load, but the
+  // plan must be correct standalone (parity gate runs it on raw models), so
+  // re-derive family/number/name here without mutating the model. A raw
+  // (family-less) figure whose descriptive name doesn't parse keeps that name
+  // as its nickname — same capture rule as migrateFigureFamilies, so the
+  // label below stays "fig-gamma-figure", never "fig-figure-3".
+  const custom = model.figureFamilies ?? [];
+  const healed = computeFamilyNumbers(model.figures);
+  const identity = (
+    f: Figure,
+  ): { family: string; number: number; name: string; nickname?: string } => {
+    const h = healed.get(f.id) ?? { family: "figure", number: 1 };
+    const nickname =
+      f.nickname ??
+      (!f.family && f.name?.trim() && !parseLegacyName(f.name) ? f.name.trim() : undefined);
+    return {
+      ...h,
+      name: derivedFigureName(familyById(h.family, custom), h.number),
+      ...(nickname ? { nickname } : {}),
+    };
+  };
+  const withIdentity = (f: Figure): Figure => ({ ...f, ...identity(f) });
 
   const canvasPlans: FigSavePlanEntry[] = canvases.map((c) => ({
     id: c.id,
@@ -179,7 +217,7 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
       schemaVersion: CANVAS_SCHEMA_VERSION,
       id: c.id,
       name: c.name,
-      figures: model.figures.filter((f) => f.canvasId === c.id),
+      figures: model.figures.filter((f) => f.canvasId === c.id).map(withIdentity),
     } satisfies CanvasFile),
   }));
 
@@ -194,21 +232,42 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
   });
 
   const prevFig = new Map((prev?.figures ?? []).map((f) => [f.id, f] as const));
+  // Fresh labels de-duplicate against every label this index will carry —
+  // preserved ones are claimed first so a new figure can never steal one.
+  const usedLabels = new Set<string>();
+  for (const f of model.figures) {
+    const l = prevFig.get(f.id)?.label;
+    if (l) usedLabels.add(l);
+  }
+  const uniqueLabel = (base: string): string => {
+    let label = base;
+    for (let n = 2; usedLabels.has(label); n++) label = `${base}-${n}`;
+    usedLabels.add(label);
+    return label;
+  };
   const index: FigIndexFile = {
     schemaVersion: FIG_INDEX_SCHEMA_VERSION,
     canvases: canvases.map((c, i) => ({ id: c.id, name: c.name, order: i + 1 })),
     figures: model.figures.map((f, i) => {
       const p = prevFig.get(f.id);
+      const ident = identity(f);
       return {
         id: f.id,
-        name: f.name,
+        name: ident.name,
         // Preserve existing labels across saves (F7 label stability — renaming
-        // a figure must not break its @fig-… references); derive only for new.
-        label: p?.label || deriveLabel(f),
+        // a figure must not break its @fig-… references); derive only for new
+        // figures, preferring the nickname over the derived name so labels read
+        // `fig-growth-curves`, not `fig-figure-7`.
+        label:
+          p?.label ||
+          uniqueLabel(deriveLabel({ id: f.id, name: ident.nickname || ident.name })),
         order: i + 1,
-        // An agent can mark a figure supplementary — the GUI save must not
-        // silently revert it to "main". Anything unrecognized normalizes.
-        kind: p?.kind === "supplementary" ? "supplementary" : "main",
+        // `kind` is derived from the family now (agent-set supplementary kinds
+        // survive via the load-time family seeding in migrateFigureFamilies).
+        kind: kindForFamily(ident.family),
+        family: ident.family,
+        number: ident.number,
+        ...(ident.nickname ? { nickname: ident.nickname } : {}),
         canvas: f.canvasId,
         caption: captionById.get(f.id) ?? "",
       };
@@ -225,6 +284,7 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
     palette: model.palette ?? [],
     colorGroups: model.colorGroups ?? [],
     textStyles: model.textStyles ?? [], // explicit writeback (silent-wipe guard)
+    families: model.figureFamilies ?? [], // explicit writeback (silent-wipe guard)
   };
 
   return { canvases: canvasPlans, captions: captionPlans, index: { path: "fig/index.json", text: json(index) } };

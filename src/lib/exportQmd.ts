@@ -6,17 +6,26 @@
 // headless flux-core shares it without pulling editor modules.
 //
 // transformQmdForExport prepares manuscript text for a render Flux does NOT
-// control (quarto → pdf/html/docx):
-//   1. Quarto uses the image ALT text as the figcaption (and only captioned
-//      figures get crossref numbers). Flux's caption source of truth is the
-//      figure model, and canonical embeds carry an EMPTY alt — inject the
-//      composed caption into empty alts, escaped for the alt slot.
-//   2. Quarto's crossref only knows whole figures: `@fig-x-a` compiles to a
-//      literal "?@fig-x-a". Panel refs become literal text ("Figure 3a",
-//      "Figure 3a–c") numbered by order of appearance — exactly Quarto's own
-//      figure numbering — using the project's real labels for the split
-//      (labels themselves may contain hyphens, so `-a` is a panel spec only
-//      when the head is a known label).
+// control (quarto → pdf/html/docx). Since figure families landed, Quarto's
+// own appearance-order figure numbering can't express Flux numbering at all
+// (supplementary/extended-data/custom families each count independently), so
+// the transform stops delegating ANY figure numbering to Quarto:
+//   1. Quarto uses the image ALT text as the figcaption. Flux's caption
+//      source of truth is the figure model, and canonical embeds carry an
+//      EMPTY alt — inject the family caption lead ("Figure S4 | ") + composed
+//      caption into empty alts, escaped for the alt slot.
+//   2. Embed crossref ids are DEMOTED (`{#fig-x}` → `{#x-fig-x}`) so Quarto
+//      neither numbers the figure nor prefixes its own "Figure N:" label —
+//      the injected family lead is the only label. The anchor survives for
+//      HTML linking, under the demoted id.
+//   3. ALL `@fig-…` refs (whole-figure and panel) become literal family-
+//      formatted text ("Fig. S4", "Fig. 3a–c"). Unknown labels pass through
+//      for Quarto to complain about. Labels themselves may contain hyphens,
+//      so `-a` is a panel spec only when the head is a known label.
+// Deliberate trade-offs (documented in the engineering guide): exported-HTML
+// anchors change form, and Quarto lists-of-figures lose their entries.
+
+import { formatCaptionLabel, formatFamilyRef, type FigureFamilyDef } from "./figfamily";
 
 export const EMBED_RE =
   /^\s*!\[((?:\\.|[^\]])*)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)([^}]*)\}\s*$/;
@@ -70,11 +79,12 @@ export function normalizeEmbedAlts(
 }
 
 export interface ExportQmdCtx {
-  /** label (e.g. "fig-growth") → composed caption markdown (no "Figure N." lead —
-   *  Quarto prefixes its own). */
+  /** label (e.g. "fig-growth") → composed caption markdown (no label lead —
+   *  the family caption template supplies it). */
   captions: Map<string, string>;
-  /** label → figure number by order of appearance in the EXPANDED document. */
-  numbers: Map<string, number>;
+  /** label → resolved family identity — THE editor's numbers (figfamily.ts),
+   *  never re-derived from embed appearance order. */
+  figures: Map<string, { family: FigureFamilyDef; number: number }>;
 }
 
 // One panel spec: `a`, a range `a-c`, comma lists of either (`a,b`, `a-c,e`).
@@ -89,28 +99,39 @@ export function panelSpecDisplay(spec: string): string {
 }
 
 export function transformQmdForExport(text: string, ctx: ExportQmdCtx): string {
-  // 1) Composed captions into EMPTY embed alts.
+  // 1) Embed lines: family caption lead + composed caption into EMPTY alts,
+  //    and the crossref id demoted so Quarto adds no label of its own.
   const withCaptions = text
     .split("\n")
     .map((line) => {
       const m = EMBED_RE.exec(line);
-      if (!m || m[1].trim() !== "") return line;
-      const cap = ctx.captions.get(m[3]);
-      if (!cap?.trim()) return line;
+      if (!m) return line;
+      const fig = ctx.figures.get(m[3]);
+      if (!fig) return line; // unknown label — leave the line for Quarto
       const ws = /^\s*/.exec(line)![0];
-      return `${ws}![${escapeEmbedCaption(cap)}](${m[2]}){#${m[3]}${m[4]}}`;
+      let alt = m[1];
+      if (alt.trim() === "") {
+        const lead = formatCaptionLabel(fig.family, fig.number);
+        const cap = ctx.captions.get(m[3])?.trim() ?? "";
+        alt = escapeEmbedCaption(`**${lead.trim()}** ${cap}`.trim());
+      }
+      return `${ws}![${alt}](${m[2]}){#x-${m[3]}${m[4]}}`;
     })
     .join("\n");
 
-  // 2) Panel refs → literal "Figure <n><spec>" text (whole-figure refs and
-  //    unknown labels pass through for Quarto to resolve/complain about).
-  const labels = [...ctx.numbers.keys()].sort((a, b) => b.length - a.length);
+  // 2) ALL fig refs → literal family-formatted text ("Fig. S4", "Fig. 3a–c");
+  //    unknown labels pass through for Quarto to resolve/complain about.
+  const labels = [...ctx.figures.keys()].sort((a, b) => b.length - a.length);
   return withCaptions.replace(FIG_REF_RE, (whole, token: string) => {
-    if (ctx.numbers.has(token)) return whole; // plain @fig-x — Quarto's job
+    const exact = ctx.figures.get(token);
+    if (exact) return formatFamilyRef(exact.family, exact.number);
     for (const label of labels) {
       if (!token.startsWith(label + "-")) continue;
       const spec = token.slice(label.length + 1);
-      if (PANEL_SPEC_RE.test(spec)) return `Figure ${ctx.numbers.get(label)}${panelSpecDisplay(spec)}`;
+      if (PANEL_SPEC_RE.test(spec)) {
+        const fig = ctx.figures.get(label)!;
+        return formatFamilyRef(fig.family, fig.number, panelSpecDisplay(spec));
+      }
     }
     return whole;
   });

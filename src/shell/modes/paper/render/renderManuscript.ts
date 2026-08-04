@@ -85,10 +85,6 @@ function esc(s: string): string {
   );
 }
 
-function refKindWord(prefix: string): string {
-  return prefix === "tbl" ? "Table" : prefix === "sec" ? "Section" : prefix === "eq" ? "Eq." : "Figure";
-}
-
 /** Per-render citation context: the cited-key collector plus the numbering
  *  pass when the front matter selects the numeric style. */
 interface CiteCtx {
@@ -202,9 +198,9 @@ function transformProse(line: string, ctx: CiteCtx): string {
       const n = ctx.refNums.eq.get(label);
       return n != null ? `[Eq. ${n}](#${label})` : full;
     }
+    // Family-formatted display from the resolver ("Fig. S4a–c", "Mov. 3").
     const r = resolveFigure(label);
-    const word = refKindWord(prefix);
-    return r ? `[${word} ${r.number}](#${label})` : full;
+    return r ? `[${r.display}](#${label})` : full;
   });
   // bare @key citations
   line = line.replace(BARE_CITE, (full, lead: string, key: string) => {
@@ -322,7 +318,10 @@ function preprocess(body: string, ctx: CiteCtx, capStash: string[]): { transform
     if (m) {
       const r = resolveFigure(m[3]);
       const svg = r?.ref.id ? renderFigureSvg(r.ref.id) : undefined;
-      const num = r ? r.number : "?";
+      // Family caption lead ("Figure S4 |") — templates end with a space,
+      // the " __CAP…__" join below supplies the separator. Nullish fallback:
+      // seeded/stale refs may predate captionLabel.
+      const capLabel = (r?.ref.captionLabel ?? "Figure ? | ").trimEnd();
       const attrs = parseEmbedAttrs(m[4] ?? "");
       const sized = attrs.width ? ` style="width:${esc(cssWidth(attrs.width))}"` : "";
       const token = `FLUXBLOCK${tok++}X`;
@@ -333,7 +332,7 @@ function preprocess(body: string, ctx: CiteCtx, capStash: string[]): { transform
         token,
         html: `<figure class="fig" id="${esc(m[3])}"><div class="art${attrs.width ? " sized" : ""}"${sized}>${
           svg ?? "<em>missing figure</em>"
-        }</div><figcaption class="cap${attrs.width ? " sized" : ""}"${sized}><b>Figure ${num}.</b> __CAP${capStash.length}__</figcaption></figure>`,
+        }</div><figcaption class="cap${attrs.width ? " sized" : ""}"${sized}><b>${esc(capLabel)}</b> __CAP${capStash.length}__</figcaption></figure>`,
       });
       // PAP-6: index the placeholder by the CAPTION counter (capStash.length), not blocks.length.
       // Non-caption blocks (e.g. a callout) inflate blocks.length, so the old index pointed past

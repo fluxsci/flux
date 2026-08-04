@@ -29,7 +29,7 @@
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
   import { setEmbedWidth, EMBED_RE } from "./science/figureAttrs";
-  import { collectEmbedLabels, transformQmdForExport } from "../../../lib/exportQmd";
+  import { transformQmdForExport } from "../../../lib/exportQmd";
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
   import { citationStyleOf } from "./scholar/citeNumbering";
@@ -93,7 +93,7 @@
     newId,
     type CommentThread,
   } from "./comments/comments";
-  import { loadFigures, figureRefs, resolveFigure, materializeRenders } from "./scholar/figures";
+  import { loadFigures, figureRefs, resolveFigure, materializeRenders, exportCtxFigures } from "./scholar/figures";
   import { bibEntries, type BibEntry } from "./scholar/bib";
   import { loadBib, addDoiToBib, addUrlOrDoiToBib, addUrlOrDoiToLibrary } from "./scholar/bibLoad";
   import { materializeIntoProject, refreshFluxLib } from "../../../lib/references/fluxlibBridge";
@@ -571,11 +571,12 @@
       }
       return expanded + t.slice(last);
     };
-    const expanded = await readTree(`${pm.root}/${activeDocPath}`);
+    await readTree(`${pm.root}/${activeDocPath}`); // populates `texts` (includes)
     const refs = get(figureRefs);
     const ctx = {
       captions: new Map(refs.filter((r) => r.caption?.trim()).map((r) => [r.label, r.caption])),
-      numbers: new Map(collectEmbedLabels(expanded).map((l, i) => [l, i + 1] as const)),
+      // THE editor's family numbering (figfamily.ts) — never embed-order.
+      figures: exportCtxFigures(),
     };
     const originals = new Map<string, string>();
     for (const [f, t] of texts) {
@@ -1308,6 +1309,28 @@
     window.addEventListener("pointermove", dmMove);
     window.addEventListener("pointerup", dmEnd);
   }
+  // Outliner (left rail) drag — the dm-grip trio, mirrored to the left edge.
+  let lrDragging = $state(false);
+  function startLrDrag(e: PointerEvent) {
+    void e; // no preventDefault — it would suppress the dblclick reset
+    lrDragging = true;
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", lrMove);
+    window.addEventListener("pointerup", lrEnd);
+  }
+  function lrMove(e: PointerEvent) {
+    if (!lrDragging || !workEl) return;
+    const r = workEl.getBoundingClientRect();
+    const w = Math.max(180, Math.min(420, e.clientX - r.left));
+    paperLayout.update((s) => ({ ...s, outlinerW: Math.round(w) }));
+  }
+  function lrEnd() {
+    lrDragging = false;
+    document.body.style.userSelect = "";
+    window.removeEventListener("pointermove", lrMove);
+    window.removeEventListener("pointerup", lrEnd);
+  }
+  const resetLrW = () => paperLayout.update((s) => ({ ...s, outlinerW: 224 }));
   // The margin can grow until the editor column is down to ~420px — workspace-
   // relative, not a fixed cap (620 stays the ceiling only on small windows).
   function dmMaxW(): number {
@@ -1536,7 +1559,7 @@
 <section class="paper">
   <div class="work" bind:this={workEl}>
     {#if $paperLayout.outlinerOpen}
-      <div class="leftrail">
+      <div class="leftrail" style={`flex-basis:${$paperLayout.outlinerW}px`}>
         <Outline
           items={outline}
           title={meta.title}
@@ -1547,6 +1570,15 @@
         {#if !isDemo}
           <DocumentPicker {docs} activePath={activeDocPath} onSelect={loadDocument} onNew={newDocument} />
         {/if}
+      </div>
+      <div
+        class="lr-grip"
+        class:active={lrDragging}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize outliner (double-click resets)"
+        onpointerdown={startLrDrag}
+        ondblclick={resetLrW}>
       </div>
     {/if}
     <div class="editor-col" bind:this={colEl} style={gutterStyle}>
@@ -1783,12 +1815,24 @@
   }
   /* F4: left rail = Outline (fills) + the document picker beneath it. */
   .leftrail {
-    flex: 0 0 224px;
+    flex: 0 0 224px; /* overridden inline by $paperLayout.outlinerW */
     min-width: 0;
     height: 100%;
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+  /* Outliner drag seam — a slim flex sibling overlaying the rail/editor gap. */
+  .lr-grip {
+    flex: 0 0 8px;
+    margin: 0 -4px 0 -4px;
+    cursor: col-resize;
+    z-index: 4;
+    background: transparent;
+  }
+  .lr-grip:hover,
+  .lr-grip.active {
+    background: color-mix(in srgb, var(--c-accent, #4385be) 30%, transparent);
   }
   .leftrail :global(.outline) {
     flex: 1 1 auto;

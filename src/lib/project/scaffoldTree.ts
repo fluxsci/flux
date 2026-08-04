@@ -154,6 +154,8 @@ function figIndex(): string {
             label: "fig-1",
             order: 1,
             kind: "main",
+            family: "figure",
+            number: 1,
             canvas: "canvas-1",
             caption: "",
           },
@@ -176,6 +178,8 @@ function figCanvas(): string {
           {
             id: "fig-1",
             name: "Figure 1",
+            family: "figure",
+            number: 1,
             canvasId: "canvas-1",
             x: 0,
             y: 0,

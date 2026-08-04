@@ -16,14 +16,33 @@ survives.
 - **Tools** are single keys — **V** select, **K** scale, **H** hand (pan), **T** text,
   **R** rectangle, **O** ellipse, **L** line, **A** arrow, **P** pen.
 - The **sidebar** lists Canvases (pages — add, rename, delete), Figures on the active canvas
-  (numbered by order; double-click renames), and **Layers** — the z-ordered element tree, with
-  per-row show/hide, lock, drag-to-reorder, and collapsible groups.
+  (family-aware number badges — "2", "S2", "ED3"; double-click opens the figure namer), and
+  **Layers** — the z-ordered element tree, with per-row show/hide, lock, drag-to-reorder, and
+  collapsible groups. Drag its right edge to resize it; **Ctrl+B** hides it (bold still wins
+  when a text element is selected).
 - **Clicking a figure's name takes you to it** — the view centres on that figure at whatever
   zoom you are already working at, so a big canvas stays navigable without hunting. Your zoom
   is never changed for you. Click the name again after panning away to snap back to it.
 - The **Inspector** on the right carries alignment, position/size, text, stroke/fill, colors,
-  and per-figure settings; **Ctrl+Shift+B** hides it for a clean canvas.
+  and per-figure settings; drag its left edge to resize it, **Ctrl+Shift+B** hides it for a
+  clean canvas.
 - **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, zoom controls in the toolbar (5%–1600%).
+
+# Naming figures (families)
+
+Every figure has a structured identity: a **family** plus a **number** within it. Three
+families are built in — **Figure** (in-text "Fig. 2a", caption "Figure 2 |"),
+**Supplementary Figure** ("Fig. S4a", "Figure S4 |") and **Extended Data Figure**
+("Extended Data Fig. 3a", "Extended Data Figure 3 |") — and you can define custom ones
+("Movie" → "Mov. 3b"). Numbers auto-flow like in a journal: always 1..N with no gaps or
+duplicates — assigning a taken number inserts there and shifts the rest, deleting a figure
+renumbers the survivors, and every in-text reference updates itself (references are stored
+against stable labels, never against the visible number).
+
+**Ctrl+R** (or double-click the figure's row in the sidebar, or click the identity row in
+the Inspector) opens the **figure namer**: pick a family (**↑/↓**), type the number, Enter.
+The optional **nickname** ("growth curves") shows dimly in lists and is searched by the
+pickers — the display name itself is always derived from family + number.
 
 # Getting plots in
 

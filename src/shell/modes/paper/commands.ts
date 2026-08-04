@@ -161,9 +161,12 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
   {
     id: "toggle-margin",
     title: (c) => (c.marginOpen() ? "Hide dynamic margin" : "Show dynamic margin"),
-    keys: ["Alt+KeyD"],
+    // Mod+Shift+B joins for cross-mode consistency: it toggles the right rail
+    // in figure + slide (keyboard.ts), so it toggles paper's right rail too.
+    // (Verified absent from CM_CHORD_STRINGS — verify-paper-commands gates it.)
+    keys: ["Alt+KeyD", "Mod+Shift+KeyB"],
     owner: "window",
-    keywords: "panel margin sidebar dynamic",
+    keywords: "panel margin sidebar dynamic right rail",
     run: (c) => c.toggleMargin(),
   },
   { id: "margin-search", title: () => "Search references…", keys: ["Alt+KeyR"], owner: "window", keywords: "find cite reference bibliography", run: (c) => c.summonPane("reference-search") },

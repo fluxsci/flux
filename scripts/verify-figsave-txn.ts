@@ -75,10 +75,13 @@ try {
   assert((await fs.readFile(idxPath, "utf8")) === idx1, "geometry-only edit does NOT churn the index");
 
   // ---- index-affecting change (rename): .bak holds the previous commit point --
+  // (figure families, 2026-08: `name` is DERIVED from family+number now, so a
+  // raw name write no longer sticks — the supported rename seam is the
+  // nickname / setFigureIdentity, which flows into the index the same way.)
   await sleep(30);
   {
     const { project, index } = await loadFigModel(root);
-    project.figures.find((f) => f.id === "fA")!.name = "FA renamed";
+    project.figures.find((f) => f.id === "fA")!.nickname = "FA renamed";
     await saveFigModel(root, project, index);
   }
   assert((await fs.readFile(idxPath, "utf8")) !== idx1, "rename rewrote the index");

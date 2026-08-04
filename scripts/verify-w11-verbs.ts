@@ -73,10 +73,15 @@ try {
   f = await readFig(root, fig);
   assert(f.elements[f.elements.length - 1].id === p1.id, "set-z front: element is last (front-most) in the figure");
 
-  // set-figure-layout — only passed fields change --------------------------
+  // set-figure-layout — only passed fields change. Figure families (2026-08):
+  // a descriptive --name routes to the NICKNAME (the name is derived); a
+  // designation-style --name would route through identity instead.
   await core.setFigureLayout(root, fig, { width: 999, name: "Renamed" });
   f = await readFig(root, fig);
-  assert(f.width === 999 && f.name === "Renamed", "set-figure-layout: width + name applied");
+  assert(
+    f.width === 999 && f.nickname === "Renamed" && /^Figure \d+$/.test(f.name),
+    "set-figure-layout: width applied; descriptive name → nickname (name derived)",
+  );
 
   // delete-element ----------------------------------------------------------
   await core.deleteElements(root, [p3.id]);

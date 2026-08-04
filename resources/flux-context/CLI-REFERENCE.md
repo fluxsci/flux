@@ -49,7 +49,9 @@ With the session export above, `render-figure growth --png` just works.
 | `new <dir> [--title T] [--author A]` | — | scaffold a new project |
 | `list` · `reindex` | `list_project` · `reindex` | overview / rebuild `project.json.figures[]` |
 | `compose-figure <plots…> [--rows N\|--cols N] [--id slug] [--gap N]` | `compose_figure` | **flagship:** N plots → one labeled, gridded, captioned figure |
-| `create-figure [--id slug] [--name N]` | `create_figure` | blank figure |
+| `create-figure [--id slug] [--family f --number n --nickname N]` | `create_figure` | blank figure (default: appended to the main **figure** family; the display name derives from family + number) |
+| `set-figure-family <figId> [--family figure\|supplementary\|extended-data\|<custom>] [--number n] [--nickname N \| --clear-nickname]` | `set_figure_family` | structured identity — `--number` inserts at that position and shifts the rest (refs stay valid; numbers are always contiguous 1..N) |
+| `define-figure-family --id slug --display-name N [--ref-template "Mov. {num}{panel}"] [--caption-template "Movie {num} \| "]` · `remove-figure-family <id>` | `define_figure_family` · `remove_figure_family` | define/update a custom family / drop one (members move to the figure family) |
 | `arrange <figId> [--rows N\|--cols N]` · `auto-label <figId>` | `arrange_figure` · `auto_label` | grid panels / letter panels a,b,c… (panels missing a label get one created first, so import-plots → arrange → auto-label just works) |
 | `add-fig-text <figId> "text" [--x --y --size-pt n] [--panel-label]` | `add_fig_text` | add a text element; `--panel-label` = a semantic panel label auto-label letters |
 | `restyle <figId> <partId> [--stroke c] [--fill c] …` | `restyle_part` | restyle a plot part by **stable id** (survives regeneration) |
@@ -57,7 +59,7 @@ With the session export above, `render-figure growth --png` just works.
 | `delete-element <ids…>` · `delete-figure <figId>` · `duplicate-figure <figId>` | `delete_elements` · `delete_figure` · `duplicate_figure` | remove elements / remove or copy a whole figure |
 | `align <figId> <edge> [--ids a,b,c]` · `group <ids…>` · `ungroup <ids…>` | `align_figure` · `group_elements` · `ungroup_elements` | align (left/right/top/bottom/centerH/centerV) / group / ungroup |
 | `cascade <figId> <property> <ids…> [--delta n\|--factor n] [--dl --dc --dh] [--order selection\|layer\|x\|y] [--reverse] [--first-fixed]` | `cascade` | stepped delta across elements — rank k gets `value + delta·step` (step = k with `--first-fixed`, else k+1; `--factor` = ×factor^step); property ∈ x/y/rotation/width/height/opacity/strokeWidth/cornerRadius/fontSize(pt)/fill/stroke/color (colors step in OKLCh via `--dl/--dc/--dh`); a group is ONE rigid rank |
-| `set-z <figId> <front\|back\|forward\|backward> --ids a,b,c` · `set-figure-layout <figId> [--x --y --width --height --background --name]` | `set_z` · `set_figure_layout` | stacking order / figure frame |
+| `set-z <figId> <front\|back\|forward\|backward> --ids a,b,c` · `set-figure-layout <figId> [--x --y --width --height --background --name]` | `set_z` · `set_figure_layout` | stacking order / figure frame (`--name` legacy seam: a designation like "Figure S3" routes to family+number, anything else becomes the nickname — prefer `set-figure-family`) |
 | `render-figure <id> [--png] [--out f] [--scale n]` | `get_figure_image {id}` · `render_figure {id}` (SVG) | render to SVG/**PNG** — the **look** step (warns when panels are stale vs `plots/`) |
 | `render-canvas [canvasId] [--png] [--out f]` | `get_canvas_image` | render the WHOLE canvas (all figures at their x/y) — catches overlap/layout problems per-figure renders can't |
 | `sync-figure [figId]` | `sync_figure` | refresh `fig/assets` copies from regenerated `plots/` sources IN PLACE (captions/restyles survive); a changed intrinsic plot size resizes the element true-size + grows the figure frame — re-`arrange` if the grid should reflow |

@@ -11,6 +11,7 @@ import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { buildPartIndex } from "../src/lib/plot/parse";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import * as ops from "../src/lib/ops";
+import { BUILTIN_FAMILIES } from "../src/lib/figfamily";
 import type { CascadeSpec } from "../src/lib/cascade";
 import * as slideOps from "../src/lib/slide/ops";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
@@ -329,11 +330,21 @@ export async function syncFigureAssets(
   return mutateFigModel(root, "sync_assets", run);
 }
 
-/** create-figure: add a blank figure (optional slug id, canvas, size). */
+/** create-figure: add a blank figure (optional slug id, canvas, size, family). */
 export async function createFigure(
   root: string,
-  opts: { id?: string; name?: string; canvasId?: string; width?: number; height?: number; background?: string } = {},
-): Promise<{ figureId: string }> {
+  opts: {
+    id?: string;
+    name?: string;
+    canvasId?: string;
+    width?: number;
+    height?: number;
+    background?: string;
+    family?: string;
+    number?: number;
+    nickname?: string;
+  } = {},
+): Promise<{ figureId: string; name: string }> {
   return mutateFigModel(root, "create_figure", ({ project }) => {
     let canvasId = opts.canvasId ? safeId("canvas", opts.canvasId) : project.canvases[0]?.id;
     if (!canvasId) {
@@ -344,11 +355,64 @@ export async function createFigure(
       canvasId,
       id: opts.id ? safeId("figure", opts.id) : undefined,
       name: opts.name,
+      family: opts.family,
+      number: opts.number,
+      nickname: opts.nickname,
       width: opts.width,
       height: opts.height,
       background: opts.background,
     });
-    return { figureId: fig.id };
+    return { figureId: fig.id, name: fig.name };
+  });
+}
+
+/** set-figure-family: assign a figure's structured identity — family and/or
+ *  number (insert-and-shift; the rest of the family renumbers around it)
+ *  and/or nickname (null clears). */
+export async function setFigureIdentity(
+  root: string,
+  figId: string,
+  patch: { family?: string; number?: number; nickname?: string | null },
+): Promise<{ name: string; renumbered: number }> {
+  return mutateFigModel(root, "set_figure_family", ({ project }) => {
+    const f = ops.figById(project, figId);
+    if (!f) throw new Error(`figure not found: ${figId}`);
+    if (patch.family) {
+      const known =
+        BUILTIN_FAMILIES.some((b) => b.id === patch.family) ||
+        (project.figureFamilies ?? []).some((x) => x.id === patch.family);
+      if (!known) {
+        throw new Error(
+          `unknown family "${patch.family}" — define it first (define-figure-family) or use figure/supplementary/extended-data`,
+        );
+      }
+    }
+    const changed = ops.setFigureIdentity(project, figId, patch);
+    return { name: f.name, renumbered: Math.max(0, changed.length - 1) };
+  });
+}
+
+/** define-figure-family: create/update a custom family ("movie" → "Mov. 3b"). */
+export async function defineFigureFamily(
+  root: string,
+  def: { id: string; displayName: string; refTemplate?: string; captionTemplate?: string },
+): Promise<{ id: string; refTemplate: string; captionTemplate: string }> {
+  return mutateFigModel(root, "define_figure_family", ({ project }) => {
+    const full = ops.defineFigureFamily(project, def);
+    return { id: full.id, refTemplate: full.refTemplate, captionTemplate: full.captionTemplate };
+  });
+}
+
+/** remove-figure-family: drop a custom family; members move to the main
+ *  figure family (appended). */
+export async function removeFigureFamily(
+  root: string,
+  id: string,
+): Promise<{ moved: number }> {
+  return mutateFigModel(root, "remove_figure_family", ({ project }) => {
+    const moved = project.figures.filter((f) => f.family === id).length;
+    ops.removeFigureFamily(project, id);
+    return { moved };
   });
 }
 

@@ -31,7 +31,7 @@ import {
   intrinsicSize,
 } from "./assets";
 import { figureToSvg } from "./export";
-import { migrateProject } from "./migrate";
+import { migrateFigureFamilies, migrateProject } from "./migrate";
 import { validateModel, sanitizeProjectGeometry } from "./project/validate";
 import { fileBridge, newerSchemaMessage, PROJECT_MODEL_VERSION } from "./project/types";
 import { assetDisplaySize } from "./ops";
@@ -570,6 +570,7 @@ export async function openProject() {
     // A standalone project file is an ENTRY manifest — validation failure
     // refuses the open (the catch below toasts the detail).
     migrateProject(p);
+    migrateFigureFamilies(p); // standalone has no fig/index.json — no hints
     {
       const errs = validateModel(p);
       if (errs.length)

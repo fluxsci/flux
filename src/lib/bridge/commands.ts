@@ -47,6 +47,8 @@ export const ALLOWED_COMMANDS = [
   "select_matching",
   "delete",
   "set_figure_layout",
+  // figure families: structured identity (family · number · nickname).
+  "set_figure_family",
   "duplicate_figure",
   "create_figure",
   // W11d (FIG-8): live-bridge authoring — create content, not just restyle it.
@@ -464,6 +466,23 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       return { figureId: f };
     }
 
+    case "set_figure_family": {
+      const f = fig(c);
+      if (!f) throw new Error("set_figure_family: no active figure");
+      let name = "";
+      store.commit((p) => {
+        ops.setFigureIdentity(p, f, {
+          family: typeof c.family === "string" ? c.family : undefined,
+          number: num(c.number) ?? undefined,
+          ...(c.nickname === null || typeof c.nickname === "string"
+            ? { nickname: c.nickname as string | null }
+            : {}),
+        });
+        name = p.figures.find((ff) => ff.id === f)?.name ?? "";
+      });
+      return { figureId: f, name };
+    }
+
     case "duplicate_figure": {
       const f = fig(c);
       if (!f) throw new Error("duplicate_figure: no active figure");
@@ -483,6 +502,9 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
           canvasId: cid,
           id: typeof c.id === "string" ? c.id : undefined,
           name: typeof c.name === "string" ? c.name : undefined,
+          family: typeof c.family === "string" ? c.family : undefined,
+          number: num(c.number) ?? undefined,
+          nickname: typeof c.nickname === "string" ? c.nickname : undefined,
         }).id;
       });
       return { figureId: nid };

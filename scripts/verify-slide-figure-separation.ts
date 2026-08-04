@@ -52,6 +52,14 @@ try {
   await core.setAnimation(root, deckId, slideId, beatId, { target: deck.slides.at(-1)!.elements[0].id, preset: "fade" });
   await core.exportDeck(root, deckId, { out: path.join(root, "exports", "talk.html") });
 
+  // Figure families (2026-08): family identity is a FIG-subsystem concept —
+  // a round-tripped deck slide must never pick up family/number/nickname
+  // (migrateFigureFamilies deliberately does not run on deck projections).
+  assert(
+    deck.slides.every((s) => !("family" in s) && !("number" in (s as object))),
+    "deck slides carry no figure-family identity keys",
+  );
+
   // 1. fig/ untouched — byte-identical tree.
   assert((await figTree(root)) === before, "a full slide-authoring session leaves the fig/ tree BYTE-IDENTICAL");
 
@@ -87,7 +95,15 @@ try {
     const after = await core.loadFigModel(root);
     assert(after.project.figures.length === before2 + 1, "send-to-canvas adds a REAL paper figure (it now correctly appears in @fig)");
     const idx = JSON.parse(await fs.readFile(path.join(root, "fig", "index.json"), "utf8"));
-    assert((idx.figures ?? []).some((f: { name?: string }) => f.name === "From Slide"), "…and it is in fig/index.json (the @fig source)");
+    // Figure families (2026-08): `name` is derived (family + number); a
+    // descriptive createFigure name survives as the NICKNAME.
+    assert(
+      (idx.figures ?? []).some(
+        (f: { name?: string; nickname?: string }) =>
+          f.nickname === "From Slide" && /^Figure \d+$/.test(f.name ?? ""),
+      ),
+      "…and it is in fig/index.json (the @fig source; slide name → nickname, name derived)",
+    );
   }
 
   // 5. Static guard: the slide bridge never imports the fig writer.

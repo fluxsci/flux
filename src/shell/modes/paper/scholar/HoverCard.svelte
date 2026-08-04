@@ -3,7 +3,7 @@
   import { popIn } from "../../../../lib/motion/actions";
   import { fileBridge } from "../../../../lib/project/types";
   import type { ChipTarget } from "../science/chipContext";
-  import { resolveFigure, renderFigureSvg, figureRefs, nameIsDesignation } from "./figures";
+  import { resolveFigure, renderFigureSvg, figureRefs } from "./figures";
   import { bibEntry, bibEntries, type BibEntry } from "./bib";
   import { pdfKeys, refreshPdfKeys, hasPdfIn } from "./pdfPresence";
 
@@ -83,10 +83,10 @@
   {#if target.kind === "figref"}
     {#if fig}
       <div class="hc-head">
-        <span class="hc-num">Figure {fig.number}</span>
-        <!-- A name that IS the designation ("Figure 3") would just restate the
-             number label — only descriptive names add information here. -->
-        {#if fig.ref.name && !nameIsDesignation(fig.ref.name)}<span class="hc-name">{fig.ref.name}</span>{/if}
+        <span class="hc-num">{fig.display}</span>
+        <!-- The derived name restates the identity ("Supplementary Figure 4");
+             only the nickname adds information beside it. -->
+        {#if fig.ref.nickname}<span class="hc-name">{fig.ref.nickname}</span>{/if}
       </div>
       <div class="hc-fig">
         {#if figSvg}

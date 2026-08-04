@@ -45,7 +45,7 @@ const inHeading = await readContent();
 const result = {
   // Caret at end of the two-chip line: both chips stay rendered, no raw leak.
   atLineEnd: {
-    showsFig1aChip: atLineEnd.includes("Fig 1a"),
+    showsFig1aChip: atLineEnd.includes("Fig. 1a"),
     showsSmithChip: atLineEnd.includes("Smith & Doe, 2021"),
     leakedRawFigA: atLineEnd.includes("@fig-growth-a"),
     leakedRawSmith: atLineEnd.includes("[@smith2021]"),

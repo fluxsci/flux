@@ -21,13 +21,15 @@
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
   import CascadePopover from "../../../lib/CascadePopover.svelte";
+  import FigureNamer from "../../../lib/FigureNamer.svelte";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import { activeFigureId, dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
-  import { inspectorHidden } from "../../../lib/settings";
+  import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
+  import { figureLayout, FIGURE_LAYOUT_DEFAULTS } from "../../../lib/figureLayoutStore";
   import { projectModel } from "../../shellStore";
   import { loadFigInto, saveFigFrom, figDiskDiverged } from "../../../lib/project/figbridge";
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
@@ -96,6 +98,38 @@
     figDiverged = false;
     bumpFigRevision();
   }
+
+  // --- draggable rail edges → sidebar/inspector widths (the slide filmstrip
+  // gutter pattern; persists via figureLayout). No preventDefault on
+  // pointerdown — it would suppress the derived dblclick (reset affordance);
+  // text selection during the drag is blocked via body user-select instead.
+  let bodyEl = $state<HTMLElement | null>(null);
+  const railMax = (min: number) => Math.max(min, Math.round(window.innerWidth * 0.4));
+  function railDrag(apply: (x: number, rect: DOMRect) => void) {
+    return () => {
+      document.body.style.userSelect = "none";
+      const move = (e: PointerEvent) => {
+        if (bodyEl) apply(e.clientX, bodyEl.getBoundingClientRect());
+      };
+      const up = () => {
+        document.body.style.userSelect = "";
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    };
+  }
+  const startSbDrag = railDrag((x, rect) => {
+    const w = Math.max(140, Math.min(railMax(420), x - rect.left));
+    figureLayout.update((s) => ({ ...s, sidebarW: Math.round(w) }));
+  });
+  const startInspDrag = railDrag((x, rect) => {
+    const w = Math.max(200, Math.min(railMax(480), rect.right - x));
+    figureLayout.update((s) => ({ ...s, inspectorW: Math.round(w) }));
+  });
+  const resetSbW = () => figureLayout.update((s) => ({ ...s, sidebarW: FIGURE_LAYOUT_DEFAULTS.sidebarW }));
+  const resetInspW = () => figureLayout.update((s) => ({ ...s, inspectorW: FIGURE_LAYOUT_DEFAULTS.inspectorW }));
 
   $effect(() => {
     if (!focused) return;
@@ -169,13 +203,44 @@
 
 <div class="figure-mode">
   <Toolbar />
-  <div class="body">
-    <Sidebar paneActive={active} />
-    <main class="canvas-wrap"><Canvas paneActive={active} /><ArrangeHud /><CascadePopover /></main>
+  <div
+    class="body"
+    bind:this={bodyEl}
+    style={`--sb-w:${$figureLayout.sidebarW}px; --insp-w:${$figureLayout.inspectorW}px`}>
+    {#if !$leftRailHidden}
+      <Sidebar paneActive={active} />
+      <div
+        class="rail-gutter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar (double-click resets)"
+        onpointerdown={startSbDrag}
+        ondblclick={resetSbW}>
+      </div>
+    {:else}
+      <button class="edgetab left" title="Show sidebar (Ctrl+B)" onclick={() => leftRailHidden.set(false)}>›</button>
+    {/if}
+    <main class="canvas-wrap">
+      <Canvas paneActive={active} /><ArrangeHud /><CascadePopover />
+      <!-- Only the focused pane owns/hosts the namer (split-workspace safe). -->
+      {#if focused}<FigureNamer />{/if}
+    </main>
     <!-- The Inspector steps aside while the caption editor is open, giving the
          caption page room (and keeping the figure read-only / distraction-free).
          Ctrl+Shift+B (keyboard.ts) hides it entirely. -->
-    {#if !$captionOpen && !$inspectorHidden}<Inspector />{/if}
+    {#if !$captionOpen && !$inspectorHidden}
+      <div
+        class="rail-gutter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize inspector (double-click resets)"
+        onpointerdown={startInspDrag}
+        ondblclick={resetInspW}>
+      </div>
+      <Inspector />
+    {:else if !$captionOpen}
+      <button class="edgetab right" title="Show right rail (Ctrl+Shift+B)" onclick={() => inspectorHidden.set(false)}>‹</button>
+    {/if}
   </div>
   <FluxFigMenu />
   <Xray />
@@ -236,10 +301,47 @@
     display: flex;
     flex: 1;
     min-height: 0;
+    position: relative;
   }
   .canvas-wrap {
     flex: 1;
     min-width: 0;
     position: relative;
+  }
+  /* Drag-to-resize rail edges (slide filmstrip gutter pattern). */
+  .rail-gutter {
+    flex: 0 0 5px;
+    margin: 0 -2px;
+    cursor: col-resize;
+    z-index: 5;
+    background: transparent;
+  }
+  .rail-gutter:hover {
+    background: color-mix(in srgb, var(--c-accent, #4385be) 35%, transparent);
+  }
+  /* Slim hover-revealed reopen affordance for a hidden rail. */
+  .edgetab {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    border: none;
+    padding: 0;
+    background: transparent;
+    color: var(--c-tx-2, #878580);
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0.25;
+    z-index: 6;
+  }
+  .edgetab:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--c-accent, #4385be) 18%, transparent);
+  }
+  .edgetab.left {
+    left: 0;
+  }
+  .edgetab.right {
+    right: 0;
   }
 </style>

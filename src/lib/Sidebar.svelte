@@ -10,12 +10,13 @@
     figureRev,
     globalRev,
     beginGesture,
-    blankFigure,
     addCanvas,
     deleteCanvas,
     setActiveCanvas,
     figuresOnCanvas,
+    figNamer,
   } from "./store";
+  import { familyById, shortBadge } from "./figfamily";
   import type { Element, GroupDef } from "./types";
   import * as ops from "./ops";
   import { membersDeep } from "./groups";
@@ -40,24 +41,28 @@
   }
 
   function deleteFigure(id: string) {
-    const cid = $activeCanvasId;
+    // Through the ops core (rule: never bypass it) — it owns the keep-one-
+    // figure backfill AND the family auto-compaction (numbers stay 1..N).
+    let nextActive: string | null = null;
     commit((p) => {
-      p.figures = p.figures.filter((f) => f.id !== id);
-      // Never leave a canvas with no figures.
-      if (p.figures.filter((f) => f.canvasId === cid).length === 0) {
-        p.figures.push(blankFigure(cid!));
-      }
+      nextActive = ops.deleteFigure(p, id).nextActiveId;
     });
-    activeFigureId.set(figuresOnCanvas($project, cid)[0]?.id ?? null);
+    activeFigureId.set(nextActive ?? figuresOnCanvas($project, $activeCanvasId)[0]?.id ?? null);
   }
 
   // M11: inline rename (no blocking native window.prompt). Double-click a row to
-  // edit; Enter / blur commits, Esc cancels.
-  let editing: { kind: "canvas" | "figure" | "layer" | "group"; id: string } | null = null;
+  // edit; Enter / blur commits, Esc cancels. Figures are the exception since
+  // figure families landed: their name is DERIVED (family + number), so the
+  // double-click opens the Figure Namer (Ctrl+R) instead of a text field.
+  let editing: { kind: "canvas" | "layer" | "group"; id: string } | null = null;
   let editVal = "";
-  function startRename(kind: "canvas" | "figure" | "layer" | "group", id: string, current: string) {
+  function startRename(kind: "canvas" | "layer" | "group", id: string, current: string) {
     editing = { kind, id };
     editVal = current;
+  }
+  function openNamer(figId: string) {
+    activeFigureId.set(figId); // name what the user is looking at
+    figNamer.set({ figId });
   }
   function commitRename() {
     if (!editing) return;
@@ -69,9 +74,6 @@
       if (kind === "canvas") {
         const c = p.canvases.find((c) => c.id === id);
         if (c) c.name = name;
-      } else if (kind === "figure") {
-        const f = p.figures.find((f) => f.id === id);
-        if (f) f.name = name;
       } else if (kind === "group") {
         ops.renameGroup(p, id, name);
       } else {
@@ -264,24 +266,16 @@
       <button class="mini" on:click={addFigure} title="Add figure">+</button>
     </div>
     <ul>
-      {#each canvasFigures as fig, i (fig.id)}
+      {#each canvasFigures as fig (fig.id)}
         <li class:active={$activeFigureId === fig.id}>
-          <span class="fnum" title="Figure number (by order)">{i + 1}</span>
-          {#if editing && editing.kind === "figure" && editing.id === fig.id}
-            <input
-              class="rename"
-              bind:value={editVal}
-              use:focusSelect
-              on:keydown={onRenameKey}
-              on:blur={commitRename} />
-          {:else}
-            <button
-              class="item"
-              on:click={() => goToFigure(fig.id)}
-              on:dblclick={() => startRename("figure", fig.id, fig.name)}
-              title="Click to go to it · double-click to rename">{fig.name}</button
-            >
-          {/if}
+          <span class="fnum" title={fig.name}>{shortBadge(familyById(fig.family, $project.figureFamilies), fig.number ?? 0)}</span>
+          <button
+            class="item"
+            on:click={() => goToFigure(fig.id)}
+            on:dblclick={() => openNamer(fig.id)}
+            title="Click to go to it · double-click to rename (Ctrl+R)">
+            {fig.name}{#if fig.nickname}<span class="nick">{fig.nickname}</span>{/if}
+          </button>
           <button class="del" on:click={() => deleteFigure(fig.id)} title="Delete figure">×</button>
         </li>
       {/each}
@@ -445,7 +439,10 @@
 
 <style>
   .sidebar {
-    width: 200px;
+    /* Width var set by the host mode (FigureMode drag-resize); the fallback
+       keeps standalone/demo mounts at the shipped width. */
+    width: var(--sb-w, 200px);
+    flex: 0 0 var(--sb-w, 200px);
     background: var(--c-surface);
     border-right: 1px solid var(--c-line);
     overflow-y: auto;
@@ -505,13 +502,23 @@
   /* M14: order-derived figure number (always reflects position, never stale). */
   .fnum {
     flex: 0 0 auto;
-    min-width: 14px;
+    min-width: 18px; /* family badges run wider: "S2" / "ED3" / "M1" */
     text-align: right;
     margin-left: 4px;
     font-size: 10px;
     font-variant-numeric: tabular-nums;
     color: var(--c-tx-muted);
     opacity: 0.7;
+  }
+  /* Dim nickname beside the derived name ("Figure 2  growth curves"). */
+  .item .nick {
+    margin-left: 6px;
+    color: var(--c-tx-muted);
+    opacity: 0.75;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   li.active .fnum {
     color: var(--c-on-accent);
