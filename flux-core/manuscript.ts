@@ -11,6 +11,13 @@ import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
 import { resolveJournalStyle, styledFamilyDef } from "../src/lib/style/journalStyle";
 import { BUILTIN_JOURNAL_STYLES } from "../src/lib/style/journalPresets";
+import {
+  EXPORT_PROFILE,
+  EXPORT_PROFILE_FILE,
+  journalAssetPlan,
+  journalProfileYaml,
+  diagnoseQuartoFailure,
+} from "../src/lib/style/journalAssets";
 import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
@@ -149,6 +156,15 @@ export async function insertFigureRef(
 
 /** compile the manuscript via Quarto (pdf|html|docx). Requires `quarto` on PATH. */
 
+/** Shipped journal assets (CSL styles, Word reference docs). Resolved from this
+ *  module's own location so a source checkout and the packaged CLI bundle both
+ *  find them. */
+const RESOURCES_DIR = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname),
+  "..",
+  "resources",
+);
+
 /** The Node half of the shared include walker (`exportQmd.readQmdTree`) —
  *  real fs + node:path semantics. The grammar and traversal live in the shared
  *  core so the GUI cannot drift from it. */
@@ -272,11 +288,43 @@ export async function compile(
   );
   const expanded = prep.expanded;
 
+  // Journal assets + the ephemeral Quarto profile. Nothing here touches the
+  // user's _quarto.yml or their front matter: the profile is a separate file
+  // merged by `--profile`, removed again in the finally below.
+  const manuscriptDir = m.manuscript.path.includes("/")
+    ? m.manuscript.path.slice(0, m.manuscript.path.lastIndexOf("/"))
+    : "";
+  const profileAbs = path.resolve(root, manuscriptDir, EXPORT_PROFILE_FILE);
+  let useProfile = false;
+  if (style.id !== "flux") {
+    for (const a of journalAssetPlan(style)) {
+      const dest = path.resolve(root, a.rel);
+      const src = path.resolve(RESOURCES_DIR, a.resource);
+      try {
+        const bytes = await fs.readFile(src);
+        // Skip a byte-identical rewrite (the §3 invariant) so re-exporting does
+        // not churn mtimes on a committed style asset.
+        const cur = await fs.readFile(dest).catch(() => null);
+        if (!cur || !cur.equals(bytes)) {
+          await fs.mkdir(path.dirname(dest), { recursive: true });
+          await fs.writeFile(dest, bytes);
+        }
+      } catch {
+        /* a missing shipped asset must not abort the render — quarto will fall
+           back to its defaults and the log will say so */
+      }
+    }
+    await fs.writeFile(profileAbs, journalProfileYaml(style, { manuscriptDir })).then(
+      () => (useProfile = true),
+      () => (useProfile = false),
+    );
+  }
+
   let code = 0;
   let log = "";
   try {
     ({ code, log } = await new Promise<{ code: number; log: string }>((resolve, reject) => {
-      const q = resolveSpawn("quarto", ["render", m.manuscript.path, "--to", to]);
+      const q = resolveSpawn("quarto", ["render", m.manuscript.path, "--to", to, ...(useProfile ? ["--profile", EXPORT_PROFILE] : [])]);
       const child = spawn(q.command, q.args, {
         cwd: root,
         windowsVerbatimArguments: q.windowsVerbatimArguments,
@@ -289,8 +337,13 @@ export async function compile(
     }));
   } finally {
     await prep.restore();
+    if (useProfile) await fs.rm(profileAbs, { force: true }).catch(() => {});
   }
   await journal(root, { action: "compile", to, code });
+  // A missing external tool must read as one actionable sentence, not as the
+  // ten-frame Lua trace Quarto prints for it.
+  const diagnosis = code !== 0 ? diagnoseQuartoFailure(log) : null;
+  if (diagnosis) log = `${log}\n\n${diagnosis}`;
   const note =
     (renders.failed.length ? `\n(figure renders failed: ${renders.failed.join(", ")})` : "") +
     (renders.warnings.length ? `\n⚠ ${renders.warnings.join("\n⚠ ")}` : "");

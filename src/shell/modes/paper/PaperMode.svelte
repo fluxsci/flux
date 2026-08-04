@@ -32,6 +32,7 @@
   import { prepareExport } from "../../../lib/exportPrep";
   import { resolveJournalStyle, type ResolvedJournalStyle } from "../../../lib/style/journalStyle";
   import { BUILTIN_JOURNAL_STYLES, journalStyleOptions } from "../../../lib/style/journalPresets";
+  import { EXPORT_PROFILE, journalAssetPlan, journalProfileYaml } from "../../../lib/style/journalAssets";
   import ExportDialog, {
     type ExportFormat,
     type ExportPlan,
@@ -666,6 +667,9 @@
         // Quarto reads DISK: the shared prep transforms in place (captions into
         // alts, refs literalized), renders, and restores — sources end byte-identical.
         const style = resolveJournalStyle(plan.style, BUILTIN_JOURNAL_STYLES);
+        const manuscriptDir = activeDocPath.includes("/")
+          ? activeDocPath.slice(0, activeDocPath.lastIndexOf("/"))
+          : "";
         const restoreDocs = await transformDocsForQuarto(fb, style);
         const token = `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         exportToken = token;
@@ -676,7 +680,18 @@
         });
         let r;
         try {
-          r = await fb.quartoRender(pm.root, "docx", activeDocPath, { outPath: plan.outPath, token });
+          const useProfile = style.id !== "flux";
+          r = await fb.quartoRender(pm.root, "docx", activeDocPath, {
+            outPath: plan.outPath,
+            token,
+            ...(useProfile
+              ? {
+                  profile: EXPORT_PROFILE,
+                  profileYaml: journalProfileYaml(style, { manuscriptDir }),
+                  assets: journalAssetPlan(style),
+                }
+              : {}),
+          });
         } finally {
           stopLog?.();
           exportToken = "";

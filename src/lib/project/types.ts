@@ -244,6 +244,13 @@ export interface FileBridge {
       outPath?: string;
       /** Correlation id for `quartoCancel` and `onQuartoLog`. */
       token?: string;
+      /** Generated Quarto profile YAML; main writes it beside _quarto.yml and
+       *  deletes it after the render. Computed by the shared pure module so
+       *  flux-core and the GUI emit byte-identical profiles. */
+      profileYaml?: string;
+      /** Style assets to materialize: {rel} under the project, from
+       *  {resource} under the app's resources/. */
+      assets?: { rel: string; resource: string }[];
     },
   ): Promise<{ ok: boolean; code?: number; log: string; outPath?: string; cancelled?: boolean }>;
   /** Cancel an in-flight render by token; false when nothing matched. */

@@ -1377,7 +1377,60 @@ ipcMain.handle("quarto:cancel", async (_e, token) => {
   return true;
 });
 
-ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath, token }) => {
+/** Shipped journal assets (CSL, Word reference docs) — resources/ beside the app. */
+const journalResourcesDir = () => path.resolve(__dirname, "..", "resources");
+
+/**
+ * Materialize a style's assets + its Quarto profile before a render.
+ *
+ * The renderer computes BOTH from the shared pure module
+ * (src/lib/style/journalAssets.ts) and passes them here as data — main only
+ * performs the IO. That keeps one source of truth for the profile's content
+ * (flux-core generates it from the same function) instead of a CJS re-write
+ * that could drift.
+ *
+ * Returns the profile path to clean up, or null.
+ */
+async function writeJournalAssets(rootAbs, manuscriptDir, profileYaml, assets) {
+  for (const a of Array.isArray(assets) ? assets : []) {
+    const rel = String(a?.rel || "");
+    const resource = String(a?.resource || "");
+    // Both come from the renderer: treat them as untrusted path input.
+    if (!rel || !resource || rel.includes("..") || resource.includes("..")) continue;
+    const dest = path.resolve(rootAbs, rel);
+    if (!underDir(dest, rootAbs)) continue;
+    const src = path.resolve(journalResourcesDir(), resource);
+    if (!underDir(src, journalResourcesDir())) continue;
+    try {
+      const bytes = fs.readFileSync(src);
+      // Skip a byte-identical rewrite so re-exporting never churns mtimes.
+      let same = false;
+      try {
+        same = fs.readFileSync(dest).equals(bytes);
+      } catch {}
+      if (!same) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, bytes);
+        noteWrite?.(dest);
+      }
+    } catch {
+      /* a missing shipped asset must not abort the render */
+    }
+  }
+  if (!profileYaml) return null;
+  const profileAbs = path.resolve(rootAbs, manuscriptDir, "_quarto-flux-export.yml");
+  if (!underDir(profileAbs, rootAbs)) return null;
+  try {
+    fs.mkdirSync(path.dirname(profileAbs), { recursive: true });
+    fs.writeFileSync(profileAbs, String(profileYaml));
+    noteWrite?.(profileAbs);
+    return profileAbs;
+  } catch {
+    return null;
+  }
+}
+
+ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath, token, profileYaml, assets }) => {
   // Render the ACTIVE document, not always main.qmd. Containment: the doc must be
   // a .qmd resolving under the project root (no traversal via a crafted docPath).
   const rootAbs = path.resolve(String(root || ""));
@@ -1402,6 +1455,17 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath,
     }
   }
   const runId = typeof token === "string" && token ? token : null;
+  // Journal assets + the ephemeral profile, written before the spawn and
+  // removed in the close handler. Nothing here edits the user's _quarto.yml.
+  const manuscriptDir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  const profileAbs = await writeJournalAssets(rootAbs, manuscriptDir, profileYaml, assets);
+  const cleanupProfile = () => {
+    if (profileAbs) {
+      try {
+        fs.rmSync(profileAbs, { force: true });
+      } catch {}
+    }
+  };
   return new Promise((resolve) => {
     try {
       const q = resolveSpawn("quarto", [
@@ -1440,11 +1504,13 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath,
       p.stderr.on("data", (d) => collect(String(d)));
       p.on("error", (err) => {
         if (runId) quartoRuns.delete(runId);
+        cleanupProfile();
         resolve({ ok: false, log: String(err.message) });
       });
       p.on("close", (code) => {
         flush(true);
         if (runId) quartoRuns.delete(runId);
+        cleanupProfile();
         if (run.cancelled) return resolve({ ok: false, cancelled: true, code, log });
         // Verify the artifact actually landed (a _quarto.yml output-dir moves it —
         // report what we found so the renderer can Reveal the real file).
@@ -1480,6 +1546,7 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath,
       });
     } catch (err) {
       if (runId) quartoRuns.delete(runId);
+      cleanupProfile();
       resolve({ ok: false, log: String(err) });
     }
   });
