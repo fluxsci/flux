@@ -54,7 +54,7 @@ Read these before running anything:
 - [ ] `npm run build` produced `dist/` (renderer + `flux-cli.mjs` + `flux-mcp.mjs`)
 - [ ] First run initialized `~/FluxConfig` and installed the `flux` shim in `~/.local/bin`
 - [ ] `~/FluxConfig/agents.json` defaults point at **claude** (this machine has Claude Code)
-- [ ] Quarto + TinyTeX installed; `quarto check` clean; user docs rendered for the in-app
+- [ ] Quarto + TinyTeX (+ `lineno`, `setspace`) installed; `quarto check` clean; user docs rendered for the in-app
       Docs button
 - [ ] uv installed; fluxplot cloned to `~/fluxplot` and importable
 - [ ] Lighttable sidecar installed and built (`lighttable/`: its own `npm ci` + `npm run build`)
@@ -283,11 +283,21 @@ Then the TeX layer for PDF output (no sudo; installs into the user account):
 
 ```bash
 quarto install tinytex
+tlmgr install lineno setspace    # journal-styled PDF (line numbers, double spacing)
 quarto check                     # should end with no errors
 ```
 
+`tlmgr install` needs **no admin prompt** here — TinyTeX installs into the user's home
+directory, so this is one of the steps that stays hands-off (ground rule 2).
+
 Without TinyTeX, `flux compile --to pdf` fails while `--to html|docx` still work — so
-TinyTeX is strongly recommended, not optional-in-practice.
+TinyTeX is strongly recommended, not optional-in-practice. Without `lineno` and
+`setspace`, ordinary PDF export still works but a **journal-styled** PDF (Nature and the
+like) does not: those two supply the line numbers and double spacing a submission needs.
+
+Journal PDFs also place Flux's SVG figures through `rsvg-convert`. If Homebrew is
+present, `brew install librsvg` covers it; if not, leave it — Word export is unaffected,
+and it is the format Nature prefers for submission anyway.
 
 Finally, render the user docs once so the app's top-bar **Docs** button works (it opens
 `docs/_site/index.html` and shows an error toast until this has been run):
@@ -365,6 +375,7 @@ npm run check                              # svelte-check: MUST be 0 errors 0 wa
 node scripts/run-verifies.mjs --tier bundle   # CLI bundle smoke (needs the step-3 build)
 node dist/flux-cli.mjs config              # paths resolve; FluxConfig healthy
 quarto check                               # quarto + tinytex
+kpsewhich lineno.sty setspace.sty          # journal-styled PDF prerequisites
 cd ~/fluxplot && uv run python -c "import fluxplot"
 ```
 

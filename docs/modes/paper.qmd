@@ -75,6 +75,7 @@ Helper panes summon beside your text and stack in one column:
 | **Alt+A** | Comments — the review threads on this document |
 | **Alt+C** | Citation group — edit the citation at the caret |
 | **Alt+T** | Terminal — a real shell (this is where `flux principal` runs nicely) |
+| **Alt+J** | Journal Check — the selected journal's rulebook, as advice |
 
 **Alt+P** closes the active pane, and **Escape** always returns focus to your writing.
 **Alt+D** (or **Ctrl+Shift+B**) hides the margin column entirely; the outline rail's edge
@@ -95,11 +96,47 @@ lost.
 
 # Export
 
-The **Export** button in the status bar produces **PDF**, **HTML**, or **Word**. PDF and HTML
-render in-app and save where you choose (defaulting to the project's `exports/`); Word runs
-through Quarto (the button says so if Quarto isn't installed — see
-[Installation](../installation.qmd)). Figure renders, captions, and panel references are all
-resolved during export, and failures surface as a toast with the log's tail.
+The **Export** button in the status bar — or **Alt+E** — opens a dialog with two
+independent choices: the **file format** (PDF, Word, HTML) and the **journal style**.
+Every format saves where you choose, defaulting to the project's `exports/`. Word and
+journal-styled PDF run through Quarto (the dialog says so when Quarto isn't installed —
+see [Installation](../installation.qmd)); a long render shows its progress and can be
+cancelled. Figure renders, captions, and panel references are all resolved during export,
+and failures surface as a toast naming what to fix.
+
+## Journal styles
+
+Choosing a journal — **Nature**, say — makes the exported file follow that journal's house
+style: how figure and panel references read (`Fig. 1a,b`), how citations are marked
+(superscript numerals, before the punctuation), how reference entries are built (all
+authors up to five, then `et al.`), what order the sections appear in, and the submission
+formatting a manuscript needs (12pt Times, double-spaced, line-numbered).
+
+**Your writing never changes.** The editor keeps Flux's own conventions no matter which
+journal is selected — chips, figure references and caption leads look the same whether you
+are aiming at Nature or nowhere. Only the exported file and the preview follow the journal,
+so switching journals is instant, and switching back loses nothing. Nothing is rewritten in
+your manuscript on disk: a journal style is a lens on the way out, not an edit.
+
+Selecting a style is remembered per project, and agents can use the same one from the
+terminal with `flux compile --to docx --style nature`.
+
+## Journal Check
+
+**Alt+J** opens **Journal Check**, which reads your manuscript against the selected
+journal's rulebook: title and summary-paragraph length, headings the journal doesn't print
+(Nature uses neither "Introduction" nor "Results"), missing sections like Data availability,
+word budgets, display-item and reference caps, and typed-out figure references that don't
+match house style. Click any item to jump to it.
+
+It is **advice, and never blocks an export** — Nature itself says style and length won't
+influence consideration at first submission. Switch the panel to *Accepted / final* and the
+sections a journal requires at acceptance become warnings rather than notes.
+
+One deliberate limit: Flux formats references it owns — the ones you insert as figure
+references — and only *points at* figure references you typed by hand. It cannot tell your
+"Figure 2, panel D" from a mention of someone else's Figure 2D, so it never rewrites your
+prose.
 
 # Vim, and how the caret feels
 
@@ -116,5 +153,7 @@ pursues your typing with a lively, immediate feel) or *smooth* (a fixed soft gli
 |---|---|
 | A citation chip shows your typed text, dimmed | The key isn't in the project bib or library → check the spelling, or add the paper to the [Library](library.qmd) first |
 | Word export is disabled | Quarto isn't installed → [install it](../installation.qmd), restart Flux |
+| A journal-styled PDF fails but Word works | Missing LaTeX pieces → the error names the package; see [Installation](../installation.qmd) |
+| Journal Check flags a figure reference that is fine | It's advice, not a rule — dismiss it. References to another paper's figures are skipped automatically when an author name is next to them |
 | A figure embed shows no caption | The figure has no caption yet → write it in Figure mode (**Alt+C** there) |
 | A comment shows as *Detached* | Its anchored text was edited away — the thread is preserved; re-select and start a fresh one if needed |

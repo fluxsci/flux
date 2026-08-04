@@ -60,6 +60,35 @@ quarto check               # verify both halves
 
 Without TinyTeX, `flux compile --to pdf` fails while `--to html|docx` still work.
 
+### Extras for journal-styled PDF
+
+Exporting with a journal style (Nature, say) asks LaTeX for things a minimal
+install may not have: **line numbers**, **double spacing**, a **Times-compatible
+font**, and a way to place Flux's SVG figures in a PDF. How you add them depends
+on how TeX got onto the machine:
+
+| TeX install | Command | Needs admin? |
+|---|---|---|
+| TinyTeX (`quarto install tinytex` — recommended, all platforms) | `tlmgr install lineno setspace` | No — TinyTeX lives in your home directory |
+| MacTeX | `sudo tlmgr install lineno setspace` | Yes |
+| Linux distro TeX Live (apt) | `sudo apt install texlive-latex-recommended texlive-humanities texlive-luatex texlive-fonts-recommended` | Yes — Debian and Ubuntu disable `tlmgr` package installs |
+
+Figures also need **`rsvg-convert`** (`librsvg2-bin` on Debian and Ubuntu,
+`librsvg` on Homebrew and Arch): Flux renders figures as SVG, and LaTeX cannot
+place those directly.
+
+Check what you have:
+
+```bash
+kpsewhich lineno.sty setspace.sty   # both should print a path
+rsvg-convert --version              # needed for figures in PDF
+```
+
+None of this affects **Word**, which is what Nature prefers for submission
+anyway — a journal-styled `.docx` needs no TeX at all. When an export does hit a
+missing piece, Flux names the package to install instead of showing you the raw
+LaTeX log.
+
 ## uv + Python + fluxplot (the keystone)
 
 [uv](https://docs.astral.sh/uv/) is the recommended Python project/environment manager —
@@ -137,6 +166,9 @@ node ~/flux/dist/flux-cli.mjs config      # prints machine paths + build info
 | Symptom | Cause → fix |
 |---|---|
 | `compile --to pdf` fails; html works | No TeX → `quarto install tinytex` |
+| Journal PDF fails with `File 'lineno.sty' not found` (or `setspace.sty`) | Minimal TeX install → the journal-PDF table above |
+| Journal PDF fails mentioning `rsvg-convert` | SVG figures cannot be placed → install `librsvg2-bin` / `librsvg` |
+| Journal PDF fails with `luaotfload` or `not loadable: Metric` | lualatex present but its fonts are not → `texlive-luatex` + `texlive-fonts-recommended`, or use TinyTeX |
 | Plots import as flat images; `restyle` finds no parts | Plot not saved via `fp.save` (or fluxplot missing) → check `flux validate-plot` |
 | Figure PNGs render with wrong/shifted text | Missing fonts on this machine → install the stacks above; keep machines consistent |
 | `flux: command not found` | `~/.local/bin` missing or not on `PATH` → create it and re-run any flux verb (the shim installs itself), or use the full `node …/dist/flux-cli.mjs` path |

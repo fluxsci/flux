@@ -29,6 +29,8 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 | **Alt+O** | Show/hide the left panel (outline & documents; drag its edge to resize) |
 | **Alt+D** or **Ctrl+Shift+B** | Show/hide the dynamic margin |
 | **Alt+R** | Reference search pane |
+| **Alt+J** | Journal Check pane |
+| **Alt+E** | Export… (file format × journal style) |
 | **Alt+F** | Figures pane |
 | **Alt+A** | Comments pane |
 | **Alt+C** | Edit the citation at the cursor |
