@@ -173,6 +173,7 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
   { id: "edit-citation", title: () => "Edit citation at cursor", keys: ["Alt+KeyC"], owner: "window", keywords: "citation group edit references multi cite", run: (c) => c.editCitationAtCursor() },
   { id: "margin-citation-group", title: () => "Citation group", hint: "Margin", keywords: "edit citation group cite references multi", owner: "none", run: (c) => c.summonPane("citation-group") },
   { id: "margin-references", title: () => "References", hint: "Margin", keywords: "bibliography citations library", owner: "none", run: (c) => c.summonPane("bibliography") },
+  { id: "margin-journal-check", title: () => "Journal Check", keys: ["Alt+KeyJ"], owner: "window", keywords: "journal style nature compliance limits check submission", run: (c) => c.summonPane("journal-check") },
   { id: "add-doi-library", title: () => "Add DOI to FluxLib", hint: "Reference", keywords: "doi reference library fluxlib add paper crossref import", owner: "none", run: (c) => c.openDoiPrompt("library") },
   { id: "add-doi-cite", title: () => "Add DOI & cite here", hint: "Reference", keywords: "doi cite citation reference insert crossref", owner: "none", run: (c) => c.openDoiPrompt("cite") },
   { id: "margin-figures", title: () => "Figures", keys: ["Alt+KeyF"], owner: "window", keywords: "image plot zoom panel", run: (c) => c.summonPane("figure") },

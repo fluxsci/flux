@@ -10,6 +10,7 @@ import StatsView from "./views/StatsView.svelte";
 import FigureView from "./views/FigureView.svelte";
 import BibliographyView from "./views/BibliographyView.svelte";
 import CommentsView from "./views/CommentsView.svelte";
+import JournalCheckView from "./views/JournalCheckView.svelte";
 import TerminalView from "./views/TerminalView.svelte";
 import ReferenceSearchPane from "./panes/ReferenceSearchPane.svelte";
 import CitationGroupPane from "./panes/CitationGroupPane.svelte";
@@ -45,6 +46,13 @@ export const PANES: PaneDescriptor[] = [
     color: "var(--flx-cyan-600)",
     hotkey: "Alt+F",
     component: FigureView,
+  },
+  {
+    id: "journal-check",
+    title: "Journal Check",
+    color: "var(--flx-base-600)",
+    hotkey: "Alt+J",
+    component: JournalCheckView,
   },
   {
     id: "bibliography",

@@ -156,7 +156,8 @@
       "verify-nature-style.ts",
       "verify-writer-neutral.ts",
       "verify-journal-assets.ts",
-      "verify-nature-structure.ts"
+      "verify-nature-structure.ts",
+      "verify-nature-compliance.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -343,6 +344,7 @@
       "glob": "src/lib/manuscript/**",
       "run": [
         "verify-nature-structure.ts",
+        "verify-nature-compliance.ts",
         "verify-export-prep.ts",
         "tier:pure"
       ]
