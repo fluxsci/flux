@@ -245,6 +245,27 @@ Persistence invariants (all machine-checked — do not weaken):
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
   identity (`store.set({ ...o })`) when mutating in place.
+- **The reader is multi-document** (reader-tabs, 2026-08-04): `readerStore.readerTabs`
+  ({tabs, active}, persisted to localStorage `flux-reader-tabs`) is the open-paper strip;
+  `readerKey` is a READ-ONLY derived view meaning "the focused pane's paper" (the
+  `__fluxReaderKey`/`get_reading_context` contract). Everything scoped to one paper lives in
+  `ReaderDoc.svelte` (`citekey` immutable per instance — a switch mounts a fresh one);
+  `ReaderMode` is the shell: tab strip, keep-alive (`MAX_LIVE_DOCS = 3`, MRU,
+  ModeContent-style visibility flip — warm tab switch is instantaneous; cold tabs restore
+  page/zoom from `flux-reader-view:<key>`, flushed on destroy), and the ONE shared-terminal
+  mount (`agentPane` snippet rendered by the active doc only; across panes the host is claimed
+  via `readerTerminalPane`). Split panes: `paneId` threads Pane → ModeContent → mode;
+  a reader pane shows `paneActiveTab[paneId] ?? readerTabs.active`, with every reader pane
+  PINNED to its current paper before any re-target (one pane's change never retargets the
+  other). reader-context.json has a single writer (module-level owner token; only the
+  focused doc publishes, only the last writer clears). Same-paper-in-two-panes annotation
+  sync rides `annotationsBridge.annotationsRev` (one bump per in-app write; writers
+  skip their own by count — the fs watcher suppresses self-write echoes, so
+  fluxLibRevision never covered in-renderer cross-view sync). Gates: `group:reader-gate`
+  (15 scripts) + the `src/shell/modes/reader/**` pathMap entry; tab semantics pinned in
+  `verify-r7-tabs.mjs`. Gate-selector rule: probes must scope to
+  `[data-doc-active="true"]` (hidden kept-alive docs are in the DOM) and to panes BY INDEX
+  (every `.pane` sits alone in a `.slot` wrapper, so `:first/last-child` match both).
 - Electron: `main.cjs` is a **composition root**; handler families live in
   `electron/ipc/{contract,files,terminal,network,agent}.cjs`. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
@@ -1785,3 +1806,35 @@ idempotence; registry goldens regenerated (3 new verbs). check 0/0, pure 149/149
   so a new canvas's backfill figure APPENDS instead of claiming "Figure 1".
 - `EmbedWidget.eq()`/`updateDOM` compare cached display fields — a new derived field
   (`captionLabel`) MUST join those comparisons or family renumbering never repaints embeds.
+
+### 2026-08-04 — Reader tabs + two PDFs side by side (Claude Fable 5, `reader-tabs`)
+**Work:** Owner request: open several papers without re-finding them, and two PDFs at once.
+Three commits: (1) behavior-preserving extraction of `ReaderDoc.svelte` (~90% of ReaderMode;
+`citekey` immutable per instance kills the staleness guards; the shared terminal stays in the
+shell — one mount, `agentPane` snippet rendered by the active doc; reader-context.json gains a
+module-level owner token; `ReaderFind` gains a `key` so fresh mounts ignore stale find intents)
+— the full existing reader suite green with only two source-shape regex retargets (r3/p4).
+(2) Tabs: `readerTabs` store (persisted `flux-reader-tabs`, lazy session restore),
+`readerKey` now a read-only derived view, keep-alive `MAX_LIVE_DOCS = 3` with destroy-time
+view flush, tab strip (`ReaderTabs.svelte`), Ctrl+Tab/W/PageUp/Down chords, `verify-r7-tabs`
+(46 checks), NEW `group:reader-gate` + the previously-MISSING `src/shell/modes/reader/**`
+pathMap entry. (3) Split: `paneId` threads Pane → ModeContent → mode; `paneActiveTab`
+per-pane assignments with pin-before-retarget; Alt-click a tab → `openReaderTabInSplit`;
+`annotationsRev` cross-view sync; `readerTerminalPane` exclusivity. Architecture promoted to
+§4. Also fixed rotted `verify-w5-lifecycle` (pre-families raw `name` write → nickname).
+**Learnings:**
+- pdf.js viewers survive `visibility:hidden` keep-alive fine (scroll/zoom state intact on
+  reveal) — the ModeContent pattern generalizes to N documents within a mode unchanged.
+- A restored-at-boot document instance mounts before dev-seed hooks can run — gates that
+  reload the page must treat the boot-active tab as load-degraded and assert lazy activation
+  instead (real disk reads don't have this race).
+- Cross-view sync of a store that components ALSO update optimistically needs writer
+  self-suppression by COUNT (one bump per bridge mutation, unconditional even on no-op
+  updates) — reload-on-own-write would transiently duplicate keyed-each ids and cold the
+  locate cache.
+- Pane-scoped gate probes: every `.pane` is alone in its `.slot`, so `.pane:first-child` AND
+  `.pane:last-child` both match — and puppeteer clicks the first. Scope by index +
+  coordinate-click (real pointerdown so the pane's focus capture fires).
+- A selection-anchored popover renders off-viewport when the target page is scrolled away
+  (top: -1200px) and a coordinate click on it silently no-ops — navigate the page into view
+  before driving selection UI.
