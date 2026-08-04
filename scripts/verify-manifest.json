@@ -85,6 +85,7 @@
       "verify-organize.ts",
       "verify-paper-refnums.ts",
       "verify-pdfidentify.ts",
+      "verify-reader-search.ts",
       "verify-r1-hlgeom.ts",
       "verify-r3-agent.ts",
       "verify-r4-cite.ts",
@@ -165,6 +166,7 @@
       "verify-fig-width.mjs",
       "verify-citegroup.mjs",
       "verify-paper-extras.mjs",
+      "verify-outline-refresh.mjs",
       "verify-figref.mjs",
       "verify-w18-paper.mjs",
       "verify-paper-export.mjs",
@@ -320,6 +322,7 @@
       "verify-fig-width.mjs",
       "verify-citegroup.mjs",
       "verify-paper-extras.mjs",
+      "verify-outline-refresh.mjs",
       "verify-figref.mjs",
       "verify-figfamily.ts",
       "verify-citenum.ts",
@@ -346,7 +349,8 @@
       "verify-r3-agent.ts",
       "verify-p4-libreader.ts",
       "verify-r1-hlgeom.ts",
-      "verify-r4-cite.ts"
+      "verify-r4-cite.ts",
+      "verify-reader-search.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -374,6 +378,13 @@
     },
     {
       "glob": "src/shell/modes/reader/**",
+      "run": [
+        "group:reader-gate",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/pdf/**",
       "run": [
         "group:reader-gate",
         "tier:pure"

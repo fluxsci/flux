@@ -110,7 +110,8 @@ try {
 
   // --- Cited by: cached list, row actions, sort toggle --------------------------------
   const stabs = await page.$$eval(`${ACT} .side.refs .stab`, (els) => els.map((e) => e.textContent.trim()));
-  ok("the left rail offers References / Cited by / Outline", stabs.join("|") === "References|Cited by|Outline", stabs.join("|"));
+  ok("the left rail offers References / Cited by / Search / Outline",
+    stabs.join("|") === "References|Cited by|Search|Outline", stabs.join("|"));
   await page.click(`${ACT} .side.refs .stab:nth-child(2)`);
   await sleep(500);
   const citerTitles = await page.$$eval(`${ACT} .side.refs .reflist .rtitle2`, (els) => els.map((e) => e.textContent.trim()));
@@ -200,6 +201,96 @@ try {
   ok("reordering persists", (await page.evaluate(() => JSON.parse(localStorage.getItem("flux-reader-tabs") || "{}").tabs))
     .join(",") === after.join(","));
   await shot(page, "r8-04-reordered");
+
+  // --- toolbar cleanup + panel chords -------------------------------------------------
+  const toolbarBtns = await page.$$eval(`${ACT} .rtoolbar button`, (els) =>
+    els.map((e) => (e.getAttribute("aria-label") || e.textContent || "").trim()),
+  );
+  ok("the ✦ Ask AI button is gone from the toolbar", !toolbarBtns.some((t) => /ask ai/i.test(t)), toolbarBtns.join(" | "));
+  ok("the find magnifier is gone from the toolbar", !toolbarBtns.some((t) => /find in document/i.test(t)));
+  ok("the rails are icon toggles now", toolbarBtns.filter((t) => /Toggle the (left|right) sidebar/.test(t)).length === 2);
+
+  const chord = async (key, { alt = false, ctrl = false, shift = false } = {}) => {
+    if (alt) await page.keyboard.down("Alt");
+    if (ctrl) await page.keyboard.down("Control");
+    if (shift) await page.keyboard.down("Shift");
+    await page.keyboard.press(key);
+    if (shift) await page.keyboard.up("Shift");
+    if (ctrl) await page.keyboard.up("Control");
+    if (alt) await page.keyboard.up("Alt");
+    await sleep(320);
+  };
+
+  await chord("b", { ctrl: true });
+  ok("Ctrl+B hides the left rail", !(await page.$(`${ACT} .side.refs`)));
+  await chord("b", { ctrl: true });
+  ok("…and brings it back", !!(await page.$(`${ACT} .side.refs`)));
+  await chord("b", { ctrl: true, shift: true });
+  ok("Ctrl+Shift+B hides the right rail", !(await page.$(`${ACT} .side.annots`)));
+  await chord("a", { alt: true });
+  ok("Alt+A reopens the right rail on Annotations",
+    !!(await page.$(`${ACT} .side.annots`)) && (await storedLayout()).rightTab === "annots");
+  await chord("r", { alt: true });
+  ok("Alt+R switches it to Library", (await storedLayout()).rightTab === "library");
+
+  // --- Search pane: Ctrl+F, grouped results, click-to-jump ----------------------------
+  await chord("f", { ctrl: true });
+  ok("Ctrl+F opens the Search pane", !!(await page.$(`${ACT} [data-testid="reader-search"]`)));
+  ok("…with the query box focused", await page.evaluate(() => document.activeElement?.classList.contains("srchin")));
+  await page.type(`${ACT} .srchin`, "vision");
+  await page.waitForFunction(
+    (act) => /of [1-9]/.test(document.querySelector(`${act} .srchcount`)?.textContent ?? ""),
+    { timeout: 8000 },
+    ACT,
+  );
+  const firstCount = await page.$eval(`${ACT} .srchcount`, (el) => el.textContent.trim());
+  ok("the counter reports the match total", /^1 of [2-9]/.test(firstCount), firstCount);
+  const hitRows = await page.$$eval(`${ACT} .hit`, (els) => els.length);
+  ok("every match gets a result row with context", hitRows >= 2, `${hitRows} rows`);
+  const heads = await page.$$eval(`${ACT} .hithead`, (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim()));
+  ok("results are grouped with a section/page header", heads.length >= 1 && /p\.\d/.test(heads[0]), heads.join(" | "));
+  ok("the hit itself is marked in the snippet", (await page.$$eval(`${ACT} .hitmark`, (e) => e.length)) >= 2);
+  await shot(page, "r8-05-search");
+
+  await page.click(`${ACT} .hitrows li:last-child .hit`);
+  await sleep(900);
+  const jumped = await page.$eval(`${ACT} .srchcount`, (el) => el.textContent.trim());
+  ok("clicking a result jumps to it (the counter follows)", jumped !== firstCount && /of/.test(jumped), `${firstCount} → ${jumped}`);
+  ok("the clicked row is the active one", (await page.$$eval(`${ACT} .hit.on`, (e) => e.length)) === 1);
+  await page.click(`${ACT} .srchnav .cbtn:last-child`); // next wraps back to 1
+  await sleep(600);
+  ok("› steps through the list", (await page.$eval(`${ACT} .srchcount`, (el) => el.textContent.trim())) !== jumped);
+
+  // --- terminal drawer: Alt+T, drag to resize, dblclick reset -------------------------
+  await chord("t", { alt: true });
+  const drawer = () => page.$eval(`${ACT} .agentpane`, (el) => Math.round(el.getBoundingClientRect().height));
+  ok("Alt+T opens the terminal drawer", !!(await page.$(`${ACT} .agentpane`)));
+  ok("it opens at the stored height", (await drawer()) === 300, String(await drawer()));
+  const dg = await page.$eval(`${ACT} .drawer-gutter`, (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await page.mouse.move(dg.x, dg.y);
+  await page.mouse.down();
+  for (let y = dg.y; y > dg.y - 120; y -= 20) {
+    await page.mouse.move(dg.x, y);
+    await sleep(25);
+  }
+  await page.mouse.up();
+  await sleep(300);
+  const grown = await drawer();
+  ok("dragging its top edge resizes the drawer", grown > 380, `300 → ${grown}`);
+  ok("the height persists", (await storedLayout()).terminalH === grown, String((await storedLayout()).terminalH));
+  // The gutter moved with the drawer — re-read it before double-clicking.
+  const dg2 = await page.$eval(`${ACT} .drawer-gutter`, (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await page.mouse.click(dg2.x, dg2.y, { count: 2 });
+  await sleep(300);
+  ok("double-click resets the drawer height", (await drawer()) === 300, String(await drawer()));
+  await chord("t", { alt: true });
+  ok("Alt+T closes it again", !(await page.$(`${ACT} .agentpane`)));
 
   const errs = realErrors(page);
   const readerErrs = errs.filter((e) => /Reader|PdfView|pdf|annot|tab|library|devSeed/i.test(e));

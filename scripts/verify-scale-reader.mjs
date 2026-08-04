@@ -169,25 +169,28 @@ ok(!jump.error && jump.ms <= BUDGET.jumpMs, `jump to page ${PAGES - 10} rendered
 
 // --- whole-document find ------------------------------------------------------------------------
 const find = await page.evaluate(async () => {
-  const btn = [...document.querySelectorAll("button")].find((b) => /find|search/i.test(b.title || b.getAttribute("aria-label") || ""));
-  // The find bar opens via ⌘/Ctrl-F — dispatch the keybinding.
+  // Ctrl+F opens the left rail's Search tab (the inline find bar is retired).
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true }));
   await new Promise((r) => setTimeout(r, 300));
-  const input = [...document.querySelectorAll("input")].find((i) => /find|search/i.test(i.placeholder || i.getAttribute("aria-label") || ""));
-  if (!input) return { error: "no find input (⌘F did not open the bar)", btnSeen: !!btn };
+  const input = document.querySelector(".srchin");
+  if (!input) return { error: "no search input (⌘F did not open the Search pane)" };
   const t0 = performance.now();
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
   setter.call(input, "NEEDLE");
   input.dispatchEvent(new Event("input", { bubbles: true }));
   for (let i = 0; i < 300; i++) {
     await new Promise((r) => setTimeout(r, 25));
-    const counter = [...document.querySelectorAll("span,div")].map((e) => e.textContent || "").find((t) => /\d+\s*\/\s*\d+/.test(t) && t.length < 24);
-    const m = counter && /(\d+)\s*\/\s*(\d+)/.exec(counter);
-    if (m && Number(m[2]) >= 2) return { ms: performance.now() - t0, total: Number(m[2]) };
+    const m = /(\d+) of (\d+)/.exec(document.querySelector(".srchcount")?.textContent ?? "");
+    if (m && Number(m[2]) >= 2) {
+      const ms = performance.now() - t0;
+      // The whole point of the pane: every hit is listed, not just counted.
+      return { ms, total: Number(m[2]), rows: document.querySelectorAll(".hit").length };
+    }
   }
   return { error: "find never reported matches" };
 });
 ok(!find.error && find.ms <= BUDGET.findMs, `whole-doc find reported ${find.total ?? "?"} matches in ${Math.round(find.ms ?? -1)}ms (≤ ${BUDGET.findMs})`, JSON.stringify(find));
+ok(!find.error && find.rows === find.total, `the Search pane lists every hit (${find.rows ?? "?"} rows / ${find.total ?? "?"} matches)`);
 
 const errs = realErrors(page);
 ok(errs.length === 0, errs.length ? `console errors: ${errs.join(" | ").slice(0, 300)}` : "zero console errors");

@@ -140,7 +140,7 @@ const rm = read("src/shell/modes/reader/ReaderMode.svelte");
 assert(/import TerminalPane from "\.\.\/\.\.\/terminal\/TerminalPane\.svelte"/.test(rm), "reader mounts the SHARED terminal pane (one session with the paper margin)");
 assert(/async function askAgent\(/.test(rm) && /terminalPrefill\(/.test(rm), "askAgent opens the pane and PREFILLS the question (never submits)");
 const rd = read("src/shell/modes/reader/ReaderDoc.svelte");
-assert(/onAsk=\{\(\) => askClaudeAbout\(\w+!?\)\}/.test(rd), "popover Ask routes the highlight into the terminal");
+assert(/onAsk=\{\(\) => sendHighlightToTerminal\(\w+!?\)\}/.test(rd), "popover ✦ routes the highlight into the terminal");
 assert(/onAskSelection=\{\(text, page\)/.test(rd), "selection ✦ routes the passage into the terminal");
 const ts = read("src/shell/terminal/terminalSession.ts");
 assert(/export function prefill\(/.test(ts) && /t \+ " "/.test(ts), "terminalSession.prefill writes WITHOUT a newline (prefill, not submit)");

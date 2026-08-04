@@ -17,6 +17,7 @@
   } from "./readerStore";
   import ReaderDoc from "./ReaderDoc.svelte";
   import ReaderTabs from "./ReaderTabs.svelte";
+  import { readerLayout, READER_LAYOUT_DEFAULTS } from "./readerLayoutStore";
   import TerminalPane from "../../terminal/TerminalPane.svelte";
   import { prefill as terminalPrefill } from "../../terminal/terminalSession";
 
@@ -67,8 +68,31 @@
     terminalPrefill(`${prefix} "${q}" —`);
   }
 
+  // The terminal drawer resizes by its TOP edge: drag up to grow it, double-click to
+  // reset. Same no-preventDefault-on-pointerdown rule as the rails (it would kill the
+  // derived dblclick); the height is measured against the doc column, not the window,
+  // so a split pane clamps against its own box.
+  let docsEl = $state<HTMLElement | null>(null);
+  function startDrawerDrag() {
+    document.body.style.userSelect = "none";
+    const move = (e: PointerEvent) => {
+      if (!docsEl) return;
+      const r = docsEl.getBoundingClientRect();
+      const h = Math.max(120, Math.min(Math.round(r.height * 0.8), r.bottom - e.clientY));
+      readerLayout.update((s) => ({ ...s, terminalH: Math.round(h) }));
+    };
+    const up = () => {
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+  const resetDrawerH = () => readerLayout.update((s) => ({ ...s, terminalH: READER_LAYOUT_DEFAULTS.terminalH }));
+
   // Tab chords. ReaderDoc's own handler never claims these (its ctrl branch is
-  // F/J only; its bare PageUp/Down branch requires no modifier), so the two
+  // F and B/Shift+B; its bare PageUp/Down branch requires no modifier), so the two
   // window listeners stay disjoint. Ctrl only — on macOS Cmd+W stays the app
   // menu's close-window.
   function onShellKey(e: KeyboardEvent) {
@@ -104,7 +128,7 @@
       onClose={closeReaderTab}
       onSplit={openReaderTabInSplit}
       onMove={moveReaderTab} />
-    <div class="docs">
+    <div class="docs" bind:this={docsEl}>
       {#each liveKeys as key (key)}
         <div class="docslot" class:hidden={key !== activeKey} inert={key !== activeKey}>
           <ReaderDoc
@@ -115,11 +139,19 @@
             onToggleAgent={toggleAgent}
             onAsk={askAgent}>
             {#snippet agentPane()}
-              <div class="agentpane">
+              <div
+                class="drawer-gutter"
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Resize the terminal (double-click resets)"
+                onpointerdown={startDrawerDrag}
+                ondblclick={resetDrawerH}>
+              </div>
+              <div class="agentpane" style={`height:${$readerLayout.terminalH}px`}>
                 <div class="agentpane-bar">
                   <span class="agentpane-title">Terminal</span>
-                  <span class="agentpane-hint">run `flux principal` here — Ask AI prefills questions</span>
-                  <button class="agentpane-close" onclick={() => readerTerminalPane.set(null)} title="Ctrl+J">Close</button>
+                  <span class="agentpane-hint">run `flux principal` (or claude, codex…) here — ✦ sends passages down</span>
+                  <button class="agentpane-close" onclick={() => readerTerminalPane.set(null)} title="Alt+T">Close</button>
                 </div>
                 <TerminalPane />
               </div>
@@ -153,10 +185,20 @@
   .docslot.hidden {
     visibility: hidden;
   }
+  .drawer-gutter {
+    flex: 0 0 5px;
+    margin: -2px 0;
+    cursor: row-resize;
+    z-index: 5;
+    background: transparent;
+  }
+  .drawer-gutter:hover {
+    background: color-mix(in srgb, var(--c-accent) 35%, transparent);
+  }
   .agentpane {
     position: relative;
-    flex: 0 0 42%;
-    min-height: 140px;
+    flex: 0 0 auto;
+    min-height: 120px;
     border-top: 1px solid var(--c-line-strong);
     display: flex;
     flex-direction: column;

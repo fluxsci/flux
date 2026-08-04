@@ -147,7 +147,7 @@
 
   <div class="pactions">
     <button class="pbtn" onclick={copy}>{copied ? "Copied ✓" : "Copy text"}</button>
-    <button class="pbtn" title="Ask Claude about this highlight" onclick={() => onAsk?.()}>✦ Ask Claude</button>
+    <button class="pbtn" title="Send this highlight to the terminal" onclick={() => onAsk?.()}>✦ Send to terminal</button>
     <span class="spacer"></span>
     {#if dirty}
       <button class="pbtn save" onclick={save}>Save</button>

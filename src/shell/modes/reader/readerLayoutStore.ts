@@ -12,11 +12,13 @@ export interface ReaderLayout {
   annotsW: number;
   /** Which right-rail tab is showing — sticky, so an Alt+R search panel stays put. */
   rightTab: "annots" | "library";
+  /** Terminal drawer height, in px (drag its top edge; double-click resets). */
+  terminalH: number;
 }
 
 const KEY = "flux.reader.layout";
 
-export const READER_LAYOUT_DEFAULTS: ReaderLayout = { refsW: 268, annotsW: 268, rightTab: "annots" };
+export const READER_LAYOUT_DEFAULTS: ReaderLayout = { refsW: 268, annotsW: 268, rightTab: "annots", terminalH: 300 };
 
 function load(): ReaderLayout {
   try {

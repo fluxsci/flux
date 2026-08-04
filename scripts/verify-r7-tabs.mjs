@@ -122,32 +122,32 @@ try {
   ok("re-open summons, never duplicates", (await stripKeys()).join(",") === "r7alpha,r7beta,r7gamma");
   ok("summoned tab is active with state intact", parseInt(await page.$eval(`${ACT} .zpct`, (el) => el.textContent)) === savedPct);
 
-  // --- find state is per-tab -----------------------------------------------------------
+  // --- search state is per-tab ----------------------------------------------------------
   await page.keyboard.down("Control");
   await page.keyboard.press("f");
   await page.keyboard.up("Control");
-  await sleep(200);
-  await page.type(`${ACT} .rfind-in`, "the");
-  await sleep(400);
-  ok("find bar opens on the active doc", !!(await page.$(`${ACT} .rfind-in`)));
+  await sleep(250);
+  await page.type(`${ACT} .srchin`, "the");
+  await sleep(500);
+  ok("the Search pane opens on the active doc", !!(await page.$(`${ACT} .srchin`)));
   await clickTab("r7beta");
   await sleep(250);
-  ok("switching tabs hides the other doc's find bar", !(await page.$(`${ACT} .rfind-in`)));
+  const otherVal = await page.$eval(`${ACT} .srchin`, (el) => el.value).catch(() => null);
+  ok("the other tab does not inherit the search", otherVal !== "the", String(otherVal));
   await clickTab("r7alpha");
   await sleep(250);
-  const findVal = await page.$eval(`${ACT} .rfind-in`, (el) => el.value).catch(() => null);
-  ok("returning restores the tab's find bar + query", findVal === "the", String(findVal));
+  const findVal = await page.$eval(`${ACT} .srchin`, (el) => el.value).catch(() => null);
+  ok("returning restores this tab's query", findVal === "the", String(findVal));
 
   // --- Escape peels the doc's top layer only -------------------------------------------
   await page.click(`${ACT} [data-testid="pdf-switch"]`);
   await sleep(150);
-  ok("switch menu open above the find bar", !!(await page.$(`${ACT} [data-testid="pdf-menu"]`)));
+  ok("switch menu opens", !!(await page.$(`${ACT} [data-testid="pdf-menu"]`)));
   await page.keyboard.press("Escape");
   await sleep(150);
-  ok("Escape closes the menu, keeps find", !(await page.$(`${ACT} [data-testid="pdf-menu"]`)) && !!(await page.$(`${ACT} .rfind-in`)));
-  await page.keyboard.press("Escape");
-  await sleep(150);
-  ok("second Escape closes find", !(await page.$(`${ACT} .rfind-in`)));
+  ok("Escape closes the menu, keeps the search query",
+    !(await page.$(`${ACT} [data-testid="pdf-menu"]`)) &&
+      (await page.$eval(`${ACT} .srchin`, (el) => el.value).catch(() => "")) === "the");
 
   // --- keyboard: Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+PageDown cycle in strip order --------
   await page.keyboard.down("Control");
@@ -331,9 +331,9 @@ try {
   await shot(page, "r7-05-split-annotation-sync");
 
   // --- the shared terminal lives in exactly one pane at a time -------------------------
-  await page.keyboard.down("Control");
-  await page.keyboard.press("j");
-  await page.keyboard.up("Control");
+  await page.keyboard.down("Alt");
+  await page.keyboard.press("t");
+  await page.keyboard.up("Alt");
   await sleep(300);
   const agentPaneCounts = () =>
     page.evaluate(() => [...document.querySelectorAll(".pane")].map((p) => p.querySelectorAll(".agentpane").length));
@@ -341,9 +341,9 @@ try {
   ok("terminal opens in the focused pane only", agentPanes[0] === 0 && agentPanes[1] === 1, agentPanes.join(" | "));
   await clickIn(0, ".phead .label");
   await sleep(150);
-  await page.keyboard.down("Control");
-  await page.keyboard.press("j");
-  await page.keyboard.up("Control");
+  await page.keyboard.down("Alt");
+  await page.keyboard.press("t");
+  await page.keyboard.up("Alt");
   await sleep(300);
   agentPanes = await agentPaneCounts();
   ok("summoning it from the other pane MOVES it", agentPanes[0] === 1 && agentPanes[1] === 0, agentPanes.join(" | "));

@@ -1873,3 +1873,39 @@ drivable headlessly. check 0/0, pure 149/149, reader-gate 16/16.
   returns null without a resolvable lib, so `__fluxSeedScaleLibrary` silently seeds nothing
   (`{lib: null, entries: 0}`) and every library-dependent assertion fails for the wrong reason.
 - `createQueryRunner()` returns the runner FUNCTION itself, not an object with `.run`.
+
+### 2026-08-04 (evening) — Reader UX cleanup: search pane, panel chords, terminal drawer (Claude Fable 5, `reader-tabs`)
+**Work:** Owner's annotated-screenshot pass. (1) The inline find bar and its magnifier are
+GONE: Ctrl+F now opens a **Search tab** in the left rail listing every match with context,
+grouped by outline section (falling back to per-page) — new pure core
+`src/lib/pdf/findMatches.ts` (`groupMatches`, gated by `verify-reader-search.ts`) plus three
+PdfView exports: `collectMatches()` (read off the find controller's own `pageMatches` +
+folded page text, so the list can never disagree with the painted highlights),
+`goToMatch()`, and `outlineSections()` (dests resolved to page numbers via `getPageIndex`).
+(2) The `☰ References (n)` and `Notes (n) ✎` text buttons became panelLeft/panelRight icons
+(filled when open); Ctrl+B / Ctrl+Shift+B toggle the rails, Alt+A opens the Annotations tab,
+Alt+R still the Library tab. (3) The ✦ Ask AI toolbar button is retired and Ctrl+J with it —
+**Alt+T** toggles the terminal (matching Paper), the drawer resizes by dragging its top edge
+(`readerLayout.terminalH`, dblclick resets), and both ✦ affordances now read "Send passage to
+terminal" (the user is assumed to have an agent running there). (4) Tab drag-reorder.
+Gates: r8 grew to 55 checks; r2/r7/scale-reader find legs repointed at the pane (contract
+changed deliberately — the counter is now "N of M" and the pane lists every hit); r3's
+popover pin follows `askClaudeAbout` → `sendHighlightToTerminal`. pure 150/150, check 0/0.
+**Learnings:**
+- **pdf.js's find controller re-reports its position several times per advance** (and again
+  after a jump lands). Driving UI state from `updatefindmatchescount` makes the counter walk
+  backwards; the fix is to let OUR match list own "which hit is current" and treat the
+  controller as a paint engine. Same trap in reverse: dispatching a step per event
+  double-advances and wraps — dedupe on the position you stepped from.
+- **Never dispatch a `find` while the controller has a page pending extraction** — it logs
+  "There can only be one pending page." and the reader gates fail on console errors. Worse,
+  its own resume guard is `if (this._resumePageIdx)`, so page index 0 is falsy and a fresh
+  search landing on page 1 trips the check from inside pdf.js. Jump by STEPPING an
+  already-scanned query (type "again"), never by re-issuing type "" — a fresh find resets
+  and re-extracts every page.
+- A gate that clicks "the last result row" must select `li:last-child .hit`, not
+  `.hit:last-child` — a button that is its `<li>`'s only child matches `:last-child` in
+  EVERY row, and puppeteer clicks the first. This produced a convincing false failure.
+- Retiring a chord means grepping the GATES too: Ctrl+J lived on in r7's split legs and the
+  inline find bar in r2/r7/scale-reader. `group:reader-gate` caught all of them in one run —
+  the pathMap entry added earlier that day paid for itself immediately.

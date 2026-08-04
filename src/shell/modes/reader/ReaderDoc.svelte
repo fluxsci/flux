@@ -45,7 +45,9 @@
   import type { Annotation, TextQuoteSelector } from "../../../lib/references/annotations";
   import type { ReaderContext } from "../../../lib/references/items";
   import { matchRefToBriefs, type CitePreviewRequest, type FlatOutlineItem } from "../../../lib/pdf/citePreview";
+  import { groupMatches, type FindMatch, type OutlineSection } from "../../../lib/pdf/findMatches";
   import PdfView from "./PdfView.svelte";
+  import Icon from "../../Icon.svelte";
   import HighlightPopover from "./HighlightPopover.svelte";
   import CitePreview from "./CitePreview.svelte";
   import FigurePanel from "./FigurePanel.svelte";
@@ -201,37 +203,55 @@
   // LR-6: find-in-document. The heavy lifting (all-page text index, match location, overlay) lives
   // in PdfView; here we own the search bar + drive it via a nonce-bumped `find` prop and read back
   // the {total,index,page} result for the counter.
-  let findOpen = $state(false);
+  // Find lives in the left rail's SEARCH tab (Ctrl+F): the query box, the counter, the
+  // step buttons and the full result list are all there, so a search is something you
+  // keep beside the page rather than a bar that covers it. PdfView still owns the
+  // mechanics (highlight-all, stepping) through the same nonce protocol.
   let findQuery = $state("");
   let findNonce = $state(0);
   let findDir = $state<"first" | "next" | "prev">("first");
-  let findResult = $state<{ total: number; index: number; page: number } | null>(null);
+  // The result list is AUTHORITATIVE for which hit is current: pdf.js re-reports its
+  // position several times per advance (and once more after a jump lands), so letting
+  // its events drive the selected row makes the counter jitter backwards.
+  let activeIdx = $state(-1);
   let findInput = $state<HTMLInputElement | undefined>(undefined);
   let findDebounce: ReturnType<typeof setTimeout> | undefined;
-  const findProp = $derived(
-    findOpen && findQuery.trim() ? { query: findQuery.trim(), nonce: findNonce, dir: findDir } : null,
-  );
+  let matches = $state<FindMatch[]>([]);
+  let sections = $state<OutlineSection[]>([]);
+  const findProp = $derived(findQuery.trim() ? { query: findQuery.trim(), nonce: findNonce, dir: findDir } : null);
+  const matchGroups = $derived(groupMatches(matches, sections));
   function openFind() {
-    findOpen = true;
+    showRefs = true;
+    sideTab = "search";
+    // Section labels need the outline resolved to page numbers — once per document.
+    if (!sections.length) void pdfView?.outlineSections().then((s) => { if (alive) sections = s; });
     setTimeout(() => findInput?.select(), 0);
   }
-  function closeFind() {
-    findOpen = false;
+  function clearFind() {
     findQuery = "";
-    findResult = null;
+    matches = [];
+    activeIdx = -1;
     clearTimeout(findDebounce);
   }
   function onFindInput() {
     clearTimeout(findDebounce);
     findDebounce = setTimeout(() => {
       findDir = "first"; // a changed query always jumps to the first hit (PdfView rebuilds the set)
+      activeIdx = 0; // …which is the hit PdfView selects
       findNonce++;
     }, 200);
   }
+  /** Step through the list — the same jump the rows use, so ‹ › and clicking agree. */
   function stepFind(dir: "next" | "prev") {
-    if (!findQuery.trim()) return;
-    findDir = dir;
-    findNonce++;
+    if (!matches.length) return;
+    const n = matches.length;
+    activeIdx = (((activeIdx < 0 ? 0 : activeIdx) + (dir === "next" ? 1 : -1)) % n + n) % n;
+    pdfView?.goToMatch(matches[activeIdx], findQuery.trim());
+  }
+  /** Click a result row → jump straight to that hit, wherever it is in the document. */
+  function goToMatch(m: FindMatch) {
+    activeIdx = m.index;
+    pdfView?.goToMatch(m, findQuery.trim());
   }
   // 2.3: a full-text hit in the Library opens the reader here AND jumps to the term.
   // openInReader bumps readerFind; we mirror it into the find bar. PdfView's find effect
@@ -246,10 +266,10 @@
     lastFindOpenNonce = f.nonce;
     if (f.key !== citekey) return;
     if (!f.term) {
-      if (findOpen) closeFind();
+      clearFind();
       return;
     }
-    findOpen = true;
+    openFind();
     findQuery = f.term;
     findDir = "first";
     findNonce++;
@@ -261,7 +281,7 @@
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      closeFind();
+      clearFind();
     }
   }
 
@@ -327,7 +347,7 @@
     cite = null;
   };
   let navDepth = $state(0);
-  let sideTab = $state<"refs" | "citers" | "outline">("refs");
+  let sideTab = $state<"refs" | "citers" | "search" | "outline">("refs");
   let outline = $state<FlatOutlineItem[] | null>(null); // null = not fetched yet (or doc not ready)
   async function showOutline() {
     sideTab = "outline";
@@ -746,7 +766,7 @@
       ? navigator.clipboard.writeText(a.anchor.quote)
       : Promise.reject(new Error("Clipboard unavailable"));
   }
-  function askClaudeAbout(a: Annotation) {
+  function sendHighlightToTerminal(a: Annotation) {
     const note = a.note ? ` (my note: ${a.note})` : "";
     onAsk?.(`About my highlight on p${a.page}${note}:`, a.anchor.quote);
   }
@@ -857,27 +877,46 @@
     readerLayout.update((s) => ({ ...s, rightTab: "library" }));
     librarySearchReq++; // focus the search box (fresh nonce even when already open)
   }
+  function summonAnnotations() {
+    showAnnots = true;
+    readerLayout.update((s) => ({ ...s, rightTab: "annots" }));
+  }
 
   function onKey(e: KeyboardEvent) {
     if (!focused) return; // kept-alive hidden panes must not react (inert blocks focus, not window listeners)
-    if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyR") {
-      e.preventDefault();
-      summonLibrary();
-      return;
+    // Alt chords: the panels (R = library, A = annotations, T = terminal).
+    if (e.altKey && !e.ctrlKey && !e.metaKey) {
+      if (e.code === "KeyR") {
+        e.preventDefault();
+        summonLibrary();
+        return;
+      }
+      if (e.code === "KeyA") {
+        e.preventDefault();
+        summonAnnotations();
+        return;
+      }
+      if (e.code === "KeyT") {
+        e.preventDefault();
+        onToggleAgent?.();
+        return;
+      }
     }
     const tag = (e.target as HTMLElement | null)?.tagName;
     const typing = tag === "INPUT" || tag === "TEXTAREA";
-    if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "b" || e.key === "B")) {
+      e.preventDefault();
+      showAnnots = !showAnnots;
+    } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "b" || e.key === "B")) {
+      e.preventDefault();
+      showRefs = !showRefs;
+    } else if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
       if (!buffer) return; // only when this reader pane has a PDF open
       e.preventDefault();
       openFind();
-    } else if ((e.metaKey || e.ctrlKey) && (e.key === "j" || e.key === "J")) {
-      e.preventDefault();
-      onToggleAgent?.();
     } else if (e.key === "Escape") {
       if (switchOpen) switchOpen = false;
       else if (popover) popover = null;
-      else if (findOpen) closeFind();
       else if (agentOpen) onToggleAgent?.();
     } else if (!typing && buffer && !e.metaKey && !e.ctrlKey && !e.altKey) {
       // Reader nav keys (skipped while typing in find/note/page inputs).
@@ -967,8 +1006,10 @@
   {:else}
     <div class="chrome">
       <div class="rtoolbar">
-        <button class="tgl" class:on={showRefs} onclick={() => (showRefs = !showRefs)} title="Toggle references"
-          >☰ References{refs.length ? ` (${refs.length})` : ""}</button>
+        <button class="railtgl" class:on={showRefs} onclick={() => (showRefs = !showRefs)}
+          aria-label="Toggle the left sidebar" title="Toggle the left sidebar (Ctrl+B)">
+          <Icon name={showRefs ? "panelLeftFill" : "panelLeft"} size={16} />
+        </button>
         <span class="rtitle" title={title}>{title}</span>
         <div class="rnav">
           <button class="zbtn" title="Back (after a link/outline jump)" aria-label="Back" disabled={!navDepth} onclick={() => pdfView?.goBack()}>←</button>
@@ -988,25 +1029,6 @@
             <span class="pgtot">/ {totalPages || "…"}</span>
           </span>
         </div>
-        {#if findOpen}
-          <div class="rfind">
-            <input
-              class="rfind-in"
-              bind:this={findInput}
-              bind:value={findQuery}
-              placeholder="Find in document"
-              aria-label="Find in document"
-              oninput={onFindInput}
-              onkeydown={findKey} />
-            <span class="rfind-count"
-              >{findQuery.trim() ? (findResult && findResult.total ? `${findResult.index + 1}/${findResult.total}` : "0/0") : ""}</span>
-            <button class="rfind-btn" title="Previous match (Shift-Enter)" aria-label="Previous match" disabled={!findResult?.total} onclick={() => stepFind("prev")}>↑</button>
-            <button class="rfind-btn" title="Next match (Enter)" aria-label="Next match" disabled={!findResult?.total} onclick={() => stepFind("next")}>↓</button>
-            <button class="rfind-btn" title="Close (Esc)" aria-label="Close find" onclick={closeFind}>✕</button>
-          </div>
-        {:else}
-          <button class="tgl" title="Find in document (⌘/Ctrl-F)" aria-label="Find in document" onclick={openFind}>🔍</button>
-        {/if}
         <div class="pdfswitch" bind:this={switchEl}>
           <button
             class="tgl pdfswbtn"
@@ -1036,10 +1058,10 @@
             </div>
           {/if}
         </div>
-        <button class="tgl" class:on={showAnnots} onclick={() => (showAnnots = !showAnnots)} title="Toggle annotations"
-          >Notes ({annotations.length}) ✎</button>
-        <button class="tgl agentbtn" class:on={agentOpen} onclick={onToggleAgent}
-          title="Open the terminal — run `flux principal` there; Ask-AI prefills questions about your selection/highlights (⌘/Ctrl-J)">✦ Ask AI</button>
+        <button class="railtgl" class:on={showAnnots} onclick={() => (showAnnots = !showAnnots)}
+          aria-label="Toggle the right sidebar" title="Toggle the right sidebar (Ctrl+Shift+B)">
+          <Icon name={showAnnots ? "panelRightFill" : "panelRight"} size={16} />
+        </button>
       </div>
       <div
         class="rbody"
@@ -1050,9 +1072,53 @@
             <div class="shead stabs">
               <button class="stab" class:on={sideTab === "refs"} onclick={() => (sideTab = "refs")}>References</button>
               <button class="stab" class:on={sideTab === "citers"} onclick={showCiters} title="Papers that cite this one">Cited by</button>
+              <button class="stab" class:on={sideTab === "search"} onclick={openFind} title="Search this PDF (Ctrl+F)">Search</button>
               <button class="stab" class:on={sideTab === "outline"} onclick={() => void showOutline()}>Outline</button>
             </div>
-            {#if sideTab === "citers"}
+            {#if sideTab === "search"}
+              <div class="srch" data-testid="reader-search">
+                <div class="srchbar">
+                  <input
+                    class="srchin"
+                    bind:this={findInput}
+                    bind:value={findQuery}
+                    placeholder="Search this PDF"
+                    aria-label="Search this PDF"
+                    spellcheck="false"
+                    oninput={onFindInput}
+                    onkeydown={findKey} />
+                  {#if findQuery}
+                    <button class="srchx" title="Clear" aria-label="Clear search" onclick={clearFind}>✕</button>
+                  {/if}
+                </div>
+                <div class="srchnav">
+                  <span class="srchcount"
+                    >{findQuery.trim() ? (matches.length ? `${Math.max(activeIdx, 0) + 1} of ${matches.length}` : "No results") : ""}</span>
+                  <button class="cbtn" title="Previous match (Shift-Enter)" aria-label="Previous match"
+                    disabled={!matches.length} onclick={() => stepFind("prev")}>‹</button>
+                  <button class="cbtn" title="Next match (Enter)" aria-label="Next match"
+                    disabled={!matches.length} onclick={() => stepFind("next")}>›</button>
+                </div>
+                {#if matchGroups.length}
+                  <ul class="hitlist">
+                    {#each matchGroups as g (g.label + g.page)}
+                      <li class="hitgroup">
+                        <div class="hithead"><span class="hitsec" title={g.label}>{g.label}</span><span class="hitpg">p.{g.page}</span></div>
+                        <ul class="hitrows">
+                          {#each g.matches as m (m.index)}
+                            <li>
+                              <button class="hit" class:on={activeIdx === m.index} onclick={() => goToMatch(m)}>
+                                <span class="hitctx">…{m.before}</span><mark class="hitmark">{m.hit}</mark><span class="hitctx">{m.after}…</span>
+                              </button>
+                            </li>
+                          {/each}
+                        </ul>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+            {:else if sideTab === "citers"}
               <div class="csort">
                 <button class="cbtn" class:on={citersSort === "cited"} onclick={() => setCitersSort("cited")}>Most cited</button>
                 <button class="cbtn" class:on={citersSort === "recent"} onclick={() => setCitersSort("recent")}>Newest</button>
@@ -1116,7 +1182,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key bufferGen}
-              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onFind={(r) => (findResult = r)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => onAsk?.(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => onAsk?.(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
           {#if agentOpen && active}
@@ -1186,7 +1252,7 @@
             onSaveNote={(n) => void handleUpdate(ann.id, { note: n || undefined })}
             onRecolor={(c) => void handleUpdate(ann.id, { color: c })}
             onCopy={() => copyQuote(ann)}
-            onAsk={() => askClaudeAbout(ann)}
+            onAsk={() => sendHighlightToTerminal(ann)}
             onDelete={() => void handleDelete(ann.id)}
             onClose={() => (popover = null)} />
         {/if}
@@ -1441,56 +1507,149 @@
   .pgtot {
     color: var(--c-tx-faint);
   }
-  /* LR-6: find-in-document bar (toolbar-inline). */
-  .rfind {
+  /* Rail toggles — the two panel icons that bookend the toolbar. */
+  .railtgl {
     flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    padding: 2px 4px;
-    border: 1px solid var(--c-accent);
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 22px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--c-tx-faint);
     border-radius: var(--r-1);
+    cursor: pointer;
   }
-  .rfind-in {
-    width: 12em;
+  .railtgl:hover {
+    color: var(--c-tx-1);
+    border-color: var(--c-line);
+  }
+  .railtgl.on {
+    color: var(--c-accent);
+    background: var(--c-accent-tint);
+  }
+  /* Search pane (Ctrl+F): query, counter + stepping, then the grouped hit list. */
+  .srch {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+  .srchbar {
+    position: relative;
+    flex: 0 0 auto;
+    margin: 8px;
+  }
+  .srchin {
+    width: 100%;
     background: var(--c-bg);
     color: var(--c-tx);
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-1);
-    padding: 2px 6px;
+    padding: 4px 24px 4px 8px;
     font: inherit;
     font-size: var(--ts-xs);
   }
-  .rfind-in:focus {
+  .srchin:focus {
     outline: none;
     border-color: var(--c-accent);
   }
-  .rfind-count {
-    min-width: 3em;
-    text-align: center;
+  .srchx {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: none;
+    background: none;
     color: var(--c-tx-faint);
-    font-size: var(--ts-xs);
-    font-variant-numeric: tabular-nums;
-  }
-  .rfind-btn {
-    border: 1px solid var(--c-line-strong);
-    background: transparent;
-    color: var(--c-tx-2);
-    border-radius: var(--r-1);
-    min-width: 20px;
-    padding: 2px 5px;
     font: inherit;
     font-size: var(--ts-xs);
     line-height: 1;
+    padding: 2px 4px;
     cursor: pointer;
   }
-  .rfind-btn:hover:not(:disabled) {
-    border-color: var(--c-accent);
-    color: var(--c-accent);
+  .srchx:hover {
+    color: var(--c-tx-1);
   }
-  .rfind-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
+  .srchnav {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px 6px;
+    border-bottom: 1px solid var(--c-line);
+  }
+  .srchcount {
+    flex: 1 1 auto;
+    font-size: var(--ts-xs);
+    color: var(--c-tx-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .hitlist,
+  .hitrows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .hitlist {
+    overflow: auto;
+    min-height: 0;
+    padding-bottom: 4px;
+  }
+  .hithead {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 5px 12px 3px;
+    background: var(--c-surface);
+    font-size: var(--ts-xs);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--c-tx-faint);
+  }
+  .hitsec {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hitpg {
+    flex: 0 0 auto;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .hit {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: none;
+    border-left: 2px solid transparent;
+    background: none;
+    color: var(--c-tx-2);
+    font: inherit;
+    font-size: var(--ts-xs);
+    line-height: 1.4;
+    padding: 4px 12px;
+    cursor: pointer;
+  }
+  .hit:hover {
+    background: var(--c-bg);
+  }
+  .hit.on {
+    border-left-color: var(--c-accent);
+    background: var(--c-bg);
+    color: var(--c-tx-1);
+  }
+  .hitctx {
+    color: var(--c-tx-faint);
+  }
+  .hitmark {
+    background: var(--c-accent-tint);
+    color: var(--c-accent);
+    border-radius: 2px;
+    padding: 0 1px;
   }
   .rbody {
     flex: 1 1 auto;
@@ -1558,21 +1717,28 @@
   }
   .stabs {
     display: flex;
-    gap: 4px;
-    padding: 5px 8px;
+    gap: 2px;
+    padding: 5px 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .stabs::-webkit-scrollbar {
+    display: none;
   }
   .stabs .expnotes {
     margin-left: auto;
   }
   .stab {
+    flex: 0 0 auto;
     border: none;
     background: transparent;
     color: var(--c-tx-faint);
     font: inherit;
     font-size: var(--ts-xs);
-    letter-spacing: 0.06em;
+    letter-spacing: 0;
     text-transform: uppercase;
-    padding: 3px 6px;
+    white-space: nowrap;
+    padding: 3px 4px;
     border-radius: var(--r-1);
     cursor: pointer;
   }
@@ -1667,11 +1833,6 @@
     position: relative;
     flex: 1 1 auto;
     min-height: 0;
-  }
-  .agentbtn.on {
-    border-color: var(--c-accent);
-    background: var(--c-accent-tint);
-    color: var(--c-accent);
   }
   .reflist,
   .annlist {
