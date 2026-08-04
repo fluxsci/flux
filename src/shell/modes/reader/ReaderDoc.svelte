@@ -430,6 +430,19 @@
   );
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let viewRestored = false; // don't persist the defaults that flash by before restore
+  // Shadow of the last known view state for the destroy-time flush: PdfView may
+  // already be torn down when onDestroy runs (child-before-parent destroy order),
+  // so the flush must not depend on a live viewer.
+  let lastVs: { page: number; scaleValue?: string } | null = null;
+  function persistView(vs: { page: number; scaleValue?: string }) {
+    const saved: SavedView = { page: vs.page, scaleValue: vs.scaleValue, layout, showRefs, showAnnots, at: Date.now() };
+    try {
+      localStorage.setItem(viewKey(citekey), JSON.stringify(saved));
+      trimViewStates();
+    } catch {
+      /* storage full/blocked — reading state is best-effort */
+    }
+  }
   $effect(() => {
     void curPage;
     void scalePct;
@@ -437,17 +450,12 @@
     void showRefs;
     void showAnnots;
     if (!totalPages || !viewRestored) return;
+    lastVs = pdfView?.getViewState() ?? lastVs;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       const vs = pdfView?.getViewState();
       if (!vs) return;
-      const saved: SavedView = { page: vs.page, scaleValue: vs.scaleValue, layout, showRefs, showAnnots, at: Date.now() };
-      try {
-        localStorage.setItem(viewKey(citekey), JSON.stringify(saved));
-        trimViewStates();
-      } catch {
-        /* storage full/blocked — reading state is best-effort */
-      }
+      persistView(vs);
     }, 400);
   });
 
@@ -678,7 +686,10 @@
 
   // Push the live reading context to <FluxLib>/.fluxlib/reader-context.json (debounced)
   // so the agent's get_reading_context tool can see the paper + selection + highlights.
+  // Only the focused document publishes — hidden kept-alive tabs (and, later,
+  // unfocused panes) must not overwrite what the paper being read just wrote.
   $effect(() => {
+    if (!focused) return;
     const sel = selection;
     const e = entry;
     const anns = annotations;
@@ -739,6 +750,13 @@
 
   onDestroy(() => {
     alive = false;
+    // Flush the final view state (tab close / keep-alive eviction / app close) —
+    // the debounced save may not have fired yet.
+    clearTimeout(saveTimer);
+    if (viewRestored) {
+      const vs = pdfView?.getViewState() ?? lastVs;
+      if (vs) persistView(vs);
+    }
     clearTimeout(ctxTimer);
     if (ctxOwner === ctxToken) {
       ctxOwner = null;

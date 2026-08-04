@@ -25,6 +25,18 @@ Two sidebars flank the page:
 
 Each paper remembers its own page, zoom, and layout between sessions.
 
+# Tabs
+
+Every paper you open becomes a **tab** in the strip above the toolbar, so a few papers stay a
+click apart — no re-finding them in the Library. Opening an already-open paper just focuses
+its tab. Switching between recently viewed tabs is instant, with your page, zoom, and even an
+open find bar exactly as you left them; tabs you haven't looked at in a while reload on
+demand, restored to their remembered page and zoom.
+
+- **Ctrl+Tab** / **Ctrl+Shift+Tab** (or **Ctrl+PageDown** / **Ctrl+PageUp**) cycle through tabs.
+- **Ctrl+W**, a **middle-click**, or the tab's **×** closes one — the next tab over takes its place.
+- Your open tabs (and which was active) come back when you restart Flux.
+
 # Highlights and notes
 
 Select any text and a small color menu appears — five highlight colors (yellow, green, blue,

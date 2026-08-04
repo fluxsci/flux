@@ -1,15 +1,41 @@
 <script lang="ts">
   // FluxReader — the PDF reading mode shell. Everything scoped to ONE open paper lives
-  // in ReaderDoc.svelte (mounted per open document); this shell owns what is shared
-  // across documents: the empty state and the persistent terminal pane (terminalSession
-  // — the SAME shell the Paper margin mounts), which must have exactly one mount.
-  import { tick } from "svelte";
-  import { readerKey } from "./readerStore";
+  // in ReaderDoc.svelte (one instance per live tab); this shell owns what is shared
+  // across documents: the tab strip, the keep-alive policy, the tab keyboard, the
+  // empty state, and the persistent terminal pane (terminalSession — the SAME shell
+  // the Paper margin mounts), which must have exactly one mount.
+  import { tick, untrack } from "svelte";
+  import { readerTabs, activateReaderTab, closeReaderTab, cycleReaderTab } from "./readerStore";
   import ReaderDoc from "./ReaderDoc.svelte";
+  import ReaderTabs from "./ReaderTabs.svelte";
   import TerminalPane from "../../terminal/TerminalPane.svelte";
   import { prefill as terminalPrefill } from "../../terminal/terminalSession";
 
   let { focused = true }: { focused?: boolean } = $props();
+
+  const tabs = $derived($readerTabs.tabs);
+  const activeKey = $derived($readerTabs.active);
+
+  // Keep-alive: the active document plus the most recently viewed others stay
+  // mounted (hidden ModeContent-style — visibility flip, so switching among warm
+  // tabs is instantaneous); older tabs render nothing and cold-reopen through the
+  // flux-reader-view restore. The cap bounds the real cost — each live doc holds
+  // its PDF bytes (up to ~3× the file: doc buffer + PdfView's copy + the worker
+  // transfer) plus a pdf.js worker — while the tab COUNT stays uncapped.
+  const MAX_LIVE_DOCS = 3;
+  let liveKeys = $state<string[]>([]);
+  $effect(() => {
+    const k = activeKey;
+    const open = new Set(tabs.map((t) => t.key));
+    const cur = untrack(() => liveKeys);
+    let next = cur.filter((x) => open.has(x)); // closed tabs release their instance
+    if (k && open.has(k)) {
+      next = next.filter((x) => x !== k);
+      next.push(k); // MRU order, active last
+      while (next.length > MAX_LIVE_DOCS) next.shift();
+    }
+    if (next.length !== cur.length || next.some((x, i) => x !== cur[i])) liveKeys = next;
+  });
 
   // R3 (terminal-first rework): "Ask AI" opens the shared terminal and PREFILLS
   // a question about the passage — never submits. Run whatever agent you like
@@ -22,35 +48,62 @@
     const q = quote.length > 220 ? quote.slice(0, 220) + "…" : quote;
     terminalPrefill(`${prefix} "${q}" —`);
   }
+
+  // Tab chords. ReaderDoc's own handler never claims these (its ctrl branch is
+  // F/J only; its bare PageUp/Down branch requires no modifier), so the two
+  // window listeners stay disjoint. Ctrl only — on macOS Cmd+W stays the app
+  // menu's close-window.
+  function onShellKey(e: KeyboardEvent) {
+    if (!focused) return; // kept-alive hidden panes must not react
+    const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
+    if (!ctrl) return;
+    if (e.key === "Tab") {
+      e.preventDefault();
+      cycleReaderTab(e.shiftKey ? -1 : 1);
+    } else if (!e.shiftKey && (e.key === "PageDown" || e.key === "PageUp")) {
+      e.preventDefault();
+      cycleReaderTab(e.key === "PageDown" ? 1 : -1);
+    } else if (!e.shiftKey && (e.key === "w" || e.key === "W")) {
+      e.preventDefault();
+      if (activeKey) closeReaderTab(activeKey);
+    }
+  }
 </script>
 
+<svelte:window onkeydown={onShellKey} />
+
 <div class="reader">
-  {#if !$readerKey}
+  {#if !tabs.length}
     <div class="empty">
       <span class="h">FluxReader</span>
       <span>Open a paper from the Library (the “Read” action) to start reading.</span>
     </div>
   {:else}
-    {#key $readerKey}
-      <ReaderDoc
-        citekey={$readerKey}
-        active
-        {focused}
-        {agentOpen}
-        onToggleAgent={() => (agentOpen = !agentOpen)}
-        onAsk={askAgent}>
-        {#snippet agentPane()}
-          <div class="agentpane">
-            <div class="agentpane-bar">
-              <span class="agentpane-title">Terminal</span>
-              <span class="agentpane-hint">run `flux principal` here — Ask AI prefills questions</span>
-              <button class="agentpane-close" onclick={() => (agentOpen = false)} title="Ctrl+J">Close</button>
-            </div>
-            <TerminalPane />
-          </div>
-        {/snippet}
-      </ReaderDoc>
-    {/key}
+    <ReaderTabs {tabs} {activeKey} onActivate={activateReaderTab} onClose={closeReaderTab} />
+    <div class="docs">
+      {#each liveKeys as key (key)}
+        <div class="docslot" class:hidden={key !== activeKey} inert={key !== activeKey}>
+          <ReaderDoc
+            citekey={key}
+            active={key === activeKey}
+            focused={focused && key === activeKey}
+            {agentOpen}
+            onToggleAgent={() => (agentOpen = !agentOpen)}
+            onAsk={askAgent}>
+            {#snippet agentPane()}
+              <div class="agentpane">
+                <div class="agentpane-bar">
+                  <span class="agentpane-title">Terminal</span>
+                  <span class="agentpane-hint">run `flux principal` here — Ask AI prefills questions</span>
+                  <button class="agentpane-close" onclick={() => (agentOpen = false)} title="Ctrl+J">Close</button>
+                </div>
+                <TerminalPane />
+              </div>
+            {/snippet}
+          </ReaderDoc>
+        </div>
+      {/each}
+    </div>
   {/if}
 </div>
 
@@ -59,6 +112,22 @@
     position: absolute;
     inset: 0;
     background: var(--c-bg);
+    display: flex;
+    flex-direction: column;
+  }
+  .docs {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .docslot {
+    position: absolute;
+    inset: 0;
+  }
+  /* visibility:hidden (not display:none) keeps the box laid out so pdf.js viewer
+     geometry survives being backgrounded; inert (markup) blocks focus + input. */
+  .docslot.hidden {
+    visibility: hidden;
   }
   .agentpane {
     position: relative;
