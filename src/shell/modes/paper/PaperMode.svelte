@@ -40,7 +40,7 @@
   import { activeCitationWatcher, resetActiveCitation } from "./scholar/activeCitation";
   import { followAtCaret } from "./editing/caretActions";
   import { foldSection, unfoldSection } from "./editing/folding";
-  import { foldAll, unfoldAll } from "@codemirror/language";
+  import { foldAll, syntaxTree, syntaxTreeAvailable, unfoldAll } from "@codemirror/language";
   import { keymap } from "@codemirror/view";
   import StatusBar from "./StatusBar.svelte";
   import { wordCount } from "./margin/views/stats";
@@ -134,7 +134,13 @@
   function refreshIdleNow(): void {
     clearTimeout(idleTimer);
     latestIdle = latest;
-    if (view) outline = getOutline(view.state);
+    if (view) {
+      outline = getOutline(view.state);
+      // A huge doc can outrun getOutline's parse budget, and the background
+      // parser stops ~100k past the viewport — keep pulling until the tree
+      // reaches the end of the document (no-op once fully parsed).
+      if (!syntaxTreeAvailable(view.state)) scheduleIdle();
+    }
   }
   let paletteOpen = $state(false);
   // F4: the active document (project-relative path) + the project's document list.
@@ -967,6 +973,13 @@
       first: [vimCompartment.of(vimExtensions(get(paperVimFlavor)))],
       extra: [
         pageCompartment.of(themeFor(viewMode)),
+        // The outline walks the syntax tree, which the background parser fills
+        // in AFTER mount via non-doc-change transactions (init parses ~3k
+        // chars). Without this, headings past the parsed prefix stay missing
+        // from the TOC until the next keystroke.
+        EditorView.updateListener.of((u) => {
+          if (!u.docChanged && syntaxTree(u.state) !== syntaxTree(u.startState)) scheduleIdle();
+        }),
         selectionWatcher,
         paperSelectionWatcher, // feedback stamp: live doc selection → shell store
         cursorWatcher,

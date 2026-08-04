@@ -368,7 +368,7 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
   on this box need `--ozone-platform=x11` (§9).
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
-  `group:paper-gate` is the paper editor's regression suite (15 scripts).
+  `group:paper-gate` is the paper editor's regression suite (16 scripts).
 
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
@@ -1873,6 +1873,27 @@ drivable headlessly. check 0/0, pure 149/149, reader-gate 16/16.
   returns null without a resolvable lib, so `__fluxSeedScaleLibrary` silently seeds nothing
   (`{lib: null, entries: 0}`) and every library-dependent assertion fails for the wrong reason.
 - `createQueryRunner()` returns the runner FUNCTION itself, not an object with `.run`.
+
+### 2026-08-04 — Outline missed headings until the next keystroke (Claude Fable 5, `reader-tabs`)
+**Work:** Owner-reported: well-formed headings absent from the paper outline until you type at
+(or near) their line. Root cause: `getOutline` walked the bare `syntaxTree(state)` — CodeMirror
+parses lazily (init ≈ first 3k chars, edits parse only to the viewport, the background worker
+commits progress via NON-doc-change transactions and stops ~100k past the viewport) — while the
+outline refreshed only on `docChanged`, so headings past the parsed prefix never arrived. Fix:
+`getOutline` forces a bounded whole-doc parse (`ensureSyntaxTree(state, doc.length, 50)`, the
+livePreview pattern, partial-tree fallback); PaperMode gained a parse-progress listener
+(`!docChanged && syntaxTree(u.state) !== syntaxTree(u.startState)` → `scheduleIdle`) and
+`refreshIdleNow` self-reschedules while `!syntaxTreeAvailable` so giant docs converge. New gate
+`verify-outline-refresh.mjs` (ui + paper-gate, now 16) — teeth proven: fails pre-fix on a ~950k
+doc's tail heading, passes post-fix; paper-gate 16/16, check 0/0.
+**Learnings:**
+- **Bare `syntaxTree(state)` is a partial tree** — any whole-document consumer must
+  `ensureSyntaxTree(state, state.doc.length, budget) ?? syntaxTree(state)` AND re-run when the
+  parser catches up, because worker commits are `docChanged === false` transactions that
+  `onChange`-driven refreshes never see. Viewport-scoped consumers (chips) are exempt.
+- The background parser never parses past viewport + 100k chars on its own; a consumer that
+  needs the WHOLE tree on a giant doc must keep pulling (self-rescheduling idle tick on
+  `!syntaxTreeAvailable`) or the tail stays unparsed forever.
 
 ### 2026-08-04 (evening) — Reader UX cleanup: search pane, panel chords, terminal drawer (Claude Fable 5, `reader-tabs`)
 **Work:** Owner's annotated-screenshot pass. (1) The inline find bar and its magnifier are

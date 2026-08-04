@@ -1,6 +1,6 @@
 // Heading outline derived from the Lezer markdown tree (Flux_Paper_Plan.md A4).
 
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
 
 export interface OutlineItem {
@@ -39,8 +39,14 @@ export function buildTree(items: OutlineItem[]): OutlineNode[] {
 }
 
 export function getOutline(state: EditorState): OutlineItem[] {
+  // The bare tree ends wherever the parser last got to (init covers only the
+  // first ~3k chars; edits parse only to the viewport), so a bare-tree walk
+  // silently drops every heading past that point. Force a bounded
+  // whole-document parse; on budget overrun fall back to the partial tree —
+  // PaperMode's parse-progress listener re-runs us as the worker catches up.
+  const tree = ensureSyntaxTree(state, state.doc.length, 50) ?? syntaxTree(state);
   const items: OutlineItem[] = [];
-  syntaxTree(state).iterate({
+  tree.iterate({
     enter: (node) => {
       const m = /^ATXHeading([1-6])$/.exec(node.name);
       if (m) {
