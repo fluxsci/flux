@@ -103,7 +103,8 @@ attend state) lives in `.meta/` and takes care of itself.
 - **Comments** on any document — threaded, anchored to exact text.
 - **Ctrl+Shift+M** anywhere — "Note to agent": one line, automatically **stamped with
   what you're looking at** (figure/element/plot part, document + selected text, slide +
-  beat). **Send** marks the boundary: everything open becomes the work order.
+  beat). **Add** queues notes; **Send** marks the boundary: everything open becomes the
+  work order. The buttons in detail: @sec-note-popover.
 - The principal drains both queues (`flux feedback`, `flux comments`), fixes each item,
   and resolves it with a note — threads close live in your margin. When unsure, it asks
   *you* via a margin comment instead of guessing.
@@ -115,6 +116,41 @@ attend state) lives in `.meta/` and takes care of itself.
   same shared terminal is available in the Paper margin.
 - **⌘K palette**: open mission/notebook/rules, global rules, Note to agent, and *Copy
   principal prompt* (paste the boot prompt into any existing session).
+
+## The note popover: Add vs Send {#sec-note-popover}
+
+The **Ctrl+Shift+M** popover has three buttons — **Send**, **Add**, and **Add & send** —
+because *capturing* feedback and *dispatching* it are deliberately separate steps. Every
+note and every send is one line appended to the project's feedback ledger
+(`.meta/feedback.ndjson`); the buttons differ only in which lines they write. The grey
+text in the popover's header is the context stamp that will be saved with the note, and
+the footer counts the notes currently queued ("2 open notes").
+
+- **Add** (or **Enter**) records the note and closes the popover. That is *all* that
+  happens — no toast, no agent activity, nothing changes on the canvas. The note is
+  queued: reopen the popover and the footer counts it, and `flux feedback` lists it from
+  any terminal. Adding never wakes an agent, so you can walk through a whole figure or
+  manuscript jotting every issue as you spot it — each note stamped with exactly what
+  you were looking at when you wrote it.
+- **Send** appends a *send* mark: a review-pass boundary that turns everything currently
+  open into the agent's work order. Use it to fire off a batch of earlier Adds; it is
+  greyed out until at least one note is open. A toast confirms ("Sent — 3 note(s) are
+  now the agent's work order").
+- **Add & send** (or **Ctrl+Enter**) does both at once — the common case when a single
+  request should go out immediately.
+
+What a send *triggers* depends on who is listening:
+
+- **`flux attend` is running** — the watcher notices within a couple of seconds and
+  wakes one non-interactive principal pass over the open notes. As the agent resolves
+  each one you get an in-app toast ("Agent resolved: …").
+- **An interactive principal session** — open feedback is part of its boot reading, and
+  it drains the queue on request; the send boundary tells it which notes form the
+  current work order.
+- **Nobody** — nothing visible happens beyond the toast, and nothing is lost. The notes
+  and the send mark are durably recorded, and the next `flux attend` (or principal
+  session) picks up the outstanding send the moment it starts. You never need to
+  re-send.
 
 # The roster — `agents.json` {#sec-roster}
 
