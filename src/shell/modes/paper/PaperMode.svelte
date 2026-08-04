@@ -33,6 +33,7 @@
   import { resolveJournalStyle, type ResolvedJournalStyle } from "../../../lib/style/journalStyle";
   import { BUILTIN_JOURNAL_STYLES, journalStyleOptions } from "../../../lib/style/journalPresets";
   import { EXPORT_PROFILE, journalAssetPlan, journalProfileYaml } from "../../../lib/style/journalAssets";
+  import { NATURE_ROLE_ALIASES } from "../../../lib/manuscript/sections";
   import ExportDialog, {
     type ExportFormat,
     type ExportPlan,
@@ -593,6 +594,7 @@
           figures: exportCtxFigures(style),
           panels: style.figures.panels,
         },
+        structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
       },
     );
     return () => prep.restore();

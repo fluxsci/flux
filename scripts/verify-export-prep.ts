@@ -17,6 +17,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { prepareExport, type ExportPrepIO } from "../src/lib/exportPrep";
 import { BUILTIN_FAMILIES } from "../src/lib/figfamily";
+import { NATURE_ROLE_ALIASES } from "../src/lib/manuscript/sections";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -115,6 +116,36 @@ try {
   assert(!changedRel.includes("manuscript/sections/untouched.qmd"),
     "an unchanged file is not reported as changed (no mtime churn)");
   assert(changedRel.length === 2, `only the two transformed files were written (got ${changedRel.length})`);
+
+  // --- section order applies to the ENTRY document only ----------------------
+  // An included file is a fragment: reordering its headings would shuffle
+  // content across the splice point and scramble the assembled document.
+  {
+    const mem2 = new Map<string, string>([
+      ["/p/manuscript/main.qmd",
+        "---\ntitle: T\n---\n\nlead\n\n# Acknowledgements\n\nta\n\n# Methods\n\nm\n\n{{< include sections/extra.qmd >}}\n"],
+      ["/p/manuscript/sections/extra.qmd", "# Acknowledgements\n\ninner-ack\n\n# Methods\n\ninner-methods\n"],
+    ]);
+    const io2: ExportPrepIO = {
+      readText: async (a) => mem2.get(a) ?? null,
+      writeText: async (a, t) => void mem2.set(a, t),
+    };
+    const prep = await prepareExport(io2, {
+      entry: "/p/manuscript/main.qmd",
+      ctx: { captions: new Map(), figures: new Map() },
+      structure: { order: ["abstract", "body", "methods", "acknowledgements"], aliases: NATURE_ROLE_ALIASES },
+    });
+    const entry = mem2.get("/p/manuscript/main.qmd")!;
+    assert(entry.indexOf("# Methods") < entry.indexOf("# Acknowledgements"),
+      "the ENTRY document is reordered into the venue's order");
+    assert(prep.movedSections.length > 0, `moved sections are reported (${prep.movedSections.join(", ")})`);
+    assert(mem2.get("/p/manuscript/sections/extra.qmd") === "# Acknowledgements\n\ninner-ack\n\n# Methods\n\ninner-methods\n",
+      "an INCLUDED fragment is left in its authored order");
+    await prep.restore();
+    assert(mem2.get("/p/manuscript/main.qmd")!.indexOf("# Acknowledgements") <
+      mem2.get("/p/manuscript/main.qmd")!.indexOf("# Methods"),
+      "restore() undoes the reordering too — the source keeps its authored order");
+  }
 
   // --- restore --------------------------------------------------------------
   await diskPrep.restore();

@@ -11,6 +11,7 @@ import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
 import { resolveJournalStyle, styledFamilyDef } from "../src/lib/style/journalStyle";
 import { BUILTIN_JOURNAL_STYLES } from "../src/lib/style/journalPresets";
+import { NATURE_ROLE_ALIASES } from "../src/lib/manuscript/sections";
 import {
   EXPORT_PROFILE,
   EXPORT_PROFILE_FILE,
@@ -284,7 +285,11 @@ export async function compile(
   // so the GUI runs byte-for-byte the same preparation.
   const prep = await prepareExport(
     { ...qmdTreeIO, writeText: atomicWrite },
-    { entry: docAbs, ctx },
+    {
+      entry: docAbs,
+      ctx,
+      structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
+    },
   );
   const expanded = prep.expanded;
 

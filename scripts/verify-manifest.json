@@ -155,7 +155,8 @@
       "verify-journalstyle.ts",
       "verify-nature-style.ts",
       "verify-writer-neutral.ts",
-      "verify-journal-assets.ts"
+      "verify-journal-assets.ts",
+      "verify-nature-structure.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -338,6 +339,14 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/manuscript/**",
+      "run": [
+        "verify-nature-structure.ts",
+        "verify-export-prep.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "resources/{csl,docx}/**",
       "run": [

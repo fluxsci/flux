@@ -17,6 +17,7 @@
 // scripts/verify-export-prep.ts.
 
 import { readQmdTree, transformQmdForExport, type ExportQmdCtx } from "./exportQmd";
+import { reorderForExport, type RoleAliases } from "./manuscript/sections";
 
 export interface ExportPrepIO {
   /** Read a file; resolve to null when it can't be read. */
@@ -32,6 +33,10 @@ export interface ExportPrepOpts {
   entry: string;
   /** Figure captions + family identity for the transform. */
   ctx: ExportQmdCtx;
+  /** Venue section order + the alias table that assigns roles. Applied to the
+   *  ENTRY document only — includes are fragments, not orderable documents.
+   *  Omit (or pass an empty order) for no reordering at all. */
+  structure?: { order: readonly string[]; aliases: RoleAliases };
 }
 
 export interface ExportPrepResult {
@@ -43,6 +48,9 @@ export interface ExportPrepResult {
   expanded: string;
   /** Files this prep actually rewrote (a no-op transform writes nothing). */
   changed: string[];
+  /** Headings the venue's order moved in the EXPORTED text (never the source).
+   *  Surfaced so the move is visible rather than silent. */
+  movedSections: string[];
   /** Restore every rewritten file to its original bytes. Always safe to call,
    *  and safe to call twice — the second call is a no-op. */
   restore(): Promise<void>;
@@ -66,13 +74,21 @@ export async function prepareExport(
   const { files, texts, expanded } = await readQmdTree(opts.entry, io);
   const originals = new Map<string, string>();
 
+  let movedSections: string[] = [];
   for (const f of files) {
     const text = texts.get(f);
     if (text == null) continue;
-    const transformed = transformQmdForExport(text, opts.ctx);
-    if (transformed === text) continue;
+    let next = transformQmdForExport(text, opts.ctx);
+    // Section order applies to the entry document only: an included fragment
+    // has no top-level structure of its own to reorder.
+    if (f === opts.entry && opts.structure?.order.length) {
+      const r = reorderForExport(next, opts.structure.order, opts.structure.aliases);
+      next = r.text;
+      movedSections = r.moved;
+    }
+    if (next === text) continue;
     originals.set(f, text);
-    await io.writeText(f, transformed);
+    await io.writeText(f, next);
   }
 
   let restored = false;
@@ -80,6 +96,7 @@ export async function prepareExport(
     files,
     expanded,
     changed: [...originals.keys()],
+    movedSections,
     async restore() {
       if (restored) return;
       restored = true;
