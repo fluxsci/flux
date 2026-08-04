@@ -7,20 +7,23 @@ import { setFocusedMode } from "../../paneStore";
 export const readerKey = writable<string | null>(null);
 
 // 2.3: a pending find-in-document intent carried alongside the open. Bumped on every
-// openInReader so the ReaderMode's effect always re-runs (even when re-opening the
+// openInReader so the ReaderDoc's effect always re-runs (even when re-opening the
 // already-open paper to jump to a new full-text match). `term:""` means "no find —
 // close any transient search bar". nonce disambiguates repeat opens with the same term.
+// `key` addresses the intent to one paper: a freshly-mounted ReaderDoc must not adopt
+// a stale find left over from an earlier open of a different paper.
 export interface ReaderFind {
+  key: string;
   term: string;
   nonce: number;
 }
-export const readerFind = writable<ReaderFind>({ term: "", nonce: 0 });
+export const readerFind = writable<ReaderFind>({ key: "", term: "", nonce: 0 });
 let findNonce = 0;
 
 /** Open a paper in FluxReader and focus the reader mode; optionally jump to a find term. */
 export function openInReader(citekey: string, opts?: { find?: string }): void {
   readerKey.set(citekey);
-  readerFind.set({ term: opts?.find?.trim() ?? "", nonce: ++findNonce });
+  readerFind.set({ key: citekey, term: opts?.find?.trim() ?? "", nonce: ++findNonce });
   setFocusedMode("reader");
 }
 
