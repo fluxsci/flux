@@ -44,7 +44,9 @@ await sleep(600);
 await page.evaluate(() => {
   const f = window.__flux;
   f.fig.commit((p) => {
-    p.figures[0].name = "W5 Renamed";
+    // Figure families (8a02c5f): `name` is DERIVED from family+number — the free-text
+    // handle that persists into fig/index.json is the nickname.
+    p.figures[0].nickname = "W5 Renamed";
   });
 });
 const figDirty = await page.evaluate(() => window.__flux.lifecycle.anyDirty());
