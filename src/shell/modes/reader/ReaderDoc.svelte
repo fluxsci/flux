@@ -28,7 +28,7 @@
   } from "../../../lib/references/itemsBridge";
   import { fileBridge } from "../../../lib/project/types";
   import { pushToast, errMsg } from "../../../lib/toast";
-  import { loadAnnotations, addAnnotation, updateAnnotation, deleteAnnotation } from "../../../lib/references/annotationsBridge";
+  import { loadAnnotations, addAnnotation, updateAnnotation, deleteAnnotation, annotationsRev } from "../../../lib/references/annotationsBridge";
   import { saveAnnotationsMarkdown } from "../../../lib/io";
   import { hlSwatch } from "../../../lib/references/annotationColors";
   import { loadFluxLib } from "../../../lib/references/fluxlibBridge";
@@ -555,6 +555,25 @@
     });
   });
 
+  // Foreign-write sync: another view of THIS paper (a split pane, a kept-alive tab)
+  // writing a highlight bumps annotationsRev → reload from disk. Our OWN writes update
+  // `annotations` optimistically (object identity keeps PdfView's locate cache hot), so
+  // we skip exactly the bumps we caused — every bridge mutation produces one bump, and
+  // the handlers below count theirs before awaiting.
+  let selfAnnWrites = 0;
+  onMount(() => {
+    let first = true;
+    return annotationsRev.subscribe((r) => {
+      if (first) { first = false; return; }
+      if (r.key !== citekey) return;
+      if (selfAnnWrites > 0) { selfAnnWrites--; return; }
+      void loadAnnotations(citekey).then((af) => {
+        if (!alive) return;
+        annotations = af.annotations;
+      });
+    });
+  });
+
   // R6: PDF switcher. Show the main paper (its already-loaded buffer) or a supplement
   // (loaded on demand into suppBuffer). bufferGen remounts PdfView with the new bytes.
   const suppLabel = (n: string) => n.replace(/\.pdf$/i, "");
@@ -610,31 +629,37 @@
   // alive so the user can retry the highlight without re-selecting.
   async function handleCreate(a: { page: number; anchor: TextQuoteSelector; color: string }): Promise<boolean> {
     if (onSupplement) return false; // highlights anchor to the MAIN text only
+    selfAnnWrites++;
     try {
       const ann = await addAnnotation(citekey, { page: a.page, anchor: a.anchor, color: a.color });
       annotations = [...annotations, ann];
       return true;
     } catch (e) {
+      selfAnnWrites--; // failed before the bump
       pushToast("error", "Couldn't save highlight", { detail: errMsg(e) });
       return false;
     }
   }
   async function handleDelete(id: string) {
     if (popover?.id === id) popover = null;
+    selfAnnWrites++;
     try {
       await deleteAnnotation(citekey, id);
       annotations = annotations.filter((a) => a.id !== id);
     } catch (e) {
+      selfAnnWrites--; // failed before the bump
       pushToast("error", "Couldn't delete highlight", { detail: errMsg(e) });
     }
   }
   // Patch note/color/tags. The patched object keeps its anchor reference, so PdfView's
   // located-range cache stays hot — a recolor is a repaint, not a re-locate.
   async function handleUpdate(id: string, patch: Partial<Annotation>) {
+    selfAnnWrites++;
     try {
       await updateAnnotation(citekey, id, patch);
       annotations = annotations.map((a) => (a.id === id ? { ...a, ...patch } : a));
     } catch (e) {
+      selfAnnWrites--; // failed before the bump
       pushToast("error", "Couldn't update highlight", { detail: errMsg(e) });
     }
   }

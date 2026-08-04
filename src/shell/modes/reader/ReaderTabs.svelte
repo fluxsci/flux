@@ -11,11 +11,14 @@
     activeKey,
     onActivate,
     onClose,
+    onSplit,
   }: {
     tabs: ReaderTab[];
     activeKey: string | null;
     onActivate: (key: string) => void;
     onClose: (key: string) => void;
+    /** Alt/Cmd-click a tab → open it in the other pane (titlebar split convention). */
+    onSplit?: (key: string) => void;
   } = $props();
 
   const titleByKey = $derived(new Map($fluxLibEntries.map((e) => [e.key, e.title])));
@@ -29,8 +32,8 @@
         class="rtab-main"
         role="tab"
         aria-selected={t.key === activeKey}
-        title={label(t.key)}
-        onclick={() => onActivate(t.key)}
+        title={`${label(t.key)}  (Alt-click: open in split)`}
+        onclick={(e) => (e.altKey || e.metaKey ? (onSplit ?? onActivate)(t.key) : onActivate(t.key))}
         onauxclick={(e) => {
           if (e.button === 1) {
             e.preventDefault();

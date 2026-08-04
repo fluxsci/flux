@@ -5,16 +5,26 @@
   // empty state, and the persistent terminal pane (terminalSession — the SAME shell
   // the Paper margin mounts), which must have exactly one mount.
   import { tick, untrack } from "svelte";
-  import { readerTabs, activateReaderTab, closeReaderTab, cycleReaderTab } from "./readerStore";
+  import {
+    readerTabs,
+    paneActiveTab,
+    readerTerminalPane,
+    activateReaderTab,
+    closeReaderTab,
+    cycleReaderTab,
+    openReaderTabInSplit,
+  } from "./readerStore";
   import ReaderDoc from "./ReaderDoc.svelte";
   import ReaderTabs from "./ReaderTabs.svelte";
   import TerminalPane from "../../terminal/TerminalPane.svelte";
   import { prefill as terminalPrefill } from "../../terminal/terminalSession";
 
-  let { focused = true }: { focused?: boolean } = $props();
+  let { focused = true, paneId = "" }: { focused?: boolean; paneId?: string } = $props();
 
   const tabs = $derived($readerTabs.tabs);
-  const activeKey = $derived($readerTabs.active);
+  // This pane's shown paper: its own assignment when split panes have diverged,
+  // else the global active (single-pane common case).
+  const activeKey = $derived($paneActiveTab[paneId] ?? $readerTabs.active);
 
   // Keep-alive: the active document plus the most recently viewed others stay
   // mounted (hidden ModeContent-style — visibility flip, so switching among warm
@@ -41,9 +51,14 @@
   // a question about the passage — never submits. Run whatever agent you like
   // there (`flux principal` typically); the quote grounds it, and the live
   // context file / MCP get_reading_context carry the full reader state.
-  let agentOpen = $state(false);
+  // The terminal session has ONE detached host div, so exactly one reader pane
+  // hosts it at a time (readerTerminalPane) — opening it here closes it there.
+  const agentOpen = $derived($readerTerminalPane === paneId);
+  function toggleAgent() {
+    readerTerminalPane.update((id) => (id === paneId ? null : paneId));
+  }
   async function askAgent(prefix: string, quote: string) {
-    agentOpen = true;
+    readerTerminalPane.set(paneId);
     await tick(); // mount the terminal pane before prefilling
     const q = quote.length > 220 ? quote.slice(0, 220) + "…" : quote;
     terminalPrefill(`${prefix} "${q}" —`);
@@ -59,10 +74,10 @@
     if (!ctrl) return;
     if (e.key === "Tab") {
       e.preventDefault();
-      cycleReaderTab(e.shiftKey ? -1 : 1);
+      cycleReaderTab(e.shiftKey ? -1 : 1, paneId);
     } else if (!e.shiftKey && (e.key === "PageDown" || e.key === "PageUp")) {
       e.preventDefault();
-      cycleReaderTab(e.key === "PageDown" ? 1 : -1);
+      cycleReaderTab(e.key === "PageDown" ? 1 : -1, paneId);
     } else if (!e.shiftKey && (e.key === "w" || e.key === "W")) {
       e.preventDefault();
       if (activeKey) closeReaderTab(activeKey);
@@ -79,7 +94,12 @@
       <span>Open a paper from the Library (the “Read” action) to start reading.</span>
     </div>
   {:else}
-    <ReaderTabs {tabs} {activeKey} onActivate={activateReaderTab} onClose={closeReaderTab} />
+    <ReaderTabs
+      {tabs}
+      {activeKey}
+      onActivate={(k) => activateReaderTab(k, paneId)}
+      onClose={closeReaderTab}
+      onSplit={openReaderTabInSplit} />
     <div class="docs">
       {#each liveKeys as key (key)}
         <div class="docslot" class:hidden={key !== activeKey} inert={key !== activeKey}>
@@ -88,14 +108,14 @@
             active={key === activeKey}
             focused={focused && key === activeKey}
             {agentOpen}
-            onToggleAgent={() => (agentOpen = !agentOpen)}
+            onToggleAgent={toggleAgent}
             onAsk={askAgent}>
             {#snippet agentPane()}
               <div class="agentpane">
                 <div class="agentpane-bar">
                   <span class="agentpane-title">Terminal</span>
                   <span class="agentpane-hint">run `flux principal` here — Ask AI prefills questions</span>
-                  <button class="agentpane-close" onclick={() => (agentOpen = false)} title="Ctrl+J">Close</button>
+                  <button class="agentpane-close" onclick={() => readerTerminalPane.set(null)} title="Ctrl+J">Close</button>
                 </div>
                 <TerminalPane />
               </div>

@@ -158,6 +158,7 @@
           items: [
             ["⌃Tab / ⌃⇧Tab", "Next / previous tab (also ⌃PageDown / ⌃PageUp)"],
             ["⌃W", "Close the active tab (middle-click a tab works too)"],
+            ["Alt / ⌘-click a tab", "Open that paper in a split pane"],
           ],
         },
         {

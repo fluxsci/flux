@@ -132,6 +132,7 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 | **Home** / **End** | First / last page |
 | **Ctrl+Tab** / **Ctrl+Shift+Tab** | Next / previous tab (also **Ctrl+PageDown** / **Ctrl+PageUp**) |
 | **Ctrl+W** | Close the active tab (middle-click a tab works too) |
+| **Alt+click** a tab | Open that paper in a split pane beside this one |
 | **Ctrl+J** | Toggle the Ask-AI terminal pane |
 | **Escape** | Close the topmost thing (menu → popover → find → terminal) |
 

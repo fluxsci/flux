@@ -37,6 +37,15 @@ demand, restored to their remembered page and zoom.
 - **Ctrl+W**, a **middle-click**, or the tab's **×** closes one — the next tab over takes its place.
 - Your open tabs (and which was active) come back when you restart Flux.
 
+## Two papers side by side
+
+**Alt-click** (or **Cmd-click**) a tab to open that paper in a second pane beside the current
+one — compare a method against the paper that introduced it, or keep a review open while you
+read. Each pane has its own tab strip and switches independently; tab shortcuts act on the
+pane you're focused in. You can even show the *same* paper in both panes — a highlight made
+in one appears in the other. (Alt-clicking the Reader icon in the top bar splits too, as in
+every mode.)
+
 # Highlights and notes
 
 Select any text and a small color menu appears — five highlight colors (yellow, green, blue,
