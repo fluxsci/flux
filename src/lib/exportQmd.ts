@@ -26,6 +26,7 @@
 // anchors change form, and Quarto lists-of-figures lose their entries.
 
 import { formatCaptionLabel, formatFamilyRef, type FigureFamilyDef } from "./figfamily";
+import { formatPanelSpec, type PanelStyle } from "./style/journalStyle";
 
 export const EMBED_RE =
   /^\s*!\[((?:\\.|[^\]])*)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)([^}]*)\}\s*$/;
@@ -160,8 +161,11 @@ export interface ExportQmdCtx {
    *  the family caption template supplies it). */
   captions: Map<string, string>;
   /** label → resolved family identity — THE editor's numbers (figfamily.ts),
-   *  never re-derived from embed appearance order. */
+   *  never re-derived from embed appearance order. The family defs are already
+   *  STYLED by the caller (styledFamilyDef), so a venue's wording rides in. */
   figures: Map<string, { family: FigureFamilyDef; number: number }>;
+  /** Panel rendering for the target venue. Absent = the house rule. */
+  panels?: PanelStyle;
 }
 
 // One panel spec: `a`, a range `a-c`, comma lists of either (`a,b`, `a-c,e`).
@@ -170,9 +174,11 @@ const PANEL_SPEC_RE = /^[A-Za-z](?:-[A-Za-z])?(?:,[A-Za-z](?:-[A-Za-z])?)*$/;
 // A whole crossref token incl. comma-continued panel parts (grammar.ts crossrefRe).
 const FIG_REF_RE = /@(fig-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*)/g;
 
-/** `a-c,e` → `a–c,e` (ranges display with an en-dash, mirroring the app). */
-export function panelSpecDisplay(spec: string): string {
-  return spec.replace(/-/g, "–");
+/** `a-c,e` → `a–c,e` (ranges display with an en-dash, mirroring the app).
+ *  With a style's PanelStyle the venue's rule applies instead — separator,
+ *  letter case and collapse threshold all vary by journal. */
+export function panelSpecDisplay(spec: string, panels?: PanelStyle): string {
+  return panels ? formatPanelSpec(spec, panels) : spec.replace(/-/g, "–");
 }
 
 export function transformQmdForExport(text: string, ctx: ExportQmdCtx): string {
@@ -207,7 +213,7 @@ export function transformQmdForExport(text: string, ctx: ExportQmdCtx): string {
       const spec = token.slice(label.length + 1);
       if (PANEL_SPEC_RE.test(spec)) {
         const fig = ctx.figures.get(label)!;
-        return formatFamilyRef(fig.family, fig.number, panelSpecDisplay(spec));
+        return formatFamilyRef(fig.family, fig.number, panelSpecDisplay(spec, ctx.panels));
       }
     }
     return whole;

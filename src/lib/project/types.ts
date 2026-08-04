@@ -92,6 +92,11 @@ export interface ProjectManifest {
   // Custom figure families (rollup of fig/index.json `families`; built-ins
   // never persisted). Optional: pre-family manifests lack it.
   figureFamilies?: FigureFamilyDef[];
+  /** Target venue for EXPORT. A pure render-time overlay: selecting a journal
+   *  writes only this pointer and never rewrites figure families, figure names
+   *  or manuscript text, so switching venues is instant and lossless. The
+   *  writer never restyles — see src/lib/style/journalStyle.ts. */
+  style?: { journal?: string | null };
   slides: SlideEntry[];
   capabilities: Record<string, string>;
 }

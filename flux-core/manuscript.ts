@@ -9,6 +9,8 @@ import { composeCaption } from "../src/lib/captions";
 import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
 import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
+import { resolveJournalStyle, styledFamilyDef } from "../src/lib/style/journalStyle";
+import { BUILTIN_JOURNAL_STYLES } from "../src/lib/style/journalPresets";
 import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
@@ -216,8 +218,18 @@ function citationKeysIn(text: string): string[] {
   return [...keys];
 }
 
-export async function compile(root: string, to = "pdf"): Promise<CompileSummary> {
+export async function compile(
+  root: string,
+  to = "pdf",
+  opts: { style?: string } = {},
+): Promise<CompileSummary> {
   const m = await loadManifest(root);
+  // Journal style: the CLI flag wins, else the project's stored pointer, else
+  // the house style (which is a genuine no-op — DEFAULT_JOURNAL_STYLE).
+  const style = resolveJournalStyle(
+    opts.style ?? (m as { style?: { journal?: string | null } }).style?.journal ?? null,
+    BUILTIN_JOURNAL_STYLES,
+  );
   // Figures embed as ../fig/renders/<id>.svg — materialize them so a bare quarto
   // render (agent/CI, no app open) gets real images instead of broken links.
   const renders = await materializeRenders(root, m.manuscript.path).catch(() => ({ wrote: 0, failed: [] as string[], warnings: [] as string[] }));
@@ -241,7 +253,7 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
       // Post-load identity is healed (migrateFigureFamilies) — use it verbatim.
       if (fig?.family && fig.number != null) {
         figIdentity.set(f.label, {
-          family: familyById(fig.family, project.figureFamilies),
+          family: styledFamilyDef(style, familyById(fig.family, project.figureFamilies)),
           number: fig.number,
         });
       }
@@ -251,7 +263,7 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
   } catch {
     /* no fig model → nothing to inject */
   }
-  const ctx = { captions, figures: figIdentity };
+  const ctx = { captions, figures: figIdentity, panels: style.figures.panels };
   // The shared prep owns the walk + transform + restore (src/lib/exportPrep.ts)
   // so the GUI runs byte-for-byte the same preparation.
   const prep = await prepareExport(

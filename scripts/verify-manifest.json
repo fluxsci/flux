@@ -1,5 +1,5 @@
 {
-  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) — this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) — the tier exists for pathMap's electron/** mapping.",
+  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping.",
   "tiers": {
     "pure": [
       "verify-an-bridge.ts",
@@ -151,7 +151,10 @@
       "verify-tokens.mjs",
       "verify-tokens-sync.ts",
       "verify-registry-parity.ts",
-      "verify-paste-decide.ts"
+      "verify-paste-decide.ts",
+      "verify-journalstyle.ts",
+      "verify-nature-style.ts",
+      "verify-writer-neutral.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -327,11 +330,23 @@
       "verify-pdf-white.mjs",
       "verify-embed-chip.mjs",
       "verify-embed-caption.mjs",
-      "verify-embed-normalize.ts"
+      "verify-embed-normalize.ts",
+      "verify-nature-style.ts",
+      "verify-writer-neutral.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/style/**",
+      "run": [
+        "verify-journalstyle.ts",
+        "verify-nature-style.ts",
+        "verify-writer-neutral.ts",
+        "verify-export-qmd.ts",
+        "verify-export-prep.ts"
+      ]
+    },
     {
       "glob": "scripts/verify-*",
       "run": [

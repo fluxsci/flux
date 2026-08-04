@@ -9,6 +9,7 @@ import { figureToSvg } from "../../../../lib/export";
 import { readFigSource } from "../../../../lib/project/figbridge";
 import { fileBridge } from "../../../../lib/project/types";
 import { EMBED_RE } from "../science/figureAttrs";
+import { styledFamilyDef, type ResolvedJournalStyle } from "../../../../lib/style/journalStyle";
 import {
   familyById,
   familyRank,
@@ -175,12 +176,24 @@ export function resolveFigure(
 }
 
 /** label → resolved family identity for the export transform (exportQmd.ts):
- *  the same numbers the editor shows, never re-derived from embed order. */
-export function exportCtxFigures(): Map<string, { family: FigureFamilyDef; number: number }> {
+ *  the same numbers the editor shows, never re-derived from embed order.
+ *
+ *  THE export-only projection. Passing a journal style here gives the exported
+ *  file that venue's figure wording ("Supplementary Fig. 1"), while the
+ *  editor's own `figureRefs` — built above from the UNSTYLED defs — keeps
+ *  Flux's house form. The NUMBERS are identical either way, so writer and
+ *  output can differ in wording without ever disagreeing about which figure is
+ *  which (verify-writer-neutral pins this). */
+export function exportCtxFigures(
+  style?: ResolvedJournalStyle | null,
+): Map<string, { family: FigureFamilyDef; number: number }> {
   const out = new Map<string, { family: FigureFamilyDef; number: number }>();
   for (const r of get(figureRefs)) {
     if (!out.has(r.label)) {
-      out.set(r.label, { family: familyById(r.family, familyDefs), number: r.number });
+      out.set(r.label, {
+        family: styledFamilyDef(style, familyById(r.family, familyDefs)),
+        number: r.number,
+      });
     }
   }
   return out;

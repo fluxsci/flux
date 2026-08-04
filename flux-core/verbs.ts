@@ -1944,10 +1944,16 @@ export const VERBS: VerbDef[] = [
     cli: "compile",
     cliRoot: "flags",
     summary:
-      "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. Reports the output path and a figures/citations resolution summary.",
-    params: { to: z.string().optional() },
-    cliArgs: [{ kind: "flag", at: "to", into: "to" }],
-    handler: (ctx, a) => core.compile(ctx.root, (a.to as string | undefined) ?? "pdf"),
+      "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. --style applies a journal style (e.g. nature) to the OUTPUT only. Reports the output path and a figures/citations resolution summary.",
+    params: { to: z.string().optional(), style: z.string().optional() },
+    cliArgs: [
+      { kind: "flag", at: "to", into: "to" },
+      { kind: "flag", at: "style", into: "style" },
+    ],
+    handler: (ctx, a) =>
+      core.compile(ctx.root, (a.to as string | undefined) ?? "pdf", {
+        style: a.style as string | undefined,
+      }),
     render: {
       human: (r) => {
         const c = r as Awaited<ReturnType<typeof core.compile>>;

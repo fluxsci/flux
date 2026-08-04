@@ -30,6 +30,8 @@
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
   import { setEmbedWidth, EMBED_RE } from "./science/figureAttrs";
   import { prepareExport } from "../../../lib/exportPrep";
+  import { resolveJournalStyle, type ResolvedJournalStyle } from "../../../lib/style/journalStyle";
+  import { BUILTIN_JOURNAL_STYLES, journalStyleOptions } from "../../../lib/style/journalPresets";
   import ExportDialog, {
     type ExportFormat,
     type ExportPlan,
@@ -561,9 +563,7 @@
   // Journal styles arrive in Phase B; today the house style is the only one.
   // It is EXPORT-ONLY by design — the writer never restyles for a journal.
   const HOUSE_STYLE_ID = "flux";
-  const EXPORT_STYLES: readonly ExportStyleOption[] = [
-    { id: HOUSE_STYLE_ID, label: "Flux house style", blurb: "The default manuscript look." },
-  ];
+  const EXPORT_STYLES: readonly ExportStyleOption[] = journalStyleOptions();
   let exportPlan = $state<ExportPlan>({ format: "pdf", style: HOUSE_STYLE_ID, outPath: "" });
 
   // Bare-quarto parity for the in-app Word export: the SHARED prep core
@@ -572,7 +572,10 @@
   // canonical embeds carry none), demotes embed ids and literalizes `@fig-…`
   // refs, then hands back the restore closure. flux-core's `compile` runs the
   // very same function, so the two engines cannot drift.
-  async function transformDocsForQuarto(fb: NonNullable<ReturnType<typeof fileBridge>>): Promise<() => Promise<void>> {
+  async function transformDocsForQuarto(
+    fb: NonNullable<ReturnType<typeof fileBridge>>,
+    style: ResolvedJournalStyle,
+  ): Promise<() => Promise<void>> {
     if (!pm) return async () => {};
     const refs = get(figureRefs);
     const prep = await prepareExport(
@@ -585,7 +588,9 @@
         ctx: {
           captions: new Map(refs.filter((r) => r.caption?.trim()).map((r) => [r.label, r.caption])),
           // THE editor's family numbering (figfamily.ts) — never embed-order.
-          figures: exportCtxFigures(),
+          // Styled for the target venue; the editor's own refs stay house-form.
+          figures: exportCtxFigures(style),
+          panels: style.figures.panels,
         },
       },
     );
@@ -660,7 +665,8 @@
         const renders = await materializeRenders(pm.root, latest);
         // Quarto reads DISK: the shared prep transforms in place (captions into
         // alts, refs literalized), renders, and restores — sources end byte-identical.
-        const restoreDocs = await transformDocsForQuarto(fb);
+        const style = resolveJournalStyle(plan.style, BUILTIN_JOURNAL_STYLES);
+        const restoreDocs = await transformDocsForQuarto(fb, style);
         const token = `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         exportToken = token;
         const stopLog = fb.onQuartoLog?.((info) => {

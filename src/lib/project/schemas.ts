@@ -199,6 +199,11 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         },
       },
       figureFamilies: { type: "array", items: FAMILY_DEF },
+      // Export target venue (render-time overlay; see style/journalStyle.ts).
+      style: {
+        type: "object",
+        properties: { journal: { type: ["string", "null"] } },
+      },
       slides: { type: "array" },
       capabilities: { type: "object" },
     },
