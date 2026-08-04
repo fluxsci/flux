@@ -30,6 +30,83 @@ import { formatCaptionLabel, formatFamilyRef, type FigureFamilyDef } from "./fig
 export const EMBED_RE =
   /^\s*!\[((?:\\.|[^\]])*)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)([^}]*)\}\s*$/;
 
+/** Quarto `{{< include path >}}` — path is relative to the INCLUDING file.
+ *  THE grammar for the include tree; both engines read it from here. */
+export const INCLUDE_RE = /\{\{<\s*include\s+([^\s>]+)\s*>\}\}/g;
+
+/** Resolve an include target against the including file's directory, pure and
+ *  separator-aware (win32 backslash paths keep their separator). `.`/`..` are
+ *  folded so the result is a real path rather than one the OS has to
+ *  normalize — the renderer's file bridge does no normalization of its own. */
+export function resolveInclude(includingFile: string, rel: string): string {
+  const win = includingFile.includes("\\") && !includingFile.includes("/");
+  const sep = win ? "\\" : "/";
+  const parts = includingFile.split(/[\\/]/);
+  parts.pop(); // drop the filename → the including directory
+  for (const seg of rel.split(/[\\/]/)) {
+    if (!seg || seg === ".") continue;
+    // Never pop past the root (or a "C:" drive prefix): a runaway `..` chain
+    // would otherwise silently escape into a nonsense path.
+    if (seg === "..") {
+      if (parts.length > 1) parts.pop();
+      continue;
+    }
+    parts.push(seg);
+  }
+  return parts.join(sep);
+}
+
+/** IO injected into `readQmdTree` — the twin-engine seam. flux-core supplies
+ *  node:fs + node:path; the renderer supplies its file bridge. */
+export interface QmdTreeIO {
+  /** Read a file; resolve to null when it can't be read (missing include). */
+  readText(abs: string): Promise<string | null>;
+  /** Defaults to `resolveInclude`; flux-core injects node:path.resolve. */
+  resolveFrom?: (includingFile: string, rel: string) => string;
+}
+
+export interface QmdTree {
+  /** Involved files in traversal order, entry first, de-duplicated. */
+  files: string[];
+  /** Every file's text, keyed by the absolute path used to read it. */
+  texts: Map<string, string>;
+  /** Includes spliced in place — the single document Quarto actually sees. */
+  expanded: string;
+}
+
+/**
+ * Read a .qmd and its transitive `{{< include >}}` tree. ONE walker for both
+ * engines — the GUI and flux-core each had their own, with their own copy of
+ * INCLUDE_RE and subtly different path joining.
+ *
+ * `seen` is shared across calls on purpose: walking several entry documents
+ * (main + supplementary) must visit each file once, so a file already spliced
+ * into an earlier document contributes no second copy.
+ */
+export async function readQmdTree(
+  entry: string,
+  io: QmdTreeIO,
+  seen = new Set<string>(),
+  texts = new Map<string, string>(),
+): Promise<QmdTree> {
+  if (seen.has(entry)) return { files: [], texts, expanded: "" };
+  seen.add(entry);
+  const resolveFrom = io.resolveFrom ?? resolveInclude;
+  const text = (await io.readText(entry)) ?? "";
+  texts.set(entry, text);
+  const files = [entry];
+  let expanded = "";
+  let last = 0;
+  for (const m of text.matchAll(INCLUDE_RE)) {
+    expanded += text.slice(last, m.index);
+    const sub = await readQmdTree(resolveFrom(entry, m[1]), io, seen, texts);
+    files.push(...sub.files);
+    expanded += sub.expanded;
+    last = (m.index ?? 0) + m[0].length;
+  }
+  return { files, texts, expanded: expanded + text.slice(last) };
+}
+
 /** Escape a caption for the `![…]` alt-text slot (backslash + square brackets);
  *  newlines collapse — an embed line is one line by construction. markdown-it
  *  unescapes these natively on render, so exports show the original text. */

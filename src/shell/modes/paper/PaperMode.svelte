@@ -29,7 +29,12 @@
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
   import { setEmbedWidth, EMBED_RE } from "./science/figureAttrs";
-  import { transformQmdForExport } from "../../../lib/exportQmd";
+  import { prepareExport } from "../../../lib/exportPrep";
+  import ExportDialog, {
+    type ExportFormat,
+    type ExportPlan,
+    type ExportStyleOption,
+  } from "./ExportDialog.svelte";
   import { setEmbedWidthPreset } from "./editing/figureSize";
   import { citeNumberField } from "./science/citeNumbers";
   import { citationStyleOf } from "./scholar/citeNumbering";
@@ -543,65 +548,98 @@
   let exportBusy = $state(false);
   let exportDone = $state(false);
   let quartoAvail = $state(false);
+  // Live render progress (Quarto streams its log through quarto:log).
+  let exportToken = $state("");
+  let exportLogTail = $state("");
+  let exportCancelled = $state(false);
 
-  // Bare-quarto parity for the in-app Word export (same transform flux-core's
-  // compile applies): composed model captions into EMPTY embed alts (Quarto
-  // reads the alt as the figcaption — canonical embeds carry none) + panel
-  // refs `@fig-x-a` → literal "Figure 3a". Applied IN PLACE to the doc + its
-  // include tree via the file bridge; the returned closure restores originals.
+  const EXPORT_FORMATS: readonly ExportFormat[] = [
+    { id: "pdf", label: "PDF", ext: "pdf" },
+    { id: "docx", label: "Word", ext: "docx" },
+    { id: "html", label: "HTML", ext: "html" },
+  ];
+  // Journal styles arrive in Phase B; today the house style is the only one.
+  // It is EXPORT-ONLY by design — the writer never restyles for a journal.
+  const HOUSE_STYLE_ID = "flux";
+  const EXPORT_STYLES: readonly ExportStyleOption[] = [
+    { id: HOUSE_STYLE_ID, label: "Flux house style", blurb: "The default manuscript look." },
+  ];
+  let exportPlan = $state<ExportPlan>({ format: "pdf", style: HOUSE_STYLE_ID, outPath: "" });
+
+  // Bare-quarto parity for the in-app Word export: the SHARED prep core
+  // (src/lib/exportPrep.ts) walks the include tree, bakes composed model
+  // captions into EMPTY embed alts (Quarto reads the alt as the figcaption —
+  // canonical embeds carry none), demotes embed ids and literalizes `@fig-…`
+  // refs, then hands back the restore closure. flux-core's `compile` runs the
+  // very same function, so the two engines cannot drift.
   async function transformDocsForQuarto(fb: NonNullable<ReturnType<typeof fileBridge>>): Promise<() => Promise<void>> {
     if (!pm) return async () => {};
-    const INCLUDE_RE = /\{\{<\s*include\s+([^\s>]+)\s*>\}\}/g;
-    const texts = new Map<string, string>();
-    const readTree = async (abs: string): Promise<string> => {
-      if (texts.has(abs)) return "";
-      let t = "";
-      try {
-        t = await fb.readText(abs);
-      } catch {
-        return "";
-      }
-      texts.set(abs, t);
-      let expanded = "";
-      let last = 0;
-      for (const m of t.matchAll(INCLUDE_RE)) {
-        expanded += t.slice(last, m.index);
-        expanded += await readTree(`${abs.slice(0, abs.lastIndexOf("/"))}/${m[1]}`);
-        last = (m.index ?? 0) + m[0].length;
-      }
-      return expanded + t.slice(last);
-    };
-    await readTree(`${pm.root}/${activeDocPath}`); // populates `texts` (includes)
     const refs = get(figureRefs);
-    const ctx = {
-      captions: new Map(refs.filter((r) => r.caption?.trim()).map((r) => [r.label, r.caption])),
-      // THE editor's family numbering (figfamily.ts) — never embed-order.
-      figures: exportCtxFigures(),
-    };
-    const originals = new Map<string, string>();
-    for (const [f, t] of texts) {
-      const nt = transformQmdForExport(t, ctx);
-      if (nt !== t) {
-        originals.set(f, t);
-        await fb.writeText(f, nt);
-      }
-    }
-    return async () => {
-      for (const [f, t] of originals) await fb.writeText(f, t).catch(() => {});
-    };
+    const prep = await prepareExport(
+      {
+        readText: (abs) => fb.readText(abs).catch(() => null),
+        writeText: (abs, text) => fb.writeText(abs, text),
+      },
+      {
+        entry: `${pm.root}/${activeDocPath}`,
+        ctx: {
+          captions: new Map(refs.filter((r) => r.caption?.trim()).map((r) => [r.label, r.caption])),
+          // THE editor's family numbering (figfamily.ts) — never embed-order.
+          figures: exportCtxFigures(),
+        },
+      },
+    );
+    return () => prep.restore();
   }
 
-  async function doExport(kind: "pdf" | "html" | "docx") {
+  /** Default destination for a (format, style) pair. Everything lands in
+   *  `exports/` — including Word, which used to be written beside the .qmd with
+   *  no say in the matter. The style id joins the name so exporting the same
+   *  manuscript for two journals doesn't overwrite one with the other. */
+  function defaultOutPath(format: ExportFormat["id"], styleId: string): string {
+    const ext = EXPORT_FORMATS.find((f) => f.id === format)?.ext ?? format;
+    const base = (meta.title || activeDocPath.replace(/^.*\//, "").replace(/\.qmd$/i, "") || "manuscript")
+      .replace(/[^\w-]+/g, "-")
+      .toLowerCase()
+      .replace(/^-+|-+$/g, "") || "manuscript";
+    const tag = styleId && styleId !== HOUSE_STYLE_ID ? `.${styleId}` : "";
+    return pm ? `${pm.root}/exports/${base}${tag}.${ext}` : `${base}${tag}.${ext}`;
+  }
+
+  function exportEngineLabel(plan: ExportPlan): string {
+    if (plan.format === "docx") return "Quarto";
+    return "In-app render — fast, no install";
+  }
+
+  /** Why the current combination can't run (empty when it can). */
+  function exportBlockedReason(plan: ExportPlan): string {
+    if (plan.format === "docx" && !quartoAvail) {
+      return "Word export needs Quarto — install it, then reopen this dialog.";
+    }
+    return "";
+  }
+
+  function openExportDialog() {
+    if (exportBusy) return;
+    // Re-derive the path when the remembered one is stale for this document.
+    if (!exportPlan.outPath) exportPlan = { ...exportPlan, outPath: defaultOutPath(exportPlan.format, exportPlan.style) };
+    exportOpen = true;
+  }
+
+  async function doExport(plan: ExportPlan) {
     if (exportBusy) return; // one export at a time (a second Quarto render would race)
     exportOpen = false;
+    exportPlan = plan;
     const fb = fileBridge();
     if (!fb) {
       pushToast("error", "Export needs the desktop app");
       return;
     }
     exportBusy = true;
+    exportLogTail = "";
+    exportCancelled = false;
     try {
-      if (kind === "docx") {
+      if (plan.format === "docx") {
         if (!pm || !fb.quartoRender) {
           exportBusy = false;
           return;
@@ -620,16 +658,29 @@
           throw e;
         }
         const renders = await materializeRenders(pm.root, latest);
-        // Quarto reads DISK: transform in place (captions into alts, panel
-        // refs literalized), render, restore — sources stay byte-identical.
+        // Quarto reads DISK: the shared prep transforms in place (captions into
+        // alts, refs literalized), renders, and restores — sources end byte-identical.
         const restoreDocs = await transformDocsForQuarto(fb);
+        const token = `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+        exportToken = token;
+        const stopLog = fb.onQuartoLog?.((info) => {
+          if (info.token && info.token !== token) return;
+          const line = info.chunk.trim().split("\n").filter(Boolean).pop();
+          if (line) exportLogTail = line.slice(0, 120);
+        });
         let r;
         try {
-          r = await fb.quartoRender(pm.root, "docx", activeDocPath);
+          r = await fb.quartoRender(pm.root, "docx", activeDocPath, { outPath: plan.outPath, token });
         } finally {
+          stopLog?.();
+          exportToken = "";
           await restoreDocs();
         }
         exportBusy = false;
+        if (r?.cancelled) {
+          pushToast("info", "Export cancelled");
+          return;
+        }
         if (!r?.ok) {
           pushToast("error", "Word export failed", {
             detail: (r?.log || "quarto did not run").trimEnd().split("\n").slice(-14).join("\n"),
@@ -646,23 +697,17 @@
         const out = r.outPath;
         pushToast(
           "success",
-          `Exported ${activeDocPath.replace(/\.qmd$/i, ".docx")}`,
+          `Exported ${out ? out.replace(/^.*\//, "") : "manuscript.docx"}`,
           out && fb.revealPath ? { action: { label: "Reveal", run: () => void fb.revealPath!(out) } } : {},
         );
         return;
       }
-      const { full, title } = await renderManuscript(latest, {
-        paginated: viewMode === "paginated",
-      });
-      const safe = (title || "manuscript").replace(/[^\w-]+/g, "-").toLowerCase() || "manuscript";
-      const ext = kind === "pdf" ? "pdf" : "html";
-      const defPath = pm ? `${pm.root}/exports/${safe}.${ext}` : `${safe}.${ext}`;
-      const out = await fb.save(defPath, [{ name: ext.toUpperCase(), extensions: [ext] }]);
-      if (!out) {
-        exportBusy = false;
-        return;
-      }
-      if (kind === "pdf") {
+
+      // In-app engines (PDF via printToPDF, HTML written straight out). The
+      // dialog already collected the destination, so there is no second prompt.
+      const { full } = await renderManuscript(latest, { paginated: viewMode === "paginated" });
+      const out = plan.outPath;
+      if (plan.format === "pdf") {
         if (!fb.printPdf) {
           pushToast("error", "PDF export needs the desktop app");
           exportBusy = false;
@@ -679,11 +724,23 @@
       exportBusy = false;
       exportDone = true;
       setTimeout(() => (exportDone = false), 2600);
+      pushToast(
+        "success",
+        `Exported ${out.replace(/^.*\//, "")}`,
+        fb.revealPath ? { action: { label: "Reveal", run: () => void fb.revealPath!(out) } } : {},
+      );
     } catch (e) {
       console.error("[flux] export failed", e);
       pushToast("error", "Export failed", { detail: errMsg(e) });
       exportBusy = false;
     }
+  }
+
+  async function cancelExport() {
+    const fb = fileBridge();
+    if (!exportToken || !fb?.quartoCancel) return;
+    exportCancelled = true;
+    await fb.quartoCancel(exportToken).catch(() => false);
   }
 
   function insertFigure(ref: FigureRef) {
@@ -1469,7 +1526,7 @@
         view.focus();
       }
     },
-    doExport: (kind) => doExport(kind),
+    openExportDialog: () => openExportDialog(),
     togglePalette: () => {
       paletteOpen = !paletteOpen;
     },
@@ -1496,8 +1553,17 @@
       keywords: "dynamic background ambient art scene switch",
       run: () => settings.update((v) => ({ ...v, paperMarginScene: s.id as never })),
     })),
-    ...(quartoAvail
-      ? [{ id: "export-docx", title: "Export Word", hint: "Export", keywords: "docx quarto", run: () => doExport("docx") }]
+    // "Repeat last export" re-runs the remembered plan with no dialog, keeping
+    // the old two-keystroke quick export available now that format and style
+    // are chosen in a dialog.
+    ...(exportPlan.outPath
+      ? [{
+          id: "export-repeat",
+          title: `Repeat last export (${EXPORT_FORMATS.find((f) => f.id === exportPlan.format)?.label ?? exportPlan.format})`,
+          hint: "Export",
+          keywords: "again repeat last export",
+          run: () => void doExport(exportPlan),
+        }]
       : []),
   ]);
 
@@ -1622,7 +1688,7 @@
             {status}
             exporting={exportBusy}
             onStats={() => summonPane("stats")}
-            onExport={() => (exportOpen = true)} />
+            onExport={openExportDialog} />
         {/if}
       {/if}
     </div>
@@ -1774,22 +1840,42 @@
   {/if}
 
   {#if exportOpen}
-    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="menu-scrim" onclick={() => { exportOpen = false; view?.focus(); }}></div>
-    <div class="export-menu" transition:popIn>
-      <button onclick={() => doExport("pdf")}>PDF</button>
-      <button onclick={() => doExport("html")}>HTML</button>
-      <button
-        onclick={() => doExport("docx")}
-        disabled={!quartoAvail}
-        title={quartoAvail ? "Word via Quarto" : "Install Quarto for Word export"}>
-        Word {quartoAvail ? "" : "· needs Quarto"}
-      </button>
-    </div>
+    <ExportDialog
+      formats={EXPORT_FORMATS}
+      styles={EXPORT_STYLES}
+      initial={exportPlan}
+      engineLabel={exportEngineLabel(exportPlan)}
+      blockedReason={exportBlockedReason(exportPlan)}
+      onChange={(p) => {
+        // Keep the destination in step with the axes unless the user picked
+        // their own path — a stale ".pdf" name on a Word export is a foot-gun.
+        const wasDefault = !exportPlan.outPath || exportPlan.outPath === defaultOutPath(exportPlan.format, exportPlan.style);
+        exportPlan = { ...p, outPath: wasDefault ? defaultOutPath(p.format, p.style) : p.outPath };
+      }}
+      onPickPath={async (p) => {
+        const fb = fileBridge();
+        const ext = EXPORT_FORMATS.find((f) => f.id === p.format)?.ext ?? p.format;
+        return fb?.save
+          ? await fb.save(p.outPath || defaultOutPath(p.format, p.style), [
+              { name: ext.toUpperCase(), extensions: [ext] },
+            ])
+          : null;
+      }}
+      onExport={(p) => void doExport(p)}
+      onClose={() => { exportOpen = false; view?.focus(); }}
+    />
   {/if}
 
   {#if exportBusy}
-    <div class="doi-toast">Exporting…</div>
+    <div class="export-progress" role="status" aria-live="polite">
+      <div class="export-progress-head">Exporting {EXPORT_FORMATS.find((f) => f.id === exportPlan.format)?.label ?? ""}…</div>
+      {#if exportLogTail}<div class="export-progress-log">{exportLogTail}</div>{/if}
+      {#if exportToken}
+        <button class="export-cancel" disabled={exportCancelled} onclick={cancelExport}>
+          {exportCancelled ? "Cancelling…" : "Cancel"}
+        </button>
+      {/if}
+    </div>
   {:else if exportDone}
     <div class="doi-toast done">Exported ✓</div>
   {/if}
@@ -2024,42 +2110,47 @@
     color: var(--c-tx-faint);
     border: 1px solid var(--c-line-strong);
   }
-  .menu-scrim {
-    position: absolute;
-    inset: 0;
-    z-index: 65;
-  }
-  .export-menu {
-    /* Pops from its trigger — the StatusBar's Export segment, bottom-right. */
+  /* Export progress: a >1s operation needs feedback, and past ~10s it must be
+     interruptible (Nielsen §6). Sits above the StatusBar, where the old
+     one-line "Exporting…" pill used to be. */
+  .export-progress {
     position: absolute;
     bottom: 44px;
     right: 12px;
     z-index: 66;
-    min-width: 150px;
-    padding: 4px;
+    max-width: 340px;
+    padding: 8px 10px;
     display: flex;
     flex-direction: column;
+    gap: 4px;
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-2);
     box-shadow: var(--elev-2);
+    font-size: var(--ts-sm);
+    color: var(--c-tx-2);
   }
-  .export-menu button {
-    text-align: left;
+  .export-progress-log {
+    color: var(--c-tx-faint);
+    font-family: var(--font-mono, monospace);
+    font-size: calc(var(--ts-sm) * 0.9);
+    /* One line only: the log tail is a liveness signal, not a transcript. */
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .export-cancel {
+    align-self: flex-end;
     background: none;
-    border: none;
-    padding: 7px 10px;
+    border: 1px solid var(--c-line-strong);
     border-radius: var(--r-1);
+    padding: 2px 10px;
     color: var(--c-tx-2);
     font: inherit;
     font-size: var(--ts-sm);
     cursor: pointer;
   }
-  .export-menu button:hover:not(:disabled) {
-    background: var(--c-ui-hover);
-    color: var(--c-tx-hi);
-  }
-  .export-menu button:disabled {
+  .export-cancel:disabled {
     color: var(--c-tx-faint);
     cursor: default;
   }

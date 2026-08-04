@@ -56,7 +56,16 @@ contextBridge.exposeInMainWorld("fig", {
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
   // Optional external tools.
   quartoAvailable: () => ipcRenderer.invoke("quarto:available"),
-  quartoRender: (root, to, docPath) => ipcRenderer.invoke("quarto:render", { root, to, docPath }),
+  // opts: { profile?, outPath?, token? } — the journal-style profile, the
+  // destination the export dialog collected, and a cancel/log correlation id.
+  quartoRender: (root, to, docPath, opts) =>
+    ipcRenderer.invoke("quarto:render", { root, to, docPath, ...(opts || {}) }),
+  quartoCancel: (token) => ipcRenderer.invoke("quarto:cancel", token),
+  onQuartoLog: (cb) => {
+    const handler = (_e, info) => cb(info);
+    ipcRenderer.on("quarto:log", handler);
+    return () => ipcRenderer.removeListener("quarto:log", handler);
+  },
   // Reveal an exported file in the OS file manager (Finder/Files).
   revealPath: (p) => ipcRenderer.invoke("shell:showItemInFolder", p),
   openPath: (p) => ipcRenderer.invoke("shell:openPath", p),

@@ -349,6 +349,12 @@ export function createMemBridge(): FileBridge & {
     async quartoRender() {
       return { ok: false, log: "Quarto is unavailable in the demo fixture (use Surface B)." };
     },
+    async quartoCancel() {
+      return false; // nothing ever renders in the fixture, so nothing to cancel
+    },
+    onQuartoLog() {
+      return () => {}; // no render, no log stream — a no-op unsubscribe
+    },
     async prefsGet() {
       const p = norm("/home/demo/.config/flux/preferences.json");
       const resolved = {

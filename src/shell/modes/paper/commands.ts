@@ -46,7 +46,7 @@ export interface PaperCmdCtx {
   unfoldSection(): void;
   foldAll(): void;
   unfoldAll(): void;
-  doExport(kind: "pdf" | "html" | "docx"): void;
+  openExportDialog(): void;
   togglePalette(): void;
 }
 
@@ -204,8 +204,9 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
   { id: "unfold-all", title: () => "Unfold all sections", hint: "Fold", keywords: "expand everything", owner: "none", run: (c) => c.unfoldAll() },
   { id: "margin-wider", title: () => "Wider side panel", hint: "Layout", keywords: "margin panel resize grow", owner: "none", run: (c) => c.widerMargin() },
   { id: "margin-narrower", title: () => "Narrower side panel", hint: "Layout", keywords: "margin panel resize shrink", owner: "none", run: (c) => c.narrowerMargin() },
-  { id: "export-pdf", title: () => "Export PDF", hint: "Export", keywords: "download print", owner: "none", run: (c) => c.doExport("pdf") },
-  { id: "export-html", title: () => "Export HTML", hint: "Export", keywords: "download web", owner: "none", run: (c) => c.doExport("html") },
+  // One row instead of the old per-format trio: format and journal style are
+  // now picked in the dialog, so a palette row per format would multiply out.
+  { id: "export", title: () => "Export…", hint: "Export", keywords: "download print pdf word docx html journal style nature", owner: "window", keys: ["Alt+KeyE"], run: (c) => c.openExportDialog() },
 ];
 
 /** Palette entries generated from the table (dynamic rows appended by PaperMode). */

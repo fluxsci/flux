@@ -92,6 +92,7 @@
       "verify-refformat.ts",
       "verify-embed-normalize.ts",
       "verify-export-qmd.ts",
+      "verify-export-prep.ts",
       "verify-scaffold.ts",
       "verify-sync-render.ts",
       "verify-slide-assets.ts",
@@ -365,7 +366,15 @@
       "glob": "src/lib/exportQmd.ts",
       "run": [
         "verify-export-qmd.ts",
-        "verify-embed-normalize.ts"
+        "verify-embed-normalize.ts",
+        "verify-export-prep.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/exportPrep.ts",
+      "run": [
+        "verify-export-prep.ts",
+        "verify-export-qmd.ts"
       ]
     },
     {

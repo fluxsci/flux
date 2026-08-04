@@ -104,6 +104,8 @@ const CHANNELS = [
   { channel: "recipe:run", kind: "invoke", scope: "spawn" },
   { channel: "quarto:available", kind: "invoke", scope: "read" },
   { channel: "quarto:render", kind: "invoke", scope: "spawn" },
+  { channel: "quarto:cancel", kind: "invoke", scope: "spawn" },
+  { channel: "quarto:log", kind: "push", scope: "read" },
   { channel: "print:pdf", kind: "invoke", scope: "write" },
   { channel: "export:pdf", kind: "invoke", scope: "write" },
   { channel: "slides:exportDeck", kind: "invoke", scope: "spawn" },

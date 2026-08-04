@@ -6,7 +6,8 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { resolveSpawn } from "../electron/execResolve.cjs";
 import { composeCaption } from "../src/lib/captions";
-import { collectEmbedLabels, transformQmdForExport, normalizeEmbedAlts } from "../src/lib/exportQmd";
+import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
+import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
 import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
@@ -145,8 +146,15 @@ export async function insertFigureRef(
 }
 
 /** compile the manuscript via Quarto (pdf|html|docx). Requires `quarto` on PATH. */
-// Quarto `{{< include path >}}` directive (path relative to the including file).
-const INCLUDE_RE = /\{\{<\s*include\s+([^\s>]+)\s*>\}\}/g;
+
+/** The Node half of the shared include walker (`exportQmd.readQmdTree`) —
+ *  real fs + node:path semantics. The grammar and traversal live in the shared
+ *  core so the GUI cannot drift from it. */
+export const qmdTreeIO = {
+  readText: (abs: string) => fs.readFile(abs, "utf8").catch(() => null),
+  resolveFrom: (includingFile: string, rel: string) =>
+    path.resolve(path.dirname(includingFile), rel),
+};
 
 /** Read a qmd and its transitive includes; returns the involved files (in
  *  traversal order) and the EXPANDED text (includes spliced in place — the
@@ -155,20 +163,7 @@ export async function readExpandedQmd(
   file: string,
   seen = new Set<string>(),
 ): Promise<{ files: string[]; expanded: string }> {
-  if (seen.has(file)) return { files: [], expanded: "" };
-  seen.add(file);
-  const text = await fs.readFile(file, "utf8").catch(() => "");
-  const files = [file];
-  let expanded = "";
-  let last = 0;
-  for (const mm of text.matchAll(INCLUDE_RE)) {
-    expanded += text.slice(last, mm.index);
-    const sub = await readExpandedQmd(path.resolve(path.dirname(file), mm[1]), seen);
-    files.push(...sub.files);
-    expanded += sub.expanded;
-    last = (mm.index ?? 0) + mm[0].length;
-  }
-  expanded += text.slice(last);
+  const { files, expanded } = await readQmdTree(file, qmdTreeIO, seen);
   return { files, expanded };
 }
 
@@ -235,7 +230,6 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
   // Sources are restored in `finally`; even an unrestored transform is a
   // valid readable manuscript.
   const docAbs = path.resolve(root, m.manuscript.path);
-  const { files, expanded } = await readExpandedQmd(docAbs);
   const captions = new Map<string, string>();
   const figIdentity = new Map<string, { family: FigureFamilyDef; number: number }>();
   const knownLabels = new Set<string>();
@@ -258,16 +252,13 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
     /* no fig model → nothing to inject */
   }
   const ctx = { captions, figures: figIdentity };
-  const originals = new Map<string, string>();
-  for (const f of files) {
-    const text = await fs.readFile(f, "utf8").catch(() => null);
-    if (text == null) continue;
-    const transformed = transformQmdForExport(text, ctx);
-    if (transformed !== text) {
-      originals.set(f, text);
-      await atomicWrite(f, transformed);
-    }
-  }
+  // The shared prep owns the walk + transform + restore (src/lib/exportPrep.ts)
+  // so the GUI runs byte-for-byte the same preparation.
+  const prep = await prepareExport(
+    { ...qmdTreeIO, writeText: atomicWrite },
+    { entry: docAbs, ctx },
+  );
+  const expanded = prep.expanded;
 
   let code = 0;
   let log = "";
@@ -285,7 +276,7 @@ export async function compile(root: string, to = "pdf"): Promise<CompileSummary>
       child.on("close", (c) => resolve({ code: c ?? 0, log: out }));
     }));
   } finally {
-    for (const [f, text] of originals) await atomicWrite(f, text).catch(() => {});
+    await prep.restore();
   }
   await journal(root, { action: "compile", to, code });
   const note =

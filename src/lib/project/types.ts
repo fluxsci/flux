@@ -232,7 +232,19 @@ export interface FileBridge {
     root: string,
     to: string,
     docPath?: string,
-  ): Promise<{ ok: boolean; code?: number; log: string; outPath?: string }>;
+    opts?: {
+      /** Quarto project profile to merge over `_quarto.yml` (journal styles). */
+      profile?: string;
+      /** Where the artifact should end up; main moves it there post-render. */
+      outPath?: string;
+      /** Correlation id for `quartoCancel` and `onQuartoLog`. */
+      token?: string;
+    },
+  ): Promise<{ ok: boolean; code?: number; log: string; outPath?: string; cancelled?: boolean }>;
+  /** Cancel an in-flight render by token; false when nothing matched. */
+  quartoCancel?(token: string): Promise<boolean>;
+  /** Subscribe to render progress lines. Returns an unsubscribe function. */
+  onQuartoLog?(cb: (info: { token: string | null; chunk: string }) => void): () => void;
   // Reveal an exported file in the OS file manager (fsGuard'd in main).
   revealPath?(p: string): Promise<boolean>;
   /** Open a FluxConfig/project file in the OS default editor. */

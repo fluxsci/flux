@@ -18,7 +18,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import * as core from "../flux-core/index";
-import { collectEmbedLabels, transformQmdForExport } from "../src/lib/exportQmd";
+import { collectEmbedLabels, transformQmdForExport, readQmdTree, resolveInclude } from "../src/lib/exportQmd";
 import { BUILTIN_FAMILIES } from "../src/lib/figfamily";
 
 function assert(cond: unknown, msg: string) {
@@ -72,6 +72,53 @@ assert(out.includes("Watch Mov. 4 too."), "custom-family refs use their template
 assert(out.includes("@fig-nowhere-a"), "refs to unknown labels pass through untouched");
 assert(out.includes("@fig-my-fig-x") === false && out.includes("Extended Data Fig. 3x"),
   "hyphenated labels split by longest known label (fig-my-fig + panel x)");
+
+// --- the shared include walker ----------------------------------------------
+// ONE walker serves both engines (flux-core injects node:fs + node:path; the
+// renderer injects its file bridge). These pins are what stop the two from
+// drifting apart again.
+{
+  assert(resolveInclude("/p/manuscript/main.qmd", "sections/intro.qmd") === "/p/manuscript/sections/intro.qmd",
+    "resolveInclude: relative to the INCLUDING file's directory");
+  assert(resolveInclude("/p/manuscript/main.qmd", "../shared/boiler.qmd") === "/p/shared/boiler.qmd",
+    "resolveInclude: `..` climbs out of the including directory");
+  assert(resolveInclude("/p/manuscript/main.qmd", "./a/./b.qmd") === "/p/manuscript/a/b.qmd",
+    "resolveInclude: `.` segments fold away");
+  assert(resolveInclude("C:\\p\\m\\main.qmd", "sections\\intro.qmd") === "C:\\p\\m\\sections\\intro.qmd",
+    "resolveInclude: win32 paths keep their separator");
+  assert(resolveInclude("/a.qmd", "../../../b.qmd") === "/b.qmd",
+    "resolveInclude: a runaway `..` chain cannot escape past the root");
+
+  const tree = new Map<string, string>([
+    ["/p/main.qmd", "TOP\n{{< include sections/one.qmd >}}\nMID\n{{< include sections/two.qmd >}}\nEND"],
+    ["/p/sections/one.qmd", "ONE{{< include ../deep/three.qmd >}}"],
+    ["/p/deep/three.qmd", "THREE"],
+    ["/p/sections/two.qmd", "TWO"],
+  ]);
+  const io = { readText: async (a: string) => tree.get(a) ?? null };
+  const walked = await readQmdTree("/p/main.qmd", io);
+  assert(walked.expanded === "TOP\nONETHREE\nMID\nTWO\nEND",
+    `includes splice in place, depth-first (got: ${JSON.stringify(walked.expanded)})`);
+  assert(JSON.stringify(walked.files) ===
+      JSON.stringify(["/p/main.qmd", "/p/sections/one.qmd", "/p/deep/three.qmd", "/p/sections/two.qmd"]),
+    "files come back in traversal order");
+  assert(walked.texts.get("/p/deep/three.qmd") === "THREE",
+    "texts map carries every file's source, keyed by the path it was read from");
+
+  // A missing include must not throw — it contributes empty text, exactly as
+  // the pre-unification engines behaved.
+  const missing = await readQmdTree("/p/gone.qmd", io);
+  assert(missing.expanded === "" && missing.files.length === 1,
+    "an unreadable file yields empty text rather than throwing");
+
+  // Shared `seen` across entry documents: normalizeEmbeds walks main AND every
+  // supplementary doc, and a file already visited must not be listed twice.
+  const seen = new Set<string>();
+  await readQmdTree("/p/main.qmd", io, seen);
+  const second = await readQmdTree("/p/sections/one.qmd", io, seen);
+  assert(second.files.length === 0 && second.expanded === "",
+    "a file already walked under a shared `seen` set contributes nothing again");
+}
 
 // --- wrong-root diagnosis ----------------------------------------------------
 const junk = await fs.mkdtemp(path.join(os.tmpdir(), "flux-notaproject-"));

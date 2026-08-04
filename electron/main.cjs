@@ -1355,7 +1355,29 @@ ipcMain.handle("quarto:available", async () => {
   });
 });
 
-ipcMain.handle("quarto:render", async (e, { root, to, docPath }) => {
+// In-flight renders by token, so the renderer can cancel a long compile
+// (Nielsen §6: past ~10s an operation must be interruptible).
+const quartoRuns = new Map();
+
+ipcMain.handle("quarto:cancel", async (_e, token) => {
+  const run = quartoRuns.get(String(token || ""));
+  if (!run) return false;
+  run.cancelled = true;
+  try {
+    run.child.kill("SIGTERM");
+    // Quarto spawns pandoc/LaTeX children; if the tree ignores SIGTERM, escalate.
+    setTimeout(() => {
+      try {
+        if (!run.child.killed) run.child.kill("SIGKILL");
+      } catch {}
+    }, 3000).unref?.();
+  } catch {
+    return false;
+  }
+  return true;
+});
+
+ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath, token }) => {
   // Render the ACTIVE document, not always main.qmd. Containment: the doc must be
   // a .qmd resolving under the project root (no traversal via a crafted docPath).
   const rootAbs = path.resolve(String(root || ""));
@@ -1364,24 +1386,66 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath }) => {
   if (!underDir(docAbs, rootAbs) || !/\.qmd$/i.test(docAbs)) {
     return { ok: false, log: `invalid document path: ${rel}` };
   }
+  // A Quarto profile name reaches the command line — keep it to a slug so it
+  // can never introduce an argument of its own.
+  const prof = typeof profile === "string" && /^[a-z0-9-]{1,32}$/.test(profile) ? profile : null;
+  if (profile && !prof) return { ok: false, log: `invalid profile: ${String(profile)}` };
+  // The requested destination is a WRITE — it must clear the same guard as any
+  // other renderer-driven write (project/app roots + dialog-approved dirs).
+  let destAbs = null;
+  if (typeof outPath === "string" && outPath.trim()) {
+    destAbs = path.resolve(outPath);
+    try {
+      fsGuard(destAbs);
+    } catch (err) {
+      return { ok: false, log: `refusing to write outside an allowed directory: ${destAbs}` };
+    }
+  }
+  const runId = typeof token === "string" && token ? token : null;
   return new Promise((resolve) => {
     try {
-      const q = resolveSpawn("quarto", ["render", rel, "--to", to || "pdf"]);
+      const q = resolveSpawn("quarto", [
+        "render",
+        rel,
+        "--to",
+        to || "pdf",
+        ...(prof ? ["--profile", prof] : []),
+      ]);
       const p = spawn(q.command, q.args, {
         cwd: rootAbs,
         windowsVerbatimArguments: q.windowsVerbatimArguments,
       });
+      const run = { child: p, cancelled: false };
+      if (runId) quartoRuns.set(runId, run);
       let log = "";
-      // (A quarto:log live-stream push used to fire here — nothing ever
-      // subscribed; the renderer reads the accumulated log from the result.
-      // Found by verify-ipc-contract's no-orphans check, WS-9.4.)
+      // Stream progress lines to the renderer's export card. (A quarto:log push
+      // existed here once and was removed as an orphan when nothing subscribed;
+      // it is back with a real subscriber, declared in contract.cjs.)
+      let pending = "";
+      let lastFlush = 0;
+      const flush = (force) => {
+        const now = Date.now();
+        if (!pending || (!force && now - lastFlush < 100)) return;
+        lastFlush = now;
+        const chunk = pending;
+        pending = "";
+        if (!e.sender.isDestroyed()) e.sender.send("quarto:log", { token: runId, chunk });
+      };
       const collect = (s) => {
         log += s;
+        pending += s;
+        flush(false);
       };
       p.stdout.on("data", (d) => collect(String(d)));
       p.stderr.on("data", (d) => collect(String(d)));
-      p.on("error", (err) => resolve({ ok: false, log: String(err.message) }));
+      p.on("error", (err) => {
+        if (runId) quartoRuns.delete(runId);
+        resolve({ ok: false, log: String(err.message) });
+      });
       p.on("close", (code) => {
+        flush(true);
+        if (runId) quartoRuns.delete(runId);
+        if (run.cancelled) return resolve({ ok: false, cancelled: true, code, log });
         // Verify the artifact actually landed (a _quarto.yml output-dir moves it —
         // report what we found so the renderer can Reveal the real file).
         const ext = String(to || "pdf").toLowerCase();
@@ -1389,10 +1453,33 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath }) => {
           docAbs.replace(/\.qmd$/i, `.${ext}`),
           path.join(rootAbs, "_output", path.basename(docAbs).replace(/\.qmd$/i, `.${ext}`)),
         ];
-        const outPath = candidates.find((c) => fs.existsSync(c));
-        resolve({ ok: code === 0 && !!outPath, code, log: outPath ? log : log + "\n(no output file found)", outPath });
+        let found = candidates.find((c) => fs.existsSync(c));
+        // Move the artifact where the user asked. Quarto writes beside the source
+        // (or into _output); without this, docx silently lands in manuscript/.
+        if (found && destAbs && path.resolve(found) !== destAbs) {
+          try {
+            fs.mkdirSync(path.dirname(destAbs), { recursive: true });
+            try {
+              fs.renameSync(found, destAbs);
+            } catch {
+              fs.copyFileSync(found, destAbs); // cross-device rename fails
+              fs.unlinkSync(found);
+            }
+            noteWrite?.(destAbs);
+            found = destAbs;
+          } catch (err) {
+            log += `\n(could not move output to ${destAbs}: ${err.message})`;
+          }
+        }
+        resolve({
+          ok: code === 0 && !!found,
+          code,
+          log: found ? log : log + "\n(no output file found)",
+          outPath: found,
+        });
       });
     } catch (err) {
+      if (runId) quartoRuns.delete(runId);
       resolve({ ok: false, log: String(err) });
     }
   });

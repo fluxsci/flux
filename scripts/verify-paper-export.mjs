@@ -1,6 +1,7 @@
-// V1-readiness 0.4 gate — DOCX/Quarto export integrity + the (previously dead) Export menu.
-//   A. REAL UI: the StatusBar's Export segment exists, opens the export menu, and a
-//      scrim-close returns focus to the editor (focus-return discipline).
+// V1-readiness 0.4 gate — DOCX/Quarto export integrity + the Export surface.
+//   A. REAL UI: the StatusBar's Export segment exists, opens the export DIALOG
+//      (format × journal-style axes + an output path for every format), and a
+//      backdrop-close returns focus to the editor (focus-return discipline).
 //   B. IN-PAGE: materializeRenders() writes fig/renders/<id>.svg for the figures the doc
 //      embeds — round-tripped through the fixture bridge — and reports unknown ids.
 //   C. SOURCE: the docx flow flushes BEFORE quarto, materializes BEFORE quarto, propagates
@@ -9,40 +10,52 @@
 //      reveal; flux-core compile() materializes renders for bare-quarto/agent parity.
 // Run (dev server on :1420): node scripts/verify-paper-export.mjs
 import { readFileSync } from "node:fs";
-import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL } from "./lib/driver.mjs";
 
 const fails = [];
 const ok = (cond, msg) => (cond ? console.log("  ✓ " + msg) : (fails.push(msg), console.log("  ✗ " + msg)));
 
 // --- A + B: live fixture ------------------------------------------------------------
 const { browser, page } = await launch();
-await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
+// Honour FLUX_URL (driver.mjs) so this gate can run against a worktree's own
+// dev server instead of assuming :1420 — parallel sessions each own a port.
+await gotoApp(page, { url: `${APP_URL.replace(/\/$/, "")}/?fixture=demo`, settle: 3500 });
 await clickMode(page, "Paper").catch(() => {});
 await sleep(600);
 
-console.log("A — Export menu is reachable from the StatusBar:");
+console.log("A — Export dialog is reachable from the StatusBar (format × style axes):");
 const ui = await page.evaluate(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const exportBtn = [...document.querySelectorAll(".statusbar .seg")].find((b) => /export/i.test(b.textContent || ""));
   if (!exportBtn) return { error: "no Export segment in the StatusBar" };
   exportBtn.click();
   await sleep(250);
-  const menu = document.querySelector(".export-menu");
-  const items = menu ? [...menu.querySelectorAll("button")].map((b) => (b.textContent || "").trim()) : [];
-  const scrim = document.querySelector(".menu-scrim");
-  scrim?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  // The menu leaves through a Svelte outro transition — poll for real removal.
-  let menuGone = false;
-  for (let i = 0; i < 12 && !menuGone; i++) {
+  const dlg = document.querySelector(".export-dialog");
+  const formats = dlg ? [...dlg.querySelectorAll(".seg")].map((b) => (b.textContent || "").trim()) : [];
+  const styles = dlg ? [...dlg.querySelectorAll("select option")].map((o) => (o.textContent || "").trim()) : [];
+  const hasPath = !!dlg?.querySelector(".path-text")?.textContent?.trim();
+  const backdrop = document.querySelector(".export-backdrop");
+  backdrop?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  // The dialog leaves through a Svelte outro transition — poll for real removal.
+  let gone = false;
+  for (let i = 0; i < 12 && !gone; i++) {
     await sleep(100);
-    menuGone = !document.querySelector(".export-menu");
+    gone = !document.querySelector(".export-dialog");
   }
   const focusInEditor = !!document.activeElement?.closest(".cm-editor");
-  return { items, menuGone, focusInEditor };
+  return { formats, styles, hasPath, gone, focusInEditor };
 });
 ok(!ui.error, ui.error || "StatusBar has an Export segment");
-ok((ui.items ?? []).some((t) => /pdf/i.test(t)) && (ui.items ?? []).some((t) => /word/i.test(t)), `menu offers PDF/HTML/Word (${(ui.items ?? []).join(" · ")})`);
-ok(ui.menuGone === true, "scrim click closes the menu");
+ok(
+  (ui.formats ?? []).some((t) => /pdf/i.test(t)) &&
+    (ui.formats ?? []).some((t) => /word/i.test(t)) &&
+    (ui.formats ?? []).some((t) => /html/i.test(t)),
+  `format axis offers PDF/Word/HTML (${(ui.formats ?? []).join(" · ")})`,
+);
+ok((ui.styles ?? []).length >= 1, `style axis is populated (${(ui.styles ?? []).join(" · ")})`);
+// Word used to land beside the .qmd with no say; every format now has a destination.
+ok(ui.hasPath === true, "dialog shows an output path for the selected format");
+ok(ui.gone === true, "backdrop click closes the dialog");
 ok(ui.focusInEditor === true, "focus returns to the editor after close (feel invariant 7)");
 
 console.log("A2 — quarto {ok:false} surfaces as an error toast (behavioral, WS-7.5):");
@@ -64,9 +77,15 @@ const toastCase = await page.evaluate(async () => {
     const exportBtn = [...document.querySelectorAll(".statusbar .seg")].find((b) => /export/i.test(b.textContent || ""));
     exportBtn?.click();
     await sleep(250);
-    const word = [...document.querySelectorAll(".export-menu button")].find((b) => /word/i.test(b.textContent || ""));
-    if (!word) return { error: "no Word item in the export menu" };
+    // Pick the Word format on the axis, then commit with Export.
+    const word = [...document.querySelectorAll(".export-dialog .seg")].find((b) => /word/i.test(b.textContent || ""));
+    if (!word) return { error: "no Word segment in the export dialog" };
     word.click();
+    await sleep(120);
+    const go = [...document.querySelectorAll(".export-dialog button")].find((b) => /^export$/i.test((b.textContent || "").trim()));
+    if (!go) return { error: "no Export button in the dialog" };
+    if (go.disabled) return { error: "Export button disabled though quarto is stubbed available" };
+    go.click();
     // The failure toast lands after flush + materialize + the stubbed render.
     let toast = "";
     for (let i = 0; i < 40 && !toast; i++) {
@@ -118,21 +137,33 @@ await browser.close();
 // --- C: source wiring ----------------------------------------------------------------
 console.log("C — export-flow source wiring:");
 const pm = readFileSync("src/shell/modes/paper/PaperMode.svelte", "utf8");
-const docxBlock = pm.slice(pm.indexOf('if (kind === "docx")'), pm.indexOf('const { full, title }'));
+const docxBlock = pm.slice(pm.indexOf('if (plan.format === "docx")'), pm.indexOf("// In-app engines"));
+ok(docxBlock.length > 0, "docx branch is locatable in doExport(plan)");
 ok(/await autosave\.flush\(\)/.test(docxBlock), "docx flow flushes the autosave before quarto (disk freshness)");
 ok(
   docxBlock.indexOf("autosave.flush()") < docxBlock.indexOf("materializeRenders") &&
-    docxBlock.indexOf("materializeRenders") < docxBlock.indexOf("fb.quartoRender(pm.root"),
-  "order: flush → materialize renders → quarto",
+    docxBlock.indexOf("materializeRenders") < docxBlock.indexOf("transformDocsForQuarto") &&
+    docxBlock.indexOf("transformDocsForQuarto") < docxBlock.indexOf("fb.quartoRender(pm.root"),
+  "order: flush → materialize renders → prepare (transform) → quarto",
 );
-ok(/quartoRender\(pm\.root, "docx", activeDocPath\)/.test(docxBlock), "renders the ACTIVE document, not always main");
+ok(/quartoRender\(pm\.root, "docx", activeDocPath, \{/.test(docxBlock), "renders the ACTIVE document, not always main");
+// The dialog collects a destination for EVERY format now; docx no longer lands
+// beside the .qmd by default.
+ok(/outPath: plan\.outPath/.test(docxBlock), "the chosen output path is passed through to the render");
+ok(/token/.test(docxBlock) && /onQuartoLog/.test(docxBlock), "render is tokened + subscribes to the live log (progress card)");
+ok(/r\?\.cancelled/.test(docxBlock) && /Export cancelled/.test(docxBlock), "a cancelled render reports as cancelled, not as a failure");
 ok(/if \(!r\?\.ok\)/.test(docxBlock) && /Word export failed/.test(docxBlock), "quarto {ok:false} → error toast (false 'Exported ✓' killed)");
 ok(/ConflictError/.test(docxBlock), "flush ConflictError aborts with the diverged-banner hint");
 ok(/label: "Reveal"/.test(docxBlock) && /revealPath/.test(docxBlock), "success toast offers Reveal");
-ok(/onExport=\{\(\) => \(exportOpen = true\)\}/.test(pm), "StatusBar wired to open the export menu");
+ok(/restoreDocs\(\)/.test(docxBlock) && /finally/.test(docxBlock), "sources are restored in a finally, whatever the render does");
+ok(/onExport=\{openExportDialog\}/.test(pm), "StatusBar wired to open the export dialog");
+ok(/async function cancelExport/.test(pm) && /quartoCancel/.test(pm), "cancel path invokes quartoCancel");
 
 const main = readFileSync("electron/main.cjs", "utf8");
-ok(/quarto:render", async \(e, \{ root, to, docPath \}\)/.test(main), "quarto:render accepts docPath");
+ok(/quarto:render", async \(e, \{ root, to, docPath, profile, outPath, token \}\)/.test(main), "quarto:render accepts docPath + profile/outPath/token");
+ok(/\^\[a-z0-9-\]\{1,32\}\$/.test(main), "profile name is slug-validated before it reaches the command line");
+ok(/fsGuard\(destAbs\)/.test(main), "the requested output path clears fsGuard before anything is written");
+ok(/quarto:cancel/.test(main) && /SIGTERM/.test(main) && /SIGKILL/.test(main), "cancel kills the render (escalating if it ignores SIGTERM)");
 ok(/underDir\(docAbs, rootAbs\)/.test(main) && /\\\.qmd\$/.test(main), "docPath contained under root + .qmd-only");
 ok(/no output file found/.test(main) && /outPath/.test(main), "artifact existence verified, outPath returned");
 ok(/shell:showItemInFolder/.test(main) && main.slice(main.indexOf("shell:showItemInFolder")).slice(0, 300).includes("fsGuard"), "showItemInFolder exists and is fsGuard'd");
