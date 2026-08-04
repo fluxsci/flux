@@ -40,6 +40,19 @@ const nature = resolveJournalStyle("nature", BUILTIN_JOURNAL_STYLES);
   }
   assert(journalAssetPlan(resolveJournalStyle(null, BUILTIN_JOURNAL_STYLES)).length === 0,
     "the house style needs NO assets (nothing is written for a plain export)");
+
+  // A style that EXTENDS another must reuse its parent's shipped files. Keying
+  // assets off the leaf id instead made nature-communications ask for a CSL and
+  // a reference.docx that do not ship, and the export failed outright.
+  const nc = resolveJournalStyle("nature-communications", BUILTIN_JOURNAL_STYLES);
+  const ncPlan = journalAssetPlan(nc);
+  assert(ncPlan.length === plan.length, "an extending style plans the same number of assets");
+  for (const a of ncPlan) {
+    assert(existsSync(`resources/${a.resource}`),
+      `nature-communications reuses a SHIPPED resource (${a.resource}), not one named after itself`);
+  }
+  assert(ncPlan.every((a) => a.resource.includes("nature.") || a.resource.includes("nature-reference")),
+    "…specifically Nature's, inherited through `extends`");
 }
 
 // --- the shipped files are the real thing ------------------------------------

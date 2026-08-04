@@ -33,11 +33,15 @@ export interface JournalAsset {
  */
 export function journalAssetPlan(style: ResolvedJournalStyle): JournalAsset[] {
   const out: JournalAsset[] = [];
-  if (style.csl) out.push({ rel: style.csl, resource: `csl/${style.id}.csl` });
+  // `assetKey` (not the style id) names the SHIPPED files: a style that extends
+  // another reuses its parent's CSL and Word template rather than asking for
+  // files that do not exist.
+  const key = style.assetKey || style.id;
+  if (style.csl) out.push({ rel: style.csl, resource: `csl/${key}.csl` });
   if (style.document.lineNumbers || style.document.fontFamily || style.document.lineSpacing) {
     out.push({
-      rel: `styles/journal/${style.id}/reference.docx`,
-      resource: `docx/${style.id}-reference.docx`,
+      rel: `styles/journal/${key}/reference.docx`,
+      resource: `docx/${key}-reference.docx`,
     });
   }
   return out;

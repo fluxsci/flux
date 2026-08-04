@@ -131,6 +131,11 @@ export interface JournalStyle {
   document?: DocFormatSpec;
   /** Project-relative CSL file for the Quarto path (pandoc renders citations). */
   csl?: string;
+  /** Which SHIPPED asset set this style uses (resources/csl/<key>.csl,
+   *  resources/docx/<key>-reference.docx). Defaults to the style's own id, but
+   *  INHERITS through `extends` — so a portfolio sibling reuses its parent's
+   *  CSL and Word template instead of demanding files that do not ship. */
+  assetKey?: string;
   /** Key into figure/journalSizing.ts JOURNAL_PRESETS — composed, not copied. */
   sizingFamily?: string;
 }
@@ -148,6 +153,7 @@ export interface ResolvedJournalStyle {
   limits: LimitsSpec;
   document: DocFormatSpec;
   csl?: string;
+  assetKey?: string;
   sizingFamily?: string;
 }
 
@@ -216,6 +222,9 @@ function mergeStyle(base: ResolvedJournalStyle, s: JournalStyle): ResolvedJourna
     limits: { ...base.limits, ...(s.limits ?? {}) },
     document: { ...base.document, ...(s.document ?? {}) },
     csl: s.csl ?? base.csl,
+    // Own key → parent's key → own id. The middle step is what lets
+    // nature-communications ship no assets of its own.
+    assetKey: s.assetKey ?? base.assetKey ?? s.id,
     sizingFamily: s.sizingFamily ?? base.sizingFamily,
   };
 }
