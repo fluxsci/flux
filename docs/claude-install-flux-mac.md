@@ -276,19 +276,33 @@ needing admin rights."* Then:
 osascript -e 'do shell script "installer -pkg /tmp/quarto-macos.pkg -target /" with administrator privileges'
 ```
 
-(Don't use `brew install --cask quarto` even when Homebrew is present — the cask wraps this
-same `.pkg` in a tty `sudo` prompt your shell can't answer.)
+(Don't reach for `brew install --cask quarto` **as the agent** even when Homebrew is present
+— the cask wraps this same `.pkg` in a tty `sudo` prompt your shell can't answer. That's a
+limit on *how you install*, not on the result: the cask runs the identical official `.pkg`
+and lands the identical `/Applications/quarto` + `/usr/local/bin/quarto` layout. So if the
+detection step found a Homebrew-installed Quarto, it is fully supported — say so and skip
+this step rather than reinstalling.)
 
 Then the TeX layer for PDF output (no sudo; installs into the user account):
 
 ```bash
 quarto install tinytex
-tlmgr install lineno setspace    # journal-styled PDF (line numbers, double spacing)
+# TinyTeX is NOT added to PATH by that install, so call tlmgr by absolute path —
+# a bare `tlmgr` here fails with command-not-found on a fresh machine:
+"$HOME/Library/TinyTeX/bin/universal-darwin/tlmgr" install lineno setspace
 quarto check                     # should end with no errors
 ```
 
 `tlmgr install` needs **no admin prompt** here — TinyTeX installs into the user's home
 directory, so this is one of the steps that stays hands-off (ground rule 2).
+
+Then add TinyTeX to the marked `~/.zshrc` block from step 2, so the user's own `tlmgr` and
+`kpsewhich` work in future shells (Flux and Quarto locate TinyTeX internally and don't need
+this — it's purely for the human):
+
+```bash
+export PATH="$HOME/Library/TinyTeX/bin/universal-darwin:$PATH"
+```
 
 Without TinyTeX, `flux compile --to pdf` fails while `--to html|docx` still work — so
 TinyTeX is strongly recommended, not optional-in-practice. Without `lineno` and
@@ -375,7 +389,7 @@ npm run check                              # svelte-check: MUST be 0 errors 0 wa
 node scripts/run-verifies.mjs --tier bundle   # CLI bundle smoke (needs the step-3 build)
 node dist/flux-cli.mjs config              # paths resolve; FluxConfig healthy
 quarto check                               # quarto + tinytex
-kpsewhich lineno.sty setspace.sty          # journal-styled PDF prerequisites
+"$HOME/Library/TinyTeX/bin/universal-darwin/kpsewhich" lineno.sty setspace.sty   # journal-PDF prereqs
 cd ~/fluxplot && uv run python -c "import fluxplot"
 ```
 
@@ -541,6 +555,7 @@ End your session with a summary containing:
 | Lighttable button errors ("isn't installed" / "isn't built yet") | The sidecar's own deps/build are missing → `cd lighttable && npm ci && npm run build` (step 3) |
 | App can't find `quarto`/`claude` when launched from Finder | Finder PATH is minimal → launch via `LAUNCH-FLUX.command` (it exports a full PATH), or from a terminal |
 | `flux compile --to pdf` fails, html/docx fine | No TeX → `quarto install tinytex`, then `quarto check` |
+| `tlmgr` / `kpsewhich`: command not found (but TeX looks installed) | `quarto install tinytex` never touches PATH → call them at `~/Library/TinyTeX/bin/universal-darwin/`, and add that dir to the step-2 `~/.zshrc` block. Flux/Quarto are unaffected — they resolve TinyTeX internally |
 | Launcher opens Terminal but no Flux window | Baked paths stale (repo moved / node reinstalled) → regenerate the launcher (step 13); check `dist/index.html` exists |
 | Double-click does nothing / "cannot execute" | Lost the executable bit → `chmod +x ~/Desktop/LAUNCH-FLUX.command` |
 | Admin password pop-up never appears / `osascript` errors ("Not authorized", −10004) | No GUI session (SSH’d in) or a non-admin account → fall back per ground rule 2: give the user the exact `sudo` command to run in their own terminal |
