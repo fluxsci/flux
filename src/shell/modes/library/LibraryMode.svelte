@@ -50,7 +50,7 @@
   import ZoteroPanel from "./ZoteroPanel.svelte";
   import { zoteroSyncJob } from "../../../lib/references/zoteroSyncJob.svelte";
   import { openInReader } from "../reader/readerStore";
-  import { fetchPdfForEntry, fetchViaProxyForEntry } from "../../../lib/references/pdfFinderBridge";
+  import { fetchPdfForEntry, fetchViaProxyForEntry, fetchSupplementsForEntries } from "../../../lib/references/pdfFinderBridge";
   import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
   import { parseQueryTerms } from "../../../lib/references/textFold";
   import { loadAnnotations } from "../../../lib/references/annotationsBridge";
@@ -951,6 +951,37 @@
       true,
     );
   }
+  // Backfill supplements for the checked rows. Separate from "Get PDFs" on purpose: it never
+  // touches a paper.pdf that's already there, it asks the repository (Europe PMC) first, and
+  // it only walks the publisher's page for what the repository doesn't hold — which is where
+  // the per-publisher rate limiter matters most.
+  let fetchingSupps = $state(false);
+  let suppProgress = $state("");
+  async function fetchSelectedSupplements() {
+    if (fetchingSupps || pdfFetchJob.running || !selected.size) return;
+    const list = entries.filter((e) => selected.has(e.key));
+    fetchingSupps = true;
+    suppProgress = `0/${list.length}`;
+    try {
+      const s = await fetchSupplementsForEntries(
+        list.map((e) => ({ entry: e, enrich: enrichMap[e.key] })),
+        {
+          allowProxy: proxyConfigured && proxySignedIn,
+          onProgress: (done, total) => (suppProgress = `${done}/${total}`),
+        },
+      );
+      pushToast(
+        s.files ? "info" : "info",
+        s.files ? `Saved ${s.files} supplementary file${s.files === 1 ? "" : "s"} across ${s.papers} paper${s.papers === 1 ? "" : "s"}` : "No supplements found for those papers",
+        s.files || proxyConfigured ? undefined : { detail: "Europe PMC covers open-access papers only — configure the library proxy (⚙ Keys) to reach publisher-hosted supplements." },
+      );
+    } catch (e) {
+      pushToast("error", "Supplement fetch failed", { detail: e instanceof Error ? e.message : String(e) });
+    } finally {
+      fetchingSupps = false;
+      suppProgress = "";
+    }
+  }
   async function runFetch(list: RefEntry[], retryFailed: boolean) {
     if (fetchingKey || loading || !list.length || preflightBusy) return;
     // PRE-FLIGHT: re-probe library authentication at click time (ground truth — a real
@@ -1513,6 +1544,11 @@
           disabled={fetchingAll || preflightBusy || fetchingKey !== ""}
           title="Fetch PDFs for the checked references — open access first, then your library proxy (Alt+F)"
           onclick={fetchSelectedPdfs}>⬇ Get {selected.size} PDF{selected.size === 1 ? "" : "s"}</button>
+        <button
+          class="selfetch"
+          disabled={fetchingSupps || fetchingAll || preflightBusy || fetchingKey !== ""}
+          title="Fetch supplementary files for the checked references — Europe PMC first, then your library proxy. Never replaces a PDF you already have."
+          onclick={fetchSelectedSupplements}>{fetchingSupps ? `⧉ Supplements ${suppProgress}` : `⧉ Get supplements`}</button>
         <input
           class="bulktag"
           bind:value={bulkTagDraft}

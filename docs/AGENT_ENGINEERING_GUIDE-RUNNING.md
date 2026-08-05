@@ -2097,10 +2097,12 @@ Full analysis: `notes/Flux_Supplement_Capture_Report.md`.
   does the same. Two lessons: **a green `svelte-check` + `vite build` does not mean the app
   loads**, and when a batch of unrelated UI gates all start timing out, open the page and read
   its console before believing the gate.
-- **NOT DONE:** the 10-publisher live gate (`verify-proxy-capture.cjs`) never completed. Partway
-  through the session Electron stopped becoming ready on this box — a script that does nothing but
-  await `app.whenReady()` hangs, with or without a private `--user-data-dir`. Environment, not code
-  (many Electron launches plus the owner's long-running app); clearing it would have meant killing
-  a live desktop session. The two AAAS cases were verified live twice before that. Re-run the gate,
-  and note its stdout is BLOCK-BUFFERED when redirected to a file, so a killed run loses every line
-  — let it finish, or watch it on a terminal.
+- **Live gate: 10/10 required publishers pass** (APS, OUP, Wiley×2, AAAS×3 including both
+  reproducing DOIs, PNAS, Cell Press, Nature) with the two known anti-bot walls unchanged, so
+  candidate RANKING regressed nothing. Getting there was its own lesson: a first run sat for 37
+  minutes emitting NOTHING, which read like a hang in the gate but was Electron itself wedged on
+  this box — a script that does nothing but await `app.whenReady()` also hung, with or without a
+  private `--user-data-dir`. **If a gate produces zero output, check that Electron can become
+  ready at all before debugging the gate.** It cleared on its own later. (The run did wedge in
+  `engine.dispose()` afterwards, so the leaked-window check never printed — untouched teardown
+  code, worth re-confirming on a clean machine.)

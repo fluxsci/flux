@@ -187,9 +187,10 @@ export async function fetchSupplementsForEntry(
   }
   if (added || !opts.allowProxy || !fb.fetchViaProxy) return { key: entry.key, added };
   // Nothing in the repository — go to the publisher's page. This deliberately re-runs the
-  // full capture (the supplement links only exist on that page); the main PDF it returns is
-  // simply discarded when the paper already has one.
-  const r = await fetchViaProxyForEntry(entry, en, { token: opts.token, withSupplements: true });
+  // full capture (the supplement links only exist on that page), but a paper that already has
+  // its article keeps it: we're backfilling supplements, not re-downloading the paper.
+  const hasPdf = await readerHasPdf(entry.key);
+  const r = await fetchViaProxyForEntry(entry, en, { token: opts.token, withSupplements: true, supplementsOnly: hasPdf });
   return { key: entry.key, added: added + (r.supplements ?? 0), error: r.status === "got" ? undefined : r.error };
 }
 
@@ -241,7 +242,15 @@ export async function fetchSupplementsForEntries(
 export async function fetchViaProxyForEntry(
   entry: RefEntry,
   en?: EnrichEntry,
-  opts: { token?: string; withSupplements?: boolean } = {},
+  opts: {
+    token?: string;
+    withSupplements?: boolean;
+    /** Backfill mode: the paper already HAS its article, and we're only here for the
+     *  supplements (which live on the publisher's page and nowhere else). Capture still runs
+     *  — that's how we reach the page — but the main PDF it returns is discarded rather than
+     *  overwriting a good paper.pdf. */
+    supplementsOnly?: boolean;
+  } = {},
 ): Promise<GuiFetchResult> {
   const fb = fileBridge();
   if (!fb?.fetchViaProxy) return { key: entry.key, status: "error", error: "The desktop app is required." };
@@ -255,8 +264,10 @@ export async function fetchViaProxyForEntry(
     }
     const bytes = b64ToU8(r.bytesB64);
     if (!isPdfBytes(bytes)) return { key: entry.key, status: "no-oa", error: "not a PDF", reason: "not-a-pdf", target };
-    const w = await writePdfItem(entry.key, bytes, { source: "proxy", url: target, finalUrl: r.finalUrl, isOa: false });
-    if (!w.ok) return { key: entry.key, status: "no-oa", error: w.reason === "supplement" ? `captured supplementary material, not the article (${w.signal})` : "could not file the PDF", reason: w.reason, target };
+    if (!opts.supplementsOnly) {
+      const w = await writePdfItem(entry.key, bytes, { source: "proxy", url: target, finalUrl: r.finalUrl, isOa: false });
+      if (!w.ok) return { key: entry.key, status: "no-oa", error: w.reason === "supplement" ? `captured supplementary material, not the article (${w.signal})` : "could not file the PDF", reason: w.reason, target };
+    }
     // The engine captured the paper's supplementary files on the same authenticated page —
     // file them beside it. Best-effort: a supplement failure never demotes a good main text.
     let supplements = 0;
