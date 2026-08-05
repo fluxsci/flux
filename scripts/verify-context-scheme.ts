@@ -210,4 +210,40 @@ const tpl = await import("../src/lib/project/contextTemplates");
   ok(!tpl.isRetiredAgentsGuide("# my own notes\nThe file *is* the API"), "retired-guide detector: user-authored spared");
 }
 
+// --- 5. FluxContext re-sync when the checkout MOVED ------------------------
+// The stamped cli bakes this install's absolute paths into the synced docs. If
+// those paths vanish, the checkout moved and every substitution on disk is
+// dangling — re-sync. If they merely DIFFER (dev checkout vs packaged app, which
+// resolve different {{FLUX_CLI}} strings), leave them: rewriting on every engine
+// switch would churn the folder. "Gone", not "different", is the trigger.
+{
+  const fp = (await import("../electron/fluxPaths.cjs")) as Record<string, unknown>;
+  const dangling = fp.stampedCliDanglingSync as (cli?: string) => boolean;
+  const scratch5 = fs.mkdtempSync(path.join(os.tmpdir(), "flux-stamp-"));
+  try {
+    const live = path.join(scratch5, "flux-cli.mjs");
+    fs.writeFileSync(live, "//");
+    const gone = path.join(scratch5, "moved-away", "flux-cli.mjs");
+
+    ok(dangling(`node "${live}"`) === false, "stamped cli whose path still exists: not dangling");
+    ok(dangling(`node "${gone}"`) === true, "stamped cli whose path is gone: dangling → re-sync");
+    ok(
+      dangling(`ELECTRON_RUN_AS_NODE=1 "${live}" "${gone}"`) === true,
+      "packaged-style command: ANY missing path counts as dangling",
+    );
+    ok(dangling("flux") === false, "bare `flux` fallback carries no paths: never dangling");
+    ok(dangling(undefined) === false, "absent stamp field: not dangling");
+
+    // The churn guard — the reason this is existence-based and not equality-based.
+    const packaged = path.join(scratch5, "Flux.app-stand-in");
+    fs.writeFileSync(packaged, "//");
+    ok(
+      dangling(`node "${live}"`) === false && dangling(`ELECTRON_RUN_AS_NODE=1 "${packaged}" "${live}"`) === false,
+      "dev and packaged commands differ but both exist — neither triggers a re-sync",
+    );
+  } finally {
+    fs.rmSync(scratch5, { recursive: true, force: true });
+  }
+}
+
 await h.done();

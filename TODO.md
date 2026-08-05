@@ -5,7 +5,9 @@ belong in `docs/AGENT_ENGINEERING_GUIDE-RUNNING.md` §10 ("don't 'fix' these"), 
 
 ## Known issues
 
-- [ ] **FluxContext docs go stale when the checkout moves.** `syncFluxContext`
+- [x] **FluxContext docs go stale when the checkout moves.** *(Resolved with the existence-based
+      option: re-sync only when the stamped path is dangling. Still needs a Linux run of
+      `verify-fluxconfig` — its end-to-end `ensureFluxConfig` sims cannot execute on macOS.)* `syncFluxContext`
       (`electron/fluxPaths.cjs:534-541`) gates re-sync on `FLUX_CONTEXT_HASH` — a hash of the
       *shipped templates* — and when that hash is current it writes only missing files, never
       rewriting existing ones. But the docs have the absolute CLI path substituted into them

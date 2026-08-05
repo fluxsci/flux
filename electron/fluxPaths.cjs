@@ -452,6 +452,28 @@ function resolveRepoDirSync() {
   return fsSync.existsSync(path.join(candidate, "flux-cli.ts")) ? candidate : "<flux-repo>";
 }
 
+/** The filesystem paths inside a resolved CLI command string: exactly the
+ *  double-quoted segments resolveOwnCliCommandsSync emits. */
+function quotedPathsIn(cmd) {
+  return [...String(cmd ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
+/** True when a PREVIOUSLY STAMPED cli command names a path that no longer
+ *  exists — the checkout (or app) it was baked from has moved or been deleted,
+ *  so every {{FLUX_CLI}}/{{FLUX_REPO}}/{{LIGHTTABLE_DIR}} substitution already
+ *  written into the synced FluxContext docs is dangling and must be redone.
+ *
+ *  Deliberately NOT "differs from what we resolve today": a source checkout and
+ *  a packaged app resolve different strings, and a user alternating between them
+ *  must not have the folder rewritten on every switch (see syncFluxContext). A
+ *  path that no longer EXISTS is unambiguous — no install can be using it — so
+ *  re-syncing on that condition alone cannot churn. */
+function stampedCliDanglingSync(stampedCli) {
+  const paths = quotedPathsIn(stampedCli);
+  if (!paths.length) return false; // last-resort bare "flux" — nothing to verify
+  return paths.some((p) => !fsSync.existsSync(p));
+}
+
 // ---------------------------------------------------------------------------
 // The `flux` PATH shim: ~/.local/bin/flux → this install's CLI, so `flux
 // principal` etc. work by name. Managed-marker policy: we only create or
@@ -512,7 +534,11 @@ function fluxContextStampPath(cfg) {
 /** Cheap staleness probe for the ensureFluxConfig fast path. */
 function fluxContextUpToDateSync(cfg) {
   try {
-    if (JSON.parse(fsSync.readFileSync(fluxContextStampPath(cfg), "utf8")).hash !== FLUX_CONTEXT_HASH) return false;
+    const stamp = JSON.parse(fsSync.readFileSync(fluxContextStampPath(cfg), "utf8"));
+    if (stamp.hash !== FLUX_CONTEXT_HASH) return false;
+    // The stamped cli names this install's absolute paths; if they've vanished,
+    // the docs on disk point at a checkout that moved. Re-sync.
+    if (stampedCliDanglingSync(stamp.cli)) return false;
   } catch {
     return false;
   }
@@ -531,10 +557,16 @@ async function syncFluxContext(cfg, events) {
   } catch {
     /* first sync */
   }
-  const upToDate = cur && cur.hash === FLUX_CONTEXT_HASH;
   // When the hash is current, only heal MISSING files — never rewrite existing
   // ones (a dev CLI and a packaged app resolve different {{FLUX_CLI}} strings;
   // rewriting on every engine switch would churn the folder).
+  //
+  // The ONE exception: if the stamped cli names paths that no longer exist, the
+  // checkout it was baked from has moved, so every substitution already on disk
+  // is dangling — and since nothing can be using a path that isn't there, a full
+  // re-substitution cannot churn anyone. (Files whose content is unchanged are
+  // still skipped below, so this stays a no-op for docs that don't embed a path.)
+  const upToDate = cur && cur.hash === FLUX_CONTEXT_HASH && !stampedCliDanglingSync(cur.cli);
   const names = Object.keys(FLUX_CONTEXT_FILES).filter(
     (n) => !upToDate || !fsSync.existsSync(path.join(dir, n)),
   );
@@ -743,6 +775,7 @@ module.exports = {
   moveFluxConfig,
   configInfoSync,
   resolveOwnCliCommandsSync,
+  stampedCliDanglingSync,
   GUIDELINES_README,
   USER_RULES_SEED,
   WHO_AM_I_SEED,
