@@ -36,6 +36,9 @@ export const CM_CHORD_STRINGS = [
   // Owned by other CM layers (not this keymap, still CM territory):
   "Mod-Enter", // follow-at-caret
   "Mod-Alt-m", // comment on selection
+  "Mod-Alt-k", // toggle selection in the project dictionary
+  "Mod-Alt-Shift-k", // toggle selection in the personal dictionary
+  "Mod-Alt-l", // word tools / aliases
   "Mod-f", // search
   // Table editing (editing/tableOps.ts tableKeymap; all fall through off-table):
   "Mod-Alt-r", // insert row below
@@ -55,6 +58,9 @@ export const CM_HINTS = {
   tableColRight: "⌘⌥C",
   tableDeleteCol: "⌘⌥⇧C",
   tableAlign: "⌘⌥A",
+  projectDictionary: "⌘⌥K",
+  personalDictionary: "⌘⌥⇧K",
+  wordTools: "⌘⌥L",
 } as const;
 
 export const formattingKeymap = keymap.of([

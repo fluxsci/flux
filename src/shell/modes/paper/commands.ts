@@ -29,6 +29,8 @@ export interface PaperCmdCtx {
   setVimFlavor(flavor: "off" | "vim" | "flux"): void;
   localCorrections(): boolean;
   toggleLocalCorrections(): void;
+  toggleLocalWord(scope: "project" | "personal"): void;
+  openLocalWordTools(): void;
   openFigurePicker(): void;
   openFigRefPicker(): void;
   outlinerOpen(): boolean;
@@ -171,6 +173,30 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
     keywords: "autocorrect spelling typo private on device writing",
     owner: "none",
     run: (c) => c.toggleLocalCorrections(),
+  },
+  {
+    id: "project-dictionary-selection",
+    title: () => "Toggle selection in project dictionary",
+    hint: CM_HINTS.projectDictionary,
+    keywords: "word vocabulary spelling remove scientific term local dictionary selection",
+    owner: "cm",
+    run: (c) => c.toggleLocalWord("project"),
+  },
+  {
+    id: "personal-dictionary-selection",
+    title: () => "Toggle selection in personal dictionary",
+    hint: CM_HINTS.personalDictionary,
+    keywords: "word vocabulary spelling remove scientific term user global dictionary selection",
+    owner: "cm",
+    run: (c) => c.toggleLocalWord("personal"),
+  },
+  {
+    id: "local-word-tools",
+    title: () => "Word tools: dictionaries and aliases",
+    hint: CM_HINTS.wordTools,
+    keywords: "abbreviation expansion autohotkey alias shortcut vocabulary spelling",
+    owner: "cm",
+    run: (c) => c.openLocalWordTools(),
   },
   { id: "insert-figure", title: () => "Insert figure…", hint: "Insert", keywords: "image panel embed", owner: "none", run: (c) => c.openFigurePicker() },
   { id: "insert-figref", title: () => "Reference a figure…", hint: "@@", keywords: "crossref cross-reference cite figure panel fig", owner: "none", run: (c) => c.openFigRefPicker() },

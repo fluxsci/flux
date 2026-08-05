@@ -42,11 +42,33 @@ from that sentence together. Project titles, authors, references, figure caption
 technical terms help form the local vocabulary, while acronyms, mixed-case scientific names,
 numbers, code, math, citations, links, and table source are left alone.
 
+For terms that matter, select one word — ordinary selection and Vim visual mode work the same —
+and click **Word tools** (the small book in the floating toolbar), or press **Ctrl+Alt+L**. You
+can recognize its spelling at either scope:
+
+- **Project** applies only inside the current Flux project. **Ctrl+Alt+K** toggles the selected
+  word directly.
+- **Personal** follows you across Flux projects on this device. **Ctrl+Alt+Shift+K** toggles it.
+
+The buttons and shortcuts are true toggles, so selecting the term again removes it just as
+quickly. Explicit dictionary terms are protected from ordinary corrections and also become
+high-confidence candidates for nearby mechanical mistakes: after adding *iGluSnFR4f*, for
+example, *IgluSnrf4* can resolve to the canonical spelling. Flux remains conservative around
+plausible scientific variants — a stored *SLAP2* does not turn *SLAP3* into *SLAP2*.
+
+**Word tools** also creates aliases. Select *iGluSnFR4f*, enter *igf*, choose Project or
+Personal, and add it. The next time `igf` is typed as its own word, the delimiter (space,
+punctuation, or Return) instantly morphs it into *iGluSnFR4f* with the same blue pulse. One
+**Ctrl+Z** restores `igf`; clicking the pulsed expansion offers **Remove alias**, and every
+saved alias has its own × button in **Word tools**. Project aliases take priority over Personal
+aliases when both use the same short form.
+
 The blue **Local** item in the status bar shows when the checker is ready and toggles it on or
 off. The same switch is in **Settings › Paper › Local corrections** and the command palette.
 This conservative local layer does not rephrase, make stylistic edits, or guess at scientific
 compound spelling; those are choices, not safe automatic corrections. **Reset correction
-learning** in the same Settings section clears every learned word and reverted correction.
+learning** in the same Settings section clears automatic "leave this correction alone" lessons
+without deleting the dictionaries and aliases you chose explicitly.
 
 # Citations
 

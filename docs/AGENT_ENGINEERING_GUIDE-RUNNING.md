@@ -217,9 +217,15 @@ Persistence invariants (all machine-checked — do not weaken):
   conservative: mechanical edits only; arbitrary one-letter substitutions, scientific compound
   styling, phrase/style lints, technical tokens, and protected Markdown never auto-apply. Visual
   marks are zero-layout; immediate native Undo restores the batch and persists per-project vetoes.
-  Settings can clear all learned profiles and broadcasts a live reset to replace the active
-  worker vocabulary. The worker and WASM stay lazy outside the startup graph, and there is no
-  network/cloud path.
+  Explicit language data is a separate v2 profile (`localCorrectionProfile.ts`, lossless v1
+  migration): project + device-wide Personal dictionaries and aliases, with project aliases
+  taking precedence. `localWordTools.ts` owns the selection toolbar/popover and Vim-proof
+  `Prec.highest` chords. Alias expansion is synchronous but tiny: a transaction filter appends
+  the replacement to the delimiter's SAME transaction (one exact Undo), while the worker remains
+  entirely off the keystroke path. Explicit mixed-case terms feed a conservative mechanical
+  matcher in the pure core; arbitrary substitutions and version-like identifiers stay protected.
+  Reset learning clears automatic vetoes but preserves explicit words/aliases. The worker and
+  WASM stay lazy outside the startup graph, and there is no network/cloud path.
   **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
   `science/tableModel.ts`, markdown-it-faithful because the export feeds the same text to
   markdown-it — escaped `\|` (escapedSplit port), header/delimiter column-count equality,
@@ -2135,3 +2141,20 @@ worker's `file://` initialization under Flux's sandbox and CSP.
   exact-source-validated before one isolated-history transaction.
 - Corrected the verification guide: `FLUX_URL` now remaps legacy `gotoApp` calls that hardcode
   `:1420`; direct navigations still need `APP_URL`.
+
+### 2026-08-05 — Local dictionaries and aliases (Codex, `codex-local-completion`)
+**Work:** Extended Paper's local correction fabric with migrated project/Personal dictionaries,
+selection-scoped Word tools, Vim-proof toggle chords, conservative technical-term matching, and
+same-transaction aliases with exact Undo/removal paths. Focused gates cover persistence, scope
+precedence, the `iGluSnFR4f` near miss, protected syntax, live UI, and real Vim visual mode. Final
+verification was 23/23 Paper, 160/160 pure, scale-paper, real Electron latency, production bundle,
+startup, and unpacked-package green.
+**Learnings:**
+- Explicit language data and learned correction vetoes need separate reset semantics; clearing a
+  behavioral lesson must not silently erase a scientist's chosen terms or abbreviations.
+- An alias expander can stay instantaneous and preserve native Undo by appending a sequential
+  replacement in the delimiter's CodeMirror transaction; no worker or timer belongs on that path.
+- Corrected `verify-writer-latency-inp.mjs` to match the existing Linux harness rule and run
+  alongside an open Flux instance: real probes need `--ozone-platform=x11`, and the harness must
+  isolate `XDG_CONFIG_HOME` plus the FluxConfig pointer because production deliberately pins
+  `userData` before taking its single-instance lock.

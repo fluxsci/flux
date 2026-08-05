@@ -25,7 +25,11 @@
   import EmptyState from "./EmptyState.svelte";
   import { selectionWatcher } from "./toolbar/selectionState";
   import { formattingKeymap, CM_HINTS } from "./editing/keymap";
-  import { localCorrections, type LocalCorrectionUiStatus } from "./editing/localCorrections";
+  import {
+    localCorrections,
+    type LocalCorrectionUiStatus,
+  } from "./editing/localCorrections";
+  import { openLocalWordTools, toggleSelectedLocalWord } from "./editing/localWordTools";
   import { paletteFromTable, dispatchWindowKey, type PaperCmdCtx } from "./commands";
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
@@ -1195,6 +1199,7 @@
           contextStrings: localCorrectionContextStrings,
           onStatus: (status) => (localCorrectionStatus = status),
           onError: (message) => pushToast("error", message),
+          onNotice: (message) => pushToast("info", message),
         }),
         // `@@` → figure-reference picker (the second @ never lands in the doc).
         figRefTrigger(openFigRefPicker),
@@ -1631,6 +1636,12 @@
     setVimFlavor,
     localCorrections: () => $settings.paperLocalCorrections,
     toggleLocalCorrections,
+    toggleLocalWord: (scope) => {
+      if (view) toggleSelectedLocalWord(view, scope);
+    },
+    openLocalWordTools: () => {
+      if (view) openLocalWordTools(view, true);
+    },
     openFigurePicker,
     openFigRefPicker,
     outlinerOpen: () => $paperLayout.outlinerOpen,

@@ -174,6 +174,89 @@ function overlapsProtected(from: number, to: number, ranges: Array<[number, numb
   return ranges.some(([a, b]) => from < b && to > a);
 }
 
+function vocabularyForm(s: string): string {
+  return [...s]
+    .filter((c) => /[\p{L}\p{M}\d]/u.test(c))
+    .join("")
+    .toLocaleLowerCase();
+}
+
+function deletionPlusTransposition(longer: string, shorter: string): boolean {
+  if (longer.length !== shorter.length + 1) return false;
+  for (let i = 0; i < longer.length; i += 1) {
+    if (adjacentTransposition(longer.slice(0, i) + longer.slice(i + 1), shorter)) return true;
+  }
+  return false;
+}
+
+function explicitVocabularyMatch(original: string, canonical: string): number | null {
+  const a = vocabularyForm(original);
+  const b = vocabularyForm(canonical);
+  if (!a || !b || a[0] !== b[0] || original === canonical) return null;
+  if (a === b) return 140; // canonical casing, punctuation, or separators
+
+  // Short all-caps identifiers commonly differ by a meaningful version digit
+  // (SLAP2/SLAP3). An explicit SLAP2 entry must never rewrite a novel SLAP3.
+  if (/^[A-Z]{2,10}\d{1,4}$/.test(original) && /^[A-Z]{2,10}\d{1,4}$/.test(canonical)) return null;
+  if (!looksTechnical(original) && !looksTechnical(canonical)) return null;
+
+  if (adjacentTransposition(a, b)) return 125;
+  if (oneRemoval(a, b) != null || oneRemoval(b, a) != null) return 112;
+  // The motivating fast-typing shape can combine one missing character with
+  // one adjacent swap: IgluSnrf4 → iGluSnFR4f. Still reject arbitrary
+  // substitutions, which may distinguish real scientific variants.
+  if (
+    Math.max(a.length, b.length) >= 8 &&
+    (deletionPlusTransposition(a, b) || deletionPlusTransposition(b, a))
+  ) return 104;
+  return null;
+}
+
+/**
+ * Match technical tokens directly against explicit personal/project words.
+ * This supplements Harper, whose general dictionary suggestions are not
+ * guaranteed to include mixed-case alphanumeric scientific terms.
+ */
+export function planExplicitVocabularyCorrections(
+  source: string,
+  words: readonly string[],
+  blockedPairs: ReadonlySet<string> = new Set<string>(),
+): PlannedLocalCorrection[] {
+  const protectedRanges = protectedMarkdownRanges(source);
+  const canonicals = [...new Map(
+    words
+      .map((word) => word.trim())
+      .filter(Boolean)
+      .map((word) => [word.toLocaleLowerCase(), word] as const),
+  ).values()];
+  const plans: PlannedLocalCorrection[] = [];
+
+  for (const match of source.matchAll(TOKEN_RE)) {
+    if (plans.length >= 6) break;
+    const original = match[0];
+    const from = match.index;
+    const to = from + original.length;
+    if (overlapsProtected(from, to, protectedRanges)) continue;
+
+    const ranked = canonicals
+      .map((canonical) => ({ canonical, score: explicitVocabularyMatch(original, canonical) }))
+      .filter((candidate): candidate is { canonical: string; score: number } => candidate.score != null)
+      .sort((a, b) => b.score - a.score || a.canonical.localeCompare(b.canonical));
+    if (!ranked.length || (ranked[1] && ranked[0].score === ranked[1].score)) continue;
+    const replacement = ranked[0].canonical;
+    if (blockedPairs.has(correctionPairKey(original, replacement))) continue;
+    plans.push({
+      from,
+      to,
+      original,
+      replacement,
+      kind: "spelling",
+      message: "Matched your local dictionary",
+    });
+  }
+  return plans;
+}
+
 function mechanicalScore(original: string, replacement: string): number {
   const a = original.toLocaleLowerCase();
   const b = replacement.toLocaleLowerCase();
@@ -229,12 +312,15 @@ export function planLocalCorrections(
   options: {
     blockedPairs?: ReadonlySet<string>;
     projectWords?: ReadonlySet<string>;
+    explicitWords?: readonly string[];
   } = {},
 ): PlannedLocalCorrection[] {
   const blocked = options.blockedPairs ?? new Set<string>();
   const projectWords = options.projectWords ?? new Set<string>();
+  const explicitWords = options.explicitWords ?? [];
+  const explicitKeys = new Set(explicitWords.map((word) => word.toLocaleLowerCase()));
   const protectedRanges = protectedMarkdownRanges(source);
-  const plans: PlannedLocalCorrection[] = [];
+  const plans = planExplicitVocabularyCorrections(source, explicitWords, blocked);
 
   for (const lint of [...lints].sort((a, b) => a.from - b.from || a.to - b.to)) {
     if (plans.length >= 6) break;
@@ -242,6 +328,7 @@ export function planLocalCorrections(
     if (source.slice(lint.from, lint.to) !== lint.problem) continue;
     if (overlapsProtected(lint.from, lint.to, protectedRanges)) continue;
     if (plans.some((p) => lint.from < p.to && lint.to > p.from)) continue;
+    if (explicitKeys.has(lint.problem.toLocaleLowerCase())) continue;
     if (looksTechnical(lint.problem) || !WORDISH.test(lint.problem)) continue;
 
     const suggestions = [...new Set(lint.suggestions.map((s) => s.trim()))].filter(

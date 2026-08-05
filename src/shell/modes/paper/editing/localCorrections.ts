@@ -3,12 +3,15 @@
 // planner + current editor state decide; CodeMirror owns application and undo.
 
 import {
+  Annotation,
   Facet,
+  EditorState,
   StateEffect,
   StateField,
   Transaction,
-  type EditorState,
   type Extension,
+  type Text,
+  type TransactionSpec,
 } from "@codemirror/state";
 import {
   Decoration,
@@ -26,12 +29,20 @@ import {
   extractCorrectionWindow,
   extractProjectVocabulary,
   planLocalCorrections,
+  protectedMarkdownRanges,
   type PlannedLocalCorrection,
 } from "./localCorrectionCore";
 import {
   LOCAL_CORRECTION_RESET_EVENT,
+  LOCAL_LANGUAGE_CHANGED_EVENT,
   LocalCorrectionProfile,
+  type LocalLanguageScope,
 } from "./localCorrectionProfile";
+import {
+  localWordTools,
+  refreshLocalWordTools,
+  type LocalWordToolsSnapshot,
+} from "./localWordTools";
 import {
   localCorrectionService,
   type LocalCorrectionEngineStatus,
@@ -45,6 +56,7 @@ export interface LocalCorrectionsOptions {
   contextStrings?(): string[];
   onStatus?(status: LocalCorrectionUiStatus): void;
   onError?(message: string): void;
+  onNotice?(message: string): void;
 }
 
 interface RecentCorrection {
@@ -53,8 +65,9 @@ interface RecentCorrection {
   to: number;
   original: string;
   replacement: string;
-  kind: PlannedLocalCorrection["kind"];
+  kind: PlannedLocalCorrection["kind"] | "alias";
   message: string;
+  aliasScope?: LocalLanguageScope;
   delay: number;
   expiresAt: number;
 }
@@ -65,8 +78,10 @@ interface CorrectionVisualState {
   decorations: DecorationSet;
 }
 
+type RevertMode = "undo" | "add-word" | "remove-alias";
+
 interface CorrectionActions {
-  revert(view: EditorView, correction: RecentCorrection, addWord: boolean): void;
+  revert(view: EditorView, correction: RecentCorrection, mode: RevertMode): void;
 }
 
 const correctionActions = Facet.define<CorrectionActions, CorrectionActions>({
@@ -86,6 +101,7 @@ const addRecent = StateEffect.define<RecentCorrection[]>({
 });
 const removeRecent = StateEffect.define<string[]>();
 const openRecent = StateEffect.define<string | null>();
+const aliasExpansions = Annotation.define<RecentCorrection[]>();
 
 function buildDecorations(recent: readonly RecentCorrection[]): DecorationSet {
   return Decoration.set(
@@ -96,7 +112,7 @@ function buildDecorations(recent: readonly RecentCorrection[]): DecorationSet {
           class: `cm-local-correction cm-local-correction-delay-${c.delay % 4}`,
           attributes: {
             "data-flux-correction": c.id,
-            "aria-label": `Corrected ${c.original} to ${c.replacement}`,
+            "aria-label": `${c.kind === "alias" ? "Expanded alias" : "Corrected"} ${c.original} to ${c.replacement}`,
           },
         }).range(c.from, c.to),
       ),
@@ -120,6 +136,8 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
       );
       if (openId && !recent.some((c) => c.id === openId)) openId = null;
     }
+    const expanded = tr.annotation(aliasExpansions);
+    if (expanded?.length) recent = [...recent, ...expanded];
     for (const effect of tr.effects) {
       if (effect.is(addRecent)) {
         const ids = new Set(effect.value.map((c) => c.id));
@@ -154,7 +172,7 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
           const copy = document.createElement("div");
           copy.className = "cm-local-correction-copy";
           const label = document.createElement("span");
-          label.textContent = "Corrected";
+          label.textContent = correction.kind === "alias" ? "Expanded alias" : "Corrected";
           const change = document.createElement("span");
           change.className = "cm-local-correction-change";
           change.textContent = `${correction.original} → ${correction.replacement}`;
@@ -165,16 +183,25 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
           const undo = document.createElement("button");
           undo.type = "button";
           undo.textContent = "Undo";
-          undo.title = "Restore this text and do not repeat this correction in this project";
-          undo.onclick = () => view.state.facet(correctionActions).revert(view, correction, false);
+          undo.title = correction.kind === "alias"
+            ? "Restore the alias this time"
+            : "Restore this text and do not repeat this correction in this project";
+          undo.onclick = () => view.state.facet(correctionActions).revert(view, correction, "undo");
           controls.append(undo);
 
-          if (!/\s/.test(correction.original)) {
+          if (correction.kind === "alias" && correction.aliasScope) {
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.textContent = "Remove alias";
+            remove.title = `Remove “${correction.original}” from the ${correction.aliasScope === "personal" ? "personal" : "project"} aliases`;
+            remove.onclick = () => view.state.facet(correctionActions).revert(view, correction, "remove-alias");
+            controls.append(remove);
+          } else if (!/\s/.test(correction.original)) {
             const add = document.createElement("button");
             add.type = "button";
             add.textContent = "Add to dictionary";
             add.title = `Always recognize “${correction.original}” in this project`;
-            add.onclick = () => view.state.facet(correctionActions).revert(view, correction, true);
+            add.onclick = () => view.state.facet(correctionActions).revert(view, correction, "add-word");
             controls.append(add);
           }
 
@@ -206,18 +233,18 @@ const PROTECTED_NODES = new Set([
   "URL",
 ]);
 
-function inFrontMatter(state: EditorState, pos: number): boolean {
-  if (state.doc.lines < 2 || state.doc.line(1).text.trim() !== "---") return false;
-  const max = Math.min(state.doc.lines, 200);
+function inFrontMatterDoc(doc: Text, pos: number): boolean {
+  if (doc.lines < 2 || doc.line(1).text.trim() !== "---") return false;
+  const max = Math.min(doc.lines, 200);
   for (let n = 2; n <= max; n += 1) {
-    const line = state.doc.line(n);
+    const line = doc.line(n);
     if (line.text.trim() === "---") return pos <= line.to;
   }
   return false;
 }
 
 function protectedByEditor(state: EditorState, from: number, to: number): boolean {
-  if (inFrontMatter(state, from)) return true;
+  if (inFrontMatterDoc(state.doc, from)) return true;
   const firstLine = state.doc.lineAt(from);
   const lastLine = state.doc.lineAt(Math.max(from, to - 1));
   if (firstLine.number !== lastLine.number) return true;
@@ -232,6 +259,42 @@ function protectedByEditor(state: EditorState, from: number, to: number): boolea
     }
   }
   return false;
+}
+
+function hasOpenRun(prefix: string, marker: "`" | "$"): boolean {
+  let open = 0;
+  for (let i = 0; i < prefix.length;) {
+    if (prefix[i] !== marker || (i > 0 && prefix[i - 1] === "\\")) {
+      i += 1;
+      continue;
+    }
+    let to = i + 1;
+    while (to < prefix.length && prefix[to] === marker) to += 1;
+    const size = to - i;
+    if (!open) open = size;
+    else if (open === size) open = 0;
+    i = to;
+  }
+  return open > 0;
+}
+
+function insideUnclosedSyntax(line: string, at: number): boolean {
+  const prefix = line.slice(0, at);
+  if (hasOpenRun(prefix, "`") || hasOpenRun(prefix, "$")) return true;
+  if (prefix.lastIndexOf("<") > prefix.lastIndexOf(">")) return true;
+  if (prefix.lastIndexOf("{") > prefix.lastIndexOf("}")) return true;
+  return prefix.lastIndexOf("](") > prefix.lastIndexOf(")");
+}
+
+function protectedAliasRange(doc: Text, from: number, to: number): boolean {
+  if (inFrontMatterDoc(doc, from)) return true;
+  const line = doc.lineAt(from);
+  if (to > line.to || line.text.includes("|") || /^\s*(?:```|~~~)/.test(line.text)) return true;
+  const localFrom = from - line.from;
+  const localTo = to - line.from;
+  if (insideUnclosedSyntax(line.text, localFrom)) return true;
+  return protectedMarkdownRanges(line.text)
+    .some(([a, b]) => localFrom < b && localTo > a);
 }
 
 function insertedBoundary(update: ViewUpdate): boolean {
@@ -279,6 +342,7 @@ class CorrectionController {
   private profile: LocalCorrectionProfile;
   private activeProjectKey: string;
   private projectWords = new Set<string>();
+  private explicitWords: string[] = [];
   private triggerTimer: ReturnType<typeof setTimeout> | null = null;
   private vocabularyTimer: ReturnType<typeof setTimeout> | null = null;
   private expiryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -297,6 +361,13 @@ class CorrectionController {
     this.projectWords.clear();
     this.refreshVocabulary(true);
   };
+  private readonly languageChanged = (event: Event) => {
+    const detail = (event as CustomEvent<{ projectKey?: string; scope?: LocalLanguageScope }>).detail;
+    if (detail?.scope !== "personal" && detail?.projectKey !== this.activeProjectKey) return;
+    this.profile = new LocalCorrectionProfile(this.activeProjectKey);
+    this.refreshVocabulary(true);
+    refreshLocalWordTools(this.view);
+  };
 
   constructor(
     private readonly view: EditorView,
@@ -313,6 +384,7 @@ class CorrectionController {
       options.onStatus?.(options.enabled() ? status : "off");
     });
     window.addEventListener(LOCAL_CORRECTION_RESET_EVENT, this.resetLearning);
+    window.addEventListener(LOCAL_LANGUAGE_CHANGED_EVENT, this.languageChanged);
     if (options.enabled()) this.scheduleWarm();
     else options.onStatus?.("off");
   }
@@ -370,6 +442,9 @@ class CorrectionController {
       });
     }
 
+    const aliasRecent = update.transactions.flatMap((tr) => tr.annotation(aliasExpansions) ?? []);
+    if (aliasRecent.length) this.scheduleExpiry(aliasRecent);
+
     if (this.lastBatch.length && update.docChanged) {
       const mapped = this.lastBatch.map((c) => ({
         ...c,
@@ -405,6 +480,7 @@ class CorrectionController {
     if (this.expiryTimer) clearTimeout(this.expiryTimer);
     if (this.idleHandle != null && "cancelIdleCallback" in window) window.cancelIdleCallback(this.idleHandle);
     window.removeEventListener(LOCAL_CORRECTION_RESET_EVENT, this.resetLearning);
+    window.removeEventListener(LOCAL_LANGUAGE_CHANGED_EVENT, this.languageChanged);
     this.unsubscribeStatus?.();
   }
 
@@ -436,7 +512,8 @@ class CorrectionController {
       this.view.state.doc.toString(),
       ...(this.options.contextStrings?.() ?? []),
     ];
-    const words = [...this.profile.words(), ...extractProjectVocabulary(sources)];
+    this.explicitWords = this.profile.allWords();
+    const words = [...this.explicitWords, ...extractProjectVocabulary(sources)];
     this.projectWords = new Set(words.map((w) => w.toLocaleLowerCase()));
     if (replace) localCorrectionService.replaceVocabulary(this.activeProjectKey, words);
     else localCorrectionService.updateVocabulary(this.activeProjectKey, words);
@@ -493,6 +570,7 @@ class CorrectionController {
       const plans = planLocalCorrections(pending.text, lints, {
         blockedPairs: this.profile.blockedPairs(),
         projectWords: this.projectWords,
+        explicitWords: this.explicitWords,
       })
         .map((plan) => ({
           ...plan,
@@ -519,6 +597,103 @@ class CorrectionController {
       this.triggerTimer = null;
       void this.runCorrection();
     }, 0);
+  }
+
+  expandAliases(tr: Transaction): Transaction | readonly TransactionSpec[] {
+    if (
+      !this.options.enabled() ||
+      !tr.docChanged ||
+      !tr.isUserEvent("input.type") ||
+      tr.isUserEvent("input.type.compose")
+    ) return tr;
+
+    const matches = new Map<number, { from: number; to: number; original: string; replacement: string; scope: LocalLanguageScope }>();
+    tr.changes.iterChanges((_fromA, _toA, fromB, _toB, inserted) => {
+      const text = inserted.toString();
+      for (let i = 0; i < text.length; i += 1) {
+        if (!/[\s.,;:!?()[\]{}]/.test(text[i])) continue;
+        const boundary = fromB + i;
+        let from = boundary;
+        while (from > 0 && /[\p{L}\p{M}\d_-]/u.test(tr.newDoc.sliceString(from - 1, from))) from -= 1;
+        if (from === boundary || boundary - from > 32 || matches.has(from)) continue;
+        const original = tr.newDoc.sliceString(from, boundary);
+        const alias = this.profile.resolveAlias(original);
+        if (!alias || alias.expansion === original || protectedAliasRange(tr.newDoc, from, boundary)) continue;
+        matches.set(from, {
+          from,
+          to: boundary,
+          original,
+          replacement: alias.expansion,
+          scope: alias.scope,
+        });
+      }
+    });
+    const ordered = [...matches.values()].sort((a, b) => a.from - b.from);
+    if (!ordered.length) return tr;
+
+    let delta = 0;
+    const now = Date.now();
+    const recent = ordered.map((match, index): RecentCorrection => {
+      const from = match.from + delta;
+      delta += match.replacement.length - (match.to - match.from);
+      return {
+        id: `la-${now.toString(36)}-${++this.recentN}`,
+        from,
+        to: from + match.replacement.length,
+        original: match.original,
+        replacement: match.replacement,
+        kind: "alias",
+        message: `${match.scope === "personal" ? "Personal" : "Project"} alias`,
+        aliasScope: match.scope,
+        delay: index,
+        expiresAt: now + 9_000,
+      };
+    });
+    return [
+      tr,
+      {
+        changes: ordered.map((match) => ({ from: match.from, to: match.to, insert: match.replacement })),
+        sequential: true,
+        annotations: [
+          isolateHistory.of("full"),
+          aliasExpansions.of(recent),
+        ],
+      },
+    ];
+  }
+
+  wordToolsSnapshot(word: string): LocalWordToolsSnapshot {
+    return {
+      projectWord: this.profile.hasWord(word, "project"),
+      personalWord: this.profile.hasWord(word, "personal"),
+      aliases: this.profile.aliasesForExpansion(word),
+    };
+  }
+
+  toggleWord(word: string, scope: LocalLanguageScope): void {
+    const result = this.profile.toggleWord(word, scope);
+    const label = scope === "personal" ? "personal" : "project";
+    this.options.onNotice?.(`${result === "added" ? "Added" : "Removed"} “${word}” ${result === "added" ? "to" : "from"} the ${label} dictionary.`);
+    this.broadcastLanguageChange(scope);
+  }
+
+  setAlias(trigger: string, expansion: string, scope: LocalLanguageScope): void {
+    this.profile.setAlias(trigger, expansion, scope);
+    this.profile.addWord(expansion, scope);
+    this.options.onNotice?.(`“${trigger}” now expands to “${expansion}” (${scope === "personal" ? "personal" : "project"}).`);
+    this.broadcastLanguageChange(scope);
+  }
+
+  removeAlias(trigger: string, scope: LocalLanguageScope): void {
+    if (!this.profile.removeAlias(trigger, scope)) return;
+    this.options.onNotice?.(`Removed the ${scope === "personal" ? "personal" : "project"} alias “${trigger}”.`);
+    this.broadcastLanguageChange(scope);
+  }
+
+  private broadcastLanguageChange(scope: LocalLanguageScope): void {
+    window.dispatchEvent(new CustomEvent(LOCAL_LANGUAGE_CHANGED_EVENT, {
+      detail: { projectKey: this.activeProjectKey, scope },
+    }));
   }
 
   private apply(plans: Array<PlannedLocalCorrection & { from: number; to: number }>): void {
@@ -568,16 +743,22 @@ class CorrectionController {
     }, delay + 20);
   }
 
-  revert(correction: RecentCorrection, addWord: boolean): void {
+  revert(correction: RecentCorrection, mode: RevertMode): void {
     const current = this.view.state.field(correctionVisualField, false)?.recent.find(
       (c) => c.id === correction.id,
     );
     if (!current || this.view.state.doc.sliceString(current.from, current.to) !== current.replacement) return;
-    this.profile.block(current.original, current.replacement);
-    if (addWord) {
-      this.profile.addWord(current.original);
-      localCorrectionService.updateVocabulary(this.activeProjectKey, [current.original]);
-      this.projectWords.add(current.original.toLocaleLowerCase());
+    if (current.kind === "alias") {
+      if (mode === "remove-alias" && current.aliasScope) {
+        this.profile.removeAlias(current.original, current.aliasScope);
+        this.broadcastLanguageChange(current.aliasScope);
+      }
+    } else {
+      this.profile.block(current.original, current.replacement);
+      if (mode === "add-word") {
+        this.profile.addWord(current.original, "project");
+        this.broadcastLanguageChange("project");
+      }
     }
     this.view.dispatch({
       changes: { from: current.from, to: current.to, insert: current.original },
@@ -587,7 +768,7 @@ class CorrectionController {
       ],
     });
     this.view.dispatch({ effects: removeRecent.of([current.id]) });
-    this.lastBatch = [];
+    if (current.kind !== "alias") this.lastBatch = [];
     this.view.focus();
   }
 }
@@ -618,9 +799,20 @@ export function localCorrections(options: LocalCorrectionsOptions): Extension {
   return [
     correctionVisualField,
     correctionActions.of({
-      revert(_view, correction, addWord) {
-        controller?.revert(correction, addWord);
+      revert(_view, correction, mode) {
+        controller?.revert(correction, mode);
       },
+    }),
+    EditorState.transactionFilter.of((tr) => controller?.expandAliases(tr) ?? tr),
+    localWordTools(() => {
+      const current = controller;
+      return current ? {
+        snapshot: (word) => current.wordToolsSnapshot(word),
+        toggleWord: (word, scope) => current.toggleWord(word, scope),
+        setAlias: (trigger, expansion, scope) => current.setAlias(trigger, expansion, scope),
+        removeAlias: (trigger, scope) => current.removeAlias(trigger, scope),
+        notice: (message) => options.onNotice?.(message),
+      } : null;
     }),
     controllerPlugin,
     keymap.of([
@@ -628,9 +820,11 @@ export function localCorrections(options: LocalCorrectionsOptions): Extension {
         key: "Escape",
         run(view) {
           const state = view.state.field(correctionVisualField, false);
-          if (!state?.openId) return false;
-          view.dispatch({ effects: openRecent.of(null) });
-          return true;
+          if (state?.openId) {
+            view.dispatch({ effects: openRecent.of(null) });
+            return true;
+          }
+          return false;
         },
       },
     ]),

@@ -3,7 +3,7 @@
   import { settings, settingsOpen, type Settings, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim, type XrayPos } from "./settings";
   import { fileBridge } from "./project/types";
   import {
-    clearLocalCorrectionProfiles,
+    clearLocalCorrectionLearning,
     LOCAL_CORRECTION_RESET_EVENT,
   } from "../shell/modes/paper/editing/localCorrectionProfile";
 
@@ -74,7 +74,7 @@
   }
 
   function resetCorrectionLearning() {
-    clearLocalCorrectionProfiles();
+    clearLocalCorrectionLearning();
     window.dispatchEvent(new Event(LOCAL_CORRECTION_RESET_EVENT));
     correctionLearningReset = true;
     window.setTimeout(() => (correctionLearningReset = false), 1800);
@@ -302,7 +302,7 @@
         />
         Correct clear typing and spacing errors as I write
       </label>
-      <p class="hint">Runs entirely on this device. A blue pulse marks each correction; click it for details or press Undo to restore the original. Reverting teaches this project what to leave alone.</p>
+      <p class="hint">Runs entirely on this device. A blue pulse marks each correction; click it for details or press Undo to restore the original. Reverting teaches this project what to leave alone. Resetting these lessons keeps explicit dictionaries and aliases.</p>
       <button class="ghost learning-reset" on:click={resetCorrectionLearning}>
         {correctionLearningReset ? "Learning reset" : "Reset correction learning"}
       </button>

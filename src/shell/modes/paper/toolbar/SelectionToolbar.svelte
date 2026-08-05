@@ -12,6 +12,7 @@
     toggleWrap,
     type Command,
   } from "../editing/commands";
+  import { openLocalWordTools } from "../editing/localWordTools";
 
   let { view, onComment }: { view: EditorView | undefined; onComment?: () => void } =
     $props();
@@ -24,6 +25,7 @@
     { name: "heading", title: "Heading", run: setHeading(2) },
     { name: "quote", title: "Quote", run: toggleQuote },
     { name: "listBullet", title: "Bullet list", run: toggleBulletList },
+    { name: "bookText", title: "Word tools  ⌘⌥L", run: (v) => openLocalWordTools(v) },
   ];
 
   // Flexoki 600s — the text-grade inks tokens.css already uses on the cream

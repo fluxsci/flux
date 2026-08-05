@@ -23,7 +23,7 @@
 
 import puppeteer from "puppeteer-core";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
@@ -38,6 +38,19 @@ const ELECTRON = path.join("node_modules", ".bin", "electron");
 const udd = mkdtempSync(path.join(tmpdir(), "flux-perf-udd-"));
 const projParent = mkdtempSync(path.join(tmpdir(), "flux-perf-proj-"));
 const PROJ = path.join(projParent, "proj");
+const fluxConfig = path.join(udd, "FluxConfig");
+
+// main.cjs intentionally pins Electron's userData to <XDG_CONFIG_HOME>/flux,
+// so --user-data-dir alone cannot isolate the single-instance lock. Give this
+// harness its own XDG root and seed its FluxConfig pointer as well: it can then
+// run alongside the user's real Flux instance without touching either machine
+// preferences or ~/FluxConfig.
+const electronUserData = path.join(udd, "flux");
+mkdirSync(electronUserData, { recursive: true });
+writeFileSync(
+  path.join(electronUserData, "preferences.json"),
+  JSON.stringify({ schemaVersion: "0.1.0", fluxConfigPath: fluxConfig }, null, 2) + "\n",
+);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const quant = (arr, p) => {
@@ -49,6 +62,7 @@ const round = (n) => Math.round(n * 10) / 10;
 
 let child = null;
 let browser = null;
+let bootLog = "";
 function cleanup() {
   try {
     if (browser) browser.disconnect();
@@ -78,12 +92,24 @@ const hardExit = setTimeout(() => errorOut("timed out (150s)"), 150000);
 process.on("SIGINT", () => errorOut("interrupted"));
 
 // ---- launch the real app on an isolated port + profile ----------------------
-child = spawn(ELECTRON, [".", `--remote-debugging-port=${PORT}`, "--no-sandbox", `--user-data-dir=${udd}`], {
-  env: { ...process.env, VITE_DEV_SERVER_URL: DEV },
-  stdio: "ignore",
+const electronArgs = [
+  ".",
+  `--remote-debugging-port=${PORT}`,
+  "--no-sandbox",
+  ...(process.platform === "linux" ? ["--ozone-platform=x11"] : []),
+  `--user-data-dir=${udd}`,
+];
+child = spawn(ELECTRON, electronArgs, {
+  env: { ...process.env, VITE_DEV_SERVER_URL: DEV, XDG_CONFIG_HOME: udd },
+  stdio: ["ignore", "pipe", "pipe"],
   detached: true,
 });
 child.on("error", (e) => errorOut("could not launch electron: " + e.message));
+for (const stream of [child.stdout, child.stderr]) {
+  stream?.on("data", (chunk) => {
+    bootLog = (bootLog + chunk.toString()).slice(-4000);
+  });
+}
 
 // ---- wait for the CDP endpoint, then connect --------------------------------
 const CDP = `http://127.0.0.1:${PORT}`;
@@ -95,7 +121,7 @@ for (let i = 0; i < 60 && !connected; i++) {
     if (r.ok) connected = true;
   } catch {}
 }
-if (!connected) errorOut(`Electron CDP never came up on :${PORT}`);
+if (!connected) errorOut(`Electron CDP never came up on :${PORT}${bootLog.trim() ? `\n${bootLog.trim()}` : ""}`);
 browser = await puppeteer.connect({ browserURL: CDP, defaultViewport: null });
 
 let page;

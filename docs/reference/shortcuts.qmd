@@ -37,6 +37,8 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 | **Alt+T** or **Ctrl+`** | Terminal pane |
 | **Alt+P** / **Ctrl+Alt+P** | Close the active margin pane / close all panes |
 | **Ctrl+Alt+M** | Comment on the current selection |
+| **Ctrl+Alt+K** / **Ctrl+Alt+Shift+K** | Toggle the selected word in the project / personal dictionary |
+| **Ctrl+Alt+L** | Word tools for the selected term — dictionaries and aliases |
 | **Ctrl+Enter** | Follow the item under the caret (figure ref → figure; citation → group editor) |
 | **Ctrl+F** / **Ctrl+Alt+F** | Find / find & replace |
 | **Ctrl+B** / **Ctrl+I** / **Ctrl+E** | Bold / italic / inline code |
