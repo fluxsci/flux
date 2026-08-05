@@ -27,6 +27,21 @@ const _errs = new WeakMap();
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function configuredUrl(requested) {
+  if (!process.env.FLUX_URL) return requested;
+  try {
+    const legacy = new URL(requested);
+    if (legacy.origin !== "http://127.0.0.1:1420") return requested;
+    const configured = new URL(APP_URL);
+    configured.pathname = legacy.pathname;
+    configured.search = legacy.search;
+    configured.hash = legacy.hash;
+    return configured.href;
+  } catch {
+    return requested;
+  }
+}
+
 // WS-7.3: condition-based waits — preferred over sleep() for anything that has
 // an observable condition. See scripts/lib/wait.mjs for the conversion recipe.
 export { waitFor, waitForSelector, waitForGone, waitForText, waitForFrame } from "./wait.mjs";
@@ -60,6 +75,7 @@ export function realErrors(page) {
 // Navigate to the app and let intro animations settle. Retries while the dev
 // server is still warming up.
 export async function gotoApp(page, { settle = 1200, url = APP_URL } = {}) {
+  url = configuredUrl(url);
   let lastErr;
   for (let i = 0; i < 30; i++) {
     try {

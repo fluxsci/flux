@@ -10,16 +10,37 @@
     onStats,
     onExport,
     exporting = false,
+    correctionStatus,
+    onToggleCorrections,
   }: {
     words: number;
     status: "demo" | "saved" | "saving" | "error";
     onStats: () => void;
     onExport: () => void;
     exporting?: boolean;
+    correctionStatus: "off" | "loading" | "ready" | "error";
+    onToggleCorrections: () => void;
   } = $props();
 </script>
 
 <div class="statusbar">
+  <button
+    class="seg corrections"
+    class:on={correctionStatus === "ready"}
+    class:error={correctionStatus === "error"}
+    data-correction-status={correctionStatus}
+    onclick={onToggleCorrections}
+    aria-pressed={correctionStatus !== "off"}
+    title={correctionStatus === "off"
+      ? "Local corrections off — click to enable"
+      : correctionStatus === "loading"
+        ? "Local corrections are warming up on this device"
+        : correctionStatus === "error"
+          ? "Local corrections unavailable — click to retry"
+          : "Local corrections on — private and on-device"}>
+    <span class="correction-dot" aria-hidden="true"></span>
+    Local
+  </button>
   <button class="seg" onclick={onExport} disabled={exporting} title="Export — PDF · HTML · Word (also in ⌘K)">
     {exporting ? "Exporting…" : "Export"}
   </button>
@@ -82,5 +103,27 @@
   }
   .state.error {
     color: var(--c-danger);
+  }
+  .corrections {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .correction-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.45;
+  }
+  .corrections.on {
+    color: var(--c-accent);
+  }
+  .corrections.on .correction-dot {
+    opacity: 1;
+    box-shadow: 0 0 0 2px var(--c-accent-tint);
+  }
+  .corrections.error {
+    color: var(--c-warning);
   }
 </style>

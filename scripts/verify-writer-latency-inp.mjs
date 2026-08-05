@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 
 const DEV = process.env.VITE_DEV_SERVER_URL || process.env.FLUX_URL || "http://127.0.0.1:1420/";
+const DEV_ORIGIN = new URL(DEV).origin;
 const PORT = Number(process.env.FLUX_CDP_PORT || 9223);
 const DELTA_BUDGET = Number(process.env.FLUX_INP_DELTA_BUDGET || 25); // ms the ambient bg may add to INP p95
 const CADENCE = Number(process.env.FLUX_CADENCE || 45);
@@ -99,10 +100,16 @@ browser = await puppeteer.connect({ browserURL: CDP, defaultViewport: null });
 
 let page;
 for (let i = 0; i < 60 && !page; i++) {
-  page = (await browser.pages()).find((p) => /127\.0\.0\.1:1420|localhost:1420/.test(p.url()));
+  page = (await browser.pages()).find((p) => {
+    try {
+      return new URL(p.url()).origin === DEV_ORIGIN;
+    } catch {
+      return false;
+    }
+  });
   if (!page) await sleep(300);
 }
-if (!page) errorOut("no app page on :1420 (is the dev server up?)");
+if (!page) errorOut(`no app page at ${DEV_ORIGIN} (is the dev server up?)`);
 const ua = await page.evaluate(() => navigator.userAgent);
 const electronV = (ua.match(/Electron\/([\d.]+)/) || [])[1] || "?";
 

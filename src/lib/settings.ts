@@ -32,6 +32,7 @@ export interface Settings {
   paperMaxMarginPanes: number; // max dynamic panes open at once
   paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
   paperCaretFeel: PaperCaretFeel; // caret motion model — chase (default) | smooth
+  paperLocalCorrections: boolean; // private on-device typo + spacing correction
   // App — updates.
   updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
@@ -56,6 +57,7 @@ const DEFAULTS: Settings = {
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,
   paperCaretFeel: "chase",
+  paperLocalCorrections: true,
   updateCheck: true,
 };
 
@@ -88,6 +90,7 @@ function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   delete out.paperCaretMs;
   delete out.paperCaretSoftBlink;
   delete out.paperSmoothLineScroll;
+  if (typeof out.paperLocalCorrections !== "boolean") delete out.paperLocalCorrections;
   return out;
 }
 

@@ -63,6 +63,7 @@
       "verify-p5-library.ts",
       "verify-paper-mathgrammar.ts",
       "verify-paper-changegate.ts",
+      "verify-local-corrections.ts",
       "verify-frontmatter.ts",
       "verify-render-concurrency.ts",
       "verify-paper-commands.ts",
@@ -172,6 +173,7 @@
       "verify-paper-nav.mjs",
       "verify-paper-vim.mjs",
       "verify-paper-keyboard.mjs",
+      "verify-paper-local-corrections.mjs",
       "verify-fig-width.mjs",
       "verify-citegroup.mjs",
       "verify-paper-extras.mjs",
@@ -299,7 +301,8 @@
       "verify-scale-lazy-assets.mjs"
     ],
     "bundle": [
-      "verify-w13-cli.mjs"
+      "verify-w13-cli.mjs",
+      "verify-local-correction-bundle.mjs"
     ],
     "startup": [
       "verify-startup.mjs"
@@ -329,6 +332,7 @@
       "verify-paper-nav.mjs",
       "verify-paper-vim.mjs",
       "verify-paper-keyboard.mjs",
+      "verify-paper-local-corrections.mjs",
       "verify-fig-width.mjs",
       "verify-citegroup.mjs",
       "verify-paper-extras.mjs",
@@ -344,6 +348,7 @@
       "verify-embed-normalize.ts",
       "verify-table-model.ts",
       "verify-table-ops.ts",
+      "verify-local-corrections.ts",
       "verify-paper-tables.mjs",
       "verify-nature-style.ts",
       "verify-writer-neutral.ts"

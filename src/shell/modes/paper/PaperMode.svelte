@@ -25,6 +25,7 @@
   import EmptyState from "./EmptyState.svelte";
   import { selectionWatcher } from "./toolbar/selectionState";
   import { formattingKeymap, CM_HINTS } from "./editing/keymap";
+  import { localCorrections, type LocalCorrectionUiStatus } from "./editing/localCorrections";
   import { paletteFromTable, dispatchWindowKey, type PaperCmdCtx } from "./commands";
   import { vimCompartment, vimExtensions } from "./editing/vim";
   import { paperVimFlavor, type VimFlavor } from "./editing/vimStore";
@@ -141,6 +142,9 @@
   let isDemo = $state(false);
   let latest = $state("");
   let view = $state<EditorView | undefined>(undefined);
+  let localCorrectionStatus = $state<LocalCorrectionUiStatus>(
+    get(settings).paperLocalCorrections ? "loading" : "off",
+  );
   let outline = $state<OutlineItem[]>([]);
   // PAP-7: a debounced mirror of `latest` for the whole-document passes that feed only
   // cosmetic/occasional UI — the TOC (a full syntax-tree walk) and the cited-key red-dots
@@ -378,6 +382,36 @@
     for (const e of $fluxLibEntries) byKey.set(e.key, e);
     for (const e of references) if (!byKey.has(e.key)) byKey.set(e.key, e);
     return [...byKey.values()];
+  });
+
+  function localCorrectionContextStrings(): string[] {
+    return [
+      title,
+      meta.title,
+      ...meta.authors,
+      ...references.flatMap((r) => [r.title, r.container ?? "", ...r.authors]),
+      ...figures.flatMap((f) => [f.name, f.nickname ?? "", f.caption]),
+    ].filter(Boolean);
+  }
+
+  function toggleLocalCorrections(): void {
+    settings.update((value) => ({
+      ...value,
+      paperLocalCorrections: !value.paperLocalCorrections,
+    }));
+    localCorrectionStatus = get(settings).paperLocalCorrections ? "loading" : "off";
+    view?.dispatch({}); // let the correction controller observe the preference immediately
+    view?.focus();
+  }
+
+  // Settings can also change through the global Settings dialog, not only the
+  // Paper status pill / command palette. Wake the per-editor controller in
+  // either path without rebuilding the extension tree.
+  $effect(() => {
+    const enabled = $settings.paperLocalCorrections;
+    if (!enabled) localCorrectionStatus = "off";
+    else if (localCorrectionStatus === "off") localCorrectionStatus = "loading";
+    view?.dispatch({});
   });
 
   // Citing a FluxLib entry not yet in this project: pull it into the project's
@@ -1155,6 +1189,13 @@
         // pipe re-padding while typing inside a table.
         tableKeymap,
         tableReflow,
+        localCorrections({
+          enabled: () => get(settings).paperLocalCorrections,
+          projectKey: () => pm?.root ?? "demo",
+          contextStrings: localCorrectionContextStrings,
+          onStatus: (status) => (localCorrectionStatus = status),
+          onError: (message) => pushToast("error", message),
+        }),
         // `@@` → figure-reference picker (the second @ never lands in the doc).
         figRefTrigger(openFigRefPicker),
         // WS-4.2: THIS editor's numbering instance — provided before
@@ -1588,6 +1629,8 @@
     setCitationStyle: (style) => marginHost.setCitationStyle(style),
     vimFlavor: () => $paperVimFlavor,
     setVimFlavor,
+    localCorrections: () => $settings.paperLocalCorrections,
+    toggleLocalCorrections,
     openFigurePicker,
     openFigRefPicker,
     outlinerOpen: () => $paperLayout.outlinerOpen,
@@ -1840,6 +1883,8 @@
             words={statusWords}
             {status}
             exporting={exportBusy}
+            correctionStatus={localCorrectionStatus}
+            onToggleCorrections={toggleLocalCorrections}
             onStats={() => summonPane("stats")}
             onExport={openExportDialog} />
         {/if}

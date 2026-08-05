@@ -28,6 +28,107 @@ body {
   cursor: default;
 }
 
+/* Paper local corrections: the mark is zero-layout (the dot is absolutely
+   positioned) so the feedback never changes line metrics or caret geometry. */
+.paper .cm-local-correction {
+  position: relative;
+  border-radius: 2px;
+  animation: flux-local-correction-text 560ms var(--ease-standard) both;
+}
+.paper .cm-local-correction::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  box-shadow: 0 0 0 0 var(--c-accent-glow);
+  pointer-events: none;
+  animation: flux-local-correction-dot 620ms var(--ease-enter) both;
+}
+.paper .cm-local-correction-delay-1,
+.paper .cm-local-correction-delay-1::after { animation-delay: 90ms; }
+.paper .cm-local-correction-delay-2,
+.paper .cm-local-correction-delay-2::after { animation-delay: 180ms; }
+.paper .cm-local-correction-delay-3,
+.paper .cm-local-correction-delay-3::after { animation-delay: 270ms; }
+
+@keyframes flux-local-correction-text {
+  0% { color: transparent; background: var(--c-accent-tint); }
+  32% { color: var(--c-accent); background: var(--c-accent-tint); }
+  100% { color: inherit; background: transparent; }
+}
+@keyframes flux-local-correction-dot {
+  0% { opacity: 0; transform: translate(-50%, 2px) scale(0.25); }
+  28% { opacity: 1; transform: translate(-50%, 0) scale(1); box-shadow: 0 0 0 4px var(--c-accent-glow); }
+  62% { opacity: 1; transform: translate(-50%, 0) scale(0.82); box-shadow: 0 0 0 0 var(--c-accent-glow); }
+  100% { opacity: 0; transform: translate(-50%, -1px) scale(0.55); }
+}
+
+.paper .cm-tooltip.cm-tooltip-above:has(.cm-local-correction-menu),
+.paper .cm-tooltip.cm-tooltip-below:has(.cm-local-correction-menu) {
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--c-surface) 96%, transparent);
+  color: var(--c-tx);
+  box-shadow: var(--elev-2);
+  overflow: visible;
+}
+.paper .cm-local-correction-menu {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 8px 7px 10px;
+  font-family: var(--font-serif);
+  font-size: var(--ts-xs);
+  white-space: nowrap;
+}
+.paper .cm-local-correction-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--c-tx-muted);
+}
+.paper .cm-local-correction-change {
+  color: var(--c-tx);
+  font-family: var(--font-serif);
+}
+.paper .cm-local-correction-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.paper .cm-local-correction-actions button {
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-1);
+  background: var(--c-bg-raised);
+  color: var(--c-tx-2);
+  padding: 4px 7px;
+  font: inherit;
+  cursor: pointer;
+}
+.paper .cm-local-correction-actions button:hover {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+.paper .cm-local-correction-actions button.icon {
+  border-color: transparent;
+  background: transparent;
+  color: var(--c-tx-faint);
+  padding: 2px 5px;
+  font-size: 15px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paper .cm-local-correction,
+  .paper .cm-local-correction::after {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
+
 ::selection {
   background: var(--c-accent-tint);
   color: var(--c-tx-hi);

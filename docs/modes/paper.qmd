@@ -27,6 +27,27 @@ text stays honest.
   (unfold: **Ctrl+Shift+]**). Spellcheck is on by default, and the word count in the status
   bar opens a full statistics pane.
 
+# Local corrections
+
+Paper quietly fixes only high-confidence typing slips after you finish a sentence: transposed
+letters such as *compelx*, repeated or missing letters, and an accidental space such as
+*o bject*. The replacement fades into place and a small blue dot pulses beneath it; the caret
+never moves. This first correction layer is entirely on your device — it sends no manuscript
+text to a server.
+
+Click a recently corrected word to see what changed. **Undo** restores the original and teaches
+this project not to repeat that correction; **Add to dictionary** also remembers the word as
+project vocabulary. One normal **Ctrl+Z** immediately after a sentence restores every correction
+from that sentence together. Project titles, authors, references, figure captions, and recurring
+technical terms help form the local vocabulary, while acronyms, mixed-case scientific names,
+numbers, code, math, citations, links, and table source are left alone.
+
+The blue **Local** item in the status bar shows when the checker is ready and toggles it on or
+off. The same switch is in **Settings › Paper › Local corrections** and the command palette.
+This conservative local layer does not rephrase, make stylistic edits, or guess at scientific
+compound spelling; those are choices, not safe automatic corrections. **Reset correction
+learning** in the same Settings section clears every learned word and reverted correction.
+
 # Citations
 
 Type **@** and start a name — the autocomplete searches your whole

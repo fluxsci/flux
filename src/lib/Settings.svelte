@@ -2,6 +2,10 @@
   import { fade, scale } from "svelte/transition";
   import { settings, settingsOpen, type Settings, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim, type XrayPos } from "./settings";
   import { fileBridge } from "./project/types";
+  import {
+    clearLocalCorrectionProfiles,
+    LOCAL_CORRECTION_RESET_EVENT,
+  } from "../shell/modes/paper/editing/localCorrectionProfile";
 
   // --- FluxConfig location (desktop app only) --------------------------------
   // ONE user-facing folder for all user-level Flux state (FluxLib, Guidelines).
@@ -11,6 +15,7 @@
   let libPath = "";
   let libNotice = "";
   let libBusy = false;
+  let correctionLearningReset = false;
   let modalEl: HTMLDivElement | null = null;
 
   async function loadLib() {
@@ -66,6 +71,13 @@
       e.preventDefault();
       settingsOpen.set(false);
     }
+  }
+
+  function resetCorrectionLearning() {
+    clearLocalCorrectionProfiles();
+    window.dispatchEvent(new Event(LOCAL_CORRECTION_RESET_EVENT));
+    correctionLearningReset = true;
+    window.setTimeout(() => (correctionLearningReset = false), 1800);
   }
 
   const sizes: { v: FluxFigMenuSize; l: string }[] = [
@@ -281,6 +293,20 @@
       </div>
       <p class="hint">Chase — the caret pursues its target, arriving fast and settling softly. Smooth — a constant-pace 90&nbsp;ms glide.</p>
 
+      <h3>Paper — local corrections</h3>
+      <label class="chk">
+        <input
+          type="checkbox"
+          checked={$settings.paperLocalCorrections}
+          on:change={(e) => settings.update((v) => ({ ...v, paperLocalCorrections: e.currentTarget.checked }))}
+        />
+        Correct clear typing and spacing errors as I write
+      </label>
+      <p class="hint">Runs entirely on this device. A blue pulse marks each correction; click it for details or press Undo to restore the original. Reverting teaches this project what to leave alone.</p>
+      <button class="ghost learning-reset" on:click={resetCorrectionLearning}>
+        {correctionLearningReset ? "Learning reset" : "Reset correction learning"}
+      </button>
+
       <p class="tip">Open the FluxFig Menu with <b>F</b> while objects are selected.</p>
       <button class="close" on:click={() => settingsOpen.set(false)}>Done</button>
     </div>
@@ -401,6 +427,9 @@
   .ghost:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  .learning-reset {
+    margin-top: 8px;
   }
   .modal:focus {
     outline: none;

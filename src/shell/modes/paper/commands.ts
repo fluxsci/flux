@@ -27,6 +27,8 @@ export interface PaperCmdCtx {
   setCitationStyle(style: "author-year" | "numeric"): void;
   vimFlavor(): "off" | "vim" | "flux";
   setVimFlavor(flavor: "off" | "vim" | "flux"): void;
+  localCorrections(): boolean;
+  toggleLocalCorrections(): void;
   openFigurePicker(): void;
   openFigRefPicker(): void;
   outlinerOpen(): boolean;
@@ -161,6 +163,14 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
     keywords: "vim flux flavor jj escape insert normal modal",
     owner: "none",
     run: (c) => c.setVimFlavor(c.vimFlavor() === "flux" ? "vim" : "flux"),
+  },
+  {
+    id: "toggle-local-corrections",
+    title: (c) => `${c.localCorrections() ? "Disable" : "Enable"} local corrections`,
+    hint: "Editor",
+    keywords: "autocorrect spelling typo private on device writing",
+    owner: "none",
+    run: (c) => c.toggleLocalCorrections(),
   },
   { id: "insert-figure", title: () => "Insert figure…", hint: "Insert", keywords: "image panel embed", owner: "none", run: (c) => c.openFigurePicker() },
   { id: "insert-figref", title: () => "Reference a figure…", hint: "@@", keywords: "crossref cross-reference cite figure panel fig", owner: "none", run: (c) => c.openFigRefPicker() },

@@ -209,6 +209,17 @@ Persistence invariants (all machine-checked — do not weaken):
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
+  **Local corrections** (2026-08-04) live in `editing/localCorrections.ts`: capture only at a
+  typed sentence/newline boundary, lint a hard-capped sentence in the dedicated module worker
+  (`localCorrection.worker.ts`, Harper slim WASM), then revalidate the exact source against the
+  current document before applying every accepted edit in ONE isolated-history transaction.
+  The synchronous keystroke path never calls the linter. `localCorrectionCore.ts` is deliberately
+  conservative: mechanical edits only; arbitrary one-letter substitutions, scientific compound
+  styling, phrase/style lints, technical tokens, and protected Markdown never auto-apply. Visual
+  marks are zero-layout; immediate native Undo restores the batch and persists per-project vetoes.
+  Settings can clear all learned profiles and broadcasts a live reset to replace the active
+  worker vocabulary. The worker and WASM stay lazy outside the startup graph, and there is no
+  network/cloud path.
   **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
   `science/tableModel.ts`, markdown-it-faithful because the export feeds the same text to
   markdown-it — escaped `\|` (escapedSplit port), header/delimiter column-count equality,
@@ -370,10 +381,10 @@ The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A 
 that isn't in the manifest doesn't exist.** Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
-  pure --jobs 4` (~15s, currently 136 scripts, must stay green at all times).
+  pure --jobs 4` (~15s parallel, currently 160 scripts, must stay green at all times).
 - **ui / ui-extra** — puppeteer against the dev server on :1420 (`scripts/lib/driver.mjs`;
   fixtures via `?fixture=demo`, dev handles `window.__flux`, `__fluxView`, `__fluxSeed*`). ui is
-  the curated stable suite (41), ui-extra the full sweep (60). Consoles must be **clean** —
+  the curated stable suite (59), ui-extra the full sweep (60). Consoles must be **clean** —
   there is no tolerated-404 filter anymore.
 - **scale** — the perf budgets (figure/paper/library/reader/fulltext). These are the standing
   60fps/scale contracts from the polish mandate.
@@ -383,7 +394,10 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
   on this box need `--ozone-platform=x11` (§9).
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
-  `group:paper-gate` is the paper editor's regression suite (16 scripts).
+  `group:paper-gate` is the paper editor's regression suite (23 scripts). For parallel
+  worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
+  configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
+  never hardcode the default port.
 
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
@@ -2106,3 +2120,18 @@ Full analysis: `notes/Flux_Supplement_Capture_Report.md`.
   ready at all before debugging the gate.** It cleared on its own later. (The run did wedge in
   `engine.dispose()` afterwards, so the leaked-window check never printed — untouched teardown
   code, worth re-confirming on a clean machine.)
+### 2026-08-04 (late) — Local correction fabric (Codex, `codex-local-completion`)
+**Work:** Added Paper's entirely local, worker-backed correction fabric with conservative
+mechanical ranking, sentence-boundary scheduling, zero-layout pulse/fade feedback, one-step Undo,
+project dictionaries/veto learning, controls, user docs, and pure/UI/bundle gates. Verified the
+real browser flow, full Paper and pure suites, Electron latency, production build/package, and the
+worker's `file://` initialization under Flux's sandbox and CSP.
+**Learnings:**
+- A dictionary candidate is not enough for silent scientific editing: arbitrary substitutions
+  can turn *somata* into *sonata*, while Harper labels *timepoint* → *time point* as a typo.
+  Automatic local edits must be mechanical; semantic/style ambiguity belongs to a later model tier.
+- Heavy local WASM stays compatible with instantaneous typing when it is idle-warmed in a lazy
+  module worker, triggered only at sentence boundaries, and its result is position-mapped plus
+  exact-source-validated before one isolated-history transaction.
+- Corrected the verification guide: `FLUX_URL` now remaps legacy `gotoApp` calls that hardcode
+  `:1420`; direct navigations still need `APP_URL`.
