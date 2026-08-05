@@ -113,6 +113,40 @@ export function safeSupplementName(name: string): string {
 export const supplementFilePath = (lib: string, key: string, name: string): string =>
   j(supplementsDir(lib, key), safeSupplementName(name));
 
+/** What one stored supplement is: enough to label it in the reader without re-deriving
+ *  anything from the filename, and enough provenance to know where it came from. */
+export interface SupplementRecord {
+  name: string; // bare filename inside supplements/
+  label?: string; // publisher's own wording, e.g. "Supplementary Video 1 (download MOV)"
+  url?: string; // where it was captured from
+  source?: string; // "proxy" | "europepmc-suppl" | "attach" | "repair" | …
+  bytes: number;
+  sha256?: string;
+  fetchedAt: string;
+}
+
+/** supplements/manifest.json — the labelled index of a paper's supplementary files.
+ *  Advisory: the files on disk are the truth, and a paper whose manifest is missing or
+ *  stale still reads fine (the reader falls back to bare filenames). */
+export interface SupplementManifest {
+  version: 1;
+  items: SupplementRecord[];
+}
+export const SUPPLEMENTS_MANIFEST = "manifest.json";
+export const supplementManifestPath = (lib: string, key: string): string =>
+  j(supplementsDir(lib, key), SUPPLEMENTS_MANIFEST);
+
+/** Parse a manifest, tolerating absence/corruption — never throws. */
+export function parseSupplementManifest(text: string | null | undefined): SupplementManifest {
+  try {
+    const j = JSON.parse(String(text ?? ""));
+    const items = Array.isArray(j?.items) ? j.items.filter((r: unknown): r is SupplementRecord => !!r && typeof (r as SupplementRecord).name === "string") : [];
+    return { version: 1, items };
+  } catch {
+    return { version: 1, items: [] };
+  }
+}
+
 /** Provenance for a stored PDF — written alongside it as source.json. */
 export interface SourceInfo {
   key: string; // citekey

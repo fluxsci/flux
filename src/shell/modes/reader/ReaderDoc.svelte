@@ -23,6 +23,7 @@
     writeReaderContext,
     clearReaderContext,
     listSupplements,
+    readSupplementManifest,
     readerSupplementBytes,
     ingestSupplementFile,
   } from "../../../lib/references/itemsBridge";
@@ -116,6 +117,8 @@
   // The main buffer is never overwritten (so annotations / re-fetch stay anchored to it); a
   // supplement is loaded into suppBuffer and the viewer renders whichever is active.
   let supplements = $state<string[]>([]);
+  /** filename → the publisher's own label, from supplements/manifest.json (advisory). */
+  let suppLabels = $state<Record<string, string>>({});
   let activePdf = $state<{ kind: "main" } | { kind: "supp"; name: string }>({ kind: "main" });
   let suppBuffer = $state<ArrayBuffer | null>(null);
   let switchOpen = $state(false);
@@ -575,7 +578,8 @@
     loadFluxLib(),
     readerSource(citekey),
     listSupplements(citekey),
-  ]).then(([b, af, lib, src, sup]) => {
+    readSupplementManifest(citekey),
+  ]).then(([b, af, lib, src, sup, man]) => {
     if (!alive) return;
     buffer = b;
     annotations = af.annotations;
@@ -584,6 +588,7 @@
     libKeyByDoi = new Map(lib.flatMap((e) => { const d = bareDoi(e.doi); return d ? [[d, e.key] as [string, string]] : []; }));
     srcStamp = stampOf(src, b);
     supplements = sup;
+    suppLabels = Object.fromEntries(man.items.filter((r) => r.label).map((r) => [r.name, r.label as string]));
     loading = false;
   }).catch((e) => {
     // A rejected IPC/bridge call must not strand the pane on "Loading…" forever.
@@ -632,9 +637,10 @@
           }
         }
         // R6: reflect supplements added/removed on disk; if the shown one vanished, fall back.
-        const sup = await listSupplements(citekey);
+        const [sup, man] = await Promise.all([listSupplements(citekey), readSupplementManifest(citekey)]);
         if (!alive) return;
         supplements = sup;
+        suppLabels = Object.fromEntries(man.items.filter((r) => r.label).map((r) => [r.name, r.label as string]));
         if (activePdf.kind === "supp" && !sup.includes(activePdf.name)) showMain();
       });
     });
@@ -661,7 +667,14 @@
 
   // R6: PDF switcher. Show the main paper (its already-loaded buffer) or a supplement
   // (loaded on demand into suppBuffer). bufferGen remounts PdfView with the new bytes.
-  const suppLabel = (n: string) => n.replace(/\.pdf$/i, "");
+  // Prefer the publisher's own wording for a captured supplement ("Supplementary Video 1",
+  // "Reporting Summary") over its filename — `41592_2023_1863_MOESM3_ESM` tells a reader
+  // nothing. Falls back to the bare filename when nothing was indexed.
+  const suppLabel = (n: string) => {
+    const label = suppLabels[n]?.trim();
+    if (label) return label.replace(/\s*\((?:download\s+\w+\s*)\)\s*$/i, "").trim() || label;
+    return n.replace(/\.pdf$/i, "");
+  };
   function showMain() {
     switchOpen = false;
     if (activePdf.kind === "main") return;

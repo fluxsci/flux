@@ -98,6 +98,14 @@ export function pmcOaPdfHref(xml: string): string | undefined {
 export const europePmcPdfUrl = (pmcid: string): string =>
   `https://www.ebi.ac.uk/europepmc/webservices/rest/PMC/PMC${pmcNumber(pmcid)}/fullTextPDF`;
 
+/** Europe PMC's supplementary-files archive (a ZIP of every supplementary file).
+ *  NOTE the URL shape: unlike every other Europe PMC endpoint this one takes the PMCID
+ *  WITHOUT a `/PMC/` source segment — the documented `/PMC/<id>/supplementaryFiles` form
+ *  returns 404. Verified live 2026-08. Only the OA subset is served; a subscription
+ *  article that is merely `inEPMC` returns 404, which is a normal "no supplements here". */
+export const europePmcSupplementsUrl = (pmcid: string): string =>
+  `https://www.ebi.ac.uk/europepmc/webservices/rest/PMC${pmcNumber(pmcid)}/supplementaryFiles`;
+
 // --- bioRxiv / medRxiv (10.1101 → details → constructed pdf url) -------------
 export const isBiorxivDoi = (doi?: string): boolean => /^10\.1101\//i.test(bareDoi(doi) ?? "");
 export const biorxivDetailsUrl = (doi: string, server: "biorxiv" | "medrxiv"): string =>
@@ -196,6 +204,21 @@ export interface WaterfallOpts {
   bulkMode?: boolean;
 }
 
+/**
+ * Resolve the paper's PMCID, backfilling a missing one so the reliable PMC/Europe PMC
+ * routes can fire: first from the OA url itself (OpenAlex often hands us a PMC ARTICLE-PAGE
+ * url — HTML, not a PDF — with enrich.ids.pmcid empty), then, for OA-flagged papers with a
+ * PMID, via NCBI's ID converter. The single biggest OA-yield lever for a PubMed-heavy
+ * library, and also what lets the supplements route find Europe PMC's archive.
+ */
+export async function resolvePmcid(x: PdfInputs, deps: FetchDeps): Promise<string | undefined> {
+  if (x.pmcid) return x.pmcid;
+  const fromUrl = pmcidFromUrl(x.openAccessUrl);
+  if (fromUrl) return fromUrl;
+  if (x.isOa && x.pmid) return await pmcidFromPmid(x.pmid, deps).catch(() => undefined);
+  return undefined;
+}
+
 /** Run the OA waterfall: first magic-byte-valid PDF wins. */
 export async function runWaterfall(
   x: PdfInputs,
@@ -206,14 +229,7 @@ export async function runWaterfall(
   // the OA url itself (OpenAlex often hands us a PMC ARTICLE-PAGE url — HTML, not a PDF —
   // with enrich.ids.pmcid empty), then, for OA-flagged papers with a PMID, via NCBI's ID
   // converter. This is the single biggest OA-yield lever for a PubMed-heavy library.
-  if (!x.pmcid) {
-    const fromUrl = pmcidFromUrl(x.openAccessUrl);
-    if (fromUrl) x = { ...x, pmcid: fromUrl };
-    else if (x.isOa && x.pmid) {
-      const fromPmid = await pmcidFromPmid(x.pmid, deps).catch(() => undefined);
-      if (fromPmid) x = { ...x, pmcid: fromPmid };
-    }
-  }
+  x = { ...x, pmcid: await resolvePmcid(x, deps) };
   // The bulk sweep and the single-row button run the SAME candidate set — repository-first,
   // then publisher copies (incl. Elsevier/Cell Press cell.com). There is NO candidate filtering
   // here: the previous "avoid Elsevier in bulk" rule silently starved the sweep of ~180 Cell

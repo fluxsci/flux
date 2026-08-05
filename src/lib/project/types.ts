@@ -214,6 +214,10 @@ export interface FileBridge {
   fetchViaProxy?(
     target: string,
     token?: string,
+    opts?: {
+      /** Also capture the article's supplementary files while we're on its page. */
+      withSupplements?: boolean;
+    },
   ): Promise<{
     bytesB64?: string;
     contentType?: string;
@@ -222,6 +226,8 @@ export interface FileBridge {
     error?: string;
     reason?: string;
     diag?: { landedUrl?: string; host?: string; affordancesFound?: string[]; detail?: string };
+    /** Present only when `withSupplements` was requested and the main capture succeeded. */
+    supplements?: Array<{ name: string; label?: string; url?: string; bytesB64: string }>;
   }>;
   proxyCancel?(token: string): Promise<{ ok?: boolean }>;
   // Proxy credentials, stored ENCRYPTED via the OS keychain (Electron safeStorage).

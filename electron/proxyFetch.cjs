@@ -63,16 +63,10 @@ function isAaasDoi(doi) {
   return /^10\.1126\//i.test(String(doi || ""));
 }
 
-// A supplementary-materials URL — the supporting-information file, NEVER the article itself.
-// The scraper happily finds these (Atypon/Wiley `downloadSupplement`, Elsevier `mmcN`, Springer
-// `/esm/`, AAAS `_sm.pdf`, ACS/RSC `_si.pdf`), and a supplement frequently downloads more readily
-// than the paywalled main text — so without this guard the capture gate stored the SUPPLEMENT as
-// paper.pdf (the "Science paper is actually the supplement" bug). Used to keep supplements out of
-// the main-PDF slot; they belong under items/<key>/supplements/, not as the article.
-const rxSupplement = /downloadsupplement|supplement|supporting[-_ ]?info|\/esm\/|(^|[-_/])mmc\d+\b|_sm\.pdf|_si\.pdf/i;
-function isSupplementUrl(u) {
-  return rxSupplement.test(String(u || ""));
-}
+// Main-text-vs-supplement judgement lives in ONE place, shared with the TypeScript side
+// (flux-core, the renderer, the verify scripts) so the engine and the write-time check can
+// never disagree. See electron/supplementRules.cjs for why the rules are shaped as they are.
+const { isSupplementUrl, partitionCandidates, supplementNameFromUrl } = require("./supplementRules.cjs");
 
 /** Compact ScienceDirect PII (S + 16 SICI chars) → Cell Press hyphenated form used by
  *  cell.com, e.g. S0896627321004955 → S0896-6273(21)00495-5. null if not PII-shaped. */
@@ -183,12 +177,20 @@ function createProxyEngine(deps) {
   // APS/AAAS/PNAS), <link application/pdf>, Elsevier pdfDownload JSON, then PDF-ish anchors,
   // then PDF-looking buttons with no href (tagged for click). Non-proxied hosts are rewritten
   // into EZProxy's host-rewrite form so the fetch stays inside the authenticated session.
+  // The supplement URL rules are SERIALIZED INTO the page script rather than duplicated:
+  // the in-page sweep needs them to spot non-PDF supplements (.docx/.xlsx/.mov/.zip) that
+  // the PDF-shaped selectors above would never match, and a second hand-maintained copy of
+  // these patterns is exactly the drift that let the Science bug through the first time.
+  const SUPP_RX_SRC = JSON.stringify(require("./supplementRules.cjs").SUPPLEMENT_URL_PATTERNS.map((r) => r.source));
+
   const scrapeCandidates = (wc, prefixHost) =>
     wc
       .executeJavaScript(
         `(() => {
       const PD = ${JSON.stringify(prefixHost)};
+      const SUPP = ${SUPP_RX_SRC}.map((s) => new RegExp(s, 'i'));
       const abs = (h) => { try { return new URL(h, location.href).href; } catch (e) { return null; } };
+      const lbl = (el) => ((el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120));
       const out = [];
       const m = document.querySelector('meta[name="citation_pdf_url"]'); if (m && m.content) out.push({ url: abs(m.content), kind: 'citation_pdf_url' });
       for (const l of document.querySelectorAll('link[type="application/pdf"]')) if (l.href) out.push({ url: abs(l.href), kind: 'link-pdf' });
@@ -201,22 +203,29 @@ function createProxyEngine(deps) {
       } catch (e) {}
       const rxHref = /\\.pdf(\\?|#|$)|\\/epdf\\b|\\/pdfft\\b|\\/doi\\/pdf\\b|\\/pdf\\b|pdfdirect|[?&](format|type)=pdf\\b/i;
       const rxText = /\\bpdf\\b|download pdf|view pdf|full text pdf/i;
+      // Fragment links point back at THIS page ("Supplementary Materials" jump links), not
+      // at a file — they'd otherwise be scraped as candidates and fetched as HTML.
+      const here = location.href.split('#')[0];
+      const isFragment = (u) => u.split('#')[0] === here;
       for (const a of document.querySelectorAll('a[href]')) {
-        const hh = abs(a.getAttribute('href')); if (!hh) continue;
+        const hh = abs(a.getAttribute('href')); if (!hh || isFragment(hh)) continue;
         const txt = (a.textContent || '') + ' ' + (a.getAttribute('aria-label') || '') + ' ' + (a.getAttribute('title') || '') + ' ' + (a.className || '');
-        if (rxHref.test(hh)) out.push({ url: hh, kind: 'anchor-href' });
-        else if (rxText.test(txt)) out.push({ url: hh, kind: 'anchor-text' });
+        if (rxHref.test(hh)) out.push({ url: hh, kind: 'anchor-href', label: lbl(a) });
+        else if (rxText.test(txt)) out.push({ url: hh, kind: 'anchor-text', label: lbl(a) });
+        // Supplements of ANY file type (.docx/.xlsx/.mov/.zip). The PDF-shaped selectors
+        // above catch only supplementary PDFs; these are the rest of the SI set.
+        else if (SUPP.some((r) => r.test(hh))) out.push({ url: hh, kind: 'supplement', label: lbl(a) });
       }
       let bi = 0;
       for (const el of document.querySelectorAll('button, [role=button], a:not([href])')) {
         const txt = (el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '');
-        if (/download pdf|view pdf|\\bpdf\\b/i.test(txt)) { el.setAttribute('data-flux-pdf', String(bi)); out.push({ sel: '[data-flux-pdf="' + bi + '"]', kind: 'button' }); bi++; }
+        if (/download pdf|view pdf|\\bpdf\\b/i.test(txt)) { el.setAttribute('data-flux-pdf', String(bi)); out.push({ sel: '[data-flux-pdf="' + bi + '"]', kind: 'button', label: lbl(el) }); bi++; }
       }
       const rp = (u) => { try { const x = new URL(u); if (x.hostname === PD || x.hostname.endsWith('.' + PD)) return u; const rw = x.hostname.replace(/-/g, '--').replace(/\\./g, '-') + '.' + PD; return x.protocol + '//' + rw + x.pathname + x.search + x.hash; } catch (e) { return u; } };
       const seen = new Set(), res = [];
       for (const c of out) {
-        if (c.url) { const u = rp(c.url); if (!u || seen.has(u)) continue; seen.add(u); res.push({ url: u, kind: c.kind }); }
-        else if (c.sel) { if (seen.has(c.sel)) continue; seen.add(c.sel); res.push({ sel: c.sel, kind: c.kind }); }
+        if (c.url) { const u = rp(c.url); if (!u || seen.has(u)) continue; seen.add(u); res.push({ url: u, kind: c.kind, label: c.label || '' }); }
+        else if (c.sel) { if (seen.has(c.sel)) continue; seen.add(c.sel); res.push({ sel: c.sel, kind: c.kind, label: c.label || '' }); }
       }
       return res;
     })()`,
@@ -234,7 +243,13 @@ function createProxyEngine(deps) {
       )
       .catch(() => false);
 
-  async function capturePdfViaBrowser({ target, signal }) {
+  /**
+   * Capture the article PDF for `target` through the authenticated proxy.
+   * `withSupplements` additionally captures the page's supplementary files (a best-effort
+   * extra pass on a page we have already loaded and authenticated) and returns them as
+   * `{ name, label, bytesB64, url }[]` — see the supplement pass below.
+   */
+  async function capturePdfViaBrowser({ target, signal, withSupplements = false }) {
     const aborted = () => !!(signal && signal.aborted);
     const throwIfAborted = () => {
       if (aborted()) {
@@ -255,6 +270,10 @@ function createProxyEngine(deps) {
     await ensureWindow();
     const wc = win.webContents;
     const tmpFiles = [];
+    // Supplement affordances found while looking for the main PDF, and the article URL we
+    // found them on — both consumed by the optional supplement pass after the main capture.
+    let suppCandidates = [];
+    let articleUrl = "";
 
     // ---- winner gate: first valid %PDF from any layer wins ----
     let settled = false;
@@ -317,6 +336,43 @@ function createProxyEngine(deps) {
         })
         .catch(() => null);
       // Outer guard: resolve null if executeJavaScript itself never settles (renderer wedged).
+      return Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms + 3000))]);
+    };
+
+    // Supplement twin of grab(): supplementary files are routinely .docx/.xlsx/.mov/.zip, so
+    // the %PDF magic-byte gate doesn't apply. Completeness is judged by Content-Length match
+    // instead (and %%EOF as well, when the file does turn out to be a PDF). Oversized media
+    // is skipped rather than streamed — a supplementary video can be hundreds of megabytes,
+    // and a research library shouldn't silently swallow that.
+    const SUPPLEMENT_MAX_BYTES = 64 * 1024 * 1024;
+    const grabAny = (u, ms = 25000) => {
+      const p = wc
+        .executeJavaScript(
+          `(async () => { try {
+          const r = await fetch(${JSON.stringify(u)}, { credentials: 'include', signal: AbortSignal.timeout(${ms}) });
+          if (!r.ok) return null;
+          const cl = parseInt(r.headers.get('content-length') || '', 10);
+          if (Number.isFinite(cl) && cl > ${SUPPLEMENT_MAX_BYTES}) return { tooBig: cl };
+          const b = new Uint8Array(await r.arrayBuffer());
+          if (b.length > ${SUPPLEMENT_MAX_BYTES}) return { tooBig: b.length };
+          let s = ''; const CH = 0x8000; for (let i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
+          return { b64: btoa(s), url: r.url || ${JSON.stringify(u)}, len: b.length, contentLength: Number.isFinite(cl) ? cl : 0, type: r.headers.get('content-type') || '' };
+        } catch (e) { return null; } })()`,
+        )
+        .then((g) => {
+          if (!g) return null;
+          if (g.tooBig) {
+            log("supplement-too-big (" + g.tooBig + " bytes): " + u);
+            return null;
+          }
+          const buf = Buffer.from(g.b64, "base64");
+          if (buf.length < 64) return null; // an error stub, not a file
+          // An HTML error/login page served with 200 is the common failure here.
+          if (/^\s*<(!doctype|html)/i.test(buf.subarray(0, 64).toString("latin1"))) return null;
+          if (isPdfBuf(buf) && !isCompletePdf(buf) && !(g.contentLength > 0 && g.len === g.contentLength)) return null;
+          return { buf, finalUrl: g.url };
+        })
+        .catch(() => null);
       return Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms + 3000))]);
     };
 
@@ -433,10 +489,42 @@ function createProxyEngine(deps) {
     });
     const SESSION = { error: "Your library session isn't active. Open ⚙ Keys → Re-sign in, complete NetID + Duo, then try again.", reason: "session-expired" };
 
-    try {
-      activeOnCdp = onCdp; // route this window's CDP messages to THIS call's winner-gate
-      ses.on("will-download", onDownload);
+    // Supplementary files, captured on a page we have already loaded and authenticated —
+    // so the marginal cost is a few same-session GETs, not another article fetch. Runs only
+    // when the caller asks, only after the main text is safely in hand, and NEVER lets a
+    // failure here affect the main result (a supplement is a bonus, not a prerequisite).
+    const collectSupplements = async () => {
+      const out = [];
+      if (!suppCandidates.length) return out;
+      // PASS 2 may have navigated us into a PDF; go back to the article so same-origin
+      // credentialed fetches resolve the way they did when we scraped the links.
+      try {
+        if (articleUrl && wc.getURL() !== articleUrl) {
+          await navigate(articleUrl);
+          await sleep(400);
+        }
+      } catch {
+        /* best-effort — grab() below simply returns null if we're on the wrong page */
+      }
+      for (const c of suppCandidates) {
+        if (aborted()) break;
+        if (!c.url) continue;
+        log("supplement: " + c.url);
+        const g = await grabAny(c.url).catch(() => null);
+        if (!g) continue;
+        out.push({
+          name: supplementNameFromUrl(g.finalUrl) || supplementNameFromUrl(c.url) || "supplement.pdf",
+          label: c.label || "",
+          url: g.finalUrl || c.url,
+          bytesB64: g.buf.toString("base64"),
+        });
+      }
+      return out;
+    };
 
+    // The main-PDF capture. Split into its own step so the supplement pass can run while the
+    // window is still on the article page — the `finally` below resets it to about:blank.
+    const runMainCapture = async () => {
       // Navigate the proxied DOI + settle out the login?url→resource hops AND publisher
       // interstitials (e.g. Elsevier LinkingHub meta-refresh) until we're on a stable page.
       log("navigate: " + proxiedUrl(target));
@@ -452,6 +540,7 @@ function createProxyEngine(deps) {
       throwIfAborted();
       log("settled: " + wc.getURL());
       if (isProxyLoginUrl(wc.getURL())) return SESSION;
+      articleUrl = wc.getURL(); // where the supplement pass returns to, if it runs
 
       // The landing page itself may already have streamed the PDF inline (viewer/CDN).
       let got = await raceHit(1200);
@@ -471,19 +560,26 @@ function createProxyEngine(deps) {
         await sleep(600);
       }
 
-      // Gather affordances (PDF links/buttons) from the article page.
-      let candidates = await scrapeCandidates(wc, prefixHost);
-      // Never let a supplementary-materials file win the main-PDF slot (the Science-supplement
-      // bug): drop supplement affordances outright. paper.pdf must be the article; supplements
-      // live under items/<key>/supplements/. Buttons without a URL can't be judged — keep them
-      // (a "Download PDF" button is the main text).
-      candidates = candidates.filter((c) => !(c.url && isSupplementUrl(c.url)));
-      // AAAS/Science (10.1126/…): the article page frequently exposes only an ePDF viewer or the
-      // supplement download, but the main text is always at the fixed /doi/pdf/<doi> on
-      // science.org — synthesize it and try it FIRST (mirrors the Cell Press cell.com hop).
+      // Gather affordances (PDF links/buttons) from the article page, then SPLIT them:
+      // supplements can never compete for the main-PDF slot, and the rest are RANKED so the
+      // most article-like affordance is tried first. Ordering matters as much as filtering —
+      // publishers routinely list the supplement above the PDF control, and consuming the
+      // list in DOM order is what stored a supplement as paper.pdf (the Science bug).
+      const scraped = await scrapeCandidates(wc, prefixHost);
+      const split = partitionCandidates(scraped, doi);
+      let candidates = split.main;
+      suppCandidates = split.supplements; // captured later, if the caller asked for them
+      // AAAS/Science (10.1126/…): the main text is always at the fixed /doi/pdf/<doi> on
+      // science.org, so synthesize it and put it FIRST (mirrors the Cell Press cell.com hop).
+      // NOTE: this MOVES the URL to the front even when the page already links it. The
+      // previous "add only if absent" form silently did nothing on every page that exposes
+      // /doi/pdf/<doi> — i.e. every modern Science article — which is precisely when the
+      // supplement outranked it. Hoisting, not inserting, is the point.
       if (isAaasDoi(doi)) {
         const sci = rewriteToProxyHost("https://www.science.org/doi/pdf/" + doi, prefixHost);
-        if (!candidates.some((c) => c.url === sci)) candidates.unshift({ url: sci, kind: "aaas-doi-pdf" });
+        const at = candidates.findIndex((c) => c.url === sci);
+        if (at >= 0) candidates.unshift(candidates.splice(at, 1)[0]);
+        else candidates.unshift({ url: sci, kind: "aaas-doi-pdf" });
       }
       const affordancesFound = [...new Set(candidates.map((c) => c.kind))];
       log("candidates(" + candidates.length + "): " + JSON.stringify(candidates.slice(0, 8)));
@@ -535,6 +631,20 @@ function createProxyEngine(deps) {
         }
       }
       return fail("not-a-pdf", wc.getURL(), affordancesFound, "tried all affordances; no PDF captured");
+    };
+
+    try {
+      activeOnCdp = onCdp; // route this window's CDP messages to THIS call's winner-gate
+      ses.on("will-download", onDownload);
+      const main = await runMainCapture();
+      if (withSupplements && main && main.bytesB64) {
+        try {
+          main.supplements = await collectSupplements();
+        } catch {
+          /* a supplement pass must never turn a successful main capture into a failure */
+        }
+      }
+      return main;
     } catch (e) {
       if (e && e.name === "AbortError") return { error: "Cancelled.", reason: "cancelled" };
       return { error: String((e && e.message) || e), reason: "error" };
@@ -612,4 +722,16 @@ function createProxyEngine(deps) {
   return { capturePdfViaBrowser, checkSignedIn, dispose };
 }
 
-module.exports = { createProxyEngine, isPdfBuf, isCompletePdf, hyphenatePii, isCellPressDoi, isAaasDoi, isSupplementUrl, rewriteToProxyHost, doiFromTarget };
+// Supplement helpers are re-exported from supplementRules.cjs so existing importers keep
+// working against one implementation (there is no second copy to drift).
+module.exports = {
+  createProxyEngine,
+  isPdfBuf,
+  isCompletePdf,
+  hyphenatePii,
+  isCellPressDoi,
+  isAaasDoi,
+  rewriteToProxyHost,
+  doiFromTarget,
+  ...require("./supplementRules.cjs"),
+};

@@ -4,9 +4,10 @@
 // valid PDF, and files it into items/<citekey>/ with provenance. Proxy/paywall is a
 // later phase (GUI/Electron-only). The renderer twin lives in pdfFinderBridge.ts.
 import { loadLibrary, loadEnrich, getSecret } from "./fluxlib";
-import { hasPdf, writePdf, writeFulltext, loadOaMisses, saveOaMisses } from "./items";
+import { hasPdf, writePdf, writeFulltext, loadOaMisses, saveOaMisses, fileSupplement } from "./items";
+import { fetchEuropePmcSupplements } from "../src/lib/references/supplementFinder";
 import { extractFulltext } from "./fulltext";
-import { runWaterfall, isPdfBytes, bareDoi, type PdfInputs, type FetchDeps } from "../src/lib/references/pdfFinder";
+import { runWaterfall, isPdfBytes, bareDoi, resolvePmcid, type PdfInputs, type FetchDeps } from "../src/lib/references/pdfFinder";
 import { safeKey, oaSig, isFreshOaMiss, type OaMissMap } from "../src/lib/references/items";
 import { HostLimiter, hostGroup, doiGroup, interleaveByGroup, GET_COST } from "../src/lib/references/hostLimiter";
 import { readFile } from "node:fs/promises";
@@ -86,6 +87,8 @@ export interface FetchOneResult {
   /** A candidate fetch failed at the transport level (timeout/network) — a null result is not
    *  a reliable "no-OA", so the bulk sweep must not record it as a miss. */
   transient?: boolean;
+  /** Why the fetch didn't yield the article (e.g. it resolved to supplementary material). */
+  error?: string;
 }
 
 function inputsFor(key: string, lib: any[], enrich: Record<string, any>): PdfInputs {
@@ -129,12 +132,15 @@ export async function fetchPdfForKey(
     { bulkMode: opts.bulkMode },
   );
   if (r) {
-    await writePdf(
+    const w = await writePdf(
       key,
       r.bytes,
       { source: r.source, url: r.url, finalUrl: r.finalUrl, isOa: r.source !== "crossref" ? true : x.isOa },
       opts.libPath,
     );
+    // The resolver handed back supplementary material, not the article. It's filed under
+    // supplements/, but the paper is still missing — say so rather than claiming success.
+    if (!w.ok) return { key, status: "no-oa", error: `resolved to supplementary material (${w.signal})` };
     // Extract full text (search + agent reading context). Non-fatal: a scanned/image
     // PDF just yields little text; the fetch still succeeds.
     try {
@@ -230,6 +236,55 @@ export async function fetchPdfs(
     noOa: results.filter((r) => r.status === "no-oa").length,
     noId: results.filter((r) => r.status === "no-id").length,
     skipped: keys.length - todo.length,
+    results,
+  };
+}
+
+export interface SupplementSummary {
+  total: number;
+  papers: number; // papers that gained at least one file
+  files: number;
+  results: { key: string; added: number; names?: string[] }[];
+}
+
+/**
+ * Backfill supplementary files from Europe PMC for many keys (or the whole library).
+ *
+ * Repository-only by design: this touches EBI and nothing else, so it is safe to run over a
+ * whole library. Coverage is therefore the Europe PMC OPEN-ACCESS subset — a subscription
+ * paper simply reports 0. The publisher route for the rest needs the authenticated browser
+ * and so lives in the GUI (per-row "Get via library", which now captures supplements too).
+ */
+export async function fetchSupplements(
+  opts: { keys?: string[]; libPath?: string; onProgress?: (done: number, total: number) => void } = {},
+): Promise<SupplementSummary> {
+  const [lib, enrich] = await Promise.all([loadLibrary(opts.libPath), loadEnrich(opts.libPath)]);
+  const keys = opts.keys ?? lib.map((e) => e.key);
+  const email = (await getSecret("mailto")) || undefined;
+  const deps = nodeDeps(email);
+  const results: SupplementSummary["results"] = [];
+  let done = 0;
+  for (const key of keys) {
+    const names: string[] = [];
+    try {
+      const pmcid = await resolvePmcid(inputsFor(key, lib, enrich), deps);
+      if (pmcid) {
+        for (const s of await fetchEuropePmcSupplements(pmcid, deps)) {
+          const stored = await fileSupplement(key, s.name, s.bytes, { label: s.label, url: s.url, source: s.source }, opts.libPath);
+          if (stored) names.push(stored);
+        }
+      }
+    } catch {
+      /* one paper's supplements are never worth failing the sweep over */
+    }
+    results.push({ key, added: names.length, names: names.length ? names : undefined });
+    opts.onProgress?.(++done, keys.length);
+    await sleep(120); // politeness — EBI is a good citizen's API, stay one
+  }
+  return {
+    total: keys.length,
+    papers: results.filter((r) => r.added > 0).length,
+    files: results.reduce((n, r) => n + r.added, 0),
     results,
   };
 }

@@ -703,10 +703,14 @@
     if (fetchingKey || fetchingAll) return;
     fetchingKey = entry.key;
     try {
-      const r = await fetchViaProxyForEntry(entry, enrichMap[entry.key]);
+      // One paper, user-initiated: grab its supplementary files too. The article page is
+      // already loaded and authenticated, so this is a few extra same-session GETs — a cost
+      // only bulk runs can't afford.
+      const r = await fetchViaProxyForEntry(entry, enrichMap[entry.key], { withSupplements: true });
       if (r.status === "got") {
         pdfKeys = await listPdfKeys();
         await dropFailure(entry.key); // success clears any prior failure record + ⚠
+        if (r.supplements) pushToast("info", `Also saved ${r.supplements} supplementary file${r.supplements === 1 ? "" : "s"}`);
       } else {
         addStatus = "error";
         addError = r.error || (r.status === "no-oa" ? "The proxy didn’t return a PDF (are you signed in?)." : "Proxy fetch failed.");
@@ -854,7 +858,7 @@
         } else if (oa.status === "error") {
           err = oa.error || "PDF fetch failed.";
         } else if (proxyConfigured) {
-          const p = await fetchViaProxyForEntry(entry, enrichMap[entry.key]);
+          const p = await fetchViaProxyForEntry(entry, enrichMap[entry.key], { withSupplements: true });
           got = p.status === "got";
           if (!got)
             err = `No open-access copy, and the library proxy didn’t return a PDF${

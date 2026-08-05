@@ -19,6 +19,10 @@ import {
   readerContextPath,
   oaMissesPath,
   supplementsDir,
+  supplementFilePath,
+  supplementManifestPath,
+  safeSupplementName,
+  parseSupplementManifest,
   type PdfLink,
   type SourceInfo,
   type ItemStatus,
@@ -26,7 +30,14 @@ import {
   type ReaderContext,
   type OaMissMap,
   type OaMissFile,
+  type SupplementManifest,
 } from "../src/lib/references/items";
+import { isSupplementUrl, supplementDocSignal, supplementNameFromUrl, isAutomatedSource } from "../src/lib/references/supplement";
+
+/** Node twin of itemsBridge's PdfWriteResult. `reason: "supplement"` is not an error — the
+ *  bytes were supplementary material, they are filed under supplements/, and the caller
+ *  should treat the article as still missing. */
+export type PdfWriteResult = { ok: true; info: SourceInfo } | { ok: false; reason: "supplement"; signal: string; divertedTo?: string };
 
 const libItemsIndexPath = (lib: string) => path.join(lib, ".fluxlib", "items.json");
 
@@ -108,13 +119,98 @@ export async function writeLinkedPdf(key: string, absPath: string, libPath?: str
   await atomicWrite(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
 }
 
-/** Write a fetched PDF + its provenance; computes sha256/bytes. Returns the SourceInfo. */
+/**
+ * Is this freshly-acquired PDF the article, or its supplementary material?
+ * Node twin of itemsBridge.classifyAcquiredPdf — same rules module, so the CLI and the GUI
+ * reach the same verdict. Returns a short reason when it is NOT the article, else null.
+ */
+export async function classifyAcquiredPdf(bytes: Uint8Array, finalUrl?: string): Promise<string | null> {
+  if (finalUrl && isSupplementUrl(finalUrl)) return "supplement-url";
+  try {
+    const { extractPdfSignals } = await import("./fulltext");
+    const s = await extractPdfSignals(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
+    return supplementDocSignal({ title: s.xmpTitle ?? s.infoTitle, page1Text: s.page1Text });
+  } catch {
+    return null; // extraction failed — don't block a write on a parse error
+  }
+}
+
+/** Read the labelled supplement index for `key` (empty when absent — it's advisory). */
+export async function readSupplementManifest(key: string, libPath?: string): Promise<SupplementManifest> {
+  try {
+    return parseSupplementManifest(await fs.readFile(supplementManifestPath(await lib(libPath), key), "utf8"));
+  } catch {
+    return { version: 1, items: [] };
+  }
+}
+
+/**
+ * File already-in-hand bytes into items/<key>/supplements/ and index them (Node twin of
+ * itemsBridge.fileSupplementBytes). Returns the stored filename, or null.
+ */
+export async function fileSupplement(
+  key: string,
+  rawName: string,
+  bytes: Uint8Array,
+  meta: { label?: string; url?: string; source?: string } = {},
+  libPath?: string,
+): Promise<string | null> {
+  const L = await lib(libPath);
+  if (!bytes.length) return null;
+  await fs.mkdir(supplementsDir(L, key), { recursive: true });
+  let name = safeSupplementName(rawName || "supplement.pdf");
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+  const manifest = await readSupplementManifest(key, libPath);
+  // Re-fetching the same supplement shouldn't accumulate -2, -3, … copies.
+  const dup = manifest.items.find((r) => r.sha256 === sha256);
+  if (dup && (await exists(supplementFilePath(L, key, dup.name)))) return dup.name;
+  // The manifest is advisory and may be absent or predate hashing (files put here by the
+  // repair, or by an older Flux), so the DISK is the authority: before suffixing a name,
+  // check whether what's already there is byte-identical. Without this, every re-fetch of an
+  // unindexed supplement lays down another -2, -3, … copy.
+  for (let i = 2; await exists(supplementFilePath(L, key, name)); i++) {
+    try {
+      if (crypto.createHash("sha256").update(await fs.readFile(supplementFilePath(L, key, name))).digest("hex") === sha256) return name;
+    } catch {
+      /* unreadable — fall through and pick the next free name */
+    }
+    name = `${base}-${i}${ext}`;
+  }
+  await atomicWrite(supplementFilePath(L, key, name), bytes);
+  try {
+    const items = manifest.items.filter((r) => r.name !== name);
+    items.push({ name, label: meta.label || undefined, url: meta.url, source: meta.source, bytes: bytes.byteLength, sha256, fetchedAt: new Date().toISOString() });
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    await atomicWrite(supplementManifestPath(L, key), JSON.stringify({ version: 1, items }, null, 2) + "\n");
+  } catch {
+    /* advisory index — the file on disk is the truth */
+  }
+  return name;
+}
+
+/**
+ * Write a fetched PDF + its provenance; computes sha256/bytes.
+ *
+ * Automated acquisitions are verified first: if the bytes turn out to be supplementary
+ * material rather than the article, they are filed under supplements/ and NOT stored as
+ * paper.pdf. See itemsBridge.writePdfItem for why this check lives at the write point.
+ */
 export async function writePdf(
   key: string,
   bytes: Uint8Array,
   source: Omit<SourceInfo, "key" | "sha256" | "bytes" | "fetchedAt"> & { fetchedAt?: string },
   libPath?: string,
-): Promise<SourceInfo> {
+): Promise<PdfWriteResult> {
+  if (isAutomatedSource(source.source)) {
+    const signal = await classifyAcquiredPdf(bytes, source.finalUrl ?? source.url);
+    if (signal) {
+      const divertedTo = await fileSupplement(key, supplementNameFromUrl(source.finalUrl ?? source.url) || "supplement.pdf", bytes, { url: source.finalUrl ?? source.url, source: source.source }, libPath);
+      return { ok: false, reason: "supplement", signal, divertedTo: divertedTo ?? undefined };
+    }
+  }
   const L = await lib(libPath);
   await atomicWrite(pdfPath(L, key), bytes);
   const info: SourceInfo = {
@@ -125,7 +221,7 @@ export async function writePdf(
     fetchedAt: source.fetchedAt ?? new Date().toISOString(),
   };
   await atomicWrite(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
-  return info;
+  return { ok: true, info };
 }
 
 export async function readPdf(key: string, libPath?: string): Promise<Buffer | null> {
