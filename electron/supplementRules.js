@@ -1,11 +1,14 @@
 // Telling an article's MAIN TEXT apart from its SUPPLEMENTARY material.
 //
-// This is the single source of truth for that judgement. It lives here (dependency-free
-// CommonJS under electron/) because the Electron main process runs unbundled and `src/` is
-// excluded from the packaged app (see electron-builder.yml) — main can only require from
-// electron/. The TypeScript consumers (flux-core, verify scripts, and the renderer via
-// src/lib/references/supplement.ts) import it through supplementRules.d.cts, the same
-// pattern fluxPaths.cjs/execResolve.cjs already use.
+// This is the single source of truth for that judgement, and it has exactly one copy.
+//
+// It lives under electron/ because the Electron main process runs unbundled and `src/` is
+// excluded from the packaged app (see electron-builder.yml), so main can only load from
+// here. It is dependency-free ESM (NOT .cjs) because the renderer imports it too, and Vite's
+// dev server serves a source .cjs verbatim — `module.exports` never runs in a browser, so
+// the named exports simply don't exist and every importer fails at load. Rollup papers over
+// that at build time, so a CJS version passes `vite build` and breaks `vite dev`.
+// electron/proxyFetch.cjs (CommonJS) therefore reaches it via dynamic import().
 //
 // WHY THIS EXISTS: a supplement frequently downloads more readily than the paywalled main
 // text, and publisher article pages often list the supplement ABOVE the PDF control. Left
@@ -230,13 +233,4 @@ function supplementNameFromUrl(u) {
   return name.replace(/[\u0000-\u001f]/g, "").trim();
 }
 
-module.exports = {
-  isSupplementUrl,
-  supplementDocSignal,
-  scoreCandidate,
-  isMainPdfUrl,
-  partitionCandidates,
-  supplementNameFromUrl,
-  SUPPLEMENT_URL_PATTERNS,
-  SUPPLEMENT_DOC_PATTERNS,
-};
+export { isSupplementUrl, supplementDocSignal, scoreCandidate, isMainPdfUrl, partitionCandidates, supplementNameFromUrl, SUPPLEMENT_URL_PATTERNS, SUPPLEMENT_DOC_PATTERNS };

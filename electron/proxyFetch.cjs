@@ -65,8 +65,17 @@ function isAaasDoi(doi) {
 
 // Main-text-vs-supplement judgement lives in ONE place, shared with the TypeScript side
 // (flux-core, the renderer, the verify scripts) so the engine and the write-time check can
-// never disagree. See electron/supplementRules.cjs for why the rules are shaped as they are.
-const { isSupplementUrl, partitionCandidates, supplementNameFromUrl } = require("./supplementRules.cjs");
+// never disagree. See electron/supplementRules.js for why the rules are shaped as they are.
+//
+// That module is ESM (the renderer imports it too, and Vite cannot serve a source .cjs to a
+// browser), so this CommonJS file reaches it by dynamic import. The promise is kicked off at
+// load and awaited once per capture; every synchronous user below runs inside a capture, by
+// which point `rules` is populated.
+let rules = null;
+const rulesReady = import("./supplementRules.js").then((m) => (rules = m));
+const isSupplementUrl = (u) => (rules ? rules.isSupplementUrl(u) : false);
+const partitionCandidates = (c, doi) => (rules ? rules.partitionCandidates(c, doi) : { main: c, supplements: [] });
+const supplementNameFromUrl = (u) => (rules ? rules.supplementNameFromUrl(u) : "");
 
 /** Compact ScienceDirect PII (S + 16 SICI chars) → Cell Press hyphenated form used by
  *  cell.com, e.g. S0896627321004955 → S0896-6273(21)00495-5. null if not PII-shaped. */
@@ -181,14 +190,14 @@ function createProxyEngine(deps) {
   // the in-page sweep needs them to spot non-PDF supplements (.docx/.xlsx/.mov/.zip) that
   // the PDF-shaped selectors above would never match, and a second hand-maintained copy of
   // these patterns is exactly the drift that let the Science bug through the first time.
-  const SUPP_RX_SRC = JSON.stringify(require("./supplementRules.cjs").SUPPLEMENT_URL_PATTERNS.map((r) => r.source));
+  const suppRxSrc = () => JSON.stringify((rules?.SUPPLEMENT_URL_PATTERNS ?? []).map((r) => r.source));
 
   const scrapeCandidates = (wc, prefixHost) =>
     wc
       .executeJavaScript(
         `(() => {
       const PD = ${JSON.stringify(prefixHost)};
-      const SUPP = ${SUPP_RX_SRC}.map((s) => new RegExp(s, 'i'));
+      const SUPP = ${suppRxSrc()}.map((s) => new RegExp(s, 'i'));
       const abs = (h) => { try { return new URL(h, location.href).href; } catch (e) { return null; } };
       const lbl = (el) => ((el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120));
       const out = [];
@@ -250,6 +259,7 @@ function createProxyEngine(deps) {
    * `{ name, label, bytesB64, url }[]` — see the supplement pass below.
    */
   async function capturePdfViaBrowser({ target, signal, withSupplements = false }) {
+    await rulesReady; // the supplement rules must be in hand before any candidate is judged
     const aborted = () => !!(signal && signal.aborted);
     const throwIfAborted = () => {
       if (aborted()) {
@@ -722,16 +732,7 @@ function createProxyEngine(deps) {
   return { capturePdfViaBrowser, checkSignedIn, dispose };
 }
 
-// Supplement helpers are re-exported from supplementRules.cjs so existing importers keep
-// working against one implementation (there is no second copy to drift).
-module.exports = {
-  createProxyEngine,
-  isPdfBuf,
-  isCompletePdf,
-  hyphenatePii,
-  isCellPressDoi,
-  isAaasDoi,
-  rewriteToProxyHost,
-  doiFromTarget,
-  ...require("./supplementRules.cjs"),
-};
+// Supplement helpers are NOT re-exported here: they live in the ESM electron/supplementRules.js,
+// which CommonJS cannot re-export synchronously. Import them from there directly (`rulesReady`
+// resolves them for this file's own use).
+module.exports = { createProxyEngine, isPdfBuf, isCompletePdf, hyphenatePii, isCellPressDoi, isAaasDoi, rewriteToProxyHost, doiFromTarget, rulesReady };

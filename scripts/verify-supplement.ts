@@ -1,18 +1,16 @@
 // Pure-logic verification of the main-text-vs-supplement rules + the supplements/ model.
 //
-// This gate exercises the SHIPPED functions from electron/supplementRules.cjs — the same
+// This gate exercises the SHIPPED functions from electron/supplementRules.js — the same
 // module electron/proxyFetch.cjs and the write-time check import. An earlier version of this
 // file re-implemented the engine's candidate pipeline and tested the copy; the copy passed
 // while the real engine stored a supplement as paper.pdf for two years' worth of Science
 // papers. Never assert against a mirror of the logic under test.
 //
 // Run: npx tsx scripts/verify-supplement.ts
-import { createRequire } from "node:module";
 import { safeSupplementName, parseSupplementManifest } from "../src/lib/references/items";
 import { isArticleAsset } from "../src/lib/references/supplementFinder";
 
-const require = createRequire(import.meta.url);
-const { isSupplementUrl, supplementDocSignal, partitionCandidates, isMainPdfUrl, supplementNameFromUrl } = require("../electron/supplementRules.cjs");
+import { isSupplementUrl, supplementDocSignal, partitionCandidates, isMainPdfUrl, supplementNameFromUrl } from "../electron/supplementRules.js";
 
 let failures = 0;
 function ok(cond: boolean, name: string, detail = "") {

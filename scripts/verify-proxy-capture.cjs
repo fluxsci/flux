@@ -13,7 +13,11 @@ const { app, session, BrowserWindow } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
-const { createProxyEngine, isSupplementUrl } = require("../electron/proxyFetch.cjs");
+const { createProxyEngine } = require("../electron/proxyFetch.cjs");
+// The supplement rules are ESM (the renderer imports them too), so this CommonJS gate loads
+// them the same way proxyFetch.cjs does — by dynamic import, awaited before first use.
+let isSupplementUrl = () => false;
+const rulesReady = import("../electron/supplementRules.js").then((m) => (isSupplementUrl = m.isSupplementUrl));
 
 const PROXY_PARTITION = "persist:fluxproxy";
 const keysPath = path.join(require("../electron/fluxPaths.cjs").resolveFluxLibPathSync(), "keys.json");
@@ -74,6 +78,7 @@ const CASES = [
 const isPdf = (b) => b && b.length > 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46;
 
 async function main() {
+  await rulesReady;
   if (!PREFIX) {
     console.error(`FAIL: no ezproxyPrefix in ${keysPath}`);
     app.exit(1);

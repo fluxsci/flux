@@ -2,7 +2,7 @@
 // stored paper.pdf is really supplementary material, move it where it belongs, and clear the
 // stale provenance so the next fetch gets the actual article.
 //
-// Detection uses the SHARED rules (electron/supplementRules.cjs) — the same ones the capture
+// Detection uses the SHARED rules (electron/supplementRules.js) — the same ones the capture
 // engine and the write-time check use — at BOTH layers: the recorded URL and the document's
 // own first page. The URL layer alone is what let this recur: the first repair pass shipped
 // with a copy of a regex that didn't match `/doi/suppl/…/devivo-sm.pdf`.
@@ -13,13 +13,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { createRequire } from "node:module";
 import { safeSupplementName, parseSupplementManifest, type SupplementRecord } from "../src/lib/references/items";
 import { extractPdfSignals } from "../flux-core/fulltext";
 
 import { resolveFluxLibPathSync } from "../electron/fluxPaths.cjs";
-const require = createRequire(import.meta.url);
-const { supplementDocSignal, supplementNameFromUrl } = require("../electron/supplementRules.cjs");
+import { supplementDocSignal, supplementNameFromUrl } from "../electron/supplementRules.js";
 
 const LIB = resolveFluxLibPathSync(); // derived from FluxConfig (legacy fallbacks pre-migration)
 const ITEMS = path.join(LIB, "items");

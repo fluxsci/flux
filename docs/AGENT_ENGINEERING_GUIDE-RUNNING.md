@@ -2084,3 +2084,16 @@ Full analysis: `notes/Flux_Supplement_Capture_Report.md`.
   been IP-blocked twice for publisher request volume; a few extra GETs per paper is fine for one
   paper and is not fine for a thousand. The repository route (`flux fetch-supplements`, EBI only)
   is the safe sweep.
+- **TRAP — a source `.cjs` that the renderer imports passes `vite build` and breaks `vite dev`.**
+  The shared rules started life as `electron/supplementRules.cjs`, because Electron main is
+  CommonJS and `src/` is excluded from the packaged app. `npm run check` was clean and
+  `vite build` succeeded (Rollup's commonjs plugin converts it), but the DEV server serves a
+  source `.cjs` **verbatim** — `module.exports` never runs in a browser, so the module has no
+  named exports and *every* importer dies at load with "does not provide an export named …".
+  The whole app was blank in dev; every UI gate failed with an unhelpful 15s timeout. The fix is
+  `electron/supplementRules.js` as plain ESM, with `proxyFetch.cjs` (CommonJS) reaching it via
+  `await import()` — a module-scope promise awaited at the top of each capture, with thin
+  wrappers so the synchronous CDP callback still reads correctly. `scripts/verify-proxy-capture.cjs`
+  does the same. Two lessons: **a green `svelte-check` + `vite build` does not mean the app
+  loads**, and when a batch of unrelated UI gates all start timing out, open the page and read
+  its console before believing the gate.

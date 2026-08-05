@@ -364,8 +364,12 @@ export async function readerSupplementBytes(key: string, name: string): Promise<
   }
 }
 
-/** Read the labelled supplement index for `key` (empty when absent — it's advisory). */
+/** Read the labelled supplement index for `key` (empty when absent — it's advisory).
+ *  Short-circuits under the headless harness for the same reason listSupplements does:
+ *  the seeded fixture has no FluxLib, and awaiting resolveFluxLibPath() there never
+ *  settles — which would leave the reader stuck on "Loading…" forever. */
 export async function readSupplementManifest(key: string): Promise<SupplementManifest> {
+  if (seededSupplements(key)) return { version: 1, items: [] };
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return { version: 1, items: [] };

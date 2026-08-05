@@ -1,6 +1,6 @@
-// Type surface of electron/supplementRules.cjs for the TypeScript consumers
+// Type surface of electron/supplementRules.js for the TypeScript consumers
 // (flux-core/items.ts, src/lib/references/supplement.ts, verify scripts).
-// Keep in sync with the .cjs exports.
+// Keep in sync with the .js exports.
 
 /** A scraped PDF affordance from a publisher article page. */
 export interface PdfCandidate {

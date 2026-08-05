@@ -1,10 +1,10 @@
 // The renderer/TypeScript face of the main-text-vs-supplement rules.
 //
-// The rules themselves live in electron/supplementRules.cjs — dependency-free CommonJS,
-// because the Electron main process runs unbundled and can only require from electron/
-// (src/ is excluded from the packaged app; see electron-builder.yml). Re-exporting them
-// here rather than reimplementing them is the whole point: the capture engine and the
-// write-time check must never disagree about what a supplement is.
+// The rules themselves live in electron/supplementRules.js — dependency-free ESM, under
+// electron/ because the Electron main process runs unbundled and can only load from there
+// (src/ is excluded from the packaged app; see electron-builder.yml). Re-exporting them here
+// rather than reimplementing them is the whole point: the capture engine and the write-time
+// check must never disagree about what a supplement is.
 export {
   isSupplementUrl,
   supplementDocSignal,
@@ -12,8 +12,8 @@ export {
   isMainPdfUrl,
   partitionCandidates,
   supplementNameFromUrl,
-} from "../../../electron/supplementRules.cjs";
-export type { PdfCandidate, SupplementDocInput } from "../../../electron/supplementRules.cjs";
+} from "../../../electron/supplementRules.js";
+export type { PdfCandidate, SupplementDocInput } from "../../../electron/supplementRules.js";
 
 /** Provenance sources that Flux chose on the user's behalf, so a wrong PDF is Flux's bug
  *  to catch. Manual routes (a file the user picked, a Zotero attachment they curated) are
