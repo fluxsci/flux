@@ -137,6 +137,7 @@ usage: flux <verb> [root] [args] [--flags]
   keys [--openalex K] [--s2 K] [--mailto M]   show/set API keys (<FluxLib>/keys.json)
   fetch-pdfs [--refresh] [--key K]     download OA PDFs into <FluxLib>/items/<citekey>/
   fetch-supplements [--key K]          download supplementary files (Europe PMC OA subset)
+  missing-pdfs [--out F] [--json]      CSV of references with no main text + why (stdout)
   ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
   assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in <FluxLib>/pdfs_to_assign/
   search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
@@ -500,6 +501,24 @@ async function main() {
       console.error(`✓ Supplements: ${r.files} file(s) for ${r.papers} paper(s), of ${r.total} checked`);
       for (const g of r.results.filter((x) => x.added > 0).slice(0, 25)) console.error(`  + ${g.key}  ${(g.names ?? []).join(", ")}`);
       if (!r.files) console.error("  (Europe PMC serves supplements for its OPEN-ACCESS subset only — subscription papers need the GUI's “Get via library ⚿”.)");
+      break;
+    }
+    case "missing-pdfs": {
+      const rows = await core.missingPdfs();
+      // CSV on STDOUT so `flux missing-pdfs > missing.csv` (or a pipe into anything) just
+      // works; the human summary goes to stderr, same split as every other verb here.
+      const out = flags.json ? JSON.stringify(rows, null, 2) + "\n" : core.toCsv(rows);
+      if (typeof flags.out === "string") {
+        await (await import("node:fs/promises")).writeFile(flags.out, out);
+        console.error(`✓ ${rows.length} reference(s) with no main text → ${flags.out}`);
+      } else {
+        process.stdout.write(out);
+        console.error(`✓ ${rows.length} reference(s) with no main text`);
+      }
+      const by = (st: string) => rows.filter((r) => r.status === st).length;
+      console.error(`  never-tried ${by("never-tried")} · no-oa ${by("no-oa")} · failed ${by("failed")}`);
+      const noDoi = rows.filter((r) => !r.doi).length;
+      if (noDoi) console.error(`  ${noDoi} have no DOI at all — nothing to resolve until they're enriched`);
       break;
     }
     case "assign-pdfs": {
