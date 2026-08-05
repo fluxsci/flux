@@ -3,6 +3,15 @@ title: "Installing Flux"
 subtitle: "The app, and the small set of external tools that make it fully capable"
 ---
 
+::: {.callout-tip}
+## Setting up a Mac with an AI agent?
+
+[`docs/claude-install-flux-mac.md`](https://github.com/fluxsci/flux/blob/main/docs/claude-install-flux-mac.md)
+is the executable version of this page — a step-by-step runbook that verifies after every
+step. Clone the repo, open a Claude Code session in it, and say *"read
+docs/claude-install-flux-mac.md and set up Flux on this Mac."*
+:::
+
 Flux itself is one app, but its full capability rests on a small set of external tools:
 a Node runtime for the agent layer, Quarto (+ TeX) for compiling manuscripts, a Python
 environment with **fluxplot** for semantic plots, and the house fonts for faithful

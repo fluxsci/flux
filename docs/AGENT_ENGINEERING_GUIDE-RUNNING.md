@@ -79,7 +79,7 @@ Node-only APIs) so they load in both worlds.
 The established shared cores — extend these, don't duplicate them:
 
 | Domain | Shared core | Parity/behavior gate |
-|---|---|---|
+| --- | --- | --- |
 | fig/ persistence (shapes, labels, writer plan, save ordering) | `src/lib/project/figfiles.ts` | `verify-figfiles-parity.ts` (byte-identical trees) |
 | Model mutations (all figure edits) | `src/lib/ops.ts` (+ `editing.ts`, `geometry.ts`) | `verify-ops.ts`, figenh parity suite |
 | Pointer-gesture math (resize/snap/handles) | `src/lib/interact/` | `verify-interact-core.ts` |
@@ -442,6 +442,7 @@ chord or label changes, grep `docs/` for the old one.
 ## 9. Known traps (each of these cost real time)
 
 **Svelte 5 legacy syntax:**
+
 - A `$:` block that reads **and** reassigns the same `let` is self-dependent — it re-runs until
   the loop guard. Memoize in a **non-reactive `const` box** (`const memo = {v: null}`) instead.
 - `$: name = …` silently **assigns to an existing `let name`** in scope — it does not create a new
@@ -450,6 +451,7 @@ chord or label changes, grep `docs/` for the old one.
   per frame under pan.
 
 **Measurement:**
+
 - Dev-mode Svelte tracing (`get_stack`) costs ~2 frames/commit at 1600 elements and is **absent in
   production**. Never chase dev-only overhead; the gates use ratio-to-control + structural budgets
   for exactly this reason. `window.__flux` is DEV-only, so headless gates can only drive dev
@@ -461,6 +463,7 @@ chord or label changes, grep `docs/` for the old one.
   headless Chrome doesn't. Never gate ambient/feature motion on that query.
 
 **Environment:**
+
 - The dev machine is the owner's Linux desktop with monitors and an active Wayland session —
   do NOT assume it is headless (an earlier "no monitor" note here was wrong; corrected
   2026-07-12). Agent shells, however, often run detached (ssh/tmux), and the Wayland compositor
@@ -474,8 +477,15 @@ chord or label changes, grep `docs/` for the old one.
 - pdf.js text layers hide during CSS-zoom (span boxes collapse to 0,0 *stably*) — waits need a
   nonzero two-poll-stable box, not a single poll. `TextQuoteSelector`'s field is `quote`, not
   `exact` — a wrong anchor field silently orphans annotations.
+- `quarto install tinytex` installs to `~/Library/TinyTeX` (macOS) / `~/.TinyTeX` (Linux) and
+  **never touches PATH**, so `tlmgr` and `kpsewhich` are command-not-found on a perfectly good
+  install. Flux and Quarto are unaffected — they resolve TinyTeX internally — which is exactly
+  what makes it confusing: PDF export works while the docs' own verification commands fail.
+  Any installer must call `tlmgr` by absolute path (`~/Library/TinyTeX/bin/universal-darwin/`),
+  because a fresh machine has no shell config to inherit from yet.
 
 **World-space DOM (anything mounted inside the canvas):**
+
 - Overlays like the caption editor ride `transform: scale($viewport.zoom)`. **Never measure them
   with `getBoundingClientRect`** — it is transform-scaled, so any value you write back is wrong
   at zoom ≠ 1. `scrollHeight`/`clientHeight`/`offsetTop`/`offsetHeight` are pre-transform layout
@@ -501,6 +511,7 @@ warning as an error (it shipped a dead `cascade-tracks` verb); registry-parity �
 every `core.<name>` reference in verbs.ts against the real index surface.
 
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
+
 - An inline-level `<svg>` sits on the host line box's **text baseline** — small-height svgs get
   pushed down by a host-font-dependent ~12px, so content drifts inside its wrapper and clips
   against `clip-path`. Content svgs must be `display:block` (fillStatic/fillPlot do this), and
@@ -532,7 +543,7 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   current centre, origin 0 0 — `applyWrapperBoxComposite`); endpoints restore classic layout.
   Equivalence holds because content svgs are `100%`+`preserveAspectRatio:none`: stretching the
   frozen box by (w/w0, h/h0) IS the viewBox→box mapping. Gates read effective x = frozen left
-  + translate-x.
+  - translate-x.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -584,6 +595,7 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
 ### 2026-07-10/11 — Fortify hardening engagement (Claude Fable 5, `fortify` → merged to `main`)
+
 **Work:** Executed the full 12-workstream fortify plan (~53 commits): perf (figure/paper/library/
 reader/fulltext/startup), data integrity (load gates, version guards, crash-safe fig saves,
 divergence detection, undo byte-budget), consolidation (one fig-persistence core, flux-core
@@ -598,11 +610,13 @@ boot checks, worktree agents forking from the default branch, and "the scan's ti
 nondeterministic — canonicalize before oracle-comparing".
 
 ### 2026-07-12 — Nielsen responsiveness budgets adopted as policy (Claude Fable 5, `main`)
+
 **Work:** Deep-dived Obsidian's performance architecture (metadata cache in IndexedDB, deferred
 views, CM6 viewport rendering, no-framework UI, absolute-ms culture) and mapped Flux's scale-gate
 numbers onto the Nielsen 0.1s/1s/10s framework. Owner adopted the framework as standing policy —
 promoted into the body as new §6 (sections renumbered; old §6–10 are now §7–11).
 **Learnings:**
+
 - Obsidian on Electron is the existence proof that our stack can hit sub-100ms everywhere at
   20k-file scale; the techniques are ones Flux mostly already uses (derived mtime-keyed caches,
   windowing, viewport rendering, deferral).
@@ -610,11 +624,13 @@ promoted into the body as new §6 (sections renumbered; old §6–10 are now §7
   itself is the latency bug (library search: 150ms debounce over a ~25ms scan).
 
 ### 2026-07-12 — Editing-feel lock rescinded (Claude Fable 5, `main`)
+
 **Work:** The owner rescinded the July-2026 "editing feel is LOCKED" policy: EDITING-FEEL.md
 deleted, lock language removed from CLAUDE.md / AGENTS.md / this guide / source and script
 comments. The Nielsen budgets (§6) are the standing policy in its place; the `paper-gate` scripts
 remain as ordinary regression gates.
 **Learnings:**
+
 - Any "LOCKED editing feel" reference in old commits, branches, or agent memories is obsolete —
   responsiveness (§6) is the contract, and paper-editor behavior is changeable like any other
   gated area (intentional changes update the gates with evidence, per hard rule 3).
@@ -625,18 +641,21 @@ remain as ordinary regression gates.
   before repeating them — an agent shell without a display is not evidence the machine lacks one.
 
 ### 2026-07-12 — Shape completeness: None swatch + Closed-path toggle (Claude Fable 5, `main`)
+
 **Work:** Added the Colors panel "None" swatch (fill/stroke → literal `"none"`, with foot-gun
 guards: text colour never blanked, lines skip fill-target none, drawStyle.textColor never
 poisoned) and an Inspector "Closed path" checkbox (via `ops.updatePath` — adopts legacy d-only
 paths, regenerates `d`, refits bbox). New ui gate `verify-shape-nofill.mjs`; extended
 `figenh-01-path.ts`.
 **Learnings:**
+
 - `window.__flux` dev handle: svelte's `get` lives at the ROOT (`__flux.get`), store modules
   (`__flux.fig`) expose only their own exports.
 - The element renderer already draws open paths with `fill="none"` regardless of the model fill
   (chord-fill masquerade guard) — model fill survives a close→reopen round trip by design.
 
 ### 2026-07-12 — Pen placement assist (Claude Fable 5, `main`)
+
 **Work:** Pen tool gained a placement-assist core (`src/lib/interact/penSnap.ts`, pure): widened
 zoom-corrected close radius (8→14 screen px) with a ring + hot-anchor indicator, Shift 0/45/90°
 constraint (line-tool parity), h/v alignment snapping to draft nodes AND edge midpoints, and
@@ -644,6 +663,7 @@ equal-edge-length snapping (free / axis-pinned / along-ray) with geometry-notati
 perfect squares and 45-45-90 triangles from sloppy clicks. Gates: `verify-pen-snap.ts` (pure),
 `figenh-01-pen.ts` extended with an end-to-end shift-square.
 **Learnings:**
+
 - Overlay-svg chrome must be `pointer-events: none` unless it has its OWN handler: figure-level
   interactions (pen placement/close) run in the SCENE svg's handlers, and overlay elements that
   capture the pointer silently swallow clicks. The pen's close-click was finicky for exactly this
@@ -652,6 +672,7 @@ perfect squares and 45-45-90 triangles from sloppy clicks. Gates: `verify-pen-sn
   assists in only one path makes the click land somewhere the preview never showed.
 
 ### 2026-07-12 — Primitive completeness (dash, path arrows, bend, presets) (Claude Fable 5, `main`)
+
 **Work:** Owner-mandated completeness pass on the four primitives: `dash` on all four (model →
 schema → both renderers → set_style `--dash`), arrowheads on open paths (pure `pathRender`:
 tangent heads from the shared arrowTri/arrowVee + arc-length body trim), TRUE-curve path bboxes
@@ -665,6 +686,7 @@ cloneGroupsFor with fresh ids, loose sets wrapped by ops.group so a multi-elemen
 lands as one ungroupable unit. Gates: verify-primitives.ts (pure), verify-primitives-gui.mjs
 (ui), figenh/parity/canary suites green.
 **Learnings:**
+
 - A degenerate cubic with controls AT the endpoints is NOT linear in t (parameterization bunches)
   — straight segments must special-case point/tangent evaluation. The pure gate caught this.
 - Machine-global user libraries have an established 4-layer pattern to copy (textstyles →
@@ -674,6 +696,7 @@ lands as one ungroupable unit. Gates: verify-primitives.ts (pure), verify-primit
   the canvas honored it — found by reading both renderers side by side, not by a report.
 
 ### 2026-07-13 — Slide migration: slides are figures (Claude Fable 5, `slide_migration`)
+
 **Work:** Executed notes/slide_migration_plan.md end-to-end: a slide IS a figure
 (deck 0.2.0; `SlideElement`/textBox/math/video/embedFigure/DeckAsset deleted, clean
 break, no migration), the Slide module now mounts the figure editor verbatim
@@ -689,6 +712,7 @@ gate suite dispositioned per plan §7.0 (rewritten/deleted-with-re-homing, table
 the disposition commit); new gates: roundtrip, deck-schema, figure-separation,
 headless-e2e, 6 GUI gates, scale-slide. Net −2.3k lines.
 **Learnings:**
+
 - Svelte 5 runes dedupe store values by reference: `store.set(sameObj)` after an
   in-place mutation silently skips `$store` consumers in runes components —
   always publish a fresh identity. (Legacy `$:` components were immune;
@@ -704,6 +728,7 @@ headless-e2e, 6 GUI gates, scale-slide. Net −2.3k lines.
   when unregistered — beats focus-routed twin stacks.
 
 ### 2026-07-13/14 — Slide showcase deck + two morph/export bug fixes (Claude Fable 5, `main` working tree)
+
 **Work:** Built an end-to-end demo of the slide pillar — a 10-slide flux-midnight
 talk ("The Edge of Chaos", ~/edge-of-chaos) driven entirely through the headless
 verb layer from fluxplot-generated semantic plots (Fourier synthesis, Moore's
@@ -713,6 +738,7 @@ by-x, growBaseline, countUp, camera zoom, highlight/dim, part-style, S/A/M
 part-visibility, all four exits, writeOn, with-prev/auto beats) and verified each
 slide/beat by booting the exported HTML headless and screenshotting. Two genuine
 shipped bugs surfaced and fixed (regression-gated in `verify-slide-morph`):
+
 - **Morph line froze at state A.** fluxplot emits a series line as
   `<g id="…series.line"><path/></g>` (a group, esp. with markers); `createMorph`
   set `d` on the `<g>` — a silent no-op. Fix: descend to the child `<path>` when
@@ -821,6 +847,7 @@ verified fine (keypress AND mouse-click advance, both reduced-motion settings)
 Verified in the REAL app (electron + CDP over the dev server, present mode,
 keypress-driven): both showcase morphs play live, mid-flight ≠ endpoints; the
 export re-verified after rebuild. Testing traps worth remembering:
+
 - **Scope present-mode DOM probes to `.present .mount`** — the editor's
   filmstrip renders EVERY slide as a thumbnail beneath the overlay, so a
   global `[id$="__part"]` query matches a static thumbnail and reads as
@@ -831,6 +858,7 @@ export re-verified after rebuild. Testing traps worth remembering:
   `window.__flux.get((await import("/src/lib/plot/store.ts")).plotManifests)`.
 
 ### 2026-07-15 — Paper snips: reader capture + citation linkage (Claude Fable 5, `paper-snips`)
+
 **Work:** New feature end-to-end on a branch. Ctrl+Alt+drag in the reader captures a
 PDF page region as a PNG "snip" into `<project>/plots/paper_snips/` (parallel to the
 existing Alt+drag figure pop-out); a naming popover confirms/renames (Enter keeps).
@@ -844,6 +872,7 @@ math for both engines. Gates: `verify-snips` (pure), `verify-snip-headless` (pur
 `verify-snip-gui` (ui), `verify-snip-cite-gui` (ui-extra); pure 129/129, check 0/0,
 live CLI exercised against a real FluxLib paper.
 **Learnings:**
+
 - **Snip physical-size math:** pdf.js renders at scale *s* → pixels = PDF-points·s;
   physical size = points/72 in ⇒ stamp dpi = 72·s. Snips render at s=4 (288dpi) and the
   existing physical-size-true import (`io.ts buildIncoming` × `readPngDpi`) then places
@@ -869,6 +898,7 @@ live CLI exercised against a real FluxLib paper.
   than subscribing to a re-imported store.
 
 ### 2026-07-15 — Figma deep-select for plot parts + Ctrl+Shift+I bring-inside (Claude Fable 5, `main`)
+
 **Work:** Two owner-requested figure-editor changes. (1) Plot part selection is
 now Figma deep-select: a PLAIN click/drag anywhere on a plot always selects/
 moves the WHOLE plot (killing the accidental grab of a bar/tick while dragging
@@ -888,6 +918,7 @@ new interaction matrix, `verify-vanilla-inline.mjs` click-through updated to
 ctrl-click; registry goldens regenerated (86 verbs). Pure 127/127, ui 48/48,
 figenh sweep 16/16, scale-figure, W6 electron menu gate all green.
 **Learnings:**
+
 - `page.mouse.click(x, y, {clickCount: 2})` never fires dblclick in Chrome —
   a REAL double-click needs two down/up pairs with the second at clickCount 2
   (the citegroup recipe; figenh-15 §9 uses it on the canvas now).
@@ -897,6 +928,7 @@ figenh sweep 16/16, scale-figure, W6 electron menu gate all green.
   (`partAtPoint` in Canvas.svelte).
 
 ### 2026-07-15 — Lighttable sidecar created (image-set EDA viewer) (Claude Fable 5, `lighttable`)
+
 **Work:** Added `lighttable/`, a standalone Svelte 5 + Vite + Electron app for fast grid viewing
 of image sets (contact-sheet EDA: aligned flip-book across variant folders, virtualized grid,
 fullscreen compare, webp thumb cache behind a path-validated `ltfile://` protocol). It is a
@@ -906,6 +938,7 @@ dependency either way, Flexoki tokens copied not imported. Gates live inside the
 `test:electron` real-app smoke with positive boot evidence). Boundary recorded in CLAUDE.md
 (new "Sidecars" section), AGENTS.md, root .gitignore, and lighttable/README.md.
 **Learnings:**
+
 - The guide and Flux's gates govern Flux only; Lighttable is out of scope for both — edit its
   own README, never fold it into paper-gate/pure/ui or verify-manifest.json.
 - Electron ≥ 32 removed `File.path`: any drag-a-folder-to-open flow needs
@@ -923,6 +956,7 @@ dependency either way, Flexoki tokens copied not imported. Gates live inside the
   needs canvas/resvg in the app process. Regression-gated in its `test:electron` burst phase.
 
 ### 2026-07-15 (later) — Lighttable owner iteration: aspect-fit grid, sister folders, Compare view (Claude Fable 5, `lighttable`)
+
 **Work:** Three owner-requested changes to the sidecar, all gated in its own suite (ui 63,
 node 37, electron 19, pure 32, check 0/0): grid cells now adopt the images' MEASURED aspect
 ratio (median of decoded sizes, dampened, collection-global so the flip-book keeps row
@@ -933,6 +967,7 @@ across ALL sets at once, tiles packed optimally for the known aspect, set-name c
 click-through to Detail with Esc stepping back. Sidecar-only work; no Flux files touched.
 
 ### 2026-07-17 — Animation rework: transforms + trim + the Animator (Claude Fable 5, `animation_overhaul`)
+
 **Work:** Executed notes/flux_animation_rework/PLAN.md phases 0–7 end to end. Deck 0.3.0
 (first minor bump WITH a migration — a pure stamp at normalizeDeck; 0.1.x stays the clean
 break). Two animation families: appearances (enriched — full Trim Paths on drawOn/drawOff
@@ -952,6 +987,7 @@ pure 134/134, ui 50/50, scale-slide extended (animator edit p95 16.8ms, playback
 both morphs 75+ mid-flight frames) AND the real Electron app (x11 + CDP, positive boot
 evidence, deck migrated in memory, morph live in present, owner files byte-untouched).
 **Learnings:**
+
 - Svelte 5 `$state` deep-proxies anything assigned into it, and `structuredClone(proxy)`
   throws DataCloneError — `$state.snapshot()` at the boundary before cloning/persisting, and
   `$state.raw` for model objects a component merely HOLDS and hands onward (the Present
@@ -980,6 +1016,7 @@ evidence, deck migrated in memory, morph live in present, owner files byte-untou
   mid-process).
 
 ### 2026-07-18 — Beat-faithful canvas + Present fix follow-ups (Claude Fable 5, `animation_overhaul`)
+
 **Work:** Owner iteration on the animation rework. (1) The canvas is now BEAT-FAITHFUL:
 scrubbing beats shows the slide as it exists at that point (transforms ≤ activeBeat compose
 into the store display; beat 0 = base), and plain edits route into the governing transform's
@@ -991,6 +1028,7 @@ revert on disable/delete, undo, slide-switch restore, coalescing continuity, thu
 (2) Filmstrip thumbnails painted hardcoded `#000` behind the debounced render/letterbox —
 now the slide's own resting background.
 **Learnings:**
+
 - Display-swap systems must record their coalescing generation AFTER any reconciler mutate
   (commitDeckLive: refresh BEFORE `coalesceState.gen = editGen.n`), and the reconciler must
   skip no-op writes — otherwise unrelated coalesced typing runs fracture into N undo entries.
@@ -1002,6 +1040,7 @@ now the slide's own resting background.
   stays base-only by the NEVER_CAPTURED law.
 
 ### 2026-07-18 — Watcher dialog storm: WS-9.4b orphaned identifiers + no-undef gate (Claude Fable 5, `animation_overhaul`)
+
 **Work:** Owner report: adding plots to `plots/` while a project is open popped an endless
 "Uncaught Exception: subsystemFor is not defined" dialog per fs event. Root cause: the WS-9.4b
 FILES extraction (30492ce) deleted `subsystemFor`/`fluxLibSubsystemFor` from `main.cjs` and made
@@ -1013,6 +1052,7 @@ signature of a runtime ReferenceError. Verified live: real-Electron probe (boots
 main.cjs, watchRoot on a throwaway project, 6 SVGs dropped externally) → 0 uncaught, debounced
 `fs:changed {subsystem:"plots"}` delivered.
 **Learnings:**
+
 - Main-process code has NO execution gate — verify-w10-matrix drives only the renderer half of
   the watch matrix ("verified by inspection" is a trap). Any refactor that moves/deletes a
   main.cjs helper can strand call sites that only explode at runtime, as a per-event modal
@@ -1025,6 +1065,7 @@ main.cjs, watchRoot on a throwaway project, 6 SVGs dropped externally) → 0 unc
   needs :1420 + `--ozone-platform=x11 --no-sandbox`, prints positive boot evidence (§9).
 
 ### 2026-07-18 (later) — Slide QOL batch: themes, slide presets, layout chords (Claude Fable 5, `animation_overhaul`)
+
 **Work:** Owner's five slide-mode requests. (1) `flux-light` is now PURE WHITE (#ffffff, neutral
 surface); the old cream look moved to a new `flux-paper` theme (BUILTIN_THEMES + SLIDE_THEMES +
 CLI help literal in `flux-cli.ts` — goldens regenerated). (2) The Slide-panel Background swatch
@@ -1041,6 +1082,7 @@ dblclick resets; persists via slideLayout). (5) Ctrl+Shift+B toggles the right r
 whole slide rail. Verified: 136 pure, 6/6 slide GUI gates, beat-display, w10, scale-slide, and
 a headless five-feature probe with screenshots.
 **Learnings:**
+
 - `e.preventDefault()` on `pointerdown` suppresses the browser's DERIVED dblclick — it silently
   killed the dock gutter's double-click-reset (AnimatePanel had shipped that way). Block drag
   text-selection with `document.body.style.userSelect = "none"` for the drag instead.
@@ -1055,6 +1097,7 @@ a headless five-feature probe with screenshots.
   indistinguishable from a real app bug until you isolate with a synthetic dispatch.
 
 ### 2026-07-18 (evening) — anim_test root causes: baseline, perimeter, caps, idempotency (Claude Fable 5, `animation_overhaul`)
+
 **Work:** Owner filed three animation edge cases as a self-describing deck (`~/anim_test`,
 deck_mrpjnqrkw7xh_3) and asked for underlying root causes, not symptom patches. All three
 traced to four defects (d034767): (1) writeOn text clipped at the bottom (present-mode) +
@@ -1073,7 +1116,7 @@ regression pins" section in verify-slide-export-transform (browser-side); player
 fixtures made paint-faithful (`stroke`/`fill` attrs — bare paths default to black FILL and
 route to the wrong branch). Verified: pure 136/136, 6 slide ui gates, re-exported owner deck
 probes (head lands at model position exactly; compensation signature byte-stable over 6 navs
-+ 4 scrubs), and a real-Electron present-mode acceptance on `~/anim_test` (x11, positive boot
+- 4 scrubs), and a real-Electron present-mode acceptance on `~/anim_test` (x11, positive boot
 evidence, probes scoped to `.present .mount`, owner deck.json byte-untouched).
 **Learnings:** promoted to §9 "SVG rendering & the slide player" — inline-svg baseline,
 getTotalLength undershoot → overshoot doctrine, zero-length-dash cap dots, one-shot
@@ -1081,6 +1124,7 @@ compensation → restore-cycle contract. Meta-lesson: gate fixtures must be PAIN
 (explicit stroke/fill), or the gate exercises a different code path than the app.
 
 ### 2026-07-18 (night) — Transform glide: composite mid-flight frames (Claude Fable 5, `animation_overhaul`)
+
 **Work:** Owner follow-up: move/resize transforms carried a subtle jitter — "the object should
 perfectly glide." Diagnosis was measurement-first: an rAF sampler on the exported anim_test
 deck showed PERFECT frame pacing (83 consecutive 16.7ms frames, seek cost p95 0.2ms, zero
@@ -1108,6 +1152,7 @@ centroid computed in-page via canvas) is the cheap way to see what the composito
 paints.
 
 ### 2026-07-19 — Principal-agent workflow (Claude Fable 5, `principal-agent`)
+
 **Work:** Implemented the owner's two-folder Context scheme + principal-agent runtime end to
 end (notes/agent_scheme/, 5 commits): machine Context layer (UserContext w/ Guidelines
 migration; stock FluxContext generated from resources/flux-context/ — the validators.gen
@@ -1123,6 +1168,7 @@ verify-principal-electron (electron, real-app chain). Retired contracts updated 
 evidence: scaffold AGENTS.md → stub (guide content now FluxContext/PROJECT-GUIDE.md),
 verify-an-manuscript doc counts, verify-paper-commands Mod+K ownership.
 **Learnings:**
+
 - The startup gate has teeth: importing principalSession (xterm) statically from Workspace
   put the eager shell 105KB over budget — xterm lives in mode/drawer chunks only; the drawer
   is `{#await import(...)}`-mounted and prefills ride a queue in commandBus until the module
@@ -1137,6 +1183,7 @@ verify-an-manuscript doc counts, verify-paper-commands Mod+K ownership.
   roster→spec→PTY→data coverage with zero Svelte coupling.
 
 ### 2026-07-19 (later) — Skill content migrated into FluxContext; vendor skills are stubs (Claude Fable 5, `principal-agent`)
+
 **Work:** Owner decision: launched agents (principal/workers) get instructions
 deterministically, so vendor skill dirs add nothing for them — the six `skills/flux/`
 references (workflow/cli/plots/figures/manuscript/slides) moved into
@@ -1151,6 +1198,7 @@ the cheat-sheet TABLES (1 → 57 verbs checked — the table blindspot had let d
 no-machine-paths sweep; verify-fluxconfig checks placeholder substitution across ALL synced
 docs.
 **Learnings:**
+
 - The stock-docs bundle rides the CLI BUNDLES: after editing `resources/flux-context/` +
   regen, `npm run build:cli` must run before the packaged CLI can sync the new content (the
   stamp correctly no-ops on the stale bundle's own hash — drift-safe, but easy to mistake
@@ -1160,6 +1208,7 @@ docs.
   hand-audited.
 
 ### 2026-07-20 — Launch picker, family-template roster, PTY transcripts (Claude Fable 5, `main`)
+
 **Work:** Owner's model-routing rework. agents.json is now a MATRIX (families = per-vendor
 interactive/exec templates with {model}/{effort} substring placeholders + picker menus;
 defaults for principal/worker/pass; worker values may be "principal-decides"; legacy
@@ -1176,6 +1225,7 @@ drives the REAL picker through an outer pty), dispatch 23, context-scheme 47, fl
 parity (goldens regen); pure 141/141; context-gui 17/17. Owner's live roster migrated
 (backup: agents.json.bak-legacy).
 **Learnings:**
+
 - node-pty does NOT replay exit events — attach onExit before any interaction, or an
   early-exiting child (picker `q`) resolves as a timeout.
 - The desktop seat can become unreachable overnight (gdm greeter active → X sockets refuse,
@@ -1187,6 +1237,7 @@ parity (goldens regen); pure 141/141; context-gui 17/17. Owner's live roster mig
   args and claude's flagless effort story.
 
 ### 2026-07-20 (later) — Agent drawers retired; terminal-first canonical (Claude Fable 5, `main`)
+
 **Work:** Owner decision: principal sessions live in the user's own terminals (`flux
 principal`); the app is an independent review surface. Deleted PrincipalDrawer/
 principalSession (+ Ctrl+Shift+J, picker panel, gutter) AND the reader's AgentDrawer;
@@ -1198,6 +1249,7 @@ PREFILLS the question via the new prefill() export. agent:mcpSpec channel remove
 NO drawer; verify-r3-agent rewritten; p4-paper repointed; fluxconfig gains shim asserts.
 Full acceptance green incl. verify-principal-electron 15/15 once the seat unlocked.
 **Learnings:**
+
 - One persistent in-app terminal serving multiple mounts (margin + reader) beats bespoke
   per-surface agent terminals: attach/detach of a module-scoped session generalizes for
   free, and prefill-never-submit is the right in-app↔session interface.
@@ -1205,6 +1257,7 @@ Full acceptance green incl. verify-principal-electron 15/15 once the seat unlock
   printing a usable error (looked like a bare "Node.js v22.17.0" line).
 
 ### 2026-07-18 (late) — Human↔agent feedback-loop design brainstorm (Claude Fable 5, `main`, no code)
+
 **Work:** Owner asked for better human↔agent iteration on Flux projects (no app restarts,
 agent-agnostic, no context re-explaining). Surveyed the existing surfaces and wrote the design
 brainstorm to `notes/Flux_Human_Agent_Loop.md`: a context-stamped feedback ledger
@@ -1220,6 +1273,7 @@ agent terminal). There is currently NO task/inbox structure in the project schem
 CLI/MCP verb to *create* a comment thread (only list/resolve).
 
 ### 2026-07-18 (night) — Figure batch: paste, aspect-lock fix, path sub-modes, corner radius, grid (Claude Fable 5, `main`)
+
 **Work:** Owner's five-item figure batch (notes/new_flux_fig_updates_jul18). (1) OS-clipboard
 image paste, Figma-style: pasting rides the native "paste" event exclusively now — the keydown
 Ctrl+V branch is GONE (it raced the paste event → double-paste); `copySelected` stamps the OS
@@ -1242,6 +1296,7 @@ Gates: verify-paste-decide (new pure), verify-paste-image + figenh-18-pathmodes 
 ui-extra), extended figenh-01-path/-06, verify-pen-snap, verify-interact-core,
 verify-slide-tween; pure 137/137, ui sweep green, export assets regenerated.
 **Learnings:**
+
 - A control that applies LIVE per keystroke (FluxFigMenu number fields) must never derive
   invariants (like an aspect ratio) from the mid-edit model — snapshot the base at field
   activation. The Inspector never hit this because it applies on commit.
@@ -1258,14 +1313,17 @@ verify-slide-tween; pure 137/137, ui sweep green, export assets regenerated.
   follows; update it in the same change.
 
 ### 2026-07-20 — Project-wide comment discovery default (Codex GPT-5.6 Sol, main)
+
 **Work:** Changed the headless comments review loop so bare list/resolve operations cover every
 canonical project document and report the owning path; retained `--doc` as an explicit targeted
 mode, updated stock Context guidance, and added a multi-document regression fixture.
 **Learnings:**
+
 - Agent boot safety belongs in the product default, not only in prompt discipline: when review
   state is stored per document, the zero-argument discovery command must aggregate all documents.
 
 ### 2026-07-20 — Caret-feel lab: typing-feel experiments (Claude Fable 5, `caret-feel`)
+
 **Work:** Deep-dived monkeytype's typing feel (90–150ms near-linear `inOut(1.25)` retargeting
 tween on one overlay div; soft triangle blink at idle only; 125ms line-scroll-then-rebase) and
 the wider landscape (Neovide springs/smear, kitty's snap-caret-plus-trail, JetBrains "Snappy",
@@ -1279,6 +1337,7 @@ Verified: pure 142/142 (new `verify-caret-feel.ts`), paper-gate 15/15, live beha
 (`scripts/perf/caret-feel-inp.mjs`): overlay modes p95 32ms vs classic 48ms — the transient
 ticker does NOT tax INP (the E43 concern), it beats the classic left/top CSS transition.
 **Learnings:**
+
 - CM manages `view.dom`'s class attribute (`updateAttrs` rewrites it every update) — a plugin's
   state classes must live on `scrollDOM` (vim's `cm-vimMode` precedent), or they silently vanish.
 - In CM's measure cycle ALL reads run before ALL writes, and `scrollTarget` is applied after
@@ -1296,6 +1355,7 @@ ticker does NOT tax INP (the E43 concern), it beats the classic left/top CSS tra
   same run, not against absolute budgets.
 
 ### 2026-07-21 — Caret-feel lab shipped: chase default, smooth option (Claude Fable 5, `caret-feel` → merged to `main`)
+
 **Work:** Owner A/B verdict on the lab: chase is the DEFAULT paper caret, monkeytype mode kept
 as "smooth", classic CSS glide + chase-trail + smooth-line-scroll CUT, soft blink BUILT-IN (no
 setting). The only caret setting is now Settings › Paper › "Caret motion" (chase | smooth).
@@ -1306,11 +1366,13 @@ verify-writer-latency.ts §2's classic-glide pins were superseded WITH evidence 
 CSS glide stays gone). Verified: pure 142/142, paper-gate 15/15, check 0/0, live final-contract
 probe (defaults, both modes animate+settle, built-in blink, migration, clean console).
 **Learnings:**
+
 - A negative source pin ("X stays retired") and a comment that NAMES X literally cannot coexist
   in the same file — the gate greps its own documentation. Reword the comment; keep the pin
   strict (second occurrence of this trap; it is the norm for retirement pins, not an accident).
 
 ### 2026-07-21 — Cascade: stepped deltas across a multi-selection (Claude Fable 5, `cascade`)
+
 **Work:** Shipped the v0.1-final cascade feature end to end: pure core (`src/lib/cascade.ts` —
 the step law `value ⊕ delta·step_k`, selection-unit ranking via `unitKeyOf` (a top-level group
 is ONE rigid rank), ordering resolvers selection/layer/x/y + reverse, per-property
@@ -1326,6 +1388,7 @@ Gates: `verify-cascade.ts` (pure), `verify-cascade-gui.mjs` (ui), `verify-cascad
 (ui-extra — incl. the beat-faithful pin: a governed element's cascade routes into its
 transform's t2 while its base stays put), `shiftOklch` pins in verify-color-interp.
 **Learnings:**
+
 - keyboard.ts's `k === "c"` copy branch had no `!e.shiftKey` guard — Ctrl+Shift+C silently
   aliased copy until now (third chord-hygiene find after ⌃⇧A/⌃⇧D: assume unshifted
   mod-branches leak their shifted forms until guarded).
@@ -1349,6 +1412,7 @@ transform's t2 while its base stays put), `shiftOklch` pins in verify-color-inte
   move-start times, 700ms authored gaps measured at 700ms).
 
 ### 2026-07-21 — Lazy figure-asset loading shipped (Claude Fable 5, `main`)
+
 **Work:** Assessed + executed `notes/lazy_figure_asset_loading_plan.md` (recommended cut:
 Phases 0–1, 3). Project open no longer parses any plot DOM — bytes/manifests/metadata stay
 eager, `plotDom` fills on demand from `PlotElement` mounts via a time-sliced parse queue,
@@ -1362,6 +1426,7 @@ evidence. Phase 2 (slide) + Phase 4 (lazy bytes) deliberately deferred (§10). A
 pre-existing runner bug: `.mjs` verify children now get the tsx loader (`verify-scale-fulltext`
 imports flux-core `.ts` and could never pass under the runner).
 **Learnings:**
+
 - The plan's simulation UNDERSTATED reality: real `loadFigInto` open cost is ~204ms/figure
   (base64 + validation on top of the parse), and renderer node accounting runs ~6× element
   count for attribute-heavy SVG — measure in the real app before sizing a fix.
@@ -1376,6 +1441,7 @@ imports flux-core `.ts` and could never pass under the runner).
   runtime cap changes.
 
 ### 2026-07-22 — `flux principal` → Claude launched blank; codex MCP diagnosis (Claude Opus 4.8, `main` working tree)
+
 **Work:** `flux principal` with a **claude** principal opened a blank Claude Code session (no
 boot prompt); codex worked. Root cause: the `claude` **interactive** template ended
 `… --allowedTools mcp__flux {prompt}`, but Claude Code's `--allowedTools <tools…>` is a
@@ -1394,6 +1460,7 @@ codex config (`command="node"`, `args=["{{FLUX_MCP_PATH}}"]`) is broken for **so
 because `resolveOwnCliCommandsSync` fills `mcpPath` with a bare `flux-mcp.ts` and `node` can't
 run `.ts` (only the dist/`.mjs` branch works with plain `node`).
 **Learnings:**
+
 - **CLI arg templates must respect variadic options.** Any `<x...>`-style option (commander/
   yargs) consumes forward until the next flag — never place a positional (`{prompt}`) directly
   after one. Put positionals first, or keep them ahead of the variadic flag. Prove arg binding
@@ -1405,6 +1472,7 @@ run `.ts` (only the dist/`.mjs` branch works with plain `node`).
   `env -i`), not the unbuilt dist bundle. The box's default `node` is v20; pin node22.
 
 ### 2026-07-23 — V0.1 user documentation corpus (Claude Fable 5, `main`)
+
 **Work:** Built the user docs as a Quarto website project in `docs/` (15 `.qmd` pages:
 index/installation/getting-started, the five mode guides, agents/collaboration, three
 concepts pages, three reference pages incl. full per-mode shortcut tables), with every
@@ -1415,6 +1483,7 @@ relative-link integrity, title+subtitle-only frontmatter, `.qmd`-only render glo
 guide stays out of the site), machine-path hygiene. `quarto render docs` clean; README got a
 Documentation section. Authoring conventions + the docs-ride-the-commit rule promoted into §8.
 **Learnings:**
+
 - The docs sweep surfaced real app inconsistencies (report, don't paper over in docs):
   Library tooltips still say `~/FluxLib/…` (real default `~/FluxConfig/FluxLib/…`); the
   single-row Get-PDF miss toast claims "library proxy support is coming" though proxy routes
@@ -1426,6 +1495,7 @@ Documentation section. Authoring conventions + the docs-ride-the-commit rule pro
 - js-yaml in this tree exposes no ESM default export — `import * as yaml from "js-yaml"`.
 
 ### 2026-07-23 (later) — Docs-sweep cleanup batch + Lighttable page (Claude Fable 5, `main`)
+
 **Work:** Fixed the app inconsistencies the docs sweeps surfaced: Library `Mod+K` now
 single-fires (the Workspace router stands down when Library is focused — the add box owns
 the chord, per Help); `Help` moved from Workspace to Shell so `?` works on Home; Help's
@@ -1441,11 +1511,13 @@ Verified: check 0/0, pure 145/145, ui gates context-gui/shell-complete/p5-shell/
 lib-actions/lib-organize green, plus a live :1420 probe pinning the three behavior
 changes (library single-fire, palette in Figure, `?` on Home) with a clean console.
 **Learnings:**
+
 - The Workspace `Mod+K` router is now the precedent for mode-claimed shell chords: the
   claiming mode keeps its own focused-scoped listener, and the shell router gets an
   explicit stand-down branch — never two competing window listeners on one chord.
 
 ### 2026-07-23 — V0.1 final hardening sweep (Claude Fable 5, `v0.1-hardening`)
+
 **Work:** Owner's final pre-V0.1 fortification pass — three read-only audit agents (security ·
 data-integrity · complexity/release) over everything that landed after the 2026-07-11 fortify
 engagement, every significant finding re-verified at file:line, then a bounded fix set. **No
@@ -1469,6 +1541,7 @@ New gates: `verify-prefs-atomic`, `verify-electron-hardening` (both pure+presenc
 `verify-beat-display-gui` nav-no-dirty extension. Pure tier **146/146 green with `dist/` absent**
 (hermetic proof); check 0/0; slide-tenancy + menu + beat-display ui gates green.
 **Learnings:**
+
 - A "hermetic" pure gate that reads a `dist/` build artifact isn't hermetic — it fails on a fresh
   clone and (since CI runs `--tier pure` before `npm run build`) in CI too. Gates must generate
   what they need in-process or move to the bundle tier. Prove it by running with `dist/` moved away.
@@ -1484,6 +1557,7 @@ New gates: `verify-prefs-atomic`, `verify-electron-hardening` (both pure+presenc
   other session (my edit lost a "modified since read" race), so C3 needed no action.
 
 ### 2026-07-24 — Lighttable launcher button in the rail (Claude Fable 5, `main`)
+
 **Work:** Owner request: a convenience button near the Settings gear that launches the
 Lighttable sidecar. Added `lighttable:launch` (invoke/spawn) — main resolves the sidecar's own
 electron binary via `lighttable/node_modules/electron/path.txt` and spawns it detached (no code
@@ -1494,6 +1568,7 @@ existing window). Rail button in `ActivityRail.svelte` (new `lighttable` icon), 
 `lighttable.qmd` updated.
 
 ### 2026-07-27 — Windows portability: the clone→build→run path (Claude Fable 5, `main`)
+
 **Work:** Full win32 audit (no blockers found for `npm install → npm run build → npx electron .`;
 all native deps ship win32 prebuilds) and the degraded-item fixes, every one gated behind
 win32-only branches so POSIX behavior is byte-identical: NEW `electron/execResolve.cjs`(+`.d.cts`)
@@ -1508,6 +1583,7 @@ cmd-wrapped packaged CLI string in fluxPaths; `electron:dev` now tails into
 (verified no-op: the index was already 100% LF). Two source-shape probes re-anchored to the new
 spellings (hardening B1 spawn probe, r3 tsx probe) — same contracts, evidence in the commits.
 **Learnings:**
+
 - Since Node's CVE-2024-27980 fix, `spawn()` throws EINVAL for `.cmd`/`.bat` without a shell —
   and npm installs CLIs (claude, codex, tsx) as exactly those shims on Windows. Any NEW spawn of
   an external command must go through `resolveSpawn`/`resolvePtySpawn` (execResolve.cjs): it
@@ -1522,6 +1598,7 @@ spellings (hardening B1 spawn probe, r3 tsx probe) — same contracts, evidence 
   (use `||`). The pure gate caught this before it shipped.
 
 ### 2026-07-28 — cascade-tracks verb was dead headless: missing index.ts re-export (Claude Fable 5, `main`)
+
 **Work:** Chased the `npm run build` warning `Import "cascadeTracksVerb" will always be
 undefined` — a real bug: the 2026-07-21 cascade session exported `cascadeTracksVerb` from
 `flux-core/slides.ts` but never added it to index.ts's explicit `./slides` re-export list, so
@@ -1532,6 +1609,7 @@ slideOps directly). Fixed the export; two new pins: registry-parity gained §(e)
 (99 refs) — and verify-slide-headless-e2e now EXECUTES cascade-tracks through the real CLI
 (first-fixed start cascade, asserted 0/250 on disk). check 0/0; both bundle warnings gone.
 **Learnings:**
+
 - flux-core is outside `npm run check`'s scope, so index.ts's explicit re-export lists have no
   static safety net — esbuild's `import-is-undefined` build warning is the ONLY signal and must
   be treated as an error (promoted to §9 Bundle/startup).
@@ -1539,6 +1617,7 @@ slideOps directly). Fixed the export; two new pins: registry-parity gained §(e)
   gate that EXECUTES it headless, or a broken handler ships green.
 
 ### 2026-07-29 — UserContext seeds are BLANK by design (Claude Fable 5, `main`)
+
 **Work:** Owner directive: nothing user-specific may be seeded into FluxConfig. The
 fresh-machine `UserContext/RULES.md` seed (`GUIDELINES_BASE_RULES` in fluxPaths.cjs) was the
 owner's actual conventions (panel labels, caption style, one-canvas-per-qmd, …) — replaced with
@@ -1553,12 +1632,14 @@ memBridge.ts's dev-only fixture keeps the owner's name (never ships). Legacy mig
 unchanged: an existing/edited RULES.md or base_rules.md is user-owned and never rewritten.
 Gates: fluxconfig, context-scheme, registry-parity, check 0/0.
 **Learnings:**
+
 - Seed content policy (standing): everything under `UserContext/` is seeded as a purpose
   comment + empty body — never anyone's actual conventions. The fluxconfig gate now pins this.
 - Stock FluxContext docs are product text synced to every machine — examples in them must use
   placeholder names/paths, not the owner's.
 
 ### 2026-07-29 (later) — Docs button in the rail (Claude Fable 5, `main`)
+
 **Work:** New rail-foot button (bookText icon, between Lighttable and Settings) opens the
 rendered user docs in the OS browser. Mirrors the lighttable:launch pattern end to end:
 `docs:open` invoke channel (contract.cjs, scope spawn) → main handler `shell.openPath`s
@@ -1569,11 +1650,13 @@ Docs updated (index.qmd rail-foot sentence; lighttable.qmd "above the Settings g
 stale). Gates: ipc-contract, docs (120), check 0/0; visual check on :1420 (button renders,
 0 console errors).
 **Learnings:**
+
 - Rail-foot buttons that reach the OS all follow one shape: contract entry → main handler
   returning `{ok, error}` → preload one-liner → optional bridge method → toast on `!ok`.
   Copy lighttable:launch, don't improvise.
 
 ### 2026-07-29 — Zotero sync + BBT-style citekeys (Claude Fable 5, `zotero-sync`)
+
 **Work:** Connected FluxLib to Zotero: a Better-BibTeX "Keep updated" auto-export is a standing
 intake valve — synced on startup (Shell idle kick, dynamic import), live while the app is open
 (new `zotero-bib` watch subsystem over the existing fs:changed channel; the Library re-invokes
@@ -1593,6 +1676,7 @@ machine's library). Gates: `verify-citekey.ts` + `verify-zotero-sync.ts` (hermet
 HOME/XDG; executes the real CLI). Pure 149/149, check 0/0, lib ui gates 3/3, docs 120,
 build warning-free.
 **Learnings:**
+
 - `assignJob.svelte.ts` is the canonical template for FluxLib intake engines and copied over
   cleanly: revision store bumped by a watch subsystem → debounced module-level subscribe →
   cross-engine heartbeat lock → `runSeq` effect in LibraryMode for the re-list. Reach for it
@@ -1602,6 +1686,7 @@ build warning-free.
   config until the next project open.
 
 ### 2026-07-29 (later) — Zotero huge-library posture: defer-fulltext + big-export suggestion (Claude Fable 5, `main`)
+
 **Work:** Two owner-requested follow-ups. (1) `deferFulltext` (ZoteroSettings + `--defer-fulltext`)
 makes link-mode attaches STAT-ONLY: the sync writes the `paper.link.json` pointer without ever
 reading the linked file — at 15k PDFs on a cloud-mounted Zotero folder this is the difference
@@ -1615,11 +1700,14 @@ library — the steady-state sync cost a no-change stat short-circuit would elim
 owner deferred pending the big-bib discussion). Gate: verify-zotero-sync extended (defer pass +
 lazy backfill through the pointer + suggestion helpers); goldens regenerated (`--defer-fulltext`).
 **Learnings:**
+
 - ft: search does NOT auto-backfill deferred text (fulltextSearch only REPORTS missingText) —
   a deferred-link paper becomes full-text-searchable after its first reader open or a
   get_paper_text call. If bulk backfill is ever wanted, iterate getOrExtractFulltext over the
   index's backfill list; the machinery already exists.
+
 ### 2026-07-29 — Agent-facing macOS install runbook (Claude Fable 5, `main`)
+
 **Work:** Added `docs/claude-install-flux-mac.md` — a step-by-step runbook a Claude Code
 session on a fresh Mac follows to take a bare `git clone` to fully-ready (Node 22 → npm ci →
 `npm run build` → FluxConfig first-run → claude-family agents.json → Quarto/TinyTeX +
@@ -1632,6 +1720,7 @@ just points at the Zotero docs page). Deliberately a plain `.md`: the render glo
 `.qmd`-only, so it never enters the user site, and verify-docs (120 checks) stays green
 with zero changes.
 **Learnings:**
+
 - The production-style source launch is `npm run build` once + `./node_modules/.bin/electron .`
   from the repo (main.cjs falls back to `dist/index.html` when `VITE_DEV_SERVER_URL` is
   unset). `npx electron <path>` from OUTSIDE the repo may fetch a fresh Electron instead of
@@ -1653,6 +1742,7 @@ with zero changes.
   regressions.
 
 ### 2026-07-29 (evening) — Zotero sync stat short-circuit (Claude Fable 5, `main`)
+
 **Work:** Landed the no-change short-circuit the "(later)" entry had deferred: both engines
 stamp the export's stat fingerprint ({bibPath, size, mtimeMs}) into
 `<FluxLib>/.fluxlib/zotero-sync.json` after a successful sync, and AUTOMATIC passes (startup,
@@ -1664,12 +1754,14 @@ can't see). Stat-before-read discipline in both engines: a rewrite landing mid-s
 cause an extra re-run, never a missed one. State file is derived/rebuildable (lost stamp = one
 extra full sync). Gate passes 2/6–8 + two CLI legs (skip render + `--force`); goldens regen'd.
 **Learnings:**
+
 - Adding a skip path changes the CONTRACT of "run it twice" gates: verify-zotero-sync's pass 2
   ("re-sync is a no-op") now asserts the SKIP, and full-parse idempotency moved behind
   `--force` + a rewrite pass. When a fast path lands, audit existing gates for assertions that
   silently exercised the slow path.
 
 ### 2026-07-29 (evening, 2) — Zotero integration user-docs page (Claude Fable 5, `main`)
+
 **Work:** New `docs/integrations/zotero.qmd` (sidebar section "Integrations") — the full user
 guide: BBT setup (Keep updated), connect flow, sync timing + the stat skip, copy-vs-link,
 backfill, deferred text, very-large-library posture (collection exports; sqlite-on-cloud
@@ -1679,6 +1771,7 @@ Cross-links repointed (library.qmd bullet, concepts citekey section). verify-doc
 `quarto render docs` clean (17 pages).
 
 ### 2026-07-29 — Top-bar rework: rail → titlebar, new icons, phyllotaxis logo (Claude Fable 5, `topbar-rework` → merged to `main`)
+
 **Work:** Owner-directed appearance rework. (1) The left ActivityRail is GONE — the five mode
 buttons (sliding-underline indicator, Alt/⌘-click-to-split preserved) and the four utility
 buttons (Lighttable/Docs/Settings/Help, smaller+fainter "secondary register", now visible on
@@ -1696,6 +1789,7 @@ Gates: check 0/0, pure 149/149, shell-complete (now pins the titlebar strip + no
 Ctrl+2/4 switching), p5-shell, paper-keyboard (selector re-anchored), paper-gate 15/15,
 slide-tenancy, startup, docs 127.
 **Learnings:**
+
 - `driver.mjs clickMode()` selects `button[aria-label=…]` with no container, so relocating the
   mode buttons kept ~40 ui gates green untouched; only the two scripts that hard-coded
   `nav.rail` needed re-anchoring. Container-agnostic aria-label selectors are the cheap
@@ -1708,6 +1802,7 @@ slide-tenancy, startup, docs 127.
   stay token-managed with zero component API change.
 
 ### 2026-08-03 — Caption editor: fit-to-content blocks + a scrolling page (Claude Fable 5, `caption-fit`)
+
 **Work:** Owner-reported wasted space in the caption editor. Every block was pinned at
 `min-height: 150px` with a `flex: 1` two-row textarea, so a one-liner burned the same space as
 a paragraph and anything longer fell into an inner scrollbar that the canvas made unusable.
@@ -1721,6 +1816,7 @@ produces an `ImageElement` with no `source`, so `fig/assets/<id>.png` was previo
 copy of those pixels anywhere. Gates: new `verify-caption-fit.mjs` (28 checks, ui-extra),
 `verify-paste-image` extended, check 0/0, pure 149/149, ui 56/56, docs 127.
 **Learnings:**
+
 - **Never `getBoundingClientRect` inside a world-space layer.** The caption page rides
   `transform: scale(zoom)`; `scrollHeight`/`clientHeight`/`offsetTop` are pre-transform layout
   px (what you must write back), while gBCR is transform-scaled and corrupts any fit at zoom ≠ 1.
@@ -1745,6 +1841,7 @@ copy of those pixels anywhere. Gates: new `verify-caption-fit.mjs` (28 checks, u
   format, grep the gates for the old shape rather than trusting `--changed`.
 
 ### 2026-08-03 (later) — Sidebar figure click centres the view (Claude Fable 5, `caption-fit`)
+
 **Work:** Owner request: clicking a figure name in the Figure-mode sidebar now goes to that
 figure — activate plus centre at the CURRENT zoom (never reframe; the zoom is the user's
 choice). New `src/lib/viewportNav.ts centerOnFigure()` solves the pan from
@@ -1755,6 +1852,7 @@ untouched, oversized figure centres rather than fitting, ruler inset respected, 
 Also reviewed and tightened the caption work from earlier today (one post-fit hook instead of
 two resync mechanisms — see f39ba4c).
 **Learnings:**
+
 - **Only the ACTIVE pane should publish shared viewport geometry.** `viewport` is an app-global
   singleton across split panes and across figure/slide tenancy, so an inactive pane writing its
   own size would silently retarget the other pane's navigation. Gate the publish on `paneActive`.
@@ -1770,6 +1868,7 @@ two resync mechanisms — see f39ba4c).
   but it is NOT a centring helper — reach for `centerOnFigure` instead.
 
 ### 2026-08-04 — Figure families: structured identity + the Ctrl+R namer + rail parity (Claude Fable 5, `fig-families`)
+
 **Work:** Owner-reported bug: figure "numbers" in the writer were regex-parsed out of the free-
 text figure NAME (`designationFromName` — greedy capture, positional-ordinal fallback), so
 "Sup. Figure 1" rendered as "Fig 2 Sup. Figure 1" in chips/pickers and exports numbered by a
@@ -1792,7 +1891,7 @@ exported-HTML anchors change form and Quarto lists-of-figures lose entries. UI: 
 (Ctrl+R; number pre-selected → digits → Enter; ↑/↓ cycles family; inline "+ New family…" staged
 until commit; ONE undo entry), sidebar dblclick opens it (figure rows no longer inline-rename),
 family badges ("2"/"S2"/"ED3"/"M1"), Inspector identity row + nickname field. Rails: drag-resize
-+ hide across all modes (`figureLayoutStore`, slide right-rail gutter activating the dormant
+- hide across all modes (`figureLayoutStore`, slide right-rail gutter activating the dormant
 `inspectorW`, paper `outlinerW`; shared `leftRailHidden` — context-sensitive Ctrl+B toggles it
 when no text is selected, Ctrl+Shift+B keeps the right rail and now also toggles paper's margin).
 Agent surface: verbs `set-figure-family` / `define-figure-family` / `remove-figure-family`,
@@ -1803,6 +1902,7 @@ Ctrl+F5 (renderer owns ⌃R — same reasoning as F12 for DevTools). Gates: new 
 the export/figref/embed-caption/f6 expectations; parity gate pins nickname-labels + heal
 idempotence; registry goldens regenerated (3 new verbs). check 0/0, pure 149/149, paper-gate 15/15.
 **Learnings:**
+
 - **Family number = position can't be derived from array order**: canvas files partition
   `Project.figures` (canvas-then-file load order), so cross-canvas numbering needs an explicit
   stored `number` + a load/mutate-time normalizer (hand-edited gaps/dupes heal deterministically).
@@ -1823,6 +1923,7 @@ idempotence; registry goldens regenerated (3 new verbs). check 0/0, pure 149/149
   (`captionLabel`) MUST join those comparisons or family renumbering never repaints embeds.
 
 ### 2026-08-04 — Reader tabs + two PDFs side by side (Claude Fable 5, `reader-tabs`)
+
 **Work:** Owner request: open several papers without re-finding them, and two PDFs at once.
 Three commits: (1) behavior-preserving extraction of `ReaderDoc.svelte` (~90% of ReaderMode;
 `citekey` immutable per instance kills the staleness guards; the shared terminal stays in the
@@ -1838,6 +1939,7 @@ per-pane assignments with pin-before-retarget; Alt-click a tab → `openReaderTa
 `annotationsRev` cross-view sync; `readerTerminalPane` exclusivity. Architecture promoted to
 §4. Also fixed rotted `verify-w5-lifecycle` (pre-families raw `name` write → nickname).
 **Learnings:**
+
 - pdf.js viewers survive `visibility:hidden` keep-alive fine (scroll/zoom state intact on
   reveal) — the ModeContent pattern generalizes to N documents within a mode unchanged.
 - A restored-at-boot document instance mounts before dev-seed hooks can run — gates that
@@ -1855,6 +1957,7 @@ per-pane assignments with pin-before-retarget; Alt-click a tab → `openReaderTa
   before driving selection UI.
 
 ### 2026-08-04 (later) — Reader panels: rails, Cited-by, row PDFs, Alt+R library (Claude Fable 5, `reader-tabs`)
+
 **Work:** Owner's screenshot review of the reader. Both sidebars are now drag-resizable
 (new `readerLayoutStore.ts`, key `flux.reader.layout`; the FigureMode `railDrag` factory +
 CSS vars on `.rbody`, gutters as flex siblings OUTSIDE the scrolling asides, dblclick
@@ -1875,6 +1978,7 @@ means no document remounts). New gate `verify-r8-reader-panels.mjs` (30 checks) 
 `group:reader-gate` (16); `listPdfKeys` now counts dev-seeded items so the row affordance is
 drivable headlessly. check 0/0, pure 149/149, reader-gate 16/16.
 **Learnings:**
+
 - **Reader PDF residency is ~2× per open doc, and item 1.6 of the V1 readiness review is
   CLOSED, not deferred** (review line 97; line 514 is the superseded open-items entry — an
   earlier note in this session repeated it wrongly). pdf.js passes `data.buffer` in the
@@ -1890,6 +1994,7 @@ drivable headlessly. check 0/0, pure 149/149, reader-gate 16/16.
 - `createQueryRunner()` returns the runner FUNCTION itself, not an object with `.run`.
 
 ### 2026-08-04 (later) — Paper tables: full editing tier + rich cells + export fit (Claude Fable 5, `reader-tabs`)
+
 **Work:** Owner-reported table rendering/formatting issues → implemented the B3 editing tier in
 full. New shared grammar `science/tableModel.ts` (markdown-it-faithful parse + canonical
 serializer + TSV/CSV converters), `editing/tableOps.ts` (Tab/Shift-Tab/Enter cell nav, row/col/
@@ -1904,6 +2009,7 @@ verify-table-ops.ts (pure), verify-paper-tables.mjs (ui, 28 checks); paper-gate 
 check 0/0, pure 152/152, paper-gate 19/19, scale-paper 7/7. Docs: paper.qmd Tables section
 (also fixed the false `@sec-` claim), shortcuts.qmd.
 **Learnings:**
+
 - **verify-scale-paper's sentinel offsets were stale**: it precomputed all three burst positions,
   then each burst's 18 inserts shifted the later sentinels — the "cell" burst actually typed at
   the table's HEADER-line start (corrupting the fixture into a header/delim column mismatch the
@@ -1924,6 +2030,7 @@ check 0/0, pure 152/152, paper-gate 19/19, scale-paper 7/7. Docs: paper.qmd Tabl
   `isUserEvent("input")||("delete")` and composition, or undo/agent edits get reformatted.
 
 ### 2026-08-04 — Outline missed headings until the next keystroke (Claude Fable 5, `reader-tabs`)
+
 **Work:** Owner-reported: well-formed headings absent from the paper outline until you type at
 (or near) their line. Root cause: `getOutline` walked the bare `syntaxTree(state)` — CodeMirror
 parses lazily (init ≈ first 3k chars, edits parse only to the viewport, the background worker
@@ -1936,6 +2043,7 @@ livePreview pattern, partial-tree fallback); PaperMode gained a parse-progress l
 `verify-outline-refresh.mjs` (ui + paper-gate, now 16) — teeth proven: fails pre-fix on a ~950k
 doc's tail heading, passes post-fix; paper-gate 16/16, check 0/0.
 **Learnings:**
+
 - **Bare `syntaxTree(state)` is a partial tree** — any whole-document consumer must
   `ensureSyntaxTree(state, state.doc.length, budget) ?? syntaxTree(state)` AND re-run when the
   parser catches up, because worker commits are `docChanged === false` transactions that
@@ -1945,6 +2053,7 @@ doc's tail heading, passes post-fix; paper-gate 16/16, check 0/0.
   `!syntaxTreeAvailable`) or the tail stays unparsed forever.
 
 ### 2026-08-04 (evening) — Reader UX cleanup: search pane, panel chords, terminal drawer (Claude Fable 5, `reader-tabs`)
+
 **Work:** Owner's annotated-screenshot pass. (1) The inline find bar and its magnifier are
 GONE: Ctrl+F now opens a **Search tab** in the left rail listing every match with context,
 grouped by outline section (falling back to per-page) — new pure core
@@ -1962,6 +2071,7 @@ Gates: r8 grew to 55 checks; r2/r7/scale-reader find legs repointed at the pane 
 changed deliberately — the counter is now "N of M" and the pane lists every hit); r3's
 popover pin follows `askClaudeAbout` → `sendHighlightToTerminal`. pure 150/150, check 0/0.
 **Learnings:**
+
 - **pdf.js's find controller re-reports its position several times per advance** (and again
   after a jump lands). Driving UI state from `updatefindmatchescount` makes the counter walk
   backwards; the fix is to let OUR match list own "which hit is current" and treat the
@@ -1981,6 +2091,7 @@ popover pin follows `askClaudeAbout` → `sendHighlightToTerminal`. pure 150/150
   the pathMap entry added earlier that day paid for itself immediately.
 
 ### 2026-08-04 — Export system: file format × journal style, first preset Nature (Claude Fable 5, `export-styles`)
+
 **Work:** Built the export system end to end in a worktree off `main` (6 commits): the export
 dialog (format × style, output path for EVERY format, progress + cancel, Alt+E) over ONE shared
 prep core (`src/lib/exportPrep.ts` — the include walker and the transform/restore dance existed
@@ -1992,6 +2103,7 @@ reference-doc and an ephemeral Quarto `--profile`; section roles + export-time o
 Nature's rules were established twice — nature.com plus an empirical count over 88 Nature-proper
 PDFs in the owner's FluxLib — and the corpus corrected the docs twice over.
 **Learnings:**
+
 - **A journal style is EXPORT-ONLY; the writer never restyles** (owner decision). This does NOT
   violate the editor/export parity invariant that `references/format.ts:6-11` and
   `citeNumbering.ts:1-10` warn about: that warning is about ORDINALS AND IDENTITY diverging (the
@@ -2028,3 +2140,27 @@ PDFs in the owner's FluxLib — and the corpus corrected the docs twice over.
   `quarto:render` pin went stale the moment I added two more fields in a later phase.
 - Parallel worktrees each need their own dev-server port; `driver.mjs` already honours `FLUX_URL`,
   but gates that hardcode `:1420` do not. `verify-paper-export.mjs` now builds its URL from it.
+
+### 2026-08-05 — Install-docs harmonization + dependency audit fix (Claude Opus 5, `main`)
+**Work:** Compared README / `installation.qmd` / `claude-install-flux-mac.md` against the code
+and against a real fresh-Mac install, then fixed what diverged — three commits: `npm audit fix`
+clearing 13 advisories, `electron:build` running the full build, and a documentation correction
+pass. Added `TODO.md` at the repo root as a checkbox ledger for open work (deliberate non-goals
+stay in §10 here — the two must not blur). Promoted the TinyTeX PATH trap into §9.
+**Learnings:**
+- **The session log is not a substitute for the user docs.** The 2026-07-29 runbook entry
+  already recorded the `mkdir -p ~/.local/bin`-before-first-run trap, but `installation.qmd`
+  never got it — so anyone following the human-facing install silently ended up with no `flux`
+  command. Rule 4 says promote durable lessons into the body; the same applies outward to
+  `docs/*.qmd` when the lesson is user-facing. Land it in the same session or it does not land.
+- `main` was shipping 13 advisories (9 high) in `package-lock.json`, and nothing gates this —
+  there is no CI audit step. It will recur silently until there is one.
+- `~/flux` is only convention (everything resolves from `__dirname`; `resolveRepoDirSync`),
+  while `~/fluxplot` is a hard requirement — hardcoded with no placeholder substitution in
+  `resources/flux-context/PYTHON-CONVENTIONS.md`, so agents run `uv add --editable ~/fluxplot`
+  verbatim. The docs presented the two as equally mandatory, which is backwards.
+- The `bundle` tier is a **single script** — too thin to clear a dependency change touching the
+  CLI/MCP surface. Use `--tier pure` for that (154/159 on macOS; the 5 failures are the
+  documented platform set, not regressions).
+- Node 22.20 bundles **npm 11**, so npm-11 lockfile metadata (`license` fields) is not evidence
+  of an off-pin Node. Do not diagnose lockfile churn from the Node version alone.

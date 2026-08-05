@@ -188,6 +188,28 @@ all that's needed to launch locally. If macOS blocks a built app, right-click �
 | Built app won't open ("damaged" / unidentified) | `xattr -dr com.apple.quarantine release/mac-arm64/Flux.app`, or right-click → **Open** |
 | Start completely clean | `rm -rf node_modules dist release && npm ci` |
 
+### Companion tools
+
+The walkthrough above gets Flux running, but several capabilities live in **external tools
+Flux detects at runtime** — so a fresh build starts out unable to compile a manuscript or
+import a semantic plot. Per-platform instructions live in the
+[install guide](docs/installation.qmd); this is just what breaks without each.
+
+| Tool | Without it |
+| --- | --- |
+| **Quarto** | No manuscript compile (`flux compile`), no Word/PDF export, and the in-app **Docs** button has nothing to open |
+| **TinyTeX** (`quarto install tinytex`) | `--to pdf` fails; `--to html` / `--to docx` still work |
+| **`lineno` + `setspace`** | Journal-styled PDF (line numbers, double spacing) fails; ordinary PDF is unaffected |
+| **fluxplot**, cloned to `~/fluxplot` | Plots import as opaque images instead of per-part editable figures — [the keystone](https://github.com/fluxsci/fluxplot) |
+| **Lighttable** (`cd lighttable && npm ci && npm run build`) | The top-bar Lighttable button errors |
+
+Only Lighttable is genuinely optional — the rest are load-bearing for normal use.
+
+> **Setting up a Mac from scratch?**
+> [`docs/claude-install-flux-mac.md`](docs/claude-install-flux-mac.md) is an executable
+> runbook a Claude Code session follows end to end — bare clone to verified install,
+> including everything in this table.
+
 ### Scripts
 
 | Command | What it does |
