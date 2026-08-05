@@ -113,6 +113,11 @@ belong in `docs/AGENT_ENGINEERING_GUIDE-RUNNING.md` §10 ("don't 'fix' these"), 
       *Sidecar:* `docs/lighttable.qmd:51` and its troubleshooting row `:94` say `npm install`, while
       runbook step 3 says `npm ci`. `lighttable/package-lock.json` is committed and tracked, so
       `npm ci` is correct there too.
+      *Also outside the docs* (missed on the first pass, caught when the Lighttable button told a
+      user to run the install they had already run): the button's own error string in
+      `electron/main.cjs`, and `resources/flux-context/LIGHTTABLE.md` — a **shipped** agent doc that
+      propagates to every user's `~/FluxConfig`. Lesson for the next sweep of this kind: user-visible
+      strings live in code and in `resources/flux-context/` too, not only in `docs/*.qmd`.
 - [x] **`installation.qmd` introduces `~/FluxConfig` out of order, and omits the `~/.local/bin`
       ordering trap.** Two small fixes in one pass:
       (a) §2.5 "Agent CLIs" references `~/FluxConfig/agents.json` as though it already exists, but

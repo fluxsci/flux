@@ -1581,17 +1581,39 @@ ipcMain.handle("shell:openPath", async (_e, p) => {
 // existing window). Source-checkout only — the packaged app doesn't bundle it.
 ipcMain.handle("lighttable:launch", async () => {
   const ltDir = path.join(__dirname, "..", "lighttable");
+  // Each failure mode gets its own message: they have DIFFERENT fixes, and a
+  // catch-all "isn't installed" actively misleads. Electron's binary arrives via
+  // a postinstall that can fail on its own, leaving node_modules/electron/
+  // present but empty — telling that user to re-run the install they already ran
+  // sends them in a circle (cost a real support round-trip, 2026-08-05).
+  if (!fs.existsSync(ltDir)) {
+    return { ok: false, error: "Lighttable needs the Flux source checkout — the packaged app doesn't bundle it." };
+  }
+  if (!fs.existsSync(path.join(ltDir, "node_modules"))) {
+    return { ok: false, error: "Lighttable's dependencies aren't installed — run `npm ci` in lighttable/." };
+  }
+  let bin = null;
   try {
     // electron's install layout: dist/<contents of path.txt> is the binary
     // (platform-dependent name) — the same resolution `require("electron")` does.
     const binName = fs
       .readFileSync(path.join(ltDir, "node_modules", "electron", "path.txt"), "utf8")
       .trim();
-    const bin = path.join(ltDir, "node_modules", "electron", "dist", binName);
-    if (!fs.existsSync(bin)) throw new Error("electron binary missing");
-    if (!fs.existsSync(path.join(ltDir, "dist", "index.html"))) {
-      return { ok: false, error: "Lighttable isn't built yet — run `npm run build` in lighttable/ once." };
-    }
+    bin = path.join(ltDir, "node_modules", "electron", "dist", binName);
+  } catch {
+    /* path.txt absent — the postinstall never ran; handled just below */
+  }
+  if (!bin || !fs.existsSync(bin)) {
+    return {
+      ok: false,
+      error:
+        "Lighttable's Electron binary is missing — its download didn't finish. Run `node node_modules/electron/install.js` in lighttable/.",
+    };
+  }
+  if (!fs.existsSync(path.join(ltDir, "dist", "index.html"))) {
+    return { ok: false, error: "Lighttable isn't built yet — run `npm run build` in lighttable/ once." };
+  }
+  try {
     const env = { ...process.env };
     // Inherited from a dev shell this would turn the child into plain Node.
     delete env.ELECTRON_RUN_AS_NODE;
@@ -1599,8 +1621,8 @@ ipcMain.handle("lighttable:launch", async () => {
     child.on("error", () => {});
     child.unref();
     return { ok: true };
-  } catch {
-    return { ok: false, error: "Lighttable isn't installed — run `npm install` in lighttable/ (source checkout only)." };
+  } catch (e) {
+    return { ok: false, error: `Lighttable failed to launch: ${e.message}` };
   }
 });
 
