@@ -211,10 +211,9 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
   {
     id: "toggle-margin",
     title: (c) => (c.marginOpen() ? "Hide dynamic margin" : "Show dynamic margin"),
-    // Mod+Shift+B joins for cross-mode consistency: it toggles the right rail
-    // in figure + slide (keyboard.ts), so it toggles paper's right rail too.
-    // (Verified absent from CM_CHORD_STRINGS — verify-paper-commands gates it.)
-    keys: ["Alt+KeyD", "Mod+Shift+KeyB"],
+    // Mod+Shift+B matches the figure + slide right-rail chord. Paper's former
+    // Alt+D binding now belongs to the Personal dictionary in CodeMirror.
+    keys: ["Mod+Shift+KeyB"],
     owner: "window",
     keywords: "panel margin sidebar dynamic right rail",
     run: (c) => c.toggleMargin(),

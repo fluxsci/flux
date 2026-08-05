@@ -3,7 +3,7 @@
 // plain vim removes the mapping); the reference hover card never overflows
 // its own edge even with a long citekey, and its "References" pill opens the
 // bibliography pane with the row untwirled; the pomodoro timer is gone from
-// the margin; Alt+D hides/shows the dynamic margin (never stealing focus from
+// the margin; Ctrl+Shift+B hides/shows the dynamic margin (never stealing focus from
 // the editor — the dynamic-margin contract); the margin can be dragged wider
 // than the old 620px cap.
 //   Run (dev server on :1420 must be up): node scripts/verify-paper-extras.mjs
@@ -230,37 +230,41 @@ await waitFor(page, () => !!document.querySelector(".leftrail"), null, {
 const leftBack = await page.evaluate(() => !!document.querySelector(".leftrail"));
 const altOOk = leftBefore && leftHidden && leftBack;
 
-// --- Alt+D round-trip: hide + show, editor keeps focus both ways -----------------
+// --- Ctrl+Shift+B round-trip: hide + show, editor keeps focus both ways -----------
 await page.evaluate(() => window.__fluxView.focus());
-const altDBefore = await page.evaluate(() => !!document.querySelector(".dynmargin"));
-await page.keyboard.down("Alt");
-await page.keyboard.press("KeyD");
-await page.keyboard.up("Alt");
+const marginBefore = await page.evaluate(() => !!document.querySelector(".dynmargin"));
+await page.keyboard.down("Control");
+await page.keyboard.down("Shift");
+await page.keyboard.press("KeyB");
+await page.keyboard.up("Shift");
+await page.keyboard.up("Control");
 await waitFor(page, () => !document.querySelector(".dynmargin"), null, {
   timeout: 3000,
   label: "dynamic margin hidden",
 }).catch(() => {});
-const altDClosed = await page.evaluate(() => ({
+const marginClosed = await page.evaluate(() => ({
   margin: !!document.querySelector(".dynmargin"),
   editorFocused: !!document.activeElement?.closest(".cm-content"),
 }));
-await page.keyboard.down("Alt");
-await page.keyboard.press("KeyD");
-await page.keyboard.up("Alt");
+await page.keyboard.down("Control");
+await page.keyboard.down("Shift");
+await page.keyboard.press("KeyB");
+await page.keyboard.up("Shift");
+await page.keyboard.up("Control");
 await waitFor(page, () => !!document.querySelector(".dynmargin"), null, {
   timeout: 3000,
   label: "dynamic margin back",
 }).catch(() => {});
-const altDOpen = await page.evaluate(() => ({
+const marginOpen = await page.evaluate(() => ({
   margin: !!document.querySelector(".dynmargin"),
   editorFocused: !!document.activeElement?.closest(".cm-content"),
 }));
-const altDOk =
-  altDBefore &&
-  !altDClosed.margin &&
-  altDClosed.editorFocused &&
-  altDOpen.margin &&
-  altDOpen.editorFocused;
+const marginToggleOk =
+  marginBefore &&
+  !marginClosed.margin &&
+  marginClosed.editorFocused &&
+  marginOpen.margin &&
+  marginOpen.editorFocused;
 
 // --- margin drags wider than the old 620px cap -----------------------------------
 const grip = await page.evaluate(() => {
@@ -302,7 +306,7 @@ const res = {
   pdfPillAbsent,
   revealOk,
   altOOk,
-  altDOk,
+  marginToggleOk,
   dragOk,
 };
 console.log(JSON.stringify({ extras: res, errs }, null, 2));

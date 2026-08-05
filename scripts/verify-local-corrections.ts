@@ -232,7 +232,7 @@ h.section("architecture pins");
   h.ok(/isolateHistory\.of\("full"\)/.test(editor), "automatic corrections are isolated into one exact undo step");
   h.ok(/input\.type\.compose/.test(editor), "IME composition is explicitly excluded");
   h.ok(/transactionFilter/.test(editor) && /sequential:\s*true/.test(editor), "alias expansion joins the delimiter's original transaction");
-  h.ok(/Prec\.highest/.test(wordTools) && /KeyK/.test(wordTools) && /KeyL/.test(wordTools), "dictionary chords precede Vim's DOM key handler");
+  h.ok(/Prec\.highest/.test(wordTools) && /KeyD/.test(wordTools) && /KeyW/.test(wordTools), "dictionary chords precede Vim's DOM key handler");
   h.ok(!/fetch\(|https?:\/\//.test(worker + service), "local correction code contains no cloud/network path");
 }
 

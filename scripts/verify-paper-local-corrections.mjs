@@ -39,13 +39,11 @@ const replaceDoc = async (text = "") => {
 };
 const doc = () => page.evaluate(() => window.__fluxView.state.doc.toString());
 const pressLocalChord = async (targetPage, key, { shift = false } = {}) => {
-  await targetPage.keyboard.down("Control");
   await targetPage.keyboard.down("Alt");
   if (shift) await targetPage.keyboard.down("Shift");
   await targetPage.keyboard.press(key);
   if (shift) await targetPage.keyboard.up("Shift");
   await targetPage.keyboard.up("Alt");
-  await targetPage.keyboard.up("Control");
 };
 
 h.section("exact product interaction");
@@ -168,6 +166,8 @@ await page.evaluate(() => {
   view.focus();
 });
 await waitFor(page, () => !!document.querySelector('.bubble [title^="Word tools"]'), null, { label: "word tools selection button" });
+const wordToolsTitle = await page.$eval('.bubble [title^="Word tools"]', (button) => button.getAttribute("title"));
+h.eq(wordToolsTitle, "Word tools  Shift+Alt+W", "Word tools hover shows the native Linux shortcut, not macOS symbols");
 await page.click('.bubble [title^="Word tools"]');
 await waitFor(page, () => !!document.querySelector(".cm-local-word-tools"), null, { label: "word tools popover" });
 const initialTools = await page.evaluate(() => ({
@@ -239,9 +239,9 @@ await page.evaluate(() => {
   view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
   view.focus();
 });
-await pressLocalChord(page, "KeyK"); // existing project entry toggles OUT
-await pressLocalChord(page, "KeyK", { shift: true }); // personal entry toggles IN
-await pressLocalChord(page, "KeyL");
+await pressLocalChord(page, "KeyD", { shift: true }); // existing project entry toggles OUT
+await pressLocalChord(page, "KeyD"); // personal entry toggles IN
+await pressLocalChord(page, "KeyW", { shift: true });
 await waitFor(page, () => !!document.querySelector(".cm-local-word-tools"), null, { label: "word tools from hotkey" });
 await waitFor(page, () => document.activeElement?.matches(".cm-local-alias-form input") ?? false, null, { label: "alias input focus" });
 const hotkeyScopes = await page.evaluate(() => ({
@@ -251,8 +251,8 @@ const hotkeyScopes = await page.evaluate(() => ({
 }));
 h.eq(hotkeyScopes, { project: "false", personal: "true", aliasFocused: true }, "scope hotkeys toggle independently and the alias hotkey focuses its input");
 await page.keyboard.press("Escape");
-await pressLocalChord(page, "KeyK", { shift: true }); // personal OUT
-await pressLocalChord(page, "KeyK"); // project IN
+await pressLocalChord(page, "KeyD"); // personal OUT
+await pressLocalChord(page, "KeyD", { shift: true }); // project IN
 
 await replaceDoc();
 await page.keyboard.type("We measured IgluSnrf4. ", { delay: 2 });
@@ -326,8 +326,8 @@ const visualSelection = await vimPage.evaluate(() => {
   return view.state.sliceDoc(range.from, range.to);
 });
 h.eq(visualSelection, "jRGECO1a", "Vim visual mode produces the same selected word contract");
-await pressLocalChord(vimPage, "KeyK");
-await pressLocalChord(vimPage, "KeyL");
+await pressLocalChord(vimPage, "KeyD", { shift: true });
+await pressLocalChord(vimPage, "KeyW", { shift: true });
 await waitFor(vimPage, () => !!document.querySelector(".cm-local-word-tools"), null, { label: "Vim visual Word tools" });
 const vimTools = await vimPage.evaluate(() => ({
   term: document.querySelector(".cm-local-word-tools-header strong")?.textContent,

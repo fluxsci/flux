@@ -43,12 +43,12 @@ technical terms help form the local vocabulary, while acronyms, mixed-case scien
 numbers, code, math, citations, links, and table source are left alone.
 
 For terms that matter, select one word — ordinary selection and Vim visual mode work the same —
-and click **Word tools** (the small book in the floating toolbar), or press **Ctrl+Alt+L**. You
+and click **Word tools** (the small book in the floating toolbar), or press **Shift+Alt+W**. You
 can recognize its spelling at either scope:
 
-- **Project** applies only inside the current Flux project. **Ctrl+Alt+K** toggles the selected
+- **Project** applies only inside the current Flux project. **Shift+Alt+D** toggles the selected
   word directly.
-- **Personal** follows you across Flux projects on this device. **Ctrl+Alt+Shift+K** toggles it.
+- **Personal** follows you across Flux projects on this device. **Alt+D** toggles it.
 
 The buttons and shortcuts are true toggles, so selecting the term again removes it just as
 quickly. Explicit dictionary terms are protected from ordinary corrections and also become
@@ -146,7 +146,7 @@ Helper panes summon beside your text and stack in one column:
 | **Alt+J** | Journal Check — the selected journal's rulebook, as advice |
 
 **Alt+P** closes the active pane, and **Escape** always returns focus to your writing.
-**Alt+D** (or **Ctrl+Shift+B**) hides the margin column entirely; the outline rail's edge
+**Ctrl+Shift+B** hides the margin column entirely; the outline rail's edge
 drags to resize. (When idle, the margin shows an ambient background — pick your scene in
 Settings › Paper.)
 

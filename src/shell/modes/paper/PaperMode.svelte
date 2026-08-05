@@ -1501,7 +1501,7 @@
   let workEl = $state<HTMLDivElement | undefined>(undefined);
   let dmDragging = $state(false);
 
-  // Alt+D round-trip: hide returns focus to the editor only when focus was
+  // Ctrl/Cmd+Shift+B round-trip: hide returns focus to the editor only when focus was
   // inside the margin; show never steals focus from where you're typing.
   function toggleMargin() {
     if (get(paperLayout).dynMarginOpen) {

@@ -265,13 +265,13 @@ export function localWordTools(resolve: () => LocalWordToolsController | null): 
   const keys = Prec.highest(EditorView.domEventHandlers({
     keydown(event, view) {
       const mod = event.metaKey || event.ctrlKey;
-      if (!mod || !event.altKey || event.getModifierState?.("AltGraph")) return false;
-      if (event.code === "KeyK") {
+      if (mod || !event.altKey || event.getModifierState?.("AltGraph")) return false;
+      if (event.code === "KeyD") {
         event.preventDefault();
-        toggleSelectedLocalWord(view, event.shiftKey ? "personal" : "project");
+        toggleSelectedLocalWord(view, event.shiftKey ? "project" : "personal");
         return true;
       }
-      if (event.code === "KeyL" && !event.shiftKey) {
+      if (event.code === "KeyW" && event.shiftKey) {
         event.preventDefault();
         openLocalWordTools(view, true);
         return true;

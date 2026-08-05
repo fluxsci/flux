@@ -5,7 +5,7 @@
 // already open); panes stack in one column splitting the height equally;
 // Alt+P closes the active pane and Ctrl+Alt+P clears all (focus → editor);
 // past the max (default 4) the oldest pane is evicted; Escape in a pane input
-// closes it back to the editor; Alt+D hides/shows the margin with open panes
+// closes it back to the editor; Ctrl+Shift+B hides/shows the margin with open panes
 // retained.
 //   Run (dev server on :1420 must be up): node scripts/verify-margin-panes.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
@@ -188,10 +188,18 @@ if (stageBox) {
   zresetOk = /translate3d\(0px, 0px, 0(px)?\) scale\(1\)/.test(await zoomer());
 }
 
-// --- Alt+D hides/shows the margin; open panes are retained -------------------------
-await alt("KeyD");
+// --- Ctrl+Shift+B hides/shows the margin; open panes are retained ------------------
+await page.keyboard.down("Control");
+await page.keyboard.down("Shift");
+await page.keyboard.press("KeyB");
+await page.keyboard.up("Shift");
+await page.keyboard.up("Control");
 const hidden = await page.evaluate(() => !document.querySelector(".dynmargin"));
-await alt("KeyD");
+await page.keyboard.down("Control");
+await page.keyboard.down("Shift");
+await page.keyboard.press("KeyB");
+await page.keyboard.up("Shift");
+await page.keyboard.up("Control");
 await sleep(200);
 const s10 = await panesState();
 const toggleOk = hidden && s10.ids.join() === "figure";

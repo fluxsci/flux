@@ -36,9 +36,9 @@ export const CM_CHORD_STRINGS = [
   // Owned by other CM layers (not this keymap, still CM territory):
   "Mod-Enter", // follow-at-caret
   "Mod-Alt-m", // comment on selection
-  "Mod-Alt-k", // toggle selection in the project dictionary
-  "Mod-Alt-Shift-k", // toggle selection in the personal dictionary
-  "Mod-Alt-l", // word tools / aliases
+  "Alt-d", // toggle selection in the personal dictionary
+  "Alt-Shift-d", // toggle selection in the project dictionary
+  "Alt-Shift-w", // word tools / aliases
   "Mod-f", // search
   // Table editing (editing/tableOps.ts tableKeymap; all fall through off-table):
   "Mod-Alt-r", // insert row below
@@ -47,6 +47,8 @@ export const CM_CHORD_STRINGS = [
   "Mod-Alt-Shift-c", // delete column
   "Mod-Alt-a", // cycle column alignment
 ] as const;
+
+const MAC_SHORTCUTS = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 export const CM_HINTS = {
   commentSelection: "⌘⌥M",
@@ -58,9 +60,9 @@ export const CM_HINTS = {
   tableColRight: "⌘⌥C",
   tableDeleteCol: "⌘⌥⇧C",
   tableAlign: "⌘⌥A",
-  projectDictionary: "⌘⌥K",
-  personalDictionary: "⌘⌥⇧K",
-  wordTools: "⌘⌥L",
+  projectDictionary: MAC_SHORTCUTS ? "⇧⌥D" : "Shift+Alt+D",
+  personalDictionary: MAC_SHORTCUTS ? "⌥D" : "Alt+D",
+  wordTools: MAC_SHORTCUTS ? "⇧⌥W" : "Shift+Alt+W",
 } as const;
 
 export const formattingKeymap = keymap.of([

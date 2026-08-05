@@ -46,7 +46,7 @@
           title: "Panels",
           items: [
             ["Alt+O", "Left panel — outline & documents (drag its edge to resize)"],
-            ["Alt+D / ⌃⇧B", "Dynamic margin"],
+            ["⌃⇧B", "Dynamic margin"],
             ["Alt+R", "Reference search"],
             ["Alt+F", "Figures"],
             ["Alt+A", "Comments"],
@@ -60,6 +60,8 @@
             ["Alt+C", "Edit citation at cursor"],
             ["⌘⌥M", "Comment on selection"],
             ["⌘⌥− / ⌘⌥=", "Figure width down / up"],
+            ["Alt+D / ⇧Alt+D", "Personal / project dictionary"],
+            ["⇧Alt+W", "Word tools and aliases"],
             ["⌘K → Export", "PDF · HTML · Word"],
           ],
         },

@@ -27,7 +27,7 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 |---|---|
 | **Ctrl+Shift+E** | Toggle edit ↔ full-width preview (**Escape** exits preview) |
 | **Alt+O** | Show/hide the left panel (outline & documents; drag its edge to resize) |
-| **Alt+D** or **Ctrl+Shift+B** | Show/hide the dynamic margin |
+| **Ctrl+Shift+B** | Show/hide the dynamic margin |
 | **Alt+R** | Reference search pane |
 | **Alt+J** | Journal Check pane |
 | **Alt+E** | Export… (file format × journal style) |
@@ -37,8 +37,8 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 | **Alt+T** or **Ctrl+`** | Terminal pane |
 | **Alt+P** / **Ctrl+Alt+P** | Close the active margin pane / close all panes |
 | **Ctrl+Alt+M** | Comment on the current selection |
-| **Ctrl+Alt+K** / **Ctrl+Alt+Shift+K** | Toggle the selected word in the project / personal dictionary |
-| **Ctrl+Alt+L** | Word tools for the selected term — dictionaries and aliases |
+| **Alt+D** / **Shift+Alt+D** | Toggle the selected word in the personal / project dictionary |
+| **Shift+Alt+W** | Word tools for the selected term — dictionaries and aliases |
 | **Ctrl+Enter** | Follow the item under the caret (figure ref → figure; citation → group editor) |
 | **Ctrl+F** / **Ctrl+Alt+F** | Find / find & replace |
 | **Ctrl+B** / **Ctrl+I** / **Ctrl+E** | Bold / italic / inline code |
