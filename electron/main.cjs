@@ -19,7 +19,7 @@ const { resolveSpawn } = require("./execResolve.cjs");
 // pinned before ANYTHING touches userData (the single-instance lock, prefs,
 // textstyles, Chromium session state). Without this, packaged builds derive
 // the capital-F dir from productName while dev + flux-core resolve lowercase.
-// See CLAUDE.md "Machine config paths"; gated by verify-fluxconfig.ts.
+// See AGENTS.md "Machine config paths"; gated by verify-fluxconfig.ts.
 app.setPath("userData", fluxPaths.userDataDir());
 
 // chokidar is ESM-only (v5); this file is CommonJS, so it must be loaded via a
@@ -1575,7 +1575,7 @@ ipcMain.handle("shell:openPath", async (_e, p) => {
 });
 
 // Launch the Lighttable sidecar (`lighttable/` beside this checkout — a separate
-// app, see CLAUDE.md "Sidecars"). A convenience spawn only: no code or state
+// app, see AGENTS.md "Sidecars"). A convenience spawn only: no code or state
 // crosses the boundary, and the child is detached so it outlives Flux. Second
 // presses are handled by Lighttable's own single-instance lock (focuses the
 // existing window). Source-checkout only — the packaged app doesn't bundle it.

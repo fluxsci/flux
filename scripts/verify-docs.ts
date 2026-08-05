@@ -42,7 +42,7 @@ ok(pages.length >= 10, `docs corpus enumerated (${pages.length} .qmd pages)`);
 ok(pages.includes("index.qmd"), "index.qmd exists (the site homepage)");
 ok(
   fs.existsSync(path.join(docsDir, "AGENT_ENGINEERING_GUIDE-RUNNING.md")),
-  "AGENT_ENGINEERING_GUIDE-RUNNING.md still lives in docs/ (CLAUDE.md depends on it)",
+  "AGENT_ENGINEERING_GUIDE-RUNNING.md still lives in docs/ (AGENTS.md depends on it)",
 );
 
 // --- 1+2. _quarto.yml: render globs + sidebar completeness -------------------

@@ -17,7 +17,7 @@
 
 Read these before running anything:
 
-1. **This is the user's machine, not the Flux dev box.** Nothing in `CLAUDE.md` /
+1. **This is the user's machine, not the Flux dev box.** Nothing in `AGENTS.md` /
    `AGENT_ENGINEERING_GUIDE-RUNNING.md` about the owner's Linux desktop, `:1420` dev
    servers, or `--ozone-platform=x11` applies here. Do not start dev servers, do not run
    the UI test tiers, do not commit or push anything.

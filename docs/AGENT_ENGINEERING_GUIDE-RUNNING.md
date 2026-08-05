@@ -2164,3 +2164,26 @@ stay in §10 here — the two must not blur). Promoted the TinyTeX PATH trap int
   documented platform set, not regressions).
 - Node 22.20 bundles **npm 11**, so npm-11 lockfile metadata (`license` fields) is not evidence
   of an off-pin Node. Do not diagnose lockfile churn from the Node version alone.
+
+### 2026-08-05 (later) — Agent instructions consolidated into `AGENTS.md` (Claude Opus 5, `main`)
+**Work:** Audited `CLAUDE.md` for vendor-specific content and found none — all six sections
+(guide pointer, Nielsen budgets, verification conventions, machine config paths, repo etiquette,
+sidecars) are harness-neutral project invariants. Moved them verbatim into `AGENTS.md`, reduced
+`CLAUDE.md` to a five-line pointer stub, and repointed the five cross-references that cite the
+invariants by section name (`electron/main.cjs` ×2, `electron/fluxPaths.cjs`,
+`scripts/verify-fluxconfig.ts`, `scripts/verify-docs.ts`, `docs/claude-install-flux-mac.md`).
+Session-log entries at §11 that mention `CLAUDE.md` were left alone — the log is history.
+**Learnings:**
+- **The invariants must live in the vendor-neutral file, not behind a pointer to a vendor-named
+  one.** The old layout had `AGENTS.md` route to `CLAUDE.md` for every hard rule, so anything
+  reading only `AGENTS.md` got a signpost with no rules. This repo has already been worked by
+  Codex (§11, 2026-07-20); the indirection was load-bearing and one-vendor-shaped for no reason.
+- The stub stays because Claude Code auto-loads `CLAUDE.md` into every session at zero cost;
+  deleting it would turn the invariants into a file agents must be told to read. Keep the
+  pointer, move the truth.
+- The three-tier split is worth preserving deliberately: `AGENTS.md` (always loaded, short) →
+  this guide (read on demand, long). Consolidation was a rename of which file holds tier two,
+  not a collapse of the tiers.
+- `resources/flux-context/TEMPLATES.md` legitimately tells *users* to write a `CLAUDE.md` in
+  their analysis dir, and `electron/agentsConfig.cjs` detects one there. Those are product
+  surface for someone else's repo — do not sweep them up in a repo-instructions refactor.

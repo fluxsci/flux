@@ -5,7 +5,7 @@
 // app ships only electron/** + dist/** and main.cjs is CommonJS, which cannot
 // load TypeScript.
 //
-// Two invariants (CLAUDE.md "Machine config paths"):
+// Two invariants (AGENTS.md "Machine config paths"):
 //   • Machine-level config resolves ONLY to the lowercase app dir
 //     (~/.config/flux on Linux). The single allowed capital-F reference is
 //     legacyUserDataDir() — the migration SOURCE, nothing else.

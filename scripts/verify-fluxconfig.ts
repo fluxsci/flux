@@ -1,5 +1,5 @@
 #!/usr/bin/env -S npx tsx
-// Machine-config path invariants (CLAUDE.md "Machine config paths").
+// Machine-config path invariants (AGENTS.md "Machine config paths").
 //   npx tsx scripts/verify-fluxconfig.ts
 //
 // 1. userDataDir is the LOWERCASE app dir on every platform, and flux-core and
