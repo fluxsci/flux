@@ -48,6 +48,7 @@
   "ensure_context",
   "export_deck",
   "fetch_pdfs",
+  "fetch_supplements",
   "get_app_context",
   "get_canvas_image",
   "get_caption",

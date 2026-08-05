@@ -196,6 +196,23 @@ server.registerTool(
 // --- FluxFinder (PDF acquisition) + FluxReader (full text + annotations) ------
 
 server.registerTool(
+  "fetch_supplements",
+  {
+    description:
+      "Download supplementary files (SI PDFs, data, videos) for FluxLib entries into items/<citekey>/supplements/, indexed in manifest.json. Repository-only: it asks Europe PMC, which covers its OPEN-ACCESS subset — a subscription paper returns 0 here and needs the GUI's “Get via library ⚿”, which captures supplements from the publisher's page. `keys` limits to specific citekeys (default: the whole library).",
+    inputSchema: { keys: z.array(z.string()).optional() },
+  },
+  async ({ keys }) => {
+    const s = await core.fetchSupplements({ keys });
+    const got = s.results.filter((r) => r.added > 0).map((r) => `  ✓ ${r.key}: ${(r.names ?? []).join(", ")}`);
+    return ok(
+      `Supplements: ${s.files} file(s) for ${s.papers} paper(s), of ${s.total} checked.` +
+        (got.length ? "\n" + got.join("\n") : "\n(Europe PMC serves supplements for its open-access subset only.)"),
+    );
+  },
+);
+
+server.registerTool(
   "fetch_pdfs",
   {
     description:
