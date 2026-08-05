@@ -5,7 +5,7 @@
 // stays visible until the fresh one lands).
 
 import { writable } from "svelte/store";
-import { listPdfKeys, hasPdfIn } from "../../../../lib/references/itemsBridge";
+import { listPdfKeys, hasPdfIn } from "./itemsBridge";
 
 export const pdfKeys = writable<Set<string>>(new Set());
 

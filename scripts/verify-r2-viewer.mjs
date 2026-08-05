@@ -4,7 +4,7 @@
 // find via PDFFindController (highlight-all + active match), and live link
 // annotations (internal dest click → page 3). Run: node scripts/verify-r2-viewer.mjs
 import { readFileSync } from "node:fs";
-import { launch, gotoApp, clickNew, clickMode, shot, realErrors, waitFor, waitForGone } from "./lib/driver.mjs";
+import { launch, gotoApp, clickNew, clickMode, shot, realErrors, waitFor } from "./lib/driver.mjs";
 
 const KEY = "fixture2026reader";
 const pdfB64 = readFileSync("scripts/fixtures/reader-sample.pdf").toString("base64");
@@ -259,17 +259,19 @@ try {
     { timeout: 8000, label: "vertical layout restored (pages stacked)" },
   );
 
-  // --- find via PDFFindController ---------------------------------------------------
-  await page.click('button[title*="Find in document"]');
-  await page.waitForSelector(".rfind-in", { timeout: 4000 });
-  await page.type(".rfind-in", "conscious");
+  // --- find via PDFFindController (now driven from the left rail's Search pane) ------
+  await page.keyboard.down("Control");
+  await page.keyboard.press("f");
+  await page.keyboard.up("Control");
+  await page.waitForSelector(".srchin", { timeout: 4000 });
+  await page.type(".srchin", "conscious");
   // 200ms input debounce + controller pass end in a painted count + highlights
   await waitFor(
     page,
     () => {
-      const c = document.querySelector(".rfind-count")?.textContent?.trim() ?? "";
+      const c = document.querySelector(".srchcount")?.textContent?.trim() ?? "";
       return (
-        /^[1-9]\d*\/[1-9]\d*$/.test(c) &&
+        /^\d+ of [1-9]\d*$/.test(c) &&
         document.querySelectorAll(".textLayer .highlight").length >= 2 &&
         !!document.querySelector(".textLayer .highlight.selected")
       );
@@ -277,20 +279,26 @@ try {
     null,
     { timeout: 8000, label: "find results painted (count + highlights + active)" },
   ).catch(() => {});
-  const count = await page.$eval(".rfind-count", (el) => el.textContent.trim());
-  ok("find reports a match count", /^[1-9]\d*\/[1-9]\d*$/.test(count), count);
+  const count = await page.$eval(".srchcount", (el) => el.textContent.trim());
+  ok("find reports a match count", /^\d+ of [1-9]\d*$/.test(count), count);
   const hlAll = await page.$$eval(".textLayer .highlight", (els) => els.length);
   ok("highlight-all paints matches in the text layer", hlAll >= 2, `${hlAll} painted`);
   ok("active match styled", !!(await page.$(".textLayer .highlight.selected")));
+  const rows = await page.$$eval(".hit", (els) => els.length);
+  ok("the pane lists every match as a result row", rows >= 2, `${rows} rows`);
   await page.keyboard.press("Enter"); // next
-  await waitFor(page, (c0) => (document.querySelector(".rfind-count")?.textContent?.trim() ?? "") !== c0, count, {
+  await waitFor(page, (c0) => (document.querySelector(".srchcount")?.textContent?.trim() ?? "") !== c0, count, {
     label: "find stepped to the next match",
   }).catch(() => {});
-  const count2 = await page.$eval(".rfind-count", (el) => el.textContent.trim());
+  const count2 = await page.$eval(".srchcount", (el) => el.textContent.trim());
   ok("Enter steps to the next match", count2 !== count, `${count} → ${count2}`);
   await shot(page, "r2-04-find");
-  await page.keyboard.press("Escape");
-  await waitForGone(page, ".rfind-in", { timeout: 4000 });
+  await page.keyboard.press("Escape"); // clears the query, keeps the pane
+  await waitFor(page, () => (document.querySelector(".srchin")?.value ?? "x") === "", null, {
+    timeout: 4000,
+    label: "Escape clears the search",
+  }).catch(() => {});
+  ok("Escape clears the query but keeps the Search pane", !!(await page.$(".srchin")));
 
   // --- link annotations live ----------------------------------------------------------
   await page.evaluate(() => document.querySelector('.pdf-page[data-page="1"]')?.scrollIntoView());

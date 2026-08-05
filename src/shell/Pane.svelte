@@ -40,7 +40,7 @@
     </header>
   {/if}
   <div class="body">
-    <ModeContent mode={pane.mode} {focused} />
+    <ModeContent mode={pane.mode} {focused} paneId={pane.id} />
   </div>
 </section>
 

@@ -48,6 +48,12 @@
     textColor: '<path d="M4 20h16"/><path d="m6 16 6-12 6 12"/><path d="M8 12h8"/>',
     // ---- toolbar / chrome ----
     panelLeft: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+    // Rail toggles: the sidebar half is FILLED, so on/off reads at a glance.
+    panelLeftFill:
+      '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M3.6 3.6h5v16.8h-5z" fill="currentColor" stroke="none" opacity="0.55"/>',
+    panelRight: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
+    panelRightFill:
+      '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="M15.4 3.6h5v16.8h-5z" fill="currentColor" stroke="none" opacity="0.55"/>',
     textFlow: '<path d="M21 6H3"/><path d="M15 12H3"/><path d="M17 18H3"/>',
     page: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/>',
     fileText:

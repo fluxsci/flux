@@ -13,10 +13,15 @@ const ok = (name, cond, extra = "") => {
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${extra ? ` — ${extra}` : ""}`);
   if (!cond) fails++;
 };
+// Reader tabs keep recently-viewed papers mounted (hidden), so probes must scope to
+// the ACTIVE document — a bare selector can land on a background tab's toolbar.
+const ACT = '[data-doc-active="true"]';
 const waitRendered = () =>
-  page.waitForFunction(() => Number(document.querySelector('[data-testid="pdf-root"]')?.dataset.rendered || 0) >= 1, {
-    timeout: 20000,
-  });
+  page.waitForFunction(
+    (act) => Number(document.querySelector(`${act} [data-testid="pdf-root"]`)?.dataset.rendered || 0) >= 1,
+    { timeout: 20000 },
+    ACT,
+  );
 
 try {
   await gotoApp(page);
@@ -90,11 +95,13 @@ try {
   }
 
   // --- per-paper view persistence ------------------------------------------------------
+  // With tabs, "reopen" summons the still-live instance (state preserved in place);
+  // the cold-reopen localStorage path is r7-tabs' live-cap leg.
   await page.keyboard.press("+");
   await page.keyboard.press("+");
   await sleep(500);
-  const savedPct = await page.$eval(".zpct", (el) => parseInt(el.textContent));
-  await page.$eval(".pgin", (el) => {
+  const savedPct = await page.$eval(`${ACT} .zpct`, (el) => parseInt(el.textContent));
+  await page.$eval(`${ACT} .pgin`, (el) => {
     el.value = "2";
     el.dispatchEvent(new Event("change", { bubbles: true }));
   });
@@ -102,13 +109,13 @@ try {
   await page.evaluate(() => window.__fluxOpenReader("r5paperB"));
   await waitRendered();
   await sleep(500);
-  const freshPct = await page.$eval(".zpct", (el) => parseInt(el.textContent));
+  const freshPct = await page.$eval(`${ACT} .zpct`, (el) => parseInt(el.textContent));
   ok("a fresh paper opens at its own default (fit width)", Math.abs(freshPct - savedPct) > 2, `${freshPct}% vs ${savedPct}%`);
   await page.evaluate(() => window.__fluxOpenReader("r5paperA"));
   await waitRendered();
   await sleep(700);
-  const restoredPct = await page.$eval(".zpct", (el) => parseInt(el.textContent));
-  const restoredPage = await page.$eval(".pgin", (el) => el.value);
+  const restoredPct = await page.$eval(`${ACT} .zpct`, (el) => parseInt(el.textContent));
+  const restoredPage = await page.$eval(`${ACT} .pgin`, (el) => el.value);
   ok("zoom restored on reopen", Math.abs(restoredPct - savedPct) <= 2, `${restoredPct}% vs saved ${savedPct}%`);
   ok("page restored on reopen", restoredPage === "2", `page ${restoredPage}`);
   await shot(page, "r5-02-restored");

@@ -128,7 +128,7 @@ try {
       "utf8",
     );
     const { createHash } = await import("node:crypto");
-    for (const name of ["PAGINATOR", "LIVE_SCROLL"]) {
+    for (const name of ["PAGINATOR", "LIVE_SCROLL", "TBLFIT"]) {
       const m = rm.match(new RegExp("const " + name + " = `([\\s\\S]*?)`;"));
       assert(m, `9.1: ${name} inline script found in renderManuscript.ts`);
       const hash = "sha256-" + createHash("sha256").update(m![1], "utf8").digest("base64");

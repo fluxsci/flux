@@ -209,6 +209,21 @@ Persistence invariants (all machine-checked — do not weaken):
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
+  **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
+  `science/tableModel.ts`, markdown-it-faithful because the export feeds the same text to
+  markdown-it — escaped `\|` (escapedSplit port), header/delimiter column-count equality,
+  terminator-based body absorption (pipe-less prose under a table IS a row), fence/display-math
+  suspension in byte-parity with `refNumbers.ts`. Editing ops + Tab/Enter cell navigation live
+  in `editing/tableOps.ts`; auto-reflow is a `transactionFilter` that appends the pipe re-padding
+  to the SAME transaction (one undo unit, caret re-derived by cell+offset) and fires ONLY on
+  user input/delete events — undo, IME composition, and external/agent reloads never reformat
+  (text is truth). Widget cells render inline md/math/refs via `mdInline` resolver hooks
+  (signature-diffed in updateDOM); a cell click routes the caret to its source cell through the
+  `tableHandlers` seam; the wrap is `width:0; min-width:100%` so a wide table scrolls inside
+  `.flux-tablescroll` instead of pushing cm-content past the pane (the editor's line-wrapping
+  `overflow-wrap` is reset on the wrap — inherited, it mid-word-breaks cell numbers). The
+  renderer binds table+caption into one `.tblblock` (paginator unit; over-wide tables zoom-fit,
+  floor 0.55) — its inline scripts are CSP-hashed (PAGINATOR/LIVE_SCROLL/TBLFIT, w12 gate).
 - **Slide mode edits through the figure store** (slide-migration, 2026-07): a
   deck loads as projected figures on the synthetic `"deck"` canvas
   (`deckProject.ts`), the shared Canvas (`frame` prop) / Inspector
@@ -245,6 +260,27 @@ Persistence invariants (all machine-checked — do not weaken):
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
   identity (`store.set({ ...o })`) when mutating in place.
+- **The reader is multi-document** (reader-tabs, 2026-08-04): `readerStore.readerTabs`
+  ({tabs, active}, persisted to localStorage `flux-reader-tabs`) is the open-paper strip;
+  `readerKey` is a READ-ONLY derived view meaning "the focused pane's paper" (the
+  `__fluxReaderKey`/`get_reading_context` contract). Everything scoped to one paper lives in
+  `ReaderDoc.svelte` (`citekey` immutable per instance — a switch mounts a fresh one);
+  `ReaderMode` is the shell: tab strip, keep-alive (`MAX_LIVE_DOCS = 3`, MRU,
+  ModeContent-style visibility flip — warm tab switch is instantaneous; cold tabs restore
+  page/zoom from `flux-reader-view:<key>`, flushed on destroy), and the ONE shared-terminal
+  mount (`agentPane` snippet rendered by the active doc only; across panes the host is claimed
+  via `readerTerminalPane`). Split panes: `paneId` threads Pane → ModeContent → mode;
+  a reader pane shows `paneActiveTab[paneId] ?? readerTabs.active`, with every reader pane
+  PINNED to its current paper before any re-target (one pane's change never retargets the
+  other). reader-context.json has a single writer (module-level owner token; only the
+  focused doc publishes, only the last writer clears). Same-paper-in-two-panes annotation
+  sync rides `annotationsBridge.annotationsRev` (one bump per in-app write; writers
+  skip their own by count — the fs watcher suppresses self-write echoes, so
+  fluxLibRevision never covered in-renderer cross-view sync). Gates: `group:reader-gate`
+  (15 scripts) + the `src/shell/modes/reader/**` pathMap entry; tab semantics pinned in
+  `verify-r7-tabs.mjs`. Gate-selector rule: probes must scope to
+  `[data-doc-active="true"]` (hidden kept-alive docs are in the DOM) and to panes BY INDEX
+  (every `.pane` sits alone in a `.slot` wrapper, so `:first/last-child` match both).
 - Electron: `main.cjs` is a **composition root**; handler families live in
   `electron/ipc/{contract,files,terminal,network,agent}.cjs`. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
@@ -347,7 +383,7 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
   on this box need `--ozone-platform=x11` (§9).
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
-  `group:paper-gate` is the paper editor's regression suite (15 scripts).
+  `group:paper-gate` is the paper editor's regression suite (16 scripts).
 
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
@@ -1785,6 +1821,164 @@ idempotence; registry goldens regenerated (3 new verbs). check 0/0, pure 149/149
   so a new canvas's backfill figure APPENDS instead of claiming "Figure 1".
 - `EmbedWidget.eq()`/`updateDOM` compare cached display fields — a new derived field
   (`captionLabel`) MUST join those comparisons or family renumbering never repaints embeds.
+
+### 2026-08-04 — Reader tabs + two PDFs side by side (Claude Fable 5, `reader-tabs`)
+**Work:** Owner request: open several papers without re-finding them, and two PDFs at once.
+Three commits: (1) behavior-preserving extraction of `ReaderDoc.svelte` (~90% of ReaderMode;
+`citekey` immutable per instance kills the staleness guards; the shared terminal stays in the
+shell — one mount, `agentPane` snippet rendered by the active doc; reader-context.json gains a
+module-level owner token; `ReaderFind` gains a `key` so fresh mounts ignore stale find intents)
+— the full existing reader suite green with only two source-shape regex retargets (r3/p4).
+(2) Tabs: `readerTabs` store (persisted `flux-reader-tabs`, lazy session restore),
+`readerKey` now a read-only derived view, keep-alive `MAX_LIVE_DOCS = 3` with destroy-time
+view flush, tab strip (`ReaderTabs.svelte`), Ctrl+Tab/W/PageUp/Down chords, `verify-r7-tabs`
+(46 checks), NEW `group:reader-gate` + the previously-MISSING `src/shell/modes/reader/**`
+pathMap entry. (3) Split: `paneId` threads Pane → ModeContent → mode; `paneActiveTab`
+per-pane assignments with pin-before-retarget; Alt-click a tab → `openReaderTabInSplit`;
+`annotationsRev` cross-view sync; `readerTerminalPane` exclusivity. Architecture promoted to
+§4. Also fixed rotted `verify-w5-lifecycle` (pre-families raw `name` write → nickname).
+**Learnings:**
+- pdf.js viewers survive `visibility:hidden` keep-alive fine (scroll/zoom state intact on
+  reveal) — the ModeContent pattern generalizes to N documents within a mode unchanged.
+- A restored-at-boot document instance mounts before dev-seed hooks can run — gates that
+  reload the page must treat the boot-active tab as load-degraded and assert lazy activation
+  instead (real disk reads don't have this race).
+- Cross-view sync of a store that components ALSO update optimistically needs writer
+  self-suppression by COUNT (one bump per bridge mutation, unconditional even on no-op
+  updates) — reload-on-own-write would transiently duplicate keyed-each ids and cold the
+  locate cache.
+- Pane-scoped gate probes: every `.pane` is alone in its `.slot`, so `.pane:first-child` AND
+  `.pane:last-child` both match — and puppeteer clicks the first. Scope by index +
+  coordinate-click (real pointerdown so the pane's focus capture fires).
+- A selection-anchored popover renders off-viewport when the target page is scrolled away
+  (top: -1200px) and a coordinate click on it silently no-ops — navigate the page into view
+  before driving selection UI.
+
+### 2026-08-04 (later) — Reader panels: rails, Cited-by, row PDFs, Alt+R library (Claude Fable 5, `reader-tabs`)
+**Work:** Owner's screenshot review of the reader. Both sidebars are now drag-resizable
+(new `readerLayoutStore.ts`, key `flux.reader.layout`; the FigureMode `railDrag` factory +
+CSS vars on `.rbody`, gutters as flex siblings OUTSIDE the scrolling asides, dblclick
+resets) — widths are module-global while VISIBILITY stays per-paper in `flux-reader-view`.
+Left rail gained a **Cited by** tab (forward citations through the already-shipped
+`citingWorksByKey`; Most-cited ⇄ Newest toggle, ⟳ refresh, and a new derived cache
+`<FluxLib>/.fluxlib/citers.json` — deliberately NOT in enrich.json, whose grid projection
+strips exactly this kind of heavy edge field; a citer list also grows forever, so it needs
+a refresh story a reference list doesn't). Reference/citer rows share ONE `briefRow`
+snippet and offer **Open PDF** when the brief is in FluxLib with a PDF on disk (batched
+`pdfPresence` store, hoisted `modes/paper/scholar/` → `lib/references/`; DOI now opens via
+`fileBridge.openExternal`, the house call). **Alt+R** summons a library-search panel in the
+right rail (new `ReaderLibraryPanel.svelte`, `query.ts`'s `createQueryRunner` +
+`attachHaystacks`, no debounce — §6 flags the Library's 150ms as a bug, not a pattern); it
+is a PANEL, sticky in `readerLayout.rightTab`, and Escape deliberately does not dismiss it.
+Tab drag-reorder (live reorder as the pointer crosses a neighbour's midpoint; keyed each
+means no document remounts). New gate `verify-r8-reader-panels.mjs` (30 checks) joins
+`group:reader-gate` (16); `listPdfKeys` now counts dev-seeded items so the row affordance is
+drivable headlessly. check 0/0, pure 149/149, reader-gate 16/16.
+**Learnings:**
+- **Reader PDF residency is ~2× per open doc, and item 1.6 of the V1 readiness review is
+  CLOSED, not deferred** (review line 97; line 514 is the superseded open-items entry — an
+  earlier note in this session repeated it wrongly). pdf.js passes `data.buffer` in the
+  postMessage TRANSFER list (`GetDocRequest`, pdfjs-dist 6.1.200), so the bytes are detached
+  into the worker rather than cloned — which is exactly why `PdfView` copies the master
+  first (`buffer.slice(0)`): without the copy, the transfer would detach the doc's own
+  buffer and break Switch-PDF and external-change remounts. Only the master-buffer
+  re-architecture (re-read from disk instead of holding a renderer copy) is unbuilt, and it
+  was judged unwarranted. Verify claims like this against `node_modules` before repeating them.
+- A gate that needs a real FluxLib must boot `?fixture=demo`, not `clickNew` — `ensureFluxLib()`
+  returns null without a resolvable lib, so `__fluxSeedScaleLibrary` silently seeds nothing
+  (`{lib: null, entries: 0}`) and every library-dependent assertion fails for the wrong reason.
+- `createQueryRunner()` returns the runner FUNCTION itself, not an object with `.run`.
+
+### 2026-08-04 (later) — Paper tables: full editing tier + rich cells + export fit (Claude Fable 5, `reader-tabs`)
+**Work:** Owner-reported table rendering/formatting issues → implemented the B3 editing tier in
+full. New shared grammar `science/tableModel.ts` (markdown-it-faithful parse + canonical
+serializer + TSV/CSV converters), `editing/tableOps.ts` (Tab/Shift-Tab/Enter cell nav, row/col/
+align ops, same-transaction auto-reflow via transactionFilter), `science/tablePaste.ts`
+(TSV→table outside, Excel-splice inside, pipe-escaping), rich widget cells (inline md + lazy
+KaTeX + resolved cites/crossrefs via mdInline resolver hooks), widget cell-click→source +
+hover bar (+Row/+Col/Format/Copy-as-TSV) + Alt-click header alignment, @tbl-/@eq- completion,
+tbl/eq hover-card branches, jump-to-table (fixed the `revealFigure("")` no-op), labeled /table
+snippet, and export: table+caption bound into one `.tblblock` with zoom-to-fit for over-wide
+tables (PAGINATOR/TBLFIT CSP hashes refreshed). Gates: verify-table-model.ts,
+verify-table-ops.ts (pure), verify-paper-tables.mjs (ui, 28 checks); paper-gate now 19.
+check 0/0, pure 152/152, paper-gate 19/19, scale-paper 7/7. Docs: paper.qmd Tables section
+(also fixed the false `@sec-` claim), shortcuts.qmd.
+**Learnings:**
+- **verify-scale-paper's sentinel offsets were stale**: it precomputed all three burst positions,
+  then each burst's 18 inserts shifted the later sentinels — the "cell" burst actually typed at
+  the table's HEADER-line start (corrupting the fixture into a header/delim column mismatch the
+  markdown-it-faithful parser rightly rejects) and the "cite" burst typed OUTSIDE the group.
+  Offsets are now recomputed per burst, and the cite anchor moved out of the table field's
+  guardLines — co-located anchors measured table rebuilds, not cite machinery.
+- `.cm-lineWrapping`'s `overflow-wrap` INHERITS into block widgets: table cells mid-word-broke
+  ("1.11" → "1."/"11") until the wrap reset it. And a widget's min-content propagates through
+  the scroller's flex sizing — `width:0; min-width:100%` on the widget is the canonical cut.
+- Chromium cannot text-select inside a `contenteditable=false` island nested in an editable
+  host — widget text selection is a dead end; cell-click-to-source + a Copy-as-TSV button are
+  the better interaction anyway.
+- puppeteer's `mouse.click(x, y, {clickCount: 2})` alone does NOT synthesize a `dblclick` DOM
+  event here — use the figenh-16 recipe (down/up, then down/up with clickCount 2, no move
+  between). CDP-level "real" dblclick testing is otherwise silently skipped.
+- A transactionFilter returning `[tr, {changes, sequential: true, selection}]` merges into ONE
+  transaction and one undo unit — the right shape for typing-time normalization. Gate it on
+  `isUserEvent("input")||("delete")` and composition, or undo/agent edits get reformatted.
+
+### 2026-08-04 — Outline missed headings until the next keystroke (Claude Fable 5, `reader-tabs`)
+**Work:** Owner-reported: well-formed headings absent from the paper outline until you type at
+(or near) their line. Root cause: `getOutline` walked the bare `syntaxTree(state)` — CodeMirror
+parses lazily (init ≈ first 3k chars, edits parse only to the viewport, the background worker
+commits progress via NON-doc-change transactions and stops ~100k past the viewport) — while the
+outline refreshed only on `docChanged`, so headings past the parsed prefix never arrived. Fix:
+`getOutline` forces a bounded whole-doc parse (`ensureSyntaxTree(state, doc.length, 50)`, the
+livePreview pattern, partial-tree fallback); PaperMode gained a parse-progress listener
+(`!docChanged && syntaxTree(u.state) !== syntaxTree(u.startState)` → `scheduleIdle`) and
+`refreshIdleNow` self-reschedules while `!syntaxTreeAvailable` so giant docs converge. New gate
+`verify-outline-refresh.mjs` (ui + paper-gate, now 16) — teeth proven: fails pre-fix on a ~950k
+doc's tail heading, passes post-fix; paper-gate 16/16, check 0/0.
+**Learnings:**
+- **Bare `syntaxTree(state)` is a partial tree** — any whole-document consumer must
+  `ensureSyntaxTree(state, state.doc.length, budget) ?? syntaxTree(state)` AND re-run when the
+  parser catches up, because worker commits are `docChanged === false` transactions that
+  `onChange`-driven refreshes never see. Viewport-scoped consumers (chips) are exempt.
+- The background parser never parses past viewport + 100k chars on its own; a consumer that
+  needs the WHOLE tree on a giant doc must keep pulling (self-rescheduling idle tick on
+  `!syntaxTreeAvailable`) or the tail stays unparsed forever.
+
+### 2026-08-04 (evening) — Reader UX cleanup: search pane, panel chords, terminal drawer (Claude Fable 5, `reader-tabs`)
+**Work:** Owner's annotated-screenshot pass. (1) The inline find bar and its magnifier are
+GONE: Ctrl+F now opens a **Search tab** in the left rail listing every match with context,
+grouped by outline section (falling back to per-page) — new pure core
+`src/lib/pdf/findMatches.ts` (`groupMatches`, gated by `verify-reader-search.ts`) plus three
+PdfView exports: `collectMatches()` (read off the find controller's own `pageMatches` +
+folded page text, so the list can never disagree with the painted highlights),
+`goToMatch()`, and `outlineSections()` (dests resolved to page numbers via `getPageIndex`).
+(2) The `☰ References (n)` and `Notes (n) ✎` text buttons became panelLeft/panelRight icons
+(filled when open); Ctrl+B / Ctrl+Shift+B toggle the rails, Alt+A opens the Annotations tab,
+Alt+R still the Library tab. (3) The ✦ Ask AI toolbar button is retired and Ctrl+J with it —
+**Alt+T** toggles the terminal (matching Paper), the drawer resizes by dragging its top edge
+(`readerLayout.terminalH`, dblclick resets), and both ✦ affordances now read "Send passage to
+terminal" (the user is assumed to have an agent running there). (4) Tab drag-reorder.
+Gates: r8 grew to 55 checks; r2/r7/scale-reader find legs repointed at the pane (contract
+changed deliberately — the counter is now "N of M" and the pane lists every hit); r3's
+popover pin follows `askClaudeAbout` → `sendHighlightToTerminal`. pure 150/150, check 0/0.
+**Learnings:**
+- **pdf.js's find controller re-reports its position several times per advance** (and again
+  after a jump lands). Driving UI state from `updatefindmatchescount` makes the counter walk
+  backwards; the fix is to let OUR match list own "which hit is current" and treat the
+  controller as a paint engine. Same trap in reverse: dispatching a step per event
+  double-advances and wraps — dedupe on the position you stepped from.
+- **Never dispatch a `find` while the controller has a page pending extraction** — it logs
+  "There can only be one pending page." and the reader gates fail on console errors. Worse,
+  its own resume guard is `if (this._resumePageIdx)`, so page index 0 is falsy and a fresh
+  search landing on page 1 trips the check from inside pdf.js. Jump by STEPPING an
+  already-scanned query (type "again"), never by re-issuing type "" — a fresh find resets
+  and re-extracts every page.
+- A gate that clicks "the last result row" must select `li:last-child .hit`, not
+  `.hit:last-child` — a button that is its `<li>`'s only child matches `:last-child` in
+  EVERY row, and puppeteer clicks the first. This produced a convincing false failure.
+- Retiring a chord means grepping the GATES too: Ctrl+J lived on in r7's split legs and the
+  inline find bar in r2/r7/scale-reader. `group:reader-gate` caught all of them in one run —
+  the pathMap entry added earlier that day paid for itself immediately.
 
 ### 2026-08-04 — Export system: file format × journal style, first preset Nature (Claude Fable 5, `export-styles`)
 **Work:** Built the export system end to end in a worktree off `main` (6 commits): the export

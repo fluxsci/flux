@@ -16,36 +16,84 @@ page height; **Ctrl+scroll** or a pinch zooms at the cursor), a page-layout pick
 **Home/End** work as you'd expect, and after you follow a link or outline entry, the **←**
 button in the toolbar takes you back to where you were.
 
-Two sidebars flank the page:
+The panel icons at each end of the toolbar show and hide the sidebars — **Ctrl+B** for the
+left one, **Ctrl+Shift+B** for the right.
+
+Two sidebars flank the page, and both are **drag-resizable** — pull the edge beside either
+one, or double-click it to go back to the default width. The left sidebar has four tabs:
 
 - **References** — the paper's own reference list (once the paper is
   [enriched](library.qmd#enrich)): each entry expands to its abstract, can be added to your
-  library with **+ FluxLib**, or opened by DOI.
+  library with **+ FluxLib**, or opened by DOI. When an entry is already in your library
+  *and* its PDF is on disk, the row offers **Open PDF** — one click and it's a new tab.
+- **Cited by** — the papers that cite *this* one, looked up from OpenAlex. Sort by **Most
+  cited** (influential follow-ups first) or **Newest**, and hit **⟳** to re-query. The list
+  is cached, so coming back to it is instant and works offline; rows behave exactly like
+  reference rows, Open PDF included. (Needs the paper enriched, for its OpenAlex id.)
+- **Search** — find-in-document, below.
 - **Outline** — the PDF's bookmarks, click to jump.
 
-Each paper remembers its own page, zoom, and layout between sessions.
+Each paper remembers its own page, zoom, and layout between sessions; the sidebar widths are
+a workspace setting shared by every paper.
+
+# Searching your library while you read
+
+**Alt+R** — the same chord as the manuscript writer's reference search — opens a **Library**
+panel in the right sidebar, next to your annotations. Search the whole reference library by
+title, author, year, journal, or citekey (`author:siclari year:2017` works, as in the
+Library), and open any hit's **PDF** as a tab or its **DOI** in your browser. Papers already
+open as tabs are marked. The panel is a panel, not a popup: it stays until you switch back to
+the **Annotations** tab, so you can keep it beside you while you read.
+
+# Tabs
+
+Every paper you open becomes a **tab** in the strip above the toolbar, so a few papers stay a
+click apart — no re-finding them in the Library. Opening an already-open paper just focuses
+its tab. Switching between recently viewed tabs is instant, with your page, zoom, and even a
+search in progress exactly as you left them; tabs you haven't looked at in a while reload on
+demand, restored to their remembered page and zoom.
+
+- **Ctrl+Tab** / **Ctrl+Shift+Tab** (or **Ctrl+PageDown** / **Ctrl+PageUp**) cycle through tabs.
+- **Ctrl+W**, a **middle-click**, or the tab's **×** closes one — the next tab over takes its place.
+- **Drag a tab** along the strip to reorder it.
+- Your open tabs (and which was active) come back when you restart Flux.
+
+## Two papers side by side
+
+**Alt-click** (or **Cmd-click**) a tab to open that paper in a second pane beside the current
+one — compare a method against the paper that introduced it, or keep a review open while you
+read. Each pane has its own tab strip and switches independently; tab shortcuts act on the
+pane you're focused in. You can even show the *same* paper in both panes — a highlight made
+in one appears in the other. (Alt-clicking the Reader icon in the top bar splits too, as in
+every mode.)
 
 # Highlights and notes
 
 Select any text and a small color menu appears — five highlight colors (yellow, green, blue,
 pink, orange). Click one and the highlight is saved. Click a highlight later to open its
-popover: recolor it, attach a **comment**, copy the text, or delete it. The **Notes** sidebar
-lists every annotation with its page; click one to scroll to it, and edit or delete from there.
+popover: recolor it, attach a **comment**, copy the text, or delete it. The right sidebar's
+**Annotations** tab (**Alt+A**) lists every annotation with its page; click one to scroll to
+it, and edit or delete from there.
 
 Annotations are anchored by the quoted text (with a little context on each side), not by pixel
 positions — so they re-attach correctly even if the PDF is re-fetched. If a paper's text
 changes so much that a quote can't be found, the note is kept and marked *detached* rather
 than lost.
 
-**Export notes…** (in the Notes sidebar, and on the paper's row in the Library) writes all of a
+**Export notes…** (on the Annotations tab, and on the paper's row in the Library) writes all of a
 paper's highlights and comments to a tidy Markdown file — grouped by page, quotes with your
 notes beneath, citation and DOI in the header — ready to drop into your own notes system.
 
-# Find
+# Search
 
-**Ctrl+F** opens find-in-document: matches highlight throughout, **Enter** / **Shift+Enter**
-step forward and back, **Escape** closes. (Arriving from a full-text `ft:` search in the
-Library lands you here with the search already active.)
+**Ctrl+F** opens the **Search** tab in the left sidebar. Every match in the document is
+listed there with the text around it, grouped by the section it falls in (or by page, for
+PDFs without a bookmark outline) — so you can see all your hits at once instead of stepping
+blindly through them. Click any result to jump straight to it, or work through them in order
+with **‹ ›** (or **Enter** / **Shift+Enter** in the query box). Matches stay highlighted
+throughout the document, with the current one picked out. **Escape** clears the query and
+leaves the pane open. (Arriving from a full-text `ft:` search in the Library lands you here
+with the search already run.)
 
 # Figures and snips
 
@@ -70,14 +118,18 @@ The **⧉ PDF** switcher in the toolbar flips between the main paper and its sup
 files, and **Add supplement…** attaches new ones. Supplements live beside the paper in your
 library; highlights always anchor to the main text.
 
-# Ask AI
+# The terminal
 
-**✦ Ask AI** (**Ctrl+J**) opens the shared terminal pane — run `flux principal` there and
-you have [your standing collaborator](../agents/collaboration.qmd) beside the paper. The **✦**
-button on a text selection or a highlight *prefills* a grounded question about that exact
-passage (it never sends on its own — you press Enter). Agents can also read your live reading
-context — which paper, which page, your highlights — so "what does this figure mean?" needs no
-copy-pasting.
+**Alt+T** opens a terminal drawer under the paper — run `flux principal` (or `claude`,
+`codex`, whatever you use) there and you have
+[your collaborator](../agents/collaboration.qmd) beside the paper. Drag the drawer's top edge
+to resize it; double-click that edge to reset it.
+
+Select any text and press the **✦** button that appears — or the one on a highlight's
+popover — to **send that passage to the terminal**. It is typed in for you, never sent, so
+you can add your own question before pressing Enter. Whatever agent is running there can also
+read your live reading context — which paper, which page, your highlights — so "what does this
+figure mean?" needs no copy-pasting.
 
 # Troubleshooting
 

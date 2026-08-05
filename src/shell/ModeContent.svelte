@@ -21,7 +21,9 @@
   import { DUR } from "../lib/motion/tokens";
   import type { ModeId } from "./shellStore";
 
-  let { mode, focused = false }: { mode: ModeId; focused?: boolean } = $props();
+  // paneId threads through to the mode component so multi-instance modes (reader
+  // split panes) can key per-pane state; modes that don't declare it ignore it.
+  let { mode, focused = false, paneId = "" }: { mode: ModeId; focused?: boolean; paneId?: string } = $props();
 
   // Cap kept-alive modes per pane. Beyond this, evict the least-recently-used mode
   // that is CLEAN (never a dirty one — its unsaved edits would be lost) — its
@@ -90,7 +92,7 @@
     <!-- First-mount-only intro: the keyed block persists across switches, so
          revealing an already-visited mode is a cheap visibility flip, not a replay. -->
     <div class="mc" class:hidden={m !== mode} inert={m !== mode} in:fadeRise={{ duration: DUR.gentle, y: 10 }}>
-      <Comp focused={focused && m === mode} active={m === mode} />
+      <Comp focused={focused && m === mode} active={m === mode} {paneId} />
     </div>
   {/if}
 {/each}

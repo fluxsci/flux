@@ -423,7 +423,14 @@ function titleBlock(meta: any): string {
 // Client-side paginator for the paginated preview: distribute the rendered
 // top-level blocks into fixed letter-height sheets with page numbers. A block
 // taller than a page simply gets its own page (figures use break-inside:avoid).
-const PAGINATOR = `(function(){function run(){var src=document.getElementById('flux-src'),pages=document.getElementById('flux-pages');if(!src||!pages)return;var blocks=[].slice.call(src.children);var maxH=880,no=0,body=null;function nl(){no++;var p=document.createElement('div');p.className='page';var b=document.createElement('div');b.className='page-body';var n=document.createElement('div');n.className='page-num';n.textContent=no;p.appendChild(b);p.appendChild(n);pages.appendChild(p);body=b;}nl();blocks.forEach(function(el){body.appendChild(el);if(body.scrollHeight>maxH&&body.children.length>1){body.removeChild(el);nl();body.appendChild(el);}});if(src.parentNode)src.parentNode.removeChild(src);}if(document.readyState!=='loading')run();else document.addEventListener('DOMContentLoaded',run);})();`;
+// Tables ride as ONE .tblblock unit (table + caption, wrapped post-render), and
+// an over-wide table zooms down to the column (floor 0.55 — Chromium zoom is
+// layout-true, so page packing measures the shrunken height).
+const PAGINATOR = `(function(){function fit(el){if(!el.classList||!el.classList.contains('tblblock'))return;var t=el.querySelector('table');if(!t)return;var w=el.clientWidth;if(t.scrollWidth>w+1)t.style.zoom=Math.max(0.55,w/t.scrollWidth);}function run(){var src=document.getElementById('flux-src'),pages=document.getElementById('flux-pages');if(!src||!pages)return;var blocks=[].slice.call(src.children);var maxH=880,no=0,body=null;function nl(){no++;var p=document.createElement('div');p.className='page';var b=document.createElement('div');b.className='page-body';var n=document.createElement('div');n.className='page-num';n.textContent=no;p.appendChild(b);p.appendChild(n);pages.appendChild(p);body=b;}nl();blocks.forEach(function(el){body.appendChild(el);fit(el);if(body.scrollHeight>maxH&&body.children.length>1){body.removeChild(el);nl();body.appendChild(el);}});if(src.parentNode)src.parentNode.removeChild(src);}if(document.readyState!=='loading')run();else document.addEventListener('DOMContentLoaded',run);})();`;
+
+// The same wide-table fit for the CONTINUOUS sheet (screen preview, HTML
+// export, and continuous-mode printToPDF — which would otherwise clip).
+const TBLFIT = `(function(){function fit(){[].forEach.call(document.querySelectorAll('.tblblock'),function(b){var t=b.querySelector('table');if(!t)return;t.style.zoom='';var w=b.clientWidth;if(t.scrollWidth>w+1)t.style.zoom=Math.max(0.55,w/t.scrollWidth);});}if(document.readyState!=='loading')fit();else document.addEventListener('DOMContentLoaded',fit);})();`;
 
 export interface RenderResult {
   full: string; // complete standalone HTML document
@@ -481,6 +488,18 @@ export async function renderManuscript(
     void i;
   });
 
+  // Bind every table to its caption as ONE block — <figure class="tblblock">
+  // around the <table> (in a .tblscroll overflow container) and the caption
+  // <p class="cap"> that follows it. The paginator moves top-level children
+  // one at a time, so an unwrapped pair could land on different pages; the
+  // scroll/zoom fit rides the same wrapper. `<p class="cap"` is emitted ONLY
+  // by the table-caption branch above (figures use <figcaption>).
+  html = html.replace(
+    /(<table>[\s\S]*?<\/table>)(\s*<p class="cap"[^>]*>[\s\S]*?<\/p>)?/g,
+    (_m: string, tbl: string, cap: string | undefined) =>
+      `<figure class="tblblock"><div class="tblscroll">${tbl}</div>${cap ?? ""}</figure>`,
+  );
+
   // Restore inline math LAST (after block/caption substitution, so math inside
   // captions renders too): the bare-alphanumeric placeholders came through
   // markdown untouched; each becomes its KaTeX span here.
@@ -494,7 +513,7 @@ export async function renderManuscript(
   const live = opts.live ? `<script>${LIVE_SCROLL}</script>` : "";
   const bodyInner = opts.paginated
     ? `<div id="flux-src" style="position:absolute;left:-9999px;width:6.5in">${inner}</div><div id="flux-pages"></div><script>${PAGINATOR}</script>${live}`
-    : `<div class="sheet">${inner}</div>${live}`;
+    : `<div class="sheet">${inner}</div><script>${TBLFIT}</script>${live}`;
   // Self-contained KaTeX CSS (fonts inlined) rides along ONLY when the doc has math —
   // the export must render identically as a srcdoc preview and under printToPDF.
   const katexStyle =

@@ -59,7 +59,13 @@ figcaption.sized { max-width: none; }
 figcaption b, .cap b { color: #100f0f; }
 table { border-collapse: collapse; width: 100%; margin: 0.6em auto; font-size: 0.93em; page-break-inside: avoid; }
 th, td { border: 1px solid var(--rule); padding: 5px 11px; text-align: left; }
-th { background: #f4f0e8; font-weight: 700; }
+th { background: #f4f0e8; font-weight: 700; white-space: nowrap; }
+/* Table + caption travel as ONE block (the paginator moves top-level children
+   one at a time); wide tables scroll on screen and zoom-fit for print. */
+.tblblock { margin: 1em 0; page-break-inside: avoid; break-inside: avoid; }
+.tblblock .tblscroll { overflow-x: auto; }
+.tblblock table { margin: 0; }
+.tblblock .cap { margin-top: 0.55em; }
 blockquote { margin: 1em 0; padding-left: 1em; border-left: 3px solid var(--rule); color: var(--muted); font-style: italic; }
 .callout { margin: 1.2em 0; border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 6px; padding: 0.7em 1em; background: #f7f4ee; page-break-inside: avoid; }
 .callout-label { font-weight: 700; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); margin-bottom: 0.3em; }

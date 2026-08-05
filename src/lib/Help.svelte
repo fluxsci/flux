@@ -154,6 +154,15 @@
           ],
         },
         {
+          title: "Tabs",
+          items: [
+            ["⌃Tab / ⌃⇧Tab", "Next / previous tab (also ⌃PageDown / ⌃PageUp)"],
+            ["⌃W", "Close the active tab (middle-click a tab works too)"],
+            ["Alt / ⌘-click a tab", "Open that paper in a split pane"],
+            ["Drag a tab", "Reorder the strip"],
+          ],
+        },
+        {
           title: "Zoom",
           items: [
             ["+ / −", "Zoom in / out"],
@@ -161,13 +170,21 @@
           ],
         },
         {
+          title: "Panels",
+          items: [
+            ["⌃B / ⌃⇧B", "Show/hide the left / right sidebar"],
+            ["⌘F", "Search this PDF (results list in the left sidebar)"],
+            ["Alt+R / Alt+A", "Library search / annotations (right sidebar)"],
+            ["Alt+T", "Terminal drawer (drag its top edge to resize)"],
+          ],
+        },
+        {
           title: "Actions",
           items: [
-            ["⌘F", "Find in the PDF"],
-            ["⌘J", "Ask Claude about this paper"],
+            ["✦ on a selection", "Send that passage to the terminal"],
             ["Alt+drag", "Pop a page region out into a floating panel"],
             ["Ctrl+Alt+drag", "Snip a region → PNG in plots/paper_snips (with citation)"],
-            ["Esc", "Close find / popover"],
+            ["Esc", "Close the topmost menu / popover"],
           ],
         },
       ],

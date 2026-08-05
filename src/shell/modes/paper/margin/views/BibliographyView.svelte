@@ -6,7 +6,7 @@
   // WS-4.2: per-editor numbering comes through the margin host (was a module
   // store import — a cross-pane singleton).
   import { refRevealReq } from "../refReveal";
-  import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../scholar/pdfPresence";
+  import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../../../../lib/references/pdfPresence";
   import { revealReader } from "../../../../scholar/nav";
   import { fileBridge } from "../../../../../lib/project/types";
 

@@ -84,7 +84,10 @@
       "verify-zotero-sync.ts",
       "verify-organize.ts",
       "verify-paper-refnums.ts",
+      "verify-table-model.ts",
+      "verify-table-ops.ts",
       "verify-pdfidentify.ts",
+      "verify-reader-search.ts",
       "verify-r1-hlgeom.ts",
       "verify-r3-agent.ts",
       "verify-r4-cite.ts",
@@ -92,7 +95,6 @@
       "verify-refformat.ts",
       "verify-embed-normalize.ts",
       "verify-export-qmd.ts",
-      "verify-export-prep.ts",
       "verify-scaffold.ts",
       "verify-sync-render.ts",
       "verify-slide-assets.ts",
@@ -152,6 +154,7 @@
       "verify-tokens-sync.ts",
       "verify-registry-parity.ts",
       "verify-paste-decide.ts",
+      "verify-export-prep.ts",
       "verify-journalstyle.ts",
       "verify-nature-style.ts",
       "verify-writer-neutral.ts",
@@ -172,7 +175,9 @@
       "verify-fig-width.mjs",
       "verify-citegroup.mjs",
       "verify-paper-extras.mjs",
+      "verify-outline-refresh.mjs",
       "verify-figref.mjs",
+      "verify-paper-tables.mjs",
       "verify-w18-paper.mjs",
       "verify-paper-export.mjs",
       "verify-paper-math.mjs",
@@ -272,6 +277,8 @@
       "verify-r5-figure.mjs",
       "verify-snip-cite-gui.mjs",
       "verify-r6-supplement.mjs",
+      "verify-r7-tabs.mjs",
+      "verify-r8-reader-panels.mjs",
       "verify-w1-toast.mjs",
       "verify-w10-matrix.mjs",
       "verify-w17-gestures.mjs",
@@ -325,6 +332,7 @@
       "verify-fig-width.mjs",
       "verify-citegroup.mjs",
       "verify-paper-extras.mjs",
+      "verify-outline-refresh.mjs",
       "verify-figref.mjs",
       "verify-figfamily.ts",
       "verify-citenum.ts",
@@ -334,8 +342,30 @@
       "verify-embed-chip.mjs",
       "verify-embed-caption.mjs",
       "verify-embed-normalize.ts",
+      "verify-table-model.ts",
+      "verify-table-ops.ts",
+      "verify-paper-tables.mjs",
       "verify-nature-style.ts",
       "verify-writer-neutral.ts"
+    ],
+    "reader-gate": [
+      "verify-r1-highlights.mjs",
+      "verify-r2-viewer.mjs",
+      "verify-r4-links.mjs",
+      "verify-r5-figure.mjs",
+      "verify-r6-supplement.mjs",
+      "verify-r7-tabs.mjs",
+      "verify-r8-reader-panels.mjs",
+      "verify-snip-gui.mjs",
+      "verify-snip-cite-gui.mjs",
+      "verify-fulltext-gui.mjs",
+      "verify-lib-actions.mjs",
+      "verify-scale-reader.mjs",
+      "verify-r3-agent.ts",
+      "verify-p4-libreader.ts",
+      "verify-r1-hlgeom.ts",
+      "verify-r4-cite.ts",
+      "verify-reader-search.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -367,6 +397,21 @@
       ]
     },
     {
+      "glob": "src/lib/exportQmd.ts",
+      "run": [
+        "verify-export-qmd.ts",
+        "verify-embed-normalize.ts",
+        "verify-export-prep.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/exportPrep.ts",
+      "run": [
+        "verify-export-prep.ts",
+        "verify-export-qmd.ts"
+      ]
+    },
+    {
       "glob": "scripts/verify-*",
       "run": [
         "self",
@@ -388,6 +433,27 @@
       ]
     },
     {
+      "glob": "src/shell/modes/reader/**",
+      "run": [
+        "group:reader-gate",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/pdf/**",
+      "run": [
+        "group:reader-gate",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/references/{citersCache,pdfPresence}.ts",
+      "run": [
+        "group:reader-gate",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "src/lib/figfamily.ts",
       "run": [
         "verify-figfamily.ts",
@@ -400,15 +466,7 @@
       "glob": "src/lib/exportQmd.ts",
       "run": [
         "verify-export-qmd.ts",
-        "verify-embed-normalize.ts",
-        "verify-export-prep.ts"
-      ]
-    },
-    {
-      "glob": "src/lib/exportPrep.ts",
-      "run": [
-        "verify-export-prep.ts",
-        "verify-export-qmd.ts"
+        "verify-embed-normalize.ts"
       ]
     },
     {

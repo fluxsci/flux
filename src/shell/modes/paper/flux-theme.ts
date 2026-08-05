@@ -387,25 +387,67 @@ export const fluxTheme = EditorView.theme(
     },
 
     /* ---- tables (B3) ----------------------------------------------------- */
-    ".flux-tablewrap": { margin: "0", padding: "0.7em 0 1.4em", userSelect: "none" },
+    /* Selectable (native selection — the widget opts out of CodeMirror's mouse
+       handling, so a rendered cell can be copied) and hover-actionable. The
+       shell root is user-select:none, so "text" must be EXPLICIT here — plain
+       removal just inherits none. */
+    ".flux-tablewrap": {
+      position: "relative",
+      margin: "0",
+      padding: "0.7em 0 1.4em",
+      userSelect: "text",
+      // width:0 + min-width:100%: the widget contributes ZERO min-content to
+      // the editor's flex sizing (a wide table would otherwise push cm-content
+      // past the pane and put a horizontal scrollbar on the WHOLE editor),
+      // then stretches back to the text measure — overflow happens inside
+      // .flux-tablescroll, where it belongs.
+      width: "0",
+      minWidth: "100%",
+      // Reset the editor's line-wrapping context (.cm-lineWrapping inherits
+      // overflow-wrap/white-space into widgets): without this, cell numbers
+      // break ANYWHERE ("1.11" → "1." / "11") and a wide table crushes into
+      // word soup instead of overflowing into its scroll container.
+      whiteSpace: "normal",
+      overflowWrap: "normal",
+      wordBreak: "normal",
+    },
+    /* Wide tables scroll inside their own container instead of crushing the
+       columns into per-word wrap soup. */
+    ".flux-tablescroll": { overflowX: "auto" },
     ".flux-table": {
       borderCollapse: "collapse",
       width: "100%",
       fontSize: "0.95em",
       fontVariantNumeric: "tabular-nums",
     },
+    /* Spreadsheet cursor: a rendered cell is a TARGET — clicking it puts the
+       caret into that cell's source text. */
     ".flux-table th, .flux-table td": {
       border: "1px solid var(--c-line)",
       padding: "6px 13px",
       lineHeight: "1.5",
+      minWidth: "3.5ch",
+      cursor: "cell",
     },
     ".flux-table th": {
       background: "var(--c-surface)",
       color: "var(--c-tx-hi)",
       fontWeight: "600",
+      whiteSpace: "nowrap", // headers set their column's floor; body text wraps
     },
     ".flux-table td": { color: "var(--c-tx-2)" },
     ".flux-table tbody tr:hover td": { background: "var(--c-surface)" },
+    /* Inline content inside cells (mdInline resolver output). */
+    ".flux-table .mdi-ref": { color: "var(--c-accent-bright)", whiteSpace: "nowrap" },
+    ".flux-table .mdi-cite": { color: "var(--c-accent-bright)" },
+    ".flux-table code, .flux-table-cap code": {
+      fontFamily: "var(--font-mono)",
+      fontSize: "0.88em",
+      background: "var(--c-surface)",
+      padding: "0 4px",
+      borderRadius: "var(--r-1)",
+    },
+    ".mdi-math.pending": { fontFamily: "var(--font-mono)", color: "var(--c-tx-muted)" },
     ".flux-table-cap": {
       margin: "0.6em auto 0",
       maxWidth: "60ch",
@@ -415,6 +457,32 @@ export const fluxTheme = EditorView.theme(
       textAlign: "center",
     },
     ".flux-table-cap b": { color: "var(--c-accent-bright)", fontWeight: "700" },
+    ".flux-table-cap .mdi-ref, .flux-table-cap .mdi-cite": { color: "var(--c-accent-bright)" },
+    /* Hover action bar (the embed-bar pattern). */
+    ".flux-table-bar": {
+      position: "absolute",
+      top: "12px",
+      right: "4px",
+      display: "flex",
+      gap: "4px",
+      opacity: "0",
+      transition: "opacity var(--dur-quick, 120ms) var(--ease-standard, ease)",
+    },
+    ".flux-tablewrap:hover .flux-table-bar": { opacity: "1" },
+    ".flux-table-bar button": {
+      font: "inherit",
+      fontSize: "0.78em",
+      color: "var(--c-tx-2)",
+      background: "var(--c-surface)",
+      border: "1px solid var(--c-line-strong)",
+      borderRadius: "var(--r-1)",
+      padding: "3px 8px",
+      cursor: "pointer",
+    },
+    ".flux-table-bar button:hover": {
+      color: "var(--c-tx-hi)",
+      borderColor: "var(--c-accent)",
+    },
 
     /* ---- comment highlights (C1) ----------------------------------------- */
     ".cm-comment-hl": {

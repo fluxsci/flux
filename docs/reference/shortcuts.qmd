@@ -45,6 +45,11 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 | **Ctrl+Shift+K** | Insert link |
 | **Ctrl+Alt+−** / **Ctrl+Alt+=** | Figure embed width down / up (caret on the embed line) |
 | **Ctrl+Shift+[** / **Ctrl+Shift+]** | Fold / unfold the current section (macOS: **⌘⌥[** / **⌘⌥]**) |
+| **Tab** / **Shift+Tab** | In a table: next / previous cell (Tab past the last cell adds a row) |
+| **Enter** | In a table: add a row below (on an empty last row: leave the table) |
+| **Ctrl+Alt+R** / **Ctrl+Alt+Shift+R** | Table: add row below / delete row |
+| **Ctrl+Alt+C** / **Ctrl+Alt+Shift+C** | Table: add column right / delete column |
+| **Ctrl+Alt+A** | Table: cycle the column's alignment (also **Alt+click** a rendered header cell) |
 
 Typing triggers: **@** cite · **@@** figure-reference picker · **/** block palette at the
 start of a line. Vim mode (plain or flux-ViM) is enabled from the palette —
@@ -128,16 +133,23 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 
 | Shortcut | Action |
 |---|---|
-| **Ctrl+F** | Find in document (**Enter** / **Shift+Enter** step matches) |
+| **Ctrl+F** | Search this PDF — opens the Search tab (**Enter** / **Shift+Enter** step matches) |
+| **Ctrl+B** / **Ctrl+Shift+B** | Show/hide the left / right sidebar |
+| **Alt+A** | Annotations pane (right sidebar) |
+| **Alt+T** | Terminal drawer (drag its top edge to resize) |
 | **+** / **−** / **0** | Zoom in / out / fit width |
 | **PageUp** / **PageDown** | Previous / next page |
 | **Home** / **End** | First / last page |
-| **Ctrl+J** | Toggle the Ask-AI terminal pane |
-| **Escape** | Close the topmost thing (menu → popover → find → terminal) |
+| **Ctrl+Tab** / **Ctrl+Shift+Tab** | Next / previous tab (also **Ctrl+PageDown** / **Ctrl+PageUp**) |
+| **Ctrl+W** | Close the active tab (middle-click a tab works too) |
+| **Alt+click** a tab | Open that paper in a split pane beside this one |
+| **Alt+R** | Search your reference library in the right sidebar |
+| **Escape** | Close the topmost thing (menu → popover → terminal) |
 
 Mouse: select text → highlight colors appear · **Alt+drag** = pop out a figure region ·
 **Ctrl+Alt+drag** = save a [paper snip](../modes/reader.qmd#figures-and-snips) ·
-**Ctrl+wheel** / pinch = zoom at the cursor.
+**Ctrl+wheel** / pinch = zoom at the cursor · drag a tab to reorder it · drag a sidebar edge
+to resize it (double-click resets).
 
 # Library
 

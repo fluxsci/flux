@@ -44,6 +44,7 @@
     type CitePreviewRequest,
   } from "../../../lib/pdf/citePreview";
   import type { PDFDocumentProxy } from "../../../lib/pdf/pdfjs";
+  import type { FindMatch, OutlineSection } from "../../../lib/pdf/findMatches";
 
   let {
     buffer,
@@ -66,11 +67,12 @@
     scrollTo = null,
     find = null,
     onFind,
+    onMatchList,
   }: {
     buffer: ArrayBuffer;
     annotations?: Annotation[];
     /** False on a supplement PDF — highlights anchor to the main paper only, so the
-     *  selection menu hides its colour dots (✦ Ask Claude stays available). */
+     *  selection menu hides its colour dots (✦ send-to-terminal stays available). */
     canHighlight?: boolean;
     /** Externally-hovered annotation id (e.g. a sidebar row) → its on-page boxes glow. */
     hoverId?: string | null;
@@ -78,7 +80,7 @@
      *  selection is then kept alive so the user can retry. */
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void | boolean | Promise<void | boolean>;
     onSelect?: (text: string, page?: number) => void;
-    /** ✦ on the selection menu — ask Claude about the selected passage (R3). */
+    /** ✦ on the selection menu — send the selected passage to the terminal (R3). */
     onAskSelection?: (text: string, page: number) => void;
     /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
     onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
@@ -107,6 +109,8 @@
      *  match on a new query or next/prev on the same one. null clears the search. */
     find?: { query: string; nonce: number; dir: "first" | "next" | "prev" } | null;
     onFind?: (r: { total: number; index: number; page: number }) => void;
+    /** Every match with its surrounding text, for the sidebar's result list. */
+    onMatchList?: (matches: FindMatch[]) => void;
   } = $props();
 
   // See Reader R1: highlights blend at the LAYER level (multiply) with isolation on the
@@ -306,6 +310,7 @@
   // The nonce-driven `find` prop protocol is unchanged for ReaderMode; internally it
   // forwards to the controller over the event bus (highlight-all, diacritic folding,
   // cross-span matching — the old hand-rolled index/overlay stack is gone).
+  let findCtl: PDFFindController | null = null;
   let lastFindNonce = -1;
   let lastQuery = "";
   $effect(() => {
@@ -321,6 +326,8 @@
     }
     if (f.nonce === lastFindNonce) return;
     lastFindNonce = f.nonce;
+    jumpTarget = null; // an explicit search/step supersedes any pending click-to-jump
+    jumpRestart = false;
     const again = f.query === lastQuery && f.dir !== "first";
     lastQuery = f.query;
     bus.dispatch("find", {
@@ -338,6 +345,136 @@
     const m = e.matchesCount;
     if (!m || !viewer) return;
     onFind?.({ total: m.total ?? 0, index: (m.current ?? 0) - 1, page: viewer.currentPageNumber });
+    onMatchList?.(collectMatches());
+  }
+  /** Same reporting, plus the click-to-jump convergence. Stepping must only happen from
+   *  a SETTLED scan: a "find again" dispatched while the controller still has a page
+   *  pending text extraction makes it log "There can only be one pending page." */
+  function onFindState(e: { matchesCount?: { current?: number; total?: number } }) {
+    onMatchesCount(e);
+    advanceJump(e.matchesCount?.current ?? 0);
+  }
+
+  /** Every match in document order, with the surrounding text for a result list.
+   *  Read off the find controller's own scan (pageMatches + the page text it folded),
+   *  so the list can never disagree with what the viewer highlights. */
+  function collectMatches(): FindMatch[] {
+    const fc = findCtl as unknown as {
+      pageMatches?: number[][];
+      pageMatchesLength?: number[][];
+      _pageContents?: string[];
+    } | null;
+    if (!fc?.pageMatches || !fc._pageContents) return [];
+    const CTX = 44;
+    const out: FindMatch[] = [];
+    for (let p = 0; p < fc.pageMatches.length; p++) {
+      const offsets = fc.pageMatches[p] ?? [];
+      const lens = fc.pageMatchesLength?.[p] ?? [];
+      const text = fc._pageContents[p] ?? "";
+      for (let i = 0; i < offsets.length; i++) {
+        const start = offsets[i];
+        const len = lens[i] ?? 0;
+        out.push({
+          index: out.length,
+          page: p + 1,
+          matchInPage: i,
+          before: text.slice(Math.max(0, start - CTX), start).replace(/\s+/g, " "),
+          hit: text.slice(start, start + len),
+          after: text.slice(start + len, start + len + CTX).replace(/\s+/g, " "),
+        });
+      }
+    }
+    return out;
+  }
+
+  /** Jump to one match by its position in collectMatches(). Public API only: park the
+   *  viewer on the match's page so a fresh search selects that page's first hit, then
+   *  CONVERGE on the target — the controller reports its current match (1-based, global)
+   *  on every scan update, and `jumpTarget` steps toward it from there. Dispatching the
+   *  steps blind races pdf.js's asynchronous page scan and lands on the wrong hit. */
+  let jumpTarget: number | null = null;
+  let jumpRestart = false;
+  let jumpFrom = -1; // the position the last step was dispatched from
+  let jumpBudget = 0;
+  function dispatchFind(query: string, again: boolean, previous = false) {
+    bus?.dispatch("find", {
+      source: null,
+      type: again ? "again" : "",
+      query,
+      caseSensitive: false,
+      entireWord: false,
+      highlightAll: true,
+      findPrevious: previous,
+      matchDiacritics: false,
+    });
+  }
+  /** Drive a pending jump one step. NOTHING may be dispatched while the controller has a
+   *  page pending text extraction — it logs "There can only be one pending page." — so
+   *  every step waits for a settled scan and resumes from the next find event. */
+  function advanceJump(current = 0): void {
+    if (jumpTarget === null) return;
+    const fc = findCtl as unknown as { _resumePageIdx?: number | null } | null;
+    if (fc?._resumePageIdx != null) return; // still extracting — resume on the next event
+    if (jumpRestart) {
+      jumpRestart = false;
+      // A STEP, never a fresh search: type:"" resets the controller and re-extracts every
+      // page, and pdf.js's resume guard treats page index 0 as falsy — a jump to a hit on
+      // page 1 then trips its own "There can only be one pending page." The query is
+      // already scanned (the result list came from that scan), so stepping is all we need.
+      dispatchFind(lastQuery, true, false);
+      return;
+    }
+    if (current <= 0) return;
+    if (current === jumpTarget || jumpBudget-- <= 0) {
+      jumpTarget = null;
+      return;
+    }
+    // The controller re-reports the same position more than once per step; stepping on
+    // each of those double-advances and wraps past the target (2 → wrap → 1).
+    if (current === jumpFrom) return;
+    jumpFrom = current;
+    const back = current > jumpTarget;
+    queueMicrotask(() => {
+      if (jumpTarget !== null) dispatchFind(lastQuery, true, back);
+    });
+  }
+  export function goToMatch(m: { index: number; page: number }, query: string): void {
+    if (!bus || !viewer || status !== "ready" || !query) return;
+    pushNav();
+    viewer.currentPageNumber = m.page; // park first — the page is visible before the
+    // selection catches up
+    lastQuery = query;
+    lastFindNonce = -1; // the parent's nonce protocol must not fight this jump
+    jumpTarget = m.index + 1; // the controller counts from 1
+    jumpBudget = 200; // a long match list still converges; the cap kills any ping-pong
+    jumpRestart = true;
+    jumpFrom = -1;
+    advanceJump();
+  }
+
+  /** Outline entries with their resolved page numbers, so a result list can label
+   *  matches by SECTION. Empty when the PDF has no outline (many manuscripts). */
+  export async function outlineSections(): Promise<OutlineSection[]> {
+    if (!pdfDoc) return [];
+    let flat: FlatOutlineItem[];
+    try {
+      flat = flattenOutline(await pdfDoc.getOutline());
+    } catch {
+      return [];
+    }
+    const out: OutlineSection[] = [];
+    for (const item of flat) {
+      try {
+        let dest = item.dest;
+        if (typeof dest === "string") dest = await pdfDoc.getDestination(dest);
+        const ref = Array.isArray(dest) ? dest[0] : null;
+        if (!ref || typeof ref !== "object") continue;
+        out.push({ title: item.title, page: (await pdfDoc.getPageIndex(ref as never)) + 1 });
+      } catch {
+        /* an unresolvable dest just doesn't contribute a section boundary */
+      }
+    }
+    return out.sort((a, b) => a.page - b.page);
   }
 
   // --- scroll-to (annotation jump): page first, then refine to the exact highlight.
@@ -715,6 +852,7 @@
     bus = new EventBus();
     const linkService = new PDFLinkService({ eventBus: bus, externalLinkTarget: LinkTarget.BLANK });
     const findController = new PDFFindController({ eventBus: bus, linkService, updateMatchesCountOnProgress: true });
+    findCtl = findController;
     const pdfViewer = new PDFViewer({
       container: host,
       viewer: viewerDiv,
@@ -751,7 +889,7 @@
     });
     bus.on("scalechanging", (e: { scale: number }) => onScale?.(e.scale));
     bus.on("updatefindmatchescount", onMatchesCount);
-    bus.on("updatefindcontrolstate", onMatchesCount);
+    bus.on("updatefindcontrolstate", onFindState);
 
     const base = new URL("pdfjs/", document.baseURI).href; // dev: http://…/pdfjs/  prod: file://…/dist/pdfjs/
     // .create (not `new`): the constructor's upstream .d.ts mis-types `port` as null.
@@ -859,7 +997,7 @@
       {/if}
       {#if onAskSelection}
         {#if canHighlight}<span class="mdiv"></span>{/if}
-        <button class="mask" title="Ask Claude about this passage" aria-label="Ask Claude about this passage" onclick={askSelection}>✦</button>
+        <button class="mask" title="Send passage to terminal" aria-label="Send passage to terminal" onclick={askSelection}>✦</button>
       {/if}
     </div>
   {/if}

@@ -56,13 +56,38 @@ automatically. Hover the figure for width controls (50% · 75% · 100% · Auto �
 grip), and **Open in Figure** jumps to editing it.
 
 Reference a figure with `@fig-...` — it becomes a live **"Fig 3"** chip whose number stays
-correct as figures are added, removed, or reordered (`@tbl-`, `@sec-`, and `@eq-` work the same
-way for tables, sections, and equations). Type **@@** for the figure picker, which can also
-select specific panels (*Fig 3a,c*). **Double-click** any reference chip to jump to the thing
-it points to; **Ctrl+Enter** follows the reference under the caret.
+correct as figures are added, removed, or reordered (`@tbl-` and `@eq-` work the same way for
+tables and equations, with their own autocomplete). Type **@@** for the figure picker, which
+can also select specific panels (*Fig 3a,c*). **Double-click** any reference chip to jump to
+the thing it points to — a table or equation reference scrolls the editor to its source;
+**Ctrl+Enter** follows the reference under the caret.
 
-Tables and display math follow the same pattern as embeds: the source stays as a compact
-editable line, the rendered table or equation appears below it, numbered when labeled.
+# Tables
+
+Insert a table with `/table` — it arrives labeled and numbered, with the first header cell
+selected so you can just start typing. The pipe-text source stays visible and editable; the
+rendered table sits beneath it, and everything in the cells renders properly: **bold**,
+`code`, math like `$x^2$`, citations, even references to other tables.
+
+Editing is spreadsheet-shaped:
+
+- **Tab** / **Shift+Tab** move between cells (Tab past the last cell adds a row);
+  **Enter** adds a row below — press it on an empty last row to leave the table.
+- The pipes align themselves as you type — no manual space-pushing.
+- **Ctrl+Alt+R** adds a row, **Ctrl+Alt+C** a column (**+Shift** deletes one);
+  **Ctrl+Alt+A** cycles the column's alignment, as does **Alt+click** on a rendered
+  header cell.
+- **Click any rendered cell** to put the caret in its source; hover the table for
+  **+ Row · + Col · Format · Copy** (Copy puts the table on the clipboard tab-separated,
+  ready for Excel or Sheets).
+- **Paste from Excel/Sheets** and the copied cells become a table — pasted outside one they
+  insert a fresh table; pasted inside one they fill cells from the caret. CSV converts via
+  **Ctrl+K → Paste as table**.
+
+A table is numbered once it has a caption line — `: Your caption {#tbl-name}` below it —
+which `/table` writes for you. Wide tables scroll in the editor and shrink-to-fit on export
+so nothing gets cut off. Display math follows the same pattern: source line, rendered block
+below, numbered when labeled.
 
 # The margin
 

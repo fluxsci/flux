@@ -564,7 +564,7 @@ app.whenReady().then(async () => {
   if (DEV_URL) {
     const { session } = require("electron");
     const DEV_CSP =
-      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-6r/g91Y6qywRU/8dPpMiyLq5Ksg9R0WzHQFByvJ8jqA=' 'sha256-8Yu/cmPzQpyhF7nWdsKoaj4FeP+hooq1bXRxlVz1CLE='; style-src 'self' 'unsafe-inline'; " +
+      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-Q5r/0YfmAtc2/to6EHsX0PaBtKO7BSpnAkNsqnhWKas=' 'sha256-8Yu/cmPzQpyhF7nWdsKoaj4FeP+hooq1bXRxlVz1CLE=' 'sha256-F6i5nGBIqfoaCOZiZzX7PEXC7HagpdnrdJHeF3PJ3rU='; style-src 'self' 'unsafe-inline'; " +
       "img-src 'self' data: blob:; font-src 'self' data:; " +
       "connect-src 'self' ws://localhost:1420 ws://127.0.0.1:1420 http://localhost:1420 http://127.0.0.1:1420; " +
       "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'self'; form-action 'none'";
