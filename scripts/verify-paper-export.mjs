@@ -160,7 +160,12 @@ ok(/onExport=\{openExportDialog\}/.test(pm), "StatusBar wired to open the export
 ok(/async function cancelExport/.test(pm) && /quartoCancel/.test(pm), "cancel path invokes quartoCancel");
 
 const main = readFileSync("electron/main.cjs", "utf8");
-ok(/quarto:render", async \(e, \{ root, to, docPath, profile, outPath, token \}\)/.test(main), "quarto:render accepts docPath + profile/outPath/token");
+// Assert the FIELDS the handler destructures, not their exact order or the
+// full list — a later field addition should not fail a gate about docPath.
+const renderSig = (/quarto:render",\s*async\s*\(e,\s*\{([^}]*)\}\)/.exec(main) ?? [, ""])[1];
+for (const field of ["root", "to", "docPath", "profile", "outPath", "token"]) {
+  ok(new RegExp(`\\b${field}\\b`).test(renderSig), `quarto:render accepts ${field}`);
+}
 ok(/\^\[a-z0-9-\]\{1,32\}\$/.test(main), "profile name is slug-validated before it reaches the command line");
 ok(/fsGuard\(destAbs\)/.test(main), "the requested output path clears fsGuard before anything is written");
 ok(/quarto:cancel/.test(main) && /SIGTERM/.test(main) && /SIGKILL/.test(main), "cancel kills the render (escalating if it ignores SIGTERM)");

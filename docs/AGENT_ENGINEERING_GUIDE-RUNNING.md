@@ -1785,3 +1785,52 @@ idempotence; registry goldens regenerated (3 new verbs). check 0/0, pure 149/149
   so a new canvas's backfill figure APPENDS instead of claiming "Figure 1".
 - `EmbedWidget.eq()`/`updateDOM` compare cached display fields — a new derived field
   (`captionLabel`) MUST join those comparisons or family renumbering never repaints embeds.
+
+### 2026-08-04 — Export system: file format × journal style, first preset Nature (Claude Fable 5, `export-styles`)
+**Work:** Built the export system end to end in a worktree off `main` (6 commits): the export
+dialog (format × style, output path for EVERY format, progress + cancel, Alt+E) over ONE shared
+prep core (`src/lib/exportPrep.ts` — the include walker and the transform/restore dance existed
+twice, in flux-core and PaperMode, with their own INCLUDE_RE); the journal-style core
+(`src/lib/style/**` — sparse versioned descriptors merged over a DEFAULT that reproduces today's
+export byte-for-byte); the Nature preset; journal Word + PDF via a vendored CSL, a generated Word
+reference-doc and an ephemeral Quarto `--profile`; section roles + export-time ordering
+(`src/lib/manuscript/sections.ts`); and Journal Check (`compliance.ts` + an Alt+J margin pane).
+Nature's rules were established twice — nature.com plus an empirical count over 88 Nature-proper
+PDFs in the owner's FluxLib — and the corpus corrected the docs twice over.
+**Learnings:**
+- **A journal style is EXPORT-ONLY; the writer never restyles** (owner decision). This does NOT
+  violate the editor/export parity invariant that `references/format.ts:6-11` and
+  `citeNumbering.ts:1-10` warn about: that warning is about ORDINALS AND IDENTITY diverging (the
+  editor saying reference 5 while the export says 7). Presentation differing while numbering and
+  `(family, number)` stay shared is a different thing entirely. `verify-writer-neutral.ts` pins it,
+  including a source pin that six editor-owned modules import no style module at all.
+- `exportCtxFigures` (`scholar/figures.ts`) was ALREADY the export-only projection of figure
+  identity, so styling the export is a wrapper around one line there. Look for the seam that
+  already exists before opening up an invariant — an earlier draft was going to relax
+  `familyMap`'s rule that project data can never shadow builtin families, and did not need to.
+- **Flux auto-formats what it OWNS; it advises on what the author typed.** FluxProjection contains
+  "Gao Figure 2D establishes …" — another paper's figure, 3× — and the original plan would have
+  rewritten it to house style, corrupting a citation. Worse, suppressing only the mention adjacent
+  to the author name is not enough: authors introduce "Gao Figure 2D" once and write plain
+  "Figure 2D" after, so a number seen ONCE beside an author is foreign for the whole document.
+- A surname heuristic needs a not-a-surname list, or "See Fig. 2a-c" reads as an author called See
+  and silences real advice. Both misses were caught by writing the firing AND silent fixture for
+  every rule.
+- Quarto `--profile` + `_quarto-<name>.yml` is how to style a render without ever editing the
+  user's `_quarto.yml` or their front matter. Two traps: a YAML literal block's content must be
+  indented DEEPER than its `text: |` key or Quarto rejects the profile, and `pdf` and `latex` are
+  separate format keys — settings under `pdf:` do not reach `--to latex`.
+- Word line numbering is a SECTION property (`w:lnNumType` in `sectPr`), which pandoc copies from
+  `--reference-doc`. `scripts/gen-reference-docx.mjs` builds that template from pandoc's own
+  default so the committed artifact is reproducible rather than hand-made.
+- **lualatex, not pdflatex, for science manuscripts** — verified, not assumed: pdflatex fails
+  outright on "α (U+03B1)". Journal PDF also needs `lineno`, `setspace`, luaotfload/Times fonts,
+  and `rsvg-convert` for Flux's SVG figures; each failure log is unreadable, so
+  `diagnoseQuartoFailure` maps them to one actionable sentence each.
+- A style that `extends` another must reuse its parent's SHIPPED assets (`assetKey`, resolving own
+  → parent's → own id). Keying them off the leaf id made `nature-communications` ask for files that
+  never ship — found only by sweeping the full format × style matrix, not by any single export.
+- Source-shape gates should assert the FIELDS a signature destructures, not the exact list: my own
+  `quarto:render` pin went stale the moment I added two more fields in a later phase.
+- Parallel worktrees each need their own dev-server port; `driver.mjs` already honours `FLUX_URL`,
+  but gates that hardcode `:1420` do not. `verify-paper-export.mjs` now builds its URL from it.
