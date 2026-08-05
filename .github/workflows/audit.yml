@@ -1,0 +1,129 @@
+name: audit
+
+# Weekly dependency-advisory sweep across BOTH trees (root + the lighttable
+# sidecar, which has its own lockfile). Deliberately NOT a per-PR gate: on a
+# small team an advisory published overnight would block unrelated work, with no
+# reviewer able to act on it. The blocking check lives where it matters — step 2
+# of `npm run release:check`, which runs before a version tag, i.e. before
+# anything reaches users. This job is the early-warning half: it opens (or
+# updates) one issue so advisories are visible between releases.
+#
+# Context: main carried 13 advisories (9 high) with nothing watching, found only
+# because someone ran `npm audit fix` by hand.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: # runnable on demand from the Actions tab
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # `npm audit` needs only the lockfile, so skip installing either tree.
+      # --audit-level=high sets the exit code; we read the JSON counts instead so
+      # a registry outage is distinguishable from a clean result.
+      - name: Audit both trees
+        id: audit
+        # Explicitly bash: the `set -- $counts` split relies on word splitting,
+        # which zsh does not do (this bit the author testing locally).
+        shell: bash
+        run: |
+          set -uo pipefail
+          report=""
+          blocking=0
+          for tree in . lighttable; do
+            out="$(cd "$tree" && npm audit --audit-level=high --json 2>/dev/null || true)"
+            counts="$(node -e '
+              let s="";
+              process.stdin.on("data", d => s += d).on("end", () => {
+                try {
+                  const v = JSON.parse(s).metadata?.vulnerabilities;
+                  if (!v) return console.log("ERROR");
+                  console.log([v.critical||0, v.high||0, v.moderate||0, v.low||0].join(" "));
+                } catch { console.log("ERROR"); }
+              });
+            ' <<< "$out")"
+            if [ "$counts" = "ERROR" ]; then
+              report="${report}- \`${tree}\`: **npm audit failed** (registry error or unparseable output)"$'\n'
+              blocking=$((blocking + 1))
+              continue
+            fi
+            set -- $counts
+            crit=$1; high=$2; mod=$3; low=$4
+            report="${report}- \`${tree}\`: ${crit} critical, ${high} high, ${mod} moderate, ${low} low"$'\n'
+            blocking=$((blocking + crit + high))
+          done
+          echo "blocking=$blocking" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<EOF"
+            echo "$report"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$report"
+
+      - name: Open or update the advisory issue
+        if: steps.audit.outputs.blocking != '0'
+        uses: actions/github-script@v7
+        env:
+          REPORT: ${{ steps.audit.outputs.report }}
+        with:
+          script: |
+            const title = 'Dependency advisories: high/critical present';
+            const body = [
+              'The weekly audit found high or critical advisories.',
+              '',
+              process.env.REPORT,
+              '',
+              'Fix with `npm audit fix` in the affected tree, then verify before committing:',
+              '',
+              '```sh',
+              'npm run check && npm run build',
+              'node scripts/run-verifies.mjs --tier pure --jobs 4',
+              '```',
+              '',
+              'A major version may arrive transitively — check what moved before trusting it.',
+              '',
+              '_`npm run release:check` blocks on this, so a release cannot ship past it._',
+              '',
+              `<sub>Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}</sub>`,
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'dependencies',
+            });
+            const match = existing.data.find((i) => i.title === title);
+
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: match.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['dependencies'],
+              });
+            }

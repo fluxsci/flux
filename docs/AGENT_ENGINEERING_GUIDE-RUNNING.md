@@ -2143,10 +2143,12 @@ PDFs in the owner's FluxLib — and the corpus corrected the docs twice over.
 
 ### 2026-08-05 — Install-docs harmonization + dependency audit fix (Claude Opus 5, `main`)
 **Work:** Compared README / `installation.qmd` / `claude-install-flux-mac.md` against the code
-and against a real fresh-Mac install, then fixed what diverged — three commits: `npm audit fix`
-clearing 13 advisories, `electron:build` running the full build, and a documentation correction
-pass. Added `TODO.md` at the repo root as a checkbox ledger for open work (deliberate non-goals
-stay in §10 here — the two must not blur). Promoted the TinyTeX PATH trap into §9.
+and against a real fresh-Mac install, then fixed what diverged: `npm audit fix` clearing 13
+advisories, `electron:build` running the full build, a documentation correction pass, honest
+per-condition errors from the Lighttable launch handler, and a dependency-advisory gate
+(`release-check` step 2 + a weekly `audit.yml` that opens an issue). Added `TODO.md` at the repo
+root as a checkbox ledger for open work (deliberate non-goals stay in §10 here — the two must
+not blur). Promoted the TinyTeX PATH trap into §9.
 **Learnings:**
 - **The session log is not a substitute for the user docs.** The 2026-07-29 runbook entry
   already recorded the `mkdir -p ~/.local/bin`-before-first-run trap, but `installation.qmd`
@@ -2164,6 +2166,17 @@ stay in §10 here — the two must not blur). Promoted the TinyTeX PATH trap int
   documented platform set, not regressions).
 - Node 22.20 bundles **npm 11**, so npm-11 lockfile metadata (`license` fields) is not evidence
   of an off-pin Node. Do not diagnose lockfile churn from the Node version alone.
+- **A catch-all error message that names a fix is worse than a generic one.** The Lighttable
+  button funnelled every failure into "isn't installed — run `npm install`"; the real condition
+  was a missing Electron *binary* (its postinstall can fail on its own, leaving
+  `node_modules/electron/` present but empty), so the message sent a user to re-run an install
+  that had already succeeded and that npm would have treated as a no-op. Branch per condition,
+  or say nothing specific.
+- User-visible strings live in **code and `resources/flux-context/`**, not only `docs/*.qmd`. A
+  docs-only sweep of `npm install` → `npm ci` missed `electron/main.cjs` and a *shipped* agent
+  doc that propagates into every user's `~/FluxConfig`. Editing `resources/flux-context/` means
+  re-running `scripts/gen-flux-context.mjs`; the new hash is what makes existing installs
+  re-sync (content propagates fine — it is only the baked absolute paths that never do).
 
 ### 2026-08-05 (later) — Agent instructions consolidated into `AGENTS.md` (Claude Opus 5, `main`)
 **Work:** Audited `CLAUDE.md` for vendor-specific content and found none — all six sections

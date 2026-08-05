@@ -3,9 +3,10 @@
 // exact things that have shipped broken before (stale dist/, an unbundled MCP, a
 // packaged CLI that can't run outside the repo):
 //   1. package.json version (and, if RELEASE_TAG is set, that the tag matches it)
-//   2. a clean build emits all three dist artifacts
-//   3. the CLI + MCP bundles actually run (reuses the bundle tier + verify-r3-agent)
-//   4. electron-builder --dir packs, and the UNPACKED CLI runs from an unrelated cwd
+//   2. no high/critical dependency advisories in either tree (root + lighttable)
+//   3. a clean build emits all three dist artifacts
+//   4. the CLI + MCP bundles actually run (reuses the bundle tier + verify-r3-agent)
+//   5. electron-builder --dir packs, and the UNPACKED CLI runs from an unrelated cwd
 //
 // Usage:  node scripts/release-check.mjs [--skip-pack]
 //   --skip-pack  runs everything except the (slow) electron-builder pack + unpacked drive.
@@ -55,7 +56,38 @@ const tag = (process.env.RELEASE_TAG || "").trim();
 if (tag) ok(tag.replace(/^v/, "") === version, `RELEASE_TAG ${tag} matches package.json version ${version}`);
 else console.log("  (no RELEASE_TAG in env — skipping tag↔version check)");
 
-// 2. clean build
+// 2. dependency advisories. `main` carried 13 of them (9 high) with nothing
+// watching, found only because someone ran `npm audit fix` by hand — and a
+// release is the moment they reach users. Read the JSON counts rather than the
+// exit code, so a registry/network failure reports itself instead of passing.
+step("audit — no high/critical advisories in either tree");
+for (const [label, cwd] of [
+  ["root", root],
+  ["lighttable", path.join(root, "lighttable")],
+]) {
+  if (!existsSync(path.join(cwd, "package-lock.json"))) {
+    ok(false, `${label}: package-lock.json present`);
+    continue;
+  }
+  const res = spawnSync("npm", ["audit", "--audit-level=high", "--json"], { encoding: "utf8", cwd });
+  let counts = null;
+  try {
+    counts = JSON.parse(res.stdout || "{}").metadata?.vulnerabilities ?? null;
+  } catch {
+    /* unparseable — reported just below */
+  }
+  if (!counts) {
+    ok(false, `${label}: npm audit reachable (registry error or unparseable output)`);
+    continue;
+  }
+  const blocking = (counts.high ?? 0) + (counts.critical ?? 0);
+  ok(
+    blocking === 0,
+    `${label}: ${blocking} high/critical (${counts.moderate ?? 0} moderate, ${counts.low ?? 0} low)`,
+  );
+}
+
+// 3. clean build
 step("clean build — vite + gen-export-assets + CLI/MCP bundles");
 try {
   execSync("npm run build", { stdio: "inherit", cwd: root });
@@ -66,13 +98,13 @@ try {
   process.exit(1);
 }
 
-// 3. artifacts
+// 4. artifacts
 step("artifacts — the packaged spawn paths must exist");
 for (const f of ["dist/flux-cli.mjs", "dist/flux-mcp.mjs", "dist/slide-export-assets.json"]) {
   ok(existsSync(path.join(root, f)), `built ${f}`);
 }
 
-// 4. bundle smokes
+// 5. bundle smokes
 step("bundle handshakes — the bundles actually run");
 const help = spawnSync("node", ["dist/flux-cli.mjs", "help"], { encoding: "utf8", cwd: root });
 ok(
@@ -101,7 +133,7 @@ ok(
   "MCP handshake passes against dev + built bundle (verify-r3-agent)",
 );
 
-// 5. pack + drive the unpacked CLI from an unrelated cwd
+// 6. pack + drive the unpacked CLI from an unrelated cwd
 if (skipPack) {
   console.log("\n(--skip-pack: not running electron-builder or the unpacked drive)");
 } else {

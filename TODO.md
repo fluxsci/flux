@@ -50,7 +50,7 @@ belong in `docs/AGENT_ENGINEERING_GUIDE-RUNNING.md` §10 ("don't 'fix' these"), 
 
 ## Other
 
-- [ ] **Nothing gates dependency advisories.** `main` was shipping 13 of them (9 high) in
+- [x] **Nothing gates dependency advisories.** `main` was shipping 13 of them (9 high) in
       `package-lock.json` until 9e5261b, and only turned up because someone ran `npm audit fix`
       by hand. `.github/workflows/ci.yml` has no audit step, so this recurs silently. Add one for
       both trees (root + `lighttable/`), and decide the failure threshold — `--audit-level=high`
