@@ -23,8 +23,15 @@ export interface PaperNumbering {
   style: CitationStyle;
   /** Labeled-table numbers by appearance ({#tbl-…}). */
   tbl: Map<string, number>;
+  /** Labeled-table doc positions + captions (written with `tbl` in the same
+   *  tables.ts build): hover cards, @tbl completion, and jump-to-table read
+   *  these — a table lives in the DOCUMENT, so "activate" scrolls the editor
+   *  there instead of opening Figure mode. */
+  tblMeta: Map<string, { pos: number; caption: string | null }>;
   /** Labeled-equation numbers by appearance ({#eq-…}). */
   eq: Map<string, number>;
+  /** Labeled-equation doc positions (math.ts build) — jump-to-equation. */
+  eqPos: Map<string, number>;
   /** Equality-guarded Svelte republication for margin surfaces (badges, the
    *  group editor) — the writers call this; the OWNER (PaperMode) wires it. */
   publishOrdinals(next: Map<string, number>): void;
@@ -46,7 +53,9 @@ export function createPaperNumbering(): PaperNumberingHandle {
     ordinals: new Map(),
     style: "author-year",
     tbl: new Map(),
+    tblMeta: new Map(),
     eq: new Map(),
+    eqPos: new Map(),
     publishOrdinals(next) {
       // Equality guard (the old setCitationOrdinals contract): chips read the
       // instance synchronously; Svelte subscribers only wake on real change.
@@ -79,7 +88,9 @@ const FALLBACK: PaperNumbering = {
   ordinals: new Map(),
   style: "author-year",
   tbl: new Map(),
+  tblMeta: new Map(),
   eq: new Map(),
+  eqPos: new Map(),
   publishOrdinals(next) {
     FALLBACK.ordinals = next;
   },

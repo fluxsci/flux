@@ -37,6 +37,12 @@ export const CM_CHORD_STRINGS = [
   "Mod-Enter", // follow-at-caret
   "Mod-Alt-m", // comment on selection
   "Mod-f", // search
+  // Table editing (editing/tableOps.ts tableKeymap; all fall through off-table):
+  "Mod-Alt-r", // insert row below
+  "Mod-Alt-Shift-r", // delete row
+  "Mod-Alt-c", // insert column right
+  "Mod-Alt-Shift-c", // delete column
+  "Mod-Alt-a", // cycle column alignment
 ] as const;
 
 export const CM_HINTS = {
@@ -44,6 +50,11 @@ export const CM_HINTS = {
   figWidth: "⌘⌥− / ⌘⌥=",
   foldSection: "⌃⇧[",
   unfoldSection: "⌃⇧]",
+  tableRowBelow: "⌘⌥R",
+  tableDeleteRow: "⌘⌥⇧R",
+  tableColRight: "⌘⌥C",
+  tableDeleteCol: "⌘⌥⇧C",
+  tableAlign: "⌘⌥A",
 } as const;
 
 export const formattingKeymap = keymap.of([

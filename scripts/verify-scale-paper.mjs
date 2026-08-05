@@ -80,6 +80,11 @@ function buildDoc(lines) {
   }
   out.push("", `Mid-document anchor ${PROSE_SENTINEL} sits in plain prose here.`, "");
   out.push(`Grouped citations [${CITE_SENTINEL}; @other2021] anchor the cite burst.`, "");
+  // Keep the cite anchor OUTSIDE the table field's guardLines (2) of the
+  // sentinel table — co-located anchors made the "cite" burst pay per-keystroke
+  // TABLE rebuilds for pure proximity, measuring the wrong machinery.
+  out.push(`Buffer prose one — separates the anchors.`, "");
+  out.push(`Buffer prose two — separates the anchors.`, "");
   out.push(`| Cell | Value |`, "|---|---|", `| ${CELL_SENTINEL} | 42 |`, "");
   while (out.length < lines) out.push(`Tail line ${out.length} of filler.`, "");
   return { text: out.slice(0, lines).join("\n"), embeds, tables, maths };
@@ -120,8 +125,16 @@ async function measureDoc(text, label) {
       for (const [k, at] of Object.entries(spots)) if (at < PROSE.length) return { error: `sentinel ${k} not found` };
       const perf = window.__flux?.paperPerf ?? null;
       const out = {};
-      for (const [kind, at] of Object.entries(spots)) {
-        let caret = at;
+      const sentinels = { prose: PROSE, cite: CITE, cell: CELL };
+      for (const kind of Object.keys(spots)) {
+        // Recompute the offset FRESH per burst: the earlier bursts inserted
+        // characters BEFORE this sentinel, so the precomputed offset is stale
+        // by 18 chars per completed burst — the old cell burst actually typed
+        // at the table's header-line start, corrupting the fixture (caught
+        // 2026-08-04 when the markdown-it-faithful table parser stopped
+        // accepting the corrupted header/delimiter column mismatch as a table).
+        const sent = sentinels[kind];
+        let caret = v.state.doc.toString().indexOf(sent) + sent.length;
         v.dispatch({ selection: { anchor: caret }, scrollIntoView: true });
         await raf2();
         await new Promise((r) => setTimeout(r, 200));

@@ -16,13 +16,14 @@ import { figureRefs } from "./figures";
 import { bibEntries } from "./bib";
 import { fluxLibEntries } from "../../../../lib/references/revision";
 import { slashHandlers } from "../science/chipContext";
+import { numberingFacet } from "./numberingFacet";
 
 
 // The two `@` grammars are kept intentionally separate at the input layer:
 // plain `@` completes CITATIONS only (figures go through `@@` → FigRefPicker).
 // Cross-ref completion still appears once the token is explicitly a cross-ref
-// (`@f`, `@fig-gro`, `@tbl…`) so raw label typing stays fluent.
-const CROSSREF_KINDS = ["fig-", "tbl-"];
+// (`@f`, `@fig-gro`, `@tbl…`, `@eq…`) so raw label typing stays fluent.
+const CROSSREF_KINDS = ["fig-", "tbl-", "eq-"];
 
 function atSource(ctx: CompletionContext): CompletionResult | null {
   const tok = ctx.matchBefore(/@[\w:.-]*/);
@@ -41,6 +42,26 @@ function atSource(ctx: CompletionContext): CompletionResult | null {
         info: f.nickname || f.caption || f.name,
         apply: "@" + f.label,
         type: "figure",
+      });
+    }
+    // Tables + equations number IN-DOCUMENT (the per-editor registry that the
+    // tables/math builds publish) — typing `@tbl-` was a dead end before this.
+    const reg = ctx.state.facet(numberingFacet);
+    for (const [label, meta] of reg.tblMeta) {
+      options.push({
+        label: "@" + label,
+        detail: `Table ${reg.tbl.get(label) ?? "?"}`,
+        ...(meta.caption ? { info: meta.caption } : {}),
+        apply: "@" + label,
+        type: "table",
+      });
+    }
+    for (const [label, n] of reg.eq) {
+      options.push({
+        label: "@" + label,
+        detail: `Eq. ${n}`,
+        apply: "@" + label,
+        type: "keyword",
       });
     }
   }
@@ -113,11 +134,26 @@ const SLASH: Completion[] = [
   },
   {
     label: "/table",
-    detail: "Insert a table",
+    detail: "Insert a table (Tab walks the cells)",
     type: "table",
-    apply: insert(
-      "| Column A | Column B |\n| --- | --- |\n|  |  |\n|  |  |\n\n: Caption {#tbl-}\n",
-    ),
+    // A fresh table arrives labeled (unique `tbl-N` — instantly numbered and
+    // @tbl-referenceable) with "Column A" selected: type the header, Tab on.
+    apply: (view, _c, from, to) => {
+      const used = new Set<string>();
+      const re = /\{#(tbl-[A-Za-z0-9_-]+)\}/g;
+      const text = view.state.doc.toString();
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text))) used.add(m[1]);
+      let n = 1;
+      while (used.has(`tbl-${n}`)) n++;
+      const snippet = `| Column A | Column B |\n| -------- | -------- |\n|          |          |\n|          |          |\n\n: Caption {#tbl-${n}}\n`;
+      view.dispatch({
+        changes: { from, to, insert: snippet },
+        selection: { anchor: from + 2, head: from + 10 },
+        userEvent: "input.complete",
+      });
+      view.focus();
+    },
   },
   {
     label: "/equation",

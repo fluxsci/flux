@@ -39,6 +39,25 @@ export function setSlashHandlers(h: SlashHandlers) {
   slashHandlers.onInsertFigRef = h.onInsertFigRef;
 }
 
+// Table block-widget actions (B3): the hover bar / header alignment toggles.
+// Same element-not-position contract as EmbedHandlers — PaperMode resolves the
+// table fresh via view.posAtDOM(el).
+export type TableAction =
+  | { kind: "add-row" }
+  | { kind: "add-col" }
+  | { kind: "format" }
+  | { kind: "copy" } // table → clipboard as TSV (Excel-ready)
+  | { kind: "align"; col: number }
+  /** Click on a rendered cell → caret into its SOURCE cell (row -1 = header). */
+  | { kind: "cell"; row: number; col: number };
+export interface TableHandlers {
+  onTableAction?: (el: HTMLElement, action: TableAction) => void;
+}
+export const tableHandlers: TableHandlers = {};
+export function setTableHandlers(h: TableHandlers) {
+  tableHandlers.onTableAction = h.onTableAction;
+}
+
 // Figure-embed block-widget actions (B2).
 export interface EmbedHandlers {
   onOpenFigure?: (figId: string) => void;

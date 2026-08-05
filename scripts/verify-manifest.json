@@ -84,6 +84,8 @@
       "verify-zotero-sync.ts",
       "verify-organize.ts",
       "verify-paper-refnums.ts",
+      "verify-table-model.ts",
+      "verify-table-ops.ts",
       "verify-pdfidentify.ts",
       "verify-reader-search.ts",
       "verify-r1-hlgeom.ts",
@@ -168,6 +170,7 @@
       "verify-paper-extras.mjs",
       "verify-outline-refresh.mjs",
       "verify-figref.mjs",
+      "verify-paper-tables.mjs",
       "verify-w18-paper.mjs",
       "verify-paper-export.mjs",
       "verify-paper-math.mjs",
@@ -331,7 +334,10 @@
       "verify-pdf-white.mjs",
       "verify-embed-chip.mjs",
       "verify-embed-caption.mjs",
-      "verify-embed-normalize.ts"
+      "verify-embed-normalize.ts",
+      "verify-table-model.ts",
+      "verify-table-ops.ts",
+      "verify-paper-tables.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",

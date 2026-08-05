@@ -64,7 +64,7 @@ class MathBlockWidget extends WidgetType {
 
 function build(state: EditorState): DecorationSet {
   paperPerf.math++;
-  const numbered: { label: string; number: number }[] = [];
+  const numbered: { label: string; number: number; pos: number }[] = [];
   const deco: Range<Decoration>[] = [];
   let inFence = false;
   let eqN = 0;
@@ -93,7 +93,7 @@ function build(state: EditorState): DecorationSet {
     let number: number | undefined;
     if (block.label) {
       number = ++eqN;
-      numbered.push({ label: block.label, number });
+      numbered.push({ label: block.label, number, pos: state.doc.line(block.startLine).from });
     }
     for (let i = block.startLine; i <= block.endLine; i++) {
       deco.push(Decoration.line({ class: "cm-flux-mathsrc" }).range(state.doc.line(i).from));
@@ -106,7 +106,11 @@ function build(state: EditorState): DecorationSet {
     // WS-4.2: per-editor numbering instance (facet), replace-contents.
     const reg = state.facet(numberingFacet);
     reg.eq.clear();
-    for (const p of numbered) reg.eq.set(p.label, p.number);
+    reg.eqPos.clear();
+    for (const p of numbered) {
+      reg.eq.set(p.label, p.number);
+      reg.eqPos.set(p.label, p.pos);
+    }
   }
   if (sawPending) kickKatex();
   return Decoration.set(deco, true);

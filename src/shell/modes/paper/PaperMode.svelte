@@ -38,7 +38,19 @@
   const numbering = createPaperNumbering();
   import { setFrontMatterKey } from "./scholar/frontMatter";
   import { activeCitationWatcher, resetActiveCitation } from "./scholar/activeCitation";
-  import { followAtCaret } from "./editing/caretActions";
+  import { followAtCaret, jumpToInlineLabel, isInlineFamily } from "./editing/caretActions";
+  import {
+    tableKeymap,
+    tableReflow,
+    tableCommands,
+    endAppendSpec,
+    cellJumpSpec,
+    alignColSpec,
+    locateTable,
+    tableTsv,
+  } from "./editing/tableOps";
+  import { tablePaste } from "./science/tablePaste";
+  import { formatTableBlock, parseTsv, parseCsv, gridToTable } from "./science/tableModel";
   import { foldSection, unfoldSection } from "./editing/folding";
   import { foldAll, syntaxTree, syntaxTreeAvailable, unfoldAll } from "@codemirror/language";
   import { keymap } from "@codemirror/view";
@@ -56,6 +68,7 @@
     setChipHandlers,
     setEmbedHandlers,
     setSlashHandlers,
+    setTableHandlers,
     type ChipTarget,
   } from "./science/chipContext";
   import FigurePicker from "./scholar/FigurePicker.svelte";
@@ -796,7 +809,15 @@
   function activateChip(target: ChipTarget, el?: HTMLElement) {
     if (target.kind === "figref") {
       const r = resolveFigure(target.label, numbering.instance);
-      if (r) revealFigure(r.ref.id);
+      if (!r) return;
+      // Tables/equations live in the DOCUMENT — activating their chip scrolls
+      // this editor there (revealFigure("") used to open Figure mode at
+      // nothing: the fabricated tbl/eq refs carry an empty id).
+      if (isInlineFamily(r.ref.family)) {
+        if (view) jumpToInlineLabel(view, numbering.instance, target.label);
+      } else if (r.ref.id) {
+        revealFigure(r.ref.id);
+      }
     } else if (target.kind === "cite") {
       // Land the caret at the chip (its edge satisfies citationGroupAt's
       // inclusive bounds) so the group editor tracks THIS group, then open it.
@@ -847,10 +868,15 @@
           const from = line.from + m.index;
           const to = from + m[0].length;
           if (pos >= from && pos <= to) {
-            const r = resolveFigure(m[0].slice(1), numbering.instance);
+            const label = m[0].slice(1);
+            const r = resolveFigure(label, numbering.instance);
             if (r) {
-              revealFigure(r.ref.id);
-              return true;
+              if (isInlineFamily(r.ref.family)) {
+                if (jumpToInlineLabel(v, numbering.instance, label)) return true;
+              } else if (r.ref.id) {
+                revealFigure(r.ref.id);
+                return true;
+              }
             }
           }
         }
@@ -927,6 +953,44 @@
     setSlashHandlers({
       onInsertFigure: openFigurePicker,
       onInsertFigRef: openFigRefPicker,
+    });
+    setTableHandlers({
+      // Widget → source actions. The widget hands over its DOM element; the
+      // position resolves fresh via posAtDOM (the embed-handlers contract).
+      onTableAction: (el, action) => {
+        if (!view) return;
+        const pos = view.posAtDOM(el);
+        if (action.kind === "cell") {
+          const spec = cellJumpSpec(view.state, pos, action.row, action.col);
+          if (spec) view.dispatch(spec);
+          view.focus();
+        } else if (action.kind === "add-row" || action.kind === "add-col") {
+          const spec = endAppendSpec(view.state, pos, action.kind === "add-row" ? "row" : "col");
+          if (spec) view.dispatch(spec);
+          view.focus();
+        } else if (action.kind === "align") {
+          const spec = alignColSpec(view.state, pos, action.col, "cycle");
+          if (spec) view.dispatch(spec);
+        } else if (action.kind === "format") {
+          const t = locateTable(view.state.doc, pos);
+          if (!t) return;
+          const text = formatTableBlock(view.state.doc, t);
+          const blockTo = view.state.doc.line(t.lastRowLine).to;
+          if (text !== view.state.doc.sliceString(t.from, blockTo)) {
+            view.dispatch({
+              changes: { from: t.from, to: blockTo, insert: text },
+              userEvent: "input.table",
+            });
+          }
+        } else if (action.kind === "copy") {
+          const t = locateTable(view.state.doc, pos);
+          if (!t) return;
+          void navigator.clipboard.writeText(tableTsv(t)).then(
+            () => pushToast("info", "Table copied as TSV"),
+            () => pushToast("error", "Couldn't write the clipboard"),
+          );
+        }
+      },
     });
     await Promise.all([loadFigures(pm?.root ?? null), loadBib(pm?.root ?? null)]);
     const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
@@ -1006,6 +1070,11 @@
           },
         ]),
         formattingKeymap,
+        // Table editing: Tab/Shift-Tab/Enter cell navigation + row/column
+        // chords (all fall through off-table), and the same-transaction
+        // pipe re-padding while typing inside a table.
+        tableKeymap,
+        tableReflow,
         // `@@` → figure-reference picker (the second @ never lands in the doc).
         figRefTrigger(openFigRefPicker),
         // WS-4.2: THIS editor's numbering instance — provided before
@@ -1017,7 +1086,8 @@
         scienceTables,
         scienceMathBlocks, // 2.1: $$ display math (block widget AFTER source lines)
         scholarCompletion,
-        doiPaste(handleDoi),
+        doiPaste(handleDoi), // whole-DOI pastes first…
+        tablePaste(), // …then TSV grids / pipe-escaping inside tables
         commentField,
         commentClickHandler(focusComment),
       ],
@@ -1486,7 +1556,54 @@
     togglePalette: () => {
       paletteOpen = !paletteOpen;
     },
+    tableCmd: (cmd) => {
+      if (!view) return;
+      const run = {
+        "row-below": tableCommands.rowBelow,
+        "row-above": tableCommands.rowAbove,
+        "delete-row": tableCommands.deleteRow,
+        "col-right": tableCommands.colRight,
+        "col-left": tableCommands.colLeft,
+        "delete-col": tableCommands.deleteCol,
+        align: tableCommands.alignCycle,
+        format: tableCommands.format,
+      }[cmd];
+      run?.(view);
+      view.focus();
+    },
+    pasteAsTable: () => void pasteAsTable(),
   };
+
+  // "Paste as table": the EXPLICIT conversion path — CSV never auto-converts
+  // on plain paste (commas are prose), so this palette command is where a CSV
+  // clipboard becomes a table. TSV works here too, symmetrically.
+  async function pasteAsTable() {
+    if (!view) return;
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      pushToast("error", "Couldn't read the clipboard");
+      return;
+    }
+    const grid = parseTsv(text) ?? parseCsv(text);
+    if (!grid) {
+      pushToast("info", "Clipboard doesn't look like TSV or CSV");
+      return;
+    }
+    const table = gridToTable(grid);
+    const line = view.state.doc.lineAt(view.state.selection.main.head);
+    const empty = line.text.trim() === "";
+    const insert = empty ? table : `\n\n${table}`;
+    const from = empty ? line.from : line.to;
+    view.dispatch({
+      changes: { from, to: empty ? line.to : line.to, insert },
+      selection: { anchor: from + insert.length },
+      scrollIntoView: true,
+      userEvent: "input.paste",
+    });
+    view.focus();
+  }
   const commands = $derived<Command[]>([
     ...paletteFromTable(cmdCtx),
     // Context/agent commands (principal-agent scheme) — same set as the shell

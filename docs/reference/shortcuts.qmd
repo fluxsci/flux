@@ -43,6 +43,11 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 | **Ctrl+Shift+K** | Insert link |
 | **Ctrl+Alt+−** / **Ctrl+Alt+=** | Figure embed width down / up (caret on the embed line) |
 | **Ctrl+Shift+[** / **Ctrl+Shift+]** | Fold / unfold the current section (macOS: **⌘⌥[** / **⌘⌥]**) |
+| **Tab** / **Shift+Tab** | In a table: next / previous cell (Tab past the last cell adds a row) |
+| **Enter** | In a table: add a row below (on an empty last row: leave the table) |
+| **Ctrl+Alt+R** / **Ctrl+Alt+Shift+R** | Table: add row below / delete row |
+| **Ctrl+Alt+C** / **Ctrl+Alt+Shift+C** | Table: add column right / delete column |
+| **Ctrl+Alt+A** | Table: cycle the column's alignment (also **Alt+click** a rendered header cell) |
 
 Typing triggers: **@** cite · **@@** figure-reference picker · **/** block palette at the
 start of a line. Vim mode (plain or flux-ViM) is enabled from the palette —

@@ -48,6 +48,20 @@ export interface PaperCmdCtx {
   unfoldAll(): void;
   doExport(kind: "pdf" | "html" | "docx"): void;
   togglePalette(): void;
+  /** Table editing at the caret (editing/tableOps.ts; no-ops off-table). */
+  tableCmd(
+    cmd:
+      | "row-below"
+      | "row-above"
+      | "delete-row"
+      | "col-right"
+      | "col-left"
+      | "delete-col"
+      | "align"
+      | "format",
+  ): void;
+  /** Convert the clipboard (TSV/CSV) into a table at the caret. */
+  pasteAsTable(): void;
 }
 
 export interface PaperCommandRow {
@@ -202,6 +216,16 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
   { id: "unfold-section", title: () => "Unfold section", hint: CM_HINTS.unfoldSection, keywords: "expand heading show section unfold", owner: "cm", run: (c) => c.unfoldSection() },
   { id: "fold-all", title: () => "Fold all sections", hint: "Fold", keywords: "collapse everything outline overview", owner: "none", run: (c) => c.foldAll() },
   { id: "unfold-all", title: () => "Unfold all sections", hint: "Fold", keywords: "expand everything", owner: "none", run: (c) => c.unfoldAll() },
+  // Table editing (real bindings: editing/tableOps.ts tableKeymap — CM layer).
+  { id: "table-row-below", title: () => "Table: add row below", hint: CM_HINTS.tableRowBelow, keywords: "table insert row below add", owner: "cm", run: (c) => c.tableCmd("row-below") },
+  { id: "table-row-above", title: () => "Table: add row above", hint: "Table", keywords: "table insert row above add", owner: "none", run: (c) => c.tableCmd("row-above") },
+  { id: "table-delete-row", title: () => "Table: delete row", hint: CM_HINTS.tableDeleteRow, keywords: "table remove delete row", owner: "cm", run: (c) => c.tableCmd("delete-row") },
+  { id: "table-col-right", title: () => "Table: add column right", hint: CM_HINTS.tableColRight, keywords: "table insert column right add", owner: "cm", run: (c) => c.tableCmd("col-right") },
+  { id: "table-col-left", title: () => "Table: add column left", hint: "Table", keywords: "table insert column left add", owner: "none", run: (c) => c.tableCmd("col-left") },
+  { id: "table-delete-col", title: () => "Table: delete column", hint: CM_HINTS.tableDeleteCol, keywords: "table remove delete column", owner: "cm", run: (c) => c.tableCmd("delete-col") },
+  { id: "table-align", title: () => "Table: cycle column alignment", hint: CM_HINTS.tableAlign, keywords: "table align left center right column", owner: "cm", run: (c) => c.tableCmd("align") },
+  { id: "table-format", title: () => "Table: format (align the pipes)", hint: "Table", keywords: "table format tidy align pipes pretty", owner: "none", run: (c) => c.tableCmd("format") },
+  { id: "paste-as-table", title: () => "Paste as table (TSV/CSV)", hint: "Table", keywords: "table paste csv tsv excel sheets convert clipboard", owner: "none", run: (c) => c.pasteAsTable() },
   { id: "margin-wider", title: () => "Wider side panel", hint: "Layout", keywords: "margin panel resize grow", owner: "none", run: (c) => c.widerMargin() },
   { id: "margin-narrower", title: () => "Narrower side panel", hint: "Layout", keywords: "margin panel resize shrink", owner: "none", run: (c) => c.narrowerMargin() },
   { id: "export-pdf", title: () => "Export PDF", hint: "Export", keywords: "download print", owner: "none", run: (c) => c.doExport("pdf") },

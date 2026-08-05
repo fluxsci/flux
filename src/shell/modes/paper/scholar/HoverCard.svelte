@@ -41,7 +41,15 @@
   const fig = $derived(
     target.kind === "figref" && $figureRefs ? resolveFigure(target.label, nums) : null,
   );
-  const figSvg = $derived(fig ? renderFigureSvg(fig.ref.id) : undefined);
+  // Tables/equations are IN-DOCUMENT constructs (fabricated refs, empty id) —
+  // they get their own compact branches instead of an empty figure box.
+  const inlineKind = $derived(
+    fig && (fig.ref.family === "tbl" || fig.ref.family === "eq") ? fig.ref.family : null,
+  );
+  const tblCaption = $derived(
+    inlineKind === "tbl" ? (nums?.tblMeta.get(target.kind === "figref" ? target.label : "")?.caption ?? null) : null,
+  );
+  const figSvg = $derived(fig && !inlineKind && fig.ref.id ? renderFigureSvg(fig.ref.id) : undefined);
   const cites = $derived(
     target.kind === "cite" && $bibEntries
       ? (target.keys.map((k) => bibEntry(k)).filter(Boolean) as BibEntry[])
@@ -81,7 +89,18 @@
   onmouseleave={onleave}
   transition:popIn>
   {#if target.kind === "figref"}
-    {#if fig}
+    {#if fig && inlineKind === "tbl"}
+      <div class="hc-head">
+        <span class="hc-num">{fig.display}</span>
+      </div>
+      {#if tblCaption}<p class="hc-cap">{tblCaption}</p>{/if}
+      <div class="hc-hint">Double-click to jump to the table</div>
+    {:else if fig && inlineKind === "eq"}
+      <div class="hc-head">
+        <span class="hc-num">{fig.display}</span>
+      </div>
+      <div class="hc-hint">Double-click to jump to the equation</div>
+    {:else if fig}
       <div class="hc-head">
         <span class="hc-num">{fig.display}</span>
         <!-- The derived name restates the identity ("Supplementary Figure 4");
@@ -99,7 +118,7 @@
       {#if fig.ref.caption}<p class="hc-cap">{fig.ref.caption}</p>{/if}
       <div class="hc-hint">Click to open in Figure</div>
     {:else}
-      <div class="hc-empty">Unknown figure <code>@{target.label}</code></div>
+      <div class="hc-empty">Unknown cross-reference <code>@{target.label}</code></div>
     {/if}
   {:else if target.kind === "cite"}
     {#if cites.length}
