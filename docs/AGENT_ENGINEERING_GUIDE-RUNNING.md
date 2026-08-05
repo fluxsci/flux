@@ -209,6 +209,21 @@ Persistence invariants (all machine-checked — do not weaken):
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
+  **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
+  `science/tableModel.ts`, markdown-it-faithful because the export feeds the same text to
+  markdown-it — escaped `\|` (escapedSplit port), header/delimiter column-count equality,
+  terminator-based body absorption (pipe-less prose under a table IS a row), fence/display-math
+  suspension in byte-parity with `refNumbers.ts`. Editing ops + Tab/Enter cell navigation live
+  in `editing/tableOps.ts`; auto-reflow is a `transactionFilter` that appends the pipe re-padding
+  to the SAME transaction (one undo unit, caret re-derived by cell+offset) and fires ONLY on
+  user input/delete events — undo, IME composition, and external/agent reloads never reformat
+  (text is truth). Widget cells render inline md/math/refs via `mdInline` resolver hooks
+  (signature-diffed in updateDOM); a cell click routes the caret to its source cell through the
+  `tableHandlers` seam; the wrap is `width:0; min-width:100%` so a wide table scrolls inside
+  `.flux-tablescroll` instead of pushing cm-content past the pane (the editor's line-wrapping
+  `overflow-wrap` is reset on the wrap — inherited, it mid-word-breaks cell numbers). The
+  renderer binds table+caption into one `.tblblock` (paginator unit; over-wide tables zoom-fit,
+  floor 0.55) — its inline scripts are CSP-hashed (PAGINATOR/LIVE_SCROLL/TBLFIT, w12 gate).
 - **Slide mode edits through the figure store** (slide-migration, 2026-07): a
   deck loads as projected figures on the synthetic `"deck"` canvas
   (`deckProject.ts`), the shared Canvas (`frame` prop) / Inspector
@@ -1873,6 +1888,40 @@ drivable headlessly. check 0/0, pure 149/149, reader-gate 16/16.
   returns null without a resolvable lib, so `__fluxSeedScaleLibrary` silently seeds nothing
   (`{lib: null, entries: 0}`) and every library-dependent assertion fails for the wrong reason.
 - `createQueryRunner()` returns the runner FUNCTION itself, not an object with `.run`.
+
+### 2026-08-04 (later) — Paper tables: full editing tier + rich cells + export fit (Claude Fable 5, `reader-tabs`)
+**Work:** Owner-reported table rendering/formatting issues → implemented the B3 editing tier in
+full. New shared grammar `science/tableModel.ts` (markdown-it-faithful parse + canonical
+serializer + TSV/CSV converters), `editing/tableOps.ts` (Tab/Shift-Tab/Enter cell nav, row/col/
+align ops, same-transaction auto-reflow via transactionFilter), `science/tablePaste.ts`
+(TSV→table outside, Excel-splice inside, pipe-escaping), rich widget cells (inline md + lazy
+KaTeX + resolved cites/crossrefs via mdInline resolver hooks), widget cell-click→source +
+hover bar (+Row/+Col/Format/Copy-as-TSV) + Alt-click header alignment, @tbl-/@eq- completion,
+tbl/eq hover-card branches, jump-to-table (fixed the `revealFigure("")` no-op), labeled /table
+snippet, and export: table+caption bound into one `.tblblock` with zoom-to-fit for over-wide
+tables (PAGINATOR/TBLFIT CSP hashes refreshed). Gates: verify-table-model.ts,
+verify-table-ops.ts (pure), verify-paper-tables.mjs (ui, 28 checks); paper-gate now 19.
+check 0/0, pure 152/152, paper-gate 19/19, scale-paper 7/7. Docs: paper.qmd Tables section
+(also fixed the false `@sec-` claim), shortcuts.qmd.
+**Learnings:**
+- **verify-scale-paper's sentinel offsets were stale**: it precomputed all three burst positions,
+  then each burst's 18 inserts shifted the later sentinels — the "cell" burst actually typed at
+  the table's HEADER-line start (corrupting the fixture into a header/delim column mismatch the
+  markdown-it-faithful parser rightly rejects) and the "cite" burst typed OUTSIDE the group.
+  Offsets are now recomputed per burst, and the cite anchor moved out of the table field's
+  guardLines — co-located anchors measured table rebuilds, not cite machinery.
+- `.cm-lineWrapping`'s `overflow-wrap` INHERITS into block widgets: table cells mid-word-broke
+  ("1.11" → "1."/"11") until the wrap reset it. And a widget's min-content propagates through
+  the scroller's flex sizing — `width:0; min-width:100%` on the widget is the canonical cut.
+- Chromium cannot text-select inside a `contenteditable=false` island nested in an editable
+  host — widget text selection is a dead end; cell-click-to-source + a Copy-as-TSV button are
+  the better interaction anyway.
+- puppeteer's `mouse.click(x, y, {clickCount: 2})` alone does NOT synthesize a `dblclick` DOM
+  event here — use the figenh-16 recipe (down/up, then down/up with clickCount 2, no move
+  between). CDP-level "real" dblclick testing is otherwise silently skipped.
+- A transactionFilter returning `[tr, {changes, sequential: true, selection}]` merges into ONE
+  transaction and one undo unit — the right shape for typing-time normalization. Gate it on
+  `isUserEvent("input")||("delete")` and composition, or undo/agent edits get reformatted.
 
 ### 2026-08-04 — Outline missed headings until the next keystroke (Claude Fable 5, `reader-tabs`)
 **Work:** Owner-reported: well-formed headings absent from the paper outline until you type at
