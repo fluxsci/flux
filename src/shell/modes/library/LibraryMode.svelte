@@ -1868,11 +1868,11 @@
             /* clipboard blocked */
           }
         }}
-        title="Drag to your bookmarks bar, or click to copy">Add to FluxLib</a>
+        title="Drag to your bookmarks bar, or click to copy. On a paper page it downloads the PDF (or the paper's details) for Flux to pick up — it runs in your own logged-in browser, so it reaches what Flux can't fetch on its own.">Add to FluxLib</a>
       <span class="hint"
         >{bmCopied
           ? "Copied ✓ — make a new bookmark, then paste this as its URL"
-          : "drag to your bookmarks bar (or click to copy), then click it on any paper page"}</span>
+          : "drag to your bookmarks bar (or click to copy), then click it on any paper page — it saves the PDF to your downloads"}</span>
     </footer>
   {:else}
     <!-- World scope: live OpenAlex results -->
