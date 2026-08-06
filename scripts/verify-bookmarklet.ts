@@ -30,6 +30,12 @@ async function run(page: {
   hostname?: string;
   anchorHref?: string;
   linkPdfHref?: string;
+  /** The document's own MIME type — 'application/pdf' when the browser is showing a PDF. */
+  contentType?: string;
+  hasEmbed?: boolean;
+  pathname?: string;
+  /** Absolute hrefs of the page's anchors — how most publishers expose their PDF. */
+  anchors?: string[];
   /** null = fetch rejects (CSP/network); otherwise the bytes the PDF URL serves. */
   pdfBody?: string | null;
   pdfOk?: boolean;
@@ -39,6 +45,7 @@ async function run(page: {
 
   const el = () => ({ style: { cssText: "" }, textContent: "", href: "", download: "", click() {}, remove() {} });
   const doc = {
+    contentType: page.contentType ?? "text/html",
     title: page.title ?? "",
     body: { appendChild() {} },
     createElement: () => el() as unknown as Record<string, unknown>,
@@ -47,7 +54,12 @@ async function run(page: {
       if (m) return metas[m[1]] !== undefined ? { content: metas[m[1]] } : null;
       if (sel.includes('a[href*="doi.org/10."]')) return page.anchorHref ? { href: page.anchorHref } : null;
       if (sel.includes('link[type="application/pdf"]')) return page.linkPdfHref ? { href: page.linkPdfHref } : null;
+      if (sel.includes('embed[type="application/pdf"]')) return page.hasEmbed ? {} : null;
       return null;
+    },
+    querySelectorAll(sel: string) {
+      if (sel === "a[href]") return (page.anchors ?? []).map((href) => ({ href }));
+      return [];
     },
   };
 
@@ -71,7 +83,7 @@ async function run(page: {
 
   const sandbox = {
     document: doc,
-    location: { href: page.href ?? "https://example.org/a", hostname: page.hostname ?? "example.org" },
+    location: { href: page.href ?? "https://example.org/a", hostname: page.hostname ?? "example.org", pathname: page.pathname ?? "/a" },
     URL: { createObjectURL: () => "blob:stub", revokeObjectURL() {} },
     Blob: FakeBlob,
     Date,
@@ -168,6 +180,66 @@ for (const [label, meta] of [
   ok(d[0]?.name?.endsWith(".fluxcap") === true, "a non-2xx response falls back", d[0]?.name);
 }
 
+// --- 3b: THE PAGE IS THE PDF -------------------------------------------------------------
+// Chrome renders a PDF in a viewer whose document has no HTML — no metas, no
+// citation_pdf_url. The bookmarklet used to write a useless sidecar there, which is the worst
+// possible place to fail: the bytes are already fetched and on screen. Reported live against
+// jneurosci.org, which is behind Cloudflare and therefore unreachable to Flux's own capture.
+{
+  const url = "https://www.jneurosci.org/content/jneuro/46/12/e0674252026.full.pdf";
+  const d = await run({ contentType: "application/pdf", href: url, pathname: "/content/jneuro/46/12/e0674252026.full.pdf", hostname: "www.jneurosci.org", pdfBody: "%PDF-1.7\n" + "j".repeat(8192) });
+  ok(d[0]?.name?.endsWith(".pdf") === true, "PDF viewer (contentType): downloads the PDF, not a sidecar", d[0]?.name);
+  ok(d[0]?.name === "flux-e0674252026.full.pdf", "PDF viewer: named from its own filename, not the hostname", d[0]?.name);
+  ok(d[0]?.size > 8000, "PDF viewer: real bytes captured", String(d[0]?.size));
+}
+{
+  // Same, detected by URL alone (a server that mislabels the content type).
+  const d = await run({ href: "https://x.org/papers/foo.pdf", pathname: "/papers/foo.pdf", pdfBody: "%PDF-1.4\n" + "k".repeat(4096) });
+  ok(d[0]?.name === "flux-foo.pdf", "PDF detected from a .pdf path", d[0]?.name);
+}
+{
+  // Same, detected by the viewer's <embed> (URL carries no .pdf extension).
+  const d = await run({ hasEmbed: true, href: "https://x.org/download?id=99", pathname: "/download", pdfBody: "%PDF-1.4\n" + "n".repeat(4096) });
+  ok(d[0]?.name?.endsWith(".pdf") === true, "PDF detected from an <embed> viewer", d[0]?.name);
+}
+{
+  // A normal HTML article page must NOT be mistaken for a PDF.
+  const d = await run({ href: "https://x.org/doi/10.1/abc", pathname: "/doi/10.1/abc", meta: { citation_doi: "10.1/abc" } });
+  ok(d[0]?.name?.endsWith(".fluxcap") === true, "an HTML page is still not treated as a PDF", d[0]?.name);
+}
+
+// --- 3c: PUBLISHERS THAT ADVERTISE NO citation_pdf_url ------------------------------------
+// science.org emits none — confirmed against a live capture, whose affordance list held only
+// anchors. Meta-only lookup therefore degraded to a sidecar on every Science paper. These are
+// the real anchors that page serves, in the real order.
+{
+  const doi = "10.1126/science.aah5982";
+  const A = "https://www.science.org";
+  const d = await run({
+    meta: { citation_doi: doi },
+    href: `${A}/doi/${doi}`,
+    pathname: `/doi/${doi}`,
+    anchors: [`${A}/doi/reader/${doi}`, `${A}/doi/suppl/${doi}/suppl_file/devivo-sm.pdf`, `${A}/doi/pdf/${doi}?download=true`, `${A}/doi/pdf/${doi}`],
+    pdfBody: "%PDF-1.6\n" + "s".repeat(8192),
+  });
+  ok(d[0]?.name === "flux-10.1126_science.aah5982.pdf", "Science: anchor scan finds the PDF (no citation_pdf_url exists)", d[0]?.name);
+  ok(d[0]?.size > 8000, "Science: real PDF bytes, not a sidecar", String(d[0]?.size));
+}
+{
+  // The supplement must never win — this exact mistake shipped twice in the fetch engine.
+  const doi = "10.1126/science.x";
+  const A = "https://www.science.org";
+  const d = await run({ meta: { citation_doi: doi }, pathname: `/doi/${doi}`, anchors: [`${A}/doi/suppl/${doi}/suppl_file/x-sm.pdf`, `${A}/doi/pdf/${doi}`], pdfBody: "%PDF-1.6\n" + "t".repeat(4096) });
+  ok(d[0]?.name?.endsWith(".pdf") === true, "supplement-first page still captures a PDF", d[0]?.name);
+  const d2 = await run({ meta: { citation_doi: doi }, pathname: `/doi/${doi}`, anchors: [`${A}/doi/suppl/${doi}/suppl_file/x-sm.pdf`] });
+  ok(d2[0]?.name?.endsWith(".fluxcap") === true, "a page offering ONLY a supplement captures nothing (never the supplement)", d2[0]?.name);
+}
+{
+  // Viewer links are HTML; taking one would download a web page named .pdf.
+  const d = await run({ meta: { citation_doi: "10.1/v" }, pathname: "/doi/10.1/v", anchors: ["https://x.org/doi/epdf/10.1/v", "https://x.org/doi/reader/10.1/v"] });
+  ok(d[0]?.name?.endsWith(".fluxcap") === true, "viewer-only page (epdf/reader) is not mistaken for a PDF", d[0]?.name);
+}
+
 // --- 4: filenames must be safe (they become real files on disk) ---------------------------
 {
   const d = await run({ meta: { citation_doi: "10.1000/a b/c..d", citation_pdf_url: "https://x/p.pdf" }, pdfBody: "%PDF-1.4\n" + "w".repeat(4096) });
@@ -176,8 +248,15 @@ for (const [label, meta] of [
   ok(n.startsWith("flux-") && n.endsWith(".pdf"), "prefix + extension intact", n);
 }
 {
-  const d = await run({ hostname: "biorxiv.org", href: "https://biorxiv.org/x" });
-  ok(d[0]?.name === "flux-biorxiv.org.fluxcap", "no DOI anywhere → falls back to the hostname", d[0]?.name);
+  // No DOI anywhere: name it from the URL's last segment, which identifies the paper far
+  // better than the bare hostname ever could.
+  const d = await run({ hostname: "www.biorxiv.org", href: "https://www.biorxiv.org/content/10.1101/2020.01.01.891234v1", pathname: "/content/10.1101/2020.01.01.891234v1" });
+  ok(d[0]?.name === "flux-2020.01.01.891234v1.fluxcap", "no DOI → named from the URL's last segment", d[0]?.name);
+}
+{
+  // Nothing to go on at all (site root) — the hostname is the last resort.
+  const d = await run({ hostname: "biorxiv.org", href: "https://biorxiv.org/", pathname: "/" });
+  ok(d[0]?.name === "flux-biorxiv.org.fluxcap", "bare root → falls back to the hostname", d[0]?.name);
 }
 
 // --- 5: the watcher's file filter ---------------------------------------------------------
