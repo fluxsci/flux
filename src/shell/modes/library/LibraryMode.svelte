@@ -111,6 +111,8 @@
   let failures = $state.raw<Record<string, FetchFailure>>({});
   const failedKeys = $derived(new Set(Object.keys(failures)));
   let showFailedOnly = $state(false);
+  /** Narrow the list by whether a reference has a stored main text. Cycles all → missing → have. */
+  let pdfFilter = $state<"all" | "missing" | "have">("all");
   // LR-U2: row multiselect (by citekey) → bulk "add to project". Keyed by citekey so a selection
   // survives query/scope changes; the Clear action + select-all operate on the currently-shown rows.
   let selected = $state.raw<Set<string>>(new Set());
@@ -294,6 +296,9 @@
     // otherwise the metadata query. showFailedOnly narrows either.
     let base = ftMode ? enriched.filter((r) => ftHits.has(nfc(r.key))) : queryRun(enriched, queryDebounced);
     if (showFailedOnly) base = base.filter((r) => isFailed(r.key));
+    // PDF presence isn't a metadata field — it's disk state (pdfKeys), so it narrows the
+    // result set here rather than living in the query grammar.
+    if (pdfFilter !== "all") base = base.filter((r) => hasPdf(r.key) === (pdfFilter === "have"));
     if (sortCol) {
       const col = sortCol;
       const dir = sortDir;
@@ -1406,6 +1411,25 @@
           {/if}
         </button>
       {/if}
+      {#if pdfCoverage.total > 0}
+        <button
+          class="enrich pdffilter"
+          class:on={pdfFilter !== "all"}
+          onclick={() => (pdfFilter = pdfFilter === "all" ? "missing" : pdfFilter === "missing" ? "have" : "all")}
+          title={pdfFilter === "all"
+            ? `Filter by PDF: ${pdfCoverage.total - pdfCoverage.have} reference(s) have no main text. Click to show only those; click again for only those WITH a PDF.`
+            : pdfFilter === "missing"
+              ? "Showing only references with NO PDF. Click for only those WITH a PDF."
+              : "Showing only references WITH a PDF. Click to clear the filter."}>
+          {#if pdfFilter === "missing"}
+            ⬇ No PDF ({pdfCoverage.total - pdfCoverage.have})
+          {:else if pdfFilter === "have"}
+            ▦ Has PDF ({pdfCoverage.have})
+          {:else}
+            ⬇ No PDF ({pdfCoverage.total - pdfCoverage.have})
+          {/if}
+        </button>
+      {/if}
       {#if failedKeys.size > 0 && !fetchingAll}
         <button
           class="enrich retryfailed"
@@ -2005,6 +2029,18 @@
   .retryfailed:hover:not(:disabled),
   .retryfailed.on {
     background: var(--c-danger);
+    color: var(--c-on-accent);
+  }
+  /* PDF-presence filter — a neutral pill (it narrows the view, it doesn't warn). */
+  .pdffilter {
+    border-color: var(--c-line-strong);
+    background: transparent;
+    color: var(--c-tx-2);
+  }
+  .pdffilter:hover:not(:disabled),
+  .pdffilter.on {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
     color: var(--c-on-accent);
   }
   .gear {
