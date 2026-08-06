@@ -87,7 +87,6 @@
   let addError = $state("");
   let addedTitle = $state("");
   let copied = $state("");
-  let bmCopied = $state(false); // bookmarklet copied-to-clipboard feedback
 
   // Enrich (hydration) state.
   let enriching = $state(false);
@@ -956,6 +955,30 @@
       true,
     );
   }
+  // Web capture: open the drag-to-install page in the user's DEFAULT browser. The bookmarklet
+  // has to live where they actually browse, which isn't necessarily where Electron renders.
+  let bmBusy = $state(false);
+  let bmHint = $state("one click on a paper page saves it — PDF and all");
+  async function installBookmarklet() {
+    if (bmBusy) return;
+    bmBusy = true;
+    try {
+      const fb = fileBridge();
+      const r = await fb?.openCaptureInstall?.(BOOKMARKLET_HREF);
+      if (r?.ok) bmHint = "opened in your browser — drag the green button to your bookmarks bar";
+      else {
+        // No bridge (browser fixture) or the open failed: fall back to the clipboard.
+        await navigator.clipboard.writeText(BOOKMARKLET_HREF);
+        bmHint = "copied — make a new bookmark and paste this as its URL";
+      }
+    } catch {
+      bmHint = "couldn't open the page — check your default browser";
+    } finally {
+      bmBusy = false;
+      setTimeout(() => (bmHint = "one click on a paper page saves it — PDF and all"), 8000);
+    }
+  }
+
   // Backfill supplements for the checked rows. Separate from "Get PDFs" on purpose: it never
   // touches a paper.pdf that's already there, it asks the repository (Europe PMC) first, and
   // it only walks the publisher's page for what the repository doesn't hold — which is where
@@ -1323,9 +1346,6 @@
     }
   }
 
-  function bookmarkletLink(node: HTMLAnchorElement) {
-    node.href = BOOKMARKLET_HREF;
-  }
   const authorLabel = (r: RefEntry) => `${r.authors[0] ?? r.key}${r.year ? ` ${r.year}` : ""}`;
 </script>
 
@@ -1846,33 +1866,12 @@
 
     <footer class="webcap">
       <span class="lbl">Add from the web</span>
-      <!-- svelte-ignore a11y_invalid_attribute -->
-      <a
-        class="bm"
-        href="#"
-        use:bookmarkletLink
-        draggable="true"
-        ondragstart={(e) => {
-          // Populate the drag explicitly so a drop on the (cross-app) bookmarks bar
-          // receives the javascript: URL — Electron→browser drags otherwise carry nothing.
-          e.dataTransfer?.setData("text/uri-list", BOOKMARKLET_HREF);
-          e.dataTransfer?.setData("text/plain", BOOKMARKLET_HREF);
-        }}
-        onclick={async (e) => {
-          e.preventDefault();
-          try {
-            await navigator.clipboard.writeText(BOOKMARKLET_HREF);
-            bmCopied = true;
-            setTimeout(() => (bmCopied = false), 2600);
-          } catch {
-            /* clipboard blocked */
-          }
-        }}
-        title="Drag to your bookmarks bar, or click to copy. On a paper page it downloads the PDF (or the paper's details) for Flux to pick up — it runs in your own logged-in browser, so it reaches what Flux can't fetch on its own.">Add to FluxLib</a>
-      <span class="hint"
-        >{bmCopied
-          ? "Copied ✓ — make a new bookmark, then paste this as its URL"
-          : "drag to your bookmarks bar (or click to copy), then click it on any paper page — it saves the PDF to your downloads"}</span>
+      <button
+        class="bminstall"
+        disabled={bmBusy}
+        title="Opens a page in your default browser with a button you drag onto your bookmarks bar. One click on any paper page then saves it here."
+        onclick={installBookmarklet}>{bmBusy ? "Opening…" : "Set up the bookmark…"}</button>
+      <span class="hint">{bmHint}</span>
     </footer>
   {:else}
     <!-- World scope: live OpenAlex results -->
@@ -2933,8 +2932,7 @@
     letter-spacing: 0.04em;
     color: var(--c-tx-muted);
   }
-  .bm {
-    display: inline-block;
+  .bminstall {
     padding: 4px 12px;
     border: 1px solid var(--c-accent);
     border-radius: var(--r-pill);
@@ -2942,9 +2940,15 @@
     color: var(--c-accent);
     font-size: var(--ts-sm);
     font-weight: 600;
-    text-decoration: none;
-    cursor: grab;
-    user-select: none;
+    cursor: pointer;
+  }
+  .bminstall:hover:not(:disabled) {
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+  }
+  .bminstall:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
   .hint {
     font-size: var(--ts-xs);

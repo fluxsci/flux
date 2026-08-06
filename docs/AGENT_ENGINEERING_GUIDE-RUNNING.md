@@ -86,6 +86,7 @@ The established shared cores — extend these, don't duplicate them:
 | Load-gate validation (parse → migrate → validate) | `src/lib/project/validate.ts` (+ generated `validators.gen.js`) | `verify-loadgate.ts` |
 | Reference query grammar | `src/lib/references/query.ts` | `verify-organize.ts` |
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
+| PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
@@ -525,6 +526,29 @@ chord or label changes, grep `docs/` for the old one.
 - pdf.js text layers hide during CSS-zoom (span boxes collapse to 0,0 *stably*) — waits need a
   nonzero two-poll-stable box, not a single poll. `TextQuoteSelector`'s field is `quote`, not
   `exact` — a wrong anchor field silently orphans annotations.
+
+**Identifying a PDF from its own bytes** (`pdfIdentify.ts`; the 2026-08-06 inbox backlog):
+
+- **A PDF's `/Title` is production junk more often than it is a title.** Real values seen in one
+  22-file batch: `PII: 0013-4694(81)90225-X` (11×), `SLEEP.30.12.1631.indd`, `NSS_A_330939
+  217..230`, `ns030000899p`, `CRMETH101179_mmc2 1..1`. Never treat that slot as authoritative
+  prose. `looksLikeTitle` screens it and the font-size `titleGuess` behind it is usually correct
+  — so any "pick the first non-empty title field" rule is a bug waiting to happen; fall through.
+- **An Elsevier PII *is* the DOI**: `10.1016/` + the PII verbatim, both eras
+  (`0013-4694(81)90225-X`, `S0166-2236(98)01349-6`). Taken from the metadata slot only — a PII in
+  page text could be a reference (the masthead lesson) — it is publisher-set and therefore
+  authoritative, which matters because such scans often start mid-way through the previous
+  article, leaving no page-1 title to cross-check against.
+- **A paper ABOUT a work scores 1.00 against that work.** A 24-page 1861 *review of* Virchow's
+  *Cellular Pathology* quotes the book's title verbatim in its header and names its author on
+  page 1; every title metric maxes out. The ONLY thing separating "is this work" from "is about
+  this work" is the year/author corroboration — which is why Tier 2 judges the **first usable
+  (DOI-bearing) hit and stops**. Skipping past DOI-*less* records is fine (registries return the
+  same paper twice, DOI on the second copy); continuing past a hit that FAILED corroboration is
+  not — that is shopping the ranked list for one that agrees, and it files a review as the book.
+- Search-index reach, not the gate, is now the binding constraint on the rest: a scrambled
+  two-column OCR title guess and a paper OpenAlex ranks poorly for its own exact title both stay
+  unresolved, correctly.
 - `quarto install tinytex` installs to `~/Library/TinyTeX` (macOS) / `~/.TinyTeX` (Linux) and
   **never touches PATH**, so `tlmgr` and `kpsewhich` are command-not-found on a perfectly good
   install. Flux and Quarto are unaffected — they resolve TinyTeX internally — which is exactly
@@ -2532,3 +2556,47 @@ Session-log entries at §11 that mention `CLAUDE.md` were left alone — the log
 - `resources/flux-context/TEMPLATES.md` legitimately tells *users* to write a `CLAUDE.md` in
   their analysis dir, and `electron/agentsConfig.cjs` detects one there. Those are product
   surface for someone else's repo — do not sweep them up in a repo-instructions refactor.
+
+### 2026-08-06 — Web capture: the browser is the acquisition engine (Claude Fable 5, `main`)
+**Work:** Replaced the `flux://add?doi=…` bookmarklet with one that **downloads the PDF from
+inside the user's own logged-in browser**, and built the receiving half: main watches the
+download folder for `flux-*`, moves captured PDFs into `pdfs_to_assign/` (where the existing
+content-identifier matches them), and hands `.fluxcap` sidecars to the renderer to resolve by
+DOI. Added the drag-to-install page (opened in the DEFAULT browser, carrying the Flux favicon
+so the bookmark isn't blank), a `docs/integrations/web-capture.qmd` page, and three gates. The
+whole `flux://` protocol path is gone: `fluxUrl.cjs`, the `capture:add` channel, `onCapture`,
+the `protocols:` registration.
+**Learnings:**
+- **The transport was never the hard part — extraction was.** Every previous design shipped a
+  URL for Flux to re-fetch server-side, where publishers bot-block it. The browser is already
+  past the paywall, already holds the session, and is indistinguishable from a human to
+  Cloudflare/PerimeterX. Shipping BYTES from there reaches papers Flux's own capture cannot:
+  jneurosci.org returns `cf-mitigated: challenge` + 403 to us and renders fine for the user.
+- **Chrome 142 killed the obvious design.** A loopback POST (how Zotero's connector works) now
+  needs a per-site Local Network Access permission prompt for a public origin reaching
+  127.0.0.1. Extensions are exempt; page scripts are not. A plain download is subject to none
+  of it — no protocol handler, no CORS, no ports, and it works in every browser.
+- **`$HOME` is deliberately not an fsGuard root (W12/SHL-6), so the renderer cannot touch the
+  download folder.** The first cut had the intake doing its own file moves and would have been
+  refused at runtime with types and gates all green. The fix is not to widen the guard — it's
+  to put the file work in main, scoped to one job, and hand the renderer only what it needs.
+- **Two mirror traps avoided, both instances of this morning's lesson.** `isCaptureFile` lives
+  in `electron/captureRules.js` (ESM, the supplementRules pattern) so main's watcher classifier
+  and the renderer's intake are literally the same function; and `captureIntake.cjs` is
+  extracted from main so the live gate drives the real engine rather than a copy.
+- **Gate what the feature could destroy, not just what it should do.** This moves files out of
+  the user's downloads folder, so `verify-capture-e2e.cjs` plants `tax-return-2025.pdf` and
+  friends beside the captures and asserts they're untouched, that traversal names are refused,
+  that a same-named capture is suffixed rather than overwritten, and that a sub-1KB
+  still-arriving download is left alone.
+- Chrome renders a PDF in a viewer with NO html document — no metas, no `citation_pdf_url`,
+  just an `<embed>`. And **science.org emits no `citation_pdf_url` at all**. Both were found by
+  the owner testing real pages, not by any amount of reasoning about the DOM.
+- The dragged bookmark inherits the SOURCE PAGE's favicon — that's the only way to get the Flux
+  mark onto a `javascript:` bookmark, and it's why the install page is a real page (also why a
+  2 KB href must be dragged, never typed).
+- **Firefox is a documented partial.** It applies page CSP to bookmarklets where Chrome doesn't
+  ([Mozilla 866522](https://bugzilla.mozilla.org/show_bug.cgi?id=866522), open since 2013), so
+  it silently does nothing on strict-CSP publishers. Documented in the install page and the
+  docs, with an explicit warning NOT to disable `security.csp.enable`. Real Firefox parity
+  needs the WebExtension — that remains the destination, and it would share this payload format.

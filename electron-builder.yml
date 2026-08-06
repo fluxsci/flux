@@ -4,10 +4,6 @@ copyright: © 2026 Kort Driessen
 
 # Register the flux:// URL scheme so the web-capture bookmarklet can hand papers to
 # the installed app (writes macOS CFBundleURLTypes + the Linux .desktop MimeType).
-protocols:
-  - name: Flux
-    schemes:
-      - flux
 
 directories:
   buildResources: build

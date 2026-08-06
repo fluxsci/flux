@@ -143,7 +143,7 @@ Once connected, the [Zotero Connector](https://www.zotero.org/download/connector
 extension becomes the best way to capture papers from the web: one click on any paper page
 saves it to Zotero — with publisher-quality metadata and, where possible, the PDF — and it
 flows into FluxLib on the next sync. This works alongside Flux's own
-[bookmarklet and add-by-DOI box](../modes/library.qmd#getting-papers-in); use whichever is
+[web capture](web-capture.qmd) and add-by-DOI box; use whichever is
 in reach.
 
 # Syncing from the command line (and agents)

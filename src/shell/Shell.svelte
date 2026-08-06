@@ -18,27 +18,13 @@
   // eager Shell chained the whole paper/scholar stack into Home; W15 gate.)
   import { pdfFetchJob } from "../lib/references/pdfFetchJob.svelte";
   import { assignJob } from "../lib/references/assignJob.svelte";
+  import { captureStatus } from "../lib/references/captureStatus";
 
-  // Web capture (flux://): the main process delivers { doi?, url? } here regardless
-  // of the active mode/view — we add it to the global FluxLib and toast the result.
+  // Web capture: the bookmarklet downloads a file, the capture watcher files it, and the
+  // result surfaces HERE — shell-level, so it shows in any mode and even on Home (a capture
+  // can land while you're writing). captureIntake owns the state; this only renders it.
   let capture = $state<{ kind: "busy" | "ok" | "err"; msg: string } | null>(null);
-  let captureTimer: ReturnType<typeof setTimeout> | undefined;
-
-  function showCapture(kind: "busy" | "ok" | "err", msg: string, ttl = 0) {
-    capture = { kind, msg };
-    clearTimeout(captureTimer);
-    if (ttl) captureTimer = setTimeout(() => (capture = null), ttl);
-  }
-
-  async function onCapturePayload(payload: { doi?: string; url?: string }) {
-    const input = (payload?.doi || payload?.url || "").trim();
-    if (!input) return;
-    showCapture("busy", "Adding to FluxLib…");
-    const { addUrlOrDoiToLibrary } = await import("./modes/paper/scholar/bibLoad");
-    const r = await addUrlOrDoiToLibrary(input);
-    if ("error" in r) showCapture("err", r.error || "Couldn't add that paper.", 4200);
-    else showCapture("ok", `Added “${r.title || r.key}” to FluxLib ✓`, 3200);
-  }
+  $effect(() => captureStatus.subscribe((v) => (capture = v)));
 
   // 5.3 update check: packaged builds ping GitHub for a newer release at most once a
   // day; the opt-out lives here (settings.updateCheck), main owns the throttle/fetch.
@@ -81,15 +67,13 @@
     // In Electron the preload sets window.fig before this runs; under the dev
     // fixture it can arrive a beat late, so retry briefly until the bridge appears.
     let unsub: (() => void) | undefined;
-    let unsubErr: (() => void) | undefined;
     let tries = 0;
     function attach() {
       const fb = fileBridge();
-      if (fb?.onCapture) {
-        unsub = fb.onCapture(onCapturePayload);
+      if (fb?.onAppError) {
         // Main-process failures (watcher death, spawn errors) surface as toasts
         // instead of dying in the main console (V1 review, W1).
-        unsubErr = fb.onAppError?.((p: { level?: string; msg: string; detail?: string }) =>
+        unsub = fb.onAppError((p: { level?: string; msg: string; detail?: string }) =>
           pushToast((p.level as ToastLevel) || "error", p.msg, { detail: p.detail }),
         );
         void maybeCheckForUpdate(); // packaged-only, throttled; no-op in dev
@@ -100,7 +84,6 @@
     attach();
     return () => {
       unsub?.();
-      unsubErr?.();
     };
   });
 </script>

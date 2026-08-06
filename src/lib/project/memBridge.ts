@@ -34,12 +34,10 @@ export function createMemBridge(): FileBridge & {
   _files: Map<string, Uint8Array>;
   _dirs: Set<string>;
   _emitFsChange: (info: { subsystem: string; path: string }) => void;
-  _emitCapture: (p: { doi?: string; url?: string }) => void;
 } {
   const files = new Map<string, Uint8Array>();
   const dirs = new Set<string>(["/"]);
   const fsListeners = new Set<(info: { subsystem: string; path: string }) => void>();
-  const captureListeners = new Set<(p: { doi?: string; url?: string }) => void>();
 
   const addDir = (p: string) => {
     let cur = norm(p);
@@ -58,20 +56,12 @@ export function createMemBridge(): FileBridge & {
     _emitFsChange: (info) => {
       for (const l of fsListeners) l(info);
     },
-    // Dev-only: lets the headless harness simulate a flux:// web capture.
-    _emitCapture: (p) => {
-      for (const l of captureListeners) l(p);
-    },
     watchRoot() {
       return true;
     },
     onFsChanged(cb) {
       fsListeners.add(cb);
       return () => fsListeners.delete(cb);
-    },
-    onCapture(cb) {
-      captureListeners.add(cb);
-      return () => captureListeners.delete(cb);
     },
     async resolveUrl() {
       return { error: "URL resolution is unavailable in the demo fixture (use Surface B)." };
@@ -509,7 +499,6 @@ export async function installDemoFixture(): Promise<string> {
   // Dev-only: let the headless harness simulate an external (agent/script) write.
   (window as unknown as { __fluxEmitFsChange?: unknown }).__fluxEmitFsChange = bridge._emitFsChange;
   // Dev-only: let the headless harness simulate a flux:// web capture.
-  (window as unknown as { __fluxEmitCapture?: unknown }).__fluxEmitCapture = bridge._emitCapture;
 
   // Scaffold the real tree (project.json, _quarto.yml, AGENTS.md, dirs, …),
   // then enrich it with sample content so the two-module workflow is exercised.

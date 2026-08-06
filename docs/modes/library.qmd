@@ -13,9 +13,10 @@ header shows the collection and its size; everything below is the grid.
 - **Paste a DOI or URL.** The add box in the header (*"Add by DOI or URL…"*) takes a bare DOI,
   a `doi.org` link, or **any paper's web address** — Flux reads the page's citation metadata to
   find the DOI. arXiv pages work too.
-- **The bookmarklet.** At the bottom of the Library sits an **Add to FluxLib** link — drag it
-  to your browser's bookmarks bar (or click it to copy the code into a new bookmark). On any
-  paper page, clicking it sends that paper straight to Flux; a toast confirms the add.
+- **The web-capture bookmark.** At the bottom of the Library, **Set up the bookmark…** opens a
+  page in your browser with a green **Add to FluxLib** button to drag onto your bookmarks bar.
+  From then on, one click on any paper page — the article *or* the PDF itself — saves it here,
+  with its PDF. See [Capturing from the web](../integrations/web-capture.qmd).
 - **Bulk import.** **Import…** reads a `.bib` or `.ris` file (Zotero, EndNote, Mendeley,
   BibTeX exports), previews what's new vs. already-known before committing, and can pull the
   PDFs a Zotero export references alongside.

@@ -109,6 +109,10 @@ export function startProjectWatch(root: string | null): void {
       if (info.path.endsWith("enrich.json")) invalidateEnrichCache();
       bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
     } else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
+    else if (info.subsystem === "capture") {
+      // The bookmarklet downloaded a capture — file it (async, self-serializing).
+      void import("../references/captureIntake.svelte").then((m) => m.runCaptureIntake());
+    }
     else if (info.subsystem === "zotero-bib") bumpZoteroBib(); // the BBT auto-export was rewritten
   });
 }

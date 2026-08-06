@@ -29,6 +29,13 @@ contextBridge.exposeInMainWorld("fig", {
   fetchDoiBibtex: (doi) => ipcRenderer.invoke("cite:fetchDoiBibtex", doi),
   // Resolve a paper URL (or DOI) to a DOI by fetching + scraping the page in main.
   resolveUrl: (url) => ipcRenderer.invoke("cite:resolveUrl", url),
+  // Web capture: the folder the browser downloads into (bookmarklet drop point).
+  captureDir: () => ipcRenderer.invoke("capture:dir"),
+  // Open the bookmarklet install page in the user's DEFAULT browser.
+  openCaptureInstall: (href) => ipcRenderer.invoke("capture:openInstallPage", href),
+  // Move captured PDFs into the assign inbox; return sidecars for the renderer to resolve.
+  captureIntake: () => ipcRenderer.invoke("capture:intake"),
+  captureDiscard: (name) => ipcRenderer.invoke("capture:discard", name),
   // Fetch an OpenAlex API URL (built by src/lib/references/openalex.ts) in main —
   // powers library hydration + whole-world lookups (no CORS; api_key attached if set).
   fetchOpenAlex: (url) => ipcRenderer.invoke("cite:openalex", url),
@@ -149,14 +156,6 @@ contextBridge.exposeInMainWorld("fig", {
     const handler = (_e, info) => cb(info);
     ipcRenderer.on("fs:changed", handler);
     return () => ipcRenderer.removeListener("fs:changed", handler);
-  },
-
-  // Web capture: the main process delivers a flux://add?doi=…|url=… payload here
-  // (from the bookmarklet / OS protocol handler) for the shell to add to FluxLib.
-  onCapture: (cb) => {
-    const handler = (_e, payload) => cb(payload);
-    ipcRenderer.on("capture:add", handler);
-    return () => ipcRenderer.removeListener("capture:add", handler);
   },
 
   // App-level notices: main-process failures (watcher death, spawn errors) surface

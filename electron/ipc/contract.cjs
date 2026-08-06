@@ -47,6 +47,10 @@ const CHANNELS = [
   { channel: "docs:open", kind: "invoke", scope: "spawn" },
   // --- project lifecycle / watcher / locks / journal ---------------------------
   { channel: "watch:setRoot", kind: "invoke", scope: "read" },
+  { channel: "capture:dir", kind: "invoke", scope: "read" },
+  { channel: "capture:openInstallPage", kind: "invoke", scope: "read" },
+  { channel: "capture:intake", kind: "invoke", scope: "write" },
+  { channel: "capture:discard", kind: "invoke", scope: "write" },
   // The feedback ledger (append-only .meta/feedback.ndjson — principal-agent scheme).
   { channel: "feedback:append", kind: "invoke", scope: "write" },
   { channel: "lock:acquire", kind: "invoke", scope: "write" },
@@ -102,7 +106,6 @@ const CHANNELS = [
   { channel: "correction:modelWarm", kind: "invoke", scope: "spawn" },
   { channel: "correction:modelProgress", kind: "push", scope: "read" },
   // --- capture (flux:// deep links) ---------------------------------------------
-  { channel: "capture:add", kind: "push", scope: "read" },
   // --- agent bridge ---------------------------------------------------------------
   // The principal drawer's launch spec (agents.json roster + boot prompt + MCP wiring).
   { channel: "agent:principalSpec", kind: "invoke", scope: "read" },

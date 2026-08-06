@@ -311,9 +311,17 @@ export interface FileBridge {
   // fixture) provide them.
   watchRoot?(root: string | null): Promise<boolean> | boolean;
   onFsChanged?(cb: (info: { subsystem: string; path: string }) => void): () => void;
+  // Web capture: the folder the browser downloads into, where the bookmarklet drops
+  // `flux-*.pdf` / `.fluxcap` files. Electron only; null when it can't be resolved.
+  captureDir?(): Promise<string | null>;
+  // Open the drag-to-install bookmarklet page in the DEFAULT browser (not an Electron window).
+  openCaptureInstall?(href: string): Promise<{ ok?: boolean; path?: string; error?: string }>;
+  // Main moves captured PDFs into pdfs_to_assign (the renderer can't: fsGuard refuses $HOME)
+  // and returns the .fluxcap sidecars for the renderer to resolve, then discard by name.
+  captureIntake?(): Promise<{ pdfs: string[]; sidecars: { name: string; json: string }[] }>;
+  captureDiscard?(name: string): Promise<{ ok?: boolean; error?: string }>;
   // Web capture (flux://): main delivers a { doi?, url? } payload to add to FluxLib.
   // Electron only; returns an unsubscribe fn. Mirrors onFsChanged's shape.
-  onCapture?(cb: (payload: { doi?: string; url?: string }) => void): () => void;
   // App-level notices from the main process (watcher death, spawn failures) —
   // surfaced as shell toasts (src/lib/toast.ts). Electron only.
   onAppError?(cb: (payload: { level?: string; msg: string; detail?: string }) => void): () => void;

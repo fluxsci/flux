@@ -1,0 +1,89 @@
+---
+title: "Capturing from the web"
+subtitle: "One click on any paper page saves it — with its PDF — into FluxLib"
+---
+
+You are reading a paper in your browser. One click puts it in your library: the reference, and
+the PDF, without a download folder detour or a copy-pasted DOI.
+
+# Setting it up
+
+In [Library](../modes/library.qmd), at the bottom of the pane, click **Set up the bookmark…**.
+A page opens in your default browser with a green **Add to FluxLib** button. Drag that button
+onto your bookmarks bar and you're done — there is nothing to install, no extension, no
+account.
+
+::: {.callout-tip}
+Bookmarks bar hidden? `Ctrl+Shift+B` (`⌘⇧B` on macOS).
+:::
+
+# Using it
+
+Open a paper and click the bookmark. It works on the article page **and** on a PDF you already
+have open in the browser. A message appears at the top of the page:
+
+| Message | What happened |
+|---|---|
+| **Green** — *PDF sent to Flux* | The PDF was captured. Flux files it and matches it to a reference automatically. |
+| **Amber** — *Sent details to Flux* | No PDF was reachable, so the paper's details were captured. Flux still adds the reference; it just won't have the PDF yet. |
+| Nothing at all | The click didn't run — see [If nothing happens](#if-nothing-happens). |
+
+Captures land in your downloads folder named `flux-…`, and Flux picks them up within a second
+or two. **Flux doesn't need to be open** — anything captured while it's closed is filed the
+next time you start it. Nothing is lost, and nothing else in your downloads folder is touched:
+Flux only ever looks at files it wrote itself.
+
+A captured PDF goes through the same identification as the
+[drop folder](../modes/library.qmd#getting-papers-in) — Flux reads the document's own content
+(embedded DOI, then the DOI printed on page 1, then its reference list, then a title search) to
+find the right reference. It attaches to a paper you already have, or adds the reference if it's
+new.
+
+# Why capture from the browser
+
+Flux can already fetch open-access PDFs on its own, and paywalled ones through your
+[library proxy](../modes/library.qmd). But some publishers sit behind anti-bot systems —
+Cloudflare and PerimeterX — that refuse automated browsers outright, no matter how the request
+is dressed up. Those papers are simply unreachable to Flux.
+
+Your browser is not an automated browser. It's you: already signed in, already past the
+paywall, already holding the session. So the bookmark captures the PDF *from inside your own
+session*, which is why it reaches papers Flux cannot fetch by itself. It's the most capable
+acquisition route in the app, and it costs one click.
+
+# Browser support
+
+| Browser | |
+|---|---|
+| **Chrome, Edge, Brave** | Fully supported. |
+| **Safari** | Works. Show the Favourites bar with `⌘⇧B`. |
+| **Firefox** | Works on many sites, but **silently does nothing on publishers with a strict Content-Security-Policy**. Firefox applies the page's CSP to bookmarklets; Chrome doesn't. This is [Mozilla bug 866522](https://bugzilla.mozilla.org/show_bug.cgi?id=866522), open since 2013. If a click does nothing on a publisher site, that's why. |
+
+::: {.callout-warning}
+You'll find advice to set `security.csp.enable` to `false` in Firefox's `about:config` to make
+bookmarklets work. Don't — it disables Content-Security-Policy for **every site you visit**,
+which is a real security downgrade. Use Chrome for capture, or save the PDF yourself and drop
+it into FluxLib's `pdfs_to_assign` folder.
+:::
+
+# If nothing happens
+
+- **Check the address bar** for a blocked-download icon, and allow it.
+- **A strict CSP** on the page can block the click outright (see Firefox, above).
+- **Some publishers block the PDF fetch but not the script.** You'll get the amber message and
+  the reference still arrives — just without its PDF. Flux can often fetch that separately with
+  **Get PDFs**.
+- **Re-drag the bookmark** after updating Flux: the bookmark holds a copy of the capture code,
+  so an old one keeps working the old way. **Set up the bookmark…** always serves the current
+  version.
+
+# Where things land
+
+| | |
+|---|---|
+| Captured files | your browser's download folder, named `flux-…` |
+| Captured PDFs, once filed | `FluxLib/pdfs_to_assign/`, then `FluxLib/items/<citekey>/paper.pdf` |
+| PDFs that couldn't be identified | `FluxLib/pdfs_to_assign/_unresolved/`, with a note saying why |
+
+Nothing is ever guessed: a PDF Flux can't identify with confidence is set aside rather than
+attached to the wrong paper.

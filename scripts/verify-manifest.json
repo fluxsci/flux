@@ -165,7 +165,8 @@
       "verify-journal-assets.ts",
       "verify-nature-structure.ts",
       "verify-nature-compliance.ts",
-      "verify-bookmarklet.ts"
+      "verify-bookmarklet.ts",
+      "verify-capture-intake.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -293,7 +294,8 @@
       "verify-w5-lifecycle.mjs",
       "verify-paste-image.mjs",
       "figenh-18-pathmodes.ts",
-      "verify-cascade-tracks-gui.mjs"
+      "verify-cascade-tracks-gui.mjs",
+      "verify-capture-e2e.cjs"
     ],
     "scale": [
       "verify-scale-library.mjs",
@@ -382,6 +384,22 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "{electron/{captureIntake,captureInstall}.cjs,electron/captureRules.js,src/lib/references/capture*.ts}",
+      "run": [
+        "verify-capture-intake.ts",
+        "verify-capture-e2e.cjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "{src/lib/references/{capture,captureIntake.svelte,captureStatus}.ts,electron/captureInstall.cjs}",
+      "run": [
+        "verify-capture-intake.ts",
+        "verify-bookmarklet.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "{src/shell/modes/library/bookmarklet.ts,src/lib/references/capture.ts}",
       "run": [

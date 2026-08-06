@@ -10,8 +10,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
+const { createCaptureIntake } = require("./captureIntake.cjs");
 const { pickRelease } = require("./updateCheck.cjs");
-const { parseFluxUrl, fluxUrlFromArgv } = require("./fluxUrl.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
 
@@ -485,62 +485,23 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
-
-  // Flush any flux:// web capture that arrived before the renderer was ready.
-  win.webContents.once("did-finish-load", () => {
-    if (pendingCapture) {
-      win.webContents.send("capture:add", pendingCapture);
-      pendingCapture = null;
-    }
-  });
 }
 
 // ---------------------------------------------------------------------------
-// flux:// web capture. A single instance owns the protocol; a second launch (or
-// the macOS open-url event) forwards its flux://add?doi=…|url=… to the renderer,
-// which adds it to FluxLib. URL grammar lives in electron/fluxUrl.cjs.
+// Single-instance lock. Web capture no longer rides a flux:// protocol handler —
+// the bookmarklet downloads a file and the capture watcher picks it up (see
+// src/lib/references/captureIntake.svelte.ts) — so this only keeps one app alive.
 // ---------------------------------------------------------------------------
-let pendingCapture = null; // capture payload seen before the renderer is ready
-
-function deliverCapture(payload) {
-  if (!payload) return;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-    const wc = mainWindow.webContents;
-    if (wc.isLoading()) wc.once("did-finish-load", () => wc.send("capture:add", payload));
-    else wc.send("capture:add", payload);
-  } else {
-    pendingCapture = payload; // flushed when the next window finishes loading
-  }
-}
-function handleFluxUrl(raw) {
-  deliverCapture(parseFluxUrl(raw));
-}
-
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", (_e, argv) => {
-    const url = fluxUrlFromArgv(argv);
-    if (url) handleFluxUrl(url);
-    else if (mainWindow) {
+  app.on("second-instance", () => {
+    if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
   });
-  // macOS delivers flux:// here (not via argv).
-  app.on("open-url", (e, url) => {
-    e.preventDefault();
-    handleFluxUrl(url);
-  });
-  // Register as the OS handler for flux:// (dev: pass execPath + script path).
-  if (process.defaultApp && process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient("flux", process.execPath, [path.resolve(process.argv[1])]);
-  } else {
-    app.setAsDefaultProtocolClient("flux");
-  }
 }
 
 app.whenReady().then(async () => {
@@ -584,9 +545,6 @@ app.whenReady().then(async () => {
   buildAppMenu(); // W6: replace the default menu (kills the stray reload accelerator)
   ipcContract.assertAllRegistered(); // WS-9.4: no declared channel may be orphaned
   createWindow();
-  // Cold start via protocol (Windows/Linux carry the URL in argv).
-  const initialUrl = fluxUrlFromArgv(process.argv);
-  if (initialUrl) handleFluxUrl(initialUrl);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -978,6 +936,61 @@ function fluxLibSubsystemFor(libRoot, abs) {
   return null;
 }
 
+// Web capture: the bookmarklet downloads `flux-<slug>.pdf` / `.fluxcap` into the browser's
+// download folder. We watch ONLY for that prefix, so an ordinary download can never be
+// mistaken for a capture and nothing of the user's is ever touched by accident.
+// captureRules.js is ESM (the renderer imports it too), so this CommonJS file loads it by
+// dynamic import — resolved once at watch setup, before any event can arrive.
+let captureRules = null;
+function captureSubsystemFor(dir, abs) {
+  if (!captureRules) return null;
+  const rel = path.relative(dir, abs).split(path.sep).join("/");
+  if (rel.startsWith("..") || rel.includes("/")) return null; // top level only
+  return captureRules.isCaptureFile(rel) ? "capture" : null;
+}
+
+/** The folder the browser downloads into. Overridable in prefs for a non-default setup. */
+function captureDir() {
+  const raw = readPrefs().captureDir;
+  if (typeof raw === "string" && raw.trim()) return path.resolve(raw.trim());
+  try {
+    return app.getPath("downloads");
+  } catch {
+    return null;
+  }
+}
+ipcMain.handle("capture:dir", () => captureDir());
+
+// Web-capture intake. Implementation lives in ./captureIntake.cjs (extracted so the e2e gate
+// can drive it without booting the app); main only injects the paths and registers channels.
+const captureIntakeEngine = createCaptureIntake({
+  captureDir,
+  fluxLibDir,
+  path,
+  fs,
+  fsp: require("node:fs/promises"),
+  loadRules: () => import("./captureRules.js"),
+});
+ipcMain.handle("capture:intake", () => captureIntakeEngine.intake());
+ipcMain.handle("capture:discard", (_e, name) => captureIntakeEngine.discard(name));
+
+// Write the bookmarklet install page to a temp file and open it in the user's DEFAULT
+// browser — the bookmarklet has to be installed where they actually browse, which is not
+// necessarily where Electron would render it. The renderer passes the href so the
+// bookmarklet string has exactly one home (src/shell/modes/library/bookmarklet.ts).
+ipcMain.handle("capture:openInstallPage", async (_e, href) => {
+  if (typeof href !== "string" || !href.startsWith("javascript:")) return { error: "bad bookmarklet" };
+  try {
+    const { captureInstallHtml } = require("./captureInstall.cjs");
+    const file = path.join(app.getPath("temp"), "flux-add-to-fluxlib.html");
+    await require("node:fs/promises").writeFile(file, captureInstallHtml(href), "utf8");
+    await shell.openExternal(require("node:url").pathToFileURL(file).href);
+    return { ok: true, path: file };
+  } catch (e) {
+    return { error: String((e && e.message) || e) };
+  }
+});
+
 ipcMain.handle("watch:setRoot", async (_e, root) => {
   releaseAllGuiLocks(); // W3: locks belong to the outgoing project/session
   // M9: the open project root is the primary fs allowlist entry.
@@ -1008,6 +1021,8 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   // Zotero sync: when connected, watch the BBT auto-export so a Zotero-side change
   // syncs live while the app is open. Resolved here (not hot-reloaded) — the Library
   // pane re-invokes watch:setRoot after connecting, so the target stays current.
+  const capDir = captureDir();
+  if (capDir && !captureRules) captureRules = await import("./captureRules.js").catch(() => null);
   const zoteroPrefs = readPrefs().zotero;
   const zoteroBib =
     zoteroPrefs && typeof zoteroPrefs === "object" && typeof zoteroPrefs.bibPath === "string" && zoteroPrefs.bibPath
@@ -1026,6 +1041,8 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     // The assign drop-inbox — a landed PDF triggers a scan in the open app.
     path.join(libRoot, "pdfs_to_assign"),
     ...(zoteroBib ? [zoteroBib] : []),
+    // Web capture: the browser's download folder (top level only — see captureSubsystemFor).
+    ...(capDir ? [capDir] : []),
   ];
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
@@ -1046,7 +1063,8 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     const subsystem =
       subsystemFor(root, abs) ??
       fluxLibSubsystemFor(libRoot, abs) ??
-      (zoteroBib && path.resolve(abs) === zoteroBib ? "zotero-bib" : null);
+      (zoteroBib && path.resolve(abs) === zoteroBib ? "zotero-bib" : null) ??
+      (capDir ? captureSubsystemFor(capDir, abs) : null);
     if (!subsystem) return;
     pending.set(subsystem, abs);
     if (!timer) timer = setTimeout(flush, 200);
