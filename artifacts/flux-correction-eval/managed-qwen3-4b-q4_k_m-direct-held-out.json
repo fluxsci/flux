@@ -1,0 +1,1426 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-v1",
+  "corpusHash": "d4e57b2e93b199204eb33c6c1b86ec86f26b85ca878021bfa079b01f3d8328e2",
+  "generatedAt": "2026-08-06T01:49:39.156Z",
+  "options": {
+    "suite": "standard",
+    "provider": "managed",
+    "contract": "direct",
+    "model": "qwen3-4b-q4_k_m",
+    "thinking": false,
+    "repeats": 3,
+    "limit": 0,
+    "family": "",
+    "partition": "held-out",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 3500,
+    "evaluated": 700,
+    "clean-scientific": 500,
+    "single-mechanical": 500,
+    "multi-mechanical": 500,
+    "ambiguous-change": 400,
+    "ambiguous-keep": 400,
+    "scientific-terminology": 300,
+    "protected-syntax": 300,
+    "project-context-pair": 200,
+    "paragraph-cross-sentence": 200,
+    "rapid-typing-race": 200
+  },
+  "metrics": {
+    "precision": 0.9361702127659575,
+    "wilson95Lower": 0.9103418892693748,
+    "coverage": 0.9565217391304348,
+    "candidateAvailability": 0.9411764705882353,
+    "automaticEdits": 470,
+    "correctAutomaticEdits": 440,
+    "protectedChanges": 0,
+    "providerCalls": 870,
+    "providerCallsPerPass": 290,
+    "callsPer1000Words": 42.521994134897355,
+    "allKeepCalls": 110,
+    "allUseCalls": 160,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 225.07950100000016,
+      "p95": 383.1240319999997,
+      "p99": 461.3749349999998
+    },
+    "tokens": {
+      "prompt": 351870,
+      "output": 15090
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 0.9767441860465116,
+    "wilson95Lower": 0.9577258838545352,
+    "coverage": 0.9545454545454546,
+    "automaticEdits": 430,
+    "correctAutomaticEdits": 420,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 18,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 8,
+    "callsPer1000Words": 8.66738894907909,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 50,
+      "available": 50,
+      "rate": 1
+    },
+    "real-word": {
+      "gold": 80,
+      "available": 80,
+      "rate": 1
+    },
+    "boundary": {
+      "gold": 20,
+      "available": 10,
+      "rate": 0.5
+    },
+    "phrase-punctuation": {
+      "gold": 20,
+      "available": 20,
+      "rate": 1
+    }
+  },
+  "byFamily": {
+    "clean-scientific": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "single-mechanical": {
+      "automaticEdits": 100,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 25,
+      "failures": 0
+    },
+    "multi-mechanical": {
+      "automaticEdits": 200,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 25,
+      "failures": 0
+    },
+    "ambiguous-change": {
+      "automaticEdits": 70,
+      "precision": 1,
+      "coverage": 0.875,
+      "candidateAvailability": 1,
+      "providerCalls": 80,
+      "failures": 0
+    },
+    "ambiguous-keep": {
+      "automaticEdits": 10,
+      "precision": 0,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 80,
+      "failures": 0
+    },
+    "scientific-terminology": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "protected-syntax": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "project-context-pair": {
+      "automaticEdits": 10,
+      "precision": 1,
+      "coverage": 0.5,
+      "candidateAvailability": 0.5,
+      "providerCalls": 40,
+      "failures": 0
+    },
+    "paragraph-cross-sentence": {
+      "automaticEdits": 40,
+      "precision": 0.5,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 40,
+      "failures": 0
+    },
+    "rapid-typing-race": {
+      "automaticEdits": 40,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [
+    {
+      "id": "fc-v1-2919",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-2939",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-2959",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-2979",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-2999",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-3019",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-3039",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-3059",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-3079",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fc-v1-3099",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "gold": {
+        "original": "timepoint",
+        "replacement": "time point",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "timepoint",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    }
+  ],
+  "wrongDecisionExamples": [
+    {
+      "id": "fc-v1-1528",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1529",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1568",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1569",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1608",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1609",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1648",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1649",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1688",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1689",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1728",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1729",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1768",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1769",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1808",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1809",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1848",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1849",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1888",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-aec02254",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1889",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-a361c8ed",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1938",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-1978",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2018",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2058",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2098",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2138",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2178",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2218",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2258",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2298",
+      "family": "ambiguous-keep",
+      "text": "The blue label was a compliment to the orange trace.",
+      "candidate": "compliment",
+      "suggestions": [
+        "complement"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "compliment"
+      },
+      "decision": {
+        "candidateId": "c-b98fefdd",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "complement",
+      "actual": "complement"
+    },
+    {
+      "id": "fc-v1-2919",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-2939",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-2959",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-2979",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-2999",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-3019",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-3039",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-3059",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-3079",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-3099",
+      "family": "project-context-pair",
+      "text": "The first timepoint was excluded.",
+      "candidate": "timepoint",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "time point"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "time point"
+      },
+      "decision": {
+        "candidateId": "c-0ee2ee91",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "timepoint"
+    },
+    {
+      "id": "fc-v1-3108",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3118",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3128",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3138",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3148",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3158",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3168",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3178",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3188",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3198",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-ad415c29",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    }
+  ],
+  "failures": []
+}

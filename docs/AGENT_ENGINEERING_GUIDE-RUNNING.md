@@ -209,10 +209,11 @@ Persistence invariants (all machine-checked — do not weaken):
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
-  **Local corrections** (2026-08-04) live in `editing/localCorrections.ts`: capture only at a
-  typed sentence/newline boundary, lint a hard-capped sentence in the dedicated module worker
-  (`localCorrection.worker.ts`, Harper slim WASM), then revalidate the exact source against the
-  current document before applying every accepted edit in ONE isolated-history transaction.
+  **Local corrections** (2026-08-04, contextual lane 2026-08-05) live in
+  `editing/localCorrections.ts`: an abbreviation-aware shared segmenter schedules a small
+  completed-word lane and a separate completed-sentence lane. Both lint through the dedicated
+  module worker (`localCorrection.worker.ts`, Harper slim WASM), then revalidate exact source
+  against the current document before applying each accepted batch in isolated history.
   The synchronous keystroke path never calls the linter. `localCorrectionCore.ts` is deliberately
   conservative: mechanical edits only; arbitrary one-letter substitutions, scientific compound
   styling, phrase/style lints, technical tokens, and protected Markdown never auto-apply. Visual
@@ -225,7 +226,25 @@ Persistence invariants (all machine-checked — do not weaken):
   entirely off the keystroke path. Explicit mixed-case terms feed a conservative mechanical
   matcher in the pure core; arbitrary substitutions and version-like identifiers stay protected.
   Reset learning clears automatic vetoes but preserves explicit words/aliases. The worker and
-  WASM stay lazy outside the startup graph, and there is no network/cloud path.
+  WASM stay lazy outside the startup graph. A deferred span receives a Flux-owned red underline;
+  sentence judgment changes it to a transient blue correction line or a persistent, clickable
+  orange abstention with structured (non-chain-of-thought) diagnostics. Native Chromium spelling
+  decoration is suppressed only inside those owned spans so it cannot conflict with the state.
+  Unresolved sentence candidates may cross the bounded main-process seam in
+  `electron/ipc/corrections.cjs`. The model first adjudicates supplied options; for a plain
+  unresolved spelling token it may enter a bounded rescue protocol that proposes one
+  case-preserving word. The persisted `standard` mode permits one edit for short tokens and two
+  otherwise; `aggressive` permits three for 9+ letters; opt-in `really-aggressive` permits three
+  for 7+ and four for 10+ letters and examines every bounded candidate.
+  Recognizable scientific morphology gets a separate preservation veto, every proposal needs a
+  fresh contextual approval, and the renderer independently requires Harper lexicon proof.
+  `contextualCorrectionCore.ts` retains mutation authority, stale-source validation, policy gates,
+  exact-span/edit-distance enforcement, and protected-range checks. The default managed provider lives in
+  `electron/ipc/correctionRuntime.cjs`: a checksummed, main-owned `llama-server` helper on random
+  authenticated loopback, with an explicit resumable Qwen model under
+  `<FluxConfig>/Models/corrections/`. Ollama is an advanced local provider; OpenAI is explicit,
+  `safeStorage`-keyed, `store:false`, and never a fallback. Personal language state is durable in
+  `<FluxConfig>/Language/corrections.json`; project state is `.flux/corrections.json`.
   **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
   `science/tableModel.ts`, markdown-it-faithful because the export feeds the same text to
   markdown-it — escaped `\|` (escapedSplit port), header/delimiter column-count equality,
@@ -400,7 +419,7 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
   on this box need `--ozone-platform=x11` (§9).
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
-  `group:paper-gate` is the paper editor's regression suite (23 scripts). For parallel
+  `group:paper-gate` is the paper editor's regression suite (26 scripts). For parallel
   worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
   never hardcode the default port.
@@ -2158,3 +2177,133 @@ startup, and unpacked-package green.
   alongside an open Flux instance: real probes need `--ozone-platform=x11`, and the harness must
   isolate `XDG_CONFIG_HOME` plus the FluxConfig pointer because production deliberately pins
   `userData` before taking its single-instance lock.
+
+### 2026-08-05 (later) — Contextual correction layer and managed local model (Codex, `codex-local-completion`)
+**Work:** Implemented the reviewed contextual-correction plan over the word-level Harper fabric.
+Completed words now enter Harper immediately; completed scientific sentences produce bounded,
+versioned candidate packets for a second judgment lane. That lane can use Flux's managed local
+Qwen3 4B Instruct 2507 Q4_K_M runtime, an existing loopback Ollama model, or an explicitly configured OpenAI
+key. It never asks a model to rewrite prose: the model may only keep or accept precomputed Harper
+suggestions, and a renderer guard independently revalidates snapshot identity, exact source,
+protected spans, dictionaries, vetoes, overlap, edit count, and mechanical rank immediately before
+the edit. Added a durable Personal/project profile bridge (dialect, guidance, vetoes), cancellation,
+FIFO/backpressure, deadline fail-open behavior, correction-scoped Undo, stale/touched-range
+rejection, settings/model lifecycle UI, and full Paper documentation.
+
+Flux's local manager pins the exact Ollama-published Qwen3 4B Instruct 2507 GGUF blob and SHA, llama.cpp release/commit and
+per-platform archive/server SHAs; downloads are resumable, cancellable, hash-checked, atomic, and
+confined to the correction-runtime data directory. The main process owns a random-loopback,
+token-protected llama-server, abortable cold start, 30-minute idle unload, one crash restart, and
+fail-closed restart-storm handling. Release builds stage both macOS architectures and their native
+terminal dependencies. The optional cloud adapter is fixed to the Responses API with strict JSON,
+`store:false`, no reasoning, encrypted key storage, payload disclosure, and no cloud fallback.
+
+Built a deterministic 3,500-case synthetic corpus and reproducible evaluator covering clean text,
+single/multi-edit sentences, ambiguity, scientific terms, protected syntax, project vocabulary,
+paragraphs, and race cases. On the selected direct, non-thinking contract, the Flux-managed path
+made 430/430 accepted shipped-policy edits correctly (100% observed precision; 99.11% Wilson lower
+bound; 97.73% coverage; p50 71 ms, p95 88 ms), while Ollama made 420/420 correctly (99.09% Wilson
+lower; 95.45% coverage; p50 181 ms, p95 259 ms) on the same GPU host and fixed 2,048-token context.
+The otherwise identical batch contract covered 89.77% with weaker order stability and p50 268 ms;
+thinking produced no decision improvement; paragraph packets were only 50% precise and therefore
+are not shipped. The real-call audit was 8 calls / 923 words (8.67 per 1,000). Reports and corpus
+hashes are committed under `artifacts/flux-correction-eval/`.
+
+Final verification: TypeScript/Svelte check 0/0; all 163 pure gates accounted green (160 in the
+restricted runner plus the three filesystem-dependent gates individually); Paper 26/26; local
+correction UI 41 checks; scale-paper 7/7; margin/background green; contextual provider 23 checks;
+managed runtime 40 checks; evaluator 29 checks; contextual provider 31 checks; the final real-Electron
+responsiveness run measured 0 ms ambient and correction-observer INP deltas; production build,
+bundle/startup 3/3, Linux unpacked package, packaged schema-inference smoke, IPC completeness, and
+packaged runtime hash all green. macOS arm64/x64 helper archives and executables were downloaded and hash
+verified. Native M5 thermal/memory soak and Apple signing/notarization remain hardware/identity
+acceptance checks rather than checks this Linux host can perform.
+**Learnings:**
+- **Bounded selection beats generation for invisible writing assistance.** A tiny direct contract
+  over one marked candidate was more accurate, faster, more stable under candidate shuffling, and
+  cheaper than batching. Letting the model synthesize replacement text would bypass every useful
+  provenance and deterministic-safety invariant.
+- **Sentence context is the useful local-model frontier for this tier.** Paragraph context did not
+  merely cost more; it materially reduced precision. Keep project guidance and vocabulary in a
+  bounded packet, but do not defer several sentences into one decision until evidence reverses
+  that result.
+- **A timeout must release the editor without killing useful cold-start work.** Race the request
+  deadline against a separately owned warmup, keep only three queued sentences, and let later
+  sentences benefit if startup finishes. User typing and selection changes still invalidate the
+  old packet before any result can land.
+- **Hash verification belongs at both acquisition and execution.** An atomic downloaded manifest
+  is not enough: rehash the GGUF before first launch and whenever its fingerprint changes, and
+  reject equal-size tampering before spawning the server.
+- A real responsiveness gate can expose an unrelated compositor cost. Paper's animated margin
+  canvas needed a desynchronized opaque context and a short keydown yield; after that correction-on
+  and correction-off probes were indistinguishable within the gate's noise floor while idle motion
+  remained smooth.
+
+### 2026-08-05 (final) — Local-provider readiness and GPU bakeoff (Codex, `codex-local-completion`)
+**Work:** Reproduced the reported `correction:decide` timeout and hardened both local providers.
+Managed llama.cpp now disables Qwen reasoning at startup and per request, reserves a full 2,048-token
+context in each of two slots, requires a schema-valid prime before reporting ready, and fully offloads
+the pinned helper to Metal on Apple Silicon or Vulkan on Linux. Ollama now coalesces explicit structured
+warmups, holds the runner for 15 minutes, fixes `num_ctx` at 2,048 instead of the model's 262,144-token
+default, and lets cold loading finish for the next sentence even when the editor has already cancelled
+the current one. The main-process provider deadline is 8 seconds while the renderer's 1.5-second silent
+mutation window remains authoritative.
+
+The first managed benchmark exposed a deeper invalid comparison: it used the older hybrid Qwen3-4B
+weights, not Ollama's successful Instruct-2507 artifact. Flux now pins the exact 2,497,280,480-byte
+`qwen3:4b-instruct` model blob (`85e4a5b7…54b18b9`) and uses independently held-out-calibrated prompts
+for llama.cpp and Ollama. On the locked 700-case held-out partition × three shuffled repeats, managed
+scored 430/430 shipped edits with 97.73% coverage at 71/88 ms p50/p95; Ollama scored 420/420 with
+95.45% coverage at 181/259 ms. Both had zero provider failures, zero protected changes, and 100%
+decision stability. `ollama ps` confirmed 100% GPU/2,048 context; the unpacked Flux helper detected the
+RTX PRO 5000 through Vulkan and completed a real packaged schema inference.
+
+**Verification:** check 0/0; pure 163/163 accounted (160 in restricted runner plus three environment-
+dependent passes outside it); Paper 26/26; scale 7/7; correction UI 41 checks; provider/runtime/eval
+31/40/29; writer INP correction delta 0 ms; build, bundle/startup 3/3, Linux unpacked package, packaged
+GPU detection and packaged inference green; pinned darwin-arm64 Metal and darwin-x64 CPU archives
+downloaded and manifests verified.
+
+**Learnings:**
+- A listening health endpoint is not model readiness. Prime the exact structured contract before the UI
+  says warm, especially for reasoning-capable models whose output budget can disappear into hidden work.
+- Model labels such as “Qwen3 4B Q4_K_M” are not identity. Benchmark evidence must pin weights, template,
+  context, engine, accelerator, and prompt; the older hybrid artifact was fast but failed the precision gate.
+- GPU backends can cross close decision boundaries even with identical quantized weights. Small local-model
+  prompts need backend-specific calibration against the same locked corpus; the renderer guard stays common.
+
+### 2026-08-05 (late final) — Bounded spelling rescue and disjoint confirmation (Codex, `codex-local-completion`)
+**Work:** Extended the sentence lane so Qwen can rescue an exact unresolved spelling span when
+Harper's proposals are inadequate, without gaining sentence-rewrite authority. Added a post-freeze,
+lexeme-disjoint 128-case confirmation corpus and same-case none/local/full ablation; the real selected
+paths retained 100% measured precision while bounded generation raised Ollama coverage from 85.94%
+to 93.75%, and Flux-managed Vulkan reached 96.88%. Final verification accounted for pure 163/163,
+Paper 26/26, scale-paper 7/7, focused contracts 209 checks, live correction UI 44 checks, check 0/0,
+bundle/startup 3/3, Electron INP, release packaging, runtime hashes, GPU offload, and real packaged
+schema inference. Updated the authoritative correction architecture in the guide body and Paper docs.
+**Learnings:**
+- Benchmark a new fallback on the exact same cases as the old path. A separate rescue-only stress set
+  can prove the mechanism works but cannot establish its total-coverage value.
+- Model-generated spelling remains bounded enough for invisible editing only when generation,
+  scientific-term preservation, fresh contextual approval, local lexicon proof, and renderer
+  source/policy validation are independent gates.
+- Harper can label a split into two valid words as a typo. The instant lane must verify both parts and
+  defer insertion/deletion ambiguity so a bad word-level edit cannot preempt better sentence context.
+- Chromium omits sub-16-ms Event Timing entries and can deliver observations after a phase reset.
+  Responsiveness gates must count actual keydowns, timestamp phase membership, and treat unreported
+  delivered keys as conservatively censored samples rather than missing data.
+
+### 2026-08-05 — Visible judgment lifecycle and recall controls (Codex, `codex-local-completion`)
+**Work:** Added Flux-owned red pending, blue accepted, and persistent clickable orange abstention
+states for contextual spelling, plus Standard, Aggressive, and Really aggressive bounded-recall
+modes. The unchanged 128-case confirmation set and a separate 24-case hard stress set show why the
+wide opt-in mode matters: Ollama retained 100% measured precision and zero protected changes while
+moving hard three/four-edit coverage from 0/12 (Standard) to 10/12, without rewriting authority.
+
+**Learnings:**
+- When product state owns a spelling span, suppress the browser's native marker only on that span;
+  otherwise a red native squiggle can contradict Flux's orange abstention state.
+- Compare policy modes on one untouched corpus, then use a separately named stress corpus to explain
+  the affected failure class. Never present stress-only gains as a general-coverage improvement.
+- Derive “accepted” visual state from the final editor-protected plans, not an earlier model/guard
+  result, so every rejected mutation visibly settles rather than leaving a false pending state.

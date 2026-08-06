@@ -1,0 +1,605 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-aggressiveness-v1",
+  "corpusHash": "4627afa3d5fe779e6b0af38c294640cf122efee8d986dfc677716fc25f53c9e0",
+  "generatedAt": "2026-08-06T04:54:39.726Z",
+  "options": {
+    "suite": "aggressiveness",
+    "rescueMode": "full",
+    "aggressiveness": "standard",
+    "provider": "oracle",
+    "contract": "direct",
+    "model": "qwen3:4b-instruct",
+    "thinking": false,
+    "repeats": 1,
+    "limit": 0,
+    "family": "",
+    "partition": "all",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 24,
+    "evaluated": 24,
+    "aggression-three-long": 4,
+    "aggression-three-medium": 4,
+    "aggression-four-long": 4,
+    "aggression-preservation": 12
+  },
+  "metrics": {
+    "precision": 1,
+    "wilson95Lower": 0,
+    "coverage": 0,
+    "candidateAvailability": 0,
+    "automaticEdits": 0,
+    "correctAutomaticEdits": 0,
+    "protectedChanges": 0,
+    "providerCalls": 0,
+    "providerCallsPerPass": 0,
+    "callsPer1000Words": 0,
+    "allKeepCalls": 24,
+    "allUseCalls": 0,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 0,
+      "p95": 0,
+      "p99": 0
+    },
+    "tokens": {
+      "prompt": 0,
+      "output": 0
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0,
+    "coverage": 0,
+    "automaticEdits": 0,
+    "correctAutomaticEdits": 0,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 17,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 7,
+    "callsPer1000Words": 7.583965330444204,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 12,
+      "available": 0,
+      "rate": 0
+    }
+  },
+  "byFamily": {
+    "aggression-three-long": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 0,
+      "candidateAvailability": 0,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "aggression-three-medium": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 0,
+      "candidateAvailability": 0,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "aggression-four-long": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 0,
+      "candidateAvailability": 0,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "aggression-preservation": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [
+    {
+      "id": "fca-v1-r000",
+      "family": "aggression-three-long",
+      "text": "The subseqeubn response remained stable across trials.",
+      "gold": {
+        "original": "subseqeubn",
+        "replacement": "subsequent",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "subseqeubn",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r001",
+      "family": "aggression-three-long",
+      "text": "The analysis remained reprxducblx across independent cohorts.",
+      "gold": {
+        "original": "reprxducblx",
+        "replacement": "reproducible",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "reprxducblx",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r002",
+      "family": "aggression-three-long",
+      "text": "The prexarxion remained viable throughout the recording.",
+      "gold": {
+        "original": "prexarxion",
+        "replacement": "preparation",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "prexarxion",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r003",
+      "family": "aggression-three-long",
+      "text": "The expxrimnq included a blinded validation cohort.",
+      "gold": {
+        "original": "expxrimnq",
+        "replacement": "experiment",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "expxrimnq",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r004",
+      "family": "aggression-three-medium",
+      "text": "Another exxqplez comes from the frigatebird.",
+      "gold": {
+        "original": "exxqplez",
+        "replacement": "example",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "exxqplez",
+          "suggestions": [],
+          "rescueSuggestions": []
+        },
+        {
+          "original": "frigatebird",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r005",
+      "family": "aggression-three-medium",
+      "text": "The recurntx input amplified the late response.",
+      "gold": {
+        "original": "recurntx",
+        "replacement": "recurrent",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "recurntx",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r006",
+      "family": "aggression-three-medium",
+      "text": "The signal was recxrdx from motor cortex.",
+      "gold": {
+        "original": "recxrdx",
+        "replacement": "recorded",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "recxrdx",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "record",
+            "records"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r007",
+      "family": "aggression-three-medium",
+      "text": "The coqxlzx structure remained chemically stable.",
+      "gold": {
+        "original": "coqxlzx",
+        "replacement": "complex",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "coqxlzx",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r008",
+      "family": "aggression-four-long",
+      "text": "The subseqxxbn measurement confirmed the original result.",
+      "gold": {
+        "original": "subseqxxbn",
+        "replacement": "subsequent",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "subseqxxbn",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r009",
+      "family": "aggression-four-long",
+      "text": "Background flxorscenz was subtracted before analysis.",
+      "gold": {
+        "original": "flxorscenz",
+        "replacement": "fluorescence",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "flxorscenz",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r010",
+      "family": "aggression-four-long",
+      "text": "The response was charxterizx across behavioral states.",
+      "gold": {
+        "original": "charxterizx",
+        "replacement": "characterized",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "charxterizx",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r011",
+      "family": "aggression-four-long",
+      "text": "The synxronizx recordings shared one acquisition clock.",
+      "gold": {
+        "original": "synxronizx",
+        "replacement": "synchronized",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "synxronizx",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    }
+  ],
+  "wrongDecisionExamples": [
+    {
+      "id": "fca-v1-r000",
+      "family": "aggression-three-long",
+      "text": "The subseqeubn response remained stable across trials.",
+      "candidate": "subseqeubn",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "subsequent"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "subsequent"
+      },
+      "decision": {
+        "candidateId": "c-50442d81",
+        "action": "rescue",
+        "replacement": "subsequent"
+      },
+      "proposed": "subsequent",
+      "actual": "subseqeubn"
+    },
+    {
+      "id": "fca-v1-r001",
+      "family": "aggression-three-long",
+      "text": "The analysis remained reprxducblx across independent cohorts.",
+      "candidate": "reprxducblx",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "reproducible"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "reproducible"
+      },
+      "decision": {
+        "candidateId": "c-9dd4c88f",
+        "action": "rescue",
+        "replacement": "reproducible"
+      },
+      "proposed": "reproducible",
+      "actual": "reprxducblx"
+    },
+    {
+      "id": "fca-v1-r002",
+      "family": "aggression-three-long",
+      "text": "The prexarxion remained viable throughout the recording.",
+      "candidate": "prexarxion",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "precaution",
+        "preparation"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "preparation"
+      },
+      "decision": {
+        "candidateId": "c-0b61ce15",
+        "action": "rescue",
+        "replacement": "preparation"
+      },
+      "proposed": "preparation",
+      "actual": "prexarxion"
+    },
+    {
+      "id": "fca-v1-r003",
+      "family": "aggression-three-long",
+      "text": "The expxrimnq included a blinded validation cohort.",
+      "candidate": "expxrimnq",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "experiment",
+        "expiring"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "experiment"
+      },
+      "decision": {
+        "candidateId": "c-cda32980",
+        "action": "rescue",
+        "replacement": "experiment"
+      },
+      "proposed": "experiment",
+      "actual": "expxrimnq"
+    },
+    {
+      "id": "fca-v1-r004",
+      "family": "aggression-three-medium",
+      "text": "Another exxqplez comes from the frigatebird.",
+      "candidate": "exxqplez",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "example",
+        "exampled",
+        "examples"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "example"
+      },
+      "decision": {
+        "candidateId": "c-5a23e689",
+        "action": "rescue",
+        "replacement": "example"
+      },
+      "proposed": "example",
+      "actual": "exxqplez"
+    },
+    {
+      "id": "fca-v1-r005",
+      "family": "aggression-three-medium",
+      "text": "The recurntx input amplified the late response.",
+      "candidate": "recurntx",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "return's",
+        "recent",
+        "recruit"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "recurrent"
+      },
+      "decision": {
+        "candidateId": "c-20cd9e4b",
+        "action": "rescue",
+        "replacement": "recurrent"
+      },
+      "proposed": "recurrent",
+      "actual": "recurntx"
+    },
+    {
+      "id": "fca-v1-r006",
+      "family": "aggression-three-medium",
+      "text": "The signal was recxrdx from motor cortex.",
+      "candidate": "recxrdx",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "record",
+        "records"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "recorded"
+      },
+      "decision": {
+        "candidateId": "c-a17f3b64",
+        "action": "rescue",
+        "replacement": "recorded"
+      },
+      "proposed": "recorded",
+      "actual": "recxrdx"
+    },
+    {
+      "id": "fca-v1-r007",
+      "family": "aggression-three-medium",
+      "text": "The coqxlzx structure remained chemically stable.",
+      "candidate": "coqxlzx",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "complex"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "complex"
+      },
+      "decision": {
+        "candidateId": "c-c503df39",
+        "action": "rescue",
+        "replacement": "complex"
+      },
+      "proposed": "complex",
+      "actual": "coqxlzx"
+    },
+    {
+      "id": "fca-v1-r008",
+      "family": "aggression-four-long",
+      "text": "The subseqxxbn measurement confirmed the original result.",
+      "candidate": "subseqxxbn",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "subsection",
+        "subsequent"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "subsequent"
+      },
+      "decision": {
+        "candidateId": "c-05134343",
+        "action": "rescue",
+        "replacement": "subsequent"
+      },
+      "proposed": "subsequent",
+      "actual": "subseqxxbn"
+    },
+    {
+      "id": "fca-v1-r009",
+      "family": "aggression-four-long",
+      "text": "Background flxorscenz was subtracted before analysis.",
+      "candidate": "flxorscenz",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "fluorescent",
+        "florescent"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "fluorescence"
+      },
+      "decision": {
+        "candidateId": "c-7f9b9177",
+        "action": "rescue",
+        "replacement": "fluorescence"
+      },
+      "proposed": "fluorescence",
+      "actual": "flxorscenz"
+    },
+    {
+      "id": "fca-v1-r010",
+      "family": "aggression-four-long",
+      "text": "The response was charxterizx across behavioral states.",
+      "candidate": "charxterizx",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "characterize",
+        "chartering"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "characterized"
+      },
+      "decision": {
+        "candidateId": "c-36f5c609",
+        "action": "rescue",
+        "replacement": "characterized"
+      },
+      "proposed": "characterized",
+      "actual": "charxterizx"
+    },
+    {
+      "id": "fca-v1-r011",
+      "family": "aggression-four-long",
+      "text": "The synxronizx recordings shared one acquisition clock.",
+      "candidate": "synxronizx",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "synchronize"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "synchronized"
+      },
+      "decision": {
+        "candidateId": "c-ebaf35df",
+        "action": "rescue",
+        "replacement": "synchronized"
+      },
+      "proposed": "synchronized",
+      "actual": "synxronizx"
+    }
+  ],
+  "failures": []
+}

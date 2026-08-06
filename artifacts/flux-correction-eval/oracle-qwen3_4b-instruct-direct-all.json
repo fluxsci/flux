@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-v1",
+  "corpusHash": "d4e57b2e93b199204eb33c6c1b86ec86f26b85ca878021bfa079b01f3d8328e2",
+  "generatedAt": "2026-08-05T20:41:24.566Z",
+  "options": {
+    "provider": "oracle",
+    "contract": "direct",
+    "model": "qwen3:4b-instruct",
+    "thinking": false,
+    "repeats": 1,
+    "limit": 0,
+    "family": "",
+    "partition": "all",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 3500,
+    "evaluated": 3500,
+    "clean-scientific": 500,
+    "single-mechanical": 500,
+    "multi-mechanical": 500,
+    "ambiguous-change": 400,
+    "ambiguous-keep": 400,
+    "scientific-terminology": 300,
+    "protected-syntax": 300,
+    "project-context-pair": 200,
+    "paragraph-cross-sentence": 200,
+    "rapid-typing-race": 200
+  },
+  "metrics": {
+    "precision": 1,
+    "wilson95Lower": 0.998368004435346,
+    "coverage": 1,
+    "candidateAvailability": 1,
+    "automaticEdits": 2350,
+    "correctAutomaticEdits": 2350,
+    "protectedChanges": 0,
+    "providerCalls": 0,
+    "providerCallsPerPass": 0,
+    "callsPer1000Words": 0,
+    "allKeepCalls": 600,
+    "allUseCalls": 625,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 0,
+      "p95": 0,
+      "p99": 0
+    },
+    "tokens": {
+      "prompt": 0,
+      "output": 0
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0.9982955949249847,
+    "coverage": 1,
+    "automaticEdits": 2250,
+    "correctAutomaticEdits": 2250,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 18,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 8,
+    "callsPer1000Words": 8.66738894907909,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 75,
+      "available": 75,
+      "rate": 1
+    },
+    "real-word": {
+      "gold": 400,
+      "available": 400,
+      "rate": 1
+    },
+    "boundary": {
+      "gold": 100,
+      "available": 100,
+      "rate": 1
+    },
+    "phrase-punctuation": {
+      "gold": 100,
+      "available": 100,
+      "rate": 1
+    }
+  },
+  "byFamily": {
+    "clean-scientific": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "single-mechanical": {
+      "automaticEdits": 500,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "multi-mechanical": {
+      "automaticEdits": 1000,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "ambiguous-change": {
+      "automaticEdits": 450,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "ambiguous-keep": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "scientific-terminology": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "protected-syntax": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "project-context-pair": {
+      "automaticEdits": 100,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "paragraph-cross-sentence": {
+      "automaticEdits": 100,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "rapid-typing-race": {
+      "automaticEdits": 200,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [],
+  "wrongDecisionExamples": [],
+  "failures": []
+}

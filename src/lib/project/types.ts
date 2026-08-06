@@ -287,6 +287,26 @@ export interface FileBridge {
     elapsedMs?: number;
     error?: string;
   }>;
+  correctionStatus?(provider?: "flux" | "ollama" | "openai", model?: string): Promise<{
+    provider: string; available: boolean; installed?: boolean; running?: boolean; ready?: boolean; model?: string | Record<string, unknown>; models?: string[]; error?: string;
+    stats?: Record<string, number>;
+  }>;
+  correctionWarm?(request: { provider: "flux" | "ollama" | "openai"; model: string }): Promise<boolean>;
+  correctionDecide?(request: {
+    packet: unknown; provider: "flux" | "ollama" | "openai"; model: string; thinking?: boolean; aggressiveness?: "standard" | "aggressive" | "really-aggressive";
+  }): Promise<unknown>;
+  correctionCancel?(requestId: string): Promise<boolean>;
+  correctionCloudKeyStatus?(): Promise<{ configured: boolean; encryptionAvailable: boolean }>;
+  correctionCloudKeySet?(key: string): Promise<{ configured: boolean; encryptionAvailable: boolean }>;
+  correctionProfileGet?(projectRoot: string): Promise<unknown>;
+  correctionProfileSet?(payload: { projectRoot: string; scope: "personal" | "project"; data: unknown }): Promise<boolean>;
+  correctionModelStatus?(): Promise<{ available: boolean; installed: boolean; updateRequired?: boolean; running: boolean; ready?: boolean; downloading: boolean; model: { id: string; displayName: string; bytes: number; license: string }; runtime?: string | null; acceleration?: "metal" | "vulkan" | "cpu"; contextPerSlot?: number; parallelSlots?: number; error?: string }>;
+  correctionModelInstall?(): Promise<unknown>;
+  correctionModelCancel?(): Promise<boolean>;
+  correctionModelRemove?(): Promise<unknown>;
+  correctionModelUnload?(): Promise<boolean>;
+  correctionModelWarm?(): Promise<boolean>;
+  onCorrectionModelProgress?(cb: (progress: { modelId: string; received: number; total: number; verifying?: boolean; complete?: boolean }) => void): () => void;
   // F1 file-watch live reload. Optional: only the Electron bridge (and the dev
   // fixture) provide them.
   watchRoot?(root: string | null): Promise<boolean> | boolean;

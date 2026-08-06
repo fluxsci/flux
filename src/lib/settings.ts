@@ -9,6 +9,9 @@ export type PaperCaretFeel = "chase" | "smooth";
 export type FluxFigMenuPos = "center" | "top" | "left" | "right"; // "top" is legacy → treated as center
 export type FluxFigMenuAnim = "draw" | "fade"; // self-drawing line vs. quick fade
 export type XrayPos = "above" | "below"; // which side of the FluxFig menu the X-ray docks to
+export type CorrectionProvider = "flux" | "ollama" | "openai";
+export type CorrectionDialect = "american" | "british" | "canadian" | "australian";
+export type CorrectionAggressiveness = "standard" | "aggressive" | "really-aggressive";
 
 export interface Settings {
   fluxFigMenuSize: FluxFigMenuSize;
@@ -33,6 +36,12 @@ export interface Settings {
   paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
   paperCaretFeel: PaperCaretFeel; // caret motion model — chase (default) | smooth
   paperLocalCorrections: boolean; // private on-device typo + spacing correction
+  paperContextualCorrections: boolean; // sentence-level candidate adjudication
+  paperCorrectionProvider: CorrectionProvider;
+  paperCorrectionModel: string;
+  paperCorrectionDialect: CorrectionDialect;
+  paperCorrectionAggressiveness: CorrectionAggressiveness;
+  paperCorrectionGuidance: string;
   // App — updates.
   updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
@@ -58,6 +67,12 @@ const DEFAULTS: Settings = {
   paperCleanMargin: false,
   paperCaretFeel: "chase",
   paperLocalCorrections: true,
+  paperContextualCorrections: true,
+  paperCorrectionProvider: "flux",
+  paperCorrectionModel: "qwen3-4b-q4_k_m",
+  paperCorrectionDialect: "american",
+  paperCorrectionAggressiveness: "standard",
+  paperCorrectionGuidance: "Preserve scientific terminology, identifiers, and capitalization.",
   updateCheck: true,
 };
 
@@ -91,6 +106,12 @@ function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   delete out.paperCaretSoftBlink;
   delete out.paperSmoothLineScroll;
   if (typeof out.paperLocalCorrections !== "boolean") delete out.paperLocalCorrections;
+  if (typeof out.paperContextualCorrections !== "boolean") delete out.paperContextualCorrections;
+  if (out.paperCorrectionProvider !== "flux" && out.paperCorrectionProvider !== "ollama" && out.paperCorrectionProvider !== "openai") delete out.paperCorrectionProvider;
+  if (typeof out.paperCorrectionModel !== "string" || out.paperCorrectionModel.length > 120) delete out.paperCorrectionModel;
+  if (!["american", "british", "canadian", "australian"].includes(String(out.paperCorrectionDialect))) delete out.paperCorrectionDialect;
+  if (!["standard", "aggressive", "really-aggressive"].includes(String(out.paperCorrectionAggressiveness))) delete out.paperCorrectionAggressiveness;
+  if (typeof out.paperCorrectionGuidance !== "string" || out.paperCorrectionGuidance.length > 500) delete out.paperCorrectionGuidance;
   return out;
 }
 

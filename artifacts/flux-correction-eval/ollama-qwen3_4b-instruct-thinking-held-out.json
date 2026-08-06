@@ -1,0 +1,1154 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-v1",
+  "corpusHash": "d4e57b2e93b199204eb33c6c1b86ec86f26b85ca878021bfa079b01f3d8328e2",
+  "generatedAt": "2026-08-05T20:42:27.616Z",
+  "options": {
+    "provider": "ollama",
+    "contract": "direct",
+    "model": "qwen3:4b-instruct",
+    "thinking": true,
+    "repeats": 1,
+    "limit": 0,
+    "family": "",
+    "partition": "held-out",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 3500,
+    "evaluated": 700,
+    "clean-scientific": 500,
+    "single-mechanical": 500,
+    "multi-mechanical": 500,
+    "ambiguous-change": 400,
+    "ambiguous-keep": 400,
+    "scientific-terminology": 300,
+    "protected-syntax": 300,
+    "project-context-pair": 200,
+    "paragraph-cross-sentence": 200,
+    "rapid-typing-race": 200
+  },
+  "metrics": {
+    "precision": 0.9565217391304348,
+    "wilson95Lower": 0.933801024790199,
+    "coverage": 0.9565217391304348,
+    "candidateAvailability": 1,
+    "automaticEdits": 460,
+    "correctAutomaticEdits": 440,
+    "protectedChanges": 0,
+    "providerCalls": 290,
+    "providerCallsPerPass": 290,
+    "callsPer1000Words": 42.521994134897355,
+    "allKeepCalls": 120,
+    "allUseCalls": 160,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 186.44766399999935,
+      "p95": 264.8295160000016,
+      "p99": 275.592732000001
+    },
+    "tokens": {
+      "prompt": 55095,
+      "output": 4480
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0.9909365666318186,
+    "coverage": 0.9545454545454546,
+    "automaticEdits": 420,
+    "correctAutomaticEdits": 420,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 18,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 8,
+    "callsPer1000Words": 8.66738894907909,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 50,
+      "available": 50,
+      "rate": 1
+    },
+    "real-word": {
+      "gold": 80,
+      "available": 80,
+      "rate": 1
+    },
+    "boundary": {
+      "gold": 20,
+      "available": 20,
+      "rate": 1
+    },
+    "phrase-punctuation": {
+      "gold": 20,
+      "available": 20,
+      "rate": 1
+    }
+  },
+  "byFamily": {
+    "clean-scientific": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "single-mechanical": {
+      "automaticEdits": 100,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 25,
+      "failures": 0
+    },
+    "multi-mechanical": {
+      "automaticEdits": 200,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 25,
+      "failures": 0
+    },
+    "ambiguous-change": {
+      "automaticEdits": 60,
+      "precision": 1,
+      "coverage": 0.75,
+      "candidateAvailability": 1,
+      "providerCalls": 80,
+      "failures": 0
+    },
+    "ambiguous-keep": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 80,
+      "failures": 0
+    },
+    "scientific-terminology": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "protected-syntax": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "project-context-pair": {
+      "automaticEdits": 20,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 40,
+      "failures": 0
+    },
+    "paragraph-cross-sentence": {
+      "automaticEdits": 40,
+      "precision": 0.5,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 40,
+      "failures": 0
+    },
+    "rapid-typing-race": {
+      "automaticEdits": 40,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [],
+  "wrongDecisionExamples": [
+    {
+      "id": "fc-v1-1528",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1529",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1529",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1568",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1569",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1569",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1608",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1609",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1609",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1648",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1649",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1649",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1688",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1689",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1689",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1728",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1729",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1729",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1768",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1769",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1769",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1808",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1809",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1809",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1848",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1849",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1849",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1888",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1889",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1889",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-3108",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3118",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3128",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3138",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3148",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3158",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3168",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3178",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3188",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3198",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3208",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3218",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3228",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3238",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3248",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3258",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3268",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3278",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3288",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    },
+    {
+      "id": "fc-v1-3298",
+      "family": "paragraph-cross-sentence",
+      "text": "The neurons fired during baseline. This response was stable across trials.",
+      "candidate": "was",
+      "suggestions": [
+        "were"
+      ],
+      "expected": {
+        "action": "keep",
+        "replacement": "was"
+      },
+      "decision": {
+        "candidateId": "c-1b6a1bc1",
+        "action": "use",
+        "suggestionIndex": 0
+      },
+      "proposed": "were",
+      "actual": "were"
+    }
+  ],
+  "failures": []
+}

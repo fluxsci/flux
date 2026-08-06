@@ -1,0 +1,664 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-rescue-v1",
+  "corpusHash": "9f00b9343afcfcb27a8f35a7aa3df56763cf6193ba7398fa4836fb8e07538589",
+  "generatedAt": "2026-08-06T01:38:37.213Z",
+  "options": {
+    "suite": "rescue",
+    "provider": "ollama",
+    "contract": "direct",
+    "model": "qwen3:4b-instruct",
+    "thinking": false,
+    "repeats": 1,
+    "limit": 0,
+    "family": "",
+    "partition": "all",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 160,
+    "evaluated": 160,
+    "missing-candidate-rescue": 80,
+    "unfamiliar-scientific-keep": 80
+  },
+  "metrics": {
+    "precision": 1,
+    "wilson95Lower": 0.9541818704644727,
+    "coverage": 1,
+    "candidateAvailability": 0.15,
+    "automaticEdits": 80,
+    "correctAutomaticEdits": 80,
+    "protectedChanges": 0,
+    "providerCalls": 160,
+    "providerCallsPerPass": 160,
+    "callsPer1000Words": 95.23809523809523,
+    "allKeepCalls": 80,
+    "allUseCalls": 76,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 371.48648800000046,
+      "p95": 393.211170999999,
+      "p99": 567.2506189999986
+    },
+    "tokens": {
+      "prompt": 97806,
+      "output": 3252
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0.9541818704644727,
+    "coverage": 1,
+    "automaticEdits": 80,
+    "correctAutomaticEdits": 80,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 18,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 8,
+    "callsPer1000Words": 8.66738894907909,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 80,
+      "available": 12,
+      "rate": 0.15
+    }
+  },
+  "byFamily": {
+    "missing-candidate-rescue": {
+      "automaticEdits": 80,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 0.15,
+      "providerCalls": 80,
+      "failures": 0
+    },
+    "unfamiliar-scientific-keep": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 80,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [
+    {
+      "id": "fcr-v1-0000",
+      "family": "missing-candidate-rescue",
+      "text": "The surrounding cotext determines how the response should be interpreted.",
+      "gold": {
+        "original": "cotext",
+        "replacement": "context",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "cotext",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0001",
+      "family": "missing-candidate-rescue",
+      "text": "The surrounding cotext determines how the response should be interpreted. This pattern was replicated.",
+      "gold": {
+        "original": "cotext",
+        "replacement": "context",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "cotext",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0002",
+      "family": "missing-candidate-rescue",
+      "text": "The surrounding cotext determines how the response should be interpreted. The observation was independently confirmed.",
+      "gold": {
+        "original": "cotext",
+        "replacement": "context",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "cotext",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0003",
+      "family": "missing-candidate-rescue",
+      "text": "The surrounding cotext determines how the response should be interpreted. No other interpretation fit the sentence.",
+      "gold": {
+        "original": "cotext",
+        "replacement": "context",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "cotext",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0004",
+      "family": "missing-candidate-rescue",
+      "text": "Sentence conext made the intended scientific meaning unambiguous.",
+      "gold": {
+        "original": "conext",
+        "replacement": "context",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "conext",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "conest"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0005",
+      "family": "missing-candidate-rescue",
+      "text": "Sentence conext made the intended scientific meaning unambiguous. This pattern was replicated.",
+      "gold": {
+        "original": "conext",
+        "replacement": "context",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "conext",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "conest"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0006",
+      "family": "missing-candidate-rescue",
+      "text": "Sentence conext made the intended scientific meaning unambiguous. The observation was independently confirmed.",
+      "gold": {
+        "original": "conext",
+        "replacement": "context",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "conext",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "conest"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0007",
+      "family": "missing-candidate-rescue",
+      "text": "Sentence conext made the intended scientific meaning unambiguous. No other interpretation fit the sentence.",
+      "gold": {
+        "original": "conext",
+        "replacement": "context",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "conext",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "conest"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0012",
+      "family": "missing-candidate-rescue",
+      "text": "The mthod was described in sufficient detail for replication.",
+      "gold": {
+        "original": "mthod",
+        "replacement": "method",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "mthod",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0013",
+      "family": "missing-candidate-rescue",
+      "text": "The mthod was described in sufficient detail for replication. This pattern was replicated.",
+      "gold": {
+        "original": "mthod",
+        "replacement": "method",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "mthod",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0014",
+      "family": "missing-candidate-rescue",
+      "text": "The mthod was described in sufficient detail for replication. The observation was independently confirmed.",
+      "gold": {
+        "original": "mthod",
+        "replacement": "method",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "mthod",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0015",
+      "family": "missing-candidate-rescue",
+      "text": "The mthod was described in sufficient detail for replication. No other interpretation fit the sentence.",
+      "gold": {
+        "original": "mthod",
+        "replacement": "method",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "mthod",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0016",
+      "family": "missing-candidate-rescue",
+      "text": "This mehod preserved every recorded observation.",
+      "gold": {
+        "original": "mehod",
+        "replacement": "method",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "mehod",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0017",
+      "family": "missing-candidate-rescue",
+      "text": "This mehod preserved every recorded observation. This pattern was replicated.",
+      "gold": {
+        "original": "mehod",
+        "replacement": "method",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "mehod",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0018",
+      "family": "missing-candidate-rescue",
+      "text": "This mehod preserved every recorded observation. The observation was independently confirmed.",
+      "gold": {
+        "original": "mehod",
+        "replacement": "method",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "mehod",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0019",
+      "family": "missing-candidate-rescue",
+      "text": "This mehod preserved every recorded observation. No other interpretation fit the sentence.",
+      "gold": {
+        "original": "mehod",
+        "replacement": "method",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "mehod",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0020",
+      "family": "missing-candidate-rescue",
+      "text": "The reslts support the original experimental conclusion.",
+      "gold": {
+        "original": "reslts",
+        "replacement": "results",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "reslts",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "resets",
+            "resits",
+            "rests"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0021",
+      "family": "missing-candidate-rescue",
+      "text": "The reslts support the original experimental conclusion. This pattern was replicated.",
+      "gold": {
+        "original": "reslts",
+        "replacement": "results",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "reslts",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "resets",
+            "resits",
+            "rests"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0022",
+      "family": "missing-candidate-rescue",
+      "text": "The reslts support the original experimental conclusion. The observation was independently confirmed.",
+      "gold": {
+        "original": "reslts",
+        "replacement": "results",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "reslts",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "resets",
+            "resits",
+            "rests"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0023",
+      "family": "missing-candidate-rescue",
+      "text": "The reslts support the original experimental conclusion. No other interpretation fit the sentence.",
+      "gold": {
+        "original": "reslts",
+        "replacement": "results",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "reslts",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "resets",
+            "resits",
+            "rests"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0024",
+      "family": "missing-candidate-rescue",
+      "text": "These resuts remained stable across repeated trials.",
+      "gold": {
+        "original": "resuts",
+        "replacement": "results",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "resuts",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "recuts",
+            "rebuts",
+            "resets"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0025",
+      "family": "missing-candidate-rescue",
+      "text": "These resuts remained stable across repeated trials. This pattern was replicated.",
+      "gold": {
+        "original": "resuts",
+        "replacement": "results",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "resuts",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "recuts",
+            "rebuts",
+            "resets"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0026",
+      "family": "missing-candidate-rescue",
+      "text": "These resuts remained stable across repeated trials. The observation was independently confirmed.",
+      "gold": {
+        "original": "resuts",
+        "replacement": "results",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "resuts",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "recuts",
+            "rebuts",
+            "resets"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0027",
+      "family": "missing-candidate-rescue",
+      "text": "These resuts remained stable across repeated trials. No other interpretation fit the sentence.",
+      "gold": {
+        "original": "resuts",
+        "replacement": "results",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "resuts",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "recuts",
+            "rebuts",
+            "resets"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0028",
+      "family": "missing-candidate-rescue",
+      "text": "All samles were processed with the same biological protocol.",
+      "gold": {
+        "original": "samles",
+        "replacement": "samples",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "samles",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "sables",
+            "sales",
+            "sames"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0029",
+      "family": "missing-candidate-rescue",
+      "text": "All samles were processed with the same biological protocol. This pattern was replicated.",
+      "gold": {
+        "original": "samles",
+        "replacement": "samples",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "samles",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "sables",
+            "sales",
+            "sames"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0030",
+      "family": "missing-candidate-rescue",
+      "text": "All samles were processed with the same biological protocol. The observation was independently confirmed.",
+      "gold": {
+        "original": "samles",
+        "replacement": "samples",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "samles",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "sables",
+            "sales",
+            "sames"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0031",
+      "family": "missing-candidate-rescue",
+      "text": "All samles were processed with the same biological protocol. No other interpretation fit the sentence.",
+      "gold": {
+        "original": "samles",
+        "replacement": "samples",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "samles",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "sables",
+            "sales",
+            "sames"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0032",
+      "family": "missing-candidate-rescue",
+      "text": "The analsis remained reproducible across independent runs.",
+      "gold": {
+        "original": "analsis",
+        "replacement": "analysis",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "analsis",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcr-v1-0033",
+      "family": "missing-candidate-rescue",
+      "text": "The analsis remained reproducible across independent runs. This pattern was replicated.",
+      "gold": {
+        "original": "analsis",
+        "replacement": "analysis",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "analsis",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    }
+  ],
+  "wrongDecisionExamples": [],
+  "failures": []
+}

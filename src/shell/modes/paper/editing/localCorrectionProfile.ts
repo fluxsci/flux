@@ -1,4 +1,5 @@
 import { correctionPairKey } from "./localCorrectionCore";
+import { fileBridge } from "../../../../lib/project/types";
 
 export type LocalLanguageScope = "project" | "personal";
 
@@ -10,6 +11,7 @@ export interface LocalAlias {
 export interface LocalLanguageData {
   words: string[];
   aliases: LocalAlias[];
+  guidance?: string;
 }
 
 export interface LocalCorrectionProjectData extends LocalLanguageData {
@@ -41,11 +43,12 @@ const MAX_BLOCKED_PAIRS = 500;
 const WORD_TOKEN = /^[\p{L}\p{M}\d][\p{L}\p{M}\d_'’.-]{0,63}$/u;
 const ALIAS_TOKEN = /^[\p{L}\p{M}\d][\p{L}\p{M}\d_-]{0,31}$/u;
 
-const emptyLanguage = (): LocalLanguageData => ({ words: [], aliases: [] });
+const emptyLanguage = (): LocalLanguageData => ({ words: [], aliases: [], guidance: "" });
 const emptyProject = (): LocalCorrectionProjectData => ({
   words: [],
   aliases: [],
   blockedPairs: [],
+  guidance: "",
 });
 
 function cleanWords(value: unknown): string[] {
@@ -78,6 +81,7 @@ function cleanLanguage(value: unknown): LocalLanguageData {
   return {
     words: cleanWords("words" in data ? data.words : []),
     aliases: cleanAliases("aliases" in data ? data.aliases : []),
+    guidance: "guidance" in data && typeof data.guidance === "string" ? data.guidance.slice(0, 500) : "",
   };
 }
 
@@ -156,6 +160,8 @@ export function clearLocalCorrectionLearning(
 export class LocalCorrectionProfile {
   private personal: LocalLanguageData;
   private project: LocalCorrectionProjectData;
+  private mutationRevision = 0;
+  private hydration: Promise<boolean>;
 
   constructor(
     private readonly projectKey: string,
@@ -164,6 +170,11 @@ export class LocalCorrectionProfile {
     const stored = readAll(storage);
     this.personal = cleanLanguage(stored.personal);
     this.project = cleanProject(stored.projects[projectKey] ?? emptyProject());
+    this.hydration = this.hydrateDurable();
+  }
+
+  ready(): Promise<boolean> {
+    return this.hydration;
   }
 
   words(scope: LocalLanguageScope = "project"): string[] {
@@ -263,6 +274,13 @@ export class LocalCorrectionProfile {
     return new Set(this.project.blockedPairs);
   }
 
+  blockedCorrections(): Array<{ original: string; replacement: string }> {
+    return this.project.blockedPairs.map((pair) => {
+      const [original = "", replacement = ""] = pair.split("\u0000");
+      return { original, replacement };
+    });
+  }
+
   block(original: string, replacement: string): void {
     const key = correctionPairKey(original, replacement);
     if (this.project.blockedPairs.includes(key)) return;
@@ -270,12 +288,75 @@ export class LocalCorrectionProfile {
     this.persist("project");
   }
 
+  unblock(original: string, replacement: string): boolean {
+    const key = correctionPairKey(original, replacement);
+    const next = this.project.blockedPairs.filter((pair) => pair !== key);
+    if (next.length === this.project.blockedPairs.length) return false;
+    this.project.blockedPairs = next;
+    this.persist("project");
+    return true;
+  }
+
+  clearBlockedPairs(): void {
+    if (!this.project.blockedPairs.length) return;
+    this.project.blockedPairs = [];
+    this.persist("project");
+  }
+
+  guidance(scope: LocalLanguageScope): string {
+    return (scope === "personal" ? this.personal.guidance : this.project.guidance) ?? "";
+  }
+
+  setGuidance(value: string, scope: LocalLanguageScope): void {
+    const data = scope === "personal" ? this.personal : this.project;
+    data.guidance = value.slice(0, 500);
+    this.persist(scope);
+  }
+
+  private hasData(data: LocalLanguageData | LocalCorrectionProjectData): boolean {
+    return !!(data.words.length || data.aliases.length || data.guidance || ("blockedPairs" in data && data.blockedPairs.length));
+  }
+
+  private async hydrateDurable(): Promise<boolean> {
+    if (typeof window === "undefined") return false;
+    const bridge = fileBridge();
+    if (!bridge?.correctionProfileGet || !bridge.correctionProfileSet) return false;
+    const atStart = this.mutationRevision;
+    try {
+      const remote = await bridge.correctionProfileGet(this.projectKey) as {
+        personal?: unknown; project?: unknown;
+      };
+      if (this.mutationRevision !== atStart) return false;
+      const personal = cleanLanguage(remote?.personal);
+      const project = cleanProject(remote?.project);
+      const migratePersonal = !this.hasData(personal) && this.hasData(this.personal);
+      const migrateProject = !this.hasData(project) && this.hasData(this.project);
+      if (migratePersonal) void bridge.correctionProfileSet({ projectRoot: this.projectKey, scope: "personal", data: this.personal });
+      else this.personal = personal;
+      if (migrateProject) void bridge.correctionProfileSet({ projectRoot: this.projectKey, scope: "project", data: this.project });
+      else this.project = project;
+      const all = readAll(this.storage);
+      all.personal = cleanLanguage(this.personal);
+      all.projects[this.projectKey] = cleanProject(this.project);
+      this.storage.setItem(STORAGE_KEY, JSON.stringify(all));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private persist(scope: LocalLanguageScope): void {
+    this.mutationRevision += 1;
     try {
       const all = readAll(this.storage);
       if (scope === "personal") all.personal = cleanLanguage(this.personal);
       else all.projects[this.projectKey] = cleanProject(this.project);
       this.storage.setItem(STORAGE_KEY, JSON.stringify(all));
+      if (typeof window !== "undefined") {
+        const bridge = fileBridge();
+        const data = scope === "personal" ? cleanLanguage(this.personal) : cleanProject(this.project);
+        void bridge?.correctionProfileSet?.({ projectRoot: this.projectKey, scope, data }).catch(() => false);
+      }
     } catch {
       // Private mode/storage exhaustion degrades to this session's in-memory profile.
     }

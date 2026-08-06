@@ -607,6 +607,11 @@ app.on("before-quit", () => {
   } catch {
     /* not created yet */
   }
+  try {
+    correctionFamily.shutdown();
+  } catch {
+    /* correction family was not initialized yet */
+  }
 });
 
 // W12 (SHL-8): a kill / Ctrl-C / SIGTERM used to leave a live-looking bridge.json
@@ -1332,6 +1337,26 @@ const networkFamily = require("./ipc/network.cjs").createNetworkFamily({
   files: { atomicWriteMain, noteWrite },
 });
 networkFamily.registerHandlers(ipcMain);
+
+// Paper's contextual correction provider is a bounded IPC family. Only main
+// owns the Flux-managed llama.cpp helper, Ollama/OpenAI calls, model assets, or
+// durable language-profile files; the renderer gets decisions and lifecycle
+// controls, never an arbitrary fetch/spawn primitive.
+const correctionRuntime = require("./ipc/correctionRuntime.cjs").createCorrectionRuntime({
+  configRoot: () => getFluxConfigRoot(),
+  resourcesPath: () => process.resourcesPath,
+  isPackaged: () => app.isPackaged,
+  atomicWrite: atomicWriteSync,
+});
+correctionRuntime.registerHandlers(ipcMain);
+const correctionFamily = require("./ipc/corrections.cjs").createCorrectionFamily({
+  safeStorage,
+  configRoot: () => getFluxConfigRoot(),
+  currentProjectRoot: () => currentRoot,
+  atomicWrite: atomicWriteSync,
+  runtime: correctionRuntime,
+});
+correctionFamily.registerHandlers(ipcMain);
 
 ipcMain.handle("shell:openExternal", (_e, url) => {
   if (/^https?:\/\//i.test(url) || /^mailto:/i.test(url)) shell.openExternal(url);

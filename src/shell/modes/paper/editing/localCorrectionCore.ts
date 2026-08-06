@@ -3,6 +3,8 @@
 // asking. It deliberately knows nothing about CodeMirror, workers, or storage
 // so the scientific-safety contract is cheap to test exhaustively.
 
+import { extractSentenceWindow } from "./localCorrectionBoundary";
+
 export type LocalLintKind =
   | "BoundaryError"
   | "Spelling"
@@ -17,6 +19,8 @@ export interface LocalLintRecord {
   kind: LocalLintKind;
   message: string;
   suggestions: string[];
+  /** Additional one-edit words verified against Harper's local lexicon. */
+  rescueSuggestions?: string[];
   /** Harper confirms every whitespace-separated part is itself a known word. */
   partsAreKnown?: boolean;
 }
@@ -39,6 +43,7 @@ export interface CorrectionWindow {
 const LETTER = /[\p{L}\p{M}]/u;
 const WORDISH = /^[\p{L}\p{M}'’\- ]+$/u;
 const TOKEN_RE = /[\p{L}][\p{L}\p{M}\d_-]{1,63}/gu;
+const SHORT_BOUNDARY_WORDS = new Set(["a", "i", "an", "as", "at", "by", "in", "is", "it", "of", "on", "or", "to", "up", "us"]);
 
 export function correctionPairKey(original: string, replacement: string): string {
   return `${original.toLocaleLowerCase()}\u0000${replacement.toLocaleLowerCase()}`;
@@ -49,33 +54,12 @@ export function extractCorrectionWindow(
   head: number,
   maxLength = 480,
 ): CorrectionWindow | null {
-  let to = Math.max(0, Math.min(head, doc.length));
-  while (to > 0 && /\s/.test(doc[to - 1])) to -= 1;
-  if (to === 0) return null;
-
-  const floor = Math.max(0, to - maxLength);
-  let from = floor;
-  for (let i = to - 1; i > floor; i -= 1) {
-    // A blank line is a hard prose-block boundary.
-    if (doc[i] === "\n" && doc[i - 1] === "\n") {
-      from = i + 1;
-      break;
-    }
-    // Keep only the current sentence. Closing quotes/brackets may sit between
-    // punctuation and whitespace, so walk over them before checking.
-    if (/\s/.test(doc[i])) {
-      let j = i - 1;
-      while (j >= floor && /["'’\])}]/.test(doc[j])) j -= 1;
-      if (j >= floor && /[.!?]/.test(doc[j]) && j < to - 1) {
-        from = i + 1;
-        break;
-      }
-    }
-  }
-
-  while (from < to && /[\s>#*-]/.test(doc[from])) from += 1;
-  const text = doc.slice(from, to);
-  return text.length >= 3 && LETTER.test(text) ? { from, to, text } : null;
+  const window = extractSentenceWindow(doc, head, maxLength);
+  if (!window) return null;
+  let from = window.from;
+  while (from < window.to && /[\s#*-]/.test(doc[from])) from += 1;
+  const text = doc.slice(from, window.to);
+  return text.length >= 3 && LETTER.test(text) ? { from, to: window.to, text } : null;
 }
 
 function lettersOnly(s: string): string {
@@ -83,6 +67,23 @@ function lettersOnly(s: string): string {
     .filter((c) => /[\p{L}\p{M}]/u.test(c))
     .join("")
     .toLocaleLowerCase();
+}
+
+export function safeTypoBoundary(original: string, replacement: string): boolean {
+  const parts = replacement.trim().split(/\s+/);
+  return (
+    parts.length > 1 &&
+    original.replace(/\s/g, "").length >= 6 &&
+    lettersOnly(original) === lettersOnly(replacement) &&
+    parts.some((part, index) => {
+      const lower = part.toLocaleLowerCase();
+      // A lowercase leading "i" is much more often a missing letter
+      // (`istance` -> `instance`) than an omitted word boundary. Preserve the
+      // uppercase pronoun path while deferring the lowercase ambiguity.
+      if (index === 0 && lower === "i" && original[0] === original[0]?.toLocaleLowerCase()) return false;
+      return SHORT_BOUNDARY_WORDS.has(lower);
+    })
+  );
 }
 
 function adjacentTransposition(a: string, b: string): boolean {
@@ -104,7 +105,7 @@ function oneRemoval(longer: string, shorter: string): number | null {
   return longer.slice(0, i) + longer.slice(i + 1) === shorter ? i : null;
 }
 
-function oneSubstitution(a: string, b: string): boolean {
+export function oneSubstitution(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let n = 0;
   for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i] && ++n > 1) return false;
@@ -134,7 +135,7 @@ export function damerauLevenshtein(a: string, b: string): number {
   return d[aa.length][bb.length];
 }
 
-function looksTechnical(token: string): boolean {
+export function looksTechnical(token: string): boolean {
   const compact = token.replace(/\s/g, "");
   if (/\d/.test(compact)) return true;
   if (/[a-z][A-Z]|[A-Z][a-z]+[A-Z]/.test(compact)) return true;
@@ -159,14 +160,27 @@ export function protectedMarkdownRanges(text: string): Array<[number, number]> {
   addRegexRanges(out, text, /\]\([^)\n]+\)/g);
   addRegexRanges(out, text, /<[^>\n]+>/g);
   addRegexRanges(out, text, /\\[A-Za-z]+(?:\{[^}\n]*\})?/g);
+  // Exact quoted material is source-integrity-sensitive. Apostrophe-delimited
+  // spans are intentionally excluded because contractions make them ambiguous.
+  addRegexRanges(out, text, /“[^”\n]+”|"[^"\n]+"/g);
 
   let lineFrom = 0;
+  let fence: { marker: string; from: number } | null = null;
   for (const line of text.split("\n")) {
-    if (line.includes("|") || /^\s*(?:```|~~~)/.test(line)) {
+    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      if (!fence) fence = { marker: fenceMatch[1][0], from: lineFrom };
+      else if (fence.marker === fenceMatch[1][0]) {
+        out.push([fence.from, lineFrom + line.length]);
+        fence = null;
+      }
+    }
+    if (fence || line.includes("|") || /^\s*>/.test(line) || fenceMatch) {
       out.push([lineFrom, lineFrom + line.length]);
     }
     lineFrom += line.length + 1;
   }
+  if (fence) out.push([fence.from, text.length]);
   return out.sort((a, b) => a[0] - b[0]);
 }
 
@@ -257,14 +271,71 @@ export function planExplicitVocabularyCorrections(
   return plans;
 }
 
-function mechanicalScore(original: string, replacement: string): number {
+const QWERTY_NEIGHBORS: Readonly<Record<string, string>> = Object.freeze({
+  q: "wa", w: "qase", e: "wsdr", r: "edft", t: "rfgy", y: "tghu", u: "yhji", i: "ujko", o: "iklp", p: "ol",
+  a: "qwsz", s: "weadzx", d: "erfsxc", f: "rtgdvc", g: "tyfhvb", h: "yugjbn", j: "uihknm", k: "iojml", l: "opk",
+  z: "asx", x: "sdc z".replace(/ /g, ""), c: "dfxv", v: "fgcb", b: "ghvn", n: "hjbm", m: "jkn",
+});
+
+/**
+ * Generate the small, high-value part of a one-edit spelling neighborhood.
+ * The worker checks these forms against Harper's curated dictionary in one
+ * batched lint. Keeping generation pure makes the exact rescue surface easy
+ * to gate without moving any WASM work onto the renderer thread.
+ */
+export function generateMechanicalRescueVariants(original: string, limit = 96): string[] {
+  if (!/^[A-Za-z]{4,32}$/.test(original)) return [];
+  const chars = [...original];
+  const variants = new Set<string>();
+  const add = (value: string) => {
+    if (value && value !== original && variants.size < limit) variants.add(value);
+  };
+
+  // Extra-key slips and adjacent transpositions are both common at full typing
+  // speed, and they keep this first expansion independent of word frequency.
+  for (let i = 0; i < chars.length; i += 1) add(chars.slice(0, i).concat(chars.slice(i + 1)).join(""));
+  for (let i = 0; i + 1 < chars.length; i += 1) {
+    if (chars[i] === chars[i + 1]) continue;
+    const swapped = [...chars];
+    [swapped[i], swapped[i + 1]] = [swapped[i + 1], swapped[i]];
+    add(swapped.join(""));
+  }
+  for (let i = 0; i < chars.length && variants.size < limit; i += 1) {
+    const lower = chars[i].toLocaleLowerCase();
+    for (const neighbor of QWERTY_NEIGHBORS[lower] ?? "") {
+      const replaced = [...chars];
+      replaced[i] = chars[i] === chars[i].toLocaleUpperCase() ? neighbor.toLocaleUpperCase() : neighbor;
+      add(replaced.join(""));
+      if (variants.size >= limit) break;
+    }
+  }
+  return [...variants];
+}
+
+export function keyboardAdjacentSubstitution(original: string, replacement: string): boolean {
+  const a = original.toLocaleLowerCase();
+  const b = replacement.toLocaleLowerCase();
+  if (!oneSubstitution(a, b)) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] === b[i]) continue;
+    return QWERTY_NEIGHBORS[a[i]]?.includes(b[i]) ?? false;
+  }
+  return false;
+}
+
+export function mechanicalScore(original: string, replacement: string): number {
   const a = original.toLocaleLowerCase();
   const b = replacement.toLocaleLowerCase();
   if (adjacentTransposition(a, b)) return 110;
   // Arbitrary one-letter substitutions are especially dangerous in science:
   // valid terms such as "somata" can sit one key from a common dictionary
   // word ("sonata"). Without a contextual model, never auto-apply this class.
-  if (oneSubstitution(a, b)) return 34;
+  if (oneSubstitution(a, b)) {
+    // Long adjacent-key slips are sparse enough to be useful mechanically;
+    // short ones remain contextual (`somata`/`sonata`).
+    if (a.length >= 8 && keyboardAdjacentSubstitution(a, b)) return 88;
+    return 34;
+  }
 
   const removed = oneRemoval(a, b);
   if (removed != null) {
@@ -300,10 +371,20 @@ function chooseSpelling(
     .sort((a, b) => b.score - a.score);
   if (!ranked.length) return null;
   const [best, second] = ranked;
-  if (best.mechanical >= 94) return best.replacement;
-  if (best.score < 62) return null;
-  if (second && best.score - second.score < 14) return null;
-  return best.replacement;
+  if (projectWords.has(best.replacement.toLocaleLowerCase()) && best.mechanical >= 56) return best.replacement;
+  if (adjacentTransposition(original.toLocaleLowerCase(), best.replacement.toLocaleLowerCase())) return best.replacement;
+  // A long, dominant adjacent-key substitution is still safely mechanical.
+  // Insertions/deletions are deferred because even one edit can change valid
+  // scientific morphology (`hypothalamic`/`hypothalami`) or choose the wrong
+  // ordinary word (`loger`/`logger`/`longer`).
+  if (
+    lettersOnly(original).length >= 7 &&
+    oneSubstitution(original.toLocaleLowerCase(), best.replacement.toLocaleLowerCase()) &&
+    keyboardAdjacentSubstitution(original, best.replacement) &&
+    best.score >= 88 &&
+    (!second || best.score - second.score >= 14)
+  ) return best.replacement;
+  return null;
 }
 
 export function planLocalCorrections(
@@ -352,18 +433,18 @@ export function planLocalCorrections(
     } else if (lint.kind === "Typo") {
       if (suggestions.length === 1) {
         const candidate = suggestions[0];
-        const splitParts = candidate.trim().split(/\s+/);
         const safeSplit =
-          splitParts.length === 1 ||
+          !/\s/.test(candidate) ||
           // Missing spaces next to very short function words ("objectis")
           // are mechanical. Open/closed scientific compounds ("timepoint",
-          // "brainstem", "wildtype") are editorial choices, not typos.
-          (lint.problem.replace(/\s/g, "").length >= 6 && splitParts.some((part) => part.length <= 2));
-        if (
-          safeSplit &&
-          (lettersOnly(lint.problem) === lettersOnly(candidate) ||
-            damerauLevenshtein(lint.problem, candidate) <= 2)
-        ) {
+          // "brainstem", "wildtype") and nonsense fragments such as
+          // "bi logical" are editorial/model questions, not local fixes.
+          (lint.partsAreKnown !== true && safeTypoBoundary(lint.problem, candidate));
+        const locallyKnown = projectWords.has(candidate.toLocaleLowerCase());
+        const mechanicalTypo = /\s/.test(candidate)
+          ? safeSplit
+          : adjacentTransposition(lint.problem.toLocaleLowerCase(), candidate.toLocaleLowerCase()) || locallyKnown;
+        if (safeSplit && mechanicalTypo) {
           replacement = candidate;
           kind = /\s/.test(lint.problem + candidate) ? "spacing" : "typo";
         }
@@ -410,6 +491,16 @@ function vocabularyTokenIsTechnical(token: string): boolean {
  * single typo is never learned merely because it exists in the manuscript.
  */
 export function extractProjectVocabulary(sources: readonly string[]): string[] {
+  const counts = extractProjectVocabularyOccurrences(sources);
+  return [...counts.values()]
+    .filter(({ exemplar, n }) => vocabularyTokenIsTechnical(exemplar) || (exemplar.length >= 4 && n >= 3))
+    .map(({ exemplar }) => exemplar)
+    .slice(0, 4000);
+}
+
+export function extractProjectVocabularyOccurrences(
+  sources: readonly string[],
+): Map<string, { exemplar: string; n: number }> {
   const counts = new Map<string, { exemplar: string; n: number }>();
   for (const source of sources) {
     for (const match of source.matchAll(TOKEN_RE)) {
@@ -420,8 +511,5 @@ export function extractProjectVocabulary(sources: readonly string[]): string[] {
       counts.set(key, { exemplar: cur?.exemplar ?? token, n: (cur?.n ?? 0) + 1 });
     }
   }
-  return [...counts.values()]
-    .filter(({ exemplar, n }) => vocabularyTokenIsTechnical(exemplar) || (exemplar.length >= 4 && n >= 3))
-    .map(({ exemplar }) => exemplar)
-    .slice(0, 4000);
+  return counts;
 }

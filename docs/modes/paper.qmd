@@ -29,18 +29,19 @@ text stays honest.
 
 # Local corrections
 
-Paper quietly fixes only high-confidence typing slips after you finish a sentence: transposed
-letters such as *compelx*, repeated or missing letters, and an accidental space such as
-*o bject*. The replacement fades into place and a small blue dot pulses beneath it; the caret
-never moves. This first correction layer is entirely on your device — it sends no manuscript
-text to a server.
+Paper quietly fixes only unmistakable typing slips as soon as you finish the word: transposed
+letters such as *compelx* and an accidental space such as *o bject*. Insertions, deletions, and
+ambiguous spelling neighbors wait for sentence context instead of guessing. The replacement fades
+into place and a small blue dot pulses beneath it; the caret never moves. This first correction
+layer uses Harper in a dedicated local worker and sends no manuscript text anywhere.
 
 Click a recently corrected word to see what changed. **Undo** restores the original and teaches
 this project not to repeat that correction; **Add to dictionary** also remembers the word as
-project vocabulary. One normal **Ctrl+Z** immediately after a sentence restores every correction
-from that sentence together. Project titles, authors, references, figure captions, and recurring
-technical terms help form the local vocabulary, while acronyms, mixed-case scientific names,
-numbers, code, math, citations, links, and table source are left alone.
+project vocabulary. Normal **Ctrl+Z** targets the most recent correction batch, so independent
+word-by-word changes remain independently undoable. Project titles, authors, references, figure
+captions, and recurring technical terms help form the local vocabulary, while acronyms,
+mixed-case scientific names, numbers, code, math, citations, links, and table source are left
+alone.
 
 For terms that matter, select one word — ordinary selection and Vim visual mode work the same —
 and click **Word tools** (the small book in the floating toolbar), or press **Shift+Alt+W**. You
@@ -66,9 +67,57 @@ aliases when both use the same short form.
 The blue **Local** item in the status bar shows when the checker is ready and toggles it on or
 off. The same switch is in **Settings › Paper › Local corrections** and the command palette.
 This conservative local layer does not rephrase, make stylistic edits, or guess at scientific
-compound spelling; those are choices, not safe automatic corrections. **Reset correction
-learning** in the same Settings section clears automatic "leave this correction alone" lessons
-without deleting the dictionaries and aliases you chose explicitly.
+compound spelling; those are choices, not safe automatic corrections.
+
+An optional second lane runs at completed-sentence boundaries. Harper first identifies exact
+unresolved spans and supplies a small local word neighborhood. The context model may keep the
+source, select one local proposal, or propose a better nearby spelling when Harper omitted it —
+for example, *wayus* can become *ways* instead of Harper's *way us*. This is not sentence
+rewriting: a proposal must be one plain word, preserve case, remain within the selected typing-edit
+envelope, survive a separate scientific-term preservation check when applicable, and receive a
+fresh contextual approval. Flux then independently verifies that word with Harper and rechecks the
+current document, protected syntax, dictionaries, learned vetoes, and the hard time limit. If you
+keep typing, a safe result maps behind the caret; editing its source span cancels it.
+
+The underline shows the complete decision lifecycle without interrupting typing:
+
+- An unresolved Harper span fades in **red** as soon as the word is complete.
+- If sentence judgment corrects it, the line turns **blue**, the replacement morphs into place,
+  and both fade away.
+- If judgment leaves it alone, the line turns **orange** and remains. Click it to see Flux's
+  structured reason and the relevant words it considered. This is a concise decision record, not
+  hidden model reasoning.
+
+Settings offers three judgment envelopes. **Standard** is the default: one typing edit for short
+words and two otherwise. **Aggressive** can explore three edits for words of nine or more letters.
+**Really aggressive** explores every bounded candidate, allows three edits from seven letters and
+four from ten, and is deliberately available for testing the high-recall edge. All three preserve
+the same no-rewrite, syntax, scientific morphology, dictionary, contextual approval, local-lexicon,
+and exact-source safety gates. Wider modes can be slower and still abstain when those gates fail.
+
+**Flux managed** is the default contextual provider. In Settings, install the 2.33 GB Qwen3 4B
+Instruct 2507 model explicitly; the download resumes after interruption, is SHA-256 verified under
+`FluxConfig/Models/corrections/`, and can be unloaded or removed there. Flux owns a pinned
+`llama-server` helper on authenticated loopback and never starts it on the Home screen. Apple
+Silicon packages fully offload to Metal, Linux packages use the pinned Vulkan backend when a GPU is
+available, and Settings names the active acceleration path. “Ready” means the model has produced a
+schema-valid non-thinking answer, not merely that its process is listening. Builds that installed
+the earlier hybrid Qwen3 artifact show **Update local model**; the verified update replaces it in
+place with Instruct 2507.
+
+An existing Ollama installation can be selected as an advanced local provider. Flux explicitly
+warms the selected Ollama model, holds it for 15 minutes, and fixes its context at 2,048 tokens so a
+small correction request cannot accidentally allocate the model's much larger default context.
+Provider loading is allowed a longer background deadline, but a correction still has only the
+editor's short silent-application window; a late result never changes the manuscript. GPT-5.6 Luna
+is separately opt-in: its API key is OS-encrypted, requests use `store: false`, Settings discloses
+the payload and shows the session cost estimate, and a local failure never activates cloud.
+
+Personal guidance, project guidance, dialect, explicit terms, aliases, and learned “leave alone”
+decisions all feed this bounded judgment. **Reset correction learning** in the same Settings
+section clears automatic lessons without deleting dictionaries or aliases; individual lessons can
+also be removed from the visible list. Quoted material, code, math, citations, links, tables, front
+matter, and technical identifiers remain protected in both lanes.
 
 # Citations
 

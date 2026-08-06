@@ -12,6 +12,7 @@ dist-ssr
 
 # Packaging output (electron-builder)
 release/
+build/correction-runtime/
 
 # Personal planning/spec docs — kept local, never published
 notes/

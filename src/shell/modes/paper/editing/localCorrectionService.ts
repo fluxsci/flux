@@ -20,6 +20,7 @@ class LocalCorrectionService {
   private listeners = new Set<(status: LocalCorrectionEngineStatus) => void>();
   private vocabulary = new Set<string>();
   private projectKey = "";
+  private dialect: "american" | "british" | "canadian" | "australian" = "american";
 
   subscribe(listener: (status: LocalCorrectionEngineStatus) => void): () => void {
     this.listeners.add(listener);
@@ -48,6 +49,9 @@ class LocalCorrectionService {
     worker.onmessage = (event: MessageEvent<WorkerReply>) => this.onMessage(event.data);
     worker.onerror = (event) => this.fail(new Error(event.message || "Local correction worker failed"));
     worker.postMessage({ type: "init", words: [...this.vocabulary] });
+    if (this.dialect !== "american") {
+      worker.postMessage({ type: "dialect", dialect: this.dialect, words: [...this.vocabulary] });
+    }
   }
 
   updateVocabulary(projectKey: string, words: readonly string[]): void {
@@ -62,6 +66,18 @@ class LocalCorrectionService {
     this.vocabulary.clear();
     this.mergeVocabulary(words, false);
     if (this.worker) this.worker.postMessage({ type: "words", words: [...this.vocabulary] });
+  }
+
+  setDialect(
+    projectKey: string,
+    dialect: "american" | "british" | "canadian" | "australian",
+    words: readonly string[],
+  ): void {
+    this.selectProject(projectKey);
+    if (dialect === this.dialect) return;
+    this.dialect = dialect;
+    this.vocabulary = new Set(words.map((word) => word.trim()).filter(Boolean));
+    this.worker?.postMessage({ type: "dialect", dialect, words: [...this.vocabulary] });
   }
 
   lint(text: string): Promise<LocalLintRecord[]> {

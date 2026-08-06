@@ -1,0 +1,1134 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-v1",
+  "corpusHash": "d4e57b2e93b199204eb33c6c1b86ec86f26b85ca878021bfa079b01f3d8328e2",
+  "generatedAt": "2026-08-05T20:38:11.365Z",
+  "options": {
+    "provider": "ollama",
+    "contract": "batch",
+    "model": "qwen3:4b-instruct",
+    "thinking": false,
+    "repeats": 3,
+    "limit": 0,
+    "family": "",
+    "partition": "held-out",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 3500,
+    "evaluated": 700,
+    "clean-scientific": 500,
+    "single-mechanical": 500,
+    "multi-mechanical": 500,
+    "ambiguous-change": 400,
+    "ambiguous-keep": 400,
+    "scientific-terminology": 300,
+    "protected-syntax": 300,
+    "project-context-pair": 200,
+    "paragraph-cross-sentence": 200,
+    "rapid-typing-race": 200
+  },
+  "metrics": {
+    "precision": 1,
+    "wilson95Lower": 0.9903684565991391,
+    "coverage": 0.8586956521739131,
+    "candidateAvailability": 1,
+    "automaticEdits": 395,
+    "correctAutomaticEdits": 395,
+    "protectedChanges": 0,
+    "providerCalls": 870,
+    "providerCallsPerPass": 290,
+    "callsPer1000Words": 42.521994134897355,
+    "allKeepCalls": 185,
+    "allUseCalls": 100,
+    "orderStability": 0.9655172413793104,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 268.4133310000034,
+      "p95": 371.4263959999953,
+      "p99": 475.9043170000077
+    },
+    "tokens": {
+      "prompt": 199125,
+      "output": 30220
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0.9903684565991391,
+    "coverage": 0.8977272727272727,
+    "automaticEdits": 395,
+    "correctAutomaticEdits": 395,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 18,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 8,
+    "callsPer1000Words": 8.66738894907909,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 50,
+      "available": 50,
+      "rate": 1
+    },
+    "real-word": {
+      "gold": 80,
+      "available": 80,
+      "rate": 1
+    },
+    "boundary": {
+      "gold": 20,
+      "available": 20,
+      "rate": 1
+    },
+    "phrase-punctuation": {
+      "gold": 20,
+      "available": 20,
+      "rate": 1
+    }
+  },
+  "byFamily": {
+    "clean-scientific": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "single-mechanical": {
+      "automaticEdits": 100,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 25,
+      "failures": 0
+    },
+    "multi-mechanical": {
+      "automaticEdits": 200,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 25,
+      "failures": 0
+    },
+    "ambiguous-change": {
+      "automaticEdits": 35,
+      "precision": 1,
+      "coverage": 0.4375,
+      "candidateAvailability": 1,
+      "providerCalls": 80,
+      "failures": 0
+    },
+    "ambiguous-keep": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 80,
+      "failures": 0
+    },
+    "scientific-terminology": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "protected-syntax": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "project-context-pair": {
+      "automaticEdits": 20,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 40,
+      "failures": 0
+    },
+    "paragraph-cross-sentence": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 0,
+      "candidateAvailability": 1,
+      "providerCalls": 40,
+      "failures": 0
+    },
+    "rapid-typing-race": {
+      "automaticEdits": 40,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [],
+  "wrongDecisionExamples": [
+    {
+      "id": "fc-v1-1508",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1509",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1528",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1529",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1529",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1548",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1549",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1568",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1569",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1569",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1588",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1589",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1608",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1609",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1609",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1628",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1629",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1648",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1649",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1649",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1668",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1669",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1688",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1689",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1689",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1708",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1709",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1728",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1729",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1729",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1738",
+      "family": "ambiguous-change",
+      "text": "The inhibitory input complimented the excitatory drive.",
+      "candidate": "complimented",
+      "suggestions": [
+        "complemented"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "complemented"
+      },
+      "decision": {
+        "candidateId": "c-541e6a79",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "complimented"
+    },
+    {
+      "id": "fc-v1-1748",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1749",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1768",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1769",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1769",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1778",
+      "family": "ambiguous-change",
+      "text": "The inhibitory input complimented the excitatory drive.",
+      "candidate": "complimented",
+      "suggestions": [
+        "complemented"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "complemented"
+      },
+      "decision": {
+        "candidateId": "c-541e6a79",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "complimented"
+    },
+    {
+      "id": "fc-v1-1788",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1789",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1808",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1809",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1809",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1818",
+      "family": "ambiguous-change",
+      "text": "The inhibitory input complimented the excitatory drive.",
+      "candidate": "complimented",
+      "suggestions": [
+        "complemented"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "complemented"
+      },
+      "decision": {
+        "candidateId": "c-541e6a79",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "complimented"
+    },
+    {
+      "id": "fc-v1-1828",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    },
+    {
+      "id": "fc-v1-1829",
+      "family": "ambiguous-change",
+      "text": "The treatment did not effect the firing rate.",
+      "candidate": "effect",
+      "suggestions": [
+        "affect"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "affect"
+      },
+      "decision": {
+        "candidateId": "c-541ac0c6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "effect"
+    },
+    {
+      "id": "fc-v1-1848",
+      "family": "ambiguous-change",
+      "text": "The principal of sparse coding guided the analysis.",
+      "candidate": "principal",
+      "suggestions": [
+        "principle"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "principle"
+      },
+      "decision": {
+        "candidateId": "c-696a7d34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "principal"
+    },
+    {
+      "id": "fc-v1-1849",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4e74e1e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1849",
+      "family": "ambiguous-change",
+      "text": "Please cite the recording cite in the methods.",
+      "candidate": "cite",
+      "suggestions": [
+        "site"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "site"
+      },
+      "decision": {
+        "candidateId": "c-4131d073",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "cite"
+    },
+    {
+      "id": "fc-v1-1858",
+      "family": "ambiguous-change",
+      "text": "The inhibitory input complimented the excitatory drive.",
+      "candidate": "complimented",
+      "suggestions": [
+        "complemented"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "complemented"
+      },
+      "decision": {
+        "candidateId": "c-541e6a79",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "complimented"
+    },
+    {
+      "id": "fc-v1-1868",
+      "family": "ambiguous-change",
+      "text": "The signal was recorded form the motor cortex.",
+      "candidate": "form",
+      "suggestions": [
+        "from"
+      ],
+      "expected": {
+        "action": "use",
+        "replacement": "from"
+      },
+      "decision": {
+        "candidateId": "c-e7c14688",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "form"
+    }
+  ],
+  "failures": []
+}

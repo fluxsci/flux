@@ -85,6 +85,22 @@ const CHANNELS = [
   { channel: "keys:get", kind: "invoke", scope: "read" },
   { channel: "keys:set", kind: "invoke", scope: "write" },
   { channel: "fulltext:search", kind: "invoke", scope: "read" },
+  // --- Paper contextual corrections -------------------------------------------
+  { channel: "correction:status", kind: "invoke", scope: "read" },
+  { channel: "correction:warm", kind: "invoke", scope: "spawn" },
+  { channel: "correction:decide", kind: "invoke", scope: "read" },
+  { channel: "correction:cancel", kind: "invoke", scope: "read" },
+  { channel: "correction:cloudKeyStatus", kind: "invoke", scope: "read" },
+  { channel: "correction:cloudKeySet", kind: "invoke", scope: "write" },
+  { channel: "correction:profileGet", kind: "invoke", scope: "read" },
+  { channel: "correction:profileSet", kind: "invoke", scope: "write" },
+  { channel: "correction:modelStatus", kind: "invoke", scope: "read" },
+  { channel: "correction:modelInstall", kind: "invoke", scope: "write" },
+  { channel: "correction:modelCancel", kind: "invoke", scope: "write" },
+  { channel: "correction:modelRemove", kind: "invoke", scope: "write" },
+  { channel: "correction:modelUnload", kind: "invoke", scope: "spawn" },
+  { channel: "correction:modelWarm", kind: "invoke", scope: "spawn" },
+  { channel: "correction:modelProgress", kind: "push", scope: "read" },
   // --- capture (flux:// deep links) ---------------------------------------------
   { channel: "capture:add", kind: "push", scope: "read" },
   // --- agent bridge ---------------------------------------------------------------

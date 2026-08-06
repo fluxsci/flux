@@ -233,7 +233,11 @@
   }
 
   onMount(() => {
-    ctx = canvas?.getContext("2d") ?? null;
+    // The field is fully opaque; a desynchronized context lets Chromium
+    // present it without coupling editor input to the canvas compositor's
+    // frame queue. This preserves the idle 60 fps surface while lowering the
+    // input-to-paint cost of the first keystrokes after an idle interval.
+    ctx = canvas?.getContext("2d", { alpha: false, desynchronized: true }) ?? null;
     const r = wrap?.getBoundingClientRect();
     resetField();
     lastSig = `${sourceId}|${seed}`;
@@ -263,6 +267,24 @@
     // worker was tried and measured WORSE — its continuous commits re-deepen the compositor
     // pipeline.) The loop is dt-driven, so setTimeout jitter never changes the motion's speed.
     let last = performance.now();
+    let inputQuietUntil = 0;
+    let inputYieldCount = 0;
+    const yieldToTyping = () => {
+      // A canvas composite queued immediately after keydown can delay the
+      // editor's next paint even though the input handler itself is cheap.
+      // Yield five ambient frames after each key. The previous 50 ms window
+      // sat too close to a 45 ms fast-typing cadence once browser-dispatch
+      // overhead was included, so an occasional canvas composite still landed
+      // immediately before the editor paint. The dt-driven field catches up
+      // after the burst; direct-manipulation paint retains absolute priority.
+      inputQuietUntil = performance.now() + 80;
+      if (timer) {
+        clearTimeout(timer);
+        inputYieldCount += 1;
+      }
+      timer = setTimeout(tick, 80);
+    };
+    window.addEventListener("keydown", yieldToTyping, { capture: true });
     let warned = false;
     const tick = () => {
       const now = performance.now();
@@ -271,6 +293,11 @@
       if (import.meta.env.DEV) {
         frames.push(dt * 1000);
         if (frames.length > 300) frames.shift();
+      }
+      if (now < inputQuietUntil) {
+        inputYieldCount += 1;
+        timer = setTimeout(tick, Math.max(16, inputQuietUntil - now));
+        return;
       }
       try {
         if (ghost) ghost.age += dt;
@@ -300,6 +327,7 @@
       (w.__fluxMargin ??= {}).bg = {
         frames,
         spawns,
+        inputYields: () => inputYieldCount,
         dims: () => ({
           cssW: width,
           cssH: height,
@@ -323,6 +351,7 @@
 
     return () => {
       clearTimeout(timer);
+      window.removeEventListener("keydown", yieldToTyping, { capture: true });
       ro.disconnect();
       if (import.meta.env.DEV) {
         const w = window as unknown as { __fluxMargin?: Record<string, unknown> };

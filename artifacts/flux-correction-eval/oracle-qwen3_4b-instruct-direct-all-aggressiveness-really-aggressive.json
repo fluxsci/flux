@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-aggressiveness-v1",
+  "corpusHash": "4627afa3d5fe779e6b0af38c294640cf122efee8d986dfc677716fc25f53c9e0",
+  "generatedAt": "2026-08-06T04:54:56.192Z",
+  "options": {
+    "suite": "aggressiveness",
+    "rescueMode": "full",
+    "aggressiveness": "really-aggressive",
+    "provider": "oracle",
+    "contract": "direct",
+    "model": "qwen3:4b-instruct",
+    "thinking": false,
+    "repeats": 1,
+    "limit": 0,
+    "family": "",
+    "partition": "all",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 24,
+    "evaluated": 24,
+    "aggression-three-long": 4,
+    "aggression-three-medium": 4,
+    "aggression-four-long": 4,
+    "aggression-preservation": 12
+  },
+  "metrics": {
+    "precision": 1,
+    "wilson95Lower": 0.7575059933447591,
+    "coverage": 1,
+    "candidateAvailability": 0.5833333333333334,
+    "automaticEdits": 12,
+    "correctAutomaticEdits": 12,
+    "protectedChanges": 0,
+    "providerCalls": 0,
+    "providerCallsPerPass": 0,
+    "callsPer1000Words": 0,
+    "allKeepCalls": 12,
+    "allUseCalls": 11,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 0,
+      "p95": 0,
+      "p99": 0
+    },
+    "tokens": {
+      "prompt": 0,
+      "output": 0
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0.7575059933447591,
+    "coverage": 1,
+    "automaticEdits": 12,
+    "correctAutomaticEdits": 12,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 17,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 7,
+    "callsPer1000Words": 7.583965330444204,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 12,
+      "available": 7,
+      "rate": 0.5833333333333334
+    }
+  },
+  "byFamily": {
+    "aggression-three-long": {
+      "automaticEdits": 4,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "aggression-three-medium": {
+      "automaticEdits": 4,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 0.5,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "aggression-four-long": {
+      "automaticEdits": 4,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 0.25,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "aggression-preservation": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [
+    {
+      "id": "fca-v1-r005",
+      "family": "aggression-three-medium",
+      "text": "The recurntx input amplified the late response.",
+      "gold": {
+        "original": "recurntx",
+        "replacement": "recurrent",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "recurntx",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "recent",
+            "recruit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r006",
+      "family": "aggression-three-medium",
+      "text": "The signal was recxrdx from motor cortex.",
+      "gold": {
+        "original": "recxrdx",
+        "replacement": "recorded",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "recxrdx",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "record",
+            "records"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r009",
+      "family": "aggression-four-long",
+      "text": "Background flxorscenz was subtracted before analysis.",
+      "gold": {
+        "original": "flxorscenz",
+        "replacement": "fluorescence",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "flxorscenz",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "fluorescent",
+            "florescent"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r010",
+      "family": "aggression-four-long",
+      "text": "The response was charxterizx across behavioral states.",
+      "gold": {
+        "original": "charxterizx",
+        "replacement": "characterized",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "charxterizx",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "characterize",
+            "chartering"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fca-v1-r011",
+      "family": "aggression-four-long",
+      "text": "The synxronizx recordings shared one acquisition clock.",
+      "gold": {
+        "original": "synxronizx",
+        "replacement": "synchronized",
+        "action": "use"
+      },
+      "candidates": [
+        {
+          "original": "synxronizx",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "synchronize"
+          ]
+        }
+      ]
+    }
+  ],
+  "wrongDecisionExamples": [],
+  "failures": []
+}

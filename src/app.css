@@ -48,6 +48,45 @@ body {
   pointer-events: none;
   animation: flux-local-correction-dot 620ms var(--ease-enter) both;
 }
+.paper .cm-local-correction-contextual::after {
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  width: auto;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--flx-red-400);
+  box-shadow: none;
+  animation-name: flux-context-correction-line;
+}
+.paper .cm-context-issue {
+  position: relative;
+  border-radius: 1px;
+  cursor: pointer;
+}
+.paper .cm-context-issue::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  left: 0;
+  height: 1.5px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.paper .cm-context-issue-deferred::after,
+.paper .cm-context-issue-pending::after {
+  background: color-mix(in srgb, var(--flx-red-400) 70%, transparent);
+  animation: flux-context-issue-in 260ms var(--ease-enter) both;
+}
+.paper .cm-context-issue-pending::after {
+  animation-name: flux-context-issue-pending;
+  animation-duration: 900ms;
+}
+.paper .cm-context-issue-declined::after {
+  background: var(--flx-orange-400);
+  animation: flux-context-issue-declined 420ms var(--ease-standard) both;
+}
 .paper .cm-local-correction-delay-1,
 .paper .cm-local-correction-delay-1::after { animation-delay: 90ms; }
 .paper .cm-local-correction-delay-2,
@@ -66,9 +105,31 @@ body {
   62% { opacity: 1; transform: translate(-50%, 0) scale(0.82); box-shadow: 0 0 0 0 var(--c-accent-glow); }
   100% { opacity: 0; transform: translate(-50%, -1px) scale(0.55); }
 }
+@keyframes flux-context-issue-in {
+  0% { opacity: 0; transform: scaleX(0.72); }
+  100% { opacity: 1; transform: scaleX(1); }
+}
+@keyframes flux-context-issue-pending {
+  0% { opacity: 0; transform: scaleX(0.72); }
+  34% { opacity: 0.7; transform: scaleX(1); }
+  68% { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0.7; transform: scaleX(1); }
+}
+@keyframes flux-context-issue-declined {
+  0% { opacity: 0.7; background: var(--flx-red-400); }
+  58% { opacity: 1; background: var(--flx-orange-400); }
+  100% { opacity: 1; background: var(--flx-orange-400); }
+}
+@keyframes flux-context-correction-line {
+  0% { opacity: 0.7; background: var(--flx-red-400); transform: scaleX(1); }
+  38% { opacity: 1; background: var(--flx-blue-400); transform: scaleX(1); }
+  100% { opacity: 0; background: var(--flx-blue-400); transform: scaleX(0.78); }
+}
 
 .paper .cm-tooltip.cm-tooltip-above:has(.cm-local-correction-menu),
 .paper .cm-tooltip.cm-tooltip-below:has(.cm-local-correction-menu),
+.paper .cm-tooltip.cm-tooltip-above:has(.cm-context-issue-menu),
+.paper .cm-tooltip.cm-tooltip-below:has(.cm-context-issue-menu),
 .paper .cm-tooltip.cm-tooltip-above:has(.cm-local-word-tools),
 .paper .cm-tooltip.cm-tooltip-below:has(.cm-local-word-tools) {
   border: 1px solid var(--c-line-strong);
@@ -122,6 +183,50 @@ body {
   padding: 2px 5px;
   font-size: 15px;
 }
+.paper .cm-context-issue-menu {
+  display: flex;
+  width: min(390px, calc(100vw - 32px));
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 8px 9px 11px;
+  font-family: var(--font-serif);
+  font-size: var(--ts-xs);
+  white-space: normal;
+}
+.paper .cm-context-issue-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+.paper .cm-context-issue-copy strong {
+  color: var(--c-tx-hi);
+  font-weight: 600;
+}
+.paper .cm-context-issue-word {
+  color: var(--c-warning);
+  font-family: var(--font-mono);
+}
+.paper .cm-context-issue-reason {
+  color: var(--c-tx-2);
+  line-height: 1.35;
+}
+.paper .cm-context-issue-considered {
+  color: var(--c-tx-faint);
+  line-height: 1.3;
+}
+.paper .cm-context-issue-menu button.icon {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--c-tx-faint);
+  padding: 1px 5px;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.paper .cm-context-issue-menu button.icon:hover { color: var(--c-accent); }
 
 .paper .cm-local-word-tools {
   width: 286px;
@@ -250,7 +355,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .paper .cm-local-correction,
-  .paper .cm-local-correction::after {
+  .paper .cm-local-correction::after,
+  .paper .cm-context-issue::after {
     animation-duration: 1ms;
     animation-delay: 0ms;
   }

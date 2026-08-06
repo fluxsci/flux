@@ -26,12 +26,35 @@ import {
 import { isolateHistory } from "@codemirror/commands";
 import { syntaxTree } from "@codemirror/language";
 import {
-  extractCorrectionWindow,
   extractProjectVocabulary,
+  extractProjectVocabularyOccurrences,
   planLocalCorrections,
   protectedMarkdownRanges,
   type PlannedLocalCorrection,
 } from "./localCorrectionCore";
+import {
+  classifyTypedBoundaries,
+  extractCompletedWordWindow,
+  extractSentenceWindow,
+} from "./localCorrectionBoundary";
+import {
+  guardContextCorrectionResult,
+  makeContextCorrectionPacket,
+  normalizeCorrectionCandidates,
+  rescueApprovalKey,
+  rescueReplacementAllowed,
+  stableCorrectionHash,
+  type CorrectionAggressiveness,
+  type CandidateNormalizationOptions,
+  type CorrectionCandidate,
+  type ContextCorrectionDiagnosticStage,
+  type ContextCorrectionPacketV1,
+  type ProjectLanguageContextV1,
+} from "./contextualCorrectionCore";
+import {
+  contextualCorrectionService,
+  type ContextualCorrectionProvider,
+} from "./contextualCorrectionService";
 import {
   LOCAL_CORRECTION_RESET_EVENT,
   LOCAL_LANGUAGE_CHANGED_EVENT,
@@ -54,6 +77,12 @@ export interface LocalCorrectionsOptions {
   enabled(): boolean;
   projectKey(): string;
   contextStrings?(): string[];
+  contextualEnabled?(): boolean;
+  contextualProvider?(): ContextualCorrectionProvider;
+  contextualModel?(): string;
+  contextualDialect?(): ProjectLanguageContextV1["dialect"];
+  contextualAggressiveness?(): CorrectionAggressiveness;
+  personalGuidance?(): string;
   onStatus?(status: LocalCorrectionUiStatus): void;
   onError?(message: string): void;
   onNotice?(message: string): void;
@@ -70,10 +99,31 @@ interface RecentCorrection {
   aliasScope?: LocalLanguageScope;
   delay: number;
   expiresAt: number;
+  contextual?: boolean;
+}
+
+type ContextIssueStatus = "deferred" | "pending" | "declined";
+
+interface ContextIssue {
+  id: string;
+  candidateId?: string;
+  requestId?: string;
+  from: number;
+  to: number;
+  original: string;
+  status: ContextIssueStatus;
+  harperKind: string;
+  harperMessage: string;
+  suggestions: string[];
+  rescueSuggestions: string[];
+  rejectedSuggestions: string[];
+  reason?: string;
+  attemptedReplacement?: string;
 }
 
 interface CorrectionVisualState {
   recent: RecentCorrection[];
+  issues: ContextIssue[];
   openId: string | null;
   decorations: DecorationSet;
 }
@@ -101,32 +151,65 @@ const addRecent = StateEffect.define<RecentCorrection[]>({
 });
 const removeRecent = StateEffect.define<string[]>();
 const openRecent = StateEffect.define<string | null>();
+const upsertContextIssues = StateEffect.define<ContextIssue[]>({
+  map(value, changes) {
+    return value.map((issue) => ({
+      ...issue,
+      from: changes.mapPos(issue.from, 1),
+      to: changes.mapPos(issue.to, -1),
+    }));
+  },
+});
+const removeContextIssues = StateEffect.define<string[]>();
+const clearContextIssues = StateEffect.define<null>();
 const aliasExpansions = Annotation.define<RecentCorrection[]>();
 
-function buildDecorations(recent: readonly RecentCorrection[]): DecorationSet {
+function buildDecorations(recent: readonly RecentCorrection[], issues: readonly ContextIssue[]): DecorationSet {
   return Decoration.set(
-    recent
+    [
+      ...recent
       .filter((c) => c.from < c.to)
       .map((c) =>
         Decoration.mark({
-          class: `cm-local-correction cm-local-correction-delay-${c.delay % 4}`,
+          class: `cm-local-correction${c.contextual ? " cm-local-correction-contextual" : ""} cm-local-correction-delay-${c.delay % 4}`,
           attributes: {
             "data-flux-correction": c.id,
             "aria-label": `${c.kind === "alias" ? "Expanded alias" : "Corrected"} ${c.original} to ${c.replacement}`,
           },
         }).range(c.from, c.to),
       ),
+      ...issues
+        .filter((issue) => issue.from < issue.to)
+        .map((issue) => Decoration.mark({
+          class: `cm-context-issue cm-context-issue-${issue.status}`,
+          attributes: {
+            "data-flux-context-issue": issue.id,
+            // Chromium's native spelling marker would otherwise remain red
+            // underneath Flux's orange declined state. Suppress it only for
+            // the span whose full visual lifecycle Flux now owns.
+            spellcheck: "false",
+            "aria-label": issue.status === "declined"
+              ? `Possible issue left unchanged: ${issue.original}`
+              : `Possible issue detected: ${issue.original}`,
+          },
+        }).range(issue.from, issue.to)),
+    ],
     true,
   );
 }
 
 const correctionVisualField = StateField.define<CorrectionVisualState>({
-  create: () => ({ recent: [], openId: null, decorations: Decoration.none }),
+  create: () => ({ recent: [], issues: [], openId: null, decorations: Decoration.none }),
   update(value, tr) {
     let recent = value.recent.map((c) => ({
       ...c,
       from: tr.changes.mapPos(c.from, -1),
       to: tr.changes.mapPos(c.to, 1),
+    }));
+    let issues = value.issues.map((issue) => ({
+      ...issue,
+      from: tr.changes.mapPos(issue.from, 1),
+      to: tr.changes.mapPos(issue.to, -1),
     }));
     let openId = value.openId;
 
@@ -134,7 +217,10 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
       recent = recent.filter(
         (c) => tr.newDoc.sliceString(c.from, c.to) === c.replacement,
       );
-      if (openId && !recent.some((c) => c.id === openId)) openId = null;
+      issues = issues.filter(
+        (issue) => tr.newDoc.sliceString(issue.from, issue.to) === issue.original,
+      );
+      if (openId && !recent.some((c) => c.id === openId) && !issues.some((issue) => issue.id === openId)) openId = null;
     }
     const expanded = tr.annotation(aliasExpansions);
     if (expanded?.length) recent = [...recent, ...expanded];
@@ -148,18 +234,88 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
         if (openId && ids.has(openId)) openId = null;
       } else if (effect.is(openRecent)) {
         openId = effect.value;
+      } else if (effect.is(upsertContextIssues)) {
+        for (const issue of effect.value) {
+          issues = issues.filter((existing) => !(
+            existing.id === issue.id
+            || (existing.original === issue.original && existing.from < issue.to && existing.to > issue.from)
+          ));
+          issues.push(issue);
+        }
+      } else if (effect.is(removeContextIssues)) {
+        const ids = new Set(effect.value);
+        issues = issues.filter((issue) => !ids.has(issue.id));
+        if (openId && ids.has(openId)) openId = null;
+      } else if (effect.is(clearContextIssues)) {
+        issues = [];
+        if (openId && !recent.some((c) => c.id === openId)) openId = null;
       }
     }
-    return { recent, openId, decorations: buildDecorations(recent) };
+    return { recent, issues, openId, decorations: buildDecorations(recent, issues) };
   },
   provide: (field) => [
     EditorView.decorations.from(field, (value) => value.decorations),
     showTooltip.from(field, (value): Tooltip | null => {
       const correction = value.recent.find((c) => c.id === value.openId);
-      if (!correction) return null;
+      const issue = value.issues.find((candidate) => candidate.id === value.openId);
+      if (!correction && !issue) return null;
+      if (issue) {
+        return {
+          pos: issue.from,
+          end: issue.to,
+          above: true,
+          strictSide: false,
+          arrow: true,
+          create(view) {
+            const dom = document.createElement("div");
+            dom.className = "cm-context-issue-menu";
+            dom.dataset.fluxContextIssueDetails = issue.status;
+            dom.setAttribute("role", "dialog");
+            dom.setAttribute("aria-label", "Correction judgment details");
+
+            const copy = document.createElement("div");
+            copy.className = "cm-context-issue-copy";
+            const label = document.createElement("strong");
+            label.textContent = issue.status === "declined"
+              ? "Left unchanged"
+              : issue.status === "pending" ? "Checking with smart context…" : "Waiting for sentence context…";
+            const word = document.createElement("span");
+            word.className = "cm-context-issue-word";
+            word.textContent = issue.attemptedReplacement
+              ? `${issue.original} → ${issue.attemptedReplacement}`
+              : issue.original;
+            const reason = document.createElement("span");
+            reason.className = "cm-context-issue-reason";
+            reason.textContent = issue.reason || issue.harperMessage || `${issue.harperKind} issue detected locally`;
+            copy.append(label, word, reason);
+
+            const options = [...new Set([
+              ...issue.suggestions,
+              ...issue.rescueSuggestions,
+              ...issue.rejectedSuggestions,
+            ])].slice(0, 8);
+            if (options.length) {
+              const considered = document.createElement("span");
+              considered.className = "cm-context-issue-considered";
+              considered.textContent = `Considered: ${options.join(", ")}`;
+              copy.append(considered);
+            }
+
+            const close = document.createElement("button");
+            close.type = "button";
+            close.className = "icon";
+            close.setAttribute("aria-label", "Close correction judgment details");
+            close.textContent = "×";
+            close.onclick = () => view.dispatch({ effects: openRecent.of(null) });
+            dom.append(copy, close);
+            return { dom };
+          },
+        };
+      }
+      const resolvedCorrection = correction!;
       return {
-        pos: correction.from,
-        end: correction.to,
+        pos: resolvedCorrection.from,
+        end: resolvedCorrection.to,
         above: true,
         strictSide: false,
         arrow: true,
@@ -172,10 +328,10 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
           const copy = document.createElement("div");
           copy.className = "cm-local-correction-copy";
           const label = document.createElement("span");
-          label.textContent = correction.kind === "alias" ? "Expanded alias" : "Corrected";
+          label.textContent = resolvedCorrection.kind === "alias" ? "Expanded alias" : "Corrected";
           const change = document.createElement("span");
           change.className = "cm-local-correction-change";
-          change.textContent = `${correction.original} → ${correction.replacement}`;
+          change.textContent = `${resolvedCorrection.original} → ${resolvedCorrection.replacement}`;
           copy.append(label, change);
 
           const controls = document.createElement("div");
@@ -183,25 +339,25 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
           const undo = document.createElement("button");
           undo.type = "button";
           undo.textContent = "Undo";
-          undo.title = correction.kind === "alias"
+          undo.title = resolvedCorrection.kind === "alias"
             ? "Restore the alias this time"
             : "Restore this text and do not repeat this correction in this project";
-          undo.onclick = () => view.state.facet(correctionActions).revert(view, correction, "undo");
+          undo.onclick = () => view.state.facet(correctionActions).revert(view, resolvedCorrection, "undo");
           controls.append(undo);
 
-          if (correction.kind === "alias" && correction.aliasScope) {
+          if (resolvedCorrection.kind === "alias" && resolvedCorrection.aliasScope) {
             const remove = document.createElement("button");
             remove.type = "button";
             remove.textContent = "Remove alias";
-            remove.title = `Remove “${correction.original}” from the ${correction.aliasScope === "personal" ? "personal" : "project"} aliases`;
-            remove.onclick = () => view.state.facet(correctionActions).revert(view, correction, "remove-alias");
+            remove.title = `Remove “${resolvedCorrection.original}” from the ${resolvedCorrection.aliasScope === "personal" ? "personal" : "project"} aliases`;
+            remove.onclick = () => view.state.facet(correctionActions).revert(view, resolvedCorrection, "remove-alias");
             controls.append(remove);
-          } else if (!/\s/.test(correction.original)) {
+          } else if (!/\s/.test(resolvedCorrection.original)) {
             const add = document.createElement("button");
             add.type = "button";
             add.textContent = "Add to dictionary";
-            add.title = `Always recognize “${correction.original}” in this project`;
-            add.onclick = () => view.state.facet(correctionActions).revert(view, correction, "add-word");
+            add.title = `Always recognize “${resolvedCorrection.original}” in this project`;
+            add.onclick = () => view.state.facet(correctionActions).revert(view, resolvedCorrection, "add-word");
             controls.append(add);
           }
 
@@ -248,7 +404,10 @@ function protectedByEditor(state: EditorState, from: number, to: number): boolea
   const firstLine = state.doc.lineAt(from);
   const lastLine = state.doc.lineAt(Math.max(from, to - 1));
   if (firstLine.number !== lastLine.number) return true;
-  if (firstLine.text.includes("|") || /^\s*(?:```|~~~)/.test(firstLine.text)) return true;
+  if (firstLine.text.includes("|") || /^\s*(?:```|~~~|>)/.test(firstLine.text)) return true;
+  const localFrom = from - firstLine.from;
+  const localTo = to - firstLine.from;
+  if (protectedMarkdownRanges(firstLine.text).some(([a, b]) => localFrom < b && localTo > a)) return true;
 
   for (const pos of [from, Math.max(from, to - 1)]) {
     let node = syntaxTree(state).resolveInner(pos, 1);
@@ -297,29 +456,25 @@ function protectedAliasRange(doc: Text, from: number, to: number): boolean {
     .some(([a, b]) => localFrom < b && localTo > a);
 }
 
-function insertedBoundary(update: ViewUpdate): boolean {
+function insertedBoundaries(update: ViewUpdate): Set<"word" | "sentence"> {
+  const boundaries = new Set<"word" | "sentence">();
   for (const tr of update.transactions) {
     if (!tr.isUserEvent("input.type") || tr.isUserEvent("input.type.compose")) continue;
-    let boundary = false;
     tr.changes.iterChanges((_fromA, _toA, fromB, _toB, inserted) => {
       const text = inserted.toString();
-      for (let i = 0; i < text.length; i += 1) {
-        if (text[i] === "\n") {
-          boundary = true;
-          break;
-        }
-        if (!/\s/.test(text[i])) continue;
-        let before = fromB + i - 1;
-        while (before >= 0 && /["'’\])}]/.test(tr.newDoc.sliceString(before, before + 1))) before -= 1;
-        if (before >= 0 && /[.!?]/.test(tr.newDoc.sliceString(before, before + 1))) {
-          boundary = true;
-          break;
-        }
-      }
+      // Boundary classification only inspects the adjacent token, punctuation,
+      // and at most a short scientific abbreviation. Converting the complete
+      // manuscript on every keystroke made this nominally cheap observer scale
+      // with document length and showed up in the real Electron INP gate.
+      const floor = Math.max(0, fromB - 96);
+      const ceiling = Math.min(tr.newDoc.length, fromB + text.length + 8);
+      const local = tr.newDoc.sliceString(floor, ceiling);
+      const kinds = classifyTypedBoundaries(local, fromB - floor, text);
+      if (kinds.has("word")) boundaries.add("word");
+      if (kinds.has("sentence") || kinds.has("paragraph")) boundaries.add("sentence");
     });
-    if (boundary) return true;
   }
-  return false;
+  return boundaries;
 }
 
 function changesTouchRange(update: ViewUpdate, from: number, to: number): boolean {
@@ -331,17 +486,38 @@ function changesTouchRange(update: ViewUpdate, from: number, to: number): boolea
   return touched;
 }
 
+function diagnosticReason(stage: ContextCorrectionDiagnosticStage, replacement?: string): string {
+  if (stage === "proposal-declined") return "The smart layer did not find a plausible spelling repair within the allowed bounds.";
+  if (stage === "proposal-invalid") return replacement
+    ? `The smart layer proposed “${replacement}”, but it fell outside this mode’s spelling-only safety bounds.`
+    : "The smart layer proposed a repair, but it fell outside this mode’s spelling-only safety bounds.";
+  if (stage === "scientific-preserved") return "Flux kept this because it may be valid scientific or intentional terminology.";
+  if (stage === "approval-declined") return replacement
+    ? `Flux considered “${replacement}”, but the independent approval pass did not prefer it to the original.`
+    : "The independent approval pass did not prefer the proposed repair to the original.";
+  if (stage === "kept") return "The smart layer preferred the original wording over the available corrections.";
+  return "The correction was accepted by the smart layer but did not pass the final editor safety checks.";
+}
+
 interface PendingWindow {
   id: number;
   from: number;
   to: number;
   text: string;
+  lane: "word" | "sentence";
+}
+
+interface PendingContext {
+  from: number;
+  to: number;
+  packet: ContextCorrectionPacketV1;
 }
 
 class CorrectionController {
   private profile: LocalCorrectionProfile;
   private activeProjectKey: string;
   private projectWords = new Set<string>();
+  private projectOccurrences = new Map<string, number>();
   private explicitWords: string[] = [];
   private triggerTimer: ReturnType<typeof setTimeout> | null = null;
   private vocabularyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -354,10 +530,18 @@ class CorrectionController {
   private pending: PendingWindow | null = null;
   private queue: PendingWindow[] = [];
   private lastBatch: RecentCorrection[] = [];
+  private contextualInFlight = false;
+  private activeContext: PendingContext | null = null;
+  private contextualQueue: PendingContext[] = [];
   private failedNoticeShown = false;
   private enabledState: boolean;
+  private contextualEnabledState: boolean;
+  private dialectState: ProjectLanguageContextV1["dialect"];
+  private aggressivenessState: CorrectionAggressiveness;
+  private providerState: ContextualCorrectionProvider;
+  private modelState: string;
   private readonly resetLearning = () => {
-    this.profile = new LocalCorrectionProfile(this.activeProjectKey);
+    this.profile.clearBlockedPairs();
     this.projectWords.clear();
     this.refreshVocabulary(true);
   };
@@ -374,8 +558,18 @@ class CorrectionController {
     private readonly options: LocalCorrectionsOptions,
   ) {
     this.enabledState = options.enabled();
+    this.contextualEnabledState = options.contextualEnabled?.() !== false;
+    this.dialectState = options.contextualDialect?.() ?? "american";
+    this.aggressivenessState = options.contextualAggressiveness?.() ?? "standard";
+    this.providerState = options.contextualProvider?.() ?? "flux";
+    this.modelState = options.contextualModel?.() ?? "qwen3-4b-q4_k_m";
     this.activeProjectKey = options.projectKey();
     this.profile = new LocalCorrectionProfile(this.activeProjectKey);
+    void this.profile.ready().then((hydrated) => {
+      if (!hydrated || this.activeProjectKey !== options.projectKey()) return;
+      this.refreshVocabulary(true);
+      refreshLocalWordTools(this.view);
+    });
     this.unsubscribeStatus = localCorrectionService.subscribe((status) => {
       if (status === "error" && !this.failedNoticeShown) {
         this.failedNoticeShown = true;
@@ -395,9 +589,14 @@ class CorrectionController {
       this.activeProjectKey = projectKey;
       this.profile = new LocalCorrectionProfile(projectKey);
       this.projectWords.clear();
+      this.projectOccurrences.clear();
       this.pending = null;
       this.queue = [];
+      if (this.activeContext) void contextualCorrectionService.cancel(this.activeContext.packet.requestId);
+      this.activeContext = null;
+      this.contextualQueue = [];
       this.lastBatch = [];
+      this.clearIssuesSoon();
       if (this.triggerTimer) {
         clearTimeout(this.triggerTimer);
         this.triggerTimer = null;
@@ -406,8 +605,42 @@ class CorrectionController {
         this.options.onStatus?.("loading");
         this.scheduleWarm();
       }
+      void this.profile.ready().then((hydrated) => {
+        if (hydrated && this.activeProjectKey === projectKey) this.refreshVocabulary(true);
+      });
     }
     const enabled = this.options.enabled();
+    const contextualEnabled = this.options.contextualEnabled?.() !== false;
+    const dialect = this.options.contextualDialect?.() ?? "american";
+    const aggressiveness = this.options.contextualAggressiveness?.() ?? "standard";
+    const provider = this.options.contextualProvider?.() ?? "flux";
+    const model = this.options.contextualModel?.() ?? (provider === "ollama" ? "qwen3:4b-instruct" : "qwen3-4b-q4_k_m");
+    if (dialect !== this.dialectState) {
+      this.dialectState = dialect;
+      localCorrectionService.setDialect(this.activeProjectKey, dialect, [...this.projectWords]);
+    }
+    if (provider !== this.providerState || model !== this.modelState || aggressiveness !== this.aggressivenessState) {
+      this.providerState = provider;
+      this.modelState = model;
+      this.aggressivenessState = aggressiveness;
+      if (this.activeContext) void contextualCorrectionService.cancel(this.activeContext.packet.requestId);
+      this.activeContext = null;
+      this.contextualQueue = [];
+      this.removeTransientIssues();
+      if (enabled && contextualEnabled) {
+        void contextualCorrectionService.warm(provider, model);
+      }
+    }
+    if (contextualEnabled !== this.contextualEnabledState) {
+      this.contextualEnabledState = contextualEnabled;
+      if (contextualEnabled && enabled) void contextualCorrectionService.warm(provider, model);
+      else {
+        if (this.activeContext) void contextualCorrectionService.cancel(this.activeContext.packet.requestId);
+        this.activeContext = null;
+        this.contextualQueue = [];
+        this.removeTransientIssues();
+      }
+    }
     if (enabled !== this.enabledState) {
       this.enabledState = enabled;
       if (enabled) {
@@ -416,6 +649,10 @@ class CorrectionController {
       } else {
         this.options.onStatus?.("off");
         if (this.triggerTimer) clearTimeout(this.triggerTimer);
+        if (this.activeContext) void contextualCorrectionService.cancel(this.activeContext.packet.requestId);
+        this.activeContext = null;
+        this.contextualQueue = [];
+        this.clearIssuesSoon();
       }
     }
     if (this.pending && update.docChanged) {
@@ -441,6 +678,32 @@ class CorrectionController {
         };
       });
     }
+    if (this.activeContext && update.docChanged) {
+      if (changesTouchRange(update, this.activeContext.from, this.activeContext.to)) {
+        const requestId = this.activeContext.packet.requestId;
+        void contextualCorrectionService.cancel(this.activeContext.packet.requestId);
+        this.activeContext = null;
+        this.removeRequestIssuesSoon([requestId]);
+      } else {
+        this.activeContext.from = update.changes.mapPos(this.activeContext.from, -1);
+        this.activeContext.to = update.changes.mapPos(this.activeContext.to, -1);
+      }
+    }
+    if (this.contextualQueue.length && update.docChanged) {
+      const dropped: string[] = [];
+      this.contextualQueue = this.contextualQueue.flatMap((queued) => {
+        if (changesTouchRange(update, queued.from, queued.to)) {
+          dropped.push(queued.packet.requestId);
+          return [];
+        }
+        return [{
+          ...queued,
+          from: update.changes.mapPos(queued.from, -1),
+          to: update.changes.mapPos(queued.to, -1),
+        }];
+      });
+      this.removeRequestIssuesSoon(dropped);
+    }
 
     const aliasRecent = update.transactions.flatMap((tr) => tr.annotation(aliasExpansions) ?? []);
     if (aliasRecent.length) this.scheduleExpiry(aliasRecent);
@@ -459,10 +722,10 @@ class CorrectionController {
           }
         }
         this.lastBatch = [];
-      } else if (changesTouchRange(update, this.lastBatch[0].from, this.lastBatch.at(-1)!.to)) {
-        this.lastBatch = [];
       } else {
-        this.lastBatch = mapped;
+        // Learning is intentionally limited to an immediate, targeted Undo.
+        // Any intervening document edit makes a later/bulk Undo non-teaching.
+        this.lastBatch = [];
       }
     }
 
@@ -471,7 +734,9 @@ class CorrectionController {
       this.options.onStatus?.("off");
       return;
     }
-    if (insertedBoundary(update)) this.scheduleCorrection();
+    const boundaries = insertedBoundaries(update);
+    if (boundaries.has("word")) this.scheduleCorrection("word");
+    if (boundaries.has("sentence")) this.scheduleCorrection("sentence");
   }
 
   destroy(): void {
@@ -482,13 +747,20 @@ class CorrectionController {
     window.removeEventListener(LOCAL_CORRECTION_RESET_EVENT, this.resetLearning);
     window.removeEventListener(LOCAL_LANGUAGE_CHANGED_EVENT, this.languageChanged);
     this.unsubscribeStatus?.();
+    if (this.activeContext) void contextualCorrectionService.cancel(this.activeContext.packet.requestId);
   }
 
   private scheduleWarm(): void {
     const warm = () => {
       this.idleHandle = null;
       this.refreshVocabulary();
+      localCorrectionService.setDialect(this.activeProjectKey, this.dialectState, [...this.projectWords]);
       localCorrectionService.warm(this.activeProjectKey, [...this.projectWords]);
+      if (this.options.contextualEnabled?.() !== false) {
+        const provider = this.options.contextualProvider?.() ?? "flux";
+        const model = this.options.contextualModel?.() ?? (provider === "ollama" ? "qwen3:4b-instruct" : "qwen3-4b-q4_k_m");
+        void contextualCorrectionService.warm(provider, model);
+      }
     };
     if ("requestIdleCallback" in window) {
       this.idleHandle = window.requestIdleCallback(warm, { timeout: 900 });
@@ -515,18 +787,119 @@ class CorrectionController {
     this.explicitWords = this.profile.allWords();
     const words = [...this.explicitWords, ...extractProjectVocabulary(sources)];
     this.projectWords = new Set(words.map((w) => w.toLocaleLowerCase()));
+    this.projectOccurrences = new Map(
+      [...extractProjectVocabularyOccurrences(sources)].map(([key, value]) => [key, value.n]),
+    );
     if (replace) localCorrectionService.replaceVocabulary(this.activeProjectKey, words);
     else localCorrectionService.updateVocabulary(this.activeProjectKey, words);
   }
 
-  private scheduleCorrection(): void {
-    const queued = this.captureWindow();
+  private normalizationOptions(): CandidateNormalizationOptions {
+    return {
+      blockedPairs: this.profile.blockedPairs(),
+      explicitWords: this.explicitWords,
+      personalWords: this.profile.words("personal"),
+      projectWords: this.profile.words("project"),
+      projectOccurrences: this.projectOccurrences,
+      aggressiveness: this.options.contextualAggressiveness?.() ?? "standard",
+    };
+  }
+
+  private candidateIssues(
+    pending: Pick<PendingWindow, "from">,
+    candidates: readonly CorrectionCandidate[],
+    status: ContextIssueStatus,
+    requestId?: string,
+  ): ContextIssue[] {
+    return candidates.map((candidate) => ({
+      id: `ci-${stableCorrectionHash(`${pending.from + candidate.from}:${pending.from + candidate.to}\u0000${candidate.original}`)}`,
+      candidateId: candidate.id,
+      requestId,
+      from: pending.from + candidate.from,
+      to: pending.from + candidate.to,
+      original: candidate.original,
+      status,
+      harperKind: candidate.harperKind,
+      harperMessage: candidate.harperMessage,
+      suggestions: candidate.suggestions.map((suggestion) => suggestion.replacement),
+      rescueSuggestions: [...candidate.rescueSuggestions],
+      rejectedSuggestions: [...candidate.rejectedSuggestions],
+    }));
+  }
+
+  private removeTransientIssues(): void {
+    queueMicrotask(() => {
+      const visual = this.view.state.field(correctionVisualField, false);
+      const ids = visual?.issues.filter((issue) => issue.status !== "declined").map((issue) => issue.id) ?? [];
+      if (ids.length) this.view.dispatch({ effects: removeContextIssues.of(ids) });
+    });
+  }
+
+  private clearIssuesSoon(): void {
+    queueMicrotask(() => this.view.dispatch({ effects: clearContextIssues.of(null) }));
+  }
+
+  private removeRequestIssuesSoon(requestIds: readonly string[]): void {
+    const requests = new Set(requestIds);
+    if (!requests.size) return;
+    queueMicrotask(() => {
+      const visual = this.view.state.field(correctionVisualField, false);
+      const ids = visual?.issues
+        .filter((issue) => issue.requestId && requests.has(issue.requestId) && issue.status !== "declined")
+        .map((issue) => issue.id) ?? [];
+      if (ids.length) this.view.dispatch({ effects: removeContextIssues.of(ids) });
+    });
+  }
+
+  private declineContext(
+    pending: PendingContext,
+    result: import("./contextualCorrectionCore").ContextCorrectionResultV1 | null,
+    acceptedCandidateIds: ReadonlySet<string>,
+    fallbackReason: string,
+    approvedRescues: ReadonlySet<string> = new Set(),
+    forceFallbackReason = false,
+  ): void {
+    const decisions = new Map(result?.decisions.map((decision) => [decision.candidateId, decision]) ?? []);
+    const diagnostics = new Map(result?.diagnostics?.map((diagnostic) => [diagnostic.candidateId, diagnostic]) ?? []);
+    const issues = this.candidateIssues(pending, pending.packet.candidates, "declined", pending.packet.requestId)
+      .filter((issue) => issue.candidateId && !acceptedCandidateIds.has(issue.candidateId))
+      .map((issue) => {
+        const candidate = pending.packet.candidates.find((value) => value.id === issue.candidateId)!;
+        const decision = decisions.get(candidate.id);
+        const diagnostic = diagnostics.get(candidate.id);
+        const selected = decision?.action === "use" && Number.isInteger(decision.suggestionIndex)
+          ? candidate.suggestions[decision.suggestionIndex!]?.replacement
+          : decision?.action === "rescue" ? decision.replacement : undefined;
+        let reason = fallbackReason;
+        if (forceFallbackReason) {
+          reason = fallbackReason;
+        } else if (decision?.action === "rescue" && selected && !approvedRescues.has(rescueApprovalKey(candidate.id, selected))) {
+          reason = `Flux proposed “${selected}”, but the final local dictionary check could not verify it.`;
+        } else if ((decision?.action === "use" || decision?.action === "rescue") && !acceptedCandidateIds.has(candidate.id)) {
+          reason = "The smart layer selected a repair, but Flux’s final document-safety checks rejected it.";
+        } else if (diagnostic) {
+          reason = diagnosticReason(diagnostic.stage, diagnostic.replacement);
+        }
+        return {
+          ...issue,
+          reason,
+          attemptedReplacement: diagnostic?.replacement ?? selected,
+        };
+      });
+    if (issues.length) this.view.dispatch({ effects: upsertContextIssues.of(issues) });
+  }
+
+  private scheduleCorrection(lane: "word" | "sentence"): void {
+    const queued = this.captureWindow(lane);
     if (!queued) return;
-    const same = this.queue.findIndex((item) => item.from === queued.from);
+    const same = this.queue.findIndex((item) => item.from === queued.from && item.lane === queued.lane);
     if (same >= 0) this.queue[same] = queued;
     else if (!this.pending || this.pending.from !== queued.from || this.pending.text !== queued.text) {
       this.queue.push(queued);
-      this.queue = this.queue.slice(-4);
+      while (this.queue.length > 8) {
+        const oldestWord = this.queue.findIndex((item) => item.lane === "word");
+        this.queue.splice(oldestWord >= 0 ? oldestWord : 0, 1);
+      }
     }
     if (this.triggerTimer || this.inFlight) return;
     this.triggerTimer = setTimeout(() => {
@@ -535,25 +908,32 @@ class CorrectionController {
     }, 24);
   }
 
-  private captureWindow(): PendingWindow | null {
+  private captureWindow(lane: "word" | "sentence"): PendingWindow | null {
     if (!this.options.enabled() || !this.view.hasFocus || !this.view.state.selection.main.empty) return null;
     const head = this.view.state.selection.main.head;
-    const floor = Math.max(0, head - 520);
+    const floor = Math.max(0, head - (lane === "word" ? 160 : 760));
     const slice = this.view.state.doc.sliceString(floor, head);
-    const localWindow = extractCorrectionWindow(slice, slice.length);
+    const localWindow = lane === "word"
+      ? extractCompletedWordWindow(slice, slice.length)
+      : extractSentenceWindow(slice, slice.length);
     if (!localWindow) return null;
     const queued: PendingWindow = {
       id: ++this.requestN,
       from: floor + localWindow.from,
       to: floor + localWindow.to,
       text: localWindow.text,
+      lane,
     };
     return protectedByEditor(this.view.state, queued.from, queued.to) ? null : queued;
   }
 
   private async runCorrection(): Promise<void> {
     if (this.inFlight || !this.options.enabled()) return;
-    const pending = this.queue.shift();
+    // Sentence snapshots are rare, semantically complete, and feed the smart
+    // lane. Never let a burst of word-boundary work starve them while the user
+    // is typing continuously.
+    const sentenceIndex = this.queue.findIndex((item) => item.lane === "sentence");
+    const [pending] = this.queue.splice(sentenceIndex >= 0 ? sentenceIndex : 0, 1);
     if (!pending) return;
     if (this.view.state.doc.sliceString(pending.from, pending.to) !== pending.text) {
       if (this.queue.length) this.scheduleQueuedRun();
@@ -581,7 +961,23 @@ class CorrectionController {
           if (protectedByEditor(this.view.state, plan.from, plan.to)) return false;
           return this.view.state.doc.sliceString(plan.from, plan.to) === plan.original;
         });
-      if (plans.length) this.apply(plans);
+      if (plans.length) {
+        this.apply(plans);
+        // A sentence snapshot containing mechanical edits is recaptured after
+        // those edits land so the model never judges stale pre-Harper text.
+        if (pending.lane === "sentence") this.scheduleCorrection("sentence");
+      } else {
+        const candidates = normalizeCorrectionCandidates(
+          pending.text,
+          lints,
+          "sentence",
+          this.normalizationOptions(),
+        );
+        if (candidates.length) {
+          this.view.dispatch({ effects: upsertContextIssues.of(this.candidateIssues(pending, candidates, "deferred")) });
+        }
+        if (pending.lane === "sentence") this.enqueueContextual(pending, lints, candidates);
+      }
     } catch {
       // The service publishes one visible error and otherwise fails closed.
     } finally {
@@ -597,6 +993,183 @@ class CorrectionController {
       this.triggerTimer = null;
       void this.runCorrection();
     }, 0);
+  }
+
+  private enqueueContextual(
+    pending: PendingWindow,
+    lints: readonly import("./localCorrectionCore").LocalLintRecord[],
+    normalized?: readonly CorrectionCandidate[],
+  ): void {
+    if (this.options.contextualEnabled?.() === false) return;
+    const candidates = normalized?.length
+      ? [...normalized]
+      : normalizeCorrectionCandidates(pending.text, lints, "sentence", this.normalizationOptions());
+    if (!candidates.length) return;
+    const contextStrings = (this.options.contextStrings?.() ?? [])
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .slice(0, 24)
+      .map((value) => value.slice(0, 160));
+    const headingLines: string[] = [];
+    const document = this.view.state.doc;
+    let lineNumber = document.lineAt(pending.from).number;
+    // Context assembly runs behind the caret, but it still shares the renderer
+    // thread. Walk a fixed number of lines backward rather than stringifying
+    // the manuscript; four recent headings are more useful than an O(doc)
+    // scan and keep late model preparation outside the typing budget.
+    for (let scanned = 0; lineNumber > 0 && scanned < 300 && headingLines.length < 4; scanned += 1) {
+      const text = document.line(lineNumber).text;
+      if (/^#{1,6}\s+/.test(text)) headingLines.unshift(text.replace(/^#{1,6}\s+/, "").trim());
+      lineNumber -= 1;
+    }
+    const dialect = this.options.contextualDialect?.() ?? "american";
+    const canonicalTerms: string[] = [];
+    const seenTerms = new Set<string>();
+    for (const source of [this.explicitWords, this.projectWords]) {
+      for (const word of source) {
+        const key = word.toLocaleLowerCase();
+        if (!word || seenTerms.has(key)) continue;
+        seenTerms.add(key);
+        canonicalTerms.push(word);
+        if (canonicalTerms.length >= 80) break;
+      }
+      if (canonicalTerms.length >= 80) break;
+    }
+    const projectContext: ProjectLanguageContextV1 = {
+      revision: stableCorrectionHash(JSON.stringify([
+        dialect,
+        this.explicitWords,
+        contextStrings,
+        this.options.personalGuidance?.() ?? "",
+        this.profile.guidance("project"),
+      ])),
+      dialect,
+      projectTitle: contextStrings[0],
+      documentTitle: contextStrings[1] ?? contextStrings[0],
+      sectionPath: headingLines,
+      personalGuidance: (this.options.personalGuidance?.() ?? this.profile.guidance("personal")).slice(0, 500),
+      projectGuidance: this.profile.guidance("project").slice(0, 500),
+      canonicalTerms,
+      contextHints: contextStrings,
+    };
+    const packet = makeContextCorrectionPacket(
+      `paper-${++this.requestN}`,
+      pending.text,
+      candidates,
+      projectContext,
+      { sectionPath: headingLines },
+      "sentence",
+      this.options.contextualAggressiveness?.() ?? "standard",
+    );
+    this.view.dispatch({ effects: upsertContextIssues.of(this.candidateIssues(pending, candidates, "pending", packet.requestId)) });
+    const queued = { from: pending.from, to: pending.to, packet };
+    const same = this.contextualQueue.findIndex((item) => item.from === queued.from);
+    if (same >= 0) this.contextualQueue[same] = queued;
+    else this.contextualQueue.push(queued);
+    this.contextualQueue = this.contextualQueue.slice(-3);
+    void this.runContextual();
+  }
+
+  private async runContextual(): Promise<void> {
+    if (this.contextualInFlight || !this.options.enabled() || this.options.contextualEnabled?.() === false) return;
+    const pending = this.contextualQueue.shift();
+    if (!pending) return;
+    if (this.view.state.doc.sliceString(pending.from, pending.to) !== pending.packet.text) {
+      if (this.contextualQueue.length) void this.runContextual();
+      return;
+    }
+    this.contextualInFlight = true;
+    this.activeContext = pending;
+    try {
+      const result = await contextualCorrectionService.decide(pending.packet, {
+        provider: this.options.contextualProvider?.() ?? "ollama",
+        model: this.options.contextualModel?.() ?? "qwen3:4b-instruct",
+        thinking: false,
+        aggressiveness: pending.packet.aggressiveness,
+      });
+      if (this.activeContext?.packet.requestId !== pending.packet.requestId) return;
+      if (Date.now() - pending.packet.createdAt > 1_500) {
+        this.declineContext(
+          pending,
+          result,
+          new Set(),
+          "The judgment arrived after Flux’s safe 1.5-second application window, so the text was left untouched.",
+          new Set(),
+          true,
+        );
+        return;
+      }
+      const candidates = new Map(pending.packet.candidates.map((candidate) => [candidate.id, candidate]));
+      const approvedRescues = new Set<string>();
+      await Promise.all(result.decisions.map(async (decision) => {
+        if (decision.action !== "rescue" || typeof decision.replacement !== "string") return;
+        const candidate = candidates.get(decision.candidateId);
+        if (!candidate || !rescueReplacementAllowed(candidate, decision.replacement!)) return;
+        try {
+          // Harper independently proves every model-originated word. Project
+          // vocabulary has its own explicit correction path; an unfamiliar
+          // generated token must never bootstrap itself into silent prose.
+          const validation = await localCorrectionService.lint(decision.replacement!);
+          const unknown = validation.some((lint) => lint.kind === "Spelling" || lint.kind === "Typo");
+          if (!unknown) approvedRescues.add(rescueApprovalKey(candidate.id, decision.replacement!));
+        } catch {
+          // A failed lexical check rejects only the generated proposal. Normal
+          // supplied-candidate decisions in the same result remain usable.
+        }
+      }));
+      if (this.activeContext?.packet.requestId !== pending.packet.requestId) return;
+      if (Date.now() - pending.packet.createdAt > 1_500) {
+        this.declineContext(
+          pending,
+          result,
+          new Set(),
+          "The final local check finished after Flux’s safe 1.5-second application window, so the text was left untouched.",
+          approvedRescues,
+          true,
+        );
+        return;
+      }
+      const live = this.view.state.doc.sliceString(this.activeContext.from, this.activeContext.to);
+      const guarded = guardContextCorrectionResult(pending.packet, result, live, {
+        blockedPairs: this.profile.blockedPairs(),
+        explicitWords: this.explicitWords,
+        approvedRescues,
+      });
+      const plans = guarded.map((plan) => ({
+        ...plan,
+        from: this.activeContext!.from + plan.from,
+        to: this.activeContext!.from + plan.to,
+      })).filter((plan) => !protectedByEditor(this.view.state, plan.from, plan.to));
+      const acceptedCandidateIds = new Set(plans.flatMap((plan) => pending.packet.candidates
+        .filter((candidate) => (
+          this.activeContext!.from + candidate.from === plan.from
+          && this.activeContext!.from + candidate.to === plan.to
+          && candidate.original === plan.original
+        ))
+        .map((candidate) => candidate.id)));
+      this.declineContext(
+        pending,
+        result,
+        acceptedCandidateIds,
+        "The smart layer left this possible issue unchanged.",
+        approvedRescues,
+      );
+      if (plans.length) this.apply(plans, true);
+    } catch (error) {
+      // Context judgment is optional and fail-closed. Harper remains live, and
+      // the visible issue settles so a provider problem never looks like a
+      // judgment that is still running.
+      if (this.activeContext?.packet.requestId === pending.packet.requestId) {
+        const message = error instanceof Error && error.message
+          ? `Smart judgment could not finish: ${error.message.slice(0, 180)}`
+          : "Smart judgment could not finish; the text was left unchanged.";
+        this.declineContext(pending, null, new Set(), message);
+      }
+    } finally {
+      if (this.activeContext?.packet.requestId === pending.packet.requestId) this.activeContext = null;
+      this.contextualInFlight = false;
+      if (this.contextualQueue.length) void this.runContextual();
+    }
   }
 
   expandAliases(tr: Transaction): Transaction | readonly TransactionSpec[] {
@@ -696,7 +1269,7 @@ class CorrectionController {
     }));
   }
 
-  private apply(plans: Array<PlannedLocalCorrection & { from: number; to: number }>): void {
+  private apply(plans: Array<PlannedLocalCorrection & { from: number; to: number }>, contextual = false): void {
     const ordered = [...plans].sort((a, b) => a.from - b.from);
     if (!ordered.every((p) => this.view.state.doc.sliceString(p.from, p.to) === p.original)) return;
 
@@ -714,6 +1287,7 @@ class CorrectionController {
         message: plan.message,
         delay: index,
         expiresAt: now + 9_000,
+        contextual,
       };
       delta += plan.replacement.length - (plan.to - plan.from);
       return correction;
@@ -780,16 +1354,20 @@ export function localCorrections(options: LocalCorrectionsOptions): Extension {
     {
       eventHandlers: {
         mousedown(event, view) {
-          const target = event.target instanceof Element
+          const correctionTarget = event.target instanceof Element
             ? event.target.closest<HTMLElement>("[data-flux-correction]")
             : null;
-          if (!target) {
+          const issueTarget = event.target instanceof Element
+            ? event.target.closest<HTMLElement>("[data-flux-context-issue]")
+            : null;
+          const targetId = correctionTarget?.dataset.fluxCorrection ?? issueTarget?.dataset.fluxContextIssue;
+          if (!targetId) {
             const state = view.state.field(correctionVisualField, false);
             if (state?.openId) view.dispatch({ effects: openRecent.of(null) });
             return false;
           }
           event.preventDefault();
-          view.dispatch({ effects: openRecent.of(target.dataset.fluxCorrection ?? null) });
+          view.dispatch({ effects: openRecent.of(targetId) });
           return true;
         },
       },

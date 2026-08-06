@@ -31,8 +31,10 @@ const DEV = process.env.VITE_DEV_SERVER_URL || process.env.FLUX_URL || "http://1
 const DEV_ORIGIN = new URL(DEV).origin;
 const PORT = Number(process.env.FLUX_CDP_PORT || 9223);
 const DELTA_BUDGET = Number(process.env.FLUX_INP_DELTA_BUDGET || 25); // ms the ambient bg may add to INP p95
+const CORRECTION_DELTA_BUDGET = Number(process.env.FLUX_CORRECTION_INP_DELTA_BUDGET || 16);
 const CADENCE = Number(process.env.FLUX_CADENCE || 45);
 const BURST = Number(process.env.FLUX_BURST || 44);
+const CORRECTIONS = process.env.FLUX_PERF_CORRECTIONS !== "0";
 const ELECTRON = path.join("node_modules", ".bin", "electron");
 
 const udd = mkdtempSync(path.join(tmpdir(), "flux-perf-udd-"));
@@ -140,7 +142,7 @@ const ua = await page.evaluate(() => navigator.userAgent);
 const electronV = (ua.match(/Electron\/([\d.]+)/) || [])[1] || "?";
 
 // ---- scaffold a throwaway project through the app, seed a manuscript --------
-const seeded = await page.evaluate(async (proj) => {
+const seeded = await page.evaluate(async (proj, corrections) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const poll = async (fn, tries = 100, ms = 250) => {
     for (let i = 0; i < tries; i++) {
@@ -152,6 +154,11 @@ const seeded = await page.evaluate(async (proj) => {
     return false;
   };
   if (!(await poll(() => !!window.__flux))) return { error: "window.__flux never appeared" };
+  window.__flux.settings?.update?.((value) => ({
+    ...value,
+    paperLocalCorrections: corrections,
+    paperContextualCorrections: corrections,
+  }));
   try {
     const scaffold = await import("/src/lib/project/scaffold.ts");
     await scaffold.scaffoldProject(proj, { title: "perf" });
@@ -177,9 +184,14 @@ const seeded = await page.evaluate(async (proj) => {
   }
   const text = lines.join("\n");
   view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, selection: { anchor: text.length }, scrollIntoView: true });
-  window.__perf = { inp: [] };
+  window.__perf = { inp: [], keydowns: [] };
+  window.addEventListener("keydown", () => {
+    window.__perf.keydowns.push(performance.now());
+  }, { capture: true });
   const eo = new PerformanceObserver((list) => {
-    for (const e of list.getEntries()) if (e.name === "keydown") window.__perf.inp.push(e.duration);
+    for (const e of list.getEntries()) {
+      if (e.name === "keydown") window.__perf.inp.push({ startTime: e.startTime, duration: e.duration });
+    }
   });
   try {
     eo.observe({ type: "event", durationThreshold: 0 });
@@ -188,9 +200,9 @@ const seeded = await page.evaluate(async (proj) => {
   }
   view.focus();
   return { ok: true, lines: view.state.doc.lines };
-}, PROJ);
+}, PROJ, CORRECTIONS);
 if (seeded.error) fail("seed the paper editor — " + seeded.error);
-console.log(`  ✓ launched Electron ${electronV} + seeded a ${seeded.lines}-line manuscript`);
+console.log(`  ✓ launched Electron ${electronV} + seeded a ${seeded.lines}-line manuscript (corrections ${CORRECTIONS ? "on" : "off"})`);
 
 // ---- helpers ----------------------------------------------------------------
 async function setAmbient(on) {
@@ -205,11 +217,11 @@ async function setAmbient(on) {
   }, on);
 }
 async function typeBurst() {
-  await page.evaluate(() => {
-    window.__perf.inp.length = 0;
+  const phaseStart = await page.evaluate(() => {
     const v = window.__fluxView;
     v.dispatch({ selection: { anchor: v.state.doc.length }, scrollIntoView: true });
     v.focus();
+    return performance.now();
   });
   const chars = "the quick brown fox jumps over the lazy dog and then some more words appear here now ".split("").slice(0, BURST);
   for (const ch of chars) {
@@ -217,7 +229,23 @@ async function typeBurst() {
     await sleep(CADENCE);
   }
   await sleep(600);
-  return await page.evaluate(() => window.__perf.inp.slice());
+  return await page.evaluate((start) => {
+    const end = performance.now();
+    return {
+      inp: window.__perf.inp.filter((entry) => entry.startTime >= start && entry.startTime <= end),
+      keydowns: window.__perf.keydowns.filter((time) => time >= start && time <= end).length,
+    };
+  }, phaseStart);
+}
+
+// Chromium only surfaces Event Timing entries at or above its implementation
+// floor (currently 16 ms even when durationThreshold is requested as zero).
+// A delivered keydown without an entry is therefore a sub-threshold sample,
+// not a missing input. Represent it as zero: this keeps the delta gate
+// conservative while allowing a genuinely fast control phase to pass.
+function censoredInpSamples(burst) {
+  const reported = burst.inp.slice(-burst.keydowns).map((entry) => entry.duration);
+  return Array(Math.max(0, burst.keydowns - reported.length)).fill(0).concat(reported);
 }
 
 // ---- Phase A: ambient ON ----------------------------------------------------
@@ -225,18 +253,50 @@ const onState = await setAmbient(true);
 if (!onState.present) fail("ambient background present — no __fluxMargin.bg (DEV build + Paper mode?)");
 if (!onState.animating) fail(`ambient background animating in phase A — ticks=${onState.ticks}`);
 console.log(`  ✓ ambient background animating (${onState.ticks} ticks/400ms)`);
-const inpOn = await typeBurst();
+const burstOn = await typeBurst();
+const inpOn = censoredInpSamples(burstOn);
+const inputYields = await page.evaluate(() => window.__fluxMargin?.bg?.inputYields?.() ?? 0);
+console.log(`  · ambient frames yielded to typing: ${inputYields}`);
 
 // ---- Phase B: ambient OFF (paused) ------------------------------------------
 const offState = await setAmbient(false);
 if (offState.animating) fail(`ambient background paused in phase B — still ticking (${offState.ticks})`);
 console.log("  ✓ ambient background paused for the control burst");
-const inpOff = await typeBurst();
+const burstOff = await typeBurst();
+const inpOff = censoredInpSamples(burstOff);
+
+// ---- Phase C: ambient OFF + correction observers OFF -----------------------
+// Phase B is already warm (worker loaded, same page, same ambient state), so
+// this isolates synchronous boundary/controller overhead rather than startup.
+let burstCorrectionsOff = null;
+let inpCorrectionsOff = null;
+if (CORRECTIONS) {
+  await page.evaluate(() => {
+    window.__flux.settings.update((value) => ({
+      ...value,
+      paperLocalCorrections: false,
+      paperContextualCorrections: false,
+    }));
+    window.__fluxView.dispatch({});
+  });
+  await sleep(150);
+  burstCorrectionsOff = await typeBurst();
+  inpCorrectionsOff = censoredInpSamples(burstCorrectionsOff);
+}
 
 // ---- verdict ----------------------------------------------------------------
-if (inpOn.length < BURST * 0.5 || inpOff.length < BURST * 0.5)
-  fail(`captured enough INP samples — on=${inpOn.length} off=${inpOff.length} (need ≥${Math.round(BURST * 0.5)} each)`);
-console.log(`  ✓ captured INP samples (on=${inpOn.length}, off=${inpOff.length})`);
+const minimumDelivered = Math.floor(BURST * 0.95);
+if (
+  burstOn.keydowns < minimumDelivered
+  || burstOff.keydowns < minimumDelivered
+  || (burstCorrectionsOff && burstCorrectionsOff.keydowns < minimumDelivered)
+) {
+  fail(`delivered enough keydowns — on=${burstOn.keydowns} off=${burstOff.keydowns} (need ≥${minimumDelivered} each)`);
+}
+console.log(
+  `  ✓ captured keydowns (on=${burstOn.keydowns}, off=${burstOff.keydowns}); `
+    + `Event Timing reported ${burstOn.inp.length}/${burstOff.inp.length} above-threshold samples`,
+);
 
 const onP95 = quant(inpOn, 0.95);
 const offP95 = quant(inpOff, 0.95);
@@ -245,12 +305,23 @@ console.log(
   `  · INP p95: ambient-ON ${round(onP95)}ms vs OFF ${round(offP95)}ms → Δ ${round(delta)}ms (budget <${DELTA_BUDGET}); ` +
     `p50 ON ${round(quant(inpOn, 0.5))} / OFF ${round(quant(inpOff, 0.5))}`,
 );
+const correctionsOffP95 = inpCorrectionsOff ? quant(inpCorrectionsOff, 0.95) : offP95;
+const correctionDelta = offP95 - correctionsOffP95;
+if (inpCorrectionsOff) {
+  console.log(
+    `  · correction observer p95: enabled ${round(offP95)}ms vs disabled ${round(correctionsOffP95)}ms → Δ ${round(correctionDelta)}ms ` +
+      `(budget <${CORRECTION_DELTA_BUDGET})`,
+  );
+}
 clearTimeout(hardExit);
-if (delta < DELTA_BUDGET) {
+if (delta < DELTA_BUDGET && correctionDelta < CORRECTION_DELTA_BUDGET) {
   console.log(`  ✓ ambient background adds <${DELTA_BUDGET}ms to keystroke INP (Δ ${round(delta)}ms)`);
+  if (inpCorrectionsOff) console.log(`  ✓ warm correction observers add <${CORRECTION_DELTA_BUDGET}ms to keystroke INP (Δ ${round(correctionDelta)}ms)`);
   console.log("\nWRITER-LATENCY INP GATE: PASS");
   cleanup();
   process.exit(0);
-} else {
+} else if (delta >= DELTA_BUDGET) {
   fail(`ambient background input-latency delta ${round(delta)}ms ≥ ${DELTA_BUDGET}ms — the rAF-coupling regression may be back`);
+} else {
+  fail(`correction observer input-latency delta ${round(correctionDelta)}ms ≥ ${CORRECTION_DELTA_BUDGET}ms`);
 }

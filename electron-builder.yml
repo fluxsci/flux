@@ -65,6 +65,9 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  extraResources:
+    - from: build/correction-runtime/darwin-${arch}/
+      to: corrections/runtime/
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -76,6 +79,9 @@ mac:
 linux:
   icon: build/icons
   category: Graphics
+  extraResources:
+    - from: build/correction-runtime/linux-${arch}/
+      to: corrections/runtime/
   target:
     - AppImage
     - deb

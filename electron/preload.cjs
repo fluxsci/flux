@@ -126,6 +126,25 @@ contextBridge.exposeInMainWorld("fig", {
   // in the main process (spawns the bundled `flux search-text --json`, W13 pattern) so
   // the renderer never blocks on disk I/O. Returns the FulltextResult JSON | { error }.
   searchFulltext: (query, opts) => ipcRenderer.invoke("fulltext:search", { query, opts }),
+  correctionStatus: (provider, model) => ipcRenderer.invoke("correction:status", provider, model),
+  correctionWarm: (request) => ipcRenderer.invoke("correction:warm", request),
+  correctionDecide: (request) => ipcRenderer.invoke("correction:decide", request),
+  correctionCancel: (requestId) => ipcRenderer.invoke("correction:cancel", requestId),
+  correctionCloudKeyStatus: () => ipcRenderer.invoke("correction:cloudKeyStatus"),
+  correctionCloudKeySet: (key) => ipcRenderer.invoke("correction:cloudKeySet", key),
+  correctionProfileGet: (projectRoot) => ipcRenderer.invoke("correction:profileGet", projectRoot),
+  correctionProfileSet: (payload) => ipcRenderer.invoke("correction:profileSet", payload),
+  correctionModelStatus: () => ipcRenderer.invoke("correction:modelStatus"),
+  correctionModelInstall: () => ipcRenderer.invoke("correction:modelInstall"),
+  correctionModelCancel: () => ipcRenderer.invoke("correction:modelCancel"),
+  correctionModelRemove: () => ipcRenderer.invoke("correction:modelRemove"),
+  correctionModelUnload: () => ipcRenderer.invoke("correction:modelUnload"),
+  correctionModelWarm: () => ipcRenderer.invoke("correction:modelWarm"),
+  onCorrectionModelProgress: (cb) => {
+    const handler = (_e, progress) => cb(progress);
+    ipcRenderer.on("correction:modelProgress", handler);
+    return () => ipcRenderer.removeListener("correction:modelProgress", handler);
+  },
   onFsChanged: (cb) => {
     const handler = (_e, info) => cb(info);
     ipcRenderer.on("fs:changed", handler);

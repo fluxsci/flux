@@ -1197,6 +1197,16 @@
           enabled: () => get(settings).paperLocalCorrections,
           projectKey: () => pm?.root ?? "demo",
           contextStrings: localCorrectionContextStrings,
+          contextualEnabled: () => get(settings).paperContextualCorrections,
+          contextualProvider: () => get(settings).paperCorrectionProvider,
+          contextualModel: () => get(settings).paperCorrectionProvider === "openai"
+            ? "gpt-5.6-luna"
+            : get(settings).paperCorrectionProvider === "flux"
+              ? "qwen3-4b-q4_k_m"
+              : get(settings).paperCorrectionModel,
+          contextualDialect: () => get(settings).paperCorrectionDialect,
+          contextualAggressiveness: () => get(settings).paperCorrectionAggressiveness,
+          personalGuidance: () => get(settings).paperCorrectionGuidance,
           onStatus: (status) => (localCorrectionStatus = status),
           onError: (message) => pushToast("error", message),
           onNotice: (message) => pushToast("info", message),

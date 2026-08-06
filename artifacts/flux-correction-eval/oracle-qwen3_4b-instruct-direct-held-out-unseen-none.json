@@ -1,0 +1,1441 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-unseen-v1",
+  "corpusHash": "2b67dff2d12ec30ccbe3b3e76f7eca7eab74f13c739860d02a4a448691935483",
+  "generatedAt": "2026-08-06T02:05:55.890Z",
+  "options": {
+    "suite": "unseen",
+    "rescueMode": "none",
+    "provider": "oracle",
+    "contract": "direct",
+    "model": "qwen3:4b-instruct",
+    "thinking": false,
+    "repeats": 1,
+    "limit": 0,
+    "family": "",
+    "partition": "held-out",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 160,
+    "evaluated": 160,
+    "authentic-unseen-typo": 80,
+    "unseen-scientific-preservation": 80
+  },
+  "metrics": {
+    "precision": 1,
+    "wilson95Lower": 0.6755924351161198,
+    "coverage": 0.1,
+    "candidateAvailability": 0.875,
+    "automaticEdits": 8,
+    "correctAutomaticEdits": 8,
+    "protectedChanges": 0,
+    "providerCalls": 0,
+    "providerCallsPerPass": 0,
+    "callsPer1000Words": 0,
+    "allKeepCalls": 153,
+    "allUseCalls": 0,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 0,
+      "p95": 0,
+      "p99": 0
+    },
+    "tokens": {
+      "prompt": 0,
+      "output": 0
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0.6755924351161198,
+    "coverage": 0.1,
+    "automaticEdits": 8,
+    "correctAutomaticEdits": 8,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 18,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 8,
+    "callsPer1000Words": 8.66738894907909,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 72,
+      "available": 63,
+      "rate": 0.875
+    }
+  },
+  "byFamily": {
+    "authentic-unseen-typo": {
+      "automaticEdits": 8,
+      "precision": 1,
+      "coverage": 0.1,
+      "candidateAvailability": 0.875,
+      "providerCalls": 0,
+      "failures": 0
+    },
+    "unseen-scientific-preservation": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 0,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [
+    {
+      "id": "fcu-v1-p009",
+      "family": "authentic-unseen-typo",
+      "text": "The low computational cost makes this method attractiv for screening.",
+      "gold": {
+        "original": "attractiv",
+        "replacement": "attractive",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "attractiv",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p013",
+      "family": "authentic-unseen-typo",
+      "text": "The core facility direcor approved the revised acquisition protocol.",
+      "gold": {
+        "original": "direcor",
+        "replacement": "director",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "direcor",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p014",
+      "family": "authentic-unseen-typo",
+      "text": "The complete mechanistic sory requires both structural and functional evidence.",
+      "gold": {
+        "original": "sory",
+        "replacement": "story",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "sory",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "sore",
+            "sorry",
+            "sort",
+            "dory",
+            "spry"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p020",
+      "family": "authentic-unseen-typo",
+      "text": "Each parant dendrite was traced back to the reconstructed soma.",
+      "gold": {
+        "original": "parant",
+        "replacement": "parent",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "parant",
+          "suggestions": [],
+          "rescueSuggestions": []
+        },
+        {
+          "original": "soma",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p024",
+      "family": "authentic-unseen-typo",
+      "text": "The studi included every animal that passed the prespecified criteria.",
+      "gold": {
+        "original": "studi",
+        "replacement": "study",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "studi",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "stud"
+          ]
+        },
+        {
+          "original": "prespecified",
+          "suggestions": [],
+          "rescueSuggestions": []
+        },
+        {
+          "original": "passed",
+          "suggestions": [
+            "past"
+          ],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p025",
+      "family": "authentic-unseen-typo",
+      "text": "The region of intrest was defined before statistical testing.",
+      "gold": {
+        "original": "intrest",
+        "replacement": "interest",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "intrest",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p026",
+      "family": "authentic-unseen-typo",
+      "text": "The model converged whitout altering the raw observations.",
+      "gold": {
+        "original": "whitout",
+        "replacement": "without",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "whitout",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p048",
+      "family": "authentic-unseen-typo",
+      "text": "The analysis was limted to preregistered outcome measures.",
+      "gold": {
+        "original": "limted",
+        "replacement": "limited",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "limted",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "lifted",
+            "lilted",
+            "limed",
+            "linted"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p059",
+      "family": "authentic-unseen-typo",
+      "text": "In each istance, the original image was retained unchanged.",
+      "gold": {
+        "original": "istance",
+        "replacement": "instance",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "istance",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "stance"
+          ]
+        }
+      ]
+    }
+  ],
+  "wrongDecisionExamples": [
+    {
+      "id": "fcu-v1-p001",
+      "family": "authentic-unseen-typo",
+      "text": "The chamber enviroment remained stable throughout acquisition.",
+      "candidate": "enviroment",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "environment",
+        "environments"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "environment"
+      },
+      "decision": {
+        "candidateId": "c-71055176",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "enviroment"
+    },
+    {
+      "id": "fcu-v1-p002",
+      "family": "authentic-unseen-typo",
+      "text": "The publishing bussiness supported open access to the final article.",
+      "candidate": "bussiness",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "bossiness",
+        "bushiness",
+        "business"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "business"
+      },
+      "decision": {
+        "candidateId": "c-86eaeff2",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "bussiness"
+    },
+    {
+      "id": "fcu-v1-p003",
+      "family": "authentic-unseen-typo",
+      "text": "All fluorescence values remained wihin the calibrated dynamic range.",
+      "candidate": "wihin",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "within"
+      ],
+      "rejectedSuggestions": [
+        "when",
+        "whim"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "within"
+      },
+      "decision": {
+        "candidateId": "c-ac271d4d",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "wihin"
+    },
+    {
+      "id": "fcu-v1-p004",
+      "family": "authentic-unseen-typo",
+      "text": "Prior anatomical knowledege constrained the registration procedure.",
+      "candidate": "knowledege",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "knowledge"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "knowledge"
+      },
+      "decision": {
+        "candidateId": "c-0101d624",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "knowledege"
+    },
+    {
+      "id": "fcu-v1-p005",
+      "family": "authentic-unseen-typo",
+      "text": "The metadata retained infomation about every imaging session.",
+      "candidate": "infomation",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "information",
+        "inflation",
+        "intonation"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "information"
+      },
+      "decision": {
+        "candidateId": "c-216013f0",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "infomation"
+    },
+    {
+      "id": "fcu-v1-p006",
+      "family": "authentic-unseen-typo",
+      "text": "An interesing transient appeared immediately after stimulation.",
+      "candidate": "interesing",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "interesting",
+        "interceding",
+        "interfering"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "interesting"
+      },
+      "decision": {
+        "candidateId": "c-ed2eaece",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "interesing"
+    },
+    {
+      "id": "fcu-v1-p007",
+      "family": "authentic-unseen-typo",
+      "text": "The inhibitory response lasted loger than the excitatory response.",
+      "candidate": "loger",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "logger",
+        "longer",
+        "lager",
+        "loge",
+        "lover"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "longer"
+      },
+      "decision": {
+        "candidateId": "c-f395b5e5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "loger"
+    },
+    {
+      "id": "fcu-v1-p008",
+      "family": "authentic-unseen-typo",
+      "text": "Futur experiments will test the proposed circuit mechanism.",
+      "candidate": "Futur",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "Future"
+      ],
+      "rejectedSuggestions": [
+        "Femur",
+        "Fetus"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "Future"
+      },
+      "decision": {
+        "candidateId": "c-080d89ff",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "Futur"
+    },
+    {
+      "id": "fcu-v1-p009",
+      "family": "authentic-unseen-typo",
+      "text": "The low computational cost makes this method attractiv for screening.",
+      "candidate": "attractiv",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "attract iv"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "attractive"
+      },
+      "decision": {
+        "candidateId": "c-e7a1fee4",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "attractiv"
+    },
+    {
+      "id": "fcu-v1-p010",
+      "family": "authentic-unseen-typo",
+      "text": "A pratical advantage is that the preparation remains intact.",
+      "candidate": "pratical",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "practical",
+        "piratical",
+        "partial"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "practical"
+      },
+      "decision": {
+        "candidateId": "c-d4c55f0e",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "pratical"
+    },
+    {
+      "id": "fcu-v1-p011",
+      "family": "authentic-unseen-typo",
+      "text": "In our openion, the direct measurement is the clearest interpretation.",
+      "candidate": "openion",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "opinion",
+        "option",
+        "onion"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "opinion"
+      },
+      "decision": {
+        "candidateId": "c-039e029a",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "openion"
+    },
+    {
+      "id": "fcu-v1-p012",
+      "family": "authentic-unseen-typo",
+      "text": "A stable baseline excisted before the perturbation began.",
+      "candidate": "excisted",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "excised",
+        "excited",
+        "existed"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "existed"
+      },
+      "decision": {
+        "candidateId": "c-7ea471c5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "excisted"
+    },
+    {
+      "id": "fcu-v1-p013",
+      "family": "authentic-unseen-typo",
+      "text": "The core facility direcor approved the revised acquisition protocol.",
+      "candidate": "direcor",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "dire cor"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "director"
+      },
+      "decision": {
+        "candidateId": "c-7654127c",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "direcor"
+    },
+    {
+      "id": "fcu-v1-p014",
+      "family": "authentic-unseen-typo",
+      "text": "The complete mechanistic sory requires both structural and functional evidence.",
+      "candidate": "sory",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "sore",
+        "sorry",
+        "sort",
+        "dory",
+        "spry"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "story"
+      },
+      "decision": {
+        "candidateId": "c-94fde485",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "sory"
+    },
+    {
+      "id": "fcu-v1-p015",
+      "family": "authentic-unseen-typo",
+      "text": "The two independent measurements agrre within experimental uncertainty.",
+      "candidate": "agrre",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "agree"
+      ],
+      "rejectedSuggestions": [
+        "acre",
+        "agar"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "agree"
+      },
+      "decision": {
+        "candidateId": "c-beab8747",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "agrre"
+    },
+    {
+      "id": "fcu-v1-p016",
+      "family": "authentic-unseen-typo",
+      "text": "The registration can succed despite moderate tissue deformation.",
+      "candidate": "succed",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "sucked",
+        "succeed",
+        "sicced"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "succeed"
+      },
+      "decision": {
+        "candidateId": "c-8b175c4f",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "succed"
+    },
+    {
+      "id": "fcu-v1-p017",
+      "family": "authentic-unseen-typo",
+      "text": "Events occuring during movement were excluded from the analysis.",
+      "candidate": "occuring",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "occurring",
+        "obscuring",
+        "occluding"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "occurring"
+      },
+      "decision": {
+        "candidateId": "c-31e89bd3",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "occuring"
+    },
+    {
+      "id": "fcu-v1-p018",
+      "family": "authentic-unseen-typo",
+      "text": "The analysis softwares recorded its version in the project manifest.",
+      "candidate": "softwares",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "software"
+      ],
+      "rejectedSuggestions": [
+        "soft wares"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "software"
+      },
+      "decision": {
+        "candidateId": "c-7dc5116d",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "softwares"
+    },
+    {
+      "id": "fcu-v1-p019",
+      "family": "authentic-unseen-typo",
+      "text": "Several technical resons motivated the shorter acquisition window.",
+      "candidate": "resons",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "recons",
+        "reasons",
+        "resins"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "reasons"
+      },
+      "decision": {
+        "candidateId": "c-d1b92e6e",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "resons"
+    },
+    {
+      "id": "fcu-v1-p020",
+      "family": "authentic-unseen-typo",
+      "text": "Each parant dendrite was traced back to the reconstructed soma.",
+      "candidate": "parant",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "par ant",
+        "pa rant"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "parent"
+      },
+      "decision": {
+        "candidateId": "c-b5b63f4e",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "parant"
+    },
+    {
+      "id": "fcu-v1-p021",
+      "family": "authentic-unseen-typo",
+      "text": "Segmentation sucess was assessed against manual annotations.",
+      "candidate": "sucess",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "success"
+      ],
+      "rejectedSuggestions": [
+        "sauce's",
+        "suck's"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "success"
+      },
+      "decision": {
+        "candidateId": "c-97cf336b",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "sucess"
+    },
+    {
+      "id": "fcu-v1-p022",
+      "family": "authentic-unseen-typo",
+      "text": "Somthing changed in the waveform after the final stimulus.",
+      "candidate": "Somthing",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "Something",
+        "Soothing",
+        "Scathing"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "Something"
+      },
+      "decision": {
+        "candidateId": "c-9cae4117",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "Somthing"
+    },
+    {
+      "id": "fcu-v1-p023",
+      "family": "authentic-unseen-typo",
+      "text": "The existing lecterature supports a conserved cellular mechanism.",
+      "candidate": "lecterature",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "literature"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "literature"
+      },
+      "decision": {
+        "candidateId": "c-9cfe9e39",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "lecterature"
+    },
+    {
+      "id": "fcu-v1-p024",
+      "family": "authentic-unseen-typo",
+      "text": "The studi included every animal that passed the prespecified criteria.",
+      "candidate": "studi",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "stud"
+      ],
+      "rejectedSuggestions": [
+        "stud i"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "study"
+      },
+      "decision": {
+        "candidateId": "c-b26d3c67",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "studi"
+    },
+    {
+      "id": "fcu-v1-p025",
+      "family": "authentic-unseen-typo",
+      "text": "The region of intrest was defined before statistical testing.",
+      "candidate": "intrest",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "int rest"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "interest"
+      },
+      "decision": {
+        "candidateId": "c-f0388264",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "intrest"
+    },
+    {
+      "id": "fcu-v1-p026",
+      "family": "authentic-unseen-typo",
+      "text": "The model converged whitout altering the raw observations.",
+      "candidate": "whitout",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "whit out"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "without"
+      },
+      "decision": {
+        "candidateId": "c-858f8b15",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "whitout"
+    },
+    {
+      "id": "fcu-v1-p027",
+      "family": "authentic-unseen-typo",
+      "text": "A speific projection class carried the strongest response.",
+      "candidate": "speific",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "specific",
+        "specifics"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "specific"
+      },
+      "decision": {
+        "candidateId": "c-b1874bce",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "speific"
+    },
+    {
+      "id": "fcu-v1-p028",
+      "family": "authentic-unseen-typo",
+      "text": "Structural and physiological measurements were analyzed toghether.",
+      "candidate": "toghether",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "together"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "together"
+      },
+      "decision": {
+        "candidateId": "c-8c533f0a",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "toghether"
+    },
+    {
+      "id": "fcu-v1-p029",
+      "family": "authentic-unseen-typo",
+      "text": "All computational resorces were documented for reproducibility.",
+      "candidate": "resorces",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "resources"
+      ],
+      "rejectedSuggestions": [
+        "resort's",
+        "resource's"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "resources"
+      },
+      "decision": {
+        "candidateId": "c-80da41d0",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "resorces"
+    },
+    {
+      "id": "fcu-v1-p031",
+      "family": "authentic-unseen-typo",
+      "text": "The method offers substantial benifits for longitudinal imaging.",
+      "candidate": "benifits",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "benefits",
+        "befits"
+      ],
+      "rejectedSuggestions": [
+        "benefit's"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "benefits"
+      },
+      "decision": {
+        "candidateId": "c-45a19a1b",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "benifits"
+    },
+    {
+      "id": "fcu-v1-p033",
+      "family": "authentic-unseen-typo",
+      "text": "The medical shool maintained the shared microscopy facility.",
+      "candidate": "shool",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "school",
+        "shoal",
+        "shook",
+        "shoo"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "school"
+      },
+      "decision": {
+        "candidateId": "c-496a5729",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "shool"
+    },
+    {
+      "id": "fcu-v1-p034",
+      "family": "authentic-unseen-typo",
+      "text": "The laminar arrengement was consistent across specimens.",
+      "candidate": "arrengement",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "arrangement",
+        "arrangements"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "arrangement"
+      },
+      "decision": {
+        "candidateId": "c-8ce08e3a",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "arrengement"
+    },
+    {
+      "id": "fcu-v1-p035",
+      "family": "authentic-unseen-typo",
+      "text": "The strongest input was comming from the contralateral pathway.",
+      "candidate": "comming",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "cumming",
+        "combing",
+        "coming"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "coming"
+      },
+      "decision": {
+        "candidateId": "c-eada90b4",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "comming"
+    },
+    {
+      "id": "fcu-v1-p036",
+      "family": "authentic-unseen-typo",
+      "text": "Omly trials with stable baselines entered the final analysis.",
+      "candidate": "Omly",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "Only",
+        "Orly",
+        "Oily"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "Only"
+      },
+      "decision": {
+        "candidateId": "c-c12358bc",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "Omly"
+    },
+    {
+      "id": "fcu-v1-p037",
+      "family": "authentic-unseen-typo",
+      "text": "The stimulation producted a reproducible calcium transient.",
+      "candidate": "producted",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "produced",
+        "produce"
+      ],
+      "rejectedSuggestions": [
+        "product's"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "produced"
+      },
+      "decision": {
+        "candidateId": "c-3f9e8f54",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "producted"
+    },
+    {
+      "id": "fcu-v1-p038",
+      "family": "authentic-unseen-typo",
+      "text": "No additional smoothing was neeeded for the displayed trace.",
+      "candidate": "neeeded",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "needed",
+        "needled",
+        "deeded"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "needed"
+      },
+      "decision": {
+        "candidateId": "c-0a50c655",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "neeeded"
+    },
+    {
+      "id": "fcu-v1-p039",
+      "family": "authentic-unseen-typo",
+      "text": "This control addresses the poblem of slow indicator drift.",
+      "candidate": "poblem",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "problem",
+        "poem",
+        "pole"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "problem"
+      },
+      "decision": {
+        "candidateId": "c-4b0da6a4",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "poblem"
+    },
+    {
+      "id": "fcu-v1-p040",
+      "family": "authentic-unseen-typo",
+      "text": "The counscious animals explored the arena before sleep recording.",
+      "candidate": "counscious",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "conscious",
+        "couscous"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "conscious"
+      },
+      "decision": {
+        "candidateId": "c-f09fa28d",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "counscious"
+    },
+    {
+      "id": "fcu-v1-p041",
+      "family": "authentic-unseen-typo",
+      "text": "Twent sections were collected from each reconstructed hemisphere.",
+      "candidate": "Twent",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "Tent",
+        "Twenty",
+        "Trent"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "Twenty"
+      },
+      "decision": {
+        "candidateId": "c-bb7b8256",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "Twent"
+    },
+    {
+      "id": "fcu-v1-p042",
+      "family": "authentic-unseen-typo",
+      "text": "Each citizien scientist followed the same annotation instructions.",
+      "candidate": "citizien",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "citizen",
+        "citified",
+        "citizens"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "citizen"
+      },
+      "decision": {
+        "candidateId": "c-84b6ec72",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "citizien"
+    },
+    {
+      "id": "fcu-v1-p043",
+      "family": "authentic-unseen-typo",
+      "text": "We discoverd a previously unreported projection gradient.",
+      "candidate": "discoverd",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "discovery",
+        "discover",
+        "discovered",
+        "discovers"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "discovered"
+      },
+      "decision": {
+        "candidateId": "c-b8b57471",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "discoverd"
+    },
+    {
+      "id": "fcu-v1-p044",
+      "family": "authentic-unseen-typo",
+      "text": "The protocol gained fellowers after the validation data were released.",
+      "candidate": "fellowers",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "followers"
+      ],
+      "rejectedSuggestions": [
+        "fellow's",
+        "follower's"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "followers"
+      },
+      "decision": {
+        "candidateId": "c-6d784a67",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "fellowers"
+    },
+    {
+      "id": "fcu-v1-p045",
+      "family": "authentic-unseen-typo",
+      "text": "Everthing required to reproduce the figure is stored in the project.",
+      "candidate": "Everthing",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "Everything",
+        "Earthing",
+        "Exerting"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "Everything"
+      },
+      "decision": {
+        "candidateId": "c-54374ac0",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "Everthing"
+    },
+    {
+      "id": "fcu-v1-p046",
+      "family": "authentic-unseen-typo",
+      "text": "The phenotype persisted across three genarations of animals.",
+      "candidate": "genarations",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "generations",
+        "generation"
+      ],
+      "rejectedSuggestions": [
+        "generation's"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "generations"
+      },
+      "decision": {
+        "candidateId": "c-13b2acb1",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "genarations"
+    },
+    {
+      "id": "fcu-v1-p047",
+      "family": "authentic-unseen-typo",
+      "text": "The simulated worled contained the same landmarks as the physical arena.",
+      "candidate": "worled",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "world",
+        "whorled",
+        "worded",
+        "worked"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "world"
+      },
+      "decision": {
+        "candidateId": "c-764912d5",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "worled"
+    },
+    {
+      "id": "fcu-v1-p048",
+      "family": "authentic-unseen-typo",
+      "text": "The analysis was limted to preregistered outcome measures.",
+      "candidate": "limted",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "lifted",
+        "lilted",
+        "limed",
+        "linted"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "limited"
+      },
+      "decision": {
+        "candidateId": "c-8b5d64d6",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "limted"
+    },
+    {
+      "id": "fcu-v1-p049",
+      "family": "authentic-unseen-typo",
+      "text": "We selected the condition wich preserved the highest signal-to-noise ratio.",
+      "candidate": "wich",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "wish",
+        "which",
+        "wick"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "which"
+      },
+      "decision": {
+        "candidateId": "c-316a6a34",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "wich"
+    },
+    {
+      "id": "fcu-v1-p050",
+      "family": "authentic-unseen-typo",
+      "text": "Only elevant anatomical landmarks were included in the alignment.",
+      "candidate": "elevant",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "elegant",
+        "eleventh",
+        "relevant"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "relevant"
+      },
+      "decision": {
+        "candidateId": "c-ab03aae9",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "elevant"
+    },
+    {
+      "id": "fcu-v1-p051",
+      "family": "authentic-unseen-typo",
+      "text": "Statistical independance was evaluated before pooling observations.",
+      "candidate": "independance",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "independence"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "independence"
+      },
+      "decision": {
+        "candidateId": "c-efe27181",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "independance"
+    },
+    {
+      "id": "fcu-v1-p054",
+      "family": "authentic-unseen-typo",
+      "text": "We aquire one structural stack before each functional session.",
+      "candidate": "aquire",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "acquire",
+        "squire",
+        "admire",
+        "quire"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "acquire"
+      },
+      "decision": {
+        "candidateId": "c-2e044431",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "aquire"
+    }
+  ],
+  "failures": []
+}

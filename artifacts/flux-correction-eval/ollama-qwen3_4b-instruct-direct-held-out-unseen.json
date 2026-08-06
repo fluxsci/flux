@@ -1,0 +1,478 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-unseen-v1",
+  "corpusHash": "2b67dff2d12ec30ccbe3b3e76f7eca7eab74f13c739860d02a4a448691935483",
+  "generatedAt": "2026-08-06T02:20:35.165Z",
+  "options": {
+    "suite": "unseen",
+    "rescueMode": "full",
+    "provider": "ollama",
+    "contract": "direct",
+    "model": "qwen3:4b-instruct",
+    "thinking": false,
+    "repeats": 1,
+    "limit": 0,
+    "family": "",
+    "partition": "held-out",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 160,
+    "evaluated": 160,
+    "authentic-unseen-typo": 80,
+    "unseen-scientific-preservation": 80
+  },
+  "metrics": {
+    "precision": 1,
+    "wilson95Lower": 0.9493488274035422,
+    "coverage": 0.9,
+    "candidateAvailability": 0.875,
+    "automaticEdits": 72,
+    "correctAutomaticEdits": 72,
+    "protectedChanges": 0,
+    "providerCalls": 153,
+    "providerCallsPerPass": 153,
+    "callsPer1000Words": 123.38709677419354,
+    "allKeepCalls": 89,
+    "allUseCalls": 55,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 242.14886899999692,
+      "p95": 402.16100899999947,
+      "p99": 597.7705189999979
+    },
+    "tokens": {
+      "prompt": 113884,
+      "output": 3220
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0.9493488274035422,
+    "coverage": 0.9,
+    "automaticEdits": 72,
+    "correctAutomaticEdits": 72,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 17,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 7,
+    "callsPer1000Words": 7.583965330444204,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 72,
+      "available": 63,
+      "rate": 0.875
+    }
+  },
+  "byFamily": {
+    "authentic-unseen-typo": {
+      "automaticEdits": 72,
+      "precision": 1,
+      "coverage": 0.9,
+      "candidateAvailability": 0.875,
+      "providerCalls": 73,
+      "failures": 0
+    },
+    "unseen-scientific-preservation": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 80,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [
+    {
+      "id": "fcu-v1-p009",
+      "family": "authentic-unseen-typo",
+      "text": "The low computational cost makes this method attractiv for screening.",
+      "gold": {
+        "original": "attractiv",
+        "replacement": "attractive",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "attractiv",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p013",
+      "family": "authentic-unseen-typo",
+      "text": "The core facility direcor approved the revised acquisition protocol.",
+      "gold": {
+        "original": "direcor",
+        "replacement": "director",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "direcor",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p014",
+      "family": "authentic-unseen-typo",
+      "text": "The complete mechanistic sory requires both structural and functional evidence.",
+      "gold": {
+        "original": "sory",
+        "replacement": "story",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "sory",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "sore",
+            "sorry",
+            "sort",
+            "dory",
+            "spry"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p020",
+      "family": "authentic-unseen-typo",
+      "text": "Each parant dendrite was traced back to the reconstructed soma.",
+      "gold": {
+        "original": "parant",
+        "replacement": "parent",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "parant",
+          "suggestions": [],
+          "rescueSuggestions": []
+        },
+        {
+          "original": "soma",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p024",
+      "family": "authentic-unseen-typo",
+      "text": "The studi included every animal that passed the prespecified criteria.",
+      "gold": {
+        "original": "studi",
+        "replacement": "study",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "studi",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "stud"
+          ]
+        },
+        {
+          "original": "prespecified",
+          "suggestions": [],
+          "rescueSuggestions": []
+        },
+        {
+          "original": "passed",
+          "suggestions": [
+            "past"
+          ],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p025",
+      "family": "authentic-unseen-typo",
+      "text": "The region of intrest was defined before statistical testing.",
+      "gold": {
+        "original": "intrest",
+        "replacement": "interest",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "intrest",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p026",
+      "family": "authentic-unseen-typo",
+      "text": "The model converged whitout altering the raw observations.",
+      "gold": {
+        "original": "whitout",
+        "replacement": "without",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "whitout",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p048",
+      "family": "authentic-unseen-typo",
+      "text": "The analysis was limted to preregistered outcome measures.",
+      "gold": {
+        "original": "limted",
+        "replacement": "limited",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "limted",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "lifted",
+            "lilted",
+            "limed",
+            "linted"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcu-v1-p059",
+      "family": "authentic-unseen-typo",
+      "text": "In each istance, the original image was retained unchanged.",
+      "gold": {
+        "original": "istance",
+        "replacement": "instance",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "istance",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "stance"
+          ]
+        }
+      ]
+    }
+  ],
+  "wrongDecisionExamples": [
+    {
+      "id": "fcu-v1-p001",
+      "family": "authentic-unseen-typo",
+      "text": "The chamber enviroment remained stable throughout acquisition.",
+      "candidate": "enviroment",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "environment",
+        "environments"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "environment"
+      },
+      "decision": {
+        "candidateId": "c-71055176",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "enviroment"
+    },
+    {
+      "id": "fcu-v1-p003",
+      "family": "authentic-unseen-typo",
+      "text": "All fluorescence values remained wihin the calibrated dynamic range.",
+      "candidate": "wihin",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "within"
+      ],
+      "rejectedSuggestions": [
+        "when",
+        "whim"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "within"
+      },
+      "decision": {
+        "candidateId": "c-ac271d4d",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "wihin"
+    },
+    {
+      "id": "fcu-v1-p004",
+      "family": "authentic-unseen-typo",
+      "text": "Prior anatomical knowledege constrained the registration procedure.",
+      "candidate": "knowledege",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "knowledge"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "knowledge"
+      },
+      "decision": {
+        "candidateId": "c-0101d624",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "knowledege"
+    },
+    {
+      "id": "fcu-v1-p008",
+      "family": "authentic-unseen-typo",
+      "text": "Futur experiments will test the proposed circuit mechanism.",
+      "candidate": "Futur",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "Future"
+      ],
+      "rejectedSuggestions": [
+        "Femur",
+        "Fetus"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "Future"
+      },
+      "decision": {
+        "candidateId": "c-080d89ff",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "Futur"
+    },
+    {
+      "id": "fcu-v1-p014",
+      "family": "authentic-unseen-typo",
+      "text": "The complete mechanistic sory requires both structural and functional evidence.",
+      "candidate": "sory",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "sore",
+        "sorry",
+        "sort",
+        "dory",
+        "spry"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "story"
+      },
+      "decision": {
+        "candidateId": "c-94fde485",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "sory"
+    },
+    {
+      "id": "fcu-v1-p020",
+      "family": "authentic-unseen-typo",
+      "text": "Each parant dendrite was traced back to the reconstructed soma.",
+      "candidate": "parant",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "par ant",
+        "pa rant"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "parent"
+      },
+      "decision": {
+        "candidateId": "c-b5b63f4e",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "parant"
+    },
+    {
+      "id": "fcu-v1-p039",
+      "family": "authentic-unseen-typo",
+      "text": "This control addresses the poblem of slow indicator drift.",
+      "candidate": "poblem",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "problem",
+        "poem",
+        "pole"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "problem"
+      },
+      "decision": {
+        "candidateId": "c-4b0da6a4",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "poblem"
+    },
+    {
+      "id": "fcu-v1-p055",
+      "family": "authentic-unseen-typo",
+      "text": "The authors admitt that the final cohort is relatively small.",
+      "candidate": "admitt",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "admit"
+      ],
+      "rejectedSuggestions": [
+        "ad mitt"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "admit"
+      },
+      "decision": {
+        "candidateId": "c-9e176827",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "admitt"
+    }
+  ],
+  "failures": []
+}

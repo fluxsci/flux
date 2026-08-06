@@ -1,0 +1,431 @@
+{
+  "version": 1,
+  "corpusVersion": "flux-correction-confirmation-v1",
+  "corpusHash": "87b063603cd56786432af4b4738c38b9d862fa798acba63b7bb70d8b18fd150f",
+  "generatedAt": "2026-08-06T02:32:26.941Z",
+  "options": {
+    "suite": "confirmation",
+    "rescueMode": "local-only",
+    "provider": "ollama",
+    "contract": "direct",
+    "model": "qwen3:4b-instruct",
+    "thinking": false,
+    "repeats": 3,
+    "limit": 0,
+    "family": "",
+    "partition": "held-out",
+    "output": "artifacts/flux-correction-eval"
+  },
+  "counts": {
+    "all": 128,
+    "evaluated": 128,
+    "authentic-confirmation-typo": 64,
+    "confirmation-scientific-preservation": 64
+  },
+  "metrics": {
+    "precision": 1,
+    "wilson95Lower": 0.9347150988829136,
+    "coverage": 0.859375,
+    "candidateAvailability": 0.8947368421052632,
+    "automaticEdits": 55,
+    "correctAutomaticEdits": 55,
+    "protectedChanges": 0,
+    "providerCalls": 363,
+    "providerCallsPerPass": 121,
+    "callsPer1000Words": 126.70157068062827,
+    "allKeepCalls": 73,
+    "allUseCalls": 45,
+    "orderStability": 1,
+    "failures": 0,
+    "latencyMs": {
+      "p50": 226.9643560000004,
+      "p95": 403.22709600000235,
+      "p99": 419.3106190000035
+    },
+    "tokens": {
+      "prompt": 255646,
+      "output": 7271
+    }
+  },
+  "shippedSentencePolicy": {
+    "paragraphLaneEnabled": false,
+    "precision": 1,
+    "wilson95Lower": 0.9347150988829136,
+    "coverage": 0.859375,
+    "automaticEdits": 55,
+    "correctAutomaticEdits": 55,
+    "reason": "Paragraph reconciliation is evidence-gated and excluded after its locked cases failed the precision gate."
+  },
+  "realisticCallRateAudit": {
+    "sentences": 100,
+    "words": 923,
+    "rawCandidateSentences": 17,
+    "suppressedCandidates": 10,
+    "providerCallsAfterSuppressionAndCache": 7,
+    "callsPer1000Words": 7.583965330444204,
+    "target": 20,
+    "passes": true
+  },
+  "candidateAvailabilityByClass": {
+    "mechanical": {
+      "gold": 57,
+      "available": 51,
+      "rate": 0.8947368421052632
+    }
+  },
+  "byFamily": {
+    "authentic-confirmation-typo": {
+      "automaticEdits": 55,
+      "precision": 1,
+      "coverage": 0.859375,
+      "candidateAvailability": 0.8947368421052632,
+      "providerCalls": 57,
+      "failures": 0
+    },
+    "confirmation-scientific-preservation": {
+      "automaticEdits": 0,
+      "precision": 1,
+      "coverage": 1,
+      "candidateAvailability": 1,
+      "providerCalls": 64,
+      "failures": 0
+    }
+  },
+  "falseEditExamples": [],
+  "missingCandidateExamples": [
+    {
+      "id": "fcc-v1-p013",
+      "family": "authentic-confirmation-typo",
+      "text": "The addion of a control fluorophore improved normalization.",
+      "gold": {
+        "original": "addion",
+        "replacement": "addition",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "addion",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "action",
+            "addict"
+          ]
+        },
+        {
+          "original": "fluorophore",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcc-v1-p020",
+      "family": "authentic-confirmation-typo",
+      "text": "Each automated trace was compared agains a blinded annotation.",
+      "gold": {
+        "original": "agains",
+        "replacement": "against",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "agains",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "again",
+            "gains"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcc-v1-p027",
+      "family": "authentic-confirmation-typo",
+      "text": "The amout of injected tracer was identical across animals.",
+      "gold": {
+        "original": "amout",
+        "replacement": "amount",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "amout",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "amour"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcc-v1-p033",
+      "family": "authentic-confirmation-typo",
+      "text": "The sparse representation is apealing because it preserves provenance.",
+      "gold": {
+        "original": "apealing",
+        "replacement": "appealing",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "apealing",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "pealing"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fcc-v1-p048",
+      "family": "authentic-confirmation-typo",
+      "text": "Particular attension was given to the tissue boundary.",
+      "gold": {
+        "original": "attension",
+        "replacement": "attention",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "attension",
+          "suggestions": [],
+          "rescueSuggestions": []
+        }
+      ]
+    },
+    {
+      "id": "fcc-v1-p057",
+      "family": "authentic-confirmation-typo",
+      "text": "The two procedures are basicly identical after normalization.",
+      "gold": {
+        "original": "basicly",
+        "replacement": "basically",
+        "action": "use",
+        "occurrence": 0
+      },
+      "candidates": [
+        {
+          "original": "basicly",
+          "suggestions": [],
+          "rescueSuggestions": [
+            "basic",
+            "basil"
+          ]
+        }
+      ]
+    }
+  ],
+  "wrongDecisionExamples": [
+    {
+      "id": "fcc-v1-p004",
+      "family": "authentic-confirmation-typo",
+      "text": "The flexible mount was accomodating enough for both objectives.",
+      "candidate": "accomodating",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "accommodating"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "accommodating"
+      },
+      "decision": {
+        "candidateId": "c-58a5cc56",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "accomodating"
+    },
+    {
+      "id": "fcc-v1-p013",
+      "family": "authentic-confirmation-typo",
+      "text": "The addion of a control fluorophore improved normalization.",
+      "candidate": "addion",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "action",
+        "addict"
+      ],
+      "rejectedSuggestions": [
+        "add-on"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "addition"
+      },
+      "decision": {
+        "candidateId": "c-866b3991",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "addion"
+    },
+    {
+      "id": "fcc-v1-p020",
+      "family": "authentic-confirmation-typo",
+      "text": "Each automated trace was compared agains a blinded annotation.",
+      "candidate": "agains",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "again",
+        "gains"
+      ],
+      "rejectedSuggestions": [
+        "a gains"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "against"
+      },
+      "decision": {
+        "candidateId": "c-13a6e69e",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "agains"
+    },
+    {
+      "id": "fcc-v1-p027",
+      "family": "authentic-confirmation-typo",
+      "text": "The amout of injected tracer was identical across animals.",
+      "candidate": "amout",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "amour"
+      ],
+      "rejectedSuggestions": [
+        "am out"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "amount"
+      },
+      "decision": {
+        "candidateId": "c-9dd1fa6d",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "amout"
+    },
+    {
+      "id": "fcc-v1-p031",
+      "family": "authentic-confirmation-typo",
+      "text": "Anytihing outside the prespecified window was excluded automatically.",
+      "candidate": "Anytihing",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "Anything",
+        "Anythings"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "Anything"
+      },
+      "decision": {
+        "candidateId": "c-478d1474",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "Anytihing"
+    },
+    {
+      "id": "fcc-v1-p033",
+      "family": "authentic-confirmation-typo",
+      "text": "The sparse representation is apealing because it preserves provenance.",
+      "candidate": "apealing",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "pealing"
+      ],
+      "rejectedSuggestions": [
+        "a pealing"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "appealing"
+      },
+      "decision": {
+        "candidateId": "c-6d1fd301",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "apealing"
+    },
+    {
+      "id": "fcc-v1-p041",
+      "family": "authentic-confirmation-typo",
+      "text": "Sensory inputs arraive before the recurrent response develops.",
+      "candidate": "arraive",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "arrive",
+        "abrasive",
+        "arrange"
+      ],
+      "rejectedSuggestions": [],
+      "expected": {
+        "action": "rescue",
+        "replacement": "arrive"
+      },
+      "decision": {
+        "candidateId": "c-ec35cd88",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "arraive"
+    },
+    {
+      "id": "fcc-v1-p048",
+      "family": "authentic-confirmation-typo",
+      "text": "Particular attension was given to the tissue boundary.",
+      "candidate": "attension",
+      "suggestions": [],
+      "rescueSuggestions": [],
+      "rejectedSuggestions": [
+        "at tension"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "attention"
+      },
+      "decision": {
+        "candidateId": "c-a0dd0b92",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "attension"
+    },
+    {
+      "id": "fcc-v1-p057",
+      "family": "authentic-confirmation-typo",
+      "text": "The two procedures are basicly identical after normalization.",
+      "candidate": "basicly",
+      "suggestions": [],
+      "rescueSuggestions": [
+        "basic",
+        "basil"
+      ],
+      "rejectedSuggestions": [
+        "basic's"
+      ],
+      "expected": {
+        "action": "rescue",
+        "replacement": "basically"
+      },
+      "decision": {
+        "candidateId": "c-a5ece7cb",
+        "action": "keep",
+        "suggestionIndex": 0
+      },
+      "actual": "basicly"
+    }
+  ],
+  "failures": []
+}

@@ -21,6 +21,7 @@
     "dev": "vite",
     "build": "vite build && tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
     "build:cli": "tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
+    "fetch:correction-runtime": "node scripts/fetch-correction-runtime.mjs",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "npm run check && node scripts/run-verifies.mjs --tier pure",
@@ -32,10 +33,10 @@
     "flux:mcp": "tsx flux-mcp.ts",
     "electron:dev": "concurrently -k -n vite,electron \"npm run dev\" \"wait-on tcp:127.0.0.1:1420 && node scripts/electron-dev.mjs\"",
     "electron:build": "vite build && electron .",
-    "dist": "npm run build && electron-builder",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:linux": "npm run build && electron-builder --linux",
-    "pack": "npm run build && electron-builder --dir"
+    "dist": "npm run build && npm run fetch:correction-runtime && electron-builder",
+    "dist:mac": "npm run build && node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64 && electron-builder --mac",
+    "dist:linux": "npm run build && node scripts/fetch-correction-runtime.mjs --platform linux --arches x64 && electron-builder --linux",
+    "pack": "npm run build && npm run fetch:correction-runtime && electron-builder --dir"
   },
   "dependencies": {
     "@citation-js/core": "^0.7.21",

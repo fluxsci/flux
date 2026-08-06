@@ -36,11 +36,27 @@ jobs:
 
       - run: npm ci
 
+      # The Apple Silicon runner naturally installs only the arm64 optional
+      # node-pty payload, but this job emits both arm64 and x64 apps. Stage both
+      # pinned prebuilds explicitly so each cross-built app can open Flux's
+      # integrated terminal without compiling a native dependency in CI.
+      - name: Stage both macOS terminal architectures
+        if: matrix.os == 'macos-latest'
+        run: npm install --no-save --package-lock=false --force @lydell/node-pty-darwin-arm64@1.1.0 @lydell/node-pty-darwin-x64@1.1.0
+
       # A tag must not ship a broken build — run the same headless gate CI uses.
       - name: Correctness gate (svelte-check + pure verify tier)
         run: npm run check && npm run test:pure
 
       - run: npm run build # Vite -> ./dist (MUST precede electron-builder)
+
+      - name: Fetch pinned correction runtime (macOS)
+        if: matrix.os == 'macos-latest'
+        run: node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64
+
+      - name: Fetch pinned correction runtime (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: node scripts/fetch-correction-runtime.mjs --platform linux --arches x64
 
       - name: Package · sign · notarize · publish (macOS, signed)
         if: matrix.os == 'macos-latest' && env.HAS_SIGNING == 'true'
