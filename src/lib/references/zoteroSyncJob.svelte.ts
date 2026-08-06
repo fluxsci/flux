@@ -186,7 +186,7 @@ class ZoteroSyncJob {
           if (await writeLinkedPdfItem(key, resolved, bytes)) run.summary.linked++;
           else run.summary.failed++;
         } else {
-          if (await writePdfItem(key, bytes, { source: "ingest", url: resolved })) run.summary.attached++;
+          if ((await writePdfItem(key, bytes, { source: "ingest", url: resolved })).ok) run.summary.attached++;
           else run.summary.failed++;
         }
       }

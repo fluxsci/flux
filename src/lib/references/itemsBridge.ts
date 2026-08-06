@@ -17,7 +17,11 @@ import {
   oaMissesPath,
   supplementsDir,
   supplementFilePath,
+  supplementManifestPath,
   safeSupplementName,
+  parseSupplementManifest,
+  type SupplementManifest,
+  type SupplementRecord,
   PAPER_PDF,
   PAPER_LINK,
   FETCH_FAILURE_JSON,
@@ -29,8 +33,19 @@ import {
   type OaMissFile,
 } from "./items";
 import { isPdfBytes } from "./pdfFinder";
+import { isSupplementUrl, supplementDocSignal, supplementNameFromUrl, isAutomatedSource } from "./supplement";
 import { seededItem, seededSupplements, seededKeys } from "./devSeed";
 import { pushToast } from "../toast";
+
+/**
+ * Outcome of filing a fetched PDF. `ok: false, reason: "supplement"` is NOT an error — it
+ * means the bytes were supplementary material, they have been filed under supplements/,
+ * and the caller should carry on looking for the actual article.
+ */
+export type PdfWriteResult =
+  | { ok: true }
+  | { ok: false; reason: "no-bridge" }
+  | { ok: false; reason: "supplement"; signal: string; divertedTo?: string };
 
 /** Manual ingest has no size ceiling (unlike netGet's 80MB fetch cap) — warn on huge
  *  scans so the memory cost of opening them isn't a surprise. Never blocks the ingest. */
@@ -83,7 +98,7 @@ export async function ingestPdfFile(key: string, filePath: string): Promise<bool
   const bytes = new Uint8Array(buf);
   if (!isPdfBytes(bytes)) return false;
   warnHugePdf(bytes, "PDF");
-  return writePdfItem(key, bytes, { source: "ingest", url: filePath, finalUrl: filePath });
+  return (await writePdfItem(key, bytes, { source: "ingest", url: filePath, finalUrl: filePath })).ok;
 }
 
 /** The set of citekeys (safeKey form) that have a paper.pdf on disk — one readdir of
@@ -156,10 +171,25 @@ export async function writePdfItem(
   key: string,
   bytes: Uint8Array,
   info: { source: string; url?: string; finalUrl?: string; isOa?: boolean; license?: string },
-): Promise<boolean> {
+): Promise<PdfWriteResult> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
-  if (!fb || !lib) return false;
+  if (!fb || !lib) return { ok: false, reason: "no-bridge" };
+  // Gate every AUTOMATED acquisition on "is this actually the article?" before it can become
+  // paper.pdf. Doing this at the write point rather than inside one fetch route is deliberate:
+  // it covers the OA waterfall, the proxy capture and any future route at once, and it is the
+  // check that catches a supplement whose URL looked innocent on the way in. A supplement
+  // isn't discarded — it's filed where it belongs, and the caller is told to keep looking.
+  if (isAutomatedSource(info.source)) {
+    const signal = await classifyAcquiredPdf(bytes, info.finalUrl ?? info.url);
+    if (signal) {
+      const divertedTo = await fileSupplementBytes(key, supplementNameFromUrl(info.finalUrl ?? info.url) || "supplement.pdf", bytes, {
+        url: info.finalUrl ?? info.url,
+        source: info.source,
+      });
+      return { ok: false, reason: "supplement", signal, divertedTo: divertedTo ?? undefined };
+    }
+  }
   if (fb.mkdir) await fb.mkdir(itemDir(lib, key));
   await fb.writeFile(pdfPath(lib, key), bytes);
   let sha256: string | undefined;
@@ -190,7 +220,7 @@ export async function writePdfItem(
   } catch {
     /* best-effort — paper.pdf is filed regardless */
   }
-  return true;
+  return { ok: true };
 }
 
 /** The link-mode pointer for `key`, or null (absent/malformed). */
@@ -331,6 +361,118 @@ export async function readerSupplementBytes(key: string, name: string): Promise<
     return (await fb.exists(p)) ? await fb.readFile(p) : null;
   } catch {
     return null;
+  }
+}
+
+/** Read the labelled supplement index for `key` (empty when absent — it's advisory).
+ *  Short-circuits under the headless harness for the same reason listSupplements does:
+ *  the seeded fixture has no FluxLib, and awaiting resolveFluxLibPath() there never
+ *  settles — which would leave the reader stuck on "Loading…" forever. */
+export async function readSupplementManifest(key: string): Promise<SupplementManifest> {
+  if (seededSupplements(key)) return { version: 1, items: [] };
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return { version: 1, items: [] };
+  try {
+    return parseSupplementManifest(await fb.readText(supplementManifestPath(lib, key)));
+  } catch {
+    return { version: 1, items: [] };
+  }
+}
+
+/** Upsert one supplement's record by filename, newest wins. Best-effort: a manifest write
+ *  failure must never lose the file itself, which is already on disk. */
+async function recordSupplement(key: string, rec: SupplementRecord): Promise<void> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return;
+  try {
+    const m = await readSupplementManifest(key);
+    const items = m.items.filter((r) => r.name !== rec.name);
+    items.push(rec);
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    await fb.writeText(supplementManifestPath(lib, key), JSON.stringify({ version: 1, items }, null, 2) + "\n");
+  } catch {
+    /* advisory index — the file on disk is the truth */
+  }
+}
+
+/**
+ * File already-in-hand bytes into items/<key>/supplements/ and index them.
+ * This is the shared landing point for every supplement Flux acquires: the capture engine's
+ * supplement pass, the Europe PMC ZIP, and the write-time diversion of a supplement that was
+ * about to be stored as paper.pdf. Returns the stored filename (suffixed -2, -3, … so nothing
+ * is overwritten), or null if it couldn't be written.
+ */
+export async function fileSupplementBytes(
+  key: string,
+  rawName: string,
+  bytes: Uint8Array,
+  meta: { label?: string; url?: string; source?: string } = {},
+): Promise<string | null> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib || !bytes.length) return null;
+  if (fb.mkdir) await fb.mkdir(supplementsDir(lib, key));
+  let name = safeSupplementName(rawName || "supplement.pdf");
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  // A byte-identical file already filed under this name is the same supplement re-fetched —
+  // keep one copy rather than accumulating -2, -3, … across repeated bulk runs.
+  let sha256: string | undefined;
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", bytes as unknown as ArrayBuffer);
+    sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    /* hash is provenance-only */
+  }
+  if (sha256) {
+    const existing = (await readSupplementManifest(key)).items.find((r) => r.sha256 === sha256);
+    if (existing && (await fb.exists(supplementFilePath(lib, key, existing.name)))) return existing.name;
+  }
+  // The manifest is advisory and may be absent or predate hashing (files put here by the
+  // repair, or by an older Flux), so the DISK is the authority: before suffixing a name,
+  // check whether what's already there is byte-identical. Without this, every re-fetch of an
+  // unindexed supplement lays down another -2, -3, … copy.
+  for (let i = 2; await fb.exists(supplementFilePath(lib, key, name)); i++) {
+    if (sha256) {
+      try {
+        const cur = new Uint8Array((await fb.readFile(supplementFilePath(lib, key, name))) as ArrayBuffer);
+        const d = await crypto.subtle.digest("SHA-256", cur as unknown as ArrayBuffer);
+        if ([...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("") === sha256) return name;
+      } catch {
+        /* unreadable — fall through and pick the next free name */
+      }
+    }
+    name = `${base}-${i}${ext}`;
+  }
+  try {
+    await fb.writeFile(supplementFilePath(lib, key, name), bytes);
+  } catch {
+    return null;
+  }
+  await recordSupplement(key, { name, label: meta.label || undefined, url: meta.url, source: meta.source, bytes: bytes.length, sha256, fetchedAt: new Date().toISOString() });
+  return name;
+}
+
+/**
+ * Is this freshly-acquired PDF actually the article, or its supplementary material?
+ * Returns a short reason string when it is NOT the article, else null.
+ *
+ * Two independent layers, cheapest first: the URL it finally came from, then the document's
+ * own opening. The content layer matters because the URL layer is pattern-matching against
+ * publisher HTML, which has no floor — that is exactly how the Science supplement got stored
+ * as paper.pdf twice. See notes/Flux_Supplement_Capture_Report.md.
+ */
+export async function classifyAcquiredPdf(bytes: Uint8Array, finalUrl?: string): Promise<string | null> {
+  if (finalUrl && isSupplementUrl(finalUrl)) return "supplement-url";
+  try {
+    const { extractPdfSignals } = await import("../pdf/pdfSignals");
+    const s = await extractPdfSignals(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
+    return supplementDocSignal({ title: s.xmpTitle ?? s.infoTitle, page1Text: s.page1Text });
+  } catch {
+    return null; // extraction failed — don't block a write on a parse error
   }
 }
 

@@ -186,8 +186,15 @@ async function main() {
     let outcome = "";
     try {
       const r = await runWaterfall(x, deps, { bulkMode: true });
-      if (r) {
-        await writePdf(key, r.bytes, { source: r.source, url: r.url, finalUrl: r.finalUrl, isOa: r.source !== "crossref" ? true : x.isOa }, LIB);
+      const w = r ? await writePdf(key, r.bytes, { source: r.source, url: r.url, finalUrl: r.finalUrl, isOa: r.source !== "crossref" ? true : x.isOa }, LIB) : null;
+      // The resolver handed back supplementary material, not the article: it's been filed
+      // under supplements/, but the paper is still missing — don't count it as fetched, and
+      // don't clear its OA miss.
+      const supplement = w && w.ok === false ? w : null;
+      if (supplement) {
+        outcome = `SUPPLEMENT (${supplement.signal}) — filed under supplements/, main text still missing`;
+        noOa++;
+      } else if (r) {
         got++;
         const mk = missKey(key);
         if (misses[mk]) {

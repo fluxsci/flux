@@ -13,7 +13,11 @@ const { app, session, BrowserWindow } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
-const { createProxyEngine, isSupplementUrl } = require("../electron/proxyFetch.cjs");
+const { createProxyEngine } = require("../electron/proxyFetch.cjs");
+// The supplement rules are ESM (the renderer imports them too), so this CommonJS gate loads
+// them the same way proxyFetch.cjs does — by dynamic import, awaited before first use.
+let isSupplementUrl = () => false;
+const rulesReady = import("../electron/supplementRules.js").then((m) => (isSupplementUrl = m.isSupplementUrl));
 
 const PROXY_PARTITION = "persist:fluxproxy";
 const keysPath = path.join(require("../electron/fluxPaths.cjs").resolveFluxLibPathSync(), "keys.json");
@@ -51,8 +55,16 @@ const CASES = [
   ["Wiley (a)", "10.1002/ana.24779"],
   ["Wiley (b)", "10.1111/ejn.12084"],
   // AAAS/Science: the engine must capture the MAIN TEXT, never the supplement. `notSupp`
-  // asserts the captured finalUrl isn't a downloadSupplement/_sm.pdf link (the fixed bug).
-  ["AAAS / Science", "10.1126/science.aap8586", { notSupp: true }],
+  // asserts the captured finalUrl isn't a supplement link (the fixed bug).
+  //
+  // aap8586's article page happens to expose NO supplement anchor, so it passed all the way
+  // through the period when Science papers WERE storing supplements — it proved nothing. The
+  // two DOIs below both render a `/doi/suppl/…/suppl_file/*.pdf` anchor ABOVE the PDF control
+  // and reproduced the bug on demand; they are the cases with teeth. Keep all three: the
+  // no-supplement page is still a useful control.
+  ["AAAS / Science (no suppl on page)", "10.1126/science.aap8586", { notSupp: true }],
+  ["AAAS / Science (suppl above PDF link)", "10.1126/science.aah5982", { notSupp: true }],
+  ["AAAS / Science (suppl above PDF link, 2)", "10.1126/science.1249098", { notSupp: true }],
   ["PNAS", "10.1073/pnas.1402773111"],
   // Cell Press (Trends in Cognitive Sciences): doi.org lands on the ScienceDirect anti-bot
   // block, but the engine now hops to cell.com and captures the PDF — a REQUIRED pass.
@@ -66,6 +78,7 @@ const CASES = [
 const isPdf = (b) => b && b.length > 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46;
 
 async function main() {
+  await rulesReady;
   if (!PREFIX) {
     console.error(`FAIL: no ezproxyPrefix in ${keysPath}`);
     app.exit(1);

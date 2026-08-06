@@ -469,7 +469,7 @@ const proxyCalls = new Map(); // token -> AbortController
 // serialization mutex. Return contract is unchanged — { bytesB64, contentType, finalUrl } |
 // { error, reason?, diag? } — so pdfFinderBridge needs no change (the extra reason/diag feed
 // the Part C failure log).
-ipc.handle("pdf:fetchViaProxy", async (_e, target, token) => {
+ipc.handle("pdf:fetchViaProxy", async (_e, target, token, opts) => {
   const prefix = ezproxyPrefix();
   if (!prefix) return { error: "No EZProxy prefix configured.", reason: "not-configured" };
   try {
@@ -489,7 +489,7 @@ ipc.handle("pdf:fetchViaProxy", async (_e, target, token) => {
   try {
     const r = await runProxyExclusive(() => {
       if (ctrl.signal.aborted) return { error: "Cancelled.", reason: "cancelled" };
-      return proxyEngine.capturePdfViaBrowser({ target, signal: ctrl.signal });
+      return proxyEngine.capturePdfViaBrowser({ target, signal: ctrl.signal, withSupplements: !!(opts && opts.withSupplements) });
     });
     // A successful capture proves the session is alive — keep the status pill honest
     // during bulk runs without ever queueing a real status navigation behind them.

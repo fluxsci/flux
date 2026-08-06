@@ -4,8 +4,9 @@
 // via itemsBridge. Powers the Library "Get PDF" (per-row) + "Get PDFs" (bulk) actions.
 // Same waterfall as the CLI/MCP path → the two engines can't drift.
 import { fileBridge } from "../project/types";
-import { runWaterfall, isPdfBytes, bareDoi, type PdfInputs, type FetchDeps } from "./pdfFinder";
-import { writePdfItem, readerHasPdf } from "./itemsBridge";
+import { runWaterfall, isPdfBytes, bareDoi, resolvePmcid, type PdfInputs, type FetchDeps } from "./pdfFinder";
+import { fetchEuropePmcSupplements } from "./supplementFinder";
+import { writePdfItem, readerHasPdf, fileSupplementBytes } from "./itemsBridge";
 import { sharedLimiter, getLimiter, hostGroup, doiGroup, interleaveByGroup, abortableSleep, GET_COST, CAPTURE_COST } from "./hostLimiter";
 import type { RefEntry, EnrichEntry } from "./types";
 
@@ -103,6 +104,8 @@ export interface GuiFetchResult {
   /** A candidate fetch failed at the transport level (timeout/network), so a null waterfall
    *  result is NOT a reliable "no-OA" — the bulk job must not record it as a miss. */
   transient?: boolean;
+  /** Supplementary files captured alongside the article (proxy phase, when requested). */
+  supplements?: number;
 }
 
 /** Environment/session failures that must NOT be recorded as a paper's fetch failure.
@@ -139,16 +142,97 @@ export async function fetchPdfForEntry(
       // bulk job doesn't record a false miss; the paper stays missing and retries next run.
       return { key: entry.key, status: "no-oa", transient: transient || undefined };
     }
-    await writePdfItem(entry.key, r.bytes, {
+    const w = await writePdfItem(entry.key, r.bytes, {
       source: r.source,
       url: r.url,
       finalUrl: r.finalUrl,
       isOa: r.source !== "crossref" ? true : x.isOa,
     });
+    // The resolver handed back supplementary material, not the article. It's been filed under
+    // supplements/, but the paper is still missing — report that honestly so the proxy phase
+    // still runs and the OA-miss ledger doesn't record a success.
+    if (!w.ok) return { key: entry.key, status: "no-oa", error: w.reason === "supplement" ? `resolved to supplementary material (${w.signal})` : "could not file the PDF", reason: w.reason };
     return { key: entry.key, status: "got", source: r.source, url: r.url };
   } catch (e) {
     return { key: entry.key, status: "error", error: String((e as Error)?.message || e) };
   }
+}
+
+/**
+ * Acquire a paper's SUPPLEMENTARY files without re-fetching its article.
+ *
+ * Repository first: Europe PMC's archive is one request to EBI and carries no publisher
+ * ban risk. The publisher page is the fallback, and only when explicitly allowed — it costs
+ * a full authenticated browser capture, which is the expensive half of a PDF fetch.
+ */
+export async function fetchSupplementsForEntry(
+  entry: RefEntry,
+  en?: EnrichEntry,
+  opts: { email?: string; signal?: AbortSignal; token?: string; allowProxy?: boolean } = {},
+): Promise<{ key: string; added: number; error?: string }> {
+  const fb = fileBridge();
+  if (!fb?.netGet) return { key: entry.key, added: 0, error: "The desktop app is required." };
+  const email = opts.email ?? (await readEmail());
+  const deps = bridgeDeps(email, opts.signal);
+  let added = 0;
+  try {
+    const pmcid = await resolvePmcid(inputsFor(entry, en), deps);
+    if (pmcid) {
+      for (const s of await fetchEuropePmcSupplements(pmcid, deps)) {
+        if (await fileSupplementBytes(entry.key, s.name, s.bytes, { label: s.label, url: s.url, source: s.source })) added++;
+      }
+    }
+  } catch (e) {
+    return { key: entry.key, added, error: String((e as Error)?.message || e) };
+  }
+  if (added || !opts.allowProxy || !fb.fetchViaProxy) return { key: entry.key, added };
+  // Nothing in the repository — go to the publisher's page. This deliberately re-runs the
+  // full capture (the supplement links only exist on that page), but a paper that already has
+  // its article keeps it: we're backfilling supplements, not re-downloading the paper.
+  const hasPdf = await readerHasPdf(entry.key);
+  const r = await fetchViaProxyForEntry(entry, en, { token: opts.token, withSupplements: true, supplementsOnly: hasPdf });
+  return { key: entry.key, added: added + (r.supplements ?? 0), error: r.status === "got" ? undefined : r.error };
+}
+
+/**
+ * Backfill supplements across many papers. Sequential and rate-limited like the proxy phase,
+ * because the fallback leg IS a publisher capture — this library has been IP-blocked twice
+ * for request volume, so the sweep is deliberately unhurried and cancellable.
+ */
+export async function fetchSupplementsForEntries(
+  items: { entry: RefEntry; enrich?: EnrichEntry }[],
+  opts: { signal?: AbortSignal; token?: string; allowProxy?: boolean; delayMs?: number; onProgress?: (done: number, total: number, last: { key: string; added: number; error?: string }) => void } = {},
+): Promise<{ total: number; papers: number; files: number; errors: number }> {
+  const groupOf = (it: { entry: RefEntry; enrich?: EnrichEntry }): string | null => {
+    const doi = bareDoi(it.entry.doi || it.enrich?.doi);
+    return doiGroup(doi) ?? hostGroup(it.enrich?.openAccess?.url || it.entry.url);
+  };
+  const ordered = interleaveByGroup(items, groupOf);
+  const email = await readEmail();
+  let done = 0;
+  let papers = 0;
+  let files = 0;
+  let errors = 0;
+  for (const it of ordered) {
+    if (opts.signal?.aborted) break;
+    const group = groupOf(it);
+    if (group && opts.allowProxy) {
+      try {
+        await sharedLimiter.acquire(group, CAPTURE_COST, opts.signal);
+      } catch {
+        break;
+      }
+    }
+    const r = await fetchSupplementsForEntry(it.entry, it.enrich, { email, signal: opts.signal, token: opts.token, allowProxy: opts.allowProxy });
+    if (r.added) {
+      papers++;
+      files += r.added;
+    }
+    if (r.error) errors++;
+    opts.onProgress?.(++done, items.length, r);
+    if (opts.allowProxy) await abortableSleep(opts.delayMs ?? 1500, opts.signal).catch(() => {});
+  }
+  return { total: items.length, papers, files, errors };
 }
 
 /** Acquire a paywalled PDF via the library proxy (EZProxy), only after OA has failed. Files
@@ -158,7 +242,15 @@ export async function fetchPdfForEntry(
 export async function fetchViaProxyForEntry(
   entry: RefEntry,
   en?: EnrichEntry,
-  opts: { token?: string } = {},
+  opts: {
+    token?: string;
+    withSupplements?: boolean;
+    /** Backfill mode: the paper already HAS its article, and we're only here for the
+     *  supplements (which live on the publisher's page and nowhere else). Capture still runs
+     *  — that's how we reach the page — but the main PDF it returns is discarded rather than
+     *  overwriting a good paper.pdf. */
+    supplementsOnly?: boolean;
+  } = {},
 ): Promise<GuiFetchResult> {
   const fb = fileBridge();
   if (!fb?.fetchViaProxy) return { key: entry.key, status: "error", error: "The desktop app is required." };
@@ -166,14 +258,27 @@ export async function fetchViaProxyForEntry(
   const target = doi ? `https://doi.org/${doi}` : en?.openAccess?.url || entry.url;
   if (!target) return { key: entry.key, status: "no-id" };
   try {
-    const r = await fb.fetchViaProxy(target, opts.token);
+    const r = await fb.fetchViaProxy(target, opts.token, { withSupplements: opts.withSupplements });
     if (!r || r.error || !r.bytesB64) {
       return { key: entry.key, status: "no-oa", error: r?.error, reason: r?.reason, diag: r?.diag, target };
     }
     const bytes = b64ToU8(r.bytesB64);
     if (!isPdfBytes(bytes)) return { key: entry.key, status: "no-oa", error: "not a PDF", reason: "not-a-pdf", target };
-    await writePdfItem(entry.key, bytes, { source: "proxy", url: target, finalUrl: r.finalUrl, isOa: false });
-    return { key: entry.key, status: "got", source: "proxy", via: r.via, target };
+    if (!opts.supplementsOnly) {
+      const w = await writePdfItem(entry.key, bytes, { source: "proxy", url: target, finalUrl: r.finalUrl, isOa: false });
+      if (!w.ok) return { key: entry.key, status: "no-oa", error: w.reason === "supplement" ? `captured supplementary material, not the article (${w.signal})` : "could not file the PDF", reason: w.reason, target };
+    }
+    // The engine captured the paper's supplementary files on the same authenticated page —
+    // file them beside it. Best-effort: a supplement failure never demotes a good main text.
+    let supplements = 0;
+    for (const s of r.supplements ?? []) {
+      try {
+        if (await fileSupplementBytes(entry.key, s.name, b64ToU8(s.bytesB64), { label: s.label, url: s.url, source: "proxy" })) supplements++;
+      } catch {
+        /* keep going — the article is already filed */
+      }
+    }
+    return { key: entry.key, status: "got", source: "proxy", via: r.via, target, supplements: supplements || undefined };
   } catch (e) {
     return { key: entry.key, status: "error", error: String((e as Error)?.message || e), reason: "error", target };
   }
@@ -261,6 +366,10 @@ export async function fetchViaProxyForEntries(
     signal?: AbortSignal;
     token?: string;
     delayMs?: number;
+    /** Also capture each paper's supplementary files. OFF by default in bulk: it multiplies
+     *  the GETs per paper, and this library has already been IP-blocked twice for publisher
+     *  request volume. The dedicated supplements sweep opts in explicitly. */
+    withSupplements?: boolean;
     onProgress?: (done: number, total: number, last: GuiFetchResult) => void;
   } = {},
 ): Promise<GuiFetchSummary> {
@@ -296,7 +405,7 @@ export async function fetchViaProxyForEntries(
         break; // aborted while waiting for rate-limit room
       }
     }
-    const r = await fetchViaProxyForEntry(it.entry, it.enrich, { token: opts.token });
+    const r = await fetchViaProxyForEntry(it.entry, it.enrich, { token: opts.token, withSupplements: opts.withSupplements });
     if (group) r.group = group;
     results.push(r);
     opts.onProgress?.(++done, items.length, r);

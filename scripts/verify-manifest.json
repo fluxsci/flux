@@ -371,6 +371,13 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "{electron/supplementRules.cjs,electron/proxyFetch.cjs,src/lib/references/{supplement,supplementFinder,unzip,pdfFinder,pdfFinderBridge}.ts}",
+      "run": [
+        "verify-supplement.ts",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "src/lib/manuscript/**",
       "run": [
         "verify-nature-structure.ts",

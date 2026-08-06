@@ -43,7 +43,7 @@ contextBridge.exposeInMainWorld("fig", {
   proxyStatus: () => ipcRenderer.invoke("proxy:status"),
   // `token` is an opaque per-call id the renderer generates so it can cancel this exact
   // fetch (or all in-flight via proxyCancel("*")) while a background bulk run is going.
-  fetchViaProxy: (target, token) => ipcRenderer.invoke("pdf:fetchViaProxy", target, token),
+  fetchViaProxy: (target, token, opts) => ipcRenderer.invoke("pdf:fetchViaProxy", target, token, opts),
   proxyCancel: (token) => ipcRenderer.invoke("proxy:cancel", token),
   // Proxy credentials, stored ENCRYPTED in the OS keychain (safeStorage) for auto-login.
   proxySetCredentials: (username, password) => ipcRenderer.invoke("proxy:setCredentials", { username, password }),

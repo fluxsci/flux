@@ -2141,6 +2141,84 @@ PDFs in the owner's FluxLib — and the corpus corrected the docs twice over.
 - Parallel worktrees each need their own dev-server port; `driver.mjs` already honours `FLUX_URL`,
   but gates that hardcode `:1420` do not. `verify-paper-export.mjs` now builds its URL from it.
 
+### 2026-08-05 — Supplements: the Science-supplement regression, and capturing SI on purpose (Claude Fable 5, `main`)
+**Work:** Fixed — for the second time, properly this time — the bug where fetching a *Science*
+paper stored its **supplementary material** as `paper.pdf`, and turned the discarded supplement
+links into a feature. New `electron/supplementRules.cjs` (+ `.d.cts`) is the single source of
+truth for "article or supplement", shared by the capture engine, both write paths, the repair and
+the gate. `proxyFetch.cjs` now RANKS candidates instead of consuming them in DOM order, partitions
+supplements out, and — on request — captures them from the page it is already authenticated on.
+`writePdfItem`/`writePdf` verify every automated acquisition before it can become `paper.pdf` and
+divert a supplement to `supplements/` instead. Plus a labelled `supplements/manifest.json`, Europe
+PMC's supplementary-files archive for the OA route (`supplementFinder.ts` + a dependency-free
+`unzip.ts`), a `flux fetch-supplements` verb, and the 4 damaged library items repaired.
+Full analysis: `notes/Flux_Supplement_Capture_Report.md`.
+**Learnings:**
+- **The 2026-07 fix failed because it was all input-side pattern matching.** It filtered candidate
+  URLs against a regex; science.org changed its template to link `/doi/suppl/<doi>/suppl_file/…`
+  (no substring "supplement", and `devivo-sm.pdf` uses a HYPHEN where the regex wanted `_sm.pdf`)
+  and the guard silently stopped applying. Pattern-matching publisher HTML has no floor. The
+  durable half of this fix is the check on the way OUT — at the write point, against the URL the
+  bytes actually came from **and** the document's own first page.
+- **A mitigation coded as "insert if absent" when it meant "put first" is a no-op exactly when it
+  matters.** The AAAS guard did `if (!candidates.some(c => c.url === sci)) unshift(...)`. Every
+  modern Science page already links `/doi/pdf/<doi>`, so the dedupe fired and the supplement kept
+  its DOM-order lead. Ordering is now a scoring function, not a special case.
+- **A gate that re-implements the logic under test proves nothing.** `verify-supplement.ts` mirrored
+  the engine's candidate pipeline and asserted against the copy — and its fixture omitted
+  `/doi/pdf/<doi>` from the scraped list, so the dedupe branch it needed to exercise never ran. The
+  live case (`science.aap8586`) passed for an unrelated reason: that article's page exposes no
+  supplement anchor at all. Both gates were green throughout. They now call shipped functions and
+  use the two DOIs that actually reproduce.
+- **Validate a content heuristic against the corpus that contains the thing you're about to
+  break.** The content rules scored 4/4 with zero false positives over all 1,051 stored PDFs — but
+  that corpus held the four SUPPLEMENTS, not the four main texts they were about to be replaced by.
+  The first real re-fetch then rejected a perfectly good Takahashi 2016: Science's print layout
+  carries the *previous* article's tail onto page 1, bare "SUPPLEMENTARY MATERIALS" heading and
+  `suppl/DC1` URL included. The rule is now "the banner must say **for** <something that isn't
+  itself>", which separates a supplement's masthead from both an article's section heading and its
+  "supplementary material for this article is available at…" pointer.
+- Text extraction preserving line structure is load-bearing here: `joinTextItems` emits `\n` on a
+  baseline jump, so "starts a line" is a usable test and is what distinguishes a masthead from a
+  mid-paragraph mention. Don't squash whitespace before asking a positional question.
+- **The manifest is advisory; the disk is the truth.** Dedupe keyed only on `manifest.json`'s
+  sha256 laid down `-2` copies of every supplement the repair had moved (its records predated
+  hashing). Both filing paths now compare against the bytes actually on disk before suffixing.
+- Europe PMC's supplementary-files endpoint is `…/rest/{PMCID}/supplementaryFiles` — **without**
+  the `/PMC/` source segment every other Europe PMC endpoint takes; the documented form 404s. It
+  serves the OA subset only, and it bundles the article's own figures in with the supplements. The
+  filter that works is inverted: keep every non-image, keep an image only if it's named as a
+  supplement. Enumerating figure-name shapes (`_f001.jpg`, `-g5.gif`, `_Fig11_ESM.jpg`,
+  `_Tab1_ESM.gif`) failed on the first publisher it met.
+- No new dependency was needed to read those ZIPs: `DecompressionStream("deflate-raw")` is native
+  in both Node 20+ and Chromium, and STORED/DEFLATE is all these archives use.
+- Supplement capture is ON for single user-initiated fetches and OFF for bulk. This library has
+  been IP-blocked twice for publisher request volume; a few extra GETs per paper is fine for one
+  paper and is not fine for a thousand. The repository route (`flux fetch-supplements`, EBI only)
+  is the safe sweep.
+- **TRAP — a source `.cjs` that the renderer imports passes `vite build` and breaks `vite dev`.**
+  The shared rules started life as `electron/supplementRules.cjs`, because Electron main is
+  CommonJS and `src/` is excluded from the packaged app. `npm run check` was clean and
+  `vite build` succeeded (Rollup's commonjs plugin converts it), but the DEV server serves a
+  source `.cjs` **verbatim** — `module.exports` never runs in a browser, so the module has no
+  named exports and *every* importer dies at load with "does not provide an export named …".
+  The whole app was blank in dev; every UI gate failed with an unhelpful 15s timeout. The fix is
+  `electron/supplementRules.js` as plain ESM, with `proxyFetch.cjs` (CommonJS) reaching it via
+  `await import()` — a module-scope promise awaited at the top of each capture, with thin
+  wrappers so the synchronous CDP callback still reads correctly. `scripts/verify-proxy-capture.cjs`
+  does the same. Two lessons: **a green `svelte-check` + `vite build` does not mean the app
+  loads**, and when a batch of unrelated UI gates all start timing out, open the page and read
+  its console before believing the gate.
+- **Live gate: 10/10 required publishers pass** (APS, OUP, Wiley×2, AAAS×3 including both
+  reproducing DOIs, PNAS, Cell Press, Nature) with the two known anti-bot walls unchanged, so
+  candidate RANKING regressed nothing. Getting there was its own lesson: a first run sat for 37
+  minutes emitting NOTHING, which read like a hang in the gate but was Electron itself wedged on
+  this box — a script that does nothing but await `app.whenReady()` also hung, with or without a
+  private `--user-data-dir`. **If a gate produces zero output, check that Electron can become
+  ready at all before debugging the gate.** It cleared on its own later. (The run did wedge in
+  `engine.dispose()` afterwards, so the leaked-window check never printed — untouched teardown
+  code, worth re-confirming on a clean machine.)
+
 ### 2026-08-05 — Install-docs harmonization + dependency audit fix (Claude Opus 5, `main`)
 **Work:** Compared README / `installation.qmd` / `claude-install-flux-mac.md` against the code
 and against a real fresh-Mac install, then fixed what diverged: `npm audit fix` clearing 13
