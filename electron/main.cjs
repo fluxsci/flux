@@ -931,7 +931,10 @@ function fluxLibSubsystemFor(libRoot, abs) {
   // The drop-inbox: only landed PDFs count — sidecar notes and our own _unresolved/
   // filing must not re-trigger a scan (awaitWriteFinish already debounces mid-copy).
   if (rel.startsWith("pdfs_to_assign/")) {
-    return !rel.includes("_unresolved/") && /\.pdf$/i.test(rel) ? "assign-inbox" : null;
+    // `_unresolved/` is our own filing; `_captured_supplements/` is capture staging waiting on
+    // a citekey — neither is a paper to identify, so neither may wake the assign scan.
+    if (rel.includes("_unresolved/") || rel.includes("_captured_supplements/")) return null;
+    return /\.pdf$/i.test(rel) ? "assign-inbox" : null;
   }
   return null;
 }

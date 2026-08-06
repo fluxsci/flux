@@ -42,6 +42,10 @@ async function main() {
   await fsp.writeFile(path.join(dl, "flux-10.1126_science.aah5982.pdf"), PDF);
   await fsp.writeFile(path.join(dl, "flux-e0674252026.full.pdf"), PDF);
   await fsp.writeFile(path.join(dl, "flux-x.fluxcap"), JSON.stringify({ v: 1, url: "https://x/a", doi: "10.1/x" }));
+  // Supplements captured in the same click as their article — any file type.
+  await fsp.writeFile(path.join(dl, "flux-supp-10.1126_science.aah5982@@devivo-sm.pdf"), PDF);
+  await fsp.writeFile(path.join(dl, "flux-supp-10.1126_science.aah5982@@movie1.mov"), Buffer.alloc(2048, 7));
+  await fsp.writeFile(path.join(dl, "flux-supp-@@malformed.pdf"), PDF); // no slug: not a capture
   const decoys = ["tax-return-2025.pdf", "1-s2.0-S000634952-main.pdf", "flux-notes.txt", "flux.pdf", "flux-.pdf", "holiday.jpg"];
   for (const d of decoys) await fsp.writeFile(path.join(dl, d), "USER DATA");
   await fsp.writeFile(path.join(dl, "flux-tiny.pdf"), Buffer.from("%PDF-x")); // still-arriving stub
@@ -55,9 +59,23 @@ async function main() {
   ok(!fs.existsSync(path.join(dl, "flux-10.1126_science.aah5982.pdf")), "capture left the download folder");
   ok(fs.existsSync(path.join(dl, "flux-x.fluxcap")), "sidecar is NOT deleted until the renderer resolves it");
 
+  console.log("\nsupplements (captured in the same click as the article):");
+  ok(r.supplements.length === 2, "both supplements were staged", JSON.stringify(r.supplements));
+  const staging = path.join(inbox, "_captured_supplements");
+  ok(fs.existsSync(path.join(staging, "flux-supp-10.1126_science.aah5982@@devivo-sm.pdf")), "a supplement PDF is staged, NOT filed as an article");
+  ok(fs.existsSync(path.join(staging, "flux-supp-10.1126_science.aah5982@@movie1.mov")), "a non-PDF supplement is staged too");
+  ok(!fs.existsSync(path.join(inbox, "flux-supp-10.1126_science.aah5982@@devivo-sm.pdf")), "…and never reaches the assign inbox itself");
+  ok(fs.existsSync(path.join(dl, "flux-supp-@@malformed.pdf")), "a slug-less supplement name is left alone, not filed as a paper");
+  {
+    const rules = await import("../electron/captureRules.js");
+    const p = rules.parseSupplementCapture("flux-supp-10.1126_science.aah5982@@devivo-sm.pdf");
+    ok(rules.doiFromSlug(p.slug) === "10.1126/science.aah5982", "the staged name still identifies its paper", rules.doiFromSlug(p.slug));
+  }
+
   console.log("\ncontainment — the user's own files:");
   for (const d of decoys) ok(fs.existsSync(path.join(dl, d)), `untouched: ${d}`);
-  ok(fs.readdirSync(inbox).length === 2, "nothing else was moved into the inbox", `${fs.readdirSync(inbox).length} files`);
+  const inboxFiles = fs.readdirSync(inbox).filter((n) => fs.statSync(path.join(inbox, n)).isFile());
+  ok(inboxFiles.length === 2, "only the two article PDFs are in the inbox", JSON.stringify(inboxFiles));
 
   console.log("\npartial downloads:");
   ok(fs.existsSync(path.join(dl, "flux-tiny.pdf")), "a sub-1KB 'PDF' is left alone (still arriving / a stub)");

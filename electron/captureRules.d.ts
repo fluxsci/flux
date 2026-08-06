@@ -19,5 +19,13 @@ export interface FluxCapture {
 
 export const CAPTURE_PREFIX: string;
 export const CAPTURE_EXT: string;
+export const SUPP_PREFIX: string;
+export const SUPP_SEP: string;
+export function captureSlug(s: string): string;
 export function isCaptureFile(name: string): boolean;
+export function isSupplementCapture(name: string): boolean;
+/** `flux-supp-<slug>@@<name>` → { slug, name }, or null. */
+export function parseSupplementCapture(fileName: string): { slug: string; name: string } | null;
+/** Best-effort inverse of captureSlug for DOI-shaped slugs ("" when not DOI-shaped). */
+export function doiFromSlug(slug: string): string;
 export function parseFluxCapture(text: string | null | undefined): FluxCapture | null;

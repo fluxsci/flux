@@ -39,3 +39,4 @@ default_conventions/
 lighttable/node_modules/
 lighttable/dist/
 lighttable/test/
+extension/dist/

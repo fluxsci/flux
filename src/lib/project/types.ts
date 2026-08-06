@@ -318,7 +318,7 @@ export interface FileBridge {
   openCaptureInstall?(href: string): Promise<{ ok?: boolean; path?: string; error?: string }>;
   // Main moves captured PDFs into pdfs_to_assign (the renderer can't: fsGuard refuses $HOME)
   // and returns the .fluxcap sidecars for the renderer to resolve, then discard by name.
-  captureIntake?(): Promise<{ pdfs: string[]; sidecars: { name: string; json: string }[] }>;
+  captureIntake?(): Promise<{ pdfs: string[]; sidecars: { name: string; json: string }[]; supplements: string[] }>;
   captureDiscard?(name: string): Promise<{ ok?: boolean; error?: string }>;
   // Web capture (flux://): main delivers a { doi?, url? } payload to add to FluxLib.
   // Electron only; returns an unsubscribe fn. Mirrors onFsChanged's shape.

@@ -6,7 +6,39 @@ subtitle: "One click on any paper page saves it — with its PDF — into FluxLi
 You are reading a paper in your browser. One click puts it in your library: the reference, and
 the PDF, without a download folder detour or a copy-pasted DOI.
 
-# Setting it up
+There are two ways to do it. The **extension** is the better one — it captures supplementary
+files in the same click and works in Firefox — but it needs a manual install for now. The
+**bookmark** needs no install at all and works everywhere except strict-CSP sites in Firefox.
+
+# The extension (recommended)
+
+Build it once:
+
+```bash
+node scripts/build-extension.mjs
+```
+
+Then load `extension/dist`:
+
+- **Chrome / Edge / Brave** — `chrome://extensions` → **Developer mode** → **Load unpacked**
+- **Firefox** — `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → pick
+  `manifest.json`
+
+::: {.callout-note}
+A Firefox temporary add-on is removed when the browser restarts — that's Firefox policy. A
+permanent install needs a signed `.xpi`, which Mozilla will issue for free without any public
+listing ([self-distribution](https://extensionworkshop.com/documentation/publish/self-distribution/)).
+:::
+
+Click the Flux button in the toolbar on any paper page. The badge shows a count when files are
+captured, and **supplementary files come with the article in that same click** — SI PDFs,
+spreadsheets, videos — each filed against the paper once Flux has identified it.
+
+The extension works where the bookmark can't because its fetches run in a background worker
+under host permissions, which a page's Content-Security-Policy does not govern. See
+`extension/README.md` for the details.
+
+# The bookmark (no install)
 
 In [Library](../modes/library.qmd), at the bottom of the pane, click **Set up the bookmark…**.
 A page opens in your default browser with a green **Add to FluxLib** button. Drag that button
@@ -57,7 +89,7 @@ acquisition route in the app, and it costs one click.
 |---|---|
 | **Chrome, Edge, Brave** | Fully supported. |
 | **Safari** | Works. Show the Favourites bar with `⌘⇧B`. |
-| **Firefox** | Works on many sites, but **silently does nothing on publishers with a strict Content-Security-Policy**. Firefox applies the page's CSP to bookmarklets; Chrome doesn't. This is [Mozilla bug 866522](https://bugzilla.mozilla.org/show_bug.cgi?id=866522), open since 2013. If a click does nothing on a publisher site, that's why. |
+| **Firefox** | The **extension** works fully. The **bookmark** works on many sites but **silently does nothing on publishers with a strict Content-Security-Policy** — Firefox applies the page's CSP to bookmarklets where Chrome doesn't ([Mozilla bug 866522](https://bugzilla.mozilla.org/show_bug.cgi?id=866522), open since 2013). If a bookmark click does nothing on a publisher site, that's why; use the extension. |
 
 ::: {.callout-warning}
 You'll find advice to set `security.csp.enable` to `false` in Firefox's `about:config` to make
@@ -83,6 +115,7 @@ it into FluxLib's `pdfs_to_assign` folder.
 |---|---|
 | Captured files | your browser's download folder, named `flux-…` |
 | Captured PDFs, once filed | `FluxLib/pdfs_to_assign/`, then `FluxLib/items/<citekey>/paper.pdf` |
+| Captured supplements | `FluxLib/items/<citekey>/supplements/` (they wait, staged, until the article has been identified) |
 | PDFs that couldn't be identified | `FluxLib/pdfs_to_assign/_unresolved/`, with a note saying why |
 
 Nothing is ever guessed: a PDF Flux can't identify with confidence is set aside rather than

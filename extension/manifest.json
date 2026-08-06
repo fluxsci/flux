@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Add to FluxLib",
+  "version": "0.1.0",
+  "description": "Save the paper you're reading — with its PDF and supplementary files — into your Flux library.",
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "permissions": ["activeTab", "scripting", "downloads"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "service_worker": "background.js", "type": "module", "scripts": ["background.js"] },
+  "action": {
+    "default_title": "Add to FluxLib",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" }
+  },
+  "browser_specific_settings": {
+    "gecko": { "id": "capture@flux.tools", "strict_min_version": "115.0" }
+  }
+}

@@ -2624,3 +2624,44 @@ sidecar builder had drifting copies in both engines — now `unresolvedSidecar()
   SIM 0.90 with both year and author corroborating. Thresholds were not moved for it.
 - Repo etiquette, learned the hard way: a concurrent session staged `docs/` broadly and swept my
   guide edits into its commit (9cf1707). Explicit paths protect your own commit, not the file.
+
+### 2026-08-06 (later) — The capture extension: supplements in the same click (Claude Fable 5, `main`)
+**Work:** Built `extension/` — an MV3 browser extension for Chrome AND Firefox that captures the
+article **and its supplementary files** in one click, plus the receiver work to file supplements
+against the right paper. `scripts/build-extension.mjs` assembles `extension/dist`;
+`npm run build:extension`. Docs updated (`docs/integrations/web-capture.qmd` now leads with the
+extension), and `scripts/verify-extension.ts` gates it.
+**Learnings:**
+- **The extension exists for one structural reason: page CSP.** A bookmarklet runs in the page,
+  so the page's Content-Security-Policy governs it — which is why Firefox silently does nothing
+  on strict-CSP publishers ([Mozilla 866522](https://bugzilla.mozilla.org/show_bug.cgi?id=866522),
+  NEW since 2013) and why even Chrome can block the PDF fetch. A background worker fetching
+  under host permissions is subject to none of it. Everything else (supplements, badges, batch)
+  falls out of that same move.
+- **`chrome.downloads.download({url})` beats fetching bytes yourself.** MV3 service workers have
+  no `URL.createObjectURL`, so there is no way to hand the browser a blob. Downloading BY URL
+  makes the browser fetch it — with cookies, no CSP — and sidesteps the whole problem. Bytes are
+  only read to peek at the first chunk (`body.getReader()`, then `cancel()`) to confirm `%PDF`
+  before committing, which is what keeps a paywall interstitial out of the library.
+- **`readPaperPage` is injected via `executeScript({func, args})`, which SERIALIZES it — it can
+  close over nothing.** The shared supplement patterns arrive as an argument (`RegExp.source`
+  strings), the same trick the bookmarklet's in-page sweep uses. A gate asserts page.js imports
+  nothing, because an added import would break silently at runtime.
+- **A captured supplement can't be filed when it arrives** — its paper may not have a citekey
+  until the assign scan identifies the article. So supplements are STAGED in
+  `pdfs_to_assign/_captured_supplements/` (inside FluxLib, which the renderer can reach, unlike
+  the download folder) under `flux-supp-<doiSlug>@@<name>`, and filed on a later pass. The
+  trigger is a `fluxLibRevision` bump — the exact moment a waiting supplement may become
+  fileable. The staging dir is excluded from the assign-inbox classifier so it can't wake a scan.
+- **`@@` as the slug/filename separator is safe BY CONSTRUCTION**, not by hope: `captureSlug`
+  maps everything outside `[A-Za-z0-9._-]` to `_`, so neither side can contain it and a
+  first-occurrence split is exact. Picking a separator that "probably won't appear" would have
+  broken on the first DOI with a double hyphen.
+- **The vendored rules are COPIED by the build and gated byte-identical.** Third time today this
+  pattern has earned itself; a hand-maintained second copy of the supplement patterns is
+  precisely how this whole area rotted originally.
+- Trap found by the gate: `new URL("", href)` resolves to THE PAGE, so an absent
+  `link[type=application/pdf]` made `pdfUrl` the article page itself. Guard empty input in any
+  `abs()` helper.
+- Firefox permanence is still open: a temporary add-on is dropped on restart, so a permanent
+  install needs an AMO-signed `.xpi` (free, unlisted, no review queue). Deferred by the owner.

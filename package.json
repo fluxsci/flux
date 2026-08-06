@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
-  "description": "Flux — a local app for joining plots into figures, figures into papers, and slides",
+  "description": "Flux \u2014 a local app for joining plots into figures, figures into papers, and slides",
   "author": {
     "name": "Kort Driessen",
     "email": "sleepanimal@gmail.com"
@@ -36,7 +36,8 @@
     "dist": "npm run build && npm run fetch:correction-runtime && electron-builder",
     "dist:mac": "npm run build && node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64 && electron-builder --mac",
     "dist:linux": "npm run build && node scripts/fetch-correction-runtime.mjs --platform linux --arches x64 && electron-builder --linux",
-    "pack": "npm run build && npm run fetch:correction-runtime && electron-builder --dir"
+    "pack": "npm run build && npm run fetch:correction-runtime && electron-builder --dir",
+    "build:extension": "node scripts/build-extension.mjs"
   },
   "dependencies": {
     "@citation-js/core": "^0.7.21",

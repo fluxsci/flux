@@ -16,7 +16,9 @@ header shows the collection and its size; everything below is the grid.
 - **The web-capture bookmark.** At the bottom of the Library, **Set up the bookmark…** opens a
   page in your browser with a green **Add to FluxLib** button to drag onto your bookmarks bar.
   From then on, one click on any paper page — the article *or* the PDF itself — saves it here,
-  with its PDF. See [Capturing from the web](../integrations/web-capture.qmd).
+  with its PDF. There's also a **browser extension** that additionally grabs the paper's
+  supplementary files in the same click, and works in Firefox. See
+  [Capturing from the web](../integrations/web-capture.qmd).
 - **Bulk import.** **Import…** reads a `.bib` or `.ris` file (Zotero, EndNote, Mendeley,
   BibTeX exports), previews what's new vs. already-known before committing, and can pull the
   PDFs a Zotero export references alongside.

@@ -14,14 +14,66 @@
 // pipeline, not two. A `.fluxcap` has no bytes to identify, so it resolves by DOI (else URL)
 // through the same add path the Library's input box uses.
 import { fileBridge } from "../project/types";
-import { parseFluxCapture } from "./capture";
-import { bumpAssignInbox } from "./revision";
+import { parseFluxCapture, parseSupplementCapture, doiFromSlug } from "./capture";
+import { resolveFluxLibPath, loadFluxLib } from "./fluxlibBridge";
+import { assignInboxDir } from "./items";
+import { fileSupplementBytes } from "./itemsBridge";
+import { bareDoi } from "./pdfFinder";
+import { bumpAssignInbox, fluxLibRevision } from "./revision";
 import { captureStatus } from "./captureStatus";
+
+/** Where main stages captured supplements until their paper has a citekey. */
+const STAGING = "_captured_supplements";
 
 export interface CaptureResult {
   file: string;
-  action: "queued" | "added" | "failed";
+  action: "queued" | "added" | "filed" | "waiting" | "failed";
   detail?: string;
+}
+
+/**
+ * File staged supplements against their paper.
+ *
+ * A supplement is captured in the same click as its article, but it can't be filed until that
+ * article has a citekey — which happens only after the assign scan identifies it. So each pass
+ * files what it can and LEAVES the rest: a supplement whose paper isn't in the library yet is
+ * simply picked up next time, once it is.
+ */
+async function fileStagedSupplements(out: CaptureResult[]): Promise<void> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb?.readdir || !lib) return;
+  const dir = `${assignInboxDir(lib)}/${STAGING}`;
+  let names: string[] = [];
+  try {
+    names = (await fb.readdir(dir)).filter((e) => !e.dir).map((e) => e.name);
+  } catch {
+    return; // no staging dir yet
+  }
+  if (!names.length) return;
+  const entries = await loadFluxLib();
+  const byDoi = new Map(entries.flatMap((e) => (bareDoi(e.doi) ? [[bareDoi(e.doi) as string, e.key] as [string, string]] : [])));
+  for (const file of names) {
+    const parsed = parseSupplementCapture(file.replace(/^\d+-(?=flux-supp-)/, ""));
+    const doi = parsed ? doiFromSlug(parsed.slug) : "";
+    const key = doi ? byDoi.get(doi.toLowerCase()) ?? byDoi.get(doi) : undefined;
+    if (!parsed || !key) {
+      out.push({ file, action: "waiting", detail: doi ? `no library entry for ${doi} yet` : "unrecognized name" });
+      continue; // left in place on purpose — the paper may arrive on the next assign scan
+    }
+    try {
+      const bytes = new Uint8Array((await fb.readFile(`${dir}/${file}`)) as ArrayBuffer);
+      const stored = await fileSupplementBytes(key, parsed.name, bytes, { url: "", source: "capture" });
+      if (!stored) {
+        out.push({ file, action: "failed", detail: "could not write the supplement" });
+        continue;
+      }
+      await fb.remove?.(`${dir}/${file}`);
+      out.push({ file, action: "filed", detail: `${key}/${stored}` });
+    } catch (e) {
+      out.push({ file, action: "failed", detail: e instanceof Error ? e.message : String(e) });
+    }
+  }
 }
 
 let running = false;
@@ -46,10 +98,13 @@ export async function runCaptureIntake(): Promise<CaptureResult[]> {
       pending = false;
       const fb = fileBridge();
       if (!fb?.captureIntake) break;
-      const { pdfs, sidecars } = await fb.captureIntake();
-      if (!pdfs.length && !sidecars.length) break;
+      const { pdfs, sidecars, supplements } = await fb.captureIntake();
+      // Staged supplements from an EARLIER pass may now be fileable even when nothing new
+      // arrived, so this runs whenever we're woken.
+      await fileStagedSupplements(out);
+      if (!pdfs.length && !sidecars.length && !supplements.length) break;
 
-      const total = pdfs.length + sidecars.length;
+      const total = pdfs.length + sidecars.length + supplements.length;
       captureStatus.show("busy", total === 1 ? "Filing capture…" : `Filing ${total} captures…`);
       for (const name of pdfs) out.push({ file: name, action: "queued" });
       if (pdfs.length) bumpAssignInbox(); // wakes the assign auto-scan, which does the matching
@@ -85,7 +140,10 @@ function report(rows: CaptureResult[]): void {
   if (!rows.length) return captureStatus.clear();
   const queued = rows.filter((r) => r.action === "queued").length;
   const added = rows.filter((r) => r.action === "added").length;
+  const filed = rows.filter((r) => r.action === "filed").length;
+  const waiting = rows.filter((r) => r.action === "waiting").length;
   const failed = rows.filter((r) => r.action === "failed");
+  if (!queued && !added && !filed && !failed.length) return captureStatus.clear(); // only waiting
   if (failed.length && !queued && !added) {
     captureStatus.show("err", `Couldn't file ${failed.length === 1 ? "that capture" : `${failed.length} captures`} — ${failed[0].detail ?? "unknown error"}`, 6000);
     return;
@@ -95,6 +153,23 @@ function report(rows: CaptureResult[]): void {
   // reports it itself. Claiming more than happened would be a lie by one step.
   if (queued) bits.push(`${queued} PDF${queued === 1 ? "" : "s"} queued for matching`);
   if (added) bits.push(`${added} reference${added === 1 ? "" : "s"} added`);
+  if (filed) bits.push(`${filed} supplementary file${filed === 1 ? "" : "s"} filed`);
+  if (waiting) bits.push(`${waiting} awaiting their paper`);
   if (failed.length) bits.push(`${failed.length} failed`);
   captureStatus.show(failed.length ? "err" : "ok", `Captured: ${bits.join(", ")}`, 4200);
 }
+
+// A supplement captured alongside its article often arrives BEFORE that article has a
+// citekey — the assign scan has to identify it first. FluxLib bumps whenever a paper is added
+// or a PDF attached, so that bump is exactly the moment a waiting supplement may become
+// fileable. Debounced, and cheap when there's nothing staged (one readdir on an empty dir).
+let sweepTimer: ReturnType<typeof setTimeout> | undefined;
+let firstBump = true;
+fluxLibRevision.subscribe(() => {
+  if (firstBump) {
+    firstBump = false; // stores fire on subscribe; that's not a change
+    return;
+  }
+  clearTimeout(sweepTimer);
+  sweepTimer = setTimeout(() => void runCaptureIntake(), 800);
+});

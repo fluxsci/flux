@@ -30,19 +30,36 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
   async function intake() {
     const dir = captureDir();
     await ready();
-    if (!dir || !rules) return { pdfs: [], sidecars: [] };
+    if (!dir || !rules) return { pdfs: [], sidecars: [], supplements: [] };
     let names = [];
     try {
       names = (await fsp.readdir(dir)).filter((n) => rules.isCaptureFile(n)).sort();
     } catch {
-      return { pdfs: [], sidecars: [] };
+      return { pdfs: [], sidecars: [], supplements: [] };
     }
     const inbox = path.join(fluxLibDir(), "pdfs_to_assign");
+    // Captured SUPPLEMENTS can't be filed yet: they belong to a paper that may not have been
+    // identified (or even added) until the article PDF goes through the assign scan. So they
+    // are staged inside FluxLib — which the renderer CAN reach, unlike the download folder —
+    // and filed against their citekey on a later pass.
+    const staging = path.join(inbox, "_captured_supplements");
     const pdfs = [];
     const sidecars = [];
+    const supplements = [];
     for (const name of names) {
       const src = path.join(dir, name);
       try {
+        if (rules.isSupplementCapture(name)) {
+          await fsp.mkdir(staging, { recursive: true });
+          let dst = path.join(staging, name);
+          for (let i = 2; fs.existsSync(dst); i++) dst = path.join(staging, `${i}-${name}`);
+          await fsp.rename(src, dst).catch(async () => {
+            await fsp.copyFile(src, dst);
+            await fsp.rm(src, { force: true });
+          });
+          supplements.push(path.basename(dst));
+          continue;
+        }
         if (/\.fluxcap$/i.test(name)) {
           sidecars.push({ name, json: await fsp.readFile(src, "utf8") });
           continue;
@@ -63,7 +80,7 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
         /* leave it in place; the next pass retries */
       }
     }
-    return { pdfs, sidecars };
+    return { pdfs, sidecars, supplements };
   }
 
   /** Delete one sidecar, once the caller has resolved it. Name-only, and it must satisfy the
