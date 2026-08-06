@@ -406,7 +406,7 @@ The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A 
 that isn't in the manifest doesn't exist.** Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
-  pure --jobs 4` (~15s parallel, currently 160 scripts, must stay green at all times).
+  pure --jobs 4` (~20s parallel, currently 163 scripts, must stay green at all times).
 - **ui / ui-extra** — puppeteer against the dev server on :1420 (`scripts/lib/driver.mjs`;
   fixtures via `?fixture=demo`, dev handles `window.__flux`, `__fluxView`, `__fluxSeed*`). ui is
   the curated stable suite (59), ui-extra the full sweep (60). Consoles must be **clean** —
@@ -2307,3 +2307,21 @@ moving hard three/four-edit coverage from 0/12 (Standard) to 10/12, without rewr
   the affected failure class. Never present stress-only gains as a general-coverage improvement.
 - Derive “accepted” visual state from the final editor-protected plans, not an earlier model/guard
   result, so every rejected mutation visibly settles rather than leaving a false pending state.
+
+### 2026-08-06 — Codex correction fabric merged to main (Claude Fable 5, `codex-local-completion` → `main`)
+**Work:** Reviewed Codex's full correction-fabric work (3 commits + a large uncommitted
+contextual-lane/managed-runtime tree), committed the in-flight work on its branch, rebased the
+branch onto main (7 supplement commits had landed since the merge base; conflicts were
+append-append in this guide plus list-adds in verify-manifest/preload/types), and fast-forwarded
+main. Post-merge acceptance on main: check 0/0, pure 163/163, paper-gate 26/26, scale 7/7,
+build clean, bundle+startup 3/3, curated ui 59 accounted (58 in the sweep + the corrections gate
+fixed and re-run 3× green — see below).
+**Learnings:**
+- `verify-paper-local-corrections` flaked under load at "one-step correction undo": it typed the
+  whole two-typo sentence at 3ms/key and asserted the fixes landed as TWO history batches, but
+  batch count during continuous fast typing is worker scheduling, not contract — under load both
+  fixes coalesced into one batch and a single Undo (correctly) restored both. A gate that asserts
+  history-batch scoping must construct the batches deterministically: wait for the word-lane fix
+  before typing the second typo. Every assertion kept; nothing loosened.
+- Rebase-then-ff keeps the linear main history through a 4-commit divergent worktree; the only
+  human decision was session-log entry order (append order of landing, not strict datestamp).

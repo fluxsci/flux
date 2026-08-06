@@ -53,7 +53,19 @@ const pressLocalChord = async (targetPage, key, { shift = false } = {}) => {
 
 h.section("exact product interaction");
 await replaceDoc();
-await page.keyboard.type("The chemical structure is a very compelx o bject.", { delay: 3 });
+await page.keyboard.type("The chemical structure is a very compelx ", { delay: 3 });
+// Wait for the word lane to fix "compelx" at its own boundary before typing on.
+// The one-step-undo assertion below pins history-batch SCOPING (newest batch
+// only); whether the two fixes land as one or two batches during continuous
+// fast typing is worker scheduling, not the contract, and under load the
+// coalesced single batch made this gate flake.
+await waitFor(
+  page,
+  () => window.__fluxView.state.doc.toString() === "The chemical structure is a very complex ",
+  null,
+  { timeout: 8000, label: "word-lane compelx correction" },
+);
+await page.keyboard.type("o bject.", { delay: 3 });
 const correctionStartedAt = Date.now();
 await page.keyboard.type(" ");
 await waitFor(
