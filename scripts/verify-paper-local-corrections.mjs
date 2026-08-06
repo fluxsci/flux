@@ -472,6 +472,52 @@ await page.keyboard.type(scientificSource, { delay: 1 });
 await new Promise((resolve) => setTimeout(resolve, 700));
 h.eq(await doc(), scientificSource, "unfamiliar scientific words and valid open compounds are left alone");
 
+h.section("backlog flagging on document load");
+await page.evaluate(() => {
+  const view = window.__fluxView;
+  const text = [
+    "The chamber enviroment remained stable throughout the whole experiment.",
+    "",
+    "```",
+    "const enviroment = 1;",
+    "```",
+    "",
+    "Ready.",
+  ].join("\n");
+  // A programmatic whole-document swap is exactly how PaperMode opens and
+  // switches documents — the backlog-scan trigger under test.
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, selection: { anchor: text.length } });
+  view.focus();
+});
+await waitFor(
+  page,
+  () => [...document.querySelectorAll(".cm-context-issue-flagged")].some((el) => el.textContent === "enviroment"),
+  null,
+  { timeout: 10000, label: "flagged backlog underline" },
+);
+const backlog = await page.evaluate(() => ({
+  flagged: [...document.querySelectorAll(".cm-context-issue-flagged")].map((el) => el.textContent),
+  text: window.__fluxView.state.doc.toString(),
+}));
+h.eq(backlog.flagged, ["enviroment"], "the prose typo is flagged once; the fenced-code copy stays unmarked");
+h.ok(backlog.text.startsWith("The chamber enviroment remained stable"), "backlog flagging never edits the document");
+// Give any wrongly-scheduled judgment/correction time to appear, then pin its absence.
+await new Promise((resolve) => setTimeout(resolve, 900));
+const backlogSettled = await page.evaluate(() => ({
+  pending: document.querySelectorAll(".cm-context-issue-pending").length,
+  corrected: document.querySelectorAll(".cm-local-correction").length,
+  stillFlagged: [...document.querySelectorAll(".cm-context-issue-flagged")].map((el) => el.textContent),
+}));
+h.eq([backlogSettled.pending, backlogSettled.corrected], [0, 0], "backlog flags never invoke the smart layer and never auto-correct");
+h.eq(backlogSettled.stillFlagged, ["enviroment"], "the flag persists until the text is edited");
+await page.evaluate(() => {
+  document.querySelector(".cm-context-issue-flagged")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+});
+await waitFor(page, () => document.querySelector(".cm-context-issue-menu")?.dataset.fluxContextIssueDetails === "flagged", null, { label: "flagged details tooltip" });
+const flaggedMenu = await page.evaluate(() => document.querySelector(".cm-context-issue-menu")?.textContent ?? "");
+h.ok(flaggedMenu.includes("Flagged by the local checker"), "clicking a flagged span explains who flagged it and why");
+await page.keyboard.press("Escape");
+
 await page.click("[data-correction-status]");
 await waitFor(
   page,

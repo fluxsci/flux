@@ -33,6 +33,7 @@ import {
   type PlannedLocalCorrection,
 } from "./localCorrectionCore";
 import {
+  backlogScanWindows,
   classifyTypedBoundaries,
   extractCompletedWordWindow,
   extractSentenceWindow,
@@ -102,7 +103,7 @@ interface RecentCorrection {
   contextual?: boolean;
 }
 
-type ContextIssueStatus = "deferred" | "pending" | "declined";
+type ContextIssueStatus = "deferred" | "pending" | "declined" | "flagged";
 
 interface ContextIssue {
   id: string;
@@ -278,7 +279,11 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
             const label = document.createElement("strong");
             label.textContent = issue.status === "declined"
               ? "Left unchanged"
-              : issue.status === "pending" ? "Checking with smart context…" : "Waiting for sentence context…";
+              : issue.status === "pending"
+                ? "Checking with smart context…"
+                : issue.status === "flagged"
+                  ? "Flagged by the local checker"
+                  : "Waiting for sentence context…";
             const word = document.createElement("span");
             word.className = "cm-context-issue-word";
             word.textContent = issue.attemptedReplacement
@@ -513,6 +518,16 @@ interface PendingContext {
   packet: ContextCorrectionPacketV1;
 }
 
+interface BacklogChunk {
+  from: number;
+  to: number;
+  text: string;
+}
+
+// Decoration cost is O(issues) on every transaction; a messy manuscript must
+// not turn the whole document red or tax typing. First-come, capped.
+const MAX_BACKLOG_FLAGS = 300;
+
 class CorrectionController {
   private profile: LocalCorrectionProfile;
   private activeProjectKey: string;
@@ -533,6 +548,10 @@ class CorrectionController {
   private contextualInFlight = false;
   private activeContext: PendingContext | null = null;
   private contextualQueue: PendingContext[] = [];
+  private backlogTimer: ReturnType<typeof setTimeout> | null = null;
+  private backlogGen = 0;
+  private backlogChunks: BacklogChunk[] = [];
+  private backlogFlagged = 0;
   private failedNoticeShown = false;
   private enabledState: boolean;
   private contextualEnabledState: boolean;
@@ -596,6 +615,12 @@ class CorrectionController {
       this.activeContext = null;
       this.contextualQueue = [];
       this.lastBatch = [];
+      this.backlogGen += 1;
+      this.backlogChunks = [];
+      if (this.backlogTimer) {
+        clearTimeout(this.backlogTimer);
+        this.backlogTimer = null;
+      }
       this.clearIssuesSoon();
       if (this.triggerTimer) {
         clearTimeout(this.triggerTimer);
@@ -705,6 +730,14 @@ class CorrectionController {
       this.removeRequestIssuesSoon(dropped);
     }
 
+    if (this.backlogChunks.length && update.docChanged) {
+      this.backlogChunks = this.backlogChunks.map((chunk) => ({
+        ...chunk,
+        from: update.changes.mapPos(chunk.from, -1),
+        to: update.changes.mapPos(chunk.to, -1),
+      }));
+    }
+
     const aliasRecent = update.transactions.flatMap((tr) => tr.annotation(aliasExpansions) ?? []);
     if (aliasRecent.length) this.scheduleExpiry(aliasRecent);
 
@@ -734,12 +767,21 @@ class CorrectionController {
       this.options.onStatus?.("off");
       return;
     }
+    // A document arriving OUTSIDE typing — open, switch, external reload — is
+    // the backlog-flag trigger: existing Harper issues get a red underline
+    // without any correction or model call. User events (typing, undo, our own
+    // applies) and the alias expander's appended replacement never rescan.
+    const programmaticLoad = update.transactions.some((tr) =>
+      tr.docChanged && tr.annotation(Transaction.userEvent) == null && !tr.annotation(aliasExpansions));
+    if (programmaticLoad) this.scheduleBacklogScan();
     const boundaries = insertedBoundaries(update);
     if (boundaries.has("word")) this.scheduleCorrection("word");
     if (boundaries.has("sentence")) this.scheduleCorrection("sentence");
   }
 
   destroy(): void {
+    this.backlogGen += 1;
+    if (this.backlogTimer) clearTimeout(this.backlogTimer);
     if (this.triggerTimer) clearTimeout(this.triggerTimer);
     if (this.vocabularyTimer) clearTimeout(this.vocabularyTimer);
     if (this.expiryTimer) clearTimeout(this.expiryTimer);
@@ -761,6 +803,9 @@ class CorrectionController {
         const model = this.options.contextualModel?.() ?? (provider === "ollama" ? "qwen3:4b-instruct" : "qwen3-4b-q4_k_m");
         void contextualCorrectionService.warm(provider, model);
       }
+      // Covers documents already present at editor creation (no load
+      // transaction ever fires for them) and every enable/project-switch path.
+      this.scheduleBacklogScan();
     };
     if ("requestIdleCallback" in window) {
       this.idleHandle = window.requestIdleCallback(warm, { timeout: 900 });
@@ -830,7 +875,11 @@ class CorrectionController {
   private removeTransientIssues(): void {
     queueMicrotask(() => {
       const visual = this.view.state.field(correctionVisualField, false);
-      const ids = visual?.issues.filter((issue) => issue.status !== "declined").map((issue) => issue.id) ?? [];
+      // Deferred/pending spans belong to an in-flight judgment pass; flagged
+      // backlog spans and settled declines are provider-independent and stay.
+      const ids = visual?.issues
+        .filter((issue) => issue.status === "deferred" || issue.status === "pending")
+        .map((issue) => issue.id) ?? [];
       if (ids.length) this.view.dispatch({ effects: removeContextIssues.of(ids) });
     });
   }
@@ -887,6 +936,86 @@ class CorrectionController {
         };
       });
     if (issues.length) this.view.dispatch({ effects: upsertContextIssues.of(issues) });
+  }
+
+  private scheduleBacklogScan(delay = 1200): void {
+    if (!this.options.enabled()) return;
+    if (this.backlogTimer) clearTimeout(this.backlogTimer);
+    this.backlogTimer = setTimeout(() => {
+      this.backlogTimer = null;
+      this.startBacklogScan();
+    }, delay);
+  }
+
+  private startBacklogScan(): void {
+    if (!this.options.enabled()) return;
+    const gen = ++this.backlogGen;
+    this.backlogFlagged = 0;
+    this.backlogChunks = backlogScanWindows(this.view.state.doc.toString());
+    void this.runBacklogSlice(gen);
+  }
+
+  /**
+   * Flag pre-existing Harper issues, one idle-paced chunk at a time. The scan
+   * only decorates — it never edits and never calls the judgment model. Live
+   * lanes always outrank it: the caret's own sentence is skipped, busy lanes
+   * defer the scan, and an existing issue's status is never downgraded.
+   */
+  private async runBacklogSlice(gen: number): Promise<void> {
+    if (gen !== this.backlogGen || !this.options.enabled()) return;
+    const chunk = this.backlogChunks.shift();
+    if (!chunk) return;
+    const next = () => {
+      if (gen !== this.backlogGen) return;
+      if ("requestIdleCallback" in window) window.requestIdleCallback(() => void this.runBacklogSlice(gen), { timeout: 600 });
+      else setTimeout(() => void this.runBacklogSlice(gen), 80);
+    };
+    if (this.inFlight || this.queue.length || this.contextualInFlight) {
+      this.backlogChunks.unshift(chunk);
+      setTimeout(() => void this.runBacklogSlice(gen), 700);
+      return;
+    }
+    const head = this.view.state.selection.main.head;
+    if (this.view.hasFocus && chunk.from - 1 <= head && head <= chunk.to + 1) {
+      // The user is writing here; the word/sentence lanes own this region.
+      next();
+      return;
+    }
+    if (this.view.state.doc.sliceString(chunk.from, chunk.to) !== chunk.text) {
+      next();
+      return;
+    }
+    try {
+      const lints = await localCorrectionService.lint(chunk.text);
+      if (gen !== this.backlogGen || !this.options.enabled()) return;
+      if (this.view.state.doc.sliceString(chunk.from, chunk.to) !== chunk.text) {
+        next();
+        return;
+      }
+      const existing = this.view.state.field(correctionVisualField, false)?.issues ?? [];
+      const candidates = normalizeCorrectionCandidates(chunk.text, lints, "sentence", {
+        ...this.normalizationOptions(),
+        harperLintsOnly: true,
+      }).filter((candidate) => {
+        const from = chunk.from + candidate.from;
+        const to = chunk.from + candidate.to;
+        if (existing.some((issue) => from < issue.to && to > issue.from)) return false;
+        return !protectedByEditor(this.view.state, from, to);
+      });
+      const kept = candidates.slice(0, Math.max(0, MAX_BACKLOG_FLAGS - this.backlogFlagged));
+      this.backlogFlagged += kept.length;
+      if (kept.length) {
+        this.view.dispatch({ effects: upsertContextIssues.of(this.candidateIssues(chunk, kept, "flagged")) });
+      }
+      if (this.backlogFlagged >= MAX_BACKLOG_FLAGS) {
+        this.backlogChunks = [];
+        return;
+      }
+    } catch {
+      // Worker unavailable — the service already surfaced one visible error.
+      return;
+    }
+    next();
   }
 
   private scheduleCorrection(lane: "word" | "sentence"): void {

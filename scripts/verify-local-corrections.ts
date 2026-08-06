@@ -19,6 +19,7 @@ import {
   LocalCorrectionProfile,
 } from "../src/shell/modes/paper/editing/localCorrectionProfile";
 import {
+  backlogScanWindows,
   classifyTypedBoundaries,
   extractCompletedWordWindow,
   extractSentenceWindow,
@@ -473,6 +474,37 @@ h.section("judgment aggressiveness envelopes");
     requestId: grammarPacket.requestId,
     decisions: [{ candidateId: grammarCandidate.id, action: "rescue", replacement: "fluorescent" }],
   }, grammarSource, { approvedRescues: new Set([rescueApprovalKey(grammarCandidate.id, "fluorescent")]) }), [], "final grammar shape guard rejects an adjective in a nominal subject slot");
+}
+
+h.section("backlog scan windows and Harper-only candidates");
+{
+  const paragraphOne = "The first paragraph has a compelx idea. It continues briefly.";
+  const longSentences = Array.from({ length: 12 }, (_, index) => `Sentence number ${index} carries roughly sixty characters of prose here.`).join(" ");
+  const doc = `${paragraphOne}\n\n${longSentences}\n\n\`\`\`\ncode block text\n\`\`\`\n\nLast paragraph.`;
+  const windows = backlogScanWindows(doc);
+  h.ok(windows.length >= 4, "paragraphs and long-paragraph splits each get their own window");
+  h.ok(windows.every((w) => w.text.length <= 640), "every backlog window respects the live-lint size cap");
+  h.ok(windows.every((w) => doc.slice(w.from, w.to) === w.text), "every window's offsets address its exact text");
+  h.eq(windows[0].text, paragraphOne, "a short paragraph is one window");
+  const rejoined = windows.map((w) => w.text).join(" ");
+  h.ok(rejoined.includes("Sentence number 11") && rejoined.includes("Last paragraph."), "the scan covers the document through its final paragraph");
+  const boundarySplit = windows.filter((w) => w.text.startsWith("Sentence number"));
+  h.ok(boundarySplit.every((w) => /[.!?]$/.test(w.text)), "long paragraphs split at sentence boundaries, not mid-sentence");
+
+  const source = "We know there is a compelx site here.";
+  const harperOnly = normalizeCorrectionCandidates(
+    source,
+    [lint(source, "compelx", "Spelling", ["complex"])],
+    "sentence",
+    { harperLintsOnly: true, explicitWords: ["FluxSite2"] },
+  );
+  h.eq(harperOnly.map((candidate) => candidate.original), ["compelx"], "harperLintsOnly yields exactly the Harper-flagged span");
+  const withSynthetic = normalizeCorrectionCandidates(
+    source,
+    [lint(source, "compelx", "Spelling", ["complex"])],
+    "sentence",
+  );
+  h.ok(withSynthetic.some((candidate) => candidate.original === "site" || candidate.original === "there"), "without the flag, confusion-table candidates still join the sentence lane");
 }
 
 h.section("architecture pins");

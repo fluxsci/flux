@@ -83,7 +83,16 @@
           : provider === "ollama"
             ? status.ready ? `Ollama model ready${correctionModels.length ? ` · ${correctionModels.length} installed` : ""}` : `Ollama available${correctionModels.length ? ` · ${correctionModels.length} model${correctionModels.length === 1 ? "" : "s"}` : ""}`
             : "Cloud key ready"
-        : status.error || (provider === "openai" ? "Add an API key to enable cloud judgment" : provider === "flux" ? managed?.updateRequired ? "Flux local model update required" : "Install the Flux local model to enable sentence judgment" : "Ollama is not available");
+        : status.error || (provider === "openai"
+          ? "Add an API key to enable cloud judgment"
+          : provider === "flux"
+            // `runtime` is the staged llama-server's release stamp. Null means the
+            // helper itself is absent — a state only source checkouts can reach
+            // (packaged builds ship it), and one more model installs cannot fix.
+            ? managed && managed.runtime == null
+              ? "Correction runtime missing from this build — run npm run fetch:correction-runtime in the Flux checkout"
+              : managed?.updateRequired ? "Flux local model update required" : "Install the Flux local model to enable sentence judgment"
+            : "Ollama is not available");
       const profile = await fb.correctionProfileGet?.("") as { personal?: Record<string, unknown>; project?: Record<string, unknown> } | undefined;
       if (profile?.personal) {
         correctionPersonalProfile = profile.personal;

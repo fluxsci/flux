@@ -230,6 +230,15 @@ Persistence invariants (all machine-checked — do not weaken):
   sentence judgment changes it to a transient blue correction line or a persistent, clickable
   orange abstention with structured (non-chain-of-thought) diagnostics. Native Chromium spelling
   decoration is suppressed only inside those owned spans so it cannot conflict with the state.
+  A programmatically loaded document (open/switch/external reload — any docChanged with no
+  userEvent) additionally gets a BACKLOG SCAN (2026-08-06): idle-paced chunks
+  (`backlogScanWindows`, paragraph blocks cut at sentence boundaries) lint through the same
+  worker and mark Harper-flagged spans with status `flagged` (red, persistent, capped at 300)
+  — candidates come from `harperLintsOnly` normalization (no confusion-table/vocab synthesis,
+  which would mark every "there"), the scan never edits, never calls the judgment model, skips
+  the caret's own chunk (live lanes own it — this also keeps typed-fixture gates deterministic),
+  and never downgrades an existing issue's status. Editing a flagged sentence hands it to the
+  normal lanes.
   Unresolved sentence candidates may cross the bounded main-process seam in
   `electron/ipc/corrections.cjs`. The model first adjudicates supplied options; for a plain
   unresolved spelling token it may enter a bounded rescue protocol that proposes one
@@ -2325,3 +2334,29 @@ fixed and re-run 3× green — see below).
   before typing the second typo. Every assertion kept; nothing loosened.
 - Rebase-then-ff keeps the linear main history through a 4-commit divergent worktree; the only
   human decision was session-log entry order (append order of landing, not strict datestamp).
+
+### 2026-08-06 (later) — "Model installed but nothing works": the unstaged dev runtime + backlog flagging (Claude Fable 5, `main`)
+**Work:** Owner report: the managed Qwen layer did nothing on main — Settings said "Install the
+Flux local model" although the model card showed installed, and remove/re-download didn't help.
+Root cause: the pinned llama-server lives in gitignored `build/correction-runtime/<platform-arch>/`,
+which is a PACKAGING artifact — Codex had fetched it only inside the worktree, so a fresh checkout
+(or this main tree) has the model under FluxConfig but no helper binary; `status().available` is
+false while `installed` is true, and the message pointed at the wrong remedy. Staged the runtime
+here (copy from the worktree ≡ `npm run fetch:correction-runtime`), proved the full path live
+(warm+prime 2.6 s, one structured decision 94 ms on Vulkan), and gave Settings a discriminating
+branch (`managed.runtime == null` → "runtime missing — run npm run fetch:correction-runtime").
+Then built the owner-requested BACKLOG FLAGGING (details promoted to §4): opened/switched
+documents get idle-paced Harper-only red flags, no edits, no model calls. New pure coverage
+(`backlogScanWindows` + `harperLintsOnly`, verify-local-corrections 99) and a live gate section
+(verify-paper-local-corrections 55); paper-gate 26/26, scale-paper 7/7, check 0/0.
+**Learnings:**
+- A source checkout needs `npm run fetch:correction-runtime` ONCE before the managed correction
+  provider can run — `npm install`/`npm run build` do not stage it (deliberately: 32 MB pinned
+  binary). Anyone cloning or working in a fresh worktree hits this; the Settings message now says
+  so instead of blaming the model.
+- When a feature spans a durable user asset (the model in FluxConfig) and a per-checkout build
+  artifact (the runtime), every status string must distinguish which half is missing — "reinstall
+  the model" was a plausible-looking dead end that cost the owner a 2.33 GB re-download.
+- The backlog scan skips the caret's chunk. That isn't only politeness to the live lanes — it's
+  what keeps every existing typed-fixture gate deterministic (their single-paragraph docs always
+  contain the caret, so background scans can never race their assertions).

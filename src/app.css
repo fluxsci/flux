@@ -75,6 +75,7 @@ body {
   pointer-events: none;
 }
 .paper .cm-context-issue-deferred::after,
+.paper .cm-context-issue-flagged::after,
 .paper .cm-context-issue-pending::after {
   background: color-mix(in srgb, var(--flx-red-400) 70%, transparent);
   animation: flux-context-issue-in 260ms var(--ease-enter) both;

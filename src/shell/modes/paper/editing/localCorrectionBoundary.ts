@@ -133,4 +133,53 @@ export function extractCompletedWordWindow(
   return /[\p{L}\p{M}]/u.test(text) ? { from, to, text } : null;
 }
 
+/**
+ * Split a whole document into lintable backlog windows: paragraph blocks,
+ * long paragraphs cut at sentence boundaries (whitespace as a fallback) so
+ * every chunk stays within the size the worker lints during live typing.
+ */
+export function backlogScanWindows(document: string, maxLength = 640): CorrectionTextWindow[] {
+  const out: CorrectionTextWindow[] = [];
+  const push = (from: number, to: number) => {
+    while (from < to && /\s/.test(document[from])) from += 1;
+    while (to > from && /\s/.test(document[to - 1])) to -= 1;
+    if (to <= from) return;
+    const text = document.slice(from, to);
+    if (/[\p{L}\p{M}]/u.test(text)) out.push({ from, to, text });
+  };
+  const pushParagraph = (from: number, to: number) => {
+    let at = from;
+    while (to - at > maxLength) {
+      let cut = -1;
+      for (let i = at + maxLength; i > at + maxLength / 2; i -= 1) {
+        if (/\s/.test(document[i]) && isSentenceBoundaryAt(document, i)) {
+          cut = i;
+          break;
+        }
+      }
+      if (cut < 0) {
+        for (let i = at + maxLength; i > at + maxLength / 2; i -= 1) {
+          if (/\s/.test(document[i])) {
+            cut = i;
+            break;
+          }
+        }
+      }
+      if (cut < 0) cut = at + maxLength;
+      push(at, cut);
+      at = cut;
+    }
+    push(at, to);
+  };
+  let from = 0;
+  const separator = /\n[ \t]*\n+/g;
+  let match: RegExpExecArray | null;
+  while ((match = separator.exec(document))) {
+    pushParagraph(from, match.index);
+    from = match.index + match[0].length;
+  }
+  pushParagraph(from, document.length);
+  return out;
+}
+
 export const SCIENTIFIC_ABBREVIATIONS = Object.freeze([...ABBREVIATIONS].sort());

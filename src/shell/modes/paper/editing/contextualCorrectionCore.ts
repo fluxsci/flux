@@ -126,6 +126,12 @@ export interface CandidateNormalizationOptions {
   projectOccurrences?: ReadonlyMap<string, number>;
   suppressRepeatedUnknowns?: boolean;
   aggressiveness?: CorrectionAggressiveness;
+  /**
+   * Candidates from real Harper lints only — no confusion-table or explicit
+   * vocabulary sources. The backlog scan flags what the local checker actually
+   * found; synthesized sources would mark every "there"/"cite" in a manuscript.
+   */
+  harperLintsOnly?: boolean;
 }
 
 export function stableCorrectionHash(value: string): string {
@@ -371,19 +377,21 @@ export function normalizeCorrectionCandidates(
     add(lint, replacements.map((replacement): CandidateSuggestion => ({ replacement, source: "harper" })), rescue);
   }
 
-  for (const lint of contextualConfusionLints(source)) {
-    if (candidates.some((candidate) => candidate.from === lint.from && candidate.to === lint.to)) continue;
-    add(lint, lint.suggestions.map((replacement) => ({ replacement, source: "dictionary" })));
-  }
+  if (options.harperLintsOnly !== true) {
+    for (const lint of contextualConfusionLints(source)) {
+      if (candidates.some((candidate) => candidate.from === lint.from && candidate.to === lint.to)) continue;
+      add(lint, lint.suggestions.map((replacement) => ({ replacement, source: "dictionary" })));
+    }
 
-  // Explicit mixed-case scientific terms are a candidate source even when
-  // Harper does not know them.
-  for (const plan of planExplicitVocabularyCorrections(source, explicitWords, blocked)) {
-    if (candidates.some((candidate) => candidate.from < plan.to && candidate.to > plan.from)) continue;
-    add(
-      { ...plan, problem: plan.original, suggestions: [plan.replacement] },
-      [{ replacement: plan.replacement, source: project.has(plan.replacement.toLocaleLowerCase()) ? "project" : "dictionary" }],
-    );
+    // Explicit mixed-case scientific terms are a candidate source even when
+    // Harper does not know them.
+    for (const plan of planExplicitVocabularyCorrections(source, explicitWords, blocked)) {
+      if (candidates.some((candidate) => candidate.from < plan.to && candidate.to > plan.from)) continue;
+      add(
+        { ...plan, problem: plan.original, suggestions: [plan.replacement] },
+        [{ replacement: plan.replacement, source: project.has(plan.replacement.toLocaleLowerCase()) ? "project" : "dictionary" }],
+      );
+    }
   }
 
   return candidates.slice(0, lane === "paragraph" ? 12 : 8);

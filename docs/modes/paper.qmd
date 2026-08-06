@@ -88,6 +88,13 @@ The underline shows the complete decision lifecycle without interrupting typing:
   structured reason and the relevant words it considered. This is a concise decision record, not
   hidden model reasoning.
 
+Opening a document that already contains text gets the same red treatment without any editing:
+Flux quietly scans the existing prose in the background and underlines what the local checker
+flags, a few hundred marks at most. These are flags only — nothing is corrected, and the sentence
+judge is not consulted for old text. Click a flag to see why it's marked; edit anywhere in that
+sentence and the normal correction lanes take over from there. The scan skips the sentence you
+are actively writing in, along with code, math, tables, and the other protected regions.
+
 Settings offers three judgment envelopes. **Standard** is the default: one typing edit for short
 words and two otherwise. **Aggressive** can explore three edits for words of nine or more letters.
 **Really aggressive** explores every bounded candidate, allows three edits from seven letters and
