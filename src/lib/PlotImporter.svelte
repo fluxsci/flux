@@ -18,6 +18,7 @@
   import { importerOpen, embeddedProjectRoot, projectDir } from "./store";
   import { fileBridge, joinPath } from "./project/types";
   import { importPlotsFromPaths } from "./io";
+  import { isDissectDirName } from "./dissect/rules";
 
   // Reuse beyond Figure mode: when `onPick` is provided (e.g. Slide mode), the
   // chosen plots are handed to it as an ARRAY of picks (abs path + project-relative
@@ -103,8 +104,10 @@
     manifestNames = new Set(es.filter((e) => !e.dir && /\.fluxplot\.json$/i.test(e.name)).map((e) => e.name));
     snipNames = new Set(es.filter((e) => !e.dir && /\.snip\.json$/i.test(e.name)).map((e) => e.name));
     // dirs first, then files, each alphabetical; show dirs + .svg plots + .png rasters (snips).
+    // The _dissections folder is per-plot companion material (Dissect viewer), not plots to
+    // insert — it never appears here or in search (shared rule, see dissect/rules).
     entries = es
-      .filter((e) => e.dir || /\.(svg|png)$/i.test(e.name))
+      .filter((e) => (e.dir ? !isDissectDirName(e.name) : /\.(svg|png)$/i.test(e.name)))
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
     loading = false;
   }
@@ -129,7 +132,9 @@
       for (const e of es) {
         const abs = joinPath(dir, e.name);
         const r = rel ? `${rel}/${e.name}` : e.name;
-        if (e.dir) await visit(abs, r, depth + 1);
+        if (e.dir) {
+          if (!isDissectDirName(e.name)) await visit(abs, r, depth + 1);
+        }
         else if (/\.svg$/i.test(e.name))
           out.push({ abs, rel: r, name: e.name, semantic: names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")) });
         else if (/\.png$/i.test(e.name))

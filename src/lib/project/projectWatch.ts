@@ -6,12 +6,13 @@
 //                     (PaperMode never clobbers unsaved work — see its handler)
 //   slides/         → bump deckRevision (SlideMode reloads the deck if clean)  [W10]
 //   fluxlib         → bump fluxLibRevision (Library/Reader/@-refs re-pull)      [W10]
+//   plots/_dissections/ → bump dissectionsRevision (open Dissect viewer re-lists)
 //
 // The Electron main process already skips the app's own writes, so this only
 // fires for genuine external (agent / analysis-script) edits.
 
 import { get, writable } from "svelte/store";
-import { bumpFigRevision, bumpBibRevision, bumpDeckRevision } from "../../shell/scholar/revisions";
+import { bumpFigRevision, bumpBibRevision, bumpDeckRevision, bumpDissections } from "../../shell/scholar/revisions";
 import { bumpFluxLib, bumpAssignInbox, bumpZoteroBib } from "../references/revision";
 import { invalidateEnrichCache } from "../references/fluxlibBridge";
 import { project } from "../store";
@@ -96,7 +97,8 @@ export function startProjectWatch(root: string | null): void {
       // Swap first, then bump: the revision reload re-reads fig/assets, which
       // is only fresh AFTER reimportPlot marks the swapped bytes for save.
       void syncPlotsIntoFigures(root, fig).finally(() => bumpFigRevision());
-    } else if (info.subsystem === "fig") bumpFigRevision();
+    } else if (info.subsystem === "dissections") bumpDissections(); // plots/_dissections/ — Dissect viewer re-lists
+    else if (info.subsystem === "fig") bumpFigRevision();
     else if (info.subsystem === "references") bumpBibRevision();
     else if (info.subsystem === "manuscript" || info.subsystem === "context")
       externalManuscriptChange.set({ ...info, n: ++mn });

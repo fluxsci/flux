@@ -903,10 +903,17 @@ fileCore.registerHandlers(ipcMain);
 // fs:changed events ({ subsystem, path }), skipping the app's own writes so
 // agent/script edits "pop into" the open window non-destructively.
 // ---------------------------------------------------------------------------
+// Dissection material (per-plot companion folders under plots/) gets its OWN subsystem: a
+// script dropping 20 per-subject panels must live-refresh an open Dissect viewer, not trigger
+// 20 plots re-sync sweeps. dissectRules.js is ESM (the renderer + flux-core import it too), so
+// this CommonJS file loads it by dynamic import — resolved at watch setup, before any event
+// can arrive; if it somehow fails to load, the events safely degrade to the plots subsystem.
+let dissectRules = null;
 function subsystemFor(root, abs) {
   const rel = path.relative(root, abs).split(path.sep).join("/");
   if (rel.startsWith("..")) return null;
-  if (rel.startsWith("plots/")) return "plots";
+  if (rel.startsWith("plots/"))
+    return dissectRules && dissectRules.isDissectionProjectRel(rel) ? "dissections" : "plots";
   if (rel.startsWith("fig/")) return "fig";
   if (rel.startsWith("manuscript/")) return "manuscript";
   if (rel.startsWith("references/")) return "references";
@@ -1026,6 +1033,7 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   // pane re-invokes watch:setRoot after connecting, so the target stays current.
   const capDir = captureDir();
   if (capDir && !captureRules) captureRules = await import("./captureRules.js").catch(() => null);
+  if (!dissectRules) dissectRules = await import("./dissectRules.js").catch(() => null);
   const zoteroPrefs = readPrefs().zotero;
   const zoteroBib =
     zoteroPrefs && typeof zoteroPrefs === "object" && typeof zoteroPrefs.bibPath === "string" && zoteroPrefs.bibPath

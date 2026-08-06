@@ -30,6 +30,10 @@ await page.evaluate(async (root) => {
   await window.fig.writeText(`${root}/plots/bravo.fluxplot.json`, manifest);
   await window.fig.writeText(`${root}/plots/sub/charlie.svg`, svg("#7570b3"));
   await window.fig.writeText(`${root}/plots/sub/delta.svg`, svg("#e7298a"));
+  // Dissect: companion material under plots/_dissections/ must be INVISIBLE to the
+  // importer — as a browse row AND in search (its svgs would otherwise be insertable).
+  await window.fig.writeText(`${root}/plots/_dissections/alpha decay/subj01.svg`, svg("#111111"));
+  await window.fig.writeText(`${root}/plots/_dissections/alpha decay/_stats/anova.csv`, "term,p\nintake,0.003\n");
 }, ROOT);
 
 const snap = () =>
@@ -42,6 +46,7 @@ const snap = () =>
       pill: document.querySelector(".pickpill")?.textContent?.trim() ?? "",
       pickedRows: [...document.querySelectorAll(".row.picked .nm")].map((n) => n.textContent),
       glyphs: [...document.querySelectorAll(".row.picked .ic")].map((n) => n.textContent?.trim()),
+      rows: [...document.querySelectorAll(".row .nm")].map((n) => n.textContent),
       curDir: document.querySelector(".path .cur")?.textContent ?? "",
       search: document.querySelector(".search-in")?.value ?? "",
       inputFocused: document.activeElement === document.querySelector(".search-in"),
@@ -81,6 +86,15 @@ await altI();
 let s = await snap();
 ok(s.open, "Alt+I opens the importer");
 ok(s.inputFocused, "search input holds keyboard focus on open");
+
+// ---- plots/_dissections/ is invisible (Dissect companion material) --------------
+ok(!s.rows.includes("_dissections"), "browse never lists the _dissections folder", s.rows.join(","));
+await page.keyboard.type("subj01");
+await sleep(250);
+s = await snap();
+ok(s.rows.length === 0, "search never surfaces a dissection file", s.rows.join(","));
+await page.keyboard.press("Escape"); // clear search → back to browse at index 0
+await sleep(150);
 
 // browse rows (dirs first, then files alphabetical): [sub, alpha decay, bravo]
 await page.keyboard.press("ArrowDown"); // → "alpha decay"

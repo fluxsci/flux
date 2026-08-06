@@ -167,7 +167,8 @@
       "verify-nature-compliance.ts",
       "verify-bookmarklet.ts",
       "verify-capture-intake.ts",
-      "verify-extension.ts"
+      "verify-extension.ts",
+      "verify-dissections.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -385,6 +386,14 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "{electron/dissectRules.js,src/lib/dissect/**}",
+      "run": [
+        "verify-dissections.ts",
+        "verify-dissect-gui.mjs",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "{extension/**,scripts/build-extension.mjs}",
       "run": [
