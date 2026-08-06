@@ -23,7 +23,7 @@ export { s2Similar, s2Citing } from "./s2";
 export { buildInfo } from "./buildInfo";
 export type { BuildInfo } from "./buildInfo";
 // FluxFinder — PDF acquisition + the items/ store.
-export { fetchPdfForKey, fetchPdfs, fetchSupplements, ingestPdf } from "./acquire";
+export { fetchPdfForKey, fetchPdfs, fetchSupplements, ingestPdf, missingPdfs, toCsv } from "./acquire";
 export type { FetchSummary, FetchOneResult } from "./acquire";
 export { assignPdfs } from "./assign";
 export type { AssignSummary, AssignItemResult, AssignAction } from "./assign";

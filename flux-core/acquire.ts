@@ -3,12 +3,12 @@
 // entry's identifiers (from enrich.json + the .bib), downloads the first magic-byte-
 // valid PDF, and files it into items/<citekey>/ with provenance. Proxy/paywall is a
 // later phase (GUI/Electron-only). The renderer twin lives in pdfFinderBridge.ts.
-import { loadLibrary, loadEnrich, getSecret } from "./fluxlib";
+import { loadLibrary, loadEnrich, getSecret, resolveFluxLibPath } from "./fluxlib";
 import { hasPdf, writePdf, writeFulltext, loadOaMisses, saveOaMisses, fileSupplement } from "./items";
 import { fetchEuropePmcSupplements } from "../src/lib/references/supplementFinder";
 import { extractFulltext } from "./fulltext";
-import { runWaterfall, isPdfBytes, bareDoi, resolvePmcid, type PdfInputs, type FetchDeps } from "../src/lib/references/pdfFinder";
-import { safeKey, oaSig, isFreshOaMiss, type OaMissMap } from "../src/lib/references/items";
+import { runWaterfall, isPdfBytes, bareDoi, resolvePmcid, pmcidFromUrl, type PdfInputs, type FetchDeps } from "../src/lib/references/pdfFinder";
+import { safeKey, oaSig, isFreshOaMiss, failurePath, type OaMissMap, type FetchFailure } from "../src/lib/references/items";
 import { HostLimiter, hostGroup, doiGroup, interleaveByGroup, GET_COST } from "../src/lib/references/hostLimiter";
 import { readFile } from "node:fs/promises";
 
@@ -287,4 +287,99 @@ export async function fetchSupplements(
     files: results.reduce((n, r) => n + r.added, 0),
     results,
   };
+}
+
+// --- coverage report: which papers still have no main text, and why ------------------
+
+export interface MissingPdfRow {
+  citekey: string;
+  title: string;
+  doi: string;
+  /** One-word bucket: never-tried | no-oa (the OA ledger wrote it off) | failed (both routes). */
+  status: string;
+  year: string;
+  journal: string;
+  /** Rate-limit / publisher family the DOI or OA url belongs to (elsevier, springer, aaas…). */
+  publisher_group: string;
+  is_oa: string; // "yes" | "no" | "" (not enriched)
+  oa_url: string;
+  pmid: string;
+  pmcid: string;
+  /** Last recorded OA outcome for this paper ("no-oa", "no-id", or an error string). */
+  oa_error: string;
+  /** Last proxy-capture classification ("no-affordances", "not-a-pdf", "session-expired"…). */
+  proxy_reason: string;
+  landed_host: string;
+  attempts: string;
+  last_attempt: string;
+}
+
+/** RFC4180-ish: quote when the value contains a delimiter, quote or newline; double inner quotes. */
+function csvCell(v: unknown): string {
+  const s = String(v ?? "");
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+export function toCsv(rows: MissingPdfRow[]): string {
+  const cols = Object.keys(
+    rows[0] ??
+      ({
+        citekey: "", title: "", doi: "", status: "", year: "", journal: "", publisher_group: "",
+        is_oa: "", oa_url: "", pmid: "", pmcid: "", oa_error: "", proxy_reason: "",
+        landed_host: "", attempts: "", last_attempt: "",
+      } as MissingPdfRow),
+  ) as (keyof MissingPdfRow)[];
+  return [cols.join(","), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(","))].join("\n") + "\n";
+}
+
+/**
+ * Every library entry with NO main text, plus what we know about why.
+ *
+ * "No main text" means no stored paper.pdf AND no link-mode pointer — a Zotero-linked PDF
+ * counts as present even though Flux never copied the bytes.
+ *
+ * The diagnostic columns come from artifacts already on disk: enrich.json (is it even OA?
+ * does it have a PMCID the PMC route could have used?) and items/<key>/fetch-failure.json
+ * (what did the last real attempt actually hit?). Nothing here touches the network.
+ */
+export async function missingPdfs(opts: { libPath?: string } = {}): Promise<MissingPdfRow[]> {
+  const [lib, enrich, misses] = await Promise.all([loadLibrary(opts.libPath), loadEnrich(opts.libPath), loadOaMisses(opts.libPath)]);
+  const L = opts.libPath ?? (await resolveFluxLibPath());
+  const rows: MissingPdfRow[] = [];
+  for (const e of lib) {
+    if (await hasPdf(e.key, opts.libPath)) continue;
+    const en = enrich[e.key];
+    const doi = bareDoi(e.doi || en?.doi) ?? "";
+    let fail: FetchFailure | null = null;
+    try {
+      fail = JSON.parse(await readFile(failurePath(L, e.key), "utf8")) as FetchFailure;
+    } catch {
+      /* no failure record — never attempted, or it succeeded and was cleared */
+    }
+    // The OA-miss ledger is the OTHER record of "we tried this" — and in practice the fuller
+    // one: Part C's fetch-failure.json is written only when BOTH routes genuinely failed in a
+    // GUI bulk run, whereas the ledger records every definitive no-open-access-copy.
+    const miss = misses[safeKey(e.key).normalize("NFC")];
+    rows.push({
+      citekey: e.key,
+      title: e.title ?? "",
+      doi,
+      status: fail ? "failed" : miss ? "no-oa" : "never-tried",
+      year: e.year ?? "",
+      journal: e.container ?? "",
+      publisher_group: doiGroup(doi) ?? hostGroup(en?.openAccess?.url || e.url) ?? "",
+      is_oa: en?.openAccess ? (en.openAccess.isOa ? "yes" : "no") : "",
+      oa_url: en?.openAccess?.url ?? "",
+      pmid: en?.ids?.pmid ?? "",
+      // enrich.json's ids.pmcid is empty across this library, so derive it the way the
+      // waterfall does — straight out of a PMC open-access URL. Offline and free; it turns
+      // "was the PMC route even available?" from a blank column into a real answer.
+      pmcid: en?.ids?.pmcid ?? pmcidFromUrl(en?.openAccess?.url) ?? "",
+      oa_error: fail?.oa ?? "",
+      proxy_reason: fail?.proxy?.reason ?? "",
+      landed_host: fail?.host ?? "",
+      attempts: String(fail?.attempts ?? miss?.attempts ?? ""),
+      last_attempt: fail?.attemptedAt ?? miss?.at ?? "",
+    });
+  }
+  return rows.sort((a, b) => a.citekey.localeCompare(b.citekey));
 }

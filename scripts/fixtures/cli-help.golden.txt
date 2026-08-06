@@ -126,6 +126,7 @@ usage: flux <verb> [root] [args] [--flags]
   keys [--openalex K] [--s2 K] [--mailto M]   show/set API keys (<FluxLib>/keys.json)
   fetch-pdfs [--refresh] [--key K]     download OA PDFs into <FluxLib>/items/<citekey>/
   fetch-supplements [--key K]          download supplementary files (Europe PMC OA subset)
+  missing-pdfs [--out F] [--json]      CSV of references with no main text + why (stdout)
   ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
   assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in <FluxLib>/pdfs_to_assign/
   search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
