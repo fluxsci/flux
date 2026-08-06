@@ -47,18 +47,26 @@ images, not blessed figures. When a winner emerges, regenerate it properly
 Lighttable runs from the Flux **source checkout** (it isn't bundled into the packaged app):
 
 ```bash
-cd ~/flux/lighttable
-npm install                  # first run only
+cd ~/flux/lighttable         # or wherever you cloned Flux
+npm ci                       # first run only — exact install from the committed lockfile
 npm start -- ~/sweep         # build + run, opening the collection
 ```
+
+`npm start` **is** `npm run build && electron .`, so there's no separate build step to run
+before it. If you only want Flux's top-bar Lighttable button to work and don't need to open
+it right now, `npm run build` on its own is the alternative — the button launches it for you.
+
+The sidecar has its **own** dependencies and build, entirely separate from Flux's — run
+these from inside `lighttable/`, never from the repo root.
 
 Once it's open you can also drop a folder onto the window, use the Open picker, or pick
 from Recents.
 
 From inside Flux, the Lighttable button on the right side of the top bar (next to the Docs
 button and Settings gear) launches it directly — a fresh window if it isn't running, or the existing one
-brought to front. The button needs the one-time `npm install` / `npm run build` above; if
-either is missing it tells you which.
+brought to front. The button needs the one-time `npm ci` plus a build — either `npm run
+build`, or one `npm start`, which builds on its way up. If either is missing it tells you
+which.
 
 # Using it
 
@@ -91,7 +99,8 @@ thing in [Figure mode](modes/figure.qmd).
 
 | Symptom | Cause → fix |
 |---|---|
-| `npm start` fails immediately | Dependencies not installed → `npm install` inside `lighttable/` first |
+| `npm start` fails immediately | Dependencies not installed → `npm ci` inside `lighttable/` first |
+| Flux's Lighttable button says the Electron binary is missing | Electron's postinstall download didn't finish (`npm ci` succeeded, but `lighttable/node_modules/electron/` has no `dist/`) → `node node_modules/electron/install.js` inside `lighttable/` |
 | No Lighttable on this machine | It needs the source checkout — packaged Flux doesn't bundle it ([Installation](installation.qmd)) |
 | Cells shift when flipping sets | Item filenames differ between sets → align the names (same key per item in every set) |
 | Wrong order (`cell_10` before `cell_7`) | Un-padded numbers → zero-pad the filenames |

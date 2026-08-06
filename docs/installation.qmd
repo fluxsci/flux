@@ -3,6 +3,15 @@ title: "Installing Flux"
 subtitle: "The app, and the small set of external tools that make it fully capable"
 ---
 
+::: {.callout-tip}
+## Setting up a Mac with an AI agent?
+
+[`docs/claude-install-flux-mac.md`](https://github.com/fluxsci/flux/blob/main/docs/claude-install-flux-mac.md)
+is the executable version of this page — a step-by-step runbook that verifies after every
+step. Clone the repo, open a Claude Code session in it, and say *"read
+docs/claude-install-flux-mac.md and set up Flux on this Mac."*
+:::
+
 Flux itself is one app, but its full capability rests on a small set of external tools:
 a Node runtime for the agent layer, Quarto (+ TeX) for compiling manuscripts, a Python
 environment with **fluxplot** for semantic plots, and the house fonts for faithful
@@ -29,6 +38,11 @@ npm ci                     # needs Node ≥ 22.12 (see below)
 npm run dist:mac           # or dist:linux → installers in release/
 ```
 
+`~/flux` is only a convention — clone anywhere you like; Flux resolves its own location at
+runtime. What *does* matter is that the checkout stays put afterwards: first run bakes its
+absolute path into the `flux` shim and the stock agent context docs. (Contrast
+[fluxplot](#uv-python-fluxplot-the-keystone) below, where the path is a genuine requirement.)
+
 For development instead of packaging: `npm run electron:dev` (Vite dev server + Electron,
 hot reload). A source checkout is also currently required for
 [**Lighttable**](lighttable.qmd), the image-set triage companion — it isn't bundled into
@@ -53,12 +67,25 @@ install). **PDF output additionally needs a TeX distribution**; TinyTeX via Quar
 easy path:
 
 ```bash
-# install quarto from quarto.org (or brew install quarto / apt)
+# install quarto from quarto.org (or brew install --cask quarto / apt) — equivalent
 quarto install tinytex
 quarto check               # verify both halves
 ```
 
 Without TinyTeX, `flux compile --to pdf` fails while `--to html|docx` still work.
+
+**TinyTeX is not added to your PATH.** `quarto install tinytex` installs into
+`~/Library/TinyTeX` (macOS) or `~/.TinyTeX` (Linux) and leaves your PATH alone. Flux and
+Quarto don't care — they locate TinyTeX internally, so PDF export works either way. But
+`tlmgr` and `kpsewhich` below are TeX's own commands, so without this they fail with
+*command not found* even on a perfectly good install:
+
+```bash
+# macOS — add to ~/.zshrc to make it permanent
+export PATH="$HOME/Library/TinyTeX/bin/universal-darwin:$PATH"
+# Linux — add to ~/.bashrc
+export PATH="$HOME/.TinyTeX/bin/x86_64-linux:$PATH"
+```
 
 ### Extras for journal-styled PDF
 
@@ -77,7 +104,7 @@ Figures also need **`rsvg-convert`** (`librsvg2-bin` on Debian and Ubuntu,
 `librsvg` on Homebrew and Arch): Flux renders figures as SVG, and LaTeX cannot
 place those directly.
 
-Check what you have:
+Check what you have (both `tlmgr` and `kpsewhich` need TinyTeX on your PATH — see above):
 
 ```bash
 kpsewhich lineno.sty setspace.sty   # both should print a path
@@ -137,7 +164,18 @@ and/or [Claude Code](https://claude.com/claude-code). Install and authenticate a
 one. See [the agent context & collaboration system](agents/collaboration.qmd) for the
 full system.
 
+(That roster file doesn't exist yet — nothing you've installed so far creates it.
+[First run](#first-run) below is what writes `~/FluxConfig` and a default `agents.json`.)
+
 # First run
+
+**Create `~/.local/bin` before you launch anything.** Flux installs its `flux` command shim
+there, but deliberately never creates the directory itself — so if it doesn't exist at first
+run, you silently get no `flux` command:
+
+```bash
+mkdir -p ~/.local/bin      # do this FIRST; also make sure it's on your PATH
+```
 
 Launching the app (or running any `flux` CLI verb) initializes `~/FluxConfig`: the
 Context layer (your `UserContext/` + the stock `FluxContext/` docs, with this machine's

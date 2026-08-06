@@ -128,12 +128,17 @@ node -v             # must print v22.x (≥ v22.12)
 **3 · Install dependencies + confirm Electron**
 
 ```sh
-npm install
+npm ci                     # exact install from the committed lockfile
 npx electron --version     # must print v43.x.x
 ```
 
-`npm install` also downloads the Electron app binary; the `electron --version`
+`npm ci` also downloads the Electron app binary; the `electron --version`
 check confirms it landed. A harmless `EBADENGINE` warning during install is fine.
+
+> **`npm ci` vs `npm install`.** `npm ci` installs exactly what `package-lock.json` pins —
+> the same tree CI, the release pipeline, and the [install guide](docs/installation.qmd)
+> build from, and it never rewrites the lockfile. Reach for `npm install` only when you're
+> deliberately adding or updating a dependency, since it re-resolves version ranges.
 
 > **If `electron --version` errors** with _"Electron failed to install correctly"_,
 > the binary download was skipped/blocked. Finish it and re-check:
@@ -142,7 +147,7 @@ check confirms it landed. A harmless `EBADENGINE` warning during install is fine
 > npx electron --version
 > ```
 > If it still fails, make sure `node -v` is **v22.x**, then
-> `rm -rf node_modules && npm install`.
+> `rm -rf node_modules && npm ci`.
 
 **4 · Run it — live-reload dev loop**
 
@@ -176,12 +181,34 @@ all that's needed to launch locally. If macOS blocks a built app, right-click �
 
 | Symptom | Fix |
 | --- | --- |
-| `Electron failed to install correctly` | Make sure `node -v` is v22.x, then `node node_modules/electron/install.js` (or `rm -rf node_modules && npm install`) |
+| `Electron failed to install correctly` | Make sure `node -v` is v22.x, then `node node_modules/electron/install.js` (or `rm -rf node_modules && npm ci`) |
 | `EBADENGINE` / `node -v` is v20 or below | `nvm use 22` (run `nvm install 22` first if needed) — Electron 43's toolchain needs Node ≥ 22.12 |
 | `npm run electron:dev` shows only `[vite]` lines, no window | Make sure you're on a current clone (`git pull`); the dev server is pinned to `127.0.0.1` to fix a macOS hang |
 | `codesign: command not found` | `xcode-select --install` |
 | Built app won't open ("damaged" / unidentified) | `xattr -dr com.apple.quarantine release/mac-arm64/Flux.app`, or right-click → **Open** |
-| Start completely clean | `rm -rf node_modules dist release && npm install` |
+| Start completely clean | `rm -rf node_modules dist release && npm ci` |
+
+### Companion tools
+
+The walkthrough above gets Flux running, but several capabilities live in **external tools
+Flux detects at runtime** — so a fresh build starts out unable to compile a manuscript or
+import a semantic plot. Per-platform instructions live in the
+[install guide](docs/installation.qmd); this is just what breaks without each.
+
+| Tool | Without it |
+| --- | --- |
+| **Quarto** | No manuscript compile (`flux compile`), no Word/PDF export, and the in-app **Docs** button has nothing to open |
+| **TinyTeX** (`quarto install tinytex`) | `--to pdf` fails; `--to html` / `--to docx` still work |
+| **`lineno` + `setspace`** | Journal-styled PDF (line numbers, double spacing) fails; ordinary PDF is unaffected |
+| **fluxplot**, cloned to `~/fluxplot` | Plots import as opaque images instead of per-part editable figures — [the keystone](https://github.com/fluxsci/fluxplot) |
+| **Lighttable** (`cd lighttable && npm ci && npm run build`) | The top-bar Lighttable button errors |
+
+Only Lighttable is genuinely optional — the rest are load-bearing for normal use.
+
+> **Setting up a Mac from scratch?**
+> [`docs/claude-install-flux-mac.md`](docs/claude-install-flux-mac.md) is an executable
+> runbook a Claude Code session follows end to end — bare clone to verified install,
+> including everything in this table.
 
 ### Scripts
 
@@ -189,15 +216,15 @@ all that's needed to launch locally. If macOS blocks a built app, right-click �
 | --- | --- |
 | `npm run electron:dev` | Dev server **+ Electron**, live reload — main dev loop |
 | `npm run dev` | Vite dev server only (no Electron window) |
-| `npm run build` | Production web build → `dist/` |
+| `npm run build` | Full production build → `dist/`: renderer **+** slide-export assets **+** the agent CLI bundles (`flux-cli.mjs`, `flux-mcp.mjs`). Not interchangeable with plain `vite build` |
 | `npm run pack` | Unpacked `Flux.app` → `release/` (fast) |
 | `npm run dist:mac` / `dist:linux` | Installer (`.dmg`+`.zip` / `AppImage`+`.deb`) → `release/` |
 | `npm run check` | Svelte / TypeScript type-check |
 | `npm run flux -- <verb>` | The Flux CLI (drive a project from the shell — see **Agents & automation**) |
 | `npm run flux:mcp -- <project>` | Start the Flux MCP server over stdio |
 
-Keep your clone current with `git pull` (then `npm install` if dependencies changed).
-Clean rebuild if needed: `rm -rf node_modules dist release && npm install`.
+Keep your clone current with `git pull` (then `npm ci` if dependencies changed).
+Clean rebuild if needed: `rm -rf node_modules dist release && npm ci`.
 
 ### Testing the app
 
@@ -263,8 +290,9 @@ beat later.
 
 The CLI/core (`flux-core/`) reuses the GUI's own figure-render and caption functions
 through one pure ops core (`src/lib/ops.ts`), so there's one source of truth. Full reference:
-**[`notes/Flux_Agent_Native.md`](notes/Flux_Agent_Native.md)** (and the F1/F2 layer in
-**[`notes/Flux_Agent_Layer.md`](notes/Flux_Agent_Layer.md)**). Every scaffolded project also
+**[`docs/reference/cli.qmd`](docs/reference/cli.qmd)** (every verb, with root resolution) and
+**[`docs/agents/collaboration.qmd`](docs/agents/collaboration.qmd)** (the agent context and
+collaboration system); `npm run flux -- help` is always current. Every scaffolded project also
 ships an in-repo `AGENTS.md`.
 
 ## Related

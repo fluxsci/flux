@@ -50,7 +50,9 @@ npm start -- /path/to/collection      # build + run, opening the collection
 # dev flavor: LT_OPEN=/path/to/collection npm run electron:dev   (vite on :1440)
 ```
 
-(First run may need `npm install` in that directory.) If the directory doesn't exist on
+(First run needs `npm ci` in that directory — the sidecar has its own dependencies. If
+`npm start` then fails with a missing Electron binary, its postinstall download didn't
+finish: `node node_modules/electron/install.js`.) If the directory doesn't exist on
 this machine, say so rather than guessing — the user may only have the packaged Flux app.
 Other open flows once running: drop a folder on the window, the Open picker, Recents.
 
