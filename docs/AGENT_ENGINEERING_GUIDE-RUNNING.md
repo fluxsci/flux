@@ -2600,3 +2600,27 @@ the `protocols:` registration.
   it silently does nothing on strict-CSP publishers. Documented in the install page and the
   docs, with an explicit warning NOT to disable `security.csp.enable`. Real Firefox parity
   needs the WebExtension — that remains the destination, and it would share this payload format.
+
+### 2026-08-06 (later) — PDF identification: PII DOIs, junk `/Title` fall-through (Claude Fable 5, `main`)
+**Work:** Cleared a 22-file `pdfs_to_assign/_unresolved/` backlog by hand, then fixed the three
+resolver gaps it exposed — an Elsevier PII in the metadata slot is now converted to its DOI
+(`10.1016/` + PII, authoritative), a `looksLikeTitle` screen keeps production junk from consuming
+Tier 2's only query so the search falls through to the font-size title guess, and Tier 2 skips
+DOI-*less* search records to reach the first usable hit. Re-running the real batch: **0/22 → 17/22
+identified, zero misassignments**, with the two files that SHOULD refuse still refusing. Promoted
+the lessons to §9 and added `pdfIdentify.ts` to the §2 shared-core table (the `_unresolved/`
+sidecar builder had drifting copies in both engines — now `unresolvedSidecar()` in the pure core).
+**Learnings:**
+- A PDF's `/Title` is production junk more often than it is a title — 11 of 22 held a PII, others
+  held InDesign filenames and workflow ids. "First non-empty title field" is a bug pattern.
+- Writing the adversarial test FIRST caught a hole in my own fix: scanning every search hit for
+  one that passes would file a *review of* a work as the work (the Virchow case scores sim 1.00 on
+  every metric). The safe rule is narrower than the motivating example suggested — skip unusable
+  (DOI-less) records, but treat the first usable hit's verdict as final.
+- Declined on purpose: deriving a DOI from the FILENAME. It would have rescued exactly one file
+  and misassigned exactly one — the Virchow PDF is named for the DOI of the book it reviews.
+- Two gaps left are search REACH, not gate strictness (a scrambled two-column OCR title; a paper
+  OpenAlex ranks poorly for its own exact title), plus one deliberate near-miss at sim 0.89 vs
+  SIM 0.90 with both year and author corroborating. Thresholds were not moved for it.
+- Repo etiquette, learned the hard way: a concurrent session staged `docs/` broadly and swept my
+  guide edits into its commit (9cf1707). Explicit paths protect your own commit, not the file.

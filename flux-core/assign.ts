@@ -16,7 +16,7 @@ import { withHeartbeatLockAt, fluxlibLockDir, getLockClient } from "./locks";
 import { assignInboxDir, supplementsDir, safeSupplementName } from "../src/lib/references/items";
 import { isPdfBytes, bareDoi } from "../src/lib/references/pdfFinder";
 import { lightEntry } from "../src/lib/references/bibtex";
-import { identify, reconcile, type PaperMeta, type SearchHit, type IdResult, type IdentifyDeps } from "../src/lib/references/pdfIdentify";
+import { identify, reconcile, unresolvedSidecar, type PaperMeta, type SearchHit, type IdResult, type IdentifyDeps } from "../src/lib/references/pdfIdentify";
 import { searchWorld } from "./enrich";
 
 const UA = "Flux/0.1 (pdf assign; +https://github.com/fluxsci/flux)";
@@ -154,15 +154,7 @@ async function quarantine(dir: string, src: string, name: string, id: IdResult |
   let dst = path.join(udir, name);
   for (let i = 2; fs.existsSync(dst); i++) dst = path.join(udir, name.replace(/\.pdf$/i, `-${i}.pdf`));
   await moveFile(src, dst);
-  const lines = [`Could not identify "${name}" with confidence.`, `Reason: ${note}`, ""];
-  if (id && id.status === "unresolved") {
-    const d = id.diagnostics;
-    if (d.candidates.length) lines.push("DOI candidates seen:", ...d.candidates.map((c) => `  ${c.doi} (${c.source})`));
-    if (d.rejected.length) lines.push("Rejected:", ...d.rejected.map((r) => `  ${r}`));
-    if (d.query) lines.push(`Title query: ${d.query}`);
-    if (d.topHits?.length) lines.push("Top search hits:", ...d.topHits.map((h) => `  ${h.sim.toFixed(2)}  ${h.title}${h.doi ? `  (${h.doi})` : ""}`));
-  }
-  await fs.promises.writeFile(`${dst}.txt`, lines.join("\n") + "\n", "utf8");
+  await fs.promises.writeFile(`${dst}.txt`, unresolvedSidecar(name, note, id), "utf8");
 }
 
 /** Dep overrides for tests (network injection). */

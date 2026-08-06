@@ -15,7 +15,7 @@ import { bumpFluxLib, assignInboxRevision } from "./revision";
 import { isPdfBytes, bareDoi } from "./pdfFinder";
 import { assignInboxDir, supplementsDir, supplementFilePath, safeSupplementName } from "./items";
 import { lightEntry } from "./bibtex";
-import { identify, reconcile, type IdResult, type PaperMeta, type SearchHit } from "./pdfIdentify";
+import { identify, reconcile, unresolvedSidecar, type IdResult, type PaperMeta, type SearchHit } from "./pdfIdentify";
 // (pdfSignals pulls pdf.js — dynamic-imported at the call site for the same
 // W15 reason as bibLoad below: this module is eager via Shell.svelte.)
 // NOTE deliberately NOT imported statically: Shell.svelte (eager at Home) uses
@@ -317,15 +317,7 @@ class AssignJob {
       for (let i = 2; await fb.exists(dst); i++) dst = joinPath(udir, name.replace(/\.pdf$/i, `-${i}.pdf`));
       await fb.writeFile(dst, bytes);
       await fb.remove?.(joinPath(dir, name));
-      const lines = [`Could not identify "${name}" with confidence.`, `Reason: ${note}`, ""];
-      if (id && id.status === "unresolved") {
-        const d = id.diagnostics;
-        if (d.candidates.length) lines.push("DOI candidates seen:", ...d.candidates.map((c) => `  ${c.doi} (${c.source})`));
-        if (d.rejected.length) lines.push("Rejected:", ...d.rejected.map((r) => `  ${r}`));
-        if (d.query) lines.push(`Title query: ${d.query}`);
-        if (d.topHits?.length) lines.push("Top search hits:", ...d.topHits.map((h) => `  ${h.sim.toFixed(2)}  ${h.title}${h.doi ? `  (${h.doi})` : ""}`));
-      }
-      await fb.writeText(`${dst}.txt`, lines.join("\n") + "\n");
+      await fb.writeText(`${dst}.txt`, unresolvedSidecar(name, note, id));
     } catch {
       /* best-effort quarantine */
     }

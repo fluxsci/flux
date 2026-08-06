@@ -7,6 +7,9 @@ import {
   reconcile,
   normDoi,
   findDois,
+  piiToDoi,
+  looksLikeTitle,
+  unresolvedSidecar,
   titleContainment,
   titleSimilarity,
   type PdfSignals,
@@ -172,6 +175,137 @@ ok(titleSimilarity(REAL_TITLE, REAL_TITLE) === 1, "titleSimilarity=1 for identic
     } }),
   );
   ok(r.status === "identified" && r.doi === REAL, "identification proceeds past a transient candidate");
+}
+
+// --- Elsevier PII in the /Title slot (the 2026-08-06 inbox backlog) -----------------
+// Old Elsevier scans carry `PII: 0013-4694(81)90225-X` as the PDF's /Title. It is not a title at
+// all — it is the article's identifier, and the DOI is literally "10.1016/" + the PII.
+ok(piiToDoi("PII: 0013-4694(81)90225-X") === "10.1016/0013-4694(81)90225-x", "old-form PII → DOI", String(piiToDoi("PII: 0013-4694(81)90225-X")));
+ok(piiToDoi("PII: S0166-2236(98)01349-6") === "10.1016/s0166-2236(98)01349-6", "new-form (S…) PII → DOI", String(piiToDoi("PII: S0166-2236(98)01349-6")));
+ok(piiToDoi("Counting Quanta: Direct Measurements") === undefined, "a real title yields no PII DOI");
+ok(piiToDoi("") === undefined && piiToDoi(undefined) === undefined, "empty input yields no PII DOI");
+{
+  // THE ARAQUE CASE: page 1 of the scan is the PRECEDING article's letters page, so no title
+  // cross-check is possible — yet the /Title PII names this article exactly. A PII in the
+  // publisher's own metadata slot is as authoritative as an embedded /doi.
+  const PII_DOI = "10.1016/s0166-2236(98)01349-6";
+  const TITLE = "Tripartite synapses: glia, the unacknowledged partner";
+  const r = await identify(
+    sig({ infoTitle: "PII: S0166-2236(98)01349-6", page1Text: "LETTERS TO THE EDITOR — components of the stretch-reflex system…" }),
+    mkDeps({ resolveDoi: async (d) => (d === PII_DOI ? { doi: d, title: TITLE, authors: ["Alfonso Araque"], year: "1999" } : null) }),
+  );
+  ok(r.status === "identified" && r.doi === PII_DOI && r.method === "doi:pii", "PII in /Title identifies the paper without a page-1 title match", JSON.stringify(r).slice(0, 110));
+}
+{
+  // A PII is a CANDIDATE, not a verdict: if it doesn't resolve, nothing is guessed.
+  const r = await identify(sig({ infoTitle: "PII: S9999-9999(99)99999-9", page1Text: "body" }), mkDeps({ resolveDoi: async () => null }));
+  ok(r.status === "unresolved", "an unresolvable PII does not become an identity");
+}
+{
+  // A PII in the page TEXT is NOT used — page text can be a references list (the masthead lesson).
+  const r = await identify(sig({ page1Text: "References: 12. Foo et al. PII: S0166-2236(98)01349-6" }), mkDeps({ resolveDoi: async () => ({ doi: "10.1016/s0166-2236(98)01349-6", title: "Some Cited Paper", authors: [], year: "1999" }) }));
+  ok(r.status === "unresolved", "a PII in page text is not taken as identity", JSON.stringify(r).slice(0, 110));
+}
+
+// --- junk /Title values must not consume Tier 2's only query ------------------------
+ok(!looksLikeTitle("PII: 0013-4694(81)90225-X"), "PII is not a title");
+ok(!looksLikeTitle("SLEEP.30.12.1631.indd"), "InDesign filename is not a title");
+ok(!looksLikeTitle("NSS_A_330939 217..230"), "publisher workflow id is not a title");
+ok(!looksLikeTitle("ns030000899p"), "bare production id is not a title");
+ok(!looksLikeTitle("CRMETH101179_mmc2 1..1"), "supplement component id is not a title");
+ok(looksLikeTitle(REAL_TITLE), "a real title is a title");
+ok(looksLikeTitle("Counting quanta: direct measurements of transmitter release"), "another real title is a title");
+{
+  // THE LI CASE: /Title is "ns030000899p", and the real title is the font-size guess right behind
+  // it. The old query rule ("first non-empty title field") searched the junk and stopped.
+  const hits: SearchHit[] = [{ doi: REAL, title: REAL_TITLE, authors: ["James Marshel"], year: "2019" }];
+  const seen: string[] = [];
+  const r = await identify(
+    sig({ infoTitle: "ns030000899p", titleGuess: REAL_TITLE, page1Text: "Marshel et al. 2019 body text" }),
+    mkDeps({ searchTitle: async (q) => {
+      seen.push(q);
+      return q === REAL_TITLE ? hits : [];
+    } }),
+  );
+  ok(r.status === "identified" && r.doi === REAL, "junk /Title is skipped so the real title guess is searched", JSON.stringify(r).slice(0, 100));
+  ok(!seen.includes("ns030000899p"), `implausible title never queried (queried: ${JSON.stringify(seen)})`);
+}
+{
+  // A junk-but-prose-shaped /Title (Dove Press: "NSS-54036-sleep--recovery-and-…") passes the
+  // plausibility check, returns nothing, and Tier 2 FALLS THROUGH to the next query.
+  const hits: SearchHit[] = [{ doi: REAL, title: REAL_TITLE, authors: ["James Marshel"], year: "2019" }];
+  const seen: string[] = [];
+  const r = await identify(
+    sig({ infoTitle: "NSS-54036-sleep--recovery-and-metaregulation--explaining-the-benefits-", titleGuess: REAL_TITLE, page1Text: "Marshel 2019 body" }),
+    mkDeps({ searchTitle: async (q) => {
+      seen.push(q);
+      return q === REAL_TITLE ? hits : [];
+    } }),
+  );
+  ok(r.status === "identified" && r.doi === REAL, "Tier 2 falls through a fruitless first query", JSON.stringify(r).slice(0, 100));
+  ok(seen.length === 2, `both queries attempted, bounded by MAX_TITLE_QUERIES (made ${seen.length})`);
+}
+{
+  // The query budget is a hard bound — 4 plausible sources, at most 2 searched.
+  const seen: string[] = [];
+  await identify(
+    sig({ xmpTitle: "Alpha beta gamma delta", infoTitle: "Epsilon zeta eta theta", titleGuess: "Iota kappa lambda mu", page1Text: "Nu xi omicron pi" }),
+    mkDeps({ searchTitle: async (q) => {
+      seen.push(q);
+      return [];
+    } }),
+  );
+  ok(seen.length === 2, `title queries capped at MAX_TITLE_QUERIES (made ${seen.length})`);
+}
+
+// --- Tier 2 skips UNUSABLE hits, but still judges only the first usable one ----------
+{
+  // THE STERIADE CASE: the registry returns the same paper twice and the TOP copy carries no DOI.
+  // That record is unusable, not unconvincing — look past it to the one we could actually file.
+  const hits: SearchHit[] = [
+    { title: REAL_TITLE, authors: ["James Marshel"], year: "2019" }, // no DOI
+    { doi: REAL, title: REAL_TITLE, authors: ["James Marshel"], year: "2019" },
+  ];
+  const r = await identify(sig({ titleGuess: REAL_TITLE, page1Text: "Marshel 2019 body" }), mkDeps({ searchTitle: async () => hits }));
+  ok(r.status === "identified" && r.doi === REAL, "a DOI-less top hit does not block the identical hit behind it", JSON.stringify(r).slice(0, 100));
+}
+{
+  // THE VIRCHOW CASE (2026-08-06, refused by hand): a 24-page 1861 REVIEW OF a book. Every hit
+  // scores sim 1.00 because the review quotes the book's title verbatim in its header, and the
+  // book's author is named on page 1 — so a SECOND hit with the right year/author would sail
+  // through. The rule that saves the library is that the first usable hit's verdict is final:
+  // failing corroboration means "not this paper", not "keep looking for one that agrees".
+  const BOOK = "Cellular pathology as based upon physiological and pathological histology";
+  const hits: SearchHit[] = [
+    { doi: "10.7326/0003-4819-76-1-157_2", title: BOOK + ".", authors: ["Anon Reviewer"], year: "1972" },
+    { doi: "10.5962/bhl.title.32770", title: BOOK, authors: ["Rudolf Virchow"], year: "1858" },
+  ];
+  const p1 = `THE NORTH AMERICAN MEDICO-CHIRURGICAL REVIEW. MAY, 1861. Art. I.— ${BOOK}. By Rudolf Virchow. Translated from the German, by Frank Chance.`;
+  const r = await identify(sig({ infoTitle: BOOK, page1Text: p1 }), mkDeps({ searchTitle: async () => hits, resolveDoi: async () => null }));
+  ok(r.status === "unresolved", "a review OF a work is not identified AS that work", JSON.stringify(r).slice(0, 140));
+}
+{
+  // Same shape, stated as a rule: a rejected top hit is a verdict, so a corroborated hit BEHIND
+  // it is never shopped for.
+  const hits: SearchHit[] = [
+    { doi: "10.9999/wrong", title: REAL_TITLE, authors: ["Nobody"], year: "1899" }, // sim 1.00, no corroboration
+    { doi: REAL, title: REAL_TITLE, authors: ["James Marshel"], year: "2019" }, // would have passed
+  ];
+  const r = await identify(sig({ titleGuess: REAL_TITLE, page1Text: "Marshel et al. 2019 body" }), mkDeps({ searchTitle: async () => hits }));
+  ok(r.status === "unresolved", "an uncorroborated top hit ends the query — no shopping down the list", JSON.stringify(r).slice(0, 120));
+}
+
+// --- the sidecar is built once, in the shared core ----------------------------------
+{
+  const r = await identify(
+    sig({ infoTitle: "ns030000899p", titleGuess: "Some plausible looking title here", page1Text: "body" }),
+    mkDeps({ searchTitle: async () => [{ doi: "10.9999/x", title: "Unrelated work", authors: ["Nobody"], year: "1911" }] }),
+  );
+  const txt = unresolvedSidecar("paper.pdf", r.status === "unresolved" ? r.reason : "", r);
+  ok(txt.startsWith('Could not identify "paper.pdf" with confidence.'), "sidecar opens with the file it refused");
+  ok(txt.includes("Title query: Some plausible looking title here"), "sidecar lists the queries actually attempted", txt);
+  ok(!txt.includes("ns030000899p"), "sidecar does not report a query that was never made");
+  ok(txt.includes("Top search hits:") && txt.includes("Unrelated work"), "sidecar shows the hits that were rejected");
 }
 
 // --- reconcile: the three outcomes -------------------------------------------------

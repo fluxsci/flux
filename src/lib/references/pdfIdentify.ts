@@ -5,11 +5,12 @@
 // title over the network) are supplied by the caller, exactly like runWaterfall's deps.
 //
 // The pipeline is DOI-first and cross-validated:
-//   Tier 1 — a DOI from embedded metadata (publisher-set → authoritative) or from the page text,
-//            each RE-RESOLVED. A DOI found in TEXT (page 1 OR references) must ALSO title-match the
-//            paper's own first page — a short report can print reference DOIs high on page 1, so
-//            character position is NOT trustworthy; only the title cross-check is. A cited paper's
-//            DOI (whose resolved title won't match page 1) is thereby rejected.
+//   Tier 1 — a DOI from embedded metadata (publisher-set → authoritative), from an Elsevier PII
+//            stamped in the same metadata slot (also publisher-set — see piiToDoi), or from the
+//            page text, each RE-RESOLVED. A DOI found in TEXT (page 1 OR references) must ALSO
+//            title-match the paper's own first page — a short report can print reference DOIs high
+//            on page 1, so character position is NOT trustworthy; only the title cross-check is. A
+//            cited paper's DOI (whose resolved title won't match page 1) is thereby rejected.
 //   Tier 2 — no trustworthy DOI → a fuzzy title search, accepted only at a strict similarity AND
 //            a year/author corroboration.
 // Anything below the bar is `unresolved` (quarantined by the caller), never guessed.
@@ -58,7 +59,10 @@ export interface IdentifyDeps {
 export interface IdDiagnostics {
   candidates: { doi: string; source: DoiSource }[];
   rejected: string[];
+  /** The first title query attempted (kept for readers that want just the headline one). */
   query?: string;
+  /** Every title query attempted, in order — Tier 2 falls through junk /Title values. */
+  queries?: string[];
   topHits?: { title: string; doi?: string; sim: number }[];
 }
 
@@ -66,11 +70,18 @@ export type IdResult =
   | { status: "identified"; doi: string; meta: PaperMeta; method: string; confidence: "high" }
   | { status: "unresolved"; reason: string; retryable?: boolean; diagnostics: IdDiagnostics };
 
-type DoiSource = "embedded" | "page1" | "refs";
+type DoiSource = "embedded" | "pii" | "page1" | "refs";
 
 // Tunables (pinned constants so the dry-run over real PDFs can calibrate them).
 export const TAU = 0.8; // title-containment floor for a DOI found in text
 export const SIM = 0.9; // title-similarity floor for the fuzzy fallback
+/** How many distinct title queries Tier 2 will try before giving up. A PDF's /Title slot is
+ *  frequently production junk (see looksLikeTitle), so one query is not enough — but each one
+ *  costs a search, so the fall-through is bounded. */
+export const MAX_TITLE_QUERIES = 2;
+/** How far down a query's ranked hits Tier 2 looks for a USABLE (DOI-bearing) hit. Registries
+ *  routinely return the same paper twice with the DOI only on the second copy. */
+export const MAX_HITS_PER_QUERY = 5;
 /** Resolution budget per PDF: only the first N DOI candidates are resolved. A references
  *  section can carry dozens of DOIs — resolving them all hammers Crossref (and the 429s
  *  come back as failures). Candidates are source-ranked (embedded → page1 → refs) before
@@ -93,6 +104,25 @@ export function normDoi(raw?: string): string | undefined {
 }
 
 const DOI_RE = /10\.\d{4,9}\/[^\s"'<>]+/gi;
+
+/** Elsevier's Publisher Item Identifier, both eras:
+ *    old (pre-1995)  0013-4694(81)90225-X        new  S0166-2236(98)01349-6
+ *  = journal ISSN + (year) + article sequence + check character. */
+const PII_RE = /\bS?\d{4}-\d{3}[\dX]\(\d{2}\)\d{5}-[\dX]\b/i;
+
+/** An Elsevier PII → the article's DOI, which is literally `10.1016/` + the PII.
+ *
+ *  Elsevier's typesetter stamps the PII into the PDF's own `/Title` on scanned back-catalogue
+ *  articles, so the "title" reads `PII: 0013-4694(81)90225-X`. That used to be a dead end twice
+ *  over: no DOI was found anywhere in the file, and Tier 2 then searched the PII string itself and
+ *  matched noise. It is in fact an exact identifier — same slot, same publisher, and therefore the
+ *  same authority as an embedded `/doi`, which is why a PII from the metadata slot is accepted
+ *  without a title cross-check. (A PII in the page TEXT is not used: page text can be a
+ *  references list — the masthead lesson.) */
+export function piiToDoi(raw?: string): string | undefined {
+  const m = PII_RE.exec(String(raw || ""));
+  return m ? normDoi(`10.1016/${m[0]}`) : undefined;
+}
 
 /** Every DOI in `text` with its character offset (first occurrence of each, order preserved). */
 export function findDois(text: string): { doi: string; index: number }[] {
@@ -211,6 +241,27 @@ export function titleSimilarity(a: string, b: string): number {
   return (2 * inter) / (A.size + B.size);
 }
 
+/** Layout/production file extensions that show up in a PDF `/Title` verbatim. */
+const TYPESET_FILE_RE = /\.(indd|qxd|qxp|fm|doc|docx|pdf|tex|xml|eps|ai)\s*$/i;
+
+/** Is this string plausibly a paper's TITLE, rather than the typesetter's internal filename?
+ *
+ *  A PDF's `/Title` is whatever the production workflow happened to leave there, and for older or
+ *  smaller publishers that is routinely NOT the title: a PII (`PII: 0013-4694(81)90225-X`), an
+ *  InDesign filename (`SLEEP.30.12.1631.indd`), or a workflow id (`NSS_A_330939 217..230`,
+ *  `ns030000899p`, `CRMETH101179_mmc2 1..1`). Searching those returns noise. The point of the
+ *  check is the FALL-THROUGH: the font-size title guess sitting right behind the junk is usually
+ *  the real title, and Tier 2 never reached it while the query was simply "first non-empty field".
+ *
+ *  The discriminator is prose: a real title contains at least two purely-alphabetic words. */
+export function looksLikeTitle(s?: string): boolean {
+  const t = String(s || "").trim();
+  if (t.length < 8) return false;
+  if (/^pii\b/i.test(t) || PII_RE.test(t)) return false;
+  if (TYPESET_FILE_RE.test(t)) return false;
+  return normTitle(t).split(" ").filter((w) => w.length >= 3 && /^[a-z]+$/.test(w)).length >= 2;
+}
+
 const surnameOf = (name: string): string => (name || "").trim().split(/\s+/).pop() ?? "";
 const yearsIn = (text: string): string[] => [...String(text || "").matchAll(/\b(?:19|20)\d{2}\b/g)].map((m) => m[0]);
 const firstText = (...xs: (string | undefined)[]): string | undefined => xs.find((x) => x && x.trim().length >= 8)?.trim();
@@ -240,11 +291,15 @@ export async function identify(
   };
   add(sig.xmpDoi, "embedded");
   add(sig.infoDoi, "embedded");
+  // An Elsevier PII in the TITLE METADATA slot is publisher-set for this document, exactly like
+  // the DOI fields above — never taken from the page text, which can be a references list.
+  add(piiToDoi(sig.xmpTitle), "pii");
+  add(piiToDoi(sig.infoTitle), "pii");
   if (sig.arxivId) add(`10.48550/arxiv.${sig.arxivId.replace(/^arxiv:/i, "")}`, "page1");
   for (const m of findDois(page1)) add(m.doi, "page1");
   for (const m of findDois(sig.tailText || "")) add(m.doi, "refs");
 
-  const rank: Record<DoiSource, number> = { embedded: 0, page1: 1, refs: 2 };
+  const rank: Record<DoiSource, number> = { embedded: 0, pii: 1, page1: 2, refs: 3 };
   cands.sort((a, b) => rank[a.source] - rank[b.source]);
 
   // 2. Tier 1 — resolve DOI candidates (capped — see MAX_RESOLVES). Embedded (publisher-set)
@@ -264,7 +319,7 @@ export async function identify(
       continue;
     }
     const contain = titleContainment(meta.title, page1);
-    if (c.source === "embedded" || contain >= TAU) {
+    if (c.source === "embedded" || c.source === "pii" || contain >= TAU) {
       return { status: "identified", doi: c.doi, meta, method: `doi:${c.source}`, confidence: "high" };
     }
     rejected.push(`${c.doi} (${c.source}): title match ${contain.toFixed(2)} < ${TAU}`);
@@ -272,24 +327,43 @@ export async function identify(
   for (const c of cands.slice(maxResolves)) rejected.push(`${c.doi} (${c.source}): not attempted (candidate cap ${maxResolves})`);
 
   // 3. Tier 2 — no trustworthy DOI: fuzzy title search, strictly gated.
-  const query = firstText(sig.xmpTitle, sig.infoTitle, sig.titleGuess, firstLine(page1));
+  //    Two things are deliberately plural here. QUERIES: the /Title slot is often production junk
+  //    (looksLikeTitle), so we fall through to the next plausible title source instead of spending
+  //    our only shot on it. HITS: we score every ranked hit, not just the first — rank is a
+  //    relevance heuristic, and a registry can return the same paper twice with the DOI only on
+  //    the second copy. The ACCEPTANCE GATE per hit is unchanged (strict similarity AND a
+  //    year/author corroboration), so breadth here adds reach without lowering the bar.
+  const queries: string[] = [];
+  for (const cand of [sig.xmpTitle, sig.infoTitle, sig.titleGuess, firstLine(page1)]) {
+    if (queries.length >= MAX_TITLE_QUERIES) break;
+    const q = firstText(cand);
+    if (!q || !looksLikeTitle(q)) continue;
+    if (!queries.some((x) => normTitle(x) === normTitle(q))) queries.push(q);
+  }
   const topHits: IdDiagnostics["topHits"] = [];
-  if (query) {
+  const yrs = yearsIn(page1);
+  const p1lower = page1.toLowerCase();
+  for (const query of queries) {
     let hits: SearchHit[] = [];
     try {
-      hits = (await deps.searchTitle(query)).slice(0, 5);
+      hits = (await deps.searchTitle(query)).slice(0, MAX_HITS_PER_QUERY);
     } catch (e) {
       sawTransient = true;
       rejected.push(`title search: network error (retryable): ${String((e as Error)?.message || e)}`);
+      continue;
     }
-    const yrs = yearsIn(page1);
-    const p1lower = page1.toLowerCase();
-    for (const h of hits) {
-      const sim = titleSimilarity(h.title, query);
-      topHits.push({ title: h.title, doi: h.doi, sim: +sim.toFixed(3) });
-    }
-    const h = hits[0];
-    if (h && h.doi) {
+    for (const h of hits) topHits.push({ title: h.title, doi: h.doi, sim: +titleSimilarity(h.title, query).toFixed(3) });
+    // A hit with no DOI is not a weaker candidate, it is an UNUSABLE RECORD — we could not act on
+    // it even if we believed it. Skip past those to the first hit we could actually file, and
+    // judge exactly that one. Deliberately NOT "try every hit until one passes": the top hit
+    // failing its corroboration is a verdict on this PDF, and shopping further down the list for
+    // a hit that agrees is how a paper ABOUT a work gets filed AS that work (the 2026-08-06
+    // Virchow case: a review quotes the book's title verbatim, so every hit scores sim 1.00 and
+    // only the year/author corroboration stands between it and a corrupted reference).
+    const skipped = hits.filter((h) => !h.doi);
+    for (const h of skipped) rejected.push(`search "${h.title.slice(0, 48)}": hit carries no DOI, skipped`);
+    const h = hits.find((x) => !!x.doi);
+    if (h) {
       const sim = titleSimilarity(h.title, query);
       const yearOk = !!h.year && yrs.includes(h.year);
       const authorOk = h.authors.length > 0 && p1lower.includes(surnameOf(h.authors[0]).toLowerCase());
@@ -306,6 +380,7 @@ export async function identify(
       rejected.push(`search top "${h.title.slice(0, 48)}" sim ${sim.toFixed(2)} year=${yearOk} author=${authorOk}`);
     }
   }
+  const query = queries[0];
 
   // A transient failure anywhere means this verdict is NOT definitive: the caller must
   // leave the PDF where it is and retry later, never quarantine on it.
@@ -314,14 +389,30 @@ export async function identify(
       status: "unresolved",
       reason: "network issue while identifying — left to retry",
       retryable: true,
-      diagnostics: { candidates: cands, rejected, query, topHits },
+      diagnostics: { candidates: cands, rejected, query, queries, topHits },
     };
   }
   return {
     status: "unresolved",
     reason: cands.length ? "no DOI passed cross-validation" : query ? "no confident title match" : "no DOI or title in PDF",
-    diagnostics: { candidates: cands, rejected, query, topHits },
+    diagnostics: { candidates: cands, rejected, query, queries, topHits },
   };
+}
+
+/** Render the `_unresolved/<name>.pdf.txt` sidecar — the note a human reads to see WHY a PDF was
+ *  refused and what to do about it. Lives here, in the shared pure core, because both engines
+ *  (flux-core/assign.ts and the renderer's assignJob) quarantine files and must produce the same
+ *  note; they had drifting copies of this before. */
+export function unresolvedSidecar(name: string, note: string, id: IdResult | null): string {
+  const lines = [`Could not identify "${name}" with confidence.`, `Reason: ${note}`, ""];
+  if (id && id.status === "unresolved") {
+    const d = id.diagnostics;
+    if (d.candidates.length) lines.push("DOI candidates seen:", ...d.candidates.map((c) => `  ${c.doi} (${c.source})`));
+    if (d.rejected.length) lines.push("Rejected:", ...d.rejected.map((r) => `  ${r}`));
+    for (const q of d.queries?.length ? d.queries : d.query ? [d.query] : []) lines.push(`Title query: ${q}`);
+    if (d.topHits?.length) lines.push("Top search hits:", ...d.topHits.map((h) => `  ${h.sim.toFixed(2)}  ${h.title}${h.doi ? `  (${h.doi})` : ""}`));
+  }
+  return lines.join("\n") + "\n";
 }
 
 // --- reconcile (pure decision; the caller performs the I/O) ------------------------
