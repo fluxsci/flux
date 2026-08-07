@@ -59,6 +59,8 @@ const snap = () =>
       ),
       numAligned: [...(document.querySelector("[data-dissect-table] .row")?.querySelectorAll(".cell.num") ?? [])].length,
       tool: window.__flux.get(window.__flux.fig.activeTool),
+      inspBtn: !!q("[data-dissect-open]"),
+      inspCount: q("[data-dissect-open] .dcount")?.textContent?.trim() ?? "",
     };
   });
 
@@ -84,6 +86,7 @@ ok(
   s.cells.some((c) => c.name === "methods-note.md" && c.kind === "other"),
   "a .md is listed as a name card (no viewer yet)",
 );
+ok(s.inspBtn && s.inspCount === "8", `Inspector shows the Dissections button with its count (${s.inspCount || "none"})`);
 
 // ---- modality: tool keys must not leak beneath ----------------------------------
 await page.keyboard.press("r"); // rect tool if it leaked

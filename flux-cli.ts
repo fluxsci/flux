@@ -173,6 +173,9 @@ usage: flux <verb> [root] [args] [--flags]
                                        (--only: figure-level scripts rerun ONE
                                        plot — bare --only = this recipe's plot;
                                        siblings stay untouched on disk)
+  list-dissections [plot]              a plot's companion material in plots/_dissections/<plot>/
+                                       (subfolders = named groups; no arg = every
+                                       plot that has a dissection folder)
 
  Slides (Flux Slide — figure-first animated talks):
   decks [--root R]                     list the project's slide decks (JSON)

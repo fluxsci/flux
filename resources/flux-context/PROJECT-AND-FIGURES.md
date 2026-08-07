@@ -16,7 +16,8 @@
 │   ├── main.qmd                 #   the Quarto manuscript
 │   └── comments.json            #   the user's review comments (sidecar; see MANUSCRIPT-AND-REVIEW.md)
 ├── plots/                       # USER-OWNED drop-zone — your fluxplot output lands here
-│   └── growth.{svg,fluxplot.json,recipe.json}
+│   ├── growth.{svg,fluxplot.json,recipe.json}
+│   └── _dissections/growth/     #   growth's companion material (see below) — NOT importable plots
 ├── fig/                         # APP-MANAGED — NEVER hand-edit
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real figure composition (figures → elements)
@@ -43,6 +44,16 @@
 *reads* it and copies what you compose into `fig/assets/`. Regenerating a plot in `plots/`
 hot-swaps its panel live when the app is open; headless, run `sync-figure` to refresh the
 copies in place — either way your per-part restyles survive (they're keyed by stable id).
+
+**Dissections — companion material per plot:** `plots/_dissections/<plot-rel-path-sans-ext>/`
+holds a plot's supporting evidence — per-subject breakdown panels, alternative analyses,
+`_stats/` CSVs. The folder is the API: just write files there (subfolders become named groups;
+images svg/png/jpg/webp and csv/tsv tables are first-class). Everything under `_dissections/`
+is deliberately INVISIBLE to composition — never listed by the plot importer, never part of a
+figure or export. The user views it with **D** on the selected plot (an open viewer
+live-refreshes as you write files); `list-dissections [plot]` enumerates it headless. When you
+finish an analysis, dropping the per-subject/per-condition panels behind each summary plot
+into its dissection folder is a cheap, high-value habit.
 
 ## The figure model
 

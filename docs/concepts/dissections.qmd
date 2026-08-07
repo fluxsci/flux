@@ -1,0 +1,80 @@
+---
+title: "Dissections"
+subtitle: "Every plot can carry the evidence behind it — one keypress away, never in the way"
+---
+
+A figure panel is a verdict: *caloric intake predicts body weight*. The evidence behind that
+verdict — twenty per-subject curves, the model comparison you didn't show, the ANOVA table —
+usually lives in a scratch folder far from the figure, or nowhere at all. **Dissections** give
+that material a home *attached to the plot itself*.
+
+# The folder convention
+
+Any plot in `plots/` can own a dissection folder named after it under `plots/_dissections/`:
+
+```
+plots/
+├── growth.svg                      # the composed panel
+└── _dissections/
+    └── growth/                     # ← growth.svg's dissections
+        ├── overview.svg            #   loose files form the default group
+        ├── by_subject/             #   a subfolder is a named group (a tab in the viewer)
+        │   ├── subj01.svg …
+        └── _stats/
+            └── anova.csv           #   CSVs/TSVs open as sortable tables
+```
+
+The name mirrors the plot's path under `plots/` (so `plots/models/fit.svg` owns
+`plots/_dissections/models/fit/`), with the extension dropped. Pasted images and PDF snips
+work too — they're keyed by their file name.
+
+That's the whole contract. There is no manifest and no registration: **the folder is the
+API**. Your analysis script (or an agent) drops files in; Flux never writes or reorganizes
+anything there except when you ask it to create the folder.
+
+# What goes in
+
+Anything that explains the plot. Typical dissections:
+
+- **Breakdowns** — one panel per subject / session / condition behind a summary plot.
+- **Alternative analyses** — the same question answered another way (different model,
+  different normalization), kept honest next to the version you published.
+- **Statistics** — `_stats/` CSVs with the tests behind the asterisks.
+- Images of any kind (**svg**, **png**, **jpg**, **webp** — fluxplot outputs included) and
+  **csv**/**tsv** tables are first-class in the viewer; other files are listed by name.
+
+Dissections are deliberately **invisible to composition**: nothing under `_dissections/`
+appears in the plot importer (**Alt+I**), lands in a figure, or rides along into an export.
+They are context, not content.
+
+# Viewing them
+
+In the figure editor, select a plot and press **D** (or click **Dissections** in the
+Inspector — it shows a count). The viewer opens full-screen, and the **⧉** button shrinks it
+to a floating window you can keep beside the canvas:
+
+- **Arrow keys** move through the grid; **[** / **]** change the column count; **1–9** switch
+  group tabs.
+- **Enter** expands a file. Images zoom at the cursor with **Ctrl+scroll**, pan with
+  **Space+drag** or plain scroll, and toggle fit/1:1 with **Enter**. CSV/TSV files open as
+  tables with a sticky header — click a column to sort, numeric columns right-align.
+- **Esc** steps back: detail → grid → closed.
+
+The viewer is live: files dropped into the folder while it's open simply appear.
+
+For scripts and agents, `flux list-dissections [plot]` prints a plot's groups and files (or,
+with no argument, every plot that has dissections) — see the
+[CLI reference](../reference/cli.qmd).
+
+# Troubleshooting
+
+- **Pressed D and got "select a plot"** — Dissect works on a single selected plot or image
+  (or a drilled part; the part's owning plot is used). Group selections don't map to one
+  dissection folder.
+- **The viewer says the folder doesn't exist** — nothing has created it yet. The empty state's
+  **Create dissection folder** button does it, and shows the exact path.
+- **Renamed a plot?** Flux never renames files in `plots/`, so rename the matching folder
+  under `plots/_dissections/` yourself — until you do, the plot reports no dissections
+  (nothing breaks, and the folder is never deleted).
+- **A file shows as a name card with no preview** — only images and CSV/TSV files have
+  viewers today. The file is still listed so you know it's there.

@@ -2665,3 +2665,50 @@ extension), and `scripts/verify-extension.ts` gates it.
   `abs()` helper.
 - Firefox permanence is still open: a temporary add-on is dropped on restart, so a permanent
   install needs an AMO-signed `.xpi` (free, unlisted, no review queue). Deferred by the owner.
+
+### 2026-08-06 19:23 — Dissect: per-plot companion material (plots/_dissections/) + viewer
+
+Owner-requested feature, shipped whole (3 commits): any plot `plots/<rel>.<ext>` owns
+`plots/_dissections/<rel-sans-ext>/` — per-subject panels, alternative analyses, `_stats/`
+CSVs. Subfolders are named groups, loose files the default group, and **the folder is the
+API** (writing needs no verb; analysis code just drops files). Plain **d** on a selected
+plot (or drilled part — openXray's resolution ladder, extracted precedent) opens the viewer:
+full-screen ⇄ floating window, windowed image grid, detail zoom/pan, CSV/TSV as sortable
+tables. `list-dissections [plot]` is verb #106. Docs: `docs/concepts/dissections.qmd` +
+figure/shortcuts/project-layout pages + PROJECT-AND-FIGURES/WORKFLOW/CLI-REFERENCE context
+docs (regenerated). Gates: `verify-dissections.ts` (pure, 67) + `verify-dissect-gui.mjs`
+(ui, 25) + a `_dissections` decoy in `verify-importer-multi.mjs`.
+
+- **One shared ESM rules module** (`electron/dissectRules.js` + hand-written `.d.ts`, the
+  captureRules pattern exactly): main-process watcher, renderer, and flux-core all load the
+  SAME file; the pure gate source-shape-checks that main.cjs/PlotImporter carry no private
+  copy of the folder name. Key derivation handles every `source.svgPath` shape in real
+  projects — absolute (GUI import), relative (headless), bare name (drag-drop) — plus asset
+  basenames for sourceless pasted/snip images.
+- **The importer is the ONLY enumerator of plots/** in the product (no glob lib anywhere;
+  headless verbs take explicit paths), so Alt+I exclusion is one shared-rule filter in
+  `loadDir`/`scan` — nothing else lists the folder. Exports never walk `plots/` at all
+  (verified path-by-path), so dissections can't leak into deliverables.
+- **Watcher: a `dissections` subsystem BEFORE the plots branch** (`subsystemFor`), because
+  everything under `plots/` previously fired `syncPlotsIntoFigures` — a script dropping 20
+  panels would have triggered 20 full re-read sweeps. Now it bumps `dissectionsRevision`
+  and an open viewer re-lists live (LRU cleared so fresh bytes actually show).
+- **Lighttable patterns PORTED, never imported** (the sidecar boundary): windowed grid
+  (spacer + translateY, damped median aspect, decode-before-swap), modal-fit/zoomwrap
+  detail with zoom-at-cursor + Space hand tool. Identical Svelte 5 versions made this
+  near-verbatim. Images ride the existing data-URL-over-IPC path with a byte-budgeted LRU —
+  no custom protocol, no thumbnailer at dissection scale (tens of files); if that ever
+  changes, the lighttable lesson stands: raster work NEVER in main.
+- **CSV: a separate tolerant reader** (`src/lib/dissect/csv.ts`), deliberately NOT
+  `tableModel.parseCsv` — that one is markdown-fidelity-pinned and strict (rejects ragged
+  rows) where a viewer must show the file as it is. Windowed rows + sticky header + numeric
+  right-align + stable sort.
+- **Trap re-hit: the CLI root-positional heuristic eats slash-bearing positionals.**
+  `list-dissections sub/charlie.svg` silently became root=./sub/charlie.svg with no plot arg
+  (`/[\\/]/.test(_[0])` → posIsRoot). Any verb whose positional is a PATH-SHAPED non-root
+  needs `cliRoot: "flags"` (validate-plot/rerun-plot already knew). Found by hand-smoking
+  the verb, now pinned in the pure gate.
+- Keyboard modality: the overlay's window keydown listener runs in the CAPTURE phase and
+  stops propagation for everything except held-Space (the detail hand tool owns it) — that
+  is what keeps tool keys off `Canvas.svelte`'s own window listener, which the handleKey
+  guard alone does not cover.

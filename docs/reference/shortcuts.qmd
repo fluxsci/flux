@@ -66,6 +66,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 |---|---|
 | **F** | Property menu for the selection (each row shows its own key; **s** searches) |
 | **X** | Hide/show the selection (or drilled plot part) |
+| **D** | Dissect — view the selected plot's companion material |
 | **Alt+I** | Import a plot from `plots/` |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |

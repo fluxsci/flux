@@ -23,6 +23,9 @@
   import { buildPartIndex } from "./plot/parse";
   import { partBreadcrumb } from "./plot/partStyle";
   import { fluxFigMenuOpen } from "./settings";
+  import { dissectKeyForElement, openDissectForSelection, dissectRoot } from "./dissect/state";
+  import { countDissections } from "./dissect/loader";
+  import { dissectionsRevision } from "../shell/scholar/revisions";
   import ColorPalette from "./ColorPalette.svelte";
   import NumberField from "./NumberField.svelte";
 
@@ -70,6 +73,28 @@
   // size" means the visible window renders 1:1, not the full content.
   const mmStr = (px: number) => ((px / 96) * MM_PER_INCH).toFixed(1);
   $: physSize = single && "assetId" in single ? ops.assetDisplaySize($project, single.assetId) : null;
+
+  // Dissect: the selected asset's companion-folder count (plots/_dissections/<key>).
+  // Async + memoized by (key, dissectionsRevision) — the Inspector never blocks on IO;
+  // a stale response is dropped by the generation counter. Figure mode only (slide mode
+  // has no plots/ tenancy).
+  let dissectCount: number | null = null;
+  const dissectMemo = { key: "", rev: -1, gen: 0 };
+  $: dissectKey = !slideMode && single && "assetId" in single ? dissectKeyForElement(single) : "";
+  $: {
+    const rev = $dissectionsRevision;
+    if (!dissectKey) {
+      dissectMemo.key = "";
+      dissectCount = null;
+    } else if (dissectKey !== dissectMemo.key || rev !== dissectMemo.rev) {
+      dissectMemo.key = dissectKey;
+      dissectMemo.rev = rev;
+      const my = ++dissectMemo.gen;
+      void countDissections(dissectRoot(), dissectKey).then((n) => {
+        if (my === dissectMemo.gen) dissectCount = n;
+      });
+    }
+  }
   $: elCrop = single && (single.type === "image" || single.type === "plot") ? (single.crop ?? null) : null;
   $: physRef = elCrop ? { width: elCrop.width, height: elCrop.height } : physSize;
   $: atPhys =
@@ -520,6 +545,18 @@
             {/if}
           </div>
         {/if}
+      {/if}
+      {#if dissectKey}
+        <div class="row">
+          <button
+            class="fig-act"
+            data-dissect-open
+            title="View this plot's companion material — plots/_dissections/{dissectKey}/ (d)"
+            on:click={openDissectForSelection}
+          >
+            Dissections{#if dissectCount}<span class="dcount">{dissectCount}</span>{/if}
+          </button>
+        </div>
       {/if}
       <div class="row">
         <NumberField label="Rotation°" value={single.rotation} step={1}
@@ -1010,6 +1047,16 @@
   .fig-act {
     width: 100%;
     margin-top: 6px;
+  }
+  /* Dissection count on the Dissections button (0 = no pill, the button still opens
+     the create-folder empty state). */
+  .dcount {
+    margin-left: 6px;
+    font-size: 10px;
+    color: var(--c-accent-bright);
+    border: 1px solid var(--c-accent-tint);
+    border-radius: 999px;
+    padding: 0 6px;
   }
   /* Figure identity row — opens the Figure Namer (Ctrl+R). */
   .identity {

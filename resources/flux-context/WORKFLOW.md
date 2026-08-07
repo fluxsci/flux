@@ -45,7 +45,11 @@ $F validate-plot plots/<name>.svg     # manifest valid + every part addressable 
 ```
 
 Only promote results worth keeping — the workshop holds the exploration, the project holds the
-blessed figures.
+blessed figures. But keep the *evidence behind* each blessed plot close: drop per-subject/
+per-condition panels, alternative analyses, and `_stats/` CSVs into
+`plots/_dissections/<plot>/` (subfolders = named groups; the user views them with **D** on the
+plot — see `PROJECT-AND-FIGURES.md`). Dissections never appear in the importer or exports, so
+this costs nothing in clutter.
 
 ## 2. Compose figures + LOOK + restyle
 

@@ -49,6 +49,7 @@ website:
         contents:
           - concepts/projects-and-files.qmd
           - concepts/semantic-plots.qmd
+          - concepts/dissections.qmd
           - concepts/library-and-fluxlib.qmd
       - section: "Reference"
         contents:

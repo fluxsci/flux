@@ -15,7 +15,8 @@
 // Plot Importer actually route through the shared module rather than a private regex.
 //
 // Run: npx tsx scripts/verify-dissections.ts
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, rmSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { harness } from "./lib/harness.mjs";
@@ -108,6 +109,48 @@ h.section("the tolerant CSV/TSV reader (a viewer, not a validator)");
   h.ok(isNumericCell("-1,234.5e2") && isNumericCell("0.42") && !isNumericCell("v1.2.3") && !isNumericCell("-"), "numeric-cell detection");
   const num = numericColumns(parseDelimited("term,estimate,p\nintake,0.42,0.003\nage,-0.11,0.2\n"));
   h.eq(num, [false, true, true], "numeric columns detected for right-alignment");
+}
+
+h.section("the headless half (flux-core/dissect — the list-dissections verb's engine)");
+{
+  const { listDissections } = await import("../flux-core/dissect");
+  const tmp = mkdtempSync(join(tmpdir(), "flux-dissect-"));
+  try {
+    mkdirSync(join(tmp, "plots", "_dissections", "growth", "by_subject"), { recursive: true });
+    mkdirSync(join(tmp, "plots", "_dissections", "sub", "charlie", "_stats"), { recursive: true });
+    mkdirSync(join(tmp, "plots", "sub"), { recursive: true });
+    writeFileSync(join(tmp, "plots", "growth.svg"), "<svg/>");
+    writeFileSync(join(tmp, "plots", "sub", "charlie.svg"), "<svg/>");
+    writeFileSync(join(tmp, "plots", "_dissections", "growth", "overview.svg"), "<svg/>");
+    writeFileSync(join(tmp, "plots", "_dissections", "growth", "by_subject", "s1.svg"), "<svg/>");
+    writeFileSync(join(tmp, "plots", "_dissections", "growth", "by_subject", "s1.fluxplot.json"), "{}");
+    writeFileSync(join(tmp, "plots", "_dissections", "sub", "charlie", "_stats", "anova.csv"), "a,b\n1,2\n");
+    const all = listDissections(tmp) as { plot: string; files: number; groups: string[] }[];
+    h.eq(
+      all.map((d) => d.plot),
+      ["growth", "sub/charlie"],
+      "no-arg summary finds every plot WITH a dissection folder (nested keys included)",
+    );
+    const g = listDissections(tmp, "growth") as { groups: { group: string; files: { name: string }[] }[]; files: number };
+    h.eq(g.groups.map((x) => x.group), ["", "by_subject"], "detail: loose files = the default group, subfolders named");
+    h.ok(
+      !g.groups.some((x) => x.files.some((f) => f.name.endsWith(".fluxplot.json"))),
+      "sidecars are never listed by the verb either",
+    );
+    // Every plot-argument shape resolves to the same folder — incl. the slash-bearing
+    // nested form that once fell into the CLI's root-positional trap (cliRoot: "flags").
+    for (const arg of ["sub/charlie", "sub/charlie.svg", "plots/sub/charlie.svg", join(tmp, "plots", "sub", "charlie.svg")]) {
+      const d = listDissections(tmp, arg) as { plot: string; files: number };
+      h.ok(d.plot === "sub/charlie" && d.files === 1, `plot argument shape resolves: ${arg.startsWith(tmp) ? "<abs>" : arg}`);
+    }
+    const missing = listDissections(tmp, "nope") as { exists: boolean; files: number };
+    h.ok(missing.exists === false && missing.files === 0, "a plot without dissections reports exists:false, never throws");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  const verbs = readFileSync(join(repo, "flux-core", "verbs.ts"), "utf8");
+  const def = verbs.slice(verbs.indexOf('name: "list_dissections"'), verbs.indexOf('name: "rerun_plot"'));
+  h.ok(/cliRoot:\s*"flags"/.test(def), 'list_dissections declares cliRoot: "flags" — a slash-bearing plot positional must never be eaten as the root');
 }
 
 h.section("the shipped consumers route through the shared rule (no private regexes)");

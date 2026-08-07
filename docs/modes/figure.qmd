@@ -79,6 +79,23 @@ with the arrow keys, hide/show any part with **x**, press **Enter** to select a 
 its properties, and — for recipe-backed plots — hit **Regenerate** to re-run the script that
 made it, right from the panel.
 
+# Dissecting a plot
+
+A summary plot usually hides a story — twenty subjects behind one regression line, a table
+of statistics behind one asterisk. **D** with a plot selected opens **Dissect**: a viewer for
+that plot's *companion material*, which lives in
+[`plots/_dissections/<plot name>/`](../concepts/dissections.qmd). Drop per-subject panels,
+alternative analyses, or stats CSVs there (subfolders become tabs) and they're one keypress
+away from the composed figure — without ever appearing in the plot importer or your figures.
+
+Inside the viewer: **arrow keys** move around the grid, **Enter** expands a file
+(**Ctrl+scroll** zooms images at the cursor, **Space+drag** pans, **Enter** toggles fit/1:1),
+CSV and TSV files open as sortable tables, and **Esc** steps back out. The **⧉** button
+shrinks the viewer to a floating window you can keep beside the canvas; files dropped into
+the folder while it's open appear live. The Inspector's **Dissections** button (with a count)
+does the same as **D** — and for a plot with no dissections yet, it offers to create the
+folder.
+
 # Everyday editing
 
 Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to

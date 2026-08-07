@@ -83,6 +83,9 @@ export * from "./validate";
 // Recipe re-runs (F2 reproducibility) live in ./recipe.
 export * from "./recipe";
 
+// Dissections (plots/_dissections/ companion material) live in ./dissect.
+export { listDissections, listDissectionsFor, listAllDissections } from "./dissect";
+
 // --------------------------------------------------------------------------
 // Flux Slide — the deck verbs (load/save/list/create/validate a deck). Defined
 // in ./slides (which reuses safeJoin/journal/loadManifest/getClient above) and

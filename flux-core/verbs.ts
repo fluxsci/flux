@@ -2039,6 +2039,21 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "list_dissections",
+    cli: "list-dissections",
+    // flags-root: the positional is a PLOT (often slash-bearing, e.g. sub/charlie.svg) and
+    // must never be eaten by the old root-positional heuristic.
+    cliRoot: "flags",
+    summary:
+      "List a plot's dissections — the companion material in plots/_dissections/<plot>/ (per-subject panels, _stats CSVs, alternative analyses; the Dissect viewer shows subfolders as named groups, loose files as the default group). Pass the plot by key or path (growth, sub/charlie.svg, plots/growth.svg); with no plot, summarize every plot that has a dissection folder. Writing needs no verb — drop files into the folder and an open viewer live-refreshes.",
+    params: { plot: z.string().optional() },
+    cliArgs: [{ kind: "pos", at: 0, into: "plot" }],
+    handler: (ctx, a) => core.listDissections(ctx.root, a.plot === undefined ? undefined : s(a.plot)),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+    },
+  },
+  {
     name: "rerun_plot",
     cli: "rerun-plot",
     cliRoot: "flags",

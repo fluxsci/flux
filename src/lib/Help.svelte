@@ -127,6 +127,7 @@
             ["⌘⌥C / ⌘⌥V", "Copy / paste style"],
             ["⌘⇧L", "Lock / unlock selection"],
             ["X", "Hide / show selection (or drilled plot part)"],
+            ["D", "Dissect — view the selected plot's companion material"],
             ["Delete", "Delete selection"],
             ["Alt + C / L", "Edit caption / mark panel label"],
             ["⌃⇧K", "Import PNG/SVG files"],
