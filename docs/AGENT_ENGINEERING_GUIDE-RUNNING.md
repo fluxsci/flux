@@ -2783,3 +2783,21 @@ signing, and made electron-builder ship the extension with the app.
   both declare their own block for the correction runtime. The entries are repeated per
   platform on purpose; check this whenever adding a top-level resource.
 
+### 2026-08-07 (later) — "Couldn't file that capture — HTTP 403" on every launch (Claude Fable 5, `main`)
+**Work:** A single leftover `.fluxcap` (no DOI, a Cloudflare-walled jneurosci URL) produced an
+error toast on every startup AND every window focus. Added `capture:park` and a
+definitive-vs-transient retry rule.
+**Learnings:**
+- **"Leave it in place so the user can retry" is only right for TRANSIENT failures.** A
+  definitive one — the server answered, `HTTP 403` — fails identically forever, so the
+  retry-forever policy turned one unresolvable file into a recurring error toast on every
+  launch and every focus. The distinction already existed in this codebase (`isTransientErr`
+  in pdfFinderBridge: an `HTTP <status>` means the request completed and the answer was no);
+  the capture intake now uses the same rule.
+- Parked captures go to FluxLib's `pdfs_to_assign/_unresolved/` beside a `.txt` note — the same
+  place and shape the assign flow uses for a PDF it refuses to guess at. **Nothing the user
+  captured is ever deleted**, which is what makes "stop retrying" a safe policy rather than a
+  lossy one.
+- Worth noticing the shape of this bug: the feature worked, and the failure mode was purely
+  *how often it complained*. Retry policy is part of the UX, not an implementation detail.
+

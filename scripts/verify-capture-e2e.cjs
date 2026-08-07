@@ -103,6 +103,18 @@ async function main() {
   ok((await engine.discard("flux-x.fluxcap")).ok === true, "a real sidecar is discarded");
   ok(!fs.existsSync(path.join(dl, "flux-x.fluxcap")), "…and is gone");
 
+  console.log("\nunresolvable captures are set aside, not retried forever:");
+  await fsp.writeFile(path.join(dl, "flux-stuck.fluxcap"), JSON.stringify({ v: 1, url: "https://walled.example/x.pdf", doi: "" }));
+  const parked = await engine.park("flux-stuck.fluxcap", "HTTP 403");
+  ok(parked.ok === true, "park() moves it out of the download folder", JSON.stringify(parked));
+  ok(!fs.existsSync(path.join(dl, "flux-stuck.fluxcap")), "…so it can't re-fail on every startup");
+  const unres = path.join(inbox, "_unresolved");
+  ok(fs.existsSync(path.join(unres, "flux-stuck.fluxcap")), "…the capture itself is preserved, never deleted");
+  ok(fs.readFileSync(path.join(unres, "flux-stuck.fluxcap.txt"), "utf8").includes("HTTP 403"), "…beside a note saying why");
+  ok((await engine.park("../../etc/passwd", "x")).error, "park refuses a traversal name");
+  ok((await engine.park("tax-return-2025.pdf", "x")).error, "park refuses a non-capture");
+  ok(fs.existsSync(path.join(dl, "tax-return-2025.pdf")), "…and leaves that file alone");
+
   console.log("\nmissing folder:");
   const dead = createCaptureIntake({ captureDir: () => null, fluxLibDir: () => lib, path, fs, fsp, loadRules: () => import("../electron/captureRules.js") });
   const empty = await dead.intake();

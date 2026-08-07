@@ -53,6 +53,7 @@ const CHANNELS = [
   { channel: "capture:installXpi", kind: "invoke", scope: "read" },
   { channel: "capture:intake", kind: "invoke", scope: "write" },
   { channel: "capture:discard", kind: "invoke", scope: "write" },
+  { channel: "capture:park", kind: "invoke", scope: "write" },
   // The feedback ledger (append-only .meta/feedback.ndjson — principal-agent scheme).
   { channel: "feedback:append", kind: "invoke", scope: "write" },
   { channel: "lock:acquire", kind: "invoke", scope: "write" },

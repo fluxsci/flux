@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld("fig", {
   // Move captured PDFs into the assign inbox; return sidecars for the renderer to resolve.
   captureIntake: () => ipcRenderer.invoke("capture:intake"),
   captureDiscard: (name) => ipcRenderer.invoke("capture:discard", name),
+  capturePark: (name, note) => ipcRenderer.invoke("capture:park", name, note),
   // Fetch an OpenAlex API URL (built by src/lib/references/openalex.ts) in main —
   // powers library hydration + whole-world lookups (no CORS; api_key attached if set).
   fetchOpenAlex: (url) => ipcRenderer.invoke("cite:openalex", url),

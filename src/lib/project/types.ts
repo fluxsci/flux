@@ -323,6 +323,8 @@ export interface FileBridge {
   // and returns the .fluxcap sidecars for the renderer to resolve, then discard by name.
   captureIntake?(): Promise<{ pdfs: string[]; sidecars: { name: string; json: string }[]; supplements: string[] }>;
   captureDiscard?(name: string): Promise<{ ok?: boolean; error?: string }>;
+  /** Set an unresolvable capture aside (FluxLib `_unresolved/` + a note) instead of retrying it forever. */
+  capturePark?(name: string, note: string): Promise<{ ok?: boolean; path?: string; error?: string }>;
   // Web capture (flux://): main delivers a { doi?, url? } payload to add to FluxLib.
   // Electron only; returns an unsubscribe fn. Mirrors onFsChanged's shape.
   // App-level notices from the main process (watcher death, spawn failures) —

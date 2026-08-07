@@ -988,6 +988,7 @@ const captureIntakeEngine = createCaptureIntake({
 });
 ipcMain.handle("capture:intake", () => captureIntakeEngine.intake());
 ipcMain.handle("capture:discard", (_e, name) => captureIntakeEngine.discard(name));
+ipcMain.handle("capture:park", (_e, name, note) => captureIntakeEngine.park(name, note));
 
 // Web-capture onboarding. The extension is installed from a folder (Chromium) or a signed
 // .xpi (Firefox), and a browser will not let a page navigate to chrome://extensions or

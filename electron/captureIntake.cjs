@@ -89,6 +89,36 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
     return { pdfs, sidecars, supplements };
   }
 
+  /**
+   * Set a capture aside that cannot be resolved — DEFINITIVELY, not because the network
+   * blinked. It moves into FluxLib's `_unresolved/` beside a note, the same place the assign
+   * flow parks a PDF it refuses to guess at. Nothing the user captured is ever deleted, and
+   * nothing unresolvable is retried forever (a permanently-403 sidecar otherwise re-failed on
+   * every startup and every window focus, toasting each time).
+   */
+  async function park(name, note) {
+    const dir = captureDir();
+    await ready();
+    if (!dir || !rules) return { error: "capture unavailable" };
+    if (typeof name !== "string" || path.basename(name) !== name || !rules.isCaptureFile(name)) return { error: "not a capture" };
+    const src = [path.join(dir, name), path.join(dir, rules.CAPTURE_SUBDIR, name)].find((p) => fs.existsSync(p));
+    if (!src) return { error: "gone" };
+    try {
+      const out = path.join(fluxLibDir(), "pdfs_to_assign", "_unresolved");
+      await fsp.mkdir(out, { recursive: true });
+      let dst = path.join(out, name);
+      for (let i = 2; fs.existsSync(dst); i++) dst = path.join(out, `${i}-${name}`);
+      await fsp.rename(src, dst).catch(async () => {
+        await fsp.copyFile(src, dst);
+        await fsp.rm(src, { force: true });
+      });
+      await fsp.writeFile(`${dst}.txt`, `Could not add "${name}" to FluxLib.\nReason: ${String(note || "unknown")}\n\nThe capture itself is intact next to this note. If the paper is reachable in your\nbrowser, capturing it again is usually the quickest fix.\n`, "utf8");
+      return { ok: true, path: dst };
+    } catch (e) {
+      return { error: String((e && e.message) || e) };
+    }
+  }
+
   /** Delete one sidecar, once the caller has resolved it. Name-only, and it must satisfy the
    *  shared capture rule — so this can never be aimed at an arbitrary file. */
   async function discard(name) {
@@ -105,7 +135,7 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
     }
   }
 
-  return { intake, discard };
+  return { intake, discard, park };
 }
 
 module.exports = { createCaptureIntake, MIN_PDF_BYTES };

@@ -25,6 +25,15 @@ import { captureStatus, markCaptured } from "./captureStatus";
 /** Where main stages captured supplements until their paper has a citekey. */
 const STAGING = "_captured_supplements";
 
+/**
+ * A DEFINITIVE failure (the server answered — `HTTP 403`, `HTTP 404`) will fail identically
+ * forever, so retrying it is pure noise: the sidecar re-failed on every startup and every
+ * window focus, toasting each time. A TRANSIENT one (offline, timeout) deserves another go.
+ * Same rule the OA waterfall uses (`isTransientErr` in pdfFinderBridge) — an `HTTP <status>`
+ * means the request completed and the answer was no.
+ */
+const isDefinitive = (err?: string): boolean => /^HTTP \d/.test(String(err ?? ""));
+
 export interface CaptureResult {
   file: string;
   action: "queued" | "added" | "filed" | "waiting" | "failed";
@@ -121,7 +130,10 @@ export async function runCaptureIntake(): Promise<CaptureResult[]> {
           const r = await addUrlOrDoiToLibrary(cap.doi || cap.url);
           if ("error" in r) {
             out.push({ file: name, action: "failed", detail: r.error });
-            continue; // keep it: the user can retry, or add it by hand
+            // Definitive: set it aside with a note rather than re-failing on every launch.
+            // Transient: leave it in place and try again next time.
+            if (isDefinitive(r.error)) await fb.capturePark?.(name, r.error ?? "could not be resolved");
+            continue;
           }
           out.push({ file: name, action: "added", detail: r.title || r.key });
           await fb.captureDiscard?.(name);
@@ -146,7 +158,10 @@ function report(rows: CaptureResult[]): void {
   const failed = rows.filter((r) => r.action === "failed");
   if (!queued && !added && !filed && !failed.length) return captureStatus.clear(); // only waiting
   if (failed.length && !queued && !added) {
-    captureStatus.show("err", `Couldn't file ${failed.length === 1 ? "that capture" : `${failed.length} captures`} — ${failed[0].detail ?? "unknown error"}`, 6000);
+    const one = failed.length === 1;
+    const why = failed[0].detail ?? "unknown error";
+    const parked = isDefinitive(why) ? " — set aside in pdfs_to_assign/_unresolved" : "";
+    captureStatus.show("err", `Couldn't file ${one ? "that capture" : `${failed.length} captures`} — ${why}${parked}`, 6000);
     return;
   }
   const bits: string[] = [];
