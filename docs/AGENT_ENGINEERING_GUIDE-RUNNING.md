@@ -2723,3 +2723,36 @@ docs (regenerated). Gates: `verify-dissections.ts` (pure, 67) + `verify-dissect-
   stops propagation for everything except held-Space (the detail hand tool owns it) — that
   is what keeps tool keys off `Canvas.svelte`'s own window listener, which the handleKey
   guard alone does not cover.
+
+### 2026-08-06 (later still) — Three real-page capture failures (Claude Fable 5, `main`)
+**Work:** Owner testing found three failures the gates couldn't have predicted. All fixed, all
+now gated in `verify-extension.ts`.
+**Learnings:**
+- **A hang is a bug, and every network call needs a deadline.** annualreviews.org (Cloudflare)
+  accepted the connection and never answered, so `looksLikePdf` awaited its first chunk forever
+  and the badge sat on "…" with no way out but reloading the extension. Every fetch is now
+  `AbortSignal.timeout`-boxed and the whole run has its own deadline, so the badge ALWAYS
+  resolves. Related: a validation that TIMED OUT is not a verdict — `looksLikePdf` returns
+  yes/no/**unknown**, and "unknown" downloads anyway rather than letting our own flaky probe
+  veto a real capture.
+- **`chrome.scripting.executeScript` cannot inject into a browser's PDF viewer.** It failed with
+  a red "!" on exactly the pages where capture should be easiest — the bytes are already
+  fetched and on screen. We never needed the DOM there: `tab.url` IS the file. The test is on
+  the URL's PATH, not the whole string, because publishers sign these links
+  (`…annurev-….pdf?expires=…&checksum=…`).
+- **`downloads.download()` resolves when the download is ACCEPTED, not when it lands.** A
+  publisher answering 403 therefore produced a perfectly happy promise and a file that never
+  appeared — the owner's "it finds the supplement but the download fails", with nothing anywhere
+  to explain it. The real outcome only surfaces on `downloads.onChanged`; every capture download
+  is now tracked to completion and reports the browser's own error code. **When an API's
+  success signal is "accepted", it is not a success signal.**
+- Dropped the HEAD preflight that guarded supplement size. Plenty of publishers reject HEAD, and
+  an extra pre-request to an anti-bot-guarded endpoint is a known way to poison the very session
+  the download depends on (same lesson as the proxy engine's "never phase-1 pre-fetch a nav
+  candidate"). The size cap moved to `onChanged`, where it costs no extra request.
+- **A watcher with `ignoreInitial` is not a receiver.** Captures made while Flux was CLOSED were
+  never picked up — which is the common case, since you capture in the browser and open Flux
+  later — and the watcher only ran at all when a project was open, so Home saw nothing. Now
+  swept on startup and on window focus (the natural moment: capture, switch back, it's in). The
+  docs had confidently claimed the old behaviour worked; they were corrected in the same change.
+

@@ -64,8 +64,8 @@ Captures land in your downloads folder named `flux-…` — the extension puts t
 subfolder** so a click that grabs an article plus several supplements doesn't scatter files
 through your downloads (the bookmark can't do that: `<a download>` cannot name a directory, so
 its files land in the root). Either way Flux picks them up within a second or two and removes
-them. **Flux doesn't need to be open** — anything captured while it's closed is filed the next
-time you start it. Nothing is lost, and nothing else in your downloads folder is touched: Flux
+them. **Flux doesn't need to be open** — anything captured while it's closed is swept up when
+you next start it, and again whenever you switch back to the Flux window. Nothing is lost, and nothing else in your downloads folder is touched: Flux
 only ever looks at files it wrote itself.
 
 A captured PDF goes through the same identification as the

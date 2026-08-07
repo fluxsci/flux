@@ -53,8 +53,8 @@ Open a paper and click the **Flux** button in the toolbar. The badge tells you w
 | `!` red | the page couldn't be read (an internal page, or a blocked injection) |
 
 Captured files land in **`<downloads>/flux/`** — a subfolder, so one click that produces an
-article plus eight supplements doesn't scatter nine files through your downloads. Flux moves
-them out within a second or two:
+article plus eight supplements doesn't scatter nine files through your downloads. Flux moves them out within a
+second or two — on startup, on window focus, and live while it's watching:
 
 | File | Becomes |
 |---|---|

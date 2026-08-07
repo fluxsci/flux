@@ -125,6 +125,37 @@ function run(page: { meta?: Record<string, string>; anchors?: Anchor[]; href?: s
   ok(r.supplements.length === 0, "an in-page anchor is not captured as a supplement");
 }
 
+// --- 2b: the worker's failure handling ----------------------------------------------------
+// These are the three real-page failures found in testing; each was invisible or unrecoverable
+// before. They're asserted against the SOURCE because the behaviours are structural.
+{
+  const bg = readFileSync("extension/background.js", "utf8");
+  // (a) Annual Reviews sat behind Cloudflare and never answered; with no deadline the badge
+  //     stayed on "…" forever and the only way out was reloading the extension.
+  ok(/AbortSignal\.timeout\(NET_TIMEOUT_MS\)/.test(bg), "every network call is time-boxed");
+  ok(/RUN_TIMEOUT_MS/.test(bg) && /clearTimeout\(guard\)/.test(bg), "a whole-run deadline guarantees the badge resolves");
+  // (b) executeScript cannot inject into a browser's PDF viewer — which is exactly where
+  //     capture should be easiest, since the bytes are already on screen.
+  ok(/function pdfTabUrl/.test(bg), "a PDF tab is recognized from its URL");
+  ok(/x\.pathname/.test(bg), "…on the PATH, so a signed link with ?expires=… still counts");
+  ok(/if \(!asPdf\) return null;/.test(bg), "…and injection failure falls back to the tab URL instead of erroring out");
+  // (c) `catch {}` made every supplement failure invisible: a capture looked complete when
+  //     files were missing.
+  ok(!/catch \{\s*\/\* one supplement/.test(bg), "supplement failures are no longer swallowed");
+  ok(/notes\.push\(`supplement: /.test(bg), "…each one is recorded");
+  ok(/api\.action\.setTitle/.test(bg), "…and surfaced in the button tooltip (no extra permission needed)");
+  ok(/console\.warn\("\[Add to FluxLib\]"/.test(bg), "…and logged for Inspect");
+  // downloads.download() resolves when the download is ACCEPTED, not when it lands, so a 403
+  // produced a happy promise and a missing file. Only onChanged reveals the real outcome.
+  ok(/downloads\.onChanged/.test(bg), "downloads are tracked to completion, not just to acceptance");
+  ok(/state === "interrupted"/.test(bg), "…so an interrupted transfer is reported");
+  ok(/d\.error\?\.current/.test(bg), "…with the browser's own error code");
+  ok(!/method: "HEAD"/.test(bg), "no HEAD preflight — an extra request to a guarded endpoint can poison the session");
+  // A stalled probe must not veto a real capture.
+  ok(/return "unknown"/.test(bg) && /verdict === "unknown"/.test(bg), "an inconclusive PDF check downloads anyway rather than refusing");
+  ok(/info\.isPdf \? "yes"/.test(bg), "a PDF tab skips validation — the browser already rendered it");
+}
+
 // --- 3: supplement filenames round-trip ---------------------------------------------------
 {
   const slug = captureSlug("10.1126/science.aah5982");
@@ -135,6 +166,10 @@ function run(page: { meta?: Record<string, string>; anchors?: Anchor[]; href?: s
   // Non-PDF supplements are the norm, not the exception.
   ok(isCaptureFile(`${SUPP_PREFIX}${slug}${SUPP_SEP}movie.mov`), "a .mov supplement is recognized");
   ok(isCaptureFile(`${SUPP_PREFIX}${slug}${SUPP_SEP}data.xlsx`), "an .xlsx supplement is recognized");
+  // safeName used to strip hyphens, turning devivo-sm.pdf into devivosm.pdf — publisher
+  // filenames carry meaning and mangling them makes a supplement unrecognizable.
+  const bg = readFileSync("extension/background.js", "utf8");
+  ok(!/replace\(\/\[<>:"\|\?\* -\]/.test(bg.replace(/\\/g, "")) || /Hyphens and dots are KEPT/.test(bg), "safeName keeps hyphens and dots");
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall green");

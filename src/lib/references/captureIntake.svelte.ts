@@ -173,3 +173,29 @@ fluxLibRevision.subscribe(() => {
   clearTimeout(sweepTimer);
   sweepTimer = setTimeout(() => void runCaptureIntake(), 800);
 });
+
+/**
+ * Start watching for captures. Call once, as soon as the bridge exists.
+ *
+ * The file watcher alone is NOT enough, for two reasons that both bit in real use:
+ *   • it runs with `ignoreInitial`, so anything captured while Flux was CLOSED is invisible to
+ *     it — the common case, since you capture in the browser and open Flux later;
+ *   • it only exists while a project is open, so captures made on Home were never seen.
+ * A sweep on startup and on window focus covers both, and focus is the natural moment anyway:
+ * you click the extension in your browser, switch back to Flux, and the files are already in.
+ */
+export function startCaptureWatch(): void {
+  if (watching) return;
+  watching = true;
+  void runCaptureIntake(); // whatever arrived while Flux was closed
+  let focusTimer: ReturnType<typeof setTimeout> | undefined;
+  const onFocus = () => {
+    clearTimeout(focusTimer);
+    focusTimer = setTimeout(() => void runCaptureIntake(), 250);
+  };
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) onFocus();
+  });
+}
+let watching = false;
