@@ -25,6 +25,7 @@
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
+  import DissectOverlay from "../../../lib/dissect/DissectOverlay.svelte";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import { activeFigureId, dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
@@ -245,6 +246,7 @@
   <FluxFigMenu />
   <Xray />
   <PlotImporter />
+  <DissectOverlay />
   <PresetPicker />
 
   {#if figDiverged}

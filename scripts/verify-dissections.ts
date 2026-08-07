@@ -29,6 +29,7 @@ import {
   dissectionRootRelFor,
   classifyDissectionFile,
 } from "../src/lib/dissect/rules";
+import { parseDelimited, sniffDelimiter, numericColumns, isNumericCell } from "../src/lib/dissect/csv";
 
 const h = harness("verify-dissections");
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -84,6 +85,30 @@ h.eq(classifyDissectionFile("alt-model.fluxplot.json"), "sidecar", "fluxplot man
 h.eq(classifyDissectionFile("alt-model.recipe.json"), "sidecar", "recipe → sidecar");
 h.eq(classifyDissectionFile("notes.md"), "other", "md → other (listed, no viewer yet)");
 h.eq(classifyDissectionFile("stats.json"), "other", "plain json is NOT a sidecar");
+
+h.section("the tolerant CSV/TSV reader (a viewer, not a validator)");
+{
+  const t = parseDelimited('name,score,note\nalice,12,"said ""hi"", left"\nbob,3,\n', { name: "x.csv" });
+  h.eq(t.header, ["name", "score", "note"], "header = the first row");
+  h.eq(t.rows[0], ["alice", "12", 'said "hi", left'], "RFC4180 quotes: embedded delimiter + doubled quotes");
+  h.eq(t.rows.length, 2, "trailing newline never yields a phantom row");
+  const ragged = parseDelimited("a,b,c\n1,2\n1,2,3,4\n");
+  h.eq(ragged.cols, 4, "ragged rows are KEPT (cols = widest row) — strict parseCsv would reject this file");
+  h.eq(ragged.rows[0], ["1", "2"], "short rows survive un-padded (render pads)");
+  const nl = parseDelimited('a,b\n"line\nbreak",2\n');
+  h.eq(nl.rows[0][0], "line\nbreak", "quoted newlines stay inside the field");
+  h.eq(nl.rows.length, 1, "…and don't split the row");
+  const crlf = parseDelimited("a,b\r\n1,2\r\n");
+  h.eq(crlf.rows[0], ["1", "2"], "CRLF line endings");
+  h.eq(sniffDelimiter("a\tb\tc\n", ""), "\t", "tab-dominant first line sniffs as TSV");
+  h.eq(sniffDelimiter("a,b,c\n", "means.tsv"), "\t", ".tsv extension wins over the sniff");
+  h.eq(parseDelimited("a\tb\n1\t2\n").rows[0], ["1", "2"], "TSV parses on the sniffed delimiter");
+  const capped = parseDelimited("h\n" + Array.from({ length: 20 }, (_, i) => String(i)).join("\n"), { maxRows: 10 });
+  h.ok(capped.truncated && capped.rows.length === 10 && capped.totalRows === 20, "the row cap truncates honestly (truncated + totalRows)");
+  h.ok(isNumericCell("-1,234.5e2") && isNumericCell("0.42") && !isNumericCell("v1.2.3") && !isNumericCell("-"), "numeric-cell detection");
+  const num = numericColumns(parseDelimited("term,estimate,p\nintake,0.42,0.003\nage,-0.11,0.2\n"));
+  h.eq(num, [false, true, true], "numeric columns detected for right-alignment");
+}
 
 h.section("the shipped consumers route through the shared rule (no private regexes)");
 {

@@ -55,6 +55,7 @@ import {
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
 import { fluxFigMenuOpen, settingsOpen, helpOpen, inspectorHidden, leftRailHidden } from "./settings";
+import { dissectTarget, openDissectForSelection } from "./dissect/state";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
@@ -660,7 +661,7 @@ function openXray() {
 
 export function handleKey(e: KeyboardEvent) {
   // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover /
-  // Figure Namer own all keys while open.
+  // Figure Namer / Dissect viewer own all keys while open.
   if (
     get(fluxFigMenuOpen) ||
     get(settingsOpen) ||
@@ -668,7 +669,8 @@ export function handleKey(e: KeyboardEvent) {
     get(xrayOpen) ||
     get(importerOpen) ||
     get(cascadeState) ||
-    get(figNamer)
+    get(figNamer) ||
+    get(dissectTarget)
   )
     return;
 
@@ -987,6 +989,15 @@ export function handleKey(e: KeyboardEvent) {
       e.preventDefault();
       return;
     }
+  }
+
+  // D opens the Dissect viewer for the selected plot's companion material
+  // (plots/_dissections/<plot>/ — per-subject panels, _stats CSVs). Plain key:
+  // 'd' is free of tool bindings; Alt+D stays align-right, Ctrl+D duplicate.
+  if (lk === "d" && !e.shiftKey && !e.altKey) {
+    e.preventDefault();
+    openDissectForSelection();
+    return;
   }
 
   // Tool shortcuts are unmodified single keys (Shift+R is the ruler toggle, etc.).
