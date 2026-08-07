@@ -165,7 +165,6 @@
       "verify-journal-assets.ts",
       "verify-nature-structure.ts",
       "verify-nature-compliance.ts",
-      "verify-bookmarklet.ts",
       "verify-capture-intake.ts",
       "verify-extension.ts",
       "verify-dissections.ts"
@@ -407,21 +406,6 @@
       "run": [
         "verify-capture-intake.ts",
         "verify-capture-e2e.cjs",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "{src/lib/references/{capture,captureIntake.svelte,captureStatus}.ts,electron/captureInstall.cjs}",
-      "run": [
-        "verify-capture-intake.ts",
-        "verify-bookmarklet.ts",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "{src/shell/modes/library/bookmarklet.ts,src/lib/references/capture.ts}",
-      "run": [
-        "verify-bookmarklet.ts",
         "tier:pure"
       ]
     },

@@ -7,10 +7,8 @@
 // Run: npx tsx scripts/verify-capture-intake.ts
 import { createRequire } from "node:module";
 import { isCaptureFile, parseFluxCapture, CAPTURE_PREFIX, CAPTURE_EXT } from "../src/lib/references/capture";
-import { BOOKMARKLET_HREF } from "../src/shell/modes/library/bookmarklet";
 
 const require = createRequire(import.meta.url);
-const { captureInstallHtml, FLUX_ICON_DATA_URI } = require("../electron/captureInstall.cjs");
 
 let failures = 0;
 function ok(cond: boolean, name: string, detail = "") {
@@ -39,36 +37,19 @@ for (const n of ["paper.pdf", "1-s2.0-S0006349521008870-main.pdf", "flux.pdf", "
   ok(parseFluxCapture(JSON.stringify({ v: 1, url: "https://x/a" }))?.doi === "", "URL-only sidecar is usable, doi empty");
 }
 
-// --- 3: the install page ------------------------------------------------------------------
-{
-  const html = captureInstallHtml(BOOKMARKLET_HREF);
-  ok(html.startsWith("<!doctype html>"), "install page is a real document");
-  ok(html.includes(`href="${BOOKMARKLET_HREF.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}"`), "the SHIPPED bookmarklet is the link's href (one source of truth)");
-  // The dragged bookmark inherits the source page's favicon — that is the whole reason the
-  // icon is here, and a blank-page icon is what the user complained about.
-  ok(/<link rel="icon" href="data:image\/png;base64,/.test(html), "page declares a data-URI favicon (the bookmark inherits it)");
-  ok(FLUX_ICON_DATA_URI.length > 500, "the icon is real bytes, not a placeholder", `${FLUX_ICON_DATA_URI.length} chars`);
-  ok(html.includes(FLUX_ICON_DATA_URI) && html.split(FLUX_ICON_DATA_URI).length === 3, "icon used twice: favicon + on the button itself");
-  // Firefox's CSP behaviour is a real limitation; the page must say so rather than let the
-  // user discover it as silence.
-  ok(/Firefox/.test(html) && /Content-Security-Policy/.test(html) && /866522/.test(html), "documents the Firefox CSP limitation, with the bug reference");
-  ok(/security\.csp\.enable/.test(html) && /Don't disable/.test(html), "warns AGAINST the dangerous workaround");
-  ok(/Ctrl\+Shift\+B/.test(html), "says how to show the bookmarks bar");
-  ok(!/javascript:[^"]*<script/.test(html), "no script injection through the href");
-}
-{
-  // Escaping: a hostile href must not break out of the attribute.
-  const html = captureInstallHtml('javascript:void("</a><script>alert(1)</script>")');
-  ok(!html.includes("<script>alert(1)</script>"), "href is HTML-escaped into the attribute");
-}
-
 // --- 4: the two halves agree on the filename contract -------------------------------------
 ok(CAPTURE_PREFIX === "flux-", "prefix constant matches what the bookmarklet writes");
 ok(CAPTURE_EXT === ".fluxcap", "sidecar extension constant matches");
-ok(BOOKMARKLET_HREF.includes("'flux-'+slug+'.pdf'"), "bookmarklet writes the PDF under the shared prefix");
-ok(BOOKMARKLET_HREF.includes("'flux-'+slug+'.fluxcap'"), "bookmarklet writes the sidecar under the shared prefix");
+{
+  // The extension is now the only producer; its worker must use the shared constants rather
+  // than literals, so the filename contract can't drift from the watcher's.
+  const bg = require("node:fs").readFileSync("extension/background.js", "utf8");
+  ok(/flux-\$\{slug\}\.pdf/.test(bg), "the extension writes the article under the shared prefix");
+  ok(/\$\{SUPP_PREFIX\}\$\{slug\}\$\{SUPP_SEP\}/.test(bg), "…and supplements under the shared supplement prefix");
+  ok(/CAPTURE_SUBDIR/.test(bg), "…into the shared subfolder");
+}
 
-// --- 5: the OLD flux:// capture path is really gone ---------------------------------------
+// --- 4b: the OLD flux:// path AND the bookmarklet are really gone ---------------------------------------
 {
   const fs = require("node:fs") as typeof import("node:fs");
   ok(!fs.existsSync("electron/fluxUrl.cjs"), "electron/fluxUrl.cjs deleted");
@@ -78,7 +59,14 @@ ok(BOOKMARKLET_HREF.includes("'flux-'+slug+'.fluxcap'"), "bookmarklet writes the
   ok(!/^protocols:/m.test(builder), "electron-builder.yml no longer registers the flux:// scheme");
   const contract = fs.readFileSync("electron/ipc/contract.cjs", "utf8");
   ok(!/capture:add/.test(contract), "the capture:add channel is out of the IPC contract");
-  ok(/capture:dir/.test(contract) && /capture:openInstallPage/.test(contract), "the new capture channels ARE declared");
+  // The bookmarklet is gone entirely — the extension replaced it.
+  ok(!fs.existsSync("src/shell/modes/library/bookmarklet.ts"), "the bookmarklet source is deleted");
+  ok(!fs.existsSync("electron/captureInstall.cjs"), "its install page is deleted");
+  ok(!/capture:openInstallPage/.test(contract), "…and its IPC channel is out of the contract");
+  const lib = fs.readFileSync("src/shell/modes/library/LibraryMode.svelte", "utf8");
+  ok(!/BOOKMARKLET_HREF|bookmarklet/i.test(lib), "the Library holds no bookmarklet references");
+  ok(/captureExtensionInfo|revealCaptureExtension|installCaptureXpi/.test(fs.readFileSync("electron/preload.cjs", "utf8")), "the extension onboarding channels ARE exposed");
+  ok(/capture:dir/.test(contract) && /capture:intake/.test(contract) && /capture:extensionInfo/.test(contract), "the new capture channels ARE declared");
   // main must classify with the SHARED rule, never its own regex (the drift that rotted the
   // supplement filter started exactly this way).
   ok(/captureRules\.isCaptureFile/.test(main), "main.cjs classifies via the shared rule, not a private regex");

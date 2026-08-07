@@ -37,7 +37,8 @@
     "dist:mac": "npm run build && node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64 && electron-builder --mac",
     "dist:linux": "npm run build && node scripts/fetch-correction-runtime.mjs --platform linux --arches x64 && electron-builder --linux",
     "pack": "npm run build && npm run fetch:correction-runtime && electron-builder --dir",
-    "build:extension": "node scripts/build-extension.mjs"
+    "build:extension": "node scripts/build-extension.mjs",
+    "sign:extension": "node scripts/sign-extension.mjs"
   },
   "dependencies": {
     "@citation-js/core": "^0.7.21",

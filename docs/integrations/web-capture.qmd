@@ -6,65 +6,42 @@ subtitle: "One click on any paper page saves it — with its PDF — into FluxLi
 You are reading a paper in your browser. One click puts it in your library: the reference, and
 the PDF, without a download folder detour or a copy-pasted DOI.
 
-There are two ways to do it. The **extension** is the better one — it captures supplementary
-files in the same click and works in Firefox — but it needs a manual install for now. The
-**bookmark** needs no install at all and works everywhere except strict-CSP sites in Firefox.
+# Setting it up
 
-# The extension (recommended)
+In [Library](../modes/library.qmd), at the bottom of the pane, the **Web capture** row shows
+whether capture is connected. Click **Set up…** and follow the two lines for your browser:
 
-Build it once:
-
-```bash
-node scripts/build-extension.mjs
-```
-
-Then load `extension/dist`:
-
-- **Chrome / Edge / Brave** — `chrome://extensions` → **Developer mode** → **Load unpacked**
-- **Firefox** — `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → pick
-  `manifest.json`
+- **Firefox** — one button, **Install for Firefox**. Firefox asks you to confirm, and that's it.
+- **Chrome, Edge or Brave** — **Show me the folder** opens the extension folder, **Copy address**
+  gives you `chrome://extensions` to paste in a new tab, then turn on *Developer mode* and
+  choose **Load unpacked**.
 
 ::: {.callout-note}
-A Firefox temporary add-on is removed when the browser restarts — that's Firefox policy. A
-permanent install needs a signed `.xpi`, which Mozilla will issue for free without any public
-listing ([self-distribution](https://extensionworkshop.com/documentation/publish/self-distribution/)).
+Flux can't open `chrome://extensions` or `about:addons` for you — browsers refuse navigation to
+those from outside, deliberately. That's why the panel opens the folder and hands you the
+address to paste rather than pretending to do it in one click.
 :::
 
-Click the Flux button in the toolbar on any paper page. The badge shows a count when files are
-captured, and **supplementary files come with the article in that same click** — SI PDFs,
-spreadsheets, videos — each filed against the paper once Flux has identified it.
-
-The extension works where the bookmark can't because its fetches run in a background worker
-under host permissions, which a page's Content-Security-Policy does not govern. See
-`extension/README.md` for the details.
-
-# The bookmark (no install)
-
-In [Library](../modes/library.qmd), at the bottom of the pane, click **Set up the bookmark…**.
-A page opens in your default browser with a green **Add to FluxLib** button. Drag that button
-onto your bookmarks bar and you're done — there is nothing to install, no extension, no
-account.
-
-::: {.callout-tip}
-Bookmarks bar hidden? `Ctrl+Shift+B` (`⌘⇧B` on macOS).
-:::
+The status dot turns green the moment your first capture arrives, so you never have to wonder
+whether it took.
 
 # Using it
 
-Open a paper and click the bookmark. It works on the article page **and** on a PDF you already
-have open in the browser. A message appears at the top of the page:
+Open a paper and click the **Flux** button in your browser's toolbar. It works on the article
+page **and** on a PDF you already have open. The badge tells you what happened:
 
-| Message | What happened |
+| Badge | What happened |
 |---|---|
-| **Green** — *PDF sent to Flux* | The PDF was captured. Flux files it and matches it to a reference automatically. |
-| **Amber** — *Sent details to Flux* | No PDF was reachable, so the paper's details were captured. Flux still adds the reference; it just won't have the PDF yet. |
-| Nothing at all | The click didn't run — see [If nothing happens](#if-nothing-happens). |
+| A number, green | That many files captured — the article plus its supplementary files. |
+| `1`, amber | No PDF was reachable, so the paper's details were captured. Flux still adds the reference; it just won't have the PDF yet. |
+| `!`, red | Nothing was captured. **Hover the button** — the tooltip says why. |
 
-Captures land in your downloads folder named `flux-…` — the extension puts them in a **`flux/`
-subfolder** so a click that grabs an article plus several supplements doesn't scatter files
-through your downloads (the bookmark can't do that: `<a download>` cannot name a directory, so
-its files land in the root). Either way Flux picks them up within a second or two and removes
-them. **Flux doesn't need to be open** — anything captured while it's closed is swept up when
+Supplementary files come with the article in the same click: SI PDFs, spreadsheets, videos.
+Each is filed against the paper once Flux has identified it, so a supplement for a paper you
+don't have yet simply waits until the paper arrives.
+
+Captures land in a **`flux/` subfolder** of your downloads folder, named `flux-…`, and Flux
+removes them as it files them. **Flux doesn't need to be open** — anything captured while it's closed is swept up when
 you next start it, and again whenever you switch back to the Flux window. Nothing is lost, and nothing else in your downloads folder is touched: Flux
 only ever looks at files it wrote itself.
 
@@ -82,7 +59,7 @@ Cloudflare and PerimeterX — that refuse automated browsers outright, no matter
 is dressed up. Those papers are simply unreachable to Flux.
 
 Your browser is not an automated browser. It's you: already signed in, already past the
-paywall, already holding the session. So the bookmark captures the PDF *from inside your own
+paywall, already holding the session. The extension captures the PDF *from inside your own
 session*, which is why it reaches papers Flux cannot fetch by itself. It's the most capable
 acquisition route in the app, and it costs one click.
 
@@ -90,33 +67,26 @@ acquisition route in the app, and it costs one click.
 
 | Browser | |
 |---|---|
-| **Chrome, Edge, Brave** | Fully supported. |
-| **Safari** | Works. Show the Favourites bar with `⌘⇧B`. |
-| **Firefox** | The **extension** works fully. The **bookmark** works on many sites but **silently does nothing on publishers with a strict Content-Security-Policy** — Firefox applies the page's CSP to bookmarklets where Chrome doesn't ([Mozilla bug 866522](https://bugzilla.mozilla.org/show_bug.cgi?id=866522), open since 2013). If a bookmark click does nothing on a publisher site, that's why; use the extension. |
-
-::: {.callout-warning}
-You'll find advice to set `security.csp.enable` to `false` in Firefox's `about:config` to make
-bookmarklets work. Don't — it disables Content-Security-Policy for **every site you visit**,
-which is a real security downgrade. Use Chrome for capture, or save the PDF yourself and drop
-it into FluxLib's `pdfs_to_assign` folder.
-:::
+| **Firefox** | Fully supported, installed from the signed add-on. |
+| **Chrome, Edge, Brave** | Fully supported, loaded from the extension folder. |
+| **Safari** | Not supported — Safari uses a different extension format. Save the PDF yourself and drop it into FluxLib's `pdfs_to_assign` folder. |
 
 # If nothing happens
 
+- **Hover the toolbar button.** The tooltip carries the reason the last capture failed,
+  including the browser's own error code when a publisher refused the download.
 - **Check the address bar** for a blocked-download icon, and allow it.
-- **A strict CSP** on the page can block the click outright (see Firefox, above).
-- **Some publishers block the PDF fetch but not the script.** You'll get the amber message and
-  the reference still arrives — just without its PDF. Flux can often fetch that separately with
+- **Some publishers refuse the PDF but not the page.** You get the amber badge and the
+  reference still arrives — just without its PDF. Flux can often fetch that separately with
   **Get PDFs**.
-- **Re-drag the bookmark** after updating Flux: the bookmark holds a copy of the capture code,
-  so an old one keeps working the old way. **Set up the bookmark…** always serves the current
-  version.
+- **Internal pages can't be captured** (`about:`, `chrome://`, the extensions page itself) —
+  browsers don't allow it.
 
 # Where things land
 
 | | |
 |---|---|
-| Captured files | `<downloads>/flux/` (extension) or the download folder root (bookmark), named `flux-…` |
+| Captured files | `<downloads>/flux/`, named `flux-…` (removed as Flux files them) |
 | Captured PDFs, once filed | `FluxLib/pdfs_to_assign/`, then `FluxLib/items/<citekey>/paper.pdf` |
 | Captured supplements | `FluxLib/items/<citekey>/supplements/` (they wait, staged, until the article has been identified) |
 | PDFs that couldn't be identified | `FluxLib/pdfs_to_assign/_unresolved/`, with a note saying why |

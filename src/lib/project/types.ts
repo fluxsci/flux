@@ -314,8 +314,11 @@ export interface FileBridge {
   // Web capture: the folder the browser downloads into, where the bookmarklet drops
   // `flux-*.pdf` / `.fluxcap` files. Electron only; null when it can't be resolved.
   captureDir?(): Promise<string | null>;
-  // Open the drag-to-install bookmarklet page in the DEFAULT browser (not an Electron window).
-  openCaptureInstall?(href: string): Promise<{ ok?: boolean; path?: string; error?: string }>;
+  // Web-capture onboarding. A browser won't let a page navigate to chrome://extensions or
+  // about:addons, so Flux opens the folder / the signed add-on file instead.
+  captureExtensionInfo?(): Promise<{ dir: string; hasDir: boolean; xpi: string | null }>;
+  revealCaptureExtension?(): Promise<{ ok?: boolean; error?: string }>;
+  installCaptureXpi?(): Promise<{ ok?: boolean; error?: string }>;
   // Main moves captured PDFs into pdfs_to_assign (the renderer can't: fsGuard refuses $HOME)
   // and returns the .fluxcap sidecars for the renderer to resolve, then discard by name.
   captureIntake?(): Promise<{ pdfs: string[]; sidecars: { name: string; json: string }[]; supplements: string[] }>;

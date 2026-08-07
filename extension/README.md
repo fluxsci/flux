@@ -3,13 +3,13 @@
 One click on a paper page saves the article **and its supplementary files** into
 [FluxLib](../docs/integrations/web-capture.qmd).
 
-It does the same job as Flux's bookmarklet, better, for one structural reason: a bookmarklet
-runs in the page and is therefore subject to the page's Content-Security-Policy. An extension's
-background worker fetches under **host permissions**, which page CSP does not apply to. That is
-what makes capture work in **Firefox** (which enforces CSP on bookmarklets — [Mozilla
-866522](https://bugzilla.mozilla.org/show_bug.cgi?id=866522), open since 2013) and on
-strict-CSP publishers everywhere. It also means several files can be fetched per click, which
-is what makes supplements possible at all.
+This replaced an in-page bookmarklet, for one structural reason worth recording: a script
+running in the page is subject to that page's Content-Security-Policy. An extension's
+background worker fetches under **host permissions**, which page CSP does not govern. That is
+what makes capture work in **Firefox** (which enforces CSP on page scripts where Chrome does
+not — [Mozilla 866522](https://bugzilla.mozilla.org/show_bug.cgi?id=866522), open since 2013)
+and on strict-CSP publishers everywhere. It also allows several files per click, which is what
+makes supplements possible at all.
 
 ## Build
 
@@ -18,28 +18,35 @@ node scripts/build-extension.mjs      # → extension/dist/
 ```
 
 The build **copies** `electron/captureRules.js` and `electron/supplementRules.js` into
-`dist/vendor/`. They are never edited by hand: the extension, Flux's download watcher, and the
-bookmarklet must agree on what a capture file is and what a supplement URL looks like, and a
-second hand-maintained copy is exactly how the supplement filter rotted once already.
+`dist/vendor/`. They are never edited by hand: the extension and Flux's download watcher must
+agree on what a capture file is and what a supplement URL looks like, and a second
+hand-maintained copy is exactly how the supplement filter rotted once already.
 `scripts/verify-extension.ts` asserts the copies are byte-identical to the originals.
 
-## Load it (no signing needed)
+## Install
 
-**Chrome / Edge / Brave**
+Flux's **Library → Web capture → Set up…** panel does this for you. By hand:
 
-1. `chrome://extensions`
-2. Turn on **Developer mode**
-3. **Load unpacked** → pick `extension/dist`
+**Firefox** — open the signed `extension/signed/*.xpi`; Firefox asks you to confirm.
 
-**Firefox**
+**Chrome / Edge / Brave** — `chrome://extensions` → **Developer mode** → **Load unpacked** →
+pick `extension/dist`.
 
-1. `about:debugging#/runtime/this-firefox`
-2. **Load Temporary Add-on…** → pick `extension/dist/manifest.json`
+## Signing (maintainers)
 
-⚠️ A temporary add-on in Firefox is **removed when the browser restarts**. That's a Firefox
-policy, not a bug here. For a permanent install, upload the folder to
-[AMO as *unlisted*](https://extensionworkshop.com/documentation/publish/self-distribution/) —
-free, no public listing, no review queue — and install the signed `.xpi` it returns.
+Firefox only installs a signed add-on permanently. Signing is UNLISTED — Mozilla signs the file
+but never lists it publicly; free, no review queue, and we distribute it with the app.
+
+```bash
+export WEB_EXT_API_KEY='user:12345678:123'   # from addons.mozilla.org/developers/addon/api/key/
+export WEB_EXT_API_SECRET='…'
+npm run sign:extension
+```
+
+The script bumps the version (AMO rejects a repeat), rebuilds, signs, and writes
+`extension/signed/*.xpi`. Commit the version bump; the `.xpi` is gitignored and ships with the
+packaged app. **You sign once per release — users never sign anything**; one signed build
+installs for everyone.
 
 ## Using it
 
@@ -73,7 +80,8 @@ a supplement captured for a paper you don't have yet is picked up once the paper
 | `background.js` | fetches and downloads under host permissions. This is the CSP-immune half. |
 | `vendor/` | copies of Flux's own rule modules (see Build). |
 
-Transport is deliberately the same download folder the bookmarklet uses, so the receiver, the
-filename contract and their gates are shared. Native messaging or a loopback POST would both
-be viable here (extensions are exempt from Chrome's Local Network Access restrictions) and can
-be added later as a pure upgrade.
+Transport is the download folder: files land in `<downloads>/flux/` and Flux's watcher files
+them. It's the only channel that also works when Flux ISN'T running — captures simply wait.
+Native messaging or a loopback POST would both be viable (extensions are exempt from Chrome's
+Local Network Access restrictions) and can be added later as a pure upgrade for the
+Flux-is-running case.

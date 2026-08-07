@@ -2756,3 +2756,30 @@ now gated in `verify-extension.ts`.
   swept on startup and on window focus (the natural moment: capture, switch back, it's in). The
   docs had confidently claimed the old behaviour worked; they were corrected in the same change.
 
+### 2026-08-07 — Bookmarklet retired; extension onboarding + AMO signing (Claude Fable 5, `main`)
+**Work:** Deleted the bookmarklet entirely (source, gate, install page, `capture:openInstallPage`,
+every doc reference) — the extension supersedes it. Replaced the Library footer with a **Web
+capture** onboarding panel, added `npm run sign:extension` for Mozilla self-distribution
+signing, and made electron-builder ship the extension with the app.
+**Learnings:**
+- **Onboarding for a browser extension fails on feedback, not instructions.** A browser will not
+  let a page navigate to `chrome://extensions` or `about:addons` — deliberately — so no amount
+  of UI can make installation one click on Chromium. What Flux CAN do is remove the two real
+  frictions (open the folder for you; open the signed add-on for you), hand over the address to
+  paste, and then **show a live status dot that flips to Connected the moment the first capture
+  lands**. `captureLastAt` is persisted in localStorage, because "never set up" and "set up
+  months ago" must not look identical.
+- **Unlisted AMO signing is per-BUILD, not per-user.** The maintainer signs; anyone can then
+  install the `.xpi` permanently in release Firefox. Free, no listing, no review queue. The
+  irony worth remembering: after signing, **Firefox is the easy browser and Chrome is the hard
+  one** — Chrome removed sideloading, so public distribution there means the Web Store ($5 +
+  review per update). Unpacked stays developer-only.
+- AMO rejects a version it has already seen, so `sign-extension.mjs` bumps the version in the
+  SOURCE manifest and expects it committed: a signed artifact should be identifiable in the
+  history. Credentials come from the environment (`WEB_EXT_API_KEY`/`WEB_EXT_API_SECRET`) and
+  never the repo.
+- **TRAP — electron-builder platform blocks REPLACE `extraResources`, they do not merge.** The
+  top-level entry shipping `extension/` would have silently vanished on mac and linux, which
+  both declare their own block for the correction runtime. The entries are repeated per
+  platform on purpose; check this whenever adding a top-level resource.
+

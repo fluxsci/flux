@@ -20,7 +20,7 @@ import { assignInboxDir } from "./items";
 import { fileSupplementBytes } from "./itemsBridge";
 import { bareDoi } from "./pdfFinder";
 import { bumpAssignInbox, fluxLibRevision } from "./revision";
-import { captureStatus } from "./captureStatus";
+import { captureStatus, markCaptured } from "./captureStatus";
 
 /** Where main stages captured supplements until their paper has a citekey. */
 const STAGING = "_captured_supplements";
@@ -107,6 +107,7 @@ export async function runCaptureIntake(): Promise<CaptureResult[]> {
       const total = pdfs.length + sidecars.length + supplements.length;
       captureStatus.show("busy", total === 1 ? "Filing capture…" : `Filing ${total} captures…`);
       for (const name of pdfs) out.push({ file: name, action: "queued" });
+      if (pdfs.length || sidecars.length || supplements.length) markCaptured(); // proof of life for the setup panel
       if (pdfs.length) bumpAssignInbox(); // wakes the assign auto-scan, which does the matching
 
       for (const { name, json } of sidecars) {

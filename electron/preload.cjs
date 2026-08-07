@@ -31,8 +31,10 @@ contextBridge.exposeInMainWorld("fig", {
   resolveUrl: (url) => ipcRenderer.invoke("cite:resolveUrl", url),
   // Web capture: the folder the browser downloads into (bookmarklet drop point).
   captureDir: () => ipcRenderer.invoke("capture:dir"),
-  // Open the bookmarklet install page in the user's DEFAULT browser.
-  openCaptureInstall: (href) => ipcRenderer.invoke("capture:openInstallPage", href),
+  // Web-capture onboarding: where the extension lives, reveal it, install the signed add-on.
+  captureExtensionInfo: () => ipcRenderer.invoke("capture:extensionInfo"),
+  revealCaptureExtension: () => ipcRenderer.invoke("capture:revealExtension"),
+  installCaptureXpi: () => ipcRenderer.invoke("capture:installXpi"),
   // Move captured PDFs into the assign inbox; return sidecars for the renderer to resolve.
   captureIntake: () => ipcRenderer.invoke("capture:intake"),
   captureDiscard: (name) => ipcRenderer.invoke("capture:discard", name),

@@ -24,6 +24,15 @@ files:
   # flux principal's transcript capture (pure JS; required by the unpacked CLI)
   - node_modules/@xterm/headless/**/*
 
+# Web capture: the browser extension ships WITH the app — the Library's setup panel opens the
+# signed .xpi (Firefox) or reveals the unpacked folder (Chromium), so both must be on disk.
+extraResources:
+  - from: extension/dist
+    to: extension/dist
+  - from: extension/signed
+    to: extension/signed
+    filter: ["**/*.xpi"]
+
 asar: true
 # @lydell/node-pty ships prebuilt binaries (no local compile, so no rebuild),
 # but its native .node must live OUTSIDE the asar archive to be loadable.
@@ -64,6 +73,13 @@ mac:
   extraResources:
     - from: build/correction-runtime/darwin-${arch}/
       to: corrections/runtime/
+    # Web capture ships with the app (platform blocks REPLACE the top-level extraResources
+    # rather than merging, so the entries are repeated here deliberately).
+    - from: extension/dist
+      to: extension/dist
+    - from: extension/signed
+      to: extension/signed
+      filter: ["**/*.xpi"]
   target:
     - target: dmg
       arch: [arm64, x64]
@@ -78,6 +94,13 @@ linux:
   extraResources:
     - from: build/correction-runtime/linux-${arch}/
       to: corrections/runtime/
+    # Web capture ships with the app (platform blocks REPLACE the top-level extraResources
+    # rather than merging, so the entries are repeated here deliberately).
+    - from: extension/dist
+      to: extension/dist
+    - from: extension/signed
+      to: extension/signed
+      filter: ["**/*.xpi"]
   target:
     - AppImage
     - deb

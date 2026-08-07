@@ -45,7 +45,8 @@
   import { fluxLibRevision, assignInboxRevision } from "../../../lib/references/revision";
   import { addUrlOrDoiToLibrary } from "../paper/scholar/bibLoad";
   import { fileBridge } from "../../../lib/project/types";
-  import { BOOKMARKLET_HREF } from "./bookmarklet";
+  import { fade } from "svelte/transition";
+  import { captureLastAt } from "../../../lib/references/captureStatus";
   import ImportDialog from "./ImportDialog.svelte";
   import ZoteroPanel from "./ZoteroPanel.svelte";
   import { zoteroSyncJob } from "../../../lib/references/zoteroSyncJob.svelte";
@@ -955,28 +956,47 @@
       true,
     );
   }
-  // Web capture: open the drag-to-install page in the user's DEFAULT browser. The bookmarklet
-  // has to live where they actually browse, which isn't necessarily where Electron renders.
-  let bmBusy = $state(false);
-  let bmHint = $state("one click on a paper page saves it — PDF and all");
-  async function installBookmarklet() {
-    if (bmBusy) return;
-    bmBusy = true;
+  // Web capture onboarding. The extension is the whole story now; the panel exists because a
+  // browser will NOT let a page navigate to chrome://extensions or about:addons, so the honest
+  // affordances are "open the folder for you" and "open the add-on file for you", with the
+  // address copied to paste. The live status is the important part — extension onboarding
+  // usually fails because the user can't tell whether it worked, and Flux knows exactly when a
+  // capture arrives.
+  let capOpen = $state(false);
+  let capInfo = $state<{ dir: string; hasDir: boolean; xpi: string | null } | null>(null);
+  let capNote = $state("");
+  let capCopied = $state("");
+  const CHROME_URL = "chrome://extensions";
+  async function openCaptureSetup() {
+    capOpen = !capOpen;
+    if (capOpen && !capInfo) capInfo = (await fileBridge()?.captureExtensionInfo?.()) ?? null;
+  }
+  async function revealExtension() {
+    const r = await fileBridge()?.revealCaptureExtension?.();
+    capNote = r?.ok ? "opened the folder — pick it in the browser's Load unpacked dialog" : (r?.error ?? "couldn't open the folder");
+  }
+  async function installXpi() {
+    const r = await fileBridge()?.installCaptureXpi?.();
+    capNote = r?.ok ? "Firefox should be asking you to confirm the install" : (r?.error ?? "couldn't open the add-on");
+  }
+  async function copyAddr(addr: string) {
     try {
-      const fb = fileBridge();
-      const r = await fb?.openCaptureInstall?.(BOOKMARKLET_HREF);
-      if (r?.ok) bmHint = "opened in your browser — drag the green button to your bookmarks bar";
-      else {
-        // No bridge (browser fixture) or the open failed: fall back to the clipboard.
-        await navigator.clipboard.writeText(BOOKMARKLET_HREF);
-        bmHint = "copied — make a new bookmark and paste this as its URL";
-      }
+      await navigator.clipboard.writeText(addr);
+      capCopied = addr;
+      setTimeout(() => (capCopied = ""), 2400);
     } catch {
-      bmHint = "couldn't open the page — check your default browser";
-    } finally {
-      bmBusy = false;
-      setTimeout(() => (bmHint = "one click on a paper page saves it — PDF and all"), 8000);
+      capNote = "couldn't copy — select and copy the address by hand";
     }
+  }
+  /** "just now" / "3m ago" — the proof that capture is working. */
+  function sinceLabel(iso: string): string {
+    const ms = Date.now() - Date.parse(iso);
+    if (!Number.isFinite(ms)) return "";
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
   }
 
   // Backfill supplements for the checked rows. Separate from "Get PDFs" on purpose: it never
@@ -1865,14 +1885,38 @@
     </div>
 
     <footer class="webcap">
-      <span class="lbl">Add from the web</span>
-      <button
-        class="bminstall"
-        disabled={bmBusy}
-        title="Opens a page in your default browser with a button you drag onto your bookmarks bar. One click on any paper page then saves it here."
-        onclick={installBookmarklet}>{bmBusy ? "Opening…" : "Set up the bookmark…"}</button>
-      <span class="hint">{bmHint}</span>
+      <span class="lbl">Web capture</span>
+      <button class="capdot" class:on={!!$captureLastAt} onclick={openCaptureSetup} title={$captureLastAt ? "Web capture is working. Click for setup details." : "Save any paper from your browser in one click. Click to set it up."}>
+        <span class="dot"></span>{$captureLastAt ? `Connected — last capture ${sinceLabel($captureLastAt)}` : "Not set up"}
+      </button>
+      <button class="bminstall" onclick={openCaptureSetup}>{capOpen ? "Hide" : $captureLastAt ? "Setup…" : "Set up…"}</button>
     </footer>
+    {#if capOpen}
+      <div class="capsetup" transition:fade={{ duration: 120 }}>
+        <p class="caplead">Save any paper from your browser in one click — the PDF and its supplementary files, straight into FluxLib.</p>
+        <div class="capcols">
+          <section>
+            <h4>Firefox</h4>
+            <button class="capbtn" onclick={installXpi} disabled={!capInfo?.xpi} title={capInfo?.xpi ? "Opens the Flux add-on; Firefox will ask you to confirm" : "The signed add-on isn't bundled in this build yet"}>Install for Firefox</button>
+          </section>
+          <section>
+            <h4>Chrome, Edge or Brave</h4>
+            <ol>
+              <li><button class="caplink" onclick={revealExtension} disabled={!capInfo?.hasDir}>Show me the folder</button></li>
+              <li>
+                <button class="caplink" onclick={() => copyAddr(CHROME_URL)}>{capCopied === CHROME_URL ? "Copied ✓" : "Copy address"}</button>
+                <code>{CHROME_URL}</code> — paste it in a new tab
+              </li>
+              <li>Turn on <strong>Developer mode</strong>, then <strong>Load unpacked</strong> and pick that folder</li>
+            </ol>
+          </section>
+        </div>
+        <p class="capstatus" class:ok={!!$captureLastAt}>
+          {$captureLastAt ? `✓ Connected — last capture ${sinceLabel($captureLastAt)}` : "Waiting for your first capture…"}
+        </p>
+        {#if capNote}<p class="capnote">{capNote}</p>{/if}
+      </div>
+    {/if}
   {:else}
     <!-- World scope: live OpenAlex results -->
     <div class="worldhead">
@@ -2931,6 +2975,109 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--c-tx-muted);
+  }
+  /* Web-capture onboarding: a live status the user can trust, plus the two affordances a
+     browser actually permits (open the folder, open the add-on file). */
+  .capdot {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 0;
+    background: none;
+    color: var(--c-tx-2);
+    font-size: var(--ts-xs);
+    cursor: pointer;
+    padding: 0;
+  }
+  .capdot .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid var(--c-line-strong);
+    background: transparent;
+  }
+  .capdot.on .dot {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+  }
+  .capdot.on {
+    color: var(--c-tx);
+  }
+  .capsetup {
+    border-top: 1px solid var(--c-line);
+    padding: var(--sp-3) var(--sp-4) var(--sp-4);
+    background: var(--c-surface-2, var(--c-surface));
+  }
+  .caplead {
+    margin: 0 0 var(--sp-3);
+    font-size: var(--ts-sm);
+    color: var(--c-tx-2);
+  }
+  .capcols {
+    display: flex;
+    gap: var(--sp-5);
+    flex-wrap: wrap;
+  }
+  .capcols section {
+    min-width: 220px;
+    flex: 1 1 220px;
+  }
+  .capcols h4 {
+    margin: 0 0 var(--sp-2);
+    font-size: var(--ts-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--c-tx-faint);
+  }
+  .capcols ol {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: var(--ts-sm);
+    color: var(--c-tx-2);
+  }
+  .capcols li {
+    margin: 4px 0;
+  }
+  .capbtn {
+    padding: 5px 14px;
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-pill);
+    background: var(--c-accent);
+    color: var(--c-on-accent);
+    font-size: var(--ts-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .capbtn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .caplink {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--c-accent);
+    font-size: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .caplink:disabled {
+    color: var(--c-tx-faint);
+    text-decoration: none;
+    cursor: default;
+  }
+  .capstatus {
+    margin: var(--sp-3) 0 0;
+    font-size: var(--ts-xs);
+    color: var(--c-tx-faint);
+  }
+  .capstatus.ok {
+    color: var(--c-accent);
+  }
+  .capnote {
+    margin: 4px 0 0;
+    font-size: var(--ts-xs);
+    color: var(--c-tx-2);
   }
   .bminstall {
     padding: 4px 12px;

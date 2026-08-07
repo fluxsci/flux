@@ -989,21 +989,38 @@ const captureIntakeEngine = createCaptureIntake({
 ipcMain.handle("capture:intake", () => captureIntakeEngine.intake());
 ipcMain.handle("capture:discard", (_e, name) => captureIntakeEngine.discard(name));
 
-// Write the bookmarklet install page to a temp file and open it in the user's DEFAULT
-// browser — the bookmarklet has to be installed where they actually browse, which is not
-// necessarily where Electron would render it. The renderer passes the href so the
-// bookmarklet string has exactly one home (src/shell/modes/library/bookmarklet.ts).
-ipcMain.handle("capture:openInstallPage", async (_e, href) => {
-  if (typeof href !== "string" || !href.startsWith("javascript:")) return { error: "bad bookmarklet" };
-  try {
-    const { captureInstallHtml } = require("./captureInstall.cjs");
-    const file = path.join(app.getPath("temp"), "flux-add-to-fluxlib.html");
-    await require("node:fs/promises").writeFile(file, captureInstallHtml(href), "utf8");
-    await shell.openExternal(require("node:url").pathToFileURL(file).href);
-    return { ok: true, path: file };
-  } catch (e) {
-    return { error: String((e && e.message) || e) };
+// Web-capture onboarding. The extension is installed from a folder (Chromium) or a signed
+// .xpi (Firefox), and a browser will not let a page navigate to chrome://extensions or
+// about:addons — so the honest affordances are "open the folder for me" and "open the add-on
+// file for me", with the address copied for the user to paste.
+function extensionDir() {
+  // Packaged: shipped beside the app. Dev: the build output.
+  const packaged = path.join(process.resourcesPath || "", "extension", "dist");
+  return fs.existsSync(packaged) ? packaged : path.join(__dirname, "..", "extension", "dist");
+}
+function signedXpi() {
+  for (const dir of [path.join(process.resourcesPath || "", "extension", "signed"), path.join(__dirname, "..", "extension", "signed")]) {
+    try {
+      const hit = fs.readdirSync(dir).find((f) => f.endsWith(".xpi"));
+      if (hit) return path.join(dir, hit);
+    } catch {
+      /* not there */
+    }
   }
+  return null;
+}
+ipcMain.handle("capture:extensionInfo", () => ({ dir: extensionDir(), hasDir: fs.existsSync(extensionDir()), xpi: signedXpi() }));
+ipcMain.handle("capture:revealExtension", () => {
+  const dir = extensionDir();
+  if (!fs.existsSync(dir)) return { error: "the extension folder isn't in this build" };
+  shell.showItemInFolder(path.join(dir, "manifest.json"));
+  return { ok: true };
+});
+ipcMain.handle("capture:installXpi", async () => {
+  const xpi = signedXpi();
+  if (!xpi) return { error: "the signed add-on isn't bundled in this build yet" };
+  const err = await shell.openPath(xpi);
+  return err ? { error: err } : { ok: true };
 });
 
 ipcMain.handle("watch:setRoot", async (_e, root) => {
