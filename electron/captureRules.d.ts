@@ -20,6 +20,7 @@ export interface FluxCapture {
 export const CAPTURE_PREFIX: string;
 export const CAPTURE_EXT: string;
 export const SUPP_PREFIX: string;
+export const CAPTURE_SUBDIR: string;
 export const SUPP_SEP: string;
 export function captureSlug(s: string): string;
 export function isCaptureFile(name: string): boolean;

@@ -31,12 +31,18 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
     const dir = captureDir();
     await ready();
     if (!dir || !rules) return { pdfs: [], sidecars: [], supplements: [] };
-    let names = [];
-    try {
-      names = (await fsp.readdir(dir)).filter((n) => rules.isCaptureFile(n)).sort();
-    } catch {
-      return { pdfs: [], sidecars: [], supplements: [] };
+    // Two drop points — see captureSubsystemFor in main.cjs. Each entry keeps the subdir it
+    // came from so the file can be found again.
+    const dirs = [dir, path.join(dir, rules.CAPTURE_SUBDIR)];
+    const found = [];
+    for (const d of dirs) {
+      try {
+        for (const n of (await fsp.readdir(d)).sort()) if (rules.isCaptureFile(n)) found.push({ dir: d, name: n });
+      } catch {
+        /* that drop point doesn't exist yet */
+      }
     }
+    if (!found.length) return { pdfs: [], sidecars: [], supplements: [] };
     const inbox = path.join(fluxLibDir(), "pdfs_to_assign");
     // Captured SUPPLEMENTS can't be filed yet: they belong to a paper that may not have been
     // identified (or even added) until the article PDF goes through the assign scan. So they
@@ -46,8 +52,8 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
     const pdfs = [];
     const sidecars = [];
     const supplements = [];
-    for (const name of names) {
-      const src = path.join(dir, name);
+    for (const { dir: from, name } of found) {
+      const src = path.join(from, name);
       try {
         if (rules.isSupplementCapture(name)) {
           await fsp.mkdir(staging, { recursive: true });

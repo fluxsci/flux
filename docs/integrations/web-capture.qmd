@@ -60,10 +60,13 @@ have open in the browser. A message appears at the top of the page:
 | **Amber** — *Sent details to Flux* | No PDF was reachable, so the paper's details were captured. Flux still adds the reference; it just won't have the PDF yet. |
 | Nothing at all | The click didn't run — see [If nothing happens](#if-nothing-happens). |
 
-Captures land in your downloads folder named `flux-…`, and Flux picks them up within a second
-or two. **Flux doesn't need to be open** — anything captured while it's closed is filed the
-next time you start it. Nothing is lost, and nothing else in your downloads folder is touched:
-Flux only ever looks at files it wrote itself.
+Captures land in your downloads folder named `flux-…` — the extension puts them in a **`flux/`
+subfolder** so a click that grabs an article plus several supplements doesn't scatter files
+through your downloads (the bookmark can't do that: `<a download>` cannot name a directory, so
+its files land in the root). Either way Flux picks them up within a second or two and removes
+them. **Flux doesn't need to be open** — anything captured while it's closed is filed the next
+time you start it. Nothing is lost, and nothing else in your downloads folder is touched: Flux
+only ever looks at files it wrote itself.
 
 A captured PDF goes through the same identification as the
 [drop folder](../modes/library.qmd#getting-papers-in) — Flux reads the document's own content
@@ -113,7 +116,7 @@ it into FluxLib's `pdfs_to_assign` folder.
 
 | | |
 |---|---|
-| Captured files | your browser's download folder, named `flux-…` |
+| Captured files | `<downloads>/flux/` (extension) or the download folder root (bookmark), named `flux-…` |
 | Captured PDFs, once filed | `FluxLib/pdfs_to_assign/`, then `FluxLib/items/<citekey>/paper.pdf` |
 | Captured supplements | `FluxLib/items/<citekey>/supplements/` (they wait, staged, until the article has been identified) |
 | PDFs that couldn't be identified | `FluxLib/pdfs_to_assign/_unresolved/`, with a note saying why |

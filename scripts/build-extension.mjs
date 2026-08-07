@@ -36,7 +36,7 @@ await writeFile(
 // Re-exports the SHARED rules copied verbatim from Flux's electron/ tree, so the extension,
 // the Flux watcher and the bookmarklet can never disagree about what a capture file is.
 export { SUPPLEMENT_URL_PATTERNS } from "./supplementRules.js";
-export { captureSlug, SUPP_PREFIX, SUPP_SEP, CAPTURE_PREFIX, CAPTURE_EXT } from "./captureRules.js";
+export { captureSlug, SUPP_PREFIX, SUPP_SEP, CAPTURE_PREFIX, CAPTURE_EXT, CAPTURE_SUBDIR } from "./captureRules.js";
 `,
 );
 

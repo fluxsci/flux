@@ -49,18 +49,26 @@ async function main() {
   const decoys = ["tax-return-2025.pdf", "1-s2.0-S000634952-main.pdf", "flux-notes.txt", "flux.pdf", "flux-.pdf", "holiday.jpg"];
   for (const d of decoys) await fsp.writeFile(path.join(dl, d), "USER DATA");
   await fsp.writeFile(path.join(dl, "flux-tiny.pdf"), Buffer.from("%PDF-x")); // still-arriving stub
+  // The EXTENSION writes into <downloads>/flux/ so a multi-file capture doesn't scatter.
+  await fsp.mkdir(path.join(dl, "flux"), { recursive: true });
+  await fsp.writeFile(path.join(dl, "flux", "flux-10.1038_s41586-020-2731-9.pdf"), PDF);
+  await fsp.writeFile(path.join(dl, "flux", "flux-supp-10.1038_s41586-020-2731-9@@MOESM1_ESM.pdf"), PDF);
+  await fsp.mkdir(path.join(dl, "flux", "nested"), { recursive: true });
+  await fsp.writeFile(path.join(dl, "flux", "nested", "flux-deep.pdf"), PDF); // too deep: ignored
 
   const r = await engine.intake();
 
   console.log("\ncapture intake:");
-  ok(r.pdfs.length === 2, "both captured PDFs were filed", JSON.stringify(r.pdfs));
+  ok(r.pdfs.length === 3, "captured PDFs from BOTH drop points were filed", JSON.stringify(r.pdfs));
+  ok(r.pdfs.includes("flux-10.1038_s41586-020-2731-9.pdf"), "the extension's flux/ subfolder is picked up too");
+  ok(fs.existsSync(path.join(dl, "flux", "nested", "flux-deep.pdf")), "a file nested deeper than flux/ is NOT touched");
   ok(r.sidecars.length === 1 && r.sidecars[0].name === "flux-x.fluxcap", "the sidecar came back for the renderer to resolve");
   ok(fs.existsSync(path.join(inbox, "flux-10.1126_science.aah5982.pdf")), "capture landed in pdfs_to_assign/");
   ok(!fs.existsSync(path.join(dl, "flux-10.1126_science.aah5982.pdf")), "capture left the download folder");
   ok(fs.existsSync(path.join(dl, "flux-x.fluxcap")), "sidecar is NOT deleted until the renderer resolves it");
 
   console.log("\nsupplements (captured in the same click as the article):");
-  ok(r.supplements.length === 2, "both supplements were staged", JSON.stringify(r.supplements));
+  ok(r.supplements.length === 3, "supplements from both drop points were staged", JSON.stringify(r.supplements));
   const staging = path.join(inbox, "_captured_supplements");
   ok(fs.existsSync(path.join(staging, "flux-supp-10.1126_science.aah5982@@devivo-sm.pdf")), "a supplement PDF is staged, NOT filed as an article");
   ok(fs.existsSync(path.join(staging, "flux-supp-10.1126_science.aah5982@@movie1.mov")), "a non-PDF supplement is staged too");
@@ -75,7 +83,7 @@ async function main() {
   console.log("\ncontainment — the user's own files:");
   for (const d of decoys) ok(fs.existsSync(path.join(dl, d)), `untouched: ${d}`);
   const inboxFiles = fs.readdirSync(inbox).filter((n) => fs.statSync(path.join(inbox, n)).isFile());
-  ok(inboxFiles.length === 2, "only the two article PDFs are in the inbox", JSON.stringify(inboxFiles));
+  ok(inboxFiles.length === 3, "only article PDFs are in the inbox", JSON.stringify(inboxFiles));
 
   console.log("\npartial downloads:");
   ok(fs.existsSync(path.join(dl, "flux-tiny.pdf")), "a sub-1KB 'PDF' is left alone (still arriving / a stub)");

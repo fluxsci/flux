@@ -2663,8 +2663,19 @@ extension), and `scripts/verify-extension.ts` gates it.
 - Trap found by the gate: `new URL("", href)` resolves to THE PAGE, so an absent
   `link[type=application/pdf]` made `pdfUrl` the article page itself. Guard empty input in any
   `abs()` helper.
+- **Two drop points, because the two front ends have different powers.** The extension writes
+  into `<downloads>/flux/` (`chrome.downloads.download` takes a relative subfolder), so one
+  click producing an article plus eight supplements doesn't scatter nine files through someone's
+  downloads. The bookmarklet CANNOT do that — `<a download>` cannot name a directory, browsers
+  strip path separators — so it writes to the root and Flux watches both, and nothing nested
+  deeper than `flux/` is touched. Worth remembering when adding a third producer.
 - Firefox permanence is still open: a temporary add-on is dropped on restart, so a permanent
   install needs an AMO-signed `.xpi` (free, unlisted, no review queue). Deferred by the owner.
+- Also open, and the right long-term answer if the download folder ever grates: extensions are
+  exempt from Chrome's Local Network Access rules, so a loopback POST — or native messaging,
+  with Flux writing the host manifest on first run — would deliver captures with no folder at
+  all. Both only work while Flux is RUNNING, so the download route stays as the offline
+  fallback; they're additional machinery, not a replacement.
 
 ### 2026-08-06 19:23 — Dissect: per-plot companion material (plots/_dissections/) + viewer
 

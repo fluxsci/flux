@@ -52,7 +52,9 @@ Open a paper and click the **Flux** button in the toolbar. The badge tells you w
 | `1` amber | no PDF was reachable; the paper's details were captured instead |
 | `!` red | the page couldn't be read (an internal page, or a blocked injection) |
 
-Captured files land in your download folder and Flux files them within a second or two:
+Captured files land in **`<downloads>/flux/`** — a subfolder, so one click that produces an
+article plus eight supplements doesn't scatter nine files through your downloads. Flux moves
+them out within a second or two:
 
 | File | Becomes |
 |---|---|

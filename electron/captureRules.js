@@ -13,6 +13,11 @@
 export const CAPTURE_PREFIX = "flux-";
 export const CAPTURE_EXT = ".fluxcap";
 export const SUPP_PREFIX = "flux-supp-";
+/** Subfolder of the download dir that the EXTENSION writes into, so a capture of an article
+ *  plus eight supplements doesn't scatter nine files through the user's downloads. The
+ *  bookmarklet can't use it — `<a download>` cannot name a directory, browsers strip path
+ *  separators — so Flux watches the download root as well. */
+export const CAPTURE_SUBDIR = "flux";
 /** Separator between a supplement's paper-slug and its own filename. "@@" is safe BY
  *  CONSTRUCTION: captureSlug() maps every character outside [A-Za-z0-9._-] to "_", so neither
  *  side can contain it and splitting on the first occurrence is exact. */

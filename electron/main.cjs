@@ -955,8 +955,13 @@ let captureRules = null;
 function captureSubsystemFor(dir, abs) {
   if (!captureRules) return null;
   const rel = path.relative(dir, abs).split(path.sep).join("/");
-  if (rel.startsWith("..") || rel.includes("/")) return null; // top level only
-  return captureRules.isCaptureFile(rel) ? "capture" : null;
+  if (rel.startsWith("..")) return null;
+  // Two drop points: the extension writes into `<downloads>/flux/` (one click can produce an
+  // article plus several supplements), the bookmarklet can only write to the root because
+  // `<a download>` cannot name a directory. Nothing deeper is watched.
+  const parts = rel.split("/");
+  const name = parts.length === 1 ? parts[0] : parts.length === 2 && parts[0] === captureRules.CAPTURE_SUBDIR ? parts[1] : null;
+  return name && captureRules.isCaptureFile(name) ? "capture" : null;
 }
 
 /** The folder the browser downloads into. Overridable in prefs for a non-default setup. */
@@ -1053,7 +1058,7 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
     path.join(libRoot, "pdfs_to_assign"),
     ...(zoteroBib ? [zoteroBib] : []),
     // Web capture: the browser's download folder (top level only — see captureSubsystemFor).
-    ...(capDir ? [capDir] : []),
+    ...(capDir ? [capDir, path.join(capDir, "flux")] : []),
   ];
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
