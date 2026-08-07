@@ -6,10 +6,12 @@
 // exactly how the supplement filter rotted the first time. So those files are COPIED at build
 // time into extension/dist/vendor/ and re-exported as one module, never edited by hand.
 //
-// Run: node scripts/build-extension.mjs
-// Load: Chrome  → chrome://extensions → Developer mode → Load unpacked → extension/dist
-//       Firefox → about:debugging#/runtime/this-firefox → Load Temporary Add-on… →
-//                 extension/dist/manifest.json
+// Run:  node scripts/build-extension.mjs      (or npm run build:extension)
+// Sign: npm run sign:extension                 → extension/signed/*.xpi, for Firefox
+//
+// Flux's Library → Web capture → Set up… installs from these outputs; by hand it's
+// chrome://extensions → Developer mode → Load unpacked → extension/dist (Chromium), or
+// opening the signed .xpi (Firefox).
 import { readFile, writeFile, mkdir, rm, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import * as path from "node:path";
@@ -18,8 +20,6 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = path.join(root, "extension");
 const out = path.join(src, "dist");
-
-const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 
 await rm(out, { recursive: true, force: true });
 await mkdir(path.join(out, "vendor"), { recursive: true });
@@ -56,13 +56,20 @@ for (const [size, file] of [
   await cp(from, path.join(out, "icons", `${size}.png`));
 }
 
-// --- manifest: version tracks the app; keep Chrome and Firefox both happy ----------------
+// --- manifest: keep Chrome and Firefox both happy ----------------------------------------
+// The version comes from the SOURCE manifest and is NOT derived from package.json. AMO refuses
+// a version it has already seen, so the extension needs its own monotonic line that
+// sign-extension.mjs bumps — deriving it from the app version silently discarded that bump and
+// would have made every signing run after the first fail on a duplicate version.
 const manifest = JSON.parse(await readFile(path.join(src, "manifest.json"), "utf8"));
-manifest.version = String(pkg.version || "0.1.0").replace(/[^0-9.]/g, "") || "0.1.0";
+if (!/^\d+(\.\d+){0,3}$/.test(String(manifest.version || ""))) {
+  console.error(`✗ extension/manifest.json has an invalid version: ${manifest.version}`);
+  process.exit(1);
+}
 // MV3 background differs by engine: Chrome wants `service_worker`, Firefox wants `scripts`.
 // Keeping BOTH keys is valid — each browser reads the one it understands and ignores the other.
 await writeFile(path.join(out, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 
 console.log(`✓ extension built → ${path.relative(root, out)}  (v${manifest.version})`);
-console.log("  Chrome : chrome://extensions → Developer mode → Load unpacked → this folder");
-console.log("  Firefox: about:debugging#/runtime/this-firefox → Load Temporary Add-on… → manifest.json");
+console.log("  Chromium: chrome://extensions → Developer mode → Load unpacked → this folder");
+console.log("  Firefox : npm run sign:extension, then open extension/signed/*.xpi");

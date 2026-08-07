@@ -156,6 +156,21 @@ function run(page: { meta?: Record<string, string>; anchors?: Anchor[]; href?: s
   ok(/info\.isPdf \? "yes"/.test(bg), "a PDF tab skips validation — the browser already rendered it");
 }
 
+// --- 2c: the version line -----------------------------------------------------------------
+// AMO refuses a version it has already seen, so the extension needs its own monotonic line.
+// The build once derived it from package.json, which silently discarded sign-extension's bump
+// — the first signing worked and every one after it would have failed on a duplicate version.
+{
+  const build = readFileSync("scripts/build-extension.mjs", "utf8");
+  ok(!/manifest\.version\s*=/.test(build), "the build does NOT overwrite the extension version");
+  ok(/pkg\.version/.test(build) === false, "…and does not derive it from package.json");
+  const srcV = JSON.parse(readFileSync("extension/manifest.json", "utf8")).version;
+  const distV = existsSync(path.join(DIST, "manifest.json")) ? JSON.parse(readFileSync(path.join(DIST, "manifest.json"), "utf8")).version : "";
+  ok(srcV === distV, "built version matches the source manifest", `${srcV} vs ${distV}`);
+  const sign = readFileSync("scripts/sign-extension.mjs", "utf8");
+  ok(/WEB_EXT_API_KEY/.test(sign) && !/const .*SECRET *= *"/.test(sign), "signing reads credentials from the environment, never the repo");
+}
+
 // --- 3: supplement filenames round-trip ---------------------------------------------------
 {
   const slug = captureSlug("10.1126/science.aah5982");
