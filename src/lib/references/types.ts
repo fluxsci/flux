@@ -20,6 +20,12 @@ export interface RefEntry {
   publisher?: string;
   /** Full names when known — `authors` (family-only) stays the label/sort key. */
   authorsFull?: { family: string; given?: string }[];
+  /** ISO timestamp of when the entry landed in FluxLib — stamped as a `dateadded`
+   *  BibTeX field by planAdds at add time, so it lives in the canonical .bib.
+   *  lightEntry-only by design: cslToEntry maps INCOMING records (CrossRef/World),
+   *  which are never in the library yet. Absent on pre-stamp entries; the library's
+   *  append-only file order remains their faithful insertion order. */
+  dateAdded?: string;
 }
 
 /** Result of adding BibTeX to FluxLib (shared by the Node engine + renderer adapter). */

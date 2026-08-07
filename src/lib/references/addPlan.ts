@@ -8,7 +8,7 @@
 // Pure: no I/O, no locks. Callers own reading library.bib under the "library" lock and
 // writing `currentBibText + sep + plan.appendText` back atomically.
 import type { RefEntry } from "./types";
-import { splitBibEntries, lightEntry, bibtexKey, rekeyBibtex } from "./bibtex";
+import { splitBibEntries, lightEntry, bibtexKey, rekeyBibtex, stampDateAdded } from "./bibtex";
 import { makeCitekey, dupeSignature } from "./citekey";
 
 export type AddAction = "new" | "merged";
@@ -42,8 +42,18 @@ export interface AddPlan {
  * Dedup order matches the shipped logic exactly: DOI first, then a normalized
  * title+year+author signature (so a paper added without a DOI and re-added with one — or
  * vice-versa — collapses to a single citekey), including WITHIN the incoming batch.
+ *
+ * Every NEW entry is stamped with a `dateadded` field (one shared timestamp per plan —
+ * a bulk import is one moment of arrival). Merged entries keep their existing stamp.
+ * `addedAt` exists for deterministic tests; callers normally omit it.
  */
-export function planAdds(currentBibText: string, incomingBibText: string, source: "doi" | "bibtex" = "bibtex"): AddPlan {
+export function planAdds(
+  currentBibText: string,
+  incomingBibText: string,
+  source: "doi" | "bibtex" = "bibtex",
+  addedAt?: string,
+): AddPlan {
+  const stamp = addedAt ?? new Date().toISOString();
   const taken = new Set<string>();
   const doiToKey = new Map<string, string>();
   const sigToKey = new Map<string, string>();
@@ -87,11 +97,12 @@ export function planAdds(currentBibText: string, incomingBibText: string, source
     }
 
     const key = source === "bibtex" && orig && !taken.has(orig) ? orig : makeCitekey(e, taken);
-    const outRaw = rekeyBibtex(raw, key);
+    const outRaw = stampDateAdded(rekeyBibtex(raw, key), stamp);
     taken.add(key);
     if (doi) doiToKey.set(doi, key);
     if (sig && !sigToKey.has(sig)) sigToKey.set(sig, key);
-    const entry: RefEntry = { ...e, key, raw: outRaw };
+    // dateAdded mirrors what the raw actually carries (a field-less `@misc{key}` can't take the stamp).
+    const entry: RefEntry = { ...e, key, raw: outRaw, dateAdded: /\bdateadded\s*=/i.test(outRaw) ? stamp : undefined };
     added.push(entry);
     keys.push(key);
     appendBuf.push(outRaw);

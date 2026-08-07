@@ -79,7 +79,9 @@ The search box does three kinds of search, all as you type:
 
 A **Filters** disclosure appears once you have tags or collections — click facets for status,
 tag, and collection instead of typing them. Column headers (**Authors**, **Title**,
-**Journal**, **Year**, **Cited**) sort; click again to reverse.
+**Journal**, **Year**, **Cited**, **Added**) sort; click again to reverse. **Added** is the
+date a paper landed in your library — its first click shows the most recent arrivals on top,
+and every paper in a bulk import shares the moment the import ran.
 
 ## Searching the world
 

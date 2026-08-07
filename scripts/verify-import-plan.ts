@@ -56,6 +56,26 @@ const ok = (cond: boolean, name: string, extra = "") => {
   ok(plan2.counts.new === 0 && plan2.counts.merged === 2, `re-import is a no-op (${JSON.stringify(plan2.counts)})`);
 }
 
+// --- planner: dateadded stamping (sort-by-recency support) ------------------------------
+{
+  const cur = `@article{old1, title={Old paper about mitochondria}, author={Ames, A}, year={2000}}\n`;
+  const incoming = [
+    `@article{n1, title={First fresh paper}, author={Boone, C}, year={2020}}`,
+    `@article{n2, title={Second fresh paper}, author={Datta, E}, year={2021}, dateadded = {1999-01-01T00:00:00Z}}`,
+    `@article{whatever, title={Old paper about mitochondria}, author={Ames, A}, year={2000}}`,
+  ].join("\n\n");
+  const T = "2026-08-07T12:00:00.000Z";
+  const plan = planAdds(cur, incoming, "bibtex", T);
+  ok(plan.added.length === 2 && plan.added.every((e) => e.dateAdded === T), "every new entry carries the shared batch stamp");
+  const outEntries = splitBibEntries(appendedBib(cur, plan)).map(lightEntry);
+  ok(outEntries.find((e) => e.key === "n1")?.dateAdded === T, "stamp round-trips through the written bib");
+  ok(outEntries.find((e) => e.key === "n2")?.dateAdded === T, "an incoming dateadded (e.g. a BBT export's own) is replaced with local receipt time");
+  ok(outEntries.find((e) => e.key === "old1")?.dateAdded === undefined, "existing entries are never restamped (stamps ride appendText only)");
+  ok(plan.deduped.length === 1 && plan.deduped[0].dateAdded === undefined, "a merged entry doesn't claim a fresh stamp");
+  const dflt = planAdds("", `@article{x, title={Wholly unrelated title}, author={Quine, W}, year={2022}}`).added[0];
+  ok(!!dflt?.dateAdded && !Number.isNaN(Date.parse(dflt.dateAdded)), `default stamp is a parseable ISO timestamp (${dflt?.dateAdded})`);
+}
+
 // --- RIS → BibTeX -----------------------------------------------------------------------
 {
   const ris = [

@@ -229,7 +229,11 @@ export async function loadIndex(libPath?: string): Promise<LibraryIndex> {
     ]);
     if (!idxStat) return await buildIndex(lib);
     if (bibStat && bibStat.mtimeMs > idxStat.mtimeMs) return await buildIndex(lib);
-    return JSON.parse(await fs.readFile(libIndexPath(lib), "utf8")) as LibraryIndex;
+    const idx = JSON.parse(await fs.readFile(libIndexPath(lib), "utf8")) as LibraryIndex;
+    // Derived → self-heal: an index built by a different schema (e.g. before a new
+    // parsed field existed) rebuilds even though the .bib's mtime never moved.
+    if (idx.schemaVersion !== SCHEMA_VERSION) return await buildIndex(lib);
+    return idx;
   } catch {
     return await buildIndex(lib);
   }

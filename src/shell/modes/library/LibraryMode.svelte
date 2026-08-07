@@ -270,7 +270,7 @@
   // Column sorting (library scope): click a header to sort by it, click it again to
   // reverse. "" = the library's natural (file) order. Numeric columns start descending
   // (newest / most-cited first); text columns start ascending.
-  type SortCol = "" | "authors" | "title" | "journal" | "year" | "cited";
+  type SortCol = "" | "authors" | "title" | "journal" | "year" | "added" | "cited";
   let sortCol = $state<SortCol>("");
   let sortDir = $state<1 | -1>(1);
   function setSort(col: Exclude<SortCol, "">) {
@@ -278,9 +278,11 @@
       sortDir = sortDir === 1 ? -1 : 1;
     } else {
       sortCol = col;
-      sortDir = col === "year" || col === "cited" ? -1 : 1;
+      sortDir = col === "year" || col === "added" || col === "cited" ? -1 : 1;
     }
   }
+  // "added": ISO stamps compare lexically; pre-stamp entries sort as "" (oldest),
+  // and the stable sort keeps equal stamps (one bulk import) in file = insertion order.
   const sortVal = (r: EnrichedEntry, col: SortCol): string | number =>
     col === "authors"
       ? (r.authors[0] ?? "").toLowerCase()
@@ -290,7 +292,9 @@
           ? (r.container ?? "").toLowerCase()
           : col === "year"
             ? parseInt(r.year, 10) || 0
-            : (r.enrich?.citedByCount ?? -1);
+            : col === "added"
+              ? (r.dateAdded ?? "")
+              : (r.enrich?.citedByCount ?? -1);
   const results = $derived.by(() => {
     // Full-text mode: show only papers whose stored text matched (from the async scan);
     // otherwise the metadata query. showFailedOnly narrows either.
@@ -1689,6 +1693,8 @@
           >Year{@render sortArrow("year")}</button>
         <button class="hcol gc" title="Sort by citation count" onclick={() => setSort("cited")}
           >Cited{@render sortArrow("cited")}</button>
+        <button class="hcol gd" title="Sort by when the paper was added to the library" onclick={() => setSort("added")}
+          >Added{@render sortArrow("added")}</button>
         <span class="gx"></span>
       </div>
       {#if gridWin.topPx > 0}<div class="gspacer" style="height:{gridWin.topPx}px"></div>{/if}
@@ -1728,6 +1734,7 @@
           <span class="gj">{r.container ?? ""}</span>
           <span class="gy">{r.year}</span>
           <span class="gc">{fmtCount(r.enrich?.citedByCount)}</span>
+          <span class="gd" title={r.dateAdded ?? ""}>{r.dateAdded?.slice(0, 10) ?? ""}</span>
           <span class="gx">
             {#if copied === r.key}
               <span class="copied">✓</span>
@@ -2309,7 +2316,8 @@
     color: var(--c-tx-hi);
   }
   .hcol.gy,
-  .hcol.gc {
+  .hcol.gc,
+  .hcol.gd {
     text-align: right;
   }
   .sarr {
@@ -2323,9 +2331,10 @@
   .grow:hover:not(.ghead) {
     background: var(--c-accent-tint-2);
   }
-  /* LR-U2: the library grid gains a leading checkbox column (the World grid keeps the base 6). */
+  /* LR-U2: the library grid gains a leading checkbox column, and (library-only)
+     the fixed-width "Added" date column (the World grid keeps the base 6). */
   .grow.selectable {
-    grid-template-columns: 26px 1.2fr 2.2fr 1fr 0.5fr 0.55fr 64px;
+    grid-template-columns: 26px 1.2fr 2.2fr 1fr 0.5fr 0.55fr 78px 64px;
   }
   .grow.sel {
     background: color-mix(in srgb, var(--c-accent) 12%, transparent);
@@ -2584,6 +2593,12 @@
     color: var(--c-tx-muted);
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+  .gd {
+    color: var(--c-tx-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .gx {
     display: flex;

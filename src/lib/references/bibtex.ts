@@ -108,6 +108,18 @@ export function rekeyBibtex(raw: string, newKey: string): string {
   return raw.replace(/(@\w+\s*\{\s*)[^,\s]+/, `$1${newKey}`);
 }
 
+/**
+ * Set the `dateadded` field of a single raw BibTeX entry to `iso` — replacing an
+ * existing value (e.g. a Zotero BBT export's own stamp: FluxLib's semantics are
+ * "when it landed HERE"), else inserting right after the citekey. A field-less
+ * entry (`@misc{key}`, no trailing comma) is returned unchanged.
+ */
+export function stampDateAdded(raw: string, iso: string): string {
+  const existing = /(\bdateadded\s*=\s*)(\{[^}]*\}|"[^"]*"|[^,\n}]+)/i;
+  if (existing.test(raw)) return raw.replace(existing, `$1{${iso}}`);
+  return raw.replace(/(@\w+\s*\{\s*[^,\s]+\s*,)/, `$1\n  dateadded = {${iso}},`);
+}
+
 /** Read one `name = {…}` / `name = "…"` / bare field from a raw BibTeX entry. */
 function bibField(raw: string, name: string): string {
   const m = raw.match(new RegExp("\\b" + name + "\\s*=\\s*", "i"));
@@ -172,6 +184,7 @@ export function lightEntry(raw: string): RefEntry {
     pages: bibField(raw, "pages") || undefined,
     publisher: bibField(raw, "publisher") || undefined,
     authorsFull: authorsFull.length ? authorsFull : undefined,
+    dateAdded: bibField(raw, "dateadded") || undefined,
     raw,
   };
 }

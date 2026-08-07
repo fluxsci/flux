@@ -2801,3 +2801,17 @@ definitive-vs-transient retry rule.
 - Worth noticing the shape of this bug: the feature worked, and the failure mode was purely
   *how often it complained*. Retry policy is part of the UX, not an implementation detail.
 
+### 2026-08-07 — Library: sort by date added (Claude Fable 5, `main`)
+**Work:** Every entry added to FluxLib now carries a `dateadded = {ISO}` BibTeX field,
+stamped in `planAdds` (the shared chokepoint both engines' writers call — one shared
+timestamp per plan, so a bulk import is one moment of arrival; merged entries keep their
+stamp). `lightEntry` parses it into `RefEntry.dateAdded`, and the Library grid gained a
+sortable **Added** column (library-only — the World grid keeps the base template). A one-off
+backfill stamped all 1664 pre-existing entries with one timestamp (verified: same keys,
+zero metadata drift).
+**Learnings:**
+- `library.bib` is append-only for new entries, so file order IS insertion order — unstamped
+  entries sort correctly as "oldest, in arrival order" for free under a stable sort.
+- `loadIndex` compared mtimes only, so a parser-shape change with an unchanged .bib would
+  serve a stale index forever; it now also rebuilds on a `schemaVersion` mismatch.
+
