@@ -22,7 +22,9 @@ open you can also read its live UI state and act on the human's current selectio
 - `plots/` — **user-owned**. Analysis software drops plot SVGs here (+ optional
   `*.fluxplot.json` manifest and `*.recipe.json`) in any structure. A plot with a
   manifest imports as a **semantic** panel whose parts are addressable + restylable
-  (and survive regeneration). Read from it; never reorganize it.
+  (and survive regeneration). Read from it; never reorganize it. One name is
+  reserved: `plots/_dissections/<plot>/` holds a plot's companion material
+  (never importable — see PROJECT-AND-FIGURES.md).
 - `fig/` — **app-managed** figure subsystem. `fig/index.json` — figure rollup;
   `fig/canvases/<id>.json` — composition (figures → elements, incl. each figure's
   `captions` map — the caption's true home). `fig/captions/<id>.md` — the composed
