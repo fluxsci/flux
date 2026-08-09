@@ -80,7 +80,14 @@ class LocalCorrectionService {
     this.worker?.postMessage({ type: "dialect", dialect, words: [...this.vocabulary] });
   }
 
-  lint(text: string): Promise<LocalLintRecord[]> {
+  /**
+   * `focus` is the window's correctable sub-range. Lints outside it are context
+   * the caller will discard, so the worker skips the expensive mechanical
+   * rescue search for them — that search costs tens of milliseconds PER unknown
+   * word, and a sentence-wide window would otherwise re-pay it for every term
+   * in the sentence on every completed word.
+   */
+  lint(text: string, focus?: { from: number; to: number }): Promise<LocalLintRecord[]> {
     if (!this.worker) this.warm(this.projectKey || "default");
     if (!this.worker || this.status === "error") {
       return Promise.reject(new Error("Local correction engine is unavailable"));
@@ -88,7 +95,7 @@ class LocalCorrectionService {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker!.postMessage({ type: "lint", id, text });
+      this.worker!.postMessage({ type: "lint", id, text, ...(focus ? { focus } : {}) });
     });
   }
 

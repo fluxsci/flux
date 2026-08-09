@@ -211,10 +211,22 @@ Persistence invariants (all machine-checked — do not weaken):
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
   **Local corrections** (2026-08-04, contextual lane 2026-08-05) live in
-  `editing/localCorrections.ts`: an abbreviation-aware shared segmenter schedules a small
+  `editing/localCorrections.ts`: an abbreviation-aware shared segmenter schedules a
   completed-word lane and a separate completed-sentence lane. Both lint through the dedicated
   module worker (`localCorrection.worker.ts`, Harper slim WASM), then revalidate exact source
   against the current document before applying each accepted batch in isolated history.
+  **THE WINDOW RULE (2026-08-09):** every window is a SLICE, but the linter reads each one as a
+  whole document, so a window must carry enough language to be read correctly and must declare
+  what it may change. The word lane submits the SENTENCE SO FAR with a `focus` — the final two
+  completed tokens — and only the focus is correctable (`scopeWindowLints` + `withinFocus` in the
+  pure core bound the lints AND every span the planners synthesize from the window text; the
+  protected-range veto and the worker's per-word mechanical rescue search are focus-scoped too).
+  A window that does not begin a real sentence (`windowStartsSentence`) additionally drops
+  sentence-OPENING verdicts about its first sentence — that is the residual guard for the
+  sentence lane's 760-char clamp and the backlog scan's whitespace fallback cut. Never shrink a
+  window to "just the interesting tokens": a bare two-token slice made Harper report the tail of
+  one sentence as the lowercase head of another, a mid-sentence adverb as a discourse marker owed
+  a comma, and both halves of "et al." as unknown words.
   The synchronous keystroke path never calls the linter. `localCorrectionCore.ts` is deliberately
   conservative: mechanical edits only; arbitrary one-letter substitutions, scientific compound
   styling, phrase/style lints, technical tokens, and protected Markdown never auto-apply. Visual
@@ -2852,3 +2864,38 @@ and PROJECT-GUIDE context docs (regenerated).
   paths is the belt; the real fix is chokidar's `ignored` predicate, so a 10k-image collection
   never costs a watch descriptor. Classifying events you intend to throw away still pays for
   every one of them.
+
+### 2026-08-09 — "This sentence does not start with a capital letter" on a sentence that does (Claude Opus 5, `main`)
+**Work:** Owner hit a red flag under `experiments` in *…in "acute neuropixel" experiments. These
+are technical experiments.* Root cause: the word lane submitted its final two tokens ALONE, so
+Harper read `experiments. These` as a document and correctly reported that its first sentence
+opens in lowercase — of a word that ENDS a sentence in the manuscript. Rather than blacklist the
+rule, audited the whole class by linting every window the lanes really produce over five
+scientific paragraphs and diffing against linting the paragraph: five artifact classes, all from
+that one 2-token window (capitalization, unterminated quote, `et`/`al` split out of "et al.",
+discourse-marker comma). Fixed structurally — the word lane now submits the sentence so far with
+a `focus`, plus the residual `windowStartsSentence` guard and per-window reconciliation of
+deferred issues. Re-running the audit against the patched code leaves zero user-visible
+artifacts. Gates: verify-local-corrections 99 → 117, verify-paper-local-corrections 55 → 58
+(the new live section reproduces the owner's sentence verbatim and was proven to fail — exactly
+`["experiments"]` — with the fix stashed); pure 169/169, paper-gate 26/26, check 0/0.
+**Learnings:**
+- **A linter reads every window as a whole document.** Shrinking a window to "just the tokens we
+  might correct" doesn't narrow the analysis, it corrupts it — position-dependent rules fire on
+  invented sentence boundaries. Windows carry context; a separate `focus` says what may change.
+  Promoted as THE WINDOW RULE in §4.
+- **Filtering a planner's INPUT is not filtering its output.** `planLocalCorrections` and
+  `normalizeCorrectionCandidates` both synthesize spans from the window text itself (confusion
+  table, explicit vocabulary), so widening the window silently widened what the word lane could
+  edit until `withinFocus` bounded the results too. Caught in self-review, gated now.
+- **Widening a window multiplies the worker's hidden per-word cost.** The mechanical rescue
+  search lints ~50 generated variants as separate documents — measured 40–220 ms PER unknown
+  word — so a sentence-wide window would have re-paid it for every scientific term in the
+  sentence on every space. The worker takes the focus and skips context words.
+- A permanently-`deferred` issue was possible by construction: only the sentence lane calls
+  `enqueueContextual`, so any word-lane candidate the sentence lane didn't re-derive sat at
+  "Waiting for sentence context…" forever. A lane that publishes a provisional mark must own
+  retracting it — `publishDeferredIssues` reconciles within the range it may correct.
+- Scale-paper's cite/cell ratio checks fail on this box at load-59 **with and without** the
+  change (absolute p95s identical: prose 5.7/5.6 ms, cite 13.6/13.8 ms) — the §9 load-contention
+  trap, re-confirmed. Baseline before believing a ratio gate.

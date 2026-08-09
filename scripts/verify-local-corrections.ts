@@ -11,6 +11,8 @@ import {
   planExplicitVocabularyCorrections,
   planLocalCorrections,
   protectedMarkdownRanges,
+  scopeWindowLints,
+  withinFocus,
   type LocalLintRecord,
 } from "../src/shell/modes/paper/editing/localCorrectionCore";
 import {
@@ -24,6 +26,7 @@ import {
   extractCompletedWordWindow,
   extractSentenceWindow,
   isSentenceBoundaryAt,
+  windowStartsSentence,
 } from "../src/shell/modes/paper/editing/localCorrectionBoundary";
 import {
   guardContextCorrectionResult,
@@ -276,7 +279,12 @@ h.section("word and scientific sentence boundaries");
   const kinds = classifyTypedBoundaries(sentence, sentence.length - 1, " ");
   h.ok(kinds.has("word") && kinds.has("sentence"), "terminal whitespace schedules both lanes");
   const word = "The result was compelx ";
-  h.eq(extractCompletedWordWindow(word, word.length)?.text, "was compelx", "word lane captures only two completed tokens");
+  const wordWindow = extractCompletedWordWindow(word, word.length)!;
+  h.eq(
+    wordWindow.text.slice(wordWindow.focus!.from, wordWindow.focus!.to),
+    "was compelx",
+    "word lane still corrects only two completed tokens",
+  );
   const windowed = "Earlier. The result was compelx. ";
   h.eq(extractSentenceWindow(windowed, windowed.length)?.text, "The result was compelx.", "sentence lane shares extraction rules");
   for (const fragment of ["Results from et al. ", "See Fig. ", "That is, e.g. ", "A. ", "Published in J. Neurosci. "]) {
@@ -284,6 +292,87 @@ h.section("word and scientific sentence boundaries");
   }
   const cited = "As shown [@smith2020]. ";
   h.ok(isSentenceBoundaryAt(cited, cited.length - 1), "a citekey followed by punctuation ends a sentence");
+}
+
+h.section("a window cut never invents a lint");
+{
+  // Every record below is what Harper 2.7 really returns for the quoted text —
+  // measured, not imagined. The bug they pin: the word lane used to submit the
+  // final two tokens ALONE, so the linter read the tail of one sentence as the
+  // head of another and reported the manuscript's own prose as broken.
+  const doc = 'The goal is to analyze data acquired in "acute neuropixel" experiments. These are technical experiments.';
+  const head = doc.indexOf("These are") + "These ".length;
+  const window = extractCompletedWordWindow(doc, head)!;
+  h.ok(window.text.startsWith("These"), "the word lane submits the sentence it is inside, not a cut across the previous one");
+  h.eq(doc.slice(window.from + window.focus!.from, window.from + window.focus!.to), "These", "the focus stays on the completed word");
+
+  const cut = "experiments. These";
+  const capitalization: LocalLintRecord = {
+    from: 0, to: 11, problem: "experiments", kind: "Capitalization",
+    message: "This sentence does not start with a capital letter", suggestions: ["Experiments"],
+  };
+  h.eq(scopeWindowLints({ text: cut }, [capitalization], false), [], "a sentence-opening verdict is dropped when the window opens mid-sentence");
+  h.eq(scopeWindowLints({ text: cut }, [capitalization], true), [capitalization], "the same verdict is kept where the window really opens a sentence");
+
+  const discourse = lint("therefore treat", "therefore", "Punctuation", [","]);
+  h.eq(scopeWindowLints({ text: "therefore treat" }, [discourse], false), [], "a discourse-marker comma is dropped when the window opens mid-sentence");
+
+  // Sentence-position rules are dropped only for the window's FIRST sentence,
+  // the one the cut invented; a genuinely lowercase opener after a real
+  // boundary inside the window survives. Harper reports both spans here.
+  const twoSentences = "signals were noisy. they were discarded.";
+  const invented: LocalLintRecord = {
+    from: 0, to: 7, problem: "signals", kind: "Capitalization",
+    message: "This sentence does not start with a capital letter", suggestions: ["Signals"],
+  };
+  const real: LocalLintRecord = {
+    from: 20, to: 24, problem: "they", kind: "Capitalization",
+    message: "This sentence does not start with a capital letter", suggestions: ["They"],
+  };
+  h.eq(scopeWindowLints({ text: twoSentences }, [invented, real], false), [real], "a lowercase opener after a real boundary is still reported");
+
+  // Only the focus is correctable; leading context is read-only.
+  const focused = { text: "The result was compelx", focus: { from: 11, to: 22 } };
+  const inContext = lint(focused.text, "result", "Spelling", ["results"]);
+  const inFocus = lint(focused.text, "compelx", "Spelling", ["complex"]);
+  h.eq(scopeWindowLints(focused, [inContext, inFocus], true), [inFocus], "context words are linted for meaning, never corrected");
+
+  // The planners synthesize spans from the whole window text — the confusion
+  // table and explicit vocabulary never saw the lint list — so the focus must
+  // bound their OUTPUT, not just their input.
+  const synth = "The somata depolarized more then a compelx control";
+  const focusOnLastTwo = { from: synth.indexOf("compelx"), to: synth.length };
+  const synthesized = normalizeCorrectionCandidates(synth, [lint(synth, "compelx", "Spelling", ["complex"])], "sentence");
+  h.ok(synthesized.some((c) => c.original === "then"), "the confusion table reaches words the linter never flagged");
+  h.eq(
+    withinFocus(synthesized, focusOnLastTwo).map((c) => c.original),
+    ["compelx"],
+    "a focused window never proposes a change to the context it was given",
+  );
+  h.eq(
+    withinFocus(planLocalCorrections(synth, [lint(synth, "compelx", "Spelling", ["complex"])]), focusOnLastTwo)
+      .map((p) => [p.original, p.replacement]),
+    [["compelx", "complex"]],
+    "automatic edits stay inside the focus too",
+  );
+
+  // The trailing period is what makes "et al." a known abbreviation rather than
+  // two unknown words, so the linted text must keep it.
+  const cite = "This matches Smith et al. ";
+  const citeWindow = extractCompletedWordWindow(cite, cite.length)!;
+  h.ok(citeWindow.text.endsWith("et al."), "punctuation the user just typed stays in the linted text");
+
+  for (const [before, expected, label] of [
+    ["", true, "the document start opens a sentence"],
+    ["The data were noisy. ", true, "a terminated sentence opens the next one"],
+    ["Shown in Fig. ", false, "an abbreviation does not open a sentence"],
+    ["Reported by Smith et al. ", false, "et al. does not open a sentence"],
+    ["a value of 3.5 ", false, "a decimal does not open a sentence"],
+    ['acquired in "acute neuropixel" ', false, "mid-sentence prose does not open a sentence"],
+    ["## Question\n\n", true, "a new block opens a sentence"],
+  ] as const) {
+    h.eq(windowStartsSentence(before), expected, label);
+  }
 }
 
 h.section("context candidate contract and guard");

@@ -30,6 +30,8 @@ import {
   extractProjectVocabularyOccurrences,
   planLocalCorrections,
   protectedMarkdownRanges,
+  scopeWindowLints,
+  withinFocus,
   type PlannedLocalCorrection,
 } from "./localCorrectionCore";
 import {
@@ -37,6 +39,7 @@ import {
   classifyTypedBoundaries,
   extractCompletedWordWindow,
   extractSentenceWindow,
+  windowStartsSentence,
 } from "./localCorrectionBoundary";
 import {
   guardContextCorrectionResult,
@@ -510,6 +513,14 @@ interface PendingWindow {
   to: number;
   text: string;
   lane: "word" | "sentence";
+  /** Window-relative range this lane may correct; the rest is linter context. */
+  focus?: { from: number; to: number };
+}
+
+/** Document range a queued window is allowed to change — its focus, or all of it. */
+function correctableRange(window: PendingWindow): { from: number; to: number } {
+  if (!window.focus) return { from: window.from, to: window.to };
+  return { from: window.from + window.focus.from, to: window.from + window.focus.to };
 }
 
 interface PendingContext {
@@ -689,18 +700,29 @@ class CorrectionController {
       }
     }
     if (this.queue.length && update.docChanged) {
-      this.queue = this.queue.map((queued) => {
+      this.queue = this.queue.flatMap((queued) => {
         const from = update.changes.mapPos(queued.from, -1);
         const to = update.changes.mapPos(queued.to, -1);
-        return {
+        // The focus rides the same change set: a stale offset would let the
+        // lane correct a word it never captured.
+        let focus = queued.focus;
+        if (focus) {
+          const scope = correctableRange(queued);
+          const focusFrom = update.changes.mapPos(scope.from, -1) - from;
+          const focusTo = update.changes.mapPos(scope.to, 1) - from;
+          if (focusTo <= focusFrom || focusFrom < 0 || focusTo > to - from) return [];
+          focus = { from: focusFrom, to: focusTo };
+        }
+        return [{
           ...queued,
           from,
           to,
+          ...(focus ? { focus } : {}),
           // A prior local fix may land inside a newer queued snapshot. Refresh
           // that snapshot from the mapped document rather than dropping the
           // rest of the completed sentence.
           text: update.state.doc.sliceString(from, to),
-        };
+        }];
       });
     }
     if (this.activeContext && update.docChanged) {
@@ -872,6 +894,34 @@ class CorrectionController {
     }));
   }
 
+  /** Does a window starting at `from` open a real sentence in the document? */
+  private startsSentence(from: number): boolean {
+    return windowStartsSentence(this.view.state.doc.sliceString(Math.max(0, from - 96), from));
+  }
+
+  /**
+   * A window that has just been linted is the authority on the range it may
+   * correct: a deferred span in there that this pass no longer proposes came
+   * from an earlier, narrower window and must not sit at "waiting for sentence
+   * context" forever. Nothing outside that range is touched — the rest of the
+   * window was context, and its issues belong to the lane that raised them.
+   */
+  private publishDeferredIssues(pending: PendingWindow, fresh: readonly ContextIssue[]): void {
+    const scope = correctableRange(pending);
+    const keep = new Set(fresh.map((issue) => issue.id));
+    const stale = (this.view.state.field(correctionVisualField, false)?.issues ?? [])
+      .filter((issue) => issue.status === "deferred" && !keep.has(issue.id))
+      .filter((issue) => issue.from >= scope.from && issue.to <= scope.to)
+      .map((issue) => issue.id);
+    if (!stale.length && !fresh.length) return;
+    this.view.dispatch({
+      effects: [
+        ...(stale.length ? [removeContextIssues.of(stale)] : []),
+        ...(fresh.length ? [upsertContextIssues.of([...fresh])] : []),
+      ],
+    });
+  }
+
   private removeTransientIssues(): void {
     queueMicrotask(() => {
       const visual = this.view.state.field(correctionVisualField, false);
@@ -986,12 +1036,15 @@ class CorrectionController {
       return;
     }
     try {
-      const lints = await localCorrectionService.lint(chunk.text);
+      const raw = await localCorrectionService.lint(chunk.text);
       if (gen !== this.backlogGen || !this.options.enabled()) return;
       if (this.view.state.doc.sliceString(chunk.from, chunk.to) !== chunk.text) {
         next();
         return;
       }
+      // Long paragraphs are cut at whitespace when they hold no sentence
+      // boundary, so a chunk can start mid-sentence like any other window.
+      const lints = scopeWindowLints(chunk, raw, this.startsSentence(chunk.from));
       const existing = this.view.state.field(correctionVisualField, false)?.issues ?? [];
       const candidates = normalizeCorrectionCandidates(chunk.text, lints, "sentence", {
         ...this.normalizationOptions(),
@@ -1023,7 +1076,15 @@ class CorrectionController {
     if (!queued) return;
     const same = this.queue.findIndex((item) => item.from === queued.from && item.lane === queued.lane);
     if (same >= 0) this.queue[same] = queued;
-    else if (!this.pending || this.pending.from !== queued.from || this.pending.text !== queued.text) {
+    // Both lanes now anchor at the sentence start and can hold identical text,
+    // so an in-flight word run must never swallow the sentence run that carries
+    // the same text into contextual judgment.
+    else if (
+      !this.pending
+      || this.pending.lane !== queued.lane
+      || this.pending.from !== queued.from
+      || this.pending.text !== queued.text
+    ) {
       this.queue.push(queued);
       while (this.queue.length > 8) {
         const oldestWord = this.queue.findIndex((item) => item.lane === "word");
@@ -1040,7 +1101,7 @@ class CorrectionController {
   private captureWindow(lane: "word" | "sentence"): PendingWindow | null {
     if (!this.options.enabled() || !this.view.hasFocus || !this.view.state.selection.main.empty) return null;
     const head = this.view.state.selection.main.head;
-    const floor = Math.max(0, head - (lane === "word" ? 160 : 760));
+    const floor = Math.max(0, head - (lane === "word" ? 400 : 760));
     const slice = this.view.state.doc.sliceString(floor, head);
     const localWindow = lane === "word"
       ? extractCompletedWordWindow(slice, slice.length)
@@ -1052,8 +1113,13 @@ class CorrectionController {
       to: floor + localWindow.to,
       text: localWindow.text,
       lane,
+      ...(localWindow.focus ? { focus: localWindow.focus } : {}),
     };
-    return protectedByEditor(this.view.state, queued.from, queued.to) ? null : queued;
+    // Protection asks "may Flux change this text", so it applies to the range
+    // this lane can actually change — the leading sentence context is read-only
+    // and must not veto a correction two words later.
+    const guarded = correctableRange(queued);
+    return protectedByEditor(this.view.state, guarded.from, guarded.to) ? null : queued;
   }
 
   private async runCorrection(): Promise<void> {
@@ -1072,15 +1138,19 @@ class CorrectionController {
     this.pending = pending;
     this.inFlight = true;
     try {
-      const lints = await localCorrectionService.lint(pending.text);
+      const raw = await localCorrectionService.lint(pending.text, pending.focus);
       if (this.pending?.id !== pending.id || !this.options.enabled()) return;
       if (this.view.state.doc.sliceString(pending.from, pending.to) !== pending.text) return;
+      const lints = scopeWindowLints(pending, raw, this.startsSentence(pending.from));
 
-      const plans = planLocalCorrections(pending.text, lints, {
+      // Both planners also synthesize spans from the window text itself (the
+      // confusion table, explicit vocabulary), so the focus has to bound their
+      // OUTPUT too — filtering their lint input is not enough.
+      const plans = withinFocus(planLocalCorrections(pending.text, lints, {
         blockedPairs: this.profile.blockedPairs(),
         projectWords: this.projectWords,
         explicitWords: this.explicitWords,
-      })
+      }), pending.focus)
         .map((plan) => ({
           ...plan,
           from: pending.from + plan.from,
@@ -1096,15 +1166,13 @@ class CorrectionController {
         // those edits land so the model never judges stale pre-Harper text.
         if (pending.lane === "sentence") this.scheduleCorrection("sentence");
       } else {
-        const candidates = normalizeCorrectionCandidates(
+        const candidates = withinFocus(normalizeCorrectionCandidates(
           pending.text,
           lints,
           "sentence",
           this.normalizationOptions(),
-        );
-        if (candidates.length) {
-          this.view.dispatch({ effects: upsertContextIssues.of(this.candidateIssues(pending, candidates, "deferred")) });
-        }
+        ), pending.focus);
+        this.publishDeferredIssues(pending, this.candidateIssues(pending, candidates, "deferred"));
         if (pending.lane === "sentence") this.enqueueContextual(pending, lints, candidates);
       }
     } catch {

@@ -10,7 +10,7 @@ type Inbound =
   | { type: "init"; words: string[] }
   | { type: "words"; words: string[] }
   | { type: "dialect"; dialect: "american" | "british" | "canadian" | "australian"; words: string[] }
-  | { type: "lint"; id: number; text: string };
+  | { type: "lint"; id: number; text: string; focus?: { from: number; to: number } };
 
 type Outbound =
   | { type: "ready" }
@@ -126,6 +126,9 @@ self.onmessage = (event: MessageEvent<Inbound>) => {
       }
       for (const record of lints) {
         if (record.kind !== "Spelling" && record.kind !== "Typo") continue;
+        // Words the caller supplied purely as context are never corrected, and
+        // the rescue search below costs tens of milliseconds per word.
+        if (message.focus && (record.from < message.focus.from || record.to > message.focus.to)) continue;
         const verified = await verifiedMechanicalWords(record.problem);
         const harper = new Set(record.suggestions.map((value) => value.toLocaleLowerCase()));
         record.rescueSuggestions = verified.filter((value) => !harper.has(value.toLocaleLowerCase()));

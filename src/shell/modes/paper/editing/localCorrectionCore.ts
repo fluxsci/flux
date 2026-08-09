@@ -3,7 +3,11 @@
 // asking. It deliberately knows nothing about CodeMirror, workers, or storage
 // so the scientific-safety contract is cheap to test exhaustively.
 
-import { extractSentenceWindow } from "./localCorrectionBoundary";
+import {
+  extractSentenceWindow,
+  isSentenceBoundaryAt,
+  type CorrectionTextWindow,
+} from "./localCorrectionBoundary";
 
 export type LocalLintKind =
   | "BoundaryError"
@@ -60,6 +64,58 @@ export function extractCorrectionWindow(
   while (from < window.to && /[\s#*-]/.test(doc[from])) from += 1;
   const text = doc.slice(from, window.to);
   return text.length >= 3 && LETTER.test(text) ? { from, to: window.to, text } : null;
+}
+
+/**
+ * Harper rules that answer "does this token open its sentence correctly?".
+ * They are meaningless — and confidently wrong — when the window does not
+ * actually start one.
+ */
+const SENTENCE_START_KINDS = new Set(["Capitalization", "Punctuation"]);
+
+/** Index just past the window's first sentence (its length when it holds only one). */
+function firstSentenceEnd(text: string): number {
+  for (let i = 1; i < text.length; i += 1) {
+    if (text[i] === "\n") return i;
+    if (/\s/.test(text[i]) && isSentenceBoundaryAt(text, i)) return i;
+  }
+  return text.length;
+}
+
+/**
+ * Keep only the spans a focused window may act on. Everything else in the
+ * window is context for the linter to read, and belongs to a wider lane —
+ * this applies to the lints AND to every span derived from the window text,
+ * including the confusion table and explicit-vocabulary matches that the
+ * planners synthesize from the whole source.
+ */
+export function withinFocus<T extends { from: number; to: number }>(
+  spans: readonly T[],
+  focus?: { from: number; to: number },
+): T[] {
+  if (!focus) return [...spans];
+  return spans.filter((span) => span.from >= focus.from && span.to <= focus.to);
+}
+
+/**
+ * Reduce a window's lints to the ones that are about the manuscript rather than
+ * about the cut. Every window is a SLICE, but the linter reads each one as a
+ * whole document, so two corrections are needed:
+ *
+ * - a window that does not begin a sentence must not keep sentence-OPENING
+ *   verdicts about its first sentence (the cut invented that position);
+ * - a focused window may only report inside its focus.
+ */
+export function scopeWindowLints(
+  window: Pick<CorrectionTextWindow, "text" | "focus">,
+  lints: readonly LocalLintRecord[],
+  startsSentence: boolean,
+): LocalLintRecord[] {
+  const firstEnd = startsSentence ? -1 : firstSentenceEnd(window.text);
+  return withinFocus(
+    lints.filter((lint) => !(lint.from < firstEnd && SENTENCE_START_KINDS.has(lint.kind))),
+    window.focus,
+  );
 }
 
 function lettersOnly(s: string): string {

@@ -148,6 +148,33 @@ await page.keyboard.type(splitTrap, { delay: 1 });
 await new Promise((resolve) => setTimeout(resolve, 700));
 h.eq(await doc(), splitTrap, "the real worker never splits a misspelling or scientific term into two valid words");
 
+h.section("a window cut never flags correct prose");
+// The reported bug, typed verbatim: the word lane used to submit its final two
+// tokens ALONE, so Harper read "experiments. These" as a sentence opening in
+// lowercase and underlined a word that ends a perfectly good sentence.
+await replaceDoc();
+const cutTrap = 'The goal of this project is to analyze data acquired in "acute neuropixel" experiments. These are technical experiments. ';
+await page.keyboard.type(cutTrap, { delay: 1 });
+await new Promise((resolve) => setTimeout(resolve, 900));
+const cutState = await page.evaluate(() => ({
+  text: window.__fluxView.state.doc.toString(),
+  issues: [...document.querySelectorAll(".cm-context-issue")].map((el) => el.textContent),
+}));
+h.eq(cutState.text, cutTrap, "correct prose is left exactly as typed");
+h.eq(cutState.issues, [], "no word in a correct sentence is flagged by where a window was cut");
+
+// The positive control: the guard is surgical, not a mute button. A sentence
+// that really does open in lowercase is still flagged.
+await replaceDoc();
+await page.keyboard.type("The recordings were noisy. they were discarded from the pooled analysis. ", { delay: 1 });
+await waitFor(
+  page,
+  () => [...document.querySelectorAll(".cm-context-issue")].some((el) => el.textContent === "they"),
+  null,
+  { timeout: 6000, label: "genuine lowercase sentence opener" },
+);
+h.ok(true, "a sentence that truly opens in lowercase is still flagged");
+
 h.section("sentence judgment lane");
 await page.evaluate(() => {
   window.__contextPackets = [];
