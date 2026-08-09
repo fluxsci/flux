@@ -280,7 +280,15 @@ export interface FileBridge {
     query: string,
     opts?: { limit?: number; keys?: string[] },
   ): Promise<{
-    hits?: { key: string; count: number; snippets: { page: number; text: string }[] }[];
+    hits?: {
+      key: string;
+      count: number;
+      /** Occurrences outside the bibliography; what ranking uses. */
+      bodyCount?: number;
+      /** Every occurrence was in the bibliography — the paper cites the term, it isn't about it. */
+      refOnly?: boolean;
+      snippets: { page: number; text: string }[];
+    }[];
     scanned?: number;
     missingText?: string[];
     truncated?: boolean;

@@ -17,14 +17,17 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { atomicWrite } from "./fsx";
-import { foldText } from "../src/lib/references/textFold";
+import { foldForMatch } from "../src/lib/references/textFold";
 
 export interface FulltextIndexDoc {
   mtimeMs: number;
   pages: number;
 }
 export interface FulltextIndexFile {
-  schemaVersion: 1;
+  /** Bump whenever the FOLDING changes: the postings are derived from folded text, so an index
+   *  built under the old rules would nominate candidates the matcher no longer agrees with.
+   *  2 = separator-collapsing fold (foldForMatch). */
+  schemaVersion: 2;
   builtAt: string;
   docs: Record<string, FulltextIndexDoc>;
   /** foldedToken → { key → 1-based page numbers } */
@@ -56,7 +59,7 @@ function tokenizePages(folded: string): Map<string, Set<number>> {
 }
 
 function emptyIndex(): FulltextIndexFile {
-  return { schemaVersion: 1, builtAt: new Date().toISOString(), docs: {}, postings: {} };
+  return { schemaVersion: 2, builtAt: new Date().toISOString(), docs: {}, postings: {} };
 }
 
 // One resident index per library path, keyed by the persisted file's identity
@@ -112,7 +115,7 @@ export async function loadFreshFulltextIndex(libPath: string): Promise<FreshInde
   if (!idx && fk !== "absent") {
     try {
       const parsed = JSON.parse(await fs.readFile(idxPath, "utf8")) as FulltextIndexFile;
-      if (parsed && parsed.schemaVersion === 1 && parsed.docs && parsed.postings) idx = parsed;
+      if (parsed && parsed.schemaVersion === 2 && parsed.docs && parsed.postings) idx = parsed;
     } catch {
       idx = null; // corrupt → rebuild below
     }
@@ -151,7 +154,9 @@ export async function loadFreshFulltextIndex(libPath: string): Promise<FreshInde
     // New/changed → (re)tokenize this one document.
     let folded: string;
     try {
-      folded = foldText(await fs.readFile(ftPath, "utf8"));
+      // Tokenize the SAME folded form the matcher searches, or the index would nominate
+      // candidates by different rules than matchDoc verifies them with.
+      folded = foldForMatch(await fs.readFile(ftPath, "utf8")).text;
     } catch {
       continue;
     }

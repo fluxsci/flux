@@ -144,23 +144,110 @@ export function findDois(text: string): { doi: string; index: number }[] {
 export interface TextItem {
   str?: string;
   transform?: number[]; // [a, b, c, d, e, f]; font size ≈ hypot(c, d); baseline y = f
+  width?: number; // advance width in device space — how far this run actually extends
   hasEOL?: boolean;
 }
 
-/** Join a page's text items into a string, re-inserting line breaks on large Y jumps. */
+/** Horizontal gap, as a fraction of the font size, at or above which two adjacent runs are
+ *  separated by a real word space. Below it the split is TYPOGRAPHIC, not lexical: pdf.js emits
+ *  a fresh item at every font/style change, so an italicised variable in running text arrives as
+ *  several touching runs. Joining those with a blind space is what produced "( n  =  16)" and
+ *  "Fig. 1 A" — and a query for "Fig. 1A" then missed roughly half its true hits. */
+const WORD_GAP_EM = 0.18;
+/** Baseline movement, as a fraction of the font size, that starts a new line. Proportional
+ *  rather than the old fixed 4 units, which mis-fired on both tiny and display type. */
+const LINE_BREAK_EM = 0.5;
+/** How far a run may start BEFORE the previous one ended before we treat it as a positional
+ *  discontinuity rather than a continuation. Content streams are not always laid out
+ *  left-to-right: bioRxiv's cover banner emits its line in reverse x order, so the run after the
+ *  DOI starts ~12em to its left. Gluing there corrupted the DOI ("…436840" + "doi:") and cost
+ *  identification the paper. Measured at ~1.6% of same-line adjacent pairs. */
+const BACKTRACK_EM = 0.5;
+/** Dash characters that, at a line end, indicate a word broken across lines rather than a real
+ *  compound. Matches the set Zotero's extractor treats as ignorable at a line break. */
+const EOL_DASHES = /[-‐‑‒–—―−－]$/;
+/** A line-final dash is a typesetting artifact only when a LETTER precedes it and a lowercase
+ *  letter continues it ("sub-\nthreshold"). A dash after a digit belongs to a structured
+ *  identifier — "10.1038/s41586-023-\n06812-9" — and dropping it silently corrupts the DOI. */
+const SOFT_HYPHEN_TAIL = /[A-Za-zß-ÿ][-‐‑‒–—―−－]$/;
+/** Does the run at the end of this line look like a DOI or URL? Those wrap across lines without
+ *  a space, so the continuation must be glued on rather than newline-separated — otherwise the
+ *  DOI regex stops at the break and identification sees a truncated identifier. */
+const TRAILING_LOCATOR = /(?:10\.\d{4,9}\/|https?:\/\/|www\.)\S*$/;
+
+function fontSizeOf(t?: number[]): number {
+  if (!t) return 0;
+  const s = Math.hypot(t[2] || 0, t[3] || 0);
+  return s > 0 ? s : Math.abs(t[3] || 0);
+}
+
+/** Join a page's text items into readable text.
+ *
+ *  Three things this must get right, because full-text search inherits every mistake:
+ *   1. SPACING — insert a space only where the geometry shows one (see WORD_GAP_EM).
+ *   2. LINE BREAKS — exactly one per line. The old joiner could emit a break from `hasEOL` AND
+ *      another from the Y-jump, producing the blank-line-per-line text that made pdf.js's own
+ *      find-controller normalizer a no-op (its broken-word rule needs "-\n" + a letter).
+ *   3. HYPHENATION — a line-final dash before a lowercase continuation is a typesetting artifact;
+ *      dropping it is what makes "sub-\nthreshold" findable as "subthreshold". The lowercase test
+ *      is deliberate: it leaves "COVID-\n19" and hyphenated proper nouns intact. */
 export function joinTextItems(items: TextItem[]): string {
   let out = "";
-  let lastY: number | null = null;
+  let prevEnd = NaN;
+  let prevY = NaN;
+  let prevSize = 0;
+  let pendingBreak = false;
+  let pendingSpace = false;
   for (const it of items) {
     if (typeof it.str !== "string") continue;
-    const y = it.transform?.[5];
-    if (lastY !== null && typeof y === "number" && Math.abs(y - lastY) > 4) out += "\n";
-    else if (out && !out.endsWith(" ") && !out.endsWith("\n")) out += " ";
-    out += it.str;
-    if (it.hasEOL) out += "\n";
-    if (typeof y === "number") lastY = y;
+    const t = it.transform;
+    const size = fontSizeOf(t) || prevSize || 1;
+    const x = typeof t?.[4] === "number" ? t[4] : NaN;
+    const y = typeof t?.[5] === "number" ? t[5] : NaN;
+    const width = typeof it.width === "number" ? it.width : 0;
+
+    // pdf.js marks a line end with a zero-width, empty-string item. It carries no text, but
+    // committing its newline immediately would break a pending end-of-line hyphen before its
+    // continuation arrives — which is exactly why de-hyphenation never fired. Defer the break.
+    if (!it.str.trim()) {
+      if (it.hasEOL) pendingBreak = true;
+      else if (it.str) pendingSpace = true;
+      continue;
+    }
+
+    if (!out) {
+      out = it.str;
+    } else {
+      const em = Math.max(size, prevSize) || 1;
+      const gap = x - prevEnd;
+      const broke =
+        pendingBreak ||
+        (Number.isFinite(y) && Number.isFinite(prevY) && Math.abs(y - prevY) > LINE_BREAK_EM * em) ||
+        (Number.isFinite(gap) && gap < -BACKTRACK_EM * em);
+      if (broke) {
+        const lastLine = out.slice(out.lastIndexOf("\n") + 1);
+        // Only a DASH-terminated locator continues onto the next line. Gluing on any trailing
+        // DOI would run a completed reference into the author name that starts the next entry.
+        if (SOFT_HYPHEN_TAIL.test(out) && /^[a-zß-ÿ]/.test(it.str)) out = out.replace(EOL_DASHES, "") + it.str;
+        else if (EOL_DASHES.test(out) && TRAILING_LOCATOR.test(lastLine) && /^\S/.test(it.str)) out += it.str;
+        else out += "\n" + it.str;
+      } else {
+        const touching = /\s$/.test(out) || /^\s/.test(it.str);
+        const wide = Number.isFinite(gap) && gap >= WORD_GAP_EM * em;
+        out += touching || !(pendingSpace || wide) ? it.str : " " + it.str;
+      }
+    }
+    pendingBreak = !!it.hasEOL;
+    pendingSpace = false;
+    prevEnd = Number.isFinite(x) ? x + width : prevEnd;
+    prevY = Number.isFinite(y) ? y : prevY;
+    prevSize = size;
   }
-  return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return out
+    .replace(/[ \t]+/g, " ")
+    .replace(/ ?\n ?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /** Largest-font line near the top of a page → a title guess (font-size heuristic). */

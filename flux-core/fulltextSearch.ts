@@ -17,7 +17,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { resolveFluxLibPath } from "./fluxlib";
 import { hasPdf } from "./items";
-import { foldText, parseQueryTerms } from "../src/lib/references/textFold";
+import { foldForMatch, originalOffset, parseQueryTerms, type FoldedText } from "../src/lib/references/textFold";
+import { analyzePaperStructure } from "../src/lib/references/paperStructure";
 import { loadFreshFulltextIndex, candidateDocs } from "./fulltextIndex";
 
 export interface FulltextSnippet {
@@ -28,6 +29,13 @@ export interface FulltextSnippet {
 export interface FulltextHit {
   key: string; // citekey (item dir name, NFC)
   count: number; // total occurrences of the first term/phrase
+  /** Occurrences in the body — i.e. excluding the bibliography. A paper that merely CITES work
+   *  with the query in its title is not a paper ABOUT the query; measured on this library, ~16%
+   *  of matches were reference-list-only. Ranking uses this, falling back to `count` when the
+   *  bibliography could not be located. */
+  bodyCount: number;
+  /** True when every occurrence is inside the bibliography. */
+  refOnly: boolean;
   snippets: FulltextSnippet[];
 }
 
@@ -58,12 +66,22 @@ function pageOfOffset(folded: string, offset: number): number {
   return page;
 }
 
-function snippetAround(original: string, folded: string, offset: number, len: number, chars: number): FulltextSnippet {
-  // Clamp the context window to the match's own page (between the surrounding form-feeds)
-  // so a snippet never bleeds a neighbouring page's text under this page's label.
-  const pStart = folded.lastIndexOf("\f", offset - 1) + 1; // 0 when no preceding \f
-  let pEnd = folded.indexOf("\f", offset + len);
-  if (pEnd < 0) pEnd = folded.length;
+function snippetAround(original: string, f: FoldedText, foldedOffset: number, foldedLen: number, chars: number): FulltextSnippet {
+  const folded = f.text;
+  // Matching happens in the folded text (separator runs collapsed); the snippet must be cut from
+  // the ORIGINAL, so both ends are mapped back through the offset map.
+  const offset = originalOffset(f, foldedOffset);
+  const len = Math.max(1, originalOffset(f, foldedOffset + foldedLen) - offset);
+  return snippetAroundOriginal(original, offset, len, chars, pageOfOffset(folded, foldedOffset));
+}
+
+function snippetAroundOriginal(original: string, offset: number, len: number, chars: number, page: number): FulltextSnippet {
+  // Clamp the context window to the match's own page (between the surrounding form-feeds) so a
+  // snippet never bleeds a neighbouring page's text under this page's label. All offsets here are
+  // in ORIGINAL coordinates; the page number was resolved from the folded text by the caller.
+  const pStart = original.lastIndexOf("\f", offset - 1) + 1; // 0 when no preceding \f
+  let pEnd = original.indexOf("\f", offset + len);
+  if (pEnd < 0) pEnd = original.length;
   const half = Math.floor((chars - len) / 2);
   let from = Math.max(pStart, offset - half);
   let to = Math.min(pEnd, offset + len + half);
@@ -75,7 +93,15 @@ function snippetAround(original: string, folded: string, offset: number, len: nu
     .replace(/\f/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return { page: pageOfOffset(folded, offset), text: (from > pStart ? "…" : "") + text + (to < pEnd ? "…" : "") };
+  return { page, text: (from > pStart ? "…" : "") + text + (to < pEnd ? "…" : "") };
+}
+
+/** Rank body matches above bibliography-only ones, then by how often the paper actually uses the
+ *  term. Counting raw occurrences alone let a paper with forty relevant-sounding citations
+ *  outrank one that genuinely discusses the subject. */
+function rankHits(a: FulltextHit, b: FulltextHit): number {
+  if (a.refOnly !== b.refOnly) return a.refOnly ? 1 : -1;
+  return b.bodyCount - a.bodyCount || b.count - a.count;
 }
 
 /** Search every stored fulltext for ALL of the query's terms/phrases. */
@@ -106,17 +132,27 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
   // The exact per-document verdict — IDENTICAL for the index and scan paths
   // (the index only nominates candidates; this is the semantics).
   const matchDoc = (original: string, key: string): FulltextHit | null => {
-    const folded = foldText(original);
+    const f = foldForMatch(original);
+    const folded = f.text;
     if (!needles.every((n) => folded.includes(n))) return null;
     const primary = needles[0];
     const snippets: FulltextSnippet[] = [];
+    // Where the bibliography sits, in ORIGINAL coordinates, so each hit can be attributed.
+    const st = analyzePaperStructure(original);
+    const refFrom = st.referencesStart;
+    const refTo = st.referencesEnd ?? original.length;
     let count = 0;
+    let bodyCount = 0;
     let at = folded.indexOf(primary);
     const seenPages = new Set<number>();
     while (at >= 0) {
       count++;
-      if (snippets.length < perPaper) {
-        const s = snippetAround(original, folded, at, primary.length, chars);
+      const orig = originalOffset(f, at);
+      const inRefs = refFrom != null && orig >= refFrom && orig < refTo;
+      if (!inRefs) bodyCount++;
+      // Prefer body snippets: a bibliography hit is shown only if nothing better turns up.
+      if (snippets.length < perPaper && !inRefs) {
+        const s = snippetAround(original, f, at, primary.length, chars);
         if (!seenPages.has(s.page)) {
           seenPages.add(s.page);
           snippets.push(s);
@@ -124,7 +160,12 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
       }
       at = folded.indexOf(primary, at + primary.length);
     }
-    return { key, count, snippets };
+    if (!snippets.length) {
+      // Reference-only match — still worth showing, but labelled by the caller via refOnly.
+      const first = folded.indexOf(primary);
+      if (first >= 0) snippets.push(snippetAround(original, f, first, primary.length, chars));
+    }
+    return { key, count, bodyCount: refFrom == null ? count : bodyCount, refOnly: refFrom != null && bodyCount === 0, snippets };
   };
 
   // --- WS-8.4: indexed path — postings nominate candidates, matchDoc decides ----
@@ -152,7 +193,7 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
           break;
         }
       }
-      result.hits.sort((a, b) => b.count - a.count);
+      result.hits.sort(rankHits);
       if (result.hits.length > limit) {
         result.truncated = true;
         result.hits.length = limit;
@@ -196,7 +237,7 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
 
   // Keep the highest-count hits; over-limit means there was more to show (either
   // unscanned dirs after early-exit, or concurrent workers that overshot the cap).
-  result.hits.sort((a, b) => b.count - a.count);
+  result.hits.sort(rankHits);
   if (result.hits.length > limit) {
     result.truncated = true;
     result.hits.length = limit;
