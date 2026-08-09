@@ -1,0 +1,136 @@
+---
+title: "GROBID"
+subtitle: "Optional structured enrichment of your library — parsed references and citation links"
+---
+
+::: {.callout-note}
+## You almost certainly don't need this
+
+Flux extracts text from every PDF on its own, with no setup and no extra software. Search, the
+reader, and the library all work fully without GROBID. This page is for one specific want: turning
+your PDFs' **bibliographies into structured records**, and linking each in-text citation to the
+entry it points at.
+
+If that isn't something you need, close this page. Nothing else in Flux refers to it.
+:::
+
+## What it adds
+
+[GROBID](https://github.com/grobidOrg/grobid) is a mature, Apache-2.0 tool that reads a scholarly
+PDF and returns a labelled document rather than a wall of text. Where Flux gives you clean text
+plus a body/bibliography split, GROBID additionally gives you:
+
+- **references parsed into fields** — author, title, journal, year, DOI, per entry
+- **in-text citation links** — which "[12]" on which page points at which entry
+- **sections with their text attached**, not just a list of heading strings
+- **title, authors, affiliations and abstract** as parsed fields rather than heuristics
+
+On a 13-paper trial over a neuroscience library it parsed 1,303 references and linked 92% of 1,848
+in-text citations, at about 3 seconds per paper.
+
+It does **not** improve the running text. Measured on the same papers, GROBID's searchable text is
+0.92–1.01× what Flux already extracts. Adopt it for the structure, not for the words.
+
+## Setup
+
+Everything below is safe to hand to an AI agent: *"read docs/integrations/grobid.qmd and set up
+GROBID for me."* Each step verifies before moving on.
+
+### 1. Check for a JDK — not just a JRE
+
+GROBID is built from source, which needs a **full JDK**. A great many machines have only the
+runtime, and the failure is confusing (`Cannot find a Java installation ... matching
+languageVersion=21`), so check the compiler rather than `java`:
+
+```bash
+javac -version    # must print 21 or newer
+```
+
+If that fails, install a JDK. No root required — a portable build works fine:
+
+```bash
+curl -L -o /tmp/jdk21.tar.gz \
+  "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse"
+mkdir -p ~/jdk21 && tar -xzf /tmp/jdk21.tar.gz -C ~/jdk21 --strip-components=1
+~/jdk21/bin/javac -version
+```
+
+On macOS swap `linux/x64` for `mac/aarch64` (Apple Silicon) or `mac/x64` (Intel). Docker is **not**
+required — it is only a convenience wrapper around this same JVM.
+
+### 2. Clone and start the service
+
+```bash
+git clone --depth 1 --branch 0.9.1 https://github.com/grobidOrg/grobid.git ~/grobid
+cd ~/grobid
+JAVA_HOME=~/jdk21 PATH=~/jdk21/bin:$PATH ./gradlew run --no-daemon \
+  -Porg.gradle.java.installations.paths=$HOME/jdk21
+```
+
+Drop the `JAVA_HOME`/`-P` parts if `javac -version` already worked without them. The first build
+takes several minutes; the clone is ~2 GB because the models ship with it. Nothing is downloaded
+afterwards — it runs entirely offline.
+
+Leave it running and confirm from another shell:
+
+```bash
+curl -s http://localhost:8070/api/isalive     # -> true
+```
+
+### 3. Enrich the library
+
+```bash
+flux grobid                # coverage + is a service reachable
+flux grobid --run          # enrich everything not already current
+```
+
+`--run` is incremental and resumable: papers already enriched are skipped, each is written as it
+completes, and an interrupted run picks up where it stopped. Useful flags:
+
+| flag | effect |
+|---|---|
+| `--limit 20` | stop after 20 papers — good for a first look |
+| `--keys a,b` | only these citekeys |
+| `--force` | redo papers already current, e.g. after upgrading GROBID |
+| `--url …` | a service somewhere other than `http://localhost:8070` |
+| `--reproject` | rebuild `grobid.json` from stored TEI. **No service needed** — used after a Flux upgrade changes the projection format |
+
+Once enrichment is done you can stop the GROBID service. The data is on disk; Flux never contacts
+it again unless you run `--run` for newly added papers.
+
+## Where it is stored
+
+Two files per paper, inside the item's own folder in FluxLib, plus one ledger:
+
+```
+items/<citekey>/grobid.tei.xml   GROBID's raw output, kept verbatim
+items/<citekey>/grobid.json      the flattened projection Flux reads
+.fluxlib/grobid.json             coverage ledger: what is enriched, stale, or failed
+```
+
+The raw TEI is kept deliberately. If a later version of Flux extracts more from the same output,
+`flux grobid --reproject` re-derives every `grobid.json` in seconds without re-running the service.
+
+`grobid.json` carries a `schemaVersion`, and the ledger records the GROBID version that produced
+each item, so the two can be re-derived independently. Everything here is derived data: deleting
+any of it loses nothing that cannot be regenerated from the PDFs.
+
+## Removing it
+
+```bash
+rm -rf ~/grobid ~/jdk21
+find <FluxLib>/items -name 'grobid.*' -delete
+rm -f <FluxLib>/.fluxlib/grobid.json
+```
+
+Flux returns to exactly its default behaviour. No feature stops working, because none of them
+depended on it.
+
+## Known limits
+
+- **No OCR.** A scanned, image-only PDF yields nothing — the same limit Flux's own extractor has.
+- **Tables and equations are its weak spot.** GROBID locates them but reproduces their contents
+  poorly; it ranks near the bottom of published table-extraction benchmarks. It is a
+  bibliographic and structural tool, not a table parser.
+- **About 19% of parsed references carry a DOI**, because most journals do not print DOIs in their
+  bibliographies. Resolving the rest still needs a lookup.

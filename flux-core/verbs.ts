@@ -1609,6 +1609,76 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "grobid",
+    cli: "grobid",
+    cliRoot: "flags",
+    summary:
+      "OPTIONAL structured enrichment of the library's PDFs using a local GROBID service — parsed references, in-text citation links, sections, and header metadata, written alongside each paper as grobid.tei.xml + grobid.json. Nothing in Flux requires this: without it every feature behaves exactly as it does today. Runs incrementally (already-current items are skipped) and is resumable. With no flags, reports coverage and whether a service is reachable. `run` enriches; `reproject` re-derives the JSON from stored TEI without needing the service. Setup: docs/integrations/grobid.qmd.",
+    params: {
+      run: z.boolean().optional(),
+      reproject: z.boolean().optional(),
+      url: z.string().optional(),
+      force: z.boolean().optional(),
+      limit: z.number().optional(),
+      keys: z.array(z.string()).optional(),
+    },
+    cliArgs: [
+      { kind: "flag", at: "run", into: "run", as: "boolean" },
+      { kind: "flag", at: "reproject", into: "reproject", as: "boolean" },
+      { kind: "flag", at: "url", into: "url" },
+      { kind: "flag", at: "force", into: "force", as: "boolean" },
+      { kind: "flag", at: "limit", into: "limit", as: "number" },
+      { kind: "flag", at: "keys", into: "keys", as: "list" },
+    ],
+    handler: async (_ctx, a) => {
+      if (!a.run && !a.reproject) return core.grobidCoverageReport({ url: a.url as string | undefined });
+      return core.grobidEnrich({
+        url: a.url as string | undefined,
+        force: a.force as boolean | undefined,
+        reproject: a.reproject as boolean | undefined,
+        limit: a.limit as number | undefined,
+        keys: a.keys as string[] | undefined,
+      });
+    },
+    render: {
+      human: (r) => {
+        const any = r as Record<string, unknown>;
+        if ("processed" in any) {
+          const c = r as Awaited<ReturnType<typeof core.grobidEnrich>>;
+          if (c.unavailable) {
+            return {
+              err:
+                `✗ no GROBID service at ${c.url} — ${c.unavailable}\n` +
+                `  GROBID is optional; Flux works fully without it. To set it up see docs/integrations/grobid.qmd`,
+            };
+          }
+          // --reproject never contacts the service, so there is no version to name.
+          const what = c.grobidVersion
+            ? `GROBID ${c.grobidVersion} — enriched ${c.processed.length}`
+            : `re-projected ${c.processed.length} from stored TEI`;
+          return {
+            err:
+              `✓ ${what}, skipped ${c.skipped.length} already current, ` +
+              `${c.failed.length} failed, of ${c.totalWithPdf} PDFs in ${(c.elapsedMs / 1000).toFixed(1)}s` +
+              (c.failed.length ? `\n  failed: ${c.failed.slice(0, 5).map((f) => f.key).join(", ")}` : ""),
+          };
+        }
+        const s = r as Awaited<ReturnType<typeof core.grobidCoverageReport>>;
+        return {
+          err:
+            `GROBID enrichment (optional) — ${s.enriched}/${s.totalWithPdf} papers enriched` +
+            (s.stale ? `, ${s.stale} stale` : "") +
+            (s.never ? `, ${s.never} never run` : "") +
+            (s.failed ? `, ${s.failed} failed` : "") +
+            `\n  ${s.references.toLocaleString()} references, ${s.citationsLinked.toLocaleString()} citation links` +
+            `\n  service at ${s.url}: ${s.reachable ? `up (${s.version ?? "?"})` : `not reachable — ${s.error ?? "?"}`}` +
+            (s.reachable ? "" : `\n  Flux does not need it. Setup: docs/integrations/grobid.qmd`),
+        };
+      },
+      mcp: (r) => text(JSON.stringify(r, null, 2)),
+    },
+  },
+  {
     name: "author_works",
     cli: "by-author",
     cliRoot: "flags",

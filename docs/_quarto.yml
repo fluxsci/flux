@@ -42,6 +42,7 @@ website:
         contents:
           - integrations/web-capture.qmd
           - integrations/zotero.qmd
+          - integrations/grobid.qmd
       - section: "Companions"
         contents:
           - lighttable.qmd

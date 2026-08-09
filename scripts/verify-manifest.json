@@ -83,6 +83,8 @@
       "verify-annotations-md.ts",
       "verify-figure-export.ts",
       "verify-fulltext-search.ts",
+      "verify-fulltext-extract.ts",
+      "verify-grobid.ts",
       "verify-import-plan.ts",
       "verify-citekey.ts",
       "verify-zotero-sync.ts",

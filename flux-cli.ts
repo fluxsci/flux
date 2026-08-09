@@ -129,6 +129,10 @@ usage: flux <verb> [root] [args] [--flags]
                                        references + PDFs from the connected Zotero Better-BibTeX auto-export
                                        (one-way, idempotent; an unchanged export is skipped from a stat alone —
                                        --force re-scans; --defer-fulltext = link without reading the PDFs now)
+  grobid [--run] [--reproject] [--url U] [--force] [--limit N] [--keys a,b]   OPTIONAL: structured
+                                       enrichment via a local GROBID service — parsed references, in-text
+                                       citation links, sections. Flux needs none of it; without a service
+                                       nothing changes. No flags = coverage report. Setup: docs/integrations/grobid.qmd
   discover <query…> [--semantic] [--sort cites|date]   search ALL of OpenAlex (--semantic = by meaning)
   similar <key> [--s2] [--sort cites]  "more like this" (OpenAlex semantic; --s2 = Semantic Scholar recs)
   citing <key|doi|Wid> [--s2] [--sort date]   works citing this (--s2 = Semantic Scholar + contexts)

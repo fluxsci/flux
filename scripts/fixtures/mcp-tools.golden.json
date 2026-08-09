@@ -57,6 +57,7 @@
   "get_manuscript",
   "get_paper_text",
   "get_reading_context",
+  "grobid",
   "group_elements",
   "group_tracks",
   "hydrate_library",

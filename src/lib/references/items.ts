@@ -22,6 +22,13 @@ export const SOURCE_JSON = "source.json";
 export const FULLTEXT_TXT = "fulltext.txt";
 export const ANNOTATIONS_JSON = "annotations.json";
 export const FETCH_FAILURE_JSON = "fetch-failure.json";
+/** Raw TEI from an OPTIONAL GROBID enrichment pass — kept verbatim so a better projection can be
+ *  re-derived later without re-running the service. Absent on every default install. */
+export const GROBID_TEI_XML = "grobid.tei.xml";
+/** The flattened, versioned projection of that TEI. This is the ONLY GROBID artifact Flux code
+ *  reads: nothing outside flux-core/grobid.ts parses XML, and every consumer treats it as
+ *  optional. See docs/integrations/grobid.qmd. */
+export const GROBID_JSON = "grobid.json";
 
 function j(...parts: string[]): string {
   return parts
@@ -89,6 +96,8 @@ export function parsePdfLink(text: string): PdfLink | null {
 }
 export const sourcePath = (lib: string, key: string): string => j(itemDir(lib, key), SOURCE_JSON);
 export const fulltextPath = (lib: string, key: string): string => j(itemDir(lib, key), FULLTEXT_TXT);
+export const grobidTeiPath = (lib: string, key: string): string => j(itemDir(lib, key), GROBID_TEI_XML);
+export const grobidJsonPath = (lib: string, key: string): string => j(itemDir(lib, key), GROBID_JSON);
 export const annotationsPath = (lib: string, key: string): string => j(itemDir(lib, key), ANNOTATIONS_JSON);
 export const failurePath = (lib: string, key: string): string => j(itemDir(lib, key), FETCH_FAILURE_JSON);
 export const supplementPath = (lib: string, key: string, n: number, ext: string): string =>
