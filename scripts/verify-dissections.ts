@@ -163,8 +163,19 @@ h.section("the shipped consumers route through the shared rule (no private regex
   );
   h.ok(!/_dissections/.test(main.replace(/\/\/[^\n]*/g, "")), "main.cjs carries NO private copy of the folder name (comments aside)");
   const importer = readFileSync(join(repo, "src", "lib", "PlotImporter.svelte"), "utf8");
-  h.ok(/isDissectDirName/.test(importer), "PlotImporter skips via the shared isDissectDirName rule");
+  // _dissections is now one of TWO reserved folders under plots/ (_lighttable joined it), so
+  // the importer skips the whole set through electron/plotsFolders.js — which derives its
+  // dissections entry from DISSECT_DIRNAME, so this is still one definition, one hop further
+  // out. verify-plots-folders.ts owns the reserved-set contract in full.
+  h.ok(
+    /isReservedPlotDirName/.test(importer),
+    "PlotImporter skips via the shared reserved-folder rule (which derives _dissections from this module)",
+  );
   h.ok(!/"_dissections"|'_dissections'/.test(importer), "PlotImporter carries no private copy of the folder name");
+  h.ok(
+    /DISSECT_DIRNAME/.test(readFileSync(join(repo, "electron", "plotsFolders.js"), "utf8")),
+    "…and the reserved set imports the dissections name from HERE rather than restating it",
+  );
 }
 
 await h.done();

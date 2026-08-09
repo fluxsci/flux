@@ -908,12 +908,19 @@ fileCore.registerHandlers(ipcMain);
 // 20 plots re-sync sweeps. dissectRules.js is ESM (the renderer + flux-core import it too), so
 // this CommonJS file loads it by dynamic import — resolved at watch setup, before any event
 // can arrive; if it somehow fails to load, the events safely degrade to the plots subsystem.
+// Lighttable collections under plots/ are the other reserved folder (plotsFolders.js, same
+// ESM/dynamic-import story): exploratory image sets Flux never reads. They are pruned from the
+// watch targets outright — this is the belt to that braces, so a path that slips through can
+// still never be mistaken for a plot re-sync.
+let plotFolderRules = null;
 let dissectRules = null;
 function subsystemFor(root, abs) {
   const rel = path.relative(root, abs).split(path.sep).join("/");
   if (rel.startsWith("..")) return null;
-  if (rel.startsWith("plots/"))
+  if (rel.startsWith("plots/")) {
+    if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) return null;
     return dissectRules && dissectRules.isDissectionProjectRel(rel) ? "dissections" : "plots";
+  }
   if (rel.startsWith("fig/")) return "fig";
   if (rel.startsWith("manuscript/")) return "manuscript";
   if (rel.startsWith("references/")) return "references";
@@ -1057,6 +1064,7 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   const capDir = captureDir();
   if (capDir && !captureRules) captureRules = await import("./captureRules.js").catch(() => null);
   if (!dissectRules) dissectRules = await import("./dissectRules.js").catch(() => null);
+  if (!plotFolderRules) plotFolderRules = await import("./plotsFolders.js").catch(() => null);
   const zoteroPrefs = readPrefs().zotero;
   const zoteroBib =
     zoteroPrefs && typeof zoteroPrefs === "object" && typeof zoteroPrefs.bibPath === "string" && zoteroPrefs.bibPath
@@ -1086,11 +1094,19 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
       mainWindow?.webContents.send("fs:changed", { subsystem, path: p });
     pending.clear();
   };
+  // plots/_lighttable/ can hold thousands of exploratory images that nothing in Flux reads —
+  // pruning the subtree here means chokidar never opens a descriptor for any of them, rather
+  // than watching them all to discard every event.
+  const isPrunedWatchPath = (abs) => {
+    if (!plotFolderRules) return false;
+    const rel = path.relative(root, abs).split(path.sep).join("/");
+    return !rel.startsWith("..") && plotFolderRules.isLighttableProjectRel(rel);
+  };
   projectWatcher = ck.watch(targets, {
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
     // Never surface in-flight atomic-write temp files (ours or flux-core's).
-    ignored: (p) => TMP_WRITE_RE.test(p),
+    ignored: (p) => TMP_WRITE_RE.test(p) || isPrunedWatchPath(p),
   });
   projectWatcher.on("all", (_evt, abs) => {
     if (isSelfWrite(abs)) return;

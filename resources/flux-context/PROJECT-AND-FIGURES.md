@@ -17,7 +17,8 @@
 │   └── comments.json            #   the user's review comments (sidecar; see MANUSCRIPT-AND-REVIEW.md)
 ├── plots/                       # USER-OWNED drop-zone — your fluxplot output lands here
 │   ├── growth.{svg,fluxplot.json,recipe.json}
-│   └── _dissections/growth/     #   growth's companion material (see below) — NOT importable plots
+│   ├── _dissections/growth/     #   growth's companion material (see below) — NOT composable plots
+│   └── _lighttable/<name>/      #   Lighttable collections (exploratory image sets) — same
 ├── fig/                         # APP-MANAGED — NEVER hand-edit
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real figure composition (figures → elements)
@@ -49,11 +50,21 @@ copies in place — either way your per-part restyles survive (they're keyed by 
 holds a plot's supporting evidence — per-subject breakdown panels, alternative analyses,
 `_stats/` CSVs. The folder is the API: just write files there (subfolders become named groups;
 images svg/png/jpg/webp and csv/tsv tables are first-class). Everything under `_dissections/`
-is deliberately INVISIBLE to composition — never listed by the plot importer, never part of a
-figure or export. The user views it with **D** on the selected plot (an open viewer
-live-refreshes as you write files); `list-dissections [plot]` enumerates it headless. When you
-finish an analysis, dropping the per-subject/per-condition panels behind each summary plot
-into its dissection folder is a cheap, high-value habit.
+is deliberately OUT OF THE WAY of composition — absent from an ordinary plot-importer search,
+never part of a figure or export by accident. The user views it with **D** on the selected
+plot (an open viewer live-refreshes as you write files); `list-dissections [plot]` enumerates
+it headless. When you finish an analysis, dropping the per-subject/per-condition panels behind
+each summary plot into its dissection folder is a cheap, high-value habit.
+
+**Lighttable collections — exploratory image sets:** `plots/_lighttable/<collection>/` is the
+home for image-set triage batches (a parameter sweep, one image per cell/condition — the
+Lighttable companion app's folder-of-subfolders layout). Write them there rather than loose in
+`plots/`: `_lighttable` is the second RESERVED name, so a batch of ten thousand triage PNGs
+never pollutes the importer's search or the project watcher.
+
+Both reserved folders stay reachable on purpose: in the importer the user types `_` to list
+them, Enter to go in, and searching then applies only inside that folder. Reserved means out
+of the way, not unavailable — so put anything exploratory or explanatory in them freely.
 
 ## The figure model
 

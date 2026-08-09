@@ -42,6 +42,13 @@ to `<collection>/<condition>/<item>.png`. Plain matplotlib is fine here — thes
 images, not blessed figures. When a winner emerges, regenerate it properly
 [via fluxplot into the project's `plots/`](concepts/semantic-plots.qmd).
 
+A collection can live anywhere, but the natural home for one belonging to a paper is
+`plots/_lighttable/<collection>/` inside the Flux project — the `_lighttable` folder is
+[reserved](reference/project-layout.qmd) precisely so a sweep of ten thousand triage images
+never turns up in the plot importer's search. It stays reachable on purpose: type **`_`** in
+the importer (**Alt+I**) to enter the folder and search inside it, which is how a triage image
+gets imported when you decide it belongs in a figure after all.
+
 # Running it
 
 Lighttable runs from the Flux **source checkout** (it isn't bundled into the packaged app):

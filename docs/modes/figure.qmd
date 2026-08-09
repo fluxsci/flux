@@ -49,6 +49,10 @@ pickers — the display name itself is always derived from family + number.
 - **Alt+I** opens the plot importer: it searches everything under the project's `plots/`
   folder, marking **◆ semantic** plots (fluxplot-saved, with addressable parts) apart from
   **◇ plain** images. **Space** picks several; **Ctrl+Enter** inserts them all.
+  Folders whose names start with `_` hold companion material rather than figure panels —
+  [`_dissections/`](../concepts/dissections.qmd) and `_lighttable/` — so they stay out of
+  ordinary results. Type **`_`** to list them, **Enter** to go in, and the search then works
+  *inside* that folder only.
 - **Drag files in** from your file manager (an SVG with its `.fluxplot.json` sibling imports
   as a semantic plot), or **paste an image** straight from the clipboard. A pasted image has
   no file behind it, so Flux keeps the original for you in

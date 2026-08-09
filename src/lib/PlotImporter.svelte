@@ -14,11 +14,24 @@
   // a plot into the picked set (✓); Ctrl/Cmd+Enter inserts everything picked —
   // or just the highlighted plot when nothing is picked. The picked set survives
   // folder navigation and browse↔search, so cross-folder picking is the point.
+  //
+  // Reserved folders (plots/_dissections, plots/_lighttable — shared rule, see
+  // project/plotsFolders) are companion material, not plots to compose: they are
+  // absent from browse rows and from the search cache, so a plain search can never
+  // surface a per-subject panel or one of ten thousand sweep images. Hidden is not
+  // unreachable — typing "_" offers them as enterable rows, and entering one
+  // RE-SCOPES the search cache to that folder, so from then on you are searching
+  // inside it and nowhere else. Leaving restores the ordinary plots/ scope.
   import { fade, scale } from "svelte/transition";
   import { importerOpen, embeddedProjectRoot, projectDir } from "./store";
   import { fileBridge, joinPath } from "./project/types";
   import { importPlotsFromPaths } from "./io";
-  import { isDissectDirName } from "./dissect/rules";
+  import {
+    RESERVED_PLOT_FOLDERS,
+    isReservedPlotDirName,
+    reservedRootOfPlotsRel,
+    type ReservedPlotFolder,
+  } from "./project/plotsFolders";
 
   // Reuse beyond Figure mode: when `onPick` is provided (e.g. Slide mode), the
   // chosen plots are handed to it as an ARRAY of picks (abs path + project-relative
@@ -47,6 +60,9 @@
     rel?: string;
     semantic?: boolean;
     snip?: boolean;
+    /** A reserved-folder row, surfaced by typing "_" (carries its own abs — it is
+     *  always a child of plots/, never of the folder currently being browsed). */
+    hint?: string;
   }
 
   $: root = rootOverride || $embeddedProjectRoot || $projectDir || "";
@@ -68,6 +84,15 @@
   let picked = new Map<string, PlotPick>();
   $: pickedCount = picked.size;
 
+  // Which reserved folders actually exist directly under plots/ (read from the root
+  // listing, so "_" offers only what is really there). Their rows carry an absolute
+  // path because search is reachable from any folder, while a reserved folder is
+  // always a child of plots/ itself.
+  let rootReserved: ReservedPlotFolder[] = [];
+  // The plots/-relative root the search cache covers: "" = the whole tree with the
+  // reserved folders pruned; a reserved name = that folder alone.
+  let scanScope = "";
+
   let prevOpen = false;
   $: {
     if ($importerOpen && !prevOpen) open();
@@ -76,14 +101,20 @@
   async function open() {
     search = "";
     index = 0;
-    all = [];
-    scanned = false;
-    truncated = false;
     picked = new Map();
+    rootReserved = [];
     cwd = plotsRoot;
     await loadDir(cwd);
-    void scan(); // warm the search cache in the background
+    void scanFor(""); // warm the search cache in the background
     requestAnimationFrame(() => inputEl?.focus());
+  }
+
+  /** The reserved folder a directory sits under, as its bare name ("" = ordinary
+   *  content). Derived from the path so it is correct the instant `cwd` changes —
+   *  a reactive `$:` would still be a flush behind the `loadDir` that follows. */
+  function reservedRootOf(dir: string): string {
+    if (!plotsRoot || !dir || !dir.startsWith(plotsRoot)) return "";
+    return reservedRootOfPlotsRel(dir.slice(plotsRoot.length).replace(/^\/+/, ""));
   }
 
   // Sidecars present in the CURRENT folder — kept from the raw listing (entries
@@ -103,19 +134,31 @@
     const es = await fig.readdir(dir);
     manifestNames = new Set(es.filter((e) => !e.dir && /\.fluxplot\.json$/i.test(e.name)).map((e) => e.name));
     snipNames = new Set(es.filter((e) => !e.dir && /\.snip\.json$/i.test(e.name)).map((e) => e.name));
+    // The plots/ root is where the reserved folders live — remember which are present so
+    // "_" can offer exactly those.
+    if (dir === plotsRoot)
+      rootReserved = RESERVED_PLOT_FOLDERS.filter((f) => es.some((e) => e.dir && e.name === f.name));
     // dirs first, then files, each alphabetical; show dirs + .svg plots + .png rasters (snips).
-    // The _dissections folder is per-plot companion material (Dissect viewer), not plots to
-    // insert — it never appears here or in search (shared rule, see dissect/rules).
+    // Reserved folders (_dissections, _lighttable) are companion material, not plots to
+    // insert — they never appear here or in search (shared rule, see project/plotsFolders).
+    // INSIDE one, though, everything is listed: getting in is the deliberate act.
+    const inReserved = !!reservedRootOf(dir);
     entries = es
-      .filter((e) => (e.dir ? !isDissectDirName(e.name) : /\.(svg|png)$/i.test(e.name)))
+      .filter((e) => (e.dir ? inReserved || !isReservedPlotDirName(e.name) : /\.(svg|png)$/i.test(e.name)))
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
     loading = false;
   }
 
-  // Recursively collect every .svg/.png under plots/ (capped), flagging semantic
-  // plots (.fluxplot.json sibling) and paper snips (.snip.json sibling) — no
-  // extra IO, read from the dir listing.
-  async function scan() {
+  // Recursively collect every .svg/.png in the current SCOPE (capped), flagging semantic
+  // plots (.fluxplot.json sibling) and paper snips (.snip.json sibling) — no extra IO,
+  // read from the dir listing. `scopeRel` is "" for the ordinary plots/ tree (reserved
+  // folders pruned at every depth) or a reserved folder name (that subtree, nothing
+  // pruned). Paths stay plots/-relative either way, so rows read the same in both scopes.
+  async function scanFor(scopeRel: string) {
+    scanScope = scopeRel;
+    all = [];
+    scanned = false;
+    truncated = false;
     const fig = fileBridge();
     if (!fig?.readdir || !plotsRoot) {
       scanned = true;
@@ -133,7 +176,7 @@
         const abs = joinPath(dir, e.name);
         const r = rel ? `${rel}/${e.name}` : e.name;
         if (e.dir) {
-          if (!isDissectDirName(e.name)) await visit(abs, r, depth + 1);
+          if (scopeRel || !isReservedPlotDirName(e.name)) await visit(abs, r, depth + 1);
         }
         else if (/\.svg$/i.test(e.name))
           out.push({ abs, rel: r, name: e.name, semantic: names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")) });
@@ -141,20 +184,39 @@
           out.push({ abs, rel: r, name: e.name, semantic: false, snip: names.has(e.name.replace(/\.png$/i, ".snip.json")) });
       }
     };
-    await visit(plotsRoot, "", 0);
+    await visit(scopeRel ? joinPath(plotsRoot, scopeRel) : plotsRoot, scopeRel, 0);
+    if (scanScope !== scopeRel) return; // a newer scope superseded this walk mid-flight
     all = out;
     scanned = true;
+  }
+
+  /** Keep the search cache aligned with where we are: entering (or leaving) a reserved
+   *  folder is the only thing that changes what a search can reach. */
+  function syncScanScope() {
+    const want = reservedRootOf(cwd);
+    if (want !== scanScope) void scanFor(want);
   }
 
   $: q = search.trim().toLowerCase();
   // Search mode when typing; otherwise the current-folder browse listing.
   $: rows = ((): Row[] => {
     if (q) {
-      return all
-        .filter((p) => `${p.rel} ${p.name}`.toLowerCase().includes(q))
-        .sort((a, b) => rank(a, q) - rank(b, q))
-        .slice(0, 300)
-        .map((p) => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip }));
+      const out: Row[] = [];
+      // The one way in: a query that STARTS with "_" offers the reserved folders whose
+      // names match it ("_" both, "_light" one). Nothing else surfaces them, and once
+      // you are inside one the search below is already scoped to it.
+      if (!scanScope && q.startsWith("_"))
+        for (const f of rootReserved)
+          if (f.name.includes(q))
+            out.push({ kind: "dir", name: f.name, abs: joinPath(plotsRoot, f.name), hint: f.hint });
+      out.push(
+        ...all
+          .filter((p) => `${p.rel} ${p.name}`.toLowerCase().includes(q))
+          .sort((a, b) => rank(a, q) - rank(b, q))
+          .slice(0, 300)
+          .map((p): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip })),
+      );
+      return out;
     }
     const out: Row[] = [];
     if (cwd && cwd !== plotsRoot) out.push({ kind: "up", name: ".." });
@@ -176,6 +238,13 @@
   })();
   $: if (index >= rows.length) index = Math.max(0, rows.length - 1);
   $: relDir = cwd && plotsRoot ? cwd.slice(plotsRoot.length).replace(/^\//, "") : "";
+  // The search box says what a query would actually reach — scoped searches are the one
+  // place the importer is NOT looking at the whole project.
+  $: searchHint = !scanned
+    ? `Scanning ${scanScope ? `${scanScope}/` : "plots/"}…`
+    : scanScope
+      ? `Search inside ${scanScope}/…`
+      : "Search plots by name…  (or browse below)";
 
   function rank(p: PlotRec, q: string): number {
     const n = p.name.toLowerCase();
@@ -205,13 +274,18 @@
     picked = picked; // Map mutation → invalidate
   }
 
-  /** Descend into a dir row (or ascend on the ".." row). Selection survives. */
+  /** Descend into a dir row (or ascend on the ".." row). Selection survives.
+   *  A reserved-folder row carries its own absolute path (it hangs off plots/, not off
+   *  whatever folder is being browsed) and can only be reached from a "_" search, so the
+   *  search box is cleared: you land in the folder's listing, scoped for the next query. */
   async function descend(r: Row) {
     if (r.kind === "up") return up();
     if (r.kind !== "dir") return;
-    cwd = joinPath(cwd, r.name);
+    cwd = r.abs ?? joinPath(cwd, r.name);
+    search = "";
     index = 0;
     await loadDir(cwd);
+    syncScanScope();
   }
 
   /** Hand the picks off (host callback or figure batch import), then close. */
@@ -241,6 +315,7 @@
     cwd = cwd.replace(/\/[^/]+$/, "");
     index = 0;
     await loadDir(cwd);
+    syncScanScope(); // stepping out of a reserved folder restores the ordinary plots/ scope
   }
   function close() {
     importerOpen.set(false);
@@ -326,7 +401,7 @@
           bind:this={inputEl}
           bind:value={search}
           class="search-in"
-          placeholder={scanned ? "Search plots by name…  (or browse below)" : "Scanning plots/…"}
+          placeholder={searchHint}
           spellcheck="false"
           on:keydown={onKey}
         />
@@ -357,12 +432,18 @@
                 >{r.kind === "dir" ? "📁" : r.kind === "up" ? "↩" : r.abs && picked.has(r.abs) ? "✓" : r.semantic ? "◆" : "◇"}</span
               >
               <span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png)$/i, "") : r.name}</span>
+              {#if r.hint}<span class="rel">{r.hint}</span>{/if}
               {#if q && r.rel && r.rel !== r.name}<span class="rel">{r.rel.replace(/\/[^/]+$/, "")}</span>{/if}
               {#if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
               {#if r.kind === "file" && r.snip}<span class="badge">snip</span>{/if}
             </div>
           {/each}
           {#if truncated}<div class="note">Showing the first 2000 plots — narrow your search.</div>{/if}
+          {#if !q && cwd === plotsRoot && rootReserved.length}
+            <div class="note" data-reserved-hint>
+              Type <b>_</b> to reach {rootReserved.map((f) => f.name).join(" and ")}.
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -563,6 +644,10 @@
     font-size: 12px;
     color: var(--c-tx-muted);
     font-style: italic;
+  }
+  .note b {
+    color: var(--c-accent-bright);
+    font-style: normal;
   }
   .foot {
     display: flex;

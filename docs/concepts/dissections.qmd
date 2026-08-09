@@ -43,9 +43,15 @@ Anything that explains the plot. Typical dissections:
 - Images of any kind (**svg**, **png**, **jpg**, **webp** — fluxplot outputs included) and
   **csv**/**tsv** tables are first-class in the viewer; other files are listed by name.
 
-Dissections are deliberately **invisible to composition**: nothing under `_dissections/`
-appears in the plot importer (**Alt+I**), lands in a figure, or rides along into an export.
-They are context, not content.
+Dissections are deliberately **out of the way of composition**: nothing under `_dissections/`
+turns up in an ordinary plot-importer search (**Alt+I**), lands in a figure by accident, or
+rides along into an export. They are context, not content.
+
+Out of the way is not locked away. In the importer, type **`_`** and the reserved folders
+(`_dissections`, and `_lighttable` if the project has one) appear as rows you can enter with
+**Enter**. Inside one, searching only looks *within* that folder, so you can find a
+per-subject panel and insert it deliberately — **⌫** steps back out to the ordinary `plots/`
+search.
 
 # Viewing them
 

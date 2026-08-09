@@ -14,6 +14,7 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 ├── plots/                       # YOURS — analysis output lands here, any structure you like
 │   ├── growth.{svg,fluxplot.json,recipe.json}   # a semantic plot + manifest + recipe
 │   ├── _dissections/growth/     #   growth's companion material (per-subject panels, stats CSVs)
+│   ├── _lighttable/             #   Lighttable collections for exploratory image sets
 │   ├── pasted/                  #   originals of images pasted from the clipboard
 │   └── paper_snips/             #   regions snipped out of PDFs in the reader
 ├── fig/                         # APP-MANAGED — the figure subsystem
@@ -56,9 +57,13 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
   subfolders are written *for* you, and are yours to keep or delete: `plots/pasted/` holds
   the original of every image you paste from the clipboard, and `plots/paper_snips/` holds
   every region you snip out of a PDF. Both exist so the pixels you contribute live somewhere
-  you own, not only inside the app's `fig/assets/` copy. One name is reserved:
-  `plots/_dissections/` holds each plot's [companion material](../concepts/dissections.qmd)
-  — it never appears in the plot importer, and the **D** key in the figure editor views it.
+  you own, not only inside the app's `fig/assets/` copy. Two names are reserved, both starting
+  with `_`: `plots/_dissections/` holds each plot's
+  [companion material](../concepts/dissections.qmd) (the **D** key in the figure editor views
+  it), and `plots/_lighttable/` is where [Lighttable](../lighttable.qmd) collections belong —
+  the sweeps and per-cell batches you triage before choosing a panel. Neither shows up in an
+  ordinary plot-importer search, however many thousands of images they hold; type **`_`** in
+  the importer to list them and **Enter** to search inside one.
 - **`.meta/`** holds the operational machinery: `journal.ndjson` (every write: who/what/when),
   `feedback.ndjson` (your context-stamped notes to agents), advisory `locks/`, JSON `schema/`
   for every file type, and the live-bridge descriptor while the app is open.

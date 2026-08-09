@@ -169,7 +169,8 @@
       "verify-nature-compliance.ts",
       "verify-capture-intake.ts",
       "verify-extension.ts",
-      "verify-dissections.ts"
+      "verify-dissections.ts",
+      "verify-plots-folders.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -215,6 +216,7 @@
       "verify-shape-nofill.mjs",
       "verify-primitives-gui.mjs",
       "verify-importer-multi.mjs",
+      "verify-importer-reserved.mjs",
       "verify-dissect-gui.mjs",
       "verify-vanilla-inline.mjs",
       "verify-bring-inside-gui.mjs",
@@ -393,6 +395,15 @@
       "run": [
         "verify-dissections.ts",
         "verify-dissect-gui.mjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte}",
+      "run": [
+        "verify-plots-folders.ts",
+        "verify-importer-reserved.mjs",
+        "verify-importer-multi.mjs",
         "tier:pure"
       ]
     },
@@ -679,6 +690,7 @@
     "figenh-18-xray.mjs",
     "verify-xray-theme.mjs",
     "verify-importer-multi.mjs",
+    "verify-importer-reserved.mjs",
     "verify-dissect-gui.mjs",
     "figenh-06-layers.ts",
     "verify-w3-locks.ts",

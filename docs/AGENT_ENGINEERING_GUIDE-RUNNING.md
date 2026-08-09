@@ -2815,3 +2815,40 @@ zero metadata drift).
 - `loadIndex` compared mtimes only, so a parser-shape change with an unchanged .bib would
   serve a stale index forever; it now also rebuilds on a `schemaVersion` mismatch.
 
+
+### 2026-08-09 — Reserved folders under plots/: `_lighttable` joins `_dissections` (Claude Opus 5, `main`)
+
+Owner-requested: Lighttable collections belong inside the project, at
+`plots/_lighttable/<collection>/`, and a sweep of thousands of triage images must not appear
+in the Plot Importer — the same containment `plots/_dissections/` already had. Generalized the
+one-folder rule into a **reserved set**: `electron/plotsFolders.js` (+ hand-written `.d.ts`,
+typed wrapper `src/lib/project/plotsFolders.ts`) owns the names, deriving the dissections entry
+from `DISSECT_DIRNAME` so there is still exactly one definition of each. Consumers: the
+importer (hides them from browse rows AND from the search cache), the watcher (lighttable paths
+are pruned from the chokidar targets and classify to no subsystem), `flux-core/dissect`'s plots
+walk. Gates: `verify-plots-folders.ts` (pure, 43) + `verify-importer-reserved.mjs` (ui, 21);
+`verify-dissections.ts`'s importer source-shape check was updated — not loosened — because the
+contract it encoded (skip via `isDissectDirName`) is superseded by the broader shared rule, and
+it now additionally pins that the reserved set imports the dissections name rather than
+restating it. Docs: dissections/figure/project-layout/lighttable pages + PROJECT-AND-FIGURES
+and PROJECT-GUIDE context docs (regenerated).
+
+- **Hidden had to stop meaning sealed.** The July rule made `_dissections` unreachable from
+  Alt+I, which was fine while it was one folder of per-plot extras and wrong the moment the
+  reserved set held material a user might legitimately want to insert. The resolution is an
+  explicit gesture rather than an exception: a query starting with `_` — and nothing else —
+  surfaces the reserved folders as enterable rows, and entering one **re-scopes the search
+  cache to that folder**. Two states, each honest about what it can reach (the placeholder says
+  `Search inside _lighttable/…`), and no query can ever span both.
+- **Scope is derived from `cwd`, never from a `$:` block.** `reservedRootOf(dir)` is a plain
+  function called synchronously by `loadDir`/`descend`, because a reactive statement is a flush
+  behind the navigation that triggered it — the listing would have been filtered for the
+  previous folder. Same family as the §9 Svelte traps: reactivity is for rendering, not for
+  invariants a caller needs *now*.
+- **The mid-flight scope guard is load-bearing.** `scanFor` stamps `scanScope` on entry and
+  drops its result if it changed while awaiting, so entering and leaving a folder faster than a
+  walk completes can't repopulate the cache with the folder you just left.
+- **Watcher: prune, don't classify-and-discard.** `subsystemFor` returning `null` for lighttable
+  paths is the belt; the real fix is chokidar's `ignored` predicate, so a 10k-image collection
+  never costs a watch descriptor. Classifying events you intend to throw away still pays for
+  every one of them.

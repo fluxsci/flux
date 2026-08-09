@@ -8,11 +8,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   DISSECT_DIRNAME,
-  isDissectDirName,
   plotKeyFor,
   dissectionRootRelFor,
   classifyDissectionFile,
 } from "../electron/dissectRules.js";
+import { isReservedPlotDirName } from "../electron/plotsFolders.js";
 import { ValidationError } from "./errors";
 
 export interface DissectionFileInfo {
@@ -80,9 +80,10 @@ export function listDissectionsFor(root: string, plot: string): DissectionDetail
   return { plot: key, root: rel, exists: true, groups, files: groups.reduce((n, g) => n + g.files.length, 0) };
 }
 
-/** Every plot that HAS a dissection folder. Plot files are enumerated first (skipping
- *  _dissections itself), then checked for a root — so an orphaned dissection folder whose
- *  plot was renamed away is deliberately not invented into a plot. */
+/** Every plot that HAS a dissection folder. Plot files are enumerated first (skipping the
+ *  reserved folders — _dissections itself, and _lighttable's exploratory image sets, which
+ *  are not composable plots and can be enormous), then checked for a root — so an orphaned
+ *  dissection folder whose plot was renamed away is deliberately not invented into a plot. */
 export function listAllDissections(root: string): DissectionSummary[] {
   const plotsDir = path.join(root, "plots");
   if (!fs.existsSync(plotsDir)) return [];
@@ -92,7 +93,7 @@ export function listAllDissections(root: string): DissectionSummary[] {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) {
-        if (!isDissectDirName(e.name)) walk(path.join(dir, e.name), r, depth + 1);
+        if (!isReservedPlotDirName(e.name)) walk(path.join(dir, e.name), r, depth + 1);
       } else if (/\.(svg|png)$/i.test(e.name)) {
         const key = plotKeyFor(`plots/${r}`, root);
         if (key) keys.push(key);
