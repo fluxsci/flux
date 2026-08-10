@@ -11,6 +11,10 @@
 // So main does one tightly-scoped job — move `flux-*.pdf` into pdfs_to_assign/, hand back the
 // `.fluxcap` sidecars — and nothing that fails the shared capture-filename rule is ever read,
 // moved, or deleted.
+//
+// `intake()` runs only when the user asks: at startup, or from the Library's Assign button.
+// `count()` is the read-only half that lets the button say how many are waiting WITHOUT
+// moving anything, so the download folder is never rearranged behind the user's back.
 
 /** Smallest plausible PDF. Below this it's a stub or still arriving; leave it for next pass. */
 const MIN_PDF_BYTES = 1024;
@@ -26,23 +30,54 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
   let rules = null;
   const ready = async () => (rules ??= await loadRules().catch(() => null));
 
-  /** Move captured PDFs into the assign inbox; return sidecars for the caller to resolve. */
-  async function intake() {
+  /** Both drop points, in order — see captureSubsystemFor in main.cjs. Each entry keeps the
+   *  subdir it came from so the file can be found again. */
+  async function scan() {
     const dir = captureDir();
     await ready();
-    if (!dir || !rules) return { pdfs: [], sidecars: [], supplements: [] };
-    // Two drop points — see captureSubsystemFor in main.cjs. Each entry keeps the subdir it
-    // came from so the file can be found again.
-    const dirs = [dir, path.join(dir, rules.CAPTURE_SUBDIR)];
+    if (!dir || !rules) return null;
     const found = [];
-    for (const d of dirs) {
+    for (const d of [dir, path.join(dir, rules.CAPTURE_SUBDIR)]) {
       try {
         for (const n of (await fsp.readdir(d)).sort()) if (rules.isCaptureFile(n)) found.push({ dir: d, name: n });
       } catch {
         /* that drop point doesn't exist yet */
       }
     }
-    if (!found.length) return { pdfs: [], sidecars: [], supplements: [] };
+    return found;
+  }
+
+  /**
+   * How many captures are WAITING, without touching one of them.
+   *
+   * Intake is user-initiated — startup or the Library's Assign button — so the button needs a
+   * number BEFORE anything moves. This is that number and nothing else: readdir plus a stat,
+   * no mkdir, no rename, no delete. It applies the same size floor intake() does, so the count
+   * never promises a half-downloaded file that intake would then skip.
+   */
+  async function count() {
+    const found = await scan();
+    if (!found?.length) return 0;
+    let n = 0;
+    for (const { dir: from, name } of found) {
+      if (rules.isSupplementCapture(name) || /\.fluxcap$/i.test(name)) {
+        n++;
+        continue;
+      }
+      try {
+        const st = await fsp.stat(path.join(from, name));
+        if (st.isFile() && st.size >= MIN_PDF_BYTES) n++;
+      } catch {
+        /* vanished mid-scan */
+      }
+    }
+    return n;
+  }
+
+  /** Move captured PDFs into the assign inbox; return sidecars for the caller to resolve. */
+  async function intake() {
+    const found = await scan();
+    if (!found?.length) return { pdfs: [], sidecars: [], supplements: [] };
     const inbox = path.join(fluxLibDir(), "pdfs_to_assign");
     // Captured SUPPLEMENTS can't be filed yet: they belong to a paper that may not have been
     // identified (or even added) until the article PDF goes through the assign scan. So they
@@ -135,7 +170,7 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
     }
   }
 
-  return { intake, discard, park };
+  return { count, intake, discard, park };
 }
 
 module.exports = { createCaptureIntake, MIN_PDF_BYTES };

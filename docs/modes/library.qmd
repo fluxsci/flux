@@ -44,8 +44,11 @@ header shows the collection and its size; everything below is the grid.
   to an entry that lacks a PDF, keeping it as a supplement if the paper already has one, or
   adding the paper outright. When it isn't sure, it **refuses rather than guessing**:
   unidentifiable files land in `pdfs_to_assign/_unresolved/` with a note explaining why (and
-  network hiccups just leave files in place to retry). The **Assign PDFs** button shows the
-  inbox count and runs a scan on demand; drops are also noticed automatically.
+  network hiccups just leave files in place to retry). Drops are noticed automatically. The
+  **Assign PDFs** button runs a scan on demand, and its count covers both sources of unfiled
+  papers: the inbox, plus any [web captures](../integrations/web-capture.qmd) still waiting in
+  your downloads folder. Pressing it brings those in and files them in one go — captures move
+  only then, or at startup.
 - **From a World search** — see below: any result can be added with one click.
 
 # Finding papers

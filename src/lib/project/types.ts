@@ -327,8 +327,11 @@ export interface FileBridge {
   captureExtensionInfo?(): Promise<{ dir: string; hasDir: boolean; xpi: string | null }>;
   revealCaptureExtension?(): Promise<{ ok?: boolean; error?: string }>;
   installCaptureXpi?(): Promise<{ ok?: boolean; error?: string }>;
+  /** How many captures are waiting, without moving any of them — the Assign button's count. */
+  captureCount?(): Promise<number>;
   // Main moves captured PDFs into pdfs_to_assign (the renderer can't: fsGuard refuses $HOME)
   // and returns the .fluxcap sidecars for the renderer to resolve, then discard by name.
+  // USER-INITIATED ONLY: startup, or the Library's Assign button.
   captureIntake?(): Promise<{ pdfs: string[]; sidecars: { name: string; json: string }[]; supplements: string[] }>;
   captureDiscard?(name: string): Promise<{ ok?: boolean; error?: string }>;
   /** Set an unresolvable capture aside (FluxLib `_unresolved/` + a note) instead of retrying it forever. */

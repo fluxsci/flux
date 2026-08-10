@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld("fig", {
   captureExtensionInfo: () => ipcRenderer.invoke("capture:extensionInfo"),
   revealCaptureExtension: () => ipcRenderer.invoke("capture:revealExtension"),
   installCaptureXpi: () => ipcRenderer.invoke("capture:installXpi"),
+  // How many captures are waiting — read-only, so the Assign button can show a count without
+  // anything being pulled out of the download folder.
+  captureCount: () => ipcRenderer.invoke("capture:count"),
   // Move captured PDFs into the assign inbox; return sidecars for the renderer to resolve.
   captureIntake: () => ipcRenderer.invoke("capture:intake"),
   captureDiscard: (name) => ipcRenderer.invoke("capture:discard", name),

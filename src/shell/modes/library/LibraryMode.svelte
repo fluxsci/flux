@@ -47,6 +47,7 @@
   import { fileBridge } from "../../../lib/project/types";
   import { fade } from "svelte/transition";
   import { captureLastAt } from "../../../lib/references/captureStatus";
+  import { captureWaiting, refreshCaptureWaiting, runCaptureIntake } from "../../../lib/references/captureIntake.svelte";
   import ImportDialog from "./ImportDialog.svelte";
   import ZoteroPanel from "./ZoteroPanel.svelte";
   import { zoteroSyncJob } from "../../../lib/references/zoteroSyncJob.svelte";
@@ -96,10 +97,24 @@
   // PDF acquisition (FluxFinder) — which keys have a PDF on disk + fetch progress.
   let pdfKeys = $state.raw<Set<string>>(new Set());
   let fetchingKey = $state(""); // citekey currently fetching (per-row)
-  // "Assign PDFs" watched inbox (<FluxLib>/pdfs_to_assign/) — count of pending files + the
-  // module-level scan job (survives mode switches, mirrors pdfFetchJob).
+  // "Assign PDFs" — one button over BOTH sources of unfiled papers: the drop-inbox
+  // (<FluxLib>/pdfs_to_assign/) and web captures still sitting in the download folder. The
+  // scan job is module-level so it survives mode switches (mirrors pdfFetchJob); `pulling`
+  // covers the short intake step that precedes it.
   let inboxCount = $state(0);
+  let pulling = $state(false);
   const assigning = $derived(assignJob.running);
+  // Captures are pulled in ONLY on startup or by this button, so the count is what the button
+  // offers to do — not a promise that it already happened.
+  const pendingCount = $derived(inboxCount + $captureWaiting);
+  // Spell out what the press will do. The capture half appears only when there's something to
+  // pull — otherwise the button is the plain inbox scan it has always been.
+  const assignHint = $derived(
+    ($captureWaiting
+      ? `Bring in ${$captureWaiting} web capture${$captureWaiting === 1 ? "" : "s"} waiting in your downloads folder, then identify `
+      : "Identify ") +
+      `each PDF in FluxLib's pdfs_to_assign/ inbox from its content and file it into the matching reference (adding the reference if it's new). ${pendingCount} waiting.`,
+  );
   // The bulk "Get all PDFs" run lives in a module-level job (pdfFetchJob) so it survives
   // navigating away from Library; these mirror it for this view's button/row states.
   const fetchingAll = $derived(pdfFetchJob.running);
@@ -521,13 +536,17 @@
     // Startup scan: on the first Library mount of the session, auto-process anything already in
     // the watched inbox — but never offline (a network blink must not defer the whole inbox).
     // Re-mounts only re-scan if new files arrived (processed files are removed).
+    // Deliberately scanInbox(), NOT runAssign(): mounting a mode is not the user asking for
+    // their download folder to be emptied. Captures wait for the button.
     void countInbox().then((n) => {
       inboxCount = n;
       if (n > 0 && !assignAutoScanned && !assignJob.running && navigator.onLine !== false) {
         assignAutoScanned = true;
-        void runAssign();
+        void scanInbox();
       }
     });
+    // How many captures are waiting to be pulled in — read-only, so the button can offer them.
+    void refreshCaptureWaiting();
     let first = true;
     const unsubLib = fluxLibRevision.subscribe(() => {
       if (first) {
@@ -617,15 +636,33 @@
     })();
   });
 
-  /** Kick a scan of the watched inbox (or cancel a running one). */
+  /** Scan the watched inbox. The captures, if any, have already been pulled into it. */
+  async function scanInbox() {
+    inboxCount = await countInbox();
+    if (inboxCount === 0) return;
+    await assignJob.start();
+  }
+
+  /**
+   * The Assign button: pull in whatever web capture left in the download folder, then file
+   * everything now sitting in the inbox. One press, both halves — this and app startup are the
+   * only two moments anything leaves the download folder (see captureIntake.svelte.ts).
+   */
   async function runAssign() {
     if (assignJob.running) {
       assignJob.cancel();
       return;
     }
-    inboxCount = await countInbox();
-    if (inboxCount === 0) return;
-    await assignJob.start();
+    if (pulling) return;
+    if ($captureWaiting > 0) {
+      pulling = true;
+      try {
+        await runCaptureIntake();
+      } finally {
+        pulling = false;
+      }
+    }
+    await scanInbox();
   }
 
   async function toggleKeys() {
@@ -1440,18 +1477,18 @@
           Zotero
         {/if}
       </button>
-      {#if inboxCount > 0 || assigning}
+      {#if pendingCount > 0 || assigning || pulling}
         <button
           class="enrich assignpdfs"
-          class:busy={assigning}
+          class:busy={assigning || pulling}
           onclick={() => void runAssign()}
-          title={assigning
-            ? "Click to stop the running scan"
-            : `Identify each PDF in FluxLib's pdfs_to_assign/ inbox from its content and file it into the matching reference (add the reference if it's new). ${inboxCount} waiting.`}>
-          {#if assigning}
+          title={assigning ? "Click to stop the running scan" : pulling ? "Bringing your captures in…" : assignHint}>
+          {#if pulling}
+            Pulling captures…
+          {:else if assigning}
             Assigning {assignJob.done}/{assignJob.total} ✕
           {:else}
-            Assign PDFs ({inboxCount})
+            Assign PDFs ({pendingCount})
           {/if}
         </button>
       {/if}

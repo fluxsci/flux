@@ -958,6 +958,10 @@ function fluxLibSubsystemFor(libRoot, abs) {
 // mistaken for a capture and nothing of the user's is ever touched by accident.
 // captureRules.js is ESM (the renderer imports it too), so this CommonJS file loads it by
 // dynamic import — resolved once at watch setup, before any event can arrive.
+//
+// The event is a NOTIFICATION, not a trigger: the renderer only re-reads the waiting COUNT so
+// the Library's Assign button stays live. Intake itself is user-initiated (startup or that
+// button), so a capture landing here never rearranges the download folder on its own.
 let captureRules = null;
 function captureSubsystemFor(dir, abs) {
   if (!captureRules) return null;
@@ -993,6 +997,7 @@ const captureIntakeEngine = createCaptureIntake({
   fsp: require("node:fs/promises"),
   loadRules: () => import("./captureRules.js"),
 });
+ipcMain.handle("capture:count", () => captureIntakeEngine.count());
 ipcMain.handle("capture:intake", () => captureIntakeEngine.intake());
 ipcMain.handle("capture:discard", (_e, name) => captureIntakeEngine.discard(name));
 ipcMain.handle("capture:park", (_e, name, note) => captureIntakeEngine.park(name, note));

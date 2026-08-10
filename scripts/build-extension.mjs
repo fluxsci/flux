@@ -37,6 +37,10 @@ await writeFile(
 // the Flux watcher and the bookmarklet can never disagree about what a capture file is.
 export { SUPPLEMENT_URL_PATTERNS } from "./supplementRules.js";
 export { captureSlug, SUPP_PREFIX, SUPP_SEP, CAPTURE_PREFIX, CAPTURE_EXT, CAPTURE_SUBDIR } from "./captureRules.js";
+// The NAME BUILDERS and the recognizer. The worker must not assemble a capture filename itself:
+// sanitizing an assembled name strips the \`@@\` separator back out, which silently cost every
+// captured supplement. isCaptureFile lets the worker refuse a name Flux would never see.
+export { isCaptureFile, safeCaptureFileName, articleCaptureName, sidecarCaptureName, supplementCaptureName } from "./captureRules.js";
 `,
 );
 

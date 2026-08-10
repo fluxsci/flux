@@ -37,13 +37,20 @@ page **and** on a PDF you already have open. The badge tells you what happened:
 | `!`, red | Nothing was captured. **Hover the button** — the tooltip says why. |
 
 Supplementary files come with the article in the same click: SI PDFs, spreadsheets, videos.
-Each is filed against the paper once Flux has identified it, so a supplement for a paper you
-don't have yet simply waits until the paper arrives.
+Each is filed against the paper once Flux has identified it — into that paper's
+`supplements/` folder, which the reader's **Switch PDF** menu lists — so a supplement for a
+paper you don't have yet simply waits until the paper arrives.
 
 Captures land in a **`flux/` subfolder** of your downloads folder, named `flux-…`, and Flux
-removes them as it files them. **Flux doesn't need to be open** — anything captured while it's closed is swept up when
-you next start it, and again whenever you switch back to the Flux window. Nothing is lost, and nothing else in your downloads folder is touched: Flux
-only ever looks at files it wrote itself.
+removes them as it files them. **Flux doesn't need to be open** — anything captured while it's
+closed is brought in when you next start it. Nothing is lost, and nothing else in your
+downloads folder is touched: Flux only ever looks at files it wrote itself.
+
+Flux brings captures in at **two moments, both yours**: when it starts, and when you press
+**Assign PDFs** in [Library mode](../modes/library.qmd#getting-papers-in). That button's count
+includes anything still waiting in your downloads folder, so you can always see there's work to
+do — and capture while Flux is running as much as you like, knowing your downloads folder won't
+rearrange itself under you until you say so.
 
 A captured PDF goes through the same identification as the
 [drop folder](../modes/library.qmd#getting-papers-in) — Flux reads the document's own content

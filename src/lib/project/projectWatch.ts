@@ -112,8 +112,10 @@ export function startProjectWatch(root: string | null): void {
       bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
     } else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
     else if (info.subsystem === "capture") {
-      // The bookmarklet downloaded a capture — file it (async, self-serializing).
-      void import("../references/captureIntake.svelte").then((m) => m.runCaptureIntake());
+      // A capture landed in the download folder. Deliberately does NOT file it: intake is the
+      // user's call (startup, or the Library's Assign button). All this does is refresh the
+      // waiting count so that button offers the work — see captureIntake.svelte.ts.
+      void import("../references/captureIntake.svelte").then((m) => m.refreshCaptureWaiting());
     }
     else if (info.subsystem === "zotero-bib") bumpZoteroBib(); // the BBT auto-export was rewritten
   });

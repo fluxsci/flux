@@ -2899,3 +2899,115 @@ artifacts. Gates: verify-local-corrections 99 → 117, verify-paper-local-correc
 - Scale-paper's cite/cell ratio checks fail on this box at load-59 **with and without** the
   change (absolute p95s identical: prose 5.7/5.6 ms, cite 13.6/13.8 ms) — the §9 load-contention
   trap, re-confirmed. Baseline before believing a ratio gate.
+
+### 2026-08-09 — Web capture: intake is user-initiated, never ambient (Claude Opus 5, `main`)
+
+Owner's ask: Flux should pull captures out of `~/Downloads/flux` **only** at startup or on a
+button press, not whenever it felt like it. It had four triggers — startup, every window
+focus/`visibilitychange` (250 ms debounce), every `fluxLibRevision` bump (800 ms), and every
+watcher event — so a user's download folder rearranged itself at moments they hadn't asked for
+and couldn't predict. Now two: `captureIntakeOnStartup()` and the Library's **Assign PDFs**
+button. The watcher event survives but was demoted from a TRIGGER to a NOTIFICATION — it
+refreshes `captureWaiting`, a count, via the new read-only `capture:count` IPC
+(`captureIntake.cjs#count()`, same filter and size floor as `intake()`), so the button can say
+"Assign PDFs (3)" and offer the work without any of it having happened. One button now covers
+both sources: it pulls the captures, then scans `pdfs_to_assign/`. The `fluxLibRevision`
+subscription was NOT deleted — it now calls `sweepStagedSupplements()`, which touches only
+FluxLib's own `_captured_supplements/` staging (a supplement can't be filed until the assign
+scan gives its article a citekey, which lands ~a minute after the pass that pulled it in);
+finishing a job the user started is not ambient access to their downloads. Scope decision by
+the owner: the `pdfs_to_assign/` drop folder keeps its own auto-scan — a folder you drop files
+into on purpose is a different contract from a folder the browser writes to. LibraryMode's
+mount-time auto-scan therefore calls the new `scanInbox()`, not `runAssign()` — entering a mode
+is not a request to empty your downloads. Gates: verify-capture-intake §5 (no focus/visibility
+listener; the watcher refreshes the count and does not file; a repo-wide walk asserting the
+Assign button is the ONLY caller of `runCaptureIntake` outside the module; `capture:count`
+declared read-scope; `count()` free of rename/copyFile/mkdir/rm), verify-capture-e2e extended
+with the count↔intake agreement. Both proven to fail before passing. check 0/0; pure 162/169
+(the 7 failures are `node:module` `registerHooks`, Node 22 only — this box has Node 20).
+**Learnings:**
+
+- **A watcher event doesn't have to mean "act".** The reflex is watcher → do the thing; the
+  useful split here was watcher → *know* the thing, user → do it. Kept the live button count
+  with zero ambient file movement, and avoided polling the download folder on focus.
+- Verified live in the real Electron app (x11 + CDP over the dev server, positive boot
+  evidence): planted a capture in the owner's real `~/Downloads/flux`, fired `focus`,
+  `visibilitychange` and a real watcher event, and confirmed the file **stayed put** while the
+  count read 1 and `pdfs_to_assign/` was byte-unchanged; then opened Library (button read
+  `Assign PDFs (1)`, capture-aware tooltip), pressed it, and the file moved. Probe file removed
+  afterwards. A pure gate can prove no listener exists; only the app proves nothing else pulls.
+- **Found here, fixed in the next entry:** 42 files / 0.50 GB of captured supplements stranded
+  in the owner's `~/Downloads/flux` — `flux-supp-<slug>@@<name>` on disk as
+  `flux-supp-<slug>_<name>`, so `isSupplementCapture()` rejected every one and intake had never
+  seen a single supplement. My first read blamed the browser's download-filename sanitizer.
+  **That was wrong** — it was our own code, see below.
+
+### 2026-08-09 (later) — Web capture never filed a single supplement (Claude Opus 5, `main`)
+
+Owner: "just fix this so it actually works." Two independent bugs, both of which made captured
+supplements vanish, and neither of which any gate could see.
+
+**1. The producer ate its own separator.** `extension/background.js` assembled
+`flux-supp-<slug>@@<name>` and then passed the WHOLE string through a local `safeName()`, whose
+job included replacing `@@` with `_` — correct for the publisher's half, fatal for the assembled
+name. Every supplement landed as `flux-supp-<slug>_<name>`, which `isSupplementCapture()`
+rejects. The download succeeded, the badge went green, and Flux never looked at the file. Fixed
+by moving naming INTO the shared rules module (`articleCaptureName` / `sidecarCaptureName` /
+`supplementCaptureName` + `safeCaptureFileName`), which sanitizes the untrusted half and THEN
+adds structure — order is the whole fix. `download()` now also refuses any name failing
+`isCaptureFile()`, so this class of bug is loud instead of silent.
+
+**2. The receiver inverted a lossy transform.** `fileStagedSupplements` matched a staged
+supplement to its paper via `doiFromSlug`, which GUESSES `captureSlug`'s inverse by treating the
+first `_` after the registrant prefix as the slash. `captureSlug` collapses every run of unusual
+characters to one `_`, so it has no inverse: `10.1093/jcr/ucy008` slugs to `10.1093_jcr_ucy008`
+and comes back as `10.1093/jcr_ucy008`. Any DOI with a slash in its suffix could never match —
+**61 of the 1627 DOIs in the owner's own library**. Fixed by matching in the LOSSY space
+instead: slug both sides. Ambiguity (two DOIs slugging alike) is refused, not guessed.
+
+Also fixed: `extension/background.js` and `electron/captureRules.js` carried **raw NUL / 0x1F
+bytes** — a control-character regex written as literal bytes rather than as escape sequences.
+`file(1)` called them "data" and `grep` silently matched NOTHING in either, including the greps
+you would run to audit exactly the code that was broken. Rewritten as real escapes, and gated.
+And `MIN_NODE` 22.12 to 22.15: `scripts/lib/cssStub.mjs` needs `node:module`'s `registerHooks`,
+which 22.12–22.14 lack, so the guard admitted runtimes on which seven paper gates die at import.
+
+Gates: verify-extension §3 rewritten to drive the PRODUCER's builders (it previously
+hand-assembled the filename it expected and asserted the receiver liked it — a contract test
+that never runs the producer proves nothing about the producer, which is exactly why it stayed
+green throughout), §3b the worker can't reintroduce hand-assembly, §3b2 the extension actually
+parses (nothing in the repo compiles it), §3c sources are searchable text; verify-capture-intake
+§6 the staged-supplement-to-paper join over the DOI shapes that were broken; verify-capture-e2e
+now plants producer-built names and pins the mangled shape as a non-capture. Teeth proven by
+reintroducing each bug: 4 assertions fail for #1, 2 for #2. check 0/0, capture-e2e PASS, and
+pure **169/169** — see the runtime note below.
+
+**The seven "failing" paper gates were the runtime, not the code.** They all import
+`scripts/lib/cssStub.mjs`, which uses `node:module`'s `registerHooks` — absent before Node
+22.15 — so on this box's apt Node 20 they died at import before running an assertion, which
+reads exactly like a code failure. Node 22.17 was already installed at `~/.local/node22` and
+simply never linked onto PATH; symlinking `~/.local/bin/{node,npm,npx}` at it took the pure tier
+from 162/169 to **169/169** with no `FLUX_ALLOW_OLD_NODE` override, and ~25% faster. Safe
+without a reinstall because every native dep here is an N-API prebuild and there are no
+node-gyp modules. If a gate fails on an import of a Node built-in, check `node -v` first.
+**Learnings:**
+
+- **A contract test that doesn't run the producer proves nothing about the producer.** Both the
+  pure gate and the e2e gate wrote the expected filename as a literal and asserted the receiver
+  accepted it. They were green for the entire life of the bug. Gates over a producer/consumer
+  boundary must call the producer's real code path.
+- **Sanitize the untrusted part, then build the structure — never the reverse.** A sanitizer
+  that neutralizes your delimiter is correct; running it over a string that is *supposed* to
+  contain the delimiter is not. The safe order is only obvious once it's a shared function.
+- **Don't invert a lossy transform; compare in the lossy space.** `doiFromSlug` was honestly
+  documented as "best-effort" and was used as if exact. Where both sides are available, apply
+  the same lossy function to both and compare — exact, and it needs no filename change.
+- **A source file that tools can't read hides its own bugs.** Raw control bytes made `grep`
+  silently return nothing for `safeName`, `SUPP_SEP`, everything. I mis-read the regex from
+  terminal output as a hyphen class and drew a wrong conclusion from it. `file(1)` saying "data"
+  about a `.js` file is the tell.
+- Verified live in the real app end-to-end against the owner's FluxLib: planted a supplement
+  named by the real builder for `10.1093/jcr/ucy008` (a DOI in the broken class), and it filed
+  itself into `items/zhu2018mere-7b4/supplements/`. Before the fix, the same probe reported
+  "no library entry for 10.1093/jcr_ucy008 yet" — which is how this second bug was found at all.
+  The item folder was restored afterwards.

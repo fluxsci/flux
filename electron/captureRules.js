@@ -20,7 +20,9 @@ export const SUPP_PREFIX = "flux-supp-";
 export const CAPTURE_SUBDIR = "flux";
 /** Separator between a supplement's paper-slug and its own filename. "@@" is safe BY
  *  CONSTRUCTION: captureSlug() maps every character outside [A-Za-z0-9._-] to "_", so neither
- *  side can contain it and splitting on the first occurrence is exact. */
+ *  side can contain it and splitting on the first occurrence is exact — PROVIDED the producer
+ *  builds the name with supplementCaptureName() below rather than assembling it and sanitizing
+ *  the result, which strips the separator right back out. */
 export const SUPP_SEP = "@@";
 
 /** The filename-safe form of a DOI (or fallback id). Shared by every producer so the
@@ -30,6 +32,52 @@ export function captureSlug(s) {
     .replace(/[^\w.\-]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 110);
+}
+
+/**
+ * A publisher's own filename, made safe on every platform.
+ *
+ * Applied to the UNTRUSTED half ONLY — never to a whole assembled capture name. Hyphens and
+ * dots are KEPT: they carry meaning in publisher filenames (`devivo-sm.pdf`) and mangling them
+ * makes a supplement unrecognizable. SUPP_SEP is neutralized here, which is what makes
+ * splitting on its first occurrence exact.
+ */
+export function safeCaptureFileName(s) {
+  const base = String(s ?? "").split(/[\\/]/).pop() ?? "";
+  return (
+    base
+      .replace(/[<>:"|?*\u0000-\u001f]/g, "_")
+      .replace(/\s+/g, "_")
+      .split(SUPP_SEP)
+      .join("_") // reserved: it separates the paper slug from the filename
+      .replace(/^\.+/, "")
+      .slice(0, 120) || "file"
+  );
+}
+
+/**
+ * The names a capture is downloaded under. THE PRODUCER MUST BUILD NAMES THROUGH THESE.
+ *
+ * Assembling a name by hand and then running the result through a sanitizer is precisely how
+ * supplement capture broke: `safeCaptureFileName` removes SUPP_SEP *by design*, so applying it
+ * to the finished `flux-supp-<slug>@@<name>` ate the separator the receiver splits on. Every
+ * captured supplement then landed in the download folder as `flux-supp-<slug>_<name>`, which
+ * `isSupplementCapture` rejects — so intake never saw one, and the capture still looked like a
+ * success. Here structure is built and only the publisher's half is sanitized, in that order,
+ * and the output is by construction something `isCaptureFile` accepts.
+ */
+export function articleCaptureName(slug) {
+  return `${CAPTURE_PREFIX}${slugOrFallback(slug)}.pdf`;
+}
+export function sidecarCaptureName(slug) {
+  return `${CAPTURE_PREFIX}${slugOrFallback(slug)}${CAPTURE_EXT}`;
+}
+export function supplementCaptureName(slug, fileName) {
+  return `${SUPP_PREFIX}${slugOrFallback(slug)}${SUPP_SEP}${safeCaptureFileName(fileName)}`;
+}
+/** An empty slug would produce bare `flux-.pdf`, which the receiver deliberately ignores. */
+function slugOrFallback(slug) {
+  return captureSlug(slug) || "capture";
 }
 
 /** True if `name` is a file capture produced (article, sidecar, or supplement). Bare

@@ -6,7 +6,7 @@
 //
 // Run: npx tsx scripts/verify-capture-intake.ts
 import { createRequire } from "node:module";
-import { isCaptureFile, parseFluxCapture, CAPTURE_PREFIX, CAPTURE_EXT } from "../src/lib/references/capture";
+import { isCaptureFile, parseFluxCapture, parseSupplementCapture, captureSlug, supplementCaptureName, CAPTURE_PREFIX, CAPTURE_EXT } from "../src/lib/references/capture";
 
 const require = createRequire(import.meta.url);
 
@@ -41,11 +41,13 @@ for (const n of ["paper.pdf", "1-s2.0-S0006349521008870-main.pdf", "flux.pdf", "
 ok(CAPTURE_PREFIX === "flux-", "prefix constant matches what the bookmarklet writes");
 ok(CAPTURE_EXT === ".fluxcap", "sidecar extension constant matches");
 {
-  // The extension is now the only producer; its worker must use the shared constants rather
-  // than literals, so the filename contract can't drift from the watcher's.
+  // The extension is the only producer. It must not just use the shared CONSTANTS but the
+  // shared NAME BUILDERS: assembling a name from the constants and then sanitizing the result
+  // is what silently ate the `@@` separator, and constants alone can't prevent that.
   const bg = require("node:fs").readFileSync("extension/background.js", "utf8");
-  ok(/flux-\$\{slug\}\.pdf/.test(bg), "the extension writes the article under the shared prefix");
-  ok(/\$\{SUPP_PREFIX\}\$\{slug\}\$\{SUPP_SEP\}/.test(bg), "…and supplements under the shared supplement prefix");
+  ok(/articleCaptureName\(slug\)/.test(bg), "the extension names the article through the shared builder");
+  ok(/supplementCaptureName\(slug, name\)/.test(bg), "…and supplements through the shared builder");
+  ok(/sidecarCaptureName\(slug\)/.test(bg), "…and the sidecar too");
   ok(/CAPTURE_SUBDIR/.test(bg), "…into the shared subfolder");
 }
 
@@ -71,6 +73,84 @@ ok(CAPTURE_EXT === ".fluxcap", "sidecar extension constant matches");
   // supplement filter started exactly this way).
   ok(/captureRules\.isCaptureFile/.test(main), "main.cjs classifies via the shared rule, not a private regex");
   ok(!/\^flux-\.\+/.test(main), "main.cjs holds no duplicate capture-filename regex");
+}
+
+// --- 5: intake is USER-INITIATED, never ambient -------------------------------------------
+// The property: files leave the user's download folder at exactly TWO moments — app startup,
+// and the Library's Assign button. Intake used to also run on every window focus, on every
+// FluxLib change, and on every watcher event, so downloads were rearranged at moments the user
+// had not asked for and could not predict. Nothing may quietly put a third trigger back.
+{
+  const fs = require("node:fs") as typeof import("node:fs");
+  const MOD = "src/lib/references/captureIntake.svelte.ts";
+  const mod = fs.readFileSync(MOD, "utf8");
+  ok(!/addEventListener\(\s*["']focus["']/.test(mod), "no focus listener pulls the download folder");
+  ok(!/visibilitychange/.test(mod), "…and no visibilitychange listener either");
+  // A FluxLib bump still finishes the job an earlier pull started (a supplement waiting on its
+  // paper's citekey) — but over FluxLib's own staging folder, never the downloads.
+  ok(
+    /sweepStagedSupplements\(\)/.test(mod.slice(mod.indexOf("fluxLibRevision.subscribe"))),
+    "a FluxLib change sweeps STAGING only, never the download folder",
+  );
+
+  const watch = fs.readFileSync("src/lib/project/projectWatch.ts", "utf8");
+  ok(/refreshCaptureWaiting/.test(watch) && !/runCaptureIntake/.test(watch), "the watcher refreshes the waiting COUNT; it does not file");
+
+  // Repo-wide: who actually calls it?
+  const callers: string[] = [];
+  const walk = (dir: string): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(p);
+      else if (/\.(ts|svelte)$/.test(e.name) && p !== MOD && /runCaptureIntake\s*\(/.test(fs.readFileSync(p, "utf8"))) callers.push(p);
+    }
+  };
+  walk("src");
+  ok(
+    callers.length === 1 && callers[0] === "src/shell/modes/library/LibraryMode.svelte",
+    "the ONLY caller outside the module is the Library's Assign button",
+    callers.join(", ") || "no caller at all",
+  );
+  ok(/captureIntakeOnStartup\(\)/.test(fs.readFileSync("src/shell/Shell.svelte", "utf8")), "…plus startup, via captureIntakeOnStartup()");
+
+  // The button needs a number BEFORE anything moves, so the count must be genuinely read-only.
+  const contract = fs.readFileSync("electron/ipc/contract.cjs", "utf8");
+  ok(/\{ channel: "capture:count", kind: "invoke", scope: "read" \}/.test(contract), "capture:count is declared READ scope");
+  const engine = fs.readFileSync("electron/captureIntake.cjs", "utf8");
+  const countBody = engine.slice(engine.indexOf("async function count()"), engine.indexOf("async function intake()"));
+  ok(countBody.length > 0 && !/rename|copyFile|mkdir|\brm\(/.test(countBody), "…and count() really is read-only (no rename/copyFile/mkdir/rm)");
+}
+
+// --- 6: a staged supplement finds its paper -----------------------------------------------
+// The join between a captured supplement and the paper it belongs to. It ran through
+// `doiFromSlug`, which GUESSES the inverse of `captureSlug` by treating the first "_" after the
+// registrant prefix as the slash. captureSlug is not reversible — it maps every run of unusual
+// characters to a single "_" — so any DOI with a slash in its suffix came back wrong and its
+// supplement waited forever: 61 of the 1627 DOIs in the author's own library. The fix is to
+// stop inverting and compare in the LOSSY space, slugging both sides.
+{
+  const fs = require("node:fs") as typeof import("node:fs");
+  const bareDoi = (d: string): string => d.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim().toLowerCase();
+  /** Exactly the join fileStagedSupplements does. */
+  const matches = (libraryDoi: string, capturedDoi: string): boolean => {
+    const file = supplementCaptureName(capturedDoi, "mmc1.pdf");
+    const slug = parseSupplementCapture(file)?.slug ?? "";
+    return captureSlug(bareDoi(libraryDoi)).toLowerCase() === slug.toLowerCase();
+  };
+
+  // The shapes that were broken — a slash in the suffix is completely ordinary.
+  for (const doi of ["10.1093/jcr/ucy008", "10.1016/S0896-6273(00)80510-3", "10.1002/(SICI)1096-9861(19960422)368:2<269::AID-CNE7>3.0.CO;2-3", "10.5962/bhl.title.32770"])
+    ok(matches(doi, doi), `a supplement finds its paper: ${doi}`, supplementCaptureName(doi, "mmc1.pdf"));
+  // …and the shapes that always worked still do, including publisher case differences.
+  for (const doi of ["10.1126/science.aah5982", "10.1038/s41586-020-2731-9", "10.1016/j.cell.2026.07.017"]) ok(matches(doi, doi), `still finds its paper: ${doi}`);
+  ok(matches("10.48550/arxiv.2303.08774", "10.48550/arXiv.2303.08774"), "the join is case-insensitive (the library lowercases, the publisher doesn't)");
+  ok(!matches("10.1126/science.aah5982", "10.1038/s41586-020-2731-9"), "a DIFFERENT paper does not match");
+
+  // And the receiver really does it this way — not through the guess.
+  const mod = fs.readFileSync("src/lib/references/captureIntake.svelte.ts", "utf8");
+  const fn = mod.slice(mod.indexOf("async function fileStagedSupplements"), mod.indexOf("let running = false"));
+  ok(/captureSlug\(/.test(fn), "the staging sweep slugs the library side to match");
+  ok(/bySlug\.get\(parsed\.slug/.test(fn), "…and looks the captured slug up DIRECTLY, never a guessed-back DOI");
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall green");

@@ -1,6 +1,13 @@
 // Web capture, receiving end. The bookmarklet (src/shell/modes/library/bookmarklet.ts)
 // downloads `flux-<slug>.pdf` or `flux-<slug>.fluxcap` into the browser's download folder;
-// main watches that folder and emits an fs:changed "capture" event; this decides what happens.
+// this module pulls those files in and files them.
+//
+// WHEN IT RUNS — exactly two moments, both the user's: app startup, and the Library's
+// "Assign PDFs" button. It is deliberately NOT ambient. It used to also fire on every window
+// focus, on every FluxLib change, and on every watcher event, so files left the user's
+// download folder at moments they hadn't asked for and couldn't predict. The watcher still
+// reports captures landing, but only to refresh `captureWaiting` — a COUNT, so the button can
+// say how many are there. Nothing moves until it's clicked.
 //
 // THE FILE WORK IS MAIN'S, not ours: fsGuard deliberately refuses $HOME, so the renderer
 // cannot read or move anything out of the download folder — and widening that guard would
@@ -13,8 +20,9 @@
 // landing bumps assignInboxRevision, so the existing auto-scan takes it from there. One
 // pipeline, not two. A `.fluxcap` has no bytes to identify, so it resolves by DOI (else URL)
 // through the same add path the Library's input box uses.
+import { writable } from "svelte/store";
 import { fileBridge } from "../project/types";
-import { parseFluxCapture, parseSupplementCapture, doiFromSlug } from "./capture";
+import { parseFluxCapture, parseSupplementCapture, doiFromSlug, captureSlug } from "./capture";
 import { resolveFluxLibPath, loadFluxLib } from "./fluxlibBridge";
 import { assignInboxDir } from "./items";
 import { fileSupplementBytes } from "./itemsBridge";
@@ -41,6 +49,21 @@ export interface CaptureResult {
 }
 
 /**
+ * How many captures are sitting in the download folder waiting to be pulled in.
+ *
+ * Display only, and read-only on disk — the Library folds it into the Assign button's count so
+ * the button can offer the work without anything having happened yet. Refreshed when the
+ * watcher sees a capture land, when the Library mounts, and after every pass.
+ */
+export const captureWaiting = writable(0);
+
+export async function refreshCaptureWaiting(): Promise<number> {
+  const n = (await fileBridge()?.captureCount?.().catch(() => 0)) ?? 0;
+  captureWaiting.set(n);
+  return n;
+}
+
+/**
  * File staged supplements against their paper.
  *
  * A supplement is captured in the same click as its article, but it can't be filed until that
@@ -61,13 +84,29 @@ async function fileStagedSupplements(out: CaptureResult[]): Promise<void> {
   }
   if (!names.length) return;
   const entries = await loadFluxLib();
-  const byDoi = new Map(entries.flatMap((e) => (bareDoi(e.doi) ? [[bareDoi(e.doi) as string, e.key] as [string, string]] : [])));
+  // MATCH IN THE LOSSY SPACE, don't try to invert it. `captureSlug` maps every run of unusual
+  // characters to one "_", so it is not reversible: 10.1093/jcr/ucy008 and 10.1093/jcr_ucy008
+  // both slug to `10.1093_jcr_ucy008`, and `doiFromSlug`'s first-underscore-is-the-slash guess
+  // returns neither. That silently stranded every supplement whose paper has a slash in its DOI
+  // suffix — 61 of the 1627 DOIs in the author's own library. Slugging BOTH sides is exact.
+  // Case: the library side is lowercased by bareDoi, the producer's side keeps the publisher's
+  // (`10.48550/arXiv.…`), so the join is case-insensitive.
+  const bySlug = new Map<string, string | null>();
+  for (const e of entries) {
+    const d = bareDoi(e.doi);
+    if (!d) continue;
+    const s = captureSlug(d).toLowerCase();
+    // Two papers whose DOIs slug alike is vanishingly unlikely, but filing a supplement under
+    // the wrong paper is not a mistake worth risking: refuse rather than guess.
+    bySlug.set(s, bySlug.has(s) ? null : e.key);
+  }
   for (const file of names) {
     const parsed = parseSupplementCapture(file.replace(/^\d+-(?=flux-supp-)/, ""));
-    const doi = parsed ? doiFromSlug(parsed.slug) : "";
-    const key = doi ? byDoi.get(doi.toLowerCase()) ?? byDoi.get(doi) : undefined;
+    const key = parsed ? bySlug.get(parsed.slug.toLowerCase()) ?? undefined : undefined;
     if (!parsed || !key) {
-      out.push({ file, action: "waiting", detail: doi ? `no library entry for ${doi} yet` : "unrecognized name" });
+      // doiFromSlug is best-effort and only used to WORD this message, never to match.
+      const label = parsed ? doiFromSlug(parsed.slug) || parsed.slug : "";
+      out.push({ file, action: "waiting", detail: label ? `no library entry for ${label} yet` : "unrecognized name" });
       continue; // left in place on purpose — the paper may arrive on the next assign scan
     }
     try {
@@ -86,68 +125,91 @@ async function fileStagedSupplements(out: CaptureResult[]): Promise<void> {
 }
 
 let running = false;
-let pending = false;
+/** A pass asked for while one was running. `true` if that follow-up must also pull downloads. */
+let queued: boolean | null = null;
 
 /**
- * File every capture waiting in the download folder.
+ * Pull in every capture waiting in the download folder and file it.
  *
- * Serialized: a burst of downloads (or a watcher event mid-run) coalesces into one more pass
- * rather than racing. Never throws — a sidecar that fails to resolve is LEFT IN PLACE and
- * reported, so nothing the user captured disappears silently.
+ * USER-INITIATED ONLY — startup or the Library's Assign button. This is the one call that
+ * moves files out of the user's downloads; see the module header for why nothing else may
+ * trigger it. Never throws: a sidecar that fails to resolve is LEFT IN PLACE and reported, so
+ * nothing the user captured disappears silently.
  */
-export async function runCaptureIntake(): Promise<CaptureResult[]> {
+export const runCaptureIntake = (): Promise<CaptureResult[]> => pass(true);
+
+/**
+ * File staged supplements whose paper has just arrived, and nothing else.
+ *
+ * A supplement is captured in the same click as its article but can only be filed once the
+ * assign scan has given that article a citekey — which is usually a minute AFTER the pass that
+ * pulled it in. So a FluxLib change wakes this. It touches only FluxLib's own staging folder;
+ * the download folder is not read, and no file moves out of it.
+ */
+export const sweepStagedSupplements = (): Promise<CaptureResult[]> => pass(false);
+
+/**
+ * One filing pass, serialized: a second request mid-run coalesces into a single follow-up
+ * rather than racing over the same staging folder.
+ */
+async function pass(pullDownloads: boolean): Promise<CaptureResult[]> {
   if (running) {
-    pending = true;
+    queued = (queued ?? false) || pullDownloads;
     return [];
   }
   running = true;
   const out: CaptureResult[] = [];
   try {
-    do {
-      pending = false;
+    for (let pull = pullDownloads; ; ) {
+      queued = null;
       const fb = fileBridge();
-      if (!fb?.captureIntake) break;
-      const { pdfs, sidecars, supplements } = await fb.captureIntake();
+      if (!fb) break;
+      const { pdfs, sidecars, supplements } = pull && fb.captureIntake ? await fb.captureIntake() : EMPTY_INTAKE;
       // Staged supplements from an EARLIER pass may now be fileable even when nothing new
-      // arrived, so this runs whenever we're woken.
+      // arrived, so this runs on every pass, pull or not.
       await fileStagedSupplements(out);
-      if (!pdfs.length && !sidecars.length && !supplements.length) break;
+      if (pdfs.length || sidecars.length || supplements.length) {
+        const total = pdfs.length + sidecars.length + supplements.length;
+        captureStatus.show("busy", total === 1 ? "Filing capture…" : `Filing ${total} captures…`);
+        for (const name of pdfs) out.push({ file: name, action: "queued" });
+        markCaptured(); // proof of life for the setup panel
+        if (pdfs.length) bumpAssignInbox(); // wakes the assign scan, which does the matching
 
-      const total = pdfs.length + sidecars.length + supplements.length;
-      captureStatus.show("busy", total === 1 ? "Filing capture…" : `Filing ${total} captures…`);
-      for (const name of pdfs) out.push({ file: name, action: "queued" });
-      if (pdfs.length || sidecars.length || supplements.length) markCaptured(); // proof of life for the setup panel
-      if (pdfs.length) bumpAssignInbox(); // wakes the assign auto-scan, which does the matching
-
-      for (const { name, json } of sidecars) {
-        const cap = parseFluxCapture(json);
-        if (!cap) {
-          out.push({ file: name, action: "failed", detail: "unreadable capture file" });
-          continue; // left in place on purpose — a bad file shouldn't vanish
-        }
-        try {
-          const { addUrlOrDoiToLibrary } = await import("../../shell/modes/paper/scholar/bibLoad");
-          const r = await addUrlOrDoiToLibrary(cap.doi || cap.url);
-          if ("error" in r) {
-            out.push({ file: name, action: "failed", detail: r.error });
-            // Definitive: set it aside with a note rather than re-failing on every launch.
-            // Transient: leave it in place and try again next time.
-            if (isDefinitive(r.error)) await fb.capturePark?.(name, r.error ?? "could not be resolved");
-            continue;
+        for (const { name, json } of sidecars) {
+          const cap = parseFluxCapture(json);
+          if (!cap) {
+            out.push({ file: name, action: "failed", detail: "unreadable capture file" });
+            continue; // left in place on purpose — a bad file shouldn't vanish
           }
-          out.push({ file: name, action: "added", detail: r.title || r.key });
-          await fb.captureDiscard?.(name);
-        } catch (e) {
-          out.push({ file: name, action: "failed", detail: e instanceof Error ? e.message : String(e) });
+          try {
+            const { addUrlOrDoiToLibrary } = await import("../../shell/modes/paper/scholar/bibLoad");
+            const r = await addUrlOrDoiToLibrary(cap.doi || cap.url);
+            if ("error" in r) {
+              out.push({ file: name, action: "failed", detail: r.error });
+              // Definitive: set it aside with a note rather than re-failing on every launch.
+              // Transient: leave it in place and try again next time.
+              if (isDefinitive(r.error)) await fb.capturePark?.(name, r.error ?? "could not be resolved");
+              continue;
+            }
+            out.push({ file: name, action: "added", detail: r.title || r.key });
+            await fb.captureDiscard?.(name);
+          } catch (e) {
+            out.push({ file: name, action: "failed", detail: e instanceof Error ? e.message : String(e) });
+          }
         }
       }
-    } while (pending);
+      if (queued === null) break;
+      pull = queued;
+    }
   } finally {
     running = false;
   }
   report(out);
+  void refreshCaptureWaiting(); // whatever we took is no longer waiting
   return out;
 }
+
+const EMPTY_INTAKE = { pdfs: [] as string[], sidecars: [] as { name: string; json: string }[], supplements: [] as string[] };
 
 function report(rows: CaptureResult[]): void {
   if (!rows.length) return captureStatus.clear();
@@ -178,7 +240,10 @@ function report(rows: CaptureResult[]): void {
 // A supplement captured alongside its article often arrives BEFORE that article has a
 // citekey — the assign scan has to identify it first. FluxLib bumps whenever a paper is added
 // or a PDF attached, so that bump is exactly the moment a waiting supplement may become
-// fileable. Debounced, and cheap when there's nothing staged (one readdir on an empty dir).
+// fileable. This is the STAGING sweep only: the files involved are already inside FluxLib,
+// pulled in by an earlier user-initiated pass, so finishing the job they started isn't the
+// ambient download-folder access the manual-only rule exists to prevent. Debounced, and cheap
+// when there's nothing staged (one readdir on an empty dir).
 let sweepTimer: ReturnType<typeof setTimeout> | undefined;
 let firstBump = true;
 fluxLibRevision.subscribe(() => {
@@ -187,31 +252,19 @@ fluxLibRevision.subscribe(() => {
     return;
   }
   clearTimeout(sweepTimer);
-  sweepTimer = setTimeout(() => void runCaptureIntake(), 800);
+  sweepTimer = setTimeout(() => void sweepStagedSupplements(), 800);
 });
 
 /**
- * Start watching for captures. Call once, as soon as the bridge exists.
+ * Pull in whatever was captured while Flux was closed. Call once, as soon as the bridge exists.
  *
- * The file watcher alone is NOT enough, for two reasons that both bit in real use:
- *   • it runs with `ignoreInitial`, so anything captured while Flux was CLOSED is invisible to
- *     it — the common case, since you capture in the browser and open Flux later;
- *   • it only exists while a project is open, so captures made on Home were never seen.
- * A sweep on startup and on window focus covers both, and focus is the natural moment anyway:
- * you click the extension in your browser, switch back to Flux, and the files are already in.
+ * This is the startup half of the manual-only rule, and it's the important half: you capture in
+ * the browser and open Flux later, so the common case is a folder full of captures made while
+ * the app wasn't running. The other half is the Library's Assign button. Nothing else pulls.
  */
-export function startCaptureWatch(): void {
-  if (watching) return;
-  watching = true;
-  void runCaptureIntake(); // whatever arrived while Flux was closed
-  let focusTimer: ReturnType<typeof setTimeout> | undefined;
-  const onFocus = () => {
-    clearTimeout(focusTimer);
-    focusTimer = setTimeout(() => void runCaptureIntake(), 250);
-  };
-  window.addEventListener("focus", onFocus);
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) onFocus();
-  });
+export function captureIntakeOnStartup(): void {
+  if (started) return;
+  started = true;
+  void runCaptureIntake();
 }
-let watching = false;
+let started = false;

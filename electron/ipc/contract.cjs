@@ -51,6 +51,7 @@ const CHANNELS = [
   { channel: "capture:extensionInfo", kind: "invoke", scope: "read" },
   { channel: "capture:revealExtension", kind: "invoke", scope: "read" },
   { channel: "capture:installXpi", kind: "invoke", scope: "read" },
+  { channel: "capture:count", kind: "invoke", scope: "read" },
   { channel: "capture:intake", kind: "invoke", scope: "write" },
   { channel: "capture:discard", kind: "invoke", scope: "write" },
   { channel: "capture:park", kind: "invoke", scope: "write" },

@@ -39,46 +39,82 @@ async function main() {
   });
 
   // --- plant captures alongside files the user would be furious to lose ------------------
-  await fsp.writeFile(path.join(dl, "flux-10.1126_science.aah5982.pdf"), PDF);
-  await fsp.writeFile(path.join(dl, "flux-e0674252026.full.pdf"), PDF);
-  await fsp.writeFile(path.join(dl, "flux-x.fluxcap"), JSON.stringify({ v: 1, url: "https://x/a", doi: "10.1/x" }));
+  // NAMED BY THE PRODUCER, not by hand. This gate used to write the filenames it expected as
+  // literals, which is why it stayed green through the whole period in which the extension was
+  // producing names the receiver rejected: it was testing the receiver against itself. The
+  // builders below are the exact ones extension/background.js calls.
+  const rules = await import("../electron/captureRules.js");
+  const { articleCaptureName, sidecarCaptureName, supplementCaptureName } = rules;
+  const SCIENCE = "10.1126/science.aah5982";
+  const NATURE = "10.1038/s41586-020-2731-9";
+  const N = {
+    science: articleCaptureName(SCIENCE),
+    jneuro: articleCaptureName("e0674252026.full"),
+    sidecar: sidecarCaptureName("x"),
+    scienceSupp: supplementCaptureName(SCIENCE, "devivo-sm.pdf"),
+    scienceMovie: supplementCaptureName(SCIENCE, "movie1.mov"),
+    nature: articleCaptureName(NATURE),
+    natureSupp: supplementCaptureName(NATURE, "MOESM1_ESM.pdf"),
+  };
+  await fsp.writeFile(path.join(dl, N.science), PDF);
+  await fsp.writeFile(path.join(dl, N.jneuro), PDF);
+  await fsp.writeFile(path.join(dl, N.sidecar), JSON.stringify({ v: 1, url: "https://x/a", doi: "10.1/x" }));
   // Supplements captured in the same click as their article — any file type.
-  await fsp.writeFile(path.join(dl, "flux-supp-10.1126_science.aah5982@@devivo-sm.pdf"), PDF);
-  await fsp.writeFile(path.join(dl, "flux-supp-10.1126_science.aah5982@@movie1.mov"), Buffer.alloc(2048, 7));
+  await fsp.writeFile(path.join(dl, N.scienceSupp), PDF);
+  await fsp.writeFile(path.join(dl, N.scienceMovie), Buffer.alloc(2048, 7));
   await fsp.writeFile(path.join(dl, "flux-supp-@@malformed.pdf"), PDF); // no slug: not a capture
+  // The shape the shipped bug produced: assembled, then sanitized, so the separator is gone.
+  // It is NOT a capture, and must be left strictly alone like any other file of the user's.
+  const MANGLED = `flux-supp-${rules.captureSlug(SCIENCE)}_devivo-sm.pdf`;
+  await fsp.writeFile(path.join(dl, MANGLED), PDF);
   const decoys = ["tax-return-2025.pdf", "1-s2.0-S000634952-main.pdf", "flux-notes.txt", "flux.pdf", "flux-.pdf", "holiday.jpg"];
   for (const d of decoys) await fsp.writeFile(path.join(dl, d), "USER DATA");
   await fsp.writeFile(path.join(dl, "flux-tiny.pdf"), Buffer.from("%PDF-x")); // still-arriving stub
   // The EXTENSION writes into <downloads>/flux/ so a multi-file capture doesn't scatter.
   await fsp.mkdir(path.join(dl, "flux"), { recursive: true });
-  await fsp.writeFile(path.join(dl, "flux", "flux-10.1038_s41586-020-2731-9.pdf"), PDF);
-  await fsp.writeFile(path.join(dl, "flux", "flux-supp-10.1038_s41586-020-2731-9@@MOESM1_ESM.pdf"), PDF);
+  await fsp.writeFile(path.join(dl, "flux", N.nature), PDF);
+  await fsp.writeFile(path.join(dl, "flux", N.natureSupp), PDF);
   await fsp.mkdir(path.join(dl, "flux", "nested"), { recursive: true });
   await fsp.writeFile(path.join(dl, "flux", "nested", "flux-deep.pdf"), PDF); // too deep: ignored
 
+  // --- the read-only count the Assign button runs on ------------------------------------
+  // Intake happens only when the user asks (startup or that button), so the count is what
+  // makes the offer. It must agree with intake exactly — a number that over-promises would
+  // put a button on screen that then files nothing — and must move nothing to produce it.
+  console.log("\nwaiting count (read-only):");
+  const before = fs.readdirSync(dl).sort();
+  const waiting = await engine.count();
+  ok(waiting === 7, "counts exactly the captures intake will take", String(waiting));
+  ok(JSON.stringify(fs.readdirSync(dl).sort()) === JSON.stringify(before), "counting moved nothing");
+  ok(!fs.existsSync(inbox), "…and created no inbox");
+
   const r = await engine.intake();
+  ok(r.pdfs.length + r.sidecars.length + r.supplements.length === waiting, "intake took exactly what the count promised");
 
   console.log("\ncapture intake:");
   ok(r.pdfs.length === 3, "captured PDFs from BOTH drop points were filed", JSON.stringify(r.pdfs));
-  ok(r.pdfs.includes("flux-10.1038_s41586-020-2731-9.pdf"), "the extension's flux/ subfolder is picked up too");
+  ok(r.pdfs.includes(N.nature), "the extension's flux/ subfolder is picked up too");
   ok(fs.existsSync(path.join(dl, "flux", "nested", "flux-deep.pdf")), "a file nested deeper than flux/ is NOT touched");
-  ok(r.sidecars.length === 1 && r.sidecars[0].name === "flux-x.fluxcap", "the sidecar came back for the renderer to resolve");
-  ok(fs.existsSync(path.join(inbox, "flux-10.1126_science.aah5982.pdf")), "capture landed in pdfs_to_assign/");
-  ok(!fs.existsSync(path.join(dl, "flux-10.1126_science.aah5982.pdf")), "capture left the download folder");
-  ok(fs.existsSync(path.join(dl, "flux-x.fluxcap")), "sidecar is NOT deleted until the renderer resolves it");
+  ok(r.sidecars.length === 1 && r.sidecars[0].name === N.sidecar, "the sidecar came back for the renderer to resolve");
+  ok(fs.existsSync(path.join(inbox, N.science)), "capture landed in pdfs_to_assign/");
+  ok(!fs.existsSync(path.join(dl, N.science)), "capture left the download folder");
+  ok(fs.existsSync(path.join(dl, N.sidecar)), "sidecar is NOT deleted until the renderer resolves it");
 
   console.log("\nsupplements (captured in the same click as the article):");
   ok(r.supplements.length === 3, "supplements from both drop points were staged", JSON.stringify(r.supplements));
   const staging = path.join(inbox, "_captured_supplements");
-  ok(fs.existsSync(path.join(staging, "flux-supp-10.1126_science.aah5982@@devivo-sm.pdf")), "a supplement PDF is staged, NOT filed as an article");
-  ok(fs.existsSync(path.join(staging, "flux-supp-10.1126_science.aah5982@@movie1.mov")), "a non-PDF supplement is staged too");
-  ok(!fs.existsSync(path.join(inbox, "flux-supp-10.1126_science.aah5982@@devivo-sm.pdf")), "…and never reaches the assign inbox itself");
+  ok(fs.existsSync(path.join(staging, N.scienceSupp)), "a supplement PDF is staged, NOT filed as an article");
+  ok(fs.existsSync(path.join(staging, N.scienceMovie)), "a non-PDF supplement is staged too");
+  ok(!fs.existsSync(path.join(inbox, N.scienceSupp)), "…and never reaches the assign inbox itself");
   ok(fs.existsSync(path.join(dl, "flux-supp-@@malformed.pdf")), "a slug-less supplement name is left alone, not filed as a paper");
   {
-    const rules = await import("../electron/captureRules.js");
-    const p = rules.parseSupplementCapture("flux-supp-10.1126_science.aah5982@@devivo-sm.pdf");
-    ok(rules.doiFromSlug(p.slug) === "10.1126/science.aah5982", "the staged name still identifies its paper", rules.doiFromSlug(p.slug));
+    const p = rules.parseSupplementCapture(N.scienceSupp);
+    ok(rules.doiFromSlug(p.slug) === SCIENCE, "the staged name still identifies its paper — producer to receiver, end to end", rules.doiFromSlug(p.slug));
   }
+  // The shipped bug's output, planted alongside: the separator is gone, so this is not a
+  // capture and intake must treat it exactly like one of the user's own files.
+  ok(fs.existsSync(path.join(dl, MANGLED)), "a separator-less supplement name is NOT picked up (it isn't a capture)", MANGLED);
+  ok(!fs.existsSync(path.join(staging, MANGLED)) && !fs.existsSync(path.join(inbox, MANGLED)), "…and reaches neither staging nor the inbox");
 
   console.log("\ncontainment — the user's own files:");
   for (const d of decoys) ok(fs.existsSync(path.join(dl, d)), `untouched: ${d}`);
@@ -92,16 +128,19 @@ async function main() {
   console.log("\nidempotence + collisions:");
   const again = await engine.intake();
   ok(again.pdfs.length === 0, "a second pass moves nothing new", JSON.stringify(again.pdfs));
-  await fsp.writeFile(path.join(dl, "flux-10.1126_science.aah5982.pdf"), PDF); // same name again
+  await fsp.writeFile(path.join(dl, N.science), PDF); // same name again
   const third = await engine.intake();
-  ok(third.pdfs[0] === "flux-10.1126_science.aah5982-2.pdf", "a same-named capture is suffixed, never overwritten", JSON.stringify(third.pdfs));
+  ok(third.pdfs[0] === N.science.replace(/\.pdf$/, "-2.pdf"), "a same-named capture is suffixed, never overwritten", JSON.stringify(third.pdfs));
 
   console.log("\ndiscard is name-scoped:");
   ok((await engine.discard("../../../etc/passwd")).error, "path traversal refused");
   ok((await engine.discard("tax-return-2025.pdf")).error, "a non-capture name refused");
   ok(fs.existsSync(path.join(dl, "tax-return-2025.pdf")), "…and that file still exists");
-  ok((await engine.discard("flux-x.fluxcap")).ok === true, "a real sidecar is discarded");
-  ok(!fs.existsSync(path.join(dl, "flux-x.fluxcap")), "…and is gone");
+  ok((await engine.discard(MANGLED)).error, "a separator-less supplement name is refused as a non-capture");
+  ok(fs.existsSync(path.join(dl, MANGLED)), "…and that file still exists");
+  ok((await engine.discard(N.sidecar)).ok === true, "a real sidecar is discarded");
+  ok(!fs.existsSync(path.join(dl, N.sidecar)), "…and is gone");
+  ok((await engine.count()) === 0, "…so nothing is left waiting, and the button goes away");
 
   console.log("\nunresolvable captures are set aside, not retried forever:");
   await fsp.writeFile(path.join(dl, "flux-stuck.fluxcap"), JSON.stringify({ v: 1, url: "https://walled.example/x.pdf", doi: "" }));

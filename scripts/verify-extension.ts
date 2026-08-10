@@ -9,9 +9,21 @@
 // Run: node scripts/build-extension.mjs && npx tsx scripts/verify-extension.ts
 import { readFileSync, existsSync } from "node:fs";
 import * as path from "node:path";
+import { transformSync } from "esbuild";
 import { readPaperPage } from "../extension/page.js";
 import { SUPPLEMENT_URL_PATTERNS } from "../electron/supplementRules.js";
-import { parseSupplementCapture, captureSlug, isCaptureFile, SUPP_PREFIX, SUPP_SEP } from "../electron/captureRules.js";
+import {
+  parseSupplementCapture,
+  captureSlug,
+  doiFromSlug,
+  isCaptureFile,
+  safeCaptureFileName,
+  articleCaptureName,
+  sidecarCaptureName,
+  supplementCaptureName,
+  SUPP_PREFIX,
+  SUPP_SEP,
+} from "../electron/captureRules.js";
 
 let failures = 0;
 function ok(cond: boolean, name: string, detail = "") {
@@ -29,6 +41,13 @@ if (existsSync(DIST)) {
     const a = readFileSync(path.join("electron", f), "utf8");
     const b = existsSync(path.join(DIST, "vendor", f)) ? readFileSync(path.join(DIST, "vendor", f), "utf8") : "";
     ok(a === b, `vendored ${f} is byte-identical to Flux's own`, b ? "differs" : "missing");
+  }
+  // The worker too — dist/ is what the browser actually loads, so a stale copy means the user
+  // is running yesterday's bug no matter what the source says.
+  for (const f of ["background.js", "page.js"]) {
+    const a = readFileSync(path.join("extension", f), "utf8");
+    const b = existsSync(path.join(DIST, f)) ? readFileSync(path.join(DIST, f), "utf8") : "";
+    ok(a === b, `built ${f} matches its source (re-run scripts/build-extension.mjs)`, b ? "differs" : "missing");
   }
   const m = JSON.parse(readFileSync(path.join(DIST, "manifest.json"), "utf8"));
   ok(m.manifest_version === 3, "manifest v3");
@@ -171,20 +190,99 @@ function run(page: { meta?: Record<string, string>; anchors?: Anchor[]; href?: s
   ok(/WEB_EXT_API_KEY/.test(sign) && !/const .*SECRET *= *"/.test(sign), "signing reads credentials from the environment, never the repo");
 }
 
-// --- 3: supplement filenames round-trip ---------------------------------------------------
+// --- 3: names the PRODUCER actually builds survive to the receiver -------------------------
+// This section used to assemble `${SUPP_PREFIX}${slug}${SUPP_SEP}devivo-sm.pdf` by hand and
+// assert the receiver liked it. It always did — and meanwhile the extension was building its
+// names a different way and every captured supplement was being dropped on the floor. A
+// contract test that doesn't run the producer's code proves nothing about the producer. So
+// these now go through the exported builders, which is what background.js calls.
 {
   const slug = captureSlug("10.1126/science.aah5982");
-  const file = `${SUPP_PREFIX}${slug}${SUPP_SEP}devivo-sm.pdf`;
-  ok(isCaptureFile(file), "a supplement capture is recognized by the watcher");
+  const file = supplementCaptureName(slug, "devivo-sm.pdf");
+  ok(isCaptureFile(file), "a supplement capture is recognized by the watcher", file);
   const p = parseSupplementCapture(file);
   ok(p?.slug === slug && p?.name === "devivo-sm.pdf", "…and splits back into paper + filename", JSON.stringify(p));
+  ok(file.includes(SUPP_SEP), "…because the separator SURVIVES the producer", file);
   // Non-PDF supplements are the norm, not the exception.
-  ok(isCaptureFile(`${SUPP_PREFIX}${slug}${SUPP_SEP}movie.mov`), "a .mov supplement is recognized");
-  ok(isCaptureFile(`${SUPP_PREFIX}${slug}${SUPP_SEP}data.xlsx`), "an .xlsx supplement is recognized");
-  // safeName used to strip hyphens, turning devivo-sm.pdf into devivosm.pdf — publisher
-  // filenames carry meaning and mangling them makes a supplement unrecognizable.
+  for (const n of ["movie.mov", "data.xlsx", "41586_2020_2731_MOESM3_ESM.mov", "1-s2.0-S0092867426008159-mmc1.pdf"])
+    ok(isCaptureFile(supplementCaptureName(slug, n)), `a ${n.replace(/^.*\./, ".")} supplement is recognized`, supplementCaptureName(slug, n));
+  // Publisher filenames carry meaning: hyphens and dots must come through intact.
+  ok(parseSupplementCapture(supplementCaptureName(slug, "devivo-sm.pdf"))?.name === "devivo-sm.pdf", "hyphens and dots are KEPT in the publisher's filename");
+  // The untrusted half is still sanitized — a filename may not smuggle in the separator, a
+  // path, or whitespace.
+  ok(parseSupplementCapture(supplementCaptureName(slug, `a${SUPP_SEP}b.pdf`))?.name === "a_b.pdf", "a filename containing the separator can't fake a split");
+  ok(parseSupplementCapture(supplementCaptureName(slug, "/etc/passwd"))?.name === "passwd", "a path in the filename is reduced to its basename");
+  ok(parseSupplementCapture(supplementCaptureName(slug, "movie 1.mov"))?.name === "movie_1.mov", "whitespace is replaced");
+  // Articles and sidecars, same path.
+  ok(isCaptureFile(articleCaptureName("10.1126/science.aah5982")), "an article capture is recognized", articleCaptureName("10.1126/science.aah5982"));
+  ok(isCaptureFile(sidecarCaptureName("10.1126/science.aah5982")), "a sidecar capture is recognized", sidecarCaptureName("10.1126/science.aah5982"));
+  // An empty slug would produce bare `flux-.pdf`, which the receiver deliberately ignores.
+  for (const s of ["", "   ", "///"]) ok(isCaptureFile(articleCaptureName(s)), "an unusable slug falls back rather than producing an ignored name", `${JSON.stringify(s)} → ${articleCaptureName(s)}`);
+
+  // THE WHOLE POINT of the name: a staged supplement has to find its way back to the paper it
+  // belongs to. That is producer → filename → disk → receiver → DOI → citekey, and every step
+  // has to survive. Real DOIs from the owner's own captures.
+  for (const doi of ["10.1126/science.aah5982", "10.1038/s41586-020-2731-9", "10.1016/j.cell.2026.07.017", "10.1016/j.neuron.2026.07.006", "10.48550/arXiv.2303.08774"]) {
+    const nm = supplementCaptureName(doi, "mmc1.pdf");
+    const back = parseSupplementCapture(nm);
+    const recovered = back ? doiFromSlug(back.slug) : "";
+    ok(recovered.toLowerCase() === doi.toLowerCase(), `a supplement still names its paper: ${doi}`, `${nm} → ${recovered}`);
+  }
+
+  // THE REGRESSION. Sanitizing an ASSEMBLED name removes the separator by design, so the
+  // result is a file Flux never looks at. This is what shipped, and what cost every captured
+  // supplement — pinned here in the shape it actually took.
+  const assembledThenSanitized = safeCaptureFileName(`${SUPP_PREFIX}${slug}${SUPP_SEP}devivo-sm.pdf`);
+  ok(!isCaptureFile(assembledThenSanitized), "sanitizing an assembled name is STILL wrong — and the gate knows it", assembledThenSanitized);
+  ok(file !== assembledThenSanitized, "…and the builder does not do that", file);
+}
+
+// --- 3b: the worker cannot reintroduce it -------------------------------------------------
+{
   const bg = readFileSync("extension/background.js", "utf8");
-  ok(!/replace\(\/\[<>:"\|\?\* -\]/.test(bg.replace(/\\/g, "")) || /Hyphens and dots are KEPT/.test(bg), "safeName keeps hyphens and dots");
+  ok(/from "\.\/vendor\/captureShared\.js"/.test(bg), "the worker imports the shared rules");
+  for (const fn of ["articleCaptureName", "sidecarCaptureName", "supplementCaptureName"])
+    ok(new RegExp(`download\\([^)]*${fn}\\(`).test(bg), `downloads its ${fn.replace("CaptureName", "")} through the shared builder`);
+  ok(!/const safeName/.test(bg), "the worker holds no private filename sanitizer");
+  ok(!/`flux-\$\{/.test(bg) && !/\$\{SUPP_PREFIX\}\$\{/.test(bg), "…and assembles no capture name by hand");
+  // The guard that turns this whole class of bug from silent into loud.
+  ok(/if \(!isCaptureFile\(filename\)\) throw/.test(bg), "download() REFUSES a name Flux would never recognize");
+}
+
+// --- 3b2: the worker actually parses ------------------------------------------------------
+// Nothing in the repo compiles extension/*.js — no bundler, no tsconfig, no test imports it
+// (background.js can't even be imported here: it touches `chrome` at module scope). A syntax
+// error would therefore ship, and only show up as a dead toolbar button.
+{
+  for (const f of ["extension/background.js", "extension/page.js"]) {
+    let err = "";
+    try {
+      transformSync(readFileSync(f, "utf8"), { loader: "js", format: "esm" });
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+    ok(!err, `${f} parses`, err);
+  }
+}
+
+// --- 3c: the sources are searchable text --------------------------------------------------
+// background.js and captureRules.js both carried raw NUL / 0x1F bytes (a control-character
+// regex written as literal bytes instead of escapes). file(1) called them "data" and grep
+// silently matched NOTHING in them — including the greps a reviewer would run to check exactly
+// the code that was broken. A source file that tools can't read hides its own bugs.
+{
+  const CTRL = (buf: Buffer): number => {
+    for (let i = 0; i < buf.length; i++) {
+      const c = buf[i];
+      if (c === 9 || c === 10 || c === 13) continue;
+      if (c < 32) return i;
+    }
+    return -1;
+  };
+  for (const f of ["extension/background.js", "extension/page.js", "electron/captureRules.js", "electron/supplementRules.js"]) {
+    const at = CTRL(readFileSync(f));
+    ok(at < 0, `${f} is plain searchable text (no raw control bytes)`, at < 0 ? "" : `control byte at offset ${at}`);
+  }
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall green");

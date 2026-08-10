@@ -19,7 +19,7 @@
   import { pdfFetchJob } from "../lib/references/pdfFetchJob.svelte";
   import { assignJob } from "../lib/references/assignJob.svelte";
   import { captureStatus } from "../lib/references/captureStatus";
-  import { startCaptureWatch } from "../lib/references/captureIntake.svelte";
+  import { captureIntakeOnStartup } from "../lib/references/captureIntake.svelte";
 
   // Web capture: the bookmarklet downloads a file, the capture watcher files it, and the
   // result surfaces HERE — shell-level, so it shows in any mode and even on Home (a capture
@@ -78,8 +78,9 @@
           pushToast((p.level as ToastLevel) || "error", p.msg, { detail: p.detail }),
         );
         void maybeCheckForUpdate(); // packaged-only, throttled; no-op in dev
-        // Web capture: sweep now for anything captured while Flux was closed, then on focus.
-        startCaptureWatch();
+        // Web capture: pull in anything captured while Flux was closed. The only other pull is
+        // the Library's Assign button — never on focus, never on a watcher event.
+        captureIntakeOnStartup();
       } else if (tries++ < 40) {
         setTimeout(attach, 100);
       }

@@ -23,6 +23,12 @@ export const SUPP_PREFIX: string;
 export const CAPTURE_SUBDIR: string;
 export const SUPP_SEP: string;
 export function captureSlug(s: string): string;
+/** A publisher's own filename, made safe. UNTRUSTED HALF ONLY — never a whole capture name. */
+export function safeCaptureFileName(s: string | null | undefined): string;
+/** The download names a capture produces. Producers must build names through these. */
+export function articleCaptureName(slug: string): string;
+export function sidecarCaptureName(slug: string): string;
+export function supplementCaptureName(slug: string, fileName: string): string;
 export function isCaptureFile(name: string): boolean;
 export function isSupplementCapture(name: string): boolean;
 /** `flux-supp-<slug>@@<name>` → { slug, name }, or null. */
