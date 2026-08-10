@@ -170,5 +170,36 @@ ok(CAPTURE_EXT === ".fluxcap", "sidecar extension constant matches");
   ok(/newestXpi\(fs\.readdirSync\(dir\)\)/.test(main), "…and main.cjs uses it rather than the first hit");
 }
 
+// --- 8: the Firefox route works on a Mac ----------------------------------------------------
+// `capture:installXpi` handed the .xpi to shell.openPath — "open this with whatever the OS
+// registered". macOS registers NOTHING for .xpi, so Launch Services answered "there is no
+// application set to open the file" and the one browser that REQUIRES a signed add-on had no
+// working route at all. A failure there is the normal case, not an exception, so it falls back
+// to revealing the file and the panel carries the about:addons steps — same shape as the
+// Chromium column, which never pretended it could drive chrome://extensions either.
+{
+  const fs = require("node:fs") as typeof import("node:fs");
+  const main = fs.readFileSync("electron/main.cjs", "utf8");
+  // To the END of the handler, not a fixed byte window — a fixed one silently stopped covering
+  // the code once the comments above it grew, which is a gate quietly checking less than it says.
+  const at = main.indexOf('ipcMain.handle("capture:installXpi"');
+  const h = main.slice(at, main.indexOf("\n});", at) + 4);
+  ok(at > 0 && h.length > 0, "the installXpi handler was found");
+  ok(/showItemInFolder\(xpi\)/.test(h), "an unopenable .xpi is REVEALED, not reported as a failure");
+  ok(/revealed: true/.test(h), "…and the renderer is told which happened");
+  // openPath can also never answer (Linux, unregistered type — measured 6s+ with no result),
+  // which awaited bare is a button that silently does nothing forever.
+  ok(/Promise\.race/.test(h) && /no-answer/.test(h), "…and the open attempt is time-bounded, so the panel always responds");
+
+  const lib = fs.readFileSync("src/shell/modes/library/LibraryMode.svelte", "utf8");
+  ok(/FIREFOX_URL = "about:addons"/.test(lib), "the panel hands over the about:addons address");
+  ok(/Install Add-on From File/.test(lib), "…and names the menu item that actually installs it");
+  ok(/r\?\.revealed/.test(lib), "…and explains the reveal instead of showing an error");
+  // Both columns must stay self-sufficient: a browser page Flux cannot open means the panel
+  // has to be followable by hand, in every browser it claims to support.
+  for (const [name, url] of [["Chromium", "chrome://extensions"], ["Firefox", "about:addons"]])
+    ok(lib.includes(url) && new RegExp(`copyAddr\\(${name === "Firefox" ? "FIREFOX" : "CHROME"}_URL\\)`).test(lib), `${name}: address is copyable`, url);
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall green");
 process.exit(failures ? 1 : 0);

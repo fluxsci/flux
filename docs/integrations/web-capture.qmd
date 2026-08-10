@@ -11,7 +11,10 @@ the PDF, without a download folder detour or a copy-pasted DOI.
 In [Library](../modes/library.qmd), at the bottom of the pane, the **Web capture** row shows
 whether capture is connected. Click **Set up…** and follow the two lines for your browser:
 
-- **Firefox** — one button, **Install for Firefox**. Firefox asks you to confirm, and that's it.
+- **Firefox** — **Open the add-on** shows you the signed file, **Copy address** gives you
+  `about:addons` to paste in a new tab, then click the *gear* and choose **Install Add-on From
+  File…**. (On macOS nothing is registered to open a `.xpi`, so Flux reveals the file rather
+  than pretending it can hand it to Firefox.)
 - **Chrome, Edge or Brave** — **Show me the folder** opens the extension folder, **Copy address**
   gives you `chrome://extensions` to paste in a new tab, then turn on *Developer mode* and
   choose **Load unpacked**.

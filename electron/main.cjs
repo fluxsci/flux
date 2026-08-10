@@ -1054,8 +1054,16 @@ ipcMain.handle("capture:installXpi", async () => {
   // Falling back to revealing the file is the same honest move the Chromium column already
   // makes: Flux cannot drive about:addons from outside (browsers refuse that deliberately), so
   // it puts the file in front of you and hands you the address to paste.
-  const err = await shell.openPath(xpi);
-  if (!err) return { ok: true };
+  // And it does not always ANSWER. macOS fails fast with a message; Linux hands off to the
+  // desktop's opener, which for an unregistered type can sit there indefinitely (measured: no
+  // answer after 6s for a .xpi). An await with no bound is a button that does nothing at all,
+  // forever, with no way for the panel to say so — so the wait is bounded and the fallback is
+  // identical either way.
+  const outcome = await Promise.race([
+    shell.openPath(xpi).then((err) => (err ? "failed" : "opened")),
+    new Promise((r) => setTimeout(() => r("no-answer"), 2500)),
+  ]);
+  if (outcome === "opened") return { ok: true };
   shell.showItemInFolder(xpi);
   return { revealed: true, path: xpi };
 });

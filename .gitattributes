@@ -5,3 +5,7 @@
 # Verified a no-op for existing checkouts when added: the whole index was
 # already LF (git ls-files --eol, 2026-07-27).
 * text=auto eol=lf
+# The signed add-on is committed (only the maintainer can produce one). text=auto already
+# detects it as binary, but a signed archive silently corrupted by EOL conversion would be
+# a miserable thing to diagnose, so say it outright.
+*.xpi binary

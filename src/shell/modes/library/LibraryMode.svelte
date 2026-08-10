@@ -1008,6 +1008,7 @@
   let capNote = $state("");
   let capCopied = $state("");
   const CHROME_URL = "chrome://extensions";
+  const FIREFOX_URL = "about:addons";
   async function openCaptureSetup() {
     capOpen = !capOpen;
     if (capOpen && !capInfo) capInfo = (await fileBridge()?.captureExtensionInfo?.()) ?? null;
@@ -1018,7 +1019,11 @@
   }
   async function installXpi() {
     const r = await fileBridge()?.installCaptureXpi?.();
-    capNote = r?.ok ? "Firefox should be asking you to confirm the install" : (r?.error ?? "couldn't open the add-on");
+    if (r?.ok) capNote = "Firefox should be asking you to confirm the install";
+    // No app is registered for .xpi — always the case on macOS. Main revealed the file
+    // instead, so steps 2 and 3 below are the route; say so rather than reporting a failure.
+    else if (r?.revealed) capNote = "Nothing on this system opens .xpi files directly, so Flux showed you where it is — carry on with steps 2 and 3.";
+    else capNote = r?.error ?? "couldn't open the add-on";
   }
   async function copyAddr(addr: string) {
     try {
@@ -1941,7 +1946,14 @@
         <div class="capcols">
           <section>
             <h4>Firefox</h4>
-            <button class="capbtn" onclick={installXpi} disabled={!capInfo?.xpi} title={capInfo?.xpi ? "Opens the Flux add-on; Firefox will ask you to confirm" : "The signed add-on isn't bundled in this build yet"}>Install for Firefox</button>
+            <ol>
+              <li><button class="caplink" onclick={installXpi} disabled={!capInfo?.xpi} title={capInfo?.xpi ? "Opens the add-on if your system knows how, otherwise shows you where it is" : "The signed add-on isn't bundled in this build yet"}>Open the add-on</button></li>
+              <li>
+                <button class="caplink" onclick={() => copyAddr(FIREFOX_URL)}>{capCopied === FIREFOX_URL ? "Copied ✓" : "Copy address"}</button>
+                <code>{FIREFOX_URL}</code> — paste it in a new tab
+              </li>
+              <li>Click the <strong>gear</strong>, then <strong>Install Add-on From File…</strong> and pick that file</li>
+            </ol>
           </section>
           <section>
             <h4>Chrome, Edge or Brave</h4>
@@ -3089,20 +3101,6 @@
   }
   .capcols li {
     margin: 4px 0;
-  }
-  .capbtn {
-    padding: 5px 14px;
-    border: 1px solid var(--c-accent);
-    border-radius: var(--r-pill);
-    background: var(--c-accent);
-    color: var(--c-on-accent);
-    font-size: var(--ts-sm);
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .capbtn:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
   .caplink {
     border: 0;
