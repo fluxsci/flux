@@ -19,7 +19,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build && tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
+    "build": "vite build && node scripts/build-extension.mjs && tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
     "build:cli": "tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
     "fetch:correction-runtime": "node scripts/fetch-correction-runtime.mjs",
     "preview": "vite preview",

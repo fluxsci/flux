@@ -25,6 +25,19 @@ address to paste rather than pretending to do it in one click.
 The status dot turns green the moment your first capture arrives, so you never have to wonder
 whether it took.
 
+## Keeping it up to date
+
+The extension lives in your **browser**, not in Flux, so updating Flux does not update it. When
+capture changes, do it once per browser:
+
+- **Firefox** — open **Set up… → Install for Firefox** again (or `about:addons` → the gear →
+  *Install Add-on From File…*). It upgrades in place; don't remove the old one first.
+- **Chrome, Edge or Brave** — `chrome://extensions` and press **Reload** on the Flux card.
+
+If you run Flux from a source checkout, `npm run build` refreshes the folder Chromium loads,
+and the signed Firefox add-on is in the checkout too — so a `git pull` plus a build gives you
+both, and all that's left is the reload or reinstall above.
+
 # Using it
 
 Open a paper and click the **Flux** button in your browser's toolbar. It works on the article

@@ -14,7 +14,7 @@
 //
 // Credentials come from https://addons.mozilla.org/developers/addon/api/key/ — they are
 // account secrets, so they live in your environment and never in this repo.
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import * as path from "node:path";
@@ -90,6 +90,18 @@ if (code !== 0) {
     • the add-on id (${manifest.browser_specific_settings?.gecko?.id}) belongs to another account`);
 }
 
+// Exactly ONE .xpi survives. They used to accumulate, and since the directory is committed
+// (Firefox users on a checkout have no other way to get a signed add-on) that meant shipping
+// dead builds — and for a while the Library's "Install for Firefox" button served the OLDEST
+// of them. The freshly signed one is the only one anybody should ever be offered.
+const kept = (await readdir(out)).filter((f) => f.endsWith(".xpi") && f.includes(`-${next}.`));
+for (const f of await readdir(out)) {
+  if (f.endsWith(".xpi") && !kept.includes(f)) {
+    await rm(path.join(out, f));
+    console.log(`• removed superseded ${f}`);
+  }
+}
+
 console.log(`\n✓ signed → ${path.relative(root, out)}/`);
 console.log("  Flux's Library → Web capture → Install for Firefox now opens it.");
-console.log("  Commit the version bump; the .xpi itself is gitignored (ship it with the app).");
+console.log("  COMMIT BOTH the version bump and the .xpi — a checkout is how everyone else gets it.");

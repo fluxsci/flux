@@ -23,14 +23,22 @@ agree on what a capture file is and what a supplement URL looks like, and a seco
 hand-maintained copy is exactly how the supplement filter rotted once already.
 `scripts/verify-extension.ts` asserts the copies are byte-identical to the originals.
 
-## Install
+## Install, and updating after a `git pull`
 
-Flux's **Library → Web capture → Set up…** panel does this for you. By hand:
-
-**Firefox** — open the signed `extension/signed/*.xpi`; Firefox asks you to confirm.
+Everything you need is in the checkout: `npm run build` produces `extension/dist/`, and the
+signed `.xpi` is committed. Flux's **Library → Web capture → Set up…** panel drives both. By
+hand:
 
 **Chrome / Edge / Brave** — `chrome://extensions` → **Developer mode** → **Load unpacked** →
-pick `extension/dist`.
+pick `extension/dist`. To update: `npm run build`, then press **Reload** on the card.
+
+**Firefox** — `about:addons` → the **gear** → **Install Add-on From File…** → pick
+`extension/signed/*.xpi`. To update: install the new `.xpi` over it. The add-on id never
+changes, so it upgrades in place — don't remove the old one first.
+
+**A pull alone never updates your browser.** The extension lives in the browser profile, not
+the checkout, so every update is: pull → build → reload/reinstall in the browser. There is no
+`update_url`, so Firefox will not do it for you.
 
 ## Signing (maintainers)
 
@@ -43,10 +51,17 @@ export WEB_EXT_API_SECRET='…'
 npm run sign:extension
 ```
 
-The script bumps the version (AMO rejects a repeat), rebuilds, signs, and writes
-`extension/signed/*.xpi`. Commit the version bump; the `.xpi` is gitignored and ships with the
-packaged app. **You sign once per release — users never sign anything**; one signed build
-installs for everyone.
+The script bumps the version (AMO rejects a repeat), rebuilds, signs, writes
+`extension/signed/*.xpi`, and deletes the one it supersedes. **Commit both the version bump and
+the `.xpi`.**
+
+The `.xpi` is committed on purpose: only you hold the credentials, and Firefox will not
+permanently install an unsigned add-on, so a checkout is the only way anyone else can get one.
+That makes it your job to re-sign whenever `background.js`, `page.js` or a vendored rule module
+changes — otherwise every Firefox user silently runs old code. `verify-extension.ts` reads the
+committed archive and fails if its contents don't match the source beside it, so you find out
+at the gate rather than from a bug report. **You sign once per change — users never sign
+anything.**
 
 ## Using it
 
@@ -60,8 +75,9 @@ Open a paper and click the **Flux** button in the toolbar. The badge tells you w
 | `!` red | the page couldn't be read (an internal page, or a blocked injection) |
 
 Captured files land in **`<downloads>/flux/`** — a subfolder, so one click that produces an
-article plus eight supplements doesn't scatter nine files through your downloads. Flux moves them out within a
-second or two — on startup, on window focus, and live while it's watching:
+article plus eight supplements doesn't scatter nine files through your downloads. Flux brings
+them in when it starts, or when you press **Assign PDFs** in Library mode (its count includes
+whatever is still waiting in your downloads); nothing moves on its own in between:
 
 | File | Becomes |
 |---|---|

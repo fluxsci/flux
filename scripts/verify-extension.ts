@@ -7,9 +7,10 @@
 // reason for vendoring is gone.
 //
 // Run: node scripts/build-extension.mjs && npx tsx scripts/verify-extension.ts
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import * as path from "node:path";
 import { transformSync } from "esbuild";
+import { readZip } from "./lib/readZip.mjs";
 import { readPaperPage } from "../extension/page.js";
 import { SUPPLEMENT_URL_PATTERNS } from "../electron/supplementRules.js";
 import {
@@ -61,6 +62,43 @@ if (existsSync(DIST)) {
   // The injected reader is serialized by executeScript, so it must not close over anything.
   const page = readFileSync(path.join(DIST, "page.js"), "utf8");
   ok(!/^\s*import\s/m.test(page.replace(/^\/\/.*$/gm, "")), "page.js imports nothing (executeScript serializes it)");
+}
+
+// --- 1b: the signed add-on a checkout ships -----------------------------------------------
+// `git pull && npm run build && npx electron .` is how everyone else runs Flux. Chromium users
+// are served by dist/ (npm run build makes it). FIREFOX users cannot help themselves at all:
+// only the maintainer holds AMO credentials, and Firefox refuses to permanently install an
+// unsigned add-on — so the signed .xpi is COMMITTED, and it has to be built from the source
+// sitting next to it. A stale one means every Firefox user silently runs old code, which is
+// precisely how web capture came to spend weeks filing no supplements at all.
+{
+  const SIGNED = "extension/signed";
+  const xpis = existsSync(SIGNED) ? readdirSync(SIGNED).filter((f) => f.endsWith(".xpi")) : [];
+  ok(xpis.length === 1, "exactly ONE signed .xpi is committed", xpis.length ? xpis.join(", ") : "none — run npm run sign:extension");
+  if (xpis.length === 1) {
+    const srcV = JSON.parse(readFileSync("extension/manifest.json", "utf8")).version;
+    ok(xpis[0].endsWith(`-${srcV}.xpi`), "…and it is the current version", `${xpis[0]} vs manifest ${srcV}`);
+    let entries: Map<string, Buffer> | null = null;
+    try {
+      entries = readZip(readFileSync(path.join(SIGNED, xpis[0])));
+    } catch (e) {
+      ok(false, "…and it is a readable archive", e instanceof Error ? e.message : String(e));
+    }
+    if (entries) {
+      ok(entries.has("META-INF/mozilla.rsa"), "…and it is actually SIGNED (Firefox rejects it otherwise)");
+      ok(JSON.parse(String(entries.get("manifest.json") ?? "{}")).version === srcV, "…its embedded manifest carries that version too");
+      // The real check: the code inside the artifact IS the code in this checkout. dist/ is
+      // already proven to match extension/*.js above, so this closes source → dist → .xpi.
+      for (const f of ["background.js", "page.js", "vendor/captureRules.js", "vendor/captureShared.js", "vendor/supplementRules.js"]) {
+        const inXpi = entries.get(f);
+        const onDisk = existsSync(path.join(DIST, f)) ? readFileSync(path.join(DIST, f)) : null;
+        ok(!!inXpi && !!onDisk && inXpi.equals(onDisk), `…and its ${f} matches this source (re-run npm run sign:extension)`);
+      }
+    }
+  }
+  // Chromium's half of the same promise: the plain build has to produce dist/.
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  ok(/build-extension\.mjs/.test(pkg.scripts?.build ?? ""), "`npm run build` builds the extension, so a checkout can load it unpacked");
 }
 
 // --- 2: the page reader, against real publisher shapes ------------------------------------

@@ -39,5 +39,11 @@ default_conventions/
 lighttable/node_modules/
 lighttable/dist/
 lighttable/test/
+# Built by `npm run build`, so a checkout always has a current one to load unpacked.
 extension/dist/
-extension/signed/
+# The SIGNED add-on IS committed. Only the maintainer holds AMO credentials, so a Firefox
+# user running Flux from a checkout has no other way to obtain one — and Firefox will not
+# permanently install an unsigned add-on. Exactly one .xpi is kept (sign:extension deletes
+# the previous), and verify-extension proves its contents match the current source.
+extension/signed/*
+!extension/signed/*.xpi
