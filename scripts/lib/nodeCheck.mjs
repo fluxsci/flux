@@ -2,7 +2,12 @@
 // .nvmrc pins 22, CI pins 22, the README requires ≥22.12 — a verify run on an
 // older Node produces baselines that are not comparable to the gates.
 
-export const MIN_NODE = "22.12.0";
+// 22.15, not 22.12: scripts/lib/cssStub.mjs imports `registerHooks` from node:module, which
+// only exists from 22.15 on. With the floor set lower the guard passed on 22.12–22.14 and then
+// seven paper-tier gates died at import with "does not provide an export named registerHooks" —
+// a version problem wearing the costume of a code problem. CI installs "22" (latest), so this
+// only tightens what the check ADMITS, never what CI runs.
+export const MIN_NODE = "22.15.0";
 
 export function nodeVersionSatisfied(v = process.versions.node) {
   const [maj = 0, min = 0] = v.split(".").map(Number);
