@@ -43,6 +43,7 @@ import { captureSnipMeta, clearSnipMeta } from "./snipMeta";
 import { planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
 import { cachePlot, clearPlots, ensurePlotDom, plotManifests, plotRecipes, primePlotSidecars } from "./plot/store";
+import { healPlotSources, toProjectRelativeSource } from "./plot/source";
 import { isDerivedManifest } from "./plot/derive";
 import { plotToSvgMarkup } from "./plot/export";
 import type { FluxPlotManifest } from "./plot/types";
@@ -114,6 +115,14 @@ interface Siblings {
   /** Paper-snip sidecar (`X.snip.json`) beside an imported PNG — the fallback
    *  provenance source when a PNG's flux-snip tEXt chunk was stripped. */
   snipText?: string;
+}
+
+// The root that import-time source paths are made relative to: the Flux project
+// when the editor runs embedded, else the standalone project dir. Null (unsaved
+// standalone) simply leaves the picked path absolute — healPlotSources rewrites
+// it on the next load once the project has a home.
+function currentProjectRoot(): string | null {
+  return get(embeddedProjectRoot) ?? get(projectDir);
 }
 
 // Resolve sidecars from the filesystem by deterministic sibling path (the
@@ -191,6 +200,8 @@ async function buildIncoming(
   // preparePlot) — so vanilla SVGs are inline live DOM (real text, crisp,
   // x-rayable, part-editable) instead of an opaque <image>.
   if (kind === "svg") {
+    const projRoot = currentProjectRoot();
+    const rel = (p?: string): string | undefined => (p ? toProjectRelativeSource(projRoot, p) : undefined);
     let manifest: FluxPlotManifest | undefined;
     let recipe: unknown;
     if (sib.manifestText) {
@@ -212,11 +223,16 @@ async function buildIncoming(
       height,
       rotation: 0,
       source: {
-        svgPath: sib.svgPath ?? name,
+        // Stored PROJECT-RELATIVE whenever the file lives under the project
+        // (plot/source.ts): the absolute picker path is only true on the machine
+        // that did the import, and a stale one makes hot-swap/Regenerate/X-ray
+        // silently no-op after a sync, a folder rename, or a restore elsewhere.
+        // A genuinely external plot keeps its absolute path.
+        svgPath: rel(sib.svgPath) ?? name,
         // Only record sidecar paths that actually exist (a real fluxplot) — the
         // fluxplot/vanilla discriminator is sidecar presence.
-        manifestPath: manifest ? sib.manifestPath : undefined,
-        recipePath: manifest ? sib.recipePath : undefined,
+        manifestPath: manifest ? rel(sib.manifestPath) : undefined,
+        recipePath: manifest ? rel(sib.recipePath) : undefined,
       },
       ...(manifest ? { manifestRef: { specVersion: manifest.schemaVersion } } : {}),
       overrides: {},
@@ -570,6 +586,10 @@ export async function openProject() {
     // A standalone project file is an ENTRY manifest — validation failure
     // refuses the open (the catch below toasts the detail).
     migrateProject(p);
+    // Absolute source paths written by an older import (or by this project on a
+    // different machine/at a different path) become project-relative here, so
+    // the next save leaves a portable canvas behind.
+    healPlotSources(p, dir);
     migrateFigureFamilies(p); // standalone has no fig/index.json — no hints
     {
       const errs = validateModel(p);

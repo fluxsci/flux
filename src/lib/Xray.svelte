@@ -19,7 +19,10 @@
     xrayRoot,
     selectOnly,
     commit,
+    embeddedProjectRoot,
+    projectDir,
   } from "./store";
+  import { plotSourceCandidates, toProjectRelativeSource } from "./plot/source";
   import type { SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes } from "./plot/store";
   import { buildXrayTree, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
@@ -58,6 +61,9 @@
     | { params?: Record<string, unknown>; lastRun?: string }
     | undefined;
   $: recipePath = rootPlot?.source?.recipePath;
+  // The project this plot belongs to — source.* paths are stored relative to it.
+  $: projRoot = $embeddedProjectRoot ?? $projectDir;
+  $: srcLabel = rootPlot?.source?.svgPath ? toProjectRelativeSource(projRoot, rootPlot.source.svgPath) : "";
   let regenBusy = false;
   let regenMsg = "";
   async function regenerate() {
@@ -69,21 +75,36 @@
     regenBusy = true;
     regenMsg = "";
     try {
-      const res = await fb.runRecipe(recipePath, (recipe?.params ?? {}) as Record<string, unknown>);
-      // FIG-14: surface the REAL failure instead of a bare "error" — the recipe's stderr on a
-      // non-zero exit, and the actual exception message if the output JSON won't parse.
-      if (res.code !== 0) {
-        const why = String(res.stderr ?? "").trim();
-        regenMsg = "recipe failed" + (why ? `: ${why.slice(-200)}` : ` (exit ${res.code})`);
-      } else if (res.svgText && res.manifestText) {
-        reimportPlot(
-          rootPlot.assetId,
-          res.svgText,
-          JSON.parse(res.manifestText) as FluxPlotManifest,
-          res.recipeText ? JSON.parse(res.recipeText) : undefined,
-        );
-        regenMsg = "regenerated ✓";
-      } else regenMsg = "no output";
+      // source.recipePath is stored PROJECT-RELATIVE (plot/source.ts), but
+      // runRecipe reads the file and resolves the recipe's `cwd` from its
+      // dirname — it needs a real absolute path. Resolving through the shared
+      // candidates also rescues a canvas written on another machine.
+      let recipeAbs = "";
+      for (const c of plotSourceCandidates(projRoot, recipePath)) {
+        if (await fb.exists(c)) {
+          recipeAbs = c;
+          break;
+        }
+      }
+      if (!recipeAbs) {
+        regenMsg = "recipe file not found";
+      } else {
+        const res = await fb.runRecipe(recipeAbs, (recipe?.params ?? {}) as Record<string, unknown>);
+        // FIG-14: surface the REAL failure instead of a bare "error" — the recipe's stderr on a
+        // non-zero exit, and the actual exception message if the output JSON won't parse.
+        if (res.code !== 0) {
+          const why = String(res.stderr ?? "").trim();
+          regenMsg = "recipe failed" + (why ? `: ${why.slice(-200)}` : ` (exit ${res.code})`);
+        } else if (res.svgText && res.manifestText) {
+          reimportPlot(
+            rootPlot.assetId,
+            res.svgText,
+            JSON.parse(res.manifestText) as FluxPlotManifest,
+            res.recipeText ? JSON.parse(res.recipeText) : undefined,
+          );
+          regenMsg = "regenerated ✓";
+        } else regenMsg = "no output";
+      }
     } catch (e) {
       regenMsg = "error: " + String((e as Error)?.message ?? e);
     }
@@ -413,8 +434,8 @@
             </button>
           {/if}
         </div>
-        {#if rootPlot?.source?.svgPath}
-          <div class="srcline">{rootPlot.source.svgPath}</div>
+        {#if srcLabel}
+          <div class="srcline">{srcLabel}</div>
         {/if}
 
         {#if !tree}

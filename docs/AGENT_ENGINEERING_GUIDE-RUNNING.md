@@ -145,6 +145,23 @@ Persistence invariants (all machine-checked — do not weaken):
   `index.json` **last** (+ one-generation `index.json.bak`). The index never references a canvas
   file that doesn't exist, even across SIGKILL (`verify-figsave-txn.ts`). The ordering lives once,
   in `executeFigSave` (figfiles.ts) — never reorder it.
+- **Plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
+  `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
+  `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
+  that relink to the origin — `plots/` hot-swap, the slide bridge, Regenerate, the X-ray
+  source line — the moment the project root changes (synced to a second machine, folder
+  renamed, restored elsewhere). Three import routes historically wrote three shapes
+  (absolute picker path from the GUI, relative from headless, bare filename from drag-drop),
+  so **one module owns all of them**: `src/lib/plot/source.ts` —
+  `toProjectRelativeSource` on write, `healPlotSources` on load (pure, idempotent,
+  string-only, runs in both loaders), `plotSourceCandidates` at every read (probe in order,
+  first that exists wins). Never join a stored source path straight onto the root, and never
+  assume it is absolute: `runRecipe` needs a real absolute path and resolves the recipe's
+  `cwd` from its dirname, so X-ray resolves before invoking it. A genuinely *external* plot
+  keeps its absolute path — the one case the relativizer must not touch. Callers that also
+  hold a security boundary (`flux-core/render.ts`, where a canvas file is untrusted input)
+  filter candidates through `isUnderRoot` rather than dropping `safeJoin`'s guarantee.
+  Gated by `verify-plot-source.ts`.
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
 - **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
   external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines

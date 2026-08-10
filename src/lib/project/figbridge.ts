@@ -33,6 +33,7 @@ import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { FLEXOKI } from "../flexoki";
 import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../migrate";
+import { healPlotSources } from "../plot/source";
 import { computeFamilyNumbers } from "../figfamily";
 import type { FigureFamilyDef } from "../figfamily";
 import { validateModel, validateFigIndexFile, sanitizeProjectGeometry } from "./validate";
@@ -184,6 +185,10 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
           palette: [],
         } as FigProject;
         migrateProject(probe);
+        // Absolute source paths (older GUI imports, or this project opened at a
+        // different path than it was imported at) become project-relative, so
+        // the next save of this canvas leaves a portable file behind.
+        healPlotSources(probe, root);
         const errs = validateModel(probe);
         if (errs.length) {
           const q = await quarantineCopy(fig, p, text);

@@ -28,6 +28,7 @@ import { cachePlot, clearPlots, hasPlotDom, plotManifests, plotDom } from "../pl
 import { captureSnipMeta } from "../snipMeta";
 import { isDerivedManifest } from "../plot/derive";
 import { svgIntrinsicPx } from "../plot/compensate";
+import { plotSourceCandidates, toProjectRelativeSource } from "../plot/source";
 import type { FluxPlotManifest } from "../plot/types";
 import { ConflictError } from "../autosave";
 
@@ -200,6 +201,14 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
       return undefined;
     }
   };
+  /** Same, for a path already resolved to absolute (plot sources — see below). */
+  const readManifestAbs = async (abs: string): Promise<FluxPlotManifest | undefined> => {
+    try {
+      return JSON.parse(await fig.readText(abs)) as FluxPlotManifest;
+    } catch {
+      return undefined;
+    }
+  };
 
   // 1. Deck-local media (slides/<id>/assets/*): bytes → data URLs; every svg
   // is ALSO cached as an inline semantic plot (a persisted .fluxplot.json
@@ -241,12 +250,32 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
 
   const resolveExternal = async (assetId: string, forPlot: { svgPath?: string; manifestPath?: string } | null): Promise<void> => {
     if (have.has(assetId)) return;
-    // (a) an explicit plot source path (plots/…, project-relative)
+    // (a) an explicit plot source path. Probed through plot/source.ts rather
+    // than joined straight onto root: the stored value may be project-relative
+    // (canonical), a foreign absolute path (imported on another machine, or
+    // before this project moved), or a bare filename from drag-drop.
     if (forPlot?.svgPath) {
       try {
-        const svgText = await fig.readText(joinPath(root, forPlot.svgPath));
-        const manifestPath = forPlot.manifestPath ?? forPlot.svgPath.replace(/\.svg$/i, ".fluxplot.json");
-        const manifest = await readManifestFile(manifestPath);
+        let svgAbs = "";
+        for (const c of plotSourceCandidates(root, forPlot.svgPath)) {
+          if (await fig.exists(c)) {
+            svgAbs = c;
+            break;
+          }
+        }
+        if (!svgAbs) throw new Error(`plot source not found: ${forPlot.svgPath}`);
+        const svgText = await fig.readText(svgAbs);
+        // An authored manifestPath wins, but it carries the same stale shapes —
+        // re-anchor it too, then fall back to the sidecar beside the file we
+        // actually resolved.
+        let manifest: FluxPlotManifest | undefined;
+        if (forPlot.manifestPath) {
+          for (const c of plotSourceCandidates(root, forPlot.manifestPath)) {
+            manifest = await readManifestAbs(c);
+            if (manifest) break;
+          }
+        }
+        if (!manifest) manifest = await readManifestAbs(svgAbs.replace(/\.svg$/i, ".fluxplot.json"));
         if (!hasPlotDom(assetId)) cachePlot(assetId, svgText, manifest);
         else if (manifest && !haveRealManifest(assetId)) plotManifests.update((m) => ({ ...m, [assetId]: manifest }));
         data[assetId] = bytesToDataUrl(new TextEncoder().encode(svgText), "image/svg+xml");
@@ -254,9 +283,11 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
         const nat = dom ? svgIntrinsicPx(dom) : { w: 240, h: 180 };
         assets.push({
           id: assetId,
-          name: forPlot.svgPath.split("/").pop() ?? assetId,
+          name: svgAbs.split("/").pop() ?? assetId,
           kind: "svg",
-          path: forPlot.svgPath,
+          // The path the deck records is the PORTABLE one, not whatever shape
+          // the canvas happened to store.
+          path: toProjectRelativeSource(root, svgAbs),
           naturalWidth: nat.w,
           naturalHeight: nat.h,
         });

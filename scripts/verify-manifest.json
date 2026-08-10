@@ -170,7 +170,8 @@
       "verify-capture-intake.ts",
       "verify-extension.ts",
       "verify-dissections.ts",
-      "verify-plots-folders.ts"
+      "verify-plots-folders.ts",
+      "verify-plot-source.ts"
     ],
     "net": [
       "verify-enrich-live.ts",

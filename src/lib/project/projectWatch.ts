@@ -18,7 +18,7 @@ import { invalidateEnrichCache } from "../references/fluxlibBridge";
 import { project } from "../store";
 import { assetData, dataUrlToBytes } from "../assets";
 import { reimportPlot } from "../io";
-import { isAbsolutePath } from "./types";
+import { plotSourceCandidates } from "../plot/source";
 import type { FluxPlotManifest } from "../plot/types";
 
 export interface FsChange {
@@ -52,20 +52,31 @@ interface WatchBridge {
 async function syncPlotsIntoFigures(root: string, fig: WatchBridge): Promise<number> {
   if (!fig.readText || !fig.exists) return 0;
   const p = get(project);
-  const srcOf = new Map<string, string>(); // assetId → absolute source path
+  // assetId → source paths to probe, best first. Candidates (not one path)
+  // because a canvas can carry a foreign absolute path — imported on another
+  // machine, or before the project folder moved — which resolves only once it
+  // is re-anchored at THIS root (plot/source.ts).
+  const srcOf = new Map<string, string[]>();
   for (const f of p.figures) {
     for (const el of f.elements) {
       if (el.type !== "plot") continue;
       const aid = (el as { assetId?: string }).assetId;
       const src = (el as { source?: { svgPath?: string } }).source?.svgPath;
-      if (aid && src) srcOf.set(aid, isAbsolutePath(src) ? src : `${root.replace(/\/+$/, "")}/${src}`);
+      if (aid && src) srcOf.set(aid, plotSourceCandidates(root, src));
     }
   }
   const cached = get(assetData);
   let swapped = 0;
-  for (const [aid, abs] of srcOf) {
+  for (const [aid, candidates] of srcOf) {
     try {
-      if (!(await fig.exists(abs))) continue;
+      let abs = "";
+      for (const c of candidates) {
+        if (await fig.exists(c)) {
+          abs = c;
+          break;
+        }
+      }
+      if (!abs) continue;
       const fresh = await fig.readText(abs);
       const cur = cached[aid] ? new TextDecoder().decode(dataUrlToBytes(cached[aid])) : "";
       if (fresh === cur) continue;

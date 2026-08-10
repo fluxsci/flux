@@ -9,6 +9,7 @@ import { figureToSvg } from "../src/lib/export";
 import { preparePlot, prefixIds, applyOverrides } from "../src/lib/plot/parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../src/lib/plot/compensate";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
+import { isUnderRoot, plotSourceCandidates } from "../src/lib/plot/source";
 import type { Element, Figure, Project } from "../src/lib/types";
 import { migrateProject } from "../src/lib/migrate";
 import * as ops from "../src/lib/ops";
@@ -205,10 +206,19 @@ export async function renderFigureSvg(
       }
       const src = (el as { source?: { manifestPath?: string } }).source;
       if (!manifest && src?.manifestPath) {
-        try {
-          manifest = JSON.parse(await fs.readFile(safeJoin(root, src.manifestPath), "utf8")) as FluxPlotManifest;
-        } catch {
-          /* manifest optional (leaf-id overrides still apply) */
+        // Probe every shape source.manifestPath takes (plot/source.ts), but keep
+        // safeJoin's guarantee: a canvas file is untrusted input here, so only
+        // candidates that land UNDER root are read. That still gains the
+        // re-anchor rescue — a foreign absolute path from another machine
+        // resolves against this root instead of silently yielding no manifest.
+        for (const cand of plotSourceCandidates(root, src.manifestPath)) {
+          if (!isUnderRoot(root, cand)) continue;
+          try {
+            manifest = JSON.parse(await fs.readFile(cand, "utf8")) as FluxPlotManifest;
+            break;
+          } catch {
+            /* manifest optional (leaf-id overrides still apply) */
+          }
         }
       }
       const markup = buildPlotMarkup(
