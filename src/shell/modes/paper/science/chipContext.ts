@@ -49,7 +49,12 @@ export type TableAction =
   | { kind: "copy" } // table → clipboard as TSV (Excel-ready)
   | { kind: "align"; col: number }
   /** Click on a rendered cell → caret into its SOURCE cell (row -1 = header). */
-  | { kind: "cell"; row: number; col: number };
+  | { kind: "cell"; row: number; col: number }
+  /** Click on the rendered caption → caret into the `: Caption {#tbl-…}` line.
+   *  The source block collapses to a pill off-caret (science/tableFold.ts), so
+   *  the caption needs the same one-click route into its source that the cells
+   *  have. */
+  | { kind: "caption" };
 export interface TableHandlers {
   onTableAction?: (el: HTMLElement, action: TableAction) => void;
 }

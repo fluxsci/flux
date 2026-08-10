@@ -19,8 +19,8 @@
 // (the pathological ceiling: ~165ms sync at 20k lines).
 //
 // STRUCTURAL gate (activates with WS-2 Fix 1): a prose keystroke must invoke
-// ZERO block-field build() calls (window.__flux.paperPerf counters — skipped
-// while uninstrumented).
+// ZERO block-field build() calls — embeds, tables, math AND the collapsed table
+// source (window.__flux.paperPerf counters — skipped while uninstrumented).
 //
 //   node scripts/verify-scale-paper.mjs      (dev server on :1420)
 
@@ -153,7 +153,17 @@ async function measureDoc(text, label) {
         out[kind] = {
           sync: sync.slice(2),
           paint: paint.slice(2),
-          builds: perf && b0 ? { embeds: perf.embeds - b0.embeds, tables: perf.tables - b0.tables, math: perf.math - b0.math } : null,
+          builds:
+            perf && b0
+              ? {
+                  embeds: perf.embeds - b0.embeds,
+                  tables: perf.tables - b0.tables,
+                  math: perf.math - b0.math,
+                  // The collapsed-source field also updates on SELECTION, so its
+                  // scan counter belongs in the same zero budget.
+                  tableFold: perf.tableFold - b0.tableFold,
+                }
+              : null,
         };
       }
       return { out, lines: v.state.doc.lines, instrumented: !!perf };
@@ -199,7 +209,7 @@ if (!heavy.instrumented)
   h.ok(BUDGET.proseBuildsMax == null, "block-field build() counter not instrumented yet (arrives with WS-2 Fix 1)");
 else {
   const b = heavy.out.prose.builds;
-  const total = b.embeds + b.tables + b.math;
+  const total = b.embeds + b.tables + b.math + b.tableFold;
   if (BUDGET.proseBuildsMax == null) h.ok(true, `prose builds recorded: ${JSON.stringify(b)} (gate activates with WS-2)`);
   else h.ok(total <= BUDGET.proseBuildsMax, `prose keystrokes invoked ${total} block-field build() calls ≤ ${BUDGET.proseBuildsMax}`);
 }

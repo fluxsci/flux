@@ -77,6 +77,7 @@
   import { anyCiteRe, crossrefRe, isCrossrefKey } from "./science/grammar";
   import { scienceEmbeds } from "./science/embeds";
   import { scienceTables } from "./science/tables";
+  import { scienceTableFold } from "./science/tableFold";
   import { scienceMathBlocks, trackMathView } from "./science/math";
   import {
     setChipHandlers,
@@ -1082,6 +1083,14 @@
           const spec = cellJumpSpec(view.state, pos, action.row, action.col);
           if (spec) view.dispatch(spec);
           view.focus();
+        } else if (action.kind === "caption") {
+          const t = locateTable(view.state.doc, pos);
+          if (!t?.captionLine) return;
+          const line = view.state.doc.line(t.captionLine);
+          // Past the `: ` marker — the caret lands where the caption TEXT starts.
+          const at = line.from + (/^\s*:\s+/.exec(line.text)?.[0].length ?? 0);
+          view.dispatch({ selection: { anchor: at }, scrollIntoView: true, userEvent: "select" });
+          view.focus();
         } else if (action.kind === "add-row" || action.kind === "add-col") {
           const spec = endAppendSpec(view.state, pos, action.kind === "add-row" ? "row" : "col");
           if (spec) view.dispatch(spec);
@@ -1220,6 +1229,7 @@
         scienceChips,
         scienceEmbeds,
         scienceTables,
+        scienceTableFold, // the pipe source collapses to a "Table N" pill off-caret
         scienceMathBlocks, // 2.1: $$ display math (block widget AFTER source lines)
         scholarCompletion,
         doiPaste(handleDoi), // whole-DOI pastes first…

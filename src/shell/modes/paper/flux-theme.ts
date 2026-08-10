@@ -116,6 +116,31 @@ export const fluxTheme = EditorView.theme(
       background: "transparent",
       borderBottom: "1px dotted var(--c-tx-faint)",
     },
+    /* Collapsed table SOURCE block (science/tableFold.ts): the whole pipe block
+       — header, delimiter, every row, the caption — reads as one pill while the
+       caret is elsewhere, with the rendered table below it unchanged. Styled
+       standalone (not only under .cm-flux-tablesrc): a replacing decoration
+       that spans line breaks merges those lines into one block, so the pill
+       cannot rely on inheriting the source line's class. */
+    ".flux-tablechip": {
+      display: "inline",
+      fontFamily: "var(--font-mono)",
+      fontSize: "12px",
+      color: "var(--c-accent-bright)",
+      background: "var(--c-accent-tint, color-mix(in srgb, var(--c-accent) 12%, transparent))",
+      borderRadius: "var(--r-1)",
+      padding: "0 6px",
+      cursor: "default",
+    },
+    ".cm-flux-tablesrc .flux-tablechip": {
+      color: "var(--c-accent-bright) !important",
+      fontSize: "12px !important",
+    },
+    ".flux-tablechip.unnumbered": {
+      color: "var(--c-tx-muted)",
+      background: "var(--c-surface)",
+    },
+    ".cm-flux-tablesrc .flux-tablechip.unnumbered": { color: "var(--c-tx-muted) !important" },
 
     /* ---- math (2.1): inline chips + the display block widget ---------------- */
     ".flux-math": {

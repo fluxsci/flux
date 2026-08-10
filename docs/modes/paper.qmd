@@ -164,9 +164,20 @@ the thing it points to — a table or equation reference scrolls the editor to i
 # Tables
 
 Insert a table with `/table` — it arrives labeled and numbered, with the first header cell
-selected so you can just start typing. The pipe-text source stays visible and editable; the
-rendered table sits beneath it, and everything in the cells renders properly: **bold**,
+selected so you can just start typing. Everything in the cells renders properly: **bold**,
 `code`, math like `$x^2$`, citations, even references to other tables.
+
+While you are reading or writing elsewhere, a table's pipe-text source is out of the way:
+it shows as a small blue **▦ Table 3** pill, with the rendered table below it — the same
+idea as the pill on a figure's source line. Put the caret in the table and the source comes
+straight back, exactly as you typed it. Three ways in, whichever suits:
+
+- **Click a rendered cell** — the caret lands in that cell's source.
+- **Click the rendered caption** — the caret lands in the caption text.
+- **Click the pill**, or arrow into it from the line above or below.
+
+Move the caret out and it folds away again. Nothing about the `.qmd` on disk changes —
+this is only what the editor shows you.
 
 Editing is spreadsheet-shaped:
 
@@ -176,17 +187,18 @@ Editing is spreadsheet-shaped:
 - **Ctrl+Alt+R** adds a row, **Ctrl+Alt+C** a column (**+Shift** deletes one);
   **Ctrl+Alt+A** cycles the column's alignment, as does **Alt+click** on a rendered
   header cell.
-- **Click any rendered cell** to put the caret in its source; hover the table for
-  **+ Row · + Col · Format · Copy** (Copy puts the table on the clipboard tab-separated,
-  ready for Excel or Sheets).
+- Hover the table for **+ Row · + Col · Format · Copy** (Copy puts the table on the
+  clipboard tab-separated, ready for Excel or Sheets) — these work whether the source is
+  showing or folded away.
 - **Paste from Excel/Sheets** and the copied cells become a table — pasted outside one they
   insert a fresh table; pasted inside one they fill cells from the caret. CSV converts via
   **Ctrl+K → Paste as table**.
 
 A table is numbered once it has a caption line — `: Your caption {#tbl-name}` below it —
-which `/table` writes for you. Wide tables scroll in the editor and shrink-to-fit on export
-so nothing gets cut off. Display math follows the same pattern: source line, rendered block
-below, numbered when labeled.
+which `/table` writes for you. A table without one is perfectly fine, it just has no number
+to carry, so its pill reads **▦ Table**. Wide tables scroll in the editor and shrink-to-fit
+on export so nothing gets cut off. Display math keeps its source line on show: source line,
+rendered block below, numbered when labeled.
 
 # The margin
 

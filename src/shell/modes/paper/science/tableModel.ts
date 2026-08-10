@@ -333,6 +333,32 @@ export function scanTables(doc: Text, fmEndLine = 0): ParsedTable[] {
   return out;
 }
 
+// The scan is memoized on the DOCUMENT, which is immutable: two decoration
+// fields read the same tables in the same update (science/tables.ts for the
+// rendered widget, science/tableFold.ts for the collapsed source), and the fold
+// re-derives on selection changes, where the document has not moved at all.
+const scanCache = new WeakMap<Text, { fmEndLine: number; tables: ParsedTable[] }>();
+
+/** `scanTables`, memoized per document. `fmEndLine` is derived from the same
+ *  doc by every caller, so it is checked rather than keyed on. */
+export function scanTablesCached(doc: Text, fmEndLine = 0): ParsedTable[] {
+  const hit = scanCache.get(doc);
+  if (hit && hit.fmEndLine === fmEndLine) return hit.tables;
+  const tables = scanTables(doc, fmEndLine);
+  scanCache.set(doc, { fmEndLine, tables });
+  return tables;
+}
+
+/** Appearance-order table numbers — Quarto semantics (science/refNumbers.ts):
+ *  only LABELED tables participate, so the editor and the export can never
+ *  disagree. ONE rule, read by the widget caption AND the collapsed pill. */
+export function numberTables(tables: readonly ParsedTable[]): Map<ParsedTable, number> {
+  const out = new Map<ParsedTable, number>();
+  let n = 0;
+  for (const t of tables) if (t.label) out.set(t, ++n);
+  return out;
+}
+
 /** The table whose SOURCE BLOCK (header … last row, caption included) contains
  *  `pos`. Bounded upward walk to the nearest plausible header, then parseAt —
  *  callers on the typing path verify fence-truth against the live decoration

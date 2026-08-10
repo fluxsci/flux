@@ -17,6 +17,12 @@
 //     inside one; plain text with pipes pastes escaped into a cell.
 //  E. RENDER — renderManuscript wraps table+caption into ONE .tblblock
 //     (.tblscroll inside) and links @tbl-x to its anchor.
+//  F. COLLAPSED SOURCE — off-caret the pipe block is one "Table N" pill and the
+//     rendered table alone carries the content; clicking a cell, the caption or
+//     the pill puts the caret in the matching source and brings the source
+//     back; leaving restores the collapsed height exactly. (The field's
+//     semantics are pinned hermetically in verify-table-fold.ts — this is the
+//     DOM half: what is on screen and where a click lands.)
 //
 //   Run (dev server on :1420 must be up): node scripts/verify-paper-tables.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
@@ -456,6 +462,137 @@ await setDocAndCaret("# Paste\n\nHere:\n\n\n", "Here:\n\n", 6);
     );
   res.renderRefLink = r.includes('<a href="#tbl-x">Table 1</a>');
 }
+
+// ---------------------------------------------------------------------------
+// F. Collapsed source (science/tableFold.ts)
+// ---------------------------------------------------------------------------
+await setDocAndCaret(
+  [
+    "# Fold",
+    "",
+    "Prose above the table.",
+    "",
+    "| Gene | Delta |",
+    "| --- | ---: |",
+    "| Foo | 1.2 |",
+    "| Bar | 3.4 |",
+    "",
+    ": The caption {#tbl-f}",
+    "",
+    "| Layout | Only |",
+    "| - | - |",
+    "| x | y |",
+    "",
+    "Prose below the tables.",
+    "",
+  ].join("\n"),
+  "Prose above",
+  2,
+);
+await sleep(200);
+const collapsedH = await page.evaluate(() => document.querySelector(".cm-content").scrollHeight);
+res.foldCollapsed = await page.evaluate(() => {
+  const chips = [...document.querySelectorAll(".flux-tablechip")].map((c) => c.textContent);
+  const lineText = [...document.querySelectorAll(".cm-line")].map((l) => l.textContent ?? "").join("\n");
+  return (
+    chips.length === 2 &&
+    chips[0] === "▦ Table 1" &&
+    // An unlabeled table is legitimate, just unnumbered — it says so, dimmed.
+    chips[1] === "▦ Table" &&
+    !!document.querySelector(".flux-tablechip.unnumbered") &&
+    // The pipe source is off screen; the RENDERED table is not.
+    !lineText.includes("| Foo | 1.2 |") &&
+    !lineText.includes(": The caption") &&
+    document.querySelectorAll(".flux-tablewrap").length === 2 &&
+    [...document.querySelectorAll(".flux-table td")].some((t) => t.textContent === "Foo")
+  );
+});
+// The pill rides the 12px mono source-line metrics, not the 17px serif prose.
+res.foldChipMetrics = await page.evaluate(() => {
+  const chip = document.querySelector(".flux-tablechip");
+  return chip?.closest(".cm-line")?.classList.contains("cm-flux-tablesrc") === true;
+});
+// Click a rendered cell → caret in THAT source cell, source revealed.
+{
+  const box = await page.evaluate(() => {
+    const td = [...document.querySelectorAll(".flux-table td")].find((t) => t.textContent === "3.4");
+    const r = td.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await page.mouse.click(box.x, box.y);
+  await sleep(200);
+  res.foldCellClick = await page.evaluate(() => {
+    const view = window.__fluxView;
+    const line = view.state.doc.lineAt(view.state.selection.main.head);
+    return (
+      line.text.includes("| Bar | 3.4 |") &&
+      document.querySelectorAll(".flux-tablechip").length === 1 // only the OTHER table stays folded
+    );
+  });
+}
+// Click the rendered caption → caret in the caption source, past the ": ".
+{
+  await page.evaluate(() => {
+    const view = window.__fluxView;
+    view.dispatch({ selection: { anchor: 0 } });
+    view.focus();
+  });
+  await sleep(200);
+  const box = await page.evaluate(() => {
+    const cap = document.querySelector(".flux-table-cap");
+    const r = cap.getBoundingClientRect();
+    return { x: r.x + 30, y: r.y + r.height / 2 };
+  });
+  await page.mouse.click(box.x, box.y);
+  await sleep(200);
+  res.foldCaptionClick = await page.evaluate(() => {
+    const view = window.__fluxView;
+    const head = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(head);
+    return line.text.startsWith(": The caption") && head - line.from === 2;
+  });
+}
+// Click the pill → caret in the block, source back.
+{
+  await page.evaluate(() => {
+    const view = window.__fluxView;
+    view.dispatch({ selection: { anchor: 0 } });
+    view.focus();
+  });
+  await sleep(200);
+  const box = await page.evaluate(() => {
+    const chip = document.querySelector(".flux-tablechip");
+    if (!chip) return null; // no pill at all → the check below reports it
+    const r = chip.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  if (box) await page.mouse.click(box.x, box.y);
+  await sleep(200);
+  res.foldPillClick = !!box && (await page.evaluate(() => {
+    const view = window.__fluxView;
+    const line = view.state.doc.lineAt(view.state.selection.main.head);
+    const lineText = [...document.querySelectorAll(".cm-line")].map((l) => l.textContent ?? "").join("\n");
+    return line.text.includes("| Gene | Delta |") && lineText.includes("| Foo | 1.2 |");
+  }));
+}
+// Leaving restores the collapsed height EXACTLY (no drift), document untouched.
+{
+  const before = await page.evaluate(() => window.__fluxView.state.doc.toString());
+  await page.evaluate(() => {
+    const view = window.__fluxView;
+    view.dispatch({ selection: { anchor: view.state.doc.line(3).to } });
+    view.focus();
+  });
+  await sleep(250);
+  const after = await page.evaluate(() => ({
+    h: document.querySelector(".cm-content").scrollHeight,
+    doc: window.__fluxView.state.doc.toString(),
+    chips: document.querySelectorAll(".flux-tablechip").length,
+  }));
+  res.foldRestores = after.h === collapsedH && after.chips === 2 && after.doc === before;
+  if (!res.foldRestores) res.foldRestoresDebug = { collapsedH, ...after };
+}
+await shot(page, "tables-fold");
 
 await shot(page, "tables-final");
 const errs = realErrors(page);

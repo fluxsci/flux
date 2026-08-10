@@ -9,8 +9,16 @@
 // widget that never reacts to selection. This verifies the contract:
 //   • every ArrowDown advances the caret by EXACTLY one line, through embed
 //     source lines and every pipe row of a table;
-//   • pure navigation causes zero layout shift: .cm-content scrollHeight and
-//     the rendered widget count are constant as the caret crosses an embed;
+//   • the rendered widget count NEVER changes with the caret — no block widget
+//     is ever swapped, mounted or unmounted by navigation;
+//   • crossing an EMBED causes zero layout shift (its source line is one line
+//     whether collapsed to a chip or revealed);
+//   • a TABLE's source block collapses to a pill off-caret (2026-08-10, owner
+//     request — science/tableFold.ts), so height DOES change there, and this
+//     gate pins the shape of that change instead of forbidding it: constant
+//     outside the block, constant inside it, strictly taller inside, and back
+//     to EXACTLY the collapsed height on the way out (no drift, no per-row
+//     reflow, nothing that could move the caret's landing line);
 //   • the goal column survives crossing an embed line;
 //   • clicking a rendered figure puts the caret on its source line;
 //   • Shift-Down selects across the embed line like plain text.
@@ -95,9 +103,25 @@ const walkBackOk = await (async () => {
   return (await snap()).line === 1;
 })();
 
-// --- 2. zero layout shift on pure navigation --------------------------------
+// --- 2. layout shift on pure navigation -------------------------------------
+// Widgets never react to the caret at all…
 const embedsStable = walk.every((s) => s.embeds === s0.embeds && s.tables === s0.tables);
-const heightStable = walk.every((s) => s.scrollH === walk[0].scrollH);
+// …and outside the table block the document height is nailed down, embed line
+// included. Lines 8–13 ARE the table block: header, delimiter, two rows, the
+// blank line, the caption (see the seed above).
+const TABLE_BLOCK = new Set([8, 9, 10, 11, 12, 13]);
+const outside = walk.filter((s) => !TABLE_BLOCK.has(s.line));
+const inside = walk.filter((s) => TABLE_BLOCK.has(s.line));
+const collapsedH = s0.scrollH; // caret on line 1: every table collapsed
+const heightStable = outside.every((s) => s.scrollH === collapsedH);
+// Inside: one height for the whole block (it opens once, not per row), taller
+// than collapsed, and the walk returns to exactly the collapsed height after.
+const openH = inside.length ? inside[0].scrollH : null;
+const tableOpens =
+  inside.length === TABLE_BLOCK.size &&
+  openH > collapsedH &&
+  inside.every((s) => s.scrollH === openH) &&
+  walk[walk.length - 1].scrollH === collapsedH;
 
 // --- 3. goal column survives crossing the embed line ------------------------
 await page.evaluate(() => {
@@ -152,11 +176,30 @@ await shot(page, "paper-nav-final");
 const errs = realErrors(page);
 await browser.close();
 
-const res = { oneLineEach, walkBackOk, embedsStable, heightStable, goalOk, clickOk, selOk, walkLines: walk.map((s) => s.line) };
+const res = {
+  oneLineEach,
+  walkBackOk,
+  embedsStable,
+  heightStable,
+  tableOpens,
+  heights: { collapsed: collapsedH, open: openH },
+  goalOk,
+  clickOk,
+  selOk,
+  walkLines: walk.map((s) => s.line),
+};
 console.log(JSON.stringify({ nav: res, errs }, null, 2));
 
 const ok =
-  oneLineEach && walkBackOk && embedsStable && heightStable && goalOk && clickOk && selOk && errs.length === 0;
+  oneLineEach &&
+  walkBackOk &&
+  embedsStable &&
+  heightStable &&
+  tableOpens &&
+  goalOk &&
+  clickOk &&
+  selOk &&
+  errs.length === 0;
 if (!ok) {
   console.error("\nPAPER NAV VERIFY: FAIL");
   process.exit(1);

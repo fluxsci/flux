@@ -33,7 +33,7 @@ import { touchesMe, paperPerf } from "./changeGate";
 import { mdInlineFragment, inlineSig, type InlineResolvers } from "./mdInline";
 import { katexReady } from "./katexLoader";
 import { kickKatex } from "./math";
-import { scanTables, type ParsedTable, type Align } from "./tableModel";
+import { numberTables, scanTablesCached, type ParsedTable, type Align } from "./tableModel";
 import { tableHandlers } from "./chipContext";
 
 /** Cell content renders like the export: inline markdown + math + resolved
@@ -232,6 +232,13 @@ class TableWidget extends WidgetType {
     if (this.t.caption) {
       const cap = document.createElement("div");
       cap.className = "flux-table-cap";
+      // Same route as a cell click: the caption's source line lives inside the
+      // collapsed block (tableFold.ts), so clicking the rendered caption puts
+      // the caret in it.
+      if (tableHandlers.onTableAction) {
+        cap.title = "Click to edit the caption source";
+        cap.addEventListener("click", () => tableHandlers.onTableAction?.(wrap, { kind: "caption" }));
+      }
       const b = document.createElement("b");
       b.textContent = `Table ${this.number}.`;
       cap.appendChild(b);
@@ -286,24 +293,27 @@ function build(state: EditorState): DecorationSet {
   paperPerf.tables++;
   const deco: Range<Decoration>[] = [];
   const reg = state.facet(numberingFacet);
-  const tables = scanTables(state.doc, frontMatterEndLine(state.doc));
+  // Memoized on the doc — science/tableFold.ts reads the same scan in the same
+  // update (and again, free, on every selection change).
+  const tables = scanTablesCached(state.doc, frontMatterEndLine(state.doc));
 
   // Numbering pass FIRST (WS-4.2: per-editor instance, replace-contents), so
   // widget cells that reference tables — @tbl-x inside a cell, forward refs
-  // included — resolve in the same update.
-  // Quarto semantics (shared rule — science/refNumbers.ts): only LABELED
-  // tables participate in numbering. The export counts the same way, so a doc
-  // mixing plain layout tables with formal `: Caption {#tbl-…}` tables can no
-  // longer show one number in the editor and another in the exported caption.
+  // included — resolve in the same update. The rule itself lives in
+  // tableModel.numberTables (Quarto semantics, shared with the collapsed-source
+  // pill and byte-aligned with science/refNumbers.ts): only LABELED tables
+  // participate, so a doc mixing plain layout tables with formal
+  // `: Caption {#tbl-…}` tables can never show one number in the editor and
+  // another in the exported caption.
   reg.tbl.clear();
   reg.tblMeta.clear();
+  const numbers = numberTables(tables);
   let count = 0;
-  const numbers = new Map<ParsedTable, number>();
   for (const t of tables) {
-    if (!t.label) continue;
-    count++;
-    numbers.set(t, count);
-    reg.tbl.set(t.label, count);
+    const n = numbers.get(t);
+    if (n == null || !t.label) continue;
+    count = n;
+    reg.tbl.set(t.label, n);
     reg.tblMeta.set(t.label, { pos: t.from, caption: t.caption });
   }
 

@@ -229,11 +229,13 @@ Persistence invariants (all machine-checked — do not weaken):
   budget), warm re-focus ~20ms and re-parses nothing. Gate: `verify-scale-lazy-assets.mjs`.
 - The **paper editor** (CodeMirror 6) is the most latency-sensitive surface in the app. The
   mechanisms that keep it instantaneous (§6) and glitch-free — engineering constraints, not
-  aesthetics; understand them before changing them: decorations are a pure function of the
-  DOCUMENT, never the selection (selection-driven rebuilds once swapped a ~500px widget in the
+  aesthetics; understand them before changing them: BLOCK WIDGETS are a pure function of the
+  DOCUMENT, never the selection (a selection-driven rebuild once swapped a ~500px widget in the
   caret's own transaction — the "arrow up jumps multiple lines" bug); no block-level
   `atomicRanges` — embeds/tables/math render as a styled source line plus a block widget AFTER it,
-  so every doc line costs exactly one vertical keypress; source-line metrics are identical active
+  so every doc line costs exactly one vertical keypress (the ONE deliberate exception is a
+  table's collapsed source, below — it hides whole lines, and pays for that with its own
+  navigation/height gates); source-line metrics are identical active
   vs. inactive (goal-column navigation survives caret entry); block widgets carry accurate
   `estimatedHeight`s (scroll stability); vim loads FIRST in the extension tree (it claims keys at
   the DOM level); citation ordinals publish synchronously before the chip plugin; external reloads
@@ -313,6 +315,27 @@ Persistence invariants (all machine-checked — do not weaken):
   `overflow-wrap` is reset on the wrap — inherited, it mid-word-breaks cell numbers). The
   renderer binds table+caption into one `.tblblock` (paginator unit; over-wide tables zoom-fit,
   floor 0.55) — its inline scripts are CSP-hashed (PAGINATOR/LIVE_SCROLL/TBLFIT, w12 gate).
+  **The pipe source COLLAPSES to one "Table N" pill off-caret** (2026-08-10, owner: a long
+  table's markdown drowned the prose you were reading) — `science/tableFold.ts`, the embed-chip
+  rule generalized to a multi-line construct. CodeMirror only accepts a line-break-spanning
+  replace from a StateField, so this is the one paper field whose decorations depend on the
+  SELECTION as well as the document; the rules that make that safe are: the rendered block
+  widget below is a SEPARATE, doc-pure field (never rebuilt, never swapped — what burned the
+  old reveal-on-cursor embed); the reveal predicate is "a selection range touches the block",
+  boundaries included, so the caret can never land inside hidden text; no `atomicRanges`, so
+  arrowing in still works; the value object is returned UNCHANGED when nothing opened or
+  closed (CodeMirror then finds every chunk shared and does no height work); and the
+  doc-side rebuild rides the same `changeGate` — with a `spans` set covering every table,
+  since a revealed one contributes no decoration and a caption keystroke carries no trigger
+  token. The scan is memoized per doc (`tableModel.scanTablesCached`) and the Quarto numbering
+  is one shared `numberTables`. `paperPerf.tableFold` counts full re-derives; caret motion must
+  cost zero (verify-table-fold §C + scale-paper's structural budget). Height DOES move when a
+  block opens — CodeMirror's own scroll anchoring absorbs it (measured: 0px caret drift
+  arrowing out of a 30-row table, ~59px when clicking prose below one), so do not add scroll
+  compensation without re-measuring first. Gates: `verify-table-fold.ts` (pure, hermetic —
+  the whole contract is StateField logic), `verify-paper-tables.mjs` §F (pill DOM + click
+  routes), `verify-paper-nav.mjs` (one keypress per line still holds THROUGH a table; height
+  constant outside the block, constant inside it, and back to exactly the collapsed value).
 - **Slide mode edits through the figure store** (slide-migration, 2026-07): a
   deck loads as projected figures on the synthetic `"deck"` canvas
   (`deckProject.ts`), the shared Canvas (`frame` prop) / Inspector
@@ -3272,3 +3295,45 @@ guide. `verify-docs` 148 → 156.
   body you might need.
 - Promoted to §8: agent-facing runbooks live in `docs/for_agents/` as `.md`, indexed by its
   README, guarded by both the `.qmd`-only render globs and an explicit `!for_agents/**`.
+
+### 2026-08-10 (later still) — A long table's markdown drowned the prose around it (Claude Opus 5, `main`)
+
+**Work:** The owner: a table's whole pipe source is always on screen, so reading past a
+30-row table means scrolling 30 lines of markdown you did not want to see. Fixed the way the
+figure embed already solves it — the source block now collapses to one accent `▦ Table N`
+pill unless the selection is inside it (`science/tableFold.ts`), with the rendered table
+below it untouched. Clicking a rendered cell, the caption (new route — the caption line is
+inside the fold, so it needed the same one-click path the cells had), or the pill itself
+puts the caret in the matching source and brings it back; arrowing in works from either
+side. Promoted into §4 with the full "why this is safe" list. Gates: new hermetic
+`verify-table-fold.ts` (pure, 30 checks — the contract is all StateField logic, no browser
+needed), `verify-paper-tables.mjs` §F for the DOM/click routes, and `verify-paper-nav.mjs`
+rewritten around the superseded height contract. Pure 174/174, paper-gate 27/27, scale-paper
+green (prose keystroke 2.2× < 3×, still zero block-field builds), check 0/0.
+
+**Learnings:**
+
+- **"Decorations are never selection-driven" was really "BLOCK WIDGETS are never
+  selection-driven".** The 2026-07 bug it came from was a ~500px widget being swapped in the
+  caret's own transaction; hiding source LINES on selection is a different mechanism and is
+  what CodeMirror's own folding does. The distinction now lives in §4, because reading the
+  old sentence literally makes this whole feature look forbidden — and the wording had
+  already outlived one exception (chips.ts' inline reveal) before this one.
+- **A line-break-spanning `Decoration.replace` may only come from a StateField** — a
+  ViewPlugin cannot change the vertical layout. That single CodeMirror rule dictates the
+  entire design: the field must be selection-aware, so everything else (identity when
+  nothing opens, a `spans` set for the change gate, the memoized scan) exists to keep a
+  caret move from paying for it.
+- **Measure the feel before building machinery for it.** I had a caret-anchored scroll
+  compensation designed and ready for the "everything jumps when the table closes" problem;
+  a probe showed CodeMirror's own scroll anchor already absorbs it (0px caret drift arrowing
+  out of a 30-row table, 59px clicking prose below one). The code that never shipped is the
+  cheapest code there is.
+- The gate battery mostly held ITSELF: of 27 paper gates, exactly one assertion failed
+  (`verify-paper-nav`'s "zero layout shift"), and it failed for precisely the right reason.
+  A gate that fails narrowly is telling you where the contract moved — the fix is to write
+  the new contract more precisely (constant outside, constant inside, exactly restored),
+  never to delete the check.
+- A GUI gate that reads a DOM node the feature creates must null-guard it, or reverting the
+  feature makes the gate CRASH instead of reporting — still red, but it takes the other 30
+  checks' results down with it.
