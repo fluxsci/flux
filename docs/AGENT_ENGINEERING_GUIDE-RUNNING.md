@@ -3028,3 +3028,51 @@ node-gyp modules. If a gate fails on an import of a Node built-in, check `node -
   itself into `items/zhu2018mere-7b4/supplements/`. Before the fix, the same probe reported
   "no library entry for 10.1093/jcr_ucy008 yet" — which is how this second bug was found at all.
   The item folder was restored afterwards.
+
+### 2026-08-10 — A checkout now carries what both browsers need (Claude Opus 5, `main`)
+
+Follow-on to the two capture entries above. The owner's framing: assume everyone else runs
+`git pull && npm run build && npx electron .`. On that path **neither browser could be set up**.
+`extension/dist/` is gitignored and `npm run build` never built it, so the Chromium route —
+"Load unpacked", and the Library panel's own "Show me the folder" — pointed at a directory that
+did not exist. `extension/signed/` was gitignored too, so there was no `.xpi` at all, and
+Firefox will not permanently install an unsigned add-on; signing needs AMO credentials only the
+maintainer holds, so a Firefox user on a checkout had no route whatsoever. Neither failure is
+visible to the maintainer, whose working tree has both directories populated.
+
+Now `npm run build` builds the extension, and **the signed `.xpi` is committed**. Committing a
+signed binary is a deliberate trade: it is the only channel by which anyone else can obtain one,
+and at ~40KB replaced rather than accumulated it is a cheap one. `sign:extension` deletes the
+artifact it supersedes, so "exactly one" is upkept by the tool rather than by remembering.
+
+That trade holds only while the committed artifact really is built from the source beside it —
+a stale one means every Firefox user silently runs old code, which is exactly how capture spent
+weeks filing no supplements. So `verify-extension` now OPENS the `.xpi` and byte-compares
+`background.js`, `page.js` and the vendored rule modules against the build, closing
+source -> dist -> `.xpi`; plus exactly one artifact, matching the source manifest version,
+carrying a real Mozilla signature. Reading the archive needs no dependency and no `unzip`
+(`scripts/lib/readZip.mjs`, ~50 lines, Windows-safe). Also fixed just before this: `signedXpi()`
+took the first `.xpi` `readdir` returned, so with two versions present the Library offered the
+OLDEST — the worst possible moment to serve stale bytes, since you press that button right after
+signing a fix. It now picks the newest, and the picker lives in `captureIntake.cjs` so the gate
+calls the real function. Gates: pure 170/170, check 0/0. Teeth proven by appending a line to
+`background.js` without re-signing.
+**Learnings:**
+
+- **The maintainer's working tree is the worst place to judge whether a checkout works.** Both
+  broken paths were invisible here because `dist/` and `signed/` were sitting on disk, ignored
+  by git and therefore absent for everyone else. When something is gitignored, ask what a clone
+  actually has — or delete it locally and run the documented flow, which is how this was
+  confirmed.
+- **A gitignored build output is fine; a gitignored artifact only one person can produce is a
+  distribution dead end.** The asymmetry is who can regenerate it. `dist/` anyone can rebuild;
+  the `.xpi` nobody but the credential holder can, so ignoring it silently excluded every
+  Firefox user.
+- **Check the artifact, not a description of it.** The tempting shortcut was a sidecar of hashes
+  written at signing time; that is one more thing able to drift, and drift between a producer
+  and its description is the exact failure this area already had twice. Opening the zip is fifty
+  lines and answers the real question.
+- The extension lives in the browser profile, so **no repo operation ever updates it** — every
+  change is pull, build, then reload (Chromium) or reinstall over the top (Firefox upgrades in
+  place; the add-on id is stable). There is no `update_url`, so Firefox never does it by itself:
+  if this add-on ever goes past a handful of people, host an update manifest or list it on AMO.
