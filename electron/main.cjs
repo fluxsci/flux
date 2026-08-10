@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
-const { createCaptureIntake } = require("./captureIntake.cjs");
+const { createCaptureIntake, newestXpi } = require("./captureIntake.cjs");
 const { pickRelease } = require("./updateCheck.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
@@ -1014,7 +1014,9 @@ function extensionDir() {
 function signedXpi() {
   for (const dir of [path.join(process.resourcesPath || "", "extension", "signed"), path.join(__dirname, "..", "extension", "signed")]) {
     try {
-      const hit = fs.readdirSync(dir).find((f) => f.endsWith(".xpi"));
+      // NEWEST, not first: signing bumps the version and leaves the old .xpi behind, and
+      // readdir order is arbitrary — see newestXpi's note.
+      const hit = newestXpi(fs.readdirSync(dir));
       if (hit) return path.join(dir, hit);
     } catch {
       /* not there */

@@ -153,5 +153,22 @@ ok(CAPTURE_EXT === ".fluxcap", "sidecar extension constant matches");
   ok(/bySlug\.get\(parsed\.slug/.test(fn), "…and looks the captured slug up DIRECTLY, never a guessed-back DOI");
 }
 
+// --- 7: the Library offers the NEWEST signed add-on -----------------------------------------
+// `npm run sign:extension` bumps the version and leaves the previous .xpi in place, so
+// extension/signed/ accumulates. Picking the first one readdir returned offered a stale build —
+// worst of all right after someone signs a fix, which is exactly when they click that button.
+{
+  const { newestXpi } = require("../electron/captureIntake.cjs");
+  const H = "25d5c205510546b881cc";
+  ok(newestXpi([`${H}-0.1.0.xpi`, `${H}-0.1.1.xpi`]) === `${H}-0.1.1.xpi`, "0.1.1 beats 0.1.0");
+  ok(newestXpi([`${H}-0.1.1.xpi`, `${H}-0.1.0.xpi`]) === `${H}-0.1.1.xpi`, "…in either readdir order");
+  ok(newestXpi([`${H}-0.9.0.xpi`, `${H}-0.10.0.xpi`]) === `${H}-0.10.0.xpi`, "…and it's numeric, not lexicographic (0.10 > 0.9)");
+  ok(newestXpi([`${H}-1.0.xpi`, `${H}-1.0.1.xpi`]) === `${H}-1.0.1.xpi`, "…and a longer version wins the tie");
+  ok(newestXpi(["notes.txt", `${H}-0.1.1.xpi`]) === `${H}-0.1.1.xpi`, "non-xpi files are ignored");
+  ok(newestXpi([]) === null && newestXpi(["notes.txt"]) === null, "nothing to offer → null");
+  const main = require("node:fs").readFileSync("electron/main.cjs", "utf8");
+  ok(/newestXpi\(fs\.readdirSync\(dir\)\)/.test(main), "…and main.cjs uses it rather than the first hit");
+}
+
 console.log(failures ? `\n${failures} FAILED` : "\nall green");
 process.exit(failures ? 1 : 0);

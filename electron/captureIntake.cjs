@@ -173,4 +173,36 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
   return { count, intake, discard, park };
 }
 
-module.exports = { createCaptureIntake, MIN_PDF_BYTES };
+/**
+ * Pick the newest signed add-on from a list of `.xpi` filenames (`<hash>-<version>.xpi`).
+ *
+ * Every `npm run sign:extension` BUMPS the version and leaves the previous artifact in place, so
+ * this directory accumulates. Taking the first `.xpi` readdir happens to return offered the user
+ * a STALE build — a signed 0.1.0 sitting next to the 0.1.1 that dist/ was just built from, which
+ * is the worst possible moment to hand back the old bytes: right after someone signs a fix.
+ * Lives here rather than in main.cjs so a gate can call the real function.
+ */
+function newestXpi(names) {
+  const parts = (f) => (/-(\d+(?:\.\d+)*)\.xpi$/.exec(f)?.[1] ?? "0").split(".").map(Number);
+  let best = null;
+  for (const f of names) {
+    if (!/\.xpi$/i.test(f)) continue;
+    if (!best) {
+      best = f;
+      continue;
+    }
+    const a = parts(best);
+    const b = parts(f);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const x = a[i] ?? 0;
+      const y = b[i] ?? 0;
+      if (x !== y) {
+        if (y > x) best = f;
+        break;
+      }
+    }
+  }
+  return best;
+}
+
+module.exports = { createCaptureIntake, MIN_PDF_BYTES, newestXpi };
