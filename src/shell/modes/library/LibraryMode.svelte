@@ -125,9 +125,23 @@
   // each record on reload is a handful of extra file reads, not a per-row cost.
   let failures = $state.raw<Record<string, FetchFailure>>({});
   const failedKeys = $derived(new Set(Object.keys(failures)));
-  let showFailedOnly = $state(false);
-  /** Narrow the list by whether a reference has a stored main text. Cycles all → missing → have. */
-  let pdfFilter = $state<"all" | "missing" | "have">("all");
+  /** Narrow the list by PDF state. Cycles all → missing → failed → have → all. "failed" is a
+   *  step on this same axis rather than a standing "⚠ N failed" pill in the toolbar: for true
+   *  paywalls and the accepted anti-bot walls the count never reaches zero, and a warning that
+   *  can't be cleared is noise. The per-row outcome pill still says which papers died and why.
+   *  The step is skipped when nothing has failed, so a clean library never cycles through it. */
+  let pdfFilter = $state<"all" | "missing" | "failed" | "have">("all");
+  function cyclePdfFilter() {
+    if (pdfFilter === "all") pdfFilter = "missing";
+    else if (pdfFilter === "missing") pdfFilter = failedKeys.size > 0 ? "failed" : "have";
+    else if (pdfFilter === "failed") pdfFilter = "have";
+    else pdfFilter = "all";
+  }
+  // Retrying the last failure (or clearing its record) empties failedKeys while the filter is
+  // still parked on it — that would show an empty list with no way to read why. Fall back.
+  $effect(() => {
+    if (pdfFilter === "failed" && failedKeys.size === 0) pdfFilter = "all";
+  });
   // LR-U2: row multiselect (by citekey) → bulk "add to project". Keyed by citekey so a selection
   // survives query/scope changes; the Clear action + select-all operate on the currently-shown rows.
   let selected = $state.raw<Set<string>>(new Set());
@@ -312,12 +326,13 @@
               : (r.enrich?.citedByCount ?? -1);
   const results = $derived.by(() => {
     // Full-text mode: show only papers whose stored text matched (from the async scan);
-    // otherwise the metadata query. showFailedOnly narrows either.
+    // otherwise the metadata query. pdfFilter narrows either.
     let base = ftMode ? enriched.filter((r) => ftHits.has(nfc(r.key))) : queryRun(enriched, queryDebounced);
-    if (showFailedOnly) base = base.filter((r) => isFailed(r.key));
     // PDF presence isn't a metadata field — it's disk state (pdfKeys), so it narrows the
-    // result set here rather than living in the query grammar.
-    if (pdfFilter !== "all") base = base.filter((r) => hasPdf(r.key) === (pdfFilter === "have"));
+    // result set here rather than living in the query grammar. "failed" reads the same axis
+    // off the failure records instead.
+    if (pdfFilter === "failed") base = base.filter((r) => isFailed(r.key));
+    else if (pdfFilter !== "all") base = base.filter((r) => hasPdf(r.key) === (pdfFilter === "have"));
     if (sortCol) {
       const col = sortCol;
       const dir = sortDir;
@@ -1501,14 +1516,18 @@
         <button
           class="enrich pdffilter"
           class:on={pdfFilter !== "all"}
-          onclick={() => (pdfFilter = pdfFilter === "all" ? "missing" : pdfFilter === "missing" ? "have" : "all")}
+          onclick={cyclePdfFilter}
           title={pdfFilter === "all"
-            ? `Filter by PDF: ${pdfCoverage.total - pdfCoverage.have} reference(s) have no main text. Click to show only those; click again for only those WITH a PDF.`
+            ? `Filter by PDF: ${pdfCoverage.total - pdfCoverage.have} reference(s) have no main text. Click to show only those${failedKeys.size > 0 ? `, again for the ${failedKeys.size} whose fetch failed` : ""}, again for only those WITH a PDF.`
             : pdfFilter === "missing"
-              ? "Showing only references with NO PDF. Click for only those WITH a PDF."
-              : "Showing only references WITH a PDF. Click to clear the filter."}>
-          {#if pdfFilter === "missing"}
-            ⬇ No PDF ({pdfCoverage.total - pdfCoverage.have})
+              ? failedKeys.size > 0
+                ? `Showing only references with NO PDF. Click for the ${failedKeys.size} whose fetch failed outright.`
+                : "Showing only references with NO PDF. Click for only those WITH a PDF."
+              : pdfFilter === "failed"
+                ? `Showing the ${failedKeys.size} paper(s) that failed both the open-access and library routes — expand a row for the reason. Click for only those WITH a PDF.`
+                : "Showing only references WITH a PDF. Click to clear the filter."}>
+          {#if pdfFilter === "failed"}
+            ⊘ Failed ({failedKeys.size})
           {:else if pdfFilter === "have"}
             ▦ Has PDF ({pdfCoverage.have})
           {:else}
@@ -1516,14 +1535,13 @@
           {/if}
         </button>
       {/if}
-      {#if failedKeys.size > 0 && !fetchingAll}
+      {#if pdfFilter === "failed"}
         <button
           class="enrich retryfailed"
-          class:on={showFailedOnly}
-          onclick={() => (showFailedOnly = !showFailedOnly)}
-          ondblclick={() => getAllPdfs(true)}
-          title="{failedKeys.size} paper(s) failed both open-access and library routes. Click to filter to them; double-click to retry them all (ignores the skip-list).">
-          ⚠ {failedKeys.size} failed
+          onclick={() => getAllPdfs(true)}
+          disabled={fetchingAll || preflightBusy || fetchingKey !== ""}
+          title="Try all {failedKeys.size} of these again now, ignoring the skip-list that normally makes bulk runs pass over a known failure.">
+          Retry all
         </button>
       {/if}
       <div class="adddoi" class:failed={addStatus === "error"}>
@@ -2119,14 +2137,14 @@
     border-color: var(--c-accent);
     color: var(--c-accent);
   }
-  /* "⚠ N failed" pill — muted warning tone; toggles the failed-only filter. */
+  /* "Retry all" — an action, shown only while the failed step of the PDF filter is active,
+     so it reads against the papers on screen rather than standing in the toolbar forever. */
   .retryfailed {
     border-color: var(--c-danger);
     background: transparent;
     color: var(--c-danger);
   }
-  .retryfailed:hover:not(:disabled),
-  .retryfailed.on {
+  .retryfailed:hover:not(:disabled) {
     background: var(--c-danger);
     color: var(--c-on-accent);
   }

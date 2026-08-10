@@ -120,8 +120,11 @@ One row, many verbs — the row tooltip is a cheat sheet:
   route through the proxy.
 - Already have the file? **Add PDF…** in the details strip files a PDF you downloaded
   yourself — or just drop it in the inbox folder.
-- Fetch failures show as small pills (`no DOI`, `no OA`, `failed`) and a **⚠ failed** counter
-  in the header — click it to filter to failures, double-click to retry them all.
+- Fetch failures show as small pills (`no DOI`, `no OA`, `failed`) on the row, with the reason
+  in the row's details. To see them all together, click the header's **⬇ No PDF** filter until
+  it reads **⊘ Failed** — a **Retry all** button appears beside it, which tries them again even
+  though a bulk run would normally skip a known failure. (The step only appears when something
+  has actually failed.)
 
 # Enrich
 

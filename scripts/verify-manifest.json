@@ -173,7 +173,8 @@
       "verify-dissections.ts",
       "verify-plots-folders.ts",
       "verify-plot-source.ts",
-      "verify-sync-conflicts.ts"
+      "verify-sync-conflicts.ts",
+      "verify-library-pdffilter.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -394,6 +395,10 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/shell/modes/library/LibraryMode.svelte",
+      "run": ["verify-library-pdffilter.ts", "verify-w20-library.ts", "tier:pure"]
+    },
     {
       "glob": "{electron/dissectRules.js,src/lib/dissect/**}",
       "run": [
