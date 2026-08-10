@@ -206,7 +206,7 @@ import a semantic plot. Per-platform instructions live in the
 Only Lighttable is genuinely optional — the rest are load-bearing for normal use.
 
 > **Setting up a Mac from scratch?**
-> [`docs/claude-install-flux-mac.md`](docs/claude-install-flux-mac.md) is an executable
+> [`docs/for_agents/claude-install-flux-mac.md`](docs/for_agents/claude-install-flux-mac.md) is an executable
 > runbook a Claude Code session follows end to end — bare clone to verified install,
 > including everything in this table.
 

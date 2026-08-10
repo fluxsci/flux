@@ -5,8 +5,10 @@
 # Publish later:  quarto publish gh-pages docs — no rewriting needed.
 #
 # Conventions (enforced by scripts/verify-docs.ts):
-#   - render lists .qmd globs ONLY — AGENT_ENGINEERING_GUIDE-RUNNING.md is
+#   - positive render globs are .qmd ONLY — AGENT_ENGINEERING_GUIDE-RUNNING.md is
 #     contributor-facing and must never enter the site.
+#   - for_agents/ holds agent-facing runbooks (.md) and is excluded outright;
+#     the negation below is belt-and-braces on top of the .qmd-only globs.
 #   - every .qmd appears in the sidebar below (no orphan pages).
 #   - per-page frontmatter is title + subtitle only; toc/numbering/theme are
 #     set once here so pages cannot drift.
@@ -16,6 +18,7 @@ project:
   render:
     - "*.qmd"
     - "**/*.qmd"
+    - "!for_agents/**"
 
 website:
   title: "Flux"

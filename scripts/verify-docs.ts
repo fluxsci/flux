@@ -2,8 +2,9 @@
 // User-docs corpus gate (pure tier). docs/ is a Quarto website project
 // (docs/_quarto.yml → `quarto preview docs`); this pins its structural contract:
 //
-//   1. _quarto.yml render globs are .qmd-only, so the contributor-facing
-//      AGENT_ENGINEERING_GUIDE-RUNNING.md can never enter the rendered site.
+//   1. _quarto.yml POSITIVE render globs are .qmd-only, so the contributor-facing
+//      AGENT_ENGINEERING_GUIDE-RUNNING.md can never enter the rendered site; and
+//      docs/for_agents/ (agent runbooks, .md) is excluded outright as well.
 //   2. No orphans: every docs/**/*.qmd appears in the _quarto.yml sidebar, and
 //      every sidebar entry exists on disk (the sidebar IS the table of contents).
 //   3. Per-page frontmatter is title + subtitle ONLY — toc/numbering/theme are
@@ -26,7 +27,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const docsDir = path.join(repoRoot, "docs");
 
 // --- enumerate the corpus ---------------------------------------------------
-const SKIP_DIRS = new Set(["_site", ".quarto"]);
+// for_agents/ is agent-facing runbooks, deliberately outside the rendered site —
+// walked separately below, not part of the page corpus.
+const SKIP_DIRS = new Set(["_site", ".quarto", "for_agents"]);
 function walkQmd(dir: string, out: string[] = []): string[] {
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
     if (ent.isDirectory()) {
@@ -45,6 +48,40 @@ ok(
   "AGENT_ENGINEERING_GUIDE-RUNNING.md still lives in docs/ (AGENTS.md depends on it)",
 );
 
+// --- shared link checking ----------------------------------------------------
+const LINK_EXT = /\.(qmd|md|png|svg|jpe?g|gif|webp)$/i;
+
+/** Strip fenced code blocks and inline code spans so their contents aren't link-scanned. */
+function scrubCode(src: string): string {
+  const lines = src.split("\n");
+  let fenced = false;
+  const kept = lines.map((ln) => {
+    if (/^\s*(```|~~~)/.test(ln)) {
+      fenced = !fenced;
+      return "";
+    }
+    return fenced ? "" : ln;
+  });
+  return kept.join("\n").replace(/`[^`\n]*`/g, "");
+}
+
+/** Every relative doc/image link in a markdown-ish file must resolve. */
+function checkLinks(abs: string, label: string): void {
+  const body = scrubCode(fs.readFileSync(abs, "utf8"));
+  let broken = 0;
+  for (const m of body.matchAll(/\]\(([^()\s]+)\)/g)) {
+    let target = m[1];
+    if (/^(https?:|mailto:|#)/.test(target)) continue;
+    target = target.replace(/[#?].*$/, "");
+    if (!LINK_EXT.test(target)) continue;
+    if (!fs.existsSync(path.resolve(path.dirname(abs), target))) {
+      broken++;
+      h.fail(`${label}: broken link → ${m[1]}`);
+    }
+  }
+  if (broken === 0) ok(true, `${label}: all relative links resolve`);
+}
+
 // --- 1+2. _quarto.yml: render globs + sidebar completeness -------------------
 h.section("_quarto.yml contract");
 type QuartoCfg = {
@@ -58,8 +95,12 @@ ok(cfg?.project?.type === "website", "project type is website");
 const render = cfg?.project?.render ?? [];
 ok(render.length > 0, "project.render is an explicit list");
 ok(
-  render.every((g) => g.endsWith(".qmd")),
-  "render globs are .qmd-only (the engineering guide never enters the site)",
+  render.filter((g) => !g.startsWith("!")).every((g) => g.endsWith(".qmd")),
+  "positive render globs are .qmd-only (the engineering guide never enters the site)",
+);
+ok(
+  render.includes("!for_agents/**"),
+  "_quarto.yml excludes for_agents/** (agent runbooks are not user docs)",
 );
 
 function sidebarQmds(node: unknown, out: string[] = []): string[] {
@@ -82,24 +123,27 @@ const sidebar = sidebarQmds(cfg?.website?.sidebar?.contents).sort();
   ok(dangling.length === 0, dangling.length ? `sidebar entries missing on disk: ${dangling.join(", ")}` : "every sidebar entry exists on disk");
 }
 
+// --- for_agents: agent runbooks, never rendered ------------------------------
+h.section("for_agents (agent-facing, outside the site)");
+const agentsDir = path.join(docsDir, "for_agents");
+if (ok(fs.existsSync(agentsDir), "docs/for_agents/ exists")) {
+  const entries = fs.readdirSync(agentsDir).filter((f) => !f.startsWith("."));
+  ok(entries.length > 0, `for_agents holds ${entries.length} runbook(s)`);
+  const stray = entries.filter((f) => !f.endsWith(".md"));
+  ok(
+    stray.length === 0,
+    stray.length
+      ? `for_agents must hold .md only — ${stray.join(", ")} would be a site page in hiding`
+      : "for_agents holds .md only (the extension is what keeps it out of the site)",
+  );
+  ok(entries.includes("README.md"), "for_agents/README.md indexes the runbooks");
+  // the README's index links are the discovery path — they must resolve
+  for (const f of entries) checkLinks(path.join(agentsDir, f), `for_agents/${f}`);
+}
+
 // --- 3+4+5. per-page checks ---------------------------------------------------
 h.section("per-page frontmatter, links, hygiene");
 const PAGE_KEYS = new Set(["title", "subtitle"]);
-const LINK_EXT = /\.(qmd|md|png|svg|jpe?g|gif|webp)$/i;
-
-/** Strip fenced code blocks and inline code spans so their contents aren't link-scanned. */
-function scrubCode(src: string): string {
-  const lines = src.split("\n");
-  let fenced = false;
-  const kept = lines.map((ln) => {
-    if (/^\s*(```|~~~)/.test(ln)) {
-      fenced = !fenced;
-      return "";
-    }
-    return fenced ? "" : ln;
-  });
-  return kept.join("\n").replace(/`[^`\n]*`/g, "");
-}
 
 for (const rel of pages) {
   const abs = path.join(docsDir, rel);
@@ -120,20 +164,7 @@ for (const rel of pages) {
   );
 
   // links: every relative doc/image link resolves
-  const body = scrubCode(src);
-  let broken = 0;
-  for (const m of body.matchAll(/\]\(([^()\s]+)\)/g)) {
-    let target = m[1];
-    if (/^(https?:|mailto:|#)/.test(target)) continue;
-    target = target.replace(/[#?].*$/, "");
-    if (!LINK_EXT.test(target)) continue;
-    const resolved = path.resolve(path.dirname(abs), target);
-    if (!fs.existsSync(resolved)) {
-      broken++;
-      h.fail(`${rel}: broken link → ${m[1]}`);
-    }
-  }
-  if (broken === 0) ok(true, `${rel}: all relative links resolve`);
+  checkLinks(abs, rel);
 
   // machine-path hygiene
   ok(!/\/home\/[a-z]/.test(src), `${rel}: no absolute /home/... machine paths`);

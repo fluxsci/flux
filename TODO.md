@@ -65,7 +65,7 @@ belong in `docs/AGENT_ENGINEERING_GUIDE-RUNNING.md` §10 ("don't 'fix' these"), 
       `.github/workflows/ci.yml:29,65`, `.github/workflows/release.yml:34`, the README's Node
       section (its "odd/non-LTS 'Current' releases aren't tested" wording no longer describes 24)
       and its `EBADENGINE` troubleshooting row, `docs/installation.qmd:39-47`, and step 2 of
-      `docs/claude-install-flux-mac.md` ("newer 'Current' majors are untested against Electron 43
+      `docs/for_agents/claude-install-flux-mac.md` ("newer 'Current' majors are untested against Electron 43
       + electron-builder").
       **The gating question is electron-builder + Electron 43 under Node 24**, not application
       code — so verification means a real packaged build on *both* platforms (`dist:mac`,

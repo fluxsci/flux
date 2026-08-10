@@ -532,7 +532,15 @@ gated reference content** — the CLI verb tables live in `resources/flux-contex
 (registry-parity-gated), so user docs link there instead of copying. A new page = the file +
 a sidebar entry in `_quarto.yml` (the gate fails on orphans, broken links, frontmatter drift,
 or a render glob that could pull this guide into the site). **A user-visible behavior change
-updates the affected docs page in the same session** — the same discipline as gates. Facts in
+updates the affected docs page in the same session** — the same discipline as gates.
+
+**Write a runbook for an agent, not a page** (`docs/for_agents/`, `.md` only, never rendered):
+procedures addressed to an agent acting on a user's behalf — machine setup, sudo prompts,
+failure forensics — belong there, not in the site. Two independent guards, both gated: the
+render globs are `.qmd`-only, and `_quarto.yml` names `!for_agents/**` outright. Register it in
+`docs/for_agents/README.md` (the gate requires that index and checks its links resolve). The
+register is different from the user docs on purpose — exhaustive, verify-after-every-step, and
+free to name the failure modes plainly. Facts in
 the mode guides were swept from source (chords from `keyboard.ts`/`commands.ts` etc.); when a
 chord or label changes, grep `docs/` for the old one.
 
@@ -3233,3 +3241,34 @@ works under Wayland — which writes `~/.local/share/applications/flux.desktop` 
 - A user-level `flux.desktop` **shadows** a packaged `/usr/share/applications/flux.desktop`, so
   the installer prints the exact `rm` — a dev convenience that silently hijacks a real install
   later is a trap, not a convenience.
+
+### 2026-08-10 (later still) — Two machines, one folder, and a place to keep runbooks (Claude Opus 5, `main`)
+
+**Work:** Stood up continuous `~/FluxConfig` sync between the owner's two machines (Syncthing
+over Tailscale; verified from the peer at 100% / 0 errors), then closed the three application
+gaps that made a synced folder unsafe: absolute `source.svgPath` (`b5bc6ec`), sync-conflict and
+`.syncthing.*.tmp` artifacts reaching the watcher and `listDocuments` (`0a73e03`), and the
+scaffolded `.gitignore`. All three are promoted into §3. This commit adds `docs/for_agents/` —
+`.md` runbooks addressed to an agent, excluded from the rendered site twice over and gated —
+and moves the Mac install runbook there alongside a new, de-identified cross-machine sync
+guide. `verify-docs` 148 → 156.
+
+**Learnings:**
+
+- **"Started" from a service manager is not evidence the service runs.** `brew services start`
+  reported success while its LaunchAgent never executed — no process, no exit code, no log file
+  — and the daemon was fine when launched by hand. Only a positive signal *from the thing
+  itself* (an API ping, a written log) counts. Same shape as any "the command returned 0" claim.
+- **When a symptom has two plausible causes, find a second signal rather than reasoning
+  harder.** "API never came up" is a dead daemon *or* a probe on the wrong port; one `nc -zv`
+  against the peer's sync port from the other machine settles it in a step. This is the cheaper
+  half of every ambiguous-failure hour.
+- **Verify distributed state from the far side.** A sync tool's local UI saying "Up to Date"
+  only means the local queue is empty; the peer's completion is a different number, and it's the
+  one that answers "did my work arrive". Generalizes to anything with a local view of a remote.
+- **Escaped `\"` inside `$( )` inside a double-quoted string reaches the child as literal
+  backslashes** — invalid JSON, HTTP 400, while a single-quoted body in the same script worked.
+  Build request bodies with unquoted heredocs, and never `-o /dev/null` a request whose error
+  body you might need.
+- Promoted to §8: agent-facing runbooks live in `docs/for_agents/` as `.md`, indexed by its
+  README, guarded by both the `.qmd`-only render globs and an explicit `!for_agents/**`.
