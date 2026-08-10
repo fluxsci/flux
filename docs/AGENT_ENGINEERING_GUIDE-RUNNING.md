@@ -459,7 +459,12 @@ The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A 
 that isn't in the manifest doesn't exist.** Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
-  pure --jobs 4` (~20s parallel, currently 163 scripts, must stay green at all times).
+  pure --jobs 4` (~21s parallel, currently 172 scripts, must stay green at all times).
+  **Hermetic includes the user's machine state**, not just network and dev server: a pure script
+  that can reach FluxLib redirects `HOME` + `XDG_CONFIG_HOME` into a scratch dir *before*
+  flux-core loads (dynamic `import()` after the assignment — see `verify-zotero-sync.ts`,
+  `verify-f1-core.ts`) **and** passes an explicit `libPath`. `verify-hermetic-fluxlib.ts` pins
+  the libPath half; see the §9 trap for why both are needed.
 - **ui / ui-extra** — puppeteer against the dev server on :1420 (`scripts/lib/driver.mjs`;
   fixtures via `?fixture=demo`, dev handles `window.__flux`, `__fluxView`, `__fluxSeed*`). ui is
   the curated stable suite (59), ui-extra the full sweep (60). Consoles must be **clean** —
@@ -569,6 +574,26 @@ chord or label changes, grep `docs/` for the old one.
 - pdf.js text layers hide during CSS-zoom (span boxes collapse to 0,0 *stably*) — waits need a
   nonzero two-poll-stable box, not a single poll. `TextQuoteSelector`'s field is `quote`, not
   `exact` — a wrong anchor field silently orphans annotations.
+
+**A temp project root does NOT sandbox a FluxLib write** (found 2026-08-10, cost: 13 junk entries
+in the owner's real 1669-entry library):
+
+- Reference verbs write to **two** places — the project's cited subset *and* the machine-global
+  FluxLib. Scaffolding a throwaway project sandboxes only the first, so
+  `addReference(TMP, bibtex)` looked hermetic while filing its fixture into
+  `~/FluxConfig/FluxLib/library.bib` on every run. It sat in the `pure` tier for months; the
+  fixture was DOI-less, so dedupe could never collapse the copies and each run minted a fresh
+  re-keyed entry (`smith2020`, `anonStudy2020`, `anonStudy2020a…k`).
+- **A `libPath` option on the outer function is not proof it reaches the inner write.**
+  `importReferences` threaded `libPath` to its PDF/fulltext writes and dropped it on the bib
+  write — a sandboxed import that split across two libraries. When adding a `libPath` seam,
+  grep every `addToFluxLib`/`materializeIntoProject` call in the function body.
+- The tell is cheap and worth running after touching any reference code:
+  `md5sum ~/FluxConfig/FluxLib/library.bib` before and after the pure tier — it must not change.
+  Note the assertion has to be "no ENTRY landed in the global library", not "no `FluxConfig`
+  folder appeared": `scaffold` legitimately machine-inits an empty skeleton via `ensureFluxConfig`.
+- A gate that only *prints* a boolean has no teeth. `verify-f1-core.ts` reports by exit code, so
+  the containment check must `throw`. Prove any new gate fails by reverting the fix under it.
 
 **Identifying a PDF from its own bytes** (`pdfIdentify.ts`; the 2026-08-06 inbox backlog):
 
@@ -3145,3 +3170,29 @@ after `scripts/build-extension.mjs` it is green.
   the run/job/annotation APIs do not. `/actions/runs?branch=main` gives the exact commit where
   green turned red, which is faster than reading any log — and reproducing it is one
   `git worktree add <that sha>` away.
+
+### 2026-08-10 — The pure tier was writing test fixtures into the owner's real FluxLib (Claude Opus 5, `main`)
+**Work:** The owner kept finding junk `A study` (2020) references in his library and asked why.
+`verify-f1-core.ts` — a `pure`-tier script, so every `npm test` — called
+`core.addReference(TMP, "@article{smith2020, title={A study}, year={2020}}")`; the temp project
+root sandboxed the project half of that verb while its library half went to the real
+`~/FluxConfig/FluxLib`. 13 entries had accumulated in a 1669-entry library (owner had been
+deleting them by hand as he found them). Fixed by plumbing `libPath` through `addReference` /
+`addToLibrary` / (a genuine latent bug) `importReferences`, making the gate hermetic with the
+`verify-zotero-sync` HOME/XDG scratch idiom, and adding `verify-hermetic-fluxlib.ts` (pure, 9
+checks) over all three writers. Pure tier 172/172, `npm run check` 0/0, and a full `npm test`
+now leaves `library.bib` byte-identical (md5 before == after). Owner declined the cleanup of
+existing entries — he is removing those himself.
+
+**Learnings:**
+- Promoted to §9 as a trap block, and §7's pure-tier definition now spells out that *hermetic*
+  covers the user's machine state, not just network/dev-server. §7's script count was stale
+  (163 → 172).
+- **The manifest's tier `$doc` asserted "no real ~/FluxLib mutation" the whole time.** A written
+  contract with nothing executing it is a comment. If a tier claims a property, something in the
+  tier has to fail when the property breaks — that is the only difference between a contract and
+  a wish.
+- The bug survived because *both* engines behaved correctly: the write was the intended,
+  documented behavior of `addReference` (add to FluxLib **and** cite into the project). Nothing
+  was broken — the gate was simply calling a production verb with production reach. Test seams
+  belong on any function that touches machine-global state, whether or not it looks dangerous.

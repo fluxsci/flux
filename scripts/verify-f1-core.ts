@@ -3,14 +3,31 @@
 // add-reference, add-panel) — proving "the file is the API" from Node. Also runs
 // the actual CLI binary once for terminal authenticity.
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import * as core from "../flux-core/index";
 
 const pexec = promisify(execFile);
 const REPO = path.resolve(import.meta.dirname, "..");
 const TMP = path.join(REPO, "scratch-fluxproj");
+
+// --- hermetic env: HOME + XDG into a scratch dir BEFORE flux-core loads -------------------
+// add-reference writes to the MACHINE-GLOBAL FluxLib as well as the project, and a temp
+// project root sandboxes only the project half. Without this, every run of the pure tier
+// filed the "A study" fixture into the developer's real ~/FluxConfig/FluxLib/library.bib
+// (13 of them accumulated before it was caught). Same idiom as verify-zotero-sync.ts.
+const SCRATCH = await fs.mkdtemp(path.join(os.tmpdir(), "flux-f1-core-"));
+const HOME = path.join(SCRATCH, "home");
+await fs.mkdir(path.join(HOME, ".config"), { recursive: true });
+process.env.HOME = HOME;
+process.env.XDG_CONFIG_HOME = path.join(HOME, ".config");
+process.env.FLUX_NO_MIGRATE = "1";
+const LIB = path.join(SCRATCH, "lib");
+
+// Dynamic — must not bind any module-scope path before the env above is in place.
+const core = await import("../flux-core/index");
 
 await fs.rm(TMP, { recursive: true, force: true });
 await core.scaffold(TMP, { title: "Test Paper", author: "Me" });
@@ -66,8 +83,24 @@ results.caption = await core.captionFor(TMP, "growth");
 await core.setCaption(TMP, "growth", "Edited caption. (a) x. (b) y.");
 results.setCaption = (await fs.readFile(path.join(TMP, "fig/captions/growth.md"), "utf8")).trim();
 
-await core.addReference(TMP, "@article{smith2020, title={A study}, year={2020}}");
+await core.addReference(TMP, "@article{smith2020, title={A study}, year={2020}}", { libPath: LIB });
 results.bib = (await fs.readFile(path.join(TMP, "references/library.bib"), "utf8")).includes("smith2020");
+// Both halves of add-reference must land in the sandbox: the project's cited subset (above)
+// and the library itself. The second check is the leak gate — if libPath ever stops reaching
+// addToFluxLib, the entry falls back to the MACHINE-GLOBAL library instead. `scaffold` legitimately
+// machine-inits an empty <FluxConfig>/FluxLib skeleton, so the contract is "no ENTRY lands there",
+// not "the folder never appears".
+const globalBib = path.join(HOME, "FluxConfig", "FluxLib", "library.bib");
+results.libContained = {
+  // Tolerant read: when libPath is ignored the temp lib is never created at all, and a raw
+  // ENOENT here would mask the real diagnosis below.
+  inTempLib: fsSync.existsSync(path.join(LIB, "library.bib"))
+    ? fsSync.readFileSync(path.join(LIB, "library.bib"), "utf8").includes("smith2020")
+    : false,
+  globalLibEntries: fsSync.existsSync(globalBib)
+    ? (fsSync.readFileSync(globalBib, "utf8").match(/^@/gm) ?? []).length
+    : 0,
+};
 
 await fs.writeFile(
   path.join(TMP, "panel.svg"),
@@ -96,4 +129,20 @@ const { stdout } = await pexec("npx", ["tsx", "flux-cli.ts", "list", TMP], { cwd
 results.cli = { listHasGrowth: stdout.includes("fig-growth"), title: JSON.parse(stdout).title };
 
 await fs.rm(TMP, { recursive: true, force: true });
+
+// This script reports by exit code, so the containment result has to THROW to have teeth —
+// printing `false` would leave the leak green. Global-leak first: it is the precise diagnosis
+// when libPath is ignored (the temp lib is simply never created in that case).
+const contained = results.libContained as { inTempLib: boolean; globalLibEntries: number };
+if (contained.globalLibEntries !== 0) {
+  throw new Error(
+    `FAIL: ${contained.globalLibEntries} entr${contained.globalLibEntries === 1 ? "y" : "ies"} landed in the ` +
+      `MACHINE-GLOBAL FluxLib (${path.join(HOME, "FluxConfig", "FluxLib", "library.bib")}) — a write escaped ` +
+      "its libPath. On a real HOME this files test fixtures into the user's own reference library.",
+  );
+}
+if (!contained.inTempLib) {
+  throw new Error(`FAIL: add-reference wrote the entry to neither the sandboxed FluxLib (${LIB}) nor the global one.`);
+}
+await fs.rm(SCRATCH, { recursive: true, force: true });
 console.log(JSON.stringify(results, null, 2));

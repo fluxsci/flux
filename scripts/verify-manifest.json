@@ -1,5 +1,5 @@
 {
-  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping.",
+  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation \u2014 a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping.",
   "tiers": {
     "pure": [
       "verify-an-bridge.ts",
@@ -19,6 +19,7 @@
       "verify-enrich-cache.ts",
       "verify-f1-core.ts",
       "verify-f1-mcp.ts",
+      "verify-hermetic-fluxlib.ts",
       "verify-f2-recipe.ts",
       "verify-fig-rotbounds.ts",
       "verify-layer-rows.ts",

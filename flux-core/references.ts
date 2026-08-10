@@ -44,16 +44,29 @@ export async function annotationsMarkdown(key: string): Promise<string> {
 
 /** add-reference / cite: add a BibTeX entry to FluxLib (the machine-global
  *  library, deduped by DOI) and materialize it into this project's cited-subset
- *  library.bib. The project copy stays canonical-within-project (self-contained). */
-export async function addReference(root: string, bibtex: string): Promise<void> {
-  const res = await fluxlib.addToFluxLib(bibtex, { source: "bibtex" });
-  await fluxlib.materializeIntoProject(root, res.keys);
+ *  library.bib. The project copy stays canonical-within-project (self-contained).
+ *
+ *  `libPath` overrides the machine-global FluxLib — a scaffolded temp PROJECT does
+ *  not sandbox the library half of this call, so any gate that exercises it must
+ *  pass one (or redirect HOME) or it writes into the developer's real FluxLib.
+ *  See verify-hermetic-fluxlib.ts. */
+export async function addReference(
+  root: string,
+  bibtex: string,
+  opts: { libPath?: string } = {},
+): Promise<void> {
+  const res = await fluxlib.addToFluxLib(bibtex, { source: "bibtex", libPath: opts.libPath });
+  await fluxlib.materializeIntoProject(root, res.keys, { libPath: opts.libPath });
 }
 
 /** Add a BibTeX entry to FluxLib only (no project cite). Backs `lib add` /
- *  the add_to_library MCP tool / the "Add DOI to FluxLib" command. */
-export async function addToLibrary(bibtex: string): Promise<fluxlib.AddResult> {
-  return fluxlib.addToFluxLib(bibtex, { source: "bibtex" });
+ *  the add_to_library MCP tool / the "Add DOI to FluxLib" command.
+ *  `libPath` is the hermetic-test seam (see addReference). */
+export async function addToLibrary(
+  bibtex: string,
+  opts: { libPath?: string } = {},
+): Promise<fluxlib.AddResult> {
+  return fluxlib.addToFluxLib(bibtex, { source: "bibtex", libPath: opts.libPath });
 }
 
 export interface ImportReport {
@@ -110,7 +123,10 @@ export async function importReferences(
 ): Promise<ImportReport> {
   const format = sniffFormat(text);
   const bib = format === "ris" ? risToBibtex(text) : text;
-  const res = await fluxlib.addToFluxLib(bib, { source: "bibtex" });
+  // libPath MUST reach the bib write too: the PDF/fulltext half below already honors it,
+  // so dropping it here split a sandboxed import in two — attachments in the temp lib,
+  // entries in the machine-global one.
+  const res = await fluxlib.addToFluxLib(bib, { source: "bibtex", libPath: opts.libPath });
   const report: ImportReport = {
     format,
     added: res.added.map((e) => e.key),
