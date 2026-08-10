@@ -568,6 +568,13 @@ chord or label changes, grep `docs/` for the old one.
   looks like success. Automated Electron harnesses therefore pass `--ozone-platform=x11` and
   demand **positive** boot evidence (e.g. a probe printing `windows=1 title=Flux`), never
   absence-of-errors.
+- **On Wayland a client cannot set its own window icon** — no protocol exists for it, so
+  `BrowserWindow.icon` is silently ignored (on X11 the same option works, via `_NET_WM_ICON`).
+  The compositor instead matches the surface's `app_id` to an installed `.desktop` file and takes
+  the icon from there, so an unpackaged `electron .` matches nothing and GNOME draws its generic
+  `application-x-executable` cog. Packaged builds ship an entry (electron-builder, `linux.icon`);
+  dev runs need `npm run install:desktop-entry`. macOS ignores `BrowserWindow.icon` on any
+  backend — the Dock takes `app.dock.setIcon()` or the bundle's `.icns`.
 - Delegated worktree agents fork from the **default branch**, not your branch. Give them an
   explicit `git reset --hard <sha>` as step one, and expect to reconcile your in-flight deltas
   when merging their result.
@@ -3196,3 +3203,33 @@ existing entries — he is removing those himself.
   documented behavior of `addReference` (add to FluxLib **and** cite into the project). Nothing
   was broken — the gate was simply calling a production verb with production reach. Test seams
   belong on any function that touches machine-global state, whether or not it looks dangerous.
+
+### 2026-08-10 (later) — Dev runs showed a generic cog / the Electron atom instead of the mark (Claude Opus 5, `main`)
+**Work:** The owner's Linux dock showed GNOME's `application-x-executable` cog for a running Flux,
+and his Mac showed the Electron atom. The icons themselves were never the problem — `build/icons`
+has carried the phyllotaxis plates since the 2026-07-29 rework and both packaged targets already
+point at them (`electron-builder.yml` `mac.icon` / `linux.icon`). This was strictly the unpackaged
+`electron .` path, failing for a *different reason per platform*: `createWindow` set `icon` only on
+win32 (a deliberately narrow Windows-port change — "macOS/Linux keep today's exact window
+options"), macOS ignores `BrowserWindow.icon` on any backend, and Linux runs native Wayland
+(`ozone-platform-hint=auto`), where a client cannot set a window icon at all. Fixed with one
+`appIconPath()` helper feeding both the window option (now Linux + Windows, `.png`/`.ico`) and a
+`!app.isPackaged && app.dock` guarded `app.dock.setIcon()` for the mac Dock, plus new
+`scripts/install-desktop-entry.mjs` (`npm run install:desktop-entry`) — the only mechanism that
+works under Wayland — which writes `~/.local/share/applications/flux.desktop` with
+`StartupWMClass=<app_id>` and the hicolor icons at 32/64/128/256/512. Pure tier 173/173,
+`desktop-file-validate` clean, entry confirmed discoverable via Gio; owner confirmed the dock icon.
+
+**Learnings:**
+- Promoted to §9 (Environment) as a trap: the Wayland/X11/macOS split on window icons. Anyone
+  "fixing" this by setting `BrowserWindow.icon` and testing on this box learns nothing — the
+  option is accepted and silently dropped, which reads exactly like a wrong icon path.
+- The app_id is the whole join key, and it is *observable without any tooling*: GNOME's fallback
+  tooltip read lowercase `flux` while the window title is `Flux`, which is the app name
+  (package.json `name`, since there's no runtime `productName`) rather than the title. That is
+  what `StartupWMClass` has to equal, so the installer derives it from package.json instead of
+  hardcoding it. `org.gnome.Shell.Introspect.GetWindows` is `AccessDenied` on GNOME 49 and
+  `xprop`/`xdotool` aren't installed (and would be blind to a Wayland surface anyway).
+- A user-level `flux.desktop` **shadows** a packaged `/usr/share/applications/flux.desktop`, so
+  the installer prints the exact `rm` — a dev convenience that silently hijacks a real install
+  later is a trap, not a convenience.
