@@ -3070,7 +3070,8 @@ took the first `.xpi` `readdir` returned, so with two versions present the Libra
 OLDEST — the worst possible moment to serve stale bytes, since you press that button right after
 signing a fix. It now picks the newest, and the picker lives in `captureIntake.cjs` so the gate
 calls the real function. Gates: pure 170/170, check 0/0. Teeth proven by appending a line to
-`background.js` without re-signing.
+`background.js` without re-signing. *(Superseded below: those `dist/`-reading assertions were in
+the wrong tier and turned CI red for four days — the gate is now split in two.)*
 **Learnings:**
 
 - **The maintainer's working tree is the worst place to judge whether a checkout works.** Both
@@ -3090,3 +3091,57 @@ calls the real function. Gates: pure 170/170, check 0/0. Teeth proven by appendi
   change is pull, build, then reload (Chromium) or reinstall over the top (Firefox upgrades in
   place; the add-on id is stable). There is no `update_url`, so Firefox never does it by itself:
   if this add-on ever goes past a handful of people, host an update manifest or list it on AMO.
+
+## Session entry — the extension gate was in the wrong tier, and CI said so ten times
+
+Every push to `main` since 2026-08-06 sent the owner a "Run failed" email. Ten consecutive red
+runs; the last green one was `06a98c3`, and the extension work merged in at `0080ccf` took it
+red. The failure was always the same job (`ci / test`), always the same step (the pure tier),
+and always invisible to anyone running the suite locally.
+
+`verify-extension.ts` shipped in the `pure` tier with seven assertions that read
+`extension/dist` — a build output, gitignored, so a fresh checkout has never had it. `ci.yml`
+runs `--tier pure` *before* `npm run build` (that is what "hermetic" is supposed to mean), so
+the directory was not there and could not be. On the maintainer's box it passed, because a
+built `dist/` was sitting on disk from the last time anyone ran `npm run build`.
+
+The fix is a split along the line of what a checkout actually contains.
+`verify-extension.ts` keeps everything provable from committed files: the page-reader fixtures,
+the worker's structural guarantees, the capture-name contract, the control-byte scan, and what
+the signed `.xpi` says about *itself* (exactly one, current version, real Mozilla signature,
+embedded manifest agrees). The new `verify-extension-build.ts` takes everything that needs a
+build — `dist/` is a faithful copy of the sources, the built manifest carries the source
+version, and the byte-comparison closing source -> dist -> `.xpi` — and runs on the `bundle`
+tier, which `ci.yml` already runs after `npm run build`. No assertion was dropped or weakened;
+they were sorted. The `--changed` pathMap still points `extension/**` at the pure gate only, so
+editing the extension never demands a build the caller did not ask for.
+
+Verified the way CI runs it, not the way a working tree runs it: a clean worktree at `HEAD`
+with no `extension/dist` gives **pure 171/171** (it was 169/170 + `FAILED verify-extension.ts`
+before). The new gate keeps its teeth — run against that same dist-less tree it fails; run
+after `scripts/build-extension.mjs` it is green.
+
+**Learnings:**
+
+- **This exact rule was already written down, and four days later it was broken anyway.** The
+  V0.1-hardening entry above says it outright: *"A 'hermetic' pure gate that reads a `dist/`
+  build artifact isn't hermetic — it fails on a fresh clone and (since CI runs `--tier pure`
+  before `npm run build`) in CI too. Gates must generate what they need in-process or move to
+  the bundle tier. Prove it by running with `dist/` moved away."* A learning that is only in
+  the guide is a learning that has to be re-remembered by whoever writes the next gate. The
+  durable version is mechanical — this one now is, because the pure tier is the tier that runs
+  before the build, and putting a `dist/` read there fails immediately in CI.
+- **The previous entry's own top learning describes the bug it shipped.** It closes with "the
+  maintainer's working tree is the worst place to judge whether a checkout works" — and then
+  reported "pure 170/170" from a working tree that had `dist/` in it. Reporting a tier as green
+  means nothing unless you say *what state you ran it in*; "170/170" and "170/170 with `dist/`
+  absent" are different claims, and only the second one was the one that mattered.
+- **A red CI that stays red stops being information.** Ten failing runs in a row trains everyone
+  to read "Run failed" as noise, which is exactly when a real regression walks in unnoticed —
+  and `ui-gate` went green in that window without anyone being in a position to notice. Notify
+  on failure only works if failure is rare; the fix for a noisy alarm is the cause, never the
+  notification setting.
+- Worth knowing for next time: the failing step's own logs need auth even on a public repo, but
+  the run/job/annotation APIs do not. `/actions/runs?branch=main` gives the exact commit where
+  green turned red, which is faster than reading any log — and reproducing it is one
+  `git worktree add <that sha>` away.

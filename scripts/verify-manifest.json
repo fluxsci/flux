@@ -316,7 +316,8 @@
     ],
     "bundle": [
       "verify-w13-cli.mjs",
-      "verify-local-correction-bundle.mjs"
+      "verify-local-correction-bundle.mjs",
+      "verify-extension-build.ts"
     ],
     "startup": [
       "verify-startup.mjs"
@@ -410,6 +411,7 @@
       ]
     },
     {
+      "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here — a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
       "glob": "{extension/**,scripts/build-extension.mjs}",
       "run": [
         "verify-extension.ts",
