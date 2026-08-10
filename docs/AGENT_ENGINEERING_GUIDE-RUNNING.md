@@ -162,6 +162,20 @@ Persistence invariants (all machine-checked — do not weaken):
   hold a security boundary (`flux-core/render.ts`, where a canvas file is untrusted input)
   filter candidates through `isUnderRoot` rather than dropping `safeJoin`'s guarantee.
   Gated by `verify-plot-source.ts`.
+- **A sync tool's leftovers are never ordinary files.** `electron/conflictRules.js` is the ONE
+  definition (typed wrapper `src/lib/project/conflictRules.ts`), loaded by the watcher, the
+  scan, the resolver and `listDocuments` alike. Two shapes, opposite treatment: an in-flight
+  `.syncthing.*.tmp` transfer is **silent** (it is noise, not an event), while a
+  `<base>.sync-conflict-<date>-<time>-<device7>` copy raises the dedicated `"conflict"`
+  subsystem — checked FIRST in `subsystemFor`, before any path prefix, because a conflict copy
+  of `main.qmd` is not a manuscript edit. Two rules follow and are gated by
+  `verify-sync-conflicts.ts`: **a conflict copy must never appear as a document** (listDocuments
+  scans directories, so it used to offer one as an editable twin), and **an unresolved conflict
+  must never be silently ignored or silently deleted** — the banner is non-dismissable and every
+  resolution ends with the copy gone. Only append-only `.ndjson` ledgers get an automatic answer
+  (union the lines); everything else is the user's call. The scan runs on project open, not just
+  from watcher events: conflicts arrive while Flux is CLOSED, which is exactly when the other
+  machine was in use.
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
 - **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
   external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines

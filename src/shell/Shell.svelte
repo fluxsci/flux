@@ -5,6 +5,7 @@
   import Home from "./Home.svelte";
   import Workspace from "./Workspace.svelte";
   import Toasts from "./Toasts.svelte";
+  import SyncConflicts from "./SyncConflicts.svelte";
   import Help from "../lib/Help.svelte";
   import { view } from "./shellStore";
   import { DUR } from "../lib/motion/tokens";
@@ -94,6 +95,9 @@
 
 <div class="shell">
   <TitleBar />
+  <!-- Sync conflicts: shell-level so the banner shows in every mode, and directly under
+       the title bar so it reads as a condition of the window rather than of one pane. -->
+  <SyncConflicts />
   <div class="shell-body">
     {#if $view === "home"}
       <div

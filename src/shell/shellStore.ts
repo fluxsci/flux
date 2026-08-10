@@ -11,6 +11,7 @@ import { scaffoldProject } from "../lib/project/scaffold";
 import { loadProject, NotAProjectError } from "../lib/project/load";
 import { ensureProjectContext } from "../lib/project/contextHeal";
 import { startProjectWatch, stopProjectWatch } from "../lib/project/projectWatch";
+import { conflicts, conflictsOnProjectOpen, conflictsOpen } from "../lib/project/conflicts";
 import { flushAll } from "./lifecycle";
 import { reconcileProject } from "../lib/references/fluxlibBridge";
 import { bumpBibRevision } from "./scholar/revisions";
@@ -96,6 +97,10 @@ function enterLoaded(loaded: LoadedProject) {
   resetPanes("paper");
   view.set("workspace");
   startProjectWatch(loaded.root); // F1: live-reload agent/script edits
+  // Sync conflicts: most arrive while Flux is CLOSED (that is when the other machine
+  // was being used), so the watcher alone would never see them. Scan on open and put
+  // the banner up if anything is waiting.
+  void conflictsOnProjectOpen(loaded.root);
   // Principal-agent scheme: pre-Context projects gain Context/ on first open
   // (additive, existence-guarded, best-effort — see contextHeal.ts).
   void ensureProjectContext(loaded);
@@ -118,6 +123,8 @@ function enterInMemory(name: string) {
   resetPanes("paper");
   view.set("workspace");
   startProjectWatch(null);
+  conflicts.set([]); // in-memory demo project has no filesystem to conflict on
+  conflictsOpen.set(false);
 }
 
 export async function goHome() {
@@ -125,6 +132,9 @@ export async function goHome() {
   // used to rely on were fire-and-forget (unawaited async in onDestroy).
   await flushAll();
   stopProjectWatch();
+  // The conflict banner belongs to the project, not the app — leaving clears it.
+  conflicts.set([]);
+  conflictsOpen.set(false);
   view.set("home");
 }
 

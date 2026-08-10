@@ -131,11 +131,16 @@ See \`AGENTS.md\` for the full layout and conventions.
 `;
 }
 
+// Derived or machine-local state, none of it worth versioning:
+//   .meta/agent/      agent runtime state (attend-state, status, passes) — per machine
+//   fig/index.json.bak  the one-generation save backup, rewritten every commit point
 const GITIGNORE = `exports/
 .meta/cache/
 .meta/locks/
 .meta/live/
+.meta/agent/
 fig/renders/
+fig/index.json.bak
 `;
 
 // A new project opens with one canvas holding a default "Figure 1" frame, so

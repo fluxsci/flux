@@ -167,6 +167,10 @@ export interface FileBridge {
   // WS-5.3: fsync a DIRECTORY after a rename-into-place batch (crash-durability
   // of the rename itself). Optional; no-op on win32 / older bridges.
   fsyncDir?(p: string): Promise<void>;
+  // Walk the open project for a sync tool's `.sync-conflict-*` leftovers
+  // (electron/conflictRules.js). Read-only — resolution goes through fs:* above.
+  // Optional: the web demo has no filesystem to conflict on.
+  conflictsScan?(root: string): Promise<import("./conflictRules").SyncConflict[]>;
   paths(): Promise<{ home: string; userData: string; documents: string }>;
   openDirectory(title?: string): Promise<string | null>;
   openFiles(filters?: unknown[]): Promise<string[] | null>;
@@ -326,7 +330,10 @@ export interface FileBridge {
   // about:addons, so Flux opens the folder / the signed add-on file instead.
   captureExtensionInfo?(): Promise<{ dir: string; hasDir: boolean; xpi: string | null }>;
   revealCaptureExtension?(): Promise<{ ok?: boolean; error?: string }>;
-  installCaptureXpi?(): Promise<{ ok?: boolean; error?: string }>;
+  /** `ok` when the OS opened it (Firefox then prompts). `revealed` when nothing is registered
+   *  for `.xpi` — the normal case on macOS — and the file was shown in the file manager
+   *  instead, for the user to pick through about:addons. */
+  installCaptureXpi?(): Promise<{ ok?: boolean; revealed?: boolean; path?: string; error?: string }>;
   /** How many captures are waiting, without moving any of them — the Assign button's count. */
   captureCount?(): Promise<number>;
   // Main moves captured PDFs into pdfs_to_assign (the renderer can't: fsGuard refuses $HOME)

@@ -47,6 +47,10 @@ const CHANNELS = [
   { channel: "docs:open", kind: "invoke", scope: "spawn" },
   // --- project lifecycle / watcher / locks / journal ---------------------------
   { channel: "watch:setRoot", kind: "invoke", scope: "read" },
+  // Sync-conflict scan: walk the open project for a sync tool's `.sync-conflict-*`
+  // leftovers. Read-only — every resolution goes through the ordinary fs:* channels,
+  // so nothing here can delete or overwrite a file on its own.
+  { channel: "conflicts:scan", kind: "invoke", scope: "read" },
   { channel: "capture:dir", kind: "invoke", scope: "read" },
   { channel: "capture:extensionInfo", kind: "invoke", scope: "read" },
   { channel: "capture:revealExtension", kind: "invoke", scope: "read" },

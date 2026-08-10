@@ -28,6 +28,7 @@ import { materializeRenders } from "./render";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { slugify } from "../src/lib/project/types";
 import { CONTEXT_DOC_RELS, CONTEXT_PATHS } from "../src/lib/project/contextTemplates";
+import { isConflictPath } from "../electron/conflictRules.js";
 
 // --------------------------------------------------------------------------
 // manuscript + documents + references + compile (the Paper-side parity verbs).
@@ -80,7 +81,12 @@ export async function listDocuments(
   const scan = async (d: string, into: Set<string>, exts: string[]) => {
     try {
       for (const e of await fs.readdir(safeJoin(root, d), { withFileTypes: true }))
-        if (e.isFile() && exts.some((x) => e.name.endsWith(x))) into.add(d ? `${d}/${e.name}` : e.name);
+        // A sync tool's `.sync-conflict-*` copy of main.qmd is not a document — it is an
+        // unresolved conflict, surfaced by its own banner (electron/conflictRules.js, the
+        // SAME module the watcher and the resolver load). Listing it here offered the user
+        // a second, silently diverging "document" to edit by mistake.
+        if (e.isFile() && exts.some((x) => e.name.endsWith(x)) && !isConflictPath(e.name))
+          into.add(d ? `${d}/${e.name}` : e.name);
     } catch {
       /* dir may not exist */
     }

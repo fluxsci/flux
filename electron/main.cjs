@@ -912,11 +912,22 @@ fileCore.registerHandlers(ipcMain);
 // ESM/dynamic-import story): exploratory image sets Flux never reads. They are pruned from the
 // watch targets outright — this is the belt to that braces, so a path that slips through can
 // still never be mistaken for a plot re-sync.
+// A sync tool's leftovers get their own treatment BEFORE any subsystem sees them
+// (conflictRules.js, same ESM/dynamic-import story). Without this a Syncthing conflict
+// copy of main.qmd routes to "manuscript" and lands in the document list as a document,
+// and every in-flight `.syncthing.*.tmp` transfer bumps a revision for nothing. Temp
+// files vanish; conflict copies raise the dedicated "conflict" subsystem, which the
+// renderer turns into a banner the user has to clear.
+let conflictRules = null;
 let plotFolderRules = null;
 let dissectRules = null;
 function subsystemFor(root, abs) {
   const rel = path.relative(root, abs).split(path.sep).join("/");
   if (rel.startsWith("..")) return null;
+  if (conflictRules) {
+    if (conflictRules.isSyncTempPath(rel)) return null;
+    if (conflictRules.isConflictPath(rel)) return "conflict";
+  }
   if (rel.startsWith("plots/")) {
     if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) return null;
     return dissectRules && dissectRules.isDissectionProjectRel(rel) ? "dissections" : "plots";
@@ -1034,8 +1045,105 @@ ipcMain.handle("capture:revealExtension", () => {
 ipcMain.handle("capture:installXpi", async () => {
   const xpi = signedXpi();
   if (!xpi) return { error: "the signed add-on isn't bundled in this build yet" };
+  // openPath hands the file to whatever the OS registered for `.xpi`. macOS registers NOTHING
+  // — Launch Services answers "there is no application set to open the file" — and Linux and
+  // Windows only sometimes do, depending on how Firefox was installed. So a failure here is the
+  // NORMAL case on a Mac, not an exception, and reporting it as an error left the one browser
+  // that needs a signed add-on with no working route at all.
+  //
+  // Falling back to revealing the file is the same honest move the Chromium column already
+  // makes: Flux cannot drive about:addons from outside (browsers refuse that deliberately), so
+  // it puts the file in front of you and hands you the address to paste.
   const err = await shell.openPath(xpi);
-  return err ? { error: err } : { ok: true };
+  if (!err) return { ok: true };
+  shell.showItemInFolder(xpi);
+  return { revealed: true, path: xpi };
+});
+
+// ---------------------------------------------------------------------------
+// Sync-conflict scan. The watcher only sees a conflict copy that lands while the app is
+// OPEN; most arrive while it is closed, so the renderer also scans on project open and
+// after every "conflict" event. Walks the whole project — including .meta/, whose
+// append-only ledgers are the likeliest thing to conflict — and skips only VCS/tooling
+// internals. Capped, because an unresolved conflict is a handful of files, never
+// thousands: hitting the cap still surfaces the banner, which is the point.
+// ---------------------------------------------------------------------------
+const CONFLICT_SCAN_SKIP_DIRS = new Set([".git", "node_modules", ".stversions", ".stfolder"]);
+const CONFLICT_SCAN_MAX = 200;
+const CONFLICT_IDENTICAL_MAX_BYTES = 8 * 1024 * 1024;
+
+async function scanConflicts(root) {
+  if (!conflictRules) conflictRules = await import("./conflictRules.js").catch(() => null);
+  if (!conflictRules || !root) return [];
+  const fsp = require("node:fs/promises");
+  const out = [];
+  const walk = async (dirAbs, dirRel) => {
+    if (out.length >= CONFLICT_SCAN_MAX) return;
+    let entries;
+    try {
+      entries = await fsp.readdir(dirAbs, { withFileTypes: true });
+    } catch {
+      return; // unreadable dir — nothing to report
+    }
+    for (const e of entries) {
+      if (out.length >= CONFLICT_SCAN_MAX) return;
+      const rel = dirRel ? `${dirRel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        if (CONFLICT_SCAN_SKIP_DIRS.has(e.name)) continue;
+        if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) continue;
+        await walk(path.join(dirAbs, e.name), rel);
+        continue;
+      }
+      if (!e.isFile() || !conflictRules.isConflictPath(e.name)) continue;
+      const info = conflictRules.parseConflictPath(rel);
+      if (!info) continue;
+      const abs = path.join(dirAbs, e.name);
+      const baseAbs = path.join(root, info.base);
+      let size = 0;
+      let baseExists = false;
+      let identical = false;
+      try {
+        size = (await fsp.stat(abs)).size;
+      } catch {
+        continue; // vanished mid-scan (someone resolved it) — not an error
+      }
+      try {
+        const bs = await fsp.stat(baseAbs);
+        baseExists = bs.isFile();
+        // Byte-identical sides happen a lot (both machines saved the same text).
+        // Saying so up front turns a scary banner into one Discard click.
+        if (baseExists && bs.size === size && size <= CONFLICT_IDENTICAL_MAX_BYTES) {
+          const [a, b] = await Promise.all([fsp.readFile(abs), fsp.readFile(baseAbs)]);
+          identical = a.equals(b);
+        }
+      } catch {
+        /* no base file — the "restore or discard" case */
+      }
+      out.push({
+        rel,
+        base: info.base,
+        when: info.when,
+        device: info.device,
+        baseExists,
+        identical,
+        mergeable: conflictRules.isMergeableConflict(rel),
+        size,
+      });
+    }
+  };
+  await walk(root, "");
+  out.sort((a, b) => a.rel.localeCompare(b.rel));
+  return out;
+}
+
+ipcMain.handle("conflicts:scan", async (_e, root) => {
+  const r = root ? path.resolve(root) : currentRoot;
+  if (!r) return [];
+  try {
+    return await scanConflicts(r);
+  } catch {
+    return [];
+  }
 });
 
 ipcMain.handle("watch:setRoot", async (_e, root) => {
@@ -1072,6 +1180,7 @@ ipcMain.handle("watch:setRoot", async (_e, root) => {
   if (capDir && !captureRules) captureRules = await import("./captureRules.js").catch(() => null);
   if (!dissectRules) dissectRules = await import("./dissectRules.js").catch(() => null);
   if (!plotFolderRules) plotFolderRules = await import("./plotsFolders.js").catch(() => null);
+  if (!conflictRules) conflictRules = await import("./conflictRules.js").catch(() => null);
   const zoteroPrefs = readPrefs().zotero;
   const zoteroBib =
     zoteroPrefs && typeof zoteroPrefs === "object" && typeof zoteroPrefs.bibPath === "string" && zoteroPrefs.bibPath

@@ -171,7 +171,8 @@
       "verify-extension.ts",
       "verify-dissections.ts",
       "verify-plots-folders.ts",
-      "verify-plot-source.ts"
+      "verify-plot-source.ts",
+      "verify-sync-conflicts.ts"
     ],
     "net": [
       "verify-enrich-live.ts",

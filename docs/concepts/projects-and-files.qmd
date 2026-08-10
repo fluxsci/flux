@@ -68,3 +68,43 @@ a project works exactly as you'd expect, and the derived directories are the onl
 ignoring. A project is also **self-contained** — its `references/library.bib` holds real copies
 of the entries it cites (not pointers into your [machine library](library-and-fluxlib.qmd)), so
 zipping the folder, cloning it, or opening it on another machine just works.
+
+# Working across two machines
+
+Because a project is just a folder, any file-sync tool can carry it between a desktop and a
+laptop. Flux is built to tolerate that: every write is atomic, so a sync tool can never catch a
+half-written file; figure saves have a commit point, so even a mid-save snapshot is
+self-consistent; derived caches rebuild themselves; and an external change that lands under an
+open, unsaved editor raises an explicit **Reload / Keep / Overwrite** choice rather than
+silently clobbering your work. Plot source paths are stored relative to the project, so
+regenerating and hot-swapping keep working on either machine.
+
+The one habit that keeps it boring: **work on one machine at a time**, and let saves settle for
+a second before you walk away.
+
+## When two machines edit the same file
+
+If you do edit the same file on both machines before they sync, nothing is lost — but there is
+something to decide, and Flux makes you decide it.
+
+Sync tools handle this by keeping both versions: the winner stays put and the loser is renamed
+to something like `main.sync-conflict-20260810-143022-JMSNC52.qmd`. Left alone, that file is a
+quiet hazard — a second copy of your work that drifts further from both sides every day.
+
+So Flux treats an unresolved conflict as a condition of the project, not a stray file. A
+**banner appears under the title bar and stays there** until every conflict is resolved; it
+can't be dismissed, because a warning you can wave away is one you will. Conflict copies are
+also kept out of your document list, so you can never open one by accident and edit the wrong
+version.
+
+Clicking **Resolve** lists each conflict with what you need to know — which file, which machine
+it came from, when, and whether the two sides actually differ. Then:
+
+- **Identical** — most conflicts, because both machines saved the same text. Flux says so, and
+  one click discards the redundant copy.
+- **Keep mine** / **Keep theirs** — for a real divergence. The copy is removed either way.
+- **Merge both** — offered only for the append-only logs in `.meta/`, where combining the two
+  sets of entries is genuinely the right answer.
+
+Every path ends with the conflict copy gone, because a resolution that leaves the file behind
+isn't one.
