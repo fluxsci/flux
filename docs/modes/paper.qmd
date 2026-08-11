@@ -218,6 +218,15 @@ Helper panes summon beside your text and stack in one column:
 drags to resize. (When idle, the margin shows an ambient background — pick your scene in
 Settings › Paper.)
 
+# Two manuscripts side by side
+
+**Alt+click** the Paper icon in the top bar to split the workspace into two Paper panes —
+the main text on the left, the supplement (or any other document) on the right. Each pane
+has its own outline, margin, and helper panes, and each edits its own document; asking a
+pane for a document that's already open in the other pane focuses that pane instead of
+opening it twice. There's one terminal between them — summoning it in the other pane moves
+it there.
+
 # Comments and review
 
 Select text and click the comment button in the floating toolbar (or press **Ctrl+Alt+M**) to

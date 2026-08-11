@@ -17,9 +17,13 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 | **?** | Keyboard shortcut overlay (works on the Home screen too) |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
 | **Ctrl+1** … **Ctrl+5** | Switch mode (Figure, Paper, Slide, Library, Reader) |
+| **Ctrl+Shift+N** | New window (a second project side by side; also in the taskbar icon's right-click menu) |
 
 Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Alt+click**
-(or **Cmd+click**) a mode icon opens that mode in a split pane.
+(or **Cmd+click**) a mode icon opens that mode in a split pane. That includes Paper: two
+manuscript panes show two *different* documents of the project (asking for one that's open
+in the other pane focuses that pane instead). Figure and Slide stay single-pane — they share
+the editing engine.
 
 # Paper
 

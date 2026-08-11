@@ -397,6 +397,31 @@ Persistence invariants (all machine-checked — do not weaken):
   `electron/ipc/{contract,files,terminal,network,agent}.cjs`. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
   under a **CSP with no `unsafe-eval`** — see §5.
+- **Multi-window (2026-08-11): one process, N windows, one project per window.** All
+  per-window lifecycle state lives in main's `sessions` registry (webContents id → {win, root,
+  watcher}); handlers resolve the sender's root via `rootFor(e)` — never a global. The watcher
+  is split: ONE process-wide machine-global watcher (FluxLib/zotero/capture, fans out to all
+  windows) + a small per-window project watcher. Agent bridges are keyed by root and pinned to
+  their window (`ipc/agent.cjs`); GUI locks key `senderId:scope:name`; dialog APPROVALS are
+  per-window while the fsGuard roots() union stays global (roots are project roots, approvals
+  are transient dialog grants). The same project never opens in two windows —
+  `win:projectOpenElsewhere` focuses the existing one (two autosavers on one manuscript can
+  lose writing). Reader sessions persist per project root (`flux-reader-tabs:<root>`). QUIT is
+  decided by `appLifecycle.createAppWindowPolicy`: app windows register, hidden utility windows
+  (proxy-capture, print) never do, and the last app window's close quits on non-mac — *a
+  window the user cannot see must never keep the app alive* (the quit-wedge fix). Gates:
+  `verify-quit-policy.ts` (pure), `verify-multiwindow.cjs` (electron).
+- **Dual paper panes (2026-08-11): Paper left `SINGLETON_MODES`.** Every per-editor singleton
+  is a per-instance factory now (selection bubble, cursor tracker, active-citation tracker,
+  refReveal, margin pane stack) threaded via the MarginHost like WS-4.2 numbering; the
+  chip/slash/table/embed handlers are a per-editor registry keyed by `view.dom`
+  (`chipContext.registerPaperHandlers`, lookup by `el.closest(".cm-editor")`); flushable ids
+  carry the pane id (`paper-<paneId>` — prefix matching in lifecycle.ts keeps every caller
+  working); the feedback stamp publishes from the FOCUSED pane only; shell-routed
+  palette/open-doc requests are focused-gated. Two panes on the SAME document are refused
+  (`paperDocRegistry` — the request focuses the claiming pane; a shared-EditorState split view
+  is a different feature, deliberately out). Figure/slide stay gated (app-global store, F5.3).
+  Gate: `verify-paper-split.mjs` (paper-gate).
 
 ## 5. Hard rules — do not do these
 
@@ -482,7 +507,7 @@ The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A 
 that isn't in the manifest doesn't exist.** Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
-  pure --jobs 4` (~21s parallel, currently 172 scripts, must stay green at all times).
+  pure --jobs 4` (~21s parallel, currently 175 scripts, must stay green at all times).
   **Hermetic includes the user's machine state**, not just network and dev server: a pure script
   that can reach FluxLib redirects `HOME` + `XDG_CONFIG_HOME` into a scratch dir *before*
   flux-core loads (dynamic `import()` after the assignment — see `verify-zotero-sync.ts`,
@@ -500,7 +525,7 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
   on this box need `--ozone-platform=x11` (§9).
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
-  `group:paper-gate` is the paper editor's regression suite (26 scripts). For parallel
+  `group:paper-gate` is the paper editor's regression suite (28 scripts). For parallel
   worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
   never hardcode the default port.
@@ -596,9 +621,11 @@ chord or label changes, grep `docs/` for the old one.
   do NOT assume it is headless (an earlier "no monitor" note here was wrong; corrected
   2026-07-12). Agent shells, however, often run detached (ssh/tmux), and the Wayland compositor
   has died mid-session at least once, leaving Electron **hung before executing any JS** — silence
-  looks like success. Automated Electron harnesses therefore pass `--ozone-platform=x11` and
-  demand **positive** boot evidence (e.g. a probe printing `windows=1 title=Flux`), never
-  absence-of-errors.
+  looks like success. Automated Electron harnesses therefore pass `--ozone-platform=x11` **as a
+  real command-line argument** — from a detached shell native Wayland can also hang Electron
+  *after* JS starts but before `app.whenReady` ever resolves, and an `appendSwitch` inside the
+  script is parsed too late to save it (2026-08-11) — and demand **positive** boot evidence
+  (e.g. a probe printing `windows=1 title=Flux`), never absence-of-errors.
 - **On Wayland a client cannot set its own window icon** — no protocol exists for it, so
   `BrowserWindow.icon` is silently ignored (on X11 the same option works, via `_NET_WM_ICON`).
   The compositor instead matches the surface's `app_id` to an installed `.desktop` file and takes
@@ -3337,3 +3364,48 @@ green (prose keystroke 2.2× < 3×, still zero block-field builds), check 0/0.
 - A GUI gate that reads a DOM node the feature creates must null-guard it, or reverting the
   feature makes the gate CRASH instead of reporting — still red, but it takes the other 30
   checks' results down with it.
+
+### 2026-08-11 — Multi-window + dual paper panes + the quit wedge (Claude Fable 5, `worktree-aug10-deferred-updates`)
+
+**Work:** Implemented both deferred investigations from `notes/aug_10_deferred_updates/` after
+re-verifying every claim against source (two corrections: the lock-map collision is an
+early-return restamp that strands the second holder's heartbeat, not an interval leak; and the
+dual-pane plan missed three real blockers — the module-global chip/slash/table/embed handler
+registries, the ungated command-bus effects, and the margin terminal's host div). Quit-wedge
+R1–R4: denied single-instance launches log; app windows register with
+`appLifecycle.createAppWindowPolicy` and the last one's close quits regardless of hidden
+utility windows; pure gate `verify-quit-policy.ts`; recovery row in the install docs.
+Multi-window: main's per-window `sessions` registry replaces `mainWindow`/`currentRoot`/
+`projectWatcher`; global/project watcher split; per-root bridges pinned to windows; per-window
+locks + dialog approvals + pending roots; `--new-window` desktop action (dev entry +
+electron-builder `desktopActions`) via second-instance; `win:new`/`win:initialProject`/
+`win:projectOpenElsewhere`; same-project-opens focus the existing window; reader sessions
+per project root. Dual paper panes: every remaining paper singleton became a per-instance
+factory (threaded via MarginHost), chipContext became a per-editor registry, flushable ids
+carry the pane id, the feedback stamp follows focus, same-document panes are refused
+(`paperDocRegistry`), and `"paper"` left `SINGLETON_MODES`. Promoted the durable statements
+into §4. Gates: pure 175/175, paper-gate 28/28 (new `verify-paper-split.mjs`), reader-gate
+green (`verify-r8` updated for the scoped tabs key — deliberate contract change),
+`verify-multiwindow.cjs` (electron) PASS, check 0/0.
+**Learnings:**
+
+- **`--ozone-platform=x11` must be a REAL command-line argument for electron-tier gates run
+  from a detached shell.** Native Wayland hangs Electron BEFORE `app.whenReady` resolves —
+  after JS starts, so "required electron OK" prints and then nothing — and an
+  `app.commandLine.appendSwitch` inside the script is parsed too late to save it. A 12-line
+  boot probe (print at require, print at whenReady, timeout) isolated it in one run after an
+  hour of staring at hung full gates. The gate headers now say so.
+- **A background `cmd | grep | tail` swallows a hung child's evidence.** The pipe buffers
+  everything until exit, so a wedged gate shows zero bytes of output — indistinguishable from
+  "not started". Electron-tier gates now stream each result line via `fs.writeSync(1, …)` as
+  it happens; the report prints only the verdict.
+- **A "registry keyed by instance" is not a singleton** — the pane-gate comment condemned
+  module-scope state wholesale, but the doc-claim map and the per-editor handler registry are
+  module-scope BY DESIGN (instances must see each other's claims). The test is whether an
+  entry's lifetime is one instance's lifetime.
+- The mode-gate comment in `paneStore.ts` was the best implementation plan in the repo: it
+  named exactly the two singletons that still blocked paper. Keeping gate comments precise
+  about WHY pays off a month later.
+- Widget affordances gated on "is a handler registered" at `toDOM()` time can't resolve
+  per-editor (the element isn't attached yet) — the render gate is "ANY pane registered"
+  (`anyPaperHandlers`), and the click-time dispatch resolves by element ancestry.

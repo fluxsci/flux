@@ -23,6 +23,12 @@ A Flux project is [just a folder](concepts/projects-and-files.qmd) — everythin
 here lands in readable files inside it. And notice what you won't do for the rest of this
 tutorial: save. Flux [autosaves continuously](concepts/projects-and-files.qmd#saving-you-dont).
 
+Working on two studies at once? Open a second window with **Ctrl+Shift+N** (also in your
+taskbar's right-click menu on the Flux icon, or the New Window link on the Home screen) and
+open the other project there. Each window holds one project; opening a project that's already
+open in another window just focuses that window. You can also launch straight into a project
+from a terminal: `flux ~/growth-study/paper`.
+
 # Add a paper to your library
 
 Open **Library** from the mode icons in the top bar. Paste a DOI into the add box at the top — any paper you
