@@ -73,6 +73,10 @@ for (const [size, file] of Object.entries(SIZES)) {
 const require = createRequire(import.meta.url);
 const electronBin = require("electron"); // resolves to this platform's binary path
 
+// The "New Window" desktop action (taskbar right-click, GNOME dash, KDE):
+// its Exec just RUNS THE APP AGAIN with --new-window — the running process
+// catches it via the single-instance lock's second-instance handler and opens
+// a window (electron/main.cjs). Ghostty/Zed use the identical mechanism.
 const entry = `[Desktop Entry]
 Type=Application
 Version=1.0
@@ -84,6 +88,11 @@ Terminal=false
 Categories=Graphics;Publishing;
 StartupWMClass=${appId}
 StartupNotify=true
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=${electronBin} ${root} --new-window
 `;
 
 const appsDir = join(dataHome, "applications");

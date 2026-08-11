@@ -7,7 +7,7 @@
   import Toasts from "./Toasts.svelte";
   import SyncConflicts from "./SyncConflicts.svelte";
   import Help from "../lib/Help.svelte";
-  import { view } from "./shellStore";
+  import { view, openProjectAt } from "./shellStore";
   import { DUR } from "../lib/motion/tokens";
   import { get } from "svelte/store";
   import { fileBridge } from "../lib/project/types";
@@ -82,13 +82,29 @@
         // Web capture: pull in anything captured while Flux was closed. The only other pull is
         // the Library's Assign button — never on focus, never on a watcher event.
         captureIntakeOnStartup();
+        // Multi-window: a window created to open a specific project (a CLI
+        // project-dir arg, or `flux <dir>` relayed via second-instance) boots
+        // straight into it instead of Home. One-shot; best-effort.
+        void fb.initialProjectRoot?.()
+          .then((root) => (root ? openProjectAt(root) : undefined))
+          .catch(() => {});
       } else if (tries++ < 40) {
         setTimeout(attach, 100);
       }
     }
     attach();
+    // Multi-window: Ctrl/Cmd+Shift+N opens a fresh window at Home. Shell-level
+    // so it works in every mode and on Home; macOS also has the File-menu item.
+    const onNewWindowKey = (e: KeyboardEvent) => {
+      if (e.code === "KeyN" && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.altKey) {
+        e.preventDefault();
+        void fileBridge()?.newWindow?.();
+      }
+    };
+    window.addEventListener("keydown", onNewWindowKey);
     return () => {
       unsub?.();
+      window.removeEventListener("keydown", onNewWindowKey);
     };
   });
 </script>

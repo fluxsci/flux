@@ -207,6 +207,14 @@ contextBridge.exposeInMainWorld("fig", {
     setDocumentEdited: (edited) => ipcRenderer.send("win:setDocumentEdited", !!edited),
   },
 
+  // Multi-window (2026-08-11): open a fresh window at Home; read the one-shot
+  // root this window was created to open (CLI arg / second-instance path); ask
+  // main to focus a window that already has a root open (A4.1 — the renderer
+  // aborts its own open when this returns true).
+  newWindow: () => ipcRenderer.invoke("win:new"),
+  initialProjectRoot: () => ipcRenderer.invoke("win:initialProject"),
+  projectOpenElsewhere: (root) => ipcRenderer.invoke("win:projectOpenElsewhere", root),
+
   // R3 (FluxReader "Ask Claude"): how to launch the flux MCP server for the open
   // project — embedded by the agent drawer in `claude --mcp-config` so the spawned
   // session can see the paper (get_reading_context / get_paper_text / annotations).

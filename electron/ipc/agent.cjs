@@ -12,72 +12,96 @@ const agentsConfig = require("../agentsConfig.cjs");
 /**
  * deps:
  *   app               — Electron app (isPackaged, home path)
- *   getMainWindow     — () => BrowserWindow | null (dispatch target)
- *   getCurrentRoot    — () => open project root | null (mcpSpec cwd)
+ *   rootForSender     — (e) => the sender window's open project root | null
  *   appendJournalLine — provenance journal (project family owns it)
  *   noteWrite         — FILES-family self-write TTL (bridge.json writes)
  *   appRoot           — absolute repo/app root (dist/flux-mcp.mjs resolution)
  */
-function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLine, noteWrite, appRoot }) {
+function createAgentFamily({ app, rootForSender, appendJournalLine, noteWrite, appRoot }) {
 // ---------------------------------------------------------------------------
   // WS4: live agent context bridge. The renderer pushes its UI context up (cached
   // here) and answers dispatch requests; an external agent (the Flux MCP server)
   // talks to a loopback control server started per open project. See bridgeServer.cjs.
+  //
+  // Multi-window (2026-08-11): ONE bridge per open project, each pinned to the
+  // window that opened it — the old module singleton meant window B's project
+  // open tore down window A's live bridge. Bridges write per-root on disk
+  // (<root>/.meta/live/bridge.json), so entries never collide there; only this
+  // map held them one-at-a-time. Roots are unique across windows (the renderer
+  // focuses an existing window instead of double-opening — win:projectOpenElsewhere).
   // ---------------------------------------------------------------------------
   const { startBridge } = require("../bridgeServer.cjs");
-  let bridge = null;
-  let latestContext = null;
+  const bridges = new Map(); // root -> { bridge, latestContext, win }
   let dispatchSeq = 0;
-  const dispatchPending = new Map(); // id -> { resolve, reject, timer }
-  
-  function stopBridge() {
-    if (bridge) {
-      try {
-        bridge.stop();
-      } catch {
-        /* ignore */
-      }
-      bridge = null;
+  const dispatchPending = new Map(); // id -> { resolve, reject, timer, root }
+
+  function stopBridgeEntry(root) {
+    const entry = bridges.get(root);
+    if (!entry) return;
+    bridges.delete(root);
+    try {
+      entry.bridge.stop();
+    } catch {
+      /* ignore */
     }
-    for (const { reject, timer } of dispatchPending.values()) {
-      clearTimeout(timer);
-      reject(new Error("bridge stopped"));
+    for (const [id, p] of [...dispatchPending]) {
+      if (p.root !== root) continue;
+      dispatchPending.delete(id);
+      clearTimeout(p.timer);
+      p.reject(new Error("bridge stopped"));
     }
-    dispatchPending.clear();
-    latestContext = null;
   }
-  
-  function startBridgeFor(root) {
-    stopBridge();
+
+  /** watch:setRoot: swap the bridge OWNED BY THIS WINDOW to `root` (null stops it). */
+  function setBridgeFor(root, win) {
+    for (const [r, entry] of [...bridges]) if (entry.win === win) stopBridgeEntry(r);
     if (!root) return;
-    bridge = startBridge({
+    stopBridgeEntry(root); // a stale entry for this root (defensive — see map comment)
+    const entry = { bridge: null, latestContext: null, win };
+    entry.bridge = startBridge({
       root,
-      getContext: () => latestContext,
+      getContext: () => entry.latestContext,
       dispatch: (command) =>
         new Promise((resolve, reject) => {
-          if (!getMainWindow() || getMainWindow().webContents.isDestroyed()) return reject(new Error("no renderer"));
+          if (entry.win.isDestroyed() || entry.win.webContents.isDestroyed())
+            return reject(new Error("no renderer"));
           const id = ++dispatchSeq;
           const timer = setTimeout(() => {
             dispatchPending.delete(id);
             reject(new Error("dispatch timed out"));
           }, 12000);
-          dispatchPending.set(id, { resolve, reject, timer });
+          dispatchPending.set(id, { resolve, reject, timer, root });
           appendJournalLine(root, {
             action: `dispatch:${command && command.type}`,
             client: "agent",
             target: (command && (command.figureId || command.partId)) || undefined,
           });
-          getMainWindow().webContents.send("bridge:dispatch", { id, command });
+          entry.win.webContents.send("bridge:dispatch", { id, command });
         }),
       noteWrite,
     });
+    bridges.set(root, entry);
+  }
+
+  /** Window teardown: stop the bridge(s) this window owns (its `closed` handler). */
+  function stopBridgeForWindow(win) {
+    for (const [r, entry] of [...bridges]) if (entry.win === win) stopBridgeEntry(r);
+  }
+
+  /** Quit/signal teardown: every bridge.json (+ token) must leave the disk. */
+  function stopAllBridges() {
+    for (const r of [...bridges.keys()]) stopBridgeEntry(r);
   }
 
   /** Register the family's channels on the (contract-wrapped) ipc. */
   function registerHandlers(ipc) {
-    ipc.on("bridge:context", (_e, ctx) => {
-      latestContext = ctx;
-      if (bridge) bridge.pushContext(ctx);
+    ipc.on("bridge:context", (e, ctx) => {
+      // The context belongs to the SENDER's project — route by its root.
+      const root = rootForSender(e);
+      const entry = root ? bridges.get(root) : undefined;
+      if (!entry) return;
+      entry.latestContext = ctx;
+      entry.bridge.pushContext(ctx);
     });
     ipc.on("bridge:dispatch:reply", (_e, { id, result, error }) => {
       const p = dispatchPending.get(id);
@@ -103,8 +127,8 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
     //                        new schema, fixed entries on legacy rosters), with
     //                        the boot prompt + worker-policy env; a provided
     //                        selection is persisted as last-used.
-    ipc.handle("agent:principalSpec", (_e, opts) => {
-      const root = getCurrentRoot();
+    ipc.handle("agent:principalSpec", (e, opts) => {
+      const root = rootForSender(e);
       if (!root || !fs.existsSync(root)) return { ok: false, error: "no open project" };
       const cfg = fluxPaths.resolveFluxConfigPathSync();
       const roster = agentsConfig.readAgentsConfigSync(cfg);
@@ -117,7 +141,7 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
         return { ok: true, probe: true, legacy: !!roster.legacy, families, selection: standing, warning: roster.warning };
       }
       const selection = (opts && opts.selection) || standing;
-      const mcp = mcpSpecFor();
+      const mcp = mcpSpecFor(root);
       try {
         const cli = fluxPaths.resolveOwnCliCommandsSync().cli;
         const workerNote = agentsConfig.workerMenuNote(roster, selection.worker, cli);
@@ -147,8 +171,7 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
   // its own, so every path must be absolute). Dev: the repo's tsx bin runs
   // flux-mcp.ts. Packaged: a bundled dist/flux-mcp.mjs (asar-unpacked, like
   // flux-cli.mjs) on Electron-as-Node.
-  function mcpSpecFor() {
-    const root = getCurrentRoot();
+  function mcpSpecFor(root) {
     const projectRoot = root && fs.existsSync(root) ? root : app.getPath("home");
     const bundled = app.isPackaged
       ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "flux-mcp.mjs")
@@ -177,7 +200,7 @@ function createAgentFamily({ app, getMainWindow, getCurrentRoot, appendJournalLi
     return { ok: false, projectRoot };
   }
 
-  return { registerHandlers, startBridgeFor, stopBridge };
+  return { registerHandlers, setBridgeFor, stopBridgeForWindow, stopAllBridges };
 }
 
 module.exports = { createAgentFamily };

@@ -448,7 +448,7 @@ function extractOpenAIText(response) {
   return "";
 }
 
-function createCorrectionFamily({ safeStorage, configRoot, currentProjectRoot, atomicWrite, runtime, requestTimeoutMs = REQUEST_TIMEOUT_MS }) {
+function createCorrectionFamily({ safeStorage, configRoot, rootForSender, atomicWrite, runtime, requestTimeoutMs = REQUEST_TIMEOUT_MS }) {
   const active = new Map();
   const decisionCache = new Map();
   const ollamaReadyModels = new Set();
@@ -459,8 +459,10 @@ function createCorrectionFamily({ safeStorage, configRoot, currentProjectRoot, a
   const personalFile = () => path.join(configRoot(), "Language", "corrections.json");
   const projectFile = (root) => path.join(root, ".flux", "corrections.json");
 
-  function safeProject(root) {
-    const current = currentProjectRoot();
+  // Multi-window: "active" means active IN THE SENDER'S WINDOW — the renderer
+  // may only touch the correction profile of the project it has open.
+  function safeProject(event, root) {
+    const current = rootForSender(event);
     if (!current || (root && path.resolve(root) !== path.resolve(current))) throw new Error("Correction profile project is not active");
     return path.resolve(root || current);
   }
@@ -757,19 +759,19 @@ function createCorrectionFamily({ safeStorage, configRoot, currentProjectRoot, a
       atomicWrite(file, JSON.stringify({ version: 1, openai: safeStorage.encryptString(value).toString("base64") }, null, 2) + "\n");
       return { configured: true, encryptionAvailable: true };
     });
-    ipc.handle("correction:profileGet", (_event, projectRoot) => {
-      const current = currentProjectRoot();
+    ipc.handle("correction:profileGet", (event, projectRoot) => {
+      const current = rootForSender(event);
       if (!current && projectRoot) throw new Error("Correction profile project is not active");
-      const root = current ? safeProject(projectRoot) : "";
+      const root = current ? safeProject(event, projectRoot) : "";
       return {
         version: 1,
         personal: readJson(personalFile(), { words: [], aliases: [], guidance: "" }),
         project: root ? readJson(projectFile(root), { words: [], aliases: [], blockedPairs: [], guidance: "" }) : { words: [], aliases: [], blockedPairs: [], guidance: "" },
       };
     });
-    ipc.handle("correction:profileSet", (_event, payload) => {
+    ipc.handle("correction:profileSet", (event, payload) => {
       const scope = payload?.scope === "personal" ? "personal" : "project";
-      const root = scope === "project" ? safeProject(payload?.projectRoot) : "";
+      const root = scope === "project" ? safeProject(event, payload?.projectRoot) : "";
       const raw = JSON.stringify(payload?.data || {});
       if (Buffer.byteLength(raw, "utf8") > 256 * 1024) throw new Error("Correction profile exceeds its bound");
       atomicWrite(scope === "personal" ? personalFile() : projectFile(root), JSON.stringify(payload.data || {}, null, 2) + "\n");

@@ -167,7 +167,8 @@ for (const field of ["root", "to", "docPath", "profile", "outPath", "token"]) {
   ok(new RegExp(`\\b${field}\\b`).test(renderSig), `quarto:render accepts ${field}`);
 }
 ok(/\^\[a-z0-9-\]\{1,32\}\$/.test(main), "profile name is slug-validated before it reaches the command line");
-ok(/fsGuard\(destAbs\)/.test(main), "the requested output path clears fsGuard before anything is written");
+// Multi-window 2026-08-11: fsGuard carries the sender id (per-window dialog approvals).
+ok(/fsGuard\(destAbs, e\.sender\.id\)/.test(main), "the requested output path clears fsGuard before anything is written");
 ok(/quarto:cancel/.test(main) && /SIGTERM/.test(main) && /SIGKILL/.test(main), "cancel kills the render (escalating if it ignores SIGTERM)");
 ok(/underDir\(docAbs, rootAbs\)/.test(main) && /\\\.qmd\$/.test(main), "docPath contained under root + .qmd-only");
 ok(/no output file found/.test(main) && /outPath/.test(main), "artifact existence verified, outPath returned");

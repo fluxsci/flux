@@ -12,8 +12,12 @@
     type RecentProject,
   } from "./shellStore";
   import { prefersReducedMotion } from "../lib/motion/motion";
+  import { fileBridge } from "../lib/project/types";
 
   const animate = !prefersReducedMotion();
+  // Multi-window: only the desktop app can spawn windows (Ctrl+Shift+N works
+  // everywhere; this is the discoverable route).
+  const canNewWindow = !!fileBridge()?.newWindow;
 
   function rel(ts: number): string {
     const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -47,6 +51,12 @@
     <div class="actions">
       <button class="new" onclick={newProject}>New</button>
       <button class="open" onclick={openProject}>Open</button>
+      {#if canNewWindow}
+        <button
+          class="open newwin"
+          title="Open another Flux window (Ctrl+Shift+N)"
+          onclick={() => void fileBridge()?.newWindow?.()}>New Window</button>
+      {/if}
       {#if $projectError}
         <p class="error" role="alert">{$projectError}</p>
       {/if}
@@ -172,6 +182,11 @@
   }
   .open:hover {
     color: var(--c-tx-hi);
+  }
+  /* Quieter than Open — a third-priority action. */
+  .newwin {
+    font-size: var(--ts-sm);
+    color: var(--c-tx-faint);
   }
 
   .error {

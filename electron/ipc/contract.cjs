@@ -80,6 +80,16 @@ const CHANNELS = [
   { channel: "win:isMaximized", kind: "invoke", scope: "read" },
   { channel: "win:maximized", kind: "push", scope: "read" },
   { channel: "win:setDocumentEdited", kind: "send", scope: "read" },
+  // --- multi-window (2026-08-11) -----------------------------------------------
+  // Open a fresh window at Home (Ctrl+Shift+N / the Home button; the taskbar
+  // "New Window" action arrives via second-instance instead).
+  { channel: "win:new", kind: "invoke", scope: "spawn" },
+  // One-shot: the project root this window was created to open (CLI arg /
+  // second-instance project path); the shell reads it at boot.
+  { channel: "win:initialProject", kind: "invoke", scope: "read" },
+  // A4.1: same project in two windows is refused — this focuses the window that
+  // already has the root (returns true) so the renderer can abort its open.
+  { channel: "win:projectOpenElsewhere", kind: "invoke", scope: "read" },
   // --- network / citations / acquisition ---------------------------------------
   { channel: "pdf:netGet", kind: "invoke", scope: "read" },
   { channel: "pdf:fetchViaProxy", kind: "invoke", scope: "read" },

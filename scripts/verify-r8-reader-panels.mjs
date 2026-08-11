@@ -65,7 +65,10 @@ try {
   // A small real library (bib on disk, DOIs 10.5555/scale.N) + a PDF for its first
   // entry, so a citing brief carrying that DOI is "in the library with a PDF".
   const libKey = await page.evaluate(async (b64) => {
+    // Reader sessions persist PER PROJECT ROOT since multi-window A4.4
+    // (flux-reader-tabs:<root>; the bare key is the no-project fallback).
     localStorage.removeItem("flux-reader-tabs");
+    localStorage.removeItem("flux-reader-tabs:/demo/myc-growth-paper");
     localStorage.removeItem("flux.reader.layout");
     await window.__fluxSeedScaleLibrary(8);
     window.__fluxSeedReaderItem("r8main", b64);
@@ -198,7 +201,9 @@ try {
   const after = await tabKeys();
   ok("dragging a tab to the end reorders the strip", after[after.length - 1] === before[0], `${before.join(",")} → ${after.join(",")}`);
   ok("reordering keeps the same open set", [...after].sort().join(",") === [...before].sort().join(","), after.join(","));
-  ok("reordering persists", (await page.evaluate(() => JSON.parse(localStorage.getItem("flux-reader-tabs") || "{}").tabs))
+  // The persisted session lives under the PROJECT-scoped key (multi-window A4.4).
+  ok("reordering persists", (await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("flux-reader-tabs:/demo/myc-growth-paper") || "{}").tabs ?? []))
     .join(",") === after.join(","));
   await shot(page, "r8-04-reordered");
 

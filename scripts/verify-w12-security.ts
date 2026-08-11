@@ -76,12 +76,14 @@ try {
   has(mainCjs, "setWindowOpenHandler", "SHL-3: window-open handler present");
   // WS-9.4b: the FILES family lives in electron/ipc/files.cjs — same anchors, new home.
   const filesCjs = await fs.readFile(path.join(import.meta.dirname, "..", "electron", "ipc", "files.cjs"), "utf8");
-  const guardBody = filesCjs.split("function fsGuard(p)")[1]?.split("\n  }")[0] ?? "";
+  // Multi-window (2026-08-11): fsGuard carries the sender id (per-window dialog
+  // approvals) — same contract, new signature anchors.
+  const guardBody = filesCjs.split("function fsGuard(p, senderId)")[1]?.split("\n  }")[0] ?? "";
   assert(guardBody.length > 0 && !guardBody.includes('getPath("home")'), "SHL-6: $HOME dropped from the fsGuard allowlist");
   assert(!(mainCjs.split("roots: () => [")[1]?.split("]")[0] ?? "").includes('getPath("home")'), "SHL-6: main's lent roots exclude $HOME too");
-  assert(/ipc\.handle\("fs:exists",[^)]*\)\s*=>\s*\{\s*\n\s*fsGuard\(p\)/.test(filesCjs), "SHL-6: fs:exists now guarded");
-  assert(/ipc\.handle\("fs:readdir",[^)]*\)\s*=>\s*\{\s*\n\s*fsGuard\(p\)/.test(filesCjs), "SHL-6: fs:readdir now guarded");
-  has(mainCjs, "fsGuard(recipePath)", "SHL-6: recipe:run contains recipePath");
+  assert(/ipc\.handle\("fs:exists",[^)]*\)\s*=>\s*\{\s*\n\s*fsGuard\(p, e\.sender\.id\)/.test(filesCjs), "SHL-6: fs:exists now guarded");
+  assert(/ipc\.handle\("fs:readdir",[^)]*\)\s*=>\s*\{\s*\n\s*fsGuard\(p, e\.sender\.id\)/.test(filesCjs), "SHL-6: fs:readdir now guarded");
+  has(mainCjs, "fsGuard(recipePath, e.sender.id)", "SHL-6: recipe:run contains recipePath");
   has(mainCjs, "unsafe deckId", "SHL-6: slides:exportDeck sanitizes deckId");
   // WS-9.4b: keys.json + proxy-cred writes live in the NETWORK family module.
   const networkCjs = await fs.readFile(path.join(import.meta.dirname, "..", "electron", "ipc", "network.cjs"), "utf8");
@@ -107,10 +109,12 @@ try {
   // --- WS-9.3: fsGuard deny-by-default + approval lifecycle ---------------------------------
   assert(!filesCjs.includes("if (!currentRoot) return") && !mainCjs.includes("if (!currentRoot) return; // nothing to protect"),
     "9.3: the launch-window allow-everything early-return is GONE (deny-by-default)");
-  has(mainCjs, "fileCore.clearApprovals()", "9.3: dialog approvals cleared on project switch/goHome");
+  // Multi-window: approvals + the pending slot are PER WINDOW now — cleared for
+  // the sender on ITS project switch/close (same lifecycle, narrower scope).
+  has(mainCjs, "fileCore.clearApprovals(senderId)", "9.3: dialog approvals cleared on project switch/goHome");
   has(filesCjs, 'ipc.handle("fs:beginOpen"', "9.3: beginOpen pre-registers the root being loaded");
   has(filesCjs, 'existsSync(path.join(ab, "project.json"))', "9.3: beginOpen only accepts a real Flux project");
-  has(mainCjs, "pendingRoot = null;", "9.3: the pending slot is cleared on registration (single slot)");
+  has(mainCjs, "pendingRoots.delete(senderId);", "9.3: the sender's pending slot is cleared on registration");
 
   // --- WS-9.1: Content-Security-Policy ------------------------------------------------------
   const indexHtml = await fs.readFile(path.join(import.meta.dirname, "..", "index.html"), "utf8");

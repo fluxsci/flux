@@ -13,9 +13,9 @@ void path;
  * deps:
  *   app            — Electron app (home path)
  *   nodePty        — @lydell/node-pty (or null when unavailable)
- *   getCurrentRoot — () => open project root | null (default cwd)
+ *   rootForSender  — (e) => the sender window's open project root | null (default cwd)
  */
-function createTerminalFamily({ app, nodePty, getCurrentRoot }) {
+function createTerminalFamily({ app, nodePty, rootForSender }) {
   const ptySessions = new Map(); // id -> { pty, wc }
   let ptySeq = 0;
   
@@ -55,9 +55,9 @@ function createTerminalFamily({ app, nodePty, getCurrentRoot }) {
         command = r.command;
         cmdArgs = r.args;
       }
-      // Open in the requested dir, else the open project root, else home.
+      // Open in the requested dir, else the SENDER window's project root, else home.
       const wanted = opts.cwd;
-      const projRoot = getCurrentRoot();
+      const projRoot = rootForSender(e);
       const cwd =
         wanted && fs.existsSync(wanted)
           ? wanted

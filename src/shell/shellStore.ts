@@ -85,6 +85,18 @@ export function clearRecents() {
 }
 
 // --- navigation -------------------------------------------------------------
+/** A4.1 (multi-window): the same project must never be open in two windows —
+ *  two live editors autosaving the same manuscript can genuinely lose writing.
+ *  When another window already has `root`, main focuses it and we abort the
+ *  open here. Absent bridge method (web fallback, older main) ⇒ proceed. */
+async function focusedOtherWindow(root: string): Promise<boolean> {
+  try {
+    return (await fileBridge()?.projectOpenElsewhere?.(root)) === true;
+  } catch {
+    return false;
+  }
+}
+
 function enterLoaded(loaded: LoadedProject) {
   projectModel.set(loaded);
   currentProject.set({ name: loaded.manifest.title, path: loaded.root });
@@ -164,6 +176,7 @@ export async function openProject() {
   try {
     const dir = await fig.openDirectory("Open Flux Project");
     if (!dir) return;
+    if (await focusedOtherWindow(dir)) return;
     enterLoaded(await loadProject(dir));
   } catch (e) {
     projectError.set(
@@ -176,6 +189,7 @@ export async function openProject() {
 
 /** Load and enter a project at an explicit path (used by the dev fixture and, later, F1/F4). */
 export async function openProjectAt(path: string): Promise<void> {
+  if (await focusedOtherWindow(path)) return;
   enterLoaded(await loadProject(path));
 }
 
@@ -185,6 +199,7 @@ export async function openRecent(r: RecentProject) {
     return;
   }
   try {
+    if (await focusedOtherWindow(r.path)) return;
     enterLoaded(await loadProject(r.path));
   } catch (e) {
     removeRecent(r.path);

@@ -1,10 +1,20 @@
 // The papers open in FluxReader. `readerTabs` is the tab strip: an ordered list of
 // open citekeys plus the active one. It is module-global — it survives mode
-// keep-alive eviction and project switches — and persists to localStorage so a
-// restart restores the reading session (lazily: only the active tab loads bytes;
-// per-paper page/zoom live separately under flux-reader-view:<citekey>).
+// keep-alive eviction — and persists to localStorage so a restart restores the
+// reading session (lazily: only the active tab loads bytes; per-paper page/zoom
+// live separately under flux-reader-view:<citekey>).
+//
+// Multi-window A4.4 (2026-08-11): the persistence key is scoped PER PROJECT
+// ROOT ("flux-reader-tabs:<root>"). localStorage is shared across windows while
+// Svelte stores are not, so one global key meant window B's reading session
+// silently overwrote window A's saved one — and a project's papers belong to
+// the project anyway. Opening a project swaps in ITS saved session; the
+// un-scoped legacy key remains both the first-run fallback (an existing global
+// session is adopted by the next project opened) and the key for the
+// no-project/web-fallback case, so the demo fixture behaves exactly as before.
 import { writable, derived, get } from "svelte/store";
 import { panes, focusedPaneId, setFocusedMode, splitWith } from "../../paneStore";
+import { currentProject } from "../../shellStore";
 
 export interface ReaderTab {
   key: string;
@@ -16,10 +26,14 @@ export interface ReaderTabsState {
 }
 
 const TABS_LS = "flux-reader-tabs";
+const tabsKey = (root: string | null) => (root ? `${TABS_LS}:${root}` : TABS_LS);
+/** The project root whose session is currently live (and being persisted). */
+let sessionRoot: string | null = get(currentProject)?.path ?? null;
 
-function restoreTabs(): ReaderTabsState {
+function restoreTabs(root: string | null): ReaderTabsState {
   try {
-    const raw = JSON.parse(localStorage.getItem(TABS_LS) ?? "null") as
+    const stored = localStorage.getItem(tabsKey(root)) ?? (root ? localStorage.getItem(TABS_LS) : null);
+    const raw = JSON.parse(stored ?? "null") as
       | { v: number; tabs: unknown; active: unknown }
       | null;
     if (!raw || raw.v !== 1 || !Array.isArray(raw.tabs)) return { tabs: [], active: null };
@@ -35,13 +49,22 @@ function restoreTabs(): ReaderTabsState {
   }
 }
 
-export const readerTabs = writable<ReaderTabsState>(restoreTabs());
+export const readerTabs = writable<ReaderTabsState>(restoreTabs(sessionRoot));
 readerTabs.subscribe((s) => {
   try {
-    localStorage.setItem(TABS_LS, JSON.stringify({ v: 1, tabs: s.tabs.map((t) => t.key), active: s.active }));
+    localStorage.setItem(tabsKey(sessionRoot), JSON.stringify({ v: 1, tabs: s.tabs.map((t) => t.key), active: s.active }));
   } catch {
     /* storage full/blocked — session restore is best-effort */
   }
+});
+
+// Project switch → swap in that project's saved reading session. sessionRoot
+// flips BEFORE the set so the restore persists under the new key, not the old.
+currentProject.subscribe((p) => {
+  const root = p?.path ?? null;
+  if (root === sessionRoot) return;
+  sessionRoot = root;
+  readerTabs.set(restoreTabs(root));
 });
 
 /** Citekey of the active paper (null = nothing open). Read-only compat view of readerTabs. */

@@ -267,7 +267,9 @@ const managedRuntime = {
 const family = provider.createCorrectionFamily({
   safeStorage,
   configRoot: () => configRoot,
-  currentProjectRoot: () => projectRoot,
+  // Multi-window seam (2026-08-11): the active root resolves from the sender's
+  // window. Same containment contract; the resolver just carries the event now.
+  rootForSender: () => projectRoot,
   runtime: managedRuntime,
   atomicWrite: (file: string, value: string) => {
     mkdirSync(path.dirname(file), { recursive: true });
@@ -321,7 +323,7 @@ const timeoutHandlers = new Map<string, (...args: any[]) => any>();
 const timeoutFamily = provider.createCorrectionFamily({
   safeStorage,
   configRoot: () => configRoot,
-  currentProjectRoot: () => projectRoot,
+  rootForSender: () => projectRoot,
   runtime: managedRuntime,
   requestTimeoutMs: 5,
   atomicWrite: () => {},

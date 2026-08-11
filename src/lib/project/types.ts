@@ -394,9 +394,18 @@ export interface FileBridge {
   readSlideLibrary?(): Promise<unknown[]>;
   writeSlideLibrary?(rel: string, payload: unknown): Promise<boolean>;
   deleteSlideLibrary?(rel: string): Promise<boolean>;
-  // WS-9.3: pre-register a project root about to be loaded (single pending
+  // WS-9.3: pre-register a project root about to be loaded (per-window pending
   // fsGuard slot; watchRoot promotes/clears it). Electron only.
   beginOpen?(root: string): Promise<boolean>;
+  // Multi-window (2026-08-11). Electron only, all three.
+  /** Open a fresh window at Home (Ctrl+Shift+N / the Home button). */
+  newWindow?(): Promise<boolean>;
+  /** One-shot: the project root this window was created to open (CLI arg /
+   *  second-instance project path), read by the shell at boot. */
+  initialProjectRoot?(): Promise<string | null>;
+  /** A4.1: true = this root is open in another window, which was just focused —
+   *  the caller must abort its own open (same project twice loses writing). */
+  projectOpenElsewhere?(root: string): Promise<boolean>;
   // 5.3 update check (packaged app only): resolves to a newer release's
   // { version, url } or null. Main owns the ≤1/day throttle + GitHub fetch.
   checkForUpdate?(): Promise<{ version: string; url: string } | null>;

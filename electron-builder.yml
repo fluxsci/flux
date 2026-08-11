@@ -91,6 +91,20 @@ mac:
 linux:
   icon: build/icons
   category: Graphics
+  # Multi-window "New Window" taskbar action (2026-08-11): Exec re-runs the app
+  # with --new-window; the running instance catches it via second-instance and
+  # opens a window. The path matches the generated main entry's Exec for the
+  # .deb (${installPrefix}/${sanitizedProductName}/${executableName}); the
+  # Actions= list key is NOT auto-added by electron-builder, so it's set here.
+  # (AppImage caveat: AppImageLauncher rewrites the main Exec on integration
+  # but may not rewrite action Execs — the .deb is the supported target.)
+  desktop:
+    entry:
+      Actions: "new-window;"
+    desktopActions:
+      new-window:
+        Name: New Window
+        Exec: /opt/Flux/flux --new-window %U
   extraResources:
     - from: build/correction-runtime/linux-${arch}/
       to: corrections/runtime/
