@@ -30,10 +30,12 @@ config edit.
     },
     "claude": {
       "models": ["fable", "opus", "sonnet"],
-      "efforts": ["default"],
+      "efforts": ["default", "low", "medium", "high", "xhigh", "max"],
       "interactive": ["claude", "{prompt}", "--model", "{model}",
+                      "--effort", "{effort}",
                       "--mcp-config", "{mcpJson}", "--allowedTools", "mcp__flux"],
       "exec": ["claude", "-p", "{prompt}", "--model", "{model}",
+               "--effort", "{effort}",
                "--permission-mode", "acceptEdits",
                "--mcp-config", "{mcpJson}", "--allowedTools", "mcp__flux"]
     }

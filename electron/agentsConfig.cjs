@@ -45,9 +45,9 @@ const DEFAULT_AGENTS = {
     },
     claude: {
       models: ["fable", "opus", "sonnet"],
-      // Claude Code takes no per-launch effort flag today — "default" makes the
-      // {effort}-bearing args drop cleanly if a template ever carries one.
-      efforts: ["default"],
+      // Claude Code ≥2.1.227 takes --effort per launch; "default" drops the
+      // --effort pair (the standard drop-arg rule) and leaves the session default.
+      efforts: ["default", "low", "medium", "high", "xhigh", "max"],
       // {prompt} MUST lead (right after "claude"): Claude Code's `--allowedTools
       // <tools...>` is a VARIADIC option, so a prompt placed AFTER it is greedily
       // swallowed as another tool value — the session then launches with no boot
@@ -56,12 +56,14 @@ const DEFAULT_AGENTS = {
       interactive: [
         "claude", "{prompt}",
         "--model", "{model}",
+        "--effort", "{effort}",
         "--mcp-config", "{mcpJson}",
         "--allowedTools", "mcp__flux",
       ],
       exec: [
         "claude", "-p", "{prompt}",
         "--model", "{model}",
+        "--effort", "{effort}",
         "--permission-mode", "acceptEdits",
         "--mcp-config", "{mcpJson}",
         "--allowedTools", "mcp__flux",
