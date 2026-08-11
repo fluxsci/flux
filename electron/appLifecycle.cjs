@@ -43,6 +43,41 @@ function createFlushCoordinator({ timeoutMs = 2500 } = {}) {
 }
 
 /**
+ * The quit decision (quit-wedge R2, 2026-08-11). The invariant this encodes:
+ * **a window the user cannot see must never keep the app alive.** Electron's
+ * `window-all-closed` counts every BrowserWindow — including the hidden
+ * proxy-capture and print utility windows — so a surviving hidden window used
+ * to leave a windowless main process holding the single-instance lock forever
+ * (notes/aug_10_deferred_updates/quit_wedge_and_silent_launch.md). Instead,
+ * APP windows register here explicitly (utility windows never do), and the
+ * last app window's close triggers the quit directly on non-mac platforms.
+ * `window-all-closed` stays registered in main.cjs as a belt.
+ *
+ * Electron-free on purpose (register() takes any object identity) so the pure
+ * tier can drive it: scripts/verify-quit-policy.ts.
+ */
+function createAppWindowPolicy({ isMac, quit }) {
+  const appWindows = new Set();
+  return {
+    /** Track an APP window. Returns the unregister fn — call it from the
+     *  window's `closed` handler BEFORE noteClosed(). */
+    register(win) {
+      appWindows.add(win);
+      return () => appWindows.delete(win);
+    },
+    /** Call after an app window closed + unregistered. Quits (and returns
+     *  true) when it was the last one, off-mac, and no quit is already under
+     *  way — regardless of any hidden utility windows still open. */
+    noteClosed({ quitting = false } = {}) {
+      if (appWindows.size > 0 || isMac || quitting) return false;
+      quit();
+      return true;
+    },
+    count: () => appWindows.size,
+  };
+}
+
+/**
  * The application-menu template. Returns `null` (meaning "no menu") or an
  * Electron menu template array; main.cjs feeds it to Menu.buildFromTemplate.
  *
@@ -53,8 +88,11 @@ function createFlushCoordinator({ timeoutMs = 2500 } = {}) {
  *   • macOS needs a menu for the standard app / Edit (Cmd-C/V/X/A/Z) / Window
  *     roles, so it always gets a minimal template. Reload + DevTools appear only
  *     in dev.
+ *   • `onNewWindow` (multi-window, 2026-08-11): macOS gets File → New Window
+ *     (Cmd+Shift+N — Cmd+N stays free for a future New Project). Linux/Windows
+ *     have no production menu; the renderer owns Ctrl+Shift+N there.
  */
-function appMenuTemplate({ isMac, isDev }) {
+function appMenuTemplate({ isMac, isDev, onNewWindow }) {
   const viewSubmenu = [
     ...(isDev
       ? [
@@ -83,10 +121,20 @@ function appMenuTemplate({ isMac, isDev }) {
   }
   return [
     { role: "appMenu" },
+    ...(onNewWindow
+      ? [
+          {
+            label: "File",
+            submenu: [
+              { label: "New Window", accelerator: "CmdOrCtrl+Shift+N", click: onNewWindow },
+            ],
+          },
+        ]
+      : []),
     { role: "editMenu" },
     { label: "View", submenu: viewSubmenu },
     { role: "windowMenu" },
   ];
 }
 
-module.exports = { createFlushCoordinator, appMenuTemplate };
+module.exports = { createFlushCoordinator, createAppWindowPolicy, appMenuTemplate };

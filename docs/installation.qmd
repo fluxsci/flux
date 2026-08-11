@@ -213,3 +213,4 @@ node ~/flux/dist/flux-cli.mjs config      # prints machine paths + build info
 | `codex exec` refuses to run in a directory | Untrusted non-git dir → the roster's `--skip-git-repo-check` flag (seeded by default) |
 | `flux` CLI verb missing that the docs mention | Stale bundle → `npm run build:cli` in the repo; `flux version` shows the build |
 | Nothing live-reloads in the open app | Watcher failed to start (a toast said so at open) → reopen the project |
+| Flux "won't start" — no window, no error | A windowless earlier instance is holding the single-instance lock (the launch now says so in the terminal) → `pgrep -af electron` to find it, then `kill <pid>` (plain SIGTERM — it saves unsaved work on the way out; keep `kill -9` as the last resort) |
