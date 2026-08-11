@@ -6,6 +6,7 @@
   import Grid from "./lib/Grid.svelte";
   import Detail from "./lib/Detail.svelte";
   import Compare from "./lib/Compare.svelte";
+  import NotesEditor from "./lib/NotesEditor.svelte";
   import EmptyState from "./lib/EmptyState.svelte";
 
   onMount(() => {
@@ -65,6 +66,11 @@
     {/if}
     {#if store.view === "compare"}
       <Compare />
+    {/if}
+    {#if store.notesOpen}
+      {#key store.selectedKey}
+        <NotesEditor />
+      {/key}
     {/if}
   {/if}
 {/if}

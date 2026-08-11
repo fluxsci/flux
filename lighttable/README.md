@@ -46,6 +46,16 @@ filename without extension — the key aligns cells across sets, and a set missi
 shows a placeholder so the flip-book never shifts. Supported formats:
 png/jpg/jpeg/webp/gif/avif/bmp/svg; flat sets (no recursion); natural sort everywhere.
 
+**Annotation class** = a named layer of triage marks over a collection ("validated_by_eye",
+"second_pass", …). Marks belong to the ITEM (the plot name across all sets), not to one
+set's file. Each class is one JSON file in `<collection>/.lt-annotations/` — hidden from
+the scanner, syncs with the data, safe to hand-edit or diff. The top-bar ◈ control shows
+which class is open and switches/creates classes (the most recently written class reopens
+automatically with the collection). With a class open: `v` toggles **valid** (green
+outline), `x` toggles **exclude** (red outline), `n` opens the item's **notes** (names
+with notes carry a `*`). All three work in the grid (on the selection), in fullscreen
+Detail, and in Compare.
+
 ## Keyboard & mouse
 
 | Key | Grid | Detail | Compare |
@@ -62,6 +72,8 @@ png/jpg/jpeg/webp/gif/avif/bmp/svg; flat sets (no recursion); natural sort every
 | hold `Space` + drag | — | pan | — |
 | `/` | focus search | — | — |
 | `c` | toggle captions | same | same |
+| `v` / `x` | mark valid / exclude (toggle; needs an open annotation class) | same | same |
+| `n` | open notes for the item | same | same |
 | `Home`/`End` | first / last item | first / last present item | first / last item |
 | `PageUp`/`PageDown` | scroll a page | — | — |
 

@@ -10,6 +10,7 @@ const { pathToFileURL } = require("node:url");
 const { scanCollection, toManifest, listSiblings } = require("./scan.cjs");
 const thumbs = require("./thumbs.cjs");
 const prefs = require("./prefs.cjs");
+const annot = require("./annotations.cjs");
 const { mimeFor } = require("./lib/pure.cjs");
 
 const DEV_URL = process.env.LT_DEV_SERVER_URL || null;
@@ -58,11 +59,18 @@ protocol.registerSchemesAsPrivileged([
 async function openCollection(p) {
   const scan = await scanCollection(p);
   if (!scan) return null;
+  annot.closeClass(); // flush the previous collection's marks
   currentScan = scan;
   pathByTok.clear();
   tokByPath.clear();
   prefs.pushRecent(scan.root);
-  return toManifest(scan);
+  // Annotations ride the manifest: the class list plus the auto-opened active
+  // class (the most recently written one — your marks greet you on reopen).
+  const m = toManifest(scan);
+  const classes = await annot.listClasses(scan.root);
+  const latest = await annot.latestClass(scan.root);
+  m.annotations = { classes, active: latest ? await annot.openClass(scan.root, latest) : null };
+  return m;
 }
 
 function resolveItemPath(setId, key) {
@@ -159,6 +167,14 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("lt:prefsGet", () => prefs.get());
     ipcMain.handle("lt:prefsSet", (_e, p) => prefs.set(p));
 
+    // Annotation classes (see annotations.cjs). Main owns the active class;
+    // the renderer mirrors items optimistically for instant outlines.
+    ipcMain.handle("lt:annotList", () => (currentScan ? annot.listClasses(currentScan.root) : []));
+    ipcMain.handle("lt:annotCreate", (_e, name) => (currentScan ? annot.createClass(currentScan.root, name) : null));
+    ipcMain.handle("lt:annotOpen", (_e, name) => (currentScan ? annot.openClass(currentScan.root, name) : null));
+    ipcMain.handle("lt:annotClose", () => annot.closeClass());
+    ipcMain.handle("lt:annotSet", (_e, key, patch) => annot.setItem(key, patch));
+
     createWindow();
 
     const initial = pendingOpenFile || cliOpenPath(process.argv);
@@ -216,4 +232,5 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   prefs.flushSync();
+  annot.flushSync();
 });

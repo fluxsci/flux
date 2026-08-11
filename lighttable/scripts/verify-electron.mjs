@@ -6,7 +6,7 @@
 // scan → thumbnail-cache → privileged-protocol path end to end; a hung
 // compositor or a silent main-process crash cannot look like success.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -195,6 +195,49 @@ await page.evaluate(() => {
 });
 await waitFor(async () => (await page.title()).startsWith("fixture2"), { timeout: 8000, desc: "sister collection opened" });
 check("clicking a sister opens it (title + cells swap)", (await page.$$eval("[data-cell]", (els) => els.length)) === 3);
+
+section("annotations against the real fs");
+// Create a class in fixture2, mark + note item_001, then prove the JSON file
+// on disk — the whole preload → IPC → annotations.cjs → atomic-write path.
+const annotFile = path.join(base, "collections", "fixture2", ".lt-annotations", "eyeball.json");
+await page.evaluate(() => document.querySelector("[data-annot]").click());
+await waitFor(async () => (await page.$$("[data-annot-new]")).length === 1, { timeout: 5000, desc: "annot menu" });
+await page.evaluate(() => document.querySelector("[data-annot-new]").click());
+await waitFor(async () => (await page.$$("[data-annot-input]")).length === 1, { timeout: 5000, desc: "name input" });
+await page.type("[data-annot-input]", "eyeball");
+await page.keyboard.press("Enter");
+await waitFor(async () => existsSync(annotFile), { timeout: 5000, desc: "class file on disk" });
+check("creating a class writes a real file", true);
+check("top bar shows the class", (await page.$eval("[data-annot]", (e) => e.textContent)).includes("eyeball"));
+await page.keyboard.press("v");
+await waitFor(async () => (await page.$eval("[data-cell].selected", (e) => e.dataset.mark)) === "valid", { timeout: 5000, desc: "valid outline" });
+await page.keyboard.press("n");
+await waitFor(async () => (await page.$$("[data-notes-editor] textarea")).length === 1, { timeout: 5000, desc: "notes editor" });
+await page.type("[data-notes-editor] textarea", "blurry axis");
+await page.keyboard.press("Escape");
+await waitFor(async () => (await page.$$("[data-notes-editor]")).length === 0, { timeout: 5000, desc: "notes closed" });
+check("notes star on the caption", (await page.$("[data-cell].selected .star")) !== null);
+// Switching collection flushes the class; switching back auto-reopens it.
+await page.evaluate(() => document.querySelector(".coll-name").click());
+await waitFor(async () => (await page.$$("[data-sisters]")).length === 1, { timeout: 5000, desc: "sister menu" });
+await page.evaluate(() => {
+  [...document.querySelectorAll("[data-sisters] button")].find((b) => b.textContent === "fixture").click();
+});
+await waitFor(async () => (await page.title()) === "fixture — Lighttable", { timeout: 8000, desc: "switched away" });
+const onDisk = JSON.parse(readFileSync(annotFile, "utf8"));
+check(
+  "marks + notes persisted to the class file",
+  onDisk.items.item_001?.mark === "valid" && onDisk.items.item_001?.notes === "blurry axis",
+  JSON.stringify(onDisk.items)
+);
+await page.evaluate(() => document.querySelector(".coll-name").click());
+await waitFor(async () => (await page.$$("[data-sisters]")).length === 1, { timeout: 5000, desc: "sister menu again" });
+await page.evaluate(() => {
+  [...document.querySelectorAll("[data-sisters] button")].find((b) => b.textContent === "fixture2").click();
+});
+await waitFor(async () => (await page.title()).startsWith("fixture2"), { timeout: 8000, desc: "switched back" });
+await waitFor(async () => (await page.$eval("[data-annot]", (e) => e.textContent)).includes("eyeball"), { timeout: 5000, desc: "class auto-reopened" });
+check("reopening the collection auto-opens the class with its marks", (await page.$eval('[data-cell][data-key="item_001"]', (e) => e.dataset.mark)) === "valid");
 
 section("console contract");
 check("renderer console is clean", consoleErrors.length === 0, consoleErrors.slice(0, 5).join(" | "));

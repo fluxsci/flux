@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from "./store.svelte";
   import SetSwitcher from "./SetSwitcher.svelte";
+  import AnnotSwitcher from "./AnnotSwitcher.svelte";
   import type { RecentEntry } from "./types";
 
   let menuOpen = $state(false);
@@ -61,6 +62,8 @@
   </div>
 
   <SetSwitcher />
+
+  <AnnotSwitcher />
 
   <div class="col-ctl" title="Columns  ( [ and ] )">
     <button aria-label="Fewer columns" onclick={() => store.setCols(store.cols - 1)}>−</button>

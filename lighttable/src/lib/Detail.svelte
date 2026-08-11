@@ -13,6 +13,7 @@
   const cell = $derived(itemKey ? store.cellFor(setId, itemKey) : null);
   const pos = $derived(store.selIdx);
   const count = $derived(store.filteredKeys.length);
+  const annot = $derived(store.annotFor(itemKey));
 
   let stage = $state<HTMLDivElement | null>(null);
   let sw = $state(0);
@@ -261,11 +262,20 @@
         <span class="hint">↑/↓ to switch sets</span>
       </div>
     {/if}
+    {#if annot?.mark}
+      <div class="markring" class:valid={annot.mark === "valid"} class:exclude={annot.mark === "exclude"} data-detail-mark={annot.mark}></div>
+    {/if}
   </div>
   <div class="caption-bar">
     <span class="fname" data-detail-file>{cell?.file ?? itemKey}</span>
+    {#if annot?.notes}<span class="star" title={annot.notes}>*</span>{/if}
     <span class="dot">·</span>
     <span class="sname" data-detail-set>{store.currentSet?.name}</span>
+    {#if annot?.mark === "valid"}
+      <span class="badge valid">✓ valid</span>
+    {:else if annot?.mark === "exclude"}
+      <span class="badge exclude">✕ excluded</span>
+    {/if}
     <span class="grow"></span>
     <span class="pos">{pos + 1} / {count}</span>
     <span class="zoom">{userZoomed ? `${Math.round(z * 100)}%` : "fit"}</span>
@@ -314,6 +324,20 @@
     height: 100%;
     image-rendering: auto;
   }
+  /* The annotation mark as a ring just inside the stage edge — visible at any
+     zoom, never over the image content. */
+  .markring {
+    position: absolute;
+    inset: 4px;
+    border-radius: var(--radius-m);
+    pointer-events: none;
+  }
+  .markring.valid {
+    box-shadow: inset 0 0 0 3px var(--c-valid);
+  }
+  .markring.exclude {
+    box-shadow: inset 0 0 0 3px var(--c-exclude);
+  }
   .absent {
     display: flex;
     flex-direction: column;
@@ -341,6 +365,25 @@
   }
   .fname {
     color: var(--c-tx);
+  }
+  .star {
+    color: var(--c-accent-bright);
+    font-weight: 700;
+    margin-left: -4px;
+  }
+  .badge {
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.valid {
+    color: var(--c-valid);
+    background: var(--c-valid-tint);
+  }
+  .badge.exclude {
+    color: var(--c-exclude);
+    background: var(--c-exclude-tint);
   }
   .dot {
     color: var(--c-tx-faint);

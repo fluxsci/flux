@@ -422,6 +422,83 @@ await waitFor(async () => (await state(p1, "collName")) === "mock-collection", {
 check("Ctrl+click opens the picker instead (no sister menu)", (await p1.$("[data-sisters]")) === null);
 
 // =====================================================================
+section("mock=default: annotations (v/x/n)");
+const key = (k, init = {}) =>
+  p1.evaluate((kk, ii) => window.dispatchEvent(new KeyboardEvent("keydown", { key: kk, bubbles: true, cancelable: true, ...ii })), k, init);
+// no class open -> the annotation keys are inert
+await key("v");
+check("'v' inert with no annotation class", (await p1.$$eval("[data-cell][data-mark]", (els) => els.length)) === 0);
+// create a class through the top-bar control
+await p1.click("[data-annot]");
+await p1.waitForSelector("[data-annot-new]", { timeout: 3000 });
+await p1.click("[data-annot-new]");
+await p1.waitForSelector("[data-annot-input]", { timeout: 3000 });
+await p1.type("[data-annot-input]", "validated_by_eye");
+await p1.keyboard.press("Enter");
+await waitFor(async () => (await state(p1, "annotClass")) === "validated_by_eye", { desc: "class created + active" });
+check("top bar shows the open class", (await p1.$eval("[data-annot]", (e) => e.textContent)).includes("validated_by_eye"));
+check("typing the name never leaked into the keymap", (await state(p1, "view")) === "grid");
+// mark the selected item (item_001 after the reopen above)
+await key("Home");
+await waitFor(async () => (await state(p1, "selectedKey")) === "item_001", { desc: "item_001 selected" });
+// single-shot timing (no timed() retry — 'v' toggles, a second press would clear)
+const vMs = await keyAndWait(p1, "v", `() => document.querySelector("[data-cell].selected")?.dataset.mark === "valid"`);
+check(`'v' outlines the cell (${vMs < 0 ? "timeout" : Math.round(vMs) + "ms"} < ${LATENCY_MS}ms)`, vMs >= 0 && vMs <= LATENCY_MS);
+await key("v");
+check("'v' again clears the mark", (await p1.$eval("[data-cell].selected", (e) => e.dataset.mark ?? "none")) === "none");
+await key("x");
+check("'x' marks exclude", (await p1.$eval("[data-cell].selected", (e) => e.dataset.mark)) === "exclude");
+await key("2");
+await waitFor(async () => (await state(p1, "setName")) === "B", { desc: "set B" });
+check("the mark follows the ITEM across sets", (await p1.$eval("[data-cell].selected", (e) => e.dataset.mark)) === "exclude");
+await key("1");
+await waitFor(async () => (await state(p1, "setName")) === "A", { desc: "back to set A" });
+// notes: n opens the editor, typing saves, Esc closes, star appears
+await key("n");
+await p1.waitForSelector("[data-notes-editor] textarea", { timeout: 3000 });
+await p1.type("[data-notes-editor] textarea", "axis is clipped");
+await p1.keyboard.press("Escape");
+await waitFor(async () => !(await state(p1, "notesOpen")), { desc: "notes editor closed" });
+check("caption grows a notes star", (await p1.$("[data-cell].selected .star")) !== null);
+check("notes stored on the item", (await p1.evaluate(() => window.__ltState.annotItems.item_001?.notes)) === "axis is clipped");
+await key("n");
+await p1.waitForSelector("[data-notes-editor] textarea", { timeout: 3000 });
+check("reopening shows the saved notes", (await p1.$eval("[data-notes-editor] textarea", (t) => t.value)) === "axis is clipped");
+await p1.keyboard.press("Escape");
+await waitFor(async () => !(await state(p1, "notesOpen")), { desc: "notes editor closed again" });
+// detail: ring + marking from fullscreen
+await key("Enter");
+await p1.waitForSelector("[data-detail]", { timeout: 3000 });
+check("detail shows the mark ring", (await p1.$('[data-detail-mark="exclude"]')) !== null);
+await key("v");
+check("'v' in detail flips the mark", (await p1.$('[data-detail-mark="valid"]')) !== null);
+await key("Escape");
+await waitFor(async () => (await state(p1, "view")) === "grid", { desc: "back to grid" });
+// compare: ring + marking from the all-sets view
+await key("Enter", { ctrlKey: true });
+await p1.waitForSelector("[data-compare]", { timeout: 3000 });
+check("compare shows the mark ring", (await p1.$('[data-compare] [data-compare-mark="valid"]')) !== null);
+await key("x");
+check("'x' in compare re-marks", (await p1.$('[data-compare] [data-compare-mark="exclude"]')) !== null);
+await key("Escape");
+await waitFor(async () => (await state(p1, "view")) === "grid", { desc: "back to grid" });
+// switching class away and back keeps the layer intact (mock in-memory)
+await p1.click("[data-annot]");
+await p1.waitForSelector("[data-annot-menu]", { timeout: 3000 });
+await p1.evaluate(() => {
+  [...document.querySelectorAll("[data-annot-menu] button")].find((b) => b.textContent === "Close annotation class").click();
+});
+await waitFor(async () => (await state(p1, "annotClass")) === null, { desc: "class closed" });
+check("outlines vanish with the class", (await p1.$$eval("[data-cell][data-mark]", (els) => els.length)) === 0);
+await p1.click("[data-annot]");
+await p1.waitForSelector("[data-annot-menu]", { timeout: 3000 });
+await p1.evaluate(() => {
+  [...document.querySelectorAll("[data-annot-menu] button")].find((b) => b.textContent === "validated_by_eye").click();
+});
+await waitFor(async () => (await state(p1, "annotClass")) === "validated_by_eye", { desc: "class reopened" });
+check("marks return with the class", (await p1.$eval('[data-cell][data-key="item_001"]', (e) => e.dataset.mark)) === "exclude");
+
+// =====================================================================
 section("mock=big: virtualization on 3×2000 items");
 const p2 = await openPage("big");
 check("2000 keys loaded", (await state(p2, "keyCount")) === 2000);

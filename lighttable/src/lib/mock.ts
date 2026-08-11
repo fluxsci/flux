@@ -3,7 +3,7 @@
 // Images are generated in-page (canvas -> data URLs): a page served over http
 // cannot load file:// images, so a disk fixture would be useless here anyway.
 // Loaded only when import.meta.env.DEV && ?mock=… — stripped from builds.
-import type { ItemCell, LtApi, Manifest } from "./types";
+import type { AnnotItem, ItemCell, LtApi, Manifest } from "./types";
 
 function hueFor(s: string): number {
   let h = 0;
@@ -47,10 +47,15 @@ export function installMock(kind: string): void {
     sets: setIds.map((id) => ({ id, name: id, count: bySet[id].filter((c) => c.present).length })),
     keys,
     bySet,
+    annotations: { classes: [], active: null },
   };
   // A sister collection (same content, different identity) so the gates can
   // exercise the collection-name switcher.
   const sister: Manifest = { ...manifest, root: "/mock-sister", name: "mock-sister" };
+
+  // In-memory annotation classes (per page load) — enough for the UI gate.
+  const annotClasses = new Map<string, Record<string, AnnotItem>>();
+  let activeClass: string | null = null;
 
   const cache = new Map<string, string>();
   const urlFor = (setId: string, key: string): string => {
@@ -79,6 +84,36 @@ export function installMock(kind: string): void {
     pathForFile: () => "",
     prefsGet: async () => ({ columns: 8, captions: true, hGap: 8, vGap: 8, recents: [] }),
     prefsSet: async () => {},
+    annotList: async () => [...annotClasses.keys()].sort(),
+    annotCreate: async (name) => {
+      if (!annotClasses.has(name)) annotClasses.set(name, {});
+      activeClass = name;
+      return { name, items: { ...annotClasses.get(name)! } };
+    },
+    annotOpen: async (name) => {
+      const items = annotClasses.get(name);
+      if (!items) return null;
+      activeClass = name;
+      return { name, items: { ...items } };
+    },
+    annotClose: async () => {
+      activeClass = null;
+    },
+    annotSet: async (key, patch) => {
+      const items = activeClass ? annotClasses.get(activeClass) : undefined;
+      if (!items) return;
+      const it: AnnotItem = { ...(items[key] ?? {}) };
+      if ("mark" in patch) {
+        if (patch.mark) it.mark = patch.mark;
+        else delete it.mark;
+      }
+      if ("notes" in patch) {
+        if (patch.notes?.trim()) it.notes = patch.notes;
+        else delete it.notes;
+      }
+      if (it.mark || it.notes) items[key] = it;
+      else delete items[key];
+    },
   };
   (window as unknown as { lt: LtApi }).lt = api;
 }

@@ -35,6 +35,17 @@ export function handleKey(e: KeyboardEvent, s: Store): void {
   const k = e.key;
   let handled = true;
 
+  // Annotation keys work identically in grid, detail, and compare — they act
+  // on the selected item (which IS the viewed item in detail/compare). Inert
+  // until an annotation class is open.
+  if (k === "v" || k === "x" || k === "n") {
+    if (!s.annot) return;
+    if (k === "n") s.openNotes();
+    else s.toggleMark(k === "v" ? "valid" : "exclude");
+    e.preventDefault();
+    return;
+  }
+
   if (k >= "1" && k <= "9") {
     s.switchSet(Number(k) - 1); // jump to set N (same item — the EDA move)
   } else if (k === "Tab") {

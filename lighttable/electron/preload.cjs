@@ -25,4 +25,9 @@ contextBridge.exposeInMainWorld("lt", {
   },
   prefsGet: () => ipcRenderer.invoke("lt:prefsGet"),
   prefsSet: (p) => ipcRenderer.invoke("lt:prefsSet", p),
+  annotList: () => ipcRenderer.invoke("lt:annotList"),
+  annotCreate: (name) => ipcRenderer.invoke("lt:annotCreate", name),
+  annotOpen: (name) => ipcRenderer.invoke("lt:annotOpen", name),
+  annotClose: () => ipcRenderer.invoke("lt:annotClose"),
+  annotSet: (key, patch) => ipcRenderer.invoke("lt:annotSet", key, patch),
 });

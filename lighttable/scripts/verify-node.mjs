@@ -11,6 +11,7 @@ import { check, checkAsync, section, finish } from "./lib/harness.mjs";
 const require = createRequire(import.meta.url);
 const { scanCollection, toManifest, listSiblings, LOOSE_SET_ID } = require("../electron/scan.cjs");
 const thumbs = require("../electron/thumbs.cjs");
+const annot = require("../electron/annotations.cjs");
 const { loadImage } = require("@napi-rs/canvas");
 
 const base = mkdtempSync(path.join(os.tmpdir(), "lighttable-verify-"));
@@ -85,6 +86,50 @@ section("listSiblings (sister folders)");
   check("siblings natural-sorted, current included", sibs.map((s) => s.name).join(",") === "run1,run2,run10");
   check("hidden dirs and files skipped", !sibs.some((s) => s.name === ".hidden" || s.name === "readme.txt"));
   check("sibling paths are absolute", sibs.every((s) => path.isAbsolute(s.path)));
+}
+
+// ---- annotations -------------------------------------------------------------
+section("annotations: class lifecycle + persistence");
+{
+  const aroot = stdDir; // reuse the standard collection
+  check("no classes to start", (await annot.listClasses(aroot)).length === 0);
+  check("bogus names rejected", (await annot.createClass(aroot, "  ..  ")) === null);
+
+  const created = await annot.createClass(aroot, "validated_by_eye");
+  check("createClass returns the open class", created && created.name === "validated_by_eye");
+  const { existsSync } = await import("node:fs");
+  check("class file exists on creation", existsSync(path.join(aroot, ".lt-annotations", "validated_by_eye.json")));
+
+  annot.setItem("img_1", { mark: "valid" });
+  annot.setItem("img_2", { mark: "exclude", notes: "axis clipped" });
+  annot.setItem("img_10", { notes: "check later" });
+  annot.setItem("img_10", { notes: "" }); // blank notes prune the entry
+  annot.setItem("img_1", { mark: "bogus" }); // invalid mark clears
+  annot.setItem("img_1", { mark: "valid" });
+  annot.closeClass(); // flush
+
+  const reopened = await annot.openClass(aroot, "validated_by_eye");
+  check("marks survive a close/reopen", reopened.items.img_1?.mark === "valid" && reopened.items.img_2?.mark === "exclude");
+  check("notes survive too", reopened.items.img_2?.notes === "axis clipped");
+  check("emptied entries are pruned", !("img_10" in reopened.items));
+  annot.closeClass();
+
+  check("openClass on a missing class -> null", (await annot.openClass(aroot, "nope")) === null);
+  const again = await annot.createClass(aroot, "validated_by_eye");
+  check("createClass on an existing class opens it (no clobber)", again.items.img_1?.mark === "valid");
+  annot.closeClass();
+
+  await annot.createClass(aroot, "second_pass");
+  annot.setItem("img_1", { mark: "exclude" });
+  annot.closeClass();
+  check("classes list both, natural-sorted", (await annot.listClasses(aroot)).join(",") === "second_pass,validated_by_eye");
+  check("latestClass is the most recently written", (await annot.latestClass(aroot)) === "second_pass");
+  check("classes are independent layers", (await annot.openClass(aroot, "validated_by_eye")).items.img_1?.mark === "valid");
+  annot.closeClass();
+
+  // The hidden .lt-annotations dir must never surface as a set.
+  const rescanned = await scanCollection(aroot);
+  check("annotation dir invisible to the scanner", rescanned.sets.map((s) => s.id).join(",") === "A,B");
 }
 
 // ---- thumbs ------------------------------------------------------------------

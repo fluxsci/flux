@@ -1,5 +1,15 @@
 // App state (Svelte 5 runes). One store, no state library — the app is small.
-import type { ItemCell, LtApi, Manifest, RecentEntry, SetInfo } from "./types";
+import type {
+  AnnotData,
+  AnnotItem,
+  AnnotMark,
+  AnnotPatch,
+  ItemCell,
+  LtApi,
+  Manifest,
+  RecentEntry,
+  SetInfo,
+} from "./types";
 
 // Grid layout constants (shared with Grid.svelte and the verify gates).
 export const GRID_PAD = 12;
@@ -45,6 +55,12 @@ class LtStore {
   view = $state<"grid" | "detail" | "compare">("grid");
   selectedKey = $state<string | null>(null);
   recents = $state<RecentEntry[]>([]);
+
+  // Annotations: the collection's class list + the active class (mirrored from
+  // main, mutated optimistically so outlines land inside the 100ms budget).
+  annotClasses = $state<string[]>([]);
+  annot = $state<AnnotData | null>(null);
+  notesOpen = $state(false);
 
   // The grid's cell aspect (width/height): the median of the actually-decoded
   // image sizes, dampened so it settles instead of jittering. Collection-global
@@ -98,6 +114,9 @@ class LtStore {
     this.search = "";
     this.view = "grid";
     this.selectedKey = m.keys[0] ?? null;
+    this.annotClasses = m.annotations?.classes ?? [];
+    this.annot = m.annotations?.active ?? null;
+    this.notesOpen = false;
     this.aspectSamples = []; // re-measure per collection (keep the old value until samples arrive)
     document.title = m.name ? `${m.name} — Lighttable` : "Lighttable";
   }
@@ -238,6 +257,64 @@ class LtStore {
     const setId = this.currentSet?.id;
     if (setId && this.selectedKey) void this.api?.revealInFolder(setId, this.selectedKey);
   }
+
+  // ---- annotations -----------------------------------------------------------
+  annotFor(key: string | null | undefined): AnnotItem | null {
+    return key ? (this.annot?.items[key] ?? null) : null;
+  }
+
+  // v/x on the selected item: pressing the mark it already has clears it.
+  toggleMark(mark: AnnotMark): void {
+    const key = this.selectedKey;
+    if (!this.annot || !key) return;
+    this.applyAnnot(key, { mark: this.annot.items[key]?.mark === mark ? null : mark });
+  }
+  setNotes(key: string, notes: string): void {
+    if (!this.annot) return;
+    this.applyAnnot(key, { notes });
+  }
+  // Optimistic local merge (same pruning rules as main), then tell main — the
+  // single writer — to persist. Items are replaced wholesale so cells react.
+  private applyAnnot(key: string, patch: AnnotPatch): void {
+    if (!this.annot) return;
+    const it: AnnotItem = { ...(this.annot.items[key] ?? {}) };
+    if ("mark" in patch) {
+      if (patch.mark) it.mark = patch.mark;
+      else delete it.mark;
+    }
+    if ("notes" in patch) {
+      if (patch.notes?.trim()) it.notes = patch.notes;
+      else delete it.notes;
+    }
+    const items = { ...this.annot.items };
+    if (it.mark || it.notes) items[key] = it;
+    else delete items[key];
+    this.annot = { ...this.annot, items };
+    void this.api?.annotSet(key, patch);
+  }
+
+  openNotes(): void {
+    if (this.annot && this.selectedKey) this.notesOpen = true;
+  }
+  closeNotes(): void {
+    this.notesOpen = false;
+  }
+
+  async createAnnotClass(name: string): Promise<void> {
+    const d = await this.api?.annotCreate(name);
+    if (!d) return;
+    this.annot = d;
+    this.annotClasses = (await this.api?.annotList()) ?? this.annotClasses;
+  }
+  async openAnnotClass(name: string): Promise<void> {
+    const d = await this.api?.annotOpen(name);
+    if (d) this.annot = d;
+  }
+  async closeAnnotClass(): Promise<void> {
+    await this.api?.annotClose();
+    this.annot = null;
+    this.notesOpen = false;
+  }
 }
 
 export const store = new LtStore();
@@ -290,6 +367,18 @@ if (import.meta.env.DEV) {
     },
     get grid() {
       return store.gridDebug;
+    },
+    get annotClass() {
+      return store.annot?.name ?? null;
+    },
+    get annotClasses() {
+      return [...store.annotClasses];
+    },
+    get annotItems() {
+      return store.annot ? JSON.parse(JSON.stringify(store.annot.items)) : null;
+    },
+    get notesOpen() {
+      return store.notesOpen;
     },
   };
 }

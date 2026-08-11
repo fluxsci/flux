@@ -11,6 +11,7 @@
   const sets = $derived(store.manifest?.sets ?? []);
   const pos = $derived(store.selIdx);
   const count = $derived(store.filteredKeys.length);
+  const annot = $derived(store.annotFor(itemKey));
 
   const GAP = 12;
   const CAP_H = 22;
@@ -61,11 +62,17 @@
 <div class="compare" data-compare>
   <div class="header">
     <span class="item" data-compare-item>{itemKey}</span>
+    {#if annot?.notes}<span class="star" title={annot.notes}>*</span>{/if}
+    {#if annot?.mark === "valid"}
+      <span class="badge valid">✓ valid</span>
+    {:else if annot?.mark === "exclude"}
+      <span class="badge exclude">✕ excluded</span>
+    {/if}
     <span class="pos">{pos + 1} / {count}</span>
     <span class="grow"></span>
     <span class="hint">←/→ item · click tile to fullscreen · Esc back</span>
   </div>
-  <div class="stage" bind:this={stage}>
+  <div class="stage" bind:this={stage} data-compare-mark={annot?.mark}>
     {#if itemKey}
       <div
         class="tiles"
@@ -123,6 +130,25 @@
     font-weight: 600;
     font-size: 13px;
   }
+  .star {
+    color: var(--c-accent-bright);
+    font-weight: 700;
+    margin-left: -6px;
+  }
+  .badge {
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.valid {
+    color: var(--c-valid);
+    background: var(--c-valid-tint);
+  }
+  .badge.exclude {
+    color: var(--c-exclude);
+    background: var(--c-exclude-tint);
+  }
   .pos {
     color: var(--c-tx-muted);
     font-variant-numeric: tabular-nums;
@@ -139,6 +165,21 @@
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    position: relative;
+  }
+  /* The item's mark as a ring just inside the stage edge (matches Detail). */
+  .stage[data-compare-mark]::after {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border-radius: var(--radius-m);
+    pointer-events: none;
+  }
+  .stage[data-compare-mark="valid"]::after {
+    box-shadow: inset 0 0 0 3px var(--c-valid);
+  }
+  .stage[data-compare-mark="exclude"]::after {
+    box-shadow: inset 0 0 0 3px var(--c-exclude);
   }
   .tiles {
     display: grid;

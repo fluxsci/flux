@@ -17,6 +17,7 @@
 
   const cell = $derived(store.cellFor(setId, itemKey));
   const selected = $derived(store.selectedKey === itemKey);
+  const annot = $derived(store.annotFor(itemKey));
 
   let src = $state<string | null>(null);
   let gen = 0;
@@ -57,9 +58,12 @@
 <button
   class="cell"
   class:selected
+  class:valid={annot?.mark === "valid"}
+  class:exclude={annot?.mark === "exclude"}
   data-cell
   data-key={itemKey}
   data-missing={cell && !cell.present ? "" : undefined}
+  data-mark={annot?.mark}
   style:width={`${cellW}px`}
   tabindex="-1"
   onclick={onClick}
@@ -75,7 +79,10 @@
     {/if}
   </div>
   {#if capH > 0}
-    <div class="caption" style:height={`${capH}px`}>{cell?.file ?? itemKey}</div>
+    <div class="caption" style:height={`${capH}px`}>
+      <span class="capname">{cell?.file ?? itemKey}</span>
+      {#if annot?.notes}<span class="star" title={annot.notes}>*</span>{/if}
+    </div>
   {/if}
 </button>
 
@@ -103,6 +110,21 @@
     outline-offset: 0;
     box-shadow: 0 0 0 3px var(--c-accent-tint);
   }
+  /* Annotation marks own the outline; selection stays visible as the halo. */
+  .cell.valid .surface {
+    outline: 2px solid var(--c-valid);
+    outline-offset: 0;
+  }
+  .cell.exclude .surface {
+    outline: 2px solid var(--c-exclude);
+    outline-offset: 0;
+  }
+  .cell.selected.valid .surface {
+    box-shadow: 0 0 0 3px var(--c-valid-tint), 0 0 0 5px var(--c-accent-tint);
+  }
+  .cell.selected.exclude .surface {
+    box-shadow: 0 0 0 3px var(--c-exclude-tint), 0 0 0 5px var(--c-accent-tint);
+  }
   img {
     /* Fill the cell in BOTH directions — small sources upscale rather than
        float in the middle of a large cell (the cell aspect tracks the images'
@@ -127,13 +149,24 @@
     white-space: nowrap;
   }
   .caption {
+    display: flex;
+    align-items: baseline;
     color: var(--c-tx-muted);
     font-size: 11px;
     line-height: 20px;
+    padding: 0 2px;
+  }
+  .capname {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding: 0 2px;
+  }
+  /* The notes star never ellipses away, however long the filename. */
+  .star {
+    flex: none;
+    margin-left: 2px;
+    color: var(--c-accent-bright);
+    font-weight: 700;
   }
   .cell.selected .caption {
     color: var(--c-tx-2);

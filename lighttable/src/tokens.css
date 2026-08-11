@@ -43,6 +43,12 @@
   --c-accent-glow: color-mix(in oklab, var(--flx-blue-400) 42%, transparent);
   --c-danger: #d14d41;
 
+  /* ---- Annotation marks (Flexoki green-400 / red-400) ------------------- */
+  --c-valid: #879a39;
+  --c-valid-tint: color-mix(in oklab, #879a39 22%, transparent);
+  --c-exclude: var(--c-danger);
+  --c-exclude-tint: color-mix(in oklab, #d14d41 22%, transparent);
+
   /* ---- Image surfaces --------------------------------------------------- */
   /* Deliberately NEUTRAL darks (not the warm Flexoki near-black) so image
      colours are judged against neutral, not tinted. */
