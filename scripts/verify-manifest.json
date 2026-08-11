@@ -80,6 +80,7 @@
       "verify-text-parity.ts",
       "verify-ssrf-ranges.ts",
       "verify-ipc-contract.ts",
+      "verify-quit-policy.ts",
       "verify-enrich-grid.ts",
       "verify-annotations-md.ts",
       "verify-figure-export.ts",
@@ -194,6 +195,7 @@
       "verify-outline-refresh.mjs",
       "verify-figref.mjs",
       "verify-paper-tables.mjs",
+      "verify-paper-split.mjs",
       "verify-w18-paper.mjs",
       "verify-paper-export.mjs",
       "verify-paper-math.mjs",
@@ -328,6 +330,7 @@
     "electron": [
       "verify-principal-electron.cjs",
       "verify-w6-flush.cjs",
+      "verify-multiwindow.cjs",
       "verify-cellpress.cjs",
       "verify-netget.cjs",
       "verify-proxy-capture.cjs",
@@ -372,6 +375,7 @@
       "verify-correction-runtime.ts",
       "verify-flux-correction-eval.ts",
       "verify-paper-tables.mjs",
+      "verify-paper-split.mjs",
       "verify-nature-style.ts",
       "verify-writer-neutral.ts"
     ],

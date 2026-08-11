@@ -176,9 +176,19 @@ export function isAvailable(): boolean {
 }
 
 /** Mount the persistent terminal host into `container`; spins up a shell on first use. */
+// Dual-paper (2026-08-11): TWO mounts can want the one host div (a terminal
+// margin pane in each paper pane; reader panes have the same shape and solved
+// it with readerTerminalPane). Ownership: the LAST attach wins — appendChild
+// moves the div — and a detach only removes the div when the detaching view
+// still owns it, so pane A's teardown can't yank the terminal out of pane B.
+// `termMountOwner` bumps on every attach so the non-owning view can render a
+// "bring it here" affordance instead of an empty box.
+export const termMountOwner = writable<HTMLElement | null>(null);
+
 export function attach(container: HTMLElement): void {
   const s = ensure();
   container.appendChild(s.el);
+  termMountOwner.set(container);
   if (!s.opened) {
     s.term.open(s.el);
     s.opened = true;
@@ -190,9 +200,13 @@ export function attach(container: HTMLElement): void {
   });
 }
 
-/** Detach the host from the DOM but keep the shell + scrollback alive. */
-export function detach(): void {
-  session?.el.parentElement?.removeChild(session.el);
+/** Detach the host from the DOM but keep the shell + scrollback alive.
+ *  `container` (when given) must still own the host — a stale detach no-ops. */
+export function detach(container?: HTMLElement): void {
+  if (!session) return;
+  if (container && session.el.parentElement !== container) return;
+  session.el.parentElement?.removeChild(session.el);
+  termMountOwner.set(null);
 }
 
 /** Refit to the host's current size and tell the PTY its new dimensions. */

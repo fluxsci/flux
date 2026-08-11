@@ -34,7 +34,7 @@ import { mdInlineFragment, inlineSig, type InlineResolvers } from "./mdInline";
 import { katexReady } from "./katexLoader";
 import { kickKatex } from "./math";
 import { numberTables, scanTablesCached, type ParsedTable, type Align } from "./tableModel";
-import { tableHandlers } from "./chipContext";
+import { anyPaperHandlers, handlersForEl, type TableAction } from "./chipContext";
 
 /** Cell content renders like the export: inline markdown + math + resolved
  *  refs/cites against THIS editor's numbering instance. */
@@ -182,14 +182,14 @@ class TableWidget extends WidgetType {
     // The rendered table is a VIEW of the source rows: click a cell and the
     // caret lands in that cell's source text (Chromium cannot text-select
     // inside a contenteditable=false island anyway — the click is unambiguous).
-    if (tableHandlers.onTableAction) {
+    if (anyPaperHandlers()) {
       scroll.addEventListener("click", (e) => {
         const cell = (e.target as HTMLElement).closest("td, th");
         if (!cell) return;
         const tr = cell.parentElement as HTMLTableRowElement;
         const col = [...tr.children].indexOf(cell);
         const row = cell.tagName === "TH" ? -1 : [...(tr.parentElement?.children ?? [])].indexOf(tr);
-        if (col >= 0) tableHandlers.onTableAction?.(wrap, { kind: "cell", row, col });
+        if (col >= 0) handlersForEl(wrap)?.table?.onTableAction?.(wrap, { kind: "cell", row, col });
       });
     }
     const table = document.createElement("table");
@@ -200,13 +200,13 @@ class TableWidget extends WidgetType {
       const th = document.createElement("th");
       this.fillCell(th, c);
       th.style.textAlign = this.t.aligns[i] ?? "left";
-      if (tableHandlers.onTableAction) {
+      if (anyPaperHandlers()) {
         th.title = "Alt-click to cycle column alignment";
         th.addEventListener("mousedown", (e) => {
           if (!e.altKey) return;
           e.preventDefault();
           e.stopPropagation();
-          tableHandlers.onTableAction?.(wrap, { kind: "align", col: i });
+          handlersForEl(wrap)?.table?.onTableAction?.(wrap, { kind: "align", col: i });
         });
       }
       htr.appendChild(th);
@@ -235,9 +235,9 @@ class TableWidget extends WidgetType {
       // Same route as a cell click: the caption's source line lives inside the
       // collapsed block (tableFold.ts), so clicking the rendered caption puts
       // the caret in it.
-      if (tableHandlers.onTableAction) {
+      if (anyPaperHandlers()) {
         cap.title = "Click to edit the caption source";
-        cap.addEventListener("click", () => tableHandlers.onTableAction?.(wrap, { kind: "caption" }));
+        cap.addEventListener("click", () => handlersForEl(wrap)?.table?.onTableAction?.(wrap, { kind: "caption" }));
       }
       const b = document.createElement("b");
       b.textContent = `Table ${this.number}.`;
@@ -250,10 +250,10 @@ class TableWidget extends WidgetType {
     // Hover action bar (the embeds.ts .flux-embed-bar pattern) — rendered only
     // when PaperMode has registered the handler (headless single-field tests
     // and read-only hosts get the plain widget).
-    if (tableHandlers.onTableAction) {
+    if (anyPaperHandlers()) {
       const bar = document.createElement("div");
       bar.className = "flux-table-bar";
-      const btn = (label: string, title: string, action: Parameters<NonNullable<typeof tableHandlers.onTableAction>>[1]) => {
+      const btn = (label: string, title: string, action: TableAction) => {
         const el = document.createElement("button");
         el.type = "button";
         el.textContent = label;
@@ -261,7 +261,7 @@ class TableWidget extends WidgetType {
         el.addEventListener("mousedown", (e) => {
           e.preventDefault();
           e.stopPropagation();
-          tableHandlers.onTableAction?.(wrap, action);
+          handlersForEl(wrap)?.table?.onTableAction?.(wrap, action);
         });
         return el;
       };

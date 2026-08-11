@@ -2,22 +2,25 @@
   import { tick } from "svelte";
   import type { MarginHost, MarginApi } from "../types";
   import { bibError } from "../../scholar/bib";
-  import { activeCitationGroup } from "../../scholar/activeCitation";
-  // WS-4.2: per-editor numbering comes through the margin host (was a module
-  // store import — a cross-pane singleton).
-  import { refRevealReq } from "../refReveal";
+  // WS-4.2 / dual-paper: numbering, the caret-tracked citation group, and the
+  // reveal request all come through the margin host (module imports were
+  // cross-pane singletons).
   import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../../../../lib/references/pdfPresence";
   import { revealReader } from "../../../../scholar/nav";
   import { fileBridge } from "../../../../../lib/project/types";
 
   let { host, margin }: { host: MarginHost; margin: MarginApi } = $props();
-  // The numbering STORES are created once per PaperMode mount and never swap
+  // These STORES are created once per PaperMode mount and never swap
   // identity — capturing them off the initial host is deliberate (we want the
   // stores, not a reactive read of the host object).
   // svelte-ignore state_referenced_locally
   const citationOrdinals = host.numbering.ordinals;
   // svelte-ignore state_referenced_locally
   const citationStyle = host.numbering.style;
+  // svelte-ignore state_referenced_locally
+  const activeCitationGroup = host.activeCitationGroup;
+  // svelte-ignore state_referenced_locally
+  const refRevealReq = host.refReveal;
 
   let doi = $state("");
   let adding = $state(false);

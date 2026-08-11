@@ -15,16 +15,21 @@
   import DynamicBackground from "./DynamicBackground.svelte";
   import MarginPaneFrame from "./MarginPaneFrame.svelte";
   import { bgSeed, rerollBgSeed } from "./bgSources";
-  import {
-    openPanes,
-    activePaneId,
-    paneFocusReq,
-    summonPane,
-    closePane,
-    closeAllPanes,
-  } from "./marginPanes";
+  import type { MarginPaneStack } from "./marginPanes";
 
-  let { host, paused = false }: { host: MarginHost; paused?: boolean } = $props();
+  // Dual-paper (2026-08-11): the pane stack arrives as a per-PaperMode instance
+  // (panes prop) instead of module imports — two margins keep separate stacks.
+  // `focused` gates the dev hook: verify scripts drive the focused pane's margin.
+  let {
+    host,
+    panes: stack,
+    paused = false,
+    focused = false,
+  }: { host: MarginHost; panes: MarginPaneStack; paused?: boolean; focused?: boolean } = $props();
+  // The stack is created once per PaperMode and never swaps identity —
+  // capturing off the initial prop is deliberate (we want the stores).
+  // svelte-ignore state_referenced_locally
+  const { openPanes, activePaneId, paneFocusReq, summonPane, closePane, closeAllPanes } = stack;
 
   let rootEl = $state<HTMLElement | undefined>(undefined);
 
@@ -89,7 +94,10 @@
   }
 
   // Dev hooks for the verify scripts (drive panes + backgrounds w/o reloads).
-  if (import.meta.env.DEV) {
+  // Follows focus: with two paper panes the hook drives the FOCUSED pane's
+  // margin (single-pane gates see the exact old behavior).
+  $effect(() => {
+    if (!import.meta.env.DEV || !focused) return;
     const w = window as unknown as { __fluxMargin?: Record<string, unknown> };
     const hook = (w.__fluxMargin ??= {});
     hook.summon = summonPane;
@@ -97,7 +105,7 @@
     hook.panes = () => (rootEl ? [...rootEl.querySelectorAll("[data-pane-id]")].map((e) => e.getAttribute("data-pane-id")) : []);
     hook.setBg = (id: Settings["paperMarginScene"]) => settings.update((v) => ({ ...v, paperMarginScene: id }));
     hook.reroll = rerollBgSeed;
-  }
+  });
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

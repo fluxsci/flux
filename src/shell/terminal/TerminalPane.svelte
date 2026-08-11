@@ -18,7 +18,7 @@
   });
   onDestroy(() => {
     ro?.disconnect();
-    detach();
+    detach(host); // ownership-guarded: a stale detach can't yank the moved host
   });
 </script>
 

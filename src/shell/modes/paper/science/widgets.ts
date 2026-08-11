@@ -9,7 +9,7 @@ import { resolveCite } from "../scholar/bib";
 import { formatNumericLabel, type CitationStyle } from "../scholar/citeNumbering";
 import type { PaperNumbering } from "../scholar/numberingFacet";
 import { renderTexCached } from "./katexLoader";
-import { chipHandlers } from "./chipContext";
+import { handlersForEl } from "./chipContext";
 
 /** Inline `$…$` math (2.1) — an atomic inline chip like cites/cross-refs: rendered
  *  KaTeX in place, raw TeX revealed when the selection touches it (chips.ts owns
@@ -69,12 +69,12 @@ export class FigRefWidget extends WidgetType {
     el.addEventListener("dblclick", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      chipHandlers.onActivate?.({ kind: "figref", label: this.label }, el);
+      handlersForEl(el)?.chip?.onActivate?.({ kind: "figref", label: this.label }, el);
     });
     el.addEventListener("mouseenter", () =>
-      chipHandlers.onHover?.({ kind: "figref", label: this.label }, el),
+      handlersForEl(el)?.chip?.onHover?.({ kind: "figref", label: this.label }, el),
     );
-    el.addEventListener("mouseleave", () => chipHandlers.onLeave?.());
+    el.addEventListener("mouseleave", () => handlersForEl(el)?.chip?.onLeave?.());
     return el;
   }
   ignoreEvent(e: Event) {
@@ -114,7 +114,7 @@ export class EmbedSrcWidget extends WidgetType {
     el.addEventListener("dblclick", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      chipHandlers.onActivate?.({ kind: "figref", label: this.label }, el);
+      handlersForEl(el)?.chip?.onActivate?.({ kind: "figref", label: this.label }, el);
     });
     return el;
   }
@@ -160,12 +160,12 @@ export class CiteWidget extends WidgetType {
     el.addEventListener("dblclick", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      chipHandlers.onActivate?.({ kind: "cite", keys: this.keys }, el);
+      handlersForEl(el)?.chip?.onActivate?.({ kind: "cite", keys: this.keys }, el);
     });
     el.addEventListener("mouseenter", () =>
-      chipHandlers.onHover?.({ kind: "cite", keys: this.keys }, el),
+      handlersForEl(el)?.chip?.onHover?.({ kind: "cite", keys: this.keys }, el),
     );
-    el.addEventListener("mouseleave", () => chipHandlers.onLeave?.());
+    el.addEventListener("mouseleave", () => handlersForEl(el)?.chip?.onLeave?.());
     return el;
   }
   ignoreEvent(e: Event) {

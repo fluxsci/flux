@@ -2,7 +2,8 @@
   import { fade } from "svelte/transition";
   import type { EditorView } from "@codemirror/view";
   import Icon from "../../../Icon.svelte";
-  import { bubble } from "./selectionState";
+  import type { Writable } from "svelte/store";
+  import type { BubbleState } from "./selectionState";
   import {
     insertLink,
     setHeading,
@@ -15,7 +16,14 @@
   import { CM_HINTS } from "../editing/keymap";
   import { openLocalWordTools } from "../editing/localWordTools";
 
-  let { view, onComment }: { view: EditorView | undefined; onComment?: () => void } =
+  // Dual-paper (2026-08-11): the bubble store is per-PaperMode (created by
+  // createSelectionBubble) and arrives as a prop — a module singleton meant
+  // selecting in one pane moved the other pane's toolbar.
+  let {
+    view,
+    bubble,
+    onComment,
+  }: { view: EditorView | undefined; bubble: Writable<BubbleState>; onComment?: () => void } =
     $props();
 
   const btns: { name: string; title: string; run: Command }[] = [

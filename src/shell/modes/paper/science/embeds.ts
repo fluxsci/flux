@@ -17,7 +17,7 @@
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";
 import { resolveFigure, renderFigureSvg } from "../scholar/figures";
-import { embedHandlers } from "./chipContext";
+import { handlersForEl } from "./chipContext";
 import { refreshChips } from "./chips";
 import { EMBED_RE, parseEmbedAttrs, widthFraction, cssWidth, unescapeEmbedCaption } from "./figureAttrs";
 import { touchesMe, paperPerf } from "./changeGate";
@@ -159,7 +159,7 @@ class FigureEmbedWidget extends WidgetType {
         b.addEventListener("mousedown", (e) => {
           e.preventDefault();
           e.stopPropagation();
-          embedHandlers.onSetWidth?.(wrap, value);
+          handlersForEl(wrap)?.embed?.onSetWidth?.(wrap, value);
         });
         return b;
       };
@@ -171,7 +171,7 @@ class FigureEmbedWidget extends WidgetType {
       open.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        embedHandlers.onOpenFigure?.(this.figId!);
+        handlersForEl(wrap)?.embed?.onOpenFigure?.(this.figId!);
       });
       bar.appendChild(open);
       wrap.appendChild(bar);
@@ -239,7 +239,7 @@ class FigureEmbedWidget extends WidgetType {
         grip.removeEventListener("pointermove", onMove);
         grip.removeEventListener("pointerup", onUp);
         readout.remove();
-        embedHandlers.onSetWidth?.(wrap, `${pct}%`);
+        handlersForEl(wrap)?.embed?.onSetWidth?.(wrap, `${pct}%`);
       };
       grip.addEventListener("pointermove", onMove);
       grip.addEventListener("pointerup", onUp);

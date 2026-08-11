@@ -17,13 +17,15 @@
   import type { Command } from "../../command/commands";
   import { paperPaletteRequest, openDocRequest } from "../../command/commandBus";
   import { contextCommands } from "../../command/globalCommands";
-  import { paperSelectionWatcher } from "./paperContext";
-  import { setPaperContextDoc } from "../../../lib/project/paperSelectionStore";
+  import { makePaperSelectionWatcher } from "./paperContext";
+  import { setPaperContextDoc, publishPaperSelection } from "../../../lib/project/paperSelectionStore";
   import { paperLayout } from "./view-mode/paperLayoutStore";
-  import { cursorPos, cursorWatcher } from "./outline/activeHeading";
+  import { createCursorTracking } from "./outline/activeHeading";
   import SelectionToolbar from "./toolbar/SelectionToolbar.svelte";
   import EmptyState from "./EmptyState.svelte";
-  import { selectionWatcher } from "./toolbar/selectionState";
+  import { createSelectionBubble } from "./toolbar/selectionState";
+  import { claimDoc, releaseDocClaim, paneEditingDoc } from "./paperDocRegistry";
+  import { focusPane } from "../../paneStore";
   import { formattingKeymap, CM_HINTS } from "./editing/keymap";
   import {
     localCorrections,
@@ -51,7 +53,7 @@
   // WS-4.2: THIS pane's numbering instance (facet value + margin-facing stores).
   const numbering = createPaperNumbering();
   import { setFrontMatterKey } from "./scholar/frontMatter";
-  import { activeCitationWatcher, resetActiveCitation } from "./scholar/activeCitation";
+  import { createActiveCitation } from "./scholar/activeCitation";
   import { followAtCaret, jumpToInlineLabel, isInlineFamily } from "./editing/caretActions";
   import {
     tableKeymap,
@@ -79,20 +81,15 @@
   import { scienceTables } from "./science/tables";
   import { scienceTableFold } from "./science/tableFold";
   import { scienceMathBlocks, trackMathView } from "./science/math";
-  import {
-    setChipHandlers,
-    setEmbedHandlers,
-    setSlashHandlers,
-    setTableHandlers,
-    type ChipTarget,
-  } from "./science/chipContext";
+  import { registerPaperHandlers, type ChipTarget, type TableAction } from "./science/chipContext";
   import FigurePicker from "./scholar/FigurePicker.svelte";
   import FigRefPicker from "./scholar/FigRefPicker.svelte";
   import { figRefTrigger } from "./scholar/figRefTrigger";
   import type { FigureRef } from "./scholar/figures";
   import DynamicMargin from "./margin/DynamicMargin.svelte";
   import type { MarginHost } from "./margin/types";
-  import { summonPane, closeActivePane, closeAllPanes } from "./margin/marginPanes";
+  import { createMarginPanes } from "./margin/marginPanes";
+  import { createRefReveal } from "./margin/refReveal";
   import { BG_SOURCES, rerollBgSeed } from "./margin/bgSources";
   import { settings } from "../../../lib/settings";
   import * as terminalSession from "../../terminal/terminalSession";
@@ -130,16 +127,35 @@
   import { doiPaste } from "./science/doiPaste";
   import { figRevision, bibRevision } from "../../scholar/revisions";
   import { revealFigure, revealReader } from "../../scholar/nav";
-  import { requestRefReveal } from "./margin/refReveal";
   import HoverCard from "./scholar/HoverCard.svelte";
 
   // `active` (W16): false when this pane is kept-alive but hidden — the ambient
   // margin background pauses (a hidden canvas still gets rAF ticks otherwise).
-  let { focused = false, active = true }: { focused?: boolean; active?: boolean } = $props();
+  // `paneId` (dual-paper 2026-08-11): keys everything per-instance — flushable
+  // ids, the document claim, and the per-pane store bundle below.
+  let {
+    focused = false,
+    active = true,
+    paneId = "",
+  }: { focused?: boolean; active?: boolean; paneId?: string } = $props();
 
   const SEED = `# Introduction\n\nStart writing…\n`;
   const pm = get(projectModel);
   const title = pm?.manifest.title ?? "Untitled";
+
+  // ---- per-pane store bundle (dual-paper) --------------------------------
+  // Each PaperMode owns its selection bubble, caret tracker, citation-group
+  // tracker, reveal channel, and margin pane stack — the module singletons
+  // these replace were exactly what gated two paper panes (paneStore comment).
+  const selBubble = createSelectionBubble();
+  const cursorTracking = createCursorTracking();
+  const cursorPos = cursorTracking.cursorPos;
+  const activeCitation = createActiveCitation();
+  const refReveal = createRefReveal();
+  const margin = createMarginPanes();
+  const { summonPane, closeActivePane, closeAllPanes } = margin;
+  // Two panes must never edit the SAME document (B4) — see paperDocRegistry.
+  let blockedByTwin = $state(false);
 
   let ready = $state(false);
   let initialDoc = $state("");
@@ -918,7 +934,7 @@
   function openRefFromHover(key: string) {
     hover = null;
     summonPane("bibliography");
-    requestRefReveal(key);
+    refReveal.requestRefReveal(key);
     view?.focus();
   }
   function openPdfFromHover(key: string) {
@@ -1043,9 +1059,21 @@
       docs = await listDocuments(pm);
       // Restore the last active document if it still exists, else the main one.
       const want = get(paperLayout).activeDocPath;
-      activeDocPath =
+      let target =
         want && docs.some((d) => d.path === want) ? want : pm.manifest.manuscript.path;
-      initialDoc = (await readManuscript(pm, activeDocPath)) || SEED;
+      // Dual-paper B4: another pane already editing that document → take the
+      // first unclaimed one; none free → render the blocked card (the document
+      // rail stays usable, and "+ New document" resolves it).
+      if (paneEditingDoc(target, paneId)) {
+        const free = docs.find((d) => !paneEditingDoc(d.path, paneId));
+        if (free) target = free.path;
+        else blockedByTwin = true;
+      }
+      activeDocPath = target;
+      if (!blockedByTwin) {
+        claimDoc(paneId, target);
+        initialDoc = (await readManuscript(pm, target)) || SEED;
+      }
     } else {
       initialDoc = SEED;
       isDemo = true;
@@ -1054,29 +1082,64 @@
     latestIdle = initialDoc; // PAP-7: seed the debounced mirror so cited-keys are correct pre-mount
     diskBaseline = initialDoc; // W7: seed the conflict-guard baseline
     ready = true;
+    await Promise.all([loadFigures(pm?.root ?? null), loadBib(pm?.root ?? null)]);
+    const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
+    subs.push(figRevision.subscribe(() => void loadFigures(pm?.root ?? null)));
+    subs.push(bibRevision.subscribe(() => void loadBib(pm?.root ?? null)));
+    // Keep the shared FluxLib store current for the reference search + @-autocomplete
+    // (fires immediately, then on any FluxLib change — add here, Library mode, capture).
+    subs.push(fluxLibRevision.subscribe(() => void refreshFluxLib()));
+    // PAP-20: externalManuscriptChange is a module-global store; subscribing replays its
+    // CURRENT value immediately, so a fresh mount (project switch, keep-alive re-entry) would
+    // re-process the last external edit as if it just happened. Gate on the monotonic `n`
+    // captured at mount — only strictly-newer changes are real.
+    let lastSeenChangeN = get(externalManuscriptChange)?.n ?? 0;
+    subs.push(
+      externalManuscriptChange.subscribe((chg) => {
+        if (!chg || chg.n <= lastSeenChangeN) return;
+        lastSeenChangeN = chg.n;
+        void onExternalManuscript(chg);
+      }),
+    );
+    subs.push(
+      figureRefs.subscribe(() => {
+        refresh();
+        normalizeEmbedAlts(); // embed alts stay empty; the model owns captions
+        figRefsRev += 1; // preview re-renders on a pure renumber too
+      }),
+    );
+    subs.push(bibEntries.subscribe(refresh));
 
-    setChipHandlers({
-      onActivate: activateChip,
-      onHover: showHover,
-      onLeave: hideHoverSoon,
-    });
-    setEmbedHandlers({
-      onOpenFigure: (id) => revealFigure(id),
+    const fb = fileBridge();
+    if (fb?.quartoAvailable) {
+      try {
+        quartoAvail = (await fb.quartoAvailable()).installed;
+      } catch {
+        quartoAvail = false;
+      }
+    }
+  });
+
+  // Per-editor widget handlers (dual-paper): registered against THIS editor's
+  // DOM in onReady — widgets resolve them via handlersForEl(el)/handlersForView,
+  // so a chip click always dispatches into the pane that owns the element (the
+  // old module-global setters were overwritten by every mount, app-wide).
+  const paperHandlers = {
+    chip: { onActivate: activateChip, onHover: showHover, onLeave: hideHoverSoon },
+    embed: {
+      onOpenFigure: (id: string) => revealFigure(id),
       // The widget hands over its DOM element; resolve the position fresh
       // (widget instances persist across rebuilds — offsets would go stale).
-      onSetWidth: (el, width) => {
+      onSetWidth: (el: HTMLElement, width: string | null) => {
         if (!view) return;
         setEmbedWidth(view, view.posAtDOM(el), width);
       },
-    });
-    setSlashHandlers({
-      onInsertFigure: openFigurePicker,
-      onInsertFigRef: openFigRefPicker,
-    });
-    setTableHandlers({
+    },
+    slash: { onInsertFigure: openFigurePicker, onInsertFigRef: openFigRefPicker },
+    table: {
       // Widget → source actions. The widget hands over its DOM element; the
       // position resolves fresh via posAtDOM (the embed-handlers contract).
-      onTableAction: (el, action) => {
+      onTableAction: (el: HTMLElement, action: TableAction) => {
         if (!view) return;
         const pos = view.posAtDOM(el);
         if (action.kind === "cell") {
@@ -1118,50 +1181,15 @@
           );
         }
       },
-    });
-    await Promise.all([loadFigures(pm?.root ?? null), loadBib(pm?.root ?? null)]);
-    const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
-    subs.push(figRevision.subscribe(() => void loadFigures(pm?.root ?? null)));
-    subs.push(bibRevision.subscribe(() => void loadBib(pm?.root ?? null)));
-    // Keep the shared FluxLib store current for the reference search + @-autocomplete
-    // (fires immediately, then on any FluxLib change — add here, Library mode, capture).
-    subs.push(fluxLibRevision.subscribe(() => void refreshFluxLib()));
-    // PAP-20: externalManuscriptChange is a module-global store; subscribing replays its
-    // CURRENT value immediately, so a fresh mount (project switch, keep-alive re-entry) would
-    // re-process the last external edit as if it just happened. Gate on the monotonic `n`
-    // captured at mount — only strictly-newer changes are real.
-    let lastSeenChangeN = get(externalManuscriptChange)?.n ?? 0;
-    subs.push(
-      externalManuscriptChange.subscribe((chg) => {
-        if (!chg || chg.n <= lastSeenChangeN) return;
-        lastSeenChangeN = chg.n;
-        void onExternalManuscript(chg);
-      }),
-    );
-    subs.push(
-      figureRefs.subscribe(() => {
-        refresh();
-        normalizeEmbedAlts(); // embed alts stay empty; the model owns captions
-        figRefsRev += 1; // preview re-renders on a pure renumber too
-      }),
-    );
-    subs.push(bibEntries.subscribe(refresh));
-
-    const fb = fileBridge();
-    if (fb?.quartoAvailable) {
-      try {
-        quartoAvail = (await fb.quartoAvailable()).installed;
-      } catch {
-        quartoAvail = false;
-      }
-    }
-  });
+    },
+  };
+  let unregHandlers: (() => void) | null = null;
 
   function buildExtensions() {
     return createEditorExtensions({
       // Vim must precede the WHOLE tree (keys claimed at the DOM level; its
       // plugin must init before the panel host) — see markdown-setup `first`.
-      first: [vimCompartment.of(vimExtensions(get(paperVimFlavor)))],
+      first: [vimCompartment.of(vimExtensions((appliedVimFlavor = get(paperVimFlavor))))],
       extra: [
         pageCompartment.of(themeFor(viewMode)),
         // The outline walks the syntax tree, which the background parser fills
@@ -1171,10 +1199,12 @@
         EditorView.updateListener.of((u) => {
           if (!u.docChanged && syntaxTree(u.state) !== syntaxTree(u.startState)) scheduleIdle();
         }),
-        selectionWatcher,
-        paperSelectionWatcher, // feedback stamp: live doc selection → shell store
-        cursorWatcher,
-        activeCitationWatcher,
+        selBubble.watcher,
+        // Feedback stamp: live doc selection → shell store — FOCUSED pane only
+        // (the publish target is app-global; a focus flip republishes below).
+        makePaperSelectionWatcher(() => focused),
+        cursorTracking.watcher,
+        activeCitation.watcher,
         chipDblClick,
         // Mod-Enter follows whatever is under the caret (embed/chip → figure,
         // citation → group editor); falls through on plain prose.
@@ -1242,7 +1272,10 @@
 
   function onReady(v: EditorView) {
     view = v;
-    setPaperContextDoc(activeDocPath); // feedback stamp: initial doc
+    // Dual-paper: this editor's widget handlers key off its DOM root.
+    unregHandlers?.();
+    unregHandlers = registerPaperHandlers(v.dom, paperHandlers);
+    if (focused) setPaperContextDoc(activeDocPath); // feedback stamp: initial doc (focused pane owns it)
     untrackMath?.();
     untrackMath = trackMathView(v); // 2.1: KaTeX-loaded → refresh math decorations
     refreshIdleNow(); // seed latestIdle + the TOC synchronously on mount
@@ -1250,6 +1283,22 @@
     normalizeEmbedAlts(); // figures may have loaded before the editor mounted
   }
   let untrackMath: (() => void) | null = null;
+
+  // Focus flip → the feedback stamp follows: republish this pane's doc +
+  // current selection into the app-global paperSelectionStore.
+  $effect(() => {
+    if (!focused || !ready || blockedByTwin) return;
+    setPaperContextDoc(activeDocPath);
+    const v = view;
+    if (v) {
+      const sel = v.state.selection.main;
+      publishPaperSelection(
+        sel.from,
+        sel.to,
+        sel.empty ? "" : v.state.sliceDoc(sel.from, Math.min(sel.to, sel.from + 400)),
+      );
+    }
+  });
 
   async function loadComments(v: EditorView) {
     if (!pm) return;
@@ -1301,12 +1350,29 @@
     view?.dispatch({ effects: pageCompartment.reconfigure(themeFor(m)) });
     view?.focus();
   }
+  // Dual-paper: view mode is a shared preference — a change made in the other
+  // pane applies here too (setView above updates `viewMode` first, so its own
+  // write is a no-op here).
+  $effect(() => {
+    const m = $paperViewMode;
+    if (m === viewMode) return;
+    viewMode = m;
+    view?.dispatch({ effects: pageCompartment.reconfigure(themeFor(m)) });
+  });
 
+  // What THIS editor's vim compartment currently holds (buildExtensions syncs
+  // it at editor build; the effect below follows cross-pane flavor changes).
+  let appliedVimFlavor: VimFlavor = get(paperVimFlavor);
   function setVimFlavor(f: VimFlavor) {
-    paperVimFlavor.set(f);
-    view?.dispatch({ effects: vimCompartment.reconfigure(vimExtensions(f)) });
+    paperVimFlavor.set(f); // the sync effect applies it to every pane, incl. this one
     view?.focus();
   }
+  $effect(() => {
+    const f = $paperVimFlavor;
+    if (f === appliedVimFlavor) return;
+    appliedVimFlavor = f;
+    view?.dispatch({ effects: vimCompartment.reconfigure(vimExtensions(f)) });
+  });
 
   function jump(from: number) {
     if (!view) return;
@@ -1344,7 +1410,33 @@
   }
 
   async function loadDocument(path: string) {
-    if (!pm || !view || path === activeDocPath) return;
+    if (!pm || (path === activeDocPath && !blockedByTwin)) return;
+    // Dual-paper B4: a document open in the other pane is refused — focus the
+    // pane that has it (the same rule the whole-mode gate used to apply).
+    const claimer = paneEditingDoc(path, paneId);
+    if (claimer) {
+      focusPane(claimer);
+      pushToast("info", "That document is open in the other pane", { detail: "Focused it instead." });
+      return;
+    }
+    if (blockedByTwin || !view) {
+      // Un-blocking (or a pre-editor call): mount the editor fresh on `path`.
+      const text = (await readManuscript(pm, path)) || "";
+      threads = [];
+      activeComment = null;
+      cRanges = new Map();
+      activeDocPath = path;
+      claimDoc(paneId, path);
+      if (focused) setPaperContextDoc(path);
+      if (focused) paperLayout.update((s) => ({ ...s, activeDocPath: path }));
+      initialDoc = text;
+      latest = text;
+      latestIdle = text;
+      diskBaseline = text;
+      saved = true;
+      blockedByTwin = false; // Editor mounts; onReady wires comments/handlers
+      return;
+    }
     // Persist the current document (text + comments) before switching away.
     clearTimeout(commentSaveTimer);
     commentSaveTimer = undefined;
@@ -1356,8 +1448,10 @@
     activeComment = null;
     cRanges = new Map();
     activeDocPath = path;
-    setPaperContextDoc(path); // feedback stamp follows the active doc
-    paperLayout.update((s) => ({ ...s, activeDocPath: path }));
+    claimDoc(paneId, path); // dual-paper: the claim follows the document
+    if (focused) setPaperContextDoc(path); // feedback stamp follows the active doc (focused pane owns it)
+    // Restart restores the FOCUSED pane's document (panes reset to one on open).
+    if (focused) paperLayout.update((s) => ({ ...s, activeDocPath: path }));
     // Swap the editor content in place (preserve the extension set).
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: text },
@@ -1491,13 +1585,24 @@
     }
   }
   // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
+  // Dual-paper: ids carry the pane id — same-id re-registration REPLACES the
+  // entry (lifecycle.ts), so a second pane's registration used to EVICT the
+  // first pane's flushable and its unsaved work was never flushed on quit.
+  // isDirtyById/flushById prefix-match ("paper" covers "paper-<pane>" and
+  // "paper-comments-<pane>"), so every caller keeps working unchanged.
+  // A pane's id never changes while it is mounted — the initial capture is
+  // deliberate (the registered id must be stable for the disposer to match).
+  // svelte-ignore state_referenced_locally
+  const flushId = paneId ? `paper-${paneId}` : "paper";
+  // svelte-ignore state_referenced_locally
+  const commentsFlushId = paneId ? `paper-comments-${paneId}` : "paper-comments";
   const unregFlush = registerFlushable({
-    id: "paper",
+    id: flushId,
     isDirty: () => !!pm && !saved,
     flush: () => autosave.flush(),
   });
   const unregComments = registerFlushable({
-    id: "paper-comments",
+    id: commentsFlushId,
     isDirty: () => commentSaveTimer !== undefined,
     flush: () => flushComments(),
   });
@@ -1509,10 +1614,12 @@
     untrackMath?.();
     unregFlush();
     unregComments();
+    unregHandlers?.(); // dual-paper: this editor's widget handlers
+    releaseDocClaim(paneId); // dual-paper: free the document for the other pane
     subs.forEach((u) => u());
     clearTimeout(hoverHideTimer);
     clearTimeout(idleTimer);
-    resetActiveCitation();
+    activeCitation.reset();
   });
 
   // ---- dynamic margin -----------------------------------------------------
@@ -1597,6 +1704,10 @@
     // WS-4.2: the per-editor numbering faces margin views subscribe to
     // (replaces their module-store imports).
     numbering: { ordinals: numbering.ordinalsStore, style: numbering.styleStore },
+    // Dual-paper: this pane's caret-tracked citation group + reveal channel,
+    // threaded the same way.
+    activeCitationGroup: activeCitation.activeCitationGroup,
+    refReveal: refReveal.refRevealReq,
     get citedKeys() {
       return citedKeys;
     },
@@ -1797,20 +1908,23 @@
   // Shell-routed requests (commandBus): the shell owns Ctrl+K and forwards it
   // here while Paper is focused; palette "Open mission/notebook/rules" from any
   // mode lands as an openDocRequest.
+  // Dual-paper: only the FOCUSED pane acts on shell-routed requests — both
+  // panes would otherwise toggle their palettes / load the doc. The counters
+  // advance either way so a stale bump can't replay on a later focus.
   let seenPalReq = get(paperPaletteRequest);
   let seenDocReq = get(openDocRequest)?.n ?? 0;
   $effect(() => {
     const n = $paperPaletteRequest;
     if (n !== seenPalReq) {
       seenPalReq = n;
-      paletteOpen = !paletteOpen;
+      if (focused) paletteOpen = !paletteOpen;
     }
   });
   $effect(() => {
     const req = $openDocRequest;
     if (req && req.n !== seenDocReq) {
       seenDocReq = req.n;
-      void loadDocument(req.path);
+      if (focused) void loadDocument(req.path);
     }
   });
 
@@ -1875,7 +1989,19 @@
       </div>
     {/if}
     <div class="editor-col" bind:this={colEl} style={gutterStyle}>
-      {#if ready}
+      {#if ready && blockedByTwin}
+        <!-- Dual-paper B4: the project's only document is open in the other
+             pane — no second live editor on one file. The document rail stays
+             usable; creating a document un-blocks this pane. -->
+        <div class="twin-blocked" role="status">
+          <p class="tb-lead">This manuscript is open in the other pane.</p>
+          <p class="tb-sub">
+            Two panes can't edit the same document. Create a new document, or pick a
+            different one from the list on the left.
+          </p>
+          <button onclick={newDocument}>+ New document</button>
+        </div>
+      {:else if ready}
         <div class="titlepill-wrap">
           <TitlePill
             title={meta.title}
@@ -1932,12 +2058,12 @@
           onpointerdown={startDmDrag}>
           <span class="bar"></span>
         </div>
-        <DynamicMargin host={marginHost} paused={!active} />
+        <DynamicMargin host={marginHost} panes={margin} paused={!active} {focused} />
       </div>
     {/if}
   </div>
 
-  <SelectionToolbar {view} onComment={startComment} />
+  <SelectionToolbar {view} bubble={selBubble.bubble} onComment={startComment} />
 
   {#if paletteOpen}
     <CommandPalette {commands} onClose={() => { paletteOpen = false; view?.focus(); }} />
@@ -2163,6 +2289,44 @@
     border: 1.5px solid var(--c-edge);
     border-radius: var(--r-3);
     background: var(--flx-paper);
+  }
+  /* Dual-paper: the "document is open in the other pane" card. */
+  .twin-blocked {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    padding: var(--sp-6);
+    text-align: center;
+    color: var(--c-tx-muted);
+  }
+  .twin-blocked .tb-lead {
+    margin: 0;
+    color: var(--c-tx-2);
+    font-family: var(--font-serif);
+    font-size: var(--ts-lg);
+  }
+  .twin-blocked .tb-sub {
+    margin: 0;
+    max-width: 44ch;
+    font-size: var(--ts-sm);
+  }
+  .twin-blocked button {
+    margin-top: var(--sp-3);
+    font: inherit;
+    font-size: var(--ts-sm);
+    padding: 6px 14px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-2);
+    background: var(--c-surface);
+    color: var(--c-tx-2);
+    cursor: pointer;
+  }
+  .twin-blocked button:hover {
+    color: var(--c-tx-hi);
+    border-color: var(--c-accent);
   }
   /* The title｜authors banner straddles the editor card's top edge. */
   .titlepill-wrap {

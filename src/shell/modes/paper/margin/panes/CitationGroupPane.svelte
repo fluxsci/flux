@@ -10,18 +10,19 @@
   import { onMount } from "svelte";
   import type { MarginHost, MarginApi } from "../types";
   import { runQuery } from "./refQuery";
-  import { activeCitationGroup } from "../../scholar/activeCitation";
-  // WS-4.2: per-editor numbering comes through the margin host (was a module
-  // store import — a cross-pane singleton).
+  // WS-4.2 / dual-paper: per-editor numbering AND the caret-tracked citation
+  // group come through the margin host (module imports were cross-pane singletons).
 
   let { host, margin }: { host: MarginHost; margin: MarginApi } = $props();
-  // The numbering STORES are created once per PaperMode mount and never swap
+  // These STORES are created once per PaperMode mount and never swap
   // identity — capturing them off the initial host is deliberate (we want the
   // stores, not a reactive read of the host object).
   // svelte-ignore state_referenced_locally
   const citationOrdinals = host.numbering.ordinals;
   // svelte-ignore state_referenced_locally
   const citationStyle = host.numbering.style;
+  // svelte-ignore state_referenced_locally
+  const activeCitationGroup = host.activeCitationGroup;
 
   let query = $state("");
   let hl = $state(0); // one roving highlight across [members…, results…]

@@ -12,19 +12,22 @@ export interface Pane {
 }
 
 // PAP-16 + WS-1 Fix 7b: SINGLETON modes — two side-by-side panes of these
-// would share module-global state, so the split is gated for V1 and the
-// request deterministically FOCUSES the pane that already shows the mode.
-//   paper:  the NUMBERING singletons are gone (WS-4.2 landed: per-editor
-//           numberingFacet + margin-host threading) — the remaining reasons
-//           are the cursor/selection-bubble singletons; the block stays until
-//           those are per-pane too.
+// would share module-global state, so the split is gated and the request
+// deterministically FOCUSES the pane that already shows the mode.
+//   paper:  UN-GATED 2026-08-11 (dual-paper): every remaining singleton went
+//           per-pane — bubble/cursor/citation trackers and the margin stack
+//           are per-instance factories, chip/slash/table/embed handlers are a
+//           per-editor registry, flushable ids carry the pane id, and the
+//           feedback stamp publishes from the focused pane only. Two panes on
+//           the same DOCUMENT are still refused (paperDocRegistry — that's a
+//           shared-EditorState feature, deliberately out).
 //   figure: the figure stores (project/selection/viewport in lib/store.ts)
 //           are fully app-global — both panes would render every commit and
 //           fight over selection. Real fix = per-pane figure stores (F5.3,
 //           deferred — do not build here).
 //   slide:  slides-are-figures — slide mode loads the deck INTO those same
 //           app-global figure stores, so it is a singleton for the same reason.
-const SINGLETON_MODES: readonly ModeId[] = ["paper", "figure", "slide"];
+const SINGLETON_MODES: readonly ModeId[] = ["figure", "slide"];
 const MODE_LABEL: Partial<Record<ModeId, string>> = { paper: "manuscript", figure: "figure", slide: "slide" };
 function wouldDuplicateSingleton(kept: Pane[], incoming: ModeId): boolean {
   if (!SINGLETON_MODES.includes(incoming)) return false;
@@ -32,10 +35,7 @@ function wouldDuplicateSingleton(kept: Pane[], incoming: ModeId): boolean {
   if (!existing) return false;
   focusedPaneId.set(existing.id);
   pushToast("info", `Two ${MODE_LABEL[incoming] ?? incoming} panes aren’t supported yet`, {
-    detail:
-      incoming === "paper"
-        ? "Keep one pane on Paper; open the other as Figure, Slide, Library, or Reader."
-        : `Focused the existing ${incoming === "slide" ? "Slide" : "Figure"} pane instead.`,
+    detail: `Focused the existing ${incoming === "slide" ? "Slide" : "Figure"} pane instead.`,
   });
   return true;
 }

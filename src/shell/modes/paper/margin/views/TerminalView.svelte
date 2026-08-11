@@ -9,15 +9,20 @@
     isAvailable,
     termStatus,
     termInfo,
+    termMountOwner,
   } from "../../../../terminal/terminalSession";
 
   // The pane frame provides the chrome, so this is content-only: a slim
   // context bar plus the xterm mount. The shell itself is owned by
   // terminalSession (module scope) so it survives pane close/reopen; the
   // ResizeObserver refits it whenever the pane stack re-splits the height.
+  // Dual-paper: ONE shell, one screen — summoning the terminal in the other
+  // paper pane moves the host there; this view then shows a "bring it here"
+  // affordance instead of an empty box (termMountOwner tracks the claim).
   let mountEl = $state<HTMLDivElement | undefined>(undefined);
   let ro: ResizeObserver | undefined;
   const available = isAvailable();
+  const owned = $derived(!!mountEl && $termMountOwner === mountEl);
 
   onMount(() => {
     if (!available || !mountEl) return;
@@ -27,9 +32,13 @@
     ro.observe(mountEl);
   });
 
+  function bringHere() {
+    if (mountEl) attach(mountEl);
+  }
+
   onDestroy(() => {
     ro?.disconnect();
-    detach(); // keep the shell + scrollback alive across view switches
+    detach(mountEl); // ownership-guarded — keeps the shell + scrollback alive across view switches
   });
 
   // Compact path: keep the last two segments so the bar never overflows.
@@ -61,7 +70,14 @@
       </span>
       <button class="restart" title="Restart shell" onclick={() => restart()}>Restart</button>
     </div>
-    <div class="term-mount" bind:this={mountEl}></div>
+    <div class="term-mount" bind:this={mountEl}>
+      {#if !owned}
+        <div class="term-moved">
+          <span>The terminal is in the other pane’s margin.</span>
+          <button onclick={bringHere}>Bring it here</button>
+        </div>
+      {/if}
+    </div>
   </div>
 {/if}
 
@@ -111,6 +127,26 @@
     padding: 6px 4px 4px 8px;
     background: var(--c-bg);
     overflow: hidden;
+  }
+  .term-moved {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    color: var(--c-tx-muted);
+    font-size: var(--ts-sm);
+  }
+  .term-moved button {
+    font: inherit;
+    font-size: var(--ts-xs);
+    padding: 3px 10px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-1);
+    background: var(--c-surface);
+    color: var(--c-tx-2);
+    cursor: pointer;
   }
 
   .term-empty {

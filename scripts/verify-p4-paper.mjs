@@ -147,10 +147,15 @@ assert(
   "PAP-14/19: cross-ref grammar is shared (crossrefRe drops sec, includes fig|tbl|eq; chips + render import it)",
 );
 assert(
+  // Dual-paper 2026-08-11: paper LEFT the singleton gate (every per-editor
+  // singleton went per-pane — behavioral coverage: verify-paper-split.mjs);
+  // figure and slide STAY gated (they share the app-global figure store, F5.3),
+  // and two panes on the same DOCUMENT are refused via paperDocRegistry.
   /function wouldDuplicateSingleton/.test(paneStore) &&
     (paneStore.match(/wouldDuplicateSingleton\(/g) || []).length >= 3 &&
-    /SINGLETON_MODES[^=]*=\s*\["paper", "figure", "slide"\]/.test(paneStore),
-  "PAP-16 + WS-1 Fix 7b (+ slide-migration): paneStore gates duplicate SINGLETON panes (paper, figure AND slide — slide shares the figure store) at splitWith + setFocusedMode",
+    /SINGLETON_MODES[^=]*=\s*\["figure", "slide"\]/.test(paneStore) &&
+    /paneEditingDoc\(/.test(paperMode),
+  "PAP-16 + WS-1 Fix 7b (+ slide-migration, dual-paper): figure/slide stay singleton-gated at splitWith + setFocusedMode; paper panes claim per-document instead",
 );
 assert(
   /export async function syncRoot/.test(termSession) &&

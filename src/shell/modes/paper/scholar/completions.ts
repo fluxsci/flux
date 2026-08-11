@@ -15,7 +15,7 @@ import { get } from "svelte/store";
 import { figureRefs } from "./figures";
 import { bibEntries } from "./bib";
 import { fluxLibEntries } from "../../../../lib/references/revision";
-import { slashHandlers } from "../science/chipContext";
+import { handlersForView } from "../science/chipContext";
 import { numberingFacet } from "./numberingFacet";
 
 
@@ -129,7 +129,7 @@ const SLASH: Completion[] = [
     type: "figure",
     apply: (view, _c, from, to) => {
       view.dispatch({ changes: { from, to, insert: "" }, userEvent: "input.complete" });
-      slashHandlers.onInsertFigure?.();
+      handlersForView(view)?.slash?.onInsertFigure?.();
     },
   },
   {
@@ -173,7 +173,7 @@ const SLASH: Completion[] = [
     type: "figure",
     apply: (view, _c, from, to) => {
       view.dispatch({ changes: { from, to, insert: "" }, userEvent: "input.complete" });
-      slashHandlers.onInsertFigRef?.();
+      handlersForView(view)?.slash?.onInsertFigRef?.();
     },
   },
   { label: "/heading", detail: "Section heading", type: "keyword", apply: insert("## ", 3) },

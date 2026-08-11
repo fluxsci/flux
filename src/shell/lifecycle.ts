@@ -21,6 +21,13 @@ export interface Flushable {
 
 const registry = new Map<string, Flushable>();
 
+// Dev-only: let gates assert the registry's ids (dual-paper: each pane must
+// hold its own "paper-<paneId>" entry — a shared id EVICTS the other pane's
+// flushable and its unsaved work is never flushed on quit).
+if (import.meta.env?.DEV && typeof window !== "undefined") {
+  (window as unknown as { __fluxFlushables?: () => string[] }).__fluxFlushables = () => [...registry.keys()];
+}
+
 export function registerFlushable(f: Flushable): () => void {
   registry.set(f.id, f);
   return () => {
