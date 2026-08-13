@@ -186,6 +186,10 @@ collaborator gets a new brain with the same memory.
   session loses nothing that was written down.
 - **Auditable**: briefs, worker logs, transcripts, the journal, and the notebook record
   what every agent did and why — including which model/effort ran each task.
+- **Safe with several writers**: notebook session-log entries go through `flux note`,
+  which appends under the same lock the app holds while you edit — so two principals
+  working side by side (or a review pass running during a session) never overwrite each
+  other's log, and an agent write always defers to your in-app edit.
 - **Self-improving**: feedback that expresses a preference gets promoted into RULES;
   decisions land in the notebook as they're made. Session ten needs less correcting
   than session one.

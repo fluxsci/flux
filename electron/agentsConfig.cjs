@@ -356,7 +356,9 @@ function passPrompt(projectRoot, cli, workerNote) {
     " — follow FluxContext/PRINCIPAL.md (locate it via `" +
     flux +
     " config`): boot, then drain ALL open feedback notes and comments — address " +
-    "each in place, resolve each with a note, update the notebook session log. Do not " +
+    "each in place, resolve each with a note, update the notebook session log (`" +
+    flux +
+    " note`). Do not " +
     "wait for user input; propose (don't perform) anything destructive." +
     (workerNote ? " " + workerNote : "")
   );

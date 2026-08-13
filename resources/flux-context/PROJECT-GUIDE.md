@@ -18,7 +18,9 @@ open you can also read its live UI state and act on the human's current selectio
   manuscript; extra `.qmd` are more documents. `supplementary/` — supplementary text.
 - `Context/` — the agent context layer (see above). `NOTEBOOK.md` is agent-owned;
   `MISSION.qmd` and `RULES.md` are co-owned with the user; `Transcripts/` is
-  machine-captured and append-only.
+  machine-captured and append-only. Session-log entries in `NOTEBOOK.md` go through
+  `flux note` (locked, concurrent-writer safe — see PRINCIPAL.md's notebook law);
+  its body is edited in place, surgically.
 - `plots/` — **user-owned**. Analysis software drops plot SVGs here (+ optional
   `*.fluxplot.json` manifest and `*.recipe.json`) in any structure. A plot with a
   manifest imports as a **semantic** panel whose parts are addressable + restylable

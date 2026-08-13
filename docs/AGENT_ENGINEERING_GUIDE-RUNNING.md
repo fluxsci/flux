@@ -187,7 +187,16 @@ Persistence invariants (all machine-checked — do not weaken):
   invalid derived files are quarantined as `.corrupt-<ts>` copies, never half-loaded.
 - **Locks**: mutating headless verbs run `mutateFigModel` (load→mutate→save inside the `project`
   lock) and journal afterwards. A held human lock defers agents with the standard
-  "deferred … is locked" message (CLI exit 75 via the error taxonomy).
+  "deferred … is locked" message (CLI exit 75 via the error taxonomy). Lock claims and
+  restamps are **content-atomic** (tmp + hard-link / rename — `flux-core/locks.ts`, mirrored
+  by the GUI's `writeLockFile`): the old open("wx")-then-write claim let a contender read the
+  just-created file EMPTY, judge it corrupt, delete the holder's live lock, and walk into the
+  critical section beside it (a real lost update, found 2026-08-13 by verify-note's contention
+  gate; pinned in verify-w3-locks §6). Corollaries: never clear a lock you couldn't READ as
+  stale (a vanished file just retries; corrupt content clears only past the TTL by mtime), and
+  clear a stale lock by RENAME-to-trash so two contenders can't double-clear each other's
+  fresh claim. Notebook session-log entries have a dedicated locked appender: `flux note`
+  (`addNote`, manuscript lock — safe with N concurrent principals; verify-note).
 - **Text is truth**: derived caches (`.fluxlib/*.json` indexes, `fulltext-index.json`,
   `enrich-grid.json`, `fig/renders/`, `validators.gen.js`) are rebuildable and must self-heal via
   mtime/staleness rules, never become load-bearing.
@@ -3488,3 +3497,32 @@ verify-paper-render-overrides extended (display/disk split, 16 checks). Trap pro
   guard), ship both: the structural half prevents the class you know, the guard covers the
   hidden-twin variants you haven't met yet, and the mechanism gate tells you if the platform
   ever changes underneath either.
+
+### 2026-08-13 — `flux note`: locked notebook session-log appends + a real lock-layer race (Claude Fable 5, `main`)
+**Work:** Closed the multi-principal notebook gap: PRINCIPAL.md's notebook law told every
+principal to write `Context/NOTEBOOK.md` directly, so two principals (owner's standing
+workflow — zellij panes) could clobber each other's session-log entries. New `note` verb
+(CLI+MCP, `cliRoot:"flags"` — free text carries slashes) → `addNote` in flux-core/context.ts:
+read→insert→write INSIDE the `manuscript` lock (the name the GUI activity lock already uses
+for paper-surfaced docs, notebook included), insertion via pure
+`contextTemplates.appendSessionLogEntry`. Stock docs amended (notebook law: log entries via
+`flux note`, body edits surgical/never whole-file; CLI-REFERENCE row; PROJECT-GUIDE;
+pass prompt names the verb), context docs regenerated, CLI dist rebuilt, goldens regenerated.
+New pure gate `verify-note.ts` (23 checks incl. barrier-synchronized two-process contention).
+That gate immediately caught a REAL pre-existing race in `flux-core/locks.ts` — see the §3
+Locks bullet: torn open("wx")+write claims let a contender rm a live lock and enter alongside
+(reproduced: 1 lost update per 300 under a hot two-process loop, 5/5 runs). Fixed with
+content-atomic claims (tmp+link), atomic restamps, ENOENT-never-cleared, mtime-guarded
+corrupt clears, rename-to-trash stale takeover; GUI `writeLockFile` (main.cjs) made atomic
+too. Pinned in verify-w3-locks §6 (teeth proven against the pre-fix locks.ts: 239/240).
+Pure 178/178, check 0/0, verify-multiwindow (real Electron, x11) PASS, docs gate 156.
+**Learnings:**
+- A contention gate with a START BARRIER (ready-files + go-file) turns a "rare flake" into a
+  deterministic reproduction — the barrier collides both processes at claim time every run.
+  Without it, verify-w3-locks §1/§2 had exercised this exact lock for a year without ever
+  hitting the torn-claim window.
+- An advisory-lock protocol on plain files has two structural rules: a claim must be
+  content-atomic WITH its payload (create-then-write ≠ atomic), and no contender may destroy
+  a lock it couldn't positively read as stale — "unreadable" means in-flight, not abandoned.
+- `git checkout <file>` to undo a teeth-proof mutation also destroys uncommitted work in that
+  file — restore teeth-proof edits from a copy (`cp` aside first), never from the index.

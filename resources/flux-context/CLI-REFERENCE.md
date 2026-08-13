@@ -74,6 +74,7 @@ With the session export above, `render-figure growth --png` just works.
 | `add-comment --quote "…" --body "…" [--doc r] [--at n]` | `add_comment` | open a NEW thread — ask the human a question in their margin |
 | `feedback [--all]` · `resolve-feedback <id\|text> [--note "…"]` · `send` | `list_feedback` · `resolve_feedback` · `send_feedback` | the **feedback ledger** (context-stamped notes from the app; see MANUSCRIPT-AND-REVIEW.md) |
 | `context-init` · `agents` · `dispatch <name> --brief-file f [--model m] [--effort e] [--family fam]` | `ensure_context` · `list_agents` · `dispatch` | heal `Context/` / show the roster matrix / run a worker with a brief (recorded in `Context/Dispatches/`; model/effort default to the session's worker policy — a principal-decides policy REQUIRES the flags) |
+| `note <text…> [--title "…"] [--file f] [--author a]` | `note` | append a stamped entry to the notebook's **Session log** (`Context/NOTEBOOK.md`) under the manuscript lock — the concurrency-safe log write (multiple agents + the app coexist); notebook BODY edits stay direct and surgical |
 | `principal [root] [--no-picker] [--no-transcript] [--print]` (alias `agent`) · `attend [root] [--interval ms]` | — | CLI-only: the launch picker + YOUR principal in THIS terminal with transcript capture / watch the ledger — Send wakes a review pass |
 | `compile [--to pdf\|html\|docx]` | `compile` | render via Quarto (needs `quarto`); reports the output path + figures/citations resolution (unresolved `@keys` named) |
 | `validate [file]` · `validate-plot <svg>` | `validate_project` · `validate_plot` | check writes + lint (EMPTY figures, figures embedded in no doc, overlapping frames) / check a semantic plot (manifest ids + geometry — rejects log-zero bar anchors) |
@@ -115,6 +116,7 @@ and standalone sessions configure it per analysis dir with `.codex/config.toml` 
 
 - Every write appends a line to `.meta/journal.ndjson` (`ts`, `client`, `action`). Read it to
   see what changed since you last looked (`{action, client}` per line).
-- Writes take advisory locks (`project` for figures, `manuscript` for prose/comments). If you
+- Writes take advisory locks (`project` for figures, `manuscript` for prose/comments/notebook
+  log entries). If you
   get `deferred: "<name>" is locked …`, the user is mid-edit in the app — **wait a moment and
   retry**; the lock auto-expires after 30 s if the holder is gone. Never force.

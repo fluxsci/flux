@@ -76,6 +76,7 @@
   "list_text_styles",
   "move_track",
   "normalize_embeds",
+  "note",
   "organize_paper",
   "reconcile",
   "reindex",

@@ -108,6 +108,43 @@ export function notebookTemplate(): string {
 `;
 }
 
+/** The notebook section `flux note` appends under (notebookTemplate's part 2). */
+export const SESSION_LOG_HEADING = "## Session log";
+
+/** `YYYY-MM-DD HH:MM` (local time) — the session-log entry stamp the notebook
+ *  template documents. */
+export function sessionLogStamp(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Insert one entry at the END of the Session log section (newest last): before
+ *  the next H1/H2 heading after it, or at EOF when the log is the final section
+ *  (the template's shape). H3 entries never terminate the section. A notebook
+ *  restructured without the heading gets the section appended — additive, never
+ *  destructive. Pure string logic so the locked writer (flux-core addNote) and
+ *  any future GUI affordance share one definition. */
+export function appendSessionLogEntry(
+  doc: string,
+  entry: string,
+): { text: string; createdSection: boolean } {
+  const block = entry.replace(/\s+$/, "") + "\n";
+  const m = /^##[ \t]+Session log[ \t]*$/im.exec(doc);
+  if (!m) {
+    const base = doc.replace(/\s+$/, "");
+    return {
+      text: (base ? base + "\n\n" : "") + `${SESSION_LOG_HEADING}\n\n` + block,
+      createdSection: true,
+    };
+  }
+  const after = m.index + m[0].length;
+  const next = /^#{1,2}[ \t]/m.exec(doc.slice(after));
+  const at = next ? after + next.index : doc.length;
+  const head = doc.slice(0, at).replace(/\s+$/, "");
+  const tail = doc.slice(at);
+  return { text: head + "\n\n" + block + (tail ? "\n" + tail : ""), createdSection: false };
+}
+
 export function projectRulesTemplate(): string {
   return `# Project rules
 

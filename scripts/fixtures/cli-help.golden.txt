@@ -153,6 +153,8 @@ usage: flux <verb> [root] [args] [--flags]
   resolve-feedback <id|text> [--root R] [--note "…"]   mark a feedback note resolved
   send [--root R] [--note "…"]         mark a review-pass boundary in the feedback ledger
   context-init [--root R]              ensure the project's Context/ layer (heal old projects)
+  note <text…> [--title "…"] [--file f] [--author a] [--root R]   append a stamped entry to the notebook's
+                                       Session log under the manuscript lock (concurrent-writer safe)
   agents                               show the machine's agent roster (agents.json)
   principal [root] [--print] [--no-picker] [--no-transcript]   the launch picker + YOUR principal,
                                        in THIS terminal, with transcript capture (alias: agent);

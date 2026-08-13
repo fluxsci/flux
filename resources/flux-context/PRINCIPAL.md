@@ -31,11 +31,18 @@ address them). Keep interviewing until the mission reads true.
 - **Body** — current truth, edited in place: decisions *and why*, current state of the
   deliverable, what has been tried and what happened, conventions in force, open
   questions. Correct it the moment it lags reality. Keep it distilled — the body is read
-  at every boot; it must stay readable in one sitting.
+  at every boot; it must stay readable in one sitting. Body edits are **surgical,
+  anchored, in-place edits only — never a whole-file rewrite**: other agents (a second
+  principal, a review pass) and the user may touch the notebook concurrently, and a full
+  rewrite from a stale read silently destroys their work, where an anchored edit fails
+  loudly and you simply re-read.
 - **Session log** — append-only, newest last: one concise datetime-stamped entry per
   working session or major action ("what was asked / what was done / what was decided or
   learned"). Detail lives in `Transcripts/` and `Dispatches/`; the log entry carries the
-  meaning and points at them when needed.
+  meaning and points at them when needed. **Always write log entries with
+  `flux note "…" --title "…"`** (`--file f` for longer entries) — it appends under the
+  manuscript lock, so entries from concurrent writers serialize and a mid-edit user
+  defers you (`deferred: … is locked` → wait and retry). Never hand-append the log.
 
 **Write the notebook as you work, not at the end.** Any action with scientific
 consequence — a decision, a surprising result, a dead end, a changed goal — goes in

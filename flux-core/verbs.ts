@@ -1942,6 +1942,43 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "note",
+    cli: "note",
+    cliRoot: "flags",
+    summary:
+      "Append a datetime-stamped entry to the project notebook's Session log (Context/NOTEBOOK.md). The read→insert→write runs under the manuscript lock, so entries from concurrent agents serialize (never clobber) and a human mid-edit defers it — ALWAYS write session-log entries through this verb, never by hand-editing the file. Notebook BODY edits stay direct and surgical.",
+    params: {
+      text: z.string().optional(),
+      file: z.string().optional(),
+      title: z.string().optional(),
+      author: z.string().optional(),
+    },
+    cliArgs: [
+      { kind: "rest", at: 0, into: "text", as: "joined" },
+      { kind: "flag", at: "text", into: "text" },
+      { kind: "flag", at: "file", into: "file", as: "path" },
+      { kind: "flag", at: "title", into: "title" },
+      { kind: "flag", at: "author", into: "author" },
+    ],
+    handler: (ctx, a) =>
+      core.addNote(ctx.root, {
+        text: a.text as string | undefined,
+        file: a.file as string | undefined,
+        title: a.title as string | undefined,
+        author: a.author as string | undefined,
+      }),
+    render: {
+      human: (r) => {
+        const c = r as { rel: string; heading: string; createdSection: boolean };
+        return { err: `✓ noted → ${c.rel} (${c.heading})${c.createdSection ? " — Session log section created" : ""}` };
+      },
+      mcp: (r) => {
+        const c = r as { rel: string; heading: string };
+        return text(`noted → ${c.rel} (${c.heading})`);
+      },
+    },
+  },
+  {
     name: "add_annotation",
     cli: "add-annotation",
     cliRoot: "flags",

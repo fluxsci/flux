@@ -46,6 +46,7 @@
       "figenh-crop-parity.ts",
       "verify-fluxconfig.ts",
       "verify-feedback.ts",
+      "verify-note.ts",
       "verify-context-scheme.ts",
       "verify-docs.ts",
       "verify-dispatch.ts",
@@ -582,14 +583,24 @@
       "run": [
         "verify-feedback.ts",
         "verify-context-scheme.ts",
-        "verify-scaffold.ts"
+        "verify-scaffold.ts",
+        "verify-note.ts"
       ]
     },
     {
       "glob": "flux-core/{feedback,context,comments}.ts",
       "run": [
         "verify-feedback.ts",
-        "verify-registry-parity.ts"
+        "verify-registry-parity.ts",
+        "verify-note.ts"
+      ]
+    },
+    {
+      "glob": "flux-core/locks.ts",
+      "run": [
+        "verify-w3-locks.ts",
+        "verify-note.ts",
+        "verify-an-journal-locks.ts"
       ]
     },
     {
