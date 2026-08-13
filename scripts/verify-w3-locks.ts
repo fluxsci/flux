@@ -163,6 +163,58 @@ function run(script: string, args: string[]): Promise<{ code: number; err: strin
   else fail(`mergeEnrichDelta clobbered: keys=[${Object.keys(map)}]`);
 }
 
+// ---------------------------------------------------------------- 6. hot contention — claims are content-atomic
+{
+  // Regression pin for the torn-claim race (2026-08-13, found by verify-note's
+  // contention section): the old claim was open("wx") THEN write, so a contender
+  // reading in between saw an EMPTY file, judged it corrupt, rm'd the holder's
+  // LIVE lock and entered the critical section beside it. Barrier-synchronized
+  // hot loops collide at claim time almost every run; before the claimLock fix
+  // this lost ~1 increment per run, deterministically enough to catch here.
+  const dir = path.join(work, "hot-locks");
+  const counter = path.join(work, "hot-counter");
+  const go = path.join(work, "hot-go");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(counter, "0");
+  const N = 120;
+  const src = `
+    import * as fsSync from "node:fs";
+    import { withLockAt } from ${JSON.stringify(pathToFileURL(path.resolve("flux-core/locks.ts")).href)};
+    const [dir, counter, n, readyFile, goFile] = process.argv.slice(2);
+    fsSync.writeFileSync(readyFile, "r");
+    while (!fsSync.existsSync(goFile)) await new Promise((r) => setTimeout(r, 5));
+    for (let i = 0; i < Number(n); i++) {
+      await withLockAt(dir, "hot", "cli", async () => {
+        const v = Number(fsSync.readFileSync(counter, "utf8"));
+        await new Promise((r) => setTimeout(r, 1)); // annotated: widen the RMW so a co-resident writer WOULD interleave
+        fsSync.writeFileSync(counter, String(v + 1));
+      }, { retries: 200, delayMs: 15 });
+    }
+  `;
+  const child = path.join(work, "w3-hot.mts");
+  await fs.writeFile(child, src);
+  const kids = ["a", "b"].map((tag) => {
+    const ready = path.join(work, `hot-ready-${tag}`);
+    return { ready, done: run(child, [dir, counter, String(N), ready, go]) };
+  });
+  const t0 = Date.now();
+  while (Date.now() - t0 < 30_000) {
+    const readies = await Promise.all(kids.map((k) => fs.access(k.ready).then(() => true, () => false)));
+    if (readies.every(Boolean)) break;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  await fs.writeFile(go, "go"); // barrier: both processes hit the lock together
+  const results = await Promise.all(kids.map((k) => k.done));
+  const v = Number(await fs.readFile(counter, "utf8"));
+  if (results.every((r) => r.code === 0) && v === 2 * N)
+    ok(`hot two-process contention: all ${2 * N} locked increments landed (content-atomic claims)`);
+  else
+    fail(
+      `hot contention lost updates: counter=${v}/${2 * N}, exits=[${results.map((r) => r.code)}]` +
+        results.map((r) => r.err.slice(0, 120)).filter(Boolean).join(" | "),
+    );
+}
+
 await fs.rm(work, { recursive: true, force: true });
 console.log(failures ? "W3 VERIFY: FAIL" : "W3 VERIFY: PASS");
 process.exit(failures ? 1 : 0);

@@ -66,12 +66,82 @@ export async function heldByOtherAt(
  *  the caller should retry immediately (this attempt is free). */
 const CLEARED: LockInfo = { client: "", pid: 0, ts: "" };
 
-/** Atomically try to take the lock via exclusive-create (open "wx") — the fix
- *  for the check-then-write race where two processes both saw "free" and both
- *  proceeded. Returns null on success, the blocking LockInfo when held, or the
- *  CLEARED sentinel after removing a stale lock (caller retries). `strictPid`
- *  treats a fresh same-client lock from ANOTHER process as blocking (two `cli`
- *  invocations must serialize); without it, same-client re-acquire restamps. */
+let tmpSeq = 0;
+const tmpFor = (p: string) =>
+  path.join(path.dirname(p), `.${path.basename(p)}.tmp-${process.pid}-${++tmpSeq}`);
+
+/** Claim the lock atomically WITH its content: write a private tmp, hard-link it
+ *  into place (link fails EEXIST when held — the exclusive create), rm the tmp.
+ *  The old open("wx")-then-write claim had a torn window where a contender read
+ *  the just-created file EMPTY, judged it corrupt, deleted the holder's live
+ *  lock and walked into the critical section beside it (verify-note's contention
+ *  gate caught the lost update; verify-w3-locks §6 pins it). Filesystems without
+ *  hard links fall back to "wx" — the race window returns there, but no such
+ *  target platform is known. */
+async function claimLock(p: string, payload: string): Promise<"claimed" | "held"> {
+  const tmp = tmpFor(p);
+  await fs.writeFile(tmp, payload, "utf8");
+  try {
+    await fs.link(tmp, p);
+    return "claimed";
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException)?.code;
+    if (code === "EEXIST") return "held";
+    // link unsupported here — fall back to exclusive create.
+    try {
+      const fh = await fs.open(p, "wx");
+      try {
+        await fh.writeFile(payload, "utf8");
+      } finally {
+        await fh.close();
+      }
+      return "claimed";
+    } catch (e2) {
+      if ((e2 as NodeJS.ErrnoException)?.code === "EEXIST") return "held";
+      throw e2;
+    }
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+  }
+}
+
+/** Restamp OUR OWN fresh lock in place, atomically (tmp + rename) — a plain
+ *  truncate-and-write here reopens the torn-read window claimLock closes.
+ *  Only ever called after reading our own fresh payload back; contenders never
+ *  touch a fresh lock, so the rename cannot clobber anyone. */
+async function restampLock(p: string, payload: string): Promise<void> {
+  const tmp = tmpFor(p);
+  await fs.writeFile(tmp, payload, "utf8");
+  try {
+    await fs.rename(tmp, p);
+  } catch {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+  }
+}
+
+/** Take a stale/corrupt lock out of the way WITHOUT racing the other contenders:
+ *  rename it to a private trash name first — exactly ONE contender's rename can
+ *  succeed, so the double-clear race (A clears, B claims, A's rm deletes B's
+ *  fresh claim) is structurally gone. Losing the rename means someone else is
+ *  handling it — nothing to do. */
+async function takeStaleLock(p: string): Promise<void> {
+  const trash = tmpFor(p);
+  try {
+    await fs.rename(p, trash);
+    await fs.rm(trash, { force: true }).catch(() => {});
+  } catch {
+    /* ENOENT: another contender took it first */
+  }
+}
+
+/** Atomically try to take the lock. Returns null on success, the blocking
+ *  LockInfo when held, or the CLEARED sentinel after removing a stale lock
+ *  (caller retries). `strictPid` treats a fresh same-client lock from ANOTHER
+ *  process as blocking (two `cli` invocations must serialize); without it,
+ *  same-client re-acquire restamps. Unreadable lock files are never destroyed
+ *  on sight: a vanished file just retries, and corrupt content only clears once
+ *  its MTIME is past the TTL — claims are content-atomic, so young-but-corrupt
+ *  can only be a write in flight from a pre-fix holder or a dying machine. */
 async function tryAcquireAt(
   dir: string,
   name: string,
@@ -81,27 +151,31 @@ async function tryAcquireAt(
   await fs.mkdir(dir, { recursive: true });
   const p = lockFileAt(dir, name);
   const payload = JSON.stringify({ client, pid: process.pid, ts: new Date().toISOString() });
+  if ((await claimLock(p, payload)) === "claimed") return null;
+  let raw: string | null = null;
   try {
-    const fh = await fs.open(p, "wx");
-    try {
-      await fh.writeFile(payload, "utf8");
-    } finally {
-      await fh.close();
-    }
-    return null;
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException)?.code !== "EEXIST") throw e;
+    raw = await fs.readFile(p, "utf8");
+  } catch {
+    return CLEARED; // released between claim and read — nothing to clear, just retry
   }
-  const info = await readLockAt(dir, name);
+  let info: LockInfo | null = null;
+  try {
+    info = JSON.parse(raw) as LockInfo;
+  } catch {
+    info = null;
+  }
   if (info && fresh(info)) {
     const ours = info.client === client && (!strictPid || info.pid === process.pid);
     if (!ours) return info;
-    // our own fresh lock — restamp in place
-    await fs.writeFile(p, payload).catch(() => {});
+    await restampLock(p, payload);
     return null;
   }
-  // stale or unreadable — clear it and let the caller retry the exclusive create
-  await fs.rm(p, { force: true }).catch(() => {});
+  if (!info) {
+    const st = await fs.stat(p).catch(() => null);
+    if (st && Date.now() - st.mtimeMs < TTL_MS)
+      return { client: "unknown", pid: 0, ts: new Date(st.mtimeMs).toISOString() };
+  }
+  await takeStaleLock(p);
   return CLEARED;
 }
 
@@ -188,7 +262,7 @@ export async function withHeartbeatLockAt<T>(
     const info = await readLockAt(dir, name);
     if (info && info.client === client && info.pid === process.pid) {
       const payload = JSON.stringify({ client, pid: process.pid, ts: new Date().toISOString() });
-      await fs.writeFile(lockFileAt(dir, name), payload).catch(() => {});
+      await restampLock(lockFileAt(dir, name), payload); // atomic — no torn-read window
     }
   };
   const timer = setInterval(() => void restamp(), heartbeatMs);

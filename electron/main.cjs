@@ -294,10 +294,16 @@ function lockDirFor(scope, root) {
   if (scope === "fluxlib") return path.join(fluxLibDir(), ".fluxlib", "locks");
   return root ? path.join(root, ".meta", "locks") : null;
 }
+let lockTmpSeq = 0;
 function writeLockFile(p) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
   noteWrite(p);
-  fs.writeFileSync(p, JSON.stringify({ client: "human", pid: process.pid, ts: new Date().toISOString() }));
+  // tmp + rename: an agent reading mid-write must never see a torn/empty lock
+  // (flux-core/locks.ts claims/restamps are atomic for the same reason; the tmp
+  // name matches TMP_WRITE_RE so the watcher ignores it).
+  const tmp = path.join(path.dirname(p), `.${path.basename(p)}.tmp-${process.pid}-${++lockTmpSeq}`);
+  fs.writeFileSync(tmp, JSON.stringify({ client: "human", pid: process.pid, ts: new Date().toISOString() }));
+  fs.renameSync(tmp, p);
 }
 function releaseGuiLock(key) {
   const held = heldGuiLocks.get(key);
