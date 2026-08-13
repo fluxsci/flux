@@ -36,7 +36,7 @@ process.env.FLUX_NO_MIGRATE = "1";
 const core = await import("../flux-core/index");
 const { ensureDom } = await import("../flux-core/render");
 await ensureDom(); // linkedom DOMParser — the paper module needs it headless too
-const { __seedFigures, renderFigureSvg } = await import(
+const { __seedFigures, renderFigureSvg, renderFigureSvgForDisk } = await import(
   "../src/shell/modes/paper/scholar/figures"
 );
 import type { Figure } from "../src/lib/types";
@@ -89,9 +89,22 @@ try {
   h.section("parity + overrides");
   const coreSvg = await core.renderFigureSvg(root, comp.figureId);
   seed();
+  // DISK path (materializeRenders → fig/renders/): byte parity with flux-core.
+  const diskSvg = renderFigureSvgForDisk(fig.id);
+  h.ok(!!diskSvg, "paper disk render produces output");
+  h.ok(diskSvg === coreSvg, "disk render is byte-identical to flux-core's override-aware render");
+  // DISPLAY path: same render, plot-internal ids under the paper namespace so a
+  // DOM-mounted copy can never duplicate the figure editor's element-prefixed
+  // ids (the 2026-08-13 blank-plots clip collision — verify-clip-collision).
   const paperSvg = renderFigureSvg(fig.id);
-  h.ok(!!paperSvg, "paper layer renders the figure");
-  h.ok(paperSvg === coreSvg, "paper render is byte-identical to flux-core's override-aware render");
+  h.ok(!!paperSvg, "paper display render produces output");
+  const plotElId = (fig.elements.find((e) => e.type === "plot") as { id: string }).id;
+  h.ok(!!paperSvg && paperSvg.includes(`id="pap__${plotElId}__`), "display plot ids carry the paper namespace");
+  h.ok(!!paperSvg && !paperSvg.includes(`id="${plotElId}__`), "no display id matches the figure editor's element prefix");
+  h.ok(
+    !!paperSvg && paperSvg.split(`pap__${plotElId}`).join(plotElId) === coreSvg,
+    "display render equals the disk render modulo the namespace",
+  );
   h.ok(!!paperSvg && !paperSvg.includes("<image"), "plot is inlined as vector parts, not an <image> raster");
   h.ok(!!paperSvg && paperSvg.includes("REMADE TITLE"), "remade title text element renders");
   const ti = paperSvg?.indexOf("BAKED TITLE") ?? -1;

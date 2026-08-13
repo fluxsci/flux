@@ -215,34 +215,44 @@ export function exportCtxFigures(
   return out;
 }
 
+// DOM-mounted copies of a figure carry a paper NAMESPACE on every plot-internal
+// id. The figure editor's live canvas prefixes plot ids with the ELEMENT id
+// (plot/mount.ts); without the namespace, a paper embed of the same plot held
+// alive in a hidden mode (ModeContent keep-alive, visibility:hidden) duplicates
+// those ids — and Chromium resolves `url(#clipPath)` to the FIRST id in the
+// document while composing clip geometry from RENDERED children only, so a
+// hidden twin's clipPath is EMPTY and every data mark clipped by it vanishes
+// from the VISIBLE editor (2026-08-13: the "blank plots, axes only" report;
+// pixel repro in verify-clip-collision). "pap" can never equal an element id.
+const PAPER_SVG_NS = "pap";
+
 // Inline a placed plot with its per-part overrides baked (the shared
 // inlineMarkup pipeline — same output as flux-core's renderFigureSvg and the
 // figure editor's own canvas). Anything that stops the inline — png-backed
 // asset, missing bytes, parse failure — falls back to figureToSvg's raw
 // <image> draw for THAT plot only, never the whole figure.
-function plotMarkupFor(el: Element): string | undefined {
+function plotMarkupFor(el: Element, ns?: string): string | undefined {
   if (el.type !== "plot") return undefined;
   const url = assetData[el.assetId];
   if (!url || !url.startsWith("data:image/svg+xml")) return undefined;
   try {
     const text = new TextDecoder().decode(dataUrlToBytes(url));
-    return buildPlotMarkup(text, el, el.overrides, assetManifests[el.assetId]) ?? undefined;
+    const frame = ns ? { ...el, id: `${ns}__${el.id}` } : el;
+    return buildPlotMarkup(text, frame, el.overrides, assetManifests[el.assetId]) ?? undefined;
   } catch (e) {
     console.warn(`paper: plot inline failed for asset "${el.assetId}" — drawing the raster fallback`, e);
     return undefined;
   }
 }
 
-export function renderFigureSvg(id: string): string | undefined {
-  if (renderCache.has(id)) return renderCache.get(id);
+function renderFigureInternal(id: string, ns?: string): string | undefined {
   const fig = figuresById[id];
   if (!fig) return undefined;
-  let svg: string | undefined;
   try {
-    svg = figureToSvg(
+    return figureToSvg(
       fig,
       (aid) => assetData[aid],
-      plotMarkupFor,
+      (el) => plotMarkupFor(el, ns),
       // Crop rendering for <image>-backed elements: intrinsic content size in
       // assetDisplaySize units — the crop window's own coordinate space.
       (aid) => assetDisplaySize({ assets: assetMeta } as Project, aid) ?? undefined,
@@ -253,10 +263,26 @@ export function renderFigureSvg(id: string): string | undefined {
     // dead picker (2026-08-12 report). Degrade to "no preview" and say why.
     console.warn(`paper: figure render failed for "${id}" — no preview`, e);
     journalRenderError(id, e);
-    svg = undefined;
+    return undefined;
   }
+}
+
+/** The DISPLAY render (embeds, hover cards, pickers, margin view, in-app
+ *  preview/PDF): cached per figure per fig-revision, plot ids namespaced. */
+export function renderFigureSvg(id: string): string | undefined {
+  if (renderCache.has(id)) return renderCache.get(id);
+  const svg = renderFigureInternal(id, PAPER_SVG_NS);
   renderCache.set(id, svg);
   return svg;
+}
+
+/** The DISK render (materializeRenders → fig/renders/<id>.svg for Quarto/DOCX):
+ *  UN-namespaced and uncached, byte-identical to flux-core's renderFigureSvg
+ *  for the same on-disk figure (verify-paper-render-overrides pins it). A file
+ *  is standalone — no editor to collide with — and the parity invariant is
+ *  worth more than caching a rare just-in-time export render. */
+export function renderFigureSvgForDisk(id: string): string | undefined {
+  return renderFigureInternal(id);
 }
 
 // The renderer journals through the host bridge (same seam as figbridge's
@@ -306,7 +332,7 @@ export async function materializeRenders(
     /* exists */
   }
   for (const id of ids) {
-    const svg = renderFigureSvg(id);
+    const svg = renderFigureSvgForDisk(id); // un-namespaced: byte-parity with flux-core
     if (!svg) {
       failed.push(id);
       continue;

@@ -755,6 +755,16 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   Equivalence holds because content svgs are `100%`+`preserveAspectRatio:none`: stretching the
   frozen box by (w/w0, h/h0) IS the viewBox→box mapping. Gates read effective x = frozen left
   - translate-x.
+- **Inline SVG copies + `url(#id)` are document-global.** Chromium resolves `url(#clipPath-id)`
+  to the FIRST matching id anywhere in the document, and composes clip geometry from RENDERED
+  children only — a duplicate-id copy inside a `visibility:hidden` subtree (ModeContent
+  keep-alive) makes the winning clipPath EMPTY, so the VISIBLE copy's clipped data marks paint
+  nothing while its unclipped axes/text survive (the 2026-08-13 blank-plots regression: paper's
+  new inline embeds shared the figure editor's element-id prefix). Any DOM-mounted plot render
+  must namespace its ids away from the editor's element prefixes (`PAPER_SVG_NS`,
+  scholar/figures.ts — the DISK render for fig/renders stays un-namespaced for flux-core byte
+  parity), and ModeContent carries a hidden-clipPath guard rule as the second layer. Gate:
+  `verify-clip-collision.mjs` (also pins the raw Chromium behavior so a future fix is visible).
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -3455,3 +3465,26 @@ scope filters first, search composes within; hidden at 0–1 canvases). New ui g
   aria-selected is NOT enough — autocomplete's `interactionDelay` (~75ms) ignores an accept
   that lands right after a list update and the key falls through to the document. Condition
   wait + one annotated 120ms debounce is the stable recipe.
+
+### 2026-08-13 — paper inline ids namespaced; hidden-clipPath guard; delete_figure prunes assets (Claude Fable 5, paper-inline-id-namespace)
+**Work:** Fixed the blank-plots regression the paper-fidelity merge introduced: paper's inline
+renders shared the figure editor's element-id prefix, and a keep-alive-hidden paper pane's copy
+won the document-wide `url(#clipPath)` id race with an EMPTY clip (visibility:hidden children),
+blanking every clipped data mark in the visible editor (axes survived — the exact user report;
+pixel-repro'd with the real project asset). Display renders now carry `PAPER_SVG_NS` ("pap__")
+on plot-internal ids; the DISK render (materializeRenders) stays un-namespaced and uncached to
+keep byte parity with flux-core; ModeContent grew a hidden-clipPath guard rule as the second
+layer. Separately, headless `delete_figure` now prunes index assets no remaining figure
+references — four agent deletes had left 14 fig/index.json entries pointing at removed files
+(ENOENT spam on every load). Gates: verify-clip-collision.mjs (mechanism + guard + live embed
+paint; ui + paper-gate, now 31), verify-delete-prune.ts (pure, 177),
+verify-paper-render-overrides extended (display/disk split, 16 checks). Trap promoted to §9.
+**Learnings:**
+- Inline SVG in a multi-surface document is a shared id namespace: any new surface that mounts
+  markup previously rendered as `<image>` must namespace every referenceable id, or it changes
+  OTHER surfaces' rendering through url(#) resolution — the regression was invisible in
+  single-surface gates and only appeared with keep-alive + mode switching.
+- When a fix has a cheap structural half (unique ids) and a cheap environmental half (the CSS
+  guard), ship both: the structural half prevents the class you know, the guard covers the
+  hidden-twin variants you haven't met yet, and the mechanism gate tells you if the platform
+  ever changes underneath either.

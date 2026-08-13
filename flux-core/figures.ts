@@ -916,7 +916,23 @@ export async function deleteElements(root: string, ids: string[]): Promise<void>
 export async function deleteFigure(root: string, figId: string): Promise<{ nextActiveId: string | null }> {
   const r = await mutateFigModel(root, "delete_figure", ({ project }) => {
     if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-    return ops.deleteFigure(project, figId, { allowEmpty: true });
+    const out = ops.deleteFigure(project, figId, { allowEmpty: true });
+    // Prune assets no remaining figure references. A headless delete has no
+    // undo, and index entries that outlive their references also outlive their
+    // FILES the moment anything tidies fig/assets — 2026-08-13: four agent
+    // deletes left 14 index entries pointing at removed files, spamming ENOENT
+    // on every subsequent load. Asset files themselves are deliberately left
+    // alone (cheap, and a recompose can reuse them); the GUI keeps its entries
+    // too (snapshot undo restores the figure with them). The INDEX must only
+    // ever name assets some figure still uses.
+    const used = new Set<string>();
+    for (const f of project.figures)
+      for (const e of f.elements) {
+        const aid = (e as { assetId?: string }).assetId;
+        if (aid) used.add(aid);
+      }
+    project.assets = project.assets.filter((a) => used.has(a.id));
+    return out;
   });
   for (const ext of [".svg", ".png"]) {
     await fs.unlink(safeJoin(root, `fig/renders/${figId}${ext}`)).catch(() => {});

@@ -107,4 +107,17 @@
   .mc.hidden {
     visibility: hidden;
   }
+  /* A hidden mode's inline SVGs still participate in document-wide url(#id)
+     resolution, and Chromium composes clip geometry from RENDERED children
+     only — visibility:hidden children make a referenced clipPath EMPTY, so any
+     visible element that loses an id race to a hidden twin paints nothing
+     (2026-08-13 blank-plots regression; pixel repro in verify-clip-collision).
+     Clip shapes are never painted directly, so forcing them visible changes
+     nothing in the hidden pane — it only keeps the geometry valid for whoever
+     resolves to it. Paper renders are also id-NAMESPACED (scholar/figures.ts
+     PAPER_SVG_NS) so the race shouldn't happen; this rule is the second layer,
+     covering any future hidden twin of the SAME surface. */
+  .mc.hidden :global(clipPath *) {
+    visibility: visible;
+  }
 </style>

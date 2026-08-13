@@ -107,6 +107,7 @@
       "verify-export-qmd.ts",
       "verify-scaffold.ts",
       "verify-sync-render.ts",
+      "verify-delete-prune.ts",
       "verify-slide-assets.ts",
       "verify-slide-autobuild.ts",
       "verify-deckproject-roundtrip.ts",
@@ -204,6 +205,7 @@
       "verify-pdf-white.mjs",
       "verify-embed-chip.mjs",
       "verify-embed-caption.mjs",
+      "verify-clip-collision.mjs",
       "verify-refbib.mjs",
       "verify-fulltext-gui.mjs",
       "verify-import-gui.mjs",
@@ -381,7 +383,8 @@
       "verify-paper-split.mjs",
       "verify-nature-style.ts",
       "verify-writer-neutral.ts",
-      "verify-paper-render-overrides.ts"
+      "verify-paper-render-overrides.ts",
+      "verify-clip-collision.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
