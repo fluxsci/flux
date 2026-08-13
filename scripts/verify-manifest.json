@@ -103,6 +103,7 @@
       "verify-ratelimit.ts",
       "verify-refformat.ts",
       "verify-embed-normalize.ts",
+      "verify-paper-render-overrides.ts",
       "verify-export-qmd.ts",
       "verify-scaffold.ts",
       "verify-sync-render.ts",
@@ -377,7 +378,8 @@
       "verify-paper-tables.mjs",
       "verify-paper-split.mjs",
       "verify-nature-style.ts",
-      "verify-writer-neutral.ts"
+      "verify-writer-neutral.ts",
+      "verify-paper-render-overrides.ts"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",

@@ -430,10 +430,23 @@ export interface FigSource {
   families: FigureFamilyDef[]; // custom family defs (built-ins never persisted)
   figures: Record<string, Figure>; // by figure id (with elements, for rendering)
   assetData: Record<string, string>; // by asset id → data URL
+  /** Migrated asset metadata (dims + dpi) — feeds assetDisplaySize for crop
+   *  rendering in the paper module's renderFigureSvg. */
+  assets: Asset[];
+  /** Asset-local `.fluxplot.json` sidecars — group-keyed overrides need them
+   *  to resolve when the paper module bakes per-part edits (inlineMarkup). */
+  assetManifests: Record<string, FluxPlotManifest>;
 }
 
 export async function readFigSource(root: string): Promise<FigSource> {
-  const empty: FigSource = { indexFigures: [], families: [], figures: {}, assetData: {} };
+  const empty: FigSource = {
+    indexFigures: [],
+    families: [],
+    figures: {},
+    assetData: {},
+    assets: [],
+    assetManifests: {},
+  };
   const fig = fileBridge();
   if (!fig) return empty;
 
@@ -481,6 +494,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
   migrateFigureFamilies(view, familyHintsFrom(index.figures));
 
   const assetData: Record<string, string> = {};
+  const assetManifests: Record<string, FluxPlotManifest> = {};
   for (const a of srcAssets) {
     if (!a.path) continue;
     try {
@@ -489,6 +503,17 @@ export async function readFigSource(root: string): Promise<FigSource> {
       if (a.kind === "png") captureSnipMeta(a.id, bytes);
     } catch {
       /* skip missing asset bytes */
+    }
+    if (a.kind === "svg") {
+      // Same sidecar the editor load primes (io.ts) — optional: a vanilla svg
+      // without one derives its manifest at prepare time (inlineMarkup).
+      try {
+        const mpath = joinPath(root, SUB, `assets/${a.id}.fluxplot.json`);
+        if (await fig.exists(mpath))
+          assetManifests[a.id] = JSON.parse(await fig.readText(mpath)) as FluxPlotManifest;
+      } catch {
+        /* unreadable sidecar — leaf-id overrides still apply */
+      }
     }
   }
 
@@ -535,5 +560,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
     families: index.families ?? [],
     figures,
     assetData,
+    assets: view.assets, // post-migration (dims + pHYs dpi intact)
+    assetManifests,
   };
 }

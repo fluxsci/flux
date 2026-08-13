@@ -6,11 +6,10 @@
 import * as fs from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
-import { preparePlot, prefixIds, applyOverrides } from "../src/lib/plot/parse";
-import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../src/lib/plot/compensate";
+import { buildPlotMarkup } from "../src/lib/plot/inlineMarkup";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { isUnderRoot, plotSourceCandidates } from "../src/lib/plot/source";
-import type { Element, Figure, Project } from "../src/lib/types";
+import type { Figure, Project } from "../src/lib/types";
 import { migrateProject } from "../src/lib/migrate";
 import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
@@ -22,10 +21,10 @@ function mimeFor(kind: string): string {
   return kind === "svg" ? "image/svg+xml" : "image/png";
 }
 
-// Headless DOM (linkedom) so we can reuse the GUI's pure plot functions
-// (preparePlot/prefixIds/applyOverrides/compensatePtTrue) — exactly like the
-// in-app plotToSvgMarkup, one source of truth. Exported for slides.ts
-// (gatherDeckPayload derives manifests for vanilla plots through the same seam).
+// Headless DOM (linkedom) so the shared plot pipeline (plot/inlineMarkup.ts →
+// preparePlot/prefixIds/applyOverrides/compensatePtTrue) runs exactly like the
+// in-app render, one source of truth. Exported for slides.ts (gatherDeckPayload
+// derives manifests for vanilla plots through the same seam).
 let domReady = false;
 export async function ensureDom(): Promise<void> {
   if (domReady) return;
@@ -33,61 +32,6 @@ export async function ensureDom(): Promise<void> {
   const g = globalThis as unknown as { DOMParser?: unknown };
   if (!g.DOMParser) g.DOMParser = DOMParser;
   domReady = true;
-}
-
-/** Inline a placed semantic plot to an <svg> string with its overrides baked in
- *  (mirrors src/lib/plot/export.ts plotToSvgMarkup, but reads from disk).
- *  Runs the SAME preparePlot seam as the app's cachePlot — normalization
- *  (sanitize / shared-<use> inlining / id stamping) + orphan augmentation —
- *  so group-keyed overrides (`unclassified`, derived groups) resolve
- *  identically headless, and the same crop + pt-true compensation. */
-function buildPlotMarkup(
-  svgText: string,
-  el: Element & {
-    id: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    crop?: { x: number; y: number; width: number; height: number };
-    contentScale?: number;
-  },
-  overrides: Record<string, unknown> | undefined,
-  manifest: FluxPlotManifest | undefined,
-): string | null {
-  const prepared = preparePlot(svgText, manifest);
-  const rootEl = prepared.root;
-  if (!rootEl) return null;
-  const intrinsic = svgIntrinsicPx(rootEl as unknown as globalThis.Element);
-  prefixIds(rootEl as unknown as globalThis.Element, el.id);
-  rootEl.setAttribute("x", String(el.x));
-  rootEl.setAttribute("y", String(el.y));
-  rootEl.setAttribute("width", String(el.width));
-  rootEl.setAttribute("height", String(el.height));
-  rootEl.setAttribute("preserveAspectRatio", "none");
-  if (el.crop) {
-    // NOTE: preparePlot never mutates width/height/viewBox, so reading the
-    // original viewBox off the prepared root pre-override is still valid here.
-    rootEl.setAttribute(
-      "viewBox",
-      cropViewBoxValue(rootEl.getAttribute("viewBox"), intrinsic, el.crop),
-    );
-    rootEl.setAttribute("overflow", "hidden");
-  }
-  applyOverrides(
-    rootEl as unknown as globalThis.Element,
-    overrides as Parameters<typeof applyOverrides>[1],
-    el.id,
-    prepared.manifest,
-  );
-  compensatePtTrue(rootEl as unknown as globalThis.Element, {
-    elW: el.width,
-    elH: el.height,
-    crop: el.crop ?? null,
-    contentScale: el.contentScale,
-    intrinsic,
-  });
-  return (rootEl as unknown as { toString(): string }).toString();
 }
 
 /** render-figure → a standalone SVG string (reuses the GUI's figureToSvg). For
@@ -223,7 +167,7 @@ export async function renderFigureSvg(
       }
       const markup = buildPlotMarkup(
         svgText,
-        el as Element & { id: string; x: number; y: number; width: number; height: number },
+        el as Parameters<typeof buildPlotMarkup>[1],
         (el as { overrides?: Record<string, unknown> }).overrides,
         manifest,
       );

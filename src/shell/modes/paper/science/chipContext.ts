@@ -84,6 +84,17 @@ export function registerPaperHandlers(editorDom: HTMLElement, handlers: PaperHan
   };
 }
 
+// Dev tripwire (dual-paper): with 2+ panes registered, a lookup miss means an
+// editor is live without a registration — every downstream handler call then
+// silently no-ops. No such path is known (Editor.onMount always registers via
+// onReady), so a firing here is a wiring regression to chase, not to paper over.
+function warnMiss(site: string): void {
+  if (import.meta.env?.DEV && registry.size >= 2)
+    console.error(
+      `${site}: no handler registration for this editor (${registry.size} registered) — dual-pane wiring regression`,
+    );
+}
+
 /** Resolve the handlers owning `el` (any element inside the editor DOM).
  *  Single-registration fallback: widget elements can sit in an overlay
  *  portaled OUTSIDE .cm-editor in principle — with one paper pane the sole
@@ -95,12 +106,17 @@ export function handlersForEl(el: HTMLElement | null | undefined): PaperHandlers
     if (h) return h;
   }
   if (registry.size === 1) return registry.values().next().value;
+  warnMiss("handlersForEl");
   return undefined;
 }
 
 /** Resolve the handlers for a known EditorView (completion `apply` sites). */
 export function handlersForView(view: EditorView): PaperHandlers | undefined {
-  return registry.get(view.dom) ?? (registry.size === 1 ? registry.values().next().value : undefined);
+  const hit = registry.get(view.dom);
+  if (hit) return hit;
+  if (registry.size === 1) return registry.values().next().value;
+  warnMiss("handlersForView");
+  return undefined;
 }
 
 /** Build-time gate for optional widget affordances (the table hover bar):

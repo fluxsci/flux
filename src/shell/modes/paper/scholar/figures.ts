@@ -4,8 +4,12 @@
 // (Flux_Paper_Plan.md B-data layer).
 
 import { get, writable } from "svelte/store";
-import type { Figure, FigureFamilyDef } from "../../../../lib/types";
+import type { Asset, Element, Figure, FigureFamilyDef, Project } from "../../../../lib/types";
 import { figureToSvg } from "../../../../lib/export";
+import { buildPlotMarkup } from "../../../../lib/plot/inlineMarkup";
+import type { FluxPlotManifest } from "../../../../lib/plot/types";
+import { dataUrlToBytes } from "../../../../lib/assets";
+import { assetDisplaySize } from "../../../../lib/ops";
 import { readFigSource } from "../../../../lib/project/figbridge";
 import { fileBridge } from "../../../../lib/project/types";
 import { EMBED_RE } from "../science/figureAttrs";
@@ -48,15 +52,22 @@ figureRefs.subscribe((refs) => {
 
 let figuresById: Record<string, Figure> = {};
 let assetData: Record<string, string> = {};
+let assetManifests: Record<string, FluxPlotManifest> = {};
+let assetMeta: Asset[] = []; // dims + dpi for crop rendering (assetDisplaySize)
 // Custom family definitions from the project (built-ins live in figfamily.ts).
 let familyDefs: FigureFamilyDef[] = [];
-const renderCache = new Map<string, string>();
+// Renders cache per figure per fig-revision (loadFigures clears). Failures
+// cache as undefined so one broken figure costs one warning, not one per
+// keystroke of picker/embed rebuilds.
+const renderCache = new Map<string, string | undefined>();
 
 export async function loadFigures(root: string | null): Promise<void> {
   if (!root) return; // demo / no project — leave whatever was seeded
   const src = await readFigSource(root);
   figuresById = src.figures;
   assetData = src.assetData;
+  assetManifests = src.assetManifests;
+  assetMeta = src.assets;
   familyDefs = src.families;
   renderCache.clear();
   // Flux-figure is the source of truth: identity is (family, number) —
@@ -199,13 +210,60 @@ export function exportCtxFigures(
   return out;
 }
 
+// Inline a placed plot with its per-part overrides baked (the shared
+// inlineMarkup pipeline — same output as flux-core's renderFigureSvg and the
+// figure editor's own canvas). Anything that stops the inline — png-backed
+// asset, missing bytes, parse failure — falls back to figureToSvg's raw
+// <image> draw for THAT plot only, never the whole figure.
+function plotMarkupFor(el: Element): string | undefined {
+  if (el.type !== "plot") return undefined;
+  const url = assetData[el.assetId];
+  if (!url || !url.startsWith("data:image/svg+xml")) return undefined;
+  try {
+    const text = new TextDecoder().decode(dataUrlToBytes(url));
+    return buildPlotMarkup(text, el, el.overrides, assetManifests[el.assetId]) ?? undefined;
+  } catch (e) {
+    console.warn(`paper: plot inline failed for asset "${el.assetId}" — drawing the raster fallback`, e);
+    return undefined;
+  }
+}
+
 export function renderFigureSvg(id: string): string | undefined {
   if (renderCache.has(id)) return renderCache.get(id);
   const fig = figuresById[id];
   if (!fig) return undefined;
-  const svg = figureToSvg(fig, (aid) => assetData[aid]);
+  let svg: string | undefined;
+  try {
+    svg = figureToSvg(
+      fig,
+      (aid) => assetData[aid],
+      plotMarkupFor,
+      // Crop rendering for <image>-backed elements: intrinsic content size in
+      // assetDisplaySize units — the crop window's own coordinate space.
+      (aid) => assetDisplaySize({ assets: assetMeta } as Project, aid) ?? undefined,
+    );
+  } catch (e) {
+    // One broken figure must never take down a whole surface: the FigurePicker
+    // mounts EVERY figure's render, so an uncaught throw here was a silently
+    // dead picker (2026-08-12 report). Degrade to "no preview" and say why.
+    console.warn(`paper: figure render failed for "${id}" — no preview`, e);
+    journalRenderError(id, e);
+    svg = undefined;
+  }
   renderCache.set(id, svg);
   return svg;
+}
+
+// The renderer journals through the host bridge (same seam as figbridge's
+// save_fig) so a broken figure is diagnosable from .meta/journal.ndjson —
+// before this, render failures left no trace anywhere.
+function journalRenderError(id: string, e: unknown): void {
+  const host = (globalThis as { fig?: { journalAppend?: (entry: unknown) => void } }).fig;
+  host?.journalAppend?.({
+    action: "render_error",
+    target: id,
+    detail: e instanceof Error ? e.message : String(e),
+  });
 }
 
 export function figureById(id: string): Figure | undefined {
@@ -265,9 +323,13 @@ export function __seedFigures(
   figs: Record<string, Figure>,
   data: Record<string, string> = {},
   families: FigureFamilyDef[] = [],
+  manifests: Record<string, FluxPlotManifest> = {},
+  assets: Asset[] = [],
 ): void {
   figuresById = figs;
   assetData = data;
+  assetManifests = manifests;
+  assetMeta = assets;
   familyDefs = families;
   renderCache.clear();
   figureRefs.set(refs);

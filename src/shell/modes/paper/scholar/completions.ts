@@ -15,7 +15,8 @@ import { get } from "svelte/store";
 import { figureRefs } from "./figures";
 import { bibEntries } from "./bib";
 import { fluxLibEntries } from "../../../../lib/references/revision";
-import { handlersForView } from "../science/chipContext";
+import { handlersForView, type SlashHandlers } from "../science/chipContext";
+import { pushToast } from "../../../../lib/toast";
 import { numberingFacet } from "./numberingFacet";
 
 
@@ -122,15 +123,40 @@ function applyCite(key: string) {
   };
 }
 
+// A slash command that opens a Svelte-side picker must resolve its handlers
+// BEFORE touching the document: the old apply deleted the typed token first and
+// optional-chained into the handler, so an unregistered editor swallowed the
+// user's text and did nothing, with no trace anywhere (2026-08-12 report — four
+// silent exits in a row). Now the text survives a miss, the failure is loud,
+// and the journal records the attempt either way (the renderer was previously
+// invisible in .meta/journal.ndjson for the whole slash path).
+function journalSlash(name: string, resolved: boolean): void {
+  const host = (globalThis as { fig?: { journalAppend?: (entry: unknown) => void } }).fig;
+  host?.journalAppend?.({ action: "slash_command", target: name, resolved });
+}
+
+function applyPickerCommand(name: string, pick: (s: SlashHandlers) => (() => void) | undefined) {
+  return (view: EditorView, _c: Completion, from: number, to: number) => {
+    const open = pick(handlersForView(view)?.slash ?? {});
+    journalSlash(name, !!open);
+    if (!open) {
+      console.error(`${name}: no paper handlers registered for this editor — leaving the typed text in place`);
+      pushToast("error", `${name} couldn't open its picker`, {
+        detail: "This editor pane isn't wired for insert commands — please report this.",
+      });
+      return;
+    }
+    view.dispatch({ changes: { from, to, insert: "" }, userEvent: "input.complete" });
+    open();
+  };
+}
+
 const SLASH: Completion[] = [
   {
     label: "/figure",
     detail: "Embed a figure",
     type: "figure",
-    apply: (view, _c, from, to) => {
-      view.dispatch({ changes: { from, to, insert: "" }, userEvent: "input.complete" });
-      handlersForView(view)?.slash?.onInsertFigure?.();
-    },
+    apply: applyPickerCommand("/figure", (s) => s.onInsertFigure),
   },
   {
     label: "/table",
@@ -171,10 +197,7 @@ const SLASH: Completion[] = [
     label: "/cross-reference",
     detail: "Reference a figure (@@)",
     type: "figure",
-    apply: (view, _c, from, to) => {
-      view.dispatch({ changes: { from, to, insert: "" }, userEvent: "input.complete" });
-      handlersForView(view)?.slash?.onInsertFigRef?.();
-    },
+    apply: applyPickerCommand("/cross-reference", (s) => s.onInsertFigRef),
   },
   { label: "/heading", detail: "Section heading", type: "keyword", apply: insert("## ", 3) },
   {

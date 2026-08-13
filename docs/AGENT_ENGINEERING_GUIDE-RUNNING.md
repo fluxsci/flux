@@ -97,6 +97,7 @@ The established shared cores — extend these, don't duplicate them:
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
+| Placed-plot inline markup from svg text (overrides/crop/pt-true baked) | `src/lib/plot/inlineMarkup.ts` (flux-core render + paper `scholar/figures.ts`) | `verify-paper-render-overrides.ts` (byte parity, both engines) |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
@@ -217,7 +218,12 @@ Persistence invariants (all machine-checked — do not weaken):
   it on save, so pruning it would orphan asset bytes (verify-lazy-save-safety); (2) every GUI
   figure export funnels through `io.ts buildFigureSvg` → `ensureFigurePlots` (synchronous
   parse) so per-part overrides always bake instead of falling to the raster
-  (verify-lazy-export-overrides); (3) anything reading `hasPlotDom`/`plotDom` reactively must
+  (verify-lazy-export-overrides) — and the PAPER module's disk-backed renders (embeds, hover
+  cards, pickers, in-app preview/PDF, app-side materializeRenders: `scholar/figures.ts
+  renderFigureSvg` over `readFigSource`) bake the same overrides through the shared
+  `plot/inlineMarkup.ts` and degrade a failing figure to "no preview" instead of throwing —
+  a single throwing figure once killed the whole FigurePicker silently
+  (verify-paper-render-overrides, byte-parity with flux-core); (3) anything reading `hasPlotDom`/`plotDom` reactively must
   depend on `$plotGen[id]` or it will never see the lazy upgrade (verify-lazy-load-gui);
   (4) slide mode stays EAGER (`resolveDeckAssets`) and eviction is tenancy-gated to figure
   mode — deck morph targets and filmstrip thumbnails have no mount-driven reload path.
@@ -3409,3 +3415,25 @@ green (`verify-r8` updated for the scoped tabs key — deliberate contract chang
 - Widget affordances gated on "is a handler registered" at `toDOM()` time can't resolve
   per-editor (the element isn't attached yet) — the render gate is "ANY pane registered"
   (`anyPaperHandlers`), and the click-time dispatch resolves by element ancestry.
+
+### 2026-08-12 — paper renders now bake plot overrides; one bad figure can't kill a surface (Claude Fable 5, paper-figure-fidelity)
+**Work:** Fixed the external double-title report: `scholar/figures.ts renderFigureSvg` called
+`figureToSvg` with no `plotMarkup`/`assetSize`, so every paper surface (embeds, hover cards,
+pickers, in-app preview/PDF, app-side materializeRenders) drew raw plots — part overrides and
+crops silently dropped, diverging from flux-core/agent renders. Extracted flux-core's
+`buildPlotMarkup` into shared `src/lib/plot/inlineMarkup.ts` (Twin-Engine row added),
+`readFigSource` now returns manifest sidecars + migrated asset meta, and the paper render is
+byte-identical to flux-core (`verify-paper-render-overrides.ts`, pure + paper-gate). Also
+hardened the same seam: a throwing figure render caches `undefined` ("no preview") instead of
+propagating — an uncaught throw in the FigurePicker mount (the ONLY surface that renders EVERY
+figure) was a silently dead `/figure` AND Ctrl+K "Insert figure" with zero trace; slash applies
+now resolve handlers BEFORE deleting the typed token, toast + journal (`slash_command`,
+`render_error`) on failure, and `chipContext` grew a dev tripwire for dual-pane lookup misses.
+**Learnings:**
+- A modal that eagerly renders EVERY project item at mount is a single point of failure for the
+  whole feature — one throwing item = a dead button with no error surface. Renders feeding
+  always-on UI must degrade per-item, never propagate.
+- The completion `apply` that deletes the typed token before resolving its handler destroys the
+  user's input on any downstream miss. Resolve first, mutate after.
+- When two entry paths (slash + palette) fail identically, the bug lives in their shared suffix —
+  here the picker mount, not the per-path plumbing everyone suspected first.
