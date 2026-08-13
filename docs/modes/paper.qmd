@@ -147,7 +147,10 @@ caret.
 
 # Figures
 
-Insert a figure with `/figure` (or **Ctrl+K → Insert figure…**). In the text, the embed is a
+Insert a figure with `/figure` (or **Ctrl+K → Insert figure…**). The picker shows every figure
+at full size — scroll (or arrow) through long lists, search by name or caption, and when the
+project has more than one canvas, use the dropdown next to the search box to limit the list
+(and your search) to a single canvas. In the text, the embed is a
 compact **⌗ name chip** with the live figure rendered beneath it — the real thing from
 [Figure mode](figure.qmd), with its caption. Captions live on the figure itself (edited in
 Figure mode's caption editor), so figure and caption can never drift apart; exports carry them

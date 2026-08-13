@@ -3437,3 +3437,21 @@ now resolve handlers BEFORE deleting the typed token, toast + journal (`slash_co
   user's input on any downstream miss. Resolve first, mutate after.
 - When two entry paths (slash + palette) fail identically, the bug lives in their shared suffix —
   here the picker mount, not the per-path plumbing everyone suspected first.
+
+### 2026-08-13 — figure picker scrolls at scale + canvas scope (Claude Fable 5, figpicker-scroll-canvas)
+**Work:** Issue #10: with many figures both picker grids COMPRESSED every row to fit the modal
+(cells clipped to ~30px slivers, names invisible, no scrollbar) — `.cell{overflow:hidden}`
+zeroes each grid item's automatic minimum size, so a height-constrained grid shrinks rows
+instead of overflowing. Row floor (`grid-auto-rows: max-content` + `align-content: start`) in
+FigurePicker AND FigRefPicker restores full-size cells over a real scrollbar. Added the canvas
+scope dropdown to FigurePicker (readFigSource → `FigSource.canvases` → `figureCanvases` store;
+scope filters first, search composes within; hidden at 0–1 canvases). New ui gate
+`verify-figpicker.mjs` (also in paper-gate, now 30); docs/modes/paper.qmd updated.
+**Learnings:**
+- A CSS grid whose items have `overflow: hidden` will silently compress rows to fit a
+  constrained container — `overflow: auto` on the container never engages because nothing
+  overflows. Give tracks a floor (`grid-auto-rows: max-content`) when cells clip their content.
+- Keyboard-driving a CodeMirror completion in a gate: waiting for the option to be
+  aria-selected is NOT enough — autocomplete's `interactionDelay` (~75ms) ignores an accept
+  that lands right after a list update and the key falls through to the document. Condition
+  wait + one annotated 120ms debounce is the stable recipe.

@@ -5,15 +5,20 @@
 
   let {
     figures,
+    canvases = [],
     onSelect,
     onClose,
   }: {
     figures: FigureRef[];
+    /** Project canvas list (id + display name, canonical order) for the
+     *  scope dropdown; with 0–1 canvases the dropdown is not shown. */
+    canvases?: { id: string; name: string }[];
     onSelect: (ref: FigureRef) => void;
     onClose: () => void;
   } = $props();
 
   let query = $state("");
+  let canvasSel = $state(""); // "" = all canvases
   let sel = $state(0);
   let gridEl = $state<HTMLElement | undefined>(undefined);
   let inputEl = $state<HTMLInputElement | undefined>(undefined);
@@ -21,14 +26,16 @@
   // The `autofocus` attribute is unreliable on dynamically-mounted content —
   // without a real focus() the editor keeps the keyboard and eats Enter/arrows.
   onMount(() => inputEl?.focus());
+  // Canvas scope narrows FIRST, then the text query searches within it.
+  const scoped = $derived(canvasSel ? figures.filter((f) => f.canvas === canvasSel) : figures);
   const filtered = $derived(
     query.trim()
-      ? figures.filter((f) =>
+      ? scoped.filter((f) =>
           (f.name + " " + (f.nickname ?? "") + " " + f.label + " " + f.caption)
             .toLowerCase()
             .includes(query.toLowerCase()),
         )
-      : figures,
+      : scoped,
   );
 
   // Focus stays in the search input; `sel` roves the grid (first cell pre-
@@ -53,6 +60,9 @@
     // completion) is still bubbling when this window listener mounts — anything
     // already claimed upstream must not double-fire here.
     if (e.defaultPrevented) return;
+    // The canvas dropdown owns its own keyboard when focused (native arrow/
+    // Enter behavior) — only Escape still closes the picker from there.
+    if (e.target instanceof HTMLSelectElement && e.key !== "Escape") return;
     if (e.key === "Escape") {
       e.stopPropagation();
       onClose();
@@ -92,6 +102,18 @@
         aria-expanded="true"
         aria-controls="figpicker-grid"
         aria-activedescendant="figopt-{sel}" />
+      {#if canvases.length > 1}
+        <select
+          class="canvas-scope"
+          bind:value={canvasSel}
+          aria-label="Limit to canvas"
+          title="Limit to one canvas">
+          <option value="">All canvases</option>
+          {#each canvases as c (c.id)}
+            <option value={c.id}>{c.name}</option>
+          {/each}
+        </select>
+      {/if}
     </header>
 
     {#if filtered.length}
@@ -180,9 +202,31 @@
     outline: none;
     border-color: var(--c-accent);
   }
+  .canvas-scope {
+    flex: 0 0 auto;
+    max-width: 180px;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-1);
+    padding: 6px 8px;
+    color: var(--c-tx);
+    font: inherit;
+    font-size: var(--ts-sm);
+  }
+  .canvas-scope:focus {
+    outline: none;
+    border-color: var(--c-accent);
+  }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    /* Row floor (issue #10): .cell{overflow:hidden} zeroes each item's
+       automatic minimum size, so with many figures the height-constrained
+       grid COMPRESSED every row to fit (30px slivers, meta clipped, no
+       scrollbar ever). max-content keeps rows at full cell height so the
+       content genuinely overflows and `overflow: auto` scrolls. */
+    grid-auto-rows: max-content;
+    align-content: start;
     gap: var(--sp-3);
     padding: var(--sp-4);
     overflow: auto;

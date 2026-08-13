@@ -307,6 +307,11 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    /* Row floor (issue #10, FigurePicker's twin): without it a
+       height-constrained grid compresses every row to fit instead of
+       overflowing — cells clip to slivers and the scrollbar never appears. */
+    grid-auto-rows: max-content;
+    align-content: start;
     gap: var(--sp-3);
     padding: var(--sp-4);
     overflow: auto;

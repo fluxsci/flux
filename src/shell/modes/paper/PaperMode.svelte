@@ -118,7 +118,7 @@
     newId,
     type CommentThread,
   } from "./comments/comments";
-  import { loadFigures, figureRefs, resolveFigure, materializeRenders, exportCtxFigures } from "./scholar/figures";
+  import { loadFigures, figureRefs, figureCanvases, resolveFigure, materializeRenders, exportCtxFigures } from "./scholar/figures";
   import { bibEntries, type BibEntry } from "./scholar/bib";
   import { loadBib, addDoiToBib, addUrlOrDoiToBib, addUrlOrDoiToLibrary } from "./scholar/bibLoad";
   import { materializeIntoProject, refreshFluxLib } from "../../../lib/references/fluxlibBridge";
@@ -2179,6 +2179,7 @@
     {#key pickerOpenN}
       <FigurePicker
         figures={$figureRefs}
+        canvases={$figureCanvases}
         onSelect={insertFigure}
         onClose={() => { pickerOpen = false; view?.focus(); }} />
     {/key}

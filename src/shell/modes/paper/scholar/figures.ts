@@ -40,6 +40,10 @@ export interface FigureRef {
 
 export const figureRefs = writable<FigureRef[]>([]);
 
+/** Canvas list (id + display name, canonical order) for the FigurePicker's
+ *  canvas-scope dropdown (issue #10). Refreshed with every loadFigures. */
+export const figureCanvases = writable<{ id: string; name: string }[]>([]);
+
 // PAP-22: index refs by label so the cite/cross-ref chip widgets resolve in O(1) instead of a
 // linear `find` per chip per rebuild (chips rebuild on every keystroke/scroll over the visible
 // range). Kept in sync by subscribing to the store, so every set — load, seed — refreshes it.
@@ -70,6 +74,7 @@ export async function loadFigures(root: string | null): Promise<void> {
   assetMeta = src.assets;
   familyDefs = src.families;
   renderCache.clear();
+  figureCanvases.set(src.canvases);
   // Flux-figure is the source of truth: identity is (family, number) —
   // structured fields healed by the loader, never parsed out of the name —
   // so renaming/renumbering there relabels every chip/embed/hover/export
@@ -325,6 +330,7 @@ export function __seedFigures(
   families: FigureFamilyDef[] = [],
   manifests: Record<string, FluxPlotManifest> = {},
   assets: Asset[] = [],
+  canvases: { id: string; name: string }[] = [],
 ): void {
   figuresById = figs;
   assetData = data;
@@ -332,6 +338,7 @@ export function __seedFigures(
   assetMeta = assets;
   familyDefs = families;
   renderCache.clear();
+  figureCanvases.set(canvases);
   figureRefs.set(refs);
 }
 if (import.meta.env?.DEV) {

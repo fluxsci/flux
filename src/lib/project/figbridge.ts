@@ -436,6 +436,9 @@ export interface FigSource {
   /** Asset-local `.fluxplot.json` sidecars — group-keyed overrides need them
    *  to resolve when the paper module bakes per-part edits (inlineMarkup). */
   assetManifests: Record<string, FluxPlotManifest>;
+  /** Canvas list in canonical order (id + display name) — the FigurePicker's
+   *  canvas-scope dropdown (issue #10). */
+  canvases: { id: string; name: string }[];
 }
 
 export async function readFigSource(root: string): Promise<FigSource> {
@@ -446,6 +449,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
     assetData: {},
     assets: [],
     assetManifests: {},
+    canvases: [],
   };
   const fig = fileBridge();
   if (!fig) return empty;
@@ -562,5 +566,6 @@ export async function readFigSource(root: string): Promise<FigSource> {
     assetData,
     assets: view.assets, // post-migration (dims + pHYs dpi intact)
     assetManifests,
+    canvases: canvasMeta.map((c) => ({ id: c.id, name: c.name })),
   };
 }
