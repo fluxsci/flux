@@ -136,12 +136,13 @@
       return;
     }
     if (await deckDiskDiverged(pm.root, activeDeckId)) {
-      await openDeck(activeDeckId, { force: true });
+      await openDeck(activeDeckId, { force: true, preserveView: true });
     }
   }
   async function reloadDeckTheirs() {
     if (!pm || !activeDeckId) return;
-    await openDeck(activeDeckId, { force: true }); // re-seeds baseline + clears dirty
+    // re-seeds baseline + clears dirty; preserveView keeps the user's slide/beat
+    await openDeck(activeDeckId, { force: true, preserveView: true });
     deckDiverged = false;
   }
   async function overwriteDeckMine() {
@@ -185,9 +186,19 @@
     try { return localStorage.getItem(lastDeckKey(root)); } catch { return null; }
   }
 
-  async function openDeck(id: string, opts: { force?: boolean } = {}): Promise<boolean> {
+  // `preserveView` (external-change reloads — fig/'s W10 rule, mirrored): an
+  // agent editing the deck on disk must not yank the user to slide 1 or re-fit
+  // their zoom. Keep the current slide + beat where they still exist; the load
+  // itself lands on slides[0], so restore through selectSlide (the sanctioned
+  // switch — display reconciliation included).
+  async function openDeck(
+    id: string,
+    opts: { force?: boolean; preserveView?: boolean } = {},
+  ): Promise<boolean> {
     if (!pm) return false;
     if (!opts.force && id === activeDeckId) return true;
+    const keepSlide = opts.preserveView ? get(activeFigureId) : null;
+    const keepBeat = opts.preserveView ? get(activeBeat) : 0;
     try {
       await autosave.flush();
       const loaded = await loadDeckInto(pm.root, id);
@@ -200,7 +211,14 @@
       rememberDeck(pm.root, activeDeckId);
       decks = await listProjectDecks(pm.root);
       animatorOpen = animatorRemembered();
-      fitViewport();
+      const kept = keepSlide ? loaded.deck.slides.find((s) => s.id === keepSlide) : null;
+      if (kept) {
+        selectSlide(kept.id); // lands fully-built (last beat)…
+        const clamped = Math.max(0, Math.min(keepBeat, (kept.beats?.length ?? 1) - 1));
+        if (clamped !== get(activeBeat)) activeBeat.set(clamped); // …then restore the cursor
+      } else {
+        fitViewport(); // deck switch / kept slide gone — the old full re-fit
+      }
       return true;
     } catch (e) {
       pushToast("error", "Couldn't open that deck", { detail: errMsg(e) });

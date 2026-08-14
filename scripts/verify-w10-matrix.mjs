@@ -1,12 +1,17 @@
 // W10 acceptance: the watch → live-reload matrix (renderer half, via the memBridge
 // fixture + simulated fs:changed events). Proves an external (agent/CLI) edit that
 // lands while a mode is OPEN pops into that mode:
-//   • Figure: clean editor reloads in place (AGT-3); dirty editor keeps its work +
-//     shows the reload/overwrite banner (no clobber).
+//   • Figure: clean editor reloads in place (AGT-3) — preserving the user's view
+//     and landing as ONE undo entry (2026-08-14 reload contract; the pure twin is
+//     verify-fig-reload-preserve.ts); dirty editor keeps its work + shows the
+//     reload/overwrite banner (no clobber).
 //   • Slide: clean deck reloads in place (SLD-1).
 //   • FluxLib: a fluxlib event is handled (LR-3 wiring) without error.
 // The Electron watcher's target list (main.cjs) is verified by inspection; here we
 // exercise the renderer wiring (projectWatch → revisions → mode subscriptions).
+// PROBE RULE: assert the reload on a figure's WIDTH, never its NAME — since
+// figure families (2026-08-04) `name` is a DERIVED field that load-healing
+// rewrites (applyFamilyNumbers), which silently broke the old name-based probe.
 import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
 
 const R = "/demo/myc-growth-paper";
@@ -18,21 +23,36 @@ await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3200 }
 await clickMode(page, "Figure");
 await sleep(1400);
 const figClean = await page.evaluate(async (R) => {
-  const rename = (json, name) => {
-    const o = JSON.parse(json);
-    if (o.figures?.[0]) o.figures[0].name = name;
-    return JSON.stringify(o, null, 2) + "\n";
+  const F = window.__flux;
+  const before = {
+    width: F.figures()[0]?.width,
+    canvas: F.get(F.fig.activeCanvasId),
+    past: F.fig.historyStats().past,
   };
   const cid = "canvas-1";
   const canvasP = R + "/fig/canvases/" + cid + ".json";
   const idxP = R + "/fig/index.json";
-  await window.fig.writeText(canvasP, rename(await window.fig.readText(canvasP), "AGENT RENAMED"));
-  await window.fig.writeText(idxP, rename(await window.fig.readText(idxP), "AGENT RENAMED"));
+  const o = JSON.parse(await window.fig.readText(canvasP));
+  if (o.figures?.[0]) o.figures[0].width = 1234;
+  await window.fig.writeText(canvasP, JSON.stringify(o, null, 2) + "\n");
+  // touch the index too so the index-divergence path is exercised alongside
+  await window.fig.writeText(idxP, (await window.fig.readText(idxP)) + "\n");
   window.__fluxEmitFsChange({ subsystem: "fig", path: idxP });
-  return true;
+  return before;
 }, R);
 await sleep(700);
-const figCleanName = await page.evaluate(() => window.__flux.figures()[0]?.name);
+const figCleanAfter = await page.evaluate((before) => {
+  const F = window.__flux;
+  const reloaded = F.figures()[0]?.width === 1234;
+  const viewKept = F.get(F.fig.activeCanvasId) === before.canvas;
+  const oneEntry = F.fig.historyStats().past === before.past + 1;
+  F.fig.undo();
+  const undone = F.figures()[0]?.width === before.width;
+  F.fig.redo();
+  const redone = F.figures()[0]?.width === 1234;
+  return { reloaded, viewKept, oneEntry, undone, redone };
+}, figClean);
+await sleep(1100); // let the undo/redo autosaves settle before the dirty branch
 
 // ---- Figure: dirty → banner, no clobber ------------------------------------
 await page.evaluate(async (R) => {
@@ -86,7 +106,10 @@ const fluxlibHandled = await page.evaluate(async (LIB) => {
 await sleep(500);
 
 const out = {
-  figCleanReloaded: figClean && figCleanName === "AGENT RENAMED",
+  figCleanReloaded: figCleanAfter.reloaded,
+  figViewPreserved: figCleanAfter.viewKept,
+  figReloadOneUndoEntry: figCleanAfter.oneEntry,
+  figReloadUndoRestores: figCleanAfter.undone && figCleanAfter.redone,
   figDirtyKeptEdit: figDirty.keptHumanEdit,
   figDirtyBanner: figDirty.bannerShown,
   slideReloaded: slideReload.ok && slideTitle === "AGENT DECK TITLE",
@@ -98,6 +121,9 @@ await browser.close();
 
 const pass =
   out.figCleanReloaded &&
+  out.figViewPreserved &&
+  out.figReloadOneUndoEntry &&
+  out.figReloadUndoRestores &&
   out.figDirtyKeptEdit &&
   out.figDirtyBanner &&
   out.slideReloaded &&

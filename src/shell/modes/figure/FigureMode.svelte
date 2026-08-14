@@ -80,13 +80,17 @@
 
   async function reloadFigures() {
     if (!pm) return;
-    await loadFigInto(pm.root, pm.manifest.title); // resets baseline + clears dirty
+    // reload: true — keep the user's canvas/figure/selection where their ids
+    // survive, and land the external change as ONE undo entry (Ctrl+Z reverts
+    // the agent's batch). Resets baseline + clears dirty as before.
+    await loadFigInto(pm.root, pm.manifest.title, { reload: true });
     figDiverged = false;
   }
   // W10 (AGT-3): an external (agent/CLI) write to fig/ live-reloads the open
   // editor. figRevision also fires on our OWN save, so gate on figDiskDiverged
-  // (false right after we write). Clean → reload in place (viewport preserved);
-  // dirty → surface the reload/overwrite banner instead of clobbering.
+  // (false right after we write). Clean → reload in place (view + history
+  // preserved); dirty → surface the reload/overwrite banner instead of
+  // clobbering.
   async function onFigRevision() {
     if (!pm || !ready) return;
     if (!(await figDiskDiverged(pm.root))) return;

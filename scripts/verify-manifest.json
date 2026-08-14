@@ -76,6 +76,7 @@
       "verify-fwdguard.ts",
       "verify-figsave-txn.ts",
       "verify-canvas-divergence.ts",
+      "verify-fig-reload-preserve.ts",
       "verify-undo-budget.ts",
       "verify-figfiles-parity.ts",
       "verify-text-parity.ts",

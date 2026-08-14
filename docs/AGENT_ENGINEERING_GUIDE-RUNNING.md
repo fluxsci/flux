@@ -211,6 +211,22 @@ Persistence invariants (all machine-checked — do not weaken):
 - Mutations go through `commit`/`mutate`/`mutateFigure` in `src/lib/store.ts`; gestures are
   `beginGesture` → transient preview → one commit on release. Undo history is byte-budgeted
   (64MB / 200 entries).
+- **External-reload contract (2026-08-14):** an agent/CLI edit to `fig/` that live-reloads a
+  clean editor (W10) — or the banner's "Reload theirs" — must land IN PLACE: the user's active
+  canvas/figure/selection are preserved wherever their ids survive (first-canvas fallback only
+  when they don't), and the swap is pushed as ONE undo entry so Ctrl+Z restores the exact
+  pre-agent state with the user's own history intact beneath it. The mechanism is
+  `store.loadProject(p, dir, { reload: true })` (threaded from `loadFigInto` →
+  `FigureMode.reloadFigures`); initial loads must NOT pass `reload` (their pre-state is a
+  blank/foreign project — history still resets). Slide mode mirrors the view half:
+  external-change reloads go through `openDeck(id, { preserveView: true })`, which restores the
+  current slide + beat via `selectSlide` instead of landing on slide 1 + re-fitting (slide
+  history still resets on reload — the overlay companion's checkout/display maps make a
+  pre-reload snapshot unsafe to restore; deliberate). Gates: `verify-fig-reload-preserve.ts`
+  (pure) + `verify-w10-matrix.mjs` (renderer wiring). Undoing a reload dirties the editor, so
+  the revert autosaves back over the external version — that IS the intended "reject the
+  agent's change" path. Asset BYTES stay outside undo everywhere (reimportPlot hot-swaps are
+  not undoable), unchanged.
 - Big collections use windowing (`VirtualFixedList.svelte` for the sidebar; hand-rolled row window
   in `LibraryMode`) — all N rows in the DOM is never acceptable at 5k scale.
 - **Plot DOM residency is LAZY** (2026-07-21, plan: `notes/lazy_figure_asset_loading_plan.md`).
@@ -617,6 +633,14 @@ chord or label changes, grep `docs/` for the old one.
   binding. (This collided with a pan-quantizer variable and cost a 4× regression.)
 - Key memos on object **identity** (e.g. a rect object), not its fields — field-keying re-runs
   per frame under pan.
+
+**Derived model fields (figure families):** since 2026-08-04 a figure's `name` is DERIVED from
+family identity — every load runs `applyFamilyNumbers`, which rewrites `name` from
+`{family, number}` (an unparseable external rename survives only as the `nickname`). Two
+corollaries: an agent renaming a figure must set family/number/nickname, not `name`; and a
+gate must never probe "did the external edit land?" through `name` — the name-based probe in
+verify-w10-matrix silently broke the day families shipped and sat red in ui-extra for ten
+days (probe geometry like `width` instead).
 
 **Measurement:**
 
@@ -3526,3 +3550,27 @@ Pure 178/178, check 0/0, verify-multiwindow (real Electron, x11) PASS, docs gate
   a lock it couldn't positively read as stale — "unreadable" means in-flight, not abandoned.
 - `git checkout <file>` to undo a teeth-proof mutation also destroys uncommitted work in that
   file — restore teeth-proof edits from a copy (`cp` aside first), never from the index.
+
+### 2026-08-14 — External-reload contract: view + undo survive agent fig/ edits (Claude Fable 5, `main`)
+**Work:** A collaborator's reports (view yanked to another canvas mid-agent-edit; Ctrl+Z dead
+afterwards) traced to ONE call: the W10 clean-editor reload ran `store.loadProject`, which
+unconditionally snapped to `canvases[0]` AND `resetHistory()`. Added reload semantics
+(`loadProject(p, dir, {reload:true})`, threaded `loadFigInto` → `reloadFigures`): active
+canvas/figure/selection preserved where ids survive, pre-reload state pushed as ONE undo entry
+(pre-existing history intact beneath), editor stays clean. Slide mode's mirrored reload paths
+now pass `openDeck(..., {preserveView:true})` (current slide + beat restored via `selectSlide`;
+no re-fit). Promoted to §4 (external-reload contract) + §9 (derived-name trap). New pure gate
+`verify-fig-reload-preserve.ts` (19 checks); verify-w10-matrix strengthened (view kept, one
+entry, undo/redo) after fixing its probe. check 0/0; an-bridge/undo-budget/canvas-divergence,
+w7-fig, f1-watch, keepalive, all 6 slide UI gates green. The agent edit-lock proposal (block
+user edits + red outline while an agent holds a figure) is deliberately NOT built — needs an
+owner design call (granularity, in-flight gestures, "no locked feel" doctrine).
+**Learnings:**
+- verify-w10-matrix had been silently red in ui-extra since figure families (2026-08-04) made
+  `name` a derived field its rename-probe could never observe again: a gate probing a reload
+  must assert on a non-derived field (geometry), and a tier nobody runs is a tier that rots —
+  when a body feature changes a field's ownership, grep the GATES for probes through it.
+- Reload-in-place semantics come almost free once history is snapshot-based: push the
+  pre-reload snapshot instead of resetting, and undo/redo across an external swap just works —
+  the hard part is only deciding what must NOT ride along (dirty flag, initial loads, slide
+  overlay's checkout maps).

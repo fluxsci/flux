@@ -615,17 +615,53 @@ export function selectedElements(p: Project, sel: Set<Id>): Element[] {
   return out;
 }
 
-export function loadProject(p: Project, dir: string | null) {
+export interface LoadProjectOpts {
+  /** External-reload semantics (W10 live reload / the banner's "Reload theirs"):
+   *  an agent/CLI edit to fig/ must not yank the user around or eat their
+   *  history. Keeps the active canvas/figure/selection wherever their ids
+   *  survive the new model (falling back to first-canvas defaults only when
+   *  they don't), and pushes the PRE-reload state as one undo entry instead of
+   *  resetting history — so Ctrl+Z after a headless agent edit restores the
+   *  pre-agent state (asset BYTES stay outside undo, as everywhere). Initial
+   *  loads must NOT pass this: their pre-state is a blank/foreign project. */
+  reload?: boolean;
+}
+
+export function loadProject(p: Project, dir: string | null, opts: LoadProjectOpts = {}) {
   normalizeProject(p);
-  resetHistory();
+  const prevCanvas = get(activeCanvasId);
+  const prevFigure = get(activeFigureId);
+  if (opts.reload) {
+    // One history entry per reload: undo = the whole external batch reverts.
+    // No markEdited — landing an external change leaves the editor clean.
+    pushPast(snapshot(get(project)));
+    clearFuture();
+  } else {
+    resetHistory();
+  }
   project.set(p);
   projectDir.set(dir);
-  const firstCanvas = p.canvases[0]?.id ?? null;
-  activeCanvasId.set(firstCanvas);
-  const firstFig = p.figures.find((f) => f.canvasId === firstCanvas) ?? p.figures[0] ?? null;
-  activeFigureId.set(firstFig?.id ?? null);
-  clearSelection();
-  captionOpen.set(false);
+  const keptCanvas =
+    opts.reload && prevCanvas && p.canvases.some((c) => c.id === prevCanvas) ? prevCanvas : null;
+  if (keptCanvas) {
+    activeCanvasId.set(keptCanvas);
+    const keptFig =
+      prevFigure && p.figures.some((f) => f.id === prevFigure && f.canvasId === keptCanvas)
+        ? prevFigure
+        : null;
+    activeFigureId.set(keptFig ?? p.figures.find((f) => f.canvasId === keptCanvas)?.id ?? null);
+    // Selection/part/frame/group/xray keep every id that still exists —
+    // pruneSelection is the same dangling-id sweep undo/redo run.
+    pruneSelection();
+    if (!keptFig) captionOpen.set(false);
+  } else {
+    const firstCanvas = p.canvases[0]?.id ?? null;
+    activeCanvasId.set(firstCanvas);
+    const firstFig = p.figures.find((f) => f.canvasId === firstCanvas) ?? p.figures[0] ?? null;
+    activeFigureId.set(firstFig?.id ?? null);
+    clearSelection();
+    captionOpen.set(false);
+  }
   hoverId.set(null);
   dirty.set(false);
 }

@@ -110,8 +110,15 @@ export async function figDiskDiverged(root: string): Promise<boolean> {
 // (figfiles.ts) shared with flux-core — this module keeps only the GUI-side
 // concerns: stores, dirty tracking, baselines, conflict banner, quarantine UX.
 
-/** Load the project's `fig/` subsystem into the figure-editor stores. */
-export async function loadFigInto(root: string, projectName: string): Promise<void> {
+/** Load the project's `fig/` subsystem into the figure-editor stores.
+ *  `reload: true` = external-change reload (W10 / the banner): preserves the
+ *  user's view where ids survive and makes the swap one undo entry (see
+ *  store.LoadProjectOpts). Initial loads omit it. */
+export async function loadFigInto(
+  root: string,
+  projectName: string,
+  opts: { reload?: boolean } = {},
+): Promise<void> {
   const fig = fileBridge();
   if (!fig) return;
 
@@ -273,7 +280,9 @@ export async function loadFigInto(root: string, projectName: string): Promise<vo
   // then heal numbers to contiguity. Cross-canvas, so it runs on the full
   // collection here, not in the per-canvas probes above.
   migrateFigureFamilies(proj, familyHintsFrom(index?.figures));
-  figLoad(proj, null); // normalizes (incl. migrate), resets history, dirty=false
+  // Normalizes (incl. migrate) + dirty=false. Initial load resets history and
+  // view; a reload preserves both (view kept, pre-state pushed as one undo).
+  figLoad(proj, null, opts);
 }
 
 // WS-5.2: set when a load refused the subsystem (newer on-disk format) —
