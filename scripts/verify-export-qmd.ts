@@ -73,6 +73,32 @@ assert(out.includes("@fig-nowhere-a"), "refs to unknown labels pass through unto
 assert(out.includes("@fig-my-fig-x") === false && out.includes("Extended Data Fig. 3x"),
   "hyphenated labels split by longest known label (fig-my-fig + panel x)");
 
+// --- SUB-NUMBERED panel refs (b1..b5) ---------------------------------------
+// A multi-part figure names panel b's parts b1..b5. scholar/figText.panelSpec is generic
+// over panel NAMES and always emitted these, but the spec grammar here accepted a bare
+// letter only — so `@fig-growth-b1` matched no spec, fell through, and reached the
+// renderer as a literal `@fig-…`, which Quarto prints as an unresolved `?@fig-…`.
+{
+  const subDoc = [
+    "Panels @fig-growth-b1 and @fig-growth-c12.",
+    "A run @fig-growth-b1,b2,b3 and a pair @fig-growth-b1,b2.",
+    "Across letters @fig-growth-b1-c2 has no member list.",
+    "A digit-led spec @fig-growth-2-a is still not a panel.",
+  ].join("\n");
+  // NOTE: this ctx carries no PanelStyle, so panelSpecDisplay takes the fallback path —
+  // en-dash the range separator, no venue collapsing. Collapse/casing/threshold under a
+  // real style are pinned in verify-journalstyle.ts §5.
+  const subOut = transformQmdForExport(subDoc, ctx);
+  assert(subOut.includes("Panels Fig. 1b1 and Fig. 1c12."),
+    "sub-numbered panel refs resolve, and the sub-number is not capped at one digit");
+  assert(subOut.includes("A run Fig. 1b1,b2,b3 and a pair Fig. 1b1,b2."),
+    "comma-continued sub-numbered lists are captured whole, not truncated at the digit");
+  assert(subOut.includes("@fig-growth-b1-c2") === false && subOut.includes("Fig. 1b1–c2"),
+    "a cross-letter range still resolves the FIGURE (fallback only en-dashes the separator)");
+  assert(subOut.includes("@fig-growth-2-a"),
+    "a spec starting with a digit is not a panel and passes through untouched");
+}
+
 // --- the shared include walker ----------------------------------------------
 // ONE walker serves both engines (flux-core injects node:fs + node:path; the
 // renderer injects its file bridge). These pins are what stop the two from

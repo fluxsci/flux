@@ -168,11 +168,18 @@ export interface ExportQmdCtx {
   panels?: PanelStyle;
 }
 
-// One panel spec: `a`, a range `a-c`, comma lists of either (`a,b`, `a-c,e`).
+// One panel spec: an atom `a`, a range `a-c`, comma lists of either (`a,b`, `a-c,e`).
+// An atom is a letter with an OPTIONAL sub-number — `a`, `b1`, `c12` — because a
+// multi-part figure names its panels b1..b5 within panel b, and scholar/figText.panelSpec
+// (the producer) is generic over panel NAMES and has always been able to emit them.
+// Only this consumer rejected them, which turned `@fig-x-b1` into an unresolved ref.
 // Mirrors scholar/figText.panelSpec's output grammar.
-const PANEL_SPEC_RE = /^[A-Za-z](?:-[A-Za-z])?(?:,[A-Za-z](?:-[A-Za-z])?)*$/;
+const PANEL_ATOM = String.raw`[A-Za-z]\d*`;
+const PANEL_SPEC_RE = new RegExp(
+  `^${PANEL_ATOM}(?:-${PANEL_ATOM})?(?:,${PANEL_ATOM}(?:-${PANEL_ATOM})?)*$`,
+);
 // A whole crossref token incl. comma-continued panel parts (grammar.ts crossrefRe).
-const FIG_REF_RE = /@(fig-[A-Za-z0-9_-]+(?:,[A-Za-z](?:-[A-Za-z])?)*)/g;
+const FIG_REF_RE = /@(fig-[A-Za-z0-9_-]+(?:,[A-Za-z]\d*(?:-[A-Za-z]\d*)?)*)/g;
 
 /** `a-c,e` → `a–c,e` (ranges display with an en-dash, mirroring the app).
  *  With a style's PanelStyle the venue's rule applies instead — separator,

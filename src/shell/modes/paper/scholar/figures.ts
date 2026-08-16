@@ -168,7 +168,12 @@ export function resolveFigure(
     // referenced panel exists, so @fig-x-z (no panel z) stays unresolved.
     const known = base.panels.length > 0;
     for (const it of items) {
-      const sm = /^([a-z])(?:-([a-z]))?$/.exec(it);
+      // A panel atom is a letter with an OPTIONAL sub-number (`a`, `b1`, `c12`): a multi-part
+      // figure names panel b's parts b1..b5, and captions.panelLetters already returns those
+      // names verbatim, so the membership check below accepts them. Kept in step with
+      // lib/exportQmd's PANEL_SPEC_RE and science/grammar's crossrefRe — all three must admit
+      // the same atom or a ref resolves in one surface and not another.
+      const sm = /^([a-z]\d*)(?:-([a-z]\d*))?$/.exec(it);
       if (!sm) {
         ok = false;
         break;

@@ -133,11 +133,22 @@
     } else if (e.key === "Enter") {
       e.preventDefault();
       onInsert(resultText);
-    } else if (/^[a-z]$/.test(e.key) && fig.panels.includes(e.key)) {
-      // Direct toggle: press the panel's own letter.
-      e.preventDefault();
-      togglePanel(e.key);
-      hl = fig.panels.indexOf(e.key);
+    } else if (/^[a-z0-9]$/.test(e.key)) {
+      // Direct toggle: press the panel's own letter. Where panels are sub-numbered
+      // (b1..b5) a bare letter cannot name one, so it moves the highlight to that
+      // letter's first panel instead of toggling — arrows/space then pick within it.
+      const exact = fig.panels.indexOf(e.key);
+      if (exact >= 0) {
+        e.preventDefault();
+        togglePanel(e.key);
+        hl = exact;
+      } else {
+        const first = fig.panels.findIndex((p) => p.startsWith(e.key));
+        if (first >= 0) {
+          e.preventDefault();
+          hl = first;
+        }
+      }
     }
   }
 </script>

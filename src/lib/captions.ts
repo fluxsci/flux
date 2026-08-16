@@ -103,7 +103,11 @@ export function splitCaption(fig: Figure, md: string): Record<Id, string> | null
   // panel order (a before b before c …) — a mid-text back-reference like
   // "(see (a))" inside panel c's text is NOT a marker.
   const markers: { idx: number; len: number; key: string }[] = [];
-  const re = /(^|\s)(?:\*\*([A-Za-z])\*\*\s*[,.:]?|\(([A-Za-z])\))\s*/g;
+  // The letter may carry a sub-number (`**b1**,`) for multi-part figures whose panel b is
+  // itself b1..b5 — panelLetters returns those names verbatim, so a caption that marks them
+  // must be splittable too. False positives are impossible: every candidate is discarded
+  // below unless `order` knows it as one of THIS figure's actual panels.
+  const re = /(^|\s)(?:\*\*([A-Za-z]\d*)\*\*\s*[,.:]?|\(([A-Za-z]\d*)\))\s*/g;
   let lastOrder = -1;
   for (const m of md.matchAll(re)) {
     const key = (m[2] ?? m[3] ?? "").toLowerCase();

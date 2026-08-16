@@ -129,4 +129,33 @@ const B = BUILTIN_JOURNAL_STYLES;
   assert(formatPanelSpec("c-a", nature) === "c-a", "a reversed range is left alone rather than guessed at");
 }
 
+// --- 5. SUB-NUMBERED panels (b1..b5) ----------------------------------------
+// A multi-part figure names panel b's parts b1..b5. The producer
+// (scholar/figText.panelSpec) is generic over panel NAMES and always emitted these;
+// the consumers rejected them, so `@fig-x-b1` silently exported as an unresolved ref.
+{
+  const nature = resolveJournalStyle("nature", B).figures.panels;
+  const nc = resolveJournalStyle("nature-communications", B).figures.panels;
+
+  assert(formatPanelSpec("b1", nature) === "b1", "a lone sub-numbered panel survives");
+  assert(formatPanelSpec("c12", nature) === "c12", "sub-numbers are not capped at one digit");
+  assert(formatPanelSpec("b1,b2", nature) === "b1,b2", "a sub-numbered PAIR stays listed");
+  assert(formatPanelSpec("b1,b2,b3", nature) === "b1–b3", "a sub-numbered run collapses");
+  assert(formatPanelSpec("b1-b5", nature) === "b1–b5", "an authored sub-numbered range re-collapses");
+  assert(formatPanelSpec("b1,b2,b3", nc) === "b1–b3", "the venue's separator still applies");
+
+  const upper = { ...nature, letterCase: "upper" as const };
+  assert(formatPanelSpec("b1,b2", upper) === "B1,B2", "letterCase touches the LETTER, not the sub-number");
+
+  // A run must not jump across letters: b2 and c1 are different panels, not neighbours.
+  assert(formatPanelSpec("b1,b2,c1", nature) === "b1,b2,c1", "a run stops at the letter boundary");
+  // A range crossing letters has no well-defined member list (how many parts has b?).
+  assert(formatPanelSpec("b1-c2", nature) === "b1-c2", "a cross-letter range passes through untouched");
+  assert(formatPanelSpec("b5-b1", nature) === "b5-b1", "a reversed sub-numbered range is left alone");
+  // Bare and sub-numbered panels are never adjacent — "a–b1" is not a range any venue prints.
+  assert(formatPanelSpec("a,b1", nature) === "a,b1", "a bare letter and a sub-numbered panel stay listed");
+  // The plain-letter behaviour is unchanged by all of the above.
+  assert(formatPanelSpec("a,b,c", nature) === "a–c", "plain letters still collapse as before");
+}
+
 console.log("\nJOURNAL-STYLE VERIFY: PASS");

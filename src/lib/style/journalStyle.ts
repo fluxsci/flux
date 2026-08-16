@@ -281,36 +281,91 @@ export function styledFamilyById(
  * Render a panel spec under a style. Input is the authored source grammar
  * (`a`, `a-c`, `a,b`, `a-c,e`); output is the venue's printed form.
  *
+ * Panels may carry a sub-number (`b1`, `c12`) for multi-part figures whose panel b
+ * is itself b1..b5. Sub-numbered ranges are within one letter (`b1-b5`); a range
+ * crossing letters (`b1-c2`) has no well-defined member list and passes through.
+ *
  * Runs are re-derived rather than trusted: an author may write `a,b,c` where a
  * venue prints `a–c`, and the collapse threshold is per-style.
  */
+/** One panel: a letter, plus an OPTIONAL sub-number (`a`, `b1`, `c12`).
+ *  `sub` is null for a bare letter — distinct from 0, which is a legitimate sub-number. */
+interface PanelAtom {
+  letter: string;
+  sub: number | null;
+}
+
+const PANEL_ATOM_RE = /^([A-Za-z])(\d*)$/;
+
+function parsePanelAtom(s: string): PanelAtom | null {
+  const m = PANEL_ATOM_RE.exec(s);
+  if (!m) return null;
+  return { letter: m[1], sub: m[2] === "" ? null : Number(m[2]) };
+}
+
+/** Successor within a run: b1→b2 within a letter, or a→b across bare letters.
+ *  A bare letter and a sub-numbered one are never adjacent — `a` then `b1` starts a new run,
+ *  because "a–b1" is not a range any venue prints. */
+function isPanelSuccessor(prev: PanelAtom, next: PanelAtom): boolean {
+  if (prev.sub === null && next.sub === null) {
+    return next.letter.charCodeAt(0) === prev.letter.charCodeAt(0) + 1;
+  }
+  if (prev.sub !== null && next.sub !== null) {
+    return next.letter === prev.letter && next.sub === prev.sub + 1;
+  }
+  return false;
+}
+
+function renderPanelAtom(a: PanelAtom, p: PanelStyle): string {
+  const letter = p.letterCase === "upper" ? a.letter.toUpperCase() : a.letter.toLowerCase();
+  return a.sub === null ? letter : `${letter}${a.sub}`;
+}
+
 export function formatPanelSpec(spec: string, p: PanelStyle): string {
-  const letters: string[] = [];
+  const atoms: PanelAtom[] = [];
   for (const part of spec.split(",")) {
-    const m = /^([A-Za-z])(?:-([A-Za-z]))?$/.exec(part.trim());
-    if (!m) return spec; // not the grammar we know — pass through untouched
-    if (!m[2]) {
-      letters.push(m[1]);
+    const t = part.trim();
+    const dash = t.indexOf("-");
+    if (dash < 0) {
+      const a = parsePanelAtom(t);
+      if (!a) return spec; // not the grammar we know — pass through untouched
+      atoms.push(a);
       continue;
     }
     // Expand an authored range so re-collapsing is uniform.
-    const from = m[1].charCodeAt(0);
-    const to = m[2].charCodeAt(0);
-    if (to < from) return spec;
-    for (let c = from; c <= to; c++) letters.push(String.fromCharCode(c));
+    const from = parsePanelAtom(t.slice(0, dash));
+    const to = parsePanelAtom(t.slice(dash + 1));
+    if (!from || !to) return spec;
+    if (from.sub === null && to.sub === null) {
+      const f = from.letter.charCodeAt(0);
+      const l = to.letter.charCodeAt(0);
+      if (l < f) return spec;
+      for (let c = f; c <= l; c++) atoms.push({ letter: String.fromCharCode(c), sub: null });
+    } else if (from.sub !== null && to.sub !== null && from.letter === to.letter) {
+      // A sub-numbered range lives inside ONE panel letter: b1-b5. A range that crosses
+      // letters (b1-c2) has no well-defined member list — how many sub-panels has b? — so
+      // it is passed through rather than guessed at.
+      if (to.sub < from.sub) return spec;
+      for (let n = from.sub; n <= to.sub; n++) atoms.push({ letter: from.letter, sub: n });
+    } else {
+      return spec;
+    }
   }
-  if (!letters.length) return spec;
+  if (!atoms.length) return spec;
 
-  const cased = letters.map((l) => (p.letterCase === "upper" ? l.toUpperCase() : l.toLowerCase()));
-  // Group consecutive letters, then print runs at/above the threshold as ranges.
-  const groups: string[][] = [];
-  for (const l of cased) {
+  // Group consecutive panels, then print runs at/above the threshold as ranges.
+  const groups: PanelAtom[][] = [];
+  for (const a of atoms) {
     const last = groups[groups.length - 1];
-    if (last && l.charCodeAt(0) === last[last.length - 1].charCodeAt(0) + 1) last.push(l);
-    else groups.push([l]);
+    if (last && isPanelSuccessor(last[last.length - 1], a)) last.push(a);
+    else groups.push([a]);
   }
   const parts = groups.flatMap((g) =>
-    g.length >= p.collapseRunsOfAtLeast ? [`${g[0]}${p.rangeSeparator}${g[g.length - 1]}`] : g,
+    g.length >= p.collapseRunsOfAtLeast
+      ? [
+          `${renderPanelAtom(g[0], p)}${p.rangeSeparator}${renderPanelAtom(g[g.length - 1], p)}`,
+        ]
+      : g.map((a) => renderPanelAtom(a, p)),
   );
   const joined = parts.join(p.listSeparator);
   return p.wrap === "parens" ? `(${joined})` : joined;
