@@ -20,15 +20,44 @@ const ok = (cond: boolean, name: string, extra = "") => {
   if (!cond) fails++;
 };
 
-// --- hermetic env: HOME + XDG into a scratch dir BEFORE flux-core loads ------------------
+// --- hermetic env: HOME + XDG + APPDATA into a scratch dir BEFORE flux-core loads ---------
+// APPDATA matters: electron/fluxPaths.cjs appDataRoot() reads XDG_CONFIG_HOME/HOME on
+// linux+darwin but **process.env.APPDATA on win32**, so sandboxing only HOME left this gate
+// writing the DEVELOPER'S REAL %APPDATA%\flux\preferences.json on Windows while asserting
+// against the scratch copy it had created. The `--save` pass below then persisted a
+// scratch-tmp zotero bibPath into the real machine config; once tmp was cleaned the app
+// failed its Zotero sync on every launch with an unreadable path. Observed 2026-08-15.
 const repoRoot = path.resolve(__dirname, "..");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flux-zotero-gate-"));
 const home = path.join(scratch, "home");
 fs.mkdirSync(path.join(home, ".config"), { recursive: true });
-const realEnv = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, FLUX_NO_MIGRATE: process.env.FLUX_NO_MIGRATE };
+const appData = path.join(home, "AppData", "Roaming");
+fs.mkdirSync(appData, { recursive: true });
+const realEnv = {
+  HOME: process.env.HOME,
+  USERPROFILE: process.env.USERPROFILE,
+  XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+  APPDATA: process.env.APPDATA,
+  FLUX_NO_MIGRATE: process.env.FLUX_NO_MIGRATE,
+};
 process.env.HOME = home;
+// os.homedir() reads USERPROFILE on win32 and HOME elsewhere, and FluxConfig (hence
+// FluxLib) defaults to os.homedir()/FluxConfig. Without this the gate synced into the
+// developer's REAL reference library on Windows — which is why its "N added" assertions
+// fail with "already known" once it has been run before.
+process.env.USERPROFILE = home;
 process.env.XDG_CONFIG_HOME = path.join(home, ".config");
+process.env.APPDATA = appData;
 process.env.FLUX_NO_MIGRATE = "1";
+
+/** The sandboxed preferences.json, resolved the way the app resolves it — never a
+ *  hardcoded POSIX path, which is what let the win32 branch escape the sandbox. */
+const sandboxPrefs = () =>
+  path.join(
+    process.platform === "win32" ? appData : path.join(home, ".config"),
+    "flux",
+    "preferences.json",
+  );
 
 // --- the fake Zotero: storage/ + a BBT auto-export ---------------------------------------
 const zdir = path.join(scratch, "Zotero");
@@ -109,7 +138,7 @@ async function main() {
   const r1 = await refs.zoteroSync({ bib: bibPath, dataDir: zdir, attach: "copy", save: true });
   ok(r1.summary.added === 2 && r1.summary.attached === 1 && r1.summary.failed === 0, `pass 1: 2 added, 1 PDF copied (${r1.line})`);
   ok(r1.report.added.includes("smithNeuralBasis2021"), "well-formed BBT key from Zotero is KEPT");
-  const prefs = JSON.parse(fs.readFileSync(path.join(home, ".config", "flux", "preferences.json"), "utf8"));
+  const prefs = JSON.parse(fs.readFileSync(sandboxPrefs(), "utf8"));
   ok(prefs?.zotero?.bibPath === bibPath && prefs?.zotero?.attach === "copy", "--save persisted the machine settings");
   const smithPdf = path.join(lib, "items", "smithNeuralBasis2021", "paper.pdf");
   ok(fs.existsSync(smithPdf) && fs.readFileSync(smithPdf).length === samplePdf.length, "paper.pdf copied byte-complete");
@@ -188,8 +217,12 @@ main()
   })
   .finally(() => {
     process.env.HOME = realEnv.HOME;
+    if (realEnv.USERPROFILE === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = realEnv.USERPROFILE;
     if (realEnv.XDG_CONFIG_HOME === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = realEnv.XDG_CONFIG_HOME;
+    if (realEnv.APPDATA === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = realEnv.APPDATA;
     if (realEnv.FLUX_NO_MIGRATE === undefined) delete process.env.FLUX_NO_MIGRATE;
     else process.env.FLUX_NO_MIGRATE = realEnv.FLUX_NO_MIGRATE;
     try {
