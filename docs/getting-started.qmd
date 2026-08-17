@@ -127,6 +127,19 @@ Open **Paper**. Write a sentence or two, then:
 Click **Export** in the status bar and choose **PDF**. The manuscript renders with the figure,
 its caption, the reference list — everything resolved — into the project's `exports/`.
 
+Choosing **Word** offers one more thing: **Live Zotero citations**. Tick it and the
+citations arrive in the `.docx` as real Zotero citations rather than as plain text, so
+whoever opens it in Word can refresh them, change the citation style, renumber after an
+edit, and add their own citations beside yours. Leave it unticked and the citations are
+ordinary text, which is fine for a file nobody will edit.
+
+Each citation travels with its full reference details, so it works on any machine, even
+one that has never seen your library. If your co-author already sent you Word files
+written with Zotero, **Link to library from…** takes those files and matches your
+citations against the works in them, so the ones they already have arrive attached to
+their own library entries instead of as separate copies — the dialog tells you how many
+matched. Anything unmatched still works; it simply is not linked to anything.
+
 # Encore: make it a slide
 
 In Figure mode, the Inspector's **Send to deck…** turns your figure into a slide. Open

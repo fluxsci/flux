@@ -2051,15 +2051,24 @@ export const VERBS: VerbDef[] = [
     cli: "compile",
     cliRoot: "flags",
     summary:
-      "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. --style applies a journal style (e.g. nature) to the OUTPUT only. Reports the output path and a figures/citations resolution summary.",
-    params: { to: z.string().optional(), style: z.string().optional() },
+      "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. --style applies a journal style (e.g. nature) to the OUTPUT only. --zotero-fields writes docx citations as live Zotero fields (editable in Word); --zotero-library takes .docx files already written with Zotero, so citations to the same works arrive linked to that library. Reports the output path and a figures/citations resolution summary.",
+    params: {
+      to: z.string().optional(),
+      style: z.string().optional(),
+      zoteroFields: z.boolean().optional(),
+      zoteroLibrary: z.array(z.string()).optional(),
+    },
     cliArgs: [
       { kind: "flag", at: "to", into: "to" },
       { kind: "flag", at: "style", into: "style" },
+      { kind: "flag", at: "zotero-fields", into: "zoteroFields", as: "boolean" },
+      { kind: "flag", at: "zotero-library", into: "zoteroLibrary", as: "csv" },
     ],
     handler: (ctx, a) =>
       core.compile(ctx.root, (a.to as string | undefined) ?? "pdf", {
         style: a.style as string | undefined,
+        zoteroFields: a.zoteroFields as boolean | undefined,
+        zoteroLibraryDocs: a.zoteroLibrary as string[] | undefined,
       }),
     render: {
       human: (r) => {
@@ -2075,6 +2084,12 @@ export const VERBS: VerbDef[] = [
           lines.push(
             `  citations: ${c.citations.resolved}/${c.citations.keys} key(s) resolved in the project library` +
               (c.citations.missing.length ? ` — unresolved: @${c.citations.missing.join(", @")}` : ""),
+          );
+        if (c.zotero)
+          lines.push(
+            `  zotero: ${c.zotero.citations} live citation(s)` +
+              (c.zotero.bound ? `, ${c.zotero.bound} linked to a known library` : "") +
+              (c.zotero.embedded ? `, ${c.zotero.embedded} embedded` : ""),
           );
         return { err: lines.join("\n") };
       },
@@ -2092,6 +2107,12 @@ export const VERBS: VerbDef[] = [
           parts.push(
             `citations: ${c.citations.resolved}/${c.citations.keys} resolved` +
               (c.citations.missing.length ? ` (unresolved: @${c.citations.missing.join(", @")})` : ""),
+          );
+        if (c.zotero)
+          parts.push(
+            `zotero: ${c.zotero.citations} live citation(s)` +
+              (c.zotero.bound ? `, ${c.zotero.bound} linked` : "") +
+              (c.zotero.embedded ? `, ${c.zotero.embedded} embedded` : ""),
           );
         return text(parts.join(" — "));
       },

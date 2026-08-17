@@ -18,6 +18,7 @@
 
 import { readQmdTree, transformQmdForExport, type ExportQmdCtx } from "./exportQmd";
 import { reorderForExport, type RoleAliases } from "./manuscript/sections";
+import { markCitations } from "./references/zoteroFields";
 
 export interface ExportPrepIO {
   /** Read a file; resolve to null when it can't be read. */
@@ -37,6 +38,10 @@ export interface ExportPrepOpts {
    *  ENTRY document only — includes are fragments, not orderable documents.
    *  Omit (or pass an empty order) for no reordering at all. */
   structure?: { order: readonly string[]; aliases: RoleAliases };
+  /** Bracket each citation with markers naming its citekeys, so the exported .docx can
+   *  be post-processed into live Zotero fields (see references/zoteroFields.ts). Off by
+   *  default: the markers are meaningless to any other consumer. */
+  markCitations?: boolean;
 }
 
 export interface ExportPrepResult {
@@ -79,6 +84,7 @@ export async function prepareExport(
     const text = texts.get(f);
     if (text == null) continue;
     let next = transformQmdForExport(text, opts.ctx);
+    if (opts.markCitations) next = markCitations(next);
     // Section order applies to the entry document only: an included fragment
     // has no top-level structure of its own to reorder.
     if (f === opts.entry && opts.structure?.order.length) {

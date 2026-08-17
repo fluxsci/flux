@@ -651,6 +651,7 @@
   async function transformDocsForQuarto(
     fb: NonNullable<ReturnType<typeof fileBridge>>,
     style: ResolvedJournalStyle,
+    markCitationsForZotero = false,
   ): Promise<() => Promise<void>> {
     if (!pm) return async () => {};
     const refs = get(figureRefs);
@@ -669,9 +670,77 @@
           panels: style.figures.panels,
         },
         structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
+        markCitations: markCitationsForZotero,
       },
     );
     return () => prep.restore();
+  }
+
+  /** Rewrite the rendered .docx so its citations are live Zotero fields.
+   *
+   *  The heavy lifting is the shared pure core (references/zoteroFields.ts) that
+   *  flux-core's `compile` also calls; this side only does the IO the renderer owns. */
+  async function applyZoteroFields(
+    fb: NonNullable<ReturnType<typeof fileBridge>>,
+    plan: ExportPlan,
+    outPath: string,
+  ): Promise<{ citations: number; bound: number } | null> {
+    if (!pm) return null;
+    const { harvestZoteroLibrary, injectZoteroFields, parseCslIdentity, DEFAULT_STYLE } = await import(
+      "../../../lib/references/zoteroFields"
+    );
+    const { getCite } = await import("../../../lib/references/bibtex");
+
+    const bibRel = pm.manifest?.references?.library ?? "references/library.bib";
+    const bibText = (await fb.readText(`${pm.root}/${bibRel}`).catch(() => null)) ?? "";
+    const Cite = await getCite();
+    const items: Record<string, import("../../../lib/references/zoteroFields").CslRecord> = {};
+    for (const rec of (new Cite(bibText).data as { id?: string }[]) ?? []) {
+      if (rec?.id) items[String(rec.id)] = rec as never;
+    }
+
+    const docs = plan.zoteroLibraryDocs ?? [];
+    const harvested = docs.length
+      ? harvestZoteroLibrary(
+          await Promise.all(
+            docs.map(async (abs) => ({
+              name: abs.replace(/^.*\//, ""),
+              bytes: new Uint8Array(await fb.readFile(abs)),
+            })),
+          ),
+        )
+      : null;
+
+    // The style Zotero will reformat to must be the one the render used.
+    const style = resolveJournalStyle(plan.style, BUILTIN_JOURNAL_STYLES);
+    let identity = DEFAULT_STYLE;
+    for (const rel of [style.csl, `${activeDocPath.replace(/\/[^/]*$/, "")}/references/styles`].filter(Boolean)) {
+      const text = await fb.readText(`${pm.root}/${rel}`).catch(() => null);
+      const parsed = text ? parseCslIdentity(text) : null;
+      if (parsed) {
+        identity = parsed;
+        break;
+      }
+    }
+
+    const { bytes, report } = injectZoteroFields(new Uint8Array(await fb.readFile(outPath)), {
+      items,
+      styleId: identity.styleId,
+      locale: identity.locale,
+      index: harvested,
+    });
+    await fb.writeFile(outPath, bytes);
+    return { citations: report.citations, bound: report.bound };
+  }
+
+  /** Pick Word documents that already contain Zotero citations, to bind against. */
+  async function pickZoteroLibraryDocs(): Promise<string[] | null> {
+    const fb = fileBridge();
+    if (!fb?.openFiles) {
+      pushToast("error", "Picking files needs the desktop app");
+      return null;
+    }
+    return fb.openFiles([{ name: "Word documents with Zotero citations", extensions: ["docx"] }]);
   }
 
   /** Default destination for a (format, style) pair. Everything lands in
@@ -746,7 +815,7 @@
         const manuscriptDir = activeDocPath.includes("/")
           ? activeDocPath.slice(0, activeDocPath.lastIndexOf("/"))
           : "";
-        const restoreDocs = await transformDocsForQuarto(fb, style);
+        const restoreDocs = await transformDocsForQuarto(fb, style, !!plan.zoteroFields);
         const token = `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         exportToken = token;
         const stopLog = fb.onQuartoLog?.((info) => {
@@ -789,12 +858,29 @@
             detail: renders.failed.join(", "),
           });
         }
+        // Live Zotero fields: citeproc baked the citations into text, which strips the
+        // item identity Word needs. Rewrite them into the fields Zotero owns. The .docx
+        // on disk is already valid, so a failure here is reported and kept, never fatal.
+        let zoteroNote = "";
+        if (plan.zoteroFields && r.outPath) {
+          try {
+            const summary = await applyZoteroFields(fb, plan, r.outPath);
+            zoteroNote = summary
+              ? ` — ${summary.citations} live citation${summary.citations === 1 ? "" : "s"}` +
+                (summary.bound ? `, ${summary.bound} linked to your library` : "")
+              : "";
+          } catch (e) {
+            pushToast("info", "Exported without live Zotero citations", {
+              detail: (e as Error).message,
+            });
+          }
+        }
         exportDone = true;
         setTimeout(() => (exportDone = false), 2600);
         const out = r.outPath;
         pushToast(
           "success",
-          `Exported ${out ? out.replace(/^.*\//, "") : "manuscript.docx"}`,
+          `Exported ${out ? out.replace(/^.*\//, "") : "manuscript.docx"}${zoteroNote}`,
           out && fb.revealPath ? { action: { label: "Reveal", run: () => void fb.revealPath!(out) } } : {},
         );
         return;
@@ -2217,6 +2303,7 @@
             ])
           : null;
       }}
+      onPickLibraryDocs={pickZoteroLibraryDocs}
       onExport={(p) => void doExport(p)}
       onClose={() => { exportOpen = false; view?.focus(); }}
     />

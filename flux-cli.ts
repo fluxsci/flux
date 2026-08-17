@@ -157,6 +157,7 @@ usage: flux <verb> [root] [args] [--flags]
   collection <citekey> <name…> [--remove]  add/remove a paper from a collection
   add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--to pdf|html|docx] [--style nature]   render the manuscript via Quarto
+            [--zotero-fields] [--zotero-library a.docx,b.docx]   docx: citations as live Zotero fields
   comments [--root R] [--doc rel] [--all]   list project-wide review comments (open by default; --doc targets one)
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   resolve a project-wide unique match (--doc targets one)
   add-comment --quote "…" --body "…" [--root R] [--doc rel] [--at n]   open a NEW thread (ask the human in the margin)

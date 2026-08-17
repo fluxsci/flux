@@ -1,762 +1,775 @@
 {
-  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation \u2014 a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping.",
-  "tiers": {
-    "pure": [
-      "verify-an-bridge.ts",
-      "verify-an-comments.ts",
-      "verify-an-compose.ts",
-      "verify-fig-letterorder.ts",
-      "verify-fig-geometry.ts",
-      "verify-bring-inside.ts",
-      "verify-project-lint.ts",
-      "verify-an-journal-locks.ts",
-      "verify-an-manuscript.ts",
-      "verify-an-render.ts",
-      "verify-an-validate-plot.ts",
-      "verify-an-validate.ts",
-      "verify-assign-hardening.ts",
-      "verify-citenum.ts",
-      "verify-enrich-cache.ts",
-      "verify-f1-core.ts",
-      "verify-f1-mcp.ts",
-      "verify-hermetic-fluxlib.ts",
-      "verify-f2-recipe.ts",
-      "verify-fig-rotbounds.ts",
-      "verify-layer-rows.ts",
-      "verify-interact-core.ts",
-      "figenh-01-parity.ts",
-      "figenh-01-path.ts",
-      "verify-pen-snap.ts",
-      "verify-primitives.ts",
-      "figenh-02-parity.ts",
-      "figenh-04-parity.ts",
-      "figenh-05-parity.ts",
-      "figenh-06-parity.ts",
-      "figenh-07-parity.ts",
-      "figenh-11-parity.ts",
-      "figenh-13-partstyle.ts",
-      "figenh-14-partfields.ts",
-      "figenh-partprops-parity.ts",
-      "figenh-16-groups.ts",
-      "figenh-16-parity.ts",
-      "figenh-17-derive.ts",
-      "figenh-importer-parity.ts",
-      "figenh-textstyle-parity.ts",
-      "verify-crop-math.ts",
-      "figenh-crop-parity.ts",
-      "verify-fluxconfig.ts",
-      "verify-feedback.ts",
-      "verify-note.ts",
-      "verify-context-scheme.ts",
-      "verify-docs.ts",
-      "verify-dispatch.ts",
-      "verify-principal-pty.ts",
-      "verify-line-arrow.ts",
-      "verify-text-wrap.ts",
-      "verify-compensate.ts",
-      "verify-crisp-source.ts",
-      "verify-xray-tree.ts",
-      "verify-fetchflow.ts",
-      "verify-figfamily.ts",
-      "verify-ops.ts",
-      "verify-p4-figure.ts",
-      "verify-p4-libreader.ts",
-      "verify-p4-slide.ts",
-      "verify-p5-library.ts",
-      "verify-paper-mathgrammar.ts",
-      "verify-paper-changegate.ts",
-      "verify-local-corrections.ts",
-      "verify-contextual-correction-provider.ts",
-      "verify-correction-runtime.ts",
-      "verify-flux-correction-eval.ts",
-      "verify-frontmatter.ts",
-      "verify-render-concurrency.ts",
-      "verify-paper-commands.ts",
-      "verify-loadgate.ts",
-      "verify-fwdguard.ts",
-      "verify-figsave-txn.ts",
-      "verify-canvas-divergence.ts",
-      "verify-fig-reload-preserve.ts",
-      "verify-undo-budget.ts",
-      "verify-figfiles-parity.ts",
-      "verify-text-parity.ts",
-      "verify-ssrf-ranges.ts",
-      "verify-ipc-contract.ts",
-      "verify-quit-policy.ts",
-      "verify-enrich-grid.ts",
-      "verify-annotations-md.ts",
-      "verify-figure-export.ts",
-      "verify-fulltext-search.ts",
-      "verify-fulltext-extract.ts",
-      "verify-grobid.ts",
-      "verify-import-plan.ts",
-      "verify-citekey.ts",
-      "verify-zotero-sync.ts",
-      "verify-organize.ts",
-      "verify-paper-refnums.ts",
-      "verify-table-model.ts",
-      "verify-table-ops.ts",
-      "verify-table-fold.ts",
-      "verify-pdfidentify.ts",
-      "verify-reader-search.ts",
-      "verify-r1-hlgeom.ts",
-      "verify-r3-agent.ts",
-      "verify-r4-cite.ts",
-      "verify-ratelimit.ts",
-      "verify-refformat.ts",
-      "verify-embed-normalize.ts",
-      "verify-paper-render-overrides.ts",
-      "verify-export-qmd.ts",
-      "verify-scaffold.ts",
-      "verify-sync-render.ts",
-      "verify-delete-prune.ts",
-      "verify-slide-assets.ts",
-      "verify-slide-autobuild.ts",
-      "verify-deckproject-roundtrip.ts",
-      "verify-deck-schema.ts",
-      "verify-slide-figure-separation.ts",
-      "verify-slide-headless-e2e.ts",
-      "verify-slide-decks.ts",
-      "verify-deck-diagnostics.ts",
-      "verify-slide-easing.ts",
-      "verify-slide-exits.ts",
-      "verify-slide-export-bridge.ts",
-      "verify-slide-export-core.ts",
-      "verify-slide-export-parity.ts",
-      "verify-slide-export-transform.ts",
-      "verify-slide-export-w6.ts",
-      "verify-slide-model.ts",
-      "verify-slide-morph.ts",
-      "verify-trim.ts",
-      "verify-color-interp.ts",
-      "verify-slide-multiplot.ts",
-      "verify-slide-orphans.ts",
-      "verify-slide-playback.ts",
-      "verify-slide-player.ts",
-      "verify-slide-present.ts",
-      "verify-present-core.ts",
-      "verify-slide-scatter-showcase.ts",
-      "verify-slide-track-ops.ts",
-      "verify-cascade.ts",
-      "verify-slide-tween.ts",
-      "verify-anim-presets.ts",
-      "verify-slide-trackid.ts",
-      "verify-slide-w7.ts",
-      "verify-electron-no-undef.ts",
-      "verify-electron-hardening.ts",
-      "verify-prefs-atomic.ts",
-      "verify-win-spawn.ts",
-      "verify-slide-presets.ts",
-      "verify-snip-headless.ts",
-      "verify-snips.ts",
-      "verify-supplement.ts",
-      "verify-update-check.ts",
-      "verify-w11-slides.ts",
-      "verify-w11-verbs.ts",
-      "verify-w12-security.ts",
-      "verify-w14-coexistence.ts",
-      "verify-w19-sharing.ts",
-      "verify-w2-atomic.ts",
-      "verify-w20-library.ts",
-      "verify-w3-locks.ts",
-      "verify-w4-autosave.ts",
-      "verify-w9-roundtrip.ts",
-      "verify-writer-latency.ts",
-      "verify-caret-feel.ts",
-      "verify-tokens.mjs",
-      "verify-tokens-sync.ts",
-      "verify-registry-parity.ts",
-      "verify-paste-decide.ts",
-      "verify-export-prep.ts",
-      "verify-journalstyle.ts",
-      "verify-nature-style.ts",
-      "verify-writer-neutral.ts",
-      "verify-journal-assets.ts",
-      "verify-nature-structure.ts",
-      "verify-nature-compliance.ts",
-      "verify-capture-intake.ts",
-      "verify-extension.ts",
-      "verify-dissections.ts",
-      "verify-plots-folders.ts",
-      "verify-plot-source.ts",
-      "verify-sync-conflicts.ts",
-      "verify-library-pdffilter.ts"
-    ],
-    "net": [
-      "verify-enrich-live.ts",
-      "verify-openalex.ts",
-      "verify-s2.ts"
-    ],
-    "ui": [
-      "verify-context-gui.mjs",
-      "verify-paper-nav.mjs",
-      "verify-paper-vim.mjs",
-      "verify-paper-keyboard.mjs",
-      "verify-paper-local-corrections.mjs",
-      "verify-fig-width.mjs",
-      "verify-citegroup.mjs",
-      "verify-paper-extras.mjs",
-      "verify-outline-refresh.mjs",
-      "verify-figref.mjs",
-      "verify-figpicker.mjs",
-      "verify-paper-tables.mjs",
-      "verify-paper-split.mjs",
-      "verify-w18-paper.mjs",
-      "verify-paper-export.mjs",
-      "verify-paper-math.mjs",
-      "verify-pdf-white.mjs",
-      "verify-embed-chip.mjs",
-      "verify-embed-caption.mjs",
-      "verify-clip-collision.mjs",
-      "verify-refbib.mjs",
-      "verify-fulltext-gui.mjs",
-      "verify-import-gui.mjs",
-      "verify-import-physical.mjs",
-      "verify-font-pt.mjs",
-      "verify-figure-export-gui.mjs",
-      "verify-p4-paper.mjs",
-      "verify-keepalive.mjs",
-      "verify-fixture.mjs",
-      "verify-migration.mjs",
-      "verify-p5-shell.mjs",
-      "verify-w8-assets.mjs",
-      "verify-f1-watch.mjs",
-      "verify-w7-fig.mjs",
-      "verify-lib-actions.mjs",
-      "verify-lib-organize.mjs",
-      "verify-shell-complete.mjs",
-      "verify-fig-esc.mjs",
-      "verify-shape-nofill.mjs",
-      "verify-primitives-gui.mjs",
-      "verify-importer-multi.mjs",
-      "verify-importer-reserved.mjs",
-      "verify-dissect-gui.mjs",
-      "verify-vanilla-inline.mjs",
-      "verify-bring-inside-gui.mjs",
-      "verify-cascade-gui.mjs",
-      "verify-text-resize.mjs",
-      "verify-text-biu.mjs",
-      "verify-text-styles.mjs",
-      "verify-groups-layers.mjs",
-      "verify-line-pivot.mjs",
-      "verify-fig-suspend.mjs",
-      "verify-slide-editor-gui.mjs",
-      "verify-slide-filmstrip-gui.mjs",
-      "verify-slide-animator-gui.mjs",
-      "verify-transform-gui.mjs",
-      "verify-beat-display-gui.mjs",
-      "verify-slide-present-gui.mjs",
-      "verify-slide-tenancy-gui.mjs",
-      "verify-slide-import-gui.mjs",
-      "verify-snip-gui.mjs",
-      "verify-lazy-save-safety.mjs",
-      "verify-lazy-load-gui.mjs",
-      "verify-lazy-export-overrides.mjs"
-    ],
-    "ui-extra": [
-      "figenh-01-pen.ts",
-      "figenh-02-rotate.ts",
-      "figenh-03-caliper.ts",
-      "figenh-04-dup.ts",
-      "figenh-05-scale.ts",
-      "figenh-06-layers.ts",
-      "figenh-07-gap.ts",
-      "figenh-08-math.ts",
-      "figenh-09-select-same.ts",
-      "figenh-10-style.ts",
-      "figenh-11-guides.ts",
-      "figenh-12-modifiers.ts",
-      "figenh-14-partui.mjs",
-      "figenh-15-partmove.mjs",
-      "figenh-16-groups-ui.mjs",
-      "figenh-18-xray.mjs",
-      "verify-xray-theme.mjs",
-      "verify-crop.mjs",
-      "verify-crisp.mjs",
-      "verify-assign.mjs",
-      "verify-color-span.mjs",
-      "verify-f2-hotswap.mjs",
-      "verify-f4.mjs",
-      "verify-f5-cull.mjs",
-      "verify-f5-drag.mjs",
-      "verify-f6.mjs",
-      "verify-f6b.mjs",
-      "verify-f6c.mjs",
-      "verify-caption-fit.mjs",
-      "verify-figure-center.mjs",
-      "verify-f7.mjs",
-      "verify-f8.mjs",
-      "verify-m1.mjs",
-      "verify-m10-perf.mjs",
-      "verify-m11-m14.mjs",
-      "verify-fig-namer.mjs",
-      "verify-m15-motion.mjs",
-      "verify-margin-bg.mjs",
-      "verify-margin-panes.mjs",
-      "verify-menu.mjs",
-      "verify-oaledger.mjs",
-      "verify-p5-library-ui.mjs",
-      "verify-p5-paper.mjs",
-      "verify-r1-highlights.mjs",
-      "verify-r2-viewer.mjs",
-      "verify-r4-links.mjs",
-      "verify-r5-figure.mjs",
-      "verify-snip-cite-gui.mjs",
-      "verify-r6-supplement.mjs",
-      "verify-r7-tabs.mjs",
-      "verify-r8-reader-panels.mjs",
-      "verify-w1-toast.mjs",
-      "verify-w10-matrix.mjs",
-      "verify-w17-gestures.mjs",
-      "verify-w17-rotate-perf.mjs",
-      "verify-w4-wiring.mjs",
-      "verify-w5-lifecycle.mjs",
-      "verify-paste-image.mjs",
-      "figenh-18-pathmodes.ts",
-      "verify-cascade-tracks-gui.mjs",
-      "verify-capture-e2e.cjs"
-    ],
-    "scale": [
-      "verify-scale-library.mjs",
-      "verify-scale-reader.mjs",
-      "verify-scale-figure.mjs",
-      "verify-scale-paper.mjs",
-      "verify-scale-fulltext.mjs",
-      "verify-scale-slide.mjs",
-      "verify-scale-lazy-assets.mjs"
-    ],
-    "bundle": [
-      "verify-w13-cli.mjs",
-      "verify-local-correction-bundle.mjs",
-      "verify-extension-build.ts"
-    ],
-    "startup": [
-      "verify-startup.mjs"
-    ],
-    "electron": [
-      "verify-principal-electron.cjs",
-      "verify-w6-flush.cjs",
-      "verify-multiwindow.cjs",
-      "verify-cellpress.cjs",
-      "verify-netget.cjs",
-      "verify-proxy-capture.cjs",
-      "verify-writer-latency-inp.mjs"
-    ],
-    "presence": [
-      "verify-electron-no-undef.ts",
-      "verify-prefs-atomic.ts",
-      "verify-electron-hardening.ts",
-      "verify-w12-security.ts",
-      "verify-r3-agent.ts",
-      "verify-update-check.ts",
-      "verify-writer-latency.ts",
-      "verify-crisp-source.ts",
-      "figenh-importer-parity.ts"
-    ]
-  },
-  "groups": {
-    "paper-gate": [
-      "verify-paper-nav.mjs",
-      "verify-paper-vim.mjs",
-      "verify-paper-keyboard.mjs",
-      "verify-paper-local-corrections.mjs",
-      "verify-fig-width.mjs",
-      "verify-citegroup.mjs",
-      "verify-paper-extras.mjs",
-      "verify-outline-refresh.mjs",
-      "verify-figref.mjs",
-      "verify-figpicker.mjs",
-      "verify-figfamily.ts",
-      "verify-citenum.ts",
-      "verify-w18-paper.mjs",
-      "verify-paper-math.mjs",
-      "verify-pdf-white.mjs",
-      "verify-embed-chip.mjs",
-      "verify-embed-caption.mjs",
-      "verify-embed-normalize.ts",
-      "verify-table-model.ts",
-      "verify-table-ops.ts",
-      "verify-table-fold.ts",
-      "verify-local-corrections.ts",
-      "verify-contextual-correction-provider.ts",
-      "verify-correction-runtime.ts",
-      "verify-flux-correction-eval.ts",
-      "verify-paper-tables.mjs",
-      "verify-paper-split.mjs",
-      "verify-nature-style.ts",
-      "verify-writer-neutral.ts",
-      "verify-paper-render-overrides.ts",
-      "verify-clip-collision.mjs"
-    ],
-    "reader-gate": [
-      "verify-r1-highlights.mjs",
-      "verify-r2-viewer.mjs",
-      "verify-r4-links.mjs",
-      "verify-r5-figure.mjs",
-      "verify-r6-supplement.mjs",
-      "verify-r7-tabs.mjs",
-      "verify-r8-reader-panels.mjs",
-      "verify-snip-gui.mjs",
-      "verify-snip-cite-gui.mjs",
-      "verify-fulltext-gui.mjs",
-      "verify-lib-actions.mjs",
-      "verify-scale-reader.mjs",
-      "verify-r3-agent.ts",
-      "verify-p4-libreader.ts",
-      "verify-r1-hlgeom.ts",
-      "verify-r4-cite.ts",
-      "verify-reader-search.ts"
-    ]
-  },
-  "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
-  "pathMap": [
-    {
-      "glob": "src/shell/modes/library/LibraryMode.svelte",
-      "run": ["verify-library-pdffilter.ts", "verify-w20-library.ts", "tier:pure"]
-    },
-    {
-      "glob": "{electron/dissectRules.js,src/lib/dissect/**}",
-      "run": [
-        "verify-dissections.ts",
-        "verify-dissect-gui.mjs",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte}",
-      "run": [
-        "verify-plots-folders.ts",
-        "verify-importer-reserved.mjs",
-        "verify-importer-multi.mjs",
-        "tier:pure"
-      ]
-    },
-    {
-      "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here — a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
-      "glob": "{extension/**,scripts/build-extension.mjs}",
-      "run": [
-        "verify-extension.ts",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "{electron/{captureIntake,captureInstall}.cjs,electron/captureRules.js,src/lib/references/capture*.ts}",
-      "run": [
-        "verify-capture-intake.ts",
-        "verify-capture-e2e.cjs",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "{electron/supplementRules.cjs,electron/proxyFetch.cjs,src/lib/references/{supplement,supplementFinder,unzip,pdfFinder,pdfFinderBridge}.ts}",
-      "run": [
-        "verify-supplement.ts",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/manuscript/**",
-      "run": [
-        "verify-nature-structure.ts",
-        "verify-nature-compliance.ts",
-        "verify-export-prep.ts",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "resources/{csl,docx}/**",
-      "run": [
-        "verify-journal-assets.ts"
-      ]
-    },
-    {
-      "glob": "src/lib/style/**",
-      "run": [
-        "verify-journalstyle.ts",
-        "verify-nature-style.ts",
-        "verify-writer-neutral.ts",
-        "verify-export-qmd.ts",
-        "verify-export-prep.ts",
-        "verify-journal-assets.ts"
-      ]
-    },
-    {
-      "glob": "src/lib/exportQmd.ts",
-      "run": [
-        "verify-export-qmd.ts",
-        "verify-embed-normalize.ts",
-        "verify-export-prep.ts"
-      ]
-    },
-    {
-      "glob": "src/lib/exportPrep.ts",
-      "run": [
-        "verify-export-prep.ts",
-        "verify-export-qmd.ts"
-      ]
-    },
-    {
-      "glob": "scripts/verify-*",
-      "run": [
-        "self",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "scripts/figenh-*",
-      "run": [
-        "self",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/shell/modes/paper/**",
-      "run": [
-        "group:paper-gate",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/shell/modes/reader/**",
-      "run": [
-        "group:reader-gate",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/pdf/**",
-      "run": [
-        "group:reader-gate",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/references/{citersCache,pdfPresence}.ts",
-      "run": [
-        "group:reader-gate",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/figfamily.ts",
-      "run": [
-        "verify-figfamily.ts",
-        "verify-figfiles-parity.ts",
-        "verify-export-qmd.ts",
-        "verify-figref.mjs"
-      ]
-    },
-    {
-      "glob": "src/lib/exportQmd.ts",
-      "run": [
-        "verify-export-qmd.ts",
-        "verify-embed-normalize.ts"
-      ]
-    },
-    {
-      "glob": "src/lib/{FigureNamer.svelte,figureLayoutStore.ts}",
-      "run": [
-        "verify-fig-namer.mjs",
-        "verify-m11-m14.mjs"
-      ]
-    },
-    {
-      "glob": "resources/flux-context/**",
-      "run": [
-        "verify-context-scheme.ts"
-      ]
-    },
-    {
-      "glob": "docs/**",
-      "run": [
-        "verify-docs.ts"
-      ]
-    },
-    {
-      "glob": "electron/{agentsConfig,fluxContextDocs.gen}.cjs",
-      "run": [
-        "verify-context-scheme.ts",
-        "verify-fluxconfig.ts"
-      ]
-    },
-    {
-      "glob": "src/lib/project/{feedback,contextTemplates,contextHeal,paperSelectionStore}.ts",
-      "run": [
-        "verify-feedback.ts",
-        "verify-context-scheme.ts",
-        "verify-scaffold.ts",
-        "verify-note.ts"
-      ]
-    },
-    {
-      "glob": "flux-core/{feedback,context,comments}.ts",
-      "run": [
-        "verify-feedback.ts",
-        "verify-registry-parity.ts",
-        "verify-note.ts"
-      ]
-    },
-    {
-      "glob": "flux-core/locks.ts",
-      "run": [
-        "verify-w3-locks.ts",
-        "verify-note.ts",
-        "verify-an-journal-locks.ts"
-      ]
-    },
-    {
-      "glob": "flux-core/agents.ts",
-      "run": [
-        "verify-dispatch.ts",
-        "verify-principal-pty.ts",
-        "verify-registry-parity.ts"
-      ]
-    },
-    {
-      "glob": "electron/agentsConfig.cjs",
-      "run": [
-        "verify-context-scheme.ts",
-        "verify-dispatch.ts",
-        "verify-principal-pty.ts"
-      ]
-    },
-    {
-      "glob": "src/shell/agent/**",
-      "run": [
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/PlotElement.svelte",
-      "run": [
-        "tier:pure",
-        "tier:scale",
-        "verify-lazy-save-safety.mjs",
-        "verify-lazy-load-gui.mjs",
-        "verify-lazy-export-overrides.mjs"
-      ]
-    },
-    {
-      "glob": "src/lib/project/figbridge.ts",
-      "run": [
-        "tier:pure",
-        "verify-lazy-save-safety.mjs",
-        "verify-lazy-load-gui.mjs",
-        "verify-lazy-export-overrides.mjs"
-      ]
-    },
-    {
-      "glob": "src/lib/plot/**",
-      "run": [
-        "tier:pure",
-        "tier:scale",
-        "verify-lazy-save-safety.mjs",
-        "verify-lazy-load-gui.mjs",
-        "verify-lazy-export-overrides.mjs"
-      ]
-    },
-    {
-      "glob": "src/shell/modes/slide/**",
-      "run": [
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/{CaptionEditor.svelte,captions.ts}",
-      "run": [
-        "verify-caption-fit.mjs",
-        "verify-f7.mjs",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/ui/autogrow.ts",
-      "run": [
-        "verify-caption-fit.mjs"
-      ]
-    },
-    {
-      "glob": "src/lib/{Sidebar.svelte,viewportNav.ts}",
-      "run": [
-        "verify-figure-center.mjs",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/slide/**",
-      "run": [
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "electron/**",
-      "run": [
-        "tier:presence",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "flux-core/**",
-      "run": [
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/references/{citekey,zoteroFiles,zoteroSettings,zoteroSyncJob.svelte,items,itemsBridge,addPlan,ris}.ts",
-      "run": [
-        "verify-citekey.ts",
-        "verify-import-plan.ts",
-        "verify-zotero-sync.ts",
-        "verify-import-gui.mjs",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "scripts/**",
-      "run": [
-        "tier:pure"
-      ]
-    }
+ "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation \u2014 a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping.",
+ "tiers": {
+  "pure": [
+   "verify-an-bridge.ts",
+   "verify-an-comments.ts",
+   "verify-an-compose.ts",
+   "verify-fig-letterorder.ts",
+   "verify-fig-geometry.ts",
+   "verify-bring-inside.ts",
+   "verify-project-lint.ts",
+   "verify-an-journal-locks.ts",
+   "verify-an-manuscript.ts",
+   "verify-an-render.ts",
+   "verify-an-validate-plot.ts",
+   "verify-an-validate.ts",
+   "verify-assign-hardening.ts",
+   "verify-citenum.ts",
+   "verify-enrich-cache.ts",
+   "verify-f1-core.ts",
+   "verify-f1-mcp.ts",
+   "verify-hermetic-fluxlib.ts",
+   "verify-f2-recipe.ts",
+   "verify-fig-rotbounds.ts",
+   "verify-layer-rows.ts",
+   "verify-interact-core.ts",
+   "figenh-01-parity.ts",
+   "figenh-01-path.ts",
+   "verify-pen-snap.ts",
+   "verify-primitives.ts",
+   "figenh-02-parity.ts",
+   "figenh-04-parity.ts",
+   "figenh-05-parity.ts",
+   "figenh-06-parity.ts",
+   "figenh-07-parity.ts",
+   "figenh-11-parity.ts",
+   "figenh-13-partstyle.ts",
+   "figenh-14-partfields.ts",
+   "figenh-partprops-parity.ts",
+   "figenh-16-groups.ts",
+   "figenh-16-parity.ts",
+   "figenh-17-derive.ts",
+   "figenh-importer-parity.ts",
+   "figenh-textstyle-parity.ts",
+   "verify-crop-math.ts",
+   "figenh-crop-parity.ts",
+   "verify-fluxconfig.ts",
+   "verify-feedback.ts",
+   "verify-note.ts",
+   "verify-context-scheme.ts",
+   "verify-docs.ts",
+   "verify-dispatch.ts",
+   "verify-principal-pty.ts",
+   "verify-line-arrow.ts",
+   "verify-text-wrap.ts",
+   "verify-compensate.ts",
+   "verify-crisp-source.ts",
+   "verify-xray-tree.ts",
+   "verify-fetchflow.ts",
+   "verify-figfamily.ts",
+   "verify-ops.ts",
+   "verify-p4-figure.ts",
+   "verify-p4-libreader.ts",
+   "verify-p4-slide.ts",
+   "verify-p5-library.ts",
+   "verify-paper-mathgrammar.ts",
+   "verify-paper-changegate.ts",
+   "verify-local-corrections.ts",
+   "verify-contextual-correction-provider.ts",
+   "verify-correction-runtime.ts",
+   "verify-flux-correction-eval.ts",
+   "verify-frontmatter.ts",
+   "verify-render-concurrency.ts",
+   "verify-paper-commands.ts",
+   "verify-loadgate.ts",
+   "verify-fwdguard.ts",
+   "verify-figsave-txn.ts",
+   "verify-canvas-divergence.ts",
+   "verify-fig-reload-preserve.ts",
+   "verify-undo-budget.ts",
+   "verify-figfiles-parity.ts",
+   "verify-text-parity.ts",
+   "verify-ssrf-ranges.ts",
+   "verify-ipc-contract.ts",
+   "verify-quit-policy.ts",
+   "verify-enrich-grid.ts",
+   "verify-annotations-md.ts",
+   "verify-figure-export.ts",
+   "verify-fulltext-search.ts",
+   "verify-fulltext-extract.ts",
+   "verify-grobid.ts",
+   "verify-import-plan.ts",
+   "verify-citekey.ts",
+   "verify-zotero-fields.ts",
+   "verify-zotero-sync.ts",
+   "verify-organize.ts",
+   "verify-paper-refnums.ts",
+   "verify-table-model.ts",
+   "verify-table-ops.ts",
+   "verify-table-fold.ts",
+   "verify-pdfidentify.ts",
+   "verify-reader-search.ts",
+   "verify-r1-hlgeom.ts",
+   "verify-r3-agent.ts",
+   "verify-r4-cite.ts",
+   "verify-ratelimit.ts",
+   "verify-refformat.ts",
+   "verify-embed-normalize.ts",
+   "verify-paper-render-overrides.ts",
+   "verify-export-qmd.ts",
+   "verify-scaffold.ts",
+   "verify-sync-render.ts",
+   "verify-delete-prune.ts",
+   "verify-slide-assets.ts",
+   "verify-slide-autobuild.ts",
+   "verify-deckproject-roundtrip.ts",
+   "verify-deck-schema.ts",
+   "verify-slide-figure-separation.ts",
+   "verify-slide-headless-e2e.ts",
+   "verify-slide-decks.ts",
+   "verify-deck-diagnostics.ts",
+   "verify-slide-easing.ts",
+   "verify-slide-exits.ts",
+   "verify-slide-export-bridge.ts",
+   "verify-slide-export-core.ts",
+   "verify-slide-export-parity.ts",
+   "verify-slide-export-transform.ts",
+   "verify-slide-export-w6.ts",
+   "verify-slide-model.ts",
+   "verify-slide-morph.ts",
+   "verify-trim.ts",
+   "verify-color-interp.ts",
+   "verify-slide-multiplot.ts",
+   "verify-slide-orphans.ts",
+   "verify-slide-playback.ts",
+   "verify-slide-player.ts",
+   "verify-slide-present.ts",
+   "verify-present-core.ts",
+   "verify-slide-scatter-showcase.ts",
+   "verify-slide-track-ops.ts",
+   "verify-cascade.ts",
+   "verify-slide-tween.ts",
+   "verify-anim-presets.ts",
+   "verify-slide-trackid.ts",
+   "verify-slide-w7.ts",
+   "verify-electron-no-undef.ts",
+   "verify-electron-hardening.ts",
+   "verify-prefs-atomic.ts",
+   "verify-win-spawn.ts",
+   "verify-slide-presets.ts",
+   "verify-snip-headless.ts",
+   "verify-snips.ts",
+   "verify-supplement.ts",
+   "verify-update-check.ts",
+   "verify-w11-slides.ts",
+   "verify-w11-verbs.ts",
+   "verify-w12-security.ts",
+   "verify-w14-coexistence.ts",
+   "verify-w19-sharing.ts",
+   "verify-w2-atomic.ts",
+   "verify-w20-library.ts",
+   "verify-w3-locks.ts",
+   "verify-w4-autosave.ts",
+   "verify-w9-roundtrip.ts",
+   "verify-writer-latency.ts",
+   "verify-caret-feel.ts",
+   "verify-tokens.mjs",
+   "verify-tokens-sync.ts",
+   "verify-registry-parity.ts",
+   "verify-paste-decide.ts",
+   "verify-export-prep.ts",
+   "verify-journalstyle.ts",
+   "verify-nature-style.ts",
+   "verify-writer-neutral.ts",
+   "verify-journal-assets.ts",
+   "verify-nature-structure.ts",
+   "verify-nature-compliance.ts",
+   "verify-capture-intake.ts",
+   "verify-extension.ts",
+   "verify-dissections.ts",
+   "verify-plots-folders.ts",
+   "verify-plot-source.ts",
+   "verify-sync-conflicts.ts",
+   "verify-library-pdffilter.ts"
   ],
-  "retryOnce": [
-    "verify-crop.mjs",
-    "verify-crisp.mjs",
-    "figenh-16-groups-ui.mjs",
-    "figenh-18-xray.mjs",
-    "verify-xray-theme.mjs",
-    "verify-importer-multi.mjs",
-    "verify-importer-reserved.mjs",
+  "net": [
+   "verify-enrich-live.ts",
+   "verify-openalex.ts",
+   "verify-s2.ts"
+  ],
+  "ui": [
+   "verify-context-gui.mjs",
+   "verify-paper-nav.mjs",
+   "verify-paper-vim.mjs",
+   "verify-paper-keyboard.mjs",
+   "verify-paper-local-corrections.mjs",
+   "verify-fig-width.mjs",
+   "verify-citegroup.mjs",
+   "verify-paper-extras.mjs",
+   "verify-outline-refresh.mjs",
+   "verify-figref.mjs",
+   "verify-figpicker.mjs",
+   "verify-paper-tables.mjs",
+   "verify-paper-split.mjs",
+   "verify-w18-paper.mjs",
+   "verify-paper-export.mjs",
+   "verify-paper-math.mjs",
+   "verify-pdf-white.mjs",
+   "verify-embed-chip.mjs",
+   "verify-embed-caption.mjs",
+   "verify-clip-collision.mjs",
+   "verify-refbib.mjs",
+   "verify-fulltext-gui.mjs",
+   "verify-import-gui.mjs",
+   "verify-import-physical.mjs",
+   "verify-font-pt.mjs",
+   "verify-figure-export-gui.mjs",
+   "verify-p4-paper.mjs",
+   "verify-keepalive.mjs",
+   "verify-fixture.mjs",
+   "verify-migration.mjs",
+   "verify-p5-shell.mjs",
+   "verify-w8-assets.mjs",
+   "verify-f1-watch.mjs",
+   "verify-w7-fig.mjs",
+   "verify-lib-actions.mjs",
+   "verify-lib-organize.mjs",
+   "verify-shell-complete.mjs",
+   "verify-fig-esc.mjs",
+   "verify-shape-nofill.mjs",
+   "verify-primitives-gui.mjs",
+   "verify-importer-multi.mjs",
+   "verify-importer-reserved.mjs",
+   "verify-dissect-gui.mjs",
+   "verify-vanilla-inline.mjs",
+   "verify-bring-inside-gui.mjs",
+   "verify-cascade-gui.mjs",
+   "verify-text-resize.mjs",
+   "verify-text-biu.mjs",
+   "verify-text-styles.mjs",
+   "verify-groups-layers.mjs",
+   "verify-line-pivot.mjs",
+   "verify-fig-suspend.mjs",
+   "verify-slide-editor-gui.mjs",
+   "verify-slide-filmstrip-gui.mjs",
+   "verify-slide-animator-gui.mjs",
+   "verify-transform-gui.mjs",
+   "verify-beat-display-gui.mjs",
+   "verify-slide-present-gui.mjs",
+   "verify-slide-tenancy-gui.mjs",
+   "verify-slide-import-gui.mjs",
+   "verify-snip-gui.mjs",
+   "verify-lazy-save-safety.mjs",
+   "verify-lazy-load-gui.mjs",
+   "verify-lazy-export-overrides.mjs"
+  ],
+  "ui-extra": [
+   "figenh-01-pen.ts",
+   "figenh-02-rotate.ts",
+   "figenh-03-caliper.ts",
+   "figenh-04-dup.ts",
+   "figenh-05-scale.ts",
+   "figenh-06-layers.ts",
+   "figenh-07-gap.ts",
+   "figenh-08-math.ts",
+   "figenh-09-select-same.ts",
+   "figenh-10-style.ts",
+   "figenh-11-guides.ts",
+   "figenh-12-modifiers.ts",
+   "figenh-14-partui.mjs",
+   "figenh-15-partmove.mjs",
+   "figenh-16-groups-ui.mjs",
+   "figenh-18-xray.mjs",
+   "verify-xray-theme.mjs",
+   "verify-crop.mjs",
+   "verify-crisp.mjs",
+   "verify-assign.mjs",
+   "verify-color-span.mjs",
+   "verify-f2-hotswap.mjs",
+   "verify-f4.mjs",
+   "verify-f5-cull.mjs",
+   "verify-f5-drag.mjs",
+   "verify-f6.mjs",
+   "verify-f6b.mjs",
+   "verify-f6c.mjs",
+   "verify-caption-fit.mjs",
+   "verify-figure-center.mjs",
+   "verify-f7.mjs",
+   "verify-f8.mjs",
+   "verify-m1.mjs",
+   "verify-m10-perf.mjs",
+   "verify-m11-m14.mjs",
+   "verify-fig-namer.mjs",
+   "verify-m15-motion.mjs",
+   "verify-margin-bg.mjs",
+   "verify-margin-panes.mjs",
+   "verify-menu.mjs",
+   "verify-oaledger.mjs",
+   "verify-p5-library-ui.mjs",
+   "verify-p5-paper.mjs",
+   "verify-r1-highlights.mjs",
+   "verify-r2-viewer.mjs",
+   "verify-r4-links.mjs",
+   "verify-r5-figure.mjs",
+   "verify-snip-cite-gui.mjs",
+   "verify-r6-supplement.mjs",
+   "verify-r7-tabs.mjs",
+   "verify-r8-reader-panels.mjs",
+   "verify-w1-toast.mjs",
+   "verify-w10-matrix.mjs",
+   "verify-w17-gestures.mjs",
+   "verify-w17-rotate-perf.mjs",
+   "verify-w4-wiring.mjs",
+   "verify-w5-lifecycle.mjs",
+   "verify-paste-image.mjs",
+   "figenh-18-pathmodes.ts",
+   "verify-cascade-tracks-gui.mjs",
+   "verify-capture-e2e.cjs"
+  ],
+  "scale": [
+   "verify-scale-library.mjs",
+   "verify-scale-reader.mjs",
+   "verify-scale-figure.mjs",
+   "verify-scale-paper.mjs",
+   "verify-scale-fulltext.mjs",
+   "verify-scale-slide.mjs",
+   "verify-scale-lazy-assets.mjs"
+  ],
+  "bundle": [
+   "verify-w13-cli.mjs",
+   "verify-local-correction-bundle.mjs",
+   "verify-extension-build.ts"
+  ],
+  "startup": [
+   "verify-startup.mjs"
+  ],
+  "electron": [
+   "verify-principal-electron.cjs",
+   "verify-w6-flush.cjs",
+   "verify-multiwindow.cjs",
+   "verify-cellpress.cjs",
+   "verify-netget.cjs",
+   "verify-proxy-capture.cjs",
+   "verify-writer-latency-inp.mjs"
+  ],
+  "presence": [
+   "verify-electron-no-undef.ts",
+   "verify-prefs-atomic.ts",
+   "verify-electron-hardening.ts",
+   "verify-w12-security.ts",
+   "verify-r3-agent.ts",
+   "verify-update-check.ts",
+   "verify-writer-latency.ts",
+   "verify-crisp-source.ts",
+   "figenh-importer-parity.ts"
+  ]
+ },
+ "groups": {
+  "paper-gate": [
+   "verify-paper-nav.mjs",
+   "verify-paper-vim.mjs",
+   "verify-paper-keyboard.mjs",
+   "verify-paper-local-corrections.mjs",
+   "verify-fig-width.mjs",
+   "verify-citegroup.mjs",
+   "verify-paper-extras.mjs",
+   "verify-outline-refresh.mjs",
+   "verify-figref.mjs",
+   "verify-figpicker.mjs",
+   "verify-figfamily.ts",
+   "verify-citenum.ts",
+   "verify-w18-paper.mjs",
+   "verify-paper-math.mjs",
+   "verify-pdf-white.mjs",
+   "verify-embed-chip.mjs",
+   "verify-embed-caption.mjs",
+   "verify-embed-normalize.ts",
+   "verify-table-model.ts",
+   "verify-table-ops.ts",
+   "verify-table-fold.ts",
+   "verify-local-corrections.ts",
+   "verify-contextual-correction-provider.ts",
+   "verify-correction-runtime.ts",
+   "verify-flux-correction-eval.ts",
+   "verify-paper-tables.mjs",
+   "verify-paper-split.mjs",
+   "verify-nature-style.ts",
+   "verify-writer-neutral.ts",
+   "verify-paper-render-overrides.ts",
+   "verify-clip-collision.mjs"
+  ],
+  "reader-gate": [
+   "verify-r1-highlights.mjs",
+   "verify-r2-viewer.mjs",
+   "verify-r4-links.mjs",
+   "verify-r5-figure.mjs",
+   "verify-r6-supplement.mjs",
+   "verify-r7-tabs.mjs",
+   "verify-r8-reader-panels.mjs",
+   "verify-snip-gui.mjs",
+   "verify-snip-cite-gui.mjs",
+   "verify-fulltext-gui.mjs",
+   "verify-lib-actions.mjs",
+   "verify-scale-reader.mjs",
+   "verify-r3-agent.ts",
+   "verify-p4-libreader.ts",
+   "verify-r1-hlgeom.ts",
+   "verify-r4-cite.ts",
+   "verify-reader-search.ts"
+  ]
+ },
+ "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
+ "pathMap": [
+  {
+   "glob": "src/shell/modes/library/LibraryMode.svelte",
+   "run": [
+    "verify-library-pdffilter.ts",
+    "verify-w20-library.ts",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "{electron/dissectRules.js,src/lib/dissect/**}",
+   "run": [
+    "verify-dissections.ts",
     "verify-dissect-gui.mjs",
-    "figenh-06-layers.ts",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte}",
+   "run": [
+    "verify-plots-folders.ts",
+    "verify-importer-reserved.mjs",
+    "verify-importer-multi.mjs",
+    "tier:pure"
+   ]
+  },
+  {
+   "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here \u2014 a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
+   "glob": "{extension/**,scripts/build-extension.mjs}",
+   "run": [
+    "verify-extension.ts",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "{electron/{captureIntake,captureInstall}.cjs,electron/captureRules.js,src/lib/references/capture*.ts}",
+   "run": [
+    "verify-capture-intake.ts",
+    "verify-capture-e2e.cjs",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "{electron/supplementRules.cjs,electron/proxyFetch.cjs,src/lib/references/{supplement,supplementFinder,unzip,pdfFinder,pdfFinderBridge}.ts}",
+   "run": [
+    "verify-supplement.ts",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/manuscript/**",
+   "run": [
+    "verify-nature-structure.ts",
+    "verify-nature-compliance.ts",
+    "verify-export-prep.ts",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "resources/{csl,docx}/**",
+   "run": [
+    "verify-journal-assets.ts"
+   ]
+  },
+  {
+   "glob": "src/lib/style/**",
+   "run": [
+    "verify-journalstyle.ts",
+    "verify-nature-style.ts",
+    "verify-writer-neutral.ts",
+    "verify-export-qmd.ts",
+    "verify-export-prep.ts",
+    "verify-journal-assets.ts"
+   ]
+  },
+  {
+   "glob": "src/lib/exportQmd.ts",
+   "run": [
+    "verify-export-qmd.ts",
+    "verify-embed-normalize.ts",
+    "verify-export-prep.ts"
+   ]
+  },
+  {
+   "glob": "src/lib/exportPrep.ts",
+   "run": [
+    "verify-export-prep.ts",
+    "verify-export-qmd.ts"
+   ]
+  },
+  {
+   "glob": "scripts/verify-*",
+   "run": [
+    "self",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "scripts/figenh-*",
+   "run": [
+    "self",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/shell/modes/paper/**",
+   "run": [
+    "group:paper-gate",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/shell/modes/reader/**",
+   "run": [
+    "group:reader-gate",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/pdf/**",
+   "run": [
+    "group:reader-gate",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/references/{citersCache,pdfPresence}.ts",
+   "run": [
+    "group:reader-gate",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/figfamily.ts",
+   "run": [
+    "verify-figfamily.ts",
+    "verify-figfiles-parity.ts",
+    "verify-export-qmd.ts",
+    "verify-figref.mjs"
+   ]
+  },
+  {
+   "glob": "src/lib/exportQmd.ts",
+   "run": [
+    "verify-export-qmd.ts",
+    "verify-embed-normalize.ts"
+   ]
+  },
+  {
+   "glob": "src/lib/{FigureNamer.svelte,figureLayoutStore.ts}",
+   "run": [
+    "verify-fig-namer.mjs",
+    "verify-m11-m14.mjs"
+   ]
+  },
+  {
+   "glob": "resources/flux-context/**",
+   "run": [
+    "verify-context-scheme.ts"
+   ]
+  },
+  {
+   "glob": "docs/**",
+   "run": [
+    "verify-docs.ts"
+   ]
+  },
+  {
+   "glob": "electron/{agentsConfig,fluxContextDocs.gen}.cjs",
+   "run": [
+    "verify-context-scheme.ts",
+    "verify-fluxconfig.ts"
+   ]
+  },
+  {
+   "glob": "src/lib/project/{feedback,contextTemplates,contextHeal,paperSelectionStore}.ts",
+   "run": [
+    "verify-feedback.ts",
+    "verify-context-scheme.ts",
+    "verify-scaffold.ts",
+    "verify-note.ts"
+   ]
+  },
+  {
+   "glob": "flux-core/{feedback,context,comments}.ts",
+   "run": [
+    "verify-feedback.ts",
+    "verify-registry-parity.ts",
+    "verify-note.ts"
+   ]
+  },
+  {
+   "glob": "flux-core/locks.ts",
+   "run": [
     "verify-w3-locks.ts",
-    "verify-figsave-txn.ts",
-    "verify-paper-extras.mjs",
-    "verify-w18-paper.mjs",
-    "verify-w17-rotate-perf.mjs",
-    "verify-m10-perf.mjs",
-    "verify-f5-drag.mjs",
-    "verify-m15-motion.mjs",
-    "verify-scale-figure.mjs",
-    "verify-scale-paper.mjs",
-    "verify-slide-editor-gui.mjs",
-    "verify-slide-tenancy-gui.mjs",
-    "verify-scale-slide.mjs"
-  ],
-  "timeouts": {
-    "verify-scale-figure.mjs": 120000,
-    "verify-scale-paper.mjs": 120000,
-    "verify-slide-export-parity.ts": 300000,
-    "verify-slide-export-core.ts": 300000,
-    "verify-w13-cli.mjs": 300000,
-    "verify-startup.mjs": 300000,
-    "verify-writer-latency-inp.mjs": 200000,
-    "verify-scale-fulltext.mjs": 180000,
-    "verify-registry-parity.ts": 180000,
-    "verify-slide-headless-e2e.ts": 300000,
-    "verify-slide-export-w6.ts": 300000,
-    "verify-slide-tenancy-gui.mjs": 180000,
-    "verify-scale-slide.mjs": 180000,
-    "verify-slide-export-transform.ts": 300000,
-    "verify-scale-lazy-assets.mjs": 180000
+    "verify-note.ts",
+    "verify-an-journal-locks.ts"
+   ]
+  },
+  {
+   "glob": "flux-core/agents.ts",
+   "run": [
+    "verify-dispatch.ts",
+    "verify-principal-pty.ts",
+    "verify-registry-parity.ts"
+   ]
+  },
+  {
+   "glob": "electron/agentsConfig.cjs",
+   "run": [
+    "verify-context-scheme.ts",
+    "verify-dispatch.ts",
+    "verify-principal-pty.ts"
+   ]
+  },
+  {
+   "glob": "src/shell/agent/**",
+   "run": [
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/PlotElement.svelte",
+   "run": [
+    "tier:pure",
+    "tier:scale",
+    "verify-lazy-save-safety.mjs",
+    "verify-lazy-load-gui.mjs",
+    "verify-lazy-export-overrides.mjs"
+   ]
+  },
+  {
+   "glob": "src/lib/project/figbridge.ts",
+   "run": [
+    "tier:pure",
+    "verify-lazy-save-safety.mjs",
+    "verify-lazy-load-gui.mjs",
+    "verify-lazy-export-overrides.mjs"
+   ]
+  },
+  {
+   "glob": "src/lib/plot/**",
+   "run": [
+    "tier:pure",
+    "tier:scale",
+    "verify-lazy-save-safety.mjs",
+    "verify-lazy-load-gui.mjs",
+    "verify-lazy-export-overrides.mjs"
+   ]
+  },
+  {
+   "glob": "src/shell/modes/slide/**",
+   "run": [
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/{CaptionEditor.svelte,captions.ts}",
+   "run": [
+    "verify-caption-fit.mjs",
+    "verify-f7.mjs",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/ui/autogrow.ts",
+   "run": [
+    "verify-caption-fit.mjs"
+   ]
+  },
+  {
+   "glob": "src/lib/{Sidebar.svelte,viewportNav.ts}",
+   "run": [
+    "verify-figure-center.mjs",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/slide/**",
+   "run": [
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "electron/**",
+   "run": [
+    "tier:presence",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "flux-core/**",
+   "run": [
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/references/{citekey,zoteroFiles,zoteroSettings,zoteroSyncJob.svelte,items,itemsBridge,addPlan,ris}.ts",
+   "run": [
+    "verify-citekey.ts",
+    "verify-import-plan.ts",
+    "verify-zotero-sync.ts",
+    "verify-import-gui.mjs",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "scripts/**",
+   "run": [
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "{src/lib/references/zoteroFields.ts,scripts/verify-zotero-fields.ts,src/lib/exportPrep.ts}",
+   "run": [
+    "verify-zotero-fields.ts",
+    "verify-export-prep.ts",
+    "tier:pure"
+   ]
   }
+ ],
+ "retryOnce": [
+  "verify-crop.mjs",
+  "verify-crisp.mjs",
+  "figenh-16-groups-ui.mjs",
+  "figenh-18-xray.mjs",
+  "verify-xray-theme.mjs",
+  "verify-importer-multi.mjs",
+  "verify-importer-reserved.mjs",
+  "verify-dissect-gui.mjs",
+  "figenh-06-layers.ts",
+  "verify-w3-locks.ts",
+  "verify-figsave-txn.ts",
+  "verify-paper-extras.mjs",
+  "verify-w18-paper.mjs",
+  "verify-w17-rotate-perf.mjs",
+  "verify-m10-perf.mjs",
+  "verify-f5-drag.mjs",
+  "verify-m15-motion.mjs",
+  "verify-scale-figure.mjs",
+  "verify-scale-paper.mjs",
+  "verify-slide-editor-gui.mjs",
+  "verify-slide-tenancy-gui.mjs",
+  "verify-scale-slide.mjs"
+ ],
+ "timeouts": {
+  "verify-scale-figure.mjs": 120000,
+  "verify-scale-paper.mjs": 120000,
+  "verify-slide-export-parity.ts": 300000,
+  "verify-slide-export-core.ts": 300000,
+  "verify-w13-cli.mjs": 300000,
+  "verify-startup.mjs": 300000,
+  "verify-writer-latency-inp.mjs": 200000,
+  "verify-scale-fulltext.mjs": 180000,
+  "verify-registry-parity.ts": 180000,
+  "verify-slide-headless-e2e.ts": 300000,
+  "verify-slide-export-w6.ts": 300000,
+  "verify-slide-tenancy-gui.mjs": 180000,
+  "verify-scale-slide.mjs": 180000,
+  "verify-slide-export-transform.ts": 300000,
+  "verify-scale-lazy-assets.mjs": 180000
+ }
 }

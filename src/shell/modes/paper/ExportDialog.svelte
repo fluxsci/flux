@@ -29,6 +29,11 @@
     format: ExportFormat["id"];
     style: string;
     outPath: string;
+    /** Word only: write citations as live Zotero fields rather than baked text. */
+    zoteroFields?: boolean;
+    /** Word documents already written through Zotero, whose item identities bind our
+     *  citations to that library. Absolute paths; empty means "embed everything". */
+    zoteroLibraryDocs?: string[];
   }
 
   let {
@@ -42,6 +47,8 @@
     onExport,
     onClose,
     onPickPath,
+    onPickLibraryDocs,
+    zoteroMatchSummary = "",
     onChange,
   }: {
     formats: readonly ExportFormat[];
@@ -53,6 +60,10 @@
     onClose: () => void;
     /** Opens the OS save dialog; resolves to null when cancelled. */
     onPickPath: (plan: ExportPlan) => Promise<string | null>;
+    /** Opens a picker for .docx files containing Zotero citations; null when cancelled. */
+    onPickLibraryDocs?: () => Promise<string[] | null>;
+    /** e.g. "98 of 102 references matched" — computed by the caller after a pick. */
+    zoteroMatchSummary?: string;
     /** Fires whenever the axes change so the caller can recompute engine/path. */
     onChange?: (plan: ExportPlan) => void;
   } = $props();
@@ -63,9 +74,11 @@
   let format = $state(untrack(() => initial.format));
   let style = $state(untrack(() => initial.style));
   let outPath = $state(untrack(() => initial.outPath));
+  let zoteroFields = $state(untrack(() => initial.zoteroFields ?? false));
+  let zoteroLibraryDocs = $state<string[]>(untrack(() => initial.zoteroLibraryDocs ?? []));
   let root: HTMLDivElement | undefined = $state();
 
-  const plan = (): ExportPlan => ({ format, style, outPath });
+  const plan = (): ExportPlan => ({ format, style, outPath, zoteroFields, zoteroLibraryDocs });
 
   // A style may not support every format (no journal HTML, say). Selecting an
   // unsupported combination is impossible rather than merely discouraged.
@@ -88,6 +101,14 @@
       }
     }
     onChange?.(plan());
+  }
+
+  async function chooseLibraryDocs() {
+    const picked = await onPickLibraryDocs?.();
+    if (picked) {
+      zoteroLibraryDocs = picked;
+      onChange?.(plan());
+    }
   }
 
   async function choosePath() {
@@ -158,6 +179,42 @@
     </div>
   </div>
 
+  {#if format === "docx"}
+    <div class="row">
+      <span class="lbl">Citations</span>
+      <div class="col">
+        <label class="check">
+          <input
+            type="checkbox"
+            bind:checked={zoteroFields}
+            onchange={() => onChange?.(plan())} />
+          Live Zotero citations
+        </label>
+        <p class="hint">
+          Citations stay editable in Word: refresh, restyle, renumber, and cite alongside
+          them. Without this they are plain text.
+        </p>
+        {#if zoteroFields}
+          <div class="sub">
+            <button class="ghost" onclick={chooseLibraryDocs}>
+              {zoteroLibraryDocs.length ? "Change documents…" : "Link to library from…"}
+            </button>
+            {#if zoteroLibraryDocs.length}
+              <span class="hint"
+                >{zoteroLibraryDocs.length} document{zoteroLibraryDocs.length === 1 ? "" : "s"}{zoteroMatchSummary
+                  ? ` — ${zoteroMatchSummary}`
+                  : ""}</span>
+            {:else}
+              <span class="hint"
+                >Optional. Pick Word files that already use Zotero, and citations to the same
+                works arrive linked to that library instead of embedded.</span>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   {#if engineLabel || blockedReason}
     <div class="row">
       <span class="lbl">Engine</span>
@@ -183,6 +240,19 @@
 </div>
 
 <style>
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    cursor: pointer;
+  }
+  .sub {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    flex-wrap: wrap;
+    margin-top: 0.35em;
+  }
   .export-backdrop {
     position: absolute;
     inset: 0;

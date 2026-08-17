@@ -3574,3 +3574,69 @@ owner design call (granularity, in-flight gestures, "no locked feel" doctrine).
   pre-reload snapshot instead of resetting, and undo/redo across an external swap just works —
   the hard part is only deciding what must NOT ride along (dirty flag, initial loads, slide
   overlay's checkout maps).
+
+## Session entry — 2026-08-17 — live Zotero citations in the Word export
+
+**What landed.** The Word export can now write citations and the reference list as real
+Word/Zotero fields instead of the text citeproc bakes in. `Export → Word` grows a **Live
+Zotero citations** checkbox and, under it, **Link to library from…**, which takes `.docx`
+files already written through Zotero and binds matching citations to that library. New
+shared core `src/lib/references/zoteroFields.ts` (pure, fflate — no native deps, rule 4);
+callers are `flux-core/manuscript.ts` `compile({zoteroFields, zoteroLibraryDocs})` and
+`PaperMode`'s in-app export, which does its own IO through the FileBridge. Citation
+marking rides the existing shared prep (`exportPrep`, `markCitations` flag), so both
+engines mark identically and the sources are restored as before. Gate:
+`verify-zotero-fields.ts` (pure, 40 assertions); user docs updated in `getting-started.qmd`.
+
+**Why the module exists at all.** Pandoc resolves `[@key]` through citeproc, which formats
+the citation into ordinary runs and discards the item identity; its docx *reader* likewise
+drops `ADDIN` instructions, so importing a Zotero user's Word file destroys what they had.
+Neither is a setting — a post-processor is the only place this can be fixed.
+
+**Every assertion in the gate is a document Word rejected.** This was developed against a
+real collaborator's Zotero, and each rule below cost a round trip to discover. None of them
+was visible to structural checking: the XML was well-formed, the field triples balanced,
+the payload schema matched a genuine Zotero document key for key, and the plain-text diff
+against an ordinary render was empty — while Word still refused the file.
+
+1. **`uris` is mandatory on every citation item.** An item without it is unlike anything
+   Zotero writes and refresh fails immediately. Unmatched items get Zotero's local-library
+   form (`users/local/<key>/items/<key>`), which cannot mis-bind because a recipient's local
+   key differs. An earlier design omitted the key when no library match existed; that was
+   the single most expensive mistake of the session.
+2. **Double quotes stay RAW in the field instruction and the prefs blob.** `&quot;` is
+   well-formed XML, but Word hands the field code back undecoded and Zotero cannot parse it.
+   The prefs half fails quietly instead: the style silently reverts to Zotero's default.
+3. **Pandoc's `ref-*` anchors must be removed from the bibliography field.** The field would
+   otherwise enclose ~100 bookmarks, one straddling its boundary, and Zotero replaces the
+   whole field content when it regenerates. Nothing points at those anchors.
+4. **The prefs part is merged, never replaced** (Quarto writes `biblio-config` and others),
+   and splits at 255 *unescaped* characters per `ZOTERO_PREF_n`.
+5. **Records we synthesise are shaped like Zotero's** — string date-parts, no `keyword`.
+6. Marking must skip Quarto crossrefs (`@fig-`, `@tbl-`), which are `Cite` elements too, and
+   must restore the space citeproc deletes before a superscript citation — bracketing the
+   citation breaks the adjacency that rule depends on.
+
+Markers are printable (`⟦ZC{…}⟧`) on purpose: one that ever survives is visible in the
+document rather than an invisible control character in a manuscript.
+
+**Local gate state (macOS box).** Pure tier 173/180. The seven failures are pre-existing and
+environmental, not from this work: `verify-fluxconfig` / `verify-zotero-sync` want a Linux
+`~/.config` layout, the three slide gates want Chrome at `/usr/bin/google-chrome`,
+`verify-paper-commands` asserts Linux chord hints, `verify-dispatch` likewise. Every gate
+covering the touched surface passed (`verify-export-qmd`, `verify-export-prep`,
+`verify-registry-parity`, `verify-docs`, `verify-zotero-fields`), and `npm run check` is at
+0/0. **The paper UI gate (`group:paper-gate`) has NOT been run** — it needs a dev server on
+:1420 and the owner had one in flight; run it before this is merged.
+
+**The CLI carries it too** (owner asked, same session): `compile --zotero-fields
+[--zotero-library a.docx,b.docx]`, `as: "csv"` for the library paths, resolved against the
+project root. The `cli-help.golden.txt` diff is one added usage line; `mcp-tools.golden.json`
+is a name list and did not move. Verified against a scratch project: *"zotero: 3 live
+citation(s), 2 linked to a known library, 2 embedded"*. `CLI-REFERENCE.md` updated with it.
+Note the help text in `flux-cli.ts` is hand-curated rather than derived from the verb, so
+REGEN_GOLDEN alone will not pick up a summary change — edit the usage line as well.
+
+**Not done, deliberately.** The GUI reads the CSL identity from the journal style's asset or
+the document front matter; a project with no CSL at all declares Chicago author-date, which
+is pandoc's own default.

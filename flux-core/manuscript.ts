@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { resolveSpawn } from "../electron/execResolve.cjs";
 import { composeCaption } from "../src/lib/captions";
+import { harvestZoteroLibrary, injectZoteroFields, parseCslIdentity, DEFAULT_STYLE, type CslRecord } from "../src/lib/references/zoteroFields.js";
 import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
 import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
@@ -227,6 +228,8 @@ export interface CompileSummary {
   output?: string;
   figures?: { embedded: number; resolved: number; missing: string[] };
   citations?: { keys: number; resolved: number; missing: string[] };
+  /** Present when live Zotero fields were requested and written. */
+  zotero?: { citations: number; bound: number; embedded: number; style: string };
 }
 
 /** Citation keys used in a qmd (Quarto/pandoc `@key` syntax), excluding
@@ -241,10 +244,31 @@ function citationKeysIn(text: string): string[] {
   return [...keys];
 }
 
+/** The Zotero style id + locale for this render, read from the CSL actually used.
+ *
+ *  Taking it from the CSL file means the citations Word displays and the style Zotero
+ *  would reformat to cannot disagree. With no CSL configured, pandoc's own default is
+ *  Chicago author-date, so that is what the document declares. */
+async function cslIdentity(root: string, docAbs: string, styleCsl?: string): Promise<{ styleId: string; locale: string }> {
+  const candidates: string[] = [];
+  if (styleCsl) candidates.push(path.resolve(root, styleCsl));
+  const front = await fs.readFile(docAbs, "utf8").catch(() => "");
+  const declared = /^csl:\s*["']?(.+?)["']?\s*$/m.exec(front)?.[1];
+  if (declared) candidates.push(path.resolve(path.dirname(docAbs), declared));
+  const quartoYml = await fs.readFile(path.join(path.dirname(docAbs), "_quarto.yml"), "utf8").catch(() => "");
+  const fromYml = /^\s*csl:\s*["']?(.+?)["']?\s*$/m.exec(quartoYml)?.[1];
+  if (fromYml) candidates.push(path.resolve(path.dirname(docAbs), fromYml));
+  for (const cand of candidates) {
+    const identity = parseCslIdentity(await fs.readFile(cand, "utf8").catch(() => ""));
+    if (identity) return identity;
+  }
+  return DEFAULT_STYLE;
+}
+
 export async function compile(
   root: string,
   to = "pdf",
-  opts: { style?: string } = {},
+  opts: { style?: string; zoteroFields?: boolean; zoteroLibraryDocs?: string[] } = {},
 ): Promise<CompileSummary> {
   const m = await loadManifest(root);
   // Journal style: the CLI flag wins, else the project's stored pointer, else
@@ -295,6 +319,7 @@ export async function compile(
       entry: docAbs,
       ctx,
       structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
+      markCitations: !!opts.zoteroFields,
     },
   );
   const expanded = prep.expanded;
@@ -389,5 +414,38 @@ export async function compile(
     resolved: used.filter((k) => bibKeys.has(k)).length,
     missing: used.filter((k) => !bibKeys.has(k)),
   };
-  return { code, log: log + note, output, figures, citations };
+  // Live Zotero fields: rewrite the rendered .docx so its citations and reference list
+  // are Word fields Zotero owns, rather than text citeproc baked in. The markers the
+  // prep wrote name each citation's keys; without them there is nothing to identify.
+  let zotero: CompileSummary["zotero"];
+  if (opts.zoteroFields && to === "docx" && output && code === 0) {
+    try {
+      const { getCite } = await import("../src/lib/references/bibtex.js");
+      const Cite = await getCite();
+      const records: Record<string, CslRecord> = {};
+      for (const rec of (new Cite(bibText).data as CslRecord[]) ?? []) if (rec?.id) records[String(rec.id)] = rec;
+      const libraryDocs = await Promise.all(
+        (opts.zoteroLibraryDocs ?? []).map(async (f) => ({
+          name: path.basename(f),
+          bytes: new Uint8Array(await fs.readFile(path.resolve(root, f))),
+        })),
+      );
+      const index = libraryDocs.length ? harvestZoteroLibrary(libraryDocs) : null;
+      const identity = await cslIdentity(root, docAbs, style.csl);
+      const { bytes, report } = injectZoteroFields(new Uint8Array(await fs.readFile(output)), {
+        items: records,
+        styleId: identity.styleId,
+        locale: identity.locale,
+        index,
+      });
+      await fs.writeFile(output, bytes);
+      zotero = { citations: report.citations, bound: report.bound, embedded: report.embedded, style: identity.styleId };
+    } catch (e) {
+      // A failure here must not lose the export: the .docx on disk is still the ordinary
+      // one, so say what happened and leave it.
+      log += `\n⚠ Zotero fields not written: ${(e as Error).message}`;
+    }
+  }
+
+  return { code, log: log + note, output, figures, citations, zotero };
 }
