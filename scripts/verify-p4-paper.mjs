@@ -141,7 +141,8 @@ assert(
   // PAP-19: the cross-ref grammar is single-source. crossrefRe drops sec (a prose ref, not
   // numbered) but includes eq — numbered equations landed with 2.1 math (NUMBERED_CROSSREF =
   // fig|tbl|eq); both consumers draw from it instead of a local copy.
-  /crossrefRe = \(\): RegExp => \/@\(fig\|tbl\|eq\)-/.test(grammar) &&
+  // \s* — the definition wrapped to its own line when panel sub-numbers landed.
+  /crossrefRe = \(\): RegExp =>\s*\/@\(fig\|tbl\|eq\)-/.test(grammar) &&
     /from "\.\/grammar"/.test(chips) &&
     /from "\.\.\/science\/grammar"/.test(renderMs),
   "PAP-14/19: cross-ref grammar is shared (crossrefRe drops sec, includes fig|tbl|eq; chips + render import it)",

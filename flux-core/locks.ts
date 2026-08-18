@@ -258,19 +258,32 @@ export async function withHeartbeatLockAt<T>(
 ): Promise<T> {
   await acquireOrDefer(dir, name, client, opts);
   const heartbeatMs = opts.heartbeatMs ?? 10_000;
+  // A beat is async (read → write tmp → rename); clearInterval only stops FUTURE
+  // beats. A beat still in flight at release time used to land its rename AFTER
+  // releaseOwn removed the file and RESURRECT the lock — a leak that then blocks
+  // every contender for the full TTL. So: beats run one at a time on a chain,
+  // refuse to start (or to write) once stopped, and release awaits the chain.
+  let stopped = false;
+  let beats: Promise<void> = Promise.resolve();
   const restamp = async () => {
+    if (stopped) return;
     const info = await readLockAt(dir, name);
+    if (stopped) return; // released while we were reading — never re-create the file
     if (info && info.client === client && info.pid === process.pid) {
       const payload = JSON.stringify({ client, pid: process.pid, ts: new Date().toISOString() });
       await restampLock(lockFileAt(dir, name), payload); // atomic — no torn-read window
     }
   };
-  const timer = setInterval(() => void restamp(), heartbeatMs);
+  const timer = setInterval(() => {
+    beats = beats.then(restamp, () => {});
+  }, heartbeatMs);
   (timer as { unref?: () => void }).unref?.();
   try {
     return await fn();
   } finally {
+    stopped = true;
     clearInterval(timer);
+    await beats.catch(() => {}); // nothing can be mid-rename past this point
     await releaseOwn(dir, name, client);
   }
 }

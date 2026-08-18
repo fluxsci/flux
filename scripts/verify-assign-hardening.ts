@@ -213,12 +213,18 @@ const shared = mkLib();
   }, { heartbeatMs: 50 });
   ok(ts1 !== "", "heartbeat lock acquired");
   ok(!fs.existsSync(lockFile), "heartbeat lock released on exit");
-  // Restamp proof: run again capturing mid-flight ts.
+  // Restamp proof: run again capturing mid-flight ts. Poll to a deadline rather
+  // than reading once at a fixed delay — on Windows an external handle on the
+  // lock file (indexer/AV) can make the restamp's rename retry for tens of ms,
+  // which is a slow beat, not a missing one.
   let mid = "";
   await withHeartbeatLockAt(dir, "assign", "cli", async () => {
     const first = JSON.parse(fs.readFileSync(lockFile, "utf8")).ts;
-    await new Promise((r) => setTimeout(r, 140));
-    mid = JSON.parse(fs.readFileSync(lockFile, "utf8")).ts;
+    const deadline = Date.now() + 3000;
+    do {
+      await new Promise((r) => setTimeout(r, 20));
+      mid = JSON.parse(fs.readFileSync(lockFile, "utf8")).ts;
+    } while (Date.parse(mid) <= Date.parse(first) && Date.now() < deadline);
     ok(Date.parse(mid) > Date.parse(first), `heartbeat restamps the held lock (${first} → ${mid})`);
   }, { heartbeatMs: 50 });
 }
