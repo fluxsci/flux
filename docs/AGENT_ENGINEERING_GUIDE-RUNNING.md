@@ -3657,7 +3657,12 @@ citations stay live), and the injector demotes any marker reaching footnotes/end
 displayed text (reported as `notesPlain`) with the refuse-to-write survival check extended to
 those parts. Footnote citations are deliberately NOT live fields — untested against real
 Word/Zotero. Gate extended (13 assertions, fails 8 ways against the unfixed core); §2 table
-row added for the `zoteroFields.ts` shared core.
+row added for the `zoteroFields.ts` shared core. Two review nits then closed in follow-up
+commits: CSL identity resolution became ONE shared walk (`resolveCslIdentity`, IO injected —
+the GUI's private copy had skipped the front-matter `csl:` candidates and probed a directory
+as a file, so the app declared Chicago where the CLI declared the right style), and the
+export dialog's "n of m references matched" line now actually renders (`countMatches` had
+zero callers and the prop was never passed — dead since the feature landed).
 
 **Learnings:**
 
