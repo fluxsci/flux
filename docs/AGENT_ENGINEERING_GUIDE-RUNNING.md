@@ -81,7 +81,7 @@ The established shared cores — extend these, don't duplicate them:
 | Domain | Shared core | Parity/behavior gate |
 | --- | --- | --- |
 | fig/ persistence (shapes, labels, writer plan, save ordering) | `src/lib/project/figfiles.ts` | `verify-figfiles-parity.ts` (byte-identical trees) |
-| Model mutations (all figure edits) | `src/lib/ops.ts` (+ `editing.ts`, `geometry.ts`) | `verify-ops.ts`, figenh parity suite |
+| Model mutations (all figure edits) | `src/lib/ops.ts` (+ `editing.ts`, `geometry.ts`) | `verify-ops.ts`, `verify-fig-order.ts`, figenh parity suite |
 | Pointer-gesture math (resize/snap/handles) | `src/lib/interact/` | `verify-interact-core.ts` |
 | Load-gate validation (parse → migrate → validate) | `src/lib/project/validate.ts` (+ generated `validators.gen.js`) | `verify-loadgate.ts` |
 | Reference query grammar | `src/lib/references/query.ts` | `verify-organize.ts` |
@@ -178,6 +178,17 @@ Persistence invariants (all machine-checked — do not weaken):
   (union the lines); everything else is the user's call. The scan runs on project open, not just
   from watcher events: conflicts arrive while Flux is CLOSED, which is exactly when the other
   machine was in use.
+- **Figure ORDER is `p.figures`' array order, per canvas, and it is the user's** (2026-08-19):
+  the sidebar's Figures list renders that order, the user drags rows (or presses Alt+↑/↓) to
+  change it, and `planFigSave` persists it — canvas files list figures in it and `index.json`
+  numbers `order` 1..N from it. The one primitive is `ops.reorderFigures(p, ids, toIndex)`
+  (a multi-row pick lands as one contiguous block; only the target canvas's own slots in the
+  shared array are permuted, so canvas B's order can never disturb canvas A's). Order and
+  NUMBERING are deliberately orthogonal: reordering touches no geometry and no
+  family/number, and `computeFamilyNumbers` sorts by claimed number, not by array position —
+  renumbering stays `assignFamilyNumber`'s insert-and-shift (the namer, Ctrl+R). The paper
+  side is unaffected either way: its pickers/completions sort by family rank + number.
+  Gates: `verify-fig-order.ts` (pure) + `verify-fig-order-gui.mjs` (ui).
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
 - **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
   external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines
@@ -673,6 +684,12 @@ days (probe geometry like `width` instead).
   `application-x-executable` cog. Packaged builds ship an entry (electron-builder, `linux.icon`);
   dev runs need `npm run install:desktop-entry`. macOS ignores `BrowserWindow.icon` on any
   backend — the Dock takes `app.dock.setIcon()` or the bundle's `.icns`.
+- **On macOS a Ctrl+click is a SECONDARY click** — Chrome fires `contextmenu` and no `click`
+  at all, so a Ctrl-modified click chord is dead there. Any such chord must accept
+  `metaKey` too (⌘+click) and its gate must press the platform's key
+  (`process.platform === "darwin" ? "Meta" : "Control"`); the same applies to the several
+  ui gates that press `Control` for Ctrl+Z etc. — those work only because keyboard.ts reads
+  `metaKey || ctrlKey`.
 - Delegated worktree agents fork from the **default branch**, not your branch. Give them an
   explicit `git reset --hard <sha>` as step one, and expect to reconcile your in-flight deltas
   when merging their result.
@@ -3680,3 +3697,41 @@ zero callers and the prop was never passed — dead since the feature landed).
   console-clean check only: vite's `server.fs.allow` 403s the Harper WASM
   (`PAGEERR … WebAssembly: HTTP status code is not ok`). Use a repo-local worktree with
   `cp -al` (hardlinks need the same filesystem; `/tmp` is tmpfs here).
+
+### 2026-08-19 (later) — Figure list order is now the user's; the export name follows the format (Claude Opus 5, `main`)
+
+**Work:** Two owner-asked improvements. (1) The sidebar's **Figures** list is now
+rearrangeable: drag a row (the whole row is the drag surface, past a 4px threshold, so a
+plain click still "goes to the figure"), or press **Alt+↑/↓**; Shift+click picks a run and
+Ctrl/⌘+click toggles one, and the pick moves as one contiguous block. One primitive,
+`ops.reorderFigures`, promoted to §3 — order only: no geometry moves (the figure stays put
+on the canvas, which was the explicit ask) and nothing is renumbered, since order and
+family/number are orthogonal by design. The row pick lives in `store.figureSelection` with
+one fallback rule (`selectedFigureIds`: empty pick = the active figure) so the drag and the
+chord can never disagree; it prunes with the rest of the selection and clears with
+`clearSelection`. Alt+↑/↓ was chosen over the owner's suggested Shift+↑/↓, which is the
+10px nudge — Alt+arrow is the editor world's "move this block up a list" chord and had no
+binding here (it fell through to a 1px nudge). Gated tenant-side to `figure` (in slide mode
+those "figures" are slides). (2) The export dialog's destination now follows the format
+axis: the dialog seeds `outPath` from `initial` ONCE, so a format switch left the old
+extension in place and a Word export was written to a `.pdf` name — `onChange` may now
+return a revised plan and the dialog adopts its `outPath`; `choosePath` publishes too, so a
+path the user picked survives the next switch (the caller can only tell it apart from its
+own default by seeing it). New gates: `verify-fig-order.ts` (pure, 22 checks) and
+`verify-fig-order-gui.mjs` (ui, 19), both proven to fail against the unfixed code;
+`verify-paper-export.mjs` grew section A3 (7 checks, reproduces the bug exactly).
+check 0/0; pure 175/181 and paper-gate 27/31 — every failure verified pre-existing on this
+macOS box by re-running it against a stashed tree.
+
+**Learnings:**
+
+- `verify-figure-center.mjs` had been red on main since figure families (2026-08-04) added
+  the dim nickname span inside a row's button: an exact `textContent` match found no row.
+  Fixed (match the name TEXT NODE, `childNodes[0]`) — the SAME rot as verify-w10-matrix's
+  name probe, in the same ui-extra tier, from the same feature. When a feature changes what
+  a row RENDERS, grep the gates for `textContent` probes as well as field probes.
+- macOS turns Ctrl+click into a secondary click (no `click` event at all) — promoted to §9.
+  A modifier chord needs `metaKey` and its gate needs the platform's key.
+- A dialog that seeds its fields from a prop ONCE (`untrack`) owns them from then on: the
+  caller can recompute all it likes and nothing shows. Either the dialog re-reads, or the
+  caller's answer comes BACK through the change callback — silence looks like agreement.
