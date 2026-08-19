@@ -23,6 +23,9 @@ import {
   expandGroups,
   enteredGroupId,
   getActiveFigure,
+  figuresOnCanvas,
+  activeCanvasId,
+  selectedFigureIds,
   arrange,
   lastArrangeRows,
   cascadeState,
@@ -406,6 +409,37 @@ function nudgeFrame(dx: number, dy: number) {
   });
 }
 
+/** Alt+↑/↓ — move the picked figure rows one slot up or down the sidebar's
+ *  Figures list (the model order the canvas files persist). Acts on the row
+ *  pick (Shift/Ctrl+click in the sidebar) or, with none, on the active figure.
+ *  Order only: nothing moves on the canvas and no number changes — renumbering
+ *  stays the namer's job (Ctrl+R). Returns false when there is nothing to move
+ *  (no figure, or the block is already against that end), so the chord falls
+ *  through instead of silently eating the key. */
+function moveFigureInOrder(delta: number): boolean {
+  // Figure tenant only: in slide mode the store's "figures" are SLIDES, whose
+  // order lives in the deck overlay and moves through commitDeckLive (same
+  // reasoning as Ctrl+R's namer guard).
+  if (storeTenant() !== "figure") return false;
+  const p = get(project);
+  let ids = selectedFigureIds(p, get(activeCanvasId));
+  // A frame selected on canvas is what the user is working on — unless it is
+  // already part of the row pick.
+  const frame = frameSelected();
+  if (frame && !ids.includes(frame)) ids = [frame];
+  const home = p.figures.find((f) => f.id === ids[0]);
+  if (!home) return false;
+  const sibs = figuresOnCanvas(p, home.canvasId).map((f) => f.id);
+  const moving = new Set(ids);
+  const rest = sibs.filter((id) => !moving.has(id));
+  const first = sibs.findIndex((id) => moving.has(id));
+  // ops.reorderFigures counts its target among the figures that stay put.
+  const at = sibs.slice(0, first).filter((id) => !moving.has(id)).length + delta;
+  if (at < 0 || at > rest.length) return false; // already against that end
+  commit((pp) => ops.reorderFigures(pp, ids, at));
+  return true;
+}
+
 function deleteFrame(): boolean {
   const fid = frameSelected();
   if (!fid) return false;
@@ -781,6 +815,17 @@ export function handleKey(e: KeyboardEvent) {
     const fid = frameSelected() ?? get(activeFigureId);
     if (fid) figNamer.set({ figId: fid });
     return;
+  }
+
+  // Alt+↑ / Alt+↓: move this figure up/down the sidebar's Figures list — the
+  // editor's "move this block up a list" chord (VS Code / Obsidian). NOT
+  // Shift+arrows, which is the 10px nudge. The figure keeps its place on the
+  // canvas and its number: this reorders the list, the namer renumbers.
+  if (e.altKey && !mod && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    if (moveFigureInOrder(e.key === "ArrowUp" ? -1 : 1)) {
+      e.preventDefault();
+      return;
+    }
   }
 
   // Alignment: Alt + A/W/S/D (+ centre on H/V).

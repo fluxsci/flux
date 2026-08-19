@@ -90,6 +90,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Shift+H** / **Shift+V** | Flip horizontal / vertical |
 | **[** / **]** | Send to back / bring to front (**+Ctrl**: one step; **+Ctrl+Shift**: all the way) |
 | **Arrows** | Nudge 1 px (**Shift**: 10 px) — also nudges a drilled plot part |
+| **Alt+↑** / **Alt+↓** | Move the figure up / down the sidebar's Figures list (the picked rows move as a block; nothing moves on the canvas, nothing is renumbered) |
 | **Ctrl+R** | Name the figure — family (Figure / Supplementary / Extended Data / custom), number (insert-and-shift), nickname |
 | **Ctrl+B** / **I** / **U** | Bold / italic / underline on text (and text-like plot parts) |
 | **Ctrl+B** (nothing text-like selected) | Hide/show the left sidebar |
@@ -98,7 +99,8 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Ctrl+Shift+B** | Hide/show the right rail |
 | **Delete** | Delete selection |
 
-Mouse: plain click = whole plot/group · **Ctrl+click** = pierce to the part under the cursor
+Mouse: **drag a figure's sidebar row** = reorder the figures (**Shift+click** picks a run,
+**Ctrl/⌘+click** adds or drops one) · plain click = whole plot/group · **Ctrl+click** = pierce to the part under the cursor
 (hold Ctrl to preview) · **double-click** = descend (group → inside; text → edit; plot → part;
 path → node edit) · **Shift+click** = add to selection · **Alt+drag** = duplicate ·
 **Shift+drag** = axis-constrain · **Ctrl+drag a resize handle** = crop · **Alt while

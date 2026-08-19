@@ -23,6 +23,12 @@ survives.
 - **Clicking a figure's name takes you to it** — the view centres on that figure at whatever
   zoom you are already working at, so a big canvas stays navigable without hunting. Your zoom
   is never changed for you. Click the name again after panning away to snap back to it.
+- **Drag a figure's row up or down the list to reorder the figures** — or press
+  **Alt+↑** / **Alt+↓**. **Shift+click** picks a run of rows and **Ctrl+click**
+  (**⌘+click** on macOS) adds or drops one, and the whole pick then moves as a block.
+  This changes the *order of the list only*: nothing moves on the canvas, and no figure is
+  renumbered — reordering and renumbering are separate on purpose, so use the figure namer
+  below when you want the numbers to follow.
 - The **Inspector** on the right carries alignment, position/size, text, stroke/fill, colors,
   and per-figure settings; drag its left edge to resize it, **Ctrl+Shift+B** hides it for a
   clean canvas.

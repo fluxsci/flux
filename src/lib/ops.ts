@@ -280,6 +280,39 @@ export function duplicateFigure(p: Project, figId: Id): Id | null {
   return copy.id;
 }
 
+/** Move one or more figures to a position in their CANVAS's order — the
+ *  sidebar's Figures list, and the order `fig/canvases/<id>.json` +
+ *  `index.json` persist (planFigSave numbers `order` from this array).
+ *
+ *  `ids` may be non-contiguous (a Ctrl+click pick): the figures keep their
+ *  relative order and land as ONE contiguous block. `toIndex` is where the
+ *  block's first figure ends up, counting the figures on that canvas only
+ *  (0 = first), clamped. Figures on other canvases are ignored, and only this
+ *  canvas's own slots in `p.figures` are permuted, so reordering canvas B can
+ *  never disturb canvas A's order.
+ *
+ *  Ordering is all it does. GEOMETRY is untouched, so a reordered figure does
+ *  not move on the canvas; family/number are untouched too, so renumbering
+ *  stays the deliberate act it already is (the Figure Namer /
+ *  setFigureIdentity, insert-and-shift). */
+export function reorderFigures(p: Project, ids: Id[], toIndex: number): void {
+  const figs = ids.map((id) => figById(p, id)).filter((f): f is Figure => !!f);
+  if (!figs.length) return;
+  const canvasId = figs[0].canvasId;
+  const moving = new Set(figs.filter((f) => f.canvasId === canvasId).map((f) => f.id));
+  const slots: number[] = [];
+  p.figures.forEach((f, i) => {
+    if (f.canvasId === canvasId) slots.push(i);
+  });
+  const sibs = slots.map((i) => p.figures[i]);
+  const block = sibs.filter((f) => moving.has(f.id)); // relative order kept
+  const rest = sibs.filter((f) => !moving.has(f.id));
+  const at = Math.max(0, Math.min(rest.length, Math.round(toIndex)));
+  const next = [...rest.slice(0, at), ...block, ...rest.slice(at)];
+  if (next.every((f, i) => f === sibs[i])) return; // no-op: leave the array alone
+  slots.forEach((gi, k) => (p.figures[gi] = next[k]));
+}
+
 export function setFigureLayout(
   p: Project,
   figId: Id,

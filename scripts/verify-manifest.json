@@ -59,6 +59,7 @@
    "verify-fetchflow.ts",
    "verify-figfamily.ts",
    "verify-ops.ts",
+   "verify-fig-order.ts",
    "verify-p4-figure.ts",
    "verify-p4-libreader.ts",
    "verify-p4-slide.ts",
@@ -239,6 +240,7 @@
    "verify-text-biu.mjs",
    "verify-text-styles.mjs",
    "verify-groups-layers.mjs",
+   "verify-fig-order-gui.mjs",
    "verify-line-pivot.mjs",
    "verify-fig-suspend.mjs",
    "verify-slide-editor-gui.mjs",
@@ -684,6 +686,15 @@
    "glob": "src/lib/{Sidebar.svelte,viewportNav.ts}",
    "run": [
     "verify-figure-center.mjs",
+    "verify-fig-order-gui.mjs",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/lib/keyboard.ts",
+   "run": [
+    "verify-fig-order-gui.mjs",
+    "verify-fig-namer.mjs",
     "tier:pure"
    ]
   },

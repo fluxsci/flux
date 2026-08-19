@@ -6,6 +6,7 @@
     selection,
     selectOnly,
     commit,
+    mutate,
     mutateFigure,
     figureRev,
     globalRev,
@@ -14,6 +15,8 @@
     deleteCanvas,
     setActiveCanvas,
     figuresOnCanvas,
+    figureSelection,
+    selectedFigureIds,
     figNamer,
   } from "./store";
   import { familyById, shortBadge } from "./figfamily";
@@ -97,15 +100,146 @@
    *  zoom the user is already working at. Re-clicking the active figure
    *  re-centres it (the store's same-value set wouldn't notify, so this is a
    *  direct call, not a subscriber) — which makes the row a "put me back" button
-   *  after panning away. */
-  function goToFigure(id: string) {
+   *  after panning away.
+   *
+   *  With a modifier it is a LIST pick instead (for reordering, below), so the
+   *  view stays put: Shift extends a range from the active row, Ctrl/Cmd
+   *  toggles one row in or out. */
+  function goToFigure(id: string, e: MouseEvent) {
+    if (figDragMoved) return; // this click ended a reorder drag, not a click
+    if (e.shiftKey) {
+      selectFigureRange(id);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      toggleFigureRow(id);
+      return;
+    }
+    figureSelection.set(new Set([id]));
     activeFigureId.set(id);
     centerOnFigure(id);
   }
 
-  // Figures on the active canvas only.
+  /** Shift+click: every row between the active one and this one. The anchor is
+   *  the active figure (not a separate "last clicked" state) so what the range
+   *  runs from is always visible. */
+  function selectFigureRange(id: string) {
+    const ids = canvasFigures.map((f) => f.id);
+    const a = ids.indexOf($activeFigureId ?? "");
+    const b = ids.indexOf(id);
+    if (b < 0) return;
+    const [lo, hi] = a < 0 ? [b, b] : [Math.min(a, b), Math.max(a, b)];
+    figureSelection.set(new Set(ids.slice(lo, hi + 1)));
+  }
+
+  /** Ctrl/Cmd+click: add or remove one row. Removing the active row leaves the
+   *  active figure alone — it is what the canvas shows, not a list pick. */
+  function toggleFigureRow(id: string) {
+    const next = new Set($figureSelection);
+    // An empty pick means "just the active figure" (store contract): make that
+    // implicit member explicit before adding to it, or Ctrl+click would read as
+    // a plain click that dropped it.
+    if (!next.size && $activeFigureId) next.add($activeFigureId);
+    if (next.has(id)) next.delete(id);
+    else {
+      next.add(id);
+      activeFigureId.set(id);
+    }
+    figureSelection.set(next);
+  }
+
+  /** Is this row part of what a reorder would move? (An empty pick = the
+   *  active figure.) */
+  function rowPicked(id: string, sel: Set<string>, active: string | null): boolean {
+    return sel.size ? sel.has(id) : id === active;
+  }
+
+  // Figures on the active canvas only — in the model's order, which IS the
+  // list order the user can now drag (see the figure-reorder block below).
   $: canvasFigures = $project.figures.filter((f) => f.canvasId === $activeCanvasId);
   $: activeFig = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
+
+  // --- Drag-to-reorder the Figures list. The list order IS the model order
+  // (planFigSave numbers `order` from it, so it persists), and reordering is
+  // ORDER ONLY: x/y never move, so a figure stays exactly where it sits on the
+  // canvas, and family/number stay put — renumbering remains the namer's
+  // deliberate act (Ctrl+R). Alt+↑/↓ does the same from the keyboard
+  // (keyboard.ts), on the same picked rows.
+  //
+  // Unlike a Layers row (which has a grip, because its body is a click target
+  // for select/rename), the WHOLE figure row is the drag surface — it is one
+  // block. So the press only becomes a drag past a small threshold, and the
+  // click that ends a real drag is suppressed rather than treated as
+  // "go to this figure". Pointer capture is claimed at that same threshold,
+  // never on a plain click, so a click keeps landing on the button it hit.
+  //
+  // A drag carries the whole PICK (one row, or several picked with
+  // Shift/Ctrl+click) — dragging a row that is not part of the pick makes it
+  // the pick first, the file-manager rule. ---
+  const FIG_DRAG_SLOP = 4; // px of movement before a press is a drag
+  let figListEl: HTMLUListElement | undefined;
+  let figDragIds: string[] = []; // rows being dragged (drives .dragging)
+  let figDragFrom: { id: string; x: number; y: number } | null = null;
+  let figDragMoved = false; // a drag happened → swallow its trailing click
+
+  /** Index of the figure row under `y` (rows are keyed, so live reordering
+   *  keeps these rects in step with the model). */
+  function figRowIndexAtY(y: number): number {
+    const rows = [...(figListEl?.children ?? [])] as HTMLElement[];
+    for (let i = 0; i < rows.length; i++) {
+      if (y < rows[i].getBoundingClientRect().bottom) return i;
+    }
+    return rows.length - 1;
+  }
+
+  function startFigDrag(e: PointerEvent, id: string) {
+    if (e.button !== 0) return;
+    figDragFrom = { id, x: e.clientX, y: e.clientY };
+    figDragMoved = false;
+  }
+  function onFigDragMove(e: PointerEvent) {
+    if (!figDragFrom) return;
+    if (!figDragIds.length) {
+      const far =
+        Math.abs(e.clientY - figDragFrom.y) >= FIG_DRAG_SLOP ||
+        Math.abs(e.clientX - figDragFrom.x) >= FIG_DRAG_SLOP;
+      if (!far) return;
+      const grabbed = figDragFrom.id;
+      // Grabbing a row outside the pick re-picks it (and only it).
+      if (!rowPicked(grabbed, $figureSelection, $activeFigureId)) {
+        figureSelection.set(new Set([grabbed]));
+        activeFigureId.set(grabbed);
+      }
+      figDragIds = selectedFigureIds($project, $activeCanvasId);
+      if (!figDragIds.length) return;
+      figDragMoved = true;
+      beginGesture(); // one undo entry for the whole drag
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {} // a synthetic pointer (headless gates) has nothing to capture
+    }
+    // Where the block's first row should land: above the pointer row when
+    // dragging up, and with its LAST row on the pointer row when dragging down
+    // (the block is contiguous after the first move, so the rows before it are
+    // exactly the non-moving ones ops.reorderFigures counts).
+    const ids = figDragIds;
+    const rowIds = canvasFigures.map((f) => f.id);
+    const first = rowIds.findIndex((id) => ids.includes(id));
+    const over = figRowIndexAtY(e.clientY);
+    if (first < 0 || over < 0) return;
+    const at = over < first ? over : over - ids.length + 1;
+    if (at === first) return;
+    mutate((p) => ops.reorderFigures(p, ids, at));
+  }
+  function endFigDrag(e: PointerEvent) {
+    if (figDragIds.length) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+    figDragFrom = null;
+    figDragIds = []; // figDragMoved survives until the next pointerdown
+  }
 
   // --- Layers = the derived group tree, flattened top-z first with depth
   // indents (pure selector: figure/derived/layerRows.ts — WS-1 Fix 6a).
@@ -265,15 +399,23 @@
       <h4>Figures</h4>
       <button class="mini" on:click={addFigure} title="Add figure">+</button>
     </div>
-    <ul>
+    <ul bind:this={figListEl}>
       {#each canvasFigures as fig (fig.id)}
-        <li class:active={$activeFigureId === fig.id}>
+        <li
+          class="figrow"
+          class:active={$activeFigureId === fig.id}
+          class:picked={$figureSelection.has(fig.id)}
+          class:dragging={figDragIds.includes(fig.id)}
+          on:pointerdown={(e) => startFigDrag(e, fig.id)}
+          on:pointermove={onFigDragMove}
+          on:pointerup={endFigDrag}
+          on:pointercancel={endFigDrag}>
           <span class="fnum" title={fig.name}>{shortBadge(familyById(fig.family, $project.figureFamilies), fig.number ?? 0)}</span>
           <button
             class="item"
-            on:click={() => goToFigure(fig.id)}
+            on:click={(e) => goToFigure(fig.id, e)}
             on:dblclick={() => openNamer(fig.id)}
-            title="Click to go to it · double-click to rename (Ctrl+R)">
+            title="Click to go to it · Shift/Ctrl+click to pick several · drag to reorder (Alt+↑/↓) · double-click to rename (Ctrl+R)">
             {fig.name}{#if fig.nickname}<span class="nick">{fig.nickname}</span>{/if}
           </button>
           <button class="del" on:click={() => deleteFigure(fig.id)} title="Delete figure">×</button>
@@ -498,6 +640,23 @@
   }
   li:hover:not(.active) {
     background: var(--c-surface-2);
+  }
+  /* Figure rows are draggable as a block (list order = figure order). */
+  .figrow {
+    cursor: grab;
+    touch-action: none; /* a touch drag reorders instead of scrolling the rail */
+  }
+  /* Picked for a reorder (multi-select): visible without stealing the
+     active-figure accent, which means something else. */
+  .figrow.picked:not(.active) {
+    background: var(--c-accent-tint);
+  }
+  .figrow.dragging {
+    cursor: grabbing;
+    box-shadow: inset 0 0 0 1px var(--c-accent);
+  }
+  .figrow.dragging .item {
+    cursor: grabbing;
   }
   /* M14: order-derived figure number (always reflects position, never stale). */
   .fnum {

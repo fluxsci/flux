@@ -211,6 +211,25 @@ activeFigureId.subscribe(() => xrayRoot.set(null));
 // — so a frame can be moved/duplicated/nudged on the canvas (F8). Set by clicking
 // a figure's title label; cleared when elements are (re)selected.
 export const selectedFrameId = writable<Id | null>(null);
+// The sidebar's Figures-LIST selection: which figure rows are picked for a
+// reorder (plain click = one, Shift+click = a range, Ctrl/Cmd+click = toggle).
+// Distinct from `selection` (elements) and `selectedFrameId` (the frame being
+// edited on canvas) — it addresses figures as list entries. EMPTY means "just
+// the active figure": every consumer falls back to it, so nothing has to keep
+// the two in sync. Pruned by pruneSelection, cleared on a canvas switch.
+export const figureSelection = writable<Set<Id>>(new Set());
+
+/** The figures a list-level action applies to, in canvas order — the row
+ *  selection, or the active figure when there is none. One definition so the
+ *  sidebar drag and the Alt+arrow chord can never disagree. */
+export function selectedFigureIds(p: Project, canvasId: Id | null): Id[] {
+  const sel = get(figureSelection);
+  const onCanvas = p.figures.filter((f) => f.canvasId === canvasId);
+  const picked = onCanvas.filter((f) => sel.has(f.id)).map((f) => f.id);
+  if (picked.length) return picked;
+  const active = get(activeFigureId);
+  return active && onCanvas.some((f) => f.id === active) ? [active] : [];
+}
 // The canvas (page) currently shown in the editor.
 export const activeCanvasId = writable<Id | null>(get(project).canvases[0]?.id ?? null);
 
@@ -504,6 +523,7 @@ export function clearSelection() {
   partSelection.set(null);
   selectedFrameId.set(null);
   enteredGroupId.set(null);
+  figureSelection.set(new Set());
 }
 
 // Frame-as-object selection (F8): select a whole figure for move/duplicate/nudge.
@@ -549,6 +569,12 @@ function pruneSelection() {
   // FIG-13: a frame (figure) selection can also dangle after undo removes its figure —
   // clear it so the frame HUD / resize handles don't render against a gone figure.
   selectedFrameId.update((id) => (id && p.figures.some((f) => f.id === id) ? id : null));
+  // The Figures-list selection dangles the same way (undo, delete, agent edit).
+  figureSelection.update((s) => {
+    const n = new Set<Id>();
+    for (const f of p.figures) if (s.has(f.id)) n.add(f.id);
+    return n.size === s.size ? s : n;
+  });
   // P7: an entered-group scope dangles the same way when its registry def goes
   // (undo / delete / ungroup) — drop back to top level.
   enteredGroupId.update((id) => (id && p.figures.some((f) => f.groups?.[id]) ? id : null));
@@ -678,7 +704,7 @@ export function setActiveCanvas(id: Id) {
   activeCanvasId.set(id);
   const fig = figuresOnCanvas(get(project), id)[0] ?? null;
   activeFigureId.set(fig?.id ?? null);
-  clearSelection();
+  clearSelection(); // rows included — a pick never carries over to another canvas
   captionOpen.set(false);
 }
 

@@ -121,6 +121,7 @@
           items: [
             ["⌃ + Z / Shift + Z", "Undo / redo"],
             ["⌃ + R", "Name figure — family · number · nickname"],
+            ["Alt + ↑ / ↓", "Move the figure up / down the sidebar list (drag a row does the same)"],
             ["⌃ + D", "Duplicate"],
             ["⌃ + C / V", "Copy / paste"],
             ["⌃ + B / I / U", "Bold / italic / underline (text or text part)"],
