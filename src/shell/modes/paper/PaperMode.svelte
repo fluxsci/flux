@@ -641,6 +641,9 @@
   const HOUSE_STYLE_ID = "flux";
   const EXPORT_STYLES: readonly ExportStyleOption[] = journalStyleOptions();
   let exportPlan = $state<ExportPlan>({ format: "pdf", style: HOUSE_STYLE_ID, outPath: "" });
+  // "n of m references matched" for the export dialog, computed when library docs are
+  // picked (pickZoteroLibraryDocs). Cleared on dialog open: the bib may have changed.
+  let zoteroMatchSummary = $state("");
 
   // Bare-quarto parity for the in-app Word export: the SHARED prep core
   // (src/lib/exportPrep.ts) walks the include tree, bakes composed model
@@ -676,6 +679,39 @@
     return () => prep.restore();
   }
 
+  /** The project's cited records (references/library.bib), keyed by citekey. */
+  async function readCiteItems(
+    fb: NonNullable<ReturnType<typeof fileBridge>>,
+  ): Promise<Record<string, import("../../../lib/references/zoteroFields").CslRecord>> {
+    const items: Record<string, import("../../../lib/references/zoteroFields").CslRecord> = {};
+    if (!pm) return items;
+    const { getCite } = await import("../../../lib/references/bibtex");
+    const bibRel = pm.manifest?.references?.library ?? "references/library.bib";
+    const bibText = (await fb.readText(`${pm.root}/${bibRel}`).catch(() => null)) ?? "";
+    const Cite = await getCite();
+    for (const rec of (new Cite(bibText).data as { id?: string }[]) ?? []) {
+      if (rec?.id) items[String(rec.id)] = rec as never;
+    }
+    return items;
+  }
+
+  /** Harvest the Zotero item identities out of the picked .docx files. */
+  async function harvestLibraryDocs(
+    fb: NonNullable<ReturnType<typeof fileBridge>>,
+    docs: string[],
+  ): Promise<import("../../../lib/references/zoteroFields").ZoteroLibraryIndex | null> {
+    if (!docs.length) return null;
+    const { harvestZoteroLibrary } = await import("../../../lib/references/zoteroFields");
+    return harvestZoteroLibrary(
+      await Promise.all(
+        docs.map(async (abs) => ({
+          name: abs.replace(/^.*\//, ""),
+          bytes: new Uint8Array(await fb.readFile(abs)),
+        })),
+      ),
+    );
+  }
+
   /** Rewrite the rendered .docx so its citations are live Zotero fields.
    *
    *  The heavy lifting is the shared pure core (references/zoteroFields.ts) that
@@ -686,30 +722,11 @@
     outPath: string,
   ): Promise<{ citations: number; bound: number; notesPlain: number } | null> {
     if (!pm) return null;
-    const { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity } = await import(
+    const { injectZoteroFields, resolveCslIdentity } = await import(
       "../../../lib/references/zoteroFields"
     );
-    const { getCite } = await import("../../../lib/references/bibtex");
-
-    const bibRel = pm.manifest?.references?.library ?? "references/library.bib";
-    const bibText = (await fb.readText(`${pm.root}/${bibRel}`).catch(() => null)) ?? "";
-    const Cite = await getCite();
-    const items: Record<string, import("../../../lib/references/zoteroFields").CslRecord> = {};
-    for (const rec of (new Cite(bibText).data as { id?: string }[]) ?? []) {
-      if (rec?.id) items[String(rec.id)] = rec as never;
-    }
-
-    const docs = plan.zoteroLibraryDocs ?? [];
-    const harvested = docs.length
-      ? harvestZoteroLibrary(
-          await Promise.all(
-            docs.map(async (abs) => ({
-              name: abs.replace(/^.*\//, ""),
-              bytes: new Uint8Array(await fb.readFile(abs)),
-            })),
-          ),
-        )
-      : null;
+    const items = await readCiteItems(fb);
+    const harvested = await harvestLibraryDocs(fb, plan.zoteroLibraryDocs ?? []);
 
     // The style Zotero will reformat to must be the one the render used — the shared
     // resolver (journal-style asset → front-matter csl → _quarto.yml) over the bridge.
@@ -730,14 +747,34 @@
     return { citations: report.citations, bound: report.bound, notesPlain: report.notesPlain };
   }
 
-  /** Pick Word documents that already contain Zotero citations, to bind against. */
+  /** Pick Word documents that already contain Zotero citations, to bind against.
+   *  A successful pick also computes the dialog's "n of m references matched" line,
+   *  so the user learns BEFORE exporting whether the files actually carry a library. */
   async function pickZoteroLibraryDocs(): Promise<string[] | null> {
     const fb = fileBridge();
     if (!fb?.openFiles) {
       pushToast("error", "Picking files needs the desktop app");
       return null;
     }
-    return fb.openFiles([{ name: "Word documents with Zotero citations", extensions: ["docx"] }]);
+    const picked = await fb.openFiles([
+      { name: "Word documents with Zotero citations", extensions: ["docx"] },
+    ]);
+    if (picked?.length) {
+      zoteroMatchSummary = "";
+      try {
+        const { countMatches } = await import("../../../lib/references/zoteroFields");
+        const items = await readCiteItems(fb);
+        const keys = Object.keys(items);
+        const index = await harvestLibraryDocs(fb, picked);
+        if (keys.length && index)
+          zoteroMatchSummary = `${countMatches(keys, items, index)} of ${keys.length} reference${
+            keys.length === 1 ? "" : "s"
+          } matched`;
+      } catch {
+        // The count is advisory; a failure to compute it must not block the pick.
+      }
+    }
+    return picked;
   }
 
   /** Default destination for a (format, style) pair. Everything lands in
@@ -771,6 +808,7 @@
     if (exportBusy) return;
     // Re-derive the path when the remembered one is stale for this document.
     if (!exportPlan.outPath) exportPlan = { ...exportPlan, outPath: defaultOutPath(exportPlan.format, exportPlan.style) };
+    zoteroMatchSummary = ""; // stale against a bib that may have changed since the pick
     exportOpen = true;
   }
 
@@ -2304,6 +2342,7 @@
           : null;
       }}
       onPickLibraryDocs={pickZoteroLibraryDocs}
+      {zoteroMatchSummary}
       onExport={(p) => void doExport(p)}
       onClose={() => { exportOpen = false; view?.focus(); }}
     />

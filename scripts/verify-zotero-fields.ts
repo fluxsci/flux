@@ -12,6 +12,7 @@ import {
   parseCslIdentity,
   resolveCslIdentity,
   matchUri,
+  countMatches,
   DEFAULT_STYLE,
   type CslRecord,
   type ZoteroLibraryIndex,
@@ -173,6 +174,13 @@ const INDEX: ZoteroLibraryIndex = {
   assert(noYear === null, "a title match with a disagreeing year is refused — a wrong URI is worse than none");
   const noEvidence = matchUri({ id: "x", title: "Something else entirely" }, INDEX);
   assert(noEvidence === null, "author+year alone is not evidence of identity (it produced a false positive)");
+
+  // countMatches backs the dialog's "n of m references matched" line.
+  assert(countMatches(["bound_2005", "loose_2000"], ITEMS, INDEX) === 1,
+    "countMatches counts exactly the bindable records");
+  assert(countMatches(["bound_2005", "nowhere_1999"], ITEMS, INDEX) === 1,
+    "a key with no record cannot count as a match");
+  assert(countMatches(["bound_2005"], ITEMS, null) === 0, "no harvested library, no matches");
 }
 
 // ---- bibliography field + pandoc's anchors ---------------------------------
