@@ -68,6 +68,10 @@ export interface InjectReport {
   embedded: number;
   /** Citations whose keys resolved to no record; left as plain text. */
   skipped: number;
+  /** Citations rendered into footnotes/endnotes — demoted to their displayed text.
+   *  Word fields there are untested against real Zotero, so they are deliberately
+   *  not written (a follow-up needs its own Word round trip). */
+  notesPlain: number;
   missingFromItems: string[];
   bibliographyEntries: number;
   bookmarksRemoved: number;
@@ -254,12 +258,34 @@ function keysIn(fragment: string): string[] {
   return keys;
 }
 
+/** Mark every bare `@key` in `piece` individually. */
+function markBareKeys(piece: string): string {
+  return piece.replace(CITEKEY, (whole, key: string) =>
+    CROSSREF.test(key) ? whole : rawRun(MARK_OPEN(key)) + whole + rawRun(MARK_CLOSE),
+  );
+}
+
 /** Bracket each citation with markers naming its citekeys, in source order.
  *
  *  A rendered citation's text ("[12,13]") does not identify its items, and matching it
  *  back against the bibliography is ambiguous — so the citations are marked BEFORE Quarto
  *  runs, and the post-processor reads the markers. They are emitted as raw openxml, so
  *  each becomes its own run whatever pandoc does with the surrounding text.
+ *
+ *  A bracket containing `@` is a CITATION GROUP only in citation position. Markdown
+ *  reuses the same bracket for constructs that live or die on ADJACENCY, and marking
+ *  around those splits them apart (a literal `^` in the prose where a footnote was, a
+ *  figure embed collapsing to text — both shipped before this was context-checked):
+ *    - `^[…]` is an inline footnote — left whole, citations included: footnote content
+ *      renders into word/footnotes.xml, where fields are deliberately not written. A
+ *      `[^1]:` definition is ordinary text to this pass, so ITS citations do get
+ *      marked — the injector demotes those back to displayed text (demoteMarkedCitations).
+ *    - `![…](…)` is an image; the export prep folds figure captions into that alt slot,
+ *      so its INTERIOR is bare-marked — a caption's citation becomes a live field in
+ *      the caption paragraph while the embed itself stays an embed.
+ *    - `[…](…)` / `[…][…]` / `[…]{…}` are links/spans — left whole; their citations
+ *      stay baked text, because a Word field inside a hyperlink is not a document
+ *      Zotero has been proven to accept.
  *
  *  Applied to the export copy only; the prep restores the sources afterwards. */
 export function markCitations(text: string): string {
@@ -274,11 +300,16 @@ export function markCitations(text: string): string {
         .map((piece, j) => {
           const keys = keysIn(piece);
           if (!keys.length) return piece;
-          if (j % 2 === 1) return rawRun(MARK_OPEN(keys.join(","))) + piece + rawRun(MARK_CLOSE);
+          if (j % 2 === 1) {
+            const prev = pieces[j - 1] ?? "";
+            const next = pieces[j + 1] ?? "";
+            if (prev.endsWith("^")) return piece; // inline footnote — leave whole
+            if (prev.endsWith("!") && next.startsWith("(")) return markBareKeys(piece); // image alt
+            if (/^[([{]/.test(next)) return piece; // link / reference link / span
+            return rawRun(MARK_OPEN(keys.join(","))) + piece + rawRun(MARK_CLOSE);
+          }
           // Bare `@key` citations, one marker each.
-          return piece.replace(CITEKEY, (whole, key: string) =>
-            CROSSREF.test(key) ? whole : rawRun(MARK_OPEN(key)) + whole + rawRun(MARK_CLOSE),
-          );
+          return markBareKeys(piece);
         })
         .join("");
     })
@@ -403,6 +434,17 @@ function wrapCitations(
   return out.join("");
 }
 
+/** Demote every marked citation in a notes part (footnotes/endnotes) to its displayed
+ *  text. Citations reach these parts from `[^1]:` definitions and inline footnotes; a
+ *  live field there is untested against real Word/Zotero, and the alternative — leaving
+ *  the markers — ships visible `⟦ZC…⟧` garbage in the reader's footnote. */
+function demoteMarkedCitations(xml: string, report: InjectReport): string {
+  return xml.replace(OPEN_RUN, (_whole, _keys, middle: string) => {
+    report.notesPlain++;
+    return middle;
+  });
+}
+
 const BIB_PARA = /<w:p>(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/g;
 const isBibliography = (p: string) => p.includes('w:pStyle w:val="Bibliography"');
 
@@ -513,6 +555,7 @@ export function injectZoteroFields(
     bound: 0,
     embedded: 0,
     skipped: 0,
+    notesPlain: 0,
     missingFromItems: [],
     bibliographyEntries: 0,
     bookmarksRemoved: 0,
@@ -532,6 +575,18 @@ export function injectZoteroFields(
   );
   documentXml = wrapBibliography(documentXml, report);
   if (documentXml.includes(MARK_PREFIX)) throw new Error("citation markers survived — refusing to write");
+
+  // Footnote/endnote citations demote to their displayed text (see demoteMarkedCitations).
+  // The survival check runs on these parts too: a marker anywhere is refuse-to-write,
+  // never something the reader sees.
+  for (const name of ["word/footnotes.xml", "word/endnotes.xml"]) {
+    if (!parts[name]) continue;
+    let xml = decode(parts[name]);
+    if (!xml.includes(MARK_PREFIX)) continue;
+    xml = demoteMarkedCitations(xml, report);
+    if (xml.includes(MARK_PREFIX)) throw new Error("citation markers survived — refusing to write");
+    parts[name] = encode(xml);
+  }
 
   const blob =
     `<data data-version="3" zotero-version="${opts.zoteroVersion ?? "9.0.6"}">` +

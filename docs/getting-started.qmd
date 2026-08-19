@@ -140,6 +140,10 @@ citations against the works in them, so the ones they already have arrive attach
 their own library entries instead of as separate copies — the dialog tells you how many
 matched. Anything unmatched still works; it simply is not linked to anything.
 
+One boundary to know about: a citation inside a footnote stays ordinary text rather than
+becoming a live citation — the export tells you when that happened. Citations in the body,
+in figure captions, and in the reference list are all live.
+
 # Encore: make it a slide
 
 In Figure mode, the Inspector's **Send to deck…** turns your figure into a slide. Open

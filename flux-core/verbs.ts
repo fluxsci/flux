@@ -2089,7 +2089,8 @@ export const VERBS: VerbDef[] = [
           lines.push(
             `  zotero: ${c.zotero.citations} live citation(s)` +
               (c.zotero.bound ? `, ${c.zotero.bound} linked to a known library` : "") +
-              (c.zotero.embedded ? `, ${c.zotero.embedded} embedded` : ""),
+              (c.zotero.embedded ? `, ${c.zotero.embedded} embedded` : "") +
+              (c.zotero.notesPlain ? `, ${c.zotero.notesPlain} in notes left as text` : ""),
           );
         return { err: lines.join("\n") };
       },
@@ -2112,7 +2113,8 @@ export const VERBS: VerbDef[] = [
           parts.push(
             `zotero: ${c.zotero.citations} live citation(s)` +
               (c.zotero.bound ? `, ${c.zotero.bound} linked` : "") +
-              (c.zotero.embedded ? `, ${c.zotero.embedded} embedded` : ""),
+              (c.zotero.embedded ? `, ${c.zotero.embedded} embedded` : "") +
+              (c.zotero.notesPlain ? `, ${c.zotero.notesPlain} in notes as text` : ""),
           );
         return text(parts.join(" — "));
       },

@@ -684,7 +684,7 @@
     fb: NonNullable<ReturnType<typeof fileBridge>>,
     plan: ExportPlan,
     outPath: string,
-  ): Promise<{ citations: number; bound: number } | null> {
+  ): Promise<{ citations: number; bound: number; notesPlain: number } | null> {
     if (!pm) return null;
     const { harvestZoteroLibrary, injectZoteroFields, parseCslIdentity, DEFAULT_STYLE } = await import(
       "../../../lib/references/zoteroFields"
@@ -730,7 +730,7 @@
       index: harvested,
     });
     await fb.writeFile(outPath, bytes);
-    return { citations: report.citations, bound: report.bound };
+    return { citations: report.citations, bound: report.bound, notesPlain: report.notesPlain };
   }
 
   /** Pick Word documents that already contain Zotero citations, to bind against. */
@@ -867,7 +867,10 @@
             const summary = await applyZoteroFields(fb, plan, r.outPath);
             zoteroNote = summary
               ? ` — ${summary.citations} live citation${summary.citations === 1 ? "" : "s"}` +
-                (summary.bound ? `, ${summary.bound} linked to your library` : "")
+                (summary.bound ? `, ${summary.bound} linked to your library` : "") +
+                (summary.notesPlain
+                  ? `, ${summary.notesPlain} in footnotes stay${summary.notesPlain === 1 ? "s" : ""} plain text`
+                  : "")
               : "";
           } catch (e) {
             pushToast("info", "Exported without live Zotero citations", {

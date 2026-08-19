@@ -228,8 +228,9 @@ export interface CompileSummary {
   output?: string;
   figures?: { embedded: number; resolved: number; missing: string[] };
   citations?: { keys: number; resolved: number; missing: string[] };
-  /** Present when live Zotero fields were requested and written. */
-  zotero?: { citations: number; bound: number; embedded: number; style: string };
+  /** Present when live Zotero fields were requested and written. `notesPlain` counts
+   *  footnote/endnote citations, which stay displayed text rather than live fields. */
+  zotero?: { citations: number; bound: number; embedded: number; notesPlain: number; style: string };
 }
 
 /** Citation keys used in a qmd (Quarto/pandoc `@key` syntax), excluding
@@ -439,7 +440,13 @@ export async function compile(
         index,
       });
       await fs.writeFile(output, bytes);
-      zotero = { citations: report.citations, bound: report.bound, embedded: report.embedded, style: identity.styleId };
+      zotero = {
+        citations: report.citations,
+        bound: report.bound,
+        embedded: report.embedded,
+        notesPlain: report.notesPlain,
+        style: identity.styleId,
+      };
     } catch (e) {
       // A failure here must not lose the export: the .docx on disk is still the ordinary
       // one, so say what happened and leave it.

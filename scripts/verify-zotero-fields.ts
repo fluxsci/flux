@@ -27,13 +27,17 @@ const RUN = (t: string) => `<w:r><w:t xml:space="preserve">${t}</w:t></w:r>`;
 const SUP = (t: string) => `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>${t}</w:t></w:r>`;
 
 /** A minimal but structurally faithful pandoc-style .docx. */
-function docx(body: string, opts: { custom?: string } = {}): Uint8Array {
+function docx(body: string, opts: { custom?: string; footnotes?: string } = {}): Uint8Array {
   const parts: Record<string, Uint8Array> = {
     "[Content_Types].xml": strToU8('<?xml version="1.0"?><Types xmlns="x"></Types>'),
     "_rels/.rels": strToU8('<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId1"/></Relationships>'),
     "word/document.xml": strToU8(`<?xml version="1.0"?><w:document><w:body>${body}</w:body></w:document>`),
   };
   if (opts.custom) parts["docProps/custom.xml"] = strToU8(opts.custom);
+  if (opts.footnotes)
+    parts["word/footnotes.xml"] = strToU8(
+      `<?xml version="1.0"?><w:footnotes><w:footnote w:id="2"><w:p>${opts.footnotes}</w:p></w:footnote></w:footnotes>`,
+    );
   return zipSync(parts);
 }
 const bibParagraph = (id: number, text: string) =>
@@ -88,6 +92,38 @@ const INDEX: ZoteroLibraryIndex = {
   assert(out.includes("⟦ZC{c_2021}⟧"), "a bare @key is marked");
   assert(!out.includes("⟦ZC{not_a_cite}"), "fenced code is left alone");
   assert(markCitations("no citations here") === "no citations here", "a document without citations is untouched");
+}
+
+// ---- marking respects bracket CONTEXT --------------------------------------
+// Markdown reuses `[…]` for constructs that live or die on adjacency. Group-marking one
+// of those splits it apart — an inline footnote became a literal `^` in the prose with
+// its text inlined, and a figure embed whose caption cited collapsed to text.
+{
+  const fn = markCitations("A note.^[Discussed by @a_2020.] More.");
+  assert(fn.includes(".^[Discussed by "), "an inline footnote keeps its ^[ adjacency — never split by a marker");
+  assert(!fn.includes("⟦ZC"), "…and its interior is NOT marked (footnote citations stay citeproc text)");
+
+  // The export prep folds figure captions into the alt slot, so a caption's citation
+  // sits inside `![…](…)` at marking time. The embed must survive; the citation inside
+  // it becomes a live field in the caption paragraph.
+  const img = markCitations("![**Fig. 1 |** As shown by @a_2020.](fig/renders/x.svg){#x-fig-x}");
+  assert(img.startsWith("![**Fig. 1 |** "), "an image keeps its ![ adjacency");
+  assert(img.includes("](fig/renders/x.svg){#x-fig-x}"), "…and its ](target){attrs} tail");
+  assert(img.includes("⟦ZC{a_2020}⟧"), "…while the caption's citation IS marked, inside the alt");
+
+  const link = markCitations("See [the review by @a_2020](https://x.test) here.");
+  assert(link === "See [the review by @a_2020](https://x.test) here.",
+    "a link is left whole — a field inside a hyperlink is not a proven-safe document");
+  const reflink = markCitations("See [the review by @a_2020][rev] here.");
+  assert(!reflink.includes("⟦"), "a reference link is left whole");
+  const span = markCitations("See [text with @a_2020]{.smallcaps} here.");
+  assert(!span.includes("⟦"), "an attributed span is left whole");
+
+  // A `!` that is prose punctuation, not an image (no target follows): the bracket is
+  // still a citation group — which renders identically, since pandoc also reads it as
+  // literal `!` + citation there.
+  const bang = markCitations("Amazing![@a_2020] indeed.");
+  assert(bang.includes("⟦ZC{a_2020}⟧"), "prose `!` before a bare group does not suppress marking");
 }
 
 // ---- the uris rule (the defect that cost the most) --------------------------
@@ -162,6 +198,26 @@ const INDEX: ZoteroLibraryIndex = {
   const { bytes, report } = injectZoteroFields(docx(body), { items: ITEMS, styleId: "http://x/n", index: INDEX });
   assert(report.spacesReclaimed === 1, "the space citeproc would have eaten before a superscript is reclaimed");
   assert(!doc(bytes).includes(`${RUN("Text")}${RUN(" ")}<w:r><w:fldChar`), "…so the text matches an ordinary render");
+}
+
+// ---- footnote citations: demoted to displayed text, never marker garbage ----
+// Citations reach word/footnotes.xml from `[^1]:` definitions. A Word field there is
+// untested against real Zotero, and the injector once processed only document.xml — so
+// the markers shipped VISIBLY in the reader's footnote. They demote to citeproc's text.
+{
+  const body = `<w:p>${RUN("⟦ZC{bound_2005}⟧")}${RUN("(Bound, 2005)")}${RUN("⟦ZE⟧")}</w:p>` + bibParagraph(1, "b");
+  const footnotes = `${RUN("Discussed by ")}${RUN("⟦ZC{loose_2000}⟧")}${RUN("Loose (2000)")}${RUN("⟦ZE⟧")}${RUN(".")}`;
+  const { bytes, report } = injectZoteroFields(docx(body, { footnotes }), {
+    items: ITEMS,
+    styleId: "http://x/apa",
+    index: INDEX,
+  });
+  const fnXml = strFromU8(unzipSync(bytes)["word/footnotes.xml"]);
+  assert(!fnXml.includes("⟦"), "no marker survives into footnotes.xml");
+  assert(fnXml.includes("Loose (2000)"), "the footnote citation keeps its displayed text");
+  assert(!fnXml.includes("ADDIN"), "…as plain text, not a field (untested against real Zotero — deliberate)");
+  assert(report.notesPlain === 1, "the demotion is reported (notesPlain)");
+  assert(report.citations === 1, "body citations still become fields alongside a footnote demotion");
 }
 
 // ---- markers never survive; unresolved citations stay text ------------------

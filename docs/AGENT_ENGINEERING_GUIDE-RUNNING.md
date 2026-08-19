@@ -102,6 +102,7 @@ The established shared cores — extend these, don't duplicate them:
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
 | Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
+| Live Zotero fields in Word exports (citation marking, docx field injection, library harvest) | `src/lib/references/zoteroFields.ts` (flux-core `compile` + PaperMode's export do only IO) | `verify-zotero-fields.ts` |
 | External-command launch (quarto, recipes, agent roster) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
 
 ## 3. Data model and persistence invariants
@@ -3640,3 +3641,37 @@ REGEN_GOLDEN alone will not pick up a summary change — edit the usage line as 
 **Not done, deliberately.** The GUI reads the CSL identity from the journal style's asset or
 the document front matter; a project with no CSL at all declares Chicago author-date, which
 is pandoc's own default.
+
+### 2026-08-19 — Zotero-fields review + footnoted-citation fix (Claude Fable 5, `main`)
+
+**Work:** Reviewed the four collaborator commits pushed 08-16..18 (panel sub-numbers, gate
+hermeticity on win32, live Zotero fields, heartbeat-lock release race) — ran the pure tier
+(180/180), the flagged-but-unrun `group:paper-gate` (31/31), and an end-to-end scratch-project
+docx inspection; all sound. Fixed the one real defect found: citations in FOOTNOTES corrupted
+the `--zotero-fields` Word export (an inline `^[… @key …]` was group-marked as a citation
+bracket, splitting the `^[` adjacency — footnote destroyed, literal `^` in the prose; a
+`[^1]:` definition's citation rendered into `word/footnotes.xml`, which the injector never
+processed, shipping visible `⟦ZC…⟧` markers). `markCitations` now checks bracket CONTEXT
+(footnote/link/span brackets left whole; image alts interior-marked so figure-caption
+citations stay live), and the injector demotes any marker reaching footnotes/endnotes to its
+displayed text (reported as `notesPlain`) with the refuse-to-write survival check extended to
+those parts. Footnote citations are deliberately NOT live fields — untested against real
+Word/Zotero. Gate extended (13 assertions, fails 8 ways against the unfixed core); §2 table
+row added for the `zoteroFields.ts` shared core.
+
+**Learnings:**
+
+- Markdown reuses `[…]` for constructs that live or die on ADJACENCY (`^[…]` footnote,
+  `![…](…)` image, `[…](…)`/`[…][…]`/`[…]{…}` link/reflink/span). Any source transform that
+  inserts material around a bracket must check what neighbours it — the export prep folds
+  figure captions into the alt slot, so "caption cites something" walks straight into this.
+- A "no marker survives" guard is only as strong as the set of parts it scans: pandoc renders
+  footnotes into `word/footnotes.xml` (endnotes into `word/endnotes.xml`), so a document.xml-only
+  check passes while the reader sees the garbage. Enumerate the docx parts a construct can
+  render into before trusting a whole-document invariant.
+- pandoc's alt-text/`descr` stringification drops RawInline, so raw-openxml sentinels inside an
+  image alt do not leak into the drawing properties (verified empirically, not just from docs).
+- A worktree with `node_modules` SYMLINKED from another filesystem mass-fails ui gates on the
+  console-clean check only: vite's `server.fs.allow` 403s the Harper WASM
+  (`PAGEERR … WebAssembly: HTTP status code is not ok`). Use a repo-local worktree with
+  `cp -al` (hardlinks need the same filesystem; `/tmp` is tmpfs here).
