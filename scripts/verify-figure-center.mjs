@@ -52,10 +52,13 @@ try {
   });
   await waitForFrame(page);
 
+  // Match the row's NAME text node, not its textContent: since figure families
+  // landed (2026-08-04) a row also renders a dim nickname span inside the same
+  // button ("AlphaGrowth curves"), so an exact textContent match found nothing.
   const clickFigure = (name) =>
     page.evaluate((n) => {
       const btn = [...document.querySelectorAll("button.item")].find(
-        (b) => b.textContent.trim() === n,
+        (b) => (b.childNodes[0]?.textContent || "").trim() === n,
       );
       if (!btn) throw new Error(`no sidebar row named ${n}`);
       btn.click();
@@ -171,7 +174,7 @@ try {
     const F = window.__flux;
     const before = F.get(F.fig.dirty);
     const btn = [...document.querySelectorAll("button.item")].find(
-      (b) => b.textContent.trim() === "Beta",
+      (b) => (b.childNodes[0]?.textContent || "").trim() === "Beta",
     );
     btn.click();
     await new Promise((r) => requestAnimationFrame(r));
