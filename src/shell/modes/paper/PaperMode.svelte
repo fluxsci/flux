@@ -2329,8 +2329,15 @@
       onChange={(p) => {
         // Keep the destination in step with the axes unless the user picked
         // their own path — a stale ".pdf" name on a Word export is a foot-gun.
-        const wasDefault = !exportPlan.outPath || exportPlan.outPath === defaultOutPath(exportPlan.format, exportPlan.style);
+        // The test reads the INCOMING path against the default for the axes we
+        // last saw: still the default → re-derive for the new ones; anything
+        // else is the user's own and survives. Returning the plan is what
+        // updates the DIALOG (it seeds its fields once, from `initial`) —
+        // without it the name shown, and exported to, kept the extension of
+        // whichever format the dialog happened to open on.
+        const wasDefault = !p.outPath || p.outPath === defaultOutPath(exportPlan.format, exportPlan.style);
         exportPlan = { ...p, outPath: wasDefault ? defaultOutPath(p.format, p.style) : p.outPath };
+        return exportPlan;
       }}
       onPickPath={async (p) => {
         const fb = fileBridge();

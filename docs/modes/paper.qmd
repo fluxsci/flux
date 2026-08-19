@@ -246,7 +246,9 @@ lost.
 
 The **Export** button in the status bar — or **Alt+E** — opens a dialog with two
 independent choices: the **file format** (PDF, Word, HTML) and the **journal style**.
-Every format saves where you choose, defaulting to the project's `exports/`. Word and
+Every format saves where you choose, defaulting to the project's `exports/` — the
+suggested file name follows the format you pick, so switching to Word gives you a `.docx`
+name, not the `.pdf` one the dialog opened on (a name you choose yourself is kept). Word and
 journal-styled PDF run through Quarto (the dialog says so when Quarto isn't installed —
 see [Installation](../installation.qmd)); a long render shows its progress and can be
 cancelled. Figure renders, captions, and panel references are all resolved during export,

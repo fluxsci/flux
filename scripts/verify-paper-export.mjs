@@ -103,6 +103,58 @@ const toastCase = await page.evaluate(async () => {
 ok(!toastCase.error && /failed/i.test(toastCase.toast ?? ""), `quarto {ok:false} → error toast ("${(toastCase.toast ?? toastCase.error ?? "").slice(0, 60)}")`);
 ok(toastCase.falseSuccess === false, "no false 'Exported ✓' on failure");
 
+console.log("A3 — the destination follows the FORMAT axis (a Word export never lands on a .pdf name):");
+const pathCase = await page.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const exportBtn = [...document.querySelectorAll(".statusbar .seg")].find((b) => /export/i.test(b.textContent || ""));
+  if (!exportBtn) return { error: "no Export segment in the StatusBar" };
+  exportBtn.click();
+  await sleep(300);
+  const pathOf = () => (document.querySelector(".export-dialog .path-text")?.textContent || "").trim();
+  const onSeg = () => ((document.querySelector(".export-dialog .seg.on") || {}).textContent || "").trim();
+  const seg = (re) => [...document.querySelectorAll(".export-dialog .seg")].find((b) => re.test(b.textContent || ""));
+  if (!document.querySelector(".export-dialog")) return { error: "dialog did not open" };
+  const opened = { format: onSeg(), path: pathOf() };
+  const hop = async (re) => {
+    seg(re)?.click();
+    await sleep(150);
+    return pathOf();
+  };
+  const word = await hop(/word/i);
+  const html = await hop(/html/i);
+  const pdf = await hop(/pdf/i);
+  // A destination the USER picked must survive the next format switch — the
+  // caller can only tell it apart from its own default by being told about it.
+  const fig = window.fig;
+  const origSave = fig.save;
+  fig.save = async () => "/demo/exports/my-own-name.pdf";
+  let picked = "";
+  let afterPick = "";
+  try {
+    const change = [...document.querySelectorAll(".export-dialog button")].find((b) => /change/i.test(b.textContent || ""));
+    change?.click();
+    await sleep(300);
+    picked = pathOf();
+    afterPick = await hop(/word/i);
+  } finally {
+    fig.save = origSave;
+  }
+  document.querySelector(".export-backdrop")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  for (let i = 0; i < 12 && document.querySelector(".export-dialog"); i++) await sleep(100);
+  return { opened, word, html, pdf, picked, afterPick };
+});
+ok(!pathCase.error, pathCase.error || "export dialog reopened for the path checks");
+const extFor = (label) => (/word/i.test(label) ? ".docx" : /html/i.test(label) ? ".html" : ".pdf");
+ok(
+  !!pathCase.opened && pathCase.opened.path.endsWith(extFor(pathCase.opened.format)),
+  `the path it opens on matches the format it opens on (${pathCase.opened?.format} → ${pathCase.opened?.path})`,
+);
+ok(pathCase.word?.endsWith(".docx"), `Word → .docx name (${pathCase.word})`);
+ok(pathCase.html?.endsWith(".html"), `HTML → .html name (${pathCase.html})`);
+ok(pathCase.pdf?.endsWith(".pdf"), `back to PDF → .pdf name (${pathCase.pdf})`);
+ok(pathCase.picked === "/demo/exports/my-own-name.pdf", `"Change…" shows the path the user chose (${pathCase.picked})`);
+ok(pathCase.afterPick === pathCase.picked, `…and a format switch leaves it alone (${pathCase.afterPick})`);
+
 console.log("B — materializeRenders writes embedded figures to fig/renders/:");
 const mat = await page.evaluate(async () => {
   const figures = await import("/src/shell/modes/paper/scholar/figures.ts");

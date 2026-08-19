@@ -64,8 +64,12 @@
     onPickLibraryDocs?: () => Promise<string[] | null>;
     /** e.g. "98 of 102 references matched" — computed by the caller after a pick. */
     zoteroMatchSummary?: string;
-    /** Fires whenever the axes change so the caller can recompute engine/path. */
-    onChange?: (plan: ExportPlan) => void;
+    /** Fires whenever the plan changes so the caller can recompute engine/path.
+     *  It may return a REVISED plan — the caller owns the default destination,
+     *  and returning it here is how a format switch re-derives the file name
+     *  (`report.pdf` → `report.docx`) instead of exporting Word bytes to a
+     *  `.pdf`. Anything it returns for outPath is adopted. */
+    onChange?: (plan: ExportPlan) => ExportPlan | void;
   } = $props();
 
   // The dialog is mounted fresh on each open (`{#if exportOpen}`), so `initial`
@@ -79,6 +83,15 @@
   let root: HTMLDivElement | undefined = $state();
 
   const plan = (): ExportPlan => ({ format, style, outPath, zoteroFields, zoteroLibraryDocs });
+
+  /** Publish the plan and adopt the destination the caller derives for it. The
+   *  dialog seeds `outPath` from `initial` once (untracked), so without this
+   *  the path shown — and exported to — kept the extension of whichever format
+   *  the dialog happened to OPEN on. */
+  function publish() {
+    const revised = onChange?.(plan());
+    if (revised?.outPath) outPath = revised.outPath;
+  }
 
   // A style may not support every format (no journal HTML, say). Selecting an
   // unsupported combination is impossible rather than merely discouraged.
@@ -100,20 +113,25 @@
         if (fallback) format = fallback.id;
       }
     }
-    onChange?.(plan());
+    publish();
   }
 
   async function chooseLibraryDocs() {
     const picked = await onPickLibraryDocs?.();
     if (picked) {
       zoteroLibraryDocs = picked;
-      onChange?.(plan());
+      publish();
     }
   }
 
   async function choosePath() {
     const p = await onPickPath(plan());
-    if (p) outPath = p;
+    if (!p) return;
+    outPath = p;
+    // Tell the caller too: a path the USER chose must survive the next format
+    // switch, and the caller can only tell it apart from its own default by
+    // seeing it.
+    publish();
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -187,7 +205,7 @@
           <input
             type="checkbox"
             bind:checked={zoteroFields}
-            onchange={() => onChange?.(plan())} />
+            onchange={() => publish()} />
           Live Zotero citations
         </label>
         <p class="hint">
