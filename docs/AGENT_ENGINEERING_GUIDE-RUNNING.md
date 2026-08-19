@@ -3735,3 +3735,18 @@ macOS box by re-running it against a stashed tree.
 - A dialog that seeds its fields from a prop ONCE (`untrack`) owns them from then on: the
   caller can recompute all it likes and nothing shows. Either the dialog re-reads, or the
   caller's answer comes BACK through the change callback — silence looks like agreement.
+
+### 2026-08-19 (later still) — The cross-reference picker gets the canvas scope too (Claude Opus 5, `main`)
+
+**Work:** Owner-asked parity: the canvas dropdown that the **insert** picker grew (issue #10)
+now also sits in the **cross-reference** picker (`@@` / "Reference a figure…"). Same shape
+deliberately — `canvases` prop from the one `figureCanvases` store, `""` = all, scope narrows
+FIRST and the text query searches within it, hidden below 2 canvases, and the window keydown
+handler defers every key but Escape while the `<select>` has focus (it owns native
+arrow/Enter). Scope and query survive the walk back from the panel stage, so picking panels on
+the wrong figure costs one Escape, not a re-search. `verify-figref.mjs` grew a canvas-scope
+section (9 parts, guarded so a missing dropdown reports a failed section instead of throwing
+on the selector) — proven to fail by dropping the prop in PaperMode; `verify-figpicker.mjs`
+still green (12/12). check 0/0; paper-gate 27/31, the same four failures (`paper-keyboard`,
+`-local-corrections`, `-extras`, `-tables`) re-run against a stashed tree and confirmed
+pre-existing on this macOS box. docs/modes/paper.qmd updated in the same session.

@@ -5,11 +5,15 @@
 
   let {
     figures,
+    canvases = [],
     nums,
     onInsert,
     onClose,
   }: {
     figures: FigureRef[];
+    /** Project canvas list (id + display name, canonical order) for the
+     *  scope dropdown; with 0–1 canvases the dropdown is not shown. */
+    canvases?: { id: string; name: string }[];
     /** WS-4.2: the owning editor's numbering instance (tbl/eq cross-refs). */
     nums?: import("./numberingFacet").PaperNumbering;
     /** Called with the full reference text to insert, e.g. "@fig-x-a,c". */
@@ -21,6 +25,7 @@
   // multi-select for the chosen figure. Both stay fully keyboard-driven.
   let stage = $state<"figure" | "panels">("figure");
   let query = $state("");
+  let canvasSel = $state(""); // "" = all canvases
   let sel = $state(0);
   let gridEl = $state<HTMLElement | undefined>(undefined);
   let inputEl = $state<HTMLInputElement | undefined>(undefined);
@@ -33,14 +38,16 @@
   // `autofocus` is unreliable on dynamically-mounted content (see FigurePicker).
   onMount(() => inputEl?.focus());
 
+  // Canvas scope narrows FIRST, then the text query searches within it.
+  const scoped = $derived(canvasSel ? figures.filter((f) => f.canvas === canvasSel) : figures);
   const filtered = $derived(
     query.trim()
-      ? figures.filter((f) =>
+      ? scoped.filter((f) =>
           (f.name + " " + (f.nickname ?? "") + " " + f.label + " " + f.caption)
             .toLowerCase()
             .includes(query.toLowerCase()),
         )
-      : figures,
+      : scoped,
   );
   $effect(() => {
     void filtered;
@@ -93,6 +100,9 @@
     // The keydown that OPENED the picker (e.g. Enter accepting /cross-reference)
     // is still bubbling when this window listener mounts.
     if (e.defaultPrevented) return;
+    // The canvas dropdown owns its own keyboard when focused (native arrow/
+    // Enter behavior) — only Escape still closes the picker from there.
+    if (e.target instanceof HTMLSelectElement && e.key !== "Escape") return;
     if (stage === "figure") {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -171,6 +181,18 @@
           aria-expanded="true"
           aria-controls="figref-grid"
           aria-activedescendant="figrefopt-{sel}" />
+        {#if canvases.length > 1}
+          <select
+            class="canvas-scope"
+            bind:value={canvasSel}
+            aria-label="Limit to canvas"
+            title="Limit to one canvas">
+            <option value="">All canvases</option>
+            {#each canvases as c (c.id)}
+              <option value={c.id}>{c.name}</option>
+            {/each}
+          </select>
+        {/if}
       </header>
       {#if filtered.length}
         <div class="grid" id="figref-grid" bind:this={gridEl} role="listbox" aria-label="Figures">
@@ -312,6 +334,21 @@
     font-size: var(--ts-sm);
   }
   .search:focus {
+    outline: none;
+    border-color: var(--c-accent);
+  }
+  .canvas-scope {
+    flex: 0 0 auto;
+    max-width: 180px;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-1);
+    padding: 6px 8px;
+    color: var(--c-tx);
+    font: inherit;
+    font-size: var(--ts-sm);
+  }
+  .canvas-scope:focus {
     outline: none;
     border-color: var(--c-accent);
   }

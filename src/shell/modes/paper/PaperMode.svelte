@@ -2313,6 +2313,7 @@
     {#key figRefOpenN}
       <FigRefPicker
         figures={$figureRefs}
+        canvases={$figureCanvases}
         nums={numbering.instance}
         onInsert={insertFigRef}
         onClose={() => { figRefPickerOpen = false; view?.focus(); }} />

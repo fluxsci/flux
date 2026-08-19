@@ -8,7 +8,10 @@
 // figures with a different order renumbers every chip and embed live AND
 // clears legacy embed alt text (canonical embeds are ![](…){#fig-id} — the
 // figure MODEL owns captions, and the widget caption follows it live);
-// Escape walks back panel→figure→closed with focus returned.
+// Escape walks back panel→figure→closed with focus returned; and the canvas
+// scope dropdown (the insert picker's, mirrored here) narrows the grid to one
+// canvas, composes with the search, still reaches the panel stage, and lets
+// Escape close the picker from the dropdown itself.
 //   Run (dev server on :1420 must be up): node scripts/verify-figref.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
 
@@ -237,6 +240,100 @@ const captionSyncOk =
   !afterSwapDoc.includes("Growth over 24 h.") &&
   embedCapAfterSwap.includes("Growth over 48 h.");
 
+// --- canvas scope: the same one-canvas narrowing the insert picker has ----------
+// Three figures across two canvases (the two-canvas case is what shows the
+// dropdown at all). Runs last: it re-seeds, so every doc/chip assertion above
+// is already banked.
+const SUPP = {
+  id: "f3",
+  label: "fig-supp",
+  name: "Figure 3",
+  nickname: "Supplement",
+  family: "figure",
+  order: 2,
+  number: 3,
+  display: "Fig. 3",
+  captionLabel: "Figure 3 | ",
+  canvas: "c2",
+  caption: "Supplementary panel.",
+  panels: [],
+};
+await page.evaluate(
+  (figs, canvases, cvList) => window.__fluxSeedFigures(figs, canvases, {}, [], {}, [], cvList),
+  [...FIGS(false), SUPP],
+  {
+    ...CANVASES,
+    f3: { id: "f3", name: "Supp", canvasId: "c2", x: 0, y: 0, width: 800, height: 500, background: "#ffffff", elements: [] },
+  },
+  [
+    { id: "c1", name: "Main figures" },
+    { id: "c2", name: "Supplement" },
+  ],
+);
+await sleep(400);
+await page.evaluate(() => {
+  const view = window.__fluxView;
+  const line = view.state.doc.line(7);
+  view.dispatch({ selection: { anchor: line.to }, scrollIntoView: true });
+  view.focus();
+});
+await page.keyboard.type(" @@");
+await poll(() => document.querySelectorAll(".picker .cell").length === 3);
+const scopeShown = await page.evaluate(() => !!document.querySelector(".picker .canvas-scope"));
+const scopeAllCells = await page.evaluate(() => document.querySelectorAll(".picker .cell").length);
+// Every step below drives the dropdown, so a missing one is reported as a
+// failed section rather than an unhandled selector throw.
+let scopedToC2 = false;
+let scopedFirst = "";
+let scopedSearchEmpty = false;
+let scopedToC1 = false;
+let scopedPanels = false;
+let scopeSurvivesBack = false;
+let scopeEscClosed = false;
+if (scopeShown) {
+  await page.select(".picker .canvas-scope", "c2");
+  scopedToC2 = await poll(() => document.querySelectorAll(".picker .cell").length === 1);
+  scopedFirst = await page.evaluate(
+    () => document.querySelector(".picker .meta b")?.textContent?.trim() ?? "",
+  );
+  // The query searches WITHIN the scope: "gro" is a c1 figure, so c2 has no match.
+  await page.click(".picker .search");
+  await page.keyboard.type("gro");
+  scopedSearchEmpty = await poll(
+    () => !!document.querySelector(".picker .empty") && !document.querySelector(".picker .cell"),
+  );
+  // Back to c1 and the same query finds Growth — and Enter still reaches the panels.
+  await page.select(".picker .canvas-scope", "c1");
+  scopedToC1 = await poll(() => document.querySelectorAll(".picker .cell").length === 1);
+  await page.click(".picker .search");
+  await page.keyboard.press("Enter");
+  scopedPanels = await poll(() => document.querySelectorAll(".picker .pill").length === 5);
+  await page.keyboard.press("Escape"); // panels → figure grid, scope and query intact
+  scopeSurvivesBack = await poll(
+    () =>
+      !!document.querySelector(".picker .search") &&
+      document.querySelector(".picker .canvas-scope")?.value === "c1" &&
+      document.querySelector(".picker .search")?.value === "gro",
+  );
+  // Escape works from the dropdown itself (it owns every other key while focused).
+  await page.evaluate(() => document.querySelector(".picker .canvas-scope")?.focus());
+  await page.keyboard.press("Escape");
+  scopeEscClosed = await poll(() => !document.querySelector(".picker"));
+} else {
+  await page.keyboard.press("Escape");
+  await poll(() => !document.querySelector(".picker"));
+}
+const scopeOk =
+  scopeShown &&
+  scopeAllCells === 3 &&
+  scopedToC2 &&
+  scopedFirst.includes("Fig. 3") &&
+  scopedSearchEmpty &&
+  scopedToC1 &&
+  scopedPanels &&
+  scopeSurvivesBack &&
+  scopeEscClosed;
+
 await shot(page, "figref-final");
 const errs = realErrors(page);
 await browser.close();
@@ -253,8 +350,30 @@ const res = {
   closedOk,
   renumberOk,
   captionSyncOk,
+  scopeOk,
 };
-console.log(JSON.stringify({ figref: res, closedParts: { backAtGrid, pickerGone, closedFocus }, errs }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      figref: res,
+      closedParts: { backAtGrid, pickerGone, closedFocus },
+      scopeParts: {
+        scopeShown,
+        scopeAllCells,
+        scopedToC2,
+        scopedFirst,
+        scopedSearchEmpty,
+        scopedToC1,
+        scopedPanels,
+        scopeSurvivesBack,
+        scopeEscClosed,
+      },
+      errs,
+    },
+    null,
+    2,
+  ),
+);
 const ok = Object.values(res).every(Boolean) && errs.length === 0;
 if (!ok) {
   console.error("\nFIGREF VERIFY: FAIL");

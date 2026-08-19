@@ -40,8 +40,9 @@ export interface FigureRef {
 
 export const figureRefs = writable<FigureRef[]>([]);
 
-/** Canvas list (id + display name, canonical order) for the FigurePicker's
- *  canvas-scope dropdown (issue #10). Refreshed with every loadFigures. */
+/** Canvas list (id + display name, canonical order) for the canvas-scope
+ *  dropdown in BOTH figure pickers — insert (FigurePicker, issue #10) and
+ *  cross-reference (FigRefPicker). Refreshed with every loadFigures. */
 export const figureCanvases = writable<{ id: string; name: string }[]>([]);
 
 // PAP-22: index refs by label so the cite/cross-ref chip widgets resolve in O(1) instead of a

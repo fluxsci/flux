@@ -160,7 +160,8 @@ grip), and **Open in Figure** jumps to editing it.
 Reference a figure with `@fig-...` — it becomes a live **"Fig 3"** chip whose number stays
 correct as figures are added, removed, or reordered (`@tbl-` and `@eq-` work the same way for
 tables and equations, with their own autocomplete). Type **@@** for the figure picker, which
-can also select specific panels (*Fig 3a,c*). **Double-click** any reference chip to jump to
+can also select specific panels (*Fig 3a,c*) and carries the same canvas dropdown as the
+insert picker, so you can narrow a multi-canvas project to one canvas before you search. **Double-click** any reference chip to jump to
 the thing it points to — a table or equation reference scrolls the editor to its source;
 **Ctrl+Enter** follows the reference under the caret.
 
