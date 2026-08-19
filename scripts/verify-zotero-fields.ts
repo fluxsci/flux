@@ -10,7 +10,9 @@ import {
   harvestZoteroLibrary,
   injectZoteroFields,
   parseCslIdentity,
+  resolveCslIdentity,
   matchUri,
+  DEFAULT_STYLE,
   type CslRecord,
   type ZoteroLibraryIndex,
 } from "../src/lib/references/zoteroFields";
@@ -280,6 +282,42 @@ const INDEX: ZoteroLibraryIndex = {
   assert(back.libraries.join() === "999", "the harvested library is identified");
   assert(harvestZoteroLibrary([{ name: "junk.docx", bytes: strToU8("not a zip") }]).sources[0].items === 0,
     "an unreadable file yields no items rather than throwing");
+}
+
+// ---- resolveCslIdentity: ONE precedence for both engines --------------------
+// The GUI once carried its own copy of this walk, which skipped the front-matter
+// candidates entirely — a hand-declared `csl:` got the right style from the CLI and
+// Chicago from the app. The precedence is pinned here so it cannot fork again.
+{
+  const CSL = (id: string) => `<style xmlns="x"><info><id>${id}</id></info></style>`;
+  const files: Record<string, string> = {
+    "/p/references/styles/nature.csl": CSL("http://z/nature"),
+    "/p/manuscript/main.qmd": '---\ntitle: t\ncsl: my/apa.csl\n---\nBody text.',
+    "/p/manuscript/my/apa.csl": CSL("http://z/apa"),
+    "/p/manuscript/_quarto.yml": 'project:\n  type: default\n  csl: also.csl\n',
+    "/p/manuscript/also.csl": CSL("http://z/yml"),
+  };
+  const rd = async (p: string) => files[p] ?? null;
+  const at = { root: "/p", docPath: "/p/manuscript/main.qmd" };
+
+  const styled = await resolveCslIdentity(rd, { ...at, styleCsl: "references/styles/nature.csl" });
+  assert(styled.styleId === "http://z/nature", "the journal style's CSL asset wins when present");
+  const fromDoc = await resolveCslIdentity(rd, at);
+  assert(fromDoc.styleId === "http://z/apa", "no style asset → the document's own csl: front matter, doc-relative");
+  const fromYml = await resolveCslIdentity(rd, { root: "/p", docPath: "/p/manuscript/other.qmd" });
+  assert(fromYml.styleId === "http://z/yml", "no front matter → the directory's _quarto.yml csl");
+  const noneAtAll = await resolveCslIdentity(async () => null, at);
+  assert(noneAtAll.styleId === DEFAULT_STYLE.styleId, "nothing anywhere → pandoc's own default");
+  const unreadable = await resolveCslIdentity(
+    async (p) => (p.endsWith("nature.csl") ? null : files[p] ?? null),
+    { ...at, styleCsl: "references/styles/nature.csl" },
+  );
+  assert(unreadable.styleId === "http://z/apa", "an unreadable candidate falls through to the next");
+  const noId = await resolveCslIdentity(
+    async (p) => (p.endsWith("nature.csl") ? "<style/>" : files[p] ?? null),
+    { ...at, styleCsl: "references/styles/nature.csl" },
+  );
+  assert(noId.styleId === "http://z/apa", "a CSL without an <id> is skipped, not trusted");
 }
 
 console.log(failures ? `\nZOTERO-FIELDS: FAIL (${failures})` : "\nZOTERO-FIELDS: PASS");

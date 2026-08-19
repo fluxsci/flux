@@ -686,7 +686,7 @@
     outPath: string,
   ): Promise<{ citations: number; bound: number; notesPlain: number } | null> {
     if (!pm) return null;
-    const { harvestZoteroLibrary, injectZoteroFields, parseCslIdentity, DEFAULT_STYLE } = await import(
+    const { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity } = await import(
       "../../../lib/references/zoteroFields"
     );
     const { getCite } = await import("../../../lib/references/bibtex");
@@ -711,17 +711,14 @@
         )
       : null;
 
-    // The style Zotero will reformat to must be the one the render used.
+    // The style Zotero will reformat to must be the one the render used — the shared
+    // resolver (journal-style asset → front-matter csl → _quarto.yml) over the bridge.
     const style = resolveJournalStyle(plan.style, BUILTIN_JOURNAL_STYLES);
-    let identity = DEFAULT_STYLE;
-    for (const rel of [style.csl, `${activeDocPath.replace(/\/[^/]*$/, "")}/references/styles`].filter(Boolean)) {
-      const text = await fb.readText(`${pm.root}/${rel}`).catch(() => null);
-      const parsed = text ? parseCslIdentity(text) : null;
-      if (parsed) {
-        identity = parsed;
-        break;
-      }
-    }
+    const identity = await resolveCslIdentity((p) => fb.readText(p).catch(() => null), {
+      root: pm.root,
+      docPath: `${pm.root}/${activeDocPath}`,
+      styleCsl: style.csl,
+    });
 
     const { bytes, report } = injectZoteroFields(new Uint8Array(await fb.readFile(outPath)), {
       items,

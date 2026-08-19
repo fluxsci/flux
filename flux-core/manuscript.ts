@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { resolveSpawn } from "../electron/execResolve.cjs";
 import { composeCaption } from "../src/lib/captions";
-import { harvestZoteroLibrary, injectZoteroFields, parseCslIdentity, DEFAULT_STYLE, type CslRecord } from "../src/lib/references/zoteroFields.js";
+import { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity, type CslRecord } from "../src/lib/references/zoteroFields.js";
 import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
 import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
@@ -245,25 +245,15 @@ function citationKeysIn(text: string): string[] {
   return [...keys];
 }
 
-/** The Zotero style id + locale for this render, read from the CSL actually used.
- *
- *  Taking it from the CSL file means the citations Word displays and the style Zotero
- *  would reformat to cannot disagree. With no CSL configured, pandoc's own default is
- *  Chicago author-date, so that is what the document declares. */
+/** The Zotero style id + locale for this render — the shared resolver with node IO.
+ *  Candidate precedence lives in ONE place (resolveCslIdentity, twin-engine rule);
+ *  the in-app export calls the same function over the FileBridge. */
 async function cslIdentity(root: string, docAbs: string, styleCsl?: string): Promise<{ styleId: string; locale: string }> {
-  const candidates: string[] = [];
-  if (styleCsl) candidates.push(path.resolve(root, styleCsl));
-  const front = await fs.readFile(docAbs, "utf8").catch(() => "");
-  const declared = /^csl:\s*["']?(.+?)["']?\s*$/m.exec(front)?.[1];
-  if (declared) candidates.push(path.resolve(path.dirname(docAbs), declared));
-  const quartoYml = await fs.readFile(path.join(path.dirname(docAbs), "_quarto.yml"), "utf8").catch(() => "");
-  const fromYml = /^\s*csl:\s*["']?(.+?)["']?\s*$/m.exec(quartoYml)?.[1];
-  if (fromYml) candidates.push(path.resolve(path.dirname(docAbs), fromYml));
-  for (const cand of candidates) {
-    const identity = parseCslIdentity(await fs.readFile(cand, "utf8").catch(() => ""));
-    if (identity) return identity;
-  }
-  return DEFAULT_STYLE;
+  return resolveCslIdentity((p) => fs.readFile(p, "utf8").catch(() => null), {
+    root,
+    docPath: docAbs,
+    styleCsl,
+  });
 }
 
 export async function compile(

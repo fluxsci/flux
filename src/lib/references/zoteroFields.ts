@@ -244,6 +244,40 @@ export function parseCslIdentity(cslText: string): { styleId: string; locale: st
 /** Pandoc's own default when a document configures no CSL at all. */
 export const DEFAULT_STYLE = { styleId: "http://www.zotero.org/styles/chicago-author-date", locale: "en-US" };
 
+const ABS_PATH = /^(?:[A-Za-z]:[\\/]|\/)/;
+
+/** The CSL identity a render used, from the first candidate that reads and parses:
+ *  the journal style's project-relative CSL asset, the entry document's own `csl:`
+ *  front matter, then the document directory's `_quarto.yml` — the same precedence
+ *  Quarto gives pandoc, so the declared style tracks the rendered one. With no CSL
+ *  anywhere, pandoc's default (DEFAULT_STYLE) is what actually rendered.
+ *
+ *  SHARED between engines with IO injected (twin-engine rule): flux-core `compile`
+ *  hands it node fs, the in-app export hands it the FileBridge. The GUI once carried
+ *  its own copy, which skipped the front-matter candidates entirely and probed a
+ *  directory as if it were a file — so a hand-declared `csl:` got the right style
+ *  from the CLI and Chicago from the app. */
+export async function resolveCslIdentity(
+  readText: (path: string) => Promise<string | null>,
+  opts: { root: string; docPath: string; styleCsl?: string | null },
+): Promise<{ styleId: string; locale: string }> {
+  const join = (base: string, rel: string) => (ABS_PATH.test(rel) ? rel : `${base}/${rel}`);
+  const docDir = /[\\/]/.test(opts.docPath) ? opts.docPath.replace(/[\\/][^\\/]*$/, "") : ".";
+  const candidates: string[] = [];
+  if (opts.styleCsl) candidates.push(join(opts.root, opts.styleCsl));
+  const front = (await readText(opts.docPath)) ?? "";
+  const declared = /^csl:\s*["']?(.+?)["']?\s*$/m.exec(front)?.[1];
+  if (declared) candidates.push(join(docDir, declared));
+  const quartoYml = (await readText(join(docDir, "_quarto.yml"))) ?? "";
+  const fromYml = /^\s*csl:\s*["']?(.+?)["']?\s*$/m.exec(quartoYml)?.[1];
+  if (fromYml) candidates.push(join(docDir, fromYml));
+  for (const cand of candidates) {
+    const identity = parseCslIdentity((await readText(cand)) ?? "");
+    if (identity) return identity;
+  }
+  return DEFAULT_STYLE;
+}
+
 // ---------------------------------------------------------------- marking
 
 /** Quarto crossref namespaces — `@fig-3`, `@tbl-1` are references, not citations. */
