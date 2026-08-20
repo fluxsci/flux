@@ -4,7 +4,8 @@
 
 import { fileBridge, joinPath, type LoadedProject } from "../../../../lib/project/types";
 import { readManuscript } from "../../../../lib/project/load";
-import { CONTEXT_DOC_RELS, CONTEXT_PATHS } from "../../../../lib/project/contextTemplates";
+import { CONTEXT_PATHS } from "../../../../lib/project/contextTemplates";
+import { sortDocuments } from "../../../../lib/project/docOrder";
 import { frontMatterField } from "../frontmatter";
 
 export interface DocEntry {
@@ -73,20 +74,22 @@ export async function listDocuments(p: LoadedProject): Promise<DocEntry[]> {
   };
   for (const rel of rels) await entryFor(rel, false);
   for (const rel of contextRels) await entryFor(rel, true);
-  const ctxRank = (rel: string) => {
-    const i = CONTEXT_DOC_RELS.indexOf(rel);
-    return i === -1 ? CONTEXT_DOC_RELS.length : i;
-  };
-  out.sort((a, b) => {
-    if (a.isMain !== b.isMain) return a.isMain ? -1 : 1;
-    if (!!a.isContext !== !!b.isContext) return a.isContext ? 1 : -1; // context group last
-    if (a.isContext && b.isContext) {
-      const r = ctxRank(a.path) - ctxRank(b.path);
-      if (r !== 0) return r; // mission → notebook → rules, then the rest
-    }
-    return a.title.localeCompare(b.title);
-  });
-  return out;
+  // The list order is the user's (dragged in the rail) where they have set one,
+  // and the default otherwise — decided ONCE, in the shared core, so flux-core's
+  // twin lists the same documents in the same order.
+  return sortDocuments(out, p.manifest.documentOrder);
+}
+
+/**
+ * Record the user's Documents-list order. The manifest object is updated in
+ * place FIRST (the rail re-renders from it immediately — a drag is
+ * direct manipulation, §6), then project.json is rewritten.
+ */
+export async function setDocumentOrder(p: LoadedProject, order: string[]): Promise<void> {
+  const fb = fileBridge();
+  p.manifest.documentOrder = order;
+  if (!fb) return;
+  await fb.writeText(joinPath(p.root, "project.json"), JSON.stringify(p.manifest, null, 2) + "\n");
 }
 
 function slugify(s: string): string {

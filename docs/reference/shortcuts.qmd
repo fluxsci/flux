@@ -31,6 +31,7 @@ the editing engine.
 |---|---|
 | **Ctrl+Shift+E** | Toggle edit ↔ full-width preview (**Escape** exits preview) |
 | **Alt+O** | Show/hide the left panel (outline & documents; drag its edge to resize) |
+| **Alt+↑** / **Alt+↓** | Move a focused Documents row up / down the list (drag the row for the same thing; nothing is renamed and no file moves) |
 | **Ctrl+Shift+B** | Show/hide the dynamic margin |
 | **Alt+R** | Reference search pane |
 | **Alt+J** | Journal Check pane |
@@ -56,6 +57,9 @@ the editing engine.
 | **Ctrl+Alt+R** / **Ctrl+Alt+Shift+R** | Table: add row below / delete row |
 | **Ctrl+Alt+C** / **Ctrl+Alt+Shift+C** | Table: add column right / delete column |
 | **Ctrl+Alt+A** | Table: cycle the column's alignment (also **Alt+click** a rendered header cell) |
+
+Mouse: **drag a row in the left rail's Documents list** = reorder the documents (order only —
+the open document doesn't change).
 
 Typing triggers: **@** cite · **@@** figure-reference picker · **/** block palette at the
 start of a line. Vim mode (plain or flux-ViM) is enabled from the palette —

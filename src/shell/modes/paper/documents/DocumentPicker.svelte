@@ -1,6 +1,18 @@
 <script lang="ts">
   // F4: the project's document list, under the Outline in the Paper left rail.
   // Lists every .qmd, highlights the active one, and offers "+ New document".
+  //
+  // The list order is the USER'S: drag a row to slide it up or down, exactly as
+  // the sidebar's Figures list works (Alt+↑/↓ moves a focused row from the
+  // keyboard). What the drag produces is an ORDER only — no file is renamed or
+  // moved on disk; `documentOrder` in project.json records it (docOrder.ts).
+  //
+  // As in the Figures list the WHOLE row is the drag surface, so a press only
+  // becomes a drag past a small threshold, the click that ends a real drag is
+  // swallowed (it must not also open the document), and pointer capture is
+  // claimed at that same threshold so a plain click still lands on its button.
+  // The two groups are separate lists on screen and a drag stays inside its own.
+  import { tick } from "svelte";
   import type { DocEntry } from "./documents";
 
   let {
@@ -8,24 +20,126 @@
     activePath,
     onSelect,
     onNew,
+    onReorder,
   }: {
     docs: DocEntry[];
     activePath: string;
     onSelect: (path: string) => void;
     onNew: () => void;
+    /** Move `path` so it lands at `toIndex` among the rows that stay put, within
+     *  its own group. No-op when the picker is read-only (no handler). */
+    onReorder?: (path: string, toIndex: number) => void;
   } = $props();
+
+  type Group = "doc" | "ctx";
+  const HINT = "Drag a row to reorder the list · Alt+↑/↓ moves a focused row";
+  const DRAG_SLOP = 4; // px of movement before a press is a drag
+
+  const rowsIn = (g: Group) => docs.filter((d) => (g === "ctx" ? !!d.isContext : !d.isContext));
+
+  let docListEl = $state<HTMLUListElement | undefined>(undefined);
+  let ctxListEl = $state<HTMLUListElement | undefined>(undefined);
+  let dragPath = $state<string | null>(null); // the row being dragged (drives .dragging)
+  let dragFrom: { path: string; group: Group; x: number; y: number } | null = null;
+  let dragMoved = false; // a drag happened → swallow its trailing click
+
+  /** Index of the row under `y` in that group's list (rows are keyed, so these
+   *  rects stay in step with the live reordering). */
+  function rowIndexAtY(g: Group, y: number): number {
+    const rows = [...((g === "ctx" ? ctxListEl : docListEl)?.children ?? [])] as HTMLElement[];
+    for (let i = 0; i < rows.length; i++) if (y < rows[i].getBoundingClientRect().bottom) return i;
+    return rows.length - 1;
+  }
+
+  function startDrag(e: PointerEvent, path: string, group: Group) {
+    if (e.button !== 0) return;
+    dragFrom = { path, group, x: e.clientX, y: e.clientY };
+    dragMoved = false;
+  }
+
+  function onDragMove(e: PointerEvent) {
+    if (!dragFrom || !onReorder) return;
+    const { group } = dragFrom;
+    if (!dragPath) {
+      const far =
+        Math.abs(e.clientY - dragFrom.y) >= DRAG_SLOP || Math.abs(e.clientX - dragFrom.x) >= DRAG_SLOP;
+      if (!far) return;
+      dragPath = dragFrom.path;
+      dragMoved = true;
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {} // a synthetic pointer (headless gates) has nothing to capture
+    }
+    const rows = rowsIn(group);
+    const first = rows.findIndex((d) => d.path === dragPath);
+    const over = rowIndexAtY(group, e.clientY);
+    if (first < 0 || over < 0 || over === first) return;
+    onReorder(dragPath, over);
+  }
+
+  function endDrag(e: PointerEvent) {
+    if (dragPath) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+    dragFrom = null;
+    dragPath = null; // dragMoved survives until the next pointerdown
+  }
+
+  function pick(path: string) {
+    if (dragMoved) return; // this click ended a reorder drag, not a click
+    onSelect(path);
+  }
+
+  /** Alt+↑/↓ on a focused row — the same move from the keyboard (the editor's
+   *  "move this block up a list" chord). Scoped to the row, because inside the
+   *  editor Alt+↑/↓ is CodeMirror's move-line. */
+  async function onRowKey(e: KeyboardEvent, path: string, group: Group) {
+    if (!onReorder || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    const rows = rowsIn(group);
+    const i = rows.findIndex((d) => d.path === path);
+    const to = i + (e.key === "ArrowUp" ? -1 : 1);
+    if (i < 0 || to < 0 || to >= rows.length) return; // already against that end
+    e.preventDefault();
+    e.stopPropagation();
+    onReorder(path, to);
+    // Reordering MOVES the row's DOM node, and an insertBefore-style move is not
+    // focus-preserving — the row goes blurred, which made the chord a one-shot
+    // (you had to click the row again between presses). Put focus back on the
+    // row that moved so Alt+↓ Alt+↓ walks it down the list. It only bit one
+    // direction: for a move UP the keyed diff relocates the OTHER row instead.
+    await tick();
+    focusRow(path, group);
+  }
+
+  function focusRow(path: string, group: Group) {
+    const list = group === "ctx" ? ctxListEl : docListEl;
+    const btn = [...(list?.querySelectorAll(".dp-item") ?? [])].find(
+      (b) => b.getAttribute("title") === path,
+    ) as HTMLElement | undefined;
+    btn?.focus();
+  }
 </script>
 
 <aside class="docpicker">
-  <div class="dp-head">Documents</div>
-  <ul>
-    {#each docs.filter((d) => !d.isContext) as d (d.path)}
-      <li>
+  <div class="dp-head" title={HINT}>Documents</div>
+  <ul bind:this={docListEl}>
+    {#each rowsIn("doc") as d (d.path)}
+      <li
+        class="dp-row"
+        class:dragging={dragPath === d.path}
+        onpointerdown={(e) => startDrag(e, d.path, "doc")}
+        onpointermove={onDragMove}
+        onpointerup={endDrag}
+        onpointercancel={endDrag}>
         <button
           class="dp-item"
           class:active={d.path === activePath}
           title={d.path}
-          onclick={() => onSelect(d.path)}>
+          onclick={() => pick(d.path)}
+          onkeydown={(e) => onRowKey(e, d.path, "doc")}>
           <span class="dp-title">{d.title}</span>
           {#if d.isMain}<span class="dp-badge">main</span>{/if}
         </button>
@@ -33,15 +147,22 @@
     {/each}
   </ul>
   {#if docs.some((d) => d.isContext)}
-    <div class="dp-head dp-ctx">Context</div>
-    <ul>
-      {#each docs.filter((d) => d.isContext) as d (d.path)}
-        <li>
+    <div class="dp-head dp-ctx" title={HINT}>Context</div>
+    <ul bind:this={ctxListEl}>
+      {#each rowsIn("ctx") as d (d.path)}
+        <li
+          class="dp-row"
+          class:dragging={dragPath === d.path}
+          onpointerdown={(e) => startDrag(e, d.path, "ctx")}
+          onpointermove={onDragMove}
+          onpointerup={endDrag}
+          onpointercancel={endDrag}>
           <button
             class="dp-item"
             class:active={d.path === activePath}
             title={d.path}
-            onclick={() => onSelect(d.path)}>
+            onclick={() => pick(d.path)}
+            onkeydown={(e) => onRowKey(e, d.path, "ctx")}>
             <span class="dp-title">{d.title}</span>
           </button>
         </li>
@@ -84,6 +205,11 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
+  }
+  .dp-row.dragging .dp-item {
+    /* the row being slid: keep it readable but clearly "in hand" */
+    opacity: 0.65;
+    background: var(--c-ui-hover);
   }
   .dp-item {
     width: 100%;

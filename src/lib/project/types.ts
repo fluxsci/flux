@@ -87,6 +87,11 @@ export interface ProjectManifest {
   authors: ProjectAuthor[];
   manuscript: ManuscriptRef;
   supplementary: { path: string }[];
+  /** The user's order for the Paper rail's Documents list — project-relative
+   *  paths, dragged into place there (src/lib/project/docOrder.ts). Optional and
+   *  self-healing: unknown paths are ignored, undiscovered ones sort last, and a
+   *  manifest without it lists documents in the historical default order. */
+  documentOrder?: string[];
   references: ReferencesRef;
   figures: FigureEntry[];
   // Custom figure families (rollup of fig/index.json `families`; built-ins

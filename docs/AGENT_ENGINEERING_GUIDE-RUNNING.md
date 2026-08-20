@@ -89,6 +89,7 @@ The established shared cores — extend these, don't duplicate them:
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
+| Document list ORDER (default sort + the user's `documentOrder`) | `src/lib/project/docOrder.ts` | `verify-doc-order.ts` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
@@ -189,6 +190,20 @@ Persistence invariants (all machine-checked — do not weaken):
   renumbering stays `assignFamilyNumber`'s insert-and-shift (the namer, Ctrl+R). The paper
   side is unaffected either way: its pickers/completions sort by family rank + number.
   Gates: `verify-fig-order.ts` (pure) + `verify-fig-order-gui.mjs` (ui).
+- **Document ORDER is the user's too, and it is a manifest field** (2026-08-20): the Paper
+  rail's Documents list is dragged like the Figures list (or Alt+↑/↓ on a focused row) and the
+  arrangement persists as `project.json` `documentOrder` — project-relative paths. The list is
+  a SCAN (main + supplementary + manuscript/** + Context/**), not a stored list, so the order
+  is a ranking, not the source of truth: `sortDocuments` ranks what the array names and falls
+  back to the historical default (main first, then title; Context group last,
+  mission→notebook→rules) for everything else, a path that no longer exists is ignored, and a
+  newly discovered document sorts last within its group. `reorderDocuments` is the one
+  primitive (the documents' `reorderFigures`) and returns the COMPLETE new order, so an
+  arrangement can never be reshuffled later by a retitle. Both `listDocuments` twins call the
+  shared core — the GUI's and flux-core's (which the `documents` verb renders) — because an
+  agent and the user must see one list. Order only: no file is renamed or moved, and the open
+  document does not change. Gates: `verify-doc-order.ts` (pure) + `verify-doc-order-gui.mjs`
+  (ui, in paper-gate).
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
 - **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
   external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines
@@ -3750,3 +3765,53 @@ on the selector) — proven to fail by dropping the prop in PaperMode; `verify-f
 still green (12/12). check 0/0; paper-gate 27/31, the same four failures (`paper-keyboard`,
 `-local-corrections`, `-extras`, `-tables`) re-run against a stashed tree and confirmed
 pre-existing on this macOS box. docs/modes/paper.qmd updated in the same session.
+
+### 2026-08-20 — The Documents list is rearrangeable too (Claude Opus 5, `main`)
+
+**Work:** Owner-asked parity with the figure work: a row in the Paper rail's **Documents**
+list now slides — drag it, or press **Alt+↑/↓** with the row focused — and the arrangement
+is the user's, recorded as `project.json` `documentOrder`. Promoted to §2 (new twin-engine
+row) and §3 (new invariant). The interesting difference from figures is that this list is a
+SCAN, not a stored array, so the order had to be a RANKING over a default rather than the
+order itself: `src/lib/project/docOrder.ts` (`sortDocuments` + `reorderDocuments`) is the one
+core, and it now backs BOTH `listDocuments` twins — the duplicated main-first/title sort in
+`flux-core/manuscript.ts` and `paper/documents/documents.ts` is gone, so `flux documents` and
+the rail can no longer drift. Drag mechanics are the Figures list's verbatim (whole row is
+the surface, 4px slop, trailing click swallowed, capture at the threshold), and the two
+groups (Documents / Context) are separate lists a drag can't cross. Deliberately NOT copied:
+the Shift/Ctrl multi-row pick — a click here OPENS a document, so a row pick would need a
+meaning it doesn't have; `reorderDocuments` takes a list anyway, so it costs nothing later.
+Alt+↑/↓ is row-scoped, not a mode chord, because in the editor that chord is CodeMirror's
+move-line — and it has to re-focus the row it moved (see the learning below; owner caught the
+one-shot). Gates: `verify-doc-order.ts` (pure, 31 checks) + `verify-doc-order-gui.mjs` (ui +
+paper-gate, 26), both proven to fail against the unfixed code (8 and 6+1 respectively).
+check 0/0; pure 178/182 and paper-gate 28/32 — every failure re-run against a stashed tree
+and confirmed pre-existing on this macOS box (the same four paper gates as 08-19, plus
+`verify-fluxconfig`/`-zotero-sync`/`-paper-commands`/`-slide-export-transform`).
+Docs + in-app Help updated.
+
+**Learnings:**
+
+- **A user-ordered list whose members are DISCOVERED needs a ranking, not an order.** Storing
+  "the order" of a scan goes stale the moment a file appears or vanishes; storing a rank the
+  default sort falls back through is self-healing for free — and writing the COMPLETE ranking
+  on every move is what stops a later retitle from reshuffling what the user arranged.
+- A gate can pin a row's identity through an attribute the UI also uses for its tooltip:
+  `verify-context-gui` matches `.dp-item[title]` EXACTLY against the document path, so
+  appending a drag hint to that tooltip would have broken it. Hints belong on the group
+  heading; the row's `title` is its identity. (The §9 "grep the gates when a row's rendering
+  changes" rule, hit from the attribute side.)
+- **Reordering a list BLURS the row you moved** — a keyed `{#each}` relocates the node with an
+  insertBefore-style move, which is not focus-preserving, so a "move this row" chord is a
+  one-shot: one press, then dead until the row is clicked again. Any list chord driven by DOM
+  focus must re-focus its row (`await tick()`, then find it again) — and the bug hides in one
+  direction only, because moving a row UP can be satisfied by relocating the OTHER row, which
+  leaves focus intact. Drags are immune for a different reason: every row carries the same
+  pointermove handler, so losing pointer capture mid-gesture costs nothing.
+- **A gate that re-establishes preconditions between presses cannot see a one-shot.** The
+  first cut of this gate focused the row before EVERY synthetic keydown — the exact thing the
+  app was failing to do — so it passed against broken code. Drive a repeatable interaction the
+  way a user repeats it: set up once, then press twice.
+- Seeding a fixture document by writing the file after the app has booted does not make it
+  appear: the rail lists on MOUNT and Paper is already mounted. Drive the app's own
+  "+ New document" instead — the gate then also exercises the path that re-lists.

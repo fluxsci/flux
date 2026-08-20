@@ -19,6 +19,12 @@ text stays honest.
   badge, **+ New document** adds more), plus the *Context* group where your
   [agent's mission, notebook, and rules](../agents/collaboration.qmd) open as ordinary
   documents.
+- **Drag a document's row up or down the list to reorder it** — the list order is yours, so
+  chapters and sections can sit in reading order instead of alphabetical. **Alt+↑** /
+  **Alt+↓** does the same once a row has keyboard focus. This changes the *order of the list
+  only*: nothing is renamed and no file moves on disk, the document you are editing stays
+  open, and a *Context* row reorders within its own group. Your order is saved with the
+  project, so the CLI and your agent list the documents the same way you see them.
 - Type **/** at the start of a line for the block palette: `/figure`, `/table`, `/equation`,
   `/citation`, `/heading`, `/callout`, and friends.
 - **Ctrl+K** opens the command palette — everything in this guide is also in there by name.

@@ -10,7 +10,13 @@
   import Editor from "./Editor.svelte";
   import Outline from "./outline/Outline.svelte";
   import DocumentPicker from "./documents/DocumentPicker.svelte";
-  import { listDocuments, createDocument, type DocEntry } from "./documents/documents";
+  import {
+    listDocuments,
+    createDocument,
+    setDocumentOrder,
+    type DocEntry,
+  } from "./documents/documents";
+  import { reorderDocuments, sortDocuments } from "../../../lib/project/docOrder";
   import TitlePill from "./TitlePill.svelte";
   import TitleEditor from "./TitleEditor.svelte";
   import CommandPalette from "../../command/CommandPalette.svelte";
@@ -1590,6 +1596,24 @@
     view.focus();
   }
 
+  /** Slide a document row up or down the rail's Documents list — order ONLY:
+   *  nothing is renamed and no file moves on disk. The list re-renders from the
+   *  in-memory manifest first (a drag is direct manipulation — it must not wait
+   *  on a write), then project.json records it. project.json belongs to no
+   *  watcher subsystem, so the write raises no external-change event.
+   *  A second paper pane picks the new order up on its next listDocuments —
+   *  the same as a document created in one pane (dual-pane B4). */
+  function reorderDoc(path: string, toIndex: number) {
+    if (!pm) return;
+    const next = reorderDocuments(docs, pm.manifest.documentOrder, [path], toIndex);
+    const now = docs.map((d) => d.path);
+    if (next.length === now.length && next.every((p, i) => p === now[i])) return; // no-op
+    docs = sortDocuments(docs, next);
+    void setDocumentOrder(pm, next).catch((e) =>
+      pushToast("error", "Couldn’t save the document order", { detail: errMsg(e) }),
+    );
+  }
+
   function newDocument() {
     if (!pm) return;
     newDocValue = "";
@@ -2099,7 +2123,12 @@
           onJump={jump}
           onToggleCollapse={toggleCollapse} />
         {#if !isDemo}
-          <DocumentPicker {docs} activePath={activeDocPath} onSelect={loadDocument} onNew={newDocument} />
+          <DocumentPicker
+            {docs}
+            activePath={activeDocPath}
+            onSelect={loadDocument}
+            onNew={newDocument}
+            onReorder={reorderDoc} />
         {/if}
       </div>
       <div

@@ -28,7 +28,8 @@ import { loadManifest, saveManifest, safeJoin, exists, writeText, readFigIndex, 
 import { materializeRenders } from "./render";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { slugify } from "../src/lib/project/types";
-import { CONTEXT_DOC_RELS, CONTEXT_PATHS } from "../src/lib/project/contextTemplates";
+import { CONTEXT_PATHS } from "../src/lib/project/contextTemplates";
+import { sortDocuments } from "../src/lib/project/docOrder";
 import { isConflictPath } from "../electron/conflictRules.js";
 
 // --------------------------------------------------------------------------
@@ -109,20 +110,10 @@ export async function listDocuments(
   };
   for (const rel of rels) await entryFor(rel, false);
   for (const rel of contextRels) await entryFor(rel, true);
-  const ctxRank = (rel: string) => {
-    const i = CONTEXT_DOC_RELS.indexOf(rel);
-    return i === -1 ? CONTEXT_DOC_RELS.length : i;
-  };
-  out.sort((a, b) => {
-    if (a.isMain !== b.isMain) return a.isMain ? -1 : 1;
-    if (!!a.isContext !== !!b.isContext) return a.isContext ? 1 : -1;
-    if (a.isContext && b.isContext) {
-      const r = ctxRank(a.path) - ctxRank(b.path);
-      if (r !== 0) return r;
-    }
-    return a.title.localeCompare(b.title);
-  });
-  return out;
+  // Order: the user's `documentOrder` (dragged in the Paper rail's Documents
+  // list) where it covers a document, the default otherwise. Decided in the
+  // shared core so this twin and the GUI can never list a project differently.
+  return sortDocuments(out, m.documentOrder);
 }
 
 /** create a new blank document (seeded front-matter), registered in the manifest. */

@@ -60,6 +60,7 @@
    "verify-figfamily.ts",
    "verify-ops.ts",
    "verify-fig-order.ts",
+   "verify-doc-order.ts",
    "verify-p4-figure.ts",
    "verify-p4-libreader.ts",
    "verify-p4-slide.ts",
@@ -241,6 +242,7 @@
    "verify-text-styles.mjs",
    "verify-groups-layers.mjs",
    "verify-fig-order-gui.mjs",
+   "verify-doc-order-gui.mjs",
    "verify-line-pivot.mjs",
    "verify-fig-suspend.mjs",
    "verify-slide-editor-gui.mjs",
@@ -369,6 +371,7 @@
    "verify-outline-refresh.mjs",
    "verify-figref.mjs",
    "verify-figpicker.mjs",
+   "verify-doc-order-gui.mjs",
    "verify-figfamily.ts",
    "verify-citenum.ts",
    "verify-w18-paper.mjs",
@@ -584,6 +587,15 @@
    "run": [
     "verify-context-scheme.ts",
     "verify-fluxconfig.ts"
+   ]
+  },
+  {
+   "glob": "{src/lib/project/docOrder.ts,src/shell/modes/paper/documents/*}",
+   "run": [
+    "verify-doc-order.ts",
+    "verify-doc-order-gui.mjs",
+    "verify-an-manuscript.ts",
+    "tier:pure"
    ]
   },
   {
