@@ -352,11 +352,44 @@ const INDEX: ZoteroLibraryIndex = {
   assert(after.includes("Established by "), "the surrounding prose is untouched");
   assert(after.includes(">1<") && after.includes(">2<"), "the displayed citation numbers are kept");
 
-  // A marker the renderer split across runs cannot match OPEN_RUN; it must still go.
+  // A marker the renderer split across runs cannot match OPEN_RUN; it must still go — and
+  // the sweep for it must never pattern-match ACROSS the markup, or it eats tags. An
+  // unbounded scan over XML is exactly how the sentinels came to be stranded to begin with.
+  const bal = (x: string) =>
+    x.split("<w:r>").length === x.split("</w:r>").length &&
+    x.split("<w:t ").length === x.split("</w:t>").length &&
+    x.split("<w:p>").length === x.split("</w:p>").length;
+
   const split = docx(RUN("See ") + RUN("⟦ZC{") + RUN("a_2020}⟧") + RUN("1") + RUN("⟦ZE⟧"));
   const out = strFromU8(unzipSync(stripZoteroMarkers(split).bytes)["word/document.xml"]);
   assert(!out.includes("⟦") && !out.includes("ZC{"), "a marker split across runs is removed too");
   assert(out.includes("See "), "and its surrounding prose survives");
+  assert(bal(out), "a split marker leaves the run/text markup balanced");
+
+  const midWord = docx(RUN("x⟦ZC{a") + RUN("_2020}⟧y") + RUN("⟦ZE⟧"));
+  const mw = strFromU8(unzipSync(stripZoteroMarkers(midWord).bytes)["word/document.xml"]);
+  assert(!mw.includes("⟦") && mw.includes(">x<") && mw.includes(">y<"),
+    "a marker split mid-word loses the marker and keeps the letters either side");
+  assert(bal(mw), "and leaves the markup balanced");
+
+  const para = docx("<w:p>" + RUN("A ⟦ZC{a") + "</w:p><w:p>" + RUN("_2020}⟧ B") + "</w:p>");
+  const pa = strFromU8(unzipSync(stripZoteroMarkers(para).bytes)["word/document.xml"]);
+  assert(bal(pa) && pa.split("<w:p>").length - 1 === 2,
+    "a marker spanning a paragraph break does not merge the paragraphs");
+
+  // An unterminated marker must cost its own characters and nothing else. A citekey
+  // carries no whitespace, so the fragment cannot run past the word it sits in.
+  const runaway = docx(RUN("See ⟦ZC{a_2020") + RUN(" and much later text") + RUN(" end."));
+  const ra = strFromU8(unzipSync(stripZoteroMarkers(runaway).bytes)["word/document.xml"]);
+  assert(!ra.includes("⟦"), "an unterminated marker is removed");
+  assert(ra.includes(" and much later text") && ra.includes(" end."),
+    "an unterminated marker does NOT swallow the text that follows it");
+
+  // Brackets that are not markers belong to the manuscript.
+  const maths = docx(RUN("the set ⟦x⟧ is denoted") + RUN("⟦ZC{a_2020}⟧") + RUN("1") + RUN("⟦ZE⟧"));
+  const ma = strFromU8(unzipSync(stripZoteroMarkers(maths).bytes)["word/document.xml"]);
+  assert(ma.includes("⟦x⟧"), "bracket notation that is not a marker is left alone");
+  assert(!ma.includes("ZC{"), "while the real marker beside it still goes");
 
   // Idempotent, and a clean document is returned untouched.
   const clean = docx(RUN("No citations here."));

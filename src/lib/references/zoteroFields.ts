@@ -683,19 +683,56 @@ export function stripZoteroMarkers(docxBytes: Uint8Array): {
   for (const name of ["word/document.xml", "word/footnotes.xml", "word/endnotes.xml"]) {
     if (!parts[name]) continue;
     let xml = decode(parts[name]);
-    if (!xml.includes(MARK_PREFIX) && !xml.includes("⟦")) continue;
+    if (!xml.includes(MARK_PREFIX)) continue;
+
+    // Structure-aware first: a whole marker run collapses to its displayed text, so
+    // `⟦ZC{k}⟧1⟦ZE⟧` becomes `1`. This is the same demotion the notes parts already get.
     xml = xml.replace(OPEN_RUN, (_whole, _keys, middle: string) => {
       stripped++;
       return middle;
     });
-    xml = xml.replace(/⟦ZC\{[^}]*\}⟧|⟦ZE⟧/g, () => {
+    if (!xml.includes(MARK_PREFIX)) {
+      parts[name] = encode(xml);
+      continue;
+    }
+
+    // Whatever is left is a marker the renderer split or merged across runs, so the run
+    // regex could not see it. Work on the CONCATENATED TEXT of the `<w:t>` nodes and blank
+    // out the character ranges the markers occupy, writing each node back at its own
+    // length. Never pattern-match across the markup itself: an unbounded scan over XML is
+    // how the sentinels came to be stranded in the first place.
+    const nodes: { start: number; end: number; text: string }[] = [];
+    for (const m of xml.matchAll(/(<w:t(?:\s[^>]*)?>)([^<]*)(<\/w:t>)/g)) {
+      const i = m.index ?? 0;
+      nodes.push({ start: i + m[1].length, end: i + m[1].length + m[2].length, text: m[2] });
+    }
+    const joined = nodes.map((n) => n.text).join("");
+    const drop = new Array<boolean>(joined.length).fill(false);
+    // Bounded on purpose: a citekey carries no whitespace, so a fragment cannot run past
+    // the end of the word it sits in. An unterminated `⟦ZC{key` therefore costs its own
+    // characters and nothing else, instead of eating the rest of the paragraph.
+    for (const m of joined.matchAll(/⟦ZC\{[^}\s]{0,200}\}⟧|⟦ZE⟧|⟦Z[^⟧\s]{0,200}⟧?/g)) {
+      const i = m.index ?? 0;
+      for (let k = i; k < i + m[0].length; k++) drop[k] = true;
       stripped++;
-      return "";
-    });
-    xml = xml.replace(/[⟦⟧]/g, () => {
-      stripped++;
-      return "";
-    });
+    }
+    if (drop.some(Boolean)) {
+      let at = 0;
+      const rebuilt: string[] = [];
+      for (const n of nodes) {
+        let out = "";
+        for (const ch of n.text) {
+          if (!drop[at]) out += ch;
+          at++;
+        }
+        rebuilt.push(out);
+      }
+      let shift = 0;
+      nodes.forEach((n, i) => {
+        xml = xml.slice(0, n.start + shift) + rebuilt[i] + xml.slice(n.end + shift);
+        shift += rebuilt[i].length - n.text.length;
+      });
+    }
     parts[name] = encode(xml);
   }
   return { bytes: stripped ? zipSync(parts) : docxBytes, stripped };
