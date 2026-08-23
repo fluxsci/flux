@@ -900,8 +900,14 @@
           });
         }
         // Live Zotero fields: citeproc baked the citations into text, which strips the
-        // item identity Word needs. Rewrite them into the fields Zotero owns. The .docx
-        // on disk is already valid, so a failure here is reported and kept, never fatal.
+        // item identity Word needs. Rewrite them into the fields Zotero owns.
+        //
+        // A failure here is reported and never fatal — but the .docx on disk is NOT a
+        // valid fallback on its own. Rendering with `markCitations` bakes the `⟦ZC…⟧`
+        // sentinels into the file BEFORE injection runs, so abandoning injection leaves
+        // those markers visible in the reader's text and still reports a success. Strip
+        // them before falling back, so "exported without live Zotero citations" is what
+        // the user actually receives.
         let zoteroNote = "";
         if (plan.zoteroFields && r.outPath) {
           try {
@@ -914,9 +920,19 @@
                   : "")
               : "";
           } catch (e) {
-            pushToast("info", "Exported without live Zotero citations", {
-              detail: (e as Error).message,
-            });
+            let detail = (e as Error).message;
+            try {
+              const { stripZoteroMarkers } = await import(
+                "../../../lib/references/zoteroFields"
+              );
+              const { bytes, stripped } = stripZoteroMarkers(
+                new Uint8Array(await fb.readFile(r.outPath)),
+              );
+              if (stripped) await fb.writeFile(r.outPath, bytes);
+            } catch (e2) {
+              detail += ` — and the citation markers could not be removed: ${(e2 as Error).message}`;
+            }
+            pushToast("info", "Exported without live Zotero citations", { detail });
           }
         }
         exportDone = true;

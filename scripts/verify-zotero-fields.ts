@@ -13,6 +13,7 @@ import {
   resolveCslIdentity,
   matchUri,
   countMatches,
+  stripZoteroMarkers,
   DEFAULT_STYLE,
   type CslRecord,
   type ZoteroLibraryIndex,
@@ -326,6 +327,42 @@ const INDEX: ZoteroLibraryIndex = {
     { ...at, styleCsl: "references/styles/nature.csl" },
   );
   assert(noId.styleId === "http://z/apa", "a CSL without an <id> is skipped, not trusted");
+}
+
+// The fallback when injection fails. Observed 2026-08-22: an app export shipped
+// ⟦ZC{faskowitz_mapping_2026}⟧1⟦ZE⟧ as visible text and still reported success. The render
+// bakes the sentinels in BEFORE injection runs, so abandoning injection is not "the file
+// without live fields" — it is the file with the markers still in it.
+{
+  const body =
+    RUN("Established by ") +
+    RUN("⟦ZC{a_2020}⟧") + SUP("1") + RUN("⟦ZE⟧") +
+    RUN(", and later ") +
+    RUN("⟦ZC{b_2019}⟧") + RUN("2") + RUN("⟦ZE⟧") +
+    RUN(".");
+  const marked = docx(body);
+  const before = strFromU8(unzipSync(marked)["word/document.xml"]);
+  assert(before.includes("⟦ZC{"), "precondition: the rendered .docx carries the sentinels");
+
+  const { bytes, stripped } = stripZoteroMarkers(marked);
+  const after = strFromU8(unzipSync(bytes)["word/document.xml"]);
+  assert(stripped >= 2, "the fallback reports how many sentinels it removed");
+  assert(!after.includes("⟦"), "no citation marker survives the fallback");
+  assert(!after.includes("ZC{") && !after.includes("ZE"), "no marker fragment survives either");
+  assert(after.includes("Established by "), "the surrounding prose is untouched");
+  assert(after.includes(">1<") && after.includes(">2<"), "the displayed citation numbers are kept");
+
+  // A marker the renderer split across runs cannot match OPEN_RUN; it must still go.
+  const split = docx(RUN("See ") + RUN("⟦ZC{") + RUN("a_2020}⟧") + RUN("1") + RUN("⟦ZE⟧"));
+  const out = strFromU8(unzipSync(stripZoteroMarkers(split).bytes)["word/document.xml"]);
+  assert(!out.includes("⟦") && !out.includes("ZC{"), "a marker split across runs is removed too");
+  assert(out.includes("See "), "and its surrounding prose survives");
+
+  // Idempotent, and a clean document is returned untouched.
+  const clean = docx(RUN("No citations here."));
+  const again = stripZoteroMarkers(clean);
+  assert(again.stripped === 0, "a document without sentinels reports nothing stripped");
+  assert(again.bytes === clean, "and is handed back as-is, not rezipped");
 }
 
 console.log(failures ? `\nZOTERO-FIELDS: FAIL (${failures})` : "\nZOTERO-FIELDS: PASS");

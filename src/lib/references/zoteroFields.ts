@@ -657,3 +657,46 @@ export function injectZoteroFields(
 
   return { bytes: zipSync(parts), report };
 }
+
+/** Remove every citation sentinel from a rendered .docx, leaving the displayed citation
+ *  text in place.
+ *
+ *  This is the SAFE FALLBACK for a failed injection. The render step bakes the sentinels
+ *  into the .docx before `injectZoteroFields` ever runs, so a caller that renders with
+ *  marking enabled and then loses the injection is holding a file with visible `⟦ZC…⟧`
+ *  garbage in it — not, as one might assume, a clean document without live fields. The
+ *  document is only clean once the markers have been taken back out, which is what this
+ *  does: the same demotion `demoteMarkedCitations` already applies to footnotes, applied
+ *  to every part that can carry them.
+ *
+ *  Structure-aware first (marker runs collapse to their displayed text, so `⟦ZC{k}⟧1⟦ZE⟧`
+ *  becomes `1`), then a literal sweep for markers the renderer split or merged across runs
+ *  so the regex could not see them, and finally the bare bracket characters. `⟦` and `⟧`
+ *  do not occur in ordinary scientific prose — that is why they were chosen — so removing
+ *  any that remain cannot damage the manuscript, and leaving them certainly would. */
+export function stripZoteroMarkers(docxBytes: Uint8Array): {
+  bytes: Uint8Array;
+  stripped: number;
+} {
+  const parts = unzipSync(docxBytes);
+  let stripped = 0;
+  for (const name of ["word/document.xml", "word/footnotes.xml", "word/endnotes.xml"]) {
+    if (!parts[name]) continue;
+    let xml = decode(parts[name]);
+    if (!xml.includes(MARK_PREFIX) && !xml.includes("⟦")) continue;
+    xml = xml.replace(OPEN_RUN, (_whole, _keys, middle: string) => {
+      stripped++;
+      return middle;
+    });
+    xml = xml.replace(/⟦ZC\{[^}]*\}⟧|⟦ZE⟧/g, () => {
+      stripped++;
+      return "";
+    });
+    xml = xml.replace(/[⟦⟧]/g, () => {
+      stripped++;
+      return "";
+    });
+    parts[name] = encode(xml);
+  }
+  return { bytes: stripped ? zipSync(parts) : docxBytes, stripped };
+}
