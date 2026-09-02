@@ -47,6 +47,7 @@
           items: [
             ["Alt+O", "Left panel — outline & documents (drag its edge to resize)"],
             ["Drag a document row", "Reorder the Documents list (Alt + ↑ / ↓ on a focused row)"],
+            ["× on a document row", "Delete that document (Delete on a focused row; confirms first)"],
             ["⌃⇧B", "Dynamic margin"],
             ["Alt+R", "Reference search"],
             ["Alt+F", "Figures"],

@@ -6,6 +6,7 @@
 
 import search from "approx-string-match";
 import { fileBridge, joinPath, type LoadedProject } from "../../../../lib/project/types";
+import { commentsSidecarRel } from "../../../../lib/project/docOrder";
 
 export interface CommentMessage {
   author: string;
@@ -94,11 +95,10 @@ function commonSuffix(a: string, b: string): number {
 // the historical `comments.json`; other documents get `<base>.comments.json` so
 // each F4 document has its own thread set.
 function commentsPath(p: LoadedProject, docRel?: string): string {
+  // One derivation for both engines (docOrder.ts) — deleting a document
+  // removes exactly the sidecar this wrote.
   const mp = docRel ?? p.manifest.manuscript.path; // e.g. "manuscript/main.qmd"
-  const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
-  const isMain = mp === p.manifest.manuscript.path;
-  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
-  return joinPath(p.root, dir, isMain ? "comments.json" : `${base}.comments.json`);
+  return joinPath(p.root, commentsSidecarRel(p.manifest.manuscript.path, mp));
 }
 
 export async function readComments(p: LoadedProject, docRel?: string): Promise<CommentThread[]> {

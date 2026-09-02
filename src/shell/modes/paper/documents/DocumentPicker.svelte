@@ -12,8 +12,14 @@
   // swallowed (it must not also open the document), and pointer capture is
   // claimed at that same threshold so a plain click still lands on its button.
   // The two groups are separate lists on screen and a drag stays inside its own.
+  //
+  // A deletable row also carries a × (shown on hover / keyboard focus) and
+  // answers the Delete key; both only ASK — the owner confirms and deletes.
+  // Which rows are deletable is the shared policy (docOrder.ts): never the
+  // main manuscript, never a Context document, so those rows have no ×.
   import { tick } from "svelte";
   import type { DocEntry } from "./documents";
+  import { documentRemovalBlocker } from "../../../../lib/project/docOrder";
 
   let {
     docs,
@@ -21,6 +27,7 @@
     onSelect,
     onNew,
     onReorder,
+    onDelete,
   }: {
     docs: DocEntry[];
     activePath: string;
@@ -29,6 +36,8 @@
     /** Move `path` so it lands at `toIndex` among the rows that stay put, within
      *  its own group. No-op when the picker is read-only (no handler). */
     onReorder?: (path: string, toIndex: number) => void;
+    /** Ask to delete `path` (the owner confirms). No × when absent. */
+    onDelete?: (path: string) => void;
   } = $props();
 
   type Group = "doc" | "ctx";
@@ -36,6 +45,7 @@
   const DRAG_SLOP = 4; // px of movement before a press is a drag
 
   const rowsIn = (g: Group) => docs.filter((d) => (g === "ctx" ? !!d.isContext : !d.isContext));
+  const canDelete = (path: string) => !!onDelete && documentRemovalBlocker(docs, path) === null;
 
   let docListEl = $state<HTMLUListElement | undefined>(undefined);
   let ctxListEl = $state<HTMLUListElement | undefined>(undefined);
@@ -96,6 +106,14 @@
    *  "move this block up a list" chord). Scoped to the row, because inside the
    *  editor Alt+↑/↓ is CodeMirror's move-line. */
   async function onRowKey(e: KeyboardEvent, path: string, group: Group) {
+    // Delete on a focused row asks to delete its document (the × does the same).
+    if (e.key === "Delete" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      if (!canDelete(path)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onDelete!(path);
+      return;
+    }
     if (!onReorder || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     const rows = rowsIn(group);
@@ -143,6 +161,20 @@
           <span class="dp-title">{d.title}</span>
           {#if d.isMain}<span class="dp-badge">main</span>{/if}
         </button>
+        {#if canDelete(d.path)}
+          <!-- The × is its own control: a press on it must neither start a
+               row drag nor count as the row's click (which would OPEN the
+               document being deleted), hence the stopped pointerdown/click. -->
+          <button
+            class="dp-del"
+            title="Delete this document…"
+            aria-label={`Delete ${d.title}`}
+            onpointerdown={(e) => e.stopPropagation()}
+            onclick={(e) => {
+              e.stopPropagation();
+              onDelete!(d.path);
+            }}>×</button>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -206,12 +238,46 @@
     flex-direction: column;
     gap: 1px;
   }
+  .dp-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
   .dp-row.dragging .dp-item {
     /* the row being slid: keep it readable but clearly "in hand" */
     opacity: 0.65;
     background: var(--c-ui-hover);
   }
+  .dp-del {
+    /* the delete affordance: present for keyboard/assistive users always,
+       visible to the pointer on hover or when the row has focus */
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-1);
+    background: none;
+    color: var(--c-tx-faint);
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+  }
+  .dp-row:hover .dp-del,
+  .dp-row:focus-within .dp-del {
+    opacity: 1;
+  }
+  .dp-del:hover,
+  .dp-del:focus-visible {
+    color: var(--c-danger);
+    background: var(--c-ui-hover);
+    opacity: 1;
+  }
   .dp-item {
+    flex: 1 1 auto;
+    min-width: 0;
     width: 100%;
     display: flex;
     align-items: center;

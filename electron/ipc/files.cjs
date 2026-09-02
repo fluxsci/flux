@@ -21,13 +21,15 @@ const TMP_WRITE_RE = /(^|[/\\])\.[^/\\]*\.tmp-\d+-\d+$/;
  * Build the file core. deps:
  *   app       — Electron app (userData/temp paths)
  *   dialog    — Electron dialog (dlg:* handlers)
+ *   shell     — Electron shell (fs:trash → shell.trashItem; optional — a
+ *               missing shell degrades fs:trash to a plain remove)
  *   roots     — () => extra allowed root dirs (main supplies every window's
  *               root + pending root, FluxConfig, FluxLib — lifecycle state it owns)
  *   setPendingRoot — (senderId, abs|null) => void  (fs:beginOpen writes main's
  *               per-window slot)
  *   windowFor — (e) => BrowserWindow|null (dialog parenting; optional)
  */
-function createFileCore({ app, dialog, roots, setPendingRoot, windowFor }) {
+function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }) {
   const recentWrites = new Map(); // absPath -> expiry (ms)
   function noteWrite(p) {
     recentWrites.set(path.resolve(p), Date.now() + 1500);
@@ -224,6 +226,28 @@ function createFileCore({ app, dialog, roots, setPendingRoot, windowFor }) {
         await fs.promises.rm(p, { force: true });
       } catch {
         /* already gone / unremovable — treat as removed */
+      }
+    });
+
+    // Move a file to the OS trash — a deleted manuscript stays recoverable.
+    // Where there is no trash to move to (a bare session, some network mounts)
+    // it falls back to a plain remove and SAYS so: the caller's wording ("moved
+    // to the trash" vs "removed") depends on which one happened.
+    ipc.handle("fs:trash", async (e, p) => {
+      fsGuard(p, e.sender.id);
+      const ab = path.resolve(p);
+      if (!fs.existsSync(ab)) return { trashed: false, existed: false };
+      try {
+        if (!shell) throw new Error("no shell");
+        await shell.trashItem(ab);
+        return { trashed: true, existed: true };
+      } catch {
+        try {
+          await fs.promises.rm(ab, { force: true });
+        } catch {
+          /* already gone / unremovable — treat as removed */
+        }
+        return { trashed: false, existed: true };
       }
     });
 

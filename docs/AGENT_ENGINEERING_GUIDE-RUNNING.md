@@ -89,7 +89,7 @@ The established shared cores — extend these, don't duplicate them:
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
-| Document list ORDER (default sort + the user's `documentOrder`) | `src/lib/project/docOrder.ts` | `verify-doc-order.ts` |
+| Document list ORDER (default sort + the user's `documentOrder`) + document REMOVAL policy/bookkeeping (what may be deleted, the comments-sidecar path, manifest pruning) | `src/lib/project/docOrder.ts` | `verify-doc-order.ts`, `verify-doc-delete.ts` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
@@ -204,6 +204,23 @@ Persistence invariants (all machine-checked — do not weaken):
   agent and the user must see one list. Order only: no file is renamed or moved, and the open
   document does not change. Gates: `verify-doc-order.ts` (pure) + `verify-doc-order-gui.mjs`
   (ui, in paper-gate).
+- **Deleting a document removes exactly its .qmd and its comments sidecar, and the manifest
+  forgets it** (2026-09-02): the Paper rail's × on a row (or Delete on a focused row, always
+  confirmed first) and the `delete-doc` / `delete_document` verb are twins over the shared
+  policy in `docOrder.ts` — `documentRemovalBlocker` (the main manuscript and the Context
+  documents are refused: the manifest requires a main, and Context docs are re-seeded on the
+  next open by contextHeal, so the rail shows no × on those rows), `commentsSidecarRel` (the
+  ONE derivation of `comments.json` / `<base>.comments.json`, which both comments modules now
+  call), and `pruneDocumentFromManifest` (`supplementary` + `documentOrder`). NOTHING ELSE
+  MOVES: a document only references figures and citations, it owns none of them, so `fig/`,
+  `references/` and every other document are byte-identical afterwards (both gates assert it
+  as a tree snapshot). The GUI sends the file to the OS trash (`fs:trash` → `shell.trashItem`,
+  degrading to a plain remove and SAYING so in the toast); flux-core removes and journals.
+  A pane switches its editor AWAY before the file goes (loadDocument flushes the outgoing
+  autosave + comments, so no trailing save can resurrect it), and a document the OTHER pane is
+  editing is refused (its autosave would write it straight back). Gates:
+  `verify-doc-delete.ts` (pure, also executes the CLI) + `verify-doc-delete-gui.mjs` (ui, in
+  paper-gate).
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
 - **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
   external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines
@@ -3815,3 +3832,40 @@ Docs + in-app Help updated.
 - Seeding a fixture document by writing the file after the app has booted does not make it
   appear: the rail lists on MOUNT and Paper is already mounted. Drive the app's own
   "+ New document" instead — the gate then also exercises the path that re-lists.
+
+### 2026-09-02 — A document can be deleted from the project (Claude Fable 5.1, `paper-doc-delete`)
+
+**Work:** Owner-asked: delete any document from within Paper, without touching the figures it
+references. A deletable row in the rail's **Documents** list now carries a hover/focus × (and
+answers **Delete** when focused); both only ASK — an in-app confirm (the "+ New document"
+prompt's shell, Delete button focused, Escape/Cancel keep everything) — and the file then goes
+to the OS trash through a new `fs:trash` channel (`shell.trashItem`, degrading to a plain remove
+and saying so in the toast). The comments sidecar goes with it and the manifest forgets it;
+`fig/`, `references/` and every other document are byte-identical afterwards, which both gates
+assert as a tree snapshot. flux-core got the twin `delete-doc` / `delete_document` (109 verbs,
+goldens regenerated, CLI-REFERENCE + PROJECT-GUIDE rows, context docs regenerated). The
+policy is one shared core (`docOrder.ts`, promoted to the §2 row + a §3 invariant): the main
+manuscript and the Context documents are refused — the manifest requires a main and there is
+no "make main" yet, and Context docs are re-seeded by contextHeal — so their rows show no ×.
+Dual panes: a document the other pane edits is refused (its autosave would write it back), and
+the deleting pane switches to main (or the first free document) BEFORE the file goes. Both
+comments modules now derive the sidecar path from the shared `commentsSidecarRel` instead of
+two private copies. Gates: `verify-doc-delete.ts` (pure, 40 — also executes the CLI; fails 9
+ways against a policy-less/prune-less core) + `verify-doc-delete-gui.mjs` (ui + paper-gate, 35;
+fails against a policy-less × and against no switch-away). check 0/0; pure 183/183;
+doc-order-gui / f4 / context-gui / paper-split green; docs + shortcuts + Help updated.
+
+**Learnings:**
+
+- **A file must never vanish under a live editor.** Autosave + the external-reload chain are
+  built to keep disk and buffer converged, so deleting the open document's file while the
+  editor still points at it gets it written straight back (or a half-typed version of it).
+  Switch the pane away FIRST (the switch flushes the outgoing autosave and comments), and
+  refuse a document another pane holds — the gate's "no switch-away" mutation shows the row
+  vanishing while the editor keeps editing a ghost.
+- Put the deletability policy in TWO places on purpose: the picker hides the × by it (the
+  visible contract) and PaperMode re-checks it before opening the confirm (the safety net) —
+  the teeth run proved the second layer alone still blocked the main manuscript when the
+  first was removed, and the gate still caught the visible ×.
+- A `<div role="dialog">` with an `onkeydown` needs `tabindex="-1"` or svelte-check warns
+  (`a11y_interactive_supports_focus`) — and the tier requires 0 warnings, not just 0 errors.

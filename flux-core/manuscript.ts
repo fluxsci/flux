@@ -29,7 +29,13 @@ import { materializeRenders } from "./render";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { slugify } from "../src/lib/project/types";
 import { CONTEXT_PATHS } from "../src/lib/project/contextTemplates";
-import { sortDocuments } from "../src/lib/project/docOrder";
+import {
+  commentsSidecarRel,
+  documentRemovalBlocker,
+  pruneDocumentFromManifest,
+  sortDocuments,
+} from "../src/lib/project/docOrder";
+import { NotFoundError, ValidationError } from "./errors";
 import { isConflictPath } from "../electron/conflictRules.js";
 
 // --------------------------------------------------------------------------
@@ -137,6 +143,33 @@ export async function createDocument(root: string, name: string): Promise<{ path
   }
   await journal(root, { action: "create_document", target: rel });
   return { path: rel };
+}
+
+/** delete a document from the project: its .qmd and its comments sidecar are
+ *  removed and the manifest forgets it (supplementary + documentOrder). What
+ *  may be deleted and what counts as the document's files is the shared policy
+ *  in docOrder.ts — the main manuscript and Context documents are refused, and
+ *  the GUI's × applies the same rules. Figures, references and every other
+ *  document are untouched: a document only REFERENCES them. */
+export async function deleteDocument(root: string, rel: string): Promise<{ path: string; removed: string[] }> {
+  const m = await loadManifest(root);
+  const blocker = documentRemovalBlocker(await listDocuments(root), rel);
+  if (blocker) {
+    if (blocker.code === "unknown") throw new NotFoundError(blocker.reason);
+    throw new ValidationError(blocker.reason);
+  }
+  const removed: string[] = [];
+  await withLock(root, "manuscript", CLIENT, async () => {
+    for (const r of [rel, commentsSidecarRel(m.manuscript.path, rel)]) {
+      const abs = safeJoin(root, r);
+      if (!(await exists(abs))) continue;
+      await fs.rm(abs, { force: true });
+      removed.push(r);
+    }
+    if (pruneDocumentFromManifest(m, rel)) await saveManifest(root, m);
+  });
+  await journal(root, { action: "delete_document", target: rel });
+  return { path: rel, removed };
 }
 
 /** append a figure cross-reference (`@fig-<label>`) to a document; returns the handle. */

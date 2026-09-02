@@ -139,6 +139,7 @@ const pendingRoots = new Map(); // webContents.id -> project being opened right 
 const fileCore = require("./ipc/files.cjs").createFileCore({
   app,
   dialog,
+  shell, // fs:trash — OS trash for deleted documents
   roots: () => [
     ...sessionRoots(),
     ...pendingRoots.values(), // WS-9.3: projects being opened right now

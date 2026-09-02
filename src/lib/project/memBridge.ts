@@ -117,6 +117,11 @@ export function createMemBridge(): FileBridge & {
     async remove(p) {
       files.delete(norm(p));
     },
+    async trash(p) {
+      // The fixture has no OS trash: a plain remove, reported as such.
+      const existed = files.delete(norm(p));
+      return { trashed: false, existed };
+    },
     async paths() {
       return { home: "/home/demo", userData: "/home/demo/.config/flux", documents: "/home/demo/Documents" };
     },

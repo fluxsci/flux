@@ -61,6 +61,7 @@
    "verify-ops.ts",
    "verify-fig-order.ts",
    "verify-doc-order.ts",
+   "verify-doc-delete.ts",
    "verify-p4-figure.ts",
    "verify-p4-libreader.ts",
    "verify-p4-slide.ts",
@@ -243,6 +244,7 @@
    "verify-groups-layers.mjs",
    "verify-fig-order-gui.mjs",
    "verify-doc-order-gui.mjs",
+   "verify-doc-delete-gui.mjs",
    "verify-line-pivot.mjs",
    "verify-fig-suspend.mjs",
    "verify-slide-editor-gui.mjs",
@@ -372,6 +374,7 @@
    "verify-figref.mjs",
    "verify-figpicker.mjs",
    "verify-doc-order-gui.mjs",
+   "verify-doc-delete-gui.mjs",
    "verify-figfamily.ts",
    "verify-citenum.ts",
    "verify-w18-paper.mjs",
@@ -594,6 +597,8 @@
    "run": [
     "verify-doc-order.ts",
     "verify-doc-order-gui.mjs",
+    "verify-doc-delete.ts",
+    "verify-doc-delete-gui.mjs",
     "verify-an-manuscript.ts",
     "tier:pure"
    ]

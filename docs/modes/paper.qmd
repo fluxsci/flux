@@ -25,6 +25,12 @@ text stays honest.
   only*: nothing is renamed and no file moves on disk, the document you are editing stays
   open, and a *Context* row reorders within its own group. Your order is saved with the
   project, so the CLI and your agent list the documents the same way you see them.
+- **Delete a document** with the **×** that appears at the right of its row when you hover
+  it (or press **Delete** with the row focused), then confirm. The file and its comments leave
+  the project — to your system's trash, where there is one — and the project forgets it. The
+  figures and references it used stay exactly as they are: a document only *refers* to them,
+  it owns none of them. The main manuscript and the *Context* documents can't be deleted, so
+  their rows have no ×. If the document was open, the editor moves to the main manuscript.
 - Type **/** at the start of a line for the block palette: `/figure`, `/table`, `/equation`,
   `/citation`, `/heading`, `/callout`, and friends.
 - **Ctrl+K** opens the command palette — everything in this guide is also in there by name.

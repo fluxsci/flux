@@ -30,6 +30,7 @@ const CHANNELS = [
   { channel: "fs:writeFile", kind: "invoke", scope: "write" },
   { channel: "fs:mkdir", kind: "invoke", scope: "write" },
   { channel: "fs:remove", kind: "invoke", scope: "write" },
+  { channel: "fs:trash", kind: "invoke", scope: "write" },
   { channel: "fs:fsyncDir", kind: "invoke", scope: "write" },
   { channel: "fs:beginOpen", kind: "invoke", scope: "read" },
   { channel: "fs:changed", kind: "push", scope: "read" },

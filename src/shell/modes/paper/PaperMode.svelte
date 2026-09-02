@@ -13,10 +13,11 @@
   import {
     listDocuments,
     createDocument,
+    deleteDocument,
     setDocumentOrder,
     type DocEntry,
   } from "./documents/documents";
-  import { reorderDocuments, sortDocuments } from "../../../lib/project/docOrder";
+  import { documentRemovalBlocker, reorderDocuments, sortDocuments } from "../../../lib/project/docOrder";
   import TitlePill from "./TitlePill.svelte";
   import TitleEditor from "./TitleEditor.svelte";
   import CommandPalette from "../../command/CommandPalette.svelte";
@@ -489,6 +490,9 @@
   function focusSelect(node: HTMLInputElement) {
     node.focus();
     node.select();
+  }
+  function focusEl(node: HTMLElement) {
+    node.focus();
   }
   async function submitDoiPrompt() {
     const doi = doiPromptValue.trim();
@@ -1648,6 +1652,72 @@
     }
   }
 
+  // Deleting a document (the rail's ×, or Delete on a focused row). A file
+  // removal has no Ctrl+Z in the editor, so it always confirms first; the
+  // file then goes to the OS trash where there is one (documents.deleteDocument).
+  // Only what the shared policy allows gets this far — never the main
+  // manuscript, never a Context document (docOrder.documentRemovalBlocker;
+  // the picker shows no × on those rows).
+  let deleteDocTarget = $state<DocEntry | null>(null);
+
+  /** Where this pane goes when the document it is editing is deleted: the main
+   *  manuscript, else the first document no other pane holds (dual-paper B4). */
+  function fallbackDocFor(path: string): string | null {
+    if (!pm) return null;
+    const main = pm.manifest.manuscript.path;
+    if (main !== path && !paneEditingDoc(main, paneId)) return main;
+    return docs.find((d) => d.path !== path && !paneEditingDoc(d.path, paneId))?.path ?? null;
+  }
+  function requestDeleteDoc(path: string) {
+    if (!pm) return;
+    const entry = docs.find((d) => d.path === path);
+    if (!entry || documentRemovalBlocker(docs, path)) return;
+    // Dual-paper: a file must never vanish under the OTHER pane's live editor —
+    // its autosave would write it straight back (or worse, half of it).
+    const claimer = paneEditingDoc(path, paneId);
+    if (claimer) {
+      focusPane(claimer);
+      pushToast("info", "That document is open in the other pane", { detail: "Close it there first." });
+      return;
+    }
+    if (path === activeDocPath && !fallbackDocFor(path)) {
+      pushToast("info", "Open another document in this pane first", {
+        detail: "This pane has nowhere else to go once that document is gone.",
+      });
+      return;
+    }
+    deleteDocTarget = entry;
+  }
+  function cancelDeleteDoc() {
+    deleteDocTarget = null;
+    view?.focus();
+  }
+  async function confirmDeleteDoc() {
+    const entry = deleteDocTarget;
+    deleteDocTarget = null;
+    if (!pm || !entry) return;
+    try {
+      if (entry.path === activeDocPath) {
+        // Switch away FIRST: loadDocument flushes this pane's autosave and
+        // comments for the outgoing document, so no trailing save can
+        // resurrect the file after it is gone.
+        const next = fallbackDocFor(entry.path);
+        if (!next) throw new Error("no other document to open in this pane");
+        await loadDocument(next);
+        if (activeDocPath !== next) throw new Error("couldn’t switch this pane away from it");
+      }
+      const { trashed } = await deleteDocument(pm, docs, entry.path);
+      docs = await listDocuments(pm);
+      pushToast("info", `Deleted “${entry.title}”`, {
+        detail: trashed ? `${entry.path} was moved to the trash.` : `${entry.path} was removed.`,
+      });
+    } catch (e) {
+      docs = await listDocuments(pm).catch(() => docs); // whatever state it left, show it
+      pushToast("error", "Couldn’t delete the document", { detail: errMsg(e) });
+    }
+    view?.focus();
+  }
+
   // F1 live reload: an external (agent/script) edit to the *active* document.
   // Reload silently if the editor is clean; if dirty, never clobber unsaved work —
   // surface a "reloaded from disk / keep mine" choice instead.
@@ -2144,7 +2214,8 @@
             activePath={activeDocPath}
             onSelect={loadDocument}
             onNew={newDocument}
-            onReorder={reorderDoc} />
+            onReorder={reorderDoc}
+            onDelete={requestDeleteDoc} />
         {/if}
       </div>
       <div
@@ -2302,6 +2373,34 @@
         <div class="doi-prompt-actions">
           <button class="ghost" onclick={() => { newDocOpen = false; view?.focus(); }}>Cancel</button>
           <button onclick={submitNewDoc}>Create</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if deleteDocTarget}
+    <div class="doi-prompt-backdrop">
+      <div
+        class="doi-prompt"
+        id="doc-delete-dialog"
+        role="dialog"
+        aria-label="Delete document"
+        tabindex="-1"
+        onkeydown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelDeleteDoc();
+          }
+        }}>
+        <div class="doc-delete-title">Delete “{deleteDocTarget.title}”?</div>
+        <p class="doc-delete-note">
+          <code>{deleteDocTarget.path}</code> and its comments leave the project (to the trash, where
+          there is one). Figures and references it uses stay in the project.
+        </p>
+        <div class="doi-prompt-actions">
+          <button class="ghost" id="doc-delete-cancel" onclick={cancelDeleteDoc}>Cancel</button>
+          <button class="danger" id="doc-delete-confirm" use:focusEl onclick={confirmDeleteDoc}>Delete</button>
         </div>
       </div>
     </div>
@@ -2645,6 +2744,24 @@
   .doi-prompt-err {
     font-size: var(--ts-sm);
     color: var(--c-danger, #d14d41);
+  }
+  .doc-delete-title {
+    font-size: var(--ts-base, 0.95rem);
+    font-weight: 600;
+    color: var(--c-tx-hi);
+  }
+  .doc-delete-note {
+    margin: 0;
+    font-size: var(--ts-sm);
+    color: var(--c-tx-2);
+    line-height: 1.45;
+  }
+  .doc-delete-note code {
+    font-size: 0.92em;
+  }
+  .doi-prompt-actions .danger {
+    color: var(--c-danger, #d14d41);
+    border-color: var(--c-danger, #d14d41);
   }
   .doi-prompt-actions {
     display: flex;

@@ -66,7 +66,7 @@ With the session export above, `render-figure growth --png` just works.
 | `caption <id>` · `set-caption <id> <md> [--panel a]` | `get_caption` · `set_caption` | read / write the caption; the `Lead. **a**, … **b**, …` convention is DISTRIBUTED into per-panel blocks; `--panel` writes one panel |
 | `normalize-embeds` | `normalize_embeds` | clear legacy alt-text captions from embed lines (canonical embeds are `![](…){#fig-id}`) |
 | `manuscript [--doc r]` · `set-manuscript [--doc r] <text\|--file f>` | `get_manuscript` · `set_manuscript` | read / overwrite a `.qmd` |
-| `docs` · `new-doc <name>` | `list_documents` · `create_document` | list / add documents |
+| `docs` · `new-doc <name>` · `delete-doc <path>` | `list_documents` · `create_document` · `delete_document` | list / add / delete documents (delete removes the `.qmd` + its comments sidecar and the manifest forgets it; the main manuscript and Context docs are refused; figures and references it used are untouched) |
 | `ref <figId> [--doc r]` | `insert_figure_ref` | append `@fig-<label>` to a doc |
 | `add-reference . <bibtex\|--file f>` · `cite-doi <doi>` | `add_reference` · `cite_doi` | grow `references/library.bib` |
 | `zotero-sync [--bib f] [--data-dir d] [--attach copy\|link] [--defer-fulltext] [--force] [--save]` | `zotero_sync` | pull new references + PDFs from the connected Zotero Better-BibTeX auto-export into FluxLib (one-way, idempotent; an UNCHANGED export is skipped from a stat alone — `--force` re-scans and also picks up attach backfill; `--defer-fulltext` links pointers without reading the PDFs — text backfills lazily; `--save` persists overrides as the machine settings) |

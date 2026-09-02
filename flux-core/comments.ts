@@ -7,6 +7,7 @@ import { withLock } from "./locks";
 import { loadManifest, safeJoin, exists, writeText } from "./model";
 import { listDocuments } from "./manuscript";
 import type { ProjectManifest } from "../src/lib/project/types";
+import { commentsSidecarRel } from "../src/lib/project/docOrder";
 
 // --------------------------------------------------------------------------
 // Review comments (the human's margin comments). Threads live in a sibling
@@ -47,12 +48,9 @@ interface CommentsFile {
 /** The comments sidecar path (project-relative) for a document. The main
  *  manuscript keeps `comments.json`; other docs get `<base>.comments.json`. */
 function commentsRel(m: ProjectManifest, docRel?: string): string {
-  const mp = docRel ?? m.manuscript.path; // e.g. "manuscript/main.qmd"
-  const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
-  const isMain = mp === m.manuscript.path;
-  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
-  const name = isMain ? "comments.json" : `${base}.comments.json`;
-  return dir ? `${dir}/${name}` : name;
+  // One derivation for both engines (docOrder.ts) — deleting a document
+  // removes exactly the sidecar this wrote.
+  return commentsSidecarRel(m.manuscript.path, docRel ?? m.manuscript.path);
 }
 
 /** Candidate sidecars for a document, in write-preference order. A document

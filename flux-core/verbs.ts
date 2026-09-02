@@ -1398,6 +1398,20 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "delete_document",
+    cli: "delete-doc",
+    cliRoot: "flags",
+    summary:
+      "Delete a document from the project: its .qmd and its comments sidecar are removed and the manifest forgets it. The main manuscript and Context documents are refused; figures and references it used are untouched.",
+    params: { path: z.string() },
+    cliArgs: [{ kind: "pos", at: 0, into: "path", required: true }],
+    handler: (ctx, a) => core.deleteDocument(ctx.root, s(a.path)),
+    render: {
+      human: (r) => ({ err: `✓ deleted ${(r as { path: string }).path}` }),
+      mcp: (r) => text(`deleted ${(r as { path: string }).path}`),
+    },
+  },
+  {
     name: "insert_figure_ref",
     cli: "ref",
     cliRoot: "flags",

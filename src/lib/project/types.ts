@@ -169,6 +169,10 @@ export interface FileBridge {
   // Delete a file (e.g. clear a paper's fetch-failure record on a later success). Optional:
   // older bridges may lack it; callers use `fb.remove?.(p)`.
   remove?(p: string): Promise<void>;
+  // Move a file to the OS trash (a deleted manuscript stays recoverable). Where no
+  // trash exists it removes the file instead and reports `trashed: false`. Optional:
+  // older bridges may lack it; callers fall back to `remove`.
+  trash?(p: string): Promise<{ trashed: boolean; existed: boolean }>;
   // WS-5.3: fsync a DIRECTORY after a rename-into-place batch (crash-durability
   // of the rename itself). Optional; no-op on win32 / older bridges.
   fsyncDir?(p: string): Promise<void>;

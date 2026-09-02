@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld("fig", {
   stat: (p) => ipcRenderer.invoke("fs:stat", p),
   readdir: (p) => ipcRenderer.invoke("fs:readdir", p),
   remove: (p) => ipcRenderer.invoke("fs:remove", p),
+  // Move a file to the OS trash (plain remove where there is none — the
+  // result says which happened).
+  trash: (p) => ipcRenderer.invoke("fs:trash", p),
   // Sync-conflict leftovers in the open project (read-only; resolution uses fs:*).
   conflictsScan: (root) => ipcRenderer.invoke("conflicts:scan", root),
   exportPdf: (svg, outPath, w, h) => ipcRenderer.invoke("export:pdf", { svg, outPath, w, h }),

@@ -83,6 +83,7 @@ BibTeX/RIS, with Zotero PDF attachments), `fetch-pdfs` / `ingest-pdf` (store a P
 
 **Manuscript / refs:** `manuscript` / `get_manuscript`, `set-manuscript` /
 `set_manuscript`, `docs` / `list_documents`, `new-doc` / `create_document`,
+`delete-doc <path>` / `delete_document` (main + Context refused; figures untouched),
 `ref <fig>` / `insert_figure_ref`, `add-reference` / `add_reference`,
 `cite-doi <doi>` / `cite_doi`, `render-figures` (materialize fig/renders/ for bare
 quarto), `compile [--to pdf|html|docx]` / `compile`.

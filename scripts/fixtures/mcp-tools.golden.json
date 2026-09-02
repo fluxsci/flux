@@ -33,6 +33,7 @@
   "create_figure",
   "create_text_style",
   "define_figure_family",
+  "delete_document",
   "delete_elements",
   "delete_figure",
   "delete_slide",

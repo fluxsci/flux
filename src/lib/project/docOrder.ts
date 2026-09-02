@@ -20,6 +20,11 @@
 // order has never seen sorts AFTER the arranged ones (a new file appears at the
 // end of its group, never in the middle of the user's arrangement).
 //
+// The same module owns the bookkeeping half of REMOVING a document (bottom of
+// the file): both engines delete documents too — the rail's × and flux-core's
+// `delete_document` — and they must refuse the same requests and leave the
+// manifest in the same state.
+//
 // Pure: no Svelte, no DOM, no Node — it loads in both worlds (§2 twin-engine).
 // ---------------------------------------------------------------------------
 
@@ -104,4 +109,81 @@ export function reorderDocuments(
 
   const others = sorted.filter((r) => !!r.isContext !== group).map((r) => r.path);
   return group ? [...others, ...next] : [...next, ...others];
+}
+
+// ---------------------------------------------------------------------------
+// Document REMOVAL — "delete this document from the project".
+//
+// What removal MEANS is decided here, once: the document's .qmd and its
+// comments sidecar leave the project, and the manifest forgets it. Nothing
+// else moves — a document only REFERENCES figures (`![](){#fig-…}`) and
+// references (`[@key]`); it owns none of them, so fig/, references/ and every
+// other document are untouched by design. The IO is each engine's own
+// (the GUI trashes through the OS shell, flux-core removes), but the policy —
+// what may be deleted, which files count, what the manifest keeps — is shared.
+// ---------------------------------------------------------------------------
+
+/** Why a document can't be deleted, for the user, plus a code for the engines. */
+export interface RemovalBlocker {
+  code: "unknown" | "main" | "context";
+  reason: string;
+}
+
+/**
+ * Whether `rel` may be deleted: null when it may, otherwise why not. Policy,
+ * so it lives here for both the rail (which hides the × on such rows) and the
+ * `delete_document` verb (which refuses with the same words):
+ *  - the main manuscript is the project's identity — the manifest requires
+ *    one, so it can't be deleted while it is main;
+ *  - a Context document (mission / notebook / rules) is the project's agent
+ *    layer and is seeded back on the next open, so deleting it is a no-op
+ *    with extra steps;
+ *  - anything else has to be a document the project actually lists.
+ */
+export function documentRemovalBlocker(rows: readonly DocRow[], rel: string): RemovalBlocker | null {
+  const row = rows.find((r) => r.path === rel);
+  if (!row) return { code: "unknown", reason: `${rel} is not a document of this project` };
+  if (row.isMain) return { code: "main", reason: "The main manuscript can't be deleted" };
+  if (row.isContext)
+    return {
+      code: "context",
+      reason: "Context documents belong to the project's agent layer and come back on the next open",
+    };
+  return null;
+}
+
+/**
+ * The project-relative path of a document's review-comments sidecar: the
+ * main manuscript keeps the historical `comments.json`, every other document
+ * gets `<base>.comments.json` beside it. Both comments modules derive their
+ * paths from this, so a deleted document's sidecar is the one they wrote.
+ */
+export function commentsSidecarRel(mainPath: string, rel: string): string {
+  const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+  const base = rel.slice(rel.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
+  const name = rel === mainPath ? "comments.json" : `${base}.comments.json`;
+  return dir ? `${dir}/${name}` : name;
+}
+
+/**
+ * Forget `rel` in the manifest: its `supplementary` registration and its slot
+ * in the user's `documentOrder`. Mutates `m` in place (the manifest objects
+ * both engines hold are edited in place — see createDocument) and returns
+ * whether anything changed. The order would self-heal a vanished path anyway
+ * (sortDocuments ignores it); pruning keeps project.json honest.
+ */
+export function pruneDocumentFromManifest(
+  m: { supplementary?: { path: string }[]; documentOrder?: string[] },
+  rel: string,
+): boolean {
+  let changed = false;
+  if (m.supplementary?.some((s) => s.path === rel)) {
+    m.supplementary = m.supplementary.filter((s) => s.path !== rel);
+    changed = true;
+  }
+  if (m.documentOrder?.includes(rel)) {
+    m.documentOrder = m.documentOrder.filter((p) => p !== rel);
+    changed = true;
+  }
+  return changed;
 }
