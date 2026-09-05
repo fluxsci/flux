@@ -167,6 +167,13 @@ function zoteroRoots() {
   return out;
 }
 const { noteWrite, atomicWriteMain, isSelfWrite, fsGuard, approveDir, underDir } = fileCore;
+const sourceWatchCore = require("./ipc/sourceWatch.cjs").createSourceWatchCore({
+  sessionFor,
+  pendingRootFor: (senderId) => pendingRoots.get(senderId),
+  fileCore,
+  loadChokidar,
+  notify: notifyRenderer,
+});
 const { TMP_WRITE_RE } = require("./ipc/files.cjs");
 
 
@@ -586,6 +593,7 @@ function createWindow(initialRoot) {
     stopBridgeForWindow(win);
     releaseGuiLocksFor(wcId);
     fileCore.clearApprovals(wcId);
+    void sourceWatchCore.clear(wcId);
     pendingRoots.delete(wcId);
     const s = sessions.get(wcId);
     if (s?.watcher) {
@@ -879,6 +887,7 @@ ipcMain.handle("config:move", async (_e, parentDir) => {
     }
   }
   await closeGlobalWatcher();
+  await sourceWatchCore.clearAll();
   const r = await fluxPaths.moveFluxConfig(parentDir);
   invalidatePathCaches();
   return r;
@@ -1126,6 +1135,7 @@ ipcMain.handle("update:check", async () => {
 // IPC: file dialogs + filesystem (the FILES family — ipc/files.cjs)
 // ---------------------------------------------------------------------------
 fileCore.registerHandlers(ipcMain);
+sourceWatchCore.registerHandlers(ipcMain);
 
 // ---------------------------------------------------------------------------
 // File-watch live reload (F1): the renderer registers the open project root; we
@@ -1494,6 +1504,7 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   pendingRoots.delete(senderId);
   // M9: the open project root joins the fs allowlist union (roots() above).
   s.root = root ? path.resolve(root) : null;
+  await sourceWatchCore.setRoot(senderId, s.root);
   // WS4: bring THIS window's live agent bridge up/down with its open project.
   setBridgeFor(s.root, s.win);
   // The machine-global watcher rides every registration (Zotero/capture-dir

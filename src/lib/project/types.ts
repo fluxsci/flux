@@ -331,6 +331,8 @@ export interface FileBridge {
   // F1 file-watch live reload. Optional: only the Electron bridge (and the dev
   // fixture) provide them.
   watchRoot?(root: string | null): Promise<boolean> | boolean;
+  /** Exact linked-source read/watch capabilities, scoped to one project/window. */
+  watchSourceFiles?(root: string, scope: string, sources: import("../plot/source").LinkedSourceFiles[]): Promise<unknown>;
   onFsChanged?(cb: (info: { subsystem: string; path: string }) => void): () => void;
   // Web capture: the folder the browser downloads into, where the bookmarklet drops
   // `flux-*.pdf` / `.fluxcap` files. Electron only; null when it can't be resolved.

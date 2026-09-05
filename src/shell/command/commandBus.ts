@@ -20,5 +20,12 @@ export function requestOpenDoc(path: string): void {
   openDocRequest.set({ path, n: ++dn });
 }
 
+/** A project usage points at one independently editable slide. */
+export const openSlideRequest = writable<{ deckId: string; slideId?: string; n: number } | null>(null);
+let sn = 0;
+export function requestOpenSlide(deckId: string, slideId?: string): void {
+  openSlideRequest.set({ deckId, slideId, n: ++sn });
+}
+
 /** The feedback capture popover (FeedbackCapture.svelte, mounted in Workspace). */
 export const feedbackCaptureOpen = writable(false);

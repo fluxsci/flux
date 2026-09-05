@@ -8,16 +8,15 @@
   // visible by default (hide statically via the X-ray/Layers), and a track
   // exists only when an object animates — select an object anywhere and
   // press ⌃⇧A / ⌃⇧D / ⌃⇧T.
-  import { untrack } from "svelte";
-  import { deckOverlay, activeBeat, commitDeckLive, selTrackIds } from "../../../lib/slide/store";
+  import { onDestroy, untrack } from "svelte";
+  import { deckOverlay, activeBeat, commitDeckLive, selTrackIds, exitEndpointEdit } from "../../../lib/slide/store";
   import { selection, partSelection } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
-  import { morphCompatible } from "../../../lib/slide/player/morph";
-  import { plotManifests } from "../../../lib/plot/store";
+    import { plotManifests } from "../../../lib/plot/store";
   import { slideLayout } from "./slideLayoutStore";
   import type { Slide, Track } from "../../../lib/slide/types";
-  import PropertiesPane from "./animator/PropertiesPane.svelte";
+
   import BeatRail from "./animator/BeatRail.svelte";
   import AnimLibrary from "./animator/AnimLibrary.svelte";
   import { timelinePxPerMs } from "./animator/animatorState";
@@ -26,9 +25,16 @@
     nudgeSelected, moveSelectedToAdjacentBeat,
   } from "./animator/trackActions";
 
-  let { slide, onPreview }: { slide: Slide | null; onPreview?: (startBeat?: number) => void } = $props();
+  let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, onChooseMorph, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
+    slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
+    onAction?: (action: "appear" | "change" | "emphasize" | "disappear") => void;
+    onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
+    onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
+    onChooseMorph?: (targetId: string, trackId?: string) => void;
+    time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
+  } = $props();
 
-  let railRef = $state<{ groupSelection(): void; ungroupSelection(): void } | null>(null);
+  let railRef = $state<{ groupSelection(): void; ungroupSelection(): void; cascadeSelection(): void } | null>(null);
   let libOpen = $state(false);
 
   const deck = $derived($deckOverlay); // stage/meta only — slide comes composed
@@ -56,7 +62,7 @@
   // --- keyboard cockpit ---------------------------------------------------------
   let animEl = $state<HTMLDivElement | null>(null);
   function focusField(k: string) {
-    (animEl?.querySelector(`[data-fld="${k}"]`) as HTMLElement | null)?.focus();
+    (document.querySelector(`.slide-mode .props [data-fld="${k}"]`) as HTMLElement | null)?.focus();
   }
   function navBeat(dir: number) {
     if (!slide) return;
@@ -75,6 +81,7 @@
     const ni = ci < 0 ? (dir > 0 ? 0 : tracks.length - 1) : Math.max(0, Math.min(tracks.length - 1, ci + dir));
     const t = tracks[ni];
     selTrackIds.set(t?.id ? [t.id] : []);
+    if(t){selection.set(new Set(t.target.startsWith("@")?[]:[t.target]));partSelection.set(t.part?{elementId:t.target,partId:t.part}:null);requestAnimationFrame(()=>document.querySelector(`[data-track-id="${t.id}"]`)?.scrollIntoView({block:"nearest"}));}
   }
   function onAnimKey(e: KeyboardEvent) {
     const tgt = e.target as HTMLElement;
@@ -83,7 +90,12 @@
       return;
     }
     const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); const tracks=slide?.beats[$activeBeat]?.tracks??[]; selTrackIds.set(tracks.map(t=>t.id!).filter(Boolean)); selection.set(new Set(tracks.filter(t=>!t.target.startsWith("@")).map(t=>t.target))); partSelection.set(null); return; }
+    if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? onRedo?.() : onUndo?.(); return; }
+    if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); onSave?.(); return; }
+    if (e.code === "Space") { e.preventDefault(); playing ? onPause?.() : previewing ? onResume?.() : onPreview?.($activeBeat); return; }
     if (mod && (e.key === "d" || e.key === "D") && !e.shiftKey) { e.preventDefault(); duplicateSelectedTracks(); return; }
+    if (mod && e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); railRef?.cascadeSelection(); return; }
     if (mod && (e.key === "g" || e.key === "G")) {
       e.preventDefault();
       if (e.shiftKey) railRef?.ungroupSelection();
@@ -101,7 +113,7 @@
       case "ArrowUp": e.preventDefault(); navTrack(-1); break;
       case "ArrowDown": e.preventDefault(); navTrack(1); break;
       case "Enter": e.preventDefault(); focusField("p"); break;
-      case "Escape": e.preventDefault(); selTrackIds.set([]); break;
+      case "Escape": e.preventDefault(); if(previewing)onStop?.();else{selTrackIds.set([]);exitEndpointEdit();} break;
       case "Delete": case "Backspace": e.preventDefault(); deleteSelectedTracks(); break;
       case "x": if (!mod) { e.preventDefault(); toggleSelectedDisabled(); } break;
       case "[": e.preventDefault(); moveSelectedToAdjacentBeat(-1); break;
@@ -112,13 +124,13 @@
     }
   }
   function onWinKey(e: KeyboardEvent) {
-    if (animEl && animEl.contains(document.activeElement)) onAnimKey(e);
+    if (animEl && document.activeElement?.closest('[data-command-scope="animation"]')) onAnimKey(e);
   }
 
   // --- draggable top edge → the dock's max-height. Drag up = taller dock — all
   // the way to a near-full-window animator (the stage keeps an 80px sliver).
   let dockResize = $state(false);
-  const DOCK_DEFAULT_H = 300;
+  const DOCK_DEFAULT_H = 360;
   const dockMaxH = () => Math.max(150, window.innerHeight - 160);
   let lastBigH = 0;
   function startDockDrag(e: PointerEvent) {
@@ -151,34 +163,20 @@
     window.removeEventListener("pointerup", endDockDrag);
   }
 
-  // direct manipulation, canvas → animator: a plot part drilled on the canvas
-  // selects its track (jumping to its beat); a plain single-element selection
-  // highlights that element's track in the ACTIVE beat when it has one (no
-  // beat jump — a canvas click must never yank the rail around).
-  $effect(() => {
-    const fp = $partSelection;
-    if (!fp || !slide) return;
-    for (let bi = 0; bi < slide.beats.length; bi++) {
-      const t = slide.beats[bi].tracks.find((tk) => tk.target === fp.elementId && tk.part === fp.partId);
-      if (t) { selTrackIds.set(t.id ? [t.id] : []); activeBeat.set(bi); break; }
-    }
-  });
-  // Guarded: fires only when the SELECTION itself changes — the lane
-  // selection is read untracked (an explicit lane click that disagrees with
-  // the canvas selection must never be clobbered by this sync).
+  onDestroy(endDockDrag);
+
+  // Canvas selection only identifies effects within the selected step.
+  // Never jump to an earlier step just because a part was animated there.
   let lastSyncedSel = "";
   $effect(() => {
-    const ids = [...$selection];
-    const key = ids.join(",");
-    if ($partSelection || ids.length !== 1 || !slide) {
-      lastSyncedSel = key;
-      return;
-    }
+    const ids = [...$selection]; const part = $partSelection;
+    const key = ids.join(",") + ":" + (part?.partId ?? "");
     if (key === lastSyncedSel) return;
     lastSyncedSel = key;
-    const b = slide.beats[untrack(() => $activeBeat)];
-    const t = b?.tracks.find((tk) => tk.target === ids[0] && !tk.part);
-    if (t?.id && !untrack(() => $selTrackIds).includes(t.id)) selTrackIds.set([t.id]);
+    const current = untrack(() => $selTrackIds);
+    const tracks = slide?.beats[untrack(() => $activeBeat)]?.tracks ?? [];
+    if (current.some(id => tracks.some(t => t.id === id && ids.includes(t.target) && (!part || t.part === part.partId)))) return;
+    selTrackIds.set(tracks.filter(t => ids.includes(t.target) && (!part || t.part === part.partId)).map(t => t.id!).filter(Boolean));
   });
 
   function focusDock() {
@@ -212,20 +210,6 @@
   }
 
   // --- camera + morph authoring --------------------------------------------------
-  let morphOpen = $state(false);
-  const morphTargets = $derived.by(() => {
-    type MT = { id: string; assetId: string; label: string; compatible: boolean };
-    if (!selPlot || !slide) return [] as MT[];
-    return slide.elements
-      .filter((e) => e.type === "plot" && e.id !== selPlot.id)
-      .map((e): MT => {
-        const assetId = (e as { assetId: string }).assetId;
-        const m = manifests[assetId];
-        const label = [plotTags.get(e.id), m?.plotType].filter(Boolean).join(" · ") || assetId;
-        return { id: e.id, assetId, label, compatible: morphCompatible(selManifest, m) };
-      });
-  });
-
   function addBeatWith(label: string, track: Track) {
     const sid = slide?.id;
     if (!sid) return;
@@ -250,12 +234,6 @@
     const zoom = Math.max(1.05, Math.min(st.width / el.width, st.height / el.height) * 0.82);
     addBeatWith("Zoom in", { target: "@camera", preset: "camera", to: { zoom, x: el.x + el.width / 2, y: el.y + el.height / 2 }, duration: 900, easing: "smooth" });
   }
-  function addMorph(toAssetId: string) {
-    morphOpen = false;
-    const plot = selPlot;
-    if (!plot) return;
-    addBeatWith("Morph", { target: plot.id, preset: "morph", to: { assetId: toAssetId }, duration: 1200, easing: "smooth" });
-  }
   function addBeat() {
     const sid = slide?.id;
     if (!sid) return;
@@ -273,44 +251,38 @@
 <svelte:window onkeydown={onWinKey} />
 {#if slide}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="animator" bind:this={animEl} tabindex="0" role="group" aria-label="Animation timeline" style={`--anim-h:${$slideLayout.animatorH}px`}>
+  <div class="animator" bind:this={animEl} tabindex="0" role="group" data-command-scope="animation" aria-label="Animation timeline" style={`--anim-h:${$slideLayout.animatorH}px`}>
     <div class="dock-gutter" class:active={dockResize} role="separator" aria-orientation="horizontal"
       aria-label="Resize animator" onpointerdown={startDockDrag} ondblclick={toggleDockSize}><span class="grip"></span></div>
     <div class="bar">
-      <strong class="ttl">Animator</strong>
+      <strong class="ttl">Animate</strong>
+      <div class="actions" aria-label="Add animation">
+        <button class="b" disabled={!sel.length} onclick={() => onAction?.("appear")} title="Add an entrance · Cmd/Ctrl+Shift+A">Appear</button>
+        <button class="b" disabled={!sel.length} onclick={() => onAction?.("change")} title="Edit a change at this step · Cmd/Ctrl+Shift+T">Change</button>
+        <button class="b" disabled={!sel.length} onclick={() => onAction?.("emphasize")} title="Highlight the selection">Emphasize</button>
+        <button class="b" disabled={!sel.length} onclick={() => onAction?.("disappear")} title="Add an exit · Cmd/Ctrl+Shift+D">Disappear</button>
+      </div>
       {#if selPlot}
         <button class="magic" onclick={autoAnimate} disabled={!selManifest}
           title={selManifest ? "Build a beat sequence from this plot's own animation hints" : "This plot has no build manifest to auto-animate"}>✨ Auto-animate</button>
       {/if}
-      <button class="b" onclick={addBeat} title="Add a beat (hover between columns to insert one anywhere)">+ Beat</button>
+
       {#if sel.length === 1}
         <button class="b" onclick={() => addCameraMove("zoom")} title="Camera: zoom in to the selected element">🎥 Zoom</button>
       {/if}
       {#if slide.beats.length > 1}
         <button class="b" onclick={() => addCameraMove("reset")} title="Camera: pull back to the full slide">⤢ Reset</button>
       {/if}
-      {#if selPlot && morphTargets.length}
-        <span class="morph-wrap">
-          <button class="b" onclick={() => (morphOpen = !morphOpen)} title="Morph this plot's data into another plot on the slide">⇄ Morph ▾</button>
-          {#if morphOpen}
-            <div class="morph-menu">
-              {#each morphTargets as m (m.id)}
-                <button
-                  onclick={() => addMorph(m.assetId)}
-                  disabled={!m.compatible}
-                  class:incompat={!m.compatible}
-                  title={m.compatible
-                    ? `Morph this plot's data into ${m.label}`
-                    : `Incompatible structure — can't morph into ${m.label}`}>
-                  → {m.label}{#if !m.compatible} <span class="tag">incompatible</span>{/if}
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </span>
+      {#if selPlot}
+        <button class="b" onclick={() => onChooseMorph?.(selPlot!.id)} title="Choose the plot's next data state from the project">Data morph…</button>
       {/if}
       {#if onPreview && slide.beats.length > 1}
-        <button class="b play" onclick={() => onPreview?.()} title="Play this slide's build on the stage (▶ on a beat plays from there)">▶ Preview</button>
+        <div class="transport" aria-label="Playback controls">
+          <button class="b play" onclick={() => playing ? onPause?.() : previewing ? onResume?.() : onPreview?.($activeBeat)} title="Play from the selected step, or pause · Space">{playing ? "Ⅱ Pause" : "▶ Play"}</button>
+          <button class="b" onclick={() => onPreview?.(0)} title="Play the entire slide">Slide</button>
+          <button class="b" onclick={onStop} disabled={!previewing} title="Return to editing">■ Stop</button>
+          <button class="b" class:active={loop} onclick={onLoop} title="Repeat the chosen playback range (Step, Play from here, or Slide)">↻ Loop</button>
+        </div>
       {/if}
       <span class="lib-wrap">
         <button class="b" class:active={libOpen} onclick={() => (libOpen = !libOpen)}
@@ -324,15 +296,12 @@
         <button class="b" onclick={() => timelinePxPerMs.set(null)} title="Reset the timeline zoom to auto-fit">fit ⟲</button>
       {/if}
       <button class="b" onclick={toggleDockSize} title="Toggle animator size (or double-click the top edge)">⇕</button>
-      <span class="keyhint" title="Select an object (canvas or X-ray), then: ⌃⇧A add appearance · ⌃⇧D add disappearance · ⌃⇧T add transform / toggle t₁↔t₂ · Esc exits an endpoint. With the Animator focused: ←→ beat · ↑↓ track · ⌫ delete · ⌘D duplicate · ⌘G group · x disable · Alt+←→ retime · [ ] move across beats · letters jump to fields">
-        <kbd>⌃⇧A</kbd>appear <kbd>⌃⇧D</kbd>disappear <kbd>⌃⇧T</kbd>transform <kbd>←→</kbd>beat <kbd>⌫</kbd>del
-      </span>
+      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Space plays/pauses.">Keyboard ⌨</span>
     </div>
 
     <div class="dock-body">
-      <PropertiesPane {slide} {plotTags} />
       <BeatRail bind:this={railRef} {slide} {plotTags} {manifestFor}
-        onFocusDock={focusDock} onPreviewFrom={onPreview ? (b) => onPreview?.(b) : undefined} />
+        onFocusDock={focusDock} onPreviewFrom={onPreview ? (b) => onPreview?.(b,"step") : undefined} {onSeek} {time} {playing} />
     </div>
   </div>
 {/if}
@@ -355,17 +324,18 @@
   }
   .animator:focus-within { box-shadow: inset 0 2px 0 0 var(--c-accent, #4385be); }
   .animator:focus-within .keyhint { color: var(--c-tx-2, #878580); }
-  .animator:focus-within .keyhint kbd { border-color: color-mix(in oklab, var(--c-accent, #4385be) 45%, var(--c-line, #403e3c)); }
   .dock-gutter {
     position: absolute; top: -3px; left: 0; right: 0; height: 7px;
     cursor: row-resize; z-index: 6; display: flex; align-items: center; justify-content: center;
   }
   .dock-gutter .grip { width: 100%; height: 1px; background: transparent; transition: background 0.12s; }
   .dock-gutter:hover .grip, .dock-gutter.active .grip { background: var(--c-accent, #4385be); height: 2px; }
-  .bar { display: flex; align-items: center; gap: 8px; }
+  .bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .actions, .transport { display: flex; gap: 3px; align-items: center; }
+  .transport { margin-left: auto; }
+  .b:disabled { opacity: .4; cursor: default; }
   .ttl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-3, #878580); }
   .spacer { flex: 1; }
-  .tag { font-size: 11px; color: var(--c-accent, #4385be); }
   .magic {
     font-size: 12px; font-weight: 600;
     color: var(--c-bg, #100f0f); background: var(--c-accent, #4385be);
@@ -379,31 +349,9 @@
     border-radius: 5px; padding: 5px 10px; cursor: pointer;
   }
   .b:hover { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
-  .morph-wrap { position: relative; display: inline-flex; }
   .lib-wrap { position: relative; display: inline-flex; }
   .b.active { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
-  .morph-menu {
-    position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 25; min-width: 150px;
-    background: var(--c-bg-2, #1c1b1a); border: 1px solid var(--c-line-strong, #343331);
-    border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); padding: 4px; display: flex; flex-direction: column; gap: 1px;
-  }
-  .morph-menu button {
-    text-align: left; border: none; background: none; color: var(--c-tx-2, #b7b5ac);
-    border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px;
-  }
-  .morph-menu button:hover:not(:disabled) { background: color-mix(in oklab, var(--c-accent, #4385be) 18%, transparent); color: var(--c-tx-hi, #fff); }
-  .morph-menu button.incompat { color: var(--c-tx-faint, #6f6e69); cursor: default; }
-  .morph-menu .tag {
-    font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--c-tx-faint, #6f6e69); border: 1px solid var(--c-line, #282726);
-    border-radius: 3px; padding: 0 3px; margin-left: 4px;
-  }
   .dock-body { display: flex; gap: 10px; min-height: 0; flex: 1; }
   .keyhint { font-size: 10px; color: var(--c-tx-3, #6f6e69); white-space: nowrap; }
-  .keyhint kbd {
-    margin: 0 2px 0 6px; padding: 0 3px; border-radius: 3px;
-    font: 600 9px/1.5 var(--font-mono, ui-monospace, monospace);
-    color: var(--c-tx-2, #878580); background: var(--c-bg-2, #1c1b1a);
-    border: 1px solid var(--c-line, #403e3c);
-  }
+
 </style>

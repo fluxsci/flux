@@ -103,7 +103,7 @@ if (process.platform !== "win32") {
     fs.writeFileSync(path.join(lib, "library.bib"), "% seed\n");
     fs.writeFileSync(path.join(lib, "items", "x", "a.pdf"), "pdfbytes");
     fs.writeFileSync(path.join(lib, "keys.json"), "{}", { mode: 0o600 });
-    const legacyCfg = path.join(xdg, "Flux"); // flux-cap-ok (building the migration SOURCE fixture)
+    const legacyCfg = shared.legacyUserDataDir(); // actual-platform migration SOURCE fixture
     fs.mkdirSync(legacyCfg, { recursive: true });
     fs.writeFileSync(
       path.join(legacyCfg, "preferences.json"),
@@ -111,7 +111,7 @@ if (process.platform !== "win32") {
     );
     fs.writeFileSync(path.join(legacyCfg, "textstyles.json"), JSON.stringify({ schemaVersion: "0.1.0", styles: [] }));
     if (opts.preexistingCfg) fs.mkdirSync(path.join(home, "FluxConfig"), { recursive: true });
-    return { home, xdg, lib };
+    return { home, xdg, lib, machine: shared.userDataDir(), legacy: legacyCfg };
   };
 
   const snapshot = (root: string): string => {
@@ -138,12 +138,14 @@ if (process.platform !== "win32") {
     const cfg = path.join(f1.home, "FluxConfig");
     assert(info.fluxConfigPath === cfg, "info.fluxConfigPath is ~/FluxConfig");
     assert(info.fluxLibPath === path.join(cfg, "FluxLib"), "info.fluxLibPath is derived <cfg>/FluxLib");
-    const prefsAfter = JSON.parse(fs.readFileSync(path.join(f1.xdg, "flux", "preferences.json"), "utf8"));
+    const prefsAfter = JSON.parse(fs.readFileSync(path.join(f1.machine, "preferences.json"), "utf8"));
     assert(prefsAfter.fluxConfigPath === cfg, "prefs gained fluxConfigPath");
     assert(!("fluxLibPath" in prefsAfter), "prefs dropped the deprecated fluxLibPath");
     assert(prefsAfter.lastUpdateCheck === 42, "legacy pref keys survived the merge");
-    assert(!fs.existsSync(path.join(f1.xdg, "Flux")), "legacy capital-F config dir removed"); // flux-cap-ok
-    assert(fs.existsSync(path.join(f1.xdg, "flux", "textstyles.json")), "textstyles migrated to lowercase dir");
+    const legacyAlias = fs.existsSync(f1.legacy) ? fs.statSync(f1.legacy) : null;
+    const lowerDir = fs.statSync(f1.machine);
+    assert(!legacyAlias || (legacyAlias.dev === lowerDir.dev && legacyAlias.ino === lowerDir.ino), "no distinct legacy config remains (case-insensitive aliases share the lowercase resolver)"); // flux-cap-ok
+    assert(fs.existsSync(path.join(f1.machine, "textstyles.json")), "textstyles migrated to lowercase dir");
     assert(fs.existsSync(path.join(cfg, "FluxLib", "library.bib")), "FluxLib moved into FluxConfig");
     assert(fs.existsSync(path.join(cfg, "FluxLib", "items", "x", "a.pdf")), "items moved intact");
     assert((fs.statSync(path.join(cfg, "FluxLib", "keys.json")).mode & 0o777) === 0o600, "keys.json stayed 0600");
@@ -211,16 +213,16 @@ if (process.platform !== "win32") {
     const f6 = freshFixture("t6");
     await fp.ensureFluxConfig();
     fs.symlinkSync(path.join(f6.home, "FluxConfig", "FluxLib"), path.join(f6.home, "FluxLib"));
-    fs.mkdirSync(path.join(f6.xdg, "Flux"), { recursive: true }); // flux-cap-ok (old code recreates it)
+    fs.mkdirSync(f6.legacy, { recursive: true }); // flux-cap-ok (old code recreates it)
     fs.writeFileSync(
-      path.join(f6.xdg, "Flux", "preferences.json"), // flux-cap-ok
+      path.join(f6.legacy, "preferences.json"), // flux-cap-ok
       JSON.stringify({ schemaVersion: "0.1.0", fluxLibPath: path.join(f6.home, "FluxLib") }),
     );
     const r6 = await fp.ensureFluxConfig();
     assert(r6.fluxLibPath === path.join(f6.home, "FluxConfig", "FluxLib"), "re-merge after old-code prefs recreation resolves derived");
     const marker6 = JSON.parse(fs.readFileSync(path.join(f6.home, "FluxConfig", ".fluxconfig.json"), "utf8"));
     assert(!marker6.events.some((e: { action: string }) => e.action === "stranded-fluxlib-warning"), "symlinked legacy lib is not flagged as stranded");
-    const prefs6 = JSON.parse(fs.readFileSync(path.join(f6.xdg, "flux", "preferences.json"), "utf8"));
+    const prefs6 = JSON.parse(fs.readFileSync(path.join(f6.machine, "preferences.json"), "utf8"));
     assert(!("fluxLibPath" in prefs6) && prefs6.fluxConfigPath, "re-merge drops the re-persisted fluxLibPath again");
 
     // -- pre-Context machine: Guidelines/ migrates into Context/UserContext
@@ -247,7 +249,7 @@ if (process.platform !== "win32") {
     assert("ok" in mv && mv.path === path.join(newParent, "FluxConfig"), "moveFluxConfig renames under the new parent");
     assert(fs.existsSync(path.join(newParent, "FluxConfig", "FluxLib", "library.bib")), "library moved with FluxConfig");
     assert(!fs.existsSync(path.join(f5.home, "FluxConfig")), "old FluxConfig location gone");
-    const prefs5 = JSON.parse(fs.readFileSync(path.join(f5.xdg, "flux", "preferences.json"), "utf8"));
+    const prefs5 = JSON.parse(fs.readFileSync(path.join(f5.machine, "preferences.json"), "utf8"));
     assert(prefs5.fluxConfigPath === path.join(newParent, "FluxConfig"), "pointer pref updated by the move");
     assert(fp.resolveFluxLibPathSync(prefs5) === path.join(newParent, "FluxConfig", "FluxLib"), "resolver follows the move");
     const marker5 = JSON.parse(fs.readFileSync(path.join(newParent, "FluxConfig", ".fluxconfig.json"), "utf8"));

@@ -20,17 +20,20 @@ import { quarantineCopy } from "./quarantine";
 import { pushToast } from "../toast";
 import { isNewerSchema, newerSchemaMessage } from "./types";
 import { DECK_SCHEMA_VERSION } from "../slide/types";
-import { loadDeckModel, currentDeck, externalAssetIds } from "../slide/store";
-import { project as figProject, editGen, dirty as figDirty } from "../store";
-import { assertStoreTenant } from "../tenancy";
+import { loadDeckModel, currentDeck, externalAssetIds, commitDeckLive, replaceResolvedDeckAssets } from "../slide/store";
+import { project as figProject, embeddedProjectRoot, editGen, dirty as figDirty } from "../store";
+import { assertStoreTenant, storeTenant } from "../tenancy";
 import { assetData, bytesToDataUrl, dataUrlToBytes, mimeFor, isAssetDirty, clearAssetDirty, clearAllAssetsDirty } from "../assets";
-import { cachePlot, clearPlots, hasPlotDom, plotManifests, plotDom } from "../plot/store";
+import { cachePlot, clearPlots, hasPlotDom, plotManifests, plotRecipes, plotDom } from "../plot/store";
 import { captureSnipMeta } from "../snipMeta";
 import { isDerivedManifest } from "../plot/derive";
 import { svgIntrinsicPx } from "../plot/compensate";
 import { plotSourceCandidates, toProjectRelativeSource } from "../plot/source";
 import type { FluxPlotManifest } from "../plot/types";
 import { ConflictError } from "../autosave";
+import { planSourceUpdates, writeSourceUpdates } from "../plot/sourceSync";
+import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "../slide/sourceSync";
+import { syncProjectSources } from "./sourceBridge";
 
 export interface DeckListItem {
   id: string;
@@ -178,28 +181,39 @@ interface ResolvedDeckAssets {
   diagnostics: DeckDiag[];
 }
 
+// A refresh may inspect every deck dependency, but unchanged accepted bundles
+// do not parse SVG or invalidate every thumbnail. DOM identity detects an
+// intervening reimport/eviction outside this adapter.
+const acceptedPlotCache = new Map<string, { svg: string; manifest: string; recipe: string; dom: SVGSVGElement | undefined }>();
+
 function assetMime(kind: string): string {
   return kind === "svg" ? "image/svg+xml" : "image/png";
 }
 
-export async function resolveDeckAssets(root: string, deck: Deck): Promise<ResolvedDeckAssets> {
+export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () => boolean = () => true): Promise<ResolvedDeckAssets> {
   const fig = fileBridge();
   const assets: Asset[] = [];
   const external = new Set<string>();
   const data: Record<string, string> = {};
   const diagnostics: DeckDiag[] = [];
   if (!fig) return { assets: [...deck.assets], external, data, diagnostics };
-
-  const haveRealManifest = (assetId: string) => {
-    const m = get(plotManifests)[assetId];
-    return !!m && !isDerivedManifest(m);
-  };
-  const readManifestFile = async (rel: string): Promise<FluxPlotManifest | undefined> => {
-    try {
-      return JSON.parse(await fig.readText(joinPath(root, rel))) as FluxPlotManifest;
-    } catch {
-      return undefined;
+  const cacheAccepted = (id: string, svg: string, manifest?: FluxPlotManifest, recipe?: unknown) => {
+    if (!isCurrent() || isAssetDirty(id)) return;
+    const key = `${root}\0${id}`, text = JSON.stringify(manifest ?? null), recipeText = JSON.stringify(recipe ?? null), prior = acceptedPlotCache.get(key);
+    if (prior?.svg === svg && prior.manifest === text && prior.dom === plotDom.get(id) && hasPlotDom(id)) {
+      if (prior.recipe !== recipeText) {
+        plotRecipes.update((all) => { const next = { ...all }; if (recipe === undefined) delete next[id]; else next[id] = recipe; return next; });
+        prior.recipe = recipeText;
+      }
+      return;
     }
+    if (cachePlot(id, svg, manifest, recipe)) acceptedPlotCache.set(key, { svg, manifest: text, recipe: recipeText, dom: plotDom.get(id) });
+  };
+
+  const readManifestFile = async (rel: string): Promise<FluxPlotManifest | undefined> => {
+    const abs = joinPath(root, rel);
+    if (!(await fig.exists(abs))) return undefined;
+    return JSON.parse(await fig.readText(abs)) as FluxPlotManifest;
   };
   /** Same, for a path already resolved to absolute (plot sources — see below). */
   const readManifestAbs = async (abs: string): Promise<FluxPlotManifest | undefined> => {
@@ -217,11 +231,12 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
     if (!a.path) continue;
     try {
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, "slides", deck.id, a.path)));
-      data[a.id] = bytesToDataUrl(bytes, assetMime(a.kind));
-      if (a.kind === "svg" && !hasPlotDom(a.id)) {
+      if (isCurrent() && a.kind === "svg" && !isAssetDirty(a.id)) {
         const manifest = await readManifestFile(`slides/${deck.id}/assets/${a.id}.fluxplot.json`);
-        cachePlot(a.id, new TextDecoder().decode(bytes), manifest);
+        const recipe = await readManifestFile(`slides/${deck.id}/assets/${a.id}.recipe.json`);
+        cacheAccepted(a.id, new TextDecoder().decode(bytes), manifest, recipe);
       }
+      data[a.id] = bytesToDataUrl(bytes, assetMime(a.kind));
       if (a.kind === "png") captureSnipMeta(a.id, bytes); // paper-snip provenance → copy citation
       assets.push({ ...a });
     } catch {
@@ -248,8 +263,39 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
     /* no fig index — nothing figure-derived to resolve */
   }
 
-  const resolveExternal = async (assetId: string, forPlot: { svgPath?: string; manifestPath?: string } | null): Promise<void> => {
+  const resolveExternal = async (assetId: string, forPlot: { svgPath?: string; manifestPath?: string; external?: boolean } | null): Promise<void> => {
     if (have.has(assetId)) return;
+    // (b) by id against fig/ (figure-derived content)
+    const fa = figAssets.find((x) => x.id === assetId);
+    if (fa && fa.path) {
+      try {
+        const bytes = new Uint8Array(await fig.readFile(joinPath(root, "fig", fa.path)));
+        if (isCurrent() && fa.kind === "svg" && !isAssetDirty(assetId)) {
+          const manifest = await readManifestFile(`fig/assets/${assetId}.fluxplot.json`);
+          const recipe = await readManifestFile(`fig/assets/${assetId}.recipe.json`);
+          cacheAccepted(assetId, new TextDecoder().decode(bytes), manifest, recipe);
+        }
+        data[assetId] = bytesToDataUrl(bytes, assetMime(fa.kind));
+        if (fa.kind !== "svg") captureSnipMeta(assetId, bytes); // fig-derived png snip
+        assets.push({
+          id: assetId,
+          name: fa.name ?? assetId,
+          kind: (fa.kind === "svg" ? "svg" : "png") as Asset["kind"],
+          path: `fig/${fa.path}`,
+          naturalWidth: fa.naturalWidth ?? 240,
+          naturalHeight: fa.naturalHeight ?? 180,
+          ...(fa.dpi != null ? { dpi: fa.dpi } : {}),
+        });
+        have.add(assetId);
+        external.add(assetId);
+        return;
+      } catch {
+        // Registered copies are authoritative, including frozen versions.
+        // Never pair a failed accepted read with a different raw source.
+        diagnostics.push({ severity: "warning", assetId, reason: `Saved asset "${assetId}" is unreadable; its source was not substituted` });
+        return;
+      }
+    }
     // (a) an explicit plot source path. Probed through plot/source.ts rather
     // than joined straight onto root: the stored value may be project-relative
     // (canonical), a foreign absolute path (imported on another machine, or
@@ -257,7 +303,7 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
     if (forPlot?.svgPath) {
       try {
         let svgAbs = "";
-        for (const c of plotSourceCandidates(root, forPlot.svgPath)) {
+        for (const c of plotSourceCandidates(root, forPlot.svgPath, forPlot)) {
           if (await fig.exists(c)) {
             svgAbs = c;
             break;
@@ -270,14 +316,15 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
         // actually resolved.
         let manifest: FluxPlotManifest | undefined;
         if (forPlot.manifestPath) {
-          for (const c of plotSourceCandidates(root, forPlot.manifestPath)) {
+          for (const c of plotSourceCandidates(root, forPlot.manifestPath, forPlot)) {
             manifest = await readManifestAbs(c);
             if (manifest) break;
           }
         }
         if (!manifest) manifest = await readManifestAbs(svgAbs.replace(/\.svg$/i, ".fluxplot.json"));
-        if (!hasPlotDom(assetId)) cachePlot(assetId, svgText, manifest);
-        else if (manifest && !haveRealManifest(assetId)) plotManifests.update((m) => ({ ...m, [assetId]: manifest }));
+        let recipe: unknown;
+        try { recipe = JSON.parse(await fig.readText(svgAbs.replace(/\.svg$/i, ".recipe.json"))); } catch { /* optional recipe */ }
+        cacheAccepted(assetId, svgText, manifest, recipe);
         data[assetId] = bytesToDataUrl(new TextEncoder().encode(svgText), "image/svg+xml");
         const dom = plotDom.get(assetId);
         const nat = dom ? svgIntrinsicPx(dom) : { w: 240, h: 180 };
@@ -298,33 +345,6 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
         /* fall through to fig/-by-id */
       }
     }
-    // (b) by id against fig/ (figure-derived content)
-    const fa = figAssets.find((x) => x.id === assetId);
-    if (fa && fa.path) {
-      try {
-        const bytes = new Uint8Array(await fig.readFile(joinPath(root, "fig", fa.path)));
-        data[assetId] = bytesToDataUrl(bytes, assetMime(fa.kind));
-        if (fa.kind === "svg" && !hasPlotDom(assetId)) {
-          const manifest = await readManifestFile(`fig/assets/${assetId}.fluxplot.json`);
-          cachePlot(assetId, new TextDecoder().decode(bytes), manifest);
-        }
-        if (fa.kind !== "svg") captureSnipMeta(assetId, bytes); // fig-derived png snip
-        assets.push({
-          id: assetId,
-          name: fa.name ?? assetId,
-          kind: (fa.kind === "svg" ? "svg" : "png") as Asset["kind"],
-          path: `fig/${fa.path}`,
-          naturalWidth: fa.naturalWidth ?? 240,
-          naturalHeight: fa.naturalHeight ?? 180,
-          ...(fa.dpi != null ? { dpi: fa.dpi } : {}),
-        });
-        have.add(assetId);
-        external.add(assetId);
-        return;
-      } catch {
-        /* missing bytes */
-      }
-    }
     diagnostics.push({
       severity: "warning",
       assetId,
@@ -339,58 +359,102 @@ export async function resolveDeckAssets(root: string, deck: Deck): Promise<Resol
       if (el.type === "plot") await resolveExternal(el.assetId, el.source ?? null);
       else if (el.type === "image") await resolveExternal(el.assetId, null);
     }
-    // 2b. morph TARGETS referenced only by tracks (to.assetId) — they never
-    // appear as elements, so without this the compat gate sees no manifest and
-    // the morph silently holds at A in preview.
-    for (const b of s.beats)
-      for (const t of b.tracks) {
-        if (t.preset !== "morph" || !t.to?.assetId || have.has(t.to.assetId)) continue;
-        // Candidate order mirrors flux-core's collectPlot: the authored source
-        // path, the plots/<id>.svg convention, then fig/assets/<id>.svg — a
-        // figure-derived target (Send to deck / headless import) has no
-        // plots/ entry, and a bare assetId used to resolve nothing here, so
-        // the morph silently held at A in preview while the export worked.
-        const authored = t.to.svgPath as string | undefined;
-        const sps = [...(authored ? [authored] : []), `plots/${t.to.assetId}.svg`, `fig/assets/${t.to.assetId}.svg`];
-        if (!hasPlotDom(t.to.assetId) || !haveRealManifest(t.to.assetId)) {
-          let resolved = false;
-          for (const svgPath of sps) {
-            try {
-              const svgText = await fig.readText(joinPath(root, svgPath));
-              const manifestPath =
-                (svgPath === authored ? (t.to.manifestPath as string | undefined) : undefined) ??
-                svgPath.replace(/\.svg$/i, ".fluxplot.json");
-              const manifest = await readManifestFile(manifestPath);
-              if (!hasPlotDom(t.to.assetId)) cachePlot(t.to.assetId, svgText, manifest);
-              else if (manifest) plotManifests.update((m) => ({ ...m, [t.to!.assetId!]: manifest }));
-              resolved = true;
-              break;
-            } catch {
-              /* next candidate */
-            }
-          }
-          if (!resolved) {
-            diagnostics.push({
-              severity: "warning",
-              assetId: t.to.assetId,
-              path: sps[0],
-              reason: `morph target "${t.to.assetId}" unresolvable (tried ${sps.join(", ")}) — the morph will hold at A`,
-            });
-          }
-        }
-      }
+    // Targets referenced only by Change/morph effects need the same accepted
+    // asset and sidecar resolution as placed plots.
+    for (const b of s.beats) for (const t of b.tracks) {
+      if (!t.to?.assetId) continue;
+      await resolveExternal(t.to.assetId, {
+        svgPath: typeof t.to.svgPath === "string" ? t.to.svgPath : `plots/${t.to.assetId}.svg`,
+        ...(typeof t.to.manifestPath === "string" ? { manifestPath: t.to.manifestPath } : {}),
+        ...(typeof t.to.external === "boolean" ? { external: t.to.external } : {}),
+      });
+    }
   }
 
   return { assets, external, data, diagnostics };
 }
 
+/** Catch up deck-owned linked sources before opening. */
+async function syncDeckSourceFiles(root: string, deck: Deck, isCurrent: () => boolean = () => true): Promise<void> {
+  const fb = fileBridge();
+  if (!fb) return;
+  const model = deckSourceProject(deck);
+  const plan = await planSourceUpdates(root, model, fb, { assetBase: `slides/${deck.id}`, watchProject: deckSourceProject(deck, { includeExternal: true }) });
+  if (!plan.updates.length || !isCurrent()) return;
+  if (await deckDiskDiverged(root, deck.id)) throw new ConflictError("deck changed while checking its sources");
+  if (!isCurrent()) return;
+  await writeSourceUpdates(root, plan.updates, fb, model, { assetBase: `slides/${deck.id}` });
+  applyDeckSourceUpdates(deck, plan.updates);
+  await writeDeckDirect(root, deck);
+}
+
+const sourceRefreshes = new Map<string, Promise<void>>();
+const pendingSourceRefresh = new Set<string>();
+/** Refresh the open deck without reloading its model/history or discarding
+ * unsaved edits. Animation targets participate even without a placed copy. */
+export function refreshDeckSources(root: string): Promise<void> {
+  const existing = sourceRefreshes.get(root);
+  if (existing) { pendingSourceRefresh.add(root); return existing; }
+  const run = async () => {
+    const fb = fileBridge(), snapshot = currentDeck();
+    if (!fb || !snapshot || storeTenant() !== "slide" || get(embeddedProjectRoot) !== root) return;
+    const current = () => storeTenant() === "slide" && get(embeddedProjectRoot) === root && currentDeck()?.id === snapshot.id;
+    const model = deckSourceProject(snapshot);
+    const plan = await planSourceUpdates(root, model, fb, { assetBase: `slides/${snapshot.id}`, watchProject: deckSourceProject(snapshot, { includeExternal: true }) });
+    if (!current()) return;
+    const updates = plan.updates.filter((u) => !isAssetDirty(u.assetId));
+    if (updates.length) {
+      if (await deckDiskDiverged(root, snapshot.id)) throw new ConflictError("deck changed while checking its sources");
+      if (!current()) return;
+      await writeSourceUpdates(root, updates, fb, model, { assetBase: `slides/${snapshot.id}` });
+      if (!current()) return;
+      commitDeckLive((deck) => applyDeckSourceUpdates(deck, updates), { history: false });
+    }
+    const latest = currentDeck();
+    if (!latest || !current()) return;
+    const resolved = await resolveDeckAssets(root, latest, current);
+    if (!current()) return;
+    const accepted = resolved.assets.filter((a) => resolved.external.has(a.id) && !isAssetDirty(a.id));
+    const resized = reconcileDeckExternalAssetSizes(structuredClone(latest), accepted);
+    if (resized) {
+      if (await deckDiskDiverged(root, snapshot.id)) throw new ConflictError("deck changed while checking external source dimensions");
+      if (!current()) return;
+      commitDeckLive((deck) => { reconcileDeckExternalAssetSizes(deck, accepted); }, { history: false });
+    }
+    replaceResolvedDeckAssets(resolved.assets);
+    const oldData = get(assetData), changedData = Object.fromEntries(Object.entries(resolved.data).filter(([id, url]) => !isAssetDirty(id) && oldData[id] !== url));
+    if (Object.keys(changedData).length) assetData.update((data) => ({ ...data, ...changedData }));
+    if (updates.length || resized) await saveDeckFrom(root);
+    for (const status of plan.statuses) if (status.status === "error" || status.status === "missing")
+      pushToast("error", `Slide source ${status.status === "missing" ? "missing" : "update failed"}`, { detail: `${status.path}: ${status.detail ?? "Last saved version retained"}` });
+  };
+  const promise = (async () => {
+    do { pendingSourceRefresh.delete(root); await run(); } while (pendingSourceRefresh.has(root));
+  })().finally(() => { sourceRefreshes.delete(root); pendingSourceRefresh.delete(root); });
+  sourceRefreshes.set(root, promise);
+  return promise;
+}
+
 /** Load a deck into the live editing stores (figure store + slide overlay).
  *  Returns the deck + resolution diagnostics, or null. */
-export async function loadDeckInto(root: string, deckId: string): Promise<{ deck: Deck; diagnostics: DeckDiag[] } | null> {
+let deckLoadGeneration = 0;
+export async function loadDeckInto(root: string, deckId: string, opts: { isCurrent?: () => boolean } = {}): Promise<{ deck: Deck; diagnostics: DeckDiag[] } | null> {
+  const generation = ++deckLoadGeneration, tenant = storeTenant(), previousRoot = get(embeddedProjectRoot);
+  const current = () => generation === deckLoadGeneration && storeTenant() === tenant && get(embeddedProjectRoot) === previousRoot && (opts.isCurrent?.() ?? true);
   const deck = await readDeck(root, deckId);
-  if (!deck) return null;
-  clearPlots();
-  const resolved = await resolveDeckAssets(root, deck);
+  if (!deck || !current()) return null;
+  if (await fileBridge()?.exists(joinPath(root, "fig/index.json"))) await syncProjectSources(root, { isCurrent: current });
+  await syncDeckSourceFiles(root, deck, current);
+  if (!current()) return null;
+  clearPlots(); acceptedPlotCache.clear();
+  const resolved = await resolveDeckAssets(root, deck, current);
+  if (!current()) return null;
+  if (reconcileDeckExternalAssetSizes(deck, resolved.assets)) {
+    if (await deckDiskDiverged(root, deck.id)) throw new ConflictError("deck changed while reopening linked sources");
+    if (!current()) return null;
+    await writeDeckDirect(root, deck);
+    if (!current()) return null;
+  }
   loadDeckModel(deck, resolved.assets, resolved.external);
   assetData.set(resolved.data);
   clearAllAssetsDirty(); // freshly loaded — every asset is in sync with disk
@@ -439,17 +503,25 @@ function sameDeckContent(aText: string, bText: string): boolean {
 export async function saveDeckFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
   assertStoreTenant("slide", "deck save");
   const fig = fileBridge();
-  const d = currentDeck();
+  let d = currentDeck();
   if (!fig || !d) return;
+  const deckId = d.id;
   // Conflict guard: refuse to clobber a deck.json that changed on disk since
   // we read/wrote it. `force` = the banner's Overwrite. The abs path must
   // match readDeck's seed — resolve through the manifest the same way.
   const m0 = await readManifest(root);
-  const rel = m0?.slides?.find((s) => s.id === d.id)?.path ?? deckRel(d.id);
+  const rel = m0?.slides?.find((s) => s.id === deckId)?.path ?? deckRel(deckId);
   const abs = joinPath(root, rel);
   const baseline = deckBaseline.get(abs);
   if (!opts.force && baseline != null && (await readDeckText(fig, abs)) !== baseline) {
     throw new ConflictError("deck changed on disk");
+  }
+  // A newly introduced external placement/animation target must record the
+  // dimensions known when it was authored, before any future source event.
+  const accepted = get(figProject).assets.filter((a) => externalAssetIds().has(a.id) && !isAssetDirty(a.id));
+  if (reconcileDeckExternalAssetSizes(d, accepted)) {
+    commitDeckLive((deck) => { reconcileDeckExternalAssetSizes(deck, accepted); }, { history: false });
+    d = currentDeck()!;
   }
   const genAtStart = editGen.n; // only clear dirty if no edit lands mid-save
 

@@ -78,6 +78,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
   // B, and window B's project switch must not revoke window A's in-flight
   // approvals. (The roots() union stays global by design — see main.cjs.)
   const approvedDirs = new Map(); // senderId -> Set<abs dir>
+  const sourceReadFiles = new Map(); // senderId -> Map<scope, Set<exact file>>
   function approveDir(senderId, p) {
     if (!p) return;
     let set = approvedDirs.get(senderId);
@@ -106,6 +107,19 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     const all = [app.getPath("userData"), app.getPath("temp"), ...roots(), ...approved].filter(Boolean);
     if (all.some((r) => underDir(ab, path.resolve(r)))) return;
     throw new Error(`refused path outside project/app roots: ${p}`);
+  }
+  function fsReadGuard(p, senderId) {
+    const ab = foldCase(path.resolve(p));
+    const scopes = sourceReadFiles.get(senderId);
+    if (scopes && [...scopes.values()].some((files) => files.has(ab))) return;
+    fsGuard(p, senderId);
+  }
+  function setSourceReadFiles(senderId, scope, files) {
+    if (!Array.isArray(files) || files.some((p) => typeof p !== "string" || !path.isAbsolute(p) || p.includes("\0") || !/\.(?:svg|json)$/i.test(p))) throw new Error("Invalid linked source read files");
+    let scopes = sourceReadFiles.get(senderId);
+    if (!scopes) sourceReadFiles.set(senderId, scopes = new Map());
+    if (files.length) scopes.set(scope, new Set(files.map((p) => foldCase(path.resolve(p)))));
+    else scopes.delete(scope);
   }
 
   /** Register the family's channels on the (contract-wrapped) ipc. */
@@ -141,7 +155,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     });
 
     ipc.handle("fs:readFile", async (e, p) => {
-      fsGuard(p, e.sender.id);
+      fsReadGuard(p, e.sender.id);
       const buf = await fs.promises.readFile(p);
       return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
     });
@@ -151,7 +165,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
       await atomicWriteMain(p, Buffer.from(data));
     });
     ipc.handle("fs:readText", async (e, p) => {
-      fsGuard(p, e.sender.id);
+      fsReadGuard(p, e.sender.id);
       return fs.promises.readFile(p, "utf8");
     });
     ipc.handle("fs:writeText", async (e, p, text) => {
@@ -190,7 +204,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
       }
     });
     ipc.handle("fs:exists", async (e, p) => {
-      fsGuard(p, e.sender.id); // W12 (SHL-6): was unguarded — an existence-probe of any path
+      fsReadGuard(p, e.sender.id); // exact linked sources are readable, never writable
       try {
         await fs.promises.access(p);
         return true;
@@ -201,7 +215,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
       }
     });
     ipc.handle("fs:stat", async (e, p) => {
-      fsGuard(p, e.sender.id);
+      fsReadGuard(p, e.sender.id);
       try {
         const st = await fs.promises.stat(p);
         return { mtimeMs: st.mtimeMs, size: st.size };
@@ -271,11 +285,15 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     atomicWriteMain,
     isSelfWrite,
     fsGuard,
+    fsReadGuard,
+    setSourceReadFiles,
+    clearSourceReadFiles: (senderId) => sourceReadFiles.delete(senderId),
     approveDir,
     underDir,
     /** Drop ONE window's dialog approvals (its project switch or close). */
     clearApprovals: (senderId) => {
       approvedDirs.delete(senderId);
+      sourceReadFiles.delete(senderId);
     },
     registerHandlers,
   };

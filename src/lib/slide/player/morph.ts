@@ -77,73 +77,84 @@ export function morphSeriesPixels(
  *  silently held/ignored mismatched parts and produced a wrong tween. Used by the editor to
  *  disable bad targets and by the player to skip (rather than mis-run) an incompatible morph. */
 export function morphCompatible(A: FluxPlotManifest | undefined, B: FluxPlotManifest | undefined): boolean {
-  const ba = A?.series ?? [], bb = B?.series ?? [];
-  if (!ba.length || !bb.length) return false;
-  const bById = new Map(bb.map((s) => [s.id, s]));
-  const tweenable = (s: FluxPlotSeries) => (s.points?.length ?? 0) > 0 || !!s.svg?.line;
-  for (const sA of ba) {
-    const sB = bById.get(sA.id);
-    if (sB && tweenable(sA) && tweenable(sB)) return true;
+  if (!A || !B || !A.series?.length || A.series.length !== B.series?.length) return false;
+  if (A.axes?.length !== B.axes?.length) return false;
+  for (let i = 0; i < (A.axes?.length ?? 0); i++) {
+    if (A.axes[i].x.scale !== B.axes[i].x.scale || A.axes[i].y.scale !== B.axes[i].y.scale) return false;
   }
-  return false;
+  const bById = new Map(B.series.map((s) => [s.id, s]));
+  return A.series.every((a) => {
+    const b = bById.get(a.id);
+    if (!b) return false;
+    const av = tweenVertices(a), bv = tweenVertices(b);
+    if (!av.length || av.length !== bv.length || Boolean(a.svg?.line) !== Boolean(b.svg?.line)) return false;
+    const indices = new Set(bv.map((p) => p.index));
+    return av.every((p) => indices.has(p.index));
+  });
 }
 
 export interface MorphController {
   /** Set the morph to time `t` ∈ [0,1] (0 = A, 1 = B). */
   seek(t: number): void;
+  /** The compiled destination content; later cues bind its semantic parts. */
+  targetRoot?: HTMLElement;
 }
 
 /** Build a live morph over an already-rendered plot element (its parts are
  *  id-prefixed `${elId}__${semanticId}`). `seek` rewrites the line path + point
  *  markers in place; the player drives it (rAF for play, static seek(0|1) for
  *  resting before/after the morph beat). */
-export function createMorph(wrap: ParentNode, elId: string, A: FluxPlotManifest, B: FluxPlotManifest): MorphController {
-  const q = (svgId: string): Element | null => wrap.querySelector(`[id="${elId}${SEP}${svgId}"]`);
+export function createMorph(wrap: ParentNode, elId: string, A: FluxPlotManifest, B: FluxPlotManifest, geometryInterpolated = false): MorphController {
+  // Resolve all DOM and datum identities ONCE. The frame path contains no
+  // selectors, map construction, axis fitting, or source-array searches.
+  const nodes = new Map<string, Element>();
+  for (const node of Array.from(wrap.querySelectorAll("[id]"))) nodes.set(node.id, node);
+  const q = (id: string) => nodes.get(`${elId}${SEP}${id}`);
   const axA = A.axes[0] ?? { x: { scale: "linear", domain: [0, 1], anchors: [] }, y: { scale: "linear", domain: [0, 1], anchors: [] } };
   const axB = B.axes[0] ?? axA;
-  const fxAorig = axisFit(axA.x), fyAorig = axisFit(axA.y);
-  const pairs = (A.series ?? []).map((sA) => ({ sA, sB: (B.series ?? []).find((s) => s.id === sA.id) ?? sA }));
-
-  function seek(t: number): void {
-    for (const { sA, sB } of pairs) {
-      const px = morphSeriesPixels(sA, sB, axA, axB, t);
-
-      // line: rebuild `d` from the projected points (equal vertex count ⇒ clean).
-      // fluxplot wraps the series line in a <g data-role="line"> (esp. when the
-      // line carries markers) whose CHILD <path> holds the geometry — rewrite the
-      // drawable path, not the group (setting `d` on a <g> is a silent no-op).
-      const lineId = sA.svg?.line;
-      if (lineId && px.length) {
-        const found = q(lineId);
-        const node = found && found.tagName?.toLowerCase() !== "path" ? (found.querySelector?.("path") ?? found) : found;
-        if (node) {
-          node.setAttribute("d", px.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" "));
-          // A prior drawOn leaves a stroke-dash window sized to the ORIGINAL
-          // path; on a rewritten (longer) path it truncates the tail. Once the
-          // morph owns the geometry (t>0) that dash is stale — clear it. At
-          // t=0 the rebuild matches A's length, and drawOn's pre-beat hidden
-          // state still needs its dasharray, so leave it alone.
-          if (t > 0) {
-            const st = (node as Element & { style?: CSSStyleDeclaration }).style;
-            st?.removeProperty?.("stroke-dasharray");
-            st?.removeProperty?.("stroke-dashoffset");
-          }
+  const fxA = axisFit(axA.x), fyA = axisFit(axA.y), fxB = axisFit(axB.x), fyB = axisFit(axB.y);
+  const bSeries = new Map((B.series ?? []).map((s) => [s.id, s]));
+  const pairs = (A.series ?? []).map((a) => {
+    const b = bSeries.get(a.id) ?? a;
+    const bv = new Map(tweenVertices(b).map((p) => [p.index, p]));
+    const markers = new Map((a.points ?? []).map((p) => [p.index, p.svgId]));
+    const points = tweenVertices(a).map((pa) => {
+      const pb = bv.get(pa.index) ?? pa;
+      return { a: pa, b: pb, node: q(markers.get(pa.index) ?? ""), ox: projectWith(fxA, pa.x), oy: projectWith(fyA, pa.y), ex: projectWith(fxB, pb.x), ey: projectWith(fyB, pb.y) };
+    });
+    const found = a.svg?.line ? q(a.svg.line) : undefined;
+    const line = found?.tagName?.toLowerCase() === "path" ? found : found?.querySelector("path");
+    return { points, line };
+  });
+  function seek(raw: number): void {
+    const t = Math.max(0, Math.min(1, raw));
+    // Other controllers may share these nodes, so endpoint seeks still write.
+    const fx = blendFit(fxA, fxB, t), fy = blendFit(fyA, fyB, t);
+    for (const pair of pairs) {
+      const path: string[] = [];
+      for (let i = 0; i < pair.points.length; i++) {
+        const p = pair.points[i];
+        const x = projectWith(fx, lerpData(p.a.x, p.b.x, t, fxA.log));
+        const y = projectWith(fy, lerpData(p.a.y, p.b.y, t, fyA.log));
+        if (pair.line) path.push(`${i ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`);
+        if (p.node?.tagName?.toLowerCase() === "circle") {
+          p.node.setAttribute("cx", x.toFixed(2)); p.node.setAttribute("cy", y.toFixed(2));
+        } else if (p.node) {
+          // The complete SVG binding already moves this marker linearly. Add
+          // only the data-space correction, on a separate CSS channel so an
+          // entrance transform and authored marker transform remain intact.
+          const ox = geometryInterpolated ? lerp(p.ox, p.ex, t) : p.ox;
+          const oy = geometryInterpolated ? lerp(p.oy, p.ey, t) : p.oy;
+          (p.node as SVGElement).style.translate = `${(x - ox).toFixed(2)}px ${(y - oy).toFixed(2)}px`;
         }
       }
-
-      // point markers: <circle> → cx/cy; anything else → translate from its A pixel
-      (sA.points ?? []).forEach((pa, i) => {
-        const node = q(pa.svgId) as (Element & { style?: CSSStyleDeclaration }) | null;
-        if (!node) return;
-        const p = px[i];
-        if (node.tagName?.toLowerCase() === "circle") {
-          node.setAttribute("cx", p.x.toFixed(2));
-          node.setAttribute("cy", p.y.toFixed(2));
-        } else if (node.style) {
-          const ox = projectWith(fxAorig, pa.x), oy = projectWith(fyAorig, pa.y);
-          node.style.transform = `translate(${(p.x - ox).toFixed(2)}px, ${(p.y - oy).toFixed(2)}px)`;
+      if (pair.line && path.length) {
+        pair.line.setAttribute("d", path.join(" "));
+        if (t > 0) {
+          (pair.line as SVGElement).style.removeProperty("stroke-dasharray");
+          (pair.line as SVGElement).style.removeProperty("stroke-dashoffset");
         }
-      });
+      }
     }
   }
   return { seek };

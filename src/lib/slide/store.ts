@@ -25,7 +25,7 @@
 // ---------------------------------------------------------------------------
 
 import { writable, get } from "svelte/store";
-import type { Asset, Element, Id } from "../types";
+import type { Asset, Element, Id, Project } from "../types";
 import type { Deck, Slide, Track } from "./types";
 import {
   project,
@@ -40,9 +40,14 @@ import {
   selection,
   partSelection,
   type HistoryCompanion,
+  registerEditorTransactionAdapter,
 } from "../store";
 import { familyOf } from "./family";
-import { diffState, foldPreState, earlierTransformStates, applyState } from "./tween";
+import { applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "./sourceSync";
+import { setTransform } from "./ops";
+import { evaluateSlideState, type SlideFrame } from "./compile";
+import { plotManifests } from "../plot/store";
+import { diffState, foldPreState, earlierTransformStates } from "./tween";
 import { applyTextLayout } from "../text";
 import { deckToProject, projectIntoDeck, DECK_CANVAS_ID, slideDefaultBackground } from "./deckProject";
 
@@ -57,10 +62,31 @@ export const activeBeat = writable<number>(0);
  *  "primary". Reconciled against surviving tracks after undo/redo. */
 export const selTrackIds = writable<string[]>([]);
 
+/** An edit destination is a deliberate choice, independent from timeline
+ *  navigation and playback. It is UI state, never serialized into the deck. */
+export type SlideEditDestination = { kind: "design" } | { kind: "after"; beatId: Id };
+export const editDestination = writable<SlideEditDestination>({ kind: "design" });
+export const slideCanvasPresentation = writable<SlideFrame["presentation"]>({ elementStates: {}, hiddenElementIds: [], partStates: {} });
+export function setEditDestination(destination: SlideEditDestination): void {
+  endpointEdit.set(null);
+  editDestination.set(destination);
+  refreshBeatDisplay();
+}
+export function editAfterBeat(index = get(activeBeat)): void {
+  const slide = get(deckOverlay)?.slides.find(s => s.id === get(activeFigureId));
+  const beat = slide?.beats[index];
+  setEditDestination(index > 0 && beat ? { kind: "after", beatId: beat.id } : { kind: "design" });
+}
+let suppressEditAdapter = 0;
+
 // Asset ids resolved FROM the project (plots, fig/-owned media) rather than
 // owned by the deck — the save fold never writes them into deck.assets and
 // never copies their bytes into slides/<id>/assets/.
 let externalAssets = new Set<string>();
+// Accepted source revisions are external facts, not undoable author edits.
+// Keep their metadata outside history so restoring a document cannot bring
+// back an obsolete intrinsic size while the SVG cache contains newer bytes.
+const acceptedAssetMetadata = new Map<string, Asset>();
 export function externalAssetIds(): ReadonlySet<string> {
   return externalAssets;
 }
@@ -93,18 +119,27 @@ export function stripDeckToOverlay(deck: Deck): Deck {
  *  → this store. `resolvedAssets` = deck.assets + project-resolved assets;
  *  `external` marks the project-resolved ids. */
 export function loadDeckModel(deck: Deck, resolvedAssets: Asset[] = deck.assets, external: Set<string> = new Set()): void {
-  disarmDisplaySync();
   checkoutBaselines.clear();
-  displayRoutes.clear();
   endpointEdit.set(null);
+  editDestination.set({ kind: "design" });
   externalAssets = external;
+  acceptedAssetMetadata.clear();
+  for (const a of resolvedAssets) acceptedAssetMetadata.set(a.id, structuredClone(a));
   const proj = deckToProject(deck, resolvedAssets);
-  loadProject(proj, null);
+  loadProject(proj, null, { figureIdentity: false });
   deckOverlay.set(stripDeckToOverlay(deck));
   activeCanvasId.set(DECK_CANVAS_ID);
   activeFigureId.set(deck.slides[0]?.id ?? null);
   activeBeat.set(0);
   selTrackIds.set([]);
+}
+
+/** Refresh project-owned asset metadata without rewriting the deck document or
+ * its current edit destination. Local slide assets remain owned by the deck. */
+export function replaceResolvedDeckAssets(assets: Asset[]): void {
+  const byId=new Map(assets.map(a=>[a.id,a]));
+  for (const a of assets) acceptedAssetMetadata.set(a.id, structuredClone(a));
+  mutateDisplay(p=>{p.assets=p.assets.map(a=>externalAssets.has(a.id)&&byId.has(a.id)?structuredClone(byId.get(a.id)!):a);});
 }
 
 /** Compose the full live Deck from the two halves (figure store + overlay).
@@ -153,14 +188,15 @@ const coalesceState = { key: null as string | null, gen: -1 };
 /** Apply a pure deck op to the LIVE deck: composes the current Deck, runs
  *  `fn`, then writes the result back into the figure store (figures) and the
  *  overlay. One undo step (or part of a coalesced run). Returns fn's result. */
-export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: string }): T {
+export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: string; history?: boolean }): T {
   const o = get(deckOverlay);
   if (!o) throw new Error("no deck loaded");
   let out!: T;
   const key = opts?.coalesce ?? null;
   const continueRun = key !== null && key === coalesceState.key && editGen.n === coalesceState.gen;
-  const write = continueRun ? mutate : commit;
-  write((proj) => {
+  const write = opts?.history === false || continueRun ? mutate : commit;
+  suppressEditAdapter++;
+  try { write((proj) => {
     const deck = projectIntoDeck(proj, o, { externalAssetIds: externalAssets, baselines: checkoutBaselines });
     out = fn(deck);
     // Decompose: figures ← deck slides (order + content), overlay ← the rest.
@@ -173,6 +209,7 @@ export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: str
       if (!live) return els;
       return els.map((e) => {
         if (!checkoutBaselines.has(e.id)) return e;
+        checkoutBaselines.set(e.id, structuredClone(e));
         return live.elements.find((x) => x.id === e.id) ?? e;
       });
     };
@@ -199,7 +236,7 @@ export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: str
     // captured `o` here so the companion snapshot (taken by beginGesture before
     // this callback) holds the true pre-state.
     Object.assign(o, stripDeckToOverlay(deck));
-  });
+  }); } finally { suppressEditAdapter--; }
   // Publish a FRESH identity: Svelte 5's store→rune bridge dedupes on
   // referential equality, so re-setting the same object would not re-render
   // `$deckOverlay` consumers (the filmstrip's {#each} would go stale).
@@ -235,20 +272,51 @@ export function overlayHistoryCompanion(): HistoryCompanion {
     capture: () => ({
       overlay: structuredClone(get(deckOverlay)),
       beat: get(activeBeat),
+      destination: structuredClone(get(editDestination)),
       checkout: structuredClone(get(endpointEdit)),
       baselines: [...checkoutBaselines.entries()].map(([id, el]) => [id, structuredClone(el)] as const),
     }),
     restore: (s) => {
       const snap = s as
-        | { overlay: Deck | null; beat: number; checkout?: EndpointEdit | null; baselines?: (readonly [Id, Element])[] }
+        | { overlay: Deck | null; beat: number; destination?: SlideEditDestination; checkout?: EndpointEdit | null; baselines?: (readonly [Id, Element])[] }
         | undefined;
       if (!snap) return;
-      deckOverlay.set(snap.overlay);
-      disarmDisplaySync();
       checkoutBaselines.clear();
-      displayRoutes.clear();
       for (const [id, el] of snap.baselines ?? []) checkoutBaselines.set(id, structuredClone(el));
+      let restored = snap.overlay;
+      if (restored && acceptedAssetMetadata.size) {
+        const canonical = projectIntoDeck(get(project), restored, { externalAssetIds: externalAssets, baselines: checkoutBaselines });
+        const ownedUpdates = canonical.assets.flatMap(a => {
+          const latest = acceptedAssetMetadata.get(a.id);
+          return latest && latest.naturalWidth > 0 && latest.naturalHeight > 0 &&
+            (latest.naturalWidth !== a.naturalWidth || latest.naturalHeight !== a.naturalHeight)
+            ? [{ assetId: a.id, width: latest.naturalWidth, height: latest.naturalHeight }] : [];
+        });
+        if (ownedUpdates.length) applyDeckSourceUpdates(canonical, ownedUpdates);
+        const externalChanged = reconcileDeckExternalAssetSizes(canonical, [...acceptedAssetMetadata.values()]);
+        const rebased = externalChanged || ownedUpdates.length > 0;
+        // Rebuild the display from canonical content below; no historical
+        // endpoint projection or source baseline may survive this boundary.
+        const slides = new Map(canonical.slides.map(slide => [slide.id, slide]));
+        mutateDisplay(p => {
+          p.assets = p.assets.map(a => {
+            const latest = acceptedAssetMetadata.get(a.id);
+            return latest ? { ...a, naturalWidth: latest.naturalWidth, naturalHeight: latest.naturalHeight } : a;
+          });
+          if (rebased) for (const figure of p.figures) {
+              const slide = slides.get(figure.id);
+              if (slide) figure.elements = slide.elements;
+            }
+        });
+        if (rebased) {
+          checkoutBaselines.clear();
+          restored = stripDeckToOverlay(canonical);
+        }
+      }
+      deckOverlay.set(restored);
       endpointEdit.set(snap.checkout ?? null);
+      editDestination.set(snap.destination ?? { kind: "design" });
+      activeBeat.set(snap.beat ?? 0);
       reconcileCursor();
       // the undo restored the PROJECT (display at snapshot time), the overlay
       // (track state at snapshot time), and the baselines — the reconciler
@@ -272,50 +340,35 @@ export function reconcileCursor(): void {
 }
 
 // ---------------------------------------------------------------------------
-// BEAT-FAITHFUL DISPLAY + ENDPOINT CHECKOUT (animation rework §4.4, hardened
-// per owner direction 2026-07-18): the canvas always shows the slide AS IT
-// EXISTS AT THE ACTIVE BEAT. Every element with an enabled transform in beats
-// 1..activeBeat displays its COMPOSED state (swapped into the figure store so
-// every editor tool works on it verbatim), and a plain edit routes into the
-// GOVERNING transform's `to.state` — you edit what you see. Beat 0 (or any
-// beat before an element's first transform) shows and edits the BASE.
+// EXPLICIT EDIT DESTINATION. Design uses canonical object properties. After
+// a named step derives the evaluated endpoint into the shared editor and
+// captures all subsequent property edits at that exact step. Browsing the
+// timeline and sampling playback never change this destination.
 //
-// The explicit t₁/t₂ endpoint selection layers ON TOP as a per-element
-// override: t₂ pins the display/routing to that track's end; t₁ routes to
-// the upstream transform (chained) or to the BASE (trackId null — plain
-// document editing while the handle is lit).
-//
-// The captured BASE elements live in `displayBaselines`; every fold
-// substitutes them back (deck.json can never contain a composed state), and
-// one armed subscription mirrors user edits into the routed track's sparse
-// `to.state` — overlay-only writes that ride the SAME undo entry as the
-// canvas edit (one Cmd+Z restores both halves).
+// Canonical base elements are held outside the display projection; save,
+// thumbnail, preview and history fold them back. The synchronous transaction
+// adapter translates deliberate edits before any subscriber sees the change.
 // ---------------------------------------------------------------------------
 
 export interface EndpointEdit {
-  /** Which handle the user is sculpting ("t1" of a chained track edits the
-   *  UPSTREAM track; t1 with no upstream routes to the BASE — trackId null). */
+  /** Before/after shortcut metadata. The visible editDestination owns edits. */
   end: "t1" | "t2";
   entries: { trackId: Id | null; target: Id }[];
 }
 
-/** The active EXPLICIT endpoint selection (null = ambient beat display). */
+/** The selected endpoint shortcut, separate from the explicit destination. */
 export const endpointEdit = writable<EndpointEdit | null>(null);
 
 // elementId → its BASE (document beat-0) element. Module-level and
 // non-reactive by design (read by every fold).
 const checkoutBaselines = new Map<Id, Element>();
-// elementId → the track receiving edit diffs (null = plain base editing).
-const displayRoutes = new Map<Id, Id | null>();
 
 /** Read-only view for gates/debug. */
 export function checkoutBaselineIds(): ReadonlySet<Id> {
   return new Set(checkoutBaselines.keys());
 }
 
-let unsubDisplaySync: (() => void) | null = null;
-// last synced display JSON per element — the change detector.
-const lastDisplay = new Map<Id, string>();
+
 
 /** Locate a track by id in the OVERLAY (beats live there). */
 function overlayTrack(trackId: Id): { slide: Slide; beatIndex: number; track: Track } | null {
@@ -328,20 +381,6 @@ function overlayTrack(trackId: Id): { slide: Slide; beatIndex: number; track: Tr
     }
   }
   return null;
-}
-
-/** The DISPLAY state for a routed element: end of the routed track (pre ⊕
- *  state), or the base itself for a null route. */
-function displayFor(target: Id, route: Id | null): Element | null {
-  const base = checkoutBaselines.get(target);
-  if (!base) return null;
-  if (route === null) return structuredClone(base);
-  const found = overlayTrack(route);
-  if (!found) return structuredClone(base);
-  const pre = foldPreState(base, earlierTransformStates(found.slide.beats, target, found.beatIndex));
-  const disp = applyState(pre, found.track.to?.state as Record<string, unknown> | undefined);
-  if (disp.type === "text") applyTextLayout(disp); // GUI re-wrap; headless-safe
-  return disp;
 }
 
 /** THE RECONCILER — recompute what every element of the active slide should
@@ -357,20 +396,18 @@ export function refreshBeatDisplay(): void {
   const p = get(project);
   const fig = p.figures.find((f) => f.id === sid);
   if (!os || !fig) return;
-  const k = get(activeBeat);
+  const destination = get(editDestination);
+  const k = destination.kind === "after" ? os.beats.findIndex(b => b.id === destination.beatId) : 0;
+  if(destination.kind==="after" && k<1) {editDestination.set({kind:"design"});endpointEdit.set(null);}
 
-  // 1. The wanted routing: ambient (latest enabled transform ≤ activeBeat per
-  //    target — later beats overwrite earlier in walk order), then the
-  //    explicit endpoint selection overrides per target.
-  const wanted = new Map<Id, Id | null>();
-  for (let bi = 1; bi <= Math.min(k, os.beats.length - 1); bi++) {
-    for (const t of os.beats[bi].tracks) {
-      if (t.disabled || !t.id || t.target.startsWith("@") || familyOf(t) !== "transform") continue;
-      wanted.set(t.target, t.id);
-    }
-  }
-  const ee = get(endpointEdit);
-  for (const entry of ee?.entries ?? []) wanted.set(entry.target, entry.trackId);
+  // Evaluate from canonical content; appearance and camera stay transient.
+  const canonical = composedSlide(sid);
+  const frame = canonical && k > 0 ? evaluateSlideState(canonical, k, Infinity, {
+    stage: o.stage, plotManifest: id => get(plotManifests)[id],
+  }) : null;
+  const evaluated = new Map(frame?.elements.map(e => [e.id, e]) ?? []);
+  slideCanvasPresentation.set(frame?.presentation ?? {elementStates:{},hiddenElementIds:[],partStates:{}});
+  const wanted = new Set(k > 0 ? fig.elements.map(e=>e.id) : []);
 
   // 2. Elements leaving the display set restore their base; 3. elements in it
   //    (re)compute their display. One mutate, only when something changed —
@@ -380,35 +417,29 @@ export function refreshBeatDisplay(): void {
   for (const [id, base] of [...checkoutBaselines]) {
     if (wanted.has(id)) continue;
     checkoutBaselines.delete(id);
-    displayRoutes.delete(id);
-    lastDisplay.delete(id);
     if (fig.elements.some((e) => e.id === id)) writes.set(id, structuredClone(base));
   }
-  for (const [target, route] of wanted) {
+  for (const target of wanted) {
     const cur = fig.elements.find((e) => e.id === target);
     if (!cur) {
       // dangling (element deleted) — drop the display bookkeeping; the
       // baseline itself rides history via the companion snapshot.
       checkoutBaselines.delete(target);
-      displayRoutes.delete(target);
-      lastDisplay.delete(target);
       continue;
     }
     if (!checkoutBaselines.has(target)) checkoutBaselines.set(target, structuredClone(cur));
-    displayRoutes.set(target, route);
-    const disp = displayFor(target, route);
+    const disp = evaluated.get(target) ?? structuredClone(checkoutBaselines.get(target)!);
+    if (disp?.type === "text" && disp.needsLayout) applyTextLayout(disp);
     if (!disp) continue;
     const j = JSON.stringify(disp);
     if (j !== JSON.stringify(cur)) writes.set(target, disp);
-    lastDisplay.set(target, j);
   }
-  for (const [id] of [...displayRoutes]) if (!wanted.has(id)) displayRoutes.delete(id);
   if (writes.size) {
     // mutateDisplay, NOT mutate: this reconciler runs on plain beat navigation /
     // slide switch, and a composed-display write must never mark the deck dirty
     // (it would autosave deck.json on every beat click and pop a spurious
     // external-change banner). editGen still advances so commit-coalescing is
-    // unchanged; genuine edits dirty via armDisplaySync's normal mutate.
+    // unchanged; user mutations separately set dirty.
     mutateDisplay((proj) => {
       const f2 = proj.figures.find((f) => f.id === sid);
       if (!f2) return;
@@ -418,61 +449,60 @@ export function refreshBeatDisplay(): void {
       }
     });
   }
-  if (displayRoutes.size) armDisplaySync();
-  else disarmDisplaySync();
 }
 
-/** Mirror user edits on displayed elements into their routed tracks'
- *  `to.state`. Armed only while something is displayed (zero ambient cost).
- *  Overlay-only writes: the SAME pure fold the player uses computes pre;
- *  diffState captures the sparse patch; the canvas commit that triggered us
- *  already opened the undo entry (its companion snapshot holds the overlay
- *  pre-state), so this write rides that entry — one undo step, both halves.
- *  Null routes (t₁-on-base) are SKIPPED: those edits are plain base edits. */
-function armDisplaySync(): void {
-  if (unsubDisplaySync) return;
-  unsubDisplaySync = project.subscribe((p) => {
-    if (!displayRoutes.size) return;
-    const sid = get(activeFigureId);
-    const fig = p.figures.find((f) => f.id === sid);
-    if (!fig) return;
-    const o = get(deckOverlay);
-    if (!o) return;
-    let touched = false;
-    for (const [target, route] of displayRoutes) {
-      const el = fig.elements.find((e) => e.id === target);
-      if (!el) continue; // deleted mid-display — refresh reconciles
-      const j = JSON.stringify(el);
-      if (j === lastDisplay.get(target)) continue;
-      lastDisplay.set(target, j);
-      if (route === null) {
-        // base editing under a t₁ handle: the store element IS the base —
-        // keep the captured baseline in lockstep so exits restore the edit.
-        checkoutBaselines.set(target, structuredClone(el));
-        continue;
+/** Synchronous user-edit boundary, registered with the shared figure store.
+ *  Captures only the active slide, never a deck clone, and runs before any
+ *  project subscriber. Project notifications cannot author animations. */
+export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
+  return registerEditorTransactionAdapter({
+    before(p, context) {
+      onUserEdit?.();
+      if (suppressEditAdapter || get(editDestination).kind !== "after") return null;
+      const sid = get(activeFigureId);
+      if (context.figureId && context.figureId !== sid) return null;
+      const fig = p.figures.find(f => f.id === sid);
+      return fig ? new Map(fig.elements.map(e => [e.id, structuredClone(e)])) : null;
+    },
+    after(p, token) {
+      if (!(token instanceof Map) || suppressEditAdapter) return;
+      const destination = get(editDestination);
+      const o = get(deckOverlay), sid = get(activeFigureId);
+      const fig = p.figures.find(f => f.id === sid);
+      const slide = o?.slides.find(s => s.id === sid);
+      if (!o || !fig || !slide || destination.kind !== "after") return;
+      const bi = slide.beats.findIndex(b => b.id === destination.beatId);
+      if (bi < 1) return;
+      let changed = false;
+      // Structural metadata belongs to the original object, not a transform.
+      const structural = ["name", "groupId", "locked", "hidden", "lockAspect", "styleId", "panelLabel", "source", "manifestRef"] as const;
+      for (const el of fig.elements) {
+        const previous = token.get(el.id) as Element | undefined;
+        if (!previous) continue; // a new element is an ordinary document edit
+        const base = checkoutBaselines.get(el.id);
+        if (!base) continue;
+        for (const key of structural) {
+          const rec = el as unknown as Record<string,unknown>, dest = base as unknown as Record<string,unknown>;
+          if (key in rec) dest[key] = structuredClone(rec[key]); else delete dest[key];
+        }
+        if (previous.type === "plot" && el.type === "plot" && base.type === "plot" && previous.assetId !== el.assetId) base.assetId = el.assetId;
+        if (!diffState(previous, el)) continue;
+        const pre = foldPreState(base, earlierTransformStates(slide.beats, el.id, bi));
+        const patch = diffState(pre, el) ?? {};
+        const t = setTransform(o, sid!, destination.beatId, el.id, { state: patch, replaceState: true });
+        changed = true;
       }
-      const found = overlayTrack(route);
-      const base = checkoutBaselines.get(target);
-      if (!found || !base) continue;
-      const pre = foldPreState(base, earlierTransformStates(found.slide.beats, target, found.beatIndex));
-      const state = diffState(pre, el) ?? {};
-      found.track.to = { ...(found.track.to ?? {}), state };
-      touched = true;
-    }
-    if (touched) deckOverlay.set({ ...o }); // fresh identity (runes dedupe)
+      const surviving = new Set(fig.elements.map(e => e.id));
+      for (const id of checkoutBaselines.keys()) if (!surviving.has(id)) {
+        checkoutBaselines.delete(id);
+      }
+      if (changed) deckOverlay.set({ ...o });
+    },
   });
 }
-function disarmDisplaySync(): void {
-  unsubDisplaySync?.();
-  unsubDisplaySync = null;
-  lastDisplay.clear();
-}
 
-/** Select an EXPLICIT endpoint for one or more transform tracks. `end: "t1"`
- *  routes each track to the PREVIOUS transform on its target (whose t2 IS
- *  this track's t1); a track with no upstream routes to the BASE (trackId
- *  null — the canvas shows and edits the document state while the handle is
- *  lit). Returns the entries selected. */
+/** Before selects the immediately previous named step (or Design); After
+ * selects this step. The visible destination always states where edits go. */
 export function enterEndpointEdit(trackIds: Id[], end: "t1" | "t2"): EndpointEdit["entries"] {
   endpointEdit.set(null);
   const entries: EndpointEdit["entries"] = [];
@@ -499,6 +529,11 @@ export function enterEndpointEdit(trackIds: Id[], end: "t1" | "t2"): EndpointEdi
     selection.set(new Set(targets));
     partSelection.set(null);
   }
+  const first = trackIds.length ? overlayTrack(trackIds[0]) : null;
+  if (first) {
+    const targetIndex = end === "t2" ? first.beatIndex : Math.max(0, first.beatIndex - 1);
+    editDestination.set(targetIndex > 0 ? { kind: "after", beatId: first.slide.beats[targetIndex].id } : { kind: "design" });
+  }
   endpointEdit.set(entries.length ? { end, entries } : null);
   refreshBeatDisplay();
   return entries;
@@ -511,10 +546,7 @@ export function refreshEndpointDisplay(): void {
   refreshBeatDisplay();
 }
 
-/** Drop the explicit endpoint selection (Esc, animator close, present/
- *  preview/export start, slide switch). The canvas stays BEAT-FAITHFUL —
- *  ambient display re-derives for the active beat; to see the base, go to
- *  beat 0 (or any beat before the element's first transform). */
+/** Dismiss the endpoint shortcut without changing the explicit destination. */
 export function exitEndpointEdit(): void {
   if (get(endpointEdit) === null) return;
   endpointEdit.set(null);
@@ -524,7 +556,6 @@ export function exitEndpointEdit(): void {
 /** FULL display teardown (mode unmount, deck load, project close): restore
  *  every baseline into the store and clear all display state. */
 export function clearBeatDisplay(): void {
-  disarmDisplaySync();
   endpointEdit.set(null);
   if (checkoutBaselines.size) {
     const sid = get(activeFigureId);
@@ -541,28 +572,24 @@ export function clearBeatDisplay(): void {
     });
   }
   checkoutBaselines.clear();
-  displayRoutes.clear();
+  slideCanvasPresentation.set({elementStates:{},hiddenElementIds:[],partStates:{}});
 }
 
-// The ambient display follows the animator cursor: any beat change re-derives
-// what the canvas shows (the module-scope subscription is the ONE trigger for
-// plain beat scrubbing; deck ops and undo re-derive via their own hooks).
+// Cursor changes may need to reconcile after a step was removed/reordered,
+// but the edit destination remains the explicitly chosen stable step id.
 activeBeat.subscribe(() => {
   refreshBeatDisplay();
 });
 
-/** Select a slide: an in-memory `activeFigureId` swap (instant — the ≤100ms
- *  slide-switch budget rides on this being a store write, never a reload).
- *  The OUTGOING slide's displays restore to base FIRST (its elements leave
- *  the visible scope with the store holding truth); the new slide then
- *  re-derives at its own active beat (fully-built by default — you land on
- *  the slide as it looks at the end). */
+/** Select another slide instantly, restore outgoing base content, and start
+ * its editing surface in Design. The timeline may still select its last step. */
 export function selectSlide(slideId: Id): void {
   clearBeatDisplay(); // restores the outgoing slide's bases under the OLD figure id
+  editDestination.set({ kind: "design" });
   activeFigureId.set(slideId);
   const o = get(deckOverlay);
   const s = o?.slides.find((x) => x.id === slideId);
-  activeBeat.set(Math.max(0, (s?.beats.length ?? 1) - 1)); // edit fully-built (re-derives display)
+  activeBeat.set(Math.max(0, (s?.beats.length ?? 1) - 1)); // timeline cursor only
   selTrackIds.set([]);
   clearSelection();
   refreshBeatDisplay(); // in case activeBeat's value didn't change (no notify)
@@ -570,13 +597,14 @@ export function selectSlide(slideId: Id): void {
 
 /** Clear the slide stores (true project close / tenancy handoff). */
 export function clearDeck(): void {
-  disarmDisplaySync();
   checkoutBaselines.clear();
-  displayRoutes.clear();
   endpointEdit.set(null);
+  editDestination.set({kind:"design"});
+  slideCanvasPresentation.set({elementStates:{},hiddenElementIds:[],partStates:{}});
   deckOverlay.set(null);
   activeBeat.set(0);
   selTrackIds.set([]);
   externalAssets = new Set();
+  acceptedAssetMetadata.clear();
   coalesceState.key = null;
 }

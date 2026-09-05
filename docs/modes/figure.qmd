@@ -34,21 +34,49 @@ survives.
   clean canvas.
 - **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, zoom controls in the toolbar (5%–1600%).
 
-# Naming figures (families)
+# Finding and naming figures
 
-Every figure has a structured identity: a **family** plus a **number** within it. Three
-families are built in — **Figure** (in-text "Fig. 2a", caption "Figure 2 |"),
-**Supplementary Figure** ("Fig. S4a", "Figure S4 |") and **Extended Data Figure**
-("Extended Data Fig. 3a", "Extended Data Figure 3 |") — and you can define custom ones
-("Movie" → "Mov. 3b"). Numbers auto-flow like in a journal: always 1..N with no gaps or
-duplicates — assigning a taken number inserts there and shifts the rest, deleting a figure
-renumbers the survivors, and every in-text reference updates itself (references are stored
-against stable labels, never against the visible number).
+Open **All…** in the Figure sidebar, or **Reference, sources & used in…** in the Inspector,
+for the project-wide figure catalog. Search by title, designation, reference key, or canvas.
+Each result has a preview, source status, and links to the saved documents that use it.
+Paper's insert and reference pickers show the same title, designation, canvas, and key.
 
-**Ctrl+R** (or double-click the figure's row in the sidebar, or click the identity row in
-the Inspector) opens the **figure namer**: pick a family (**↑/↓**), type the number, Enter.
-The optional **nickname** ("growth curves") shows dimly in lists and is searched by the
-pickers — the display name itself is always derived from family + number.
+A figure has three distinct labels:
+
+- **Title** is the human name, such as “Growth curves”. It is the primary label in lists and
+  pickers. **Ctrl+R** or a double-click on its sidebar row opens the title editor.
+- **Designation** is the publication family and number, such as “Figure 2” or
+  “Supplementary Figure 4”. The **Numbering** tab moves a figure within its family; the title
+  editor also lets you choose its family (**Alt+↑/↓**) and number. Numbers stay contiguous:
+  inserting a number shifts its neighbours, and deletion compacts the surviving figures.
+- **Permanent reference** is the stable key, such as `@fig-growth`. Use **Copy** in the catalog
+  to copy it. Title changes, numbering changes, canvas moves, and manuscript edits keep that
+  key attached to the same figure. Duplicating a figure creates a new key.
+
+**Paper order does not change figures or their numbers.** Reorder prose, references, and
+embedded figures freely. Paper displays the numbers chosen in Figure, and exports use those
+same numbers. Canvas list order is also separate from publication numbering.
+
+Existing projects retain their reference keys and filenames. The readable title is not a
+filename, and you do not need to rename stored files to rename a figure.
+
+# Keeping linked sources current
+
+Imported plots retain an accepted SVG and its semantic metadata in the project. When analysis
+regenerates a linked source, Flux updates that accepted bundle automatically, including changes
+only to a manifest or recipe. Figure, Paper, and slides read the accepted version. Edits also
+catch up when the project opens and before export. Styling overrides, figure identity, captions,
+and deliberate placement scale survive source updates.
+
+The catalog's **Sources** section shows **Linked · current**, **Updating**, **Source missing**,
+**Update failed**, or **Frozen version**. A missing or malformed source retains the last good
+version; the error explains what needs attention. **Reload sources** retries immediately.
+**Relink…** chooses a moved source. **Freeze** gives the selected figure an independent saved
+version; **Resume updates** links it again. These actions preserve the other figures' links.
+
+**Used in** lists manuscript references and slide copies that share source assets. Removing a
+referenced figure or canvas first shows these uses. Paper references then become unresolved;
+slide copies retain the assets they need. A slide copy has its own layout and annotations.
 
 # Getting plots in
 
@@ -150,6 +178,10 @@ one gesture.
 
 - Mark a text element as a **panel label** with **Alt+L**; **Auto-letter panels** (in the
   Inspector's Figure section) letters them a, b, c… in reading order.
+- Panel references follow the panel itself when you relabel or auto-letter panels. Flux updates
+  saved manuscript references and open editor buffers automatically. If removing a referenced
+  panel would make its reference point somewhere else, the save stops with a clear conflict
+  until you restore the panel or repair that reference.
 - **Alt+C** opens the **caption editor** — a manuscript-style caption page beside the figure,
   one block per panel. Captions live with the figure and flow into your
   [manuscript](paper.qmd) and exports automatically. Each block grows to fit whatever you

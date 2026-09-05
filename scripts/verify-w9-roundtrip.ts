@@ -21,7 +21,7 @@ function assert(cond: unknown, msg: string) {
 }
 const exists = (p: string) => fs.access(p).then(() => true, () => false);
 
-// The plot lives OUTSIDE the project (AGT-11: source manifestPath will be `../…`).
+// External imports retain an absolute path plus an explicit external-link marker.
 const ext = await fs.mkdtemp(path.join(os.tmpdir(), "flux-w9-ext-"));
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-w9-"));
 try {
@@ -68,7 +68,8 @@ try {
     JSON.stringify(JSON.parse(await fs.readFile(localMan, "utf8"))) === JSON.stringify(manifest),
     "asset-local manifest is byte-equal to the source manifest",
   );
-  assert(/\.\./.test(plotEl.source?.manifestPath ?? ""), "source.manifestPath keeps the out-of-root provenance");
+  assert(plotEl.source?.manifestPath === svg.replace(/\.svg$/, ".fluxplot.json") && plotEl.source?.external === true,
+    "external manifest provenance remains explicit and absolute after import");
 
   // AGT-11: remove the EXTERNAL manifest, then render — resolution must fall to the
   // asset-local copy and the GROUP override must expand to BOTH bars.

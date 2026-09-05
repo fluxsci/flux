@@ -117,6 +117,23 @@ try {
     assert(stable(cli.out) === stable(mcpText), "config_paths: identical payload (build stamp normalized)");
   }
   {
+    // Both real surfaces expose Add separately from the legacy upsert behavior.
+    const {deckId}=await core.createDeck(TMP,{id:"append-parity",title:"Animation insertion"});
+    const deck=await core.loadDeck(TMP,deckId),slideId=deck.slides[0].id;
+    const {elementId}=await core.addTextToSlide(TMP,deckId,slideId,{text:"Result"});
+    const {beatId}=await core.addBeat(TMP,deckId,slideId,{label:"Reveal and exit"});
+    const cli=await runCli(["set-animation",deckId,slideId,beatId,"--root",TMP,"--target",elementId,"--preset","fade"]);
+    const mcp=await client.callTool({name:"set_animation",arguments:{deckId,slideId,beatId,target:elementId,preset:"fadeOut",start:500,append:true}});
+    let tracks=(await core.loadDeck(TMP,deckId)).slides[0].beats.find(b=>b.id===beatId)!.tracks;
+    assert(cli.code===0&&!mcp.isError&&tracks.length===2&&tracks[0].preset==="fade"&&tracks[1].preset==="fadeOut","CLI entrance + MCP append exit preserve both effects");
+    const again=await runCli(["set-animation",deckId,slideId,beatId,"--root",TMP,"--target",elementId,"--preset","highlight","--append"]);
+    tracks=(await core.loadDeck(TMP,deckId)).slides[0].beats.find(b=>b.id===beatId)!.tracks;
+    assert(again.code===0&&tracks.length===3&&new Set(tracks.map(t=>t.id)).size===3,"CLI append adds another effect with a fresh stable identity");
+    await client.callTool({name:"set_animation",arguments:{deckId,slideId,beatId,target:elementId,preset:"popIn"}});
+    tracks=(await core.loadDeck(TMP,deckId)).slides[0].beats.find(b=>b.id===beatId)!.tracks;
+    assert(tracks.length===3&&tracks[0].preset==="popIn","default set_animation retains its documented upsert semantics");
+  }
+  {
     // END-TO-END lock taxonomy (live since batch A registered the mutateFigModel
     // verbs): a held human lock defers a registry mutate verb on BOTH surfaces —
     // CLI exit 75 (EX_TEMPFAIL, script-retryable), MCP isError. The lock check

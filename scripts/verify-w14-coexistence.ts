@@ -63,9 +63,26 @@ try {
   const dir = path.dirname(new URL(import.meta.url).pathname);
   const install = await fs.readFile(path.join(dir, "..", "src", "lib", "bridge", "install.ts"), "utf8");
   assert(/await flushById\("figure"\)/.test(install), "AGT-10: onDispatch flushes the figure subsystem before replying");
-  const player = await fs.readFile(path.join(dir, "..", "src", "lib", "slide", "player", "player.ts"), "utf8");
-  const prevBody = player.split("function prevSlide()")[1]?.split("function ")[0] ?? "";
-  assert(/cancelActive\(\)/.test(prevBody), "SLD-13: prevSlide cancelActive()s (bumps gen against stale settle)");
+  const { parseHTML } = await import("linkedom");
+  const { document } = parseHTML("<html><body></body></html>");
+  Object.assign(globalThis, { document });
+  const { createPlayer } = await import("../src/lib/slide/player/player");
+  const { createDeck } = await import("../src/lib/slide/ops");
+  const { FLUX_DARK } = await import("../src/lib/slide/theme");
+  const deck = createDeck({ withTitleSlide: false }); deck.defaults.transition = "none";
+  const slide = { id: "a", elements: [{ id: "r", type: "rect" as const, x: 0, y: 0, width: 20, height: 20, rotation: 0, fill: "red", stroke: "none", strokeWidth: 0 }], beats: [{ id: "base", tracks: [] }, { id: "show", tracks: [{ target: "r", preset: "fade" as const, duration: 1000 }] }] };
+  deck.slides = [slide, { ...structuredClone(slide), id: "b" }];
+  const oldRaf = globalThis.requestAnimationFrame, oldCancel = globalThis.cancelAnimationFrame;
+  const callbacks: FrameRequestCallback[] = [];
+  Object.assign(globalThis, { requestAnimationFrame: (cb: FrameRequestCallback) => callbacks.push(cb), cancelAnimationFrame: () => {} });
+  try {
+    const player = createPlayer(document.createElement("div"), deck, { theme: FLUX_DARK, reducedMotion: false });
+    let ended = 0; player.on("beatEnd", () => ended++);
+    player.play({ slide: 1, fromBeat: 1 }); player.prevSlide();
+    for (const callback of callbacks) callback(performance.now() + 2000);
+    assert(player.state().slide === 0 && !player.state().playing && ended === 0, "SLD-13: previous-slide navigation rejects a stale animation completion");
+    player.destroy();
+  } finally { Object.assign(globalThis, { requestAnimationFrame: oldRaf, cancelAnimationFrame: oldCancel }); }
 
   console.log("\nW14 COEXISTENCE VERIFY: PASS");
 } finally {

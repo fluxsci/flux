@@ -187,6 +187,9 @@ try {
     await fs.writeFile(plot,
       `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60" viewBox="0 0 100 60"><rect x="10" y="10" width="60" height="30" fill="#345"/></svg>`);
     const comp = await core.composeFigure(proj, [plot], { id: "growth", captionStub: false });
+    // Single-plot compositions have no implicit panel labels. A panel ref
+    // must name a real panel, just as the Paper resolver now requires.
+    await core.addFigText(proj, comp.figureId, { text: "a", panelLabel: true, x: 8, y: 8, width: 16, height: 16 });
     await core.setCaption(proj, comp.figureId, "Growth over time.");
     const manifest = JSON.parse(await fs.readFile(path.join(proj, "project.json"), "utf8"));
     const docPath = path.join(proj, manifest.manuscript.path);

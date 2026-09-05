@@ -10,6 +10,7 @@
 import { launch, gotoApp, clickMode, realErrors, shot, waitFor, waitForFrame } from "./lib/driver.mjs";
 
 const { browser, page } = await launch();
+const MOD = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control");
 // Seed the flux flavor BEFORE the app loads (persisted-pref path).
 await page.evaluateOnNewDocument(() => localStorage.setItem("flux.paper.vimFlavor", "flux"));
 await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
@@ -85,9 +86,9 @@ const docAfterJJ = await page.evaluate(() => window.__fluxView.state.doc.line(1)
 const jjOk = inInsert && !/INSERT/i.test(afterJJ) && docAfterJJ === docBeforeJJ;
 
 // --- switch to plain vim via palette → jj types normally ------------------------
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.press("KeyK");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await waitFor(
   page,
   () => {
@@ -233,11 +234,11 @@ const altOOk = leftBefore && leftHidden && leftBack;
 // --- Ctrl+Shift+B round-trip: hide + show, editor keeps focus both ways -----------
 await page.evaluate(() => window.__fluxView.focus());
 const marginBefore = await page.evaluate(() => !!document.querySelector(".dynmargin"));
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.down("Shift");
 await page.keyboard.press("KeyB");
 await page.keyboard.up("Shift");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await waitFor(page, () => !document.querySelector(".dynmargin"), null, {
   timeout: 3000,
   label: "dynamic margin hidden",
@@ -246,11 +247,11 @@ const marginClosed = await page.evaluate(() => ({
   margin: !!document.querySelector(".dynmargin"),
   editorFocused: !!document.activeElement?.closest(".cm-content"),
 }));
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.down("Shift");
 await page.keyboard.press("KeyB");
 await page.keyboard.up("Shift");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await waitFor(page, () => !!document.querySelector(".dynmargin"), null, {
   timeout: 3000,
   label: "dynamic margin back",
@@ -309,7 +310,7 @@ const res = {
   marginToggleOk,
   dragOk,
 };
-console.log(JSON.stringify({ extras: res, errs }, null, 2));
+console.log(JSON.stringify({ extras: res, leftPanel: { leftBefore, leftHidden, leftBack }, errs }, null, 2));
 const ok = Object.values(res).every(Boolean) && errs.length === 0;
 if (!ok) {
   console.error("\nPAPER EXTRAS VERIFY: FAIL");

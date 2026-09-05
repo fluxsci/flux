@@ -197,7 +197,7 @@ usage: flux <verb> [root] [args] [--flags]
   add-text <deckId> <slideId> "text…" [--x --y --width --height --align --color --size-pt|--font-size --weight --sizing]   add a figure text element
   add-figure <deckId> <slideId> <figureId> [--x --y]   COPY a project figure's content onto a slide (fresh ids, native size)
   add-beat <deckId> <slideId> [--label L]   append a build/advance step
-  set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>']   animate
+  set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>' --append]   animate (append preserves existing effects)
   set-transform <deckId> <slideId> <beatId> <elementId> [--state '<json patch>' --replace-state --start ms --duration ms --easing e --to-asset id]   the t1→t2 state tween (one per element per beat)
   group-tracks <deckId> <slideId> <beatId> t1,t2… [--label L]   bundle lanes under a collapsible TrackGroup
   ungroup-tracks <deckId> <slideId> <beatId> t1,t2…   dissolve the lanes' groups
@@ -674,7 +674,7 @@ async function main() {
         if (Object.keys(to).length) track.to = to;
       }
       if (!track.target) throw new Error("set-animation needs --target (an element id, or @camera/@stage)");
-      await core.setAnimation(R(), _[0], _[1], _[2], track);
+      await core.setAnimation(R(), _[0], _[1], _[2], track, { append: flags.append === true || flags.append === "true" });
       console.error(`✓ set animation on beat ${_[2]} (${track.preset ?? "keyframes"} → ${track.target})`);
       break;
     }

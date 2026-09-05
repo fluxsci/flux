@@ -1,14 +1,9 @@
-// Animation rework §6/§8 — the ANIMATOR pane (beats rail + properties pane)
-// over the live stores. REWRITE of the slide-migration animator gate; the old
-// assertions are dispositioned, none dropped silently:
-//   • dock on-demand / preview-teardown-rAF / missing-target tolerate+heal /
-//     clean console — KEPT verbatim;
-//   • "PartsTree quick actions author per-kind defaults" — RE-HOMED onto
-//     Ctrl+Shift+A (the same smart-default engine; the S/A/M tree is deleted);
-//   • NEW: the rail's chip/expand accordion, chord adds from canvas AND
-//     X-ray-equivalent selections, Ctrl+Shift+D exits, group/ungroup with
-//     deck-persisted collapse, properties-pane binding, no-tree assertion.
-// Run: node scripts/verify-slide-animator-gui.mjs
+// Approved slides overhaul retains authoring regression coverage for chords,
+// target defaults, groups, timing, trim/wipe, transform patches, presets,
+// templates, missing target healing, and idle preview teardown. Accordion
+// assertions are replaced with the stable named step strip; Properties lives
+// in the contextual right rail. Preview now retains its inspectable final
+// frame until Stop, with no animation clock running once paused.
 import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL, waitFor } from "./lib/driver.mjs";
 
 let fails = 0;
@@ -63,7 +58,9 @@ try {
   await waitFor(page, () => !!document.querySelector(".animator"), null, { timeout: 5000, label: "dock open" });
   ok(true, "Animate toggle opens the dock");
   ok(!(await page.evaluate(() => !!document.querySelector(".animator .parts"))), "there is NO parts tree / S-A-M column (everything is visible by default)");
-  ok(await page.evaluate(() => !!document.querySelector(".animator .props")), "the Properties mini-pane renders");
+  await page.evaluate(()=>[...document.querySelectorAll(".inspector-tabs button")].find(b=>b.textContent==="Animation")?.click());
+  await sleep(100);
+  ok(await page.evaluate(() => !!document.querySelector(".rail .props")), "the Properties mini-pane renders");
   ok(await page.evaluate(() => !!document.querySelector(".animator .beatrail")), "…beside the beats rail");
 
   // ⌃⇧A on a CANVAS selection authors the per-kind default (rect → popIn)
@@ -78,7 +75,7 @@ try {
       beats: s.beats.length,
       tracks: s.beats.flatMap((b) => b.tracks).map((t) => ({ target: t.target, preset: t.preset })),
       activeBeat: f.get(f.slide.activeBeat),
-      lanes: [...document.querySelectorAll(".beatrail .trk")].length,
+      lanes: [...document.querySelectorAll(".beatrail .lane-row[data-track-id]")].length,
     };
   });
   ok(a1.beats === 2 && a1.tracks.some((t) => t.target === "anim-rect" && t.preset === "popIn"),
@@ -122,24 +119,11 @@ try {
   ok(d1.all.includes("popIn") && d1.all.includes("popOut"), `…coexisting with the enter across beats (${d1.all.join(",")})`);
   await page.evaluate(() => window.__flux.slide.activeBeat.set(1));
   await sleep(200);
-  const rail = await page.evaluate(() => ({
-    chips: [...document.querySelectorAll(".beatrail .beat-c")].length,
-    expanded: [...document.querySelectorAll(".beatrail .beat-x")].length,
-  }));
-  ok(rail.expanded === 1, "exactly ONE beat renders expanded (the accordion)");
-  ok(rail.chips >= 2, `the other beats render as chips (${rail.chips})`);
-  const expandSwitch = await page.evaluate(() => {
-    const chips = [...document.querySelectorAll(".beatrail .beat-c")];
-    const last = chips[chips.length - 1];
-    last.click();
-    return Number(last.dataset.beatIndex);
-  });
-  await sleep(200);
-  const railAfter = await page.evaluate(() => ({
-    active: window.__flux.get(window.__flux.slide.activeBeat),
-    expandedIdx: Number(document.querySelector(".beatrail .beat-x")?.dataset.beatIndex),
-  }));
-  ok(railAfter.active === expandSwitch && railAfter.expandedIdx === expandSwitch, "clicking a chip expands THAT beat (activeBeat follows)");
+  const strip = await page.evaluate(() => [...document.querySelectorAll(".beatrail .step")].map(e=>({index:+e.dataset.stepIndex,label:e.textContent,active:e.classList.contains("active")})));
+  ok(strip.length===3&&strip.filter(s=>s.active).length===1,"every named step stays visible with one active timing workspace");
+  await page.click('.beatrail .step[data-step-index="2"]');
+  await sleep(150);
+  ok(await page.evaluate(()=>window.__flux.get(window.__flux.slide.activeBeat)===2&&document.querySelector('.step[data-step-index="2"]').classList.contains('active')),"clicking a stable step selects that timing workspace");
   await page.evaluate(() => window.__flux.slide.activeBeat.set(1));
   await sleep(200);
 
@@ -188,8 +172,8 @@ try {
   });
   ok(gState.groups === 1 && gState.label === "X-axis build" && gState.memberRefs >= 2, "⌘G groups the selected lanes under a labeled TrackGroup");
   await sleep(200);
-  ok(await page.evaluate(() => !!document.querySelector(".beatrail .grp-row")), "…the group renders as a header row");
-  await page.evaluate(() => document.querySelector(".beatrail .grp-row .chev")?.click());
+  ok(await page.evaluate(() => !!document.querySelector(".beatrail .group")), "…the group renders as a header row");
+  await page.evaluate(() => document.querySelector(".beatrail .group .chevron")?.click());
   await sleep(250);
   const collapsed = await page.evaluate(() => {
     const f = window.__flux;
@@ -198,12 +182,12 @@ try {
     const beat = o.slides.find((x) => x.id === sid).beats[1];
     return {
       persisted: beat.groups?.[0]?.collapsed === true,
-      laneCount: [...document.querySelectorAll(".beatrail .trk")].length,
+      laneCount: [...document.querySelectorAll(".beatrail .lane-row[data-track-id]")].length,
     };
   });
   ok(collapsed.persisted, "collapse state persists in the DECK model (Beat.groups[].collapsed)");
   ok(collapsed.laneCount === 0, "…and the collapsed group hides its member lanes (one span row instead)");
-  await page.evaluate(() => document.querySelector(".beatrail .grp-row .chev")?.click());
+  await page.evaluate(() => document.querySelector(".beatrail .group .chevron")?.click());
   await sleep(200);
 
   // --- Phase-4 properties: TRIM controls (drawOn) --------------------------------
@@ -415,12 +399,15 @@ try {
     };
   });
   await page.evaluate(() => {
-    [...document.querySelectorAll(".animator .bar button")].find((b) => /Preview/.test(b.textContent || ""))?.click();
+    [...document.querySelectorAll(".animator .bar button")].find((b) => b.textContent.trim()==="Slide")?.click();
   });
   await waitFor(page, () => !!document.querySelector(".preview-overlay"), null, { timeout: 5000, label: "preview overlay" });
   ok(true, "Preview swaps the stage to the player (present-in-place)");
-  await waitFor(page, () => !document.querySelector(".preview-overlay"), null, { timeout: 20000, label: "preview auto-stop" });
-  ok(true, "…and returns to the static editor at rest when the build ends");
+  await waitFor(page, () => !document.querySelector('.animator .transport button')?.textContent.includes('Pause'), null, {timeout:20000,label:"preview completion"});
+  ok(!!(await page.$('.preview-overlay')),"completed playback retains the final frame for inspection");
+  await page.evaluate(()=>[...document.querySelectorAll('.animator .transport button')].find(b=>/Stop/.test(b.textContent))?.click());
+  await waitFor(page, () => !document.querySelector('.preview-overlay'), null, {timeout:3000,label:"stop preview"});
+  ok(true,"Stop returns to the editable stage");
   const raf = await page.evaluate(async () => {
     window.__rafCount = 0;
     await new Promise((r) => setTimeout(r, 700));
@@ -446,7 +433,7 @@ try {
     const s = o.slides.find((x) => x.id === sid);
     return {
       trackKept: s.beats.flatMap((b) => b.tracks).some((t) => t.target === "anim-rect"),
-      missChip: !!document.querySelector(".beatrail .trk.missing"),
+      missChip: !!document.querySelector(".beatrail .lane-row.missing"),
       elGone: !f.get(f.fig.project).figures.find((x) => x.id === sid).elements.some((e) => e.id === "anim-rect"),
     };
   });
@@ -463,7 +450,7 @@ try {
     const sid = f.get(f.fig.activeFigureId);
     return {
       back: f.get(f.fig.project).figures.find((x) => x.id === sid).elements.some((e) => e.id === "anim-rect"),
-      missChip: !!document.querySelector(".beatrail .trk.missing"),
+      missChip: !!document.querySelector(".beatrail .lane-row.missing"),
     };
   });
   ok(healed.back && !healed.missChip, "undoing the deletion heals the track (marker gone) — the tolerate-don't-prune payoff");

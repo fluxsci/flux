@@ -26,6 +26,7 @@
   import { importerOpen, embeddedProjectRoot, projectDir } from "./store";
   import { fileBridge, joinPath } from "./project/types";
   import { importPlotsFromPaths } from "./io";
+  import { pushToast, errMsg } from "./toast";
   import {
     RESERVED_PLOT_FOLDERS,
     isReservedPlotDirName,
@@ -289,11 +290,17 @@
   }
 
   /** Hand the picks off (host callback or figure batch import), then close. */
+  let inserting = false;
   async function insertPicks(picks: PlotPick[]) {
-    if (!picks.length) return;
-    if (onPick) await onPick(picks);
-    else await importPlotsFromPaths(picks.map((p) => p.abs));
-    importerOpen.set(false);
+    if (!picks.length || inserting) return;
+    inserting = true;
+    try {
+      if (onPick) await onPick(picks);
+      else await importPlotsFromPaths(picks.map((p) => p.abs));
+      importerOpen.set(false);
+    } catch (e) {
+      pushToast("error", "Could not use that plot", { detail: errMsg(e) });
+    } finally { inserting = false; }
   }
 
   /** Insert just this file row (the nothing-picked Ctrl+Enter / legacy path). */

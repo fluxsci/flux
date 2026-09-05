@@ -1,3 +1,4 @@
+import { trackDuration } from "../../../../lib/slide/compile";
 // Bulk actions over the animator's track selection — shared by the timeline's
 // context menu, the keyboard cockpit, and the TrackEditor strip. Every action is
 // ONE commitDeck (one undo step) over every selected track.
@@ -65,7 +66,7 @@ export function toggleSelectedDisabled(): void {
 export function nudgeSelected(field: "start" | "duration", deltaMs: number): void {
   withSelectedTracks((t) => {
     if (field === "start") t.start = Math.max(0, (t.start ?? 0) + deltaMs);
-    else t.duration = Math.max(50, (t.duration ?? 400) + deltaMs);
+    else t.duration = Math.max(50, trackDuration(t) + deltaMs);
   }, `nudge:${field}`);
 }
 

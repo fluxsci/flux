@@ -26,6 +26,7 @@ import {
   isAssetDirty,
   clearAssetDirty,
   clearAllAssetsDirty,
+  assetDirtyGeneration,
 } from "../assets";
 import { plotManifests, plotRecipes, clearPlots, primePlotSidecars } from "../plot/store";
 import { captureSnipMeta, clearSnipMeta } from "../snipMeta";
@@ -42,6 +43,10 @@ import { pushToast } from "../toast";
 import { isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
 import { settings } from "../settings";
 import { panelLetters } from "../captions";
+import { composeCaption } from "../captions";
+import { ensureFigureReferenceKeys } from "./figureIdentity";
+import { reconcileCaptionFiles, captionConflictMessage } from "./captionReconcile";
+import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "./figureReferenceSync";
 import { applyTextLayout } from "../text";
 import { fileBridge, joinPath } from "./types";
 import { ConflictError } from "../autosave";
@@ -58,6 +63,8 @@ import {
 
 const SUB = "fig";
 const DEFAULT_CANVAS_ID = "canvas-1";
+let loadedFigureRoot: string | null = null;
+export function figureStoreRoot(): string | null { return loadedFigureRoot; }
 
 // W7 conflict guard: the raw fig/index.json text we last loaded or wrote — i.e.
 // what we believe is on disk. saveFigFrom compares against it and refuses to
@@ -103,7 +110,13 @@ export async function figDiskDiverged(root: string): Promise<boolean> {
   const fig = fileBridge();
   if (!fig || figIndexBaseline == null) return false;
   if ((await readFigIndexText(fig, root)) !== figIndexBaseline) return true;
-  return canvasesDiverged(fig, root);
+  if (await canvasesDiverged(fig, root)) return true;
+  for (const [rel, baseline] of captionBaseline) {
+    let text: string | null;
+    try { text = await fig.readText(joinPath(root, rel)); } catch { text = null; }
+    if (text !== baseline) return true;
+  }
+  return false;
 }
 
 // WS-5.6: the on-disk shapes + writer plan live in the ONE persistence core
@@ -121,9 +134,19 @@ export async function loadFigInto(
 ): Promise<void> {
   const fig = fileBridge();
   if (!fig) return;
+  loadedFigureRoot = null;
+  await recoverFigureReferenceUpdate(root, fig);
+  // Source changes made while Flux was closed must be accepted before this
+  // editor adopts its disk baselines. A failed source keeps the last good copy.
+  if (!opts.reload) {
+    try { await (await import("./sourceBridge")).syncProjectSources(root); }
+    catch (e) { pushToast("error", "Some figure sources could not update", { detail: String((e as Error)?.message ?? e) }); }
+  }
 
   figSubsystemLocked = false;
   canvasBaseline.clear();
+  captionBaseline.clear();
+  captionModelBaseline.clear();
   let index: FigIndexFile | null = null;
   let indexText = "";
   try {
@@ -280,9 +303,20 @@ export async function loadFigInto(
   // then heal numbers to contiguity. Cross-canvas, so it runs on the full
   // collection here, not in the per-canvas probes above.
   migrateFigureFamilies(proj, familyHintsFrom(index?.figures));
+  ensureFigureReferenceKeys(proj, index);
+  const captions = await reconcileCaptionFiles(proj, index, async (rel) => {
+    let text: string | null;
+    try { text = await fig.readText(joinPath(root, rel)); } catch { text = null; }
+    captionBaseline.set(rel, text);
+    return text;
+  });
+  if (captions.conflicts.length) pushToast("error", "Caption edits need reconciliation", { detail: captionConflictMessage(captions.conflicts) });
+  const conflictedCaptions = new Set(captions.conflicts.map((c) => c.figureId));
+  for (const f of proj.figures) if (!conflictedCaptions.has(f.id)) captionModelBaseline.set(f.id, composeCaption(f));
   // Normalizes (incl. migrate) + dirty=false. Initial load resets history and
   // view; a reload preserves both (view kept, pre-state pushed as one undo).
   figLoad(proj, null, opts);
+  loadedFigureRoot = root;
 }
 
 // WS-5.2: set when a load refused the subsystem (newer on-disk format) —
@@ -292,9 +326,19 @@ let figSubsystemLocked = false;
 // WS-5.3: last-written/loaded serialized text per canvas — the skip-unchanged
 // guard (and WS-5.4's divergence probe reads the same baseline).
 const canvasBaseline = new Map<string, string>();
+const captionBaseline = new Map<string, string | null>();
+// Legacy indexes can have an empty/stale caption cache even when canvas and
+// Markdown agree. The accepted model at load is the honest three-way base.
+const captionModelBaseline = new Map<string, string>();
 
 /** Persist the figure-editor stores into the project's `fig/` subsystem. */
-export async function saveFigFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
+let figureSaveQueue: Promise<void> = Promise.resolve();
+export function saveFigFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
+  const next = figureSaveQueue.catch(() => {}).then(() => saveFigFromUnlocked(root, opts));
+  figureSaveQueue = next;
+  return next;
+}
+async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {}): Promise<void> {
   // Tenancy guard (slide-migration §3.2.1): slide mode loads a deck's slides
   // into the SAME app-global store this save reads. If a kept-alive
   // FigureMode's autosave ever fired then, it would write the deck's projected
@@ -306,6 +350,7 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
   if (figSubsystemLocked) {
     throw new Error("figure subsystem is read-only: its on-disk format is newer than this Flux");
   }
+  await recoverFigureReferenceUpdate(root, fig);
 
   // W7 conflict guard: if fig/index.json changed on disk since we loaded/saved
   // (an agent or CLI edited the figure subsystem), don't clobber it — throw so
@@ -332,6 +377,26 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
 
   const genAtStart = editGen.n; // W4: only clear dirty if no edit lands mid-save
   const p = structuredClone(get(figProject));
+  const originalCaptions = new Map(p.figures.map((f) => [f.id, composeCaption(f)]));
+  const previous = figIndexBaseline ? JSON.parse(figIndexBaseline) as FigIndexFile : null;
+  const captionIndex = previous ? { ...previous, figures: previous.figures.map((f) => ({ ...f, caption: captionModelBaseline.get(f.id) ?? f.caption })) } : null;
+  const captions = await reconcileCaptionFiles(p, captionIndex, async (rel) => {
+    try { return await fig.readText(joinPath(root, rel)); } catch { return null; }
+  });
+  if (captions.conflicts.length) throw new ConflictError(captionConflictMessage(captions.conflicts));
+  if (captions.imported.length) {
+    for (const id of captions.imported) {
+      const live = get(figProject).figures.find((f) => f.id === id);
+      if (live && composeCaption(live) !== originalCaptions.get(id)) throw new ConflictError(`Caption ${id} changed while its Markdown edit was being imported`);
+    }
+    figProject.update((model) => {
+      for (const id of captions.imported) {
+        const live = model.figures.find((f) => f.id === id);
+        if (live) live.captions = structuredClone(p.figures.find((f) => f.id === id)!.captions);
+      }
+      return model;
+    });
+  }
   // WS-5.1: never persist NaN/Infinity — JSON turns them into null, which the
   // load gate would then (rightly) reject.
   {
@@ -339,6 +404,7 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
     if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
   }
   const data = get(assetData);
+  const assetGenerations = new Map(p.assets.map((a) => [a.id, assetDirtyGeneration(a.id)]));
   const manifests = get(plotManifests);
   const recipes = get(plotRecipes);
 
@@ -367,8 +433,13 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
       const rec = recipes[a.id];
       if (rec !== undefined)
         await fig.writeText(joinPath(root, SUB, "assets", `${a.id}.recipe.json`), JSON.stringify(rec, null, 2));
+      else await fig.remove?.(joinPath(root, SUB, "assets", `${a.id}.recipe.json`));
     }
-    clearAssetDirty(a.id); // persisted — back in sync with disk
+    else {
+      await fig.remove?.(joinPath(root, SUB, "assets", `${a.id}.fluxplot.json`));
+      await fig.remove?.(joinPath(root, SUB, "assets", `${a.id}.recipe.json`));
+    }
+    clearAssetDirty(a.id, assetGenerations.get(a.id));
   }
 
   // WS-5.6: the write set (canvases + captions + index) comes from the ONE
@@ -382,6 +453,14 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
     prevIndex = null;
   }
   const plan = planFigSave(p, prevIndex);
+  const beforeFigures: Figure[] = [];
+  for (const c of prevIndex?.canvases ?? []) {
+    const text = canvasBaseline.get(c.id) ?? await fig.readText(joinPath(root, `fig/canvases/${c.id}.json`));
+    beforeFigures.push(...(JSON.parse(text) as CanvasFile).figures);
+  }
+  const referenceUpdate = await prepareFigureReferenceUpdate(root, beforeFigures, p.figures, fig, {
+    index: prevIndex, figureFiles: [...plan.canvases, plan.index],
+  });
   const io: FigSaveIO = {
     read: async (rel) => {
       try {
@@ -398,12 +477,17 @@ export async function saveFigFrom(root: string, opts: { force?: boolean } = {}):
     const m = /^fig\/canvases\/(.+)\.json$/.exec(rel);
     if (m) canvasBaseline.set(m[1], text); // WS-5.3/5.4 skip + divergence baseline
   };
-  await executeFigSave(plan, io, {
+  try { await executeFigSave(plan, io, {
     skipCanvas: (id, text) => (canvasBaseline.get(id) === text ? true : undefined),
     onWrite: adopt,
     onSkip: adopt,
-  });
+  }); } catch (e) { releaseFigureReferenceUpdate(root, referenceUpdate); throw e; }
   figIndexBaseline = plan.index.text; // W7: adopt what we just wrote as the new baseline
+  captionBaseline.clear();
+  for (const cap of plan.captions) captionBaseline.set(cap.path, cap.text);
+  captionModelBaseline.clear();
+  for (const f of p.figures) captionModelBaseline.set(f.id, composeCaption(f));
+  await commitFigureReferenceUpdate(root, referenceUpdate, fig);
 
   // WS6: record the human's save in the provenance journal (Electron only; the
   // mem/demo bridge has no journalAppend, so this is a no-op there).
@@ -462,6 +546,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
   };
   const fig = fileBridge();
   if (!fig) return empty;
+  await recoverFigureReferenceUpdate(root, fig);
 
   let index: FigIndexFile | null = null;
   try {
@@ -505,6 +590,11 @@ export async function readFigSource(root: string): Promise<FigSource> {
   // Family identity for the read-only view: same seeding + healing as the
   // editor load, so paper-side numbering matches what the figure editor shows.
   migrateFigureFamilies(view, familyHintsFrom(index.figures));
+  ensureFigureReferenceKeys(view, index);
+  const captionState = await reconcileCaptionFiles(view, index, async (rel) => {
+    try { return await fig.readText(joinPath(root, rel)); } catch { return null; }
+  });
+  if (captionState.conflicts.length) console.warn(captionConflictMessage(captionState.conflicts));
 
   const assetData: Record<string, string> = {};
   const assetManifests: Record<string, FluxPlotManifest> = {};
@@ -560,13 +650,13 @@ export async function readFigSource(root: string): Promise<FigSource> {
       return {
         id: f.id,
         name: m?.name ?? f.name,
-        label: f.label,
+        label: m?.referenceKey ?? f.label,
         order: f.order,
         family: h.family,
         number: h.number,
         ...(nickname ? { nickname } : {}),
         canvas: f.canvas,
-        caption: captionMd[f.id] ?? f.caption ?? "",
+        caption: m ? composeCaption(m) : captionMd[f.id] ?? f.caption ?? "",
         panels: figures[f.id] ? panelLetters(figures[f.id]) : [],
       };
     }),

@@ -127,6 +127,7 @@ const FIGURE_DEF = {
   properties: {
     id: { type: "string" },
     name: { type: "string" },
+    referenceKey: { type: "string", pattern: "^fig-.+" },
     family: { type: "string" },
     number: { type: "number" },
     nickname: { type: "string" },
@@ -412,6 +413,13 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
             naturalHeight: { type: "number" },
             dpi: { type: "number" },
           },
+        },
+      },
+      externalAssetSizes: {
+        type: "object",
+        additionalProperties: {
+          type: "object", required: ["width", "height"],
+          properties: { width: { type: "number", exclusiveMinimum: 0 }, height: { type: "number", exclusiveMinimum: 0 } },
         },
       },
       slides: {

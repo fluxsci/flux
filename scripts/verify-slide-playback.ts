@@ -54,7 +54,8 @@ const opts = { theme: FLUX_DARK, plotManifest: () => undefined, reducedMotion: t
   const rendered = renderSlide(host, s, stage, { theme: FLUX_DARK });
   const specs = computeSlideAnims(s, rendered, host, stage, opts);
   applyStatic(specs, 2); // both beats passed
-  const tf = (rendered.elements.get(el) as HTMLElement).style.transform;
+  const wrapper = rendered.elements.get(el) as HTMLElement;
+  const tf = (wrapper.querySelector(".sl-effects") as HTMLElement ?? wrapper).style.transform;
   assert(/translate\(50px,\s*30px\)/.test(tf), `move survives a later scale (B11) — got "${tf}"`);
   assert(/scale\(2\)/.test(tf), `scale applied alongside the move (B11) — got "${tf}"`);
 }

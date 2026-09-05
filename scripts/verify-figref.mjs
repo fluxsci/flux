@@ -285,6 +285,7 @@ const scopeAllCells = await page.evaluate(() => document.querySelectorAll(".pick
 // failed section rather than an unhandled selector throw.
 let scopedToC2 = false;
 let scopedFirst = "";
+let scopedDesignation = "";
 let scopedSearchEmpty = false;
 let scopedToC1 = false;
 let scopedPanels = false;
@@ -296,6 +297,7 @@ if (scopeShown) {
   scopedFirst = await page.evaluate(
     () => document.querySelector(".picker .meta b")?.textContent?.trim() ?? "",
   );
+  scopedDesignation = await page.evaluate(() => document.querySelector(".picker .designation")?.textContent?.trim() ?? "");
   // The query searches WITHIN the scope: "gro" is a c1 figure, so c2 has no match.
   await page.click(".picker .search");
   await page.keyboard.type("gro");
@@ -327,7 +329,7 @@ const scopeOk =
   scopeShown &&
   scopeAllCells === 3 &&
   scopedToC2 &&
-  scopedFirst.includes("Fig. 3") &&
+  scopedFirst === "Supplement" && scopedDesignation === "Fig. 3" &&
   scopedSearchEmpty &&
   scopedToC1 &&
   scopedPanels &&

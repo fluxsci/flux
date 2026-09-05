@@ -22,6 +22,8 @@
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
   import CascadePopover from "../../../lib/CascadePopover.svelte";
   import FigureNamer from "../../../lib/FigureNamer.svelte";
+  import FigureDeletionDialog from "../../../lib/FigureDeletionDialog.svelte";
+  import FigureCatalog from "../../../lib/FigureCatalog.svelte";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter from "../../../lib/PlotImporter.svelte";
@@ -228,7 +230,7 @@
     <main class="canvas-wrap">
       <Canvas paneActive={active} /><ArrangeHud /><CascadePopover />
       <!-- Only the focused pane owns/hosts the namer (split-workspace safe). -->
-      {#if focused}<FigureNamer />{/if}
+      {#if focused}<FigureNamer /><FigureCatalog /><FigureDeletionDialog />{/if}
     </main>
     <!-- The Inspector steps aside while the caption editor is open, giving the
          caption page room (and keeping the figure read-only / distraction-free).

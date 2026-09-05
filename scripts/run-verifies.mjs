@@ -16,6 +16,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertNodeVersion } from "./lib/nodeCheck.mjs";
+import { collectChangedRuns, resolveChangedRuns } from "./lib/changedVerifies.mjs";
 
 assertNodeVersion("run-verifies"); // WS-0b: gates only count on the CI runtime
 
@@ -80,21 +81,10 @@ for (const g of opt.groups) {
 // manifest.pathMap is an ORDERED list of { glob, run } entries; the first glob a
 // changed file matches wins for that file; the union of all matched `run` sets
 // (plus tier:pure as the safety floor when any file matches nothing) executes.
-// run entries: "tier:<name>" | "group:<name>" | "self" (a changed verify script
-// runs itself).
+// run entries: "tier:<name>" | "group:<name>" | a registered script filename |
+// "self" (a changed verify script runs itself).
 if (opt.changed) {
   const { execSync } = await import("node:child_process");
-  const globRe = (g) =>
-    new RegExp(
-      "^" +
-        g
-          .split(/(\*\*\/?|\*)/)
-          .map((part) =>
-            part === "**" || part === "**/" ? "(?:.*/)?" : part === "*" ? "[^/]*" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-          )
-          .join("") +
-        "$",
-    );
   let files = [];
   try {
     const base = execSync("git merge-base origin/main HEAD", { cwd: repoRoot }).toString().trim();
@@ -109,35 +99,9 @@ if (opt.changed) {
   } catch (e) {
     console.error(`--changed: git diff failed (${e.message}) — falling back to full pure tier`);
   }
-  const entries = (manifest.pathMap ?? []).map((e) => ({ ...e, re: globRe(e.glob) }));
-  const wanted = new Set();
-  let unmatched = false;
-  for (const f of files) {
-    const hit = entries.find((e) => e.re.test(f));
-    if (!hit) {
-      unmatched = true;
-      continue;
-    }
-    for (const r of hit.run) wanted.add(r === "self" ? `self:${f}` : r);
-  }
-  if (unmatched || files.length === 0) wanted.add("tier:pure"); // safety floor
-  for (const w of wanted) {
-    if (w.startsWith("tier:")) {
-      const t = manifest.tiers[w.slice(5)];
-      if (!t) console.warn(`--changed: pathMap names unknown tier "${w.slice(5)}" — skipped (does it land in a later phase?)`);
-      else t.forEach(add);
-    } else if (w.startsWith("group:")) {
-      const g = manifest.groups[w.slice(6)];
-      if (!g) console.warn(`--changed: pathMap names unknown group "${w.slice(6)}" — skipped`);
-      else g.forEach(add);
-    } else if (w.startsWith("self:")) {
-      const f = w.slice(5);
-      const base = path.basename(f);
-      if (f.startsWith("scripts/verify-") || f.startsWith("scripts/figenh-")) {
-        if (tierOf.has(base)) add(base);
-      }
-    }
-  }
+  const selected = resolveChangedRuns(collectChangedRuns(files, manifest.pathMap), manifest);
+  selected.scripts.forEach(add);
+  selected.diagnostics.forEach((message) => console.warn(`--changed: ${message}`));
   console.log(`--changed: ${files.length} changed file(s) → ${set.length} script(s)`);
 }
 

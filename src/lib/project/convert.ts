@@ -47,6 +47,7 @@ import { dataUrlToBytes } from "../assets";
 import { plotManifests } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
 import { newId } from "../ids";
+import { reconcileDeckExternalAssetSizes } from "../slide/sourceSync";
 
 export { listProjectDecks };
 
@@ -79,8 +80,13 @@ export async function sendFigureToDeck(
   } else {
     deck = createDeckModel({ title: `${figure.name} deck`, withTitleSlide: false });
   }
+  // Existing references catch up before inserting content authored at the
+  // current source size. Seed the new reference at that same known size.
+  const accepted = get(figProject).assets;
+  reconcileDeckExternalAssetSizes(deck, accepted);
   const slide = slideOps.addSlide(deck, { name: figure.name, layout: "full-bleed" });
   slideOps.addFigureContentToSlide(deck, slide.id, figure);
+  reconcileDeckExternalAssetSizes(deck, accepted);
   await writeDeckDirect(root, deck);
   return { deckId: deck.id, slideId: slide.id, title: deck.title };
 }

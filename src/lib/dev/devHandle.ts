@@ -14,6 +14,7 @@ import * as panes from "../../shell/paneStore";
 import * as shell from "../../shell/shellStore";
 import * as caps from "../captions";
 import * as bridge from "../project/figbridge";
+import * as referenceSync from "../project/figureReferenceSync";
 import * as plot from "../plot/store";
 import * as io from "../io";
 import * as slide from "../slide/store";
@@ -41,6 +42,8 @@ export interface FluxDevHandle {
   caps: typeof caps;
   /** fig/ subsystem bridge (saveFigFrom, readFigSource, loadFigInto). */
   bridge: typeof bridge;
+  /** The exact app instance of the live Paper reference reconciliation API. */
+  referenceSync: typeof referenceSync;
   /** Plot runtime stores (plotDom, plotManifests, plotRecipes, plotGen). */
   plot: typeof plot;
   /** Asset/plot I/O incl. reimportPlot (F2 hot-swap). */
@@ -86,6 +89,7 @@ export function installDevHandle(): void {
     shell,
     caps,
     bridge,
+    referenceSync,
     plot,
     io,
     slide,

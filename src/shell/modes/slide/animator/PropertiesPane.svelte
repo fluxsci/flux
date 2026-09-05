@@ -12,17 +12,19 @@
   // for transforms — the mockups' color language.
   import { selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive } from "../../../../lib/slide/store";
   import { familyOf } from "../../../../lib/slide/family";
+  import { trackDuration } from "../../../../lib/slide/compile";
   import { morphCompatible } from "../../../../lib/slide/player/morph";
   import { plotManifests } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
-  import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel } from "./shared";
+  import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, presetLabel } from "./shared";
+  import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
   import { pushToast } from "../../../../lib/toast";
 
-  let { slide, plotTags }: { slide: Slide; plotTags: Map<string, string> } = $props();
+  let { slide, plotTags, onChooseMorph }: { slide: Slide; plotTags: Map<string, string>; onChooseMorph?: (targetId: string, trackId?: string) => void } = $props();
 
   // "Save as preset" (the mockup's pink button): name inline, Enter saves.
   let savingPreset = $state(false);
@@ -59,11 +61,15 @@
   const anyDisabled = $derived(selTracks.some((t) => t.disabled));
   const anyMixed = $derived(
     selTracks.length > 1 &&
-      (mixed((t) => t.preset) || mixed((t) => t.duration ?? 400) || mixed((t) => t.start ?? 0) ||
+      (mixed((t) => t.preset) || mixed((t) => trackDuration(t)) || mixed((t) => t.start ?? 0) ||
         mixed((t) => t.stagger?.perMs ?? 0) || mixed((t) => t.easing ?? "standard")),
   );
 
   const patchTrack = (p: Partial<Track>) => withSelectedTracks((t) => Object.assign(t, p));
+  function timing(field: "start" | "duration", value: string) {
+    const n = Number(value);
+    if (value.trim() && Number.isFinite(n)) patchTrack({ [field]: Math.max(field === "start" ? 0 : 1, n) });
+  }
   function patchStagger(p: Partial<Stagger>) {
     withSelectedTracks((t) => {
       if (p.perMs === 0) { delete t.stagger; return; }
@@ -125,12 +131,25 @@
   }
   // morph-content row: other compatible plots on the slide (plot targets only)
   const curTargetEl = $derived(curTrack ? slide.elements.find((e) => e.id === curTrack.target) : null);
+  const targetParts = $derived.by(() => {
+    if (curTargetEl?.type !== "plot") return [] as string[];
+    const tree = buildPartTree($plotManifests[curTargetEl.assetId]);
+    const out: string[] = [];
+    const walk = (n: NonNullable<typeof tree>) => { out.push(n.id); n.children.forEach(walk); };
+    if (tree) walk(tree);
+    return out;
+  });
+  const targetMissing = $derived(!!curTrack && !curTrack.target.startsWith("@") && (!curTargetEl || !!curTrack.part && curTargetEl.type === "plot" && !resolveTargets($plotManifests[curTargetEl.assetId], curTrack.part).length));
+  function retarget(target: string) {
+    if (!target) return;
+    withSelectedTracks(t => { t.target = target; delete t.part; delete t.selector; });
+  }
   const morphTargets = $derived.by(() => {
     if (curTargetEl?.type !== "plot" || curFamily !== "transform") return [];
     const m = $plotManifests;
     const A = m[curTargetEl.assetId];
     return slide.elements
-      .filter((e) => e.type === "plot" && e.id !== curTargetEl.id)
+      .filter((e,i,all) => e.type === "plot" && e.id !== curTargetEl.id && all.findIndex(a=>a.type==="plot" && a.assetId===e.assetId)===i)
       .map((e) => {
         const assetId = (e as { assetId: string }).assetId;
         return { assetId, label: [plotTags.get(e.id), m[assetId]?.plotType].filter(Boolean).join(" · ") || assetId, compatible: morphCompatible(A, m[assetId]) };
@@ -178,13 +197,13 @@
   });
 </script>
 
-<div class="props" class:tx={curFamily === "transform"}>
-  <div class="ttl">Properties</div>
+<div class="props" class:tx={curFamily === "transform"} data-command-scope="animation">
+  <div class="ttl">Effect</div>
   {#if !curTrack}
     <div class="hint">
-      Select a lane — or select an object on the canvas (or in the X-ray) and press
-      <kbd>⌃⇧A</kbd> appear · <kbd>⌃⇧D</kbd> disappear · <kbd>⌃⇧T</kbd> transform.
+      Select an effect in the timeline to edit its target and timing. Select an object or plot part and use the animation actions to add an effect.
     </div>
+
   {:else}
     <div class="hd" style={`--pc:${PRESET_COLOR[curTrack.preset ?? "fade"] ?? "#888"}`}>
       <span class="nm">
@@ -198,18 +217,37 @@
       {#if anyMixed}<span class="mx" title="Selected tracks differ on some fields — editing a field sets it on ALL of them">mixed</span>{/if}
     </div>
 
+    {#if targetMissing}<div class="target-warning">This target is missing. Choose an object or plot part below to reconnect the effect.</div>{/if}
+    {#if curTrack.target !== "@camera"}
+      <label class="f">Object
+        <select aria-label="Animation target" value={curTrack.target} onchange={e => retarget(e.currentTarget.value)}>
+          {#if !curTargetEl}<option value={curTrack.target}>Missing object</option>{/if}
+          {#each slide.elements as e (e.id)}<option value={e.id}>{e.name || (e.type === "text" ? e.text.slice(0, 36) : e.type)}</option>{/each}
+        </select>
+      </label>
+      {#if curTargetEl?.type === "plot" && curFamily !== "transform"}
+        <label class="f">Plot part
+          <select aria-label="Animation plot part" value={curTrack.part ?? ""} onchange={e => { const part = e.currentTarget.value; withSelectedTracks(t => { if(part)t.part = part; else delete t.part; delete t.selector; }); }}>
+            <option value="">Whole plot</option>
+            {#if curTrack.part && !targetParts.includes(curTrack.part)}<option value={curTrack.part}>{curTrack.part} (missing)</option>{/if}
+            {#each targetParts as part}<option value={part}>{part.replaceAll(".", " › ")}</option>{/each}
+          </select>
+        </label>
+      {/if}
+    {/if}
+
     {#if curFamily === "transform" && selTracks.length === 1}
       <!-- the endpoint segment: t1 shows the before, t2 checks out the after -->
       <div class="seg" role="group" aria-label="Transform endpoint">
         <button class="sg" class:on={epActive === "t1"} title="Show/edit t₁ — the state the object transforms FROM"
-          onclick={() => selectEndpoint("t1")}>t₁</button>
+          onclick={() => selectEndpoint("t1")}>Before</button>
         <button class="sg" class:on={epActive === "t2"} title="Check out t₂ — edit the object on the canvas with every tool; the diff records here"
-          onclick={() => selectEndpoint("t2")}>t₂</button>
+          onclick={() => selectEndpoint("t2")}>After</button>
       </div>
       {#if epActive === "t2"}
-        <div class="note">Editing <b>t₂</b> — change the object on the canvas (position, size, shape, colors, text…). Esc when done.</div>
+        <div class="note">Editing <b>After this step</b>. Change the object on the canvas or in Object properties.</div>
       {:else if epActive === "t1"}
-        <div class="note">Editing <b>t₁</b> — this rewrites the previous transform's end state.</div>
+        <div class="note">Editing the state <b>before this step</b>. The stage header names the initial state or earlier step receiving these edits.</div>
       {/if}
       {#if changedProps.length}
         <div class="delta" title="The properties this transform changes at t₂ — ✕ drops one">
@@ -226,26 +264,30 @@
             onchange={(e) => setMorphTarget(e.currentTarget.value)}>
             <option value="">none</option>
             {#each morphTargets as m (m.assetId)}
-              <option value={m.assetId} disabled={!m.compatible}>{m.label}{m.compatible ? "" : " (incompatible)"}</option>
+              <option value={m.assetId}>{m.label}{m.compatible ? "" : " (crossfade)"}</option>
             {/each}
           </select>
         </label>
       {/if}
-    {:else if curFamily !== "transform"}
-      <label class="f">preset<kbd class="kc" title="shortcut: p">p</kbd>
+      {#if curTargetEl?.type === "plot"}
+        <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)}>Choose data target from project…</button>
+        {#if curTrack.to?.assetId}<div class="note">Data target: {curTrack.to.svgPath?.split("/").pop() || curTrack.to.assetId}</div>{/if}
+      {/if}
+    {:else if curFamily === "appearance"}
+      <label class="f">Effect<kbd class="kc" title="shortcut: p">p</kbd>
         <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
-          {#each EDIT_PRESETS as p (p)}<option value={p}>{p}</option>{/each}
+          {#each EDIT_PRESETS as p (p)}<option value={p}>{presetLabel(p)}</option>{/each}
         </select>
       </label>
     {/if}
 
     <label class="f">start<kbd class="kc" title="shortcut: t">t</kbd>
-      <span class="unit"><input data-fld="t" type="number" min="0" step="50" value={curTrack.start ?? 0} onchange={(e) => patchTrack({ start: +e.currentTarget.value })} /><small>ms</small></span>
+      <span class="unit"><input data-fld="t" type="number" min="0" step="50" placeholder="Mixed" value={mixed(t => t.start ?? 0) ? "" : curTrack.start ?? 0} onchange={(e) => timing("start", e.currentTarget.value)} /><small>ms</small></span>
     </label>
     <label class="f">duration<kbd class="kc" title="shortcut: d">d</kbd>
-      <span class="unit"><input data-fld="d" type="number" min="0" step="50" value={curTrack.duration ?? (curFamily === "transform" ? 600 : 400)} onchange={(e) => patchTrack({ duration: +e.currentTarget.value })} /><small>ms</small></span>
+      <span class="unit"><input data-fld="d" type="number" min="1" step="50" placeholder="Mixed" value={mixed(t => trackDuration(t)) ? "" : trackDuration(curTrack)} onchange={(e) => timing("duration", e.currentTarget.value)} /><small>ms</small></span>
     </label>
-    {#if curFamily !== "transform"}
+    {#if curFamily === "appearance"}
       <label class="f">stagger<kbd class="kc" title="shortcut: g">g</kbd>
         <span class="unit"><input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></span>
       </label>
@@ -329,11 +371,12 @@
       </div>
     {/if}
     <label class="f">easing<kbd class="kc" title="shortcut: e">e</kbd>
-      <select data-fld="e" value={curTrack.easing ?? (curFamily === "transform" ? "smooth" : "standard")} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"] })}>
+      <select data-fld="e" value={curTrack.easing ?? (curFamily === "transform" ? "smooth" : "standard")} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"], influence: undefined })}>
         {#each EASINGS as ee (ee)}<option value={ee}>{ee}</option>{/each}
       </select>
     </label>
-    <div class="f infl" title="Velocity profile (After Effects influence). out = slow-out at the start, in = slow-in at the end. When either is > 0 it overrides the named ease.">
+    <details class="advanced"><summary>Custom easing {curTrack.influence ? "· active" : ""}</summary>
+    <div class="f infl" title="Velocity profile. When active, this replaces the named easing above.">
       <span class="fl">influence</span>
       <span class="unit">
         <input data-fld="o" type="number" min="0" max="100" step="5" value={curTrack.influence?.out ?? 0} onchange={(e) => setInfluence({ out: +e.currentTarget.value })} /><small>out<kbd class="kc" title="shortcut: o">o</kbd></small>
@@ -345,6 +388,7 @@
         {/each}
       </span>
     </div>
+    </details>
 
     {#if selTracks.length === 1}
       {#if savingPreset}
@@ -377,21 +421,21 @@
 
 <style>
   .props {
-    flex: 0 0 208px; min-width: 0; display: flex; flex-direction: column; gap: 7px;
-    border: 1.5px solid color-mix(in oklab, #ce5d97 65%, transparent); border-radius: 9px;
-    padding: 7px 9px 9px; overflow-y: auto; font-size: 11px;
-    background: color-mix(in oklab, #ce5d97 4%, transparent);
+    min-width: 0; display: flex; flex-direction: column; gap: 12px;
+    padding: 14px 12px; overflow-y: auto; font-size: 12px;
+    background: var(--c-bg);
   }
-  .props.tx { border-color: color-mix(in oklab, #66800b 70%, transparent); background: color-mix(in oklab, #66800b 5%, transparent); }
+  .props.tx { background: var(--c-bg); }
+  .target-warning { color: var(--c-warning); font-size: 12px; line-height: 1.5; }
+  .advanced { border-top: 1px solid var(--c-line); padding-top: 9px; }
+  .advanced summary { cursor: pointer; color: var(--c-tx-2); margin-bottom: 8px; }
+  .pick-morph { border:1px solid var(--c-line-strong);background:var(--c-bg-2);color:var(--c-tx);padding:7px 9px;font:inherit;border-radius:5px;cursor:pointer;text-align:left; }
   .ttl {
     font-size: 12px; font-style: italic; font-weight: 600; color: var(--c-tx-2, #b7b5ac);
     letter-spacing: 0.02em; margin-bottom: -1px;
   }
   .hint { color: var(--c-tx-3, #878580); line-height: 1.55; font-size: 10.5px; }
-  .hint kbd {
-    padding: 0 3px; border-radius: 3px; font: 600 9px var(--font-mono, ui-monospace, monospace);
-    color: var(--c-tx-2, #878580); background: var(--c-bg-2, #1c1b1a); border: 1px solid var(--c-line, #403e3c);
-  }
+
   .hd { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
   .hd .nm { font-weight: 600; color: var(--c-tx-hi, #cecdc3); border-left: 3px solid var(--pc); padding-left: 6px; }
   .hd .chip {
@@ -465,6 +509,7 @@
     font-size: 11px; color: var(--c-tx, #cecdc3); background: var(--c-bg, #100f0f);
     border: 1px solid var(--c-line-strong, #343331); border-radius: 4px; padding: 2px 5px;
   }
+  .f select { max-width: 175px; min-width: 90px; }
   .f input { width: 52px; }
   .f small { color: var(--c-tx-3, #6f6e69); }
   .infl { flex-wrap: wrap; }

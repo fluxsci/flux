@@ -49,7 +49,9 @@ export { waitFor, waitForSelector, waitForGone, waitForText, waitForFrame } from
 export async function launch({ width = 1440, height = 900 } = {}) {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
-    headless: "new",
+    // Use the real display clock for compositor/performance investigations.
+    // Functional CI remains headless unless explicitly requested.
+    headless: process.env.FLUX_HEADFUL === "1" ? false : "new",
     args: ["--no-sandbox", `--window-size=${width},${height}`, "--force-device-scale-factor=1"],
     defaultViewport: { width, height },
   });

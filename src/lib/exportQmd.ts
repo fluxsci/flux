@@ -27,6 +27,7 @@
 
 import { formatCaptionLabel, formatFamilyRef, type FigureFamilyDef } from "./figfamily";
 import { formatPanelSpec, type PanelStyle } from "./style/journalStyle";
+import { createFigureReferenceResolver, FIGURE_REFERENCE_TOKEN_SOURCE } from "./figureReferences";
 
 export const EMBED_RE =
   /^\s*!\[((?:\\.|[^\]])*)\]\(([^)]*)\)\{#(fig-[A-Za-z0-9_-]+)([^}]*)\}\s*$/;
@@ -125,8 +126,8 @@ export function unescapeEmbedCaption(s: string): string {
   return s.replace(/\\([\\[\]])/g, "$1");
 }
 
-/** Embed labels in order of appearance — Quarto numbers figures the same way,
- *  so `collectEmbedLabels(expandedDoc)[i]` is "Figure i+1" in the output. */
+/** Embed labels in authored order, for coverage diagnostics only. Figure
+ * identity and numbering always come from Figure, never this sequence. */
 export function collectEmbedLabels(text: string): string[] {
   const out: string[] = [];
   for (const line of text.split("\n")) {
@@ -163,7 +164,7 @@ export interface ExportQmdCtx {
   /** label → resolved family identity — THE editor's numbers (figfamily.ts),
    *  never re-derived from embed appearance order. The family defs are already
    *  STYLED by the caller (styledFamilyDef), so a venue's wording rides in. */
-  figures: Map<string, { family: FigureFamilyDef; number: number }>;
+  figures: Map<string, { family: FigureFamilyDef; number: number; panels?: readonly string[] }>;
   /** Panel rendering for the target venue. Absent = the house rule. */
   panels?: PanelStyle;
 }
@@ -174,12 +175,8 @@ export interface ExportQmdCtx {
 // (the producer) is generic over panel NAMES and has always been able to emit them.
 // Only this consumer rejected them, which turned `@fig-x-b1` into an unresolved ref.
 // Mirrors scholar/figText.panelSpec's output grammar.
-const PANEL_ATOM = String.raw`[A-Za-z]\d*`;
-const PANEL_SPEC_RE = new RegExp(
-  `^${PANEL_ATOM}(?:-${PANEL_ATOM})?(?:,${PANEL_ATOM}(?:-${PANEL_ATOM})?)*$`,
-);
 // A whole crossref token incl. comma-continued panel parts (grammar.ts crossrefRe).
-const FIG_REF_RE = /@(fig-[A-Za-z0-9_-]+(?:,[A-Za-z]\d*(?:-[A-Za-z]\d*)?)*)/g;
+const FIG_REF_RE = new RegExp(FIGURE_REFERENCE_TOKEN_SOURCE, "g");
 
 /** `a-c,e` → `a–c,e` (ranges display with an en-dash, mirroring the app).
  *  With a style's PanelStyle the venue's rule applies instead — separator,
@@ -211,18 +208,10 @@ export function transformQmdForExport(text: string, ctx: ExportQmdCtx): string {
 
   // 2) ALL fig refs → literal family-formatted text ("Fig. S4", "Fig. 3a–c");
   //    unknown labels pass through for Quarto to resolve/complain about.
-  const labels = [...ctx.figures.keys()].sort((a, b) => b.length - a.length);
+  const resolve = createFigureReferenceResolver([...ctx.figures].map(([label, fig]) => ({ label, ...fig })));
   return withCaptions.replace(FIG_REF_RE, (whole, token: string) => {
-    const exact = ctx.figures.get(token);
-    if (exact) return formatFamilyRef(exact.family, exact.number);
-    for (const label of labels) {
-      if (!token.startsWith(label + "-")) continue;
-      const spec = token.slice(label.length + 1);
-      if (PANEL_SPEC_RE.test(spec)) {
-        const fig = ctx.figures.get(label)!;
-        return formatFamilyRef(fig.family, fig.number, panelSpecDisplay(spec, ctx.panels));
-      }
-    }
-    return whole;
+    const found = resolve(token);
+    if (!found) return whole;
+    return formatFamilyRef(found.ref.family, found.ref.number, found.panelSpec ? panelSpecDisplay(found.panelSpec, ctx.panels) : "");
   });
 }

@@ -14,6 +14,7 @@ import {
   selection,
   newId,
   commit,
+  mutate,
   loadProject,
   embeddedProjectRoot,
 } from "./store";
@@ -43,7 +44,7 @@ import { captureSnipMeta, clearSnipMeta } from "./snipMeta";
 import { planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
 import { cachePlot, clearPlots, ensurePlotDom, plotManifests, plotRecipes, primePlotSidecars } from "./plot/store";
-import { healPlotSources, toProjectRelativeSource } from "./plot/source";
+import { healPlotSources, toProjectRelativeSource, isUnderRoot } from "./plot/source";
 import { isDerivedManifest } from "./plot/derive";
 import { plotToSvgMarkup } from "./plot/export";
 import type { FluxPlotManifest } from "./plot/types";
@@ -64,10 +65,15 @@ export function reimportPlot(
   svgText: string,
   manifest?: FluxPlotManifest,
   recipe?: unknown,
+  opts: { markEdited?: boolean } = {},
 ): boolean {
   const ok = cachePlot(assetId, svgText, manifest, recipe);
+  if (!ok) return false;
   setAssetData(assetId, bytesToDataUrl(new TextEncoder().encode(svgText), mimeFor("svg")));
   markAssetDirty(assetId); // W8: hot-swapped bytes → rewrite on next save
+  // Source bytes are an edit even when no geometry changes. The lifecycle
+  // dirty registry must flush them before switching modes or closing.
+  if (opts.markEdited !== false && get(project).assets.some((a) => a.id === assetId)) mutate(() => {});
   return ok;
 }
 
@@ -98,7 +104,7 @@ function kindOf(name: string): "png" | "svg" {
 
 // `el.width/height` arrive already set to the asset's TRUE physical size in canvas
 // px (96/inch) — placement must never rescale them (see placeIncoming).
-interface Incoming {
+export interface Incoming {
   asset: Asset;
   el: ImageElement | SemanticPlotElement;
 }
@@ -229,6 +235,7 @@ async function buildIncoming(
         // silently no-op after a sync, a folder rename, or a restore elsewhere.
         // A genuinely external plot keeps its absolute path.
         svgPath: rel(sib.svgPath) ?? name,
+        ...(sib.svgPath && projRoot && !isUnderRoot(projRoot, sib.svgPath) ? { external: true } : {}),
         // Only record sidecar paths that actually exist (a real fluxplot) — the
         // fluxplot/vanilla discriminator is sidecar presence.
         manifestPath: manifest ? rel(sib.manifestPath) : undefined,
@@ -267,6 +274,13 @@ export async function importAssets() {
   } catch (e) {
     pushToast("error", "Import failed", { detail: errMsg(e) });
   }
+}
+
+/** Read through the exact shared image/plot import pipeline, including sibling
+ * manifests/recipes and physical size. The caller owns placement/undo. */
+export async function readIncomingPlot(absPath: string): Promise<Incoming> {
+  const bytes = new Uint8Array(await window.fig.readFile(absPath));
+  return buildIncoming(basename(absPath), bytes, await resolveSiblingsFromFs(absPath));
 }
 
 // Batch-import plots/assets by absolute path (the Plot Importer's multi-insert,

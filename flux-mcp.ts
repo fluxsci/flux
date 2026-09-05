@@ -412,12 +412,13 @@ server.registerTool(
   "set_animation",
   {
     description:
-      "Add (or replace, within the same family) an animation track on a beat — the general mechanism behind every preset. Two FAMILIES: appearances (fade, fadeRise, popIn, drawOn, growBaseline, stagger, writeOn, exits, highlight, dim, countUp) and transforms ('transform' — prefer the ergonomic set_transform verb — plus legacy 'morph'); an appearance and a transform coexist on one object in one beat. `target` is an element id, or '@camera'/'@stage'. `part` targets one plot semantic id (leaf like 'fit.line' or group like 'axis.x' — groups fan out at play time). drawOn/drawOff take Trim-Path `params`: {anchor: 0..1 | corner-tl|top|corner-tr|right|corner-br|bottom|corner-bl|left|start|middle|end, direction: forward|reverse, mode: single|both-ends|middle-out, from, to}; writeOn/wipeOut take {direction: ltr|rtl|ttb|btt}. `to` carries a transform's sparse `state` patch, a morph's assetId, or a camera pose {x,y,zoom}. `influence` is the AE-style velocity profile {in,out} 0–100; `stagger` = {perMs, by: index|x|y, from: start|end|center|edges}; `groupId` joins a beat-local TrackGroup.",
+      "Add (or replace, within the same family) an animation track on a beat. Pass append:true to insert a separate effect, preserving existing entrance/emphasis/exit tracks — the general mechanism behind every preset. Two FAMILIES: appearances (fade, fadeRise, popIn, drawOn, growBaseline, stagger, writeOn, exits, highlight, dim, countUp) and transforms ('transform' — prefer the ergonomic set_transform verb — plus legacy 'morph'); an appearance and a transform coexist on one object in one beat. `target` is an element id, or '@camera'/'@stage'. `part` targets one plot semantic id (leaf like 'fit.line' or group like 'axis.x' — groups fan out at play time). drawOn/drawOff take Trim-Path `params`: {anchor: 0..1 | corner-tl|top|corner-tr|right|corner-br|bottom|corner-bl|left|start|middle|end, direction: forward|reverse, mode: single|both-ends|middle-out, from, to}; writeOn/wipeOut take {direction: ltr|rtl|ttb|btt}. `to` carries a transform's sparse `state` patch, a morph's assetId, or a camera pose {x,y,zoom}. `influence` is the AE-style velocity profile {in,out} 0–100; `stagger` = {perMs, by: index|x|y, from: start|end|center|edges}; `groupId` joins a beat-local TrackGroup.",
     inputSchema: {
       deckId: z.string(),
       slideId: z.string(),
       beatId: z.string(),
       target: z.string(),
+      append: z.boolean().optional(),
       preset: z.enum(PRESETS).optional(),
       part: z.string().optional(),
       start: z.number().optional(),
@@ -440,7 +441,7 @@ server.registerTool(
         .optional(),
     },
   },
-  async ({ deckId, slideId, beatId, target, preset, part, start, duration, easing, params, influence, stagger, groupId, to }) => {
+  async ({ deckId, slideId, beatId, append, target, preset, part, start, duration, easing, params, influence, stagger, groupId, to }) => {
     const track: import("./src/lib/slide/types").Track = { target };
     if (preset) track.preset = preset;
     if (part) track.part = part;
@@ -452,7 +453,7 @@ server.registerTool(
     if (stagger) track.stagger = stagger;
     if (groupId) track.groupId = groupId;
     if (to) track.to = to;
-    await core.setAnimation(ROOT, deckId, slideId, beatId, track);
+    await core.setAnimation(ROOT, deckId, slideId, beatId, track, { append });
     return ok(`set animation on beat ${beatId} (${preset ?? "keyframes"} → ${target})`);
   },
 );

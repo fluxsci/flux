@@ -12,13 +12,14 @@
     globalRev,
     beginGesture,
     addCanvas,
-    deleteCanvas,
     setActiveCanvas,
     figuresOnCanvas,
     figureSelection,
     selectedFigureIds,
     figNamer,
+    figureCatalog,
   } from "./store";
+  import { requestFigureDeletion } from "./project/figureDeletion";
   import { familyById, shortBadge } from "./figfamily";
   import type { Element, GroupDef } from "./types";
   import * as ops from "./ops";
@@ -43,15 +44,7 @@
     });
   }
 
-  function deleteFigure(id: string) {
-    // Through the ops core (rule: never bypass it) — it owns the keep-one-
-    // figure backfill AND the family auto-compaction (numbers stay 1..N).
-    let nextActive: string | null = null;
-    commit((p) => {
-      nextActive = ops.deleteFigure(p, id).nextActiveId;
-    });
-    activeFigureId.set(nextActive ?? figuresOnCanvas($project, $activeCanvasId)[0]?.id ?? null);
-  }
+  function deleteFigure(id: string) { void requestFigureDeletion("figure", id); }
 
   // M11: inline rename (no blocking native window.prompt). Double-click a row to
   // edit; Enter / blur commits, Esc cancels. Figures are the exception since
@@ -387,7 +380,7 @@
             >
           {/if}
           {#if $project.canvases.length > 1}
-            <button class="del" on:click={() => deleteCanvas(canvas.id)} title="Delete canvas">×</button>
+            <button class="del" on:click={() => requestFigureDeletion("canvas", canvas.id)} title="Delete canvas">×</button>
           {/if}
         </li>
       {/each}
@@ -397,6 +390,7 @@
   <section>
     <div class="head">
       <h4>Figures</h4>
+      <button class="mini" on:click={() => figureCatalog.set({})} title="All project figures, references, sources and usages">All…</button>
       <button class="mini" on:click={addFigure} title="Add figure">+</button>
     </div>
     <ul bind:this={figListEl}>
@@ -415,8 +409,8 @@
             class="item"
             on:click={(e) => goToFigure(fig.id, e)}
             on:dblclick={() => openNamer(fig.id)}
-            title="Click to go to it · Shift/Ctrl+click to pick several · drag to reorder (Alt+↑/↓) · double-click to rename (Ctrl+R)">
-            {fig.name}{#if fig.nickname}<span class="nick">{fig.nickname}</span>{/if}
+            title={`${fig.name} · @${fig.referenceKey ?? ""}\nClick to go to it · Shift/Ctrl+click to pick several · drag to reorder on this canvas · double-click to rename (Ctrl+R)`}>
+            {fig.nickname || fig.name}
           </button>
           <button class="del" on:click={() => deleteFigure(fig.id)} title="Delete figure">×</button>
         </li>
@@ -668,16 +662,6 @@
     font-variant-numeric: tabular-nums;
     color: var(--c-tx-muted);
     opacity: 0.7;
-  }
-  /* Dim nickname beside the derived name ("Figure 2  growth curves"). */
-  .item .nick {
-    margin-left: 6px;
-    color: var(--c-tx-muted);
-    opacity: 0.75;
-    font-size: 11px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   li.active .fnum {
     color: var(--c-on-accent);

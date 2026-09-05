@@ -12,6 +12,9 @@ import { atomicWrite, fsyncDir } from "./fsx";
 import type { Figure, Project, Asset, Canvas } from "../src/lib/types";
 import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../src/lib/migrate";
 import { kindForFamily } from "../src/lib/figfamily";
+import { ensureFigureReferenceKeys } from "../src/lib/project/figureIdentity";
+import { reconcileCaptionFiles, captionConflictMessage } from "../src/lib/project/captionReconcile";
+import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "../src/lib/project/figureReferenceSync";
 import type { ProjectManifest, FigureEntry } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "../src/lib/project/types";
 import {
@@ -63,6 +66,11 @@ export async function exists(p: string): Promise<boolean> {
 export async function writeText(p: string, t: string): Promise<void> {
   await atomicWrite(p, t); // W2: durable tmp+fsync+rename for every canonical write
 }
+const referenceSyncIO = {
+  readText: (p: string) => fs.readFile(p, "utf8"), exists, writeText,
+  remove: (p: string) => fs.rm(p, { force: true }),
+  readdir: async (p: string) => (await fs.readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, dir: e.isDirectory() })),
+};
 
 // --------------------------------------------------------------------------
 // on-disk shapes + writer plan: the ONE persistence core shared with the GUI
@@ -85,6 +93,7 @@ export async function requireProject(root: string): Promise<void> {
 
 export async function loadManifest(root: string): Promise<ProjectManifest> {
   await requireProject(root);
+  await recoverFigureReferenceUpdate(root, referenceSyncIO);
   return readJSON<ProjectManifest>(j(root, "project.json"));
 }
 export async function saveManifest(root: string, m: ProjectManifest): Promise<void> {
@@ -143,6 +152,7 @@ export async function loadFigModel(root: string): Promise<{ project: Project; in
   // project.json means this isn't a Flux project at all: without the guard a
   // mutate verb sees an empty model and reports "figure not found" instead.
   await requireProject(root);
+  await recoverFigureReferenceUpdate(root, referenceSyncIO);
   const index = (await readFigIndex(root)) ?? emptyIndex();
   const { byId } = await readCanvasFiles(root, index);
   const canvases: Canvas[] = sortedCanvasMeta(index).map((c) => ({ id: c.id, name: c.name }));
@@ -168,6 +178,10 @@ export async function loadFigModel(root: string): Promise<{ project: Project; in
   // Figure families (fig-subsystem-only): same seeding + healing as the GUI's
   // loadFigInto, so both engines agree on identity before any mutation runs.
   migrateFigureFamilies(project, familyHintsFrom(index.figures));
+  ensureFigureReferenceKeys(project, index);
+  const captionState = await reconcileCaptionFiles(project, index, async (rel) =>
+    fs.readFile(safeJoin(root, rel), "utf8").catch(() => null));
+  if (captionState.conflicts.length) throw new Error(captionConflictMessage(captionState.conflicts));
   return { project, index };
 }
 
@@ -190,16 +204,19 @@ export async function mutateFigModel<T>(
   root: string,
   action: string,
   fn: (m: { project: Project; index: FigIndexFile }) => T | Promise<T>,
+  opts: { changed?: (result: T) => boolean } = {},
 ): Promise<T> {
   let out!: T;
   let figIds: string[] = [];
+  let changed = true;
   await withLock(root, "project", CLIENT, async () => {
     const m = await loadFigModel(root);
     out = await fn(m);
+    changed = opts.changed?.(out) ?? true;
     figIds = m.project.figures.map((f) => f.id);
-    await saveFigModelUnlocked(root, m.project, m.index);
+    if (changed) await saveFigModelUnlocked(root, m.project, m.index);
   });
-  await journal(root, { action, figures: figIds });
+  if (changed) await journal(root, { action, figures: figIds });
   return out;
 }
 
@@ -214,14 +231,19 @@ async function saveFigModelUnlocked(
   // executor owns the WS-5.3 ordering (canvases → dir fsync → captions →
   // index LAST + .bak → dir fsync) and skips byte-identical rewrites.
   const plan = planFigSave(project, index);
-  await executeFigSave(plan, {
+  const before = await readCanvasFiles(root, index);
+  const referenceUpdate = await prepareFigureReferenceUpdate(root, Object.values(before.byId), project.figures, referenceSyncIO, {
+    index, figureFiles: [...plan.canvases, plan.index],
+  });
+  try { await executeFigSave(plan, {
     read: async (rel) => {
       const p = safeJoin(root, rel);
       return (await exists(p)) ? await fs.readFile(p, "utf8") : null;
     },
     write: (rel, text) => writeText(safeJoin(root, rel), text),
     fsyncDir: (rel) => fsyncDir(safeJoin(root, rel)),
-  });
+  }); } catch (e) { releaseFigureReferenceUpdate(root, referenceUpdate); throw e; }
+  await commitFigureReferenceUpdate(root, referenceUpdate, referenceSyncIO);
   await reindex(root);
 }
 

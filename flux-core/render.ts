@@ -386,6 +386,10 @@ export async function materializeRenders(
   const failed: string[] = [];
   const warnings: string[] = [];
   let wrote = 0;
+  const { syncFigureAssets } = await import("./figures");
+  let sources = await syncFigureAssets(root, undefined, { dryRun: true });
+  if (sources.refreshed.length) sources = await syncFigureAssets(root);
+  warnings.push(...sources.warnings, ...sources.missing.map((p) => `Source missing; using last saved version: ${p}`));
   const index = await readFigIndex(root);
   if (!index) return { wrote, failed, warnings };
   const known = new Set(index.figures.map((f) => f.id));

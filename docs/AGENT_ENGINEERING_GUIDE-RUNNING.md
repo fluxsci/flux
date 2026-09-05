@@ -46,7 +46,7 @@ vestigial). It is deliberately **agent-native**: an AI agent is a first-class us
 capabilities as the GUI, through three surfaces:
 
 - **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — both generated from **one
-  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`, ~99 verbs). They operate on
+  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`). They operate on
   project files directly through `flux-core/*` (Node).
 - **Live bridge** (`electron/bridgeServer.cjs` + `src/lib/project/liveClient` path) — a loopback
   control server per open project that dispatches ~38 verbs against the **live GUI store**. Its
@@ -56,9 +56,11 @@ capabilities as the GUI, through three surfaces:
   (machine: user identity/rules + stock docs synced from `resources/flux-context/` via
   generated `electron/fluxContextDocs.gen.cjs`) and `<project>/Context/` (MISSION/NOTEBOOK/
   RULES as first-class paper docs + Transcripts/Dispatches archives). `<FluxConfig>/agents.json`
-  (shared core `electron/agentsConfig.cjs`) names the user's principal/worker CLIs; the in-app
-  Agent drawer (Ctrl+Shift+J, `src/shell/agent/`), `flux agent`, `flux dispatch`, and
-  `flux attend` launch them. The feedback ledger (`.meta/feedback.ndjson`, event-sourced
+  (shared core `electron/agentsConfig.cjs`) names the user's principal/worker CLIs;
+  `flux principal` (alias `flux agent`) launches in the user's terminal, `flux dispatch`
+  launches workers, and `flux attend` runs feedback-triggered review passes. The dedicated
+  agent drawers and Ctrl+Shift+J were retired; Paper and Reader share the terminal in
+  `src/shell/terminal/`, and the app remains the review surface. The feedback ledger (`.meta/feedback.ndjson`, event-sourced
   append-only, shared core `src/lib/project/feedback.ts`) carries context-stamped review notes
   (Ctrl+Shift+M capture). Gates: verify-context-scheme / -feedback / -dispatch (pure),
   verify-context-gui (ui), verify-principal-electron (electron).
@@ -148,7 +150,50 @@ Persistence invariants (all machine-checked — do not weaken):
   `index.json` **last** (+ one-generation `index.json.bak`). The index never references a canvas
   file that doesn't exist, even across SIGKILL (`verify-figsave-txn.ts`). The ordering lives once,
   in `executeFigSave` (figfiles.ts) — never reorder it.
-- **Plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
+- **Figure identity is independent of Paper order.** Canonical figures own `referenceKey`;
+  `figureIdentity.ts` preserves existing index labels during migration and assigns new keys
+  only to new/duplicated figures. `nickname` is the human title; `name` remains the derived
+  family designation. Never derive keys or publication numbering from manuscript order,
+  display titles, or canvas list order. The shared `figureReferences.ts` resolver gives exact
+  keys priority, then validates panels against the longest key prefix; export and Paper use
+  the same grammar. Catalog/deletion views include live unsaved document references.
+- **Source updates publish only after persistence.** `plot/sourceSync.ts` plans complete
+  SVG/manifest/recipe bundles, validates changes, preserves last-good bytes on missing or
+  malformed sources, and applies shared physical sizing. `project/sourceBridge.ts` owns
+  catch-up/watch/retry independent of the active mode; `slide/sourceSync.ts` adapts deck-local
+  content and animation-only targets. Registered accepted assets take priority over raw
+  source paths in slides and export. Sidecar-only changes/removals invalidate caches too.
+  Freeze/relink isolates the selected figure's asset identity. GC scans manuscript/deck
+  dependencies and does not prune when inspection is incomplete. Gates inspect saved bytes,
+  metadata and Paper after source-only events without an unrelated edit.
+  Native `watch:setSourceFiles` registers exact SVG and authored/adjacent JSON files per
+  window and source scope, including explicitly external sources after reopening. These
+  capabilities permit reads, never directory access or writes, and clear on project exit.
+  Closed decks catch up when opened and before export. A failed Figure sync must not prevent
+  an independent live deck from refreshing. Native permission probes must place external
+  fixtures outside `app.getPath("temp")`, which already has its own filesystem grant.
+  Decks retain `externalAssetSizes` as the accepted intrinsic baseline for linked assets;
+  reconcile against current metadata before GUI opening or Node export so closed and live
+  updates preserve the same physical placement scale. Legacy decks lacking a baseline adopt
+  the current metadata once; never invent an unavailable historical size.
+  Accepted intrinsic sizes stay outside authoring history: Figure and Slide Undo/Redo rebase
+  surviving placements onto the accepted source revision without resurrecting removed imports
+  or undoing independent source updates. Relevant SVG changes invalidate paused slide previews;
+  replay compiles the new bytes, while unrelated asset changes leave the preview alone.
+  `figureSourceOwners.ts` lets saved deck placements and animation targets keep a registered
+  `fig/assets` source alive after its last Figure placement is deleted. Its synthetic owners
+  exist only in the read-only planning view, never in persisted canvases. Respect frozen and
+  conflicting links and recheck dependent deck baselines before accepting asynchronous work.
+- **Caption and panel references reconcile safely.** `captionReconcile.ts` compares canonical
+  caption data and the readable markdown mirror against their accepted base. Conflicting
+  edits stop persistence without discarding either version. Panel references follow stable
+  label-element IDs through relabels; `figureReferenceEdits.ts` plans code-aware replacements,
+  and `figureReferenceSync.ts` preflights then journals them before the figure commit. Open
+  Paper buffers apply one CM transaction to their latest text and flush; cold files require
+  matching baselines. `.meta/figure-reference-update.json` retains originals/proposals until
+  completion; load recovery refuses newer conflicting data. Never silently retarget a
+  removed/ambiguous panel reference to a different panel.
+- **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
   that relink to the origin — `plots/` hot-swap, the slide bridge, Regenerate, the X-ray
@@ -157,8 +202,9 @@ Persistence invariants (all machine-checked — do not weaken):
   (absolute picker path from the GUI, relative from headless, bare filename from drag-drop),
   so **one module owns all of them**: `src/lib/plot/source.ts` —
   `toProjectRelativeSource` on write, `healPlotSources` on load (pure, idempotent,
-  string-only, runs in both loaders), `plotSourceCandidates` at every read (probe in order,
-  first that exists wins). Never join a stored source path straight onto the root, and never
+  string-only, runs in both loaders), `plotSourceCandidates` is required at every read
+  (probe in order, first that exists wins; explicit external links remain external). Never
+  join a stored source path straight onto the root, and never
   assume it is absolute: `runRecipe` needs a real absolute path and resolves the recipe's
   `cwd` from its dirname, so X-ray resolves before invoking it. A genuinely *external* plot
   keeps its absolute path — the one case the relativizer must not touch. Callers that also
@@ -424,25 +470,25 @@ Persistence invariants (all machine-checked — do not weaken):
   exclusive residents — `paneStore` denies side-by-side panes, mode mounts
   flush+evict the other (`evictMode`), and the bridges hard-assert the tenant
   (`src/lib/tenancy.ts`) so a wrong-folder autosave is structurally impossible.
-  BEAT-FAITHFUL DISPLAY (2026-07-18): the canvas always shows the slide AS
-  IT EXISTS AT THE ACTIVE BEAT — elements with transforms in beats ≤
-  activeBeat hold their COMPOSED state in the figure store (base elements
-  captured in `displayBaselines`; every fold substitutes them back so
-  deck.json never stores a composed state), and a plain edit routes into the
-  GOVERNING transform's `to.state` ("you edit what you see"; beat 0 edits
-  the base). `refreshBeatDisplay()` in slide/store.ts is the one reconciler
-  (beat/slide changes, every deck op, undo/redo); it skips no-op writes so
-  coalesced commit runs keep their editGen continuity, and it writes through
-  `store.mutateDisplay` (bumps editGen for coalescing but NEVER sets `dirty`) —
-  recomposing what a beat SHOWS is not a user edit, so plain beat navigation
-  must not dirty the deck or trigger an autosave (V0.1 A2: it used to, which
-  rewrote deck.json per nav and raised a spurious external-change banner that
-  biased toward a data-losing Overwrite). `clearBeatDisplay` (slide-switch base
-  restore) uses `mutateDisplay` for the same reason. Deck saves also skip a
-  content-identical rewrite (`sameDeckContent` ignores the always-changing
-  `modified` stamp) — the §3 byte-identical invariant, extended to decks. Gate:
-  `verify-beat-display-gui.mjs` (scrubbing every beat leaves the deck clean +
-  deck.json byte-identical; a real edit still dirties + rewrites).
+  EXPLICIT EDIT DESTINATIONS (2026-09-05 overhaul): **Design** edits authored initial
+  properties; **Edit after step N** creates/edits that step's sparse Change endpoint, never
+  an earlier governing track. `registerEditorTransactionAdapter` wraps deliberate commits
+  synchronously before store subscribers; display writes and undo restoration do not route
+  edits. `checkoutBaselines` substitutes authored content during every fold so deck.json
+  never stores the displayed endpoint. Structural metadata stays in Design. The adapter is
+  registered only by Slide; ordinary Figure edits pay no snapshot cost.
+  `compileSlide/evaluateSlideState` supplies inspected content, visibility, part states and
+  camera; Canvas receives derived presentation props. Camera display and hit tests share
+  `editorPresentation.ts`; ghost-hidden objects/parts and hover outlines are view-only.
+  Navigation/display reconciliation uses `mutateDisplay`, never sets dirty, and skips no-op
+  writes. `commitDeckLive({history:false})` is reserved for accepted source refreshes, whose
+  durable bytes cannot be undone as an ordinary model edit. Deck saves skip content-identical
+  writes. The animation dock uses fixed-height labeled lanes and an explicit step strip;
+  Animation properties live in the inspector. Its keyboard scope excludes canvas shortcuts.
+  The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
+  by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
+  Gates include beat-display, slide-authoring, slide-canvas-presentation, timeline logic and
+  standalone browser export; single-effect interpolation is not sufficient evidence.
   When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
@@ -464,7 +510,7 @@ Persistence invariants (all machine-checked — do not weaken):
   sync rides `annotationsBridge.annotationsRev` (one bump per in-app write; writers
   skip their own by count — the fs watcher suppresses self-write echoes, so
   fluxLibRevision never covered in-renderer cross-view sync). Gates: `group:reader-gate`
-  (15 scripts) + the `src/shell/modes/reader/**` pathMap entry; tab semantics pinned in
+  (see the manifest for current membership) + the `src/shell/modes/reader/**` pathMap entry; tab semantics pinned in
   `verify-r7-tabs.mjs`. Gate-selector rule: probes must scope to
   `[data-doc-active="true"]` (hidden kept-alive docs are in the DOM) and to panes BY INDEX
   (every `.pane` sits alone in a `.slot` wrapper, so `:first/last-child` match both).
@@ -582,7 +628,7 @@ The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A 
 that isn't in the manifest doesn't exist.** Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
-  pure --jobs 4` (~21s parallel, currently 175 scripts, must stay green at all times).
+  pure --jobs 4` (must stay green at all times; current membership is in the manifest).
   **Hermetic includes the user's machine state**, not just network and dev server: a pure script
   that can reach FluxLib redirects `HOME` + `XDG_CONFIG_HOME` into a scratch dir *before*
   flux-core loads (dynamic `import()` after the assignment — see `verify-zotero-sync.ts`,
@@ -590,17 +636,24 @@ that isn't in the manifest doesn't exist.** Tiers:
   the libPath half; see the §9 trap for why both are needed.
 - **ui / ui-extra** — puppeteer against the dev server on :1420 (`scripts/lib/driver.mjs`;
   fixtures via `?fixture=demo`, dev handles `window.__flux`, `__fluxView`, `__fluxSeed*`). ui is
-  the curated stable suite (59), ui-extra the full sweep (60). Consoles must be **clean** —
+  the curated stable suite, ui-extra the full sweep. Consoles must be **clean** —
   there is no tolerated-404 filter anymore.
 - **scale** — the perf budgets (figure/paper/library/reader/fulltext). These are the standing
   60fps/scale contracts from the polish mandate.
-- **presence** — the seven source-shape/static scripts (main-process/build config that headless
+- **presence** — the source-shape/static scripts (main-process/build config that headless
   drivers can't exercise; incl. `verify-electron-no-undef.ts`, the TS-checker undefined-identifier
   gate over `electron/**/*.cjs`). They also live in pure; the tier exists for `--changed` mapping.
-- **bundle / startup / electron** — need `npm run build` / a real Electron run. Electron harnesses
-  on this box need `--ozone-platform=x11` (§9).
+- **bundle / startup / electron** — need `npm run build` / a real Electron run. Linux Electron
+  harnesses may need `--ozone-platform=x11` (§9); do not pass Linux display flags on macOS.
+  `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
+  verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
+  cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
 - `--changed` maps `git diff` paths through the manifest's `pathMap`;
-  `group:paper-gate` is the paper editor's regression suite (28 scripts). For parallel
+  `scripts/lib/changedVerifies.mjs` implements brace alternatives, directory globs and literal
+  registered script targets. Keep its real-manifest coverage gate: silently skipping a mapped
+  check defeats the verification contract.
+  `group:paper-gate` is the paper editor's regression suite. Use
+  `node scripts/run-verifies.mjs --list` for current tier/group counts and membership. For parallel
   worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
   never hardcode the default port.
@@ -608,7 +661,19 @@ that isn't in the manifest doesn't exist.** Tiers:
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
 why); child processes are owned by `TestProcessScope` (`scripts/lib/testProcess.mjs`). Node 22 is
-required — every shell needs `export PATH="$HOME/.local/node22/bin:$PATH"` on this machine.
+required — verify `node --version` in the current shell; the original Linux workstation's
+Node 22 installation is under `~/.local/node22/bin`, while other machines may use nvm.
+Browser probes use `FLUX_CHROME` or default to `/usr/bin/google-chrome`; on macOS/Windows,
+set `FLUX_CHROME` to an installed Chrome executable. Three slide scripts in the `pure`
+tier also use this driver to inspect exported HTML, so they need that executable even
+though they do not need the dev server.
+Set `FLUX_HEADFUL=1` to measure compositor timing against the real display. Keep the same
+performance budgets: a headless clock whose idle p95 already exceeds 17ms is not evidence
+that the animation itself takes 17ms. Record that control and use a real display run;
+never loosen a frame gate or silently rerun it until green. The slide scale gates require
+actual changing geometry, exercise forward/reverse scrubbing without document writes, and
+cover normal decks plus a 1,200-point/120-track dense fixture. `FLUX_SLIDE_PROFILE=1` captures
+an idle clock control and a Chrome performance trace for diagnosis.
 `npm run check` (svelte-check) must stay at 0 errors/0 warnings.
 
 ## 8. Recipes for common work
@@ -700,9 +765,10 @@ days (probe geometry like `width` instead).
 
 **Environment:**
 
-- The dev machine is the owner's Linux desktop with monitors and an active Wayland session —
-  do NOT assume it is headless (an earlier "no monitor" note here was wrong; corrected
-  2026-07-12). Agent shells, however, often run detached (ssh/tmux), and the Wayland compositor
+- Development runs on multiple platforms; inspect the current environment rather than
+  assuming the original Linux workstation. That Linux desktop has monitors and a Wayland
+  session — do NOT assume it is headless. Agent shells, however, often run detached
+  (ssh/tmux), and the Wayland compositor
   has died mid-session at least once, leaving Electron **hung before executing any JS** — silence
   looks like success. Automated Electron harnesses therefore pass `--ozone-platform=x11` **as a
   real command-line argument** — from a detached shell native Wayland can also hang Electron
@@ -806,6 +872,13 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
 
+- **Animation coverage must include history-independent state.** The 2026-09-05 audit
+  reproduced chained plot morphs restarting from the base asset, text crossfades retaining
+  a future layer after reverse seek, and ordinary fades clearing authored rotation/opacity,
+  while the existing player/tween/playback/easing pure gates still passed. The overhaul fixes
+  these with deterministic sampling, separate geometry/effect layers and effective content
+  bindings. Test direct/reverse seek against forward play and a fresh mount; successful
+  single-effect interpolation is insufficient evidence of correct composition.
 - An inline-level `<svg>` sits on the host line box's **text baseline** — small-height svgs get
   pushed down by a host-font-dependent ~12px, so content drifts inside its wrapper and clips
   against `clip-path`. Content svgs must be `display:block` (fillStatic/fillPlot do this), and
@@ -3869,3 +3942,41 @@ doc-order-gui / f4 / context-gui / paper-split green; docs + shortcuts + Help up
   first was removed, and the gate still caught the visible ×.
 - A `<div role="dialog">` with an `onkeydown` needs `tabindex="-1"` or svelte-check warns
   (`a11y_interactive_supports_focus`) — and the tier requires 0 warnings, not just 0 errors.
+
+### 2026-09-05 15:45 CDT — High-level project review (Codex, `main`)
+
+**Work:** Reviewed the product docs, shared mutation/persistence/agent architecture, CI,
+recent history, and in-memory demo workspaces for an overall assessment; no application
+code changed. Type check passed at 0/0 and the full build succeeded; the unsandboxed pure
+tier passed 177/183 on macOS, with failures in fluxconfig/Zotero path assumptions, Linux
+shortcut hints, and three slide probes requiring the configured Chrome executable.
+Corrected the body's retired-agent-drawer description, removed stale suite counts in favor
+of the manifest, and made the environment/Node/browser guidance platform-aware.
+
+### 2026-09-05 16:17 CDT — Figure/slides investigation and overhaul proposal (Codex, `codex/figures-slides-overhaul`)
+
+**Work:** Three subaudits plus app interaction and hermetic runtime probes identified
+source-save/reference inconsistencies and slide input/state defects; proposal and evidence
+are retained locally in `notes/figures-slides-review/`. Prepared the new branch; no application
+implementation yet. The 31-slide scale run had clean console, 18–36ms p95 edit/navigation,
+zero idle rAF, and one failure: playback spacing 17.6ms p95 against 17ms.
+**Learnings:**
+- Corrected the body's overstated beat-display fidelity and documented unresolved source-sync
+  and history-dependent animation gaps; persistence and arbitrary-seek checks must go beyond
+  a visible cache update or a passing single-effect gate.
+
+### 2026-09-05 18:17 CDT — Figure identity/source and slide overhaul (Codex, `codex/figures-slides-overhaul`)
+
+**Work:** Implemented stable canonical figure references, title/usage/source surfaces and
+durable source reconciliation across both engines, alongside explicit slide edit destinations,
+deterministic playback and a redesigned animator. Updated the guide body and mode docs and
+added a disposable playground with results in `docs/FIGURES_SLIDES_TESTING.md`. Final check
+0/0, build, pure 193/193, Paper 42/42, bundle/startup 4/4, native 35/35, targeted slide gates
+and unchanged normal/dense performance budgets pass; preservation covers 1,200 legacy figures.
+**Learnings:**
+- Accepted source revisions belong outside authoring history; rebase restored placements
+  onto current intrinsic dimensions, and preserve saved deck source ownership after Figure
+  deletion. Native probes must wait for the complete canvas/index commit, not just SVG writes.
+- Verify real moving geometry and use an idle-clock control before attributing frame spacing
+  to rendering cost. The real-display dense run passed p95 but retained two documented frame
+  outliers; never hide those or loosen a gate to accommodate headless clock jitter.

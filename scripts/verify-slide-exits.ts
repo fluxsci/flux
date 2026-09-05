@@ -33,7 +33,8 @@ const el = (id: string): HTMLElement => {
   d.dataset.elId = id;
   return d as unknown as HTMLElement;
 };
-const style = (n: HTMLElement) => n.style as unknown as Record<string, string>;
+// Whole-object effects now compose on an inner layer; inspect that layer.
+const style = (n: HTMLElement) => ((n as HTMLElement & { __slideEffects?: HTMLElement }).__slideEffects ?? n).style as unknown as Record<string, string>;
 
 // --- preset families ----------------------------------------------------------
 for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {

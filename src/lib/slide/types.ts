@@ -105,6 +105,10 @@ export interface Deck {
    *  against the project at load — never copied in here. (A video-capable
    *  asset kind returns with the future video element — see the seam note.) */
   assets: Asset[];
+  /** Last accepted intrinsic dimensions for linked project/raw assets. Keeps
+   * physical plot scale consistent when a source changes while this deck is
+   * closed. Missing legacy entries adopt the first observed dimensions. */
+  externalAssetSizes?: Record<string, { width: number; height: number }>;
   slides: Slide[];
 }
 

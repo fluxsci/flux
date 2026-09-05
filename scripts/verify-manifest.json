@@ -184,7 +184,17 @@
    "verify-plots-folders.ts",
    "verify-plot-source.ts",
    "verify-sync-conflicts.ts",
-   "verify-library-pdffilter.ts"
+   "verify-library-pdffilter.ts",
+   "verify-figure-reference-identity.ts",
+   "verify-figure-sources.ts",
+   "verify-slide-timeline.ts",
+   "verify-slide-timeline-browser.ts",
+   "verify-figure-reference-sync.ts",
+   "verify-large-figure-preservation.ts",
+   "verify-slide-source-sync.ts",
+   "verify-changed-pathmap.mjs",
+   "verify-orphan-slide-sources.ts",
+   "verify-source-watch.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -220,6 +230,8 @@
    "verify-figure-export-gui.mjs",
    "verify-p4-paper.mjs",
    "verify-keepalive.mjs",
+   "verify-mode-cold-switch.mjs",
+   "verify-orphan-slide-sources-gui.mjs",
    "verify-fixture.mjs",
    "verify-migration.mjs",
    "verify-p5-shell.mjs",
@@ -258,7 +270,13 @@
    "verify-snip-gui.mjs",
    "verify-lazy-save-safety.mjs",
    "verify-lazy-load-gui.mjs",
-   "verify-lazy-export-overrides.mjs"
+   "verify-lazy-export-overrides.mjs",
+   "verify-figure-source-sync.mjs",
+   "verify-slide-authoring-gui.mjs",
+   "verify-slide-canvas-presentation-gui.mjs",
+   "verify-figure-catalog-gui.mjs",
+   "verify-figure-reference-sync.mjs",
+   "verify-slide-source-sync-gui.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -330,7 +348,8 @@
    "verify-scale-paper.mjs",
    "verify-scale-fulltext.mjs",
    "verify-scale-slide.mjs",
-   "verify-scale-lazy-assets.mjs"
+   "verify-scale-lazy-assets.mjs",
+   "verify-scale-slide-dense.mjs"
   ],
   "bundle": [
    "verify-w13-cli.mjs",
@@ -347,7 +366,8 @@
    "verify-cellpress.cjs",
    "verify-netget.cjs",
    "verify-proxy-capture.cjs",
-   "verify-writer-latency-inp.mjs"
+   "verify-writer-latency-inp.mjs",
+   "verify-source-sync-electron.cjs"
   ],
   "presence": [
    "verify-electron-no-undef.ts",
@@ -395,7 +415,16 @@
    "verify-nature-style.ts",
    "verify-writer-neutral.ts",
    "verify-paper-render-overrides.ts",
-   "verify-clip-collision.mjs"
+   "verify-clip-collision.mjs",
+   "verify-figure-reference-identity.ts",
+   "verify-figure-sources.ts",
+   "verify-figure-source-sync.mjs",
+   "verify-figure-reference-sync.ts",
+   "verify-figure-catalog-gui.mjs",
+   "verify-large-figure-preservation.ts",
+   "verify-figure-reference-sync.mjs",
+   "verify-source-watch.ts",
+   "verify-mode-cold-switch.mjs"
   ],
   "reader-gate": [
    "verify-r1-highlights.mjs",
@@ -415,10 +444,45 @@
    "verify-r1-hlgeom.ts",
    "verify-r4-cite.ts",
    "verify-reader-search.ts"
+  ],
+  "figures-slides-overhaul": [
+   "verify-figure-reference-identity.ts",
+   "verify-figure-sources.ts",
+   "verify-slide-timeline.ts",
+   "verify-slide-timeline-browser.ts",
+   "verify-figure-source-sync.mjs",
+   "verify-slide-authoring-gui.mjs",
+   "verify-slide-canvas-presentation-gui.mjs",
+   "verify-figure-reference-sync.ts",
+   "verify-figure-catalog-gui.mjs",
+   "verify-large-figure-preservation.ts",
+   "verify-slide-source-sync.ts",
+   "verify-figure-reference-sync.mjs",
+   "verify-slide-source-sync-gui.mjs",
+   "verify-source-watch.ts",
+   "verify-orphan-slide-sources.ts",
+   "verify-orphan-slide-sources-gui.mjs",
+   "verify-mode-cold-switch.mjs"
   ]
  },
  "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
  "pathMap": [
+  {
+   "glob": "{src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
+   "run": [
+    "group:figures-slides-overhaul",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "src/shell/{ModeContent.svelte,modeRegistry.ts,paneStore.ts}",
+   "run": [
+    "verify-mode-cold-switch.mjs",
+    "verify-keepalive.mjs",
+    "verify-slide-tenancy-gui.mjs",
+    "tier:pure"
+   ]
+  },
   {
    "glob": "src/shell/modes/library/LibraryMode.svelte",
    "run": [
@@ -722,6 +786,13 @@
    ]
   },
   {
+   "glob": "{electron/{main,preload}.cjs,electron/ipc/{files,sourceWatch,contract}.cjs}",
+   "run": [
+    "verify-source-watch.ts",
+    "tier:presence"
+   ]
+  },
+  {
    "glob": "electron/**",
    "run": [
     "tier:presence",
@@ -798,6 +869,7 @@
   "verify-slide-tenancy-gui.mjs": 180000,
   "verify-scale-slide.mjs": 180000,
   "verify-slide-export-transform.ts": 300000,
-  "verify-scale-lazy-assets.mjs": 180000
+  "verify-scale-lazy-assets.mjs": 180000,
+  "verify-scale-slide-dense.mjs": 180000
  }
 }

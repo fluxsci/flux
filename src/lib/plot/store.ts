@@ -135,6 +135,7 @@ export function cachePlot(
   recipe?: unknown,
 ): boolean {
   const prepared = preparePlot(svgText, manifest);
+  if (!prepared.root) return false; // retain the complete last-good cache
   if (prepared.root) {
     const prev = plotNodeCount.get(assetId);
     if (prev != null) plotResidency.totalNodes -= prev;
@@ -151,7 +152,12 @@ export function cachePlot(
   // manifest is always present when the svg parsed (derived if no sidecar);
   // only a parse failure leaves it undefined — don't store that.
   if (manifest !== undefined) plotManifests.update((m) => ({ ...m, [assetId]: manifest as FluxPlotManifest }));
-  if (recipe !== undefined) plotRecipes.update((m) => ({ ...m, [assetId]: recipe }));
+  plotRecipes.update((m) => {
+    const next = { ...m };
+    if (recipe !== undefined) next[assetId] = recipe;
+    else delete next[assetId];
+    return next;
+  });
   plotGen.update((g) => ({ ...g, [assetId]: (g[assetId] ?? 0) + 1 }));
   return !!prepared.root;
 }

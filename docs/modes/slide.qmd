@@ -18,42 +18,77 @@ starter text — title, section, two-column, or *blank* for a clean stage), and 
 inserts a slide from your machine-global **slide preset library** (save any slide there from
 the Slide panel — its animation, background, and media travel with it).
 
-The right rail holds the **Slide panel** (name, per-slide **background**, transition, speaker
-notes) and the **Deck panel**: the **theme** — seven built-ins from *Flux Dark* through *Flux
+The right rail switches between **Object**, **Animation**, **Slide**, and **Deck**. Object edits the selected object; Animation edits the selected effect. The **Slide panel** holds the name, per-slide **background**, transition, speaker
+notes. The **Deck panel** controls the **theme** — seven built-ins from *Flux Dark* through *Flux
 Light*, *Paper*, *Midnight*, *Slate*, *Sepia*, and *Contrast* — and the **stage size** (16:9,
 4:3, 16:10). **Ctrl+Shift+B** hides the whole rail, and both rails resize by dragging their
 inner edge (the filmstrip too; **Ctrl+B** hides it when no text is selected).
 
-# Beats
+# Steps and editing destination
 
-Animation is built around **beats**: each slide reveals or changes things step by step, the
-way you'd build an argument. Beat 0 is *Start* — the slide at rest; each further beat is one
-press of the advance key. A beat can also play **with** the previous one, or **auto** after a
-delay, so multi-part builds land as one gesture.
+A presentation is a sequence of named **steps** (called beats in the deck file and commands).
+**Start** is the initial presentation frame. Each later step runs **On click**, **With previous**,
+or **After previous** with a chosen delay. The step strip always stays visible while the timeline
+shows the selected step's effects.
 
-The canvas is **beat-faithful**: it always shows the slide *as it exists at the selected
-beat*, and editing simply changes what you see — edit at beat 3 and you're shaping beat 3's
-state; edit at *Start* and you're shaping the resting slide.
+The bar above the stage states where your edits go:
+
+- **Design** edits the original slide objects. All authored objects are available for arranging.
+- **Edit after step N** shows the evaluated result through that step. Move, resize, recolor,
+  rewrite, or restyle an object to create or update a Change at **that exact step**. Earlier
+  steps remain intact. Adding, deleting, grouping, and renaming objects are structural slide edits.
+
+Selecting a different step browses its effects; it does not silently change the editing destination.
+Choose **Edit after step N** when you want to shape the newly selected step. **Show hidden** displays
+objects and plot parts that have disappeared as faint, selectable ghosts. Ghosts never appear in
+presentation or export. **Fit** keeps the whole stage visible as you resize the dock and rails;
+manual zoom or pan preserves your chosen view instead.
 
 # The Animator
 
-**Animate ⏱** opens the animator dock. Beats appear as chips; the expanded beat shows its
-**tracks** as lanes on a millisecond ruler — drag a lane to retime it, drag its right edge for
-duration, drag it onto another beat to move it (**Alt** copies), and group related lanes into
-collapsible boxes. The **Properties** mini-pane edits the selected track: preset, start,
-duration, easing and influence, and — for staggered tracks — order and direction.
+**Animate ⏱** opens a resizable dock with a named step strip, millisecond ruler, and timing lanes.
+Object and semantic-part names stay readable in the fixed left column, even for short effects.
+Select a lane to select and outline its stage target. Hovering a lane outlines the exact object or
+plot parts. Selecting an object identifies its effects in the current step.
 
-To animate something: select it on the stage (**Ctrl+click** drills to a plot *part* — a
-single series can animate on its own), then
+To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plot part), then use:
 
-- **Ctrl+Shift+A** — add an **appearance** (enter),
-- **Ctrl+Shift+D** — add a **disappearance** (exit),
-- **Ctrl+Shift+T** — add a **transform** (see below).
+- **Appear** / **Ctrl+Shift+A** — add an entrance.
+- **Change** / **Ctrl+Shift+T** — shape a new state at this step.
+- **Emphasize** — add a highlight.
+- **Disappear** / **Ctrl+Shift+D** — add an exit.
 
-Each element type gets a sensible default (text fades and rises, shapes pop, lines and paths
-draw on), and **✨ Auto-animate** builds a whole entrance sequence for a selected plot from its
-anatomy — series draw on, points stagger in. **▶ Preview** plays the build on the stage;
-**☆ Library** holds your saved animation presets and multi-track templates.
+Text rises in, shapes pop, and lines and paths draw on. Adding another appearance keeps the existing
+effects; successive effects on the same target start after its existing effects by default.
+**Auto-animate** builds a plot's entrance sequence from its semantic anatomy.
+
+Drag a timing bar to change its start, its right edge to change duration, or drag it vertically to
+reorder. Drag onto a step to move it; hold **Alt** to copy between steps. Shift or Ctrl/Cmd-click
+selects several lanes; **Ctrl/Cmd+A** selects this step's effects. **Ctrl/Cmd+G** groups the selection,
+**Ctrl/Cmd+Shift+G** ungroups it, and **Ctrl/Cmd+D** duplicates it. Groups can collapse without changing
+timing. Double-click a group name to rename it; drag its span to retime or move the whole group. Right-click a lane for these actions and moves to named steps. Ctrl/Cmd-wheel zooms timing;
+**fit ⟲** restores automatic scaling.
+
+The **Animation** inspector edits the selected effects' target, part, effect, start, duration,
+easing, stagger, and relevant specialized controls. Mixed timing values are blank until you set
+one shared value. Choose a new target or part to repair a missing binding. An issue banner identifies
+missing targets, unmatched parts, unsupported effects, or conflicting overlapping effects; click an
+issue to inspect its track. Custom influence is under **Custom easing**; selecting a named easing
+returns control to that curve. **Library** holds reusable presets and multi-track templates.
+
+Keyboard commands belong to the focused surface. In the animation dock or inspector, **Delete**
+removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts, and
+**Alt+Shift+left/right** adjusts durations. On the canvas, Delete removes objects and arrows move
+them. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
+
+## Playback and inspection
+
+**Step** plays only the selected step. **Play** starts from that step and continues through the slide;
+**Slide** plays the whole slide. **Space** toggles play/pause and **Stop** returns to editing. The
+playhead follows the actual player clock. Drag the ruler to inspect a precise time without editing
+the document or changing the edit destination. Playback retains the last frame for inspection.
+**Loop** repeats the chosen playback range. Editing a property cancels the old preview so the next
+preview uses the updated document. Use Present for manual click-by-click rehearsal.
 
 ## Appearances
 
@@ -67,20 +102,20 @@ wipes pick their direction.
 
 ## Transforms and morphs
 
-A **transform** tweens an element into a *different version of itself* between two beats. Add
-one and its **t₂** endpoint checks out onto the canvas: edit the object with every ordinary
-tool — move it, resize it, recolor it, rewrite its text, hide plot parts — then **Escape**.
-The animator records the difference and plays it as motion; the lane shows **t₁ — t₂**
-handles, and clicking either endpoint re-opens it for editing. Chained transforms across beats
-compose, colors blend perceptually, rewritten numbers digit-tween.
+A **Change** track tweens an element into a different version of itself. Add one and its **After**
+state appears on the canvas. Use the ordinary editor tools to shape it; the animator records a sparse
+property change. **Before** selects the immediately previous step (or Design for the first change),
+while **After** selects this step. The destination above the stage always identifies where subsequent
+edits will go. Chained changes compose across steps; colors blend perceptually and rewritten numbers
+digit-tween. Clear a captured property in the Animation inspector to let it inherit from earlier steps.
 
-For plots, a transform can also carry a **data morph**: pick a target plot with **⇄ Morph**
-(or the track's *data morph* dropdown) and one chart tweens into the other — axes, series and
-all. Morphs are for structurally matched pairs (same series, same axes family); incompatible
-targets are flagged rather than mangled.
+For plots, choose **Data morph…** or **Choose data target from project…** in the Animation inspector.
+Choose one plot from the project's plot browser. It becomes the Change's data dependency, without
+placing a second object on the slide. Structurally compatible plots morph axes, series, and marks;
+incompatible targets use a crossfade fallback. The source path is retained so linked data can update.
 
-**🎥 Zoom** adds a camera move to the selected element (**⤢ Reset** pulls back) — build-a-tour
-zooms without leaving the beat model.
+**Zoom** adds a camera move toward the selected object; **Reset** pulls back to the full slide.
+After-step editing uses the same camera mapping, so selection, dragging, and highlights stay aligned.
 
 ## Cascading tracks
 
@@ -108,13 +143,18 @@ file, give the talk.
 
 **Send to deck…** (in Figure mode's Inspector) turns a figure into a slide;
 **Send to canvas…** (in the Slide panel) turns a slide into a paper figure — it becomes
-citable as `@fig-…` like any other. Both directions keep plots live.
+citable as `@fig-…` like any other. Copied composition is independently editable. Plot source data stays linked unless you deliberately freeze a usage; later source refresh preserves your slide-specific layout.
+
+Decks remember the accepted intrinsic size of linked assets so regeneration preserves the
+same placement scale whether the deck stays open or is reopened later. An older deck without
+that baseline adopts the currently accepted size once; Flux cannot reconstruct dimensions
+that were never saved.
 
 # Troubleshooting
 
 | Symptom | Cause → fix |
 |---|---|
 | The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
-| A morph target is listed but disabled | The plots aren't structurally compatible (different series/axes) → use a crossfade (exit + enter) instead |
-| A track shows ⚠ | Its element was deleted → re-target or delete the track (it's kept so you can re-link) |
+| A data change crossfades instead of morphing | The plots have incompatible structures → use matching series/axes for continuous geometry morphing |
+| An animation issue appears | Select the issue to inspect the effect, then retarget missing objects/parts or adjust overlapping timing |
 | Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |

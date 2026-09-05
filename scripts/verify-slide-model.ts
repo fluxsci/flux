@@ -70,3 +70,16 @@ try {
 } finally {
   await fs.rm(root, { recursive: true, force: true });
 }
+
+// Presentation theme defaults follow an explicit theme switch; custom ink is stable.
+{
+  const d=slideOps.createDeck({theme:"flux-dark"});
+  const title=d.slides[0].elements.find(e=>e.type==="text")!;
+  const {resolveTheme}=await import("../src/lib/slide/theme");
+  assert(title.type==="text"&&title.color===resolveTheme("flux-dark").textHi,"new dark slides start with readable theme text");
+  slideOps.setTheme(d,"flux-light");
+  assert(title.type==="text"&&title.color===resolveTheme("flux-light").textHi,"switching theme carries default text to readable light-theme ink");
+  if(title.type==="text")title.color="#d95f02";
+  slideOps.setTheme(d,"flux-dark");
+  assert(title.type==="text"&&title.color==="#d95f02","theme switch preserves deliberately custom text color");
+}

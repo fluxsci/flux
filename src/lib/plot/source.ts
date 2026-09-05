@@ -70,14 +70,11 @@ export function toProjectRelativeSource(root: string | null | undefined, stored:
 /** Every absolute path worth trying for a stored source, best candidate first.
  *  Callers probe these in order and take the first that exists.
  *
- *  1. the stored path itself, when absolute — same machine, and the only way a
- *     deliberate external import (a plot living outside the project) resolves;
- *  2. `<root>/<stored>` for a relative path — the canonical shape;
- *  3. re-anchored at THIS project's plots/ — rescues a foreign absolute path
- *     (project synced to another machine, folder renamed, restored elsewhere);
- *  4. `<root>/plots/<basename>` — last resort, and what finally resolves the
- *     bare-filename shape that drag-drop has always written. */
-export function plotSourceCandidates(root: string | null | undefined, stored: string): string[] {
+ *  Project-relative paths resolve against this root. A historical absolute
+ *  in-project plots/ path prefers THIS project's re-anchored copy before the
+ *  old path; explicit external links preserve their origin. Bare legacy names
+ *  also try plots/<name>. Explicit nested paths never guess by basename. */
+export function plotSourceCandidates(root: string | null | undefined, stored: string, opts: { external?: boolean } = {}): string[] {
   const s = norm(stored);
   const r = norm(root);
   if (!s) return [];
@@ -87,16 +84,64 @@ export function plotSourceCandidates(root: string | null | undefined, stored: st
     if (n && !out.includes(n)) out.push(n);
   };
 
+  // An old in-project absolute path must follow the MOVED project even if
+  // its old checkout still exists. Explicit external links keep their origin.
+  const relocated = r && isAbsolutePath(s) && !isUnderRoot(r, s) && !opts.external && s.includes(PLOTS_SEG);
+  if (relocated) push(`${r}/plots/${s.slice(s.lastIndexOf(PLOTS_SEG) + PLOTS_SEG.length)}`);
   if (isAbsolutePath(s)) push(s);
   else if (r) push(`${r}/${s}`);
+  if (opts.external && isAbsolutePath(s)) return out;
 
   if (r) {
     const i = s.lastIndexOf(PLOTS_SEG);
     if (i >= 0) push(`${r}/plots/${s.slice(i + PLOTS_SEG.length)}`);
     else if (s.startsWith("plots/")) push(`${r}/${s}`);
-    push(`${r}/plots/${baseName(s)}`);
+    // Only a legacy bare filename warrants the basename rescue. Guessing
+    // one for an explicit nested path can silently bind a different plot.
+    if (!s.includes("/")) push(`${r}/plots/${baseName(s)}`);
   }
   return out;
+}
+
+/** Sidecars follow the SVG that actually resolved. Standard siblings always
+ * pair with that file; authored non-sibling metadata keeps its explicit path.
+ * When a legacy project moves, sidecars under its old root move with it, so
+ * old-checkout metadata can never silently accompany the new SVG. */
+export function plotSidecarCandidates(root: string, source: NonNullable<SemanticPlotElement["source"]>, resolvedSvg: string, kind: "manifest" | "recipe"): string[] {
+  const suffix = kind === "manifest" ? ".fluxplot.json" : ".recipe.json";
+  const stored = kind === "manifest" ? source.manifestPath : source.recipePath;
+  const adjacent = norm(resolvedSvg).replace(/\.svg$/i, suffix);
+  if (!stored || norm(stored) === norm(source.svgPath).replace(/\.svg$/i, suffix)) return [adjacent];
+  const origin = norm(source.svgPath), sidecar = norm(stored);
+  if (!source.external && isAbsolutePath(origin) && !isUnderRoot(root, origin) && isUnderRoot(root, resolvedSvg)) {
+    const anchor = origin.lastIndexOf(PLOTS_SEG);
+    if (anchor >= 0 && isUnderRoot(origin.slice(0, anchor), sidecar)) {
+      return [`${norm(root)}/${sidecar.slice(anchor + 1)}`];
+    }
+    // A relative custom path is portable as-is. An unrelated historical
+    // absolute path cannot safely supply a relocated source's metadata.
+    return plotSourceCandidates(root, sidecar, source).filter((p) => isUnderRoot(root, p));
+  }
+  return plotSourceCandidates(root, sidecar, source);
+}
+
+export interface LinkedSourceFiles { svgPath: string; manifestPath?: string; recipePath?: string }
+/** All exact files worth probing, including absent paths whose later creation
+ * must wake the watcher. Native owns validation, read grants and lifetimes. */
+export function linkedSourceFiles(root: string, project: Project): LinkedSourceFiles[] {
+  const files = new Map<string, LinkedSourceFiles>();
+  for (const f of project.figures) for (const e of f.elements) {
+    if (e.type !== "plot" || !e.source?.svgPath || e.source.frozen) continue;
+    for (const svgPath of plotSourceCandidates(root, e.source.svgPath, e.source)) {
+      const manifests = plotSidecarCandidates(root, e.source, svgPath, "manifest");
+      const recipes = plotSidecarCandidates(root, e.source, svgPath, "recipe");
+      for (const manifestPath of manifests.length ? manifests : [undefined]) for (const recipePath of recipes.length ? recipes : [undefined]) {
+        const value = { svgPath, manifestPath, recipePath };
+        files.set(JSON.stringify(value), value);
+      }
+    }
+  }
+  return [...files.values()];
 }
 
 const SOURCE_KEYS = ["svgPath", "manifestPath", "recipePath"] as const;

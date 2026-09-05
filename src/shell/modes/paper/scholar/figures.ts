@@ -4,6 +4,7 @@
 // (Flux_Paper_Plan.md B-data layer).
 
 import { get, writable } from "svelte/store";
+import { createFigureReferenceResolver } from "../../../../lib/figureReferences";
 import type { Asset, Element, Figure, FigureFamilyDef, Project } from "../../../../lib/types";
 import { figureToSvg } from "../../../../lib/export";
 import { buildPlotMarkup } from "../../../../lib/plot/inlineMarkup";
@@ -27,7 +28,7 @@ export interface FigureRef {
   id: string;
   label: string; // e.g. "fig-growth" (includes the fig- prefix, Quarto-style)
   name: string; // derived display name ("Supplementary Figure 4")
-  nickname?: string; // free-text recognition aid (searched, shown dim)
+  nickname?: string; // human title (primary label in pickers)
   family: string; // family id; "tbl"/"eq" on the fabricated table/eq refs
   number: number; // position within family (figfamily.ts — contiguous 1..N)
   display: string; // whole-figure in-text text: "Fig. S4" / "Mov. 3" / "Table 2"
@@ -48,11 +49,9 @@ export const figureCanvases = writable<{ id: string; name: string }[]>([]);
 // PAP-22: index refs by label so the cite/cross-ref chip widgets resolve in O(1) instead of a
 // linear `find` per chip per rebuild (chips rebuild on every keystroke/scroll over the visible
 // range). Kept in sync by subscribing to the store, so every set — load, seed — refreshes it.
-let refByLabel = new Map<string, FigureRef>();
+let resolveFigureToken = createFigureReferenceResolver<FigureRef>([]);
 figureRefs.subscribe((refs) => {
-  const m = new Map<string, FigureRef>();
-  for (const r of refs) if (!m.has(r.label)) m.set(r.label, r); // first-match, mirrors find()
-  refByLabel = m;
+  resolveFigureToken = createFigureReferenceResolver(refs);
 });
 
 let figuresById: Record<string, Figure> = {};
@@ -117,8 +116,15 @@ export function resolveFigure(
   label: string,
   nums?: { tbl: Map<string, number>; eq: Map<string, number> },
 ): { ref: FigureRef; display: string; panel?: string } | null {
-  const exact = refByLabel.get(label);
-  if (exact) return { ref: exact, display: exact.display };
+  const found = resolveFigureToken(label);
+  if (found) {
+    const panel = found.panelSpec?.replace(/-/g, "–");
+    return {
+      ref: found.ref,
+      display: panel ? formatFamilyRef(familyById(found.ref.family, familyDefs), found.ref.number, panel) : found.ref.display,
+      ...(panel ? { panel } : {}),
+    };
+  }
   // Table cross-refs are numbered inline (by the table renderer), not from the
   // figure project — resolve them against the numbering registry.
   if (label.startsWith("tbl-")) {
@@ -146,54 +152,7 @@ export function resolveFigure(
     }
     return null;
   }
-  // Sub-panel refs: append a panel letter, range, or comma-list to a label.
-  //   @fig-x-a      → "1a"      (single panel)
-  //   @fig-x-a-c    → "1a–c"    (panel range, rendered with an en dash)
-  //   @fig-x-a,c    → "1a,c"    (non-contiguous panels)
-  //   @fig-x-a-c,e  → "1a–c,e"  (range + extra panel)
-  // Match the LONGEST base figure label that is a prefix (figure ids can
-  // themselves contain hyphens), then parse the remainder as the panel spec.
-  const refs = get(figureRefs); // panel-prefix match can't use the exact-label index
-  let base: FigureRef | undefined;
-  for (const r of refs) {
-    if (label.startsWith(r.label + "-") && (!base || r.label.length > base.label.length)) {
-      base = r;
-    }
-  }
-  if (base) {
-    const suffix = label.slice(base.label.length + 1);
-    const items = suffix.split(",");
-    const parts: string[] = [];
-    let ok = items.length > 0;
-    // When the figure's real panel letters are known (F7), validate that every
-    // referenced panel exists, so @fig-x-z (no panel z) stays unresolved.
-    const known = base.panels.length > 0;
-    for (const it of items) {
-      // A panel atom is a letter with an OPTIONAL sub-number (`a`, `b1`, `c12`): a multi-part
-      // figure names panel b's parts b1..b5, and captions.panelLetters already returns those
-      // names verbatim, so the membership check below accepts them. Kept in step with
-      // lib/exportQmd's PANEL_SPEC_RE and science/grammar's crossrefRe — all three must admit
-      // the same atom or a ref resolves in one surface and not another.
-      const sm = /^([a-z]\d*)(?:-([a-z]\d*))?$/.exec(it);
-      if (!sm) {
-        ok = false;
-        break;
-      }
-      if (known && (!base.panels.includes(sm[1]) || (sm[2] && !base.panels.includes(sm[2])))) {
-        ok = false;
-        break;
-      }
-      parts.push(sm[2] ? `${sm[1]}–${sm[2]}` : sm[1]);
-    }
-    if (ok) {
-      const panel = parts.join(",");
-      return {
-        ref: base,
-        display: formatFamilyRef(familyById(base.family, familyDefs), base.number, panel),
-        panel,
-      };
-    }
-  }
+
   return null;
 }
 
@@ -208,13 +167,14 @@ export function resolveFigure(
  *  which (verify-writer-neutral pins this). */
 export function exportCtxFigures(
   style?: ResolvedJournalStyle | null,
-): Map<string, { family: FigureFamilyDef; number: number }> {
-  const out = new Map<string, { family: FigureFamilyDef; number: number }>();
+): Map<string, { family: FigureFamilyDef; number: number; panels: string[] }> {
+  const out = new Map<string, { family: FigureFamilyDef; number: number; panels: string[] }>();
   for (const r of get(figureRefs)) {
     if (!out.has(r.label)) {
       out.set(r.label, {
         family: styledFamilyDef(style, familyById(r.family, familyDefs)),
         number: r.number,
+        panels: r.panels,
       });
     }
   }
@@ -320,6 +280,8 @@ export async function materializeRenders(
   let wrote = 0;
   const failed: string[] = [];
   if (!root || !fb) return { wrote, failed };
+  await (await import("../../../../lib/project/sourceBridge")).syncProjectSources(root);
+  await loadFigures(root); // export uses the accepted source revision
   const ids = new Set<string>();
   for (const line of docText.split("\n")) {
     const m = EMBED_RE.exec(line);

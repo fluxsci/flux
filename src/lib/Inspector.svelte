@@ -1,7 +1,7 @@
 <script lang="ts">
   import { get } from "svelte/store";
   import { onMount, getContext } from "svelte";
-  import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer } from "./store";
+  import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog } from "./store";
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextStyle } from "./types";
@@ -643,7 +643,7 @@
              type 7 → true 7 pt in print) but STORED in canvas px (1/96 in): px = pt × 4/3.
              Storage is untouched so old documents render identically. -->
         <NumberField label="Size (pt)" value={single.fontSize * 0.75} min={1} step={0.5}
-          title="Font size in points, as printed (journals typically want 5–8 pt)"
+          title={slideMode ? "Font size in points" : "Font size in points, as printed (journals typically want 5–8 pt)"}
           on:commit={(e) => updateSelected((el, p) => { if (el.type === "text") { el.fontSize = e.detail * (4 / 3); ops.detachOnManualEdit(p, el, ["fontSize"]); } })}
           on:scrub={(e) => scrubSelected((el, p) => { if (el.type === "text") { el.fontSize = e.detail * (4 / 3); ops.detachOnManualEdit(p, el, ["fontSize"]); } })} />
         <label>Weight
@@ -768,7 +768,11 @@
   {/if}
 
   <!-- COLOR PALETTE -->
-  <ColorPalette />
+  {#if slideMode}
+    <details class="slide-colors"><summary>Color palette</summary><ColorPalette /></details>
+  {:else}
+    <ColorPalette />
+  {/if}
 
   <!-- FIGURE (+ exports) — figure-only: slide name/background are edited in
        the Slide panel, the stage in the Deck panel, and a deck exports as a
@@ -786,10 +790,10 @@
         <b>{fig.name}</b>
         <span class="id-ref">{formatFamilyRef(familyById(fig.family, $project.figureFamilies), fig.number ?? 0)}</span>
       </button>
-      <label class="full">Nickname
+      <label class="full">Title
         <input
           value={fig.nickname ?? ""}
-          placeholder="optional — search aid"
+          placeholder="e.g. Growth curves"
           on:change={(e) => {
             const v = e.currentTarget.value.trim();
             updateFigure((f) => {
@@ -798,6 +802,7 @@
             });
           }} />
       </label>
+      <button class="full figure-details" on:click={() => figureCatalog.set({ figureId: fig.id })}>Reference, sources &amp; used in…</button>
       <div class="row">
         <NumberField label="X" value={fig.x}
           on:commit={(e) => updateFigure((f) => (f.x = e.detail))}
@@ -879,6 +884,9 @@
 </aside>
 
 <style>
+  .slide-colors { margin: 8px; border-top: 1px solid var(--c-line); padding-top: 10px; }
+  .slide-colors summary { cursor: pointer; color: var(--c-tx-2); font-size: var(--ts-xs); }
+  .figure-details { font: inherit; padding: 7px; margin-top: 8px; color: var(--c-accent); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 5px; cursor: pointer; }
   .inspector {
     /* Width var set by the host mode (FigureMode drag-resize). SlideMode's
        `.rail :global(.inspector){width:100%}` override still wins there. */

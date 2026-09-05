@@ -1,7 +1,5 @@
 <script lang="ts">
-  // Figure Namer (Ctrl+R): the fast family · number · nickname popup. Opens
-  // with the number pre-selected so the dominant action is three keystrokes:
-  // Ctrl+R → digits → Enter. ↑/↓ cycle the family from anywhere; "+ New
+  // Figure Namer (Ctrl+R): title first, publication designation second. "+ New
   // family…" stages a custom family ("Movie" → "Mov. 3b") that is only
   // persisted on commit. One commit() = one undo entry. Store-driven
   // (store.figNamer), mounted by FigureMode inside .canvas-wrap.
@@ -32,6 +30,7 @@
   // display name until hand-edited.
   let creating = $state<{ displayName: string; refTemplate: string; captionTemplate: string; autoRef: boolean; autoCap: boolean } | null>(null);
   let numberEl = $state<HTMLInputElement | undefined>();
+  let titleEl = $state<HTMLInputElement | undefined>();
   let createNameEl = $state<HTMLInputElement | undefined>();
 
   // Re-seed local state each time the namer opens (keyed on the target id).
@@ -54,8 +53,8 @@
     staged = null;
     creating = null;
     void tick().then(() => {
-      numberEl?.focus();
-      numberEl?.select();
+      titleEl?.focus();
+      titleEl?.select();
     });
   });
 
@@ -168,7 +167,7 @@
       return;
     }
     if (creating) return; // subform owns the rest of its keys
-    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
       cycleFamily(e.key === "ArrowDown" ? 1 : -1);
       return;
@@ -203,6 +202,16 @@
     </div>
 
     {#if !creating}
+      <label class="nlabel" for="fig-namer-title">Title</label>
+      <input
+        id="fig-namer-title"
+        class="nick"
+        bind:this={titleEl}
+        bind:value={nickname}
+        placeholder="e.g. Growth curves"
+        spellcheck="false"
+        aria-label="Figure title" />
+      <span class="nhint">A descriptive name for this figure. Its reference stays the same.</span>
       <div class="nbody">
         <div class="fams" role="radiogroup" aria-label="Figure family">
           {#each families as f (f.id)}
@@ -218,7 +227,7 @@
           <button class="fam add" onclick={openCreate}>+ New family…</button>
         </div>
         <div class="numcol">
-          <label class="nlabel" for="fig-namer-number">Number</label>
+          <label class="nlabel" for="fig-namer-number">Figure number</label>
           <input
             id="fig-namer-number"
             class="numin"
@@ -231,18 +240,16 @@
           <span class="nhint">{hint}</span>
         </div>
       </div>
-      <input
-        class="nick"
-        bind:value={nickname}
-        placeholder="nickname (optional)"
-        spellcheck="false"
-        aria-label="Nickname" />
       <div class="nprev">
         <span class="pv-name">{derivedFigureName(selDef, num)}</span>
         <span class="pv-sep">·</span>
         <span class="pv-ref">{formatFamilyRef(selDef, num, firstPanel)}</span>
         <span class="pv-sep">·</span>
         <span class="pv-cap">{formatCaptionLabel(selDef, num).trimEnd()}</span>
+      </div>
+      <div class="nactions">
+        <span class="nhint">Numbering is set in Figure, independently of Paper document order.</span>
+        <button class="nbtn save" onclick={commitNamer}>Save</button>
       </div>
     {:else}
       <div class="create">
@@ -298,7 +305,7 @@
     top: 14px;
     left: 50%;
     transform: translateX(-50%);
-    width: 340px;
+    width: min(400px, calc(100% - 28px));
     z-index: 60; /* above the disk-toast's 50 */
     display: flex;
     flex-direction: column;

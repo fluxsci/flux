@@ -373,7 +373,7 @@ const trk = (d: Deck, id: string) => d.slides[0].beats.flatMap((b) => b.tracks).
 {
   const d = deckFixture();
   slideOps.cascadeTracks(d, "s1", ["tA", "tB", "tC"], { property: "duration", delta: -400 });
-  assert(trk(d, "tA").duration === 50 && trk(d, "tB").duration === 50, "duration floors at 50ms from the 400 default");
+  assert(trk(d, "tA").duration === 50 && trk(d, "tB").duration === 50, "duration floors at 50ms from the effective preset default");
   assert(trk(d, "tC").duration === 50, "explicit 700ms base clamps too (700 − 1200)");
 }
 
@@ -413,3 +413,9 @@ const trk = (d: Deck, id: string) => d.slides[0].beats.flatMap((b) => b.tracks).
 }
 
 console.log("verify-cascade: ALL OK");
+
+{
+  const d=deckFixture();
+  slideOps.cascadeTracks(d,"s1",["tA"],{property:"duration",delta:50});
+  assert(trk(d,"tA").duration===370,"duration cascade starts from the actual 320ms appearance duration shown in the timeline");
+}

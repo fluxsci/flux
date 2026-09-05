@@ -1,4 +1,4 @@
-import type { Element, Figure, ImageElement } from "./types";
+import type { Element, Figure, ImageElement, TextElement } from "./types";
 import { lineRender, elementBBox, dashAttr } from "./geometry";
 import { pathRender } from "./path";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
@@ -38,6 +38,24 @@ function rot(e: Element, inner: string): string {
 
 function op(e: Element): string {
   return e.opacity != null && e.opacity < 1 ? ` opacity="${e.opacity}"` : "";
+}
+
+/** Shared text presentation for SVG serialization and cached slide bindings.
+ * Values are unescaped; a serializer escapes them and DOM setters do not. */
+export function textSvgLayout(e: TextElement): { attrs: Record<string, string>; lines: string[]; x: number; advance: number } {
+  const anchor = e.align === "center" ? "middle" : e.align === "right" ? "end" : "start";
+  const x = e.align === "center" ? e.x + e.width / 2 : e.align === "right" ? e.x + e.width : e.x;
+  return {
+    attrs: {
+      x: String(x), y: String(e.y + e.fontSize), "font-family": e.fontFamily,
+      "font-size": String(e.fontSize), "font-weight": String(e.fontWeight),
+      ...(e.fontStyle === "italic" ? { "font-style": "italic" } : {}),
+      ...(e.underline ? { "text-decoration": "underline" } : {}),
+      fill: e.color, "text-anchor": anchor,
+      ...(e.opacity != null && e.opacity < 1 ? { opacity: String(e.opacity) } : {}),
+    },
+    lines: visualLines(e), x, advance: lineH(e),
+  };
 }
 
 /** Intrinsic content size (assetDisplaySize units) for crop rendering of
@@ -157,29 +175,16 @@ export function elementToSvg(
       // visualLines = the GUI's wrap cache when present (sizing auto-h/fixed),
       // else the hard lines — this ONE function also serves flux-core's
       // headless renderFigureSvg, so wrapped output is identical everywhere.
-      const lines = visualLines(e);
-      const anchor =
-        e.align === "center" ? "middle" : e.align === "right" ? "end" : "start";
-      const ax =
-        e.align === "center"
-          ? e.x + e.width / 2
-          : e.align === "right"
-            ? e.x + e.width
-            : e.x;
-      const style =
-        e.fontStyle === "italic" ? ` font-style="italic"` : "";
-      const deco = e.underline ? ` text-decoration="underline"` : "";
+      const { attrs, lines, x, advance } = textSvgLayout(e);
       const tspans = lines
         .map(
           (ln, i) =>
-            `<tspan x="${ax}" dy="${i === 0 ? 0 : lineH(e)}">${esc(ln)}</tspan>`,
+            `<tspan x="${x}" dy="${i === 0 ? 0 : advance}">${esc(ln)}</tspan>`,
         )
         .join("");
       return rot(
         e,
-        `<text x="${ax}" y="${e.y + e.fontSize}" font-family="${esc(e.fontFamily)}" ` +
-          `font-size="${e.fontSize}" font-weight="${e.fontWeight}"${style}${deco} ` +
-          `fill="${e.color}" text-anchor="${anchor}"${op(e)}>${tspans}</text>`,
+        `<text ${Object.entries(attrs).map(([name, value]) => `${name}="${esc(value)}"`).join(" ")}>${tspans}</text>`,
       );
     }
   }

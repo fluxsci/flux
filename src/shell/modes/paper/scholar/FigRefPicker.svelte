@@ -31,7 +31,14 @@
   let inputEl = $state<HTMLInputElement | undefined>(undefined);
   let panelsEl = $state<HTMLElement | undefined>(undefined);
 
-  let fig = $state<FigureRef | null>(null);
+  let figId = $state<string | null>(null);
+  const fig = $derived(figures.find((f) => f.id === figId) ?? null);
+  let priorPanels = "";
+  $effect(() => {
+    const signature = `${fig?.id ?? ""}:${fig?.panels.join(",") ?? ""}`;
+    if (signature !== priorPanels) { priorPanels = signature; picked = new Set(); hl = 0; }
+    if (figId && !fig) { figId = null; stage = "figure"; }
+  });
   let hl = $state(0); // focus ring over the panel pills
   let picked = $state<Set<string>>(new Set());
 
@@ -74,7 +81,7 @@
 
   function choose(f: FigureRef) {
     if (f.panels.length) {
-      fig = f;
+      figId = f.id;
       picked = new Set();
       hl = 0;
       stage = "panels";
@@ -86,7 +93,7 @@
   }
   function backToFigures() {
     stage = "figure";
-    fig = null;
+    figId = null;
     void tick().then(() => inputEl?.focus());
   }
   function togglePanel(p: string) {
@@ -194,6 +201,7 @@
           </select>
         {/if}
       </header>
+      <p class="link-note">Choose the figure in Figure. References stay linked; Paper order does not change its number.</p>
       {#if filtered.length}
         <div class="grid" id="figref-grid" bind:this={gridEl} role="listbox" aria-label="Figures">
           {#each filtered as f, i (f.id)}
@@ -216,8 +224,10 @@
                 {/if}
               </div>
               <div class="meta">
-                <b>{f.display}</b>
-                {#if f.nickname}<span class="nm">{f.nickname}</span>{/if}
+                <b>{f.nickname || f.name}</b>
+                <span class="designation">{f.display}</span>
+                <span class="nm">{canvases.find((c) => c.id === f.canvas)?.name ?? f.canvas}</span>
+                <code class="reference-key">@{f.label}</code>
                 {#if f.panels.length}
                   <span class="pcount">{f.panels.length} panels</span>
                 {/if}
@@ -233,8 +243,8 @@
     {:else if fig}
       <header>
         <button class="back" onclick={backToFigures} title="Back to figures (Esc)">‹</button>
-        <span class="ttl">{fig.display}</span>
-        {#if fig.nickname}<span class="nm hd">{fig.nickname}</span>{/if}
+        <span class="ttl">{fig.nickname || fig.name}</span>
+        <span class="nm hd">{fig.display} · @{fig.label}</span>
       </header>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div class="panelstage" bind:this={panelsEl} tabindex="-1">
@@ -275,6 +285,9 @@
 </div>
 
 <style>
+  .link-note { margin: 0; padding: 8px 16px; color: var(--c-tx-2); font-size: var(--ts-xs); border-bottom: 1px solid var(--c-line); }
+  .designation { color: var(--c-accent); font-size: var(--ts-xs); }
+  .reference-key { flex-basis: 100%; color: var(--c-tx-faint); font-size: 10px; overflow-wrap: anywhere; }
   .scrim {
     position: absolute;
     inset: 0;
@@ -404,13 +417,15 @@
   }
   .meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: 0.5em;
     padding: 8px 10px;
     border-top: 1px solid var(--c-line);
   }
   .meta b {
-    color: var(--c-accent-bright);
+    color: var(--c-tx-hi);
+    flex-basis: 100%;
   }
   .nm {
     color: var(--c-tx-2);

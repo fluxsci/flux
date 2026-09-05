@@ -12,6 +12,7 @@
 
 import type { Track, DeckTheme, StageSize } from "../types";
 import { trimKeyframes, resolveAnchor, isDefaultTrim, type TrimSpec } from "./trim";
+import { editorCameraTransform } from "../../editorPresentation";
 
 export type TargetNode = HTMLElement | SVGElement;
 
@@ -346,8 +347,7 @@ export const PRESETS: Record<string, Preset> = {
     const zoom = num(t.to?.zoom, 1);
     const cx = num(t.to?.x, ctx.stage.width / 2);
     const cy = num(t.to?.y, ctx.stage.height / 2);
-    const tx = ctx.stage.width / 2 - cx * zoom;
-    const ty = ctx.stage.height / 2 - cy * zoom;
+    const { x: tx, y: ty } = editorCameraTransform({ x: cx, y: cy, zoom }, ctx.stage);
     return each(nodes, (node, index) => ({
       node, index, enter: false,
       keyframes: [

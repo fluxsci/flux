@@ -189,7 +189,7 @@ try {
     const ell = document.querySelector('[data-el-id="e_ring"] ellipse') as SVGGeometryElement;
     const poly = document.querySelector('[data-el-id="l_arrow"] polygon') as SVGElement;
     const line = document.querySelector('[data-el-id="l_arrow"] line') as SVGElement;
-    const svgs = [...document.querySelectorAll('[data-el-id] > svg')] as SVGElement[];
+    const svgs = [...document.querySelectorAll('[data-el-id] svg')] as SVGElement[];
     return {
       dash: parseFloat(ell.style.strokeDasharray || "0"),
       measured: ell.getTotalLength(),
@@ -212,7 +212,7 @@ try {
       offset: ell.style.strokeDashoffset,
       dash: parseFloat(ell.style.strokeDasharray || "0"),
       polyOpacity: getComputedStyle(poly).opacity,
-      clip: wt?.style.clipPath ?? "",
+      clip: (wt?.querySelector(".sl-effects") as HTMLElement ?? wt)?.style.clipPath ?? "",
     };
   });
   assert(post.offset === "0" && post.dash > post.dash - 1 && post.dash > 94.24, "the drawn rest state is SEAM-FREE (offset 0, overshot dash covers the true perimeter)");

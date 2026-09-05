@@ -15,7 +15,7 @@
 //  SLD-11 (tested): baseCameraTransform → "" for the identity camera, a translate+scale for a
 //         zoomed pose; the editor stage now seeds it (it used to reset to identity, so an
 //         agent-authored zoomed slide looked wrong while editing).
-//  SLD-3  (presence): animate() honours an explicit `reduce` flag that the player threads through,
+//  SLD-3  (behavior): the player honours an explicit reduced-motion flag,
 //         so Present/Export force-motion + the `M` toggle work (the OS setting no longer wins).
 //  SLD-7  (presence): the filmstrip freezes each thumbnail at its LAST beat, not blank beat 0.
 //   Run: npx tsx scripts/verify-p4-slide.ts
@@ -29,7 +29,10 @@ const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
 
 const { morphCompatible } = await import("../src/lib/slide/player/morph");
-const { baseCameraTransform } = await import("../src/lib/slide/player/player");
+const { baseCameraTransform, createPlayer } = await import("../src/lib/slide/player/player");
+const { createDeck } = await import("../src/lib/slide/ops");
+const { FLUX_DARK } = await import("../src/lib/slide/theme");
+const { compileSlide } = await import("../src/lib/slide/compile");
 
 function assert(c: unknown, m: string) {
   if (!c) throw new Error("FAIL: " + m);
@@ -64,15 +67,29 @@ assert(/scale\(2\)/.test(z) && /translate\(/.test(z), "zoomed camera → transla
 // --- presence of the DOM/component-bound fixes ----------------------------------------------
 console.log("presence of the DOM/component-bound fixes:");
 const read = (p: string) => fs.readFile(path.join(import.meta.dirname, "..", p), "utf8");
-const [motion, player, slideThumb, animatePanel] = await Promise.all([
+const [motion, slideThumb] = await Promise.all([
   read("src/lib/motion/motion.ts"),
-  read("src/lib/slide/player/player.ts"),
   read("src/shell/modes/slide/SlideThumb.svelte"),
-  read("src/shell/modes/slide/AnimatePanel.svelte"),
 ]);
 assert(/opts\.reduce \?\? prefersReducedMotion\(\)/.test(motion), "SLD-3: animate() honours an explicit reduce flag (falls back to OS)");
-assert(/reduce: reduced/.test(player), "SLD-3: the player threads its reduced flag into animate()");
+const deck = createDeck({ withTitleSlide: false }); deck.defaults.transition = "none";
+deck.slides = [{ id: "s", elements: [{ id: "r", type: "rect", x: 0, y: 0, width: 20, height: 20, rotation: 0, fill: "red", stroke: "none", strokeWidth: 0 }], beats: [{ id: "base", tracks: [] }, { id: "show", tracks: [{ target: "r", preset: "fade", duration: 1000 }] }] }];
+const oldRaf = globalThis.requestAnimationFrame, oldCancel = globalThis.cancelAnimationFrame;
+let callbacks = 0;
+Object.assign(globalThis, { requestAnimationFrame: () => ++callbacks, cancelAnimationFrame: () => {} });
+try {
+  const reduced = createPlayer(document.createElement("div") as unknown as HTMLElement, deck, { theme: FLUX_DARK, reducedMotion: true });
+  reduced.next();
+  assert(!reduced.state().playing && reduced.state().time === 1000 && callbacks === 0, "SLD-3: reduced motion snaps to exact cue end with no animation clock");
+  reduced.destroy();
+  const moving = createPlayer(document.createElement("div") as unknown as HTMLElement, deck, { theme: FLUX_DARK, reducedMotion: false });
+  moving.next();
+  assert(moving.state().playing && callbacks === 1, "SLD-3: explicit force-motion schedules playback");
+  moving.destroy();
+} finally { Object.assign(globalThis, { requestAnimationFrame: oldRaf, cancelAnimationFrame: oldCancel }); }
 assert(/Math\.max\(0, (slide|cur)\.beats\.length - 1\)/.test(slideThumb), "SLD-7: the filmstrip freezes thumbnails at the last beat");
-assert(/morphCompatible\(selManifest, m\)/.test(animatePanel), "SLD-8: AnimatePanel gates morph targets on compatibility");
+const plotSlide = { id: "morph", elements: [{ id: "plot", type: "plot", assetId: "a", x: 0, y: 0, width: 100, height: 100, rotation: 0 }], beats: [{ id: "cue", tracks: [{ target: "plot", preset: "transform", to: { assetId: "b" } }] }] };
+const compiled = compileSlide(plotSlide as never, stage, { plotManifest: (id) => M([S(id, true, true)]) });
+assert(compiled.issues.some((i) => /crossfades the complete/.test(i.reason)) && compiled.cues[0].tracks.length === 1, "SLD-8: incompatible plot structures use an explicit complete-crossfade diagnostic");
 
 console.log("\nP4 SLIDE VERIFY: PASS");

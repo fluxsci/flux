@@ -10,9 +10,10 @@
   // destroy, keyboard gated on `focused`) but writes ONE deck.json through the
   // slide bridge — tenancy-asserted so a wrong-folder write is structurally
   // impossible.
-  import { onMount, onDestroy, tick, setContext } from "svelte";
+  import { onMount, onDestroy, tick, setContext, untrack } from "svelte";
   import { get } from "svelte/store";
   import { projectModel } from "../../shellStore";
+  import { openSlideRequest } from "../../command/commandBus";
   import {
     deckOverlay,
     activeBeat,
@@ -27,9 +28,10 @@
     enterEndpointEdit,
     exitEndpointEdit,
     clearBeatDisplay,
+    editDestination, setEditDestination, editAfterBeat, registerSlideEditAdapter, slideCanvasPresentation,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
-  import { animateElement, animatePart, suggestElementTrack } from "../../../lib/slide/autobuild";
+  import { animateElement, animatePart, suggestElementTrack, suggestTrack } from "../../../lib/slide/autobuild";
   import {
     dirty as figDirty,
     activeFigureId,
@@ -41,14 +43,15 @@
     commit,
     embeddedProjectRoot,
     registerHistoryCompanion,
-    gestureCancelHook,
+    gestureCancelHook, importerOpen,
     cascadeState,
+    undo, redo,
   } from "../../../lib/store";
   import {
     listProjectDecks,
     loadDeckInto,
     saveDeckFrom,
-    deckDiskDiverged,
+    deckDiskDiverged, refreshDeckSources,
     createDeckInProject,
     duplicateDeckInProject as duplicateDeckBridge,
     deleteDeckFromProject as deleteDeckBridge,
@@ -72,7 +75,7 @@
   import { registerFlushable, flushById, isDirtyById } from "../../lifecycle";
   import { evictMode } from "../../paneStore";
   import { setStoreTenant } from "../../../lib/tenancy";
-  import { deckRevision, bumpFigRevision } from "../../scholar/revisions";
+  import { deckRevision, figRevision, bumpFigRevision } from "../../scholar/revisions";
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import Toolbar from "../../../lib/Toolbar.svelte";
   import Canvas from "../../../lib/Canvas.svelte";
@@ -82,9 +85,14 @@
   import { trackCascadeAdapter, openTrackCascade } from "./animator/cascadeTracks";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
-  import PlotImporter from "../../../lib/PlotImporter.svelte";
+  import PlotImporter, { type PlotPick } from "../../../lib/PlotImporter.svelte";
+  import { readIncomingPlot } from "../../../lib/io";
+  import { compileSlide, semanticTargets, trackDuration } from "../../../lib/slide/compile";
+  import { staggerSpan } from "../../../lib/slide/stagger";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
+  import PropertiesPane from "./animator/PropertiesPane.svelte";
+  import { hoverTrackId } from "./animator/animatorState";
   import DeckPicker from "./DeckPicker.svelte";
   import SlidePresetMenu from "./SlidePresetMenu.svelte";
   import PresentOverlay from "./PresentOverlay.svelte";
@@ -104,10 +112,31 @@
   let ready = $state(false);
   let loadError = $state<string | null>(null);
   let decks = $state<DeckListItem[]>([]);
+  let alive = true;
+  let deckOpenEpoch = 0;
   let activeDeckId = $state<string | null>(null);
   let unsubDirty: (() => void) | undefined;
+  let unsubFigRev: (() => void) | undefined;
   let unsubDeckRev: (() => void) | undefined;
   let unregCompanion: (() => void) | undefined;
+  let unregEditAdapter: (() => void) | undefined;
+  let inspectorTab = $state<"object"|"animation"|"slide"|"deck">("object");
+  let ghostHidden = $state(true);
+  let openingRequest = $state(0);
+  let consumingOpenRequest = $state(false);
+  $effect(() => {
+    const request = $openSlideRequest;
+    if (!ready || !request || consumingOpenRequest || openingRequest === request.n) return;
+    openingRequest = request.n; consumingOpenRequest = true;
+    void (async () => {
+      try {
+      const loaded = activeDeckId === request.deckId || await openDeck(request.deckId);
+      if (get(openSlideRequest)?.n !== request.n) return;
+      if (loaded && request.slideId && get(deckOverlay)?.slides.some(s => s.id === request.slideId)) selectSlide(request.slideId);
+      openSlideRequest.set(null);
+      } finally { consumingOpenRequest = false; }
+    })();
+  });
   let deckDiverged = $state(false);
 
   const overlay = $derived($deckOverlay);
@@ -119,6 +148,22 @@
     void overlay;
     const sid = $activeFigureId;
     return sid ? composedSlide(sid) : null;
+  });
+  const plotTags = $derived.by(() => {
+    const plots = activeSlide?.elements.filter(e => e.type === "plot") ?? [];
+    return new Map(plots.length > 1 ? plots.map((p,i) => [p.id, `Plot ${i+1}`]) : []);
+  });
+  const editLabel = $derived.by(() => {
+    const destination = $editDestination;
+    if (destination.kind === "design") return "Design · initial object properties";
+    const index = activeSlide?.beats.findIndex(b => b.id === destination.beatId) ?? -1;
+    return index > 0 ? `Editing after ${index} · ${activeSlide?.beats[index]?.label || "Step"}` : "Design";
+  });
+  $effect(() => { if ($selTrackIds.length) { inspectorTab = "animation"; inspectorHidden.set(false); } });
+  const canvasPresentation = $derived.by(() => {
+    const id = $hoverTrackId ?? $selTrackIds[$selTrackIds.length - 1];
+    const t = activeSlide?.beats.flatMap(b => b.tracks).find(t => t.id === id);
+    return { ...$slideCanvasPresentation, stage, ...(t && !t.target.startsWith("@") ? { highlight: { elementId:t.target, ...(activeSlide && (t.part || t.selector) ? {partIds:semanticTargets(t,activeSlide,{plotManifest:id=>$plotManifests[id]})} : {}) } } : {}), ghostHidden };
   });
   // What the Background swatch shows: the slide's own override, else the color
   // it actually rests at (deck default → theme) — never a hardcoded dark.
@@ -195,13 +240,20 @@
     id: string,
     opts: { force?: boolean; preserveView?: boolean } = {},
   ): Promise<boolean> {
-    if (!pm) return false;
+    if (!pm || !alive) return false;
+    const epoch=++deckOpenEpoch;
+    const isCurrent=()=>alive && epoch===deckOpenEpoch;
     if (!opts.force && id === activeDeckId) return true;
     const keepSlide = opts.preserveView ? get(activeFigureId) : null;
     const keepBeat = opts.preserveView ? get(activeBeat) : 0;
+    const keepDestination=opts.preserveView?get(editDestination):null;
+    const keepViewport=opts.preserveView?{...get(viewport)}:null;
+    const keepFit=opts.preserveView&&fitted;
     try {
       await autosave.flush();
-      const loaded = await loadDeckInto(pm.root, id);
+      if(!isCurrent())return false;
+      const loaded = await loadDeckInto(pm.root, id, {isCurrent});
+      if(!isCurrent())return false;
       if (!loaded) {
         pushToast("error", "Couldn't open that deck — its file may be missing or corrupt.");
         return false;
@@ -209,18 +261,23 @@
       surfaceDiagnostics(loaded.diagnostics);
       activeDeckId = loaded.deck.id;
       rememberDeck(pm.root, activeDeckId);
-      decks = await listProjectDecks(pm.root);
+      const nextDecks = await listProjectDecks(pm.root);
+      if(!isCurrent())return false;
+      decks=nextDecks;
       animatorOpen = animatorRemembered();
       const kept = keepSlide ? loaded.deck.slides.find((s) => s.id === keepSlide) : null;
       if (kept) {
-        selectSlide(kept.id); // lands fully-built (last beat)…
+        selectSlide(kept.id); // restore document selection, then the explicit editing view
         const clamped = Math.max(0, Math.min(keepBeat, (kept.beats?.length ?? 1) - 1));
-        if (clamped !== get(activeBeat)) activeBeat.set(clamped); // …then restore the cursor
+        if (clamped !== get(activeBeat)) activeBeat.set(clamped);
+        if(keepDestination?.kind==="after"&&kept.beats.some(b=>b.id===keepDestination.beatId))setEditDestination(keepDestination);
+        if(keepFit)fitViewport();else if(keepViewport){writingFit=true;viewport.set(keepViewport);writingFit=false;fitted=false;}
       } else {
         fitViewport(); // deck switch / kept slide gone — the old full re-fit
       }
       return true;
     } catch (e) {
+      if(!isCurrent())return false;
       pushToast("error", "Couldn't open that deck", { detail: errMsg(e) });
       return false;
     }
@@ -440,19 +497,38 @@
     slideLayout.update((s) => ({ ...s, inspectorW: RAIL_DEFAULT_W }));
   }
 
-  // --- viewport: fit the stage frame into the canvas pane -----------------------
+  // Fit remains live while the dock/rails resize. A deliberate zoom or pan
+  // exits Fit; resizing then preserves the user's focal point and scale.
   let canvasWrapEl = $state<HTMLElement | null>(null);
+  let fitted = $state(true);
+  let writingFit = false;
   function fitViewport() {
-    queueMicrotask(() => {
-      const el = canvasWrapEl;
-      const st = get(deckOverlay)?.stage ?? slideOps.DEFAULT_STAGE;
+    fitted = true;
+    void tick().then(() => {
+      const el = canvasWrapEl, st = get(deckOverlay)?.stage ?? slideOps.DEFAULT_STAGE;
       if (!el) return;
-      const w = el.clientWidth || 800;
-      const h = el.clientHeight || 500;
-      const z = Math.max(0.05, Math.min(16, Math.min((w - 90) / st.width, (h - 90) / st.height)));
-      viewport.set({ panX: (w - st.width * z) / 2, panY: (h - st.height * z) / 2, zoom: z });
+      const w=el.clientWidth,h=el.clientHeight;
+      const z=Math.max(.05,Math.min(16,Math.min((w-48)/st.width,(h-48)/st.height)));
+      writingFit = true;
+      viewport.set({panX:(w-st.width*z)/2,panY:(h-st.height*z)/2,zoom:z});
+      writingFit = false;
     });
   }
+  $effect(() => {
+    const el=canvasWrapEl; if(!el)return;
+    let width=el.clientWidth,height=el.clientHeight;
+    const ro=new ResizeObserver(() => {
+      const w=el.clientWidth,h=el.clientHeight;
+      if(!w||!h)return;
+      if(untrack(()=>fitted)) fitViewport();
+      else { writingFit=true;viewport.update(v=>({...v,panX:v.panX+(w-width)/2,panY:v.panY+(h-height)/2}));writingFit=false; }
+      width=w;height=h;
+    });
+    ro.observe(el);
+    let initial=true;
+    const off=viewport.subscribe(()=>{if(initial){initial=false;return;}if(!writingFit)fitted=false;});
+    return ()=>{ro.disconnect();off();};
+  });
 
   // --- animator dock: on-demand, remembered per deck ----------------------------
   let animatorOpen = $state(false);
@@ -469,6 +545,12 @@
     }
   }
 
+  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{plotManifest:id=>$plotManifests[id]}).issues : []);
+  function inspectIssue(trackId?:string){
+    if(!activeSlide||!trackId)return;
+    const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));
+    if(bi>=0){activeBeat.set(bi);selTrackIds.set([trackId]);animatorOpen=true;inspectorTab="animation";}
+  }
   // --- inline build preview (present-in-place via the ONE player) ---------------
   let previewing = $state(false);
   let previewHost = $state<HTMLElement | undefined>();
@@ -492,43 +574,100 @@
       reducedMotion: false,
     };
   }
-  function startPreview(startBeat = 0) {
-    exitEndpointEdit(); // preview plays the PERSISTED state, never a checkout
-    const d = currentDeck();
-    const sid = $activeFigureId;
-    if (!d || !sid || previewing) return;
-    const si = d.slides.findIndex((x) => x.id === sid);
-    if (si < 0) return;
-    pvStage = d.stage;
-    previewing = true;
-    queueMicrotask(() => {
-      if (!previewHost) { previewing = false; return; }
-      player = createPlayer(previewHost, d, playerOpts(d));
-      previewHost.style.transformOrigin = "center center";
-      previewHost.style.transform = `scale(${pvScale})`;
-      const nBeats = d.slides[si].beats.length;
-      // play-from-here: rest at the beat BEFORE the requested one, then advance.
-      const from = Math.max(0, Math.min(nBeats - 1, startBeat) - 1);
-      player.goTo(si, from);
-      player.on("beatEnd", () => {
-        if (!player) return;
-        if (player.state().beat >= nBeats - 1) setTimeout(stopPreview, 1100);
-        else setTimeout(() => player?.next(), 480);
+  let previewTime = $state(0);
+  let previewPlaying = $state(false);
+  let previewLoop = $state(false);
+  let previewGeneration = 0;
+  let previewSlideIndex = 0;
+  let previewAssetGenerations = $state<Record<string, number>>({});
+  let unsubscribeFrame: (() => void) | undefined;
+  async function ensurePreview(): Promise<Player | undefined> {
+    if (player) return player;
+    const generation=++previewGeneration;
+    const deck=currentDeck(),sid=$activeFigureId;
+    if(!deck||!sid)return;
+    previewSlideIndex=deck.slides.findIndex(s=>s.id===sid);
+    if(previewSlideIndex<0)return;
+    const slide=deck.slides[previewSlideIndex],generations=get(plotGen),dependencies=new Set<string>();
+    for(const element of slide.elements)if(element.type==="plot")dependencies.add(element.assetId);
+    for(const beat of slide.beats)for(const track of beat.tracks)if(track.to?.assetId)dependencies.add(track.to.assetId);
+    previewAssetGenerations=Object.fromEntries([...dependencies].map(id=>[id,generations[id]??0]));
+    pvStage=deck.stage;previewing=true;
+    await tick();
+    if(generation!==previewGeneration||!previewHost)return;
+    try {
+      player=createPlayer(previewHost,deck,playerOpts(deck));
+      unsubscribeFrame=player.on("frame",()=>{
+        if(!player)return;
+        const state=player.state();previewTime=state.time;previewPlaying=state.playing;
+        if(state.beat!==get(activeBeat))activeBeat.set(state.beat);
       });
-      if (nBeats <= 1 || from >= nBeats - 1) setTimeout(stopPreview, 900);
-      else setTimeout(() => player?.next(), 420);
-    });
+      return player;
+    } catch(e) { stopPreview();pushToast("error",`Preview failed: ${errMsg(e)}`); }
   }
+  let previewStartBeat=0;
+  let previewRange: "step" | "from" | "slide" = "from";
+  async function startPreview(startBeat = 0, range: "step" | "from" | "slide" = startBeat === 0 ? "slide" : "from") {
+    const p=await ensurePreview();if(!p)return;
+    const from=Math.max(1,startBeat); previewStartBeat=startBeat;previewRange=range;
+    p.play({slide:previewSlideIndex,fromBeat:from,...(range === "step" ? {toBeat:from} : {}),loop:previewLoop});
+    previewPlaying=p.state().playing;
+  }
+  async function seekPreview(beat:number,time:number) {
+    const p=await ensurePreview();if(!p)return;
+    p.pause();p.seek(previewSlideIndex,beat,time);previewTime=p.state().time;previewPlaying=false;
+  }
+  function pausePreview(){player?.pause();previewPlaying=false;}
+  function resumePreview(){if(!player)return;const state=player.state();if(state.time>=state.duration){void startPreview(previewStartBeat,previewRange);return;}player.resume();previewPlaying=player.state().playing;}
   function stopPreview() {
-    // The player (and its WAAPI/rAF work) is fully torn down — static editing
-    // never runs a continuous loop (the E43 lesson, gated).
-    player?.destroy();
-    player = undefined;
-    previewing = false;
+    previewGeneration++;unsubscribeFrame?.();unsubscribeFrame=undefined;
+    player?.destroy();player=undefined;previewing=false;previewPlaying=false;previewTime=0;
+    previewAssetGenerations={};
   }
-  $effect(() => {
-    if (!active && previewing) stopPreview();
+  $effect(()=>{
+    const generations=$plotGen;
+    if(previewing&&Object.entries(previewAssetGenerations).some(([id,atStart])=>(generations[id]??0)!==atStart))stopPreview();
   });
+  function toggleLoop(){previewLoop=!previewLoop;if(previewPlaying)void startPreview(previewRange==="slide"?0:$activeBeat,previewRange);}
+  $effect(()=>{if(!active&&previewing)stopPreview();});
+  let lastPreviewSlide:string|null=null;
+  $effect(()=>{const sid=$activeFigureId;if(sid!==lastPreviewSlide){lastPreviewSlide=sid;stopPreview();}});
+  $effect(()=>{
+    if(!previewHost)return;
+    previewHost.style.transformOrigin="center center";
+    previewHost.style.transform=`scale(${pvScale})`;
+  });
+
+  // A morph target is an asset dependency; choosing it never places a second
+  // object on the stage. Import uses the shared plot/sidecar loader.
+  let morphFor = $state<{deckId:string;slideId:string;targetId:string;trackId?:string;beatId?:string}|null>(null);
+  function chooseMorph(targetId:string,trackId?:string) {
+    if(!overlay||!activeSlide)return;
+    stopPreview();
+    morphFor={deckId:overlay.id,slideId:activeSlide.id,targetId,trackId,beatId:activeSlide.beats[$activeBeat]?.id};
+    importerOpen.set(true);
+  }
+  async function acceptMorphTarget(picks:PlotPick[]) {
+    const request=morphFor;
+    if(!request||!picks.length)return;
+    if(picks.length!==1)throw new Error("Choose one plot for the next data state.");
+    const incoming=await readIncomingPlot(picks[0].abs);
+    if(incoming.el.type!=="plot")throw new Error("Choose an SVG plot for a data morph.");
+    if(!get(importerOpen) || morphFor !== request) return;
+    if(get(deckOverlay)?.id!==request.deckId || get(activeFigureId)!==request.slideId) return;
+    const source=incoming.el.source;let addedId:string|undefined;let selectedBeat=0;
+    commitDeckLive(d=>{
+      const s=slideOps.slideById(d,request.slideId);if(!s?.elements.some(e=>e.id===request.targetId))return;
+      let beat=request.trackId?s.beats.find(b=>b.tracks.some(t=>t.id===request.trackId)):s.beats.find(b=>b.id===request.beatId);
+      if(!beat || beat===s.beats[0])beat=slideOps.addBeat(d,s.id,{label:"Data change",advance:"click"})??undefined;
+      if(!beat)return;
+      if(!d.assets.some(a=>a.id===incoming.asset.id)) d.assets.push(incoming.asset);
+      const t=slideOps.setTransform(d,s.id,beat.id,request.targetId,{toAssetId:incoming.asset.id,svgPath:source?.svgPath,manifestPath:source?.manifestPath});
+      addedId=t?.id;selectedBeat=s.beats.indexOf(beat);
+    });
+    if(addedId){activeBeat.set(selectedBeat);selTrackIds.set([addedId]);editAfterBeat(selectedBeat);}
+  }
+  $effect(()=>{if(!$importerOpen)morphFor=null;});
 
   // --- present mode ---------------------------------------------------------------
   let presentOpen = $state(false);
@@ -589,53 +728,31 @@
   /** Ctrl+Shift+A / Ctrl+Shift+D: give every selected object/part an
    *  appearance (enter) or disappearance (exit) with the smart per-kind
    *  defaults, into the active beat (never beat 0 — beat 1 auto-creates). */
-  function addAppearance(exit: boolean) {
-    const sid = $activeFigureId;
-    const s = activeSlide;
-    if (!sid || !s) return;
-    const ps = $partSelection;
-    const ids = selectionTargets();
-    if (!ids.length) return;
-    const beatIndex = $activeBeat > 0 ? $activeBeat : undefined;
-    let landed = -1;
-    const newIds: string[] = [];
-    commitDeckLive((d) => {
-      if (ps) {
-        const el = s.elements.find((x) => x.id === ps.elementId);
-        if (!el) return;
-        if (exit) {
-          const sl = slideOps.slideById(d, sid);
-          if (!sl) return;
-          let bi = beatIndex != null && beatIndex < sl.beats.length ? beatIndex : -1;
-          if (bi < 0) {
-            if (sl.beats.length <= 1) slideOps.addBeat(d, sid, { label: "Beat 1", advance: "click" });
-            bi = sl.beats.length - 1;
-          }
-          const track = suggestElementTrack(el, { exit: true, part: ps.partId });
-          slideOps.setAnimation(d, sid, sl.beats[bi].id, track);
-          landed = bi;
-          if (track.id) newIds.push(track.id);
-        } else {
-          landed = animatePart(d, sid, ps.elementId, ps.partId, $plotManifests[(el as { assetId?: string }).assetId ?? ""], beatIndex);
-        }
-        return;
-      }
-      for (const id of ids) {
-        const r = animateElement(d, sid, id, { beatIndex, exit });
-        if (r) {
-          landed = r.beatIndex;
-          newIds.push(r.trackId);
-        }
+  function addAppearance(exit: boolean, emphasize = false) {
+    const sid=$activeFigureId,s=activeSlide,ids=selectionTargets(),part=$partSelection;
+    if(!sid||!s||!ids.length)return;
+    let bi=$activeBeat,created:string[]=[];
+    commitDeckLive(d=>{
+      const sl=slideOps.slideById(d,sid);if(!sl)return;
+      if(bi<1){if(sl.beats.length<2)slideOps.addBeat(d,sid,{label:"Step 1",advance:"click"});bi=Math.max(1,sl.beats.length-1);}
+      const b=sl.beats[bi];if(!b)return;
+      for(const id of ids){
+        const el=s.elements.find(e=>e.id===id);if(!el)continue;
+        const track=part&&!exit ? suggestTrack($plotManifests[el.type==="plot"?el.assetId:""],id,part.partId) : suggestElementTrack(el,{exit,...(part?{part:part.partId}:{})});
+        if(emphasize){track.preset="highlight";track.duration=500;}
+        // New effect follows this target's prior effects in the step, so
+        // entrance → emphasis → exit is useful immediately and never replaces.
+        const prior=b.tracks.filter(t=>t.target===id&&(t.part??"")===(track.part??"")&&familyOf(t)==="appearance");
+        track.start=prior.reduce((end,t)=>Math.max(end,(t.start??0)+trackDuration(t)+staggerSpan(t,semanticTargets(t,sl,{plotManifest:id=>get(plotManifests)[id]}).length)),0);
+        const added=slideOps.appendAnimation(d,sid,b.id,track);if(added?.id)created.push(added.id);
       }
     });
-    if (landed > 0) activeBeat.set(landed);
-    if (newIds.length) selTrackIds.set(newIds);
-    else if (landed > 0) {
-      // animatePart may have re-enabled an existing track — select it
-      const b = activeSlide?.beats[landed];
-      const t = b?.tracks.find((tk) => tk.target === (ps?.elementId ?? ids[0]) && (!ps || tk.part === ps.partId));
-      if (t?.id) selTrackIds.set([t.id]);
-    }
+    activeBeat.set(bi);selTrackIds.set(created);inspectorTab="animation";
+  }
+  function animationAction(action:"appear"|"change"|"emphasize"|"disappear") {
+    stopPreview();
+    if(action==="change")addOrToggleTransform();
+    else addAppearance(action==="disappear",action==="emphasize");
   }
   /** Ctrl+Shift+T: no transform on the selection → create one per selected
    *  element in the active beat (grouped when several) and check out t2
@@ -692,12 +809,28 @@
 
   // --- keyboard: slide navigation first, then the FIGURE keymap wholesale --------
   function onKey(e: KeyboardEvent) {
-    if (presentOpen) return; // the presenter overlay owns the keyboard
+    if (e.defaultPrevented || presentOpen) return; // the presenter overlay owns the keyboard
     // The cascade popover owns the keyboard while open (its own window
     // listener registers later, so this handler must yield first).
     if (get(cascadeState)) return;
     const tag = (e.target as HTMLElement)?.tagName;
-    const typing = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
+    const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable;
+    const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
+    if (inAnimation) {
+      const mod=e.metaKey||e.ctrlKey;
+      if(mod&&e.shiftKey&&["a","d","t"].includes(e.key.toLowerCase())&&!typing) {
+        e.preventDefault();animationAction(e.key.toLowerCase()==="a"?"appear":e.key.toLowerCase()==="d"?"disappear":"change");
+      }
+      return;
+    }
+    if (previewing && !typing) {
+      if(e.key==="Escape"){e.preventDefault();stopPreview();return;}
+      if(e.code==="Space"){e.preventDefault();previewPlaying?pausePreview():resumePreview();return;}
+      // History remains available while inspecting a frame. Its companion
+      // invalidates the captured player before restoring document state.
+      if((e.metaKey||e.ctrlKey)&&!e.altKey&&["z","y"].includes(e.key.toLowerCase()))handleKey(e);
+      return;
+    }
     if (!typing) {
       // F5 presents from the first slide; Shift+F5 from the current one.
       if (e.key === "F5") {
@@ -771,6 +904,7 @@
     // Tenancy handoff (§3.2.1): flush + evict a resident FigureMode, claim the
     // store, register the overlay's history companion, THEN load the deck.
     await flushById("figure");
+    if(!alive)return;
     if (isDirtyById("figure")) {
       pushToast("error", "Unsaved figure changes could not be written", {
         detail: "fig/ changed on disk. Resolve the conflict in Figure mode if those edits matter — opening Slide replaces the shared editing store.",
@@ -778,8 +912,19 @@
     }
     evictMode("figure");
     await tick(); // let the evicted FigureMode unmount (its onDestroy no-ops)
+    if(!alive)return;
     setStoreTenant("slide");
-    unregCompanion = registerHistoryCompanion(overlayHistoryCompanion());
+    const history = overlayHistoryCompanion();
+    unregCompanion = registerHistoryCompanion({
+      capture: history.capture,
+      restore(snapshot) {
+        // Covers every history route, including the shared toolbar and keymap.
+        // A player owns a deck snapshot and must never survive its replacement.
+        stopPreview();
+        history.restore(snapshot);
+      },
+    });
+    unregEditAdapter = registerSlideEditAdapter(stopPreview);
     try {
       if (pm) {
         embeddedProjectRoot.set(pm.root);
@@ -801,6 +946,7 @@
     } catch (e) {
       loadError = errMsg(e);
     }
+    if(!alive)return;
     ready = true;
     canExport = canExportDeck();
     animatorOpen = animatorRemembered();
@@ -808,6 +954,11 @@
       if (!ready || !pm || !d) return;
       touchActivityLock("slides"); // defer concurrent agent deck writes while mid-edit
       autosave.schedule();
+    });
+    let firstFigureRevision=true;
+    unsubFigRev=figRevision.subscribe(()=>{
+      if(firstFigureRevision){firstFigureRevision=false;return;}
+      if(pm)void refreshDeckSources(pm.root).catch(e=>pushToast("error","Could not refresh slide sources",{detail:errMsg(e)}));
     });
     // Live-reload on external slides/ edits (skip the immediate on-subscribe call).
     let firstDeck = true;
@@ -824,14 +975,18 @@
   });
 
   onDestroy(() => {
+    alive=false;deckOpenEpoch++;
+    endFilmDrag();endRailDrag();
     unsubDirty?.();
     unsubDeckRev?.();
+    unsubFigRev?.();
     stopPreview();
     clearBeatDisplay(); // unmount fully restores base states before the flush
     void autosave.flush();
     autosave.dispose();
     unregFlush();
     unregCompanion?.();
+    unregEditAdapter?.();
   });
 </script>
 
@@ -908,9 +1063,19 @@
 
     <!-- stage: the SHARED figure canvas in frame mode -->
     <main class="stage-col">
+      <div class="edit-statebar">
+        <div class="edit-switch" aria-label="Canvas edit destination">
+          <button class:chosen={$editDestination.kind === "design"} onclick={()=>{stopPreview();setEditDestination({kind:"design"});}} title="Edit original object properties, before animation">Design</button>
+          <button class:chosen={$editDestination.kind === "after" && $editDestination.beatId===activeSlide?.beats[$activeBeat]?.id} disabled={$activeBeat===0} onclick={()=>{stopPreview();editAfterBeat();}} title="Create or update changes only at the selected step">Edit after step {$activeBeat || "…"}</button>
+        </div>
+        <span class="edit-label">{previewing ? `Inspecting step ${$activeBeat} · ${(previewTime/1000).toFixed(2)}s` : editLabel}</span>
+        <button class="fit-button" class:chosen={fitted} onclick={fitViewport}>Fit</button>
+        <label class="ghost-toggle"><input type="checkbox" bind:checked={ghostHidden}/> Show hidden</label>
+      </div>
+      {#if animationIssues.length}<details class="animation-issues"><summary>⚠ {animationIssues.length} animation {animationIssues.length===1?"issue":"issues"}</summary>{#each animationIssues as issue}<button onclick={()=>inspectIssue(issue.trackId)}>{issue.reason}</button>{/each}</details>{/if}
       <div class="canvas-wrap" bind:this={canvasWrapEl}>
         {#if ready && overlay}
-          <Canvas frame paneActive={active} />
+          <Canvas frame paneActive={active} presentation={canvasPresentation} />
           <ArrangeHud />
           <CascadePopover tracks={trackCascadeAdapter} />
           {#if previewing}
@@ -928,7 +1093,10 @@
         {/if}
       </div>
       {#if animatorOpen && overlay}
-        <AnimatePanel slide={activeSlide} onPreview={startPreview} />
+        <AnimatePanel slide={activeSlide} onPreview={startPreview} onAction={animationAction}
+          onSeek={seekPreview} onPause={pausePreview} onStop={stopPreview} onResume={resumePreview}
+          onUndo={undo} onRedo={redo} onSave={()=>void autosave.flush()} onChooseMorph={chooseMorph}
+          time={previewTime} playing={previewPlaying} {previewing} loop={previewLoop} onLoop={toggleLoop} />
       {/if}
     </main>
 
@@ -938,9 +1106,15 @@
     <div class="film-gutter" class:active={railResize} role="separator" aria-orientation="vertical"
       aria-label="Resize right rail" onpointerdown={startRailDrag} ondblclick={resetRailW}><span class="grip"></span></div>
     <aside class="rail">
-      <Inspector />
+      <nav class="inspector-tabs" aria-label="Slide inspector">
+        {#each ["object","animation","slide","deck"] as tab}
+          <button class:chosen={inspectorTab===tab} onclick={()=>inspectorTab=tab as typeof inspectorTab}>{tab[0].toUpperCase()+tab.slice(1)}</button>
+        {/each}
+      </nav>
+      {#if inspectorTab==="object"}<Inspector />{/if}
+      {#if inspectorTab==="animation" && activeSlide}<PropertiesPane slide={activeSlide} {plotTags} onChooseMorph={chooseMorph}/>{/if}
       {#if overlay && activeSlide}
-        <section class="panel">
+        <section class="panel" hidden={inspectorTab!=="slide"}>
           <h4>Slide</h4>
           <label class="full">Name
             <input value={activeSlide.name ?? ""} onchange={(e) => onSlideName(e.currentTarget.value)} />
@@ -975,7 +1149,7 @@
             </div>
           {/if}
         </section>
-        <section class="panel">
+        <section class="panel" hidden={inspectorTab!=="deck"}>
           <h4>Deck</h4>
           <label class="full">Stage
             <select onchange={onStageChange} title="All slides share one stage frame (figure ruler: 96 px/inch)">
@@ -1032,10 +1206,24 @@
 <!-- shared figure surfaces: X-ray, property cockpit, plots/ browser, presets -->
 <FluxFigMenu />
 <Xray />
-<PlotImporter rootOverride={pm?.root ?? ""} title="Insert plot onto slide" />
+<PlotImporter rootOverride={pm?.root ?? ""} title={morphFor ? "Choose next plot data state" : "Insert plot onto slide"} onPick={morphFor ? acceptMorphTarget : undefined} />
 <PresetPicker />
 
 <style>
+  .animation-issues {flex:0 0 auto;color:var(--c-warning,#da702c);padding:5px 12px;font-size:11px;max-height:110px;overflow:auto;border-bottom:1px solid var(--c-line);}
+  .animation-issues summary{cursor:pointer;}
+  .animation-issues button{display:block;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:5px 0;}
+  .edit-statebar { display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;border-bottom:1px solid var(--c-line);font-size:11px; }
+  .edit-statebar button,.inspector-tabs button { background:var(--c-bg-2);color:var(--c-tx-2);border:1px solid var(--c-line);border-radius:4px;padding:5px 8px;font:inherit;cursor:pointer; }
+  .edit-switch { display:flex;gap:3px; }
+  .edit-statebar .chosen,.inspector-tabs .chosen { border-color:var(--c-accent);color:var(--c-tx);background:color-mix(in oklab,var(--c-accent) 13%,var(--c-bg)); }
+  .edit-statebar button:disabled { opacity:.4;cursor:default; }
+  .edit-label { color:var(--c-tx-2);font-size:10px;flex:1; }
+  .ghost-toggle { display:flex;align-items:center;gap:4px;white-space:nowrap;color:var(--c-tx-2); }
+  .inspector-tabs { display:flex;gap:3px;padding:8px 6px;position:sticky;top:0;background:var(--c-bg);z-index:5;font-size:11px; }
+  .inspector-tabs button { flex:1;padding:5px 4px; }
+  .panel[hidden] { display:none; }
+
   .slide-mode {
     position: absolute;
     inset: 0;

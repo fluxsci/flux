@@ -31,7 +31,7 @@
   let vw = $state(0);
   let vh = $state(0);
   let player: Player | undefined;
-  let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1 });
+  let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1, time: 0, duration: 0, playing: false, issues: [] });
   let blank = $state<"" | "black" | "white">("");
   let showNotes = $state(false);
   let elapsed = $state(0);

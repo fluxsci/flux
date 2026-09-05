@@ -32,6 +32,7 @@ import type {
   PartOverride,
 } from "./types";
 import { newId } from "./ids";
+import { ensureFigureReferenceKeys, mintFigureReferenceKey } from "./project/figureIdentity";
 import {
   BUILTIN_FAMILIES,
   DEFAULT_FAMILY,
@@ -193,6 +194,8 @@ export function createFigure(p: Project, opts: CreateFigureOpts): Figure {
     opts.number ?? parsed?.number,
     p.figureFamilies,
   );
+  fig.referenceKey = mintFigureReferenceKey(fig.id, p.figures);
+  ensureFigureReferenceKeys(p);
   return fig;
 }
 
@@ -230,6 +233,17 @@ export function deleteFigure(
     nextActiveId = remaining[0]?.id ?? p.figures[0]?.id ?? null;
   }
   return { nextActiveId };
+}
+
+/** Remove a canvas through the same figure lifecycle as individual deletion.
+ *  Publication designations compact immediately in the live model, independent
+ *  of canvas arrangement or manuscript use. Asset cleanup is project-wide and
+ *  belongs to persistence, where surviving deck dependencies are available. */
+export function deleteCanvas(p: Project, canvasId: Id): void {
+  if (p.canvases.length <= 1 || !p.canvases.some((c) => c.id === canvasId)) return;
+  const ids = p.figures.filter((f) => f.canvasId === canvasId).map((f) => f.id);
+  for (const id of ids) deleteFigure(p, id, { allowEmpty: true });
+  p.canvases = p.canvases.filter((c) => c.id !== canvasId);
 }
 
 /** Duplicate a figure with all its elements — remapping element/group ids and
@@ -276,6 +290,8 @@ export function duplicateFigure(p: Project, figId: Id): Id | null {
   if (src.family && src.number != null) {
     if (src.nickname) copy.nickname = `${src.nickname} copy`;
     assignFamilyNumber(p.figures, copy.id, src.family, src.number + 1, p.figureFamilies);
+    copy.referenceKey = mintFigureReferenceKey(copy.id, p.figures);
+    ensureFigureReferenceKeys(p);
   }
   return copy.id;
 }

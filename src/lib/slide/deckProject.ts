@@ -143,6 +143,7 @@ export function projectIntoDeck(
     ...(project.colorGroups !== undefined ? { colorGroups: structuredClone(project.colorGroups) } : {}),
     ...(project.textStyles !== undefined ? { textStyles: structuredClone(project.textStyles) } : {}),
     assets: structuredClone(project.assets.filter((a) => !external?.has(a.id))),
+    ...(prev.externalAssetSizes ? { externalAssetSizes: structuredClone(prev.externalAssetSizes) } : {}),
     slides,
   };
 }

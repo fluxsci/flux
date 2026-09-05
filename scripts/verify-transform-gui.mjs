@@ -131,7 +131,7 @@ try {
   ok(onDisk.state?.x === 300, "…and the track carries the t2 patch");
 
   // --- t1 on an unchained transform = a BASE-editing override --------------------
-  await page.click(".trk .ep.t1");
+  await page.click(".props .seg button:first-child");
   await sleep(200);
   const t1State = await page.evaluate(() => {
     const f = window.__flux;
@@ -144,7 +144,7 @@ try {
     "t1 with no upstream = a lit BASE override (canvas shows/edits the document state)");
 
   // --- t2 handle re-enters -------------------------------------------------------
-  await page.click(".trk .ep.t2");
+  await page.click(".props .seg button:last-child");
   await sleep(200);
   const t2Again = await page.evaluate(() => {
     const f = window.__flux;
@@ -194,8 +194,8 @@ try {
     return { checkout: !!f.get(f.slide.endpointEdit), beat: f.get(f.slide.activeBeat), elX: el.x };
   });
   ok(!postEsc.checkout && postEsc.beat === 1 && postEsc.elX === 300,
-    "Esc drops the endpoint selection; the canvas stays faithful to the active beat (composed t2)");
-  await page.evaluate(() => window.__flux.slide.activeBeat.set(0));
+    "Esc drops the endpoint selection; the explicit After-step destination stays in place (composed t2)");
+  await page.evaluate(() => {window.__flux.slide.activeBeat.set(0);[...document.querySelectorAll(".edit-switch button")].find(b=>b.textContent==="Design")?.click();});
   await sleep(200);
   const atBase = await page.evaluate(() => {
     const f = window.__flux;
@@ -203,7 +203,7 @@ try {
     const el = f.get(f.fig.project).figures.find((x) => x.id === sid).elements.find((e) => e.id === "tr-rect");
     return { elX: el.x, elFill: el.fill };
   });
-  ok(atBase.elX === 40 && atBase.elFill === "#d95f02", "…and beat 0 shows the base (the t1 view is one beat-click away)");
+  ok(atBase.elX === 40 && atBase.elFill === "#d95f02", "…and choosing Design explicitly shows the original base");
   await page.evaluate(() => window.__flux.slide.activeBeat.set(1));
   await sleep(200);
 

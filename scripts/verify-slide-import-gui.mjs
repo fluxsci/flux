@@ -85,6 +85,35 @@ try {
   }, dropRes.assetId);
   ok(reload.ok && reload.asset, "the deck reloads from disk with the imported asset resolved");
 
+  // Project target picker loads an asset dependency without placing a second
+  // chart. Use the fixture's real file bridge and shared importer end-to-end.
+  const morphSetup=await page.evaluate(async()=>{
+    const f=window.__flux,root=f.get(f.shell.projectModel).root;
+    const svg='<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80" viewBox="0 0 100 80"><rect id="result.bar" x="15" y="20" width="30" height="50" fill="#4385be"/></svg>';
+    await window.fig.writeText(`${root}/plots/morph-origin.svg`,svg);
+    await window.fig.writeText(`${root}/plots/morph-choice.svg`,svg.replace('height="50"','height="35"'));
+    await f.io.importPlotsFromPaths([`${root}/plots/morph-origin.svg`]);
+    const s=f.slide.composedSlide(f.get(f.fig.activeFigureId)),plot=s.elements.find(e=>e.type==='plot'&&e.source?.svgPath.endsWith('morph-origin.svg'));
+    f.fig.selectOnly(plot.id);return {targetId:plot.id,count:s.elements.length};
+  });
+  await page.evaluate(()=>{if(!document.querySelector('.animator'))[...document.querySelectorAll('.deckbar button')].find(b=>/Animate/.test(b.textContent))?.click();});
+  await sleep(150);
+  await page.evaluate(()=>[...document.querySelectorAll('.animator .bar button')].find(b=>b.textContent.trim()==='Data morph…')?.click());
+  await waitFor(page,()=>!!document.querySelector('.importer'),null,{timeout:3000,label:'morph target browser'});
+  ok(await page.$eval('.importer .ttl',e=>e.textContent)==='Choose next plot data state','morph action opens a project plot picker with its explicit purpose');
+  await waitFor(page,()=>[...document.querySelectorAll('.importer .row')].some(e=>e.textContent.includes('morph-choice')),null,{timeout:3000,label:'project morph target'});
+  await page.evaluate(()=>[...document.querySelectorAll('.importer .row')].find(e=>e.textContent.includes('morph-choice')).dispatchEvent(new MouseEvent('dblclick',{bubbles:true})));
+  await waitFor(page,()=>!document.querySelector('.importer'),null,{timeout:4000,label:'morph target accepted'});
+  const morph=await page.evaluate(({targetId,count})=>{
+    const f=window.__flux,s=f.slide.composedSlide(f.get(f.fig.activeFigureId)),t=s.beats.flatMap(b=>b.tracks).find(t=>t.target===targetId&&t.to?.assetId);
+    return {count:s.elements.length,expected:count,track:t,asset:f.slide.currentDeck().assets.find(a=>a.id===t?.to?.assetId),destination:f.get(f.slide.editDestination)};
+  },morphSetup);
+  ok(morph.count===morph.expected&&!!morph.track&&!!morph.asset,'choosing data adds a Change asset dependency and leaves stage object count unchanged');
+  ok(morph.track.to.svgPath==='plots/morph-choice.svg'&&morph.destination.kind==='after','morph retains project-relative source and selects its explicit After-step destination');
+  await page.evaluate(()=>window.__flux.lifecycle.flushById('slide'));
+  const morphSaved=await page.evaluate(async()=>{const f=window.__flux,root=f.get(f.shell.projectModel).root,d=f.slide.currentDeck();const disk=JSON.parse(await window.fig.readText(`${root}/slides/${d.id}/deck.json`));return disk.slides.flatMap(s=>s.beats).flatMap(b=>b.tracks).some(t=>t.to?.svgPath==='plots/morph-choice.svg'&&disk.assets.some(a=>a.id===t.to.assetId));});
+  ok(morphSaved,'morph-only asset and explicit source persist through normal slide save');
+
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
 } finally {

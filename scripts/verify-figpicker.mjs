@@ -112,8 +112,8 @@ try {
   await waitFor(page, () => document.querySelectorAll(".picker .cell").length === 10, null,
     { timeout: 3000, label: "composed filter" });
   const composed = await page.evaluate(() =>
-    [...document.querySelectorAll(".picker .meta b")].map((b) => b.textContent.trim()));
-  h.ok(composed.every((t) => /Fig\. 3\d/.test(t)),
+    [...document.querySelectorAll(".picker .meta")].map((m) => ({ title: m.querySelector("b")?.textContent.trim(), designation: m.querySelector(".designation")?.textContent.trim() })));
+  h.ok(composed.every((t) => /^Figure 3\d$/.test(t.title) && t.designation === t.title.replace("Figure", "Fig.")),
     `search composes within the scoped canvas (got ${JSON.stringify(composed.slice(0, 3))}…)`);
 
   await page.select(".picker .canvas-scope", "");

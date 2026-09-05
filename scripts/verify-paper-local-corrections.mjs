@@ -14,6 +14,7 @@ import { harness } from "./lib/harness.mjs";
 
 const h = harness("verify-paper-local-corrections");
 const { browser, page } = await launch({ width: 1440, height: 900 });
+const MOD = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control");
 await page.evaluateOnNewDocument(() => {
   localStorage.removeItem("flux.paper.localCorrections.v1");
   localStorage.removeItem("flux.paper.localLanguage.v2");
@@ -95,9 +96,9 @@ h.ok(menuText.includes("compelx → complex") && menuText.includes("Undo") && me
 await shot(page, "paper-local-correction-menu");
 await page.keyboard.press("Escape");
 
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.press("KeyZ");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await waitFor(
   page,
   () => window.__fluxView.state.doc.toString() === "The chemical structure is a very complex o bject. ",
@@ -390,7 +391,7 @@ await page.evaluate(() => {
 });
 await waitFor(page, () => !!document.querySelector('.bubble [title^="Word tools"]'), null, { label: "word tools selection button" });
 const wordToolsTitle = await page.$eval('.bubble [title^="Word tools"]', (button) => button.getAttribute("title"));
-h.eq(wordToolsTitle, "Word tools  Shift+Alt+W", "Word tools hover shows the native Linux shortcut, not macOS symbols");
+h.eq(wordToolsTitle, MOD === "Meta" ? "Word tools  ⇧⌥W" : "Word tools  Shift+Alt+W", "Word tools hover shows the native platform shortcut");
 await page.click('.bubble [title^="Word tools"]');
 await waitFor(page, () => !!document.querySelector(".cm-local-word-tools"), null, { label: "word tools popover" });
 const initialTools = await page.evaluate(() => ({
@@ -431,9 +432,9 @@ const aliasVisual = await page.evaluate(() => ({
 h.ok(aliasElapsedMs < 100, `alias expansion stays in the instantaneous class (${aliasElapsedMs} ms)`);
 h.eq(aliasVisual, { text: "iGluSnFR4f ", mark: "iGluSnFR4f", caret: 11 }, "alias morphs in place with the same zero-layout visual and an unmoved caret");
 
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.press("KeyZ");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await waitFor(page, () => window.__fluxView.state.doc.toString() === "igf", null, { label: "alias transaction undo" });
 h.eq(await doc(), "igf", "one Undo restores the typed alias exactly");
 await page.keyboard.type(" ");

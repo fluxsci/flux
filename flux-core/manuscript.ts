@@ -5,7 +5,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { resolveSpawn } from "../electron/execResolve.cjs";
-import { composeCaption } from "../src/lib/captions";
+import { composeCaption, panelLetters } from "../src/lib/captions";
 import { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity, type CslRecord } from "../src/lib/references/zoteroFields.js";
 import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
 import { prepareExport } from "../src/lib/exportPrep";
@@ -294,7 +294,7 @@ export async function compile(
   );
   // Figures embed as ../fig/renders/<id>.svg — materialize them so a bare quarto
   // render (agent/CI, no app open) gets real images instead of broken links.
-  const renders = await materializeRenders(root, m.manuscript.path).catch(() => ({ wrote: 0, failed: [] as string[], warnings: [] as string[] }));
+  const renders = await materializeRenders(root, m.manuscript.path);
 
   // Bare-quarto parity transform, applied IN PLACE and restored after the
   // render: family caption leads + composed model captions into empty embed
@@ -305,7 +305,7 @@ export async function compile(
   // valid readable manuscript.
   const docAbs = path.resolve(root, m.manuscript.path);
   const captions = new Map<string, string>();
-  const figIdentity = new Map<string, { family: FigureFamilyDef; number: number }>();
+  const figIdentity = new Map<string, { family: FigureFamilyDef; number: number; panels: string[] }>();
   const knownLabels = new Set<string>();
   try {
     const { project, index } = await loadFigModel(root);
@@ -317,6 +317,7 @@ export async function compile(
         figIdentity.set(f.label, {
           family: styledFamilyDef(style, familyById(fig.family, project.figureFamilies)),
           number: fig.number,
+          panels: panelLetters(fig),
         });
       }
       const cap = fig ? composeCaption(fig) : "";

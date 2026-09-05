@@ -128,9 +128,9 @@ function recorderCtx(): { ctx: PaperCmdCtx; calls: string[] } {
   assert(chordHint("Mod+Shift+KeyE") === "⌘⇧E", "chordHint ⌘⇧E");
   const vt = palette.find((p) => p.id === "view-toggle");
   assert(vt?.hint === "⌘⇧E", "view-toggle hint derived from its chord");
-  assert(CM_HINTS.personalDictionary === "Alt+D", "Linux Personal dictionary hint is Alt+D");
-  assert(CM_HINTS.projectDictionary === "Shift+Alt+D", "Linux project dictionary hint is Shift+Alt+D");
-  assert(CM_HINTS.wordTools === "Shift+Alt+W", "Linux Word tools hint is Shift+Alt+W");
+  assert(CM_HINTS.personalDictionary === (process.platform === "darwin" ? "⌥D" : "Alt+D"), "Personal dictionary hint matches the host platform");
+  assert(CM_HINTS.projectDictionary === (process.platform === "darwin" ? "⇧⌥D" : "Shift+Alt+D"), "Project dictionary hint matches the host platform");
+  assert(CM_HINTS.wordTools === (process.platform === "darwin" ? "⇧⌥W" : "Shift+Alt+W"), "Word tools hint matches the host platform");
 }
 
 console.log(failures ? `\nPAPER COMMANDS: FAIL (${failures})` : "\nPAPER COMMANDS: PASS");

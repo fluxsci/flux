@@ -29,6 +29,7 @@ import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/drive
 import { waitFor } from "./lib/wait.mjs";
 
 const { browser, page } = await launch();
+const MOD = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control");
 await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
 await clickMode(page, "Paper").catch(() => {});
 await sleep(600);
@@ -177,9 +178,9 @@ await sleep(150);
 // half-reflowed corruption): either the pre-typing normalized text (typing
 // undone alone) or the original messy source (history coalesced Tab's
 // normalize with the typing — both are one clean step back).
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.press("z");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await sleep(150);
 res.undoOneUnit = await page.evaluate(() => {
   const l3 = window.__fluxView.state.doc.line(3).text;
@@ -216,18 +217,18 @@ await page.evaluate(() => {
   view.dispatch({ selection: { anchor: pos } });
   view.focus();
 });
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.down("Alt");
 await page.keyboard.press("r");
 await page.keyboard.up("Alt");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await sleep(120);
 res.chordRow = await page.evaluate(() => window.__fluxView.state.doc.lines === 11);
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.down("Alt");
 await page.keyboard.press("a");
 await page.keyboard.up("Alt");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await sleep(120);
 res.chordAlign = await page.evaluate(() => window.__fluxView.state.doc.line(4).text.includes(":") );
 
@@ -379,9 +380,9 @@ await page.evaluate(() => {
   view.dispatch({ selection: { anchor: pos } });
   view.focus();
 });
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.press("Enter");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await sleep(200);
 res.modEnterJump = await page.evaluate(
   () => window.__fluxView.state.doc.lineAt(window.__fluxView.state.selection.main.head).number === 3,

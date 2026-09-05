@@ -20,9 +20,9 @@
 // ---------------------------------------------------------------------------
 
 import type { Project, Figure, Asset, TextStyle, FigureFamilyDef } from "../types";
-import { slugify } from "./types";
 import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
 import { composeCaption } from "../captions";
+import { deriveFigureReferenceKey, ensureFigureReferenceKeys } from "./figureIdentity";
 import {
   computeFamilyNumbers,
   derivedFigureName,
@@ -133,9 +133,7 @@ export function normalizeIndexAssets(index: FigIndexFile | null): Asset[] {
  *  Existing labels are never re-derived (they anchor @fig-… references) —
  *  callers preserve prev.label first. */
 export function deriveLabel(f: { id: string; name: string }): string {
-  const slugLike = /^[a-z0-9][a-z0-9-]*$/i.test(f.id) && !f.id.includes("_");
-  const base = slugLike ? f.id : slugify(f.name || f.id);
-  return `fig-${base || f.id}`;
+  return deriveFigureReferenceKey(f);
 }
 
 // --------------------------------------------------------------------------
@@ -185,6 +183,9 @@ function canvasesForSave(
  *  from it (they anchor @fig-… references in manuscripts); names, family
  *  identity, kind, captions and order are derived fresh from the model. */
 export function planFigSave(model: Project, prev: FigIndexFile | null): FigSavePlan {
+  // Keep the planner pure while stamping canonical keys into canvas files.
+  model = { ...model, figures: model.figures.map((f) => ({ ...f })) };
+  ensureFigureReferenceKeys(model, prev);
   const canvases = canvasesForSave(model, prev);
 
   // Structured identity (figfamily.ts): loaders normalize on load, but the
@@ -231,25 +232,10 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
     return { id: f.id, path: `fig/captions/${f.id}.md`, text: cap ? cap + "\n" : "" };
   });
 
-  const prevFig = new Map((prev?.figures ?? []).map((f) => [f.id, f] as const));
-  // Fresh labels de-duplicate against every label this index will carry —
-  // preserved ones are claimed first so a new figure can never steal one.
-  const usedLabels = new Set<string>();
-  for (const f of model.figures) {
-    const l = prevFig.get(f.id)?.label;
-    if (l) usedLabels.add(l);
-  }
-  const uniqueLabel = (base: string): string => {
-    let label = base;
-    for (let n = 2; usedLabels.has(label); n++) label = `${base}-${n}`;
-    usedLabels.add(label);
-    return label;
-  };
   const index: FigIndexFile = {
     schemaVersion: FIG_INDEX_SCHEMA_VERSION,
     canvases: canvases.map((c, i) => ({ id: c.id, name: c.name, order: i + 1 })),
     figures: model.figures.map((f, i) => {
-      const p = prevFig.get(f.id);
       const ident = identity(f);
       return {
         id: f.id,
@@ -258,9 +244,7 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
         // a figure must not break its @fig-… references); derive only for new
         // figures, preferring the nickname over the derived name so labels read
         // `fig-growth-curves`, not `fig-figure-7`.
-        label:
-          p?.label ||
-          uniqueLabel(deriveLabel({ id: f.id, name: ident.nickname || ident.name })),
+        label: f.referenceKey!,
         order: i + 1,
         // `kind` is derived from the family now (agent-set supplementary kinds
         // survive via the load-time family seeding in migrateFigureFamilies).

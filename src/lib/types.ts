@@ -88,6 +88,9 @@ export interface GroupDef {
 
 export interface Figure {
   id: Id;
+  /** Permanent manuscript key including `fig-`. Migrated from index.label;
+   * retitling, numbering and moving canvases must never change it. */
+  referenceKey?: string;
   // DERIVED display name — `${family displayName} ${number}` ("Supplementary
   // Figure 4"). Kept on disk for every legacy consumer (export filenames,
   // canvas frame label, slide folding, headless watermark); the figure's real
@@ -334,7 +337,7 @@ export interface SemanticPlotElement extends ElementBase {
   assetId: Id;
   // Where the plot + sidecars live in the project's user-owned plots/ dir
   // (relative to project root), for relink / regenerate.
-  source?: { svgPath: string; manifestPath?: string; recipePath?: string };
+  source?: { svgPath: string; manifestPath?: string; recipePath?: string; frozen?: boolean; external?: boolean };
   // Spec version / content hash of the manifest this was placed against.
   manifestRef?: { specVersion: string; hash?: string };
   // Per-part style overrides, keyed by STABLE semantic id (e.g. "control.line").

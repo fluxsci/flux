@@ -446,5 +446,15 @@ export function earlierTransformStates(
 export function transformPreState(slide: Slide, target: string, beatIndex: number): Element | null {
   const docEl = slide.elements.find((e) => e.id === target);
   if (!docEl) return null;
-  return foldPreState(docEl, earlierTransformStates(slide.beats, target, beatIndex));
+  const out = foldPreState(docEl, earlierTransformStates(slide.beats, target, beatIndex));
+  // Content identity is a separate authored channel, but is still part of a
+  // transform's effective source. A→B→C must start the second move at B.
+  if (out.type === "plot") {
+    for (let i = 0; i < Math.min(beatIndex, slide.beats.length); i++) {
+      for (const track of slide.beats[i].tracks) {
+        if (!track.disabled && track.target === target && familyOf(track) === "transform" && track.to?.assetId) out.assetId = track.to.assetId;
+      }
+    }
+  }
+  return out;
 }

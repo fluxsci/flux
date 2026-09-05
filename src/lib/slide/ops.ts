@@ -17,10 +17,10 @@ import type { Asset, Element, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, type TextOpts } from "../ops";
 import { FLEXOKI } from "../flexoki";
-import { DEFAULT_TEXT_STYLES } from "../migrate";
-import { DEFAULT_THEME_ID } from "./theme";
+import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
 import { familyOf } from "./family";
+import { trackDuration } from "./compile";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
 import {
   DECK_SCHEMA_VERSION,
@@ -99,7 +99,7 @@ export function createDeck(opts: CreateDeckOpts = {}): Deck {
     defaults: { transition: "fade", buildEasing: "smooth", advance: "click" },
     palette: [],
     colorGroups: structuredClone(FLEXOKI),
-    textStyles: structuredClone(DEFAULT_TEXT_STYLES),
+    textStyles: presentationTextStyles(opts.theme ?? DEFAULT_THEME_ID, opts.stage?.height ?? DEFAULT_STAGE.height),
     assets: [],
     slides: [],
   };
@@ -118,7 +118,29 @@ export function setStageSize(deck: Deck, size: StageSize): void {
 }
 
 export function setTheme(deck: Deck, theme: string): void {
+  const before=resolveTheme(deck.theme),after=resolveTheme(theme);
+  // Theme changes carry inherited-looking typography with them. Concrete
+  // customized values remain deliberate document data and are left alone.
+  const colors=new Map([[before.text,after.text],[before.textMuted,after.textMuted],[before.textHi,after.textHi]]);
+  const restyle=(text:{color?:string;fontFamily?:string;fontWeight?:number})=>{
+    if(text.color && colors.has(text.color))text.color=colors.get(text.color)!;
+    const heading=(text.fontWeight??400)>=600;
+    if(text.fontFamily===(heading?before.fontTitle:before.fontBody))text.fontFamily=heading?after.fontTitle:after.fontBody;
+  };
+  for(const slide of deck.slides)for(const el of slide.elements)if(el.type==="text")restyle(el);
+  for(const style of deck.textStyles??[])restyle(style);
   deck.theme = theme;
+}
+
+/** Presentation defaults are deliberately separate from journal text defaults.
+ *  Concrete values travel with the deck and render identically offline. */
+export function presentationTextStyles(themeId: string, height = DEFAULT_STAGE.height) {
+  const theme = resolveTheme(themeId);
+  return [
+    { id: "sl-title", name: "Title", fontFamily: theme.fontTitle, fontSize: Math.round(height * .09), fontWeight: 700, fontStyle: "normal" as const, color: theme.textHi },
+    { id: "sl-body", name: "Body", fontFamily: theme.fontBody, fontSize: Math.round(height * .045), fontWeight: 400, fontStyle: "normal" as const, color: theme.text },
+    { id: "sl-caption", name: "Caption", fontFamily: theme.fontBody, fontSize: Math.round(height * .035), fontWeight: 400, fontStyle: "normal" as const, color: theme.textMuted },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +195,8 @@ export function applyLayoutStarters(deck: Deck, slideId: Id, layout: LayoutId): 
   const title = Math.round(H * 0.09);
   const body = Math.round(H * 0.045);
   const add = (b: Box, text: string, style: TextOpts) =>
-    addSlideText(deck, slideId, { text, ...b, ...style });
+    addSlideText(deck, slideId, { text, ...b, fontFamily: style.fontWeight === 700 ? resolveTheme(deck.theme).fontTitle : resolveTheme(deck.theme).fontBody,
+      color: style.fontWeight === 700 ? resolveTheme(deck.theme).textHi : resolveTheme(deck.theme).text, ...style });
   if (layout === "title") {
     add(box(0.1, 0.34, 0.8, 0.18), "Title", { fontSize: title, fontWeight: 700, align: "center", sizing: "auto-h" });
     add(box(0.1, 0.58, 0.8, 0.1), "Subtitle", { fontSize: body, align: "center", sizing: "auto-h" });
@@ -367,7 +390,10 @@ export function addSlideText(
   slideId: Id,
   opts: { text: string } & Box & TextOpts,
 ): Id | null {
-  return addElement(deck, slideId, makeText(opts.text, opts, opts, false));
+  const theme = resolveTheme(deck.theme);
+  return addElement(deck, slideId, makeText(opts.text, opts, {
+    fontFamily: theme.fontBody, color: theme.text, fontSize: Math.round(deck.stage.height * .045), ...opts,
+  }, false));
 }
 
 /** Drop a semantic plot on a slide — the SAME SemanticPlotElement the figure
@@ -741,6 +767,17 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
   return true;
 }
 
+/** User-facing Add is insertion, never a hidden replacement of another effect.
+ *  setAnimation remains the explicit upsert used by recipes and existing verbs. */
+export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track): Track | null {
+  const s = slideById(deck, slideId);
+  const b = s && beatById(s, beatId);
+  if (!b) return null;
+  const added = { ...structuredClone(track), id: newId("track") };
+  b.tracks.push(added);
+  return added;
+}
+
 /** Add (or update) the ONE transform track for `targetId` on a beat — the
  *  ergonomic form agents and the GUI use so nobody hand-builds `to.state`
  *  diffs. Merges `state` keys over the existing patch (a key of undefined is
@@ -869,7 +906,7 @@ export function cascadeTracks(
         t.start = clampTrackValue("start", cascadeValue(b0.start ?? 0, spec, step));
         break;
       case "duration":
-        t.duration = clampTrackValue("duration", cascadeValue(b0.duration ?? 400, spec, step));
+        t.duration = clampTrackValue("duration", cascadeValue(b0.duration ?? trackDuration(t), spec, step));
         break;
       case "influence.in":
       case "influence.out": {

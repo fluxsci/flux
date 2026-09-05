@@ -26,8 +26,9 @@ import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
 import { prefixIds, applyOverrides } from "../../plot/parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
-import { elementToSvg, type AssetSizeFn } from "../../export";
+import { elementToSvg, textSvgLayout, type AssetSizeFn } from "../../export";
 import { elementBBox } from "../../geometry";
+import { lerpColor } from "../../color/interp";
 import type { Slide, StageSize, DeckTheme } from "../types";
 import { themeCssVars } from "../theme";
 
@@ -181,6 +182,86 @@ export function updateStaticContent(w: HTMLElement, el: FigElement, ctx: SlideRe
   };
   for (let i = 0; i < newKids.length; i++) patch(oldKids[i], newKids[i]);
   return true;
+}
+
+/** Compile the serializer's two endpoints into stable attribute bindings.
+ * Normal shape transforms never serialize/parse SVG during playback. A
+ * topology change returns null so the caller can crossfade complete layers. */
+export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: { circles: ReadonlySet<string>; lines: ReadonlySet<string> }): ((el: FigElement, t: number) => void) | null {
+  if (pre.type === "text" && end.type === "text") {
+    const svg = w.firstElementChild, text = svg?.querySelector("text");
+    if (!svg || !text) return null;
+    const spans = Array.from(text.children);
+    let priorAttrs = Object.keys(textSvgLayout(pre).attrs);
+    return (el) => {
+      if (el.type !== "text") return;
+      const neutral = { ...el, rotation: 0, opacity: undefined };
+      const bb = elementBBox(neutral);
+      svg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
+      const { attrs, lines, x, advance } = textSvgLayout(neutral);
+      for (const name of priorAttrs) if (!(name in attrs)) text.removeAttribute(name);
+      for (const [name, value] of Object.entries(attrs)) if (text.getAttribute(name) !== value) text.setAttribute(name, value);
+      priorAttrs = Object.keys(attrs);
+      // A wrap boundary changes only tspan count. Other frames update cached
+      // nodes in place; no serialization, parser, or selector on the frame path.
+      while (spans.length > lines.length) spans.pop()!.remove();
+      while (spans.length < lines.length) { const span = document.createElementNS(SVG_NS, "tspan"); text.appendChild(span); spans.push(span); }
+      for (let i = 0; i < spans.length; i++) {
+        spans[i].setAttribute("x", String(x)); spans[i].setAttribute("dy", String(i === 0 ? 0 : advance));
+        if (spans[i].textContent !== lines[i]) spans[i].textContent = lines[i];
+      }
+    };
+  }
+  const from = document.createElement("div"), to = document.createElement("div");
+  fillContent(from, pre, ctx); fillContent(to, end, ctx);
+  const liveSvg = w.firstElementChild;
+  const aSvg = from.firstElementChild, bSvg = to.firstElementChild;
+  if (!liveSvg || !aSvg || !bSvg) return null;
+  const bindings: { node: Element; name: string; sample: (t: number) => string | null }[] = [];
+  const texts: { node: Element; a: string; b: string }[] = [];
+  const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
+  const bind = (node: Element, a: Element, b: Element, lineGeometry = false): boolean => {
+    if (node.tagName !== a.tagName || a.tagName !== b.tagName || node.children.length !== a.children.length || a.children.length !== b.children.length) return false;
+    const names = new Set([...Array.from(a.attributes), ...Array.from(b.attributes)].map((x) => x.name));
+    const id = a.getAttribute("id") ?? "";
+    const ownsLine = lineGeometry || !!dataGeometry?.lines.has(id);
+    const ownsCircle = a.tagName.toLowerCase() === "circle" && !!dataGeometry?.circles.has(id);
+    for (const name of names) {
+      if (name === "id" || name === "viewBox" && pre.type !== "plot") continue;
+      if (ownsLine && name === "d" || ownsCircle && (name === "cx" || name === "cy")) continue;
+      const av = a.getAttribute(name), bv = b.getAttribute(name);
+      if (av === bv) continue;
+      let sample: (t: number) => string | null = (t) => t < .5 ? av : bv;
+      if (av !== null && bv !== null) {
+        if (name === "fill" || name === "stroke") sample = (t) => lerpColor(av, bv, t);
+        else {
+          const an = (av.match(numbers) ?? []).map(Number), bn = (bv.match(numbers) ?? []).map(Number);
+          if (an.length && an.length === bn.length) sample = (t) => { let i = 0; return bv.replace(numbers, () => String(an[i] + (bn[i] - an[i++]) * t)); };
+        }
+      }
+      bindings.push({ node, name, sample });
+    }
+    if (!a.children.length && a.textContent !== b.textContent) texts.push({ node, a: a.textContent ?? "", b: b.textContent ?? "" });
+    for (let i = 0; i < a.children.length; i++) if (!bind(node.children[i], a.children[i], b.children[i], ownsLine)) return false;
+    return true;
+  };
+  if (!bind(liveSvg, aSvg, bSvg)) return null;
+  const path = pre.type === "path" ? liveSvg.querySelector("path") : null;
+  return (el, t) => {
+    if (el.type !== "plot") {
+      const bb = elementBBox({ ...el, rotation: 0 });
+      liveSvg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
+    }
+    for (const binding of bindings) {
+      const value = binding.sample(t);
+      if (value === null) binding.node.removeAttribute(binding.name);
+      else if (binding.node.getAttribute(binding.name) !== value) binding.node.setAttribute(binding.name, value);
+    }
+    // The path tween owns its resampled geometry; interpolating raw d strings
+    // would pair unrelated commands when the node count changed.
+    if (path && el.type === "path") path.setAttribute("d", el.d);
+    for (const text of texts) text.node.textContent = t < .5 ? text.a : text.b;
+  };
 }
 
 /** The ONE content dispatch — a plot mounts live inline SVG, everything else

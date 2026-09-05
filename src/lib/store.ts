@@ -4,9 +4,12 @@ import { FLEXOKI } from "./flexoki";
 import { settings } from "./settings";
 import { newId } from "./ids";
 import { migrateProject, DEFAULT_TEXT_STYLES } from "./migrate";
+import { ensureFigureReferenceKeys } from "./project/figureIdentity";
 import { membersDeep, unitOf } from "./groups";
 import type { XrayTarget } from "./xray/buildXrayTree";
 import * as ops from "./ops";
+import { applySourceUpdates } from "./plot/sourceSync";
+import { storeTenant } from "./tenancy";
 
 // ---------------------------------------------------------------------------
 // Ids — the generator now lives in the dependency-free ./ids leaf so the pure
@@ -93,8 +96,9 @@ function blankProject(): Project {
 // (migrate.ts — text autoWidth → sizing, seed default text styles), then
 // guarantee at least one canvas exists and every figure is assigned to one.
 // Mutates and returns `p`.
-export function normalizeProject(p: Project): Project {
+export function normalizeProject(p: Project, opts: { figureIdentity?: boolean } = {}): Project {
   migrateProject(p);
+  if (opts.figureIdentity !== false) ensureFigureReferenceKeys(p);
   if (!p.canvases || p.canvases.length === 0) {
     const cid = newId("canvas");
     p.canvases = [{ id: cid, name: "Canvas 1" }];
@@ -148,6 +152,39 @@ project.subscribe(() => {
   if (!scopedNotify) globalRev.update((n) => n + 1);
 });
 
+/** An embedded editor can translate a deliberate edit into its own document
+ *  before subscribers see the result. This is synchronous and only surrounds
+ *  user mutations; display projection and history restoration never route edits.
+ *  Figure mode registers nothing and pays no snapshot/adapter cost. */
+export interface EditorTransactionContext {
+  kind: "commit" | "mutate" | "figure";
+  figureId?: Id;
+}
+export interface EditorTransactionAdapter {
+  before(project: Project, context: EditorTransactionContext): unknown;
+  after(project: Project, token: unknown, context: EditorTransactionContext): void;
+}
+let editorTransactionAdapter: EditorTransactionAdapter | null = null;
+let adaptingEditorTransaction = false;
+export function registerEditorTransactionAdapter(adapter: EditorTransactionAdapter): () => void {
+  editorTransactionAdapter = adapter;
+  return () => {
+    if (editorTransactionAdapter === adapter) editorTransactionAdapter = null;
+  };
+}
+function applyEditorMutation(p: Project, fn: (p: Project) => void, context: EditorTransactionContext) {
+  const adapter = adaptingEditorTransaction ? null : editorTransactionAdapter;
+  if (!adapter) return fn(p);
+  adaptingEditorTransaction = true;
+  try {
+    const token = adapter.before(p, context);
+    fn(p);
+    adapter.after(p, token, context);
+  } finally {
+    adaptingEditorTransaction = false;
+  }
+}
+
 /** Scoped mutate: like mutate(), but renderers only re-derive state for
  *  `figId`. Use ONLY when the mutation provably touches nothing outside that
  *  figure. No history entry — call beginGesture() first (same as mutate). */
@@ -155,7 +192,7 @@ export function mutateFigure(figId: Id, fn: (p: Project) => void) {
   scopedNotify = true;
   try {
     project.update((p) => {
-      fn(p);
+      applyEditorMutation(p, fn, { kind: "figure", figureId: figId });
       return p;
     });
   } finally {
@@ -200,6 +237,8 @@ export const importerOpen = writable<boolean>(false);
 // (FigureNamer.svelte). Lives here (not in the component) so keyboard.ts,
 // Sidebar and Inspector can all open it — the importerOpen layering rule.
 export const figNamer = writable<{ figId: Id } | null>(null);
+/** Project-wide figure identity, source and usage inspector. */
+export const figureCatalog = writable<{ figureId?: Id; section?: "details" | "numbering" } | null>(null);
 
 export const activeFigureId = writable<Id | null>(get(project).figures[0]?.id ?? null);
 // P8: the X-ray root pins a target inside ONE figure — actually switching
@@ -286,6 +325,21 @@ export const dirty = writable<boolean>(false);
 // io.ts / project/figbridge.ts), and the editor's own Open/Save are hidden.
 export const embeddedProjectRoot = writable<string | null>(null);
 
+// Accepted source bytes live outside Undo. Their intrinsic dimensions must
+// do the same, otherwise restoring an old edit stretches the current SVG.
+const acceptedFigureSourceSizes = new Map<string, { assetId: string; width: number; height: number }>();
+let figureSourceHistory = true;
+let acceptedFigureRoot: string | null = null;
+embeddedProjectRoot.subscribe((root) => {
+  if (root !== acceptedFigureRoot) { acceptedFigureRoot = root; acceptedFigureSourceSizes.clear(); }
+});
+export function acceptFigureSourceSizes(updates: readonly { assetId: string; width: number; height: number }[]): void {
+  if (!figureSourceHistory || storeTenant() !== "figure") return;
+  for (const update of updates) if (update.width > 0 && update.height > 0 && Number.isFinite(update.width + update.height)) {
+    acceptedFigureSourceSizes.set(update.assetId, { assetId: update.assetId, width: update.width, height: update.height });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Undo / redo
 //
@@ -340,6 +394,15 @@ function snapshot(p: Project): HistEntry {
 }
 function restore(e: HistEntry) {
   e.snap.colorGroups = get(project).colorGroups;
+  if (figureSourceHistory && storeTenant() === "figure" && acceptedFigureSourceSizes.size) {
+    // Only assets present in the restored snapshot participate. Undoing an
+    // import never resurrects its source placement or asset registry entry.
+    const updates = e.snap.assets.flatMap((asset) => {
+      const accepted = acceptedFigureSourceSizes.get(asset.id);
+      return accepted && (accepted.width !== asset.naturalWidth || accepted.height !== asset.naturalHeight) ? [accepted] : [];
+    });
+    if (updates.length) applySourceUpdates(e.snap, updates);
+  }
   project.set(e.snap);
   if (companion && "comp" in e) companion.restore(e.comp);
 }
@@ -405,7 +468,7 @@ export function beginGesture() {
 export function commit(fn: (p: Project) => void) {
   beginGesture();
   project.update((p) => {
-    fn(p);
+    applyEditorMutation(p, fn, { kind: "commit" });
     return p;
   });
 }
@@ -414,7 +477,7 @@ export function commit(fn: (p: Project) => void) {
 // gesture whose pre-state was already captured by beginGesture()).
 export function mutate(fn: (p: Project) => void) {
   project.update((p) => {
-    fn(p);
+    applyEditorMutation(p, fn, { kind: "mutate" });
     return p;
   });
   markEdited();
@@ -642,6 +705,8 @@ export function selectedElements(p: Project, sel: Set<Id>): Element[] {
 }
 
 export interface LoadProjectOpts {
+  /** Slide projections reuse drawing tools without becoming referenceable figures. */
+  figureIdentity?: boolean;
   /** External-reload semantics (W10 live reload / the banner's "Reload theirs"):
    *  an agent/CLI edit to fig/ must not yank the user around or eat their
    *  history. Keeps the active canvas/figure/selection wherever their ids
@@ -654,7 +719,10 @@ export interface LoadProjectOpts {
 }
 
 export function loadProject(p: Project, dir: string | null, opts: LoadProjectOpts = {}) {
-  normalizeProject(p);
+  normalizeProject(p, opts);
+  figureSourceHistory = opts.figureIdentity !== false;
+  acceptedFigureSourceSizes.clear();
+  if (figureSourceHistory) acceptFigureSourceSizes(p.assets.map((a) => ({ assetId: a.id, width: a.naturalWidth, height: a.naturalHeight })));
   const prevCanvas = get(activeCanvasId);
   const prevFigure = get(activeFigureId);
   if (opts.reload) {
@@ -732,8 +800,7 @@ export function deleteCanvas(id: Id) {
   if (get(project).canvases.length <= 1) return;
   const wasActive = get(activeCanvasId) === id;
   commit((p) => {
-    p.canvases = p.canvases.filter((c) => c.id !== id);
-    p.figures = p.figures.filter((f) => f.canvasId !== id);
+    ops.deleteCanvas(p, id);
   });
   if (wasActive) {
     const first = get(project).canvases[0]?.id;

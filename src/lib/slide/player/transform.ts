@@ -31,15 +31,17 @@ import { get } from "svelte/store";
 import type { Element as FigElement, SemanticPlotElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
 import { applyOverrides } from "../../plot/parse";
-import { compensatePtTrue, restorePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
+import { compensatePtTrue, restorePtTrue, compilePtTrueBindings, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox } from "../../geometry";
 import { lerpElement, contentPlan, type ContentPlan } from "../tween";
 import { createMorph, type MorphController } from "./morph";
-import { applyWrapperBox, applyWrapperBoxComposite, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, compileStaticContent, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 
 export interface TransformCtx extends SlideRenderCtx {
+  /** Effective source content after earlier cues (may be a crossfade layer). */
+  contentHost?: HTMLElement;
   /** assetId → manifest (plot frame updates + the content-morph half). */
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
   /** Content-morph target for plots (track.to.assetId), when compatible. */
@@ -66,6 +68,16 @@ export function createTransform(
   ctx: TransformCtx,
 ): MorphController {
   const plan: ContentPlan = contentPlan(pre, end);
+  if (pre.type === "plot" && end.type === "plot" && pre.assetId !== end.assetId && !ctx.morphTo) {
+    plan.mode = "crossfade";
+    plan.contentDirty = true;
+  }
+  const contentHost = ctx.contentHost ?? (wrap as HTMLElement & { __slideEffects?: HTMLElement }).__slideEffects ?? wrap;
+  const staticUpdate = pre.type !== "plot" && plan.contentDirty && plan.mode !== "crossfade"
+    ? compileStaticContent(contentHost, pre, end, ctx) : null;
+  // Text wrapping can change node topology as metrics change. Keep that
+  // deliberate fallback; shape topology changes use prebuilt crossfade layers.
+  if (pre.type !== "plot" && pre.type !== "text" && plan.contentDirty && !staticUpdate) plan.mode = "crossfade";
   const skip = ctx.skipProps;
   const boxOpts = {
     skipOpacity: skip?.has("opacity") ?? false,
@@ -81,8 +93,15 @@ export function createTransform(
   // --- plot half: in-place frame/override updates + optional content morph --
   const isPlot = pre.type === "plot" && end.type === "plot";
   let innerMorph: MorphController | null = null;
+  const plotUpdate = isPlot && ctx.morphTo ? compileStaticContent(contentHost, pre, end, ctx, {
+    circles: new Set(ctx.morphTo.A.series.flatMap((s) => (s.points ?? []).map((p) => `${pre.id}__${p.svgId}`))),
+    lines: new Set(ctx.morphTo.A.series.flatMap((s) => s.svg?.line ? [`${pre.id}__${s.svg.line}`] : [])),
+  }) : null;
   if (isPlot && ctx.morphTo) {
-    innerMorph = createMorph(wrap, pre.id, ctx.morphTo.A, ctx.morphTo.B);
+    // A compatible data match with different SVG topology needs a complete
+    // crossfade; a geometry-only tween would silently leave old labels/axes.
+    if (plotUpdate) innerMorph = createMorph(contentHost, pre.id, ctx.morphTo.A, ctx.morphTo.B, true);
+    else plan.mode = "crossfade";
   }
   const intrinsic = (() => {
     if (!isPlot) return null;
@@ -94,6 +113,8 @@ export function createTransform(
     const cached = plotDom.get((pre as SemanticPlotElement).assetId);
     return cached?.getAttribute("viewBox") ?? null;
   })();
+  const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
+  const ptTrueBindings = plotSvg ? compilePtTrueBindings(plotSvg) : undefined;
 
   // --- crossfade layers (built lazily on the first seek that needs them) ----
   let faded = false;
@@ -111,13 +132,13 @@ export function createTransform(
     layerB = mk();
     // move (never clone) the existing content into layer A — inner-node
     // animations from earlier beats stay attached to their live targets.
-    while (wrap.firstChild) layerA.appendChild(wrap.firstChild);
+    while (contentHost.firstChild) layerA.appendChild(contentHost.firstChild);
     // layer B renders the END content once through the ONE renderer; both
     // layers stretch with the wrapper (fillContent svgs are 100% + none-
     // preserveAspectRatio), so even the fallback moves with the box.
     fillContent(layerB, end, ctx);
-    wrap.appendChild(layerA);
-    wrap.appendChild(layerB);
+    contentHost.appendChild(layerA);
+    contentHost.appendChild(layerB);
   }
 
   let clearedDash = false;
@@ -142,7 +163,7 @@ export function createTransform(
     }
 
     if (!plan.contentDirty) {
-      if (innerMorph) innerMorph.seek(t); // pure content morph, frame static
+      if (innerMorph) { plotUpdate?.(el, t); innerMorph.seek(t); }
       return;
     }
 
@@ -156,7 +177,7 @@ export function createTransform(
 
     if (isPlot) {
       const p = el as SemanticPlotElement;
-      const inst = wrap.querySelector("svg");
+      const inst = plotSvg;
       if (inst) {
         // compensatePtTrue is ONE-SHOT (it prepends transforms / multiplies
         // stroke styles) — re-applying per seek COMPOUNDS: glyphs shrank a
@@ -164,7 +185,7 @@ export function createTransform(
         // wall during playback. Restore the pristine state first, re-apply
         // the (lerped) overrides, then compensate for THIS frame's box —
         // exactly a fresh mount, idempotent at any t.
-        restorePtTrue(inst);
+        restorePtTrue(inst, ptTrueBindings);
         if (naturalViewBox && intrinsic) {
           if (p.crop) {
             inst.setAttribute("viewBox", cropViewBoxValue(naturalViewBox, intrinsic, p.crop));
@@ -182,15 +203,19 @@ export function createTransform(
             crop: p.crop ?? null,
             contentScale: p.contentScale,
             intrinsic,
-          });
+          }, ptTrueBindings);
         }
       }
-      if (innerMorph) innerMorph.seek(t);
+      if (innerMorph) { plotUpdate?.(el, t); innerMorph.seek(t); }
       return;
     }
 
-    updateStaticContent(wrap, el, ctx);
+    if (staticUpdate) staticUpdate(el, t);
+    else updateStaticContent(contentHost, el, ctx);
   }
 
-  return { seek };
+  // Build in story order, before later tracks resolve their targets. A B-only
+  // semantic part after A→B must bind B's nodes even on the first random seek.
+  if (plan.mode === "crossfade") { ensureLayers(); layerB!.style.opacity = "0"; }
+  return { seek, targetRoot: layerB ?? contentHost };
 }

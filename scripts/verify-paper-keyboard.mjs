@@ -10,6 +10,7 @@
 import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
 
 const { browser, page } = await launch();
+const MOD = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control");
 await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
 await clickMode(page, "Paper").catch(() => {});
 await sleep(600);
@@ -112,9 +113,9 @@ if (!embedFound) {
   await browser.close();
   process.exit(1);
 }
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.press("Enter");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await sleep(700);
 const inFigureMode = await page.evaluate(() => {
   const active = document.querySelector('button[aria-label][aria-current="true"], button[aria-label].active');
@@ -180,11 +181,11 @@ await page.evaluate(() => {
     if (typeof y === "number") window.__pv.push(y);
   });
 });
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.down("Shift");
 await page.keyboard.press("KeyE");
 await page.keyboard.up("Shift");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 // Poll for the iframe (160ms debounce + async module loads on first render).
 let previewOn = false;
 for (let i = 0; i < 25 && !previewOn; i++) {
@@ -218,9 +219,9 @@ const previewOk =
   (await focusInEditor());
 
 // --- palette Escape returns focus ---------------------------------------------
-await page.keyboard.down("Control");
+await page.keyboard.down(MOD);
 await page.keyboard.press("KeyK");
-await page.keyboard.up("Control");
+await page.keyboard.up(MOD);
 await sleep(300);
 const paletteOpened = await page.evaluate(() => !!document.querySelector(".cp-scrim"));
 await page.keyboard.press("Escape");

@@ -20,18 +20,22 @@ export function getAssetData(id: Id): string | undefined {
 // dirty; the save writes only dirty (or never-written) assets and clears the marks.
 // setAssetData deliberately does NOT mark dirty — it's also the load path.
 const dirtyAssets = new Set<Id>();
+const assetWriteGenerations = new Map<Id, number>();
 export function markAssetDirty(id: Id) {
   dirtyAssets.add(id);
+  assetWriteGenerations.set(id, (assetWriteGenerations.get(id) ?? 0) + 1);
 }
+export function assetDirtyGeneration(id: Id): number { return assetWriteGenerations.get(id) ?? 0; }
 export function isAssetDirty(id: Id): boolean {
   return dirtyAssets.has(id);
 }
-export function clearAssetDirty(id: Id) {
-  dirtyAssets.delete(id);
+export function clearAssetDirty(id: Id, generation?: number) {
+  if (generation === undefined || generation === assetDirtyGeneration(id)) dirtyAssets.delete(id);
 }
 /** Reset on load — everything is in sync with disk. */
 export function clearAllAssetsDirty() {
   dirtyAssets.clear();
+  assetWriteGenerations.clear();
 }
 
 // ---------------------------------------------------------------------------

@@ -33,8 +33,10 @@
 
   // Visited modes in MRU order (least-recent first, active last).
   let visited = $state<ModeId[]>([]);
-  // Bumped when a cold chunk finishes loading, to re-derive the component from cache.
-  let loadTick = $state(0);
+  // Components this pane actually activated. The registry cache is not reactive:
+  // a cold import can finish after the user switches away. Adopt it explicitly
+  // on the next activation, while keeping previously mounted modes alive.
+  let components = $state<Partial<Record<ModeId, ReturnType<typeof cachedMode>>>>({});
 
   // Keep `mode` at the front-of-mind (end) of the MRU list, evicting clean modes
   // over the cap. Runs whenever the active mode changes.
@@ -63,14 +65,19 @@
     if (visited.includes(req.mode)) visited = visited.filter((m) => m !== req.mode);
   });
 
-  // Load the active mode's chunk if it's cold (visited modes are already cached).
+  // Only activate the requested mode. A stale import still warms the registry,
+  // but must not mount a hidden Figure/Slide and claim their shared editor store.
   $effect(() => {
     const m = mode;
-    if (cachedMode(m)) return;
+    const cached = cachedMode(m);
+    if (cached) {
+      components[m] = cached;
+      return;
+    }
     let alive = true;
     loadMode(m)
-      .then(() => {
-        if (alive) loadTick++;
+      .then((component) => {
+        if (alive) components[m] = component;
       })
       .catch((e) => {
         if (alive) pushToast("error", `Couldn't open ${m} mode`, { detail: errMsg(e) });
@@ -80,14 +87,10 @@
     };
   });
 
-  const compOf = (m: ModeId) => {
-    void loadTick; // reactive dep: recompute once a pending chunk resolves
-    return cachedMode(m) ?? null;
-  };
 </script>
 
 {#each visited as m (m)}
-  {@const Comp = compOf(m)}
+  {@const Comp = components[m]}
   {#if Comp}
     <!-- First-mount-only intro: the keyed block persists across switches, so
          revealing an already-visited mode is a cheap visibility flip, not a replay. -->

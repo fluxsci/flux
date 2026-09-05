@@ -80,6 +80,24 @@ const near = (v: number, t: number) => Math.abs(v - t) < 1e-6;
 const SKIP_SUBTREES = new Set(["defs", "clippath", "style", "metadata", "title", "desc", "svg"]);
 const STROKABLE = new Set(["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]);
 
+export interface PtTrueBindings { readonly nodes: readonly Element[] }
+/** A fixed plot's compensation topology. Playback keeps its DOM identities,
+ * so only factors/styles change; traversing ancestors and children every frame
+ * adds no information. Static callers may continue using the unbound API. */
+export function compilePtTrueBindings(inst: Element): PtTrueBindings {
+  const nodes: Element[] = [];
+  if (insideDefs(inst)) return { nodes };
+  const walk = (el: Element) => {
+    const tag = el.tagName?.toLowerCase() ?? "";
+    if (SKIP_SUBTREES.has(tag)) return;
+    if (tag === "text" || tag === "use" || el.getAttribute("data-flux-glyph") === "1") { nodes.push(el); return; }
+    if (STROKABLE.has(tag)) nodes.push(el);
+    for (const child of Array.from(el.children ?? [])) walk(child);
+  };
+  for (const child of Array.from(inst.children ?? [])) walk(child);
+  return { nodes };
+}
+
 // ---------------------------------------------------------------------------
 // RE-APPLICATION support (animation rework): compensatePtTrue is a ONE-SHOT
 // pass — it prepends transforms and multiplies stroke styles, so calling it
@@ -129,7 +147,7 @@ function recFor(el: Element): PristineRec {
  *  forgets its record — so the next compensate re-captures CURRENT values,
  *  and overrides applied between restore and re-compensate compose exactly
  *  like a fresh mount. No-op for never-compensated instances. */
-export function restorePtTrue(inst: Element): void {
+export function restorePtTrue(inst: Element, bindings?: PtTrueBindings): void {
   if (!compensated.has(inst)) return;
   compensated.delete(inst);
   const walk = (el: Element) => {
@@ -152,9 +170,9 @@ export function restorePtTrue(inst: Element): void {
         }
       }
     }
-    for (const c of Array.from(el.children ?? [])) walk(c as Element);
+    if (!bindings) for (const c of Array.from(el.children ?? [])) walk(c as Element);
   };
-  walk(inst);
+  if (bindings) for (const node of bindings.nodes) walk(node); else walk(inst);
 }
 
 function declaredStrokeProps(el: Element): { width: number | null; dash: string | null; hasStroke: boolean } {
@@ -172,7 +190,7 @@ function declaredStrokeProps(el: Element): { width: number | null; dash: string 
 
 /** Counter-scale pt-true content inside an inlined plot instance. Runs on the
  *  per-placement CLONE, after applyOverrides, before insertion/serialization. */
-export function compensatePtTrue(inst: Element, o: CompensateOpts): void {
+export function compensatePtTrue(inst: Element, o: CompensateOpts, bindings?: PtTrueBindings): void {
   const { w: nW, h: nH } = o.intrinsic ?? svgIntrinsicPx(inst);
   if (!nW || !nH) return;
   const visW = o.crop?.width ?? nW;
@@ -197,7 +215,7 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts): void {
   const walk = (el: Element, underCompensated: boolean) => {
     const tag = el.tagName?.toLowerCase() ?? "";
     if (SKIP_SUBTREES.has(tag) && el !== inst) return; // nested <svg> = alien unit space
-    if (insideDefs(el)) return;
+    if (!bindings && insideDefs(el)) return;
 
     if (tag === "text") {
       // Anchor = the text's own x/y (matplotlib's rotate() pivots there too).
@@ -245,8 +263,9 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts): void {
       }
     }
 
-    for (const c of Array.from(el.children ?? [])) walk(c as Element, underCompensated);
+    if (!bindings) for (const c of Array.from(el.children ?? [])) walk(c as Element, underCompensated);
   };
 
-  for (const c of Array.from(inst.children ?? [])) walk(c as Element, false);
+  if (bindings) for (const node of bindings.nodes) walk(node, false);
+  else for (const c of Array.from(inst.children ?? [])) walk(c as Element, false);
 }

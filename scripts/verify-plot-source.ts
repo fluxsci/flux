@@ -74,7 +74,8 @@ console.log("plotSourceCandidates — the cross-machine rescue (the actual bug):
 {
   // A canvas imported on the Linux box, opened on the Mac.
   const c = plotSourceCandidates(MAC, `${LINUX}/plots/sub/fig1.svg`);
-  assert(c[0] === `${LINUX}/plots/sub/fig1.svg`, "stored path is still tried first (same machine keeps working)");
+  assert(c[0] === `${MAC}/plots/sub/fig1.svg`, "current project's source wins even if the previous checkout still exists");
+  assert(plotSourceCandidates(MAC, `${LINUX}/plots/sub/fig1.svg`, { external: true })[0] === `${LINUX}/plots/sub/fig1.svg`, "explicit external links keep their chosen origin");
   assert(
     c.includes(`${MAC}/plots/sub/fig1.svg`),
     "foreign absolute path re-anchors at THIS project's plots/, preserving subdirs",

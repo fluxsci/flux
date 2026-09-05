@@ -54,7 +54,7 @@ process.env.FLUX_NO_MIGRATE = "1";
  *  hardcoded POSIX path, which is what let the win32 branch escape the sandbox. */
 const sandboxPrefs = () =>
   path.join(
-    process.platform === "win32" ? appData : path.join(home, ".config"),
+    process.platform === "win32" ? appData : process.platform === "darwin" ? path.join(home, "Library", "Application Support") : path.join(home, ".config"),
     "flux",
     "preferences.json",
   );

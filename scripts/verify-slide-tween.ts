@@ -266,7 +266,7 @@ function build(slide: Slide) {
   assert(wrap.style.left === "10px", "…and scrubbing back restores base (interruption-safe)");
 }
 
-// conflict rule: same-beat fade owns opacity; the transform's own opacity is dropped
+// Composition: appearance opacity multiplies the authored transform opacity.
 {
   const slide: Slide = {
     id: "s3",
@@ -283,7 +283,7 @@ function build(slide: Slide) {
   const wrap = rendered.elements.get("r1")!;
   applyStatic(specs, 1);
   assert(wrap.style.left === "500px", "the transform still owns the box");
-  assert(wrap.style.opacity === "1", "…but the same-beat appearance WINS the opacity it animates (conflict rule)");
+  assert(wrap.style.opacity === "0.25" && (wrap.querySelector(".sl-effects") as HTMLElement)?.style.opacity === "1", "…appearance composes on its own layer and preserves the transformed opacity");
 }
 
 // crossfade: a text rewrite builds two stacked layers mid-flight

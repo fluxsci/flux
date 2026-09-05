@@ -3,6 +3,7 @@
 // element styles + the text system, groups/z-order/layout, and scaffold.
 
 import * as fs from "node:fs/promises";
+import { figureSourceOwners } from "../src/lib/project/figureSourceOwners";
 import * as path from "node:path";
 import { membersDeep } from "../src/lib/groups";
 import { composeCaption, panelLetters, figurePanels, panelKey, splitCaption } from "../src/lib/captions";
@@ -34,8 +35,11 @@ import {
   manifestHasLogAxis,
   absurdCoordWarning,
 } from "./coordscan";
-import type { Figure, Element, Project, PartOverride, VectorNode, TextStyle } from "../src/lib/types";
+import type { Figure, Element, Project, PartOverride, VectorNode, TextStyle, SemanticPlotElement } from "../src/lib/types";
 import { slugify } from "../src/lib/project/types";
+import { readProjectDependencies } from "../src/lib/project/dependencies";
+import { toProjectRelativeSource, isUnderRoot } from "../src/lib/plot/source";
+import { planSourceUpdates, applySourceUpdates, writeSourceUpdates } from "../src/lib/plot/sourceSync";
 
 /** Copy a plot SVG into fig/assets, registering it (+ natural size) on the model.
  *  Returns the new assetId and any detected FluxPlot sidecar paths (project-rel). */
@@ -43,7 +47,7 @@ async function importPlotAsset(
   root: string,
   project: Project,
   svgFile: string,
-): Promise<{ assetId: string; w: number; h: number; warning?: string; source?: { svgPath: string; manifestPath?: string; recipePath?: string } }> {
+): Promise<{ assetId: string; w: number; h: number; warning?: string; source: NonNullable<SemanticPlotElement["source"]> }> {
   const abs = path.resolve(svgFile);
   const raw = await fs.readFile(abs, "utf8");
   const scan = scanAbsurdPathCoords(raw, { clamp: true });
@@ -61,7 +65,7 @@ async function importPlotAsset(
   const rel = `assets/${assetId}.svg`;
   await atomicWrite(safeJoin(root, `fig/${rel}`), svg);
   project.assets.push({ id: assetId, name: path.basename(abs), kind: "svg", path: rel, naturalWidth: w, naturalHeight: h });
-  let source: { svgPath: string; manifestPath?: string; recipePath?: string } | undefined;
+  let source: NonNullable<SemanticPlotElement["source"]> = { svgPath: toProjectRelativeSource(root, abs), ...(!isUnderRoot(root, abs) ? { external: true } : {}) };
   if (manifestText != null) {
     // AGT-1/AGT-11: copy the FluxPlot manifest (+ recipe) as ASSET-LOCAL sidecars
     // (fig/assets/<id>.fluxplot.json). The GUI reconnects a plot's semantic parts
@@ -76,9 +80,10 @@ async function importPlotAsset(
       await atomicWrite(safeJoin(root, `fig/assets/${assetId}.recipe.json`), await fs.readFile(recipe, "utf8"));
     }
     source = {
-      svgPath: path.relative(root, abs),
-      manifestPath: path.relative(root, manifest),
-      recipePath: hasRecipe ? path.relative(root, recipe) : undefined,
+      svgPath: toProjectRelativeSource(root, abs),
+      manifestPath: toProjectRelativeSource(root, manifest),
+      recipePath: hasRecipe ? toProjectRelativeSource(root, recipe) : undefined,
+      ...(!isUnderRoot(root, abs) ? { external: true } : {}),
     };
   }
   return { assetId, w, h, warning, source };
@@ -137,7 +142,7 @@ export async function addPanel(
     const box = { x: opts.x ?? 20, y: opts.y ?? 20, width: opts.width ?? w, height: opts.height ?? h };
     const elementId = ops.addPlotPanel(project, figId, {
       assetId,
-      source: source ?? { svgPath: path.relative(root, path.resolve(svgFile)) },
+      source,
       ...box,
     })!;
     return { assetId, elementId, ...(warning ? { warning } : {}) };
@@ -198,7 +203,7 @@ export async function importPlots(
       // inside preparePlot) — vanilla svgs must not fall back to <image>.
       const elementId = ops.addPlotPanel(project, figId, {
         assetId: it.assetId,
-        source: it.source ?? { svgPath: path.relative(root, path.resolve(plotPaths[i])) },
+        source: it.source,
         ...box,
       });
       if (elementId) panels.push({ assetId: it.assetId, elementId });
@@ -227,107 +232,32 @@ export async function syncFigureAssets(
   checked: number;
 }> {
   const run = async ({ project }: { project: Project }) => {
-    const figs = figId ? [ops.figById(project, figId)] : project.figures;
-    if (figId && !figs[0]) throw new Error(`figure not found: ${figId}`);
-    const refreshed: { assetId: string; from: string }[] = [];
-    const resized: { assetId: string; elementIds: string[]; from: { w: number; h: number }; to: { w: number; h: number } }[] = [];
-    const framed: { figId: string; from: { width: number; height: number }; to: { width: number; height: number } }[] = [];
-    const missing: string[] = [];
-    const warnings: string[] = [];
-    const seen = new Set<string>();
-    let checked = 0;
-    for (const fig of figs as Figure[]) {
-      // Frame refit baseline: the margin the composition ALREADY keeps between
-      // its content and the frame's right/bottom edge (re-applied after panels
-      // grow, so "regenerate taller → sync" can't leave panels clipped).
-      const bbBefore = unionRect(fig.elements.map(elementBBox));
-      for (const el of fig.elements) {
-        if (el.type !== "plot") continue;
-        const aid = (el as { assetId?: string }).assetId;
-        const src = (el as { source?: { svgPath?: string } }).source?.svgPath;
-        if (!aid || !src || seen.has(aid)) continue;
-        seen.add(aid);
-        const asset = project.assets.find((a) => a.id === aid);
-        if (!asset?.path) continue;
-        checked++;
-        const srcAbs = path.isAbsolute(src) ? src : path.resolve(root, src);
-        const raw = await fs.readFile(srcAbs, "utf8").catch(() => null);
-        if (raw == null) {
-          missing.push(src);
-          continue;
-        }
-        const scan = scanAbsurdPathCoords(raw, { clamp: true });
-        const svg = scan.svg;
-        const cur = await fs.readFile(safeJoin(root, `fig/${asset.path}`), "utf8").catch(() => "");
-        if (cur === svg) continue;
-        refreshed.push({ assetId: aid, from: src });
-        const base = srcAbs.replace(/\.svg$/i, "");
-        if (scan.clamped) {
-          const manifestText = await fs.readFile(base + ".fluxplot.json", "utf8").catch(() => null);
-          warnings.push(absurdCoordWarning(path.basename(srcAbs), scan, manifestHasLogAxis(manifestText)));
-        }
-        if (opts.dryRun) continue;
-        await atomicWrite(safeJoin(root, `fig/${asset.path}`), svg);
-        const { w, h } = svgIntrinsicSize(svg);
-        const prev = { w: asset.naturalWidth || w, h: asset.naturalHeight || h };
-        asset.naturalWidth = w;
-        asset.naturalHeight = h;
-        // Physical-size reconciliation (moma feedback #10): a regenerated plot
-        // with a NEW intrinsic size used to refresh bytes only — the element
-        // kept its old box, silently rescaling the plot away from true size.
-        // Resize every element on this asset, preserving any deliberate user
-        // scale (elW/prevNaturalW) so "regenerate at the right size" lands
-        // true-size while a hand-scaled panel stays hand-scaled.
-        if (Math.abs(prev.w - w) > 0.01 || Math.abs(prev.h - h) > 0.01) {
-          const els: string[] = [];
-          for (const f2 of project.figures)
-            for (const e2 of f2.elements) {
-              if (e2.type !== "plot" || (e2 as { assetId?: string }).assetId !== aid) continue;
-              const sx = prev.w > 0 ? e2.width / prev.w : 1;
-              const sy = prev.h > 0 ? e2.height / prev.h : 1;
-              e2.width = w * sx;
-              e2.height = h * sy;
-              els.push(e2.id);
-            }
-          resized.push({ assetId: aid, elementIds: els, from: prev, to: { w, h } });
-        }
-        // Refresh the asset-local sidecars alongside the bytes (same pairing
-        // rule as import: X.svg → X.fluxplot.json / X.recipe.json).
-        for (const [ext, dest] of [
-          [".fluxplot.json", `fig/assets/${aid}.fluxplot.json`],
-          [".recipe.json", `fig/assets/${aid}.recipe.json`],
-        ] as const) {
-          const text = await fs.readFile(base + ext, "utf8").catch(() => null);
-          if (text != null) await atomicWrite(safeJoin(root, dest), text);
-        }
-      }
-      // Refit the frame when grown content no longer fits: keep the smaller of
-      // the composition's previous right/bottom margin and compose's default
-      // 48, and never shrink the frame (a deliberately roomy layout survives).
-      if (!opts.dryRun && bbBefore) {
-        const bbAfter = unionRect(fig.elements.map(elementBBox));
-        if (bbAfter) {
-          const padX = Math.min(48, Math.max(0, fig.width - (bbBefore.x + bbBefore.w)));
-          const padY = Math.min(48, Math.max(0, fig.height - (bbBefore.y + bbBefore.h)));
-          const wantW = Math.ceil(bbAfter.x + bbAfter.w + padX);
-          const wantH = Math.ceil(bbAfter.y + bbAfter.h + padY);
-          if (wantW > fig.width || wantH > fig.height) {
-            const from = { width: fig.width, height: fig.height };
-            ops.setFigureLayout(project, fig.id, {
-              width: Math.max(fig.width, wantW),
-              height: Math.max(fig.height, wantH),
-            });
-            framed.push({ figId: fig.id, from, to: { width: fig.width, height: fig.height } });
-          }
-        }
-      }
-    }
-    return { refreshed, resized, framed, missing, warnings, checked };
+    if (figId && !ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+    const io = {
+      readText: (p: string) => fs.readFile(p, "utf8"),
+      exists,
+      readdir: async (p: string) => (await fs.readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, dir: e.isDirectory() })),
+    };
+    const owners = await figureSourceOwners(root, project, io);
+    const plan = await planSourceUpdates(root, owners.project, io, { figureId: figId });
+    if (!opts.dryRun && plan.updates.length) await owners.assertUnchanged();
+    const geometry = opts.dryRun ? { resized: [], framed: [] } : applySourceUpdates(project, plan.updates);
+    if (!opts.dryRun) await writeSourceUpdates(root, plan.updates, {
+      writeText: atomicWrite,
+      remove: (p) => fs.unlink(p).catch((e) => { if (e.code !== "ENOENT") throw e; }),
+    }, project);
+    return {
+      refreshed: plan.updates.map((u) => ({ assetId: u.assetId, from: u.from })),
+      ...geometry,
+      missing: plan.statuses.filter((s) => s.status === "missing").map((s) => s.path),
+      warnings: plan.statuses.filter((s) => s.status !== "missing" && !!s.detail).map((s) => `${s.path}: ${s.detail}`),
+      checked: plan.checked,
+    };
   };
   // Dry run reads under no lock and never saves — it's render-figure's cheap
   // staleness probe. The real sync is a normal locked mutate (journaled).
   if (opts.dryRun) return run(await loadFigModel(root));
-  return mutateFigModel(root, "sync_assets", run);
+  return mutateFigModel(root, "sync_assets", run, { changed: (r) => r.refreshed.length > 0 });
 }
 
 /** create-figure: add a blank figure (optional slug id, canvas, size, family). */
@@ -474,7 +404,7 @@ export async function composeFigure(
       // derived manifest at render/cache time, never an opaque <image>.
       const pid = ops.addPlotPanel(project, fig.id, {
         assetId,
-        source: source ?? { svgPath: path.relative(root, path.resolve(pp)) },
+        source,
         ...box,
       });
       if (pid) panelIds.push(pid);
@@ -914,7 +844,7 @@ export async function deleteElements(root: string, ids: string[]): Promise<void>
  *  numbering trap). Stale renders are unlinked so they can't be mistaken for
  *  live output. */
 export async function deleteFigure(root: string, figId: string): Promise<{ nextActiveId: string | null }> {
-  const r = await mutateFigModel(root, "delete_figure", ({ project }) => {
+  const r = await mutateFigModel(root, "delete_figure", async ({ project }) => {
     if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
     const out = ops.deleteFigure(project, figId, { allowEmpty: true });
     // Prune assets no remaining figure references. A headless delete has no
@@ -931,7 +861,13 @@ export async function deleteFigure(root: string, figId: string): Promise<{ nextA
         const aid = (e as { assetId?: string }).assetId;
         if (aid) used.add(aid);
       }
-    project.assets = project.assets.filter((a) => used.has(a.id));
+    const deps = await readProjectDependencies(root, {
+      readText: (p) => fs.readFile(p, "utf8"),
+      readdir: async (p) => (await fs.readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, dir: e.isDirectory() })),
+    });
+    for (const [id, uses] of Object.entries(deps.byAsset)) if (uses.some((u) => u.kind === "slide")) used.add(id);
+    // Incomplete inspection is never permission to discard an asset.
+    if (deps.complete) project.assets = project.assets.filter((a) => used.has(a.id));
     return out;
   });
   for (const ext of [".svg", ".png"]) {

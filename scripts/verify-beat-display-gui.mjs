@@ -1,20 +1,9 @@
 #!/usr/bin/env node
-// Animation rework — BEAT-FAITHFUL CANVAS (owner directive 2026-07-18): the
-// slide canvas always shows the slide AS IT EXISTS AT THE ACTIVE BEAT, and
-// plain edits route into the state you are looking at.
-//   • beat 0 (or any beat before an element's first transform) = the BASE;
-//   • the transform's beat and every later beat = the composed t2;
-//   • chains compose progressively (middle beats show the partial fold);
-//   • an edit at beat k routes into the GOVERNING transform's to.state
-//     ("you edit what you see"); an edit at beat 0 edits the base;
-//   • autosave mid-display writes BASE elements (the fold guard);
-//   • disabling/deleting the governing track reverts the view live;
-//   • undo restores canvas + track together; slide switches restore the
-//     outgoing slide's bases and re-derive the incoming one;
-//   • coalesced typing runs stay ONE undo entry (no-op refreshes must not
-//     burn editGen);
-//   • filmstrip thumbnails paint the slide's OWN background (no black
-//     placeholder in light themes).
+// Explicit endpoint editing (owner-approved figures/slides overhaul, 2026-09-05).
+// Design edits canonical initial properties; Edit after step k edits only k.
+// This supersedes the earlier implicit governing-transform routing contract.
+// Preserve all state, persistence, disable/re-enable, history, coalescing,
+// background, and no-navigation-write assertions below.
 // Run: node scripts/verify-beat-display-gui.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL, waitFor } from "./lib/driver.mjs";
 
@@ -35,7 +24,7 @@ try {
       return el ? { x: el.x, y: el.y, width: el.width, fill: el.fill } : null;
     }, id);
   const setBeat = async (k) => {
-    await page.evaluate((b) => window.__flux.slide.activeBeat.set(b), k);
+    await page.evaluate((b) => { window.__flux.slide.activeBeat.set(b); window.__flux.slide.editAfterBeat(b); }, k);
     await sleep(150);
   };
 
@@ -88,7 +77,7 @@ try {
     const s = f.get(f.slide.deckOverlay).slides.find((x) => x.id === sid);
     return { s1: s.beats[1].tracks[0]?.to?.state, s2: s.beats[2].tracks[0]?.to?.state };
   });
-  ok(routed.s1?.width === 222 && routed.s1?.x === 300, `a plain edit at beat 1 routed into the GOVERNING transform's t2 (${JSON.stringify(routed.s1)})`);
+  ok(routed.s1?.width === 222 && routed.s1?.x === 300, `a plain edit at beat 1 routed into the explicitly chosen step's endpoint (${JSON.stringify(routed.s1)})`);
   ok(!("width" in (routed.s2 ?? { width: 1 })) || routed.s2?.width === undefined, "…and the later transform's own patch is untouched");
   await setBeat(0);
   el = await readEl();
@@ -164,7 +153,7 @@ try {
     const el2 = f.get(f.fig.project).figures.find((x) => x.id === sid).elements.find((e) => e.id === "bd-rect");
     return { s1x: s.beats[1].tracks[0]?.to?.state?.x, elX: el2.x, elY: el2.y, beat: f.get(f.slide.activeBeat) };
   });
-  ok(postUndo.s1x === 300 && postUndo.elX === 300 && postUndo.elY === 220,
+  ok(postUndo.s1x === 300 && postUndo.elX === 40 && postUndo.elY === 60,
     `undo walks back cleanly with the display re-derived per the restored model (beat ${postUndo.beat}: ${postUndo.elX},${postUndo.elY})`);
   await setBeat(0);
   el = await readEl();
@@ -196,7 +185,7 @@ try {
     const el2 = f.get(f.fig.project).figures.find((x) => x.id === sid).elements.find((e) => e.id === "bd-rect");
     return { x: el2.x, y: el2.y, beat: f.get(f.slide.activeBeat) };
   });
-  ok(s1Back.x === 300 && s1Back.y === 220, `switching BACK lands fully-built (last beat ${s1Back.beat}: ${s1Back.x},${s1Back.y})`);
+  ok(s1Back.x === 40 && s1Back.y === 60, `switching BACK opens Design with canonical base (last beat ${s1Back.beat}: ${s1Back.x},${s1Back.y})`);
 
   // --- coalesced typing stays ONE undo entry (no-op refreshes are free) ----------
   const coalesced = await page.evaluate(() => {

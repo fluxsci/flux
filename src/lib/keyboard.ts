@@ -1,3 +1,4 @@
+import { requestFigureDeletion, figureDeletion } from "./project/figureDeletion";
 import { get } from "svelte/store";
 import {
   project,
@@ -35,6 +36,7 @@ import {
   xrayRoot,
   importerOpen,
   figNamer,
+  figureCatalog,
   embeddedProjectRoot,
   projectDir,
   type Tool,
@@ -443,14 +445,7 @@ function moveFigureInOrder(delta: number): boolean {
 function deleteFrame(): boolean {
   const fid = frameSelected();
   if (!fid) return false;
-  // WS-3.1: ops.deleteFigure owns the delete + keep-one-figure backfill; the
-  // keyboard layer keeps only the guard + the store side-effects.
-  let nextActive: string | null = null;
-  commit((p) => {
-    nextActive = ops.deleteFigure(p, fid).nextActiveId;
-  });
-  selectedFrameId.set(null);
-  activeFigureId.set(nextActive);
+  void requestFigureDeletion("figure", fid);
   return true;
 }
 
@@ -694,6 +689,12 @@ function openXray() {
 }
 
 export function handleKey(e: KeyboardEvent) {
+  // A focused editing surface owns its commands even when window listeners
+  // were registered in a different order. Never also nudge/delete the canvas.
+  if (e.defaultPrevented) return;
+  const owner = e.target instanceof HTMLElement ? e.target : null;
+  if (owner?.closest('.animator, [data-command-scope="animation"]')) return;
+  if (owner?.tagName === "SELECT") return;
   // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover /
   // Figure Namer / Dissect viewer own all keys while open.
   if (
@@ -704,6 +705,7 @@ export function handleKey(e: KeyboardEvent) {
     get(importerOpen) ||
     get(cascadeState) ||
     get(figNamer) ||
+    (get(figureCatalog) || get(figureDeletion)) ||
     get(dissectTarget)
   )
     return;

@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     project,
-    viewport,
+    viewport as baseViewport,
     activeFigureId,
     activeCanvasId,
     selection,
@@ -38,8 +38,10 @@
   import { snap, boxSnapTargets } from "./interact/snap";
   import { commitArrange } from "./keyboard";
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
-  import { get } from "svelte/store";
-  import { onMount } from "svelte";
+  import { get, derived, writable } from "svelte/store";
+  import { onMount, tick } from "svelte";
+  import { presentationViewport, basePresentationViewport, type EditorCanvasPresentation } from "./editorPresentation";
+  import { presentEditorParts } from "./editorPresentationDom";
   import { applyTextLayout, lineH, visualLines } from "./text";
   import {
     elementBBox,
@@ -62,7 +64,7 @@
   import { importDroppedFiles } from "./io";
   import { pushToast, errMsg } from "./toast";
   import { isScaffoldPart, resolvePartId } from "./plot/partStyle";
-  import { plotManifests } from "./plot/store";
+  import { plotManifests, plotGen } from "./plot/store";
   import ElementView from "./Element.svelte";
   import CaptionEditor from "./CaptionEditor.svelte";
 
@@ -84,6 +86,38 @@
   // ===========================================================================
 
   let hostEl: HTMLDivElement;
+  export let presentation: EditorCanvasPresentation | null = null;
+  const presentationState = writable<EditorCanvasPresentation | null>(null);
+  const displayViewport = derived([baseViewport, presentationState], ([base, state]) => presentationViewport(base, state));
+  const viewport = {
+    subscribe: displayViewport.subscribe,
+    set(value: import("./types").Viewport) { baseViewport.set(basePresentationViewport(value, get(presentationState))); },
+    update(fn: (value: import("./types").Viewport) => import("./types").Viewport) { this.set(fn(get(displayViewport))); },
+  };
+  $: presentationState.set(frame ? presentation : null);
+  $: hiddenPresentationIds = new Set(presentation?.hiddenElementIds ?? []);
+  $: cameraClip = frame && presentation?.camera && presentation.stage
+    ? `inset(${$baseViewport.panY}px ${hostW - $baseViewport.panX - presentation.stage.width * $baseViewport.zoom}px ${hostH - $baseViewport.panY - presentation.stage.height * $baseViewport.zoom}px ${$baseViewport.panX}px)`
+    : undefined;
+  let presentationHighlight: { x: number; y: number; w: number; h: number } | null = null;
+  const highlightWork = { generation: 0 };
+  $: schedulePresentationHighlight(presentation?.highlight, $viewport, $globalRev);
+  async function schedulePresentationHighlight(target: EditorCanvasPresentation["highlight"], _viewport: unknown, _revision: number) {
+    const generation = ++highlightWork.generation;
+    if (!target) { presentationHighlight = null; return; }
+    await tick();
+    if (generation !== highlightWork.generation || !hostEl) return;
+    const parts = target.partIds;
+    const nodes = parts?.length && parts.length <= 256
+      ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(`${target.elementId}__${id}`)}"]`)).filter((n): n is globalThis.Element => !!n)
+      : [hostEl.querySelector(`[data-editor-element-id="${CSS.escape(target.elementId)}"]`)].filter((n): n is globalThis.Element => !!n);
+    const boxes = nodes.map((node) => node.getBoundingClientRect()).filter((b) => b.width || b.height);
+    if (!boxes.length) { presentationHighlight = null; return; }
+    const host = hostEl.getBoundingClientRect();
+    const x = Math.min(...boxes.map((b) => b.left));
+    const y = Math.min(...boxes.map((b) => b.top));
+    presentationHighlight = { x: x - host.left - 3, y: y - host.top - 3, w: Math.max(...boxes.map((b) => b.right)) - x + 6, h: Math.max(...boxes.map((b) => b.bottom)) - y + 6 };
+  }
 
   const MIN_ZOOM = 0.05;
   const MAX_ZOOM = 16;
@@ -2304,8 +2338,9 @@
 
   // --- keyboard (space-pan, pen finish; global shortcuts live in keyboard.ts) ---
   function onKeyDown(e: KeyboardEvent) {
+    if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.animator, [data-command-scope="animation"]'))) return;
     const t = e.target as HTMLElement;
-    const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA";
+    const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
     if (e.key === "Alt") altDown = true; // caliper (measure) mode
     if (e.key === "Control") ctrlDown = true; // bend affordance in node-edit
@@ -3146,6 +3181,7 @@
        will-change only while sceneHot: the idle demotion is the crisp-at-rest
        fix (P6 rationale block in the script; the residual is the ONLY live-zoom
        read allowed inside the scene). -->
+  <div class="scene-clip" style:clip-path={cameraClip}>
   <div
     class="scene"
     style={`transform: translate3d(${$viewport.panX}px, ${$viewport.panY}px, 0) scale(${$viewport.zoom / renderZoom});`}
@@ -3199,6 +3235,10 @@
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <g
                   class="el"
+                  data-editor-element-id={el.id}
+                  use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : 0 }}
+                  opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
+                  style:pointer-events={hiddenPresentationIds.has(el.id) && !presentation?.ghostHidden ? "none" : null}
                   class:editing-hidden={editingId === el.id}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
                   style:transform={moveIds?.has(el.id) ? moveTransform : rotIds?.has(el.id) ? rotTransform : null}
@@ -3218,7 +3258,7 @@
                   {#if sceneOverride && sceneOverride.id === el.id}
                     <ElementView element={sceneOverride.el} />
                   {:else}
-                    <ElementView element={el} />
+                    <ElementView element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} />
                   {/if}
                 </g>
               {/each}
@@ -3236,7 +3276,7 @@
                 height={18 / renderZoom}
                 on:pointerdown={(e) => startFigMove(e, fig)}
               />
-              <text class="figure-label" x="0" y={-8 / renderZoom} font-size={13 / renderZoom}>{fig.name}</text>
+              <text class="figure-label" x="0" y={-8 / renderZoom} font-size={13 / renderZoom}>{fig.nickname ? `${fig.name} · ${fig.nickname}` : fig.name}</text>
             {/if}
           </g>
           </g>
@@ -3244,9 +3284,13 @@
       </g>
     </svg>
   </div>
+  </div>
 
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
   <svg class="overlay-svg" xmlns="http://www.w3.org/2000/svg">
+    {#if presentationHighlight}
+      <rect class="presentation-target" x={presentationHighlight.x} y={presentationHighlight.y} width={presentationHighlight.w} height={presentationHighlight.h} rx="3" />
+    {/if}
     <!-- resized element preview (a move uses a live scene transform instead — F5) -->
     {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">
@@ -3686,6 +3730,8 @@
 </div>
 
 <style>
+  .scene-clip { position: absolute; inset: 0; }
+  .presentation-target { fill: color-mix(in srgb, var(--c-accent) 12%, transparent); stroke: var(--c-accent); stroke-width: 2; stroke-dasharray: 5 3; pointer-events: none; }
   .canvas-host {
     position: relative;
     width: 100%;

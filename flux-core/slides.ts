@@ -24,6 +24,11 @@ import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel } from "./model";
+import { syncFigureAssets } from "./figures";
+import { planSourceUpdates, writeSourceUpdates, hasCompleteSvgStructure } from "../src/lib/plot/sourceSync";
+import { svgIntrinsicSize } from "../src/lib/plot/svgGeometry";
+import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "../src/lib/slide/sourceSync";
+import { plotSourceCandidates } from "../src/lib/plot/source";
 import { animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
@@ -33,6 +38,7 @@ import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
 import type { Box, TextOpts } from "../src/lib/ops";
+import type { Asset } from "../src/lib/types";
 
 const j = (...p: string[]) => path.join(...p);
 const stamp = () => new Date().toISOString();
@@ -115,8 +121,8 @@ async function registerDeck(root: string, deck: Deck): Promise<void> {
   if (!(await exists(mp))) return; // a deck can exist standalone of a manifest (tests)
   const m = await readJSON<ProjectManifest>(mp);
   m.slides = Array.isArray(m.slides) ? m.slides : [];
-  const rel = deckRel(deck.id);
   const idx = m.slides.findIndex((s) => s.id === deck.id);
+  const rel = (idx >= 0 ? m.slides[idx].path : undefined) ?? deckRel(deck.id);
   const entry = { id: deck.id, path: rel, title: deck.title, order: idx >= 0 ? (m.slides[idx] as { order?: number }).order ?? idx + 1 : m.slides.length + 1 };
   if (idx >= 0) m.slides[idx] = { ...m.slides[idx], ...entry };
   else m.slides.push(entry);
@@ -132,9 +138,33 @@ export async function saveDeck(root: string, deck: Deck, action = "save_deck"): 
 }
 
 async function saveDeckUnlocked(root: string, deck: Deck): Promise<void> {
+  reconcileDeckExternalAssetSizes(deck, await externalDeckAssetMetadata(root, deck));
   deck.modified = stamp();
-  await writeText(safeJoin(root, deckRel(deck.id)), JSON.stringify(deck, null, 2) + "\n");
+  await writeText(await resolveDeckPath(root, deck.id), JSON.stringify(deck, null, 2) + "\n");
   await registerDeck(root, deck);
+}
+
+async function externalDeckAssetMetadata(root: string, deck: Deck): Promise<Asset[]> {
+  const index = safeJoin(root, "fig/index.json");
+  const registered = await exists(index) ? (await readJSON<{ assets?: Asset[] }>(index)).assets ?? [] : [];
+  const accepted: Asset[] = [];
+  for (const asset of registered) if (asset.path && await exists(safeJoin(root, `fig/${asset.path}`))) accepted.push(asset);
+  // An unreadable registered snapshot stays unresolved. It must neither
+  // advance the saved size baseline nor silently substitute its raw source.
+  const known = new Set([...deck.assets, ...registered].map((a) => a.id));
+  for (const figure of deckSourceProject(deck, { includeExternal: true }).figures) for (const element of figure.elements) {
+    if (element.type !== "plot" || !element.source?.svgPath || known.has(element.assetId)) continue;
+    for (const candidate of plotSourceCandidates(root, element.source.svgPath, element.source)) {
+      try {
+        const svg = await fs.readFile(candidate, "utf8");
+        if (!hasCompleteSvgStructure(svg)) break;
+        const size = svgIntrinsicSize(svg);
+        accepted.push({ id: element.assetId, name: element.assetId, kind: "svg", path: candidate, naturalWidth: size.w, naturalHeight: size.h });
+        known.add(element.assetId); break;
+      } catch { /* try the next supported source location */ }
+    }
+  }
+  return accepted;
 }
 
 /** W3: run a deck read→mutate→write atomically under the "slides" lock (the load
@@ -149,6 +179,7 @@ export async function mutateDeck<T>(
   let slideCount = 0;
   await withLock(root, "slides", getClient(), async () => {
     const deck = await loadDeck(root, deckId);
+    reconcileDeckExternalAssetSizes(deck, await externalDeckAssetMetadata(root, deck));
     out = await fn(deck);
     slideCount = deck.slides.length;
     await saveDeckUnlocked(root, deck);
@@ -291,10 +322,11 @@ export async function setAnimation(
   slideId: string,
   beatId: string,
   track: Track,
+  opts: { append?: boolean } = {},
 ): Promise<void> {
   await mutateDeck(root, deckId, "set_animation", (deck) => {
     mustSlide(deck, slideId);
-    const ok = slideOps.setAnimation(deck, slideId, beatId, track);
+    const ok = opts.append ? slideOps.appendAnimation(deck, slideId, beatId, track) : slideOps.setAnimation(deck, slideId, beatId, track);
     if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
   });
 }
@@ -722,11 +754,31 @@ export async function gatherDeckPayload(
   root: string,
   deckId: string,
 ): Promise<{ payload: ExportPayload; warnings: string[] }> {
-  const deck = await loadDeck(root, deckId);
+  const sourceWarnings: string[] = [];
+  if (await exists(safeJoin(root, "fig/index.json"))) {
+    const synced = await syncFigureAssets(root);
+    sourceWarnings.push(...synced.warnings, ...synced.missing.map((p) => `${p}: source is missing; the last accepted Figure asset was retained`));
+  }
+  const deck = await withLock(root, "slides", getClient(), async () => {
+    const loaded = await loadDeck(root, deckId);
+    const externalChanged = reconcileDeckExternalAssetSizes(loaded, await externalDeckAssetMetadata(root, loaded));
+    const model = deckSourceProject(loaded);
+    const io = { exists, readText: (p: string) => fs.readFile(p, "utf8"), writeText,
+      remove: (p: string) => fs.rm(p, { force: true }) };
+    const plan = await planSourceUpdates(root, model, io, { assetBase: `slides/${deckId}` });
+    for (const status of plan.statuses) if (status.status === "error" || status.status === "missing")
+      sourceWarnings.push(`${status.path}: ${status.detail ?? status.status}`);
+    if (plan.updates.length) {
+      await writeSourceUpdates(root, plan.updates, io, model, { assetBase: `slides/${deckId}` });
+      applyDeckSourceUpdates(loaded, plan.updates);
+    }
+    if (plan.updates.length || externalChanged) await saveDeckUnlocked(root, loaded);
+    return loaded;
+  });
   const assets: Record<string, string> = {};
   const assetSizes: Record<string, { width: number; height: number }> = {};
   const plots: Record<string, { svg: string; manifest: FluxPlotManifest }> = {};
-  const warnings: string[] = [];
+  const warnings: string[] = [...sourceWarnings];
 
   // The by-id resolution table for figure-derived content.
   let figAssets: { id: string; kind: string; path?: string; naturalWidth?: number; naturalHeight?: number; dpi?: number }[] = [];
@@ -777,40 +829,29 @@ export async function gatherDeckPayload(
 
   const manifest = await loadManifest(root).catch(() => null);
   const plotIndex = ((manifest as unknown as { plots?: { id: string; path?: string; svgPath?: string; manifestPath?: string }[] })?.plots) ?? [];
-  const collectPlot = async (assetId: string, svgPath?: string, manifestPath?: string) => {
+  const collectPlot = async (assetId: string, svgPath?: string, manifestPath?: string, source?: { external?: boolean }) => {
     if (plots[assetId]) return;
     const entry = plotIndex.find((p) => p.id === assetId);
     const da = deckAsset(assetId);
-    // Resolution order: deck-local bytes → authored source → manifest plots
-    // index → plots/<id>.svg convention → fig/assets/<id>.svg (figure-derived
-    // copies from Send to deck / add_slide_figure).
-    const sps = [
-      ...(da?.path && da.kind === "svg" ? [j("slides", deck.id, da.path)] : []),
-      ...(svgPath ? [svgPath] : []),
-      ...(entry?.svgPath ? [entry.svgPath] : entry?.path ? [entry.path] : []),
-      j("plots", `${assetId}.svg`),
-      j("fig", "assets", `${assetId}.svg`),
+    const fa = figAssets.find((a) => a.id === assetId);
+    // A registered asset is an accepted bundle. Do not substitute a raw SVG
+    // or sidecar underneath a frozen/last-good version.
+    const saved = da?.path && da.kind === "svg" ? j("slides", deck.id, da.path)
+      : fa?.path && fa.kind === "svg" ? j("fig", fa.path) : null;
+    const sps = saved ? [safeJoin(root, saved)] : [
+      ...(svgPath ? plotSourceCandidates(root, svgPath, source) : []),
+      ...(entry?.svgPath || entry?.path ? plotSourceCandidates(root, (entry.svgPath ?? entry.path)!) : []),
+      safeJoin(root, j("plots", `${assetId}.svg`)),
+      safeJoin(root, j("fig", "assets", `${assetId}.svg`)),
     ];
     for (const sp of sps) {
       try {
-        const svg = await fs.readFile(safeJoin(root, sp), "utf8");
-        // Sibling convention: NN.svg ↔ NN.fluxplot.json — the SAME fallback the
-        // app's loader uses. Without it the export sees an empty manifest and
-        // part animations silently no-op offline. Try each candidate IN ORDER
-        // and take the first that actually READS: an authored source.manifestPath
-        // can point outside the project (a plot imported from an external dir —
-        // its relative path escapes root and safeJoin rejects it), in which case
-        // the byte copy sitting next to the resolved SVG
-        // (fig/assets/<id>.fluxplot.json) is the real manifest. Committing to a
-        // non-null-but-unreadable manifestPath used to leave the manifest empty →
-        // the morph/part animations silently no-op (series geometry vanished).
-        const mpCandidates = [manifestPath, entry?.manifestPath, sp.replace(/\.svg$/i, ".fluxplot.json")].filter(
-          (p): p is string => !!p,
-        );
+        const svg = await fs.readFile(sp, "utf8");
+        const mps = saved
+          ? [safeJoin(root, da?.path ? j("slides", deck.id, "assets", `${assetId}.fluxplot.json`) : j("fig", "assets", `${assetId}.fluxplot.json`))]
+          : [...(manifestPath ? plotSourceCandidates(root, manifestPath, source) : []), ...(entry?.manifestPath ? plotSourceCandidates(root, entry.manifestPath) : []), sp.replace(/\.svg$/i, ".fluxplot.json")];
         let m: FluxPlotManifest | undefined;
-        for (const mp of mpCandidates) {
-          try { m = JSON.parse(await fs.readFile(safeJoin(root, mp), "utf8")) as FluxPlotManifest; break; } catch { /* next candidate */ }
-        }
+        for (const mp of mps) { try { m = JSON.parse(await fs.readFile(mp, "utf8")) as FluxPlotManifest; break; } catch { /* next sidecar candidate */ } }
         // The SAME preparePlot seam the app's cachePlot runs: a sidecar-less
         // vanilla svg gets a DERIVED manifest, a real one gets orphan
         // augmentation — the payload manifest matches what the runtime computes.
@@ -832,7 +873,7 @@ export async function gatherDeckPayload(
   for (const s of deck.slides) {
     for (const el of s.elements) {
       if (el.type === "plot") {
-        await collectPlot(el.assetId, el.source?.svgPath, el.source?.manifestPath);
+        await collectPlot(el.assetId, el.source?.svgPath, el.source?.manifestPath, el.source);
         await collectMedia(el.assetId); // <image> fallback bytes
       } else if (el.type === "image") {
         if (!(await collectMedia(el.assetId)))
@@ -844,8 +885,8 @@ export async function gatherDeckPayload(
       }
     }
     for (const b of s.beats) for (const t of b.tracks) {
-      if (t.preset === "morph" && t.to?.assetId)
-        await collectPlot(t.to.assetId, t.to.svgPath as string | undefined, t.to.manifestPath as string | undefined);
+      if (t.to?.assetId)
+        await collectPlot(t.to.assetId, t.to.svgPath as string | undefined, t.to.manifestPath as string | undefined, { external: typeof t.to.external === "boolean" ? t.to.external : undefined });
     }
   }
 

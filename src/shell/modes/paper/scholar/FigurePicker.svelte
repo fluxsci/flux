@@ -115,6 +115,7 @@
         </select>
       {/if}
     </header>
+    <p class="link-note">Linked to Figure. Content, captions, and figure numbers update automatically.</p>
 
     {#if filtered.length}
       <div class="grid" id="figpicker-grid" bind:this={gridEl} role="listbox" aria-label="Figures">
@@ -140,8 +141,10 @@
               {/if}
             </div>
             <div class="meta">
-              <b>{f.display}</b>
-              {#if f.nickname}<span class="nm">{f.nickname}</span>{/if}
+              <b>{f.nickname || f.name}</b>
+              <span class="designation">{f.display}</span>
+              <span class="nm">{canvases.find((c) => c.id === f.canvas)?.name ?? f.canvas}</span>
+              <code class="reference-key">@{f.label}</code>
             </div>
           </div>
         {/each}
@@ -155,6 +158,9 @@
 </div>
 
 <style>
+  .link-note { margin: 0; padding: 8px 16px; color: var(--c-tx-2); font-size: var(--ts-xs); border-bottom: 1px solid var(--c-line); }
+  .designation { color: var(--c-accent); font-size: var(--ts-xs); }
+  .reference-key { flex-basis: 100%; color: var(--c-tx-faint); font-size: 10px; overflow-wrap: anywhere; }
   .scrim {
     position: absolute;
     inset: 0;
@@ -271,13 +277,15 @@
   }
   .meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: 0.5em;
     padding: 8px 10px;
     border-top: 1px solid var(--c-line);
   }
   .meta b {
-    color: var(--c-accent-bright);
+    color: var(--c-tx-hi);
+    flex-basis: 100%;
   }
   .nm {
     color: var(--c-tx-2);

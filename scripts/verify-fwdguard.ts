@@ -11,8 +11,8 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { isNewerSchema } from "../src/lib/project/types";
 import { scaffold, loadFigModel } from "../flux-core/index";
-import { loadDeck, saveDeck } from "../flux-core/slides";
-import type { Deck } from "../src/lib/slide/types";
+import { loadDeck, saveDeck, mutateDeck } from "../flux-core/slides";
+import { createDeck } from "../src/lib/slide/ops";
 
 let failures = 0;
 const ok = (m: string) => console.log("  ok:", m);
@@ -77,18 +77,18 @@ try {
   assert(m.project.canvases.length === 1, "PATCH-bumped canvas loads fine");
 
   // ---- deck bumped minor → loadDeck refuses, bytes unchanged -------------------
-  const deck = {
-    schemaVersion: "0.1.0",
-    id: "fwd",
-    title: "Fwd",
-    theme: "flexoki",
-    stage: { width: 1280, height: 720 },
-    slides: [],
-  } as unknown as Deck;
+  // Seed through the current typed writer; a foreign format is an on-disk
+  // input, not a valid Deck to pass to saveDeck. Deliberately remove current
+  // required fields afterwards: the version guard must precede every source
+  // reconciliation or normalization step that assumes today's shape.
+  const deck = createDeck({ id: "fwd", title: "Fwd", withTitleSlide: false });
   await saveDeck(root, deck);
   const deckPath = path.join(root, "slides", "fwd", "deck.json");
   const newer = JSON.parse(await fs.readFile(deckPath, "utf8"));
   newer.schemaVersion = "0.9.0";
+  delete newer.assets;
+  delete newer.defaults;
+  newer.futureOnly = { preserve: "unknown representation" };
   const deckBytes = JSON.stringify(newer, null, 2) + "\n";
   await fs.writeFile(deckPath, deckBytes);
   threw = "";
@@ -99,6 +99,16 @@ try {
   }
   assert(/newer Flux/i.test(threw), "newer deck refuses");
   assert((await fs.readFile(deckPath, "utf8")) === deckBytes, "deck bytes UNCHANGED after the refusal");
+  let mutated = false;
+  threw = "";
+  try {
+    await mutateDeck(root, "fwd", "guard_probe", () => { mutated = true; });
+  } catch (e) {
+    threw = String(e);
+  }
+  assert(/newer Flux/i.test(threw), "newer deck mutation refuses before source reconciliation");
+  assert(!mutated, "newer deck never reaches the mutation callback");
+  assert((await fs.readFile(deckPath, "utf8")) === deckBytes, "deck bytes UNCHANGED after the mutation refusal");
 } finally {
   await fs.rm(root, { recursive: true, force: true });
 }

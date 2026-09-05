@@ -20,8 +20,8 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 ├── fig/                         # APP-MANAGED — the figure subsystem
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real compositions (figures → elements)
-│   ├── captions/<id>.md         #   each figure's composed caption
-│   ├── assets/                  #   Flux's imported copies of your plots
+│   ├── captions/<id>.md         #   composed caption mirror, reconciled with the composition
+│   ├── assets/                  #   accepted plot bundles (SVG + semantic sidecars)
 │   └── renders/                 #   derived static renders
 ├── slides/<deckId>/deck.json    # APP-MANAGED — one deck per folder (+ its assets/)
 ├── references/library.bib       # YOURS — the project's cited subset (BibTeX)
@@ -48,6 +48,13 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 
 - **`project.json`** is a derived rollup — a fast map of the project, rebuilt from the real
   files (`flux reindex` refreshes it if a script edited things directly).
+- **Figure identity lives in the composition.** A permanent `referenceKey` survives title,
+  number, and canvas changes; `index.json` and project rollups preserve it when rebuilt.
+  Filenames use persistent IDs. Paper document order has no effect on those identities.
+  Caption markdown is a readable mirror: independent edits reconcile against the last saved
+  version, while conflicting edits are preserved and reported instead of silently replacing
+  one another. `.meta/figure-reference-update.json`, when present, protects an interrupted
+  panel-reference rewrite until recovery finishes.
 - **Comments live beside documents, never in them.** The main manuscript's threads are
   `manuscript/comments.json`; any other document's are `<name>.comments.json` next to it. Your
   `.qmd` prose stays clean.

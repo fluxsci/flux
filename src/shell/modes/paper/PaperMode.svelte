@@ -108,6 +108,7 @@
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
   import { registerFlushable } from "../../lifecycle";
+  import { registerLiveFigureReferenceDocument } from "../../../lib/project/figureReferenceSync";
   import { popIn } from "../../../lib/motion/actions";
   import {
     commentField,
@@ -1591,6 +1592,10 @@
     clearTimeout(commentSaveTimer);
     commentSaveTimer = undefined;
     await autosave.flush();
+    if (!saved) {
+      pushToast("error", "Resolve the unsaved document conflict before switching documents");
+      return;
+    }
     await persistThreadsTo(activeDocPath);
 
     const text = (await readManuscript(pm, path)) || "";
@@ -1834,6 +1839,21 @@
     id: flushId,
     isDirty: () => !!pm && !saved,
     flush: () => autosave.flush(),
+  });
+  // Panel references are rewritten against this editor's latest buffer in
+  // one CodeMirror transaction, preserving typing, selection and undo.
+  $effect(() => {
+    const editor = view, root = pm?.root, path = activeDocPath;
+    if (!editor || !root) return;
+    return registerLiveFigureReferenceDocument({
+      root, path,
+      getText: () => editor.state.doc.toString(),
+      applyReplacements: (changes) => editor.dispatch({ changes: [...changes], userEvent: "input.figure-reference" }),
+      flush: async () => {
+        await autosave.flush();
+        if (!saved) throw new ConflictError("manuscript reference changes could not be saved");
+      },
+    });
   });
   const unregComments = registerFlushable({
     id: commentsFlushId,
@@ -2146,7 +2166,7 @@
   // panes would otherwise toggle their palettes / load the doc. The counters
   // advance either way so a stale bump can't replay on a later focus.
   let seenPalReq = get(paperPaletteRequest);
-  let seenDocReq = get(openDocRequest)?.n ?? 0;
+  let seenDocReq = 0;
   $effect(() => {
     const n = $paperPaletteRequest;
     if (n !== seenPalReq) {
@@ -2156,14 +2176,22 @@
   });
   $effect(() => {
     const req = $openDocRequest;
-    if (req && req.n !== seenDocReq) {
+    if (req && req.n !== seenDocReq && ready && (view || blockedByTwin) && focused) {
       seenDocReq = req.n;
-      if (focused) void loadDocument(req.path);
+      openDocRequest.set(null);
+      void loadDocument(req.path);
     }
   });
 
   $effect(() => {
     if (!focused) return;
+    // Window-owned pane commands outrank Vim's DOM handlers while the
+    // manuscript has focus. Vim otherwise consumes the first Alt+O as its
+    // own command, making the left-panel toggle fail on the first press.
+    // Keep overlays/search inputs on their ordinary bubbling route.
+    const capturePaneCommand = (e: KeyboardEvent) => {
+      if (e.target instanceof Node && view?.contentDOM.contains(e.target) && dispatchWindowKey(e, cmdCtx)) e.stopPropagation();
+    };
     const h = (e: KeyboardEvent) => {
       // Table-driven chords first (view toggle, margin panes, …).
       if (dispatchWindowKey(e, cmdCtx)) return;
@@ -2192,8 +2220,12 @@
         view?.focus();
       }
     };
+    window.addEventListener("keydown", capturePaneCommand, true);
     window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    return () => {
+      window.removeEventListener("keydown", capturePaneCommand, true);
+      window.removeEventListener("keydown", h);
+    };
   });
 </script>
 

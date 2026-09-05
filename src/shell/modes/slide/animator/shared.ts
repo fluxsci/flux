@@ -3,7 +3,8 @@
 
 import type { Slide, Track, PresetName } from "../../../../lib/slide/types";
 import type { FluxPlotManifest } from "../../../../lib/plot/types";
-import { resolveTargets } from "../../../../lib/plot/tree";
+import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
+import { staggerSpan } from "../../../../lib/slide/stagger";
 
 export const PRESET_COLOR: Record<string, string> = {
   drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
@@ -22,6 +23,10 @@ export const EDIT_PRESETS: PresetName[] = [
   "fadeOut", "popOut", "drawOff", "wipeOut", "highlight", "dim", "countUp",
 ];
 export const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
+export function presetLabel(preset: string): string {
+  return ({fade:"Fade in",fadeRise:"Rise in",popIn:"Pop in",drawOn:"Draw on",growBaseline:"Grow",stagger:"Stagger in",writeOn:"Wipe in",
+    fadeOut:"Fade out",popOut:"Pop out",drawOff:"Draw off",wipeOut:"Wipe out",highlight:"Highlight",dim:"Dim",countUp:"Count up",transform:"Change",morph:"Data morph",camera:"Camera"} as Record<string,string>)[preset] ?? preset;
+}
 export const INFLUENCE_PRESETS: { name: string; in: number; out: number }[] = [
   { name: "ease", in: 0, out: 0 },
   { name: "subtle", in: 25, out: 25 },
@@ -42,10 +47,13 @@ export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, s
   if (t.target.startsWith("@")) return t.target.slice(1);
   const tag = plotTags.get(t.target);
   const pre = tag ? `${tag} · ` : "";
-  if (t.part) return pre + t.part.split(".").slice(-2).join(".");
+  if (t.part) {
+    const el = slide?.elements.find((e) => e.id === t.target);
+    return `${el?.name || tag || "Plot"} › ${t.part.split(".").join(" › ")}`;
+  }
   const el = slide?.elements.find((e) => e.id === t.target);
   if (!el) return pre + "missing"; // dangling target — tolerated + surfaced
-  if (el.type === "text") return pre + (el.text.split("\n")[0]?.slice(0, 14) || "text");
+  if (el.type === "text") return pre + (el.name || el.text.split("\n")[0]?.slice(0, 60) || "Text");
   return pre + ((el.name ?? el.type) || "elem");
 }
 
@@ -59,23 +67,22 @@ export function isDanglingTrack(t: Track, slide: Slide | null): boolean {
 
 /** How many targets a track fans out to (drives the stagger tail length). */
 export function trackFanout(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined): number {
-  void slide;
-  if (t.part) return Math.max(1, resolveTargets(manifest, t.part).length);
+  if (slide && (t.part || t.selector)) return Math.max(1, semanticTargets(t,slide,{plotManifest:()=>manifest}).length);
   return 1;
 }
 
 /** A track's time footprint within its beat: [start, start+duration+staggerSpan]. */
 export function trackEndMs(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined): number {
   const start = t.start ?? 0;
-  const dur = t.duration ?? 400;
-  const span = (t.stagger?.perMs ?? 0) * Math.max(0, trackFanout(t, slide, manifest) - 1);
+  const dur = trackDuration(t);
+  const span = staggerSpan(t, trackFanout(t, slide, manifest));
   return start + dur + span;
 }
 
 /** The latest end time of any track on a beat (min 1ms so empty beats layout). */
 export function beatEndMs(tracks: Track[], slide: Slide | null, manifestFor: (target: string) => FluxPlotManifest | undefined): number {
-  let end = 1;
-  for (const t of tracks) end = Math.max(end, trackEndMs(t, slide, manifestFor(t.target)));
+  let end = 0;
+  for (const t of tracks.filter(t=>!t.disabled)) end = Math.max(end, trackEndMs(t, slide, manifestFor(t.target)));
   return end;
 }
 

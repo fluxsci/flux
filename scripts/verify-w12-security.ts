@@ -81,7 +81,12 @@ try {
   const guardBody = filesCjs.split("function fsGuard(p, senderId)")[1]?.split("\n  }")[0] ?? "";
   assert(guardBody.length > 0 && !guardBody.includes('getPath("home")'), "SHL-6: $HOME dropped from the fsGuard allowlist");
   assert(!(mainCjs.split("roots: () => [")[1]?.split("]")[0] ?? "").includes('getPath("home")'), "SHL-6: main's lent roots exclude $HOME too");
-  assert(/ipc\.handle\("fs:exists",[^)]*\)\s*=>\s*\{\s*\n\s*fsGuard\(p, e\.sender\.id\)/.test(filesCjs), "SHL-6: fs:exists now guarded");
+  // Exact linked-source grants apply to reads/probes only; directory and write
+  // operations retain the ordinary root guard. The source-watch gate exercises
+  // denial, per-window grants and revocation against the real registered handlers.
+  assert(/ipc\.handle\("fs:exists",[^)]*\)\s*=>\s*\{\s*\n\s*fsReadGuard\(p, e\.sender\.id\)/.test(filesCjs), "SHL-6: fs:exists uses the scoped read guard");
+  const readGuardBody = filesCjs.split("function fsReadGuard(p, senderId)")[1]?.split("\n  }")[0] ?? "";
+  assert(readGuardBody.includes("sourceReadFiles.get(senderId)") && readGuardBody.includes("files.has(ab)") && readGuardBody.includes("fsGuard(p, senderId)"), "SHL-6: read grants are exact and window-scoped, with the root guard as fallback");
   assert(/ipc\.handle\("fs:readdir",[^)]*\)\s*=>\s*\{\s*\n\s*fsGuard\(p, e\.sender\.id\)/.test(filesCjs), "SHL-6: fs:readdir now guarded");
   has(mainCjs, "fsGuard(recipePath, e.sender.id)", "SHL-6: recipe:run contains recipePath");
   has(mainCjs, "unsafe deckId", "SHL-6: slides:exportDeck sanitizes deckId");
