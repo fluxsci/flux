@@ -74,6 +74,8 @@ and deliberate placement scale survive source updates.
 The catalog's **Sources** section shows **Linked · current**, **Updating**, **Source missing**,
 **Update failed**, or **Frozen version**. A missing or malformed source retains the last good
 version; the error explains what needs attention. **Reload sources** retries immediately.
+If a saved caption cannot be read, source refresh stops to preserve it. Restore access to
+the caption file, then retry **Reload sources**.
 **Relink…** chooses a moved source. **Freeze** gives the selected figure an independent saved
 version; **Resume updates** links it again. These actions preserve the other figures' links.
 

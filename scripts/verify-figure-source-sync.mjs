@@ -88,6 +88,30 @@ try {
   });
   const numbers = await page.evaluate(async () => ({ live: window.__flux.get(window.__flux.fig.project).figures[0].number, paper: (await window.__flux.bridge.readFigSource(window.__sourceRoot)).indexFigures[0].number }));
   eq(numbers, { live: 1, paper: 1 }, "canvas deletion agrees live and in Paper immediately");
+  // In Paper, source reconciliation loads the cold Figure model. An unreadable
+  // caption must stop that refresh, not be treated as an absent projection.
+  await clickMode(page, "Slide"); // evict Figure's kept-alive editing store
+  await clickMode(page, "Paper");
+  const captionRead = await page.evaluate(async () => {
+    const fb = window.fig, root = window.__sourceRoot;
+    const service = await import("/src/lib/project/sourceBridge.ts");
+    const path = `${root}/fig/captions/second-figure.md`;
+    const original = fb.readText.bind(fb), before = await original(path);
+    fb.readText = async p => {
+      if (p === path) throw new Error("Verification: caption permission denied");
+      return original(p);
+    };
+    let error = "";
+    try { await service.syncProjectSources(root); } catch (e) { error = e.message; }
+    finally { fb.readText = original; }
+    const preserved = await original(path) === before;
+    await fb.remove(path);
+    let missingAccepted = false;
+    try { await service.sourceDetails(root); missingAccepted = true; }
+    finally { await fb.writeText(path, before); }
+    return { error, preserved, missingAccepted };
+  });
+  eq(captionRead, { error: "Verification: caption permission denied", preserved: true, missingAccepted: true }, "cold source refresh refuses unreadable captions but accepts missing projections");
   eq(realErrors(page), [], "no browser console errors");
   console.log(`FIGURE SOURCE SYNC: PASS (${checks} assertions)`);
 } finally { await browser.close(); }

@@ -209,7 +209,11 @@ Persistence invariants (all machine-checked — do not weaken):
   unchanged sidecar text before parsing with the current panel topology: panel deletion or
   relabeling does not invent an external edit. Preserve orphaned caption blocks. Both engines
   recheck actual sidecar edits before saving; Paper retains its own project-scoped accepted
-  baseline. Unreadable sidecars are errors, never equivalent to missing files.
+  baseline. Unreadable sidecars are errors, never equivalent to missing files, including
+  `sourceBridge.readModel` when Figure is not resident. Use an existence check for absent
+  projections and propagate read failures; a blanket catch can overwrite unreadable captions
+  during the next source refresh. The cold-path gate must evict Figure (switch to Slide)
+  before entering Paper, because switching directly to Paper keeps Figure resident.
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -4160,3 +4164,37 @@ feature branch and prepared local main for the owner's push; corrected the stale
 status above to reflect the completed native Figure measurements. Fresh typecheck passed
 at 0 errors/0 warnings and the documentation gate passed 156 checks; application files are
 identical to the previously verified branch.
+
+### 2026-09-06 14:21 CDT — Linux main integration review (Codex, `main`)
+
+**Work:** Fast-forwarded clean Linux main from `d5c681a` to `aed156d` (eight
+commits). Reviewed Figure/Slides editing, linked-source preservation, path
+portability and Electron changes. Fixed cold `sourceBridge.readModel` treating
+caption read errors as missing files; the regression fails against the original
+code and passes with the fix. Updated Paper export, Figure Namer and watch/reload
+fixtures for the saved-source, sidebar/shortcut and guarded-handoff contracts.
+Updated Figure user docs and promoted the caption error rule to the body.
+
+**Verification:** Check 0/0, production build, pure 200/200, bundle 3/3, docs and
+diff checks pass. UI/UI-extra plus Paper selected 161 scripts: 157 passed in the
+sweep; three corrected fixtures pass on recheck; capture intake passes using its
+documented Electron launcher (the existing aggregate Node invocation fails at
+`app.whenReady`). Native source-watch 35/35 and native Figure input, frame
+autosave/Undo and actual SVG/PNG/PDF export pass. Native key-to-paint p95 was
+46.7ms at 1600 objects and 62.7ms at 5000, with 47 mounted Layers rows. Real
+FluxLib bibliography checksum was unchanged; fixtures used disposable projects.
+
+**Performance caveat:** Isolated startup/scale passed 8/9. Dense Slides headless
+playback measured 33.3ms p95 against 17ms both with tracing and without; four of
+69 frames exceeded 25ms near startup. The visible Chrome run passed at 16.8ms
+p95 with the same fixture and budget (idle 16.8ms). Normal playback was 16.8ms.
+Retain the failed headless result; this is a remaining performance caveat, not
+an all-green headless run. Figure's dev stress passed ratio/structure gates;
+production native input supplied the <=100ms evidence. No budgets were loosened.
+
+**Learnings:** Quarto needs a writable cache under this sandbox; the full pure
+suite passes with `XDG_CACHE_HOME=/tmp/flux-linux-quarto-cache`. Cold caption
+regressions must evict Figure through Slide before entering Paper. A watch test
+must resolve its deliberate Figure save conflict before asserting clean Slide
+reload; a blocked handoff is now correct behavior. Installer packaging and native
+Wayland were not exercised. Full local handoff: `notes/linux-main-review-2026-09-06.md`.

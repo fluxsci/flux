@@ -59,7 +59,7 @@ async function readModel(root: string): Promise<{ project: Project; index: FigIn
   const errors = validateModel(model);
   if (errors.length) throw new Error(`Figure sources cannot update invalid compositions: ${errors.slice(0, 3).join("; ")}`);
   const captions = await reconcileCaptionFiles(model, index, async (rel) => {
-    try { return await read(rel); } catch { return null; }
+    return await fb.exists(joinPath(root, rel)) ? await read(rel) : null;
   });
   if (captions.conflicts.length) throw new ConflictError(captionConflictMessage(captions.conflicts));
   return { project: model, index, baselines };

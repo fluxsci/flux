@@ -158,9 +158,17 @@ ok(pathCase.afterPick === pathCase.picked, `…and a format switch leaves it alo
 console.log("B — materializeRenders writes embedded figures to fig/renders/:");
 const mat = await page.evaluate(async () => {
   const figures = await import("/src/shell/modes/paper/scholar/figures.ts");
-  const fig = (id, label, name, order) => ({ id, label, name, family: "figure", order, number: order + 1, display: `Fig. ${order + 1}`, captionLabel: `Figure ${order + 1} | `, canvas: "c1", caption: "", panels: [] });
-  const shape = (id, name) => ({ id, name, canvasId: "c1", x: 0, y: 0, width: 400, height: 300, background: "#ffffff", elements: [] });
-  window.__fluxSeedFigures([fig("f1", "fig-one", "Figure 1", 0), fig("f2", "fig-two", "Figure 2", 1)], { f1: shape("f1", "One"), f2: shape("f2", "Two") }, {});
+  // Export now refreshes linked sources and reloads accepted figures from disk.
+  // Seed the canonical files, so this verifies the real persistence boundary.
+  const { buildScaffoldTree } = await import("/src/lib/project/scaffoldTree.ts");
+  const { createDeck } = await import("/src/lib/slide/ops.ts");
+  const { planFigSave, executeFigSave } = await import("/src/lib/project/figfiles.ts");
+  const fb = window.fig, root = "/demo-export";
+  const write = (rel, text) => fb.writeText(`${root}/${rel}`, text);
+  for (const [rel, text] of buildScaffoldTree({ title: "Export gate" }, createDeck({ id: "export-deck", title: "Export gate" })).files) await write(rel, text);
+  const shape = (id, key, number) => ({ id, referenceKey: key, name: `Figure ${number}`, family: "figure", number, canvasId: "c1", x: 0, y: 0, width: 400, height: 300, background: "#ffffff", elements: [] });
+  const model = { version: 2, name: "Export gate", canvases: [{ id: "c1", name: "Canvas 1" }], assets: [], palette: [], figures: [shape("f1", "fig-one", 1), shape("f2", "fig-two", 2)] };
+  await executeFigSave(planFigSave(model, null), { read: async rel => await fb.exists(`${root}/${rel}`) ? fb.readText(`${root}/${rel}`) : null, write });
   const doc = [
     "![First](../fig/renders/f1.svg){#fig-one width=60%}",
     "",
@@ -169,7 +177,6 @@ const mat = await page.evaluate(async () => {
     "![Ghost](../fig/renders/ghost.svg){#fig-ghost}", // unknown id → failed
   ].join("\n");
   const r = await figures.materializeRenders("/demo-export", doc);
-  const fb = window.fig;
   let written = "";
   try {
     written = await fb.readText("/demo-export/fig/renders/f1.svg");

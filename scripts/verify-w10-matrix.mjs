@@ -12,7 +12,7 @@
 // PROBE RULE: assert the reload on a figure's WIDTH, never its NAME — since
 // figure families (2026-08-04) `name` is a DERIVED field that load-healing
 // rewrites (applyFamilyNumbers), which silently broke the old name-based probe.
-import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors, waitFor } from "./lib/driver.mjs";
 
 const R = "/demo/myc-growth-paper";
 const LIB = "/home/demo/FluxConfig/FluxLib/library.bib";
@@ -69,6 +69,13 @@ const figDirty = await page.evaluate(() => ({
   bannerShown: !!document.querySelector(".disk-toast"),
 }));
 
+// The editor handoff now refuses unresolved save conflicts. Finish this
+// fixture's dirty-Figure branch through the UI before testing a clean Slide.
+await page.evaluate(() => {
+  [...document.querySelectorAll(".disk-toast button")].find(b => b.textContent === "Reload theirs")?.click();
+});
+await waitFor(page, () => !document.querySelector(".disk-toast"), null, { timeout: 5000, label: "Figure conflict resolved" });
+
 // ---- Slide: clean external reload ------------------------------------------
 await clickMode(page, "Slide");
 await sleep(1600);
@@ -113,6 +120,8 @@ const out = {
   figDirtyKeptEdit: figDirty.keptHumanEdit,
   figDirtyBanner: figDirty.bannerShown,
   slideReloaded: slideReload.ok && slideTitle === "AGENT DECK TITLE",
+  slideReload,
+  slideTitle,
   fluxlibHandled,
   errs: realErrors(page),
 };
