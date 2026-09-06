@@ -486,6 +486,10 @@ Persistence invariants (all machine-checked — do not weaken):
   durable bytes cannot be undone as an ordinary model edit. Deck saves skip content-identical
   writes. The animation dock uses fixed-height labeled lanes and an explicit step strip;
   Animation properties live in the inspector. Its keyboard scope excludes canvas shortcuts.
+  Timeline marquee starts on empty time-grid space. Its cached bar/tail/group bounds use content
+  coordinates so scrolling preserves the anchor. Preview selection stays local until release
+  to keep Selected objects filtering stable; cancellation writes no selection/history. Edge
+  scrolling runs only during a gesture. `verify-slide-marquee-gui.mjs` gates this contract.
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
   Gates include beat-display, slide-authoring, slide-canvas-presentation, timeline logic and
@@ -4011,3 +4015,17 @@ performance gates pass; results and measured outliers are in `docs/GHOST_TRANSFO
 - A later style track must bind even constant geometry attributes when live content differs
   from its pre-state. Real arrow shaft/head checks exposed what wrapper-box checks missed;
   the correction and verification rule are now in the body.
+
+### 2026-09-05 21:35 CDT — Restore animator marquee selection (Codex, `codex/figures-slides-overhaul`)
+
+**Work:** Restored empty-grid box selection with additive modifiers, stagger tails, group
+spans, scroll anchoring and edge autoscroll. Cancellation preserves prior selection; selection
+never changes timing/history. Check 0/0, build, docs/tokens/path-map gates, authoring/animator/
+ghost GUI gates and the new 33-check marquee gate pass. The new gate fails before the fix.
+125-track selection painted in 18.9ms. Normal/dense scale gates pass unchanged: zero idle rAF,
+playback p95 8.7/9.2ms; the dense run retained one 33.3ms frame outlier.
+**Learnings:**
+- Cache candidate bounds in content coordinates and keep live marquee selection local until
+  release: publishing each move otherwise changes the Selected objects filter under the pointer.
+- Gesture tests must start on actual empty hit-tested space; ruler/label children can extend
+  beyond nominal row boxes. Escape must cancel before the dock's general selection handler.

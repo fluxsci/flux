@@ -62,6 +62,11 @@ Text rises in, shapes pop, and lines and paths draw on. Adding another appearanc
 effects; successive effects on the same target start after its existing effects by default.
 **Auto-animate** builds a plot's entrance sequence from its semantic anatomy.
 
+Drag a box from empty timing-grid space to select the effects it intersects. Hold **Shift**
+(or Ctrl/Cmd) to add to the selection. Crossing a collapsed group span selects its members.
+Scroll while dragging, or hold near the grid edge to scroll; **Escape** cancels the selection.
+Click empty grid space to clear it. Selection alone does not change timing or add an Undo entry.
+
 Drag a timing bar to change its start, its right edge to change duration, or drag it vertically to
 reorder. Drag onto a step to move it; hold **Alt** to copy between steps. Shift or Ctrl/Cmd-click
 selects several lanes; **Ctrl/Cmd+A** selects this step's effects. **Ctrl/Cmd+G** groups the selection,

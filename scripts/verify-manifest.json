@@ -282,7 +282,8 @@
    "verify-figure-catalog-gui.mjs",
    "verify-figure-reference-sync.mjs",
    "verify-slide-source-sync-gui.mjs",
-   "verify-slide-ghost-gui.mjs"
+   "verify-slide-ghost-gui.mjs",
+   "verify-slide-marquee-gui.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -469,7 +470,8 @@
    "verify-orphan-slide-sources.ts",
    "verify-orphan-slide-sources-gui.mjs",
    "verify-mode-cold-switch.mjs",
-   "verify-slide-arrow-browser.ts"
+   "verify-slide-arrow-browser.ts",
+   "verify-slide-marquee-gui.mjs"
   ],
   "slide-ghosts": [
    "verify-slide-ghost-runtime.ts",

@@ -21,6 +21,11 @@
   const ROW = 30;
   let timelineWidth = $state(700);
   let trackArea = $state<HTMLDivElement | null>(null);
+  let timeline = $state<HTMLDivElement | null>(null);
+  type Box = { x:number; y:number; width:number; height:number };
+  let marqueeBox = $state<Box | null>(null);
+  let marqueeIds = $state<string[] | null>(null);
+  const highlightedIds = $derived(new Set(marqueeIds ?? $selTrackIds));
   let selectedOnly = $state(false);
   let menu = $state<{x:number;y:number;items:MenuItem[]} | null>(null);
   let renameGroupId=$state<string|null>(null);
@@ -58,8 +63,13 @@
   }
   function chooseTrack(t:Track, additive=false) {
     if(!t.id) return;
-    selTrackIds.update(ids=>additive ? ids.includes(t.id!) ? ids.filter(id=>id!==t.id):[...ids,t.id!] : [t.id!]);
-    const chosen=slide.beats.flatMap(b=>b.tracks).filter(t=>t.id&&$selTrackIds.includes(t.id));
+    const ids=$selTrackIds;
+    selectTracks(additive ? ids.includes(t.id) ? ids.filter(id=>id!==t.id):[...ids,t.id] : [t.id]);
+  }
+  function selectTracks(ids:string[]) {
+    const all=slide.beats.flatMap(b=>b.tracks), existing=new Set(all.map(t=>t.id));
+    selTrackIds.set(ids.filter(id=>existing.has(id)));
+    const chosen=all.filter(t=>t.id&&ids.includes(t.id));
     selection.set(new Set(chosen.filter(t=>!t.target.startsWith("@")).map(t=>t.target)));
     partSelection.set(chosen.length===1&&chosen[0].part ? {elementId:chosen[0].target,partId:chosen[0].part} : null);
     onFocusDock();
@@ -154,7 +164,103 @@
   }
   function drawStart(t:Track){const o=drag?.orig.find(o=>o.id===t.id);return Math.max(0,(o&&drag?.kind==="start"&&!drag.moving?o.start+drag.dx:t.start??0))*scale;}
   function drawWidth(t:Track){const o=drag?.orig.find(o=>o.id===t.id);return o&&drag?.kind==="duration"?Math.max(6,(o.duration+drag.dx)*scale):width(t);}
-  function wheel(e:WheelEvent){if(e.ctrlKey||e.metaKey){e.preventDefault();timelinePxPerMs.set(Math.max(.015,Math.min(1,scale*Math.exp(-e.deltaY*.002))));}}
+  // Selection is local while sweeping: publishing it on every move would
+  // change the Selected objects filter and the Inspector under the pointer.
+  type Marquee = { pointer:number; anchor:{x:number;y:number}; client:{x:number;y:number};
+    initialClient:{x:number;y:number}; prior:string[]; additive:boolean; moved:boolean;
+    candidates:{ids:string[];box:Box}[]; area:HTMLDivElement; content:HTMLDivElement };
+  let marquee:Marquee|null=null;
+  let scrollFrame=0;
+  function startMarquee(e:PointerEvent) {
+    if(e.button!==0||!e.isPrimary||marquee||drag||!trackArea||!timeline)return;
+    const target=e.target as HTMLElement;
+    if(target.closest(".trk,.group-span,.target-label,.ruler-row,button,input,select"))return;
+    const r=trackArea.getBoundingClientRect(), left=r.left+trackArea.clientLeft, top=r.top+trackArea.clientTop;
+    // Sticky labels/ruler and native scrollbars retain their own gestures.
+    if(e.clientX<left+220||e.clientX>=left+trackArea.clientWidth||e.clientY<top+25||e.clientY>=top+trackArea.clientHeight)return;
+    e.preventDefault();e.stopPropagation();stopScrub();onFocusDock();
+    const origin=timeline.getBoundingClientRect();
+    const boxOf=(node:HTMLElement):Box=>{const b=node.getBoundingClientRect();return{x:b.left-origin.left,y:b.top-origin.top,width:b.width,height:b.height};};
+    const candidates:{ids:string[];box:Box}[]=[];
+    for(const node of timeline.querySelectorAll<HTMLElement>(".lane-row[data-track-id] .trk")) {
+      const id=node.closest<HTMLElement>("[data-track-id]")?.dataset.trackId;
+      if(!id)continue;
+      const box=boxOf(node), tailNode=node.querySelector<HTMLElement>(".tail");
+      if(tailNode){const tailBox=boxOf(tailNode);box.width=Math.max(box.width,tailBox.x+tailBox.width-box.x);}
+      candidates.push({ids:[id],box});
+    }
+    for(const node of timeline.querySelectorAll<HTMLElement>(".group-span")) {
+      const id=node.closest<HTMLElement>("[data-group-id]")?.dataset.groupId;
+      const row=rows.find(row=>"group"in row&&row.group.id===id);
+      if(row&&"group"in row)candidates.push({ids:row.tracks.flatMap(t=>t.id?[t.id]:[]),box:boxOf(node)});
+    }
+    marquee={pointer:e.pointerId,anchor:{x:e.clientX-origin.left,y:e.clientY-origin.top},client:{x:e.clientX,y:e.clientY},
+      initialClient:{x:e.clientX,y:e.clientY},prior:[...$selTrackIds],additive:e.shiftKey||e.ctrlKey||e.metaKey,moved:false,candidates,area:trackArea,content:timeline};
+    marqueeIds=[...$selTrackIds];
+    trackArea.setPointerCapture(e.pointerId);
+    window.addEventListener("pointermove",moveMarquee);
+    window.addEventListener("pointerup",finishMarquee);
+    window.addEventListener("pointercancel",cancelMarqueePointer);
+    window.addEventListener("keydown",marqueeKey,true);
+    window.addEventListener("blur",cancelMarquee);
+    trackArea.addEventListener("scroll",updateMarquee);
+    trackArea.addEventListener("lostpointercapture",cancelMarqueePointer);
+  }
+  function updateMarquee() {
+    const m=marquee;if(!m||!m.moved)return;
+    const r=m.area.getBoundingClientRect(), origin=m.content.getBoundingClientRect();
+    const left=r.left+m.area.clientLeft,top=r.top+m.area.clientTop;
+    const x=Math.max(left+220,Math.min(left+m.area.clientWidth,m.client.x))-origin.left;
+    const y=Math.max(top+25,Math.min(top+m.area.clientHeight,m.client.y))-origin.top;
+    const box={x:Math.min(x,m.anchor.x),y:Math.min(y,m.anchor.y),width:Math.abs(x-m.anchor.x),height:Math.abs(y-m.anchor.y)};
+    const hits=new Set(m.additive?m.prior:[]);
+    for(const candidate of m.candidates) {
+      const b=candidate.box;
+      if(b.x<=box.x+box.width&&b.x+b.width>=box.x&&b.y<=box.y+box.height&&b.y+b.height>=box.y)
+        for(const id of candidate.ids)hits.add(id);
+    }
+    marqueeBox=box;
+    const ids=[...hits];
+    if(!marqueeIds||ids.length!==marqueeIds.length||ids.some((id,i)=>id!==marqueeIds?.[i]))marqueeIds=ids;
+  }
+  function edgeScroll() {
+    scrollFrame=0;
+    const m=marquee;if(!m?.moved)return;
+    const r=m.area.getBoundingClientRect(),left=r.left+m.area.clientLeft,top=r.top+m.area.clientTop;
+    const speed=(p:number,min:number,max:number)=>p<min+24?-Math.min(16,(min+24-p)*.5):p>max-24?Math.min(16,(p-max+24)*.5):0;
+    const x=m.area.scrollLeft,y=m.area.scrollTop;
+    m.area.scrollLeft+=speed(m.client.x,left+220,left+m.area.clientWidth);
+    m.area.scrollTop+=speed(m.client.y,top+25,top+m.area.clientHeight);
+    if(x!==m.area.scrollLeft||y!==m.area.scrollTop){updateMarquee();scrollFrame=requestAnimationFrame(edgeScroll);}
+  }
+  function moveMarquee(e:PointerEvent) {
+    const m=marquee;if(!m||e.pointerId!==m.pointer)return;
+    e.preventDefault();m.client={x:e.clientX,y:e.clientY};
+    if(!m.moved&&Math.hypot(e.clientX-m.initialClient.x,e.clientY-m.initialClient.y)<3)return;
+    m.moved=true;updateMarquee();
+    if(!scrollFrame)scrollFrame=requestAnimationFrame(edgeScroll);
+  }
+  function cancelMarquee() {
+    const m=marquee;marquee=null;marqueeBox=null;marqueeIds=null;
+    if(scrollFrame)cancelAnimationFrame(scrollFrame);scrollFrame=0;
+    window.removeEventListener("pointermove",moveMarquee);window.removeEventListener("pointerup",finishMarquee);
+    window.removeEventListener("pointercancel",cancelMarqueePointer);window.removeEventListener("keydown",marqueeKey,true);window.removeEventListener("blur",cancelMarquee);
+    if(m){m.area.removeEventListener("scroll",updateMarquee);m.area.removeEventListener("lostpointercapture",cancelMarqueePointer);if(m.area.hasPointerCapture(m.pointer))m.area.releasePointerCapture(m.pointer);}
+  }
+  function cancelMarqueePointer(e:PointerEvent){if(e.pointerId===marquee?.pointer)cancelMarquee();}
+  function finishMarquee(e:PointerEvent) {
+    const m=marquee;if(!m||e.pointerId!==m.pointer)return;
+    m.client={x:e.clientX,y:e.clientY};updateMarquee();
+    const ids=m.moved?marqueeIds??[]:m.additive?m.prior:[];
+    cancelMarquee();selectTracks(ids);
+  }
+  function marqueeKey(e:KeyboardEvent) {
+    // Capture before the dock's Escape/Delete/navigation handlers can run.
+    if(!marquee)return;
+    if(e.key==="Escape"){e.preventDefault();e.stopImmediatePropagation();cancelMarquee();}
+    else if(!["Shift","Control","Meta","Alt"].includes(e.key)){e.preventDefault();e.stopImmediatePropagation();}
+  }
+  function wheel(e:WheelEvent){if(e.ctrlKey||e.metaKey){cancelMarquee();e.preventDefault();timelinePxPerMs.set(Math.max(.015,Math.min(1,scale*Math.exp(-e.deltaY*.002))));}}
   let stopScrub=()=>{};
   function scrub(e:PointerEvent){
     if(!onSeek||e.button!==0)return;e.preventDefault();stopScrub();
@@ -164,7 +270,8 @@
     seek(e);window.addEventListener("pointermove",seek);window.addEventListener("pointerup",stopScrub);window.addEventListener("pointercancel",stopScrub);
   }
   function keyCancel(e:KeyboardEvent){if(e.key==="Escape"&&drag){e.preventDefault();cancel();}}
-  onDestroy(()=>{cancel();stopScrub();hoverTrackId.set(null);});
+  onDestroy(()=>{cancelMarquee();cancel();stopScrub();hoverTrackId.set(null);});
+  $effect(()=>{const context=slide.id+":"+beat.id+":"+scale+":"+selectedOnly;void context;cancelMarquee();});
   $effect(()=>{const i=$activeBeat;void tick().then(()=>document.querySelector(`[data-step-index="${i}"]`)?.scrollIntoView({block:"nearest",inline:"nearest"}));});
 </script>
 
@@ -196,8 +303,8 @@
     <label class="filter"><input type="checkbox" bind:checked={selectedOnly}/> Selected objects</label>
   </div>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="timeline-scroll" onwheel={wheel} bind:this={trackArea}>
-    <div class="timeline" style={`--time-w:${timeWidth}px;--row:${ROW}px`}>
+  <div class="timeline-scroll" onwheel={wheel} onpointerdown={startMarquee} bind:this={trackArea}>
+    <div class="timeline" bind:this={timeline} style={`--time-w:${timeWidth}px;--row:${ROW}px`}>
       <div class="ruler-row"><div class="label-head">Object / effect</div>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="ruler" onpointerdown={scrub} title="Drag to inspect any frame">
@@ -208,19 +315,19 @@
       {#if !rows.length}<div class="empty">{$activeBeat===0?"Select an object, then choose Appear, Change, Emphasize, or Disappear.":"No effects in this step. Select an object or plot part and add an effect above."}</div>{/if}
       {#each rows as row,ri ("group"in row?row.group.id:row.track.id??ri)}
         {#if "group"in row}
-          <div class="lane-row group" data-row-index={ri}>
+          <div class="lane-row group" class:selected={row.tracks.every(t=>!!t.id&&highlightedIds.has(t.id))} data-row-index={ri} data-group-id={row.group.id}>
             <div class="target-label"><button class="chevron" aria-label={row.group.collapsed?"Expand group":"Collapse group"} onclick={()=>commitDeckLive(d=>setTrackGroup(d,slide.id,beat.id,row.group.id,{collapsed:!row.group.collapsed}))}>{row.group.collapsed?"▸":"▾"}</button>{#if renameGroupId===row.group.id}<input class="group-title" aria-label="Group name" value={row.group.label} onblur={e=>{if(e.currentTarget.value.trim())commitDeckLive(d=>setTrackGroup(d,slide.id,beat.id,row.group.id,{label:e.currentTarget.value.trim()}));renameGroupId=null;}} onkeydown={e=>{e.stopPropagation();if(e.key==="Enter")e.currentTarget.blur();if(e.key==="Escape")renameGroupId=null;}}/>{:else}<button class="group-name" title="Select group · double-click to rename" onclick={()=>chooseGroup(row.tracks)} ondblclick={()=>renameGroupId=row.group.id}>{row.group.label} <small>{row.tracks.length}</small></button>{/if}</div>
-            <div class="time-cell"><!-- svelte-ignore a11y_no_static_element_interactions --><span class="group-span" title="Drag to retime or move this group" onpointerdown={e=>{chooseGroup(row.tracks);down(e,row.tracks[0],"start");}} style={`left:${Math.min(...row.tracks.map(t=>t.start??0))*scale}px;width:${Math.max(8,(Math.max(...row.tracks.map(t=>trackEndMs(t,slide,manifestFor(t.target))))-Math.min(...row.tracks.map(t=>t.start??0)))*scale)}px`}></span></div>
+            <div class="time-cell"><!-- svelte-ignore a11y_no_static_element_interactions --><span class="group-span" class:sel={row.tracks.every(t=>!!t.id&&highlightedIds.has(t.id))} title="Drag to retime or move this group" onpointerdown={e=>{chooseGroup(row.tracks);down(e,row.tracks[0],"start");}} style={`left:${Math.min(...row.tracks.map(t=>t.start??0))*scale}px;width:${Math.max(8,(Math.max(...row.tracks.map(t=>trackEndMs(t,slide,manifestFor(t.target))))-Math.min(...row.tracks.map(t=>t.start??0)))*scale)}px`}></span></div>
           </div>
         {:else}{@const t=row.track}{@const tx=familyOf(t)==="transform"}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="lane-row" class:selected={!!t.id&&$selTrackIds.includes(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
+          <div class="lane-row" class:selected={!!t.id&&highlightedIds.has(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
             <button class="target-label track-label" onclick={e=>chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${presetLabel(t.preset??"fade")}`}>
               <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{t.ghostFrom ? "Ghost transform" : presetLabel(t.preset??"fade")}{t.disabled?" · disabled":""}</small>
             </button>
             <div class="time-cell">
               <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="trk" class:tx class:sel={!!t.id&&$selTrackIds.includes(t.id)} style={`left:${drawStart(t)}px;width:${drawWidth(t)}px`} title={`${fmt(t.start??0)} → ${fmt((t.start??0)+trackDuration(t))} · drag to retime; vertical drag reorders; drag onto a step to move (Alt copies)`} onpointerdown={e=>down(e,t,"start")}>
+              <div class="trk" class:tx class:sel={!!t.id&&highlightedIds.has(t.id)} style={`left:${drawStart(t)}px;width:${drawWidth(t)}px`} title={`${fmt(t.start??0)} → ${fmt((t.start??0)+trackDuration(t))} · drag to retime; vertical drag reorders; drag onto a step to move (Alt copies)`} onpointerdown={e=>down(e,t,"start")}>
                 {#if tail(t)>0}<span class="tail" style={`width:${tail(t)}px`}></span>{/if}
                 <span class="bar-time">{fmt(trackDuration(t))}</span>
                 <!-- svelte-ignore a11y_no_static_element_interactions --><span class="edge" onpointerdown={e=>down(e,t,"duration")}></span>
@@ -232,13 +339,19 @@
       <!-- One compositor line spans every lane; playback must not rewrite a
            layout property in every track on every frame. -->
       <span class="playhead" style={`transform:translateX(${time*scale}px)`}></span>
+      {#if marqueeBox}<div class="timeline-marquee" aria-hidden="true" style={`left:${marqueeBox.x}px;top:${marqueeBox.y}px;width:${marqueeBox.width}px;height:${marqueeBox.height}px`}></div>{/if}
     </div>
   </div>
   {#if drag}<div class="drag-status">{drag.moving?drag.over!=null?`${drag.copy?"Copy":"Move"} to step ${drag.over}`:"Move effect row":`${drag.kind}: ${fmt(Math.max(0,(drag.orig.find(o=>o.id===drag?.primary)?.[drag.kind]??0)+drag.dx))}`} · Escape cancels</div>{/if}
+  {#if marqueeBox}<div class="drag-status">{marqueeIds?.length ?? 0} selected · Escape cancels</div>{/if}
 </div>
 {#if menu}<TimelineMenu x={menu.x} y={menu.y} items={menu.items} onClose={()=>menu=null}/>{/if}
 
 <style>
+  .timeline-scroll{user-select:none}
+  .timeline{min-height:100%;padding-bottom:24px;box-sizing:border-box}
+  .timeline-marquee{position:absolute;pointer-events:none;z-index:2;box-sizing:border-box;border:1px solid var(--c-accent);background:color-mix(in oklab,var(--c-accent) 14%,transparent)}
+  .group-span.sel{background:var(--c-accent);outline:2px solid var(--c-accent);outline-offset:1px}
   .group-title{width:160px;min-width:0;background:var(--c-bg);color:var(--c-tx);border:1px solid var(--c-line);font:inherit;padding:3px 5px;}
 .beatrail{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1;gap:8px;position:relative;font-size:12px}
 .step-strip{display:flex;gap:5px;overflow-x:auto;flex:0 0 auto;padding:2px 1px 6px}
