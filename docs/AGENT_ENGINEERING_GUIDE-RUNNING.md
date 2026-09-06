@@ -683,13 +683,15 @@ Standing status (dev-mode, scale fixtures, as of 2026-07-13) — instantaneous c
 paper keystroke @20k lines 5ms sync / 34ms paint p95, undo ~1ms, figure pan 16–47ms, library
 scroll 17ms p95 @5k refs, reader page-jump ≤56ms, warm fulltext 73ms @5k PDFs, slide-switch
 33ms p95 + slide static-edit 34ms p95 @31 plot-bearing slides with 0 rAF at rest and
-1-thumbnail invalidation per edit (`verify-scale-slide.mjs`, test-results/scale-slide.json). Known items above
-100ms, tracked, descending priority: GUI `ft:` query (spawns a CLI subprocess per query — wants a
-resident mtime-invalidated index in the main process), library first-keystroke 177ms (the 150ms
-debounce above), sidebar edit @5k elements 156ms (un-memoized derived recompute), figure commit
-@1600 elements 111ms p95 (≈2 frames of it is dev tracing; likely compliant in production —
-unprovable until the prod harness exists). Reader open / project open / whole-doc find are
-1s-class navigations and within budget. If you fix one of these, update this list.
+1-thumbnail invalidation per edit (`verify-scale-slide.mjs`, test-results/scale-slide.json). Older findings above
+100ms that were not remeasured in the Figure polish pass: GUI `ft:` query (spawns a CLI
+subprocess per query — wants a resident mtime-invalidated index in the main process), and
+library first-keystroke 177ms (the 150ms debounce above). Figure was remeasured on 2026-09-06:
+the production harness gates actual key-to-paint at 31.9ms p95 for 1,600 mounted objects and
+34.8ms in the 5,000-object fixture (3,760 visible elements mounted, 47 Layers rows). Transient
+Figure drag measured 5.4ms p95 in the dev scale gate; dev commit tracing remains distinct from
+production latency. Reader open / project open / whole-doc find are 1s-class navigations and
+within budget. Update these measurements when the corresponding workflow is changed.
 
 ## 7. The verification system (how you prove your work)
 
@@ -4149,3 +4151,12 @@ no library rollback was attempted or unchanged-library claim made.
   tests keep the disposable window visible because macOS suspends rAF when fully occluded.
 - Production file/preload checks found the PDF inches/microns error and the autosave race that
   browser-only presence checks missed. Physical page dimensions and durable Undo are now gated.
+
+### 2026-09-06 13:00 CDT — Prepare Figure/Slides overhaul on main (Codex, `main`)
+
+**Work:** Fetched origin and fast-forwarded local main to all seven commits from
+`codex/figures-slides-overhaul`, without conflicts or application-tree changes. Retained the
+feature branch and prepared local main for the owner's push; corrected the stale performance
+status above to reflect the completed native Figure measurements. Fresh typecheck passed
+at 0 errors/0 warnings and the documentation gate passed 156 checks; application files are
+identical to the previously verified branch.
