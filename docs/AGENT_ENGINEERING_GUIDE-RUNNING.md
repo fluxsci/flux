@@ -968,6 +968,8 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   the review session. Baseline: check 0/0, pure 198/198, selected UI 69/80; Figure drag ratio
   and normal/dense Slides playback frame gates failed. Preserve the published budgets and
   distinguish stale test assumptions from product defects. Lazy-residency scale passed.
+  Repeated runtime `state_proxy_equality_mismatch` warnings also remain to be traced; the
+  typecheck's 0 warnings and the browser driver's page-error count do not cover them.
 
 - **WS-11 plot render-detail budget** and the **figure spatial index**: evaluated against
   measurements and NOT built (triggers recorded 2026-07-11; blueprints live in

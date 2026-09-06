@@ -144,6 +144,11 @@ guard. Do not introduce a bulk project rewrite or an unrequested data conversion
   time-sliced and residency stayed bounded. Keep this mechanism.
 - Targeted selection, undo, cancellation, locking, properties, save failure, legacy reopen,
   caption topology and bounded TIFF-export probes reproduced the findings above.
+- The dev server also emitted repeated Svelte `state_proxy_equality_mismatch` runtime
+  warnings. These are not the typecheck warnings or page errors counted above. Their source
+  was not traced in this review; audit proxy/raw-object comparisons and prefer stable IDs
+  where identity crosses component/store boundaries. Include warning-free affected workflows
+  in the shared-state cleanup acceptance.
 
 The scale runs were sequential after the functional sweep; budgets were not overridden,
 loosened, or rerun until green. These results are a baseline, not release acceptance.
