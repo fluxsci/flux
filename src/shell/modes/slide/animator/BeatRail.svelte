@@ -216,7 +216,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="lane-row" class:selected={!!t.id&&$selTrackIds.includes(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
             <button class="target-label track-label" onclick={e=>chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${presetLabel(t.preset??"fade")}`}>
-              <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{presetLabel(t.preset??"fade")}{t.disabled?" · disabled":""}</small>
+              <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{t.ghostFrom ? "Ghost transform" : presetLabel(t.preset??"fade")}{t.disabled?" · disabled":""}</small>
             </button>
             <div class="time-cell">
               <!-- svelte-ignore a11y_no_static_element_interactions -->

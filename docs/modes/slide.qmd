@@ -117,6 +117,30 @@ incompatible targets use a crossfade fallback. The source path is retained so li
 **Zoom** adds a camera move toward the selected object; **Reset** pulls back to the full slide.
 After-step editing uses the same camera mapping, so selection, dragging, and highlights stay aligned.
 
+## Ghost transforms
+
+A **Ghost transform…** creates independent copies that move out from an object. For example,
+one arrow can split into three arrows pointing to three new results.
+
+1. Select the source object and the step where the copies should appear, then choose
+   **Ghost transform…** in the animation pane.
+2. Choose the number of copies (1–32; initially 3) and whether the original should **Stay**,
+   **Disappear**, or **Transform** too.
+3. Create the ghosts. Flux selects the first copy in **Edit after step**. Move, resize,
+   rotate, restyle, or edit it with the ordinary tools to set its destination.
+4. Use the copy selector and Previous/Next controls to edit the other copies, even while
+   they overlap. **Add copy** adds another destination; **Select original** returns to the source.
+5. Play the step. Each copy begins at the original's state at the end of the preceding step
+   and moves to its own destination. Adjust each lane's delay, duration, and easing normally.
+
+Ghosts are identical copies when they start; they have normal opacity unless you change it.
+Changes to the original in earlier steps update their starting state. A transform of the original
+in the same step runs independently. The copies remain available for further animations in later steps.
+
+Before their creation step, ghosts are absent, including with **Show hidden** enabled. Use
+**Edit destination** to return to the step where a selected ghost can be edited. Deleting a
+ghost's creation lane removes that copy and its later effects; Undo restores them together.
+
 ## Cascading tracks
 
 Select several tracks and press **Ctrl+Shift+C**: the same [cascade](figure.qmd#cascade)

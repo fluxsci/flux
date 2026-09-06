@@ -10,6 +10,8 @@ import { resolveEasingFn } from "./easing";
 import { countUpText } from "./player/countup";
 import { morphCompatible } from "./player/morph";
 import { staggerRanks, staggerSpan } from "./stagger";
+import { resolveGhosts, copyFrameSource, type GhostBirth, type ResolvedGhosts } from "./ghost";
+export { ghostTargetIds } from "./ghost";
 
 export interface AnimationIssue { trackId?: string; target: string; reason: string }
 export interface CompileOptions { plotManifest?: (assetId: string) => FluxPlotManifest | undefined }
@@ -23,14 +25,20 @@ export interface SlideFrame {
   presentation: {
     elementStates: Record<string, PartFrame>;
     hiddenElementIds: string[];
+    unbornElementIds?: string[];
     partStates: Record<string, Record<string, PartFrame>>;
     camera?: Camera;
   };
 }
 export interface CompiledSlide {
+  resolvedSlide: Slide;
+  births: GhostBirth[];
+  partFactors: ResolvedGhosts["partFactors"];
   cues: { id: string; duration: number; tracks: CompiledTrack[] }[];
   issues: AnimationIssue[];
   sample(beat: number, timeMs?: number): SlideFrame;
+  preState(target: string, beat: number): Element | null;
+  copySourceState(source: string, birthBeat: number): Element | null;
 }
 const enters = new Set(["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn"]);
 const exits = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"]);
@@ -50,7 +58,7 @@ export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions
   return [];
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
-export function compileSlide(slide: Slide, stage: StageSize = { width: 640, height: 360 }, opts: CompileOptions = {}): CompiledSlide {
+function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptions, partFactors: ResolvedGhosts["partFactors"] = {}): Pick<CompiledSlide, "cues" | "issues" | "sample"> {
   const issues: AnimationIssue[] = [];
   const cues = slide.beats.map((beat, bi) => {
     const tracks: CompiledTrack[] = [];
@@ -169,9 +177,29 @@ export function compileSlide(slide: Slide, stage: StageSize = { width: 640, heig
       if (part) (partStates[id] ??= {})[part] = state;
       else elementStates[id] = state;
     }
+    for (const [id, parts] of Object.entries(partFactors)) for (const [part, factor] of Object.entries(parts)) {
+      const own = partStates[id]?.[part];
+      const opacity = (own?.opacity ?? 1) * factor.opacity;
+      (partStates[id] ??= {})[part] = { opacity, visible: opacity > 0 };
+    }
     return { elements, camera, partStates, issues, presentation: { elementStates, hiddenElementIds: Object.entries(elementStates).filter(([, state]) => !state.visible).map(([id]) => id), partStates, camera } };
   }
   return { cues, issues, sample };
+}
+export function compileSlide(slide: Slide, stage: StageSize = { width: 640, height: 360 }, opts: CompileOptions = {}): CompiledSlide {
+  const resolved = resolveGhosts(slide, (working, beat, factors) => compileOrdinarySlide(working, stage, opts, factors).sample(beat));
+  const plain = compileOrdinarySlide(resolved.slide, stage, opts, resolved.partFactors);
+  const issues = [...resolved.issues, ...plain.issues];
+  const sample = (beat: number, time = Infinity): SlideFrame => {
+    const frame = plain.sample(beat, time);
+    frame.issues = issues;
+    frame.presentation.unbornElementIds = resolved.births.filter(b => !b.enabled || beat < b.beat || beat === b.beat && time < b.start).map(b => b.target);
+    return frame;
+  };
+  return { ...plain, issues, sample, resolvedSlide: resolved.slide, births: resolved.births, partFactors: resolved.partFactors,
+    preState: (target, beat) => transformPreState(resolved.slide, target, beat),
+    copySourceState: (source, beat) => copyFrameSource(resolved.slide, sample(beat - 1), source, beat),
+  };
 }
 export function evaluateSlideState(slide: Slide, beat: number, timeMs = Infinity, opts: CompileOptions & { stage?: StageSize } = {}): SlideFrame {
   return compileSlide(slide, opts.stage, opts).sample(beat, timeMs);

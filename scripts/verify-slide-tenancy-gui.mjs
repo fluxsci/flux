@@ -91,7 +91,7 @@ try {
     const root = f.get(f.shell.projectModel).root;
     const id = f.get(f.slide.deckOverlay).id;
     const text = await window.fig.readText(`${root}/slides/${id}/deck.json`).catch(() => "");
-    return { hasMark: text.includes("slide-mark"), hasBeat: text.includes('"tb"'), version: /"schemaVersion": "0\.3\.0"/.test(text) };
+    return { hasMark: text.includes("slide-mark"), hasBeat: text.includes('"tb"'), version: /"schemaVersion": "0\.4\.0"/.test(text) };
   });
   ok(deckOnDisk.hasMark && deckOnDisk.hasBeat, "autosave wrote the edits (elements + beats recombined) to slides/<id>/deck.json");
   ok(deckOnDisk.version, "…in the 0.3.0 format");

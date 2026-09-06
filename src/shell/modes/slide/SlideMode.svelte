@@ -92,6 +92,9 @@
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
   import PropertiesPane from "./animator/PropertiesPane.svelte";
+  import GhostCopyControls from "./animator/GhostCopyControls.svelte";
+  import GhostTransformDialog from "./GhostTransformDialog.svelte";
+  import { ghostBirth, objectLabel } from "./animator/ghostEditing";
   import { hoverTrackId } from "./animator/animatorState";
   import DeckPicker from "./DeckPicker.svelte";
   import SlidePresetMenu from "./SlidePresetMenu.svelte";
@@ -122,6 +125,7 @@
   let unregEditAdapter: (() => void) | undefined;
   let inspectorTab = $state<"object"|"animation"|"slide"|"deck">("object");
   let ghostHidden = $state(true);
+  let ghostDialog = $state<{sourceId: string; beatIndex: number; original: "stay" | "disappear" | "transform"} | null>(null);
   let openingRequest = $state(0);
   let consumingOpenRequest = $state(false);
   $effect(() => {
@@ -159,11 +163,30 @@
     const index = activeSlide?.beats.findIndex(b => b.id === destination.beatId) ?? -1;
     return index > 0 ? `Editing after ${index} · ${activeSlide?.beats[index]?.label || "Step"}` : "Design";
   });
+  const selectedUnbornGhosts = $derived.by(() => {
+    const unborn = new Set($slideCanvasPresentation.unbornElementIds ?? []);
+    return [...$selection].filter(id => unborn.has(id)).flatMap(id => {
+      const birth = ghostBirth(activeSlide, id);
+      return birth ? [{id, ...birth}] : [];
+    });
+  });
+  function editGhostDestination(targetId: string) {
+    const birth = ghostBirth(activeSlide, targetId);
+    if (!birth?.track.id) return;
+    stopPreview();
+    if (birth.track.disabled) commitDeckLive(d => slideOps.setTrackEnabled(d, activeSlide!.id, birth.track.id!, true));
+    activeBeat.set(birth.beatIndex);
+    selTrackIds.set([birth.track.id]);
+    enterEndpointEdit([birth.track.id], "t2");
+    inspectorTab = "animation";
+  }
   $effect(() => { if ($selTrackIds.length) { inspectorTab = "animation"; inspectorHidden.set(false); } });
   const canvasPresentation = $derived.by(() => {
     const id = $hoverTrackId ?? $selTrackIds[$selTrackIds.length - 1];
     const t = activeSlide?.beats.flatMap(b => b.tracks).find(t => t.id === id);
-    return { ...$slideCanvasPresentation, stage, ...(t && !t.target.startsWith("@") ? { highlight: { elementId:t.target, ...(activeSlide && (t.part || t.selector) ? {partIds:semanticTargets(t,activeSlide,{plotManifest:id=>$plotManifests[id]})} : {}) } } : {}), ghostHidden };
+    const selected = $selection.size === 1 ? [...$selection][0] : undefined;
+    const ghostDrag = selected && (ghostBirth(activeSlide, selected) || activeSlide?.beats[$activeBeat]?.tracks.some(track => track.ghostFrom === selected));
+    return { ...$slideCanvasPresentation, stage, ...(ghostDrag ? {preferredDragTargetId: selected} : {}), ...(t && !t.target.startsWith("@") ? { highlight: { elementId:t.target, ...(activeSlide && (t.part || t.selector) ? {partIds:semanticTargets(t,activeSlide,{plotManifest:id=>$plotManifests[id]})} : {}) } } : {}), ghostHidden };
   });
   // What the Background swatch shows: the slide's own override, else the color
   // it actually rests at (deck default → theme) — never a hardcoded dark.
@@ -749,10 +772,43 @@
     });
     activeBeat.set(bi);selTrackIds.set(created);inspectorTab="animation";
   }
-  function animationAction(action:"appear"|"change"|"emphasize"|"disappear") {
+  function animationAction(action:"appear"|"change"|"ghost"|"emphasize"|"disappear") {
     stopPreview();
-    if(action==="change")addOrToggleTransform();
+    if(action==="ghost")openGhostDialog();
+    else if(action==="change")addOrToggleTransform();
     else addAppearance(action==="disappear",action==="emphasize");
+  }
+  function openGhostDialog() {
+    const ids = selectionTargets(), s = activeSlide;
+    if (!s || ids.length !== 1) return;
+    const sourceId = ids[0], beatIndex = Math.max(1, $activeBeat);
+    const birth = ghostBirth(s, sourceId);
+    if (birth && birth.beatIndex >= beatIndex) {
+      pushToast("info", "Choose a later step to copy this ghost", { detail: "A ghost can become a source after its birth step." });
+      return;
+    }
+    const tracks = s.beats[beatIndex]?.tracks.filter(t => t.target === sourceId && !t.part && !t.selector && !t.disabled) ?? [];
+    const original = tracks.some(t => familyOf(t) === "transform") ? "transform" : tracks.some(t => ["fadeOut", "popOut", "drawOff", "wipeOut"].includes(t.preset ?? "")) ? "disappear" : "stay";
+    ghostDialog = { sourceId, beatIndex, original };
+  }
+  function createGhosts(count: number, original: "stay" | "disappear" | "transform") {
+    const request = ghostDialog, s = activeSlide;
+    if (!request || !s) return;
+    try {
+      const sourceSnapshot = compileSlide(s, stage, {plotManifest: id => get(plotManifests)[id]}).copySourceState(request.sourceId, request.beatIndex);
+      if (!sourceSnapshot) throw new Error("The source is unavailable before this step.");
+      const result = commitDeckLive(d => {
+        const sl = slideOps.slideById(d, s.id)!;
+        if (!sl.beats[request.beatIndex]) slideOps.addBeat(d, s.id, {label: `Step ${request.beatIndex}`, advance: "click"});
+        return slideOps.addGhostTransform(d, s.id, sl.beats[request.beatIndex].id, request.sourceId, {count, original, sourceSnapshot});
+      });
+      if (!result?.trackIds.length) return;
+      ghostDialog = null;
+      activeBeat.set(request.beatIndex);
+      selTrackIds.set([result.trackIds[0]]);
+      enterEndpointEdit([result.trackIds[0]], "t2");
+      inspectorTab = "animation";
+    } catch (error) { pushToast("error", "Could not create ghosts", {detail: errMsg(error)}); }
   }
   /** Ctrl+Shift+T: no transform on the selection → create one per selected
    *  element in the active beat (grouped when several) and check out t2
@@ -1111,7 +1167,17 @@
           <button class:chosen={inspectorTab===tab} onclick={()=>inspectorTab=tab as typeof inspectorTab}>{tab[0].toUpperCase()+tab.slice(1)}</button>
         {/each}
       </nav>
-      {#if inspectorTab==="object"}<Inspector />{/if}
+      {#if activeSlide && (inspectorTab === "object" || inspectorTab === "animation")}<GhostCopyControls slide={activeSlide} onEditGhost={editGhostDestination}/>{/if}
+      {#if selectedUnbornGhosts.length && (inspectorTab === "object" || inspectorTab === "animation")}
+        <section class="ghost-unborn" aria-label="Ghost destination">
+          {#each selectedUnbornGhosts as ghost (ghost.id)}
+            <strong>{activeSlide ? objectLabel(activeSlide, ghost.id) : "Ghost"}</strong>
+            <p>Starts at step {ghost.beatIndex} · {activeSlide?.beats[ghost.beatIndex]?.label || "Step"}. Its destination is editable after that step.</p>
+            <button onclick={() => editGhostDestination(ghost.id)}>{ghost.track.disabled ? "Enable and edit destination" : "Edit destination"}</button>
+          {/each}
+        </section>
+      {/if}
+      {#if inspectorTab==="object" && !selectedUnbornGhosts.length}<Inspector />{/if}
       {#if inspectorTab==="animation" && activeSlide}<PropertiesPane slide={activeSlide} {plotTags} onChooseMorph={chooseMorph}/>{/if}
       {#if overlay && activeSlide}
         <section class="panel" hidden={inspectorTab!=="slide"}>
@@ -1209,7 +1275,13 @@
 <PlotImporter rootOverride={pm?.root ?? ""} title={morphFor ? "Choose next plot data state" : "Insert plot onto slide"} onPick={morphFor ? acceptMorphTarget : undefined} />
 <PresetPicker />
 
+{#if ghostDialog && activeSlide}
+  <GhostTransformDialog source={objectLabel(activeSlide, ghostDialog.sourceId)} step={`step ${ghostDialog.beatIndex} · ${activeSlide.beats[ghostDialog.beatIndex]?.label || "New step"}`} initialOriginal={ghostDialog.original} onCreate={createGhosts} onClose={() => ghostDialog = null}/>
+{/if}
+
 <style>
+  .ghost-unborn{margin:12px;padding:12px;border:1px solid var(--c-line-strong);border-radius:7px;background:var(--c-bg-2);font-size:12px}
+  .ghost-unborn p{color:var(--c-tx-2);line-height:1.5;margin:5px 0 10px}.ghost-unborn button{font:inherit;background:var(--c-bg);color:var(--c-tx);border:1px solid var(--c-line-strong);border-radius:5px;padding:6px 8px;cursor:pointer}
   .animation-issues {flex:0 0 auto;color:var(--c-warning,#da702c);padding:5px 12px;font-size:11px;max-height:110px;overflow:auto;border-bottom:1px solid var(--c-line);}
   .animation-issues summary{cursor:pointer;}
   .animation-issues button{display:block;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:5px 0;}

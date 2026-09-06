@@ -5,6 +5,10 @@ import type { Viewport } from "./types";
 export interface EditorCanvasPresentation {
   highlight?: { elementId: string; partIds?: readonly string[] } | null;
   hiddenElementIds?: readonly string[];
+  /** Objects which do not exist at this frame, even in Show hidden. */
+  unbornElementIds?: readonly string[];
+  /** Preserve an explicitly chosen overlapping object's plain drag target. */
+  preferredDragTargetId?: string;
   ghostHidden?: boolean;
   elementStates?: Record<string, { visible?: boolean; opacity?: number }>;
   partStates?: Record<string, Record<string, { visible?: boolean; opacity?: number }>>;

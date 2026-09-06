@@ -13,7 +13,7 @@ import { animate, prefersReducedMotion } from "../../motion/motion";
 import { buildPartIndex } from "../../plot/parse";
 import { resolveTargets } from "../../plot/tree";
 import type { FluxPlotManifest } from "../../plot/types";
-import { renderSlide, type SlideRenderCtx, type RenderedSlide } from "./render";
+import { renderSlide, fillContent, applyWrapperBox, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { morphCompatible, type MorphController } from "./morph";
 import { createCountUp } from "./countup";
@@ -126,8 +126,17 @@ interface Spec {
 export { transformPreState } from "../tween";
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
-export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, stage: StageSize, opts: PlayerOpts): Spec[] {
+export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, stage: StageSize, opts: PlayerOpts, compiled = compileSlide(slide, stage, opts)): Spec[] {
+  slide = compiled.resolvedSlide;
+  opts = { ...opts, ghostPartFactors: compiled.partFactors };
   const specs: Spec[] = [];
+  for (const birth of compiled.births) {
+    const el = slide.elements.find(e => e.id === birth.target), wrap = rendered.elements.get(birth.target);
+    if (!el || !wrap) continue;
+    // One materialization per slide build. Later seeks retain these exact nodes.
+    if (rendered.sourceSlide !== slide) { wrap.replaceChildren(); fillContent(wrap, el, opts); applyWrapperBox(wrap, el); }
+    specs.push({ node: wrap, beatIndex: birth.enabled ? birth.beat : Number.MAX_SAFE_INTEGER, keyframes: [{ visibility: "hidden" }, { visibility: "visible" }], delay: birth.start, duration: 0, easing: "linear", enter: true, key: `ghost:${birth.target}`, trackId: birth.track.id });
+  }
   const contentRoots = new Map<string, HTMLElement>();
   const ctx: PresetCtx = { theme: opts.theme, stage };
   // Placement/rotation/opacity belong to the document wrapper. Appearance
@@ -170,6 +179,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
           plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
           plotManifest: opts.plotManifest, morphTo, contentHost: contentRoots.get(track.target),
+          ghostPartFactors: opts.ghostPartFactors,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
         specs.push({
@@ -249,7 +259,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   return specs;
 }
 
-const ANIM_PROPS = ["opacity", "transform", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin"] as const;
+const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin"] as const;
 function clearAnimStyles(node: TargetNode, properties: readonly string[]) {
   const s = (node as HTMLElement).style;
   for (const p of properties) s.removeProperty(p.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()));
@@ -477,11 +487,11 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const slide = deck.slides[si];
     if (!slide) { specs = []; durations = [0]; return; }
     mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
-    const rendered = renderSlide(cameraLayer, slide, stage, ctx);
-    cameraLayer.style.transform = baseCameraTransform(slide, stage);
     const compiled = compileSlide(slide, stage, opts);
+    const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
+    cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
-    specs = computeSlideAnims(slide, rendered, cameraLayer, stage, opts);
+    specs = computeSlideAnims(slide, rendered, cameraLayer, stage, opts, compiled);
     durations = Array.from({ length: beats() }, (_, beat) => Math.max(0, ...specs.filter((s) => s.beatIndex === beat).map((s) => s.delay + s.duration)));
   }
   function paint(native = false): void {
@@ -603,9 +613,10 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   camera.className = "sl-camera";
   camera.style.transformOrigin = "0 0";
   host.appendChild(camera);
-  const rendered = renderSlide(camera, slide, stage, opts);
+  const compiled = compileSlide(slide, stage, opts);
+  const rendered = renderSlide(camera, compiled.resolvedSlide, stage, { ...opts, ghostPartFactors: compiled.partFactors });
   camera.style.transform = baseCameraTransform(slide, stage);
-  const specs = computeSlideAnims(slide, rendered, camera, stage, opts);
+  const specs = computeSlideAnims(slide, rendered, camera, stage, opts, compiled);
   applyStatic(specs, beat);
   return rendered;
 }

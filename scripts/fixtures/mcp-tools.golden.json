@@ -58,6 +58,7 @@
   "get_manuscript",
   "get_paper_text",
   "get_reading_context",
+  "ghost_transform",
   "grobid",
   "group_elements",
   "group_tracks",

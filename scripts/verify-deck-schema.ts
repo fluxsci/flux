@@ -1,14 +1,14 @@
 #!/usr/bin/env -S npx tsx
-// The deck load gate (0.3.0, animation rework — supersedes the 0.2.0 pin):
+// The deck load gate (0.4.0, ghost transforms — supersedes the 0.2.0 pin):
 //   • a good deck validates (pre-generated Ajv, CSP-safe)
 //   • malformed decks are REJECTED (missing stage, bad element, wrong version)
-//   • a 0.2.0 deck is VALID INPUT: the file schema accepts the 0.2/0.3
-//     generation and ops.migrateDeck stamps it 0.3.0 at every load seam
-//     (first minor bump WITH a migration — 0.2.0 decks are live production)
+//   • 0.2.0 and 0.3.0 decks are VALID INPUT: the file schema accepts the 0.2/0.3/0.4
+//     generation and ops.migrateDeck stamps it 0.4.0 at every load seam
+//     (pure version stamps preserve existing deck content)
 //   • an OLD-format (0.1.x) deck fails validation — the sanctioned clean break
 //     (owner decision, slide-migration plan §0.2.1): the GUI read seam
 //     QUARANTINES it (.corrupt-<ts> copy) and skips, never half-loads
-//   • a NEWER deck (0.4.x) is refused by the forward-version guard BEFORE
+//   • a NEWER deck (0.5.x) is refused by the forward-version guard BEFORE
 //     validation
 //   • dangling beat targets are WARNINGS (validate_deck), never rejections
 //   npx tsx scripts/verify-deck-schema.ts
@@ -28,20 +28,22 @@ function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); 
 // --- a good deck (built through the one blank-deck source) validates -----------
 const good = slideOps.createDeck({ id: "g", title: "Good" });
 slideOps.addSlideText(good, good.slides[0].id, { text: "hi", x: 10, y: 10 });
-assert(DECK_SCHEMA_VERSION === "0.3.0", "the animation-rework format is 0.3.0 (0.x minor = the breaking slot)");
+assert(DECK_SCHEMA_VERSION === "0.4.0", "the ghost-transform format is 0.4.0 (0.x minor = the breaking slot)");
 assert(validateDeckFile(good).length === 0, "a createDeck() deck validates against the bundled schema");
 
-// --- 0.2.0 → 0.3.0: valid input, migrated at the chokepoint -----------------------
+// --- 0.2.0/0.3.0 → 0.4.0: valid input, migrated at the chokepoint -----------------------
 {
-  const v02 = structuredClone(good) as unknown as { schemaVersion: string };
-  v02.schemaVersion = "0.2.0";
-  assert(validateDeckFile(v02).length === 0, "a 0.2.0 deck is VALID input (auto-migratable generation)");
-  assert(!isNewerSchema(v02.schemaVersion, DECK_SCHEMA_VERSION), "…and not 'newer' — it loads");
-  const migrated = slideOps.normalizeDeck(structuredClone(v02) as unknown as typeof good);
-  assert(migrated.schemaVersion === "0.3.0", "normalizeDeck stamps a 0.2.0 deck to 0.3.0");
-  const before = JSON.stringify({ ...v02, schemaVersion: "x" });
-  const after = JSON.stringify({ ...(migrated as unknown as Record<string, unknown>), schemaVersion: "x" });
-  assert(before === after, "the 0.2→0.3 migration is a PURE stamp — no other byte changes");
+  for (const version of ["0.2.0", "0.3.0"]) {
+    const v02 = structuredClone(good) as unknown as { schemaVersion: string };
+    v02.schemaVersion = version;
+    assert(validateDeckFile(v02).length === 0, `${version} is valid input (auto-migratable generation)`);
+    assert(!isNewerSchema(v02.schemaVersion, DECK_SCHEMA_VERSION), "…and not 'newer' — it loads");
+    const migrated = slideOps.normalizeDeck(structuredClone(v02) as unknown as typeof good);
+    assert(migrated.schemaVersion === "0.4.0", `normalizeDeck stamps ${version} to 0.4.0`);
+    const before = JSON.stringify({ ...v02, schemaVersion: "x" });
+    const after = JSON.stringify({ ...(migrated as unknown as Record<string, unknown>), schemaVersion: "x" });
+    assert(before === after, `${version}→0.4 migration is a PURE stamp — no other byte changes`);
+  }
 }
 
 // --- malformed decks are rejected -----------------------------------------------
@@ -81,8 +83,8 @@ assert(validateDeckFile(oldDeck).length > 0, "a 0.1.x deck (textBox elements) FA
 assert(!isNewerSchema(oldDeck.schemaVersion, DECK_SCHEMA_VERSION), "…and it is NOT 'newer' — it takes the quarantine path, not the refuse path");
 
 // --- forward-version guard runs BEFORE validation ---------------------------------
-assert(isNewerSchema("0.4.0", DECK_SCHEMA_VERSION), "a 0.4.x deck is NEWER (refuse + toast; never rewritten, never quarantined)");
-assert(!isNewerSchema("0.3.9", DECK_SCHEMA_VERSION), "0.3.x patch versions are OUR line (loadable)");
+assert(isNewerSchema("0.5.0", DECK_SCHEMA_VERSION), "a 0.5.x deck is NEWER (refuse + toast; never rewritten, never quarantined)");
+assert(!isNewerSchema("0.4.9", DECK_SCHEMA_VERSION), "0.4.x patch versions are OUR line (loadable)");
 assert(!isNewerSchema("0.2.0", DECK_SCHEMA_VERSION), "0.2.x is OLDER — it takes the migrate path, never the refuse path");
 
 // --- validate_deck: dangling targets are warnings, not errors ---------------------
@@ -105,7 +107,7 @@ try {
   const reread = JSON.parse(await fs.readFile(path.join(root, "slides", "dangle", "deck.json"), "utf8"));
   assert(JSON.stringify(reread).includes("deleted-el"), "the save does NOT auto-prune dangling targets (undo may restore the element)");
 
-  // --- flux-core round trip: a 0.2.0 file on disk loads as 0.3.0, and the
+  // --- flux-core round trip: a 0.2.0 file on disk loads as 0.4.0, and the
   // first mutation persists the stamp (mutateDeck saves the migrated deck) ---
   const legacy = slideOps.createDeck({ id: "legacy", title: "Legacy" });
   (legacy as unknown as { schemaVersion: string }).schemaVersion = "0.2.0";
@@ -113,12 +115,12 @@ try {
   await fs.mkdir(path.dirname(legacyPath), { recursive: true });
   await fs.writeFile(legacyPath, JSON.stringify(legacy, null, 2) + "\n");
   const loaded = await loadDeck(root, "legacy");
-  assert(loaded.schemaVersion === "0.3.0", "flux-core loadDeck migrates a 0.2.0 file to 0.3.0 in memory");
+  assert(loaded.schemaVersion === "0.4.0", "flux-core loadDeck migrates a 0.2.0 file to 0.4.0 in memory");
   assert(JSON.parse(await fs.readFile(legacyPath, "utf8")).schemaVersion === "0.2.0", "…without rewriting the file on a pure read");
   await mutateDeck(root, "legacy", "noop", () => {});
-  assert(JSON.parse(await fs.readFile(legacyPath, "utf8")).schemaVersion === "0.3.0", "the first mutation persists the 0.3.0 stamp to disk");
+  assert(JSON.parse(await fs.readFile(legacyPath, "utf8")).schemaVersion === "0.4.0", "the first mutation persists the 0.4.0 stamp to disk");
 } finally {
   await fs.rm(root, { recursive: true, force: true });
 }
 
-console.log("\nDECK SCHEMA (0.3.0 load gate + 0.2 migration + clean break + dangling-target posture): PASS");
+console.log("\nDECK SCHEMA (0.4.0 load gate + 0.2 migration + clean break + dangling-target posture): PASS");

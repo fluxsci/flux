@@ -96,6 +96,7 @@ With the session export above, `render-figure growth --png` just works.
 | `add-text <deck> <s> "…"` · `add-figure <deck> <s> <figId>` | `add_slide_text` · `add_slide_figure` | add content (add-figure COPIES a project figure in — panels stay addressable; slide text is the figure text element: no math/rich-text slide elements) |
 | `add-beat <deck> <s> [--label L]` · `set-animation <deck> <s> <beat> --target E [--preset P …]` | `add_beat` · `set_animation` | build timeline + appearance tracks (drawOn/writeOn/fades, trim windows) |
 | `set-transform <deck> <s> <beat> --target E […]` · `apply-anim-template <deck> <s>` · `group-tracks` / `ungroup-tracks` | `set_transform` · `apply_anim_template` · `group_tracks` / `ungroup_tracks` | TRANSFORM tracks (element tweens to a changed version of itself; plot data-morphs) / role-matched templates / animator lanes |
+| `ghost-transform <deck> <s> <beat> <source> [--count 3 --original stay\|disappear\|transform --states '<json array>']` | `ghost_transform` | create independent copies that begin at the source's prior-step state and transform to separate destinations; returns copy/track IDs for later edits |
 | `validate-deck [deck]` · `export-deck <deck> [--out F]` | `validate_deck` · `export_deck` | schema-check / export one offline `.html` |
 
 ## MCP server (richer: typed verbs + inline figure PNGs)

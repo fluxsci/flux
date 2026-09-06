@@ -117,14 +117,15 @@ twins, comments sidecars derive beside them, watcher subsystem "context" rides t
 manuscript reload chain; `Transcripts/`+`Dispatches/` are archives, not documents;
 pre-Context projects heal on open via contextHeal.ts / `flux context-init`),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
-`slides/<deckId>/deck.json` (0.3.0, **slides-are-figures** + the animation
+`slides/<deckId>/deck.json` (0.4.0, **slides-are-figures** + the animation
 rework: a slide's `elements` is the figure `Element` union verbatim + a
 presentation overlay of beats/transition/notes/camera; tracks animate in two
 FAMILIES — appearances and transforms (`to.state` = a sparse t2 patch folded
 left-to-right across beats; `Beat.groups` = collapsible animator lanes);
 deck-local media under `slides/<id>/assets/`, figure `Asset` shape; project
-plots/fig media resolved BY ID, never copied in; `0.2.0` decks migrate via a
-pure stamp at the normalizeDeck chokepoint; `0.1.x` decks remain a sanctioned
+plots/fig media resolved BY ID, never copied in; `0.2/0.3` decks migrate via a
+pure stamp at the normalizeDeck chokepoint; `0.4` adds ghost births so old players
+refuse instead of showing unborn copies as initial content; `0.1.x` decks remain a sanctioned
 clean break — they fail validation and quarantine, no migration),
 `references/library.bib` (the project's *cited subset*),
 `.meta/` (locks, journal, live bridge). Machine-global state lives in `~/FluxConfig`
@@ -488,7 +489,23 @@ Persistence invariants (all machine-checked — do not weaken):
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
   Gates include beat-display, slide-authoring, slide-canvas-presentation, timeline logic and
-  standalone browser export; single-effect interpolation is not sufficient evidence.
+  standalone browser export; single-effect interpolation is not sufficient evidence. Compiled
+  static-content bindings must also restore attributes constant within a later track when
+  live content differs from that track's pre-state. A translated/rotated arrow followed by a
+  stroke-width Change gates this through real browser shaft/head alignment, not just boxes.
+  **Ghost transforms (0.4):** result objects are ordinary canonical Elements with fresh IDs;
+  one whole-object transform track owns each birth via `ghostFrom`. The result element keeps
+  its identity/fallback seed; compilation resolves its visual starting state from the source's
+  previous-step endpoint, never live DOM or the original's concurrent motion. `compileSlide`
+  exposes `preState` for endpoint editing and `copySourceState` for creation, with birth
+  availability and inherited appearance resolved once per scene. `unbornElementIds` are
+  excluded from Canvas painting/hit-testing even under Show hidden; Design must not expose
+  fallback geometry as an editable destination. Shared ops own creation, birth deletion and
+  duplication/remapping; Auto animate and ordinary Change edits must preserve birth metadata.
+  A mixed track selection containing births exposes shared timing/easing, not bulk retargeting
+  or appearance presets; mutation helpers preserve birth identity defensively.
+  Plot copies retain ordinary source/dependency ownership; data-morphed source paths must
+  follow the copied asset, and presets gather assets referenced only by Change targets too.
   When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
@@ -3980,3 +3997,17 @@ and unchanged normal/dense performance budgets pass; preservation covers 1,200 l
 - Verify real moving geometry and use an idle-clock control before attributing frame spacing
   to rendering cost. The real-display dense run passed p95 but retained two documented frame
   outliers; never hide those or loosen a gate to accommodate headless clock jitter.
+
+### 2026-09-05 20:56 CDT — Ghost transforms (Codex, `codex/figures-slides-overhaul`)
+
+**Work:** Added independent ghost births/destinations, original Stay/Disappear/Transform,
+coherent editing/history/asset ownership, CLI/MCP parity, and a validated example deck.
+Check 0/0, build, all 198 core scripts across full and focused runs, Ghost GUI 38,
+arrow browser 87, existing Slides UI 11/11, bundle/startup 4/4, and unchanged normal/dense
+performance gates pass; results and measured outliers are in `docs/GHOST_TRANSFORMS_TESTING.md`.
+**Learnings:**
+- Promoted birth identity/visibility and mixed-selection protections into the body.
+  Ordinary persistent result Elements keep reuse, source ownership, and Undo coherent.
+- A later style track must bind even constant geometry attributes when live content differs
+  from its pre-state. Real arrow shaft/head checks exposed what wrapper-box checks missed;
+  the correction and verification rule are now in the body.

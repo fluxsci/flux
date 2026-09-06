@@ -331,6 +331,19 @@ export async function setAnimation(
   });
 }
 
+/** Create independent ghost results through the same pure operation as the UI. */
+export async function addGhostTransform(
+  root: string, deckId: string, slideId: string, beatId: string, sourceId: string,
+  opts: Parameters<typeof slideOps.addGhostTransform>[4] = {},
+): Promise<NonNullable<ReturnType<typeof slideOps.addGhostTransform>>> {
+  return mutateDeck(root, deckId, "ghost_transform", (deck) => {
+    mustSlide(deck, slideId);
+    const result = slideOps.addGhostTransform(deck, slideId, beatId, sourceId, opts);
+    if (!result) throw new Error(`Ghost transform needs an existing source and a build step: ${sourceId} on ${beatId}`);
+    return result;
+  });
+}
+
 /** set-transform: add or update THE transform track for a target on a beat
  *  (max one per target per beat — the family law). The ergonomic form: agents
  *  pass a sparse element-state patch instead of hand-building diffs. */

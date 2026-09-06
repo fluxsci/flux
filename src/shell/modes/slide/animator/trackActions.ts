@@ -5,8 +5,8 @@ import { trackDuration } from "../../../../lib/slide/compile";
 
 import { get } from "svelte/store";
 import { activeBeat, selTrackIds, commitDeckLive, deckOverlay } from "../../../../lib/slide/store";
-import { activeFigureId } from "../../../../lib/store";
-import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled } from "../../../../lib/slide/ops";
+import { activeFigureId, selection, partSelection } from "../../../../lib/store";
+import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks } from "../../../../lib/slide/ops";
 import type { Track } from "../../../../lib/slide/types";
 
 function ctx(): { sid: string; ids: string[] } | null {
@@ -21,7 +21,13 @@ export function withSelectedTracks(fn: (t: Track) => void, coalesce?: string): v
   if (!c) return;
   commitDeckLive((d) => {
     const s = slideById(d, c.sid);
-    if (s) for (const b of s.beats) for (const t of b.tracks) if (t.id && c.ids.includes(t.id)) fn(t);
+    if (s) for (const b of s.beats) for (const t of b.tracks) if (t.id && c.ids.includes(t.id)) {
+      // A birth owns a result identity and must remain a whole-object Change.
+      // Bulk property callbacks may share timing, never rewire that ownership.
+      const birth = t.ghostFrom ? {target:t.target, ghostFrom:t.ghostFrom, preset:t.preset} : null;
+      fn(t);
+      if (birth) { Object.assign(t, birth); delete t.part; delete t.selector; }
+    }
   }, coalesce ? { coalesce } : undefined);
 }
 
@@ -29,8 +35,7 @@ export function deleteSelectedTracks(): void {
   const c = ctx();
   if (!c) return;
   commitDeckLive((d) => {
-    const s = slideById(d, c.sid);
-    if (s) for (const b of s.beats) b.tracks = b.tracks.filter((t) => !t.id || !c.ids.includes(t.id));
+    removeTracks(d, c.sid, c.ids);
   });
   selTrackIds.set([]);
 }
@@ -46,7 +51,12 @@ export function duplicateSelectedTracks(): void {
       if (nid) copies.push(nid);
     }
   });
-  if (copies.length) selTrackIds.set(copies);
+  if (copies.length) {
+    selTrackIds.set(copies);
+    const tracks = get(deckOverlay)?.slides.find(s => s.id === c.sid)?.beats.flatMap(b => b.tracks).filter(t => !!t.id && copies.includes(t.id)) ?? [];
+    selection.set(new Set(tracks.filter(t => !t.target.startsWith("@")).map(t => t.target)));
+    partSelection.set(tracks.length === 1 && tracks[0].part ? {elementId:tracks[0].target,partId:tracks[0].part} : null);
+  }
 }
 
 /** Toggle disabled on the selection (mixed → all become disabled). */

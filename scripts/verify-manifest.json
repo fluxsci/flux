@@ -194,7 +194,12 @@
    "verify-slide-source-sync.ts",
    "verify-changed-pathmap.mjs",
    "verify-orphan-slide-sources.ts",
-   "verify-source-watch.ts"
+   "verify-source-watch.ts",
+   "verify-slide-ghost-runtime.ts",
+   "verify-slide-ghost-browser.ts",
+   "verify-slide-ghost-structure.ts",
+   "verify-slide-ghost-api.ts",
+   "verify-slide-arrow-browser.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -276,7 +281,8 @@
    "verify-slide-canvas-presentation-gui.mjs",
    "verify-figure-catalog-gui.mjs",
    "verify-figure-reference-sync.mjs",
-   "verify-slide-source-sync-gui.mjs"
+   "verify-slide-source-sync-gui.mjs",
+   "verify-slide-ghost-gui.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -462,15 +468,25 @@
    "verify-source-watch.ts",
    "verify-orphan-slide-sources.ts",
    "verify-orphan-slide-sources-gui.mjs",
-   "verify-mode-cold-switch.mjs"
+   "verify-mode-cold-switch.mjs",
+   "verify-slide-arrow-browser.ts"
+  ],
+  "slide-ghosts": [
+   "verify-slide-ghost-runtime.ts",
+   "verify-slide-ghost-browser.ts",
+   "verify-slide-ghost-structure.ts",
+   "verify-slide-ghost-api.ts",
+   "verify-slide-ghost-gui.mjs",
+   "verify-slide-arrow-browser.ts"
   ]
  },
  "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
  "pathMap": [
   {
-   "glob": "{src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
+   "glob": "{src/lib/Canvas.svelte,src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
    "run": [
     "group:figures-slides-overhaul",
+    "group:slide-ghosts",
     "tier:pure"
    ]
   },

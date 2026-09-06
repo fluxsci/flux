@@ -96,6 +96,8 @@
   };
   $: presentationState.set(frame ? presentation : null);
   $: hiddenPresentationIds = new Set(presentation?.hiddenElementIds ?? []);
+  $: unbornPresentationKey = (presentation?.unbornElementIds ?? []).join("\0");
+  $: unbornPresentationIds = new Set(presentation?.unbornElementIds ?? []);
   $: cameraClip = frame && presentation?.camera && presentation.stage
     ? `inset(${$baseViewport.panY}px ${hostW - $baseViewport.panX - presentation.stage.width * $baseViewport.zoom}px ${hostH - $baseViewport.panY - presentation.stage.height * $baseViewport.zoom}px ${$baseViewport.panX}px)`
     : undefined;
@@ -354,7 +356,7 @@
     return $project.figures.find((f) => f.id === $activeFigureId) ?? null;
   }
   function selectedEls(fig: Figure): Element[] {
-    return fig.elements.filter((e) => $selection.has(e.id));
+    return fig.elements.filter((e) => $selection.has(e.id) && !unbornPresentationIds.has(e.id));
   }
 
   // Only the active canvas's figures are rendered / hit-tested.
@@ -403,8 +405,8 @@
     effMemoBox.val = m;
     return m;
   })();
-  const effHidden = (el: Element) => effState.get(el.id)?.hidden ?? !!el.hidden;
-  const effLocked = (el: Element) => effState.get(el.id)?.locked ?? !!el.locked;
+  const effHidden = (el: Element) => unbornPresentationIds.has(el.id) || (effState.get(el.id)?.hidden ?? !!el.hidden);
+  const effLocked = (el: Element) => unbornPresentationIds.has(el.id) || (effState.get(el.id)?.locked ?? !!el.locked);
 
   // P7: a live commit can delete/dissolve the ENTERED group (⌘⇧G, bridge verb,
   // member delete) — store.pruneSelection only covers undo/redo paths. Drop the
@@ -521,7 +523,7 @@
     const next = new Map<string, { key: string; els: Element[] }>();
     const m = new Map<string, Element[]>();
     for (const f of visibleFigures) {
-      const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}`;
+      const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${unbornPresentationKey}`;
       let mm = visMemoBox.map.get(f.id);
       if (!mm || mm.key !== key) {
         perfCounters.visRecomputes++;
@@ -537,9 +539,10 @@
 
   // selection bbox in active-figure-local coords
   $: overlayBox = (() => {
+    void unbornPresentationIds;
     const fig = $project.figures.find((f) => f.id === $activeFigureId);
     if (!fig) return null;
-    return selectionBBox(fig.elements.filter((e) => $selection.has(e.id)));
+    return selectionBBox(selectedEls(fig));
   })();
 
   // --- one repaint per zoom gesture + will-change lifecycle (figure-v1 P6) ---
@@ -1376,6 +1379,12 @@
 
   // --- pointer down on an element ---
   function onElementDown(e: PointerEvent, el: Element, fig: Figure) {
+    const preferredId = presentation?.preferredDragTargetId;
+    if (preferredId && preferredId !== el.id && $selection.has(preferredId) && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+      const preferred = fig.elements.find(item => item.id === preferredId);
+      const point = localPoint(e.clientX, e.clientY, fig);
+      if (preferred && !effHidden(preferred) && !effLocked(preferred) && rectIntersectsElement({x:point.x,y:point.y,w:0.1,h:0.1}, preferred)) el = preferred;
+    }
     if (startPanIfNeeded(e)) return;
     if (get(arrange)?.active) {
       e.stopPropagation();
@@ -1500,7 +1509,7 @@
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
     const ob = selectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
-    const { xs, ys } = boxSnapTargets(fig.elements, new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
+    const { xs, ys } = boxSnapTargets(fig.elements.filter(el => !unbornPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
     gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, origs, ob, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
@@ -1642,7 +1651,7 @@
     const origs = new Map<string, Element>();
     for (const el of copies) origs.set(el.id, structuredClone(el));
     g.origs = origs;
-    const t = boxSnapTargets(fig.elements, new Set(newIds), { w: fig.width, h: fig.height }, fig.guides);
+    const t = boxSnapTargets(fig.elements.filter(el => !unbornPresentationIds.has(el.id)), new Set(newIds), { w: fig.width, h: fig.height }, fig.guides);
     g.xs = t.xs;
     g.ys = t.ys;
   }
@@ -2578,6 +2587,7 @@
   $: selLocked = (() => {
     if (!af) return false;
     void effState;
+    void unbornPresentationIds;
     const els = af.elements.filter((e) => $selection.has(e.id));
     return els.length > 0 && els.every((e) => effLocked(e));
   })();

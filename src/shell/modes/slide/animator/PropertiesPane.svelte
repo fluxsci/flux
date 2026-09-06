@@ -11,6 +11,7 @@
   // keyboard cockpit). The accent border reads pink for appearances, green
   // for transforms — the mockups' color language.
   import { selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive } from "../../../../lib/slide/store";
+  import { objectLabel } from "./ghostEditing";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration } from "../../../../lib/slide/compile";
   import { morphCompatible } from "../../../../lib/slide/player/morph";
@@ -46,6 +47,7 @@
   });
   const curTrack = $derived(selTracks.length ? selTracks[selTracks.length - 1] : null);
   const curFamily = $derived(curTrack ? familyOf(curTrack) : null);
+  const anyGhost = $derived(selTracks.some(t => !!t.ghostFrom));
   const groupLabel = $derived.by(() => {
     if (!curTrack?.groupId) return null;
     for (const b of slide.beats) {
@@ -65,7 +67,10 @@
         mixed((t) => t.stagger?.perMs ?? 0) || mixed((t) => t.easing ?? "standard")),
   );
 
-  const patchTrack = (p: Partial<Track>) => withSelectedTracks((t) => Object.assign(t, p));
+  const patchTrack = (p: Partial<Track>) => {
+    if (anyGhost && ["target", "ghostFrom", "preset", "part", "selector"].some(key => key in p)) return;
+    withSelectedTracks((t) => Object.assign(t, p));
+  };
   function timing(field: "start" | "duration", value: string) {
     const n = Number(value);
     if (value.trim() && Number.isFinite(n)) patchTrack({ [field]: Math.max(field === "start" ? 0 : 1, n) });
@@ -93,7 +98,7 @@
   const epActive = $derived.by(() => {
     const ee = $endpointEdit;
     if (!ee || !curTrack?.id) return null;
-    const mine = ee.entries.some((en) => en.trackId === curTrack.id || (ee.end === "t1" && en.target === curTrack.target));
+    const mine = ee.entries.some((en) => en.trackId === curTrack.id || (ee.end === "t1" && en.target === (curTrack.ghostFrom ?? curTrack.target)));
     return mine ? ee.end : null;
   });
   function selectEndpoint(end: "t1" | "t2") {
@@ -141,8 +146,12 @@
   });
   const targetMissing = $derived(!!curTrack && !curTrack.target.startsWith("@") && (!curTargetEl || !!curTrack.part && curTargetEl.type === "plot" && !resolveTargets($plotManifests[curTargetEl.assetId], curTrack.part).length));
   function retarget(target: string) {
-    if (!target) return;
+    if (!target || anyGhost) return;
     withSelectedTracks(t => { t.target = target; delete t.part; delete t.selector; });
+  }
+  function setPart(part: string) {
+    if (anyGhost) return;
+    withSelectedTracks(t => { if (part) t.part = part; else delete t.part; delete t.selector; });
   }
   const morphTargets = $derived.by(() => {
     if (curTargetEl?.type !== "plot" || curFamily !== "transform") return [];
@@ -167,8 +176,8 @@
   }
 
   // --- trim-path params (drawOn/drawOff — rework §5) -------------------------
-  const isTrim = $derived(curFamily === "appearance" && (curTrack?.preset === "drawOn" || curTrack?.preset === "drawOff"));
-  const isWipe = $derived(curFamily === "appearance" && (curTrack?.preset === "writeOn" || curTrack?.preset === "wipeOut"));
+  const isTrim = $derived(!anyGhost && curFamily === "appearance" && (curTrack?.preset === "drawOn" || curTrack?.preset === "drawOff"));
+  const isWipe = $derived(!anyGhost && curFamily === "appearance" && (curTrack?.preset === "writeOn" || curTrack?.preset === "wipeOut"));
   const trimP = $derived((curTrack?.params ?? {}) as { anchor?: number | string; direction?: string; mode?: string; from?: number; to?: number });
   /** Write one trim param; a value equal to its default DELETES the key so
    *  default decks keep the legacy byte-identical compile path. */
@@ -210,7 +219,7 @@
         {#if selTracks.length > 1}{selTracks.length} tracks{:else}{groupLabel ? `${groupLabel} › ` : ""}{chipLabel(curTrack, slide, plotTags)}{/if}
       </span>
       {#if curFamily === "transform"}
-        <span class="chip">transform</span>
+        <span class="chip">{curTrack.ghostFrom ? "ghost transform" : "transform"}</span>
       {:else if selTracks.length === 1}
         <span class="chip">{curTrack.preset ?? "fade"}</span>
       {/if}
@@ -218,7 +227,13 @@
     </div>
 
     {#if targetMissing}<div class="target-warning">This target is missing. Choose an object or plot part below to reconnect the effect.</div>{/if}
-    {#if curTrack.target !== "@camera"}
+    {#if curTrack.ghostFrom}
+      <div class="note">Starts from <b>{objectLabel(slide, curTrack.ghostFrom)}</b> before this step. Edit this copy’s destination with <b>After</b>.</div>
+    {/if}
+    {#if anyGhost && selTracks.length > 1}
+      <div class="note ghost-mixed-note">This selection includes ghost births. Timing and easing apply to all selected effects. Select one effect to edit its destination.</div>
+    {/if}
+    {#if curTrack.target !== "@camera" && !anyGhost}
       <label class="f">Object
         <select aria-label="Animation target" value={curTrack.target} onchange={e => retarget(e.currentTarget.value)}>
           {#if !curTargetEl}<option value={curTrack.target}>Missing object</option>{/if}
@@ -227,7 +242,7 @@
       </label>
       {#if curTargetEl?.type === "plot" && curFamily !== "transform"}
         <label class="f">Plot part
-          <select aria-label="Animation plot part" value={curTrack.part ?? ""} onchange={e => { const part = e.currentTarget.value; withSelectedTracks(t => { if(part)t.part = part; else delete t.part; delete t.selector; }); }}>
+          <select aria-label="Animation plot part" value={curTrack.part ?? ""} onchange={e => setPart(e.currentTarget.value)}>
             <option value="">Whole plot</option>
             {#if curTrack.part && !targetParts.includes(curTrack.part)}<option value={curTrack.part}>{curTrack.part} (missing)</option>{/if}
             {#each targetParts as part}<option value={part}>{part.replaceAll(".", " › ")}</option>{/each}
@@ -240,7 +255,7 @@
       <!-- the endpoint segment: t1 shows the before, t2 checks out the after -->
       <div class="seg" role="group" aria-label="Transform endpoint">
         <button class="sg" class:on={epActive === "t1"} title="Show/edit t₁ — the state the object transforms FROM"
-          onclick={() => selectEndpoint("t1")}>Before</button>
+          onclick={() => selectEndpoint("t1")}>{curTrack.ghostFrom ? "Source before" : "Before"}</button>
         <button class="sg" class:on={epActive === "t2"} title="Check out t₂ — edit the object on the canvas with every tool; the diff records here"
           onclick={() => selectEndpoint("t2")}>After</button>
       </div>
@@ -273,7 +288,7 @@
         <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)}>Choose data target from project…</button>
         {#if curTrack.to?.assetId}<div class="note">Data target: {curTrack.to.svgPath?.split("/").pop() || curTrack.to.assetId}</div>{/if}
       {/if}
-    {:else if curFamily === "appearance"}
+    {:else if curFamily === "appearance" && !anyGhost}
       <label class="f">Effect<kbd class="kc" title="shortcut: p">p</kbd>
         <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
           {#each EDIT_PRESETS as p (p)}<option value={p}>{presetLabel(p)}</option>{/each}
@@ -287,7 +302,7 @@
     <label class="f">duration<kbd class="kc" title="shortcut: d">d</kbd>
       <span class="unit"><input data-fld="d" type="number" min="1" step="50" placeholder="Mixed" value={mixed(t => trackDuration(t)) ? "" : trackDuration(curTrack)} onchange={(e) => timing("duration", e.currentTarget.value)} /><small>ms</small></span>
     </label>
-    {#if curFamily === "appearance"}
+    {#if curFamily === "appearance" && !anyGhost}
       <label class="f">stagger<kbd class="kc" title="shortcut: g">g</kbd>
         <span class="unit"><input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></span>
       </label>

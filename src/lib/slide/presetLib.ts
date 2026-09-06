@@ -20,13 +20,14 @@ import { fileBridge } from "../project/types";
 import { project } from "../store";
 import { getAssetData, setAssetData, markAssetDirty, dataUrlToBytes } from "../assets";
 import { plotManifests, plotRecipes, cachePlot } from "../plot/store";
+import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
 import { elementToSvg } from "../export";
 import { presetRel } from "../presets";
 import * as slideOps from "./ops";
 import type { SlidePresetSnapshot, SlidePresetAssetEntry } from "./ops";
 import { commitDeckLive, currentDeck, selectSlide } from "./store";
-import { slideDefaultBackground } from "./deckProject";
+import { slideAssetIds, slideDefaultBackground } from "./deckProject";
 
 export interface SlidePresetEntry {
   rel: string;
@@ -76,11 +77,7 @@ export async function saveSlidePreset(
   const recipes = get(plotRecipes);
   const assets: SlidePresetAssetEntry[] = [];
   const missingAssets: Id[] = [];
-  const seen = new Set<Id>();
-  for (const el of slide.elements) {
-    const aid = (el as { assetId?: Id }).assetId;
-    if (!aid || seen.has(aid)) continue;
-    seen.add(aid);
+  for (const aid of slideAssetIds(slide)) {
     const meta = proj.assets.find((a) => a.id === aid);
     const data = getAssetData(aid);
     if (!meta || !data) {
@@ -90,7 +87,7 @@ export async function saveSlidePreset(
     const entry: SlidePresetAssetEntry = { asset: structuredClone(meta), data };
     // Only a REAL fluxplot manifest rides along — derived ones re-derive at
     // insert (cachePlot), exactly like the import path.
-    if (el.type === "plot" && el.manifestRef && manifests[aid]) {
+    if (meta.kind === "svg" && manifests[aid] && !isDerivedManifest(manifests[aid])) {
       entry.manifest = manifests[aid];
       if (recipes[aid] !== undefined) entry.recipe = recipes[aid];
     }

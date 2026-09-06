@@ -44,10 +44,10 @@ import {
 } from "../store";
 import { familyOf } from "./family";
 import { applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "./sourceSync";
-import { setTransform } from "./ops";
-import { evaluateSlideState, type SlideFrame } from "./compile";
+import { setTransform, removeTracks } from "./ops";
+import { compileSlide, evaluateSlideState, type SlideFrame } from "./compile";
 import { plotManifests } from "../plot/store";
-import { diffState, foldPreState, earlierTransformStates } from "./tween";
+import { diffState } from "./tween";
 import { applyTextLayout } from "../text";
 import { deckToProject, projectIntoDeck, DECK_CANVAS_ID, slideDefaultBackground } from "./deckProject";
 
@@ -406,7 +406,9 @@ export function refreshBeatDisplay(): void {
     stage: o.stage, plotManifest: id => get(plotManifests)[id],
   }) : null;
   const evaluated = new Map(frame?.elements.map(e => [e.id, e]) ?? []);
-  slideCanvasPresentation.set(frame?.presentation ?? {elementStates:{},hiddenElementIds:[],partStates:{}});
+  slideCanvasPresentation.set(frame?.presentation ?? {elementStates:{},hiddenElementIds:[],partStates:{},
+    unbornElementIds: canonical?.beats.flatMap(b => b.tracks.filter(t => t.ghostFrom).map(t => t.target)) ?? [],
+  });
   const wanted = new Set(k > 0 ? fig.elements.map(e=>e.id) : []);
 
   // 2. Elements leaving the display set restore their base; 3. elements in it
@@ -458,27 +460,42 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
   return registerEditorTransactionAdapter({
     before(p, context) {
       onUserEdit?.();
-      if (suppressEditAdapter || get(editDestination).kind !== "after") return null;
+      if (suppressEditAdapter) return null;
+      const unborn = new Set(get(slideCanvasPresentation).unbornElementIds ?? []);
+      if (get(editDestination).kind !== "after" && !unborn.size) return null;
       const sid = get(activeFigureId);
       if (context.figureId && context.figureId !== sid) return null;
       const fig = p.figures.find(f => f.id === sid);
-      return fig ? new Map(fig.elements.map(e => [e.id, structuredClone(e)])) : null;
+      return fig ? { elements: new Map(fig.elements.map(e => [e.id, structuredClone(e)])), unborn } : null;
     },
     after(p, token) {
-      if (!(token instanceof Map) || suppressEditAdapter) return;
+      if (!token || suppressEditAdapter) return;
+      const { elements: previousElements, unborn } = token as { elements: Map<Id, Element>; unborn: Set<Id> };
       const destination = get(editDestination);
       const o = get(deckOverlay), sid = get(activeFigureId);
       const fig = p.figures.find(f => f.id === sid);
       const slide = o?.slides.find(s => s.id === sid);
-      if (!o || !fig || !slide || destination.kind !== "after") return;
-      const bi = slide.beats.findIndex(b => b.id === destination.beatId);
-      if (bi < 1) return;
+      if (!o || !fig || !slide) return;
+      const bi = destination.kind === "after" ? slide.beats.findIndex(b => b.id === destination.beatId) : 0;
       let changed = false;
       // Structural metadata belongs to the original object, not a transform.
       const structural = ["name", "groupId", "locked", "hidden", "lockAspect", "styleId", "panelLabel", "source", "manifestRef"] as const;
+      let compiled: ReturnType<typeof compileSlide> | null = null;
       for (const el of fig.elements) {
-        const previous = token.get(el.id) as Element | undefined;
+        const previous = previousElements.get(el.id);
         if (!previous) continue; // a new element is an ordinary document edit
+        // A future/disabled ghost has no editable frame. Layers may still
+        // select, rename or delete its identity, but geometry belongs to its
+        // explicitly chosen destination after birth, never this fallback.
+        if (unborn.has(el.id)) {
+          const restored = structuredClone(previous) as unknown as Record<string, unknown>;
+          const current = el as unknown as Record<string, unknown>;
+          for (const key of structural) {
+            if (key in current) restored[key] = structuredClone(current[key]); else delete restored[key];
+          }
+          for (const key of Object.keys(current)) delete current[key];
+          Object.assign(current, restored);
+        }
         const base = checkoutBaselines.get(el.id);
         if (!base) continue;
         for (const key of structural) {
@@ -486,13 +503,16 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
           if (key in rec) dest[key] = structuredClone(rec[key]); else delete dest[key];
         }
         if (previous.type === "plot" && el.type === "plot" && base.type === "plot" && previous.assetId !== el.assetId) base.assetId = el.assetId;
-        if (!diffState(previous, el)) continue;
-        const pre = foldPreState(base, earlierTransformStates(slide.beats, el.id, bi));
+        if (bi < 1 || unborn.has(el.id) || !diffState(previous, el)) continue;
+        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => checkoutBaselines.get(e.id) ?? e) }, o.stage, {plotManifest: id => get(plotManifests)[id]});
+        const pre = compiled.preState(el.id, bi) ?? base;
         const patch = diffState(pre, el) ?? {};
-        const t = setTransform(o, sid!, destination.beatId, el.id, { state: patch, replaceState: true });
+        setTransform(o, sid!, slide.beats[bi].id, el.id, { state: patch, replaceState: true });
         changed = true;
       }
       const surviving = new Set(fig.elements.map(e => e.id));
+      const removedBirths = slide.beats.flatMap(b => b.tracks.filter(t => t.ghostFrom && t.id && previousElements.has(t.target) && !surviving.has(t.target)).map(t => t.id!));
+      if (removedBirths.length) { removeTracks(o, sid!, removedBirths); changed = true; }
       for (const id of checkoutBaselines.keys()) if (!surviving.has(id)) {
         checkoutBaselines.delete(id);
       }
@@ -510,7 +530,7 @@ export function enterEndpointEdit(trackIds: Id[], end: "t1" | "t2"): EndpointEdi
   for (const trackId of trackIds) {
     const found = overlayTrack(trackId);
     if (!found || familyOf(found.track) !== "transform") continue;
-    const target = found.track.target;
+    const target = end === "t1" && found.track.ghostFrom ? found.track.ghostFrom : found.track.target;
     targets.push(target);
     if (end === "t2") {
       entries.push({ trackId, target });

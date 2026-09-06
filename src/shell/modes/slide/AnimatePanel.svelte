@@ -27,7 +27,7 @@
 
   let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, onChooseMorph, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
     slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
-    onAction?: (action: "appear" | "change" | "emphasize" | "disappear") => void;
+    onAction?: (action: "appear" | "change" | "ghost" | "emphasize" | "disappear") => void;
     onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
     onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
     onChooseMorph?: (targetId: string, trackId?: string) => void;
@@ -259,6 +259,7 @@
       <div class="actions" aria-label="Add animation">
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("appear")} title="Add an entrance · Cmd/Ctrl+Shift+A">Appear</button>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("change")} title="Edit a change at this step · Cmd/Ctrl+Shift+T">Change</button>
+        <button class="b" disabled={sel.length !== 1} onclick={() => onAction?.("ghost")} title="Create copies which start together and transform independently">Ghost transform…</button>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("emphasize")} title="Highlight the selection">Emphasize</button>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("disappear")} title="Add an exit · Cmd/Ctrl+Shift+D">Disappear</button>
       </div>

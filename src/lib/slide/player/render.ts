@@ -45,11 +45,14 @@ export interface SlideRenderCtx {
   /** deck-level default slide background (falls back to the theme's). */
   deckBackground?: string;
   mode?: "edit" | "present" | "export";
+  /** Derived ghost styling; never written into the figure/deck model. */
+  ghostPartFactors?: Record<string, Record<string, { opacity: number }>>;
 }
 
 export interface RenderedSlide {
   /** elId → the wrapper element (the player/editor animates/overlays these). */
   elements: Map<string, HTMLElement>;
+  sourceSlide?: Slide;
 }
 
 // --- the wrapper every element shares ---------------------------------------
@@ -230,7 +233,11 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
       if (name === "id" || name === "viewBox" && pre.type !== "plot") continue;
       if (ownsLine && name === "d" || ownsCircle && (name === "cx" || name === "cy")) continue;
       const av = a.getAttribute(name), bv = b.getAttribute(name);
-      if (av === bv) continue;
+      // Earlier box-only motion can leave content in its original SVG frame.
+      // A later content Change moves the viewBox to its own pre-state, so even
+      // an endpoint-constant shaft/shape attribute must bind if the live node
+      // still holds the old frame's value. Never replace those shared nodes.
+      if (av === bv && node.getAttribute(name) === av) continue;
       let sample: (t: number) => string | null = (t) => t < .5 ? av : bv;
       if (av !== null && bv !== null) {
         if (name === "fill" || name === "stroke") sample = (t) => lerpColor(av, bv, t);
@@ -272,6 +279,26 @@ export function fillContent(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx)
   else fillStatic(w, el, ctx);
 }
 
+/** Bind inherited appearance factors once. The saved SVG's own opacity and
+ * explicit overrides remain independent from the copied presentation factor. */
+const ghostOpacityBase = new WeakMap<SVGElement, number>();
+export function compileGhostPartOpacity(scope: ParentNode, el: FigElement, ctx: SlideRenderCtx): ((current: FigElement) => void) | undefined {
+  const factors = ctx.ghostPartFactors?.[el.id];
+  if (el.type !== "plot" || !factors) return;
+  const bindings = Object.entries(factors).flatMap(([part, state]) => {
+    const node = scope.querySelector<SVGElement>(`[id="${el.id}__${part}"]`);
+    if (!node) return [];
+    const raw = node.style.opacity || node.getAttribute("opacity") || "1";
+    const base = ghostOpacityBase.get(node) ?? (Number.isFinite(Number(raw)) ? Number(raw) : 1);
+    ghostOpacityBase.set(node, base);
+    return [{ node, part, factor: state.opacity, base }];
+  });
+  return current => {
+    if (current.type !== "plot") return;
+    for (const b of bindings) b.node.style.opacity = String((current.overrides?.[b.part]?.opacity ?? b.base) * b.factor);
+  };
+}
+
 /** Mount a semantic plot into the wrapper as LIVE inline <svg>, keeping its
  *  parts addressable (id-prefixed by element id) for the player + morph.
  *  pt-true compensation matches the figure editor: resizing the plot element
@@ -310,7 +337,9 @@ function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx
     inst.style.overflow = "visible";
   }
   // applyOverrides needs the live manifest; `get` from svelte/store is framework-neutral.
+  const ghostOpacity = compileGhostPartOpacity(inst, el, ctx);
   applyOverrides(inst, el.overrides, el.id, get(plotManifests)[el.assetId]);
+  ghostOpacity?.(el);
   compensatePtTrue(inst, {
     elW: el.width,
     elH: el.height,
@@ -365,7 +394,7 @@ export function renderSlide(
     host.appendChild(w);
     elements.set(el.id, w);
   }
-  return { elements };
+  return { elements, sourceSlide: slide };
 }
 
 /** The wrapper box/transform/opacity for an element state — exported so the

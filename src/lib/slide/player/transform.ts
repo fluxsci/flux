@@ -37,7 +37,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox } from "../../geometry";
 import { lerpElement, contentPlan, type ContentPlan } from "../tween";
 import { createMorph, type MorphController } from "./morph";
-import { applyWrapperBox, applyWrapperBoxComposite, compileStaticContent, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 
 export interface TransformCtx extends SlideRenderCtx {
   /** Effective source content after earlier cues (may be a crossfade layer). */
@@ -114,6 +114,7 @@ export function createTransform(
     return cached?.getAttribute("viewBox") ?? null;
   })();
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
+  const ghostOpacity = plotSvg ? compileGhostPartOpacity(plotSvg, pre, ctx) : undefined;
   const ptTrueBindings = plotSvg ? compilePtTrueBindings(plotSvg) : undefined;
 
   // --- crossfade layers (built lazily on the first seek that needs them) ----
@@ -196,6 +197,7 @@ export function createTransform(
           }
         }
         applyOverrides(inst, p.overrides, p.id, ctx.plotManifest?.(p.assetId) ?? get(plotManifests)[p.assetId]);
+        ghostOpacity?.(p);
         if (intrinsic) {
           compensatePtTrue(inst, {
             elW: p.width,

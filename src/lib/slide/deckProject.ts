@@ -26,6 +26,15 @@ import { newId } from "../ids";
 /** The synthetic canvas id every projected slide-figure lives on. */
 export const DECK_CANVAS_ID = "deck";
 
+/** Media can occur only as a Change destination, including a ghost copy's
+ * future content. Presets must embed these bytes as well as placed assets. */
+export function slideAssetIds(slide: Slide): Set<Id> {
+  const ids = new Set<Id>();
+  for (const el of slide.elements) if ("assetId" in el) ids.add(el.assetId);
+  for (const beat of slide.beats) for (const track of beat.tracks) if (track.to?.assetId) ids.add(track.to.assetId);
+  return ids;
+}
+
 /** The background a slide RESTS at when it sets none of its own: the deck's
  *  default, else the theme's. The projection seeds this into
  *  `Figure.background` (so the canvas paints it live) and the fold-back

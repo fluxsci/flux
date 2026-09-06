@@ -29,11 +29,11 @@
 import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../types";
 
 // 0.x → the MINOR slot is the breaking slot (repo convention). 0.3.0 is the
-// animation-rework format (transform tracks, track groups, trim params) —
-// 0.2.0 decks migrate in place (a pure stamp: every 0.2.0 document is already
-// valid 0.3.0; see ops.migrateDeck). 0.1.x decks remain a clean break (no
+// animation-rework format; 0.4.0 adds ghost births. Older players must refuse
+// that format instead of showing copies before they exist. 0.2/0.3 decks
+// migrate in place by stamping their unchanged compatible data. 0.1.x remains a clean break (no
 // migration — they fail validation and quarantine like any invalid file).
-export const DECK_SCHEMA_VERSION = "0.3.0";
+export const DECK_SCHEMA_VERSION = "0.4.0";
 
 // ---------------------------------------------------------------------------
 // Deck
@@ -271,6 +271,12 @@ export interface Track {
    *  (`ensureTrackIds`); optional only so older Track literals type-check. */
   id?: Id;
   target: string;
+  /** Birth of an independent ghost copy, on a whole-object transform only.
+   * The target is an ordinary persisted element (fallback seed/identity).
+   * Its visual starting state follows this source at the previous step's end;
+   * its destination is the normal to.state patch. Unborn/disabled copies are
+   * absent from presentation, including before a delayed birth starts. */
+  ghostFrom?: Id;
   /** A single plot semantic id (e.g. "control.line"). */
   part?: string;
   /** A set of targets (mutually exclusive-ish with `part`). */

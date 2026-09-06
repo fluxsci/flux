@@ -1,78 +1,53 @@
-# Flux Slide — the Animator ("data in motion")
+# Flux Slides authoring
 
-Flux Slide is figure-first — literally: **a slide IS a figure** (slide-migration
-2026-07). Its elements are the figure `Element` union (text, image,
-rect/ellipse/line/path, and **plots**), edited by the FIGURE editor operating on
-the projected deck (see `src/lib/slide/deckProject.ts`); a plot is not a
-picture — it's a live **semantic scene graph**. The Animator turns that scene graph into a *talk*: hide everything,
-then reveal it the way the data should be read — axes draw on, points stagger in
-left→right, the fit line draws itself as they land. PowerPoint meets 3blue1brown.
+A slide uses the Figure `Element` union and the shared Canvas/Inspector through
+`src/lib/slide/deckProject.ts`. The deck owns element identities, plot assets,
+steps (`beats`), and animation tracks. User documentation lives in
+`docs/modes/slide.qmd`; architecture and verification policy live in
+`docs/AGENT_ENGINEERING_GUIDE-RUNNING.md`.
 
-## The model (how a build is stored)
+## Editing and playback
 
-```
-Deck → Slide → beats[] → tracks[]
-                 │          └─ { target, part?, selector?, preset, start, duration, easing, stagger?, params? }
-                 └─ beat 0 is the resting state ("Start"); each later beat is one "advance"
-```
+`SlideMode.svelte` projects the deck into the shared editor. Design edits base
+objects. **Edit after step** records sparse Change destinations against the
+compiled state before that step. Scrubbing and playback inspect the scene
+without authoring changes. `store.ts` owns this boundary and the edit destination.
 
-* **target** — a slide element id (or `@camera`).
-* **part** — a node in the plot's parts tree (`axis.x.spine`, `setosa.points`,
-  `fit.line`). A *group* part (`setosa.points`) expands to its leaf members at play
-  time via `resolveTargets`; the player queries `[id="${target}__${part}"]`.
-* **preset** — `drawOn` (stroke a path on), `fade`, `stagger` (reveal members in
-  sequence), `growBaseline`, `writeOn`, `popIn`, `fadeRise`, `morph`, `camera`.
-* **stagger.by** — `index | x | y | series | dom`. `x`/`y` read each
-  member's `data-x`/`data-y` so points reveal in *data* order, not DOM order.
+`AnimatePanel.svelte` contains a step list, the selected step's timing lanes, a
+transport, and an Inspector. `animator/BeatRail.svelte` owns lane selection and
+timing gestures; `PropertiesPane.svelte` exposes timing, easing, presets, and
+source/destination checkouts. Shared `trackActions.ts` handles structural actions.
 
-The player has two faces over the same specs: `createPlayer` (live sequencer for
-Present/Preview) and `applyStatic(specs, beat)` (the per-beat resting state that
-powers the editor scrub, thumbnails, and export — fully reversible).
+`src/lib/slide/compile.ts` produces the deterministic timeline shared by the
+editor, thumbnails, live player, and standalone HTML export. Compile and bind
+scene data once; playback samples existing elements without rebuilding content.
 
-## The one-click magic: `autoAnimatePlot`
+## Ghost transforms
 
-A FluxPlot ships its own build hints (`manifest.build.order` + `build.presets`).
-`applyAutoAnimation(deck, slideId, elId, manifest)` walks them into a 4-phase
-sequence — **Axes → Gridlines → Data → Legend** — with no manual authoring:
-containers decompose (spine/ticks draw-on while labels fade), points stagger by
-`x`, and the line/area start partway through that stagger so they resolve *as the
-points finish*. That is the north-star scatter reveal, from one ✨ button.
+`GhostTransformDialog.svelte` selects a copy count and original behavior.
+`ops.addGhostTransform` creates ordinary result Elements and whole-object Change
+birth tracks carrying `ghostFrom`. `ghost.ts` resolves each source at the end of
+the preceding step, including previous Changes and source asset identity.
+Canonical result Elements retain a fallback if the source disappears.
 
-## The GUI (`AnimatePanel.svelte` + `animator/*`)
+`GhostCopyControls.svelte` and `animator/ghostEditing.ts` keep overlapping copies
+individually reachable. Each copy has an independent destination and timing.
+Unborn copies are excluded from Canvas painting and hit testing; selecting one
+in Design offers **Edit destination** rather than changing its fallback.
+Deleting a birth removes its result and that result's later effects in one Undo.
 
-A bottom dock (the animation-rework Animator, 2026-07 — there is NO parts tree
-and NO `S | A | M` tri-state anymore; the X-ray's `x` hide is the one static
-mask, and everything else is tracks):
+A plot's Auto animate uses manifest build hints. For a ghost plot, those phases
+are private to the result and follow its birth step.
 
-* **BeatRail** — collapsed beat chips + exactly ONE expanded beat whose tracks
-  render as lanes on a per-beat ms ruler (drag = retime, right edge = duration,
-  drag across beats moves — Alt copies; marquee select; Ctrl+wheel zooms time).
-  Appearance lanes are preset-colored bars; **transform** lanes render
-  `t₁ ─ label ─ t₂` with clickable endpoint checkouts; track groups collapse.
-* **PropertiesPane** — the selected track's preset / start / duration / stagger
-  (by + from) / easing / influence, trim-path controls, the t₁|t₂ segment, and
-  the data-morph dropdown.
-* **Chords** (selection-driven, animator open): **⌃⇧A** appearance, **⌃⇧D**
-  disappearance, **⌃⇧T** transform (checks out t₂ for on-canvas editing; Esc
-  exits), **⌃⇧C** cascade across ≥2 selected tracks.
-* Toolbar: **✨ Auto-animate** (the build from the plot's hints, above),
-  **+ Beat**, **🎥 Zoom / ⤢ Reset** camera, **⇄ Morph ▾**, **▶ Preview**,
-  **☆ Library** (machine-global animation presets + templates).
+## Verification
 
-Text is editable in place — double-click a text element on the stage (slide
-text IS the figure `text` element; bullets/math were retired in the migration).
-
-## Verifying
-
-Headless, no browser needed (linkedom + the real renderer/player):
-
-```
-npx tsx scripts/verify-slide-scatter-showcase.ts   # the north-star, end to end on the real plot
-npx tsx scripts/verify-slide-autobuild.ts          # autoAnimatePlot vs the real scatter manifest
-npx tsx scripts/verify-slide-player.ts             # parts targeting, spatial stagger, drawOn drill
-npx tsx scripts/verify-slide-export-core.ts        # standalone-HTML export (parts + stagger)
-npx tsx scripts/verify-slide-export-parity.ts      # GUI vs headless export parity
+```sh
+npm run check
+node scripts/run-verifies.mjs --group slide-ghosts
+node scripts/run-verifies.mjs --tier pure,ui --only slide
 ```
 
-`scripts/lib/driver.mjs` drives the live app headless (`?fixture=demo`,
-`window.__flux`) for screenshot verification.
+The GUI gate uses real controls and Canvas gestures. The offline browser gate
+checks forward/reverse playback, source state, delayed birth, and absence of
+content allocation during movement. Keep the 100ms interaction budget and the
+existing normal/dense slide performance gates unchanged.

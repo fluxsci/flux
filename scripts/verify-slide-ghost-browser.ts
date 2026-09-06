@@ -1,0 +1,60 @@
+#!/usr/bin/env -S npx tsx
+// Actual exported HTML playback: no dev server, user projects or FluxConfig.
+import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { pathToFileURL } from "node:url";
+import { createDeck } from "../src/lib/slide/ops";
+import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
+import { ghostFixture } from "./lib/ghostFixture";
+const { launch } = await import("./lib/driver.mjs");
+const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-ghost-browser-"));
+let browser: Awaited<ReturnType<typeof launch>>["browser"] | undefined;
+let checks = 0;
+const check = (v: unknown, label: string) => { assert.ok(v, label); checks++; console.log("  ok:", label); };
+try {
+  const deck = createDeck({ withTitleSlide: false }); deck.defaults.transition = "none";
+  const slide = ghostFixture(), disabled = ghostFixture();
+  disabled.id = "disabled"; disabled.beats[2].tracks[0].disabled = true;
+  deck.slides = [slide, disabled];
+  const before = JSON.stringify(deck);
+  const file = path.join(tmp, "ghosts.html"); await fs.writeFile(file, (await exportDeckHtml({ deck })).html);
+  check(JSON.stringify(deck) === before, "offline export does not materialize dynamic copies into canonical fallback state");
+  const launched = await launch(); browser = launched.browser; const page = launched.page;
+  const errors: string[] = []; page.on("pageerror", (e: Error) => errors.push(String(e)));
+  await page.goto(pathToFileURL(file).href); await page.waitForFunction("!!window.fluxDeck?.seek");
+  const inspect = (id: string) => page.evaluate((target: string) => {
+    const el = document.querySelector(`[data-el-id="${target}"]`) as HTMLElement;
+    const stage = el.closest(".sl-camera")!.getBoundingClientRect(), rect = el.getBoundingClientRect();
+    const scale = stage.width / 640;
+    return { x: (rect.x-stage.x)/scale, y: (rect.y-stage.y)/scale, opacity: Number(getComputedStyle(el).opacity), visibility: getComputedStyle(el).visibility };
+  }, id);
+  check((await inspect("g1")).visibility === "hidden", "exported Design hides result fallback geometry");
+  await page.evaluate("window.fluxDeck.seek(0,2,99)");
+  check((await inspect("g1")).visibility === "hidden" && (await inspect("g2")).visibility === "visible", "independent birth delays work in Chromium");
+  await page.evaluate("window.fluxDeck.seek(0,2,600)");
+  const midpoint = await inspect("g1");
+  check(Math.abs(midpoint.x-210)<.01 && Math.abs(midpoint.y-50)<.01 && Math.abs(midpoint.opacity-.18)<.00001, "actual midpoint pixels use effective source pose and inherited opacity");
+  await page.evaluate("window.fluxDeck.seek(0,3,500)");
+  check(Math.abs((await inspect("child")).x-410)<.01, "direct late seek resolves chained copy independently of simultaneous parent Change");
+  await page.evaluate(`window.fluxDeck.seek(0,2,0); window.__ghostNode=document.querySelector('[data-el-id="g1"]'); window.__ghostContent=window.__ghostNode.firstElementChild; window.__ghostChanges=0; window.__ghostObserver=new MutationObserver(changes=>{window.__ghostChanges+=changes.filter(x=>x.type==='childList').length}); window.__ghostObserver.observe(document.querySelector('.sl-camera'),{childList:true,subtree:true}); window.fluxDeck.play({slide:0,fromBeat:2,toBeat:2})`);
+  await page.waitForFunction("window.fluxDeck.state().playing && window.fluxDeck.state().time > 300");
+  const playing = await inspect("g1");
+  check(playing.visibility === "visible" && playing.x>110 && playing.x<310, "real clock playback visibly advances the copy between endpoints");
+  await page.evaluate("window.fluxDeck.pause()");
+  const paused = await page.evaluate("window.fluxDeck.state()");
+  check(paused.time>300 && paused.time<1100 && !paused.playing, "pause preserves actual in-flight ghost state");
+  await page.evaluate("window.fluxDeck.resume()");
+  await page.waitForFunction("!window.fluxDeck.state().playing && window.fluxDeck.state().time===1100");
+  check(Math.abs((await inspect("g1")).x-310)<.01, "resumed playback reaches exact independent destination");
+  check(await page.evaluate("window.__ghostChanges===0 && window.__ghostNode===document.querySelector('[data-el-id=\"g1\"]') && window.__ghostContent===window.__ghostNode.firstElementChild"), "playback allocates no result/content nodes and retains compiled DOM bindings");
+  await page.evaluate("window.__ghostObserver.disconnect(); window.fluxDeck.seek(0,1,1000)");
+  check((await inspect("g1")).visibility === "hidden" && (await inspect("child")).visibility === "hidden", "reverse seek removes every unborn generation");
+  await page.evaluate("window.fluxDeck.seek(0,3,1000); window.fluxDeck.seek(0,2,1100)");
+  check(Math.abs((await inspect("g1")).x-310)<.01 && (await inspect("child")).visibility === "hidden", "reverse/forward scrubs leave no descendant residue");
+  await page.evaluate("window.fluxDeck.seek(1,3,1000)");
+  check((await inspect("g1")).visibility === "hidden", "disabled birth remains unavailable even at the final offline frame");
+  check(errors.length===0, `offline ghost runtime has clean console: ${errors.join("; ")}`);
+} finally { await browser?.close(); await fs.rm(tmp, { recursive: true, force: true }); }
+console.log(`GHOST BROWSER: PASS (${checks} assertions)`);

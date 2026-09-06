@@ -53,6 +53,10 @@ export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, s
   }
   const el = slide?.elements.find((e) => e.id === t.target);
   if (!el) return pre + "missing"; // dangling target — tolerated + surfaced
+  if (t.ghostFrom) {
+    const source = slide?.elements.find(e => e.id === t.ghostFrom);
+    return `${source?.name || source?.type || "Missing source"} → ${el.name || "Ghost"}`;
+  }
   if (el.type === "text") return pre + (el.name || el.text.split("\n")[0]?.slice(0, 60) || "Text");
   return pre + ((el.name ?? el.type) || "elem");
 }

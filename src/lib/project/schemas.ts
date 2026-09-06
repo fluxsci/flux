@@ -375,15 +375,15 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     // `elements` is the FIGURE element union, validated by the same shared
     // ELEMENT_DEF the canvas schema uses. Lenient (additionalProperties
     // allowed so the format can grow), strict on the load-bearing fields.
-    // schemaVersion accepts the 0.2/0.3 generation: 0.3 is current and 0.2 is
-    // valid INPUT (ops.migrateDeck stamps it 0.3.0 at every load seam, so
-    // post-migration values are always 0.3). The 0.1 format is a deliberate
+    // 0.4 adds ghost births; 0.2/0.3 remain valid input and migrate by stamp.
+    // Older apps refuse 0.4 rather than showing unborn copies as ordinary
+    // initial content. The 0.1 format is a deliberate
     // clean break — an old deck fails validation and quarantines
     // (newer-than-ours files are refused earlier by the forward-version
     // guard, before validation).
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.[23]\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[234]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
@@ -468,6 +468,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                       required: ["target"],
                       properties: {
                         target: { type: "string" },
+                        ghostFrom: { type: "string", pattern: "[\\s\\S]" },
                         part: { type: "string" },
                         selector: { type: "object" },
                         preset: { type: "string" },
@@ -482,6 +483,14 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         keyframes: { type: "array" },
                         groupId: { type: "string" }, // 0.3.0: TrackGroup ref
                       },
+                      allOf: [{
+                        if: { required: ["ghostFrom"] },
+                        then: {
+                          required: ["preset"],
+                          properties: { preset: { const: "transform" } },
+                          not: { anyOf: [{ required: ["part"] }, { required: ["selector"] }, { required: ["keyframes"] }] },
+                        },
+                      }],
                     },
                   },
                 },

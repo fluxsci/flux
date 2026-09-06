@@ -333,17 +333,28 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
   if (!slide) return 0;
   const auto = autoAnimatePlot(manifest, elId);
   if (!auto.length) return 0;
+  const birth = slide.beats.find(b => b.tracks.some(t => t.target === elId && t.ghostFrom));
 
   // 1. Drop ONLY this element's existing tracks (idempotent re-animate); every
   //    other element's tracks stay exactly where they are.
-  for (const b of slide.beats) b.tracks = b.tracks.filter((t) => t.target !== elId);
+  for (const b of slide.beats) b.tracks = b.tracks.filter((t) => t.target !== elId || !!t.ghostFrom);
 
   // 2. Guarantee a resting beat 0.
   if (!slide.beats.length) slide.beats = [{ id: "base", label: "Start", tracks: [] }];
 
-  // 3. Merge each phase beat by id: append this element's tracks to an existing
-  //    phase beat, or insert the missing phase beat in phase order.
-  for (const ab of auto) {
+  // A ghost cannot reveal parts before it exists. Its own phase sequence
+  // follows its birth; ordinary plots still share the global phase beats.
+  if (birth) {
+    const prefix = `auto-ghost-${elId}-`;
+    slide.beats = slide.beats.filter(b => !b.id.startsWith(prefix) || b.tracks.length > 0);
+    let at = slide.beats.findIndex(b => b.id === birth.id) + 1;
+    for (const ab of auto) {
+      ab.id = `${prefix}${ab.id.slice(5)}`;
+      const existing = slide.beats.find(b => b.id === ab.id);
+      if (existing) existing.tracks.push(...ab.tracks);
+      else slide.beats.splice(at++, 0, ab);
+    }
+  } else for (const ab of auto) {
     const existing = slide.beats.find((b) => b.id === ab.id);
     if (existing) {
       existing.tracks.push(...ab.tracks);

@@ -127,6 +127,7 @@ export {
   setMorph,
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
+  addGhostTransform,
   groupTracksVerb,
   ungroupTracksVerb,
   applyAnimTemplateVerb,

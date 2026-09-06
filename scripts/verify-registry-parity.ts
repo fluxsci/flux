@@ -134,6 +134,27 @@ try {
     assert(tracks.length===3&&tracks[0].preset==="popIn","default set_animation retains its documented upsert semantics");
   }
   {
+    const { deckId } = await core.createDeck(TMP, { id: "ghost-parity", title: "Ghost transform parity" });
+    const deck = await core.loadDeck(TMP, deckId), slideId = deck.slides[0].id;
+    const { elementId } = await core.addTextToSlide(TMP, deckId, slideId, { text: "Source", x: 50, y: 90 });
+    const { beatId } = await core.addBeat(TMP, deckId, slideId, { label: "Split" });
+    const states = [{ x: 150, y: 80 }, { x: 300, y: 170 }];
+    const cli = await runCli(["ghost-transform", deckId, slideId, beatId, elementId, "--root", TMP,
+      "--count", "2", "--states", JSON.stringify(states), "--original", "stay"]);
+    const mcp = await client.callTool({ name: "ghost_transform", arguments: { deckId, slideId, beatId, sourceId: elementId, count: 2, states, original: "stay" } });
+    assert(cli.code === 0 && !mcp.isError, "ghost_transform succeeds on both actual surfaces");
+    const a = JSON.parse(cli.out), b = JSON.parse((mcp.content as { text?: string }[])[0]?.text ?? "null");
+    const saved = await core.loadDeck(TMP, deckId), slide = saved.slides[0];
+    const { compileSlide } = await import("../src/lib/slide/compile");
+    const compiled = compileSlide(slide, saved.stage), bi = slide.beats.findIndex(beat => beat.id === beatId);
+    const positions = (ids: string[]) => ids.map(id => { const e = compiled.sample(bi).elements.find(e => e.id === id)!; return { x: e.x, y: e.y }; });
+    assert(JSON.stringify(positions(a.elementIds)) === JSON.stringify(states) && JSON.stringify(positions(b.elementIds)) === JSON.stringify(states), "CLI and MCP ghost endpoints match the same shared model");
+    assert(new Set([...a.elementIds, ...b.elementIds]).size === 4 && [...a.elementIds, ...b.elementIds].every(id => compiled.sample(0).presentation.unbornElementIds.includes(id)), "both surfaces create fresh results that are absent at Start");
+    const before = JSON.stringify(saved.slides);
+    const invalid = await client.callTool({ name: "ghost_transform", arguments: { deckId, slideId, beatId, sourceId: elementId, count: 0 } });
+    assert(invalid.isError && JSON.stringify((await core.loadDeck(TMP, deckId)).slides) === before, "MCP rejects invalid ghost counts without partial mutations");
+  }
+  {
     // END-TO-END lock taxonomy (live since batch A registered the mutateFigModel
     // verbs): a held human lock defers a registry mutate verb on BOTH surfaces —
     // CLI exit 75 (EX_TEMPFAIL, script-retryable), MCP isError. The lock check

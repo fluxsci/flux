@@ -13,14 +13,15 @@
 //   • flux-core:  reads deck.json, calls the op, writes it back
 // ---------------------------------------------------------------------------
 
-import type { Asset, Element, Id, SemanticPlotElement } from "../types";
+import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
+import { gcGroups } from "../groups";
 import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, type TextOpts } from "../ops";
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
 import { familyOf } from "./family";
-import { trackDuration } from "./compile";
+import { compileSlide, trackDuration } from "./compile";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
 import {
   DECK_SCHEMA_VERSION,
@@ -247,6 +248,7 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
       t.id = newId("track");
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
+      if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
     }
   }
   deck.slides.splice(i + 1, 0, copy);
@@ -296,6 +298,7 @@ export function insertSlideSnapshot(
   opts: { at?: number } = {},
 ): { slideId: Id; assetRemap: Map<Id, Id> } {
   const assetRemap = new Map<Id, Id>();
+  const embeddedIds = new Set((snap.assets ?? []).map(entry => entry.asset.id));
   for (const entry of snap.assets ?? []) {
     const aid = entry.asset.id;
     if (deck.assets.some((a) => a.id === aid)) continue; // same source asset, already here
@@ -306,7 +309,13 @@ export function insertSlideSnapshot(
   const { elements, groups, idRemap } = cloneContentWithFreshIds(snap.slide.elements, snap.slide.groups);
   for (const el of elements) {
     const withAsset = el as { assetId?: Id };
-    if (withAsset.assetId && assetRemap.has(withAsset.assetId)) withAsset.assetId = assetRemap.get(withAsset.assetId)!;
+    if (el.type === "plot" && embeddedIds.has(el.assetId)) delete el.source;
+    if (withAsset.assetId && assetRemap.has(withAsset.assetId)) {
+      withAsset.assetId = assetRemap.get(withAsset.assetId)!;
+      // Embedded bytes are now deck-owned. An old project's source path must
+      // never overwrite the self-contained preset after insertion elsewhere.
+      if (el.type === "plot") delete el.source;
+    }
   }
   const slide: Slide = {
     ...structuredClone(snap.slide),
@@ -324,6 +333,12 @@ export function insertSlideSnapshot(
       t.id = newId("track");
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
+      if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
+      if (t.to?.assetId && embeddedIds.has(t.to.assetId)) {
+        t.to.assetId = assetRemap.get(t.to.assetId) ?? t.to.assetId;
+        delete t.to.svgPath; delete t.to.manifestPath; delete t.to.recipePath;
+        delete t.to.external; delete t.to.frozen;
+      }
     }
   }
   const at = opts.at;
@@ -570,9 +585,14 @@ export function duplicateBeat(deck: Deck, slideId: Id, beatId: Id): Beat | null 
   const i = s.beats.findIndex((b) => b.id === beatId);
   if (i <= 0) return null;
   const copy = structuredClone(s.beats[i]);
+  const idRemap = cloneBirthResults(s, copy.tracks);
   copy.id = newId("beat");
   if (copy.label) copy.label += " copy";
-  for (const t of copy.tracks) t.id = newId("track");
+  for (const t of copy.tracks) {
+    t.id = newId("track");
+    t.target = idRemap.get(t.target) ?? t.target;
+    if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
+  }
   remapBeatGroupIds(copy);
   s.beats.splice(i + 1, 0, copy);
   return copy;
@@ -584,6 +604,8 @@ export function deleteBeat(deck: Deck, slideId: Id, beatId: Id): void {
   if (!s) return;
   const i = s.beats.findIndex((b) => b.id === beatId);
   if (i <= 0) return; // keep beat 0 (the resting state)
+  ensureTrackIds(deck);
+  removeTracks(deck, slideId, s.beats[i].tracks.flatMap(t => t.id ? [t.id] : []));
   s.beats.splice(i, 1);
 }
 
@@ -655,10 +677,131 @@ export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id): Id | null 
     if (i < 0) continue;
     const copy = structuredClone(b.tracks[i]);
     copy.id = newId("track");
+    if (copy.ghostFrom) copy.target = cloneBirthResults(s, [copy]).get(copy.target) ?? copy.target;
     b.tracks.splice(i + 1, 0, copy);
     return copy.id;
   }
   return null;
+}
+
+/** A birth owns its result object. Duplicating the birth creates another
+ * independent result, whereas copying an ordinary element copies no birth. */
+function cloneBirthResults(slide: Slide, tracks: readonly Track[]): Map<Id, Id> {
+  const ids = new Set(tracks.filter(t => t.ghostFrom).map(t => t.target));
+  const { elements, groups, idRemap } = cloneContentWithFreshIds(slide.elements.filter(e => ids.has(e.id)), slide.groups);
+  const sources = new Map(tracks.filter(t => t.ghostFrom).map(t => [idRemap.get(t.target), t.ghostFrom!]));
+  const names = new Map<Id, Set<string>>();
+  for (const el of elements) {
+    const source = sources.get(el.id)!;
+    const used = names.get(source) ?? ghostNames(slide, source); names.set(source, used);
+    el.name = nextGhostName(used); used.add(el.name);
+  }
+  slide.elements.push(...elements);
+  if (Object.keys(groups).length) slide.groups = { ...slide.groups, ...groups };
+  return idRemap;
+}
+
+function ghostNames(slide: Slide, sourceId: Id): Set<string> {
+  const targets = new Set(slide.beats.flatMap(b => b.tracks.filter(t => t.ghostFrom === sourceId).map(t => t.target)));
+  return new Set(slide.elements.filter(e => targets.has(e.id)).flatMap(e => e.name ? [e.name] : []));
+}
+function nextGhostName(used: ReadonlySet<string>): string {
+  let number = 1;
+  while (used.has(`Ghost ${number}`)) number++;
+  return `Ghost ${number}`;
+}
+
+/** Remove selected effects and, for each removed ghost birth, its owned
+ * result plus every effect targeting that result. Other copies that used it
+ * as a source keep their saved fallback and report the missing source. */
+export function removeTracks(deck: Deck, slideId: Id, trackIds: Id[]): void {
+  const slide = slideById(deck, slideId);
+  if (!slide) return;
+  const selected = new Set(trackIds);
+  const results = new Set(slide.beats.flatMap(b => b.tracks.filter(t => t.id && selected.has(t.id) && t.ghostFrom).map(t => t.target)));
+  for (const beat of slide.beats) {
+    beat.tracks = beat.tracks.filter(t => !(t.id && selected.has(t.id)) && !results.has(t.target));
+    gcTrackGroups(beat);
+  }
+  if (results.size) {
+    slide.elements = slide.elements.filter(e => !results.has(e.id));
+    // The shared group core reads only elements/groups from this projection.
+    gcGroups(slide as unknown as Figure);
+  }
+}
+
+export interface GhostTransformOptions {
+  count?: number;
+  original?: "stay" | "disappear" | "transform";
+  duration?: number;
+  easing?: import("./types").EasingToken;
+  start?: number;
+  /** Independent sparse destinations, in copy order. */
+  states?: Record<string, unknown>[];
+  originalState?: Record<string, unknown>;
+  /** GUI may supply the compiler's manifest-aware prior-step snapshot. */
+  sourceSnapshot?: Element;
+}
+export interface GhostTransformResult {
+  elementIds: Id[];
+  trackIds: Id[];
+  groupId: Id;
+  originalTrackId?: Id;
+}
+
+/** Make persistent ordinary objects with one explicit birth per result.
+ * Geometry/content is captured only as a missing-source fallback; playback
+ * derives each starting state from the source immediately before this step. */
+export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: Id, opts: GhostTransformOptions = {}): GhostTransformResult | null {
+  const count = opts.count ?? 3, original = opts.original ?? "stay";
+  if (!Number.isInteger(count) || count < 1 || count > 32) throw new Error("Copies must be a whole number from 1 to 32");
+  if (!["stay", "disappear", "transform"].includes(original)) throw new Error("Original must stay, disappear, or transform");
+  if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
+  if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
+  const slide = slideById(deck, slideId), bi = slide?.beats.findIndex(b => b.id === beatId) ?? -1;
+  const source = slide?.elements.find(e => e.id === sourceId);
+  if (!slide || !source || bi < 1) return null;
+  const beat = slide.beats[bi];
+  const whole = beat.tracks.filter(t => t.target === sourceId && !t.part && !t.selector && !t.disabled);
+  const changes = whole.filter(t => familyOf(t) === "transform");
+  const exits = whole.filter(t => ["fadeOut", "popOut", "drawOff", "wipeOut"].includes(t.preset ?? ""));
+  if (changes.length > 1 || exits.length > 1 || original === "stay" && (changes.length || exits.length) || original === "transform" && exits.length || original === "disappear" && changes.length)
+    throw new Error(`The original already has a Change or exit in this step. Choose its existing behavior or edit those effects first.`);
+  if (opts.sourceSnapshot && (opts.sourceSnapshot.id !== sourceId || opts.sourceSnapshot.type !== source.type)) throw new Error("Copy snapshot must belong to the selected source object");
+  const available = compileSlide(slide, deck.stage).copySourceState(sourceId, bi);
+  if (!available) throw new Error("This source is not available before the selected step. Choose a later step or another source.");
+  const snapshot = opts.sourceSnapshot ?? available;
+  const groupId = newId("tgrp"), label = source.name?.trim() || source.type;
+  const out: GhostTransformResult = { elementIds: [], trackIds: [], groupId };
+  const names = ghostNames(slide, sourceId);
+  for (let i = 0; i < count; i++) {
+    const copy = structuredClone(snapshot);
+    copy.id = newId(copy.type); copy.name = nextGhostName(names); names.add(copy.name);
+    delete copy.groupId; delete copy.locked;
+    delete (copy as unknown as Record<string, unknown>).panelLabel;
+    slide.elements.push(copy);
+    const track: Track = { id: newId("track"), target: copy.id, ghostFrom: sourceId, preset: "transform", groupId,
+      duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0,
+      to: { state: structuredClone(opts.states?.[i] ?? {}) } };
+    beat.tracks.push(track); out.elementIds.push(copy.id); out.trackIds.push(track.id!);
+  }
+  beat.groups = [...(beat.groups ?? []), { id: groupId, label: `Ghosts of ${label}` }];
+  if (original === "transform") {
+    const previous = changes[0];
+    const track = setTransform(deck, slideId, beatId, sourceId, {
+      ...(opts.originalState ? { state: opts.originalState } : {}),
+      ...(!previous ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
+    })!;
+    delete track.disabled;
+    if (!previous) track.groupId = groupId;
+    out.originalTrackId = track.id;
+  } else if (original === "disappear") {
+    const track = exits[0] ?? { id: newId("track"), target: sourceId, preset: "fadeOut" as const,
+      duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0, groupId };
+    if (!exits.length) beat.tracks.push(track);
+    out.originalTrackId = track.id;
+  }
+  return out;
 }
 
 /** Set one beat's track order to `order` (a permutation of its track ids —
@@ -762,6 +905,8 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
       ...track,
       id: track.id ?? prev.id ?? newId("track"),
       ...(track.groupId == null && prev.groupId != null ? { groupId: prev.groupId } : {}),
+      ...(prev.ghostFrom ? { ghostFrom: prev.ghostFrom, preset: "transform" as const,
+        ...(!track.to && prev.to ? { to: structuredClone(prev.to) } : {}) } : {}),
     };
   } else b.tracks.push({ ...track, id: track.id ?? newId("track") });
   return true;
@@ -944,8 +1089,8 @@ export function removeAnimation(
     t.target === match.target &&
     (t.part ?? "") === (match.part ?? "") &&
     JSON.stringify(t.selector ?? null) === JSON.stringify(match.selector ?? null);
-  b.tracks = b.tracks.filter((t) => !sameSig(t));
-  gcTrackGroups(b);
+  ensureTrackIds(deck);
+  removeTracks(deck, slideId, b.tracks.filter(sameSig).flatMap(t => t.id ? [t.id] : []));
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,21 +1177,20 @@ export function ensureTrackIds(deck: Deck): Deck {
   return deck;
 }
 
-/** 0.2.0 → 0.3.0: a pure stamp — every 0.2.0 document is already valid 0.3.0
- *  (the rework's additions are all optional fields with absent-means-legacy
- *  semantics, and defaults reproduce 0.2.0 playback byte-identically).
+/** 0.2/0.3 → 0.4: a pure stamp — ghostFrom is optional and absent means the
+ *  existing element/timeline behavior, with no content or identity rewrite.
  *  Anything else (0.1.x, garbage) passes through untouched and fails
  *  validation downstream exactly as before. Mutates + returns. */
 export function migrateDeck(deck: Deck): Deck {
-  if (typeof deck?.schemaVersion === "string" && deck.schemaVersion.startsWith("0.2.")) {
+  if (typeof deck?.schemaVersion === "string" && /^0\.[23]\./.test(deck.schemaVersion)) {
     deck.schemaVersion = DECK_SCHEMA_VERSION;
   }
   return deck;
 }
 
 /** THE deck-load chokepoint — every seam that reads a deck from disk (GUI
- *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2.0 →
- *  0.3.0 stamp) then id normalization. A 0.1.x deck is untouched here and
+ *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2/0.3 →
+ *  0.4 stamp) then id normalization. A 0.1.x deck is untouched here and
  *  fails validation downstream (quarantine — the sanctioned clean break);
  *  newer-than-ours files are refused earlier by the forward-version guard. */
 export function normalizeDeck(deck: Deck): Deck {

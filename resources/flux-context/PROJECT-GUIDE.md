@@ -71,6 +71,7 @@ open you can also read its live UI state and act on the human's current selectio
 `decks`/`new-deck`/`add-slide`/`delete-slide`/`duplicate-slide`/`reorder-slides` (structure),
 `set-slide` (notes/camera/layout) / `set-theme`, `add-text` (content), `add-beat` +
 `set-animation`/`set-transform` (build timeline + presets incl. the data-space `morph`),
+`ghost-transform` (independent copies that spawn from an object's prior-step state),
 `apply-anim-template`, `validate-deck`, `export-deck`. Every one is also an MCP tool.
 A deck is `slides/<id>/deck.json`.
 

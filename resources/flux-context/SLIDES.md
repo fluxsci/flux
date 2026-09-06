@@ -1,7 +1,7 @@
 # Flux Slide — build & animate a scientific talk (the 4th pillar)
 
 Flux Slide is a **figure-first talk creator and animator** — "PowerPoint meets 3blue1brown."
-A **slide IS a figure** (deck `0.3.0`): its `elements` are the figure element union verbatim
+A **slide IS a figure** (deck `0.4.0`): its `elements` are the figure element union verbatim
 (`text`, `rect`, `ellipse`, `line`, `path`, `image`, `plot`) plus a presentation overlay of
 beats/transition/notes/camera. You animate with **two families** — (dis)Appearances and
 **Transforms** (the signature: any object tweens into a different version of itself) — and
@@ -12,7 +12,7 @@ first-class authors: every mutation is a pure op surfaced through flux-core **an
 **The file is the API.** A deck is plain JSON at `slides/<deckId>/deck.json`, registered in
 `project.json.slides[]`. Edit it through the verbs (which lock + journal) or, for bulk
 authoring, through the pure ops — never hand-wave the schema; run `validate-deck` after.
-(`0.2.0` decks auto-migrate on load; `0.1.x` is a sanctioned clean break.)
+(`0.2` and `0.3` decks auto-migrate on load; `0.1.x` is a sanctioned clean break.)
 
 ## The one rule that matters: ops-core-first
 
@@ -54,6 +54,9 @@ flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]               
 flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state]
      [--start ms] [--duration ms] [--easing e] [--to-asset id]                        # (set_transform)
 flux set-morph <deck> <slideId> <beatId> <elId> <toAssetId> [--duration ms]           # (set_morph)  legacy data-space form
+flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
+     --original stay --states '[{"x":200,"y":60},{"x":300,"y":160},{"x":400,"y":260}]'
+     [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)
 
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
@@ -82,8 +85,8 @@ emits ONE file with the player + fonts inlined. No network, no install to presen
 **1. (dis)Appearances** — an object arrives or leaves elegantly. Enters: `fade`, `fadeRise`,
 `popIn`, `growBaseline`, `drawOn`, `writeOn`, `stagger` (fan a child preset across a part set).
 Exits: `fadeOut`, `popOut`, `drawOff`, `wipeOut`. Emphasis: `highlight`, `dim`, `countUp`.
-An enter and an exit for the same object belong in DIFFERENT beats (same-family tracks on one
-beat replace each other).
+The default set-animation upserts by family; pass `--append` (MCP `append:true`)
+to place multiple appearance effects on the same object in one step.
 
 - **Trim Paths** (`drawOn`/`drawOff` `params`) — the featured stroke draw:
   `anchor` (0..1, or `corner-tl|top|corner-tr|right|corner-br|bottom|corner-bl|left|start|middle|end`),
@@ -111,6 +114,17 @@ flux set-transform talk s1 b2 el_plot --state '{"width": 500}' --to-asset growth
 ```
 
 **Camera** is its own small family: `--target @camera --preset camera --to-x --to-y --to-zoom`.
+
+**Ghost transforms** create ordinary independent result Elements with a birth Change track
+(`ghostFrom` names the source; `target` names the result; `to.state` is its destination patch).
+Use `ghost-transform` / `ghost_transform` / `ops.addGhostTransform`, which creates fresh identities
+and returns `{elementIds, trackIds, groupId, originalTrackId?}`. Each source pose comes from the
+end of the preceding step, so same-step motion of the original is independent. Copies do not
+exist before birth, including when that track is disabled; they remain normal animation targets
+afterward. The GUI edits destinations through **Edit after step**, with an explicit copy picker.
+Deleting a birth deletes its result and result-targeting effects; normal duplicate/paste of an
+element creates an independent static snapshot. Slide/step/track duplication uses the shared
+ops to remap birth ownership, and both forward and reverse seeking use the same compiled state.
 
 ## Authoring a deck in Node (bulk / precise work)
 
