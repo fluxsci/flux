@@ -158,6 +158,10 @@ Persistence invariants (all machine-checked — do not weaken):
   display titles, or canvas list order. The shared `figureReferences.ts` resolver gives exact
   keys priority, then validates panels against the longest key prefix; export and Paper use
   the same grammar. Catalog/deletion views include live unsaved document references.
+  **Open compatibility defect (2026-09-05 review):** migration preserves legacy index labels
+  without a `fig-` prefix, but the canvas schema rejects those migrated `referenceKey` values
+  on reopen. A passing asset-byte save check does not prove the composition reloads. See
+  `docs/FIGURE_POLISH_REVIEW.md` F02; do not silently rename existing references to hide it.
 - **Source updates publish only after persistence.** `plot/sourceSync.ts` plans complete
   SVG/manifest/recipe bundles, validates changes, preserves last-good bytes on missing or
   malformed sources, and applies shared physical sizing. `project/sourceBridge.ts` owns
@@ -185,7 +189,7 @@ Persistence invariants (all machine-checked — do not weaken):
   `fig/assets` source alive after its last Figure placement is deleted. Its synthetic owners
   exist only in the read-only planning view, never in persisted canvases. Respect frozen and
   conflicting links and recheck dependent deck baselines before accepting asynchronous work.
-- **Caption and panel references reconcile safely.** `captionReconcile.ts` compares canonical
+- **Caption and panel references use three-way reconciliation.** `captionReconcile.ts` compares canonical
   caption data and the readable markdown mirror against their accepted base. Conflicting
   edits stop persistence without discarding either version. Panel references follow stable
   label-element IDs through relabels; `figureReferenceEdits.ts` plans code-aware replacements,
@@ -194,6 +198,9 @@ Persistence invariants (all machine-checked — do not weaken):
   matching baselines. `.meta/figure-reference-update.json` retains originals/proposals until
   completion; load recovery refuses newer conflicting data. Never silently retarget a
   removed/ambiguous panel reference to a different panel.
+  **Open baseline defect (2026-09-05 review):** interpreting accepted legacy caption text
+  through the current panel topology can produce a false conflict after label deletion.
+  Accepted baseline comparisons must be independent of subsequent panel changes (review F06).
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -471,6 +478,10 @@ Persistence invariants (all machine-checked — do not weaken):
   exclusive residents — `paneStore` denies side-by-side panes, mode mounts
   flush+evict the other (`evictMode`), and the bridges hard-assert the tenant
   (`src/lib/tenancy.ts`) so a wrong-folder autosave is structurally impossible.
+  **Open preservation defect (2026-09-05 review):** the mounts still evict after a failed
+  flush, discarding dirty content/history. The wrong-tenant guard does not prevent that loss.
+  Handoff must verify durable save success before eviction; fault-injection acceptance is
+  required in addition to the happy-path tenancy gate (`FIGURE_POLISH_REVIEW.md` F01).
   EXPLICIT EDIT DESTINATIONS (2026-09-05 overhaul): **Design** edits authored initial
   properties; **Edit after step N** creates/edits that step's sparse Change endpoint, never
   an earlier governing track. `registerEditorTransactionAdapter` wraps deliberate commits
@@ -755,6 +766,12 @@ chord or label changes, grep `docs/` for the old one.
 
 ## 9. Known traps (each of these cost real time)
 
+- **Legacy Svelte reactive statements cannot see store reads hidden in helpers.** The Figure
+  selection rectangle regressed when an inline `$selection` filter became `selectedEls(fig)`
+  inside the reactive expression. Pass selection/presentation inputs explicitly. Verify a
+  selection-only change and deselection against the painted overlay, without a no-op model
+  mutation that would accidentally trigger recomputation. Review F03 remains unimplemented.
+
 **Svelte 5 legacy syntax:**
 
 - A `$:` block that reads **and** reassigns the same `let` is self-dependent — it re-runs until
@@ -944,6 +961,13 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `verify-clip-collision.mjs` (also pins the raw Chromium behavior so a future fix is visible).
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
+
+- **Active Figure polish findings (2026-09-05; defects, not deliberate deferrals):**
+  `docs/FIGURE_POLISH_REVIEW.md` records the review/implementation plan, including persistence,
+  selection, history, property-entry and frame-resize work. No application fixes landed in
+  the review session. Baseline: check 0/0, pure 198/198, selected UI 69/80; Figure drag ratio
+  and normal/dense Slides playback frame gates failed. Preserve the published budgets and
+  distinguish stale test assumptions from product defects. Lazy-residency scale passed.
 
 - **WS-11 plot render-detail budget** and the **figure spatial index**: evaluated against
   measurements and NOT built (triggers recorded 2026-07-11; blueprints live in
@@ -4029,3 +4053,17 @@ playback p95 8.7/9.2ms; the dense run retained one 33.3ms frame outlier.
   release: publishing each move otherwise changes the Selected objects filter under the pointer.
 - Gesture tests must start on actual empty hit-tested space; ruler/label children can extend
   beyond nominal row boxes. Escape must cancel before the dock's general selection handler.
+
+### 2026-09-05 22:44 CDT — Figure polish audit and implementation plan (Codex, `codex/figures-slides-overhaul`)
+
+**Work:** Reviewed shared Figure/Slides editing and persistence; recorded concrete findings,
+frame-resize behavior and staged acceptance in `docs/FIGURE_POLISH_REVIEW.md`. Reproduced the
+selection report plus failed-save handoff loss, invalid legacy-reference reopen, caption
+baseline conflicts and interaction/history defects in isolated fixtures. No application edits;
+check 0/0, pure 198/198, selected UI 69/80, lazy scale green; Figure and Slide scale failures
+retained as measured findings.
+**Learnings:**
+- Promoted explicit reactive-input and failed-save handoff rules to the body; wrong-tenant
+  write prevention alone does not preserve unsaved content.
+- Save compatibility requires reopening compositions as well as comparing asset bytes;
+  migration output and load validation must accept the same legacy identities.
