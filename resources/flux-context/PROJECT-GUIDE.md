@@ -17,7 +17,11 @@ open you can also read its live UI state and act on the human's current selectio
 - `paper/` — user-owned documents and arbitrary nested folders, starting with
   `notes.qmd`. No `main.qmd` filename is required. Legacy `manuscript/` trees remain
   supported and are never automatically renamed. Both are scanned recursively, as is
-  Context (excluding Transcripts/Dispatches archives). New manifests use `documentRoot`
+  Context (excluding Transcripts/Dispatches archives). Discovery skips generated Quarto
+  support/cache trees and unused legacy `sections/` scaffolds. Ordinary existing folders
+  stay visible; new folders carry a hidden `.flux-folder` marker to preserve user intent,
+  even when empty or named like render output. No generated files are deleted.
+  New manifests use `documentRoot`
   and keep `manuscript.path` as an ordinary default export pointer, empty when no documents
   remain. New-project comments are document-named; legacy main comments retain comments.json.
 - `Context/` — the agent context layer (see above). `NOTEBOOK.md` is agent-owned;

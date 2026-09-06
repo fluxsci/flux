@@ -63,6 +63,13 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
   never renames an existing project folder automatically. New manifests name `documentRoot`
   as `paper` and retain `manuscript.path` as a default export pointer for compatibility.
   That pointer may be empty when all ordinary documents have been deleted.
+- **Paper keeps render assets out of the file browser.** Quarto support/cache trees
+  (`*_files`, `*_cache`, `_freeze`, `_site`, `_book`, `site_libs`) are filtered from discovery;
+  a `*_files` or `*_cache` suffix needs a matching source or recognizable generated contents.
+  An unused legacy `sections/` folder is hidden until used or explicitly created in Paper.
+  New folders contain a hidden `.flux-folder` marker so intentional empty folders, including
+  those with generated-looking names, remain visible. Existing ordinary folders need no marker.
+  These visibility rules never remove files from disk.
 - **`plots/` is a drop-zone with no imposed structure** — organize it however your analysis
   does. Flux only reads it, copying what you compose into `fig/assets/`. See
   [semantic plots](../concepts/semantic-plots.qmd) for the three-file contract. Two

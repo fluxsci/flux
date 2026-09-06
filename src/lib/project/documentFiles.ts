@@ -20,6 +20,21 @@ export interface DocumentIO {
 export const parentDir = (rel: string) => rel.slice(0, Math.max(0, rel.lastIndexOf('/')));
 export const fileName = (rel: string) => rel.slice(rel.lastIndexOf('/') + 1);
 export const documentRoot = (m: ProjectManifest) => m.documentRoot ?? (m.manuscript.config ? parentDir(m.manuscript.config) : parentDir(m.manuscript.path));
+// Keep intentional empty folders recognizable without a second tree in the
+// manifest. Older, unmarked ordinary folders are still discovered from disk.
+const USER_FOLDER_MARKER = '.flux-folder';
+const QUARTO_OUTPUT_DIRS = new Set(['_freeze', '_site', '_book', 'site_libs']);
+async function generatedFolder(io: DocumentIO, rel: string, name: string, sourceStems: Set<string>): Promise<boolean> {
+  const companion = /^(.*)_(files|cache)$/.exec(name);
+  if (!QUARTO_OUTPUT_DIRS.has(name) && !companion) return false;
+  if (await io.exists(`${rel}/${USER_FOLDER_MARKER}`)) return false;
+  if (QUARTO_OUTPUT_DIRS.has(name) || (companion && sourceStems.has(companion[1]))) return true;
+  // Recognize leftover render output after its source is moved or renamed. A
+  // suffix alone must not hide an existing authored folder such as source_files.
+  const signatures = companion?.[2] === 'cache' ? ['html', 'latex', 'docx']
+    : ['libs/quarto-html', 'figure-html', 'figure-pdf', 'figure-docx', 'figure-latex', 'figure-epub', 'figure-typst'];
+  return (await Promise.all(signatures.map(p => io.exists(`${rel}/${p}`)))).some(Boolean);
+}
 export function validDocumentFolder(m: ProjectManifest, rel: string): void {
   const root = documentRoot(m);
   if (rel === "" && root === "") return;
@@ -32,23 +47,32 @@ export async function discoverDocuments(m: ProjectManifest, io: DocumentIO): Pro
   const rels = new Set<string>();
   const folders = new Set<string>();
   const visited = new Set<string>();
+  const roots = new Set([documentRoot(m), 'paper', 'manuscript']);
   const scan = async (dir: string) => {
     if (visited.has(dir)) return;
     visited.add(dir);
     if (!(await io.exists(dir))) return;
-    if (dir) folders.add(dir);
+    const docsBefore = rels.size, foldersBefore = folders.size;
     let entries: { name: string; dir: boolean }[];
     try { entries = await io.entries(dir); }
     catch (error) { if (!(await io.exists(dir))) return; throw error; }
+    const sourceStems = new Set(entries.filter(e => !e.dir && /\.(qmd|md|rmd|ipynb|html)$/i.test(e.name)).map(e => e.name.replace(/\.[^.]+$/, '')));
     for (const e of entries) {
       if (e.name.startsWith('.') || isConflictPath(e.name) || isSyncTempPath(e.name)) continue;
       const rel = dir ? `${dir}/${e.name}` : e.name;
       if (/^Context\/(Transcripts|Dispatches)(\/|$)/.test(rel)) continue;
-      if (e.dir) { if (dir || e.name === "sections") await scan(rel); }
+      if (e.dir) {
+        if ((dir || e.name === 'sections') && !await generatedFolder(io, rel, e.name, sourceStems)) await scan(rel);
+      }
       else if (/\.(qmd|md)$/i.test(e.name)) rels.add(rel);
     }
+    // Older scaffolds included an unused sections/. Keep it when it contains
+    // documents or intentional subfolders, or was explicitly created in Paper.
+    const emptyScaffold = fileName(dir) === 'sections' && roots.has(parentDir(dir)) &&
+      rels.size === docsBefore && folders.size === foldersBefore && !entries.some(e => e.name === USER_FOLDER_MARKER && !e.dir);
+    if (dir && !emptyScaffold) folders.add(dir);
   };
-  for (const root of new Set([documentRoot(m), 'paper', 'manuscript', 'Context'])) await scan(root);
+  for (const root of new Set([...roots, 'Context'])) await scan(root);
   for (const rel of [m.manuscript.path, ...(m.supplementary ?? []).map(s => s.path)]) {
     if (rel && !isConflictPath(rel) && await io.exists(rel)) rels.add(rel);
   }
@@ -84,8 +108,18 @@ export async function createDocumentFolder(m: ProjectManifest, io: DocumentIO, p
   const rel = `${parent ? parent + "/" : ""}${name.trim()}`;
   validDocumentFolder(m, rel);
   if (!name.trim() || name.includes('/') || name.includes('\\')) throw new Error('Enter one folder name.');
-  if (await io.exists(rel)) throw new Error('A file or folder with that name already exists.');
+  if (await io.exists(rel)) {
+    // An invisible, unused legacy scaffold can become an intentional folder.
+    // Otherwise the picker would report a collision with a folder it hides.
+    let unusedScaffold = false;
+    if (name.trim() === 'sections' && [documentRoot(m), 'paper', 'manuscript'].includes(parent)) {
+      const entries = await io.entries(rel);
+      unusedScaffold = entries.every(e => !e.dir && e.name.startsWith('.') && e.name !== USER_FOLDER_MARKER);
+    }
+    if (!unusedScaffold) throw new Error('A file or folder with that name already exists.');
+  }
   await io.mkdir(rel);
+  await io.create(`${rel}/${USER_FOLDER_MARKER}`, 'Created in the Paper file browser.\n');
   return rel;
 }
 

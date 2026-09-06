@@ -294,7 +294,11 @@ Persistence invariants (all machine-checked — do not weaken):
   paper-gate).
 - **Paper file moves have a shared IO-independent core** (`documentFiles.ts`). Discovery
   scans both paper/manuscript roots recursively, including empty folders, plus Context
-  without its Transcripts/Dispatches archives; sync leftovers stay excluded. Folder drops
+  without its Transcripts/Dispatches archives; sync leftovers stay excluded. Generated
+  Quarto output/cache trees are pruned before recursion (suffixes need a matching source or
+  generated-content signature); unused root `sections/` scaffolds stay hidden. New folders
+  carry `.flux-folder` to preserve explicit intent even for empty or generated-looking names;
+  ordinary existing folders require no marker. Folder drops
   move documents, comments and manifest registrations while adjusting Markdown destinations,
   Quarto includes and common YAML file fields. Collisions refuse before writes; completed
   writes roll back on IO failure. The GUI flushes the active editor/comments before moving,
@@ -4228,3 +4232,12 @@ rows mount; collapse/expand painted in at most 33.4ms. Evidence and limits are i
 **Learnings:** Nested document support also requires bibliography and inserted figure paths
 to be document-relative. New-project sidecars must be independent of the default export
 pointer, or deletion/promotion can make reviews appear attached to the wrong document.
+
+### 2026-09-06 15:51 CDT — Hide generated Paper folders (Codex, `main`)
+
+**Work:** Shared discovery now prunes generated Quarto resources/caches and hides unused
+legacy `sections/` scaffolds, preserving ordinary existing folders and recognizing explicit
+folder creation through `.flux-folder`. Updated the discovery contract above and user/agent
+docs; regressions first reproduced four failures and now pass 50 filesystem and 29 browser
+checks. Check 0/0, production build, pure 201/201, bundle/startup 4/4 and Paper 43/43 pass;
+evidence is in `docs/PAPER_FILES_TESTING.md`.

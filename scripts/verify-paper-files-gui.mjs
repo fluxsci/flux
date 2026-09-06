@@ -5,6 +5,12 @@ const {browser,page}=await launch();
 const ROOT='/demo/myc-growth-paper';
 try {
 await gotoApp(page,{url:`${APP_URL}?fixture=demo`,settle:1000});
+await page.evaluate(async root=>{
+  await window.fig.writeText(`${root}/manuscript/main_files/libs/quarto-html/README.md`,'Generated render support');
+  await window.fig.writeText(`${root}/manuscript/old-report_files/libs/quarto-html/README.md`,'Leftover render support');
+  await window.fig.writeText(`${root}/Context/NOTEBOOK_files/libs/quarto-html/README.md`,'Generated Context support');
+  await window.fig.mkdir(`${root}/manuscript/sections`);
+},ROOT);
 await clickMode(page,'Paper');
 await waitFor(page,()=>!!document.querySelector('.docpicker .dp-item'),null,{timeout:10000});
 const read = rel => page.evaluate((p)=>window.fig.readText(p),`${ROOT}/${rel}`);
@@ -18,6 +24,10 @@ const prompt = async name => {
 const folderPresent = folder => waitFor(page,p=>!![...document.querySelectorAll('[data-folder]')].find(e=>e.dataset.folder===p),folder,{timeout:5000});
 const active = rel => waitFor(page,p=>document.querySelector('.dp-item.active')?.getAttribute('title')===p,rel,{timeout:5000});
 const sizes=()=>page.evaluate(()=>({files:document.querySelector('.files-section')?.getBoundingClientRect().height??0,outline:document.querySelector('.outline-section')?.getBoundingClientRect().height??0}));
+h.ok(await page.$$eval('[data-folder]',els=>!els.some(e=>/_files(?:\/|$)|\/sections$/.test(e.dataset.folder))),'render output and the unused sections scaffold are absent from the browser');
+h.ok(await page.$$eval('.dp-item',els=>!els.some(e=>e.title.endsWith('/README.md'))),'bundled render-library Markdown is absent from Documents and Context');
+h.ok(await exists('manuscript/main_files/libs/quarto-html/README.md'),'hiding generated output leaves its files intact');
+await shot(page,'paper-generated-folders-hidden');
 let s=await sizes();h.ok(Math.abs(s.files-s.outline)<3,'files and outline start at half height');
 await page.click('.sidebar-toolbar button:nth-child(2)');s=await sizes();h.ok(s.outline===0 && s.files>400,'hiding outline gives files the full height');
 await page.click('.sidebar-toolbar button:nth-child(2)');
@@ -28,6 +38,9 @@ await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.dow
 s=await sizes();h.ok(s.files>s.outline+100,'divider drag resizes both sections');
 await grip.focus();await page.keyboard.press('Home');s=await sizes();h.ok(Math.abs(s.files-s.outline)<3,'keyboard reset restores half height');
 await clickLabel('New folder in Documents');await prompt('Experiments');await folderPresent('manuscript/Experiments');
+h.ok(await exists('manuscript/Experiments/.flux-folder'),'folder creation records user intent on disk');
+await clickLabel('New folder in Documents');await prompt('sections');await folderPresent('manuscript/sections');
+h.ok(true,'explicitly creating sections makes the unused scaffold visible');
 await clickLabel('New folder in Experiments');await prompt('Week 1');await folderPresent('manuscript/Experiments/Week 1');
 h.ok(true,'nested folders created through the picker');
 await clickLabel('New document in Week 1');await prompt('Protocol');

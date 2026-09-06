@@ -74,6 +74,40 @@ try {
   m = JSON.parse(await io.read('project.json'));
   const scan = await discoverDocuments(m,io);
   h.ok(scan.folders.includes('paper/Empty'),'empty folders survive scans');
+  // Rendering creates resource/cache trees beside authored documents. Do not
+  // recurse into them, even if a bundled library contains Markdown files.
+  const generated = [
+    'paper/notes_files', 'paper/removed-document_files', 'paper/notes_cache',
+    'paper/_freeze', 'paper/_site', 'paper/_book', 'paper/site_libs',
+    'paper/Experiments/report_files', 'manuscript/main_files', 'Context/Reading/analysis_files',
+  ];
+  for (const dir of generated) await io.write(`${dir}/libs/quarto-html/README.md`,'Generated library documentation');
+  await io.write('paper/sections/.gitkeep','');
+  await io.mkdir('paper/External empty folder');
+  await io.write('paper/External_files/source.md','# User-authored source\n');
+  await io.mkdir('Context/sections');
+  const walked: string[] = [];
+  const clean = await discoverDocuments(m,{...io,entries:async r=>{walked.push(r);return io.entries(r);}});
+  h.ok(!clean.folders.some(f=>generated.some(g=>f===g || f.startsWith(g+'/'))),'generated render and cache trees are absent from the folder list');
+  h.ok(!clean.docs.some(d=>d.path.endsWith('/README.md')),'generated library Markdown never becomes a document');
+  h.ok(!walked.some(f=>generated.some(g=>f===g || f.startsWith(g+'/'))),'discovery prunes generated directories before descending');
+  h.ok(!clean.folders.includes('paper/sections'),'unused legacy sections scaffold is hidden, including a gitkeep');
+  h.ok(clean.folders.includes('paper/Empty') && clean.folders.includes('paper/External empty folder') && clean.folders.includes('Context/sections'),'ordinary empty folders remain visible, including those created outside Flux');
+  h.ok(clean.docs.some(d=>d.path==='paper/External_files/source.md'),'a generated-looking suffix alone does not hide existing authored folders');
+  h.ok(await io.exists('paper/notes_files/libs/quarto-html/README.md') && await io.exists('paper/sections'),'filtering leaves generated files and scaffold folders on disk');
+  await io.write('manuscript/sections/intro.md','# Introduction\n');
+  const populated = await discoverDocuments(m,io);
+  h.ok(populated.folders.includes('manuscript/sections') && populated.docs.some(d=>d.path==='manuscript/sections/intro.md'),'legacy sections with authored documents remain accessible');
+  await createFolder(root,'paper','sections');
+  await createFolder(root,'paper','source_files');
+  await io.write('paper/source.qmd','# Source\n');
+  const explicit = await discoverDocuments(m,io);
+  h.ok(explicit.folders.includes('paper/sections') && explicit.folders.includes('paper/source_files'),'explicitly creating folders reveals an unused scaffold and preserves generated-looking names');
+  let duplicateFolder = false;
+  try { await createFolder(root,'paper','sections'); } catch { duplicateFolder = true; }
+  h.ok(duplicateFolder,'an intentional sections folder still rejects duplicate creation');
+  await io.write('paper/source_files/source.md','# Authored source\n');
+  h.ok((await discoverDocuments(m,io)).docs.some(d=>d.path==='paper/source_files/source.md'),'authored documents in explicitly created folders are discoverable');
   const original = '---\ntitle: Methods\nbibliography: ../../../references/library.bib\n---\n\n![data](../../../plots/data.svg)\n\n{{< include ../../../paper/notes.qmd >}}\n\n[web](https://example.org/a)\n\n```md\n![literal](../../../plots/data.svg)\n```\n';
   await io.write(created.path,original);
   await io.write('paper/notes.qmd','[methods](Experiments/Week%201/methods.qmd)\n\n{{< include Experiments/Week 1/methods.qmd >}}\n');

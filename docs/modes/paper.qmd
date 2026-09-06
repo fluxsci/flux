@@ -23,6 +23,9 @@ text stays honest.
   collapse it. Use its **+** to create a document inside it, or its folder-plus button to
   create a subfolder. Nest folders as deeply as you need. The bottom **+ New document** and
   **New folder** buttons use the most recently selected folder.
+- **Render output stays out of the browser.** Generated Quarto support and cache folders
+  are hidden, along with an unused legacy `sections/` folder. Existing document folders
+  and empty folders you create remain visible. Nothing is deleted from disk.
 - **Drag a document onto a folder** to move it there, including between Documents and
   Context. The destination highlights before you drop. Its comments move with it; Markdown
   links, Quarto includes, and common front-matter file paths are adjusted to keep their
