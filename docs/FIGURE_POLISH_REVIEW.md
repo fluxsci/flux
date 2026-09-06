@@ -1,7 +1,104 @@
-**Flux Figure — review and implementation plan**
+**Flux Figure — completed polish review and implementation**
+
+Implemented September 6, 2026, on `codex/figures-slides-overhaul`, following the approved
+review below (implementation commit `e9daa23`). All thirteen findings and the requested direct figure-frame resizing are
+addressed. The shared editing engine and existing project format are retained. There is no
+bulk migration or asset rewrite; existing references, editable content and out-of-bounds
+artwork remain intact.
+
+**What changed**
+
+| Area | Completed behavior |
+| --- | --- |
+| Preservation — F01, F02, F06 | A failed save prevents Figure/Slides from discarding the current editor. Complete editor initialization is serialized through rapid switches. Legacy reference keys reopen unchanged; an incomplete load cannot overwrite healthy files, even through force-save. Accepted caption baselines survive panel changes without false conflicts, while real concurrent caption edits remain protected. |
+| Selection and locks — F03, F08 | Selecting an object in Layers immediately updates its rectangle and handles. Canvas, keyboard, Inspector and property menus resolve eligible targets consistently, including inherited group locks/visibility and mixed selections. Locked content stays inspectable. |
+| Undo and cancellation — F04, F05, F07 | Each active edit owns its checkpoint. Cancelled/no-op gestures preserve earlier undo/redo and selection. Mouse, Tab, typing, hotkeys, scrubs and color pickers share edit sessions. Escape, lost capture, pointer cancellation, blur and mode teardown settle previews predictably. Text typing coalesces to one undo. |
+| Geometry and properties — F09, F10 | Aspect-locked side handles shrink correctly and keep their opposite anchor. Scrubs preserve original proportions through minimum-size clamping and retain fractional precision. Unsupported mixed-selection properties remain untouched. Shared descriptors centralize applicability, units and menu shortcut allocation. Local Gap and Scale % settings do not dirty the project. |
+| Interface — F11 | Selection geometry appears first in Inspector; selecting a frame brings its dimensions first. Advanced arrangement, palette and journal-export controls are collapsible. Layers supports modifier selection, range selection, keyboard navigation and rename, with visible inherited-lock reasons. Toolbar fits the native 940px minimum and reports actual save/undo state. Catalog previews keep stable dimensions, scroll correctly and contain/restore keyboard focus. |
+| Responsiveness — F12 | Transient transforms update only affected scene wrappers. Figure dragging no longer wakes every mounted element; culling stays scoped to the moving figure. Existing Figure and Slides budgets remain unchanged. A new native production-renderer harness measures actual input and verifies bounded Layers mounting. |
+| Exports — F13 | Every export captures an immutable figure/asset snapshot before its save dialog. Raster pixel readback and encoding run in a worker. Large exports can be cancelled; impossible allocations return an actionable error without silently reducing DPI. Pixel comparison retains alpha exactly and bounds premultiplied-color differences to one 8-bit level, with mean error below 0.001. |
+
+**Direct figure resizing**
+
+Select a figure by its title, then drag an edge or corner. Hold **Shift** to retain the
+starting aspect ratio. Right/bottom edges change the export boundary without scaling artwork;
+left/top edges also adjust local element and guide coordinates so artwork stays in the same
+world position. The preview updates W/H immediately, commits once on release, and fully
+restores on Escape or Undo. Hit areas remain eight screen pixels wide at different zooms.
+Objects at the boundary retain their own hit targets. Hidden, locked, rotated, cropped and
+out-of-bounds elements are preserved.
+
+The same pure operation is available through `resize-figure-frame` on the CLI,
+`resize_figure_frame` through MCP, and the live command bridge. Invalid bounds are rejected
+before history/persistence changes. Slides shares the object/property fixes and retains its
+deck-wide stage dimensions; it cannot accidentally acquire independent per-slide sizes.
+
+**Additional defects found during implementation**
+
+- The native Figure PDF path passed microns to Electron's `printToPDF`, which expects inches
+  for custom page sizes. It could fail on an ordinary 320×240 figure. Corrected the units and
+  finite-size validation; verified an actual 240×180-point PDF page. The shared PDF queue now
+  also awaits print-window cleanup, uses unique temporary directories and writes atomically.
+- A successful in-flight autosave could leave a later edit dirty forever: an already-true
+  boolean dirty store did not emit another scheduling notification. The shared controller now
+  schedules the remaining save. A deterministic failing-then-passing regression covers this;
+  conflict/error retries keep their existing policy. The native frame resize → autosave → Undo
+  sequence independently exposed and verified the correction.
+- The Svelte `state_proxy_equality_mismatch` warning was traced to PDF.js's legacy core-js
+  `includes(undefined, 1)` feature test interacting with Svelte's development diagnostic.
+  It is not evidence of a Figure proxy-identity defect and is absent in production. No warning
+  suppression, global Array patch or unrelated Reader change was introduced.
+
+**Verification and measured results**
+
+| Verification | Result |
+| --- | --- |
+| Typecheck / build | `npm run check`: 0 errors, 0 warnings; production build passes. |
+| Pure logic / compatibility | 200 scripts, including GUI/headless save-byte parity, legacy save/load/save stability, forward-format guards, failed reads/writes, captions, frame geometry and edit ownership. |
+| Figure/shared Slides functional coverage | All 85 selected scripts pass across the sweep and focused follow-up. The sweep was 84/85; its remaining synthetic-preview fixture imported a second stateful module after Vite HMR. Replacing it with a real Inspector pointer scrub verified rapid handoff and cancellation. Additional real controls cover both editors' text/color cancellation, local parameters and rail cancellation. |
+| Paper integration | All 42 Paper-gate scripts, including source/caption/reference integration. |
+| CLI / MCP / live bridge | Golden discovery parity and actual frame commands, including invalid-input preservation. |
+| Bundle / startup | 4/4 scripts; quiet Home eager payload 707.3KB against the unchanged 800KB ceiling. |
+| Native source synchronization | 35/35 checks: real filesystem watchers, external exact-file access, reopen and last-good content. |
+| Native production Figure | Real built `file://` renderer/preload with no dev handles: 1,600 objects fully mounted; 5,000-object fixture has 3,760 visible elements mounted; 47 Layers rows. Nudge-to-paint p95 about 32/35ms, below the unchanged 100ms limit. Native edge drag, autosave, Undo, minimum-width toolbar, and actual SVG/PNG/PDF files pass. |
+| Figure drag | p95 5.4ms versus the review's 93.4ms; zero project commits during dragging and one on release. Existing scale gate passes 10/10. |
+| Slides normal / dense scale | Both pass the unchanged 17ms playback gate at 16.8ms p95; no idle rAF loop and one thumbnail invalidation per edit. Brave's 17.7ms idle clock matched its playback result, so stock Chrome was used after profiling established browser scheduling jitter. No gate was loosened. |
+| Large raster export | 190mm, 1200dpi TIFF: 8,976×6,732 pixels, 181MB output, about 0.6s, zero main-thread long tasks; cancellation and retry pass. |
+
+Coverage also includes importing and physical dimensions, primitives/paths, wrapping and text
+styles, grouped layers, alignment/arrangement/cascade, crop, dissection and plot overrides,
+X-ray, clipboard images, guides, multi-canvas navigation, lazy asset residency, external source
+updates, figure deletion/references, Slides static editing, filmstrip, authored transforms,
+ghosts, timeline selection and playback. No new visual theme was added: Figure's existing dark
+chrome and white/background-colored artwork surfaces were inspected, including the catalog
+at 940px. Paper's existing light reading/export surfaces are covered by its gates.
+
+The native harness uses a disposable project and isolated HOME/config; it drives native input
+and real export IPC but supplies save destinations in place of manually operating OS dialogs.
+It runs the production bundle in Electron, not a signed installer. These fixtures cannot
+prove every private user project, but they exercise the compatibility and failure cases above.
+No test fixture targets the real FluxLib. A later bibliography checksum differed from the
+initial observation while a separate live Flux instance was running; that concurrent state
+was left untouched, so this report makes no claim that the user's library stayed unchanged.
+
+Run timing/startup gates in isolation. One simultaneous browser sweep let idle-prefetch
+responses enter the startup test's Home snapshot; the quiet run returned 707.3KB with no eager
+mode/worker. Native paint probes keep their disposable window visible because macOS pauses
+animation frames when the window is fully occluded. Production throttling remains unchanged.
+
+User instructions are updated in `docs/modes/figure.qmd`; architectural contracts and new gates
+are recorded in `docs/AGENT_ENGINEERING_GUIDE-RUNNING.md`. Local logs and screenshots live under
+`test-results/figure-polish-*` and `test-results/figure-polish-review/`; diagnostic probes live
+in ignored `notes/figure-polish-review/`. The committed behavioral tests reproduce the critical
+contracts without those local artifacts.
+
+---
+
+**Original audit and accepted implementation plan — September 5, 2026**
 
 Reviewed September 5, 2026, on `codex/figures-slides-overhaul`, application baseline
-`35c5bbe`. This is a review and plan; no application fixes have been applied by this review.
+`35c5bbe`. The following section records the original pre-implementation findings;
+its line numbers, failures and proposed actions are historical. Current results are above.
 
 The recommendation is a focused pass over correctness, direct manipulation, shared editing
 controls, and interface organization. The current architecture is worth retaining. The audit

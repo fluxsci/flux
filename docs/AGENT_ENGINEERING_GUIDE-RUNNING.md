@@ -151,6 +151,12 @@ Persistence invariants (all machine-checked — do not weaken):
   `index.json` **last** (+ one-generation `index.json.bak`). The index never references a canvas
   file that doesn't exist, even across SIGKILL (`verify-figsave-txn.ts`). The ordering lives once,
   in `executeFigSave` (figfiles.ts) — never reorder it.
+- **A successful save that leaves dirty state needs a trailing save.** The boolean dirty
+  store does not emit again for true → true. An edit during asynchronous persistence can
+  therefore remain unsaved without another schedule notification. `createAutosave` schedules
+  again after successful I/O when the caller cannot clear dirty; failures keep their explicit
+  retry/conflict policy. Gate this race without manually calling schedule for the second edit
+  (`verify-w4-autosave.ts`), and verify actual on-disk edits in the native Figure harness.
 - **Figure identity is independent of Paper order.** Canonical figures own `referenceKey`;
   `figureIdentity.ts` preserves existing index labels during migration and assigns new keys
   only to new/duplicated figures. `nickname` is the human title; `name` remains the derived
@@ -158,10 +164,11 @@ Persistence invariants (all machine-checked — do not weaken):
   display titles, or canvas list order. The shared `figureReferences.ts` resolver gives exact
   keys priority, then validates panels against the longest key prefix; export and Paper use
   the same grammar. Catalog/deletion views include live unsaved document references.
-  **Open compatibility defect (2026-09-05 review):** migration preserves legacy index labels
-  without a `fig-` prefix, but the canvas schema rejects those migrated `referenceKey` values
-  on reopen. A passing asset-byte save check does not prove the composition reloads. See
-  `docs/FIGURE_POLISH_REVIEW.md` F02; do not silently rename existing references to hide it.
+  Migration and validation accept any nonempty legacy reference key unchanged; the `fig-`
+  convention applies to newly minted keys. A partial load (invalid index/canvas or missing
+  referenced canvas) blocks subsequent GUI saves, including force-save; headless load rejects
+  it. Never overwrite a healthy sibling from an incomplete model. Byte-preservation tests
+  must reopen compositions as well as compare assets (`verify-figfiles-parity.ts`).
 - **Source updates publish only after persistence.** `plot/sourceSync.ts` plans complete
   SVG/manifest/recipe bundles, validates changes, preserves last-good bytes on missing or
   malformed sources, and applies shared physical sizing. `project/sourceBridge.ts` owns
@@ -198,9 +205,11 @@ Persistence invariants (all machine-checked — do not weaken):
   matching baselines. `.meta/figure-reference-update.json` retains originals/proposals until
   completion; load recovery refuses newer conflicting data. Never silently retarget a
   removed/ambiguous panel reference to a different panel.
-  **Open baseline defect (2026-09-05 review):** interpreting accepted legacy caption text
-  through the current panel topology can produce a false conflict after label deletion.
-  Accepted baseline comparisons must be independent of subsequent panel changes (review F06).
+  Accepted baselines retain both raw sidecar text and the canonical model caption. Compare
+  unchanged sidecar text before parsing with the current panel topology: panel deletion or
+  relabeling does not invent an external edit. Preserve orphaned caption blocks. Both engines
+  recheck actual sidecar edits before saving; Paper retains its own project-scoped accepted
+  baseline. Unreadable sidecars are errors, never equivalent to missing files.
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -308,7 +317,32 @@ Persistence invariants (all machine-checked — do not weaken):
   on `${figureRev[id]}|${globalRev}|…` and memoizes in **non-reactive `const` boxes**.
 - Mutations go through `commit`/`mutate`/`mutateFigure` in `src/lib/store.ts`; gestures are
   `beginGesture` → transient preview → one commit on release. Undo history is byte-budgeted
-  (64MB / 200 entries).
+  (64MB / 200 entries). `beginGesture` returns an owned checkpoint: cancellation restores
+  its prior redo/dirty state and cannot pop another edit. `editSession.ts` coalesces property,
+  color, text, arrange and cascade previews; finish removes a no-op, Escape restores baseline.
+  Numeric pointer mechanics (`scrub.ts`) do not own project history. Gap/Scale% are local
+  parameters. Resizing derives proportions from original dimensions and retains fractional
+  precision; pixel snapping is an explicit geometry policy.
+- **Figure selection and direct manipulation:** pass the selection Set explicitly into legacy
+  reactive blocks; function-hidden store reads do not create Svelte dependencies. The shared
+  `selectionTargets.ts` resolves visibility, ancestor locks and capability exclusions. A mixed
+  lock selection’s geometry/handles describe exactly its editable subset. `elementProperties.ts`
+  shares numeric applicability, units, ranges and setters between Inspector/F menu; paths and
+  lines do not accept a box width/height write without changing their geometry.
+- **Scene transforms:** `sceneTransforms.ts` updates only active drag/rotation wrappers. Culling
+  depends on selection/model/viewport and a moving **figure**, not every element gesture phase;
+  invalidating all keyed Elements on first drag costs a full scene update. Frame resize previews
+  only the boundary and Inspector dimensions, then `ops.resizeFigureFrame` commits once. Its
+  pure operation offsets elements/guides oppositely to origin changes, preserving world position,
+  physical size, hidden/out-of-bounds artwork, assets and references. CLI/MCP/live bridge expose
+  `resize_figure_frame`; the live bridge refuses it in Slide mode (stage size belongs to the deck).
+- **Figure export jobs:** resolve SVG/plot DOM/assets and dimensions before any dialog await.
+  Preserve Chromium’s established SVG canvas rasterizer; transfer an ImageBitmap to
+  `figure/raster.worker.ts` for readback/TIFF/PNG encoding, with cancellation and bounded
+  allocations. Do not silently reduce DPI. Alpha coverage is exact; bitmap premultiplication can
+  differ by one 8-bit color rounding unit. Electron `printToPDF` custom sizes are **inches**,
+  unlike `webContents.print` microns. Serialized hidden-window printing includes awaited cleanup
+  and atomic output writes. The native Figure gate verifies physical PDF MediaBox dimensions.
 - **External-reload contract (2026-08-14):** an agent/CLI edit to `fig/` that live-reloads a
   clean editor (W10) — or the banner's "Reload theirs" — must land IN PLACE: the user's active
   canvas/figure/selection are preserved wherever their ids survive (first-canvas fallback only
@@ -478,10 +512,11 @@ Persistence invariants (all machine-checked — do not weaken):
   exclusive residents — `paneStore` denies side-by-side panes, mode mounts
   flush+evict the other (`evictMode`), and the bridges hard-assert the tenant
   (`src/lib/tenancy.ts`) so a wrong-folder autosave is structurally impossible.
-  **Open preservation defect (2026-09-05 review):** the mounts still evict after a failed
-  flush, discarding dirty content/history. The wrong-tenant guard does not prevent that loss.
-  Handoff must verify durable save success before eviction; fault-injection acceptance is
-  required in addition to the happy-path tenancy gate (`FIGURE_POLISH_REVIEW.md` F01).
+  `editorHandoff.ts` serializes the complete initialization, settles pending gestures, checks
+  `flushByIdChecked`, and only then evicts/transfers the store. A swallowed autosave error still
+  counts as failure when the subsystem remains dirty. Restore the requesting pane on failure;
+  preserve outgoing edits/history/selection/viewport. Stale or slow candidates cannot steal a
+  later request. Acceptance includes injected failures, rapid switches and delayed deck reads.
   EXPLICIT EDIT DESTINATIONS (2026-09-05 overhaul): **Design** edits authored initial
   properties; **Edit after step N** creates/edits that step's sparse Change endpoint, never
   an earlier governing track. `registerEditorTransactionAdapter` wraps deliberate commits
@@ -638,9 +673,11 @@ Rules of practice:
    it hides is a bug: make the operation fast, then shrink or delete the delay. (Case in point:
    the library search debounce sat at 150ms while the scan it was protecting cost ~25ms.)
 3. **Dev-mode numbers are the worst case** (§9, measurement traps): production strips Svelte dev
-   tracing. Until a production perf harness exists (`window.__flux` is dev-only — building a
-   packaged-build equivalent is a wanted item), scale gates budget ratios and structure; treat a
-   dev-mode reading over 100ms as a flag to investigate, not automatically a failure.
+   tracing. Figure dev gates budget ratios and structure; a reading over 100ms requires
+   investigation. `verify-figure-polish-electron.cjs` boots the production bundle with real
+   native input, preload and isolated disk fixtures (no `window.__flux`) and gates key-to-paint
+   at ≤100ms for 1,600/5,000 objects. It also exercises frame drag/save/undo and PNG/SVG/PDF
+   export. Build first; no installer packaging or real user project is needed.
 
 Standing status (dev-mode, scale fixtures, as of 2026-07-13) — instantaneous class is green:
 paper keystroke @20k lines 5ms sync / 34ms paint p95, undo ~1ms, figure pan 16–47ms, library
@@ -698,7 +735,10 @@ Node 22 installation is under `~/.local/node22/bin`, while other machines may us
 Browser probes use `FLUX_CHROME` or default to `/usr/bin/google-chrome`; on macOS/Windows,
 set `FLUX_CHROME` to an installed Chrome executable. Three slide scripts in the `pure`
 tier also use this driver to inspect exported HTML, so they need that executable even
-though they do not need the dev server.
+though they do not need the dev server. Stock Chrome for Testing is also supported. During the
+Figure polish run, Brave's idle and playing rAF p95 both read 17.7ms; stock Chrome measured
+16.8ms playback on the same fixtures and passed the unchanged gate. Record the browser and
+idle clock control when diagnosing sub-millisecond frame failures.
 Set `FLUX_HEADFUL=1` to measure compositor timing against the real display. Keep the same
 performance budgets: a headless clock whose idle p95 already exceeds 17ms is not evidence
 that the animation itself takes 17ms. Record that control and use a real display run;
@@ -770,7 +810,8 @@ chord or label changes, grep `docs/` for the old one.
   selection rectangle regressed when an inline `$selection` filter became `selectedEls(fig)`
   inside the reactive expression. Pass selection/presentation inputs explicitly. Verify a
   selection-only change and deselection against the painted overlay, without a no-op model
-  mutation that would accidentally trigger recomputation. Review F03 remains unimplemented.
+  mutation that would accidentally trigger recomputation. F03 is fixed and gated by
+  `verify-figure-editing-gui.mjs`.
 
 **Svelte 5 legacy syntax:**
 
@@ -793,8 +834,10 @@ days (probe geometry like `width` instead).
 
 - Dev-mode Svelte tracing (`get_stack`) costs ~2 frames/commit at 1600 elements and is **absent in
   production**. Never chase dev-only overhead; the gates use ratio-to-control + structural budgets
-  for exactly this reason. `window.__flux` is DEV-only, so headless gates can only drive dev
-  builds — production numbers need a different harness (nobody has built one yet).
+  for exactly this reason. `window.__flux` is DEV-only. Production Figure measurements use
+  `verify-figure-polish-electron.cjs`: a disposable on-disk project, the built `file://`
+  renderer and actual native input/preload, without the dev handle. It also checks frame
+  resizing, autosave/undo, physical SVG/PNG/PDF exports and minimum-width controls.
 - **Load contention fakes regressions.** A scale gate read 4.49× under load-57 (parallel agents)
   and 3.32× quiet. Check `uptime` before believing a perf failure; kill orphaned tsx children
   (delegated agents leak them: `pgrep -f "tsx/dist/preflight"`).
@@ -962,14 +1005,14 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
-- **Active Figure polish findings (2026-09-05; defects, not deliberate deferrals):**
-  `docs/FIGURE_POLISH_REVIEW.md` records the review/implementation plan, including persistence,
-  selection, history, property-entry and frame-resize work. No application fixes landed in
-  the review session. Baseline: check 0/0, pure 198/198, selected UI 69/80; Figure drag ratio
-  and normal/dense Slides playback frame gates failed. Preserve the published budgets and
-  distinguish stale test assumptions from product defects. Lazy-residency scale passed.
-  Repeated runtime `state_proxy_equality_mismatch` warnings also remain to be traced; the
-  typecheck's 0 warnings and the browser driver's page-error count do not cover them.
+- **Figure polish (2026-09-06):** implemented preservation, selection/history, shared properties,
+  frame resizing, layout/focus, raster-worker and native PDF fixes. Review/evidence and remaining
+  validation limits live in `docs/FIGURE_POLISH_REVIEW.md`. Preserve the existing gates.
+  The repeated development `state_proxy_equality_mismatch` warning was traced to PDF.js legacy
+  core-js `[, 1].includes(undefined, 1)` feature checks: Svelte’s diagnostic Array.includes
+  wrapper ignores `fromIndex` in its secondary search. This is a dev-only upstream false
+  positive, not an editor identity comparison. Do not globally suppress warnings or change the
+  Reader’s PDF.js compatibility build solely to hide it. Native production has no such warning.
 
 - **WS-11 plot render-detail budget** and the **figure spatial index**: evaluated against
   measurements and NOT built (triggers recorded 2026-07-11; blueprints live in
@@ -4069,3 +4112,40 @@ retained as measured findings.
   write prevention alone does not preserve unsaved content.
 - Save compatibility requires reopening compositions as well as comparing asset bytes;
   migration output and load validation must accept the same legacy identities.
+
+### 2026-09-06 00:39 CDT — Implement Figure polish and native verification (Codex, `codex/figures-slides-overhaul`)
+
+**Work:** Implemented all thirteen approved review findings and direct frame-edge/corner
+resizing (`e9daa23`). Shared edit checkpoints, target/property helpers and pointer lifecycles
+fix selection, locks, cancellation, one-step history and resizing in Figure/Slides. Guarded
+failed-save handoff and incomplete/legacy loads; reconciled caption snapshots independently
+of label topology. Reorganized Inspector/Layers/toolbar/catalog, scoped transient scene
+transforms, moved raster encoding/readback to a worker, and corrected native PDF page units.
+Native testing also exposed and fixed unscheduled edits during in-flight autosave. Frame
+resizing uses the same pure operation through GUI, CLI, MCP and live commands; Slides keeps
+its deck-wide stage. Updated Figure user docs and the completed review ledger.
+
+**Verification:** Check 0/0, production build, pure 200/200, selected Figure/Slides scripts
+85/85 across sweep/follow-up, final focused GUI 4/4, Paper gate 42/42, bundle/startup 4/4,
+registry/headless save parity, docs 156 checks and native source watching 35/35 pass. Native
+production input actually moves selected objects: p95 31.9ms at 1600 objects / 34.8ms in the
+5000-object fixture, 47 mounted Layers rows. Figure drag p95 5.4ms (review: 93.4ms), zero
+per-move model commits. Normal/dense Slides playback both 16.8ms p95 against unchanged 17ms.
+190mm/1200dpi TIFF (8976×6732, 181MB) completes around 0.6s with zero main-thread long tasks;
+cancellation/retry and actual native SVG/PNG/PDF files, physical PDF size, frame autosave
+and Undo pass. Native fixtures isolate config/project and substitute only the OS save-dialog
+destination. The real library changed concurrently while another Flux instance was running;
+no library rollback was attempted or unchanged-library claim made.
+
+**Learnings:**
+- An already-true boolean dirty store emits no second notification. A successful save that
+  leaves dirty must schedule its own trailing save; the regression must omit a second explicit
+  schedule call. This rule is promoted to the persistence section above.
+- Stateful dev test imports can fork singleton modules when Vite has added HMR query stamps.
+  Test active property previews through the mounted control and real pointer events.
+- Keep timing/startup tests isolated: Brave's idle clock explained its playback overrun;
+  concurrent browser work let idle prefetch enter a Home payload snapshot. Stock Chrome's
+  playback and quiet Home payload (707.3KB < 800KB) pass without budget changes. Native paint
+  tests keep the disposable window visible because macOS suspends rAF when fully occluded.
+- Production file/preload checks found the PDF inches/microns error and the autosave race that
+  browser-only presence checks missed. Physical page dimensions and durable Undo are now gated.
