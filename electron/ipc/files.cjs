@@ -36,7 +36,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
   }
 
   let atomicSeq = 0;
-  async function atomicWriteMain(p, data) {
+  async function atomicWriteMain(p, data, createOnly = false) {
     const dir = path.dirname(p);
     await fs.promises.mkdir(dir, { recursive: true });
     const tmp = path.join(dir, `.${path.basename(p)}.tmp-${process.pid}-${++atomicSeq}`);
@@ -49,7 +49,10 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
       await fh.close();
     }
     try {
-      await fs.promises.rename(tmp, p);
+      if (createOnly) {
+        await fs.promises.link(tmp, p); // atomic no-clobber publication
+        await fs.promises.unlink(tmp);
+      } else await fs.promises.rename(tmp, p);
       // SHL-10: refresh the self-write TTL at COMPLETION. The watcher's
       // awaitWriteFinish only fires ≥250ms after the last write, so a large/slow
       // write (e.g. the ~12MB enrich.json) could otherwise outlive the TTL set at
@@ -168,10 +171,10 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
       fsReadGuard(p, e.sender.id);
       return fs.promises.readFile(p, "utf8");
     });
-    ipc.handle("fs:writeText", async (e, p, text) => {
+    ipc.handle("fs:writeText", async (e, p, text, options) => {
       fsGuard(p, e.sender.id);
       noteWrite(p);
-      await atomicWriteMain(p, Buffer.from(String(text), "utf8"));
+      await atomicWriteMain(p, Buffer.from(String(text), "utf8"), options?.createOnly === true);
     });
     // The feedback ledger is APPEND-only (event-sourced NDJSON): O_APPEND keeps
     // concurrent writers safe (the app adding notes while an agent appends

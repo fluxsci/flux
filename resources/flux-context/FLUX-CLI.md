@@ -17,7 +17,7 @@ result. This file is the orientation; the full references are siblings — `WORK
 
 ## The project at a glance
 
-`project.json` (the map — read it first) · `manuscript/**.qmd` (prose; text is truth) ·
+`project.json` (the map — read it first) · `paper/**.qmd` (legacy `manuscript/` also works) (prose; text is truth) ·
 `plots/` (your analysis output lands here: SVG + `.fluxplot.json` manifest + recipe) ·
 `fig/` (app-managed figures — never hand-edit; use verbs) · `references/library.bib` ·
 `slides/<deck>/deck.json` · `Context/` (the agent context layer — see `README.md` here) ·
@@ -44,7 +44,7 @@ with `add-comment --quote "…" --body "…"`.
 ## Rules that always apply
 
 - Never hand-edit `fig/**` or generated/derived files; author plots in `plots/`, prose in
-  `manuscript/`, refs in the `.bib`.
+  `paper/` (legacy `manuscript/` remains supported), refs in the `.bib`.
 - Byte-discipline: use the verbs where they exist — they hold locks, journal, and keep the
   open app consistent.
 - `deferred: … is locked` = the user is mid-edit in the app; wait and retry.

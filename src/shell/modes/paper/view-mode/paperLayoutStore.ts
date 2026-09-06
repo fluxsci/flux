@@ -9,6 +9,8 @@ import { writable } from "svelte/store";
 
 export interface PaperLayout {
   outlinerOpen: boolean;
+  sidebarView: "both" | "files" | "outline";
+  filesFraction: number;
   /** Outliner (left rail) width in px. */
   outlinerW: number;
   /** Left gutter as a fraction [0,1] of the editor-column width; null = centered default. */
@@ -30,7 +32,9 @@ const KEY = "flux.paper.layout";
 // then persists, so returning users keep whatever they last set.
 const DEFAULTS: PaperLayout = {
   outlinerOpen: true,
-  outlinerW: 224,
+  outlinerW: 280,
+  sidebarView: "both",
+  filesFraction: .5,
   gutterL: null,
   gutterR: null,
   dynMarginOpen: true,
@@ -41,7 +45,12 @@ const DEFAULTS: PaperLayout = {
 function load(): PaperLayout {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<PaperLayout>) };
+    if (raw) {
+      const old = JSON.parse(raw) as Partial<PaperLayout>;
+      // The old default rail was 224px. Preserve explicitly resized widths.
+      if (!old.sidebarView && old.outlinerW === 224) old.outlinerW = 280;
+      return { ...DEFAULTS, ...old };
+    }
   } catch {
     /* ignore */
   }

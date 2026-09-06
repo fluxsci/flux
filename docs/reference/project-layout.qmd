@@ -8,9 +8,10 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 ```
 <project>/
 ├── project.json                 # the map: title, authors, documents, figures, references
-├── manuscript/                  # YOURS — the prose (source of truth)
-│   ├── main.qmd                 #   the main manuscript (Quarto markdown)
-│   └── comments.json            #   margin-comment threads (a sidecar — never inside the .qmd)
+├── paper/                       # YOURS — documents and arbitrary nested folders
+│   ├── notes.qmd                #   a starter document; no required main.qmd
+│   ├── notes.comments.json      #   its margin-comment threads
+│   └── _quarto.yml              #   shared export settings
 ├── plots/                       # YOURS — analysis output lands here, any structure you like
 │   ├── growth.{svg,fluxplot.json,recipe.json}   # a semantic plot + manifest + recipe
 │   ├── _dissections/growth/     #   growth's companion material (per-subject panels, stats CSVs)
@@ -39,7 +40,7 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 
 | Kind | Paths | Rule |
 |---|---|---|
-| **Yours — edit freely** | `manuscript/**.qmd`, `plots/`, `references/library.bib` | Source of truth. Edit in Flux, another editor, or a script — all equivalent. |
+| **Yours — edit freely** | `paper/**.qmd` (legacy: `manuscript/`), `plots/`, `references/library.bib` | Source of truth. Edit in Flux, another editor, or a script — all equivalent. |
 | **Co-owned with agents** | `Context/` | Mission and rules are shared; `NOTEBOOK.md` is the agent's memory — read and comment rather than rewrite. |
 | **App-managed** | `fig/`, `slides/` | Readable JSON, but change it through the app or [`flux` commands](cli.qmd) so indexes and captions stay coherent. |
 | **Derived** | `fig/renders/`, `exports/`, caches | Rebuildable output. Safe to ignore in backups and version control. |
@@ -55,9 +56,13 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
   version, while conflicting edits are preserved and reported instead of silently replacing
   one another. `.meta/figure-reference-update.json`, when present, protects an interrupted
   panel-reference rewrite until recovery finishes.
-- **Comments live beside documents, never in them.** The main manuscript's threads are
-  `manuscript/comments.json`; any other document's are `<name>.comments.json` next to it. Your
-  `.qmd` prose stays clean.
+- **Comments live beside documents, never in them.** New documents use
+  `<name>.comments.json`. A legacy main manuscript retains its historical `comments.json`.
+  Moving a document in Paper moves its comments too.
+- **Older layouts remain supported.** `manuscript/` is discovered alongside `paper/`; Flux
+  never renames an existing project folder automatically. New manifests name `documentRoot`
+  as `paper` and retain `manuscript.path` as a default export pointer for compatibility.
+  That pointer may be empty when all ordinary documents have been deleted.
 - **`plots/` is a drop-zone with no imposed structure** — organize it however your analysis
   does. Flux only reads it, copying what you compose into `fig/assets/`. See
   [semantic plots](../concepts/semantic-plots.qmd) for the three-file contract. Two

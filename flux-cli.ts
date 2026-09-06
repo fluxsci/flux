@@ -113,8 +113,10 @@ usage: flux <verb> [root] [args] [--flags]
   manuscript [--root R] [--doc rel]    print a manuscript document (.qmd)
   set-manuscript [--root R] [--doc rel] <text…|--file f>   overwrite a document
   docs [--root R]                      list the project's documents
-  new-doc <name…> [--root R]           create a new document
-  delete-doc <path> [--root R]         delete a document (main manuscript + Context docs refused)
+  new-doc <name…> [--folder DIR] [--root R]  create a new document
+  new-doc-folder <parent> <name…> [--root R]  create a document folder
+  move-doc <path> <folder> [--root R]   move a document and its comments
+  delete-doc <path> [--root R]         delete a document (legacy main + standard Context docs protected)
   ref <figId> [--root R] [--doc rel]   append a @fig cross-reference
   cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
   search <query…>                      search FluxLib (e.g. author:smith year:2020)

@@ -34,8 +34,7 @@ const uuid = () =>
 
 /** Directories created for every new project (relative to root). */
 const DIRS = [
-  "manuscript",
-  "manuscript/sections",
+  "paper",
   "supplementary",
   "plots",
   "fig",
@@ -67,10 +66,11 @@ function buildManifest(opts: ScaffoldOptions): ProjectManifest {
     modified: now,
     authors: opts.author ? [{ name: opts.author, orcid: null, email: null }] : [],
     manuscript: {
-      path: "manuscript/main.qmd",
-      config: "manuscript/_quarto.yml",
+      path: "paper/notes.qmd",
+      config: "paper/_quarto.yml",
       format: "quarto",
     },
+    documentRoot: "paper",
     supplementary: [],
     references: {
       library: "references/library.bib",
@@ -122,7 +122,7 @@ function readmeMd(opts: ScaffoldOptions): string {
 
 A Flux project. Open it in Flux, or work with the files directly.
 
-- \`manuscript/main.qmd\` — the manuscript
+- \`paper/notes.qmd\` — your first document (add and organize more in Paper)
 - \`plots/\` — drop your analysis plots here
 - \`fig/\` — figures (managed by the app)
 - \`references/library.bib\` — bibliography
@@ -221,8 +221,8 @@ export function buildScaffoldTree(opts: ScaffoldOptions, deck: Deck): ScaffoldTr
     ["AGENTS.md", agentsStubTemplate()],
     ["README.md", readmeMd(opts)],
     [".gitignore", GITIGNORE],
-    ["manuscript/main.qmd", mainQmd(opts)],
-    ["manuscript/_quarto.yml", QUARTO_YML],
+    ["paper/notes.qmd", mainQmd(opts)],
+    ["paper/_quarto.yml", QUARTO_YML],
     ["references/library.bib", PROJECT_BIB_HEADER],
     ["fig/index.json", figIndex()],
     ["fig/canvases/canvas-1.json", figCanvas()],

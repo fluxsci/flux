@@ -314,7 +314,7 @@ export async function listProject(root: string): Promise<{
     documents: [
       manifest.manuscript.path,
       ...(manifest.supplementary ?? []).map((s) => s.path),
-    ],
+    ].filter(Boolean),
     figures: (index?.figures ?? []).map((f) => ({
       id: f.id,
       label: f.label,

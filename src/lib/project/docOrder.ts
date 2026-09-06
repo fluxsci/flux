@@ -35,6 +35,7 @@ export interface DocRow {
   /** project-relative, e.g. "manuscript/main.qmd" */
   path: string;
   title: string;
+  /** Protected historical main role. New-project documents are ordinary rows. */
   isMain: boolean;
   /** Lives under Context/ — its own group, listed last. */
   isContext?: boolean;
@@ -133,8 +134,8 @@ export interface RemovalBlocker {
  * Whether `rel` may be deleted: null when it may, otherwise why not. Policy,
  * so it lives here for both the rail (which hides the × on such rows) and the
  * `delete_document` verb (which refuses with the same words):
- *  - the main manuscript is the project's identity — the manifest requires
- *    one, so it can't be deleted while it is main;
+ *  - a legacy main remains protected for compatibility; new projects have no
+ *    protected main role, only a replaceable default export pointer;
  *  - a Context document (mission / notebook / rules) is the project's agent
  *    layer and is seeded back on the next open, so deleting it is a no-op
  *    with extra steps;
@@ -144,7 +145,7 @@ export function documentRemovalBlocker(rows: readonly DocRow[], rel: string): Re
   const row = rows.find((r) => r.path === rel);
   if (!row) return { code: "unknown", reason: `${rel} is not a document of this project` };
   if (row.isMain) return { code: "main", reason: "The main manuscript can't be deleted" };
-  if (row.isContext)
+  if (CONTEXT_DOC_RELS.includes(rel))
     return {
       code: "context",
       reason: "Context documents belong to the project's agent layer and come back on the next open",
@@ -186,4 +187,10 @@ export function pruneDocumentFromManifest(
     changed = true;
   }
   return changed;
+}
+
+/** Legacy projects retain their historical main comments sidecar. New projects
+ * use document-named sidecars, independent of the default export pointer. */
+export function commentsMainPath(m: { documentRoot?: string; manuscript: { path: string } }): string {
+  return m.documentRoot ? "" : m.manuscript.path;
 }

@@ -86,6 +86,9 @@ export interface ProjectManifest {
   modified: string;
   authors: ProjectAuthor[];
   manuscript: ManuscriptRef;
+  /** Paper document root. New projects have ordinary, deletable documents;
+   * manuscript.path remains a compatible default export pointer, empty if none. */
+  documentRoot?: string;
   supplementary: { path: string }[];
   /** The user's order for the Paper rail's Documents list — project-relative
    *  paths, dragged into place there (src/lib/project/docOrder.ts). Optional and
@@ -155,7 +158,7 @@ export interface LiveBridge {
 // --- the file bridge (window.fig, from the Electron preload) -----------------
 export interface FileBridge {
   mkdir(p: string): Promise<void>;
-  writeText(p: string, text: string): Promise<void>;
+  writeText(p: string, text: string, options?: { createOnly?: boolean }): Promise<void>;
   readText(p: string): Promise<string>;
   readFile(p: string): Promise<ArrayBuffer>;
   writeFile(p: string, data: Uint8Array): Promise<void>;

@@ -12,9 +12,9 @@
 │   ├── RULES.md                 #   project rules (promoted from feedback)
 │   ├── Transcripts/             #   principal-session transcripts (machine-captured)
 │   └── Dispatches/              #   worker dispatch records (brief/log/result)
-├── manuscript/                  # USER-OWNED prose — source of truth
-│   ├── main.qmd                 #   the Quarto manuscript
-│   └── comments.json            #   the user's review comments (sidecar; see MANUSCRIPT-AND-REVIEW.md)
+├── paper/                  # USER-OWNED prose — source of truth
+│   ├── notes.qmd                 #   a starter document; no required main filename
+│   └── notes.comments.json      #   the user's review comments (sidecar; see MANUSCRIPT-AND-REVIEW.md)
 ├── plots/                       # USER-OWNED drop-zone — your fluxplot output lands here
 │   ├── growth.{svg,fluxplot.json,recipe.json}
 │   ├── _dissections/growth/     #   growth's companion material (see below) — NOT composable plots
@@ -33,7 +33,7 @@
 
 ## Ownership — what you edit vs. what you never touch
 
-- **Edit directly:** `manuscript/**.qmd`, `references/library.bib`, and **`plots/`** (via
+- **Edit directly:** `paper/**.qmd` (legacy `manuscript/` also works), `references/library.bib`, and **`plots/`** (via
   fluxplot). These are the source of truth.
 - **Never hand-edit `fig/`** — it's app-managed. Build figures through the verbs
   (`compose-figure`, `restyle`, …), which write `fig/` correctly and keep the index coherent.

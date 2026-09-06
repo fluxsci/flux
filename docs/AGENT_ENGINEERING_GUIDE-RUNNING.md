@@ -91,7 +91,7 @@ The established shared cores — extend these, don't duplicate them:
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
-| Document list ORDER (default sort + the user's `documentOrder`) + document REMOVAL policy/bookkeeping (what may be deleted, the comments-sidecar path, manifest pruning) | `src/lib/project/docOrder.ts` | `verify-doc-order.ts`, `verify-doc-delete.ts` |
+| Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
@@ -110,7 +110,7 @@ The established shared cores — extend these, don't duplicate them:
 
 ## 3. Data model and persistence invariants
 
-A project is a folder: `project.json` (manifest), `manuscript/**.qmd` (text is truth),
+A project is a folder: `project.json` (manifest), `paper/**.qmd` (text is truth; legacy `manuscript/` remains supported),
 `Context/` (the agent layer: `Project/MISSION.qmd` + `NOTEBOOK.md` + `RULES.md` are
 first-class paper documents — discovered by the Context scan in both listDocuments
 twins, comments sidecars derive beside them, watcher subsystem "context" rides the
@@ -260,7 +260,7 @@ Persistence invariants (all machine-checked — do not weaken):
 - **Document ORDER is the user's too, and it is a manifest field** (2026-08-20): the Paper
   rail's Documents list is dragged like the Figures list (or Alt+↑/↓ on a focused row) and the
   arrangement persists as `project.json` `documentOrder` — project-relative paths. The list is
-  a SCAN (main + supplementary + manuscript/** + Context/**), not a stored list, so the order
+  a recursive SCAN (registered paths + paper/** + manuscript/** + Context/**), not a stored list, so the order
   is a ranking, not the source of truth: `sortDocuments` ranks what the array names and falls
   back to the historical default (main first, then title; Context group last,
   mission→notebook→rules) for everything else, a path that no longer exists is ignored, and a
@@ -274,10 +274,14 @@ Persistence invariants (all machine-checked — do not weaken):
 - **Deleting a document removes exactly its .qmd and its comments sidecar, and the manifest
   forgets it** (2026-09-02): the Paper rail's × on a row (or Delete on a focused row, always
   confirmed first) and the `delete-doc` / `delete_document` verb are twins over the shared
-  policy in `docOrder.ts` — `documentRemovalBlocker` (the main manuscript and the Context
-  documents are refused: the manifest requires a main, and Context docs are re-seeded on the
-  next open by contextHeal, so the rail shows no × on those rows), `commentsSidecarRel` (the
-  ONE derivation of `comments.json` / `<base>.comments.json`, which both comments modules now
+  policy in `docOrder.ts` — `documentRemovalBlocker` protects legacy mains and exactly the
+  three standard Context documents. Custom Context documents are ordinary deletable files.
+  New projects have `documentRoot: "paper"` and start with `paper/notes.qmd`; no filename is
+  required or protected. `manuscript.path` remains the compatible default export pointer,
+  reassigned on deletion or empty after deleting the last document. `commentsMainPath`
+  selects historical comments.json only for legacy mains; new-project sidecars are always
+  document-named, so changing the default cannot reassign review threads. `commentsSidecarRel`
+  is the ONE sidecar derivation (which both comments modules
   call), and `pruneDocumentFromManifest` (`supplementary` + `documentOrder`). NOTHING ELSE
   MOVES: a document only references figures and citations, it owns none of them, so `fig/`,
   `references/` and every other document are byte-identical afterwards (both gates assert it
@@ -288,6 +292,16 @@ Persistence invariants (all machine-checked — do not weaken):
   editing is refused (its autosave would write it straight back). Gates:
   `verify-doc-delete.ts` (pure, also executes the CLI) + `verify-doc-delete-gui.mjs` (ui, in
   paper-gate).
+- **Paper file moves have a shared IO-independent core** (`documentFiles.ts`). Discovery
+  scans both paper/manuscript roots recursively, including empty folders, plus Context
+  without its Transcripts/Dispatches archives; sync leftovers stay excluded. Folder drops
+  move documents, comments and manifest registrations while adjusting Markdown destinations,
+  Quarto includes and common YAML file fields. Collisions refuse before writes; completed
+  writes roll back on IO failure. The GUI flushes the active editor/comments before moving,
+  changes its claimed path before further saves, and refuses moves with another Paper pane
+  open because incoming links may also change. Document code is never rewritten as a path.
+  The sidebar is Files/Outline, initially 280px wide and split equally; each section can be
+  hidden. Its tree is indexed before flattening and large lists mount a window of rows.
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
 - **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
   external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines
@@ -4198,3 +4212,19 @@ regressions must evict Figure through Slide before entering Paper. A watch test
 must resolve its deliberate Figure save conflict before asserting clean Slide
 reload; a blocked handoff is now correct behavior. Installer packaging and native
 Wayland were not exercised. Full local handoff: `notes/linux-main-review-2026-09-06.md`.
+
+### 2026-09-06 15:22 CDT — Paper folders and resizable document browser (Codex, `main`)
+
+**Work:** New projects use `paper/notes.qmd` with deletable ordinary documents and a
+compatible optional default pointer; legacy manuscript paths and review files stay intact.
+Added recursive folders, comment/link-preserving moves through shared GUI/CLI logic,
+collision-safe file creation, a larger Files/Outline sidebar with equal split and visibility
+controls, and a windowed file tree. Updated user and agent docs plus legacy fixtures.
+Check 0/0, build, pure 201/201, bundle/startup 4/4 and the final clean Paper sweep 43/43 pass; the new browser
+gate has 24 checks and the filesystem/IPC/CLI gate 39. At 5,000 documents fewer than 100
+rows mount; collapse/expand painted in at most 33.4ms. Evidence and limits are in
+`docs/PAPER_FILES_TESTING.md`.
+
+**Learnings:** Nested document support also requires bibliography and inserted figure paths
+to be document-relative. New-project sidecars must be independent of the default export
+pointer, or deletion/promotion can make reviews appear attached to the wrong document.

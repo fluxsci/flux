@@ -2,12 +2,13 @@
 
 ## Documents are Quarto `.qmd`
 
-The manuscript is `manuscript/main.qmd` (plus optional `supplementary/` and `sections/*.qmd`),
-plain Quarto markdown with YAML front-matter (title, `bibliography: ../references/library.bib`).
+Documents live under `paper/` in new projects (starting with deletable `notes.qmd`) or
+legacy `manuscript/`, with arbitrary nested folders. No `main.qmd` filename is required.
+They are plain Quarto markdown with YAML front-matter (title, `bibliography: ../references/library.bib`).
 **The `.qmd` is the source of truth** — edit it directly, or via the verbs:
 
 ```bash
-{{FLUX_CLI}} manuscript                 # read main.qmd (--doc for others)
+{{FLUX_CLI}} manuscript                 # read the default document (--doc for others)
 {{FLUX_CLI}} set-manuscript --file draft.md   # overwrite (holds the manuscript lock + journals)
 {{FLUX_CLI}} docs                       # list documents
 {{FLUX_CLI}} new-doc "Supplement"       # add one
@@ -40,8 +41,7 @@ clobbers their work). For big rewrites of hand-edited prose, prefer proposing th
 ## The review loop (read → address → resolve)
 
 This is how the user iterates with you. The user marks up the manuscript in the app; their
-comments persist to a **sidecar JSON beside the document** — `manuscript/comments.json` for the
-main doc, `<dir>/<base>.comments.json` for others — **never inside the `.qmd`**. Each thread:
+comments persist to a **sidecar JSON beside the document** — `<dir>/<base>.comments.json`; legacy mains retain `comments.json` — **never inside the `.qmd`**. Each thread:
 
 ```json
 { "id": "c…", "resolved": false,

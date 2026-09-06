@@ -7,7 +7,7 @@ import { withLock } from "./locks";
 import { loadManifest, safeJoin, exists, writeText } from "./model";
 import { listDocuments } from "./manuscript";
 import type { ProjectManifest } from "../src/lib/project/types";
-import { commentsSidecarRel } from "../src/lib/project/docOrder";
+import { commentsSidecarRel, commentsMainPath } from "../src/lib/project/docOrder";
 
 // --------------------------------------------------------------------------
 // Review comments (the human's margin comments). Threads live in a sibling
@@ -50,7 +50,7 @@ interface CommentsFile {
 function commentsRel(m: ProjectManifest, docRel?: string): string {
   // One derivation for both engines (docOrder.ts) — deleting a document
   // removes exactly the sidecar this wrote.
-  return commentsSidecarRel(m.manuscript.path, docRel ?? m.manuscript.path);
+  return commentsSidecarRel(commentsMainPath(m), docRel ?? m.manuscript.path);
 }
 
 /** Candidate sidecars for a document, in write-preference order. A document
@@ -60,8 +60,9 @@ function commentsRel(m: ProjectManifest, docRel?: string): string {
  *  existing review threads. */
 function commentsRels(m: ProjectManifest, docRel?: string): string[] {
   const mp = docRel ?? m.manuscript.path;
+  if (!mp) return [];
   const primary = commentsRel(m, mp);
-  if (mp !== m.manuscript.path) return [primary];
+  if (m.documentRoot || mp !== m.manuscript.path) return [primary];
   const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
   const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
   const named = dir ? `${dir}/${base}.comments.json` : `${base}.comments.json`;

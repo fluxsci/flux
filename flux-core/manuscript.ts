@@ -31,6 +31,7 @@ import { slugify } from "../src/lib/project/types";
 import { CONTEXT_PATHS } from "../src/lib/project/contextTemplates";
 import {
   commentsSidecarRel,
+  commentsMainPath,
   documentRemovalBlocker,
   pruneDocumentFromManifest,
   sortDocuments,
@@ -43,7 +44,11 @@ import { isConflictPath } from "../electron/conflictRules.js";
 // All file-level, mirroring src/lib/project/load.ts + paper/documents/documents.ts
 // over Node fs so an agent has the same reach as the GUI.
 // --------------------------------------------------------------------------
-const manuRel = (m: ProjectManifest, rel?: string) => rel ?? m.manuscript.path;
+const manuRel = (m: ProjectManifest, rel?: string) => {
+  const target = rel ?? m.manuscript.path;
+  if (!target) throw new ValidationError("This project has no default document. Create a document or specify --doc.");
+  return target;
+};
 
 /** read a manuscript document's text (defaults to the main .qmd). */
 export async function getManuscript(root: string, relPath?: string): Promise<string> {
@@ -62,87 +67,33 @@ export async function setManuscript(root: string, text: string, relPath?: string
   await journal(root, { action: "set_manuscript", target: rel });
 }
 
-/** Pull a title from a .qmd's YAML front-matter (mirrors documents.docTitle). */
-function docTitle(src: string, fallback: string): string {
-  if (src.startsWith("---")) {
-    const end = src.indexOf("\n---", 3);
-    if (end >= 0) {
-      const mm = /^title:[ \t]*(.+?)[ \t]*$/m.exec(src.slice(3, end));
-      if (mm) return mm[1].trim().replace(/^["']|["']$/g, "");
-    }
-  }
-  return fallback;
-}
-
-/** list the project's documents: main + supplementary + scanned manuscript/**.qmd
- *  + the Context docs (Context/ + Context/Project, .qmd AND .md — mirrors the
- *  GUI documents.listDocuments; Transcripts/Dispatches are not documents). */
-export async function listDocuments(
-  root: string,
-): Promise<{ path: string; title: string; isMain: boolean; isContext?: boolean }[]> {
-  const m = await loadManifest(root);
-  const mainPath = m.manuscript.path;
-  const rels = new Set<string>([mainPath]);
-  const contextRels = new Set<string>();
-  for (const s of m.supplementary ?? []) if (s.path) rels.add(s.path);
-  const dir = mainPath.includes("/") ? mainPath.slice(0, mainPath.lastIndexOf("/")) : "";
-  const scan = async (d: string, into: Set<string>, exts: string[]) => {
-    try {
-      for (const e of await fs.readdir(safeJoin(root, d), { withFileTypes: true }))
-        // A sync tool's `.sync-conflict-*` copy of main.qmd is not a document — it is an
-        // unresolved conflict, surfaced by its own banner (electron/conflictRules.js, the
-        // SAME module the watcher and the resolver load). Listing it here offered the user
-        // a second, silently diverging "document" to edit by mistake.
-        if (e.isFile() && exts.some((x) => e.name.endsWith(x)) && !isConflictPath(e.name))
-          into.add(d ? `${d}/${e.name}` : e.name);
-    } catch {
-      /* dir may not exist */
-    }
+import { discoverDocuments, createDocumentFile, createDocumentFolder, moveDocumentFile, type DocumentIO } from "../src/lib/project/documentFiles";
+function documentIO(root: string): DocumentIO {
+  return {
+    exists: rel => exists(safeJoin(root, rel)), read: rel => fs.readFile(safeJoin(root, rel), "utf8"),
+    write: (rel, text) => writeText(safeJoin(root, rel), text),
+    create: (rel, text) => atomicWrite(safeJoin(root, rel), text, true),
+    mkdir: async rel => { await fs.mkdir(safeJoin(root, rel), { recursive: true }); },
+    entries: async rel => (await fs.readdir(safeJoin(root, rel), { withFileTypes: true }))
+      .filter(e => e.isFile() || e.isDirectory()).map(e => ({ name: e.name, dir: e.isDirectory() })),
+    remove: rel => fs.rm(safeJoin(root, rel), { force: true }),
   };
-  await scan(dir, rels, [".qmd"]);
-  await scan(dir ? `${dir}/sections` : "sections", rels, [".qmd"]);
-  await scan(CONTEXT_PATHS.dir, contextRels, [".qmd", ".md"]);
-  await scan(CONTEXT_PATHS.projectDir, contextRels, [".qmd", ".md"]);
-  const out: { path: string; title: string; isMain: boolean; isContext?: boolean }[] = [];
-  const entryFor = async (rel: string, isContext: boolean) => {
-    const isMain = rel === mainPath;
-    let title = rel.slice(rel.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
-    try {
-      title = docTitle(await fs.readFile(safeJoin(root, rel), "utf8"), isMain ? m.title || title : title);
-    } catch {
-      /* keep filename title */
-    }
-    out.push({ path: rel, title, isMain, ...(isContext ? { isContext: true } : {}) });
-  };
-  for (const rel of rels) await entryFor(rel, false);
-  for (const rel of contextRels) await entryFor(rel, true);
-  // Order: the user's `documentOrder` (dragged in the Paper rail's Documents
-  // list) where it covers a document, the default otherwise. Decided in the
-  // shared core so this twin and the GUI can never list a project differently.
-  return sortDocuments(out, m.documentOrder);
 }
-
-/** create a new blank document (seeded front-matter), registered in the manifest. */
-export async function createDocument(root: string, name: string): Promise<{ path: string }> {
-  const m = await loadManifest(root);
-  const dir = m.manuscript.path.includes("/")
-    ? m.manuscript.path.slice(0, m.manuscript.path.lastIndexOf("/"))
-    : "";
-  const slug = slugify(name);
-  let rel = dir ? `${dir}/${slug}.qmd` : `${slug}.qmd`;
-  let n = 2;
-  while (await exists(safeJoin(root, rel))) {
-    rel = dir ? `${dir}/${slug}-${n}.qmd` : `${slug}-${n}.qmd`;
-    n++;
-  }
-  await writeText(safeJoin(root, rel), `---\ntitle: "${name.replace(/"/g, '\\"')}"\n---\n\n`);
-  m.supplementary = m.supplementary ?? [];
-  if (!m.supplementary.some((s) => s.path === rel)) {
-    m.supplementary.push({ path: rel });
-    await saveManifest(root, m);
-  }
+export async function listDocuments(root: string) { return (await discoverDocuments(await loadManifest(root), documentIO(root))).docs; }
+export async function createDocument(root: string, name: string, folder?: string): Promise<{ path: string }> {
+  const rel = await withLock(root, "manuscript", CLIENT, async () => createDocumentFile(await loadManifest(root), documentIO(root), name, folder));
   await journal(root, { action: "create_document", target: rel });
   return { path: rel };
+}
+export async function createFolder(root: string, parent: string, name: string): Promise<{ path: string }> {
+  const rel = await withLock(root, "manuscript", CLIENT, async () => createDocumentFolder(await loadManifest(root), documentIO(root), parent, name));
+  await journal(root, { action: "create_document_folder", target: rel });
+  return { path: rel };
+}
+export async function moveDocument(root: string, rel: string, folder: string) {
+  const result = await withLock(root, "manuscript", CLIENT, async () => moveDocumentFile(await loadManifest(root), documentIO(root), rel, folder));
+  await journal(root, { action: "move_document", target: rel, destination: result.path });
+  return result;
 }
 
 /** delete a document from the project: its .qmd and its comments sidecar are
@@ -153,20 +104,24 @@ export async function createDocument(root: string, name: string): Promise<{ path
  *  document are untouched: a document only REFERENCES them. */
 export async function deleteDocument(root: string, rel: string): Promise<{ path: string; removed: string[] }> {
   const m = await loadManifest(root);
-  const blocker = documentRemovalBlocker(await listDocuments(root), rel);
+  const rows = await listDocuments(root);
+  const blocker = documentRemovalBlocker(rows, rel);
   if (blocker) {
     if (blocker.code === "unknown") throw new NotFoundError(blocker.reason);
     throw new ValidationError(blocker.reason);
   }
   const removed: string[] = [];
   await withLock(root, "manuscript", CLIENT, async () => {
-    for (const r of [rel, commentsSidecarRel(m.manuscript.path, rel)]) {
+    for (const r of [rel, commentsSidecarRel(commentsMainPath(m), rel)]) {
       const abs = safeJoin(root, r);
       if (!(await exists(abs))) continue;
       await fs.rm(abs, { force: true });
       removed.push(r);
     }
-    if (pruneDocumentFromManifest(m, rel)) await saveManifest(root, m);
+    const pruned = pruneDocumentFromManifest(m, rel);
+    const changedDefault = !!m.documentRoot && m.manuscript.path === rel;
+    if (changedDefault) m.manuscript.path = rows.find(d => d.path !== rel && !d.isContext)?.path ?? "";
+    if (pruned || changedDefault) await saveManifest(root, m);
   });
   await journal(root, { action: "delete_document", target: rel });
   return { path: rel, removed };
@@ -227,7 +182,7 @@ export async function normalizeEmbeds(root: string): Promise<{ files: { path: st
   const labels = new Set((index.figures ?? []).map((f) => f.label));
   const seen = new Set<string>();
   const all: string[] = [];
-  for (const docPath of [m.manuscript.path, ...(m.supplementary ?? []).map((s) => s.path)]) {
+  for (const docPath of [m.manuscript.path, ...(m.supplementary ?? []).map((s) => s.path)].filter(Boolean)) {
     const { files } = await readExpandedQmd(path.resolve(root, docPath), seen);
     all.push(...files);
   }
@@ -294,6 +249,7 @@ export async function compile(
   );
   // Figures embed as ../fig/renders/<id>.svg — materialize them so a bare quarto
   // render (agent/CI, no app open) gets real images instead of broken links.
+  manuRel(m);
   const renders = await materializeRenders(root, m.manuscript.path);
 
   // Bare-quarto parity transform, applied IN PLACE and restored after the

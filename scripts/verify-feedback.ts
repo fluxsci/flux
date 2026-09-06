@@ -5,6 +5,7 @@
 // resolve/send + journaling), event-sourced append-only discipline (torn lines
 // tolerated, resolves never rewrite), and add_comment anchoring (unique quote,
 // ambiguity, --at, prefix/suffix, GUI-shape sidecar).
+import { legacyPaperFixture } from "./lib/legacyPaperFixture";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -21,6 +22,7 @@ const shared = await import("../src/lib/project/feedback");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "verify-feedback-"));
 try {
   await core.scaffold(root, { title: "Feedback Gate" });
+  await legacyPaperFixture(root);
 
   // --- shared core: fold/find ------------------------------------------------
   {

@@ -67,7 +67,9 @@ export async function loadProject(root: string): Promise<LoadedProject> {
 export async function readManuscript(p: LoadedProject, relPath?: string): Promise<string> {
   const fig = fileBridge();
   if (!fig) return "";
-  const path = joinPath(p.root, relPath ?? p.manifest.manuscript.path);
+  const rel = relPath ?? p.manifest.manuscript.path;
+  if (!rel) return "";
+  const path = joinPath(p.root, rel);
   try {
     if (await fig.exists(path)) return await fig.readText(path);
   } catch {
@@ -84,6 +86,7 @@ export async function writeManuscript(
   const fig = fileBridge();
   if (!fig) return;
   const rel = relPath ?? p.manifest.manuscript.path;
+  if (!rel) throw new Error("Create a document before writing.");
   await fig.writeText(joinPath(p.root, rel), text);
   // WS6: provenance for the human's manuscript save (Electron only).
   const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;

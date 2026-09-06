@@ -14,8 +14,12 @@ open you can also read its live UI state and act on the human's current selectio
 3. `flux list` — figures + references at a glance.
 
 ## Layout & ownership
-- `manuscript/` — user-owned text (Quarto/markdown). `main.qmd` is the main
-  manuscript; extra `.qmd` are more documents. `supplementary/` — supplementary text.
+- `paper/` — user-owned documents and arbitrary nested folders, starting with
+  `notes.qmd`. No `main.qmd` filename is required. Legacy `manuscript/` trees remain
+  supported and are never automatically renamed. Both are scanned recursively, as is
+  Context (excluding Transcripts/Dispatches archives). New manifests use `documentRoot`
+  and keep `manuscript.path` as an ordinary default export pointer, empty when no documents
+  remain. New-project comments are document-named; legacy main comments retain comments.json.
 - `Context/` — the agent context layer (see above). `NOTEBOOK.md` is agent-owned;
   `MISSION.qmd` and `RULES.md` are co-owned with the user; `Transcripts/` is
   machine-captured and append-only. Session-log entries in `NOTEBOOK.md` go through
@@ -84,7 +88,9 @@ BibTeX/RIS, with Zotero PDF attachments), `fetch-pdfs` / `ingest-pdf` (store a P
 
 **Manuscript / refs:** `manuscript` / `get_manuscript`, `set-manuscript` /
 `set_manuscript`, `docs` / `list_documents`, `new-doc` / `create_document`,
-`delete-doc <path>` / `delete_document` (main + Context refused; figures untouched),
+`new-doc-folder <parent> <name>` / `create_document_folder`,
+`move-doc <path> <folder>` / `move_document`,
+`delete-doc <path>` / `delete_document` (legacy main + standard Context files protected; figures untouched),
 `ref <fig>` / `insert_figure_ref`, `add-reference` / `add_reference`,
 `cite-doi <doi>` / `cite_doi`, `render-figures` (materialize fig/renders/ for bare
 quarto), `compile [--to pdf|html|docx]` / `compile`.
@@ -95,8 +101,8 @@ comments (each thread's `anchor.quote` is the exact text it targets);
 *after* addressing it; `add-comment` / `add_comment` — open a thread yourself (for
 questions back to the human). `feedback` / `list_feedback` + `resolve-feedback` /
 `resolve_feedback` — the context-stamped feedback ledger; `send` marks a review-pass
-boundary. Threads live in `manuscript/comments.json` (main doc) or
-`<base>.comments.json` beside other docs — never in the `.qmd`.
+boundary. Threads live in `<base>.comments.json` beside each document; legacy mains retain
+`manuscript/comments.json` — never in the `.qmd`.
 
 **See / verify:** `render-figure <id> [--png]` / `get_figure_image` (returns a PNG so
 a vision agent can SEE its work, overrides baked in). `validate` / `validate_project`

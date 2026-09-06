@@ -69,7 +69,8 @@ export function createMemBridge(): FileBridge & {
     async mkdir(p) {
       addDir(p);
     },
-    async writeText(p, text) {
+    async writeText(p, text, options) {
+      if (options?.createOnly && (files.has(norm(p)) || dirs.has(norm(p)))) throw new Error(`EEXIST: ${p}`);
       ensureParent(p);
       files.set(norm(p), enc.encode(text));
     },
@@ -116,6 +117,7 @@ export function createMemBridge(): FileBridge & {
     },
     async remove(p) {
       files.delete(norm(p));
+      dirs.delete(norm(p));
     },
     async trash(p) {
       // The fixture has no OS trash: a plain remove, reported as such.
@@ -509,6 +511,13 @@ export async function installDemoFixture(): Promise<string> {
   // then enrich it with sample content so the two-module workflow is exercised.
   await scaffoldProject(ROOT, { title: "Mycelial growth under nutrient stress", author: "Kort Driessen" });
 
+  const legacyManifest = JSON.parse(await bridge.readText(joinPath(ROOT, "project.json")));
+  delete legacyManifest.documentRoot;
+  legacyManifest.manuscript = { path: "manuscript/main.qmd", config: "manuscript/_quarto.yml", format: "quarto" };
+  await bridge.writeText(joinPath(ROOT, "project.json"), JSON.stringify(legacyManifest, null, 2) + "\n");
+  await bridge.remove?.(joinPath(ROOT, "paper/notes.qmd"));
+  await bridge.remove?.(joinPath(ROOT, "paper/_quarto.yml"));
+  await bridge.remove?.(joinPath(ROOT, "paper"));
   await bridge.writeText(joinPath(ROOT, "manuscript/main.qmd"), MAIN_QMD);
   await bridge.writeText(
     joinPath(ROOT, "manuscript/supp.qmd"),

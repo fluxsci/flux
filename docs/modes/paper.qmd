@@ -1,6 +1,6 @@
 ---
 title: "Paper"
-subtitle: "The manuscript editor — clean, fast writing where citations and figures take care of themselves"
+subtitle: "Documents, notes, and drafts — fast writing with citations and figures"
 ---
 
 Paper is where you write. Your document is plain text with light formatting — headings,
@@ -14,23 +14,37 @@ text stays honest.
 - **The title pill** above the text shows the title and authors; click it to edit them (they're
   stored as the document's front matter). The small dot on the pill is the autosave
   indicator — you never save by hand.
-- **Alt+O** toggles the left rail: the **Outline** (click a heading to jump) and the
-  **Documents** picker — a project can hold several manuscripts (the main one wears a *main*
-  badge, **+ New document** adds more), plus the *Context* group where your
-  [agent's mission, notebook, and rules](../agents/collaboration.qmd) open as ordinary
-  documents.
-- **Drag a document's row up or down the list to reorder it** — the list order is yours, so
-  chapters and sections can sit in reading order instead of alphabetical. **Alt+↑** /
-  **Alt+↓** does the same once a row has keyboard focus. This changes the *order of the list
-  only*: nothing is renamed and no file moves on disk, the document you are editing stays
-  open, and a *Context* row reorders within its own group. Your order is saved with the
-  project, so the CLI and your agent list the documents the same way you see them.
-- **Delete a document** with the **×** that appears at the right of its row when you hover
-  it (or press **Delete** with the row focused), then confirm. The file and its comments leave
-  the project — to your system's trash, where there is one — and the project forgets it. The
-  figures and references it used stay exactly as they are: a document only *refers* to them,
-  it owns none of them. The main manuscript and the *Context* documents can't be deleted, so
-  their rows have no ×. If the document was open, the editor moves to the main manuscript.
+- **Alt+O** toggles the left sidebar. **Files** and **Outline** each start with half its
+  height. Drag their divider to resize them, or double-click it to restore the equal split.
+  With the divider focused, **↑** / **↓** resize and **Home** resets. Click **Files** or
+  **Outline** at the top to hide that section; the other takes the full height. Click again
+  to bring it back. Drag the sidebar's right edge to change its width.
+- **Documents** and **Context** are collapsible folders. Click a folder's arrow to expand or
+  collapse it. Use its **+** to create a document inside it, or its folder-plus button to
+  create a subfolder. Nest folders as deeply as you need. The bottom **+ New document** and
+  **New folder** buttons use the most recently selected folder.
+- **Drag a document onto a folder** to move it there, including between Documents and
+  Context. The destination highlights before you drop. Its comments move with it; Markdown
+  links, Quarto includes, and common front-matter file paths are adjusted to keep their
+  targets. Existing files are never replaced. Standard Context files stay where they are.
+  Close a second Paper pane before moving files, because a move can also update incoming
+  links in other documents. Code examples and paths inside executable code are left as written.
+- **Drag a document over another document in the same folder** to reorder it.
+  **Alt+↑** / **Alt+↓** does the same with a row focused. Reordering changes only the list
+  order and is saved with the project; dropping on a folder moves the file.
+- **Delete a document** with its hover **×**, or press **Delete** with its row focused, then
+  confirm. Its file and comments go to the system trash where available. Figures, references,
+  and other documents remain. The editor switches to another document first.
+  New projects allow every ordinary document to be deleted, including the starter notes.
+  An older project's designated main manuscript and the standard Context files remain protected.
+
+New projects store documents in **`paper/`**, starting with `notes.qmd`. There is no required
+`main.qmd` filename. You can add research notes, protocols, reports, and drafts in the same
+project. Existing **`manuscript/`** folders continue to work without renaming or conversion;
+if a project contains both folders, both are discoverable under Documents. Flux remembers
+an ordinary document as the default for command-line exports, replacing that pointer when
+it is deleted; the GUI always exports the document you have open.
+
 - Type **/** at the start of a line for the block palette: `/figure`, `/table`, `/equation`,
   `/citation`, `/heading`, `/callout`, and friends.
 - **Ctrl+K** opens the command palette — everything in this guide is also in there by name.

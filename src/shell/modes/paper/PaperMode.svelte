@@ -9,9 +9,15 @@
   import { createEditorExtensions } from "./markdown-setup";
   import Editor from "./Editor.svelte";
   import Outline from "./outline/Outline.svelte";
+  import PaperSidebar from "./documents/PaperSidebar.svelte";
+  import { documentRoot, relativeDocumentPath } from "../../../lib/project/documentFiles";
+  import { commentsMainPath } from "../../../lib/project/docOrder";
   import DocumentPicker from "./documents/DocumentPicker.svelte";
   import {
     listDocuments,
+    listDocumentTree,
+    createFolder,
+    moveDocument,
     createDocument,
     deleteDocument,
     setDocumentOrder,
@@ -199,7 +205,7 @@
   }
   let paletteOpen = $state(false);
   // F4: the active document (project-relative path) + the project's document list.
-  let activeDocPath = $state(pm?.manifest.manuscript.path ?? "manuscript/main.qmd");
+  let activeDocPath = $state(pm?.manifest.manuscript.path ?? "paper/notes.qmd");
   let docs = $state<DocEntry[]>([]);
   let diskDiverged = $state(false); // F1: active doc changed on disk while dirty
   // W7: what we believe is currently on disk (last loaded or successfully written).
@@ -343,7 +349,7 @@
   const autosave = createAutosave({
     name: "manuscript",
     delay: 600,
-    isDirty: () => !!pm && !saved,
+    isDirty: () => !!pm && !!activeDocPath && !saved,
     save: async () => {
       if (!pm) return;
       const snapshot = latest;
@@ -480,6 +486,15 @@
   let doiPromptError = $state("");
   // PAP-3: "+ New document" — an in-app modal. window.prompt is disabled in Electron
   // (returns null silently), so the shipped multi-document feature couldn't create anything.
+  let folders = $state<string[]>([]);
+  let newDocFolder = $state("");
+  let creatingFolder = $state(false);
+  let documentBusy = $state(false);
+  async function refreshDocuments() {
+    if (!pm) return;
+    const tree = await listDocumentTree(pm);
+    docs = tree.docs; folders = tree.folders;
+  }
   let newDocOpen = $state(false);
   let newDocValue = $state("");
   function openDoiPrompt(mode: "library" | "cite") {
@@ -999,7 +1014,7 @@
     // Canonical embed: EMPTY alt — the figure's name/id is all an embed needs.
     // The caption under the figure comes live from the model, and Quarto
     // exports inject it at render time (exportQmd.ts).
-    const embed = `![](../fig/renders/${ref.id}.svg){#${ref.label}}`;
+    const embed = `![](${relativeDocumentPath(activeDocPath, `fig/renders/${ref.id}.svg`)}){#${ref.label}}`;
     let from: number, to: number, insert: string, anchor: number;
     if (line.text.trim() === "") {
       from = line.from;
@@ -1207,11 +1222,11 @@
     // shell left over from a different project so it can't run commands in the wrong directory.
     void terminalSession.syncRoot(pm?.root ?? null);
     if (pm) {
-      docs = await listDocuments(pm);
+      await refreshDocuments();
       // Restore the last active document if it still exists, else the main one.
       const want = get(paperLayout).activeDocPath;
       let target =
-        want && docs.some((d) => d.path === want) ? want : pm.manifest.manuscript.path;
+        want && docs.some((d) => d.path === want) ? want : docs.find(d => d.path === pm!.manifest.manuscript.path)?.path ?? docs[0]?.path ?? "";
       // Dual-paper B4: another pane already editing that document → take the
       // first unclaimed one; none free → render the blocked card (the document
       // rail stays usable, and "+ New document" resolves it).
@@ -1221,9 +1236,9 @@
         else blockedByTwin = true;
       }
       activeDocPath = target;
-      if (!blockedByTwin) {
+      if (!blockedByTwin && target) {
         claimDoc(paneId, target);
-        initialDoc = (await readManuscript(pm, target)) || SEED;
+        initialDoc = await readManuscript(pm, target);
       }
     } else {
       initialDoc = SEED;
@@ -1547,7 +1562,7 @@
 
   // ---- F4: document switching --------------------------------------------
   function persistThreadsTo(docPath: string): Promise<void> {
-    if (!pm) return Promise.resolve();
+    if (!pm || !docPath) return Promise.resolve();
     // Refresh each anchor from its live range before persisting.
     const doc = view?.state.doc.toString() ?? latest;
     const persist: CommentThread[] = threads
@@ -1570,7 +1585,7 @@
       pushToast("info", "That document is open in the other pane", { detail: "Focused it instead." });
       return;
     }
-    if (blockedByTwin || !view) {
+    if (blockedByTwin || !view || !activeDocPath) {
       // Un-blocking (or a pre-editor call): mount the editor fresh on `path`.
       const text = (await readManuscript(pm, path)) || "";
       threads = [];
@@ -1639,8 +1654,10 @@
     );
   }
 
-  function newDocument() {
+  function newDocument(folder?: string) {
     if (!pm) return;
+    newDocFolder = typeof folder === "string" ? folder : documentRoot(pm.manifest);
+    creatingFolder = false;
     newDocValue = "";
     newDocOpen = true;
   }
@@ -1649,12 +1666,53 @@
     const name = newDocValue.trim() || "Untitled";
     newDocOpen = false;
     try {
-      const rel = await createDocument(pm, name);
-      docs = await listDocuments(pm);
-      await loadDocument(rel);
+      if (creatingFolder) {
+        await createFolder(pm, newDocFolder, name);
+        await refreshDocuments();
+      } else {
+        const rel = await createDocument(pm, name, newDocFolder);
+        await refreshDocuments();
+        await loadDocument(rel);
+      }
     } catch (e) {
       pushToast("error", "Couldn’t create the document", { detail: errMsg(e) });
     }
+  }
+
+  function newFolder(parent: string) {
+    newDocument(parent);
+    creatingFolder = true;
+  }
+  async function moveDoc(path: string, folder: string) {
+    if (!pm || documentBusy) return;
+    // A relocation can also update incoming links in other documents. Refuse
+    // while another pane owns any affected buffer; never write behind its back.
+    const openElsewhere = docs.find(d => paneEditingDoc(d.path, paneId));
+    if (openElsewhere) {
+      pushToast("info", "Close the other Paper pane before moving documents", { detail: "A move may update links in both documents." });
+      return;
+    }
+    documentBusy = true;
+    clearTimeout(commentSaveTimer); commentSaveTimer = undefined;
+    try {
+      await autosave.flush();
+      if (!saved) throw new Error("Save or resolve the current document before moving files.");
+      await persistThreadsTo(activeDocPath);
+      const wasActive = activeDocPath === path;
+      const result = await moveDocument(pm, path, folder);
+      if (wasActive) {
+        activeDocPath = result.path;
+        claimDoc(paneId, result.path);
+        if (focused) { setPaperContextDoc(result.path); paperLayout.update(s => ({ ...s, activeDocPath: result.path })); }
+      }
+      if (wasActive || result.changed.includes(activeDocPath)) {
+        applyDiskText(await readManuscript(pm, activeDocPath));
+        await reloadCommentsFromDisk();
+      }
+      await refreshDocuments();
+      pushToast("info", `Moved to ${folder}`);
+    } catch (e) { pushToast("error", "Couldn’t move the document", { detail: errMsg(e) }); }
+    finally { documentBusy = false; }
   }
 
   // Deleting a document (the rail's ×, or Delete on a focused row). A file
@@ -1670,7 +1728,7 @@
   function fallbackDocFor(path: string): string | null {
     if (!pm) return null;
     const main = pm.manifest.manuscript.path;
-    if (main !== path && !paneEditingDoc(main, paneId)) return main;
+    if (main && main !== path && docs.some(d => d.path === main) && !paneEditingDoc(main, paneId)) return main;
     return docs.find((d) => d.path !== path && !paneEditingDoc(d.path, paneId))?.path ?? null;
   }
   function requestDeleteDoc(path: string) {
@@ -1685,7 +1743,7 @@
       pushToast("info", "That document is open in the other pane", { detail: "Close it there first." });
       return;
     }
-    if (path === activeDocPath && !fallbackDocFor(path)) {
+    if (path === activeDocPath && !fallbackDocFor(path) && !pm.manifest.documentRoot) {
       pushToast("info", "Open another document in this pane first", {
         detail: "This pane has nowhere else to go once that document is gone.",
       });
@@ -1707,12 +1765,18 @@
         // comments for the outgoing document, so no trailing save can
         // resurrect the file after it is gone.
         const next = fallbackDocFor(entry.path);
-        if (!next) throw new Error("no other document to open in this pane");
-        await loadDocument(next);
-        if (activeDocPath !== next) throw new Error("couldn’t switch this pane away from it");
+        if (!next) {
+          clearTimeout(commentSaveTimer); commentSaveTimer = undefined;
+          await autosave.flush();
+          if (!saved) throw new Error("Save the current document before deleting it.");
+          await persistThreadsTo(activeDocPath);
+          activeDocPath = ""; releaseDocClaim(paneId);
+          initialDoc = ""; latest = ""; latestIdle = ""; diskBaseline = ""; threads = [];
+        } else await loadDocument(next);
+        if (next && activeDocPath !== next) throw new Error("couldn’t switch this pane away from it");
       }
       const { trashed } = await deleteDocument(pm, docs, entry.path);
-      docs = await listDocuments(pm);
+      await refreshDocuments();
       pushToast("info", `Deleted “${entry.title}”`, {
         detail: trashed ? `${entry.path} was moved to the trash.` : `${entry.path} was removed.`,
       });
@@ -1756,7 +1820,7 @@
   // The active document's comments sidecar (mirrors flux-core commentsRel /
   // comments.ts commentsPath): main doc → comments.json, others → <base>.comments.json.
   function commentsSidecarRel(): string {
-    const mainPath = pm?.manifest.manuscript.path ?? "";
+    const mainPath = pm ? commentsMainPath(pm.manifest) : "";
     const mp = activeDocPath;
     const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
     const isMain = mp === mainPath;
@@ -1786,7 +1850,9 @@
   }
 
   async function onExternalManuscript(chg: { path: string; n: number } | null) {
-    if (!chg || !pm || !view) return;
+    if (!chg || !pm || documentBusy) return;
+    await refreshDocuments();
+    if (!view || !activeDocPath) return;
     if (chg.path.endsWith(commentsSidecarRel())) {
       await reloadCommentsFromDisk(); // comments sidecar changed → refresh margin in place
       return;
@@ -1837,7 +1903,7 @@
   const commentsFlushId = paneId ? `paper-comments-${paneId}` : "paper-comments";
   const unregFlush = registerFlushable({
     id: flushId,
-    isDirty: () => !!pm && !saved,
+    isDirty: () => !!pm && !!activeDocPath && !saved,
     flush: () => autosave.flush(),
   });
   // Panel references are rewritten against this editor's latest buffer in
@@ -1920,7 +1986,7 @@
     window.removeEventListener("pointermove", lrMove);
     window.removeEventListener("pointerup", lrEnd);
   }
-  const resetLrW = () => paperLayout.update((s) => ({ ...s, outlinerW: 224 }));
+  const resetLrW = () => paperLayout.update((s) => ({ ...s, outlinerW: 280 }));
   // The margin can grow until the editor column is down to ~420px — workspace-
   // relative, not a fixed cap (620 stays the ceiling only on small windows).
   function dmMaxW(): number {
@@ -2232,23 +2298,19 @@
 <section class="paper">
   <div class="work" bind:this={workEl}>
     {#if $paperLayout.outlinerOpen}
-      <div class="leftrail" style={`flex-basis:${$paperLayout.outlinerW}px`}>
-        <Outline
-          items={outline}
-          title={meta.title}
-          {activeFrom}
-          collapsed={collapsedSet}
-          onJump={jump}
-          onToggleCollapse={toggleCollapse} />
-        {#if !isDemo}
-          <DocumentPicker
-            {docs}
-            activePath={activeDocPath}
-            onSelect={loadDocument}
-            onNew={newDocument}
-            onReorder={reorderDoc}
-            onDelete={requestDeleteDoc} />
-        {/if}
+      <div class="leftrail" inert={documentBusy} style={`flex-basis:${$paperLayout.outlinerW}px`}>
+        <PaperSidebar>
+          {#snippet outlineContent()}
+            <Outline items={outline} title={meta.title} {activeFrom} collapsed={collapsedSet} onJump={jump} onToggleCollapse={toggleCollapse} />
+          {/snippet}
+          {#snippet files()}
+            {#if !isDemo}
+              <DocumentPicker {docs} {folders} root={pm ? documentRoot(pm.manifest) : "paper"} storageKey={pm?.root ?? ""}
+                activePath={activeDocPath} onSelect={loadDocument} onNew={newDocument} onFolder={newFolder}
+                onMove={moveDoc} onReorder={reorderDoc} onDelete={requestDeleteDoc} />
+            {/if}
+          {/snippet}
+        </PaperSidebar>
       </div>
       <div
         class="lr-grip"
@@ -2260,7 +2322,7 @@
         ondblclick={resetLrW}>
       </div>
     {/if}
-    <div class="editor-col" bind:this={colEl} style={gutterStyle}>
+    <div class="editor-col" inert={documentBusy} bind:this={colEl} style={gutterStyle}>
       {#if ready && blockedByTwin}
         <!-- Dual-paper B4: the project's only document is open in the other
              pane — no second live editor on one file. The document rail stays
@@ -2271,8 +2333,10 @@
             Two panes can't edit the same document. Create a new document, or pick a
             different one from the list on the left.
           </p>
-          <button onclick={newDocument}>+ New document</button>
+          <button onclick={() => newDocument()}>+ New document</button>
         </div>
+      {:else if ready && !activeDocPath && !isDemo}
+        <div class="twin-blocked"><p class="tb-lead">Your documents belong here.</p><p class="tb-sub">Create notes, methods, drafts, or any other document.</p><button onclick={() => newDocument()}>+ New document</button></div>
       {:else if ready}
         <div class="titlepill-wrap">
           <TitlePill
@@ -2384,8 +2448,9 @@
 
   {#if newDocOpen}
     <div class="doi-prompt-backdrop">
-      <div class="doi-prompt" role="dialog" aria-label="New document">
-        <label for="new-doc-input">Name the new document</label>
+      <div class="doi-prompt" role="dialog" aria-label={creatingFolder ? "New folder" : "New document"}>
+        <label for="new-doc-input">{creatingFolder ? "Name the new folder" : "Name the new document"}</label>
+        <p class="doc-location">In {newDocFolder}</p>
         <input
           id="new-doc-input"
           type="text"
@@ -2567,12 +2632,12 @@
   }
   /* F4: left rail = Outline (fills) + the document picker beneath it. */
   .leftrail {
-    flex: 0 0 224px; /* overridden inline by $paperLayout.outlinerW */
+    flex: 0 0 280px; /* overridden inline by $paperLayout.outlinerW */
     min-width: 0;
     height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 0;
   }
   /* Outliner drag seam — a slim flex sibling overlaying the rail/editor gap. */
   .lr-grip {
@@ -2586,11 +2651,7 @@
   .lr-grip.active {
     background: color-mix(in srgb, var(--c-accent, #4385be) 30%, transparent);
   }
-  .leftrail :global(.outline) {
-    flex: 1 1 auto;
-    width: auto;
-    min-height: 0;
-  }
+  .doc-location { margin:0 0 8px; font-size:var(--ts-xs); color:var(--c-tx-faint); }
   .editor-col {
     position: relative;
     flex: 1 1 auto;

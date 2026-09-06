@@ -19,7 +19,7 @@ export function tmpPathFor(p: string): string {
 /** Matches in-flight atomic-write temp files (shared with the watcher's ignore list). */
 export const TMP_WRITE_RE = /(^|[/\\])\.[^/\\]*\.tmp-\d+-\d+$/;
 
-export async function atomicWrite(p: string, data: string | Uint8Array): Promise<void> {
+export async function atomicWrite(p: string, data: string | Uint8Array, createOnly = false): Promise<void> {
   await fs.mkdir(path.dirname(p), { recursive: true });
   const tmp = tmpPathFor(p);
   const fh = await fs.open(tmp, "w");
@@ -31,7 +31,10 @@ export async function atomicWrite(p: string, data: string | Uint8Array): Promise
     await fh.close();
   }
   try {
-    await fs.rename(tmp, p);
+    if (createOnly) {
+      await fs.link(tmp, p); // atomic no-clobber publication
+      await fs.unlink(tmp);
+    } else await fs.rename(tmp, p);
   } catch (e) {
     await fs.rm(tmp, { force: true }).catch(() => {});
     throw e;

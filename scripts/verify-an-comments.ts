@@ -5,6 +5,7 @@
 // DEFERS to a live human edit instead of clobbering. Also confirms the written
 // file validates against the bundled comments schema.
 // Run: npx tsx scripts/verify-an-comments.ts
+import { legacyPaperFixture } from "./lib/legacyPaperFixture";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -28,6 +29,7 @@ const readJournal = async () => {
 try {
   core.setClient("cli");
   await core.scaffold(root, { title: "Comments" });
+  await legacyPaperFixture(root);
   await core.setManuscript(
     root,
     "# Title\n\nMycelial growth slowed under nutrient stress. The control group recovered.\n",

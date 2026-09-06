@@ -182,6 +182,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: { type: "object", required: ["path"], properties: { path: { type: "string" } } },
       },
       // The user's Documents-list order (project-relative paths; docOrder.ts).
+      documentRoot: { type: "string" },
       documentOrder: { type: "array", items: { type: "string" } },
       references: { type: "object", required: ["library"], properties: { library: { type: "string" } } },
       figures: {

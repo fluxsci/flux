@@ -1173,7 +1173,7 @@ function subsystemFor(root, abs) {
     return dissectRules && dissectRules.isDissectionProjectRel(rel) ? "dissections" : "plots";
   }
   if (rel.startsWith("fig/")) return "fig";
-  if (rel.startsWith("manuscript/")) return "manuscript";
+  if (rel.startsWith("paper/") || rel.startsWith("manuscript/")) return "manuscript";
   if (rel.startsWith("references/")) return "references";
   if (rel.startsWith("slides/")) return "slides"; // W10 (SLD-1)
   // Principal-agent scheme: Context docs (+ their comments sidecars) live-reload

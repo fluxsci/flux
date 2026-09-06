@@ -14,7 +14,7 @@ file path. ([The full folder tour](../reference/project-layout.qmd).)
 
 Every file in a project is one of three kinds:
 
-- **Yours to edit freely** — `manuscript/*.qmd` (the prose), `references/library.bib` (the
+- **Yours to edit freely** — `paper/**/*.qmd` (documents; `manuscript/` remains supported), `references/library.bib` (the
   project's citations), and `plots/` (where your analysis code drops its output). These are the
   source of truth; edit them in Flux, in another editor, or from a script — all equivalent.
 - **App-managed** — `fig/` (figure compositions) and `slides/` (decks). These are readable

@@ -14,6 +14,7 @@
 //     a document only references figures, it owns none of them
 //   • a refusal is a no-op on disk, not a half-delete
 //   Run: npx tsx scripts/verify-doc-delete.ts
+import { legacyPaperFixture } from "./lib/legacyPaperFixture";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -114,6 +115,7 @@ try {
   process.env.HOME = scratchHome;
   process.env.XDG_CONFIG_HOME = path.join(scratchHome, ".config");
   await core.scaffold(root, { title: "My Paper" });
+  await legacyPaperFixture(root);
   const write = (rel: string, text: string) => fs.writeFile(path.join(root, rel), text, "utf8");
   await core.createDocument(root, "Supplementary Material");
   await core.createDocument(root, "Alpha");

@@ -6,7 +6,7 @@
 
 import search from "approx-string-match";
 import { fileBridge, joinPath, type LoadedProject } from "../../../../lib/project/types";
-import { commentsSidecarRel } from "../../../../lib/project/docOrder";
+import { commentsSidecarRel, commentsMainPath } from "../../../../lib/project/docOrder";
 
 export interface CommentMessage {
   author: string;
@@ -98,7 +98,7 @@ function commentsPath(p: LoadedProject, docRel?: string): string {
   // One derivation for both engines (docOrder.ts) — deleting a document
   // removes exactly the sidecar this wrote.
   const mp = docRel ?? p.manifest.manuscript.path; // e.g. "manuscript/main.qmd"
-  return joinPath(p.root, commentsSidecarRel(p.manifest.manuscript.path, mp));
+  return joinPath(p.root, commentsSidecarRel(commentsMainPath(p.manifest), mp));
 }
 
 export async function readComments(p: LoadedProject, docRel?: string): Promise<CommentThread[]> {

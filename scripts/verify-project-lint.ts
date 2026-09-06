@@ -11,6 +11,7 @@
 // Requires `quarto` on PATH — same precedent as verify-an-manuscript.
 //
 // Run: npx tsx scripts/verify-project-lint.ts
+import { legacyPaperFixture } from "./lib/legacyPaperFixture";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -25,6 +26,7 @@ function assert(cond: unknown, msg: string) {
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-lint-"));
 try {
   await core.scaffold(root, { title: "Lint" });
+  await legacyPaperFixture(root);
   const plotsDir = path.join(root, "plots");
   await fs.mkdir(plotsDir, { recursive: true });
   const plot = path.join(plotsDir, "p.svg");

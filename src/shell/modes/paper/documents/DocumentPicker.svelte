@@ -1,337 +1,202 @@
 <script lang="ts">
-  // F4: the project's document list, under the Outline in the Paper left rail.
-  // Lists every .qmd, highlights the active one, and offers "+ New document".
-  //
-  // The list order is the USER'S: drag a row to slide it up or down, exactly as
-  // the sidebar's Figures list works (Alt+↑/↓ moves a focused row from the
-  // keyboard). What the drag produces is an ORDER only — no file is renamed or
-  // moved on disk; `documentOrder` in project.json records it (docOrder.ts).
-  //
-  // As in the Figures list the WHOLE row is the drag surface, so a press only
-  // becomes a drag past a small threshold, the click that ends a real drag is
-  // swallowed (it must not also open the document), and pointer capture is
-  // claimed at that same threshold so a plain click still lands on its button.
-  // The two groups are separate lists on screen and a drag stays inside its own.
-  //
-  // A deletable row also carries a × (shown on hover / keyboard focus) and
-  // answers the Delete key; both only ASK — the owner confirms and deletes.
-  // Which rows are deletable is the shared policy (docOrder.ts): never the
-  // main manuscript, never a Context document, so those rows have no ×.
-  import { tick } from "svelte";
-  import type { DocEntry } from "./documents";
-  import { documentRemovalBlocker } from "../../../../lib/project/docOrder";
+  import { tick, onDestroy, untrack } from 'svelte';
+  import type { DocEntry } from './documents';
+  import { documentRemovalBlocker } from '../../../../lib/project/docOrder';
+  import { parentDir, fileName } from '../../../../lib/project/documentFiles';
+  import { documentTree, type DocumentTreeItem as Item } from './documentTree';
+  import { CONTEXT_DOC_RELS } from '../../../../lib/project/contextTemplates';
 
-  let {
-    docs,
-    activePath,
-    onSelect,
-    onNew,
-    onReorder,
-    onDelete,
-  }: {
-    docs: DocEntry[];
-    activePath: string;
-    onSelect: (path: string) => void;
-    onNew: () => void;
-    /** Move `path` so it lands at `toIndex` among the rows that stay put, within
-     *  its own group. No-op when the picker is read-only (no handler). */
-    onReorder?: (path: string, toIndex: number) => void;
-    /** Ask to delete `path` (the owner confirms). No × when absent. */
-    onDelete?: (path: string) => void;
+  let { docs, folders = [], root = 'paper', storageKey = '', activePath, onSelect, onNew, onFolder, onMove, onReorder, onDelete }: {
+    docs: DocEntry[]; folders?: string[]; root?: string; storageKey?: string; activePath: string;
+    onSelect: (path: string) => void; onNew: (folder?: string) => void;
+    onFolder?: (parent: string) => void; onMove?: (path: string, folder: string) => void;
+    onReorder?: (path: string, toIndex: number) => void; onDelete?: (path: string) => void;
   } = $props();
-
-  type Group = "doc" | "ctx";
-  const HINT = "Drag a row to reorder the list · Alt+↑/↓ moves a focused row";
-  const DRAG_SLOP = 4; // px of movement before a press is a drag
-
-  const rowsIn = (g: Group) => docs.filter((d) => (g === "ctx" ? !!d.isContext : !d.isContext));
-  const canDelete = (path: string) => !!onDelete && documentRemovalBlocker(docs, path) === null;
-
-  let docListEl = $state<HTMLUListElement | undefined>(undefined);
-  let ctxListEl = $state<HTMLUListElement | undefined>(undefined);
-  let dragPath = $state<string | null>(null); // the row being dragged (drives .dragging)
-  let dragFrom: { path: string; group: Group; x: number; y: number } | null = null;
-  let dragMoved = false; // a drag happened → swallow its trailing click
-
-  /** Index of the row under `y` in that group's list (rows are keyed, so these
-   *  rects stay in step with the live reordering). */
-  function rowIndexAtY(g: Group, y: number): number {
-    const rows = [...((g === "ctx" ? ctxListEl : docListEl)?.children ?? [])] as HTMLElement[];
-    for (let i = 0; i < rows.length; i++) if (y < rows[i].getBoundingClientRect().bottom) return i;
-    return rows.length - 1;
+  let collapsed = $state<string[]>([]);
+  let selectedFolder = $state('');
+  let pickerEl: HTMLElement;
+  let dragPath = $state<string | null>(null);
+  let dropFolder = $state<string | null>(null);
+  let dragFrom: { path: string; x: number; y: number } | null = null;
+  let dragMoved = false;
+  let scrollEl: HTMLDivElement;
+  let dragFrame = 0;
+  let pointer = { x: 0, y: 0 };
+  let savedKey = '';
+  $effect(() => {
+    if (savedKey === storageKey) return;
+    savedKey = storageKey;
+    try { collapsed = JSON.parse(localStorage.getItem(`flux.paper.folders:${storageKey}`) || '[]'); } catch { collapsed = []; }
+  });
+  function toggle(path: string) {
+    collapsed = collapsed.includes(path) ? collapsed.filter(p => p !== path) : [...collapsed, path];
+    localStorage.setItem(`flux.paper.folders:${storageKey}`, JSON.stringify(collapsed));
+    selectedFolder = path;
   }
+  // Opening a document from the palette reveals its ancestors once; manual
+  // collapsing remains possible while that document stays active.
+  $effect(() => {
+    const path = activePath;
+    if (!path) return;
+    untrack(() => { collapsed = collapsed.filter(p => !path.startsWith(p + '/')); });
+    selectedFolder = parentDir(path);
+  });
+  const canDelete = (path: string) => !!onDelete && !documentRemovalBlocker(docs, path);
+  const docItems = $derived(documentTree(docs, folders, root, false, collapsed));
+  const contextItems = $derived(documentTree(docs, folders, root, true, collapsed));
+  let scrollY = $state(0);
+  let scrollHeight = $state(500);
+  // One shared scrollbar; only the visible rows mount for a large project.
+  function visible(items: Item[], offset: number) {
+    if (items.length < 250) return { rows: items, before: 0, after: 0 };
+    const first = Math.max(0, Math.min(items.length, Math.floor((scrollY - offset) / 30) - 8));
+    const last = Math.max(first, Math.min(items.length, Math.ceil((scrollY + scrollHeight - offset) / 30) + 8));
+    return { rows: items.slice(first,last), before: first * 30, after: (items.length-last) * 30 };
+  }
+  const docWindow = $derived(visible(docItems, 36));
+  const contextWindow = $derived(visible(contextItems, 74 + docItems.length * 30));
+  const targetFolder = $derived(selectedFolder || root);
 
-  function startDrag(e: PointerEvent, path: string, group: Group) {
+  function startDrag(e: PointerEvent, path: string) {
     if (e.button !== 0) return;
-    dragFrom = { path, group, x: e.clientX, y: e.clientY };
-    dragMoved = false;
+    dragFrom = { path, x: e.clientX, y: e.clientY }; dragMoved = false;
   }
-
-  function onDragMove(e: PointerEvent) {
-    if (!dragFrom || !onReorder) return;
-    const { group } = dragFrom;
+  function dragMove(e: PointerEvent) {
+    if (!dragFrom) return;
+    pointer = { x: e.clientX, y: e.clientY };
     if (!dragPath) {
-      const far =
-        Math.abs(e.clientY - dragFrom.y) >= DRAG_SLOP || Math.abs(e.clientX - dragFrom.x) >= DRAG_SLOP;
-      if (!far) return;
-      dragPath = dragFrom.path;
-      dragMoved = true;
-      try {
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      } catch {} // a synthetic pointer (headless gates) has nothing to capture
+      if (Math.hypot(e.clientX - dragFrom.x, e.clientY - dragFrom.y) < 4) return;
+      dragPath = dragFrom.path; dragMoved = true;
+      dragFrame = requestAnimationFrame(autoScroll);
     }
-    const rows = rowsIn(group);
-    const first = rows.findIndex((d) => d.path === dragPath);
-    const over = rowIndexAtY(group, e.clientY);
-    if (first < 0 || over < 0 || over === first) return;
-    onReorder(dragPath, over);
+    const hit = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+    const folder = hit?.closest<HTMLElement>('[data-folder]')?.dataset.folder;
+    dropFolder = folder && folder !== parentDir(dragPath) && !CONTEXT_DOC_RELS.includes(dragPath) ? folder : null;
+    if (folder) return;
+    const row = hit?.closest<HTMLElement>('.dp-row[data-path]')?.dataset.path;
+    if (!row || row === dragPath || parentDir(row) !== parentDir(dragPath)) return;
+    const group = docs.filter(d => !!d.isContext === !!docs.find(x => x.path === dragPath)?.isContext);
+    const at = group.findIndex(d => d.path === row);
+    if (at >= 0) onReorder?.(dragPath, at);
   }
-
-  function endDrag(e: PointerEvent) {
-    if (dragPath) {
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {}
+  function autoScroll() {
+    if (!dragPath) return;
+    const r = scrollEl.getBoundingClientRect();
+    if (pointer.x >= r.left && pointer.x <= r.right) {
+      const delta = pointer.y < r.top + 26 ? -10 : pointer.y > r.bottom - 26 ? 10 : 0;
+      if (delta) {
+        scrollEl.scrollTop += delta;
+        const hit = document.elementFromPoint(pointer.x, pointer.y) as HTMLElement | null;
+        const folder = hit?.closest<HTMLElement>('[data-folder]')?.dataset.folder;
+        dropFolder = folder != null && folder !== parentDir(dragPath) && !CONTEXT_DOC_RELS.includes(dragPath) ? folder : null;
+      }
     }
-    dragFrom = null;
-    dragPath = null; // dragMoved survives until the next pointerdown
+    dragFrame = requestAnimationFrame(autoScroll);
   }
-
-  function pick(path: string) {
-    if (dragMoved) return; // this click ended a reorder drag, not a click
-    onSelect(path);
+  function endDrag() {
+    const path = dragPath, folder = dropFolder;
+    cancelDrag();
+    if (path && folder) onMove?.(path, folder);
   }
-
-  /** Alt+↑/↓ on a focused row — the same move from the keyboard (the editor's
-   *  "move this block up a list" chord). Scoped to the row, because inside the
-   *  editor Alt+↑/↓ is CodeMirror's move-line. */
-  async function onRowKey(e: KeyboardEvent, path: string, group: Group) {
-    // Delete on a focused row asks to delete its document (the × does the same).
-    if (e.key === "Delete" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-      if (!canDelete(path)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      onDelete!(path);
-      return;
+  function cancelDrag() { cancelAnimationFrame(dragFrame); dragPath = null; dragFrom = null; dropFolder = null; }
+  function pick(path: string) { if (!dragMoved) onSelect(path); }
+  async function rowKey(e: KeyboardEvent, d: DocEntry) {
+    if (e.key === 'Delete' && !e.altKey && !e.ctrlKey && !e.metaKey && canDelete(d.path)) {
+      e.preventDefault(); e.stopPropagation(); onDelete?.(d.path); return;
     }
-    if (!onReorder || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-    const rows = rowsIn(group);
-    const i = rows.findIndex((d) => d.path === path);
-    const to = i + (e.key === "ArrowUp" ? -1 : 1);
-    if (i < 0 || to < 0 || to >= rows.length) return; // already against that end
-    e.preventDefault();
-    e.stopPropagation();
-    onReorder(path, to);
-    // Reordering MOVES the row's DOM node, and an insertBefore-style move is not
-    // focus-preserving — the row goes blurred, which made the chord a one-shot
-    // (you had to click the row again between presses). Put focus back on the
-    // row that moved so Alt+↓ Alt+↓ walks it down the list. It only bit one
-    // direction: for a move UP the keyed diff relocates the OTHER row instead.
+    if (!onReorder || !e.altKey || e.ctrlKey || e.metaKey || !['ArrowUp','ArrowDown'].includes(e.key)) return;
+    const siblings = docs.filter(x => parentDir(x.path) === parentDir(d.path));
+    const at = siblings.findIndex(x => x.path === d.path) + (e.key === 'ArrowUp' ? -1 : 1);
+    if (at < 0 || at >= siblings.length) return;
+    const group = docs.filter(x => !!x.isContext === !!d.isContext);
+    e.preventDefault(); e.stopPropagation();
+    onReorder(d.path, group.findIndex(x => x.path === siblings[at].path));
     await tick();
-    focusRow(path, group);
+    [...pickerEl.querySelectorAll<HTMLElement>('.dp-item')].find(b => b.title === d.path)?.focus();
   }
-
-  function focusRow(path: string, group: Group) {
-    const list = group === "ctx" ? ctxListEl : docListEl;
-    const btn = [...(list?.querySelectorAll(".dp-item") ?? [])].find(
-      (b) => b.getAttribute("title") === path,
-    ) as HTMLElement | undefined;
-    btn?.focus();
-  }
+  onDestroy(cancelDrag);
 </script>
 
-<aside class="docpicker">
-  <div class="dp-head" title={HINT}>Documents</div>
-  <ul bind:this={docListEl}>
-    {#each rowsIn("doc") as d (d.path)}
-      <li
-        class="dp-row"
-        class:dragging={dragPath === d.path}
-        onpointerdown={(e) => startDrag(e, d.path, "doc")}
-        onpointermove={onDragMove}
-        onpointerup={endDrag}
-        onpointercancel={endDrag}>
-        <button
-          class="dp-item"
-          class:active={d.path === activePath}
-          title={d.path}
-          onclick={() => pick(d.path)}
-          onkeydown={(e) => onRowKey(e, d.path, "doc")}>
-          <span class="dp-title">{d.title}</span>
-          {#if d.isMain}<span class="dp-badge">main</span>{/if}
-        </button>
-        {#if canDelete(d.path)}
-          <!-- The × is its own control: a press on it must neither start a
-               row drag nor count as the row's click (which would OPEN the
-               document being deleted), hence the stopped pointerdown/click. -->
-          <button
-            class="dp-del"
-            title="Delete this document…"
-            aria-label={`Delete ${d.title}`}
-            onpointerdown={(e) => e.stopPropagation()}
-            onclick={(e) => {
-              e.stopPropagation();
-              onDelete!(d.path);
-            }}>×</button>
-        {/if}
-      </li>
-    {/each}
-  </ul>
-  {#if docs.some((d) => d.isContext)}
-    <div class="dp-head dp-ctx" title={HINT}>Context</div>
-    <ul bind:this={ctxListEl}>
-      {#each rowsIn("ctx") as d (d.path)}
-        <li
-          class="dp-row"
-          class:dragging={dragPath === d.path}
-          onpointerdown={(e) => startDrag(e, d.path, "ctx")}
-          onpointermove={onDragMove}
-          onpointerup={endDrag}
-          onpointercancel={endDrag}>
-          <button
-            class="dp-item"
-            class:active={d.path === activePath}
-            title={d.path}
-            onclick={() => pick(d.path)}
-            onkeydown={(e) => onRowKey(e, d.path, "ctx")}>
+<svelte:window onpointermove={dragMove} onpointerup={endDrag} onpointercancel={cancelDrag}
+  onkeydown={(e) => { if (e.key === 'Escape') cancelDrag(); }} onblur={cancelDrag} />
+
+{#snippet folderRow(path: string, label: string, depth: number, top = false)}
+  <div class="dp-folder" class:dp-head={top} class:drop-target={dropFolder === path} data-folder={path} style={`--depth:${depth}`}>
+    <button class="folder-label" aria-expanded={!collapsed.includes(path)} title={path || 'Documents'} onclick={() => toggle(path)}>
+      <svg class:open={!collapsed.includes(path)} width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+      <svg width="15" height="15" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 5h6l2 2h8v10H2z" fill="none" stroke="currentColor" stroke-width="1.3" /></svg>
+      <span>{label}</span>
+    </button>
+    <button class="folder-action" title={`New document in ${label}`} aria-label={`New document in ${label}`} onclick={() => onNew(path)}>+</button>
+    {#if onFolder}<button class="folder-action" title={`New folder in ${label}`} aria-label={`New folder in ${label}`} onclick={() => onFolder?.(path)}><svg width="15" height="15" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 5h6l2 2h8v10H2zM10 9v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="1.3" /></svg></button>{/if}
+  </div>
+{/snippet}
+
+{#snippet treeRows(rows: Item[])}
+  {#each rows as item (item.path)}
+    <li style={`--depth:${item.depth}`}>
+      {#if item.doc}
+        {@const d = item.doc}
+        <div class="dp-row" role="presentation" data-path={d.path} class:dragging={dragPath === d.path} onpointerdown={(e) => startDrag(e, d.path)}>
+          <button class="dp-item" class:active={d.path === activePath} title={d.path} onclick={() => pick(d.path)} onkeydown={(e) => rowKey(e,d)}>
+            <svg class="doc-icon" width="14" height="16" viewBox="0 0 18 20" aria-hidden="true"><path d="M3 1h8l4 4v14H3zM10 1v5h5M6 10h6M6 13h6" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
             <span class="dp-title">{d.title}</span>
+            {#if d.isMain}<span class="dp-badge">main</span>{/if}
           </button>
-        </li>
-      {/each}
-    </ul>
-  {/if}
-  <button class="dp-new" onclick={onNew}>+ New document</button>
+          {#if canDelete(d.path)}<button class="dp-del" title="Delete this document…" aria-label={`Delete ${d.title}`} onpointerdown={(e) => e.stopPropagation()} onclick={(e) => { e.stopPropagation(); onDelete?.(d.path); }}>×</button>{/if}
+        </div>
+      {:else}
+        {@render folderRow(item.path, fileName(item.path), item.depth + 1)}
+      {/if}
+    </li>
+  {/each}
+{/snippet}
+
+<aside class="docpicker" bind:this={pickerEl} aria-label="Project files">
+  <div class="dp-scroll" bind:this={scrollEl} bind:clientHeight={scrollHeight} onscroll={(e) => { scrollY = e.currentTarget.scrollTop; }}>
+    {@render folderRow(root, 'Documents', 0, true)}
+    <ul aria-label="Documents" style={`padding-top:${docWindow.before}px;padding-bottom:${docWindow.after}px`}>{@render treeRows(docWindow.rows)}</ul>
+    {#if !docItems.length && !collapsed.includes(root)}<p class="dp-empty">Create a document to get started.</p>{/if}
+    {@render folderRow('Context', 'Context', 0, true)}
+    <ul aria-label="Context" style={`padding-top:${contextWindow.before}px;padding-bottom:${contextWindow.after}px`}>{@render treeRows(contextWindow.rows)}</ul>
+  </div>
+  <div class="dp-footer">
+    <button class="dp-new" title={`New document in ${targetFolder}`} onclick={() => onNew(targetFolder)}>+ New document</button>
+    {#if onFolder}<button class="dp-new-folder" title={`New folder in ${targetFolder}`} onclick={() => onFolder?.(targetFolder)}>New folder</button>{/if}
+  </div>
 </aside>
 
 <style>
-  .docpicker {
-    flex: 0 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 10px;
-    border: 1.5px solid var(--c-edge);
-    border-radius: var(--r-3);
-    background: var(--flx-paper);
-    color: var(--c-tx);
-    max-height: 38%;
-    overflow: auto;
-  }
-  .dp-head {
-    font-size: var(--ts-xs, 11px);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--c-tx-faint);
-    padding: 2px 4px 6px;
-  }
-  .dp-ctx {
-    margin-top: 8px;
-    border-top: 1px solid var(--c-line, var(--c-edge));
-    padding-top: 8px;
-  }
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-  .dp-row {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-  .dp-row.dragging .dp-item {
-    /* the row being slid: keep it readable but clearly "in hand" */
-    opacity: 0.65;
-    background: var(--c-ui-hover);
-  }
-  .dp-del {
-    /* the delete affordance: present for keyboard/assistive users always,
-       visible to the pointer on hover or when the row has focus */
-    flex: 0 0 auto;
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: none;
-    border-radius: var(--r-1);
-    background: none;
-    color: var(--c-tx-faint);
-    font: inherit;
-    font-size: 15px;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0;
-  }
-  .dp-row:hover .dp-del,
-  .dp-row:focus-within .dp-del {
-    opacity: 1;
-  }
-  .dp-del:hover,
-  .dp-del:focus-visible {
-    color: var(--c-danger);
-    background: var(--c-ui-hover);
-    opacity: 1;
-  }
-  .dp-item {
-    flex: 1 1 auto;
-    min-width: 0;
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    text-align: left;
-    background: none;
-    border: none;
-    border-radius: var(--r-1);
-    padding: 5px 7px;
-    color: var(--c-tx-2);
-    font: inherit;
-    font-size: var(--ts-sm, 13px);
-    cursor: pointer;
-  }
-  .dp-item:hover {
-    background: var(--c-ui-hover);
-    color: var(--c-tx-hi);
-  }
-  .dp-item.active {
-    background: var(--c-ui-hover);
-    color: var(--c-tx-hi);
-    font-weight: 600;
-  }
-  .dp-title {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .dp-badge {
-    flex: 0 0 auto;
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--c-accent-bright);
-    border: 1px solid var(--c-edge);
-    border-radius: var(--r-pill, 999px);
-    padding: 0 5px;
-  }
-  .dp-new {
-    margin-top: 6px;
-    text-align: left;
-    background: none;
-    border: 1px dashed var(--c-edge);
-    border-radius: var(--r-1);
-    padding: 5px 7px;
-    color: var(--c-tx-faint);
-    font: inherit;
-    font-size: var(--ts-sm, 13px);
-    cursor: pointer;
-  }
-  .dp-new:hover {
-    color: var(--c-accent-bright);
-    border-color: var(--c-accent);
-  }
+  .docpicker { display:flex; flex-direction:column; min-height:0; height:100%; color:var(--c-tx); }
+  .dp-scroll { flex:1; min-height:0; overflow:auto; padding:6px; }
+  ul { list-style:none; padding:0; margin:0; }
+  li { margin:0; }
+  button { font:inherit; cursor:pointer; border:0; background:transparent; color:var(--c-tx-2); border-radius:var(--r-1); }
+  button:focus-visible { outline:2px solid var(--c-accent); outline-offset:-2px; }
+  button:hover { background:var(--c-ui-hover); color:var(--c-tx-hi); }
+  .dp-folder { display:flex; align-items:center; padding-left:calc(var(--depth) * 14px); border-radius:var(--r-1); }
+  .dp-head { margin-top:8px; font-weight:600; font-size:var(--ts-sm); }
+  .dp-head:first-child { margin-top:0; }
+  .folder-label { display:flex; gap:6px; align-items:center; flex:1; min-width:0; text-align:left; height:30px; padding:0 5px; }
+  .folder-label span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .folder-label svg { flex:none; color:var(--c-tx-faint); }
+  .folder-label svg:first-child.open { transform:rotate(90deg); }
+  .folder-action { display:grid; place-items:center; width:24px; height:24px; padding:0; opacity:0; flex:none; }
+  .dp-folder:hover .folder-action, .dp-folder:focus-within .folder-action { opacity:1; }
+  .dp-head .folder-action { opacity:1; }
+  .drop-target { background:var(--c-ui-hover); box-shadow:inset 0 0 0 2px var(--c-accent); }
+  .dp-row { display:flex; align-items:center; padding-left:calc(16px + var(--depth) * 14px); min-width:0; }
+  .dp-item { display:flex; align-items:center; flex:1; min-width:0; gap:7px; text-align:left; height:30px; padding:4px 6px; font-size:var(--ts-sm); }
+  .doc-icon { flex:none; color:var(--c-tx-faint); }
+  .dp-item.active { background:var(--c-ui-hover); color:var(--c-tx-hi); font-weight:600; }
+  .dp-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dp-badge { font-size:9px; text-transform:uppercase; color:var(--c-accent-bright); }
+  .dp-del { width:22px; height:24px; flex:none; padding:0; opacity:0; font-size:16px; }
+  .dp-row:hover .dp-del, .dp-row:focus-within .dp-del { opacity:1; }
+  .dp-del:hover { color:var(--c-danger); }
+  .dragging { opacity:.55; }
+  .dp-footer { display:flex; align-items:center; gap:4px; padding:6px; border-top:1px solid var(--c-line); }
+  .dp-new, .dp-new-folder { padding:6px; font-size:var(--ts-xs); white-space:nowrap; }
+  .dp-new { flex:1; text-align:left; }
+  .dp-empty { margin:8px 10px 14px; color:var(--c-tx-faint); font-size:var(--ts-xs); }
 </style>

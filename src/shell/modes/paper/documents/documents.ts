@@ -3,15 +3,12 @@
 // ones — registering them in project.json so they survive a reload.
 
 import { fileBridge, joinPath, type LoadedProject } from "../../../../lib/project/types";
-import { readManuscript } from "../../../../lib/project/load";
-import { CONTEXT_PATHS } from "../../../../lib/project/contextTemplates";
 import {
   commentsSidecarRel,
+  commentsMainPath,
   documentRemovalBlocker,
   pruneDocumentFromManifest,
-  sortDocuments,
 } from "../../../../lib/project/docOrder";
-import { frontMatterField } from "../frontmatter";
 
 export interface DocEntry {
   path: string; // relative to the project root, e.g. "manuscript/main.qmd"
@@ -21,69 +18,28 @@ export interface DocEntry {
   isContext?: boolean;
 }
 
-function baseName(rel: string): string {
-  return rel.slice(rel.lastIndexOf("/") + 1);
-}
+import { discoverDocuments, createDocumentFile, createDocumentFolder, moveDocumentFile, type DocumentIO } from "../../../../lib/project/documentFiles";
 
-function dirOf(rel: string): string {
-  return rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
-}
-
-/** Pull a title from a .qmd's YAML front-matter; fall back if there is none. */
-export function docTitle(src: string, fallback: string): string {
-  // WS-4.1: single-source front-matter extraction (frontmatter.ts).
-  const t = frontMatterField(src, "title");
-  return t ? t : fallback;
-}
-
-/** Discover the project's documents: main + supplementary + manuscript/**.qmd,
- *  plus the Context docs (Context/ + Context/Project — .qmd AND .md; the
- *  Transcripts/ and Dispatches/ archives are deliberately not documents). */
-export async function listDocuments(p: LoadedProject): Promise<DocEntry[]> {
+function documentIO(p: LoadedProject): DocumentIO {
   const fb = fileBridge();
-  const mainPath = p.manifest.manuscript.path;
-  const rels = new Set<string>([mainPath]);
-  const contextRels = new Set<string>();
-  for (const s of p.manifest.supplementary ?? []) if (s.path) rels.add(s.path);
-
-  // Also scan the manuscript dir (+ a sections/ subdir) for any other .qmd.
-  const dir = dirOf(mainPath);
-  if (fb?.readdir) {
-    const scan = async (d: string, prefix: string, into: Set<string>, exts: string[]) => {
-      try {
-        for (const e of await fb.readdir!(joinPath(p.root, d))) {
-          if (!e.dir && exts.some((x) => e.name.endsWith(x)))
-            into.add(prefix ? `${prefix}/${e.name}` : e.name);
-        }
-      } catch {
-        /* dir may not exist */
-      }
-    };
-    await scan(dir, dir, rels, [".qmd"]);
-    const sec = dir ? `${dir}/sections` : "sections";
-    await scan(sec, sec, rels, [".qmd"]);
-    await scan(CONTEXT_PATHS.dir, CONTEXT_PATHS.dir, contextRels, [".qmd", ".md"]);
-    await scan(CONTEXT_PATHS.projectDir, CONTEXT_PATHS.projectDir, contextRels, [".qmd", ".md"]);
-  }
-
-  const out: DocEntry[] = [];
-  const entryFor = async (rel: string, isContext: boolean) => {
-    const isMain = rel === mainPath;
-    let title = baseName(rel).replace(/\.(qmd|md)$/, "");
-    try {
-      title = docTitle(await readManuscript(p, rel), isMain ? p.manifest.title || title : title);
-    } catch {
-      /* keep filename title */
-    }
-    out.push({ path: rel, title, isMain, ...(isContext ? { isContext: true } : {}) });
+  if (!fb) throw new Error("no file bridge");
+  const abs = (rel: string) => joinPath(p.root, rel);
+  return {
+    exists: rel => fb.exists(abs(rel)), read: rel => fb.readText(abs(rel)),
+    create: (rel, text) => fb.writeText(abs(rel), text, { createOnly: true }),
+    write: (rel, text) => fb.writeText(abs(rel), text), mkdir: rel => fb.mkdir(abs(rel)),
+    entries: rel => fb.readdir ? fb.readdir(abs(rel)) : Promise.resolve([]),
+    remove: async rel => {
+      if (!fb.remove) throw new Error("This build cannot move files.");
+      await fb.remove(abs(rel));
+      if (await fb.exists(abs(rel))) throw new Error(`Could not remove ${rel}.`);
+    },
   };
-  for (const rel of rels) await entryFor(rel, false);
-  for (const rel of contextRels) await entryFor(rel, true);
-  // The list order is the user's (dragged in the rail) where they have set one,
-  // and the default otherwise — decided ONCE, in the shared core, so flux-core's
-  // twin lists the same documents in the same order.
-  return sortDocuments(out, p.manifest.documentOrder);
 }
+export const listDocumentTree = (p: LoadedProject) => discoverDocuments(p.manifest, documentIO(p));
+export async function listDocuments(p: LoadedProject): Promise<DocEntry[]> { return (await listDocumentTree(p)).docs; }
+export const createFolder = (p: LoadedProject, parent: string, name: string) => createDocumentFolder(p.manifest, documentIO(p), parent, name);
+export const moveDocument = (p: LoadedProject, rel: string, folder: string) => moveDocumentFile(p.manifest, documentIO(p), rel, folder);
 
 /**
  * Record the user's Documents-list order. The manifest object is updated in
@@ -97,41 +53,7 @@ export async function setDocumentOrder(p: LoadedProject, order: string[]): Promi
   await fb.writeText(joinPath(p.root, "project.json"), JSON.stringify(p.manifest, null, 2) + "\n");
 }
 
-function slugify(s: string): string {
-  return (
-    s
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "untitled"
-  );
-}
-
-/**
- * Create a new blank document (seeded front-matter), register it in the manifest
- * (so it persists + is rediscovered), and return its project-relative path.
- */
-export async function createDocument(p: LoadedProject, name: string): Promise<string> {
-  const fb = fileBridge();
-  if (!fb) throw new Error("no file bridge");
-  const dir = dirOf(p.manifest.manuscript.path);
-  const slug = slugify(name);
-  let rel = dir ? `${dir}/${slug}.qmd` : `${slug}.qmd`;
-  let n = 2;
-  while (await fb.exists(joinPath(p.root, rel))) {
-    rel = dir ? `${dir}/${slug}-${n}.qmd` : `${slug}-${n}.qmd`;
-    n++;
-  }
-  const stub = `---\ntitle: "${name.replace(/"/g, '\\"')}"\n---\n\n`;
-  await fb.writeText(joinPath(p.root, rel), stub);
-
-  if (!p.manifest.supplementary) p.manifest.supplementary = [];
-  if (!p.manifest.supplementary.some((s) => s.path === rel)) {
-    p.manifest.supplementary.push({ path: rel });
-    await fb.writeText(joinPath(p.root, "project.json"), JSON.stringify(p.manifest, null, 2) + "\n");
-  }
-  return rel;
-}
+export const createDocument = (p: LoadedProject, name: string, folder?: string) => createDocumentFile(p.manifest, documentIO(p), name, folder);
 
 /**
  * Delete a document from the project. The .qmd goes to the OS trash (a plain
@@ -165,8 +87,11 @@ export async function deleteDocument(
     return false;
   };
   const trashed = (await removeOne(rel)) ?? false;
-  await removeOne(commentsSidecarRel(p.manifest.manuscript.path, rel));
-  if (pruneDocumentFromManifest(p.manifest, rel))
+  await removeOne(commentsSidecarRel(commentsMainPath(p.manifest), rel));
+  const pruned = pruneDocumentFromManifest(p.manifest, rel);
+  const changedDefault = !!p.manifest.documentRoot && p.manifest.manuscript.path === rel;
+  if (changedDefault) p.manifest.manuscript.path = rows.find(d => d.path !== rel && !d.isContext)?.path ?? "";
+  if (pruned || changedDefault)
     await fb.writeText(joinPath(p.root, "project.json"), JSON.stringify(p.manifest, null, 2) + "\n");
   return { trashed };
 }

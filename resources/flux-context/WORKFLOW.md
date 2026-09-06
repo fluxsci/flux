@@ -71,7 +71,7 @@ Details + the canvas/figure/panel model: `PROJECT-AND-FIGURES.md`.
 $F set-caption fig1 "Synapse density by cortical layer. **a**, … **b**, …"
 #   ↑ the '**a**, …' convention is DISTRIBUTED into per-panel caption blocks
 #     (what the app's Caption Editor shows); --panel b rewrites one panel only.
-$F set-manuscript --file section.qmd     # or edit manuscript/main.qmd directly
+$F set-manuscript --file section.qmd     # or edit paper/notes.qmd directly
 #   embed figures with EMPTY alts: ![](../fig/renders/fig1.svg){#fig-fig1}
 $F ref fig1                              # adds 'See @fig-fig1.'  (or write @fig-fig1 / @fig-fig1-a yourself)
 $F cite-doi 10.1038/s41586-024-...       # grow references/library.bib (echoes author/title/year — CHECK it)
@@ -95,7 +95,7 @@ mark up the documents in the Flux app and you'll address the comments.
 ```bash
 $F feedback                    # context-stamped notes: each carries WHAT the user was looking at
 $F comments                    # all docs: each thread has doc + id + anchor.quote
-$F comments --doc manuscript/main.qmd   # optional: target one document only
+$F comments --doc paper/notes.qmd   # optional: target one document only
 # for each item: make the change (regenerate / restyle / edit the .qmd), then close it:
 $F resolve-feedback <id|text> --note "Done: <what you changed>."
 $F resolve-comment <id> --note "Done: <what you changed>."   # project-wide unique id
@@ -132,7 +132,7 @@ output regenerates and overrides leak into siblings.
 Analysis script (with `fluxplot.style` + `fp.save`) writes `plots/density.svg` (+ manifest + recipe) → you
 `validate-plot` it → `compose-figure` it into **fig1** with siblings → `render-figure` to a PNG
 and **look** → `restyle` the series to Flexoki colors → `set-caption` and cite `@fig-fig1` in
-`main.qmd` → show the user the PNG → they comment in the app → you `comments`, fix the `.qmd`,
+the active `.qmd` → show the user the PNG → they comment in the app → you `comments`, fix the `.qmd`,
 `resolve-comment` each → done, with full provenance in `.meta/journal.ndjson`.
 
 ## CLI vs MCP — quick guidance
