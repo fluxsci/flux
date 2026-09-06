@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import { ensureFigureReferenceKeys } from '../src/lib/project/figureIdentity';
+import { validateModel } from '../src/lib/project/validate';
+import { reconcileCaptionFiles } from '../src/lib/project/captionReconcile';
+import { composeCaption } from '../src/lib/captions';
+import type { Figure, Project } from '../src/lib/types';
+
+const figure = (): Figure => ({ id: 'old-figure', canvasId: 'c', name: 'Figure 1', x: 0, y: 0, width: 600, height: 300, captions: { __figure__: 'Lead.', a: 'First.', b: 'Second.' }, elements: ['a', 'b'].map((id, i) => ({ type: 'text', id, text: id, panelLabel: true, x: i * 100, y: 0, width: 20, height: 20, rotation: 0, fontSize: 14, fontFamily: 'Arial', fontWeight: 700, fontStyle: 'normal', align: 'left', color: '#111111', sizing: 'auto' })) });
+const project: Project = { version: 2, name: 'Legacy', canvases: [{ id: 'c', name: 'Canvas' }], figures: [figure()], assets: [], palette: [] };
+const index = { figures: [{ id: 'old-figure', label: 'legacy-identity', caption: '' }] };
+ensureFigureReferenceKeys(project, index);
+assert.equal(project.figures[0].referenceKey, 'legacy-identity', 'keep old references exactly');
+assert.deepEqual(validateModel(project), [], 'migration output must be accepted on reopen');
+assert.deepEqual(validateModel(JSON.parse(JSON.stringify(project))), [], 'saved legacy reference survives JSON round trip');
+
+const disk = 'Lead. (a) First. (b) Second.\n';
+const loaded = await reconcileCaptionFiles(project, index, async () => disk);
+assert.deepEqual(loaded.conflicts, [], 'legacy sidecar agrees with the canonical caption');
+const baselines = loaded.baselines;
+project.figures[0].elements = [];
+const saved = await reconcileCaptionFiles(project, index, async () => disk, baselines);
+assert.deepEqual(saved.conflicts, [], 'removing labels does not invent a sidecar edit');
+assert.equal(project.figures[0].captions?.a, 'First.', 'orphaned caption blocks remain recoverable');
+const conflict = await reconcileCaptionFiles(project, index, async () => 'Different external caption.', baselines);
+assert.equal(conflict.conflicts.length, 1, 'actual concurrent model and sidecar changes still conflict');
+const unchanged = { figures: [figure()] };
+const imported = await reconcileCaptionFiles(unchanged, index, async () => 'New lead. (a) First. (b) Second.', baselines);
+assert.deepEqual(imported.conflicts, [], 'external caption edit imports from an accepted legacy baseline');
+assert.match(composeCaption(unchanged.figures[0]), /^New lead\./);
+console.log('FIGURE PRESERVATION: PASS');

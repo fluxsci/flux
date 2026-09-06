@@ -13,7 +13,7 @@
   // 100vh) and the keyboard handler is scoped to this component's lifetime so
   // figure shortcuts aren't global when another mode is focused. Persistence is
   // wired into the project's `fig/` subsystem via project/figbridge.ts.
-  import { onMount, onDestroy, tick } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { get } from "svelte/store";
   import Toolbar from "../../../lib/Toolbar.svelte";
   import Sidebar from "../../../lib/Sidebar.svelte";
@@ -38,10 +38,10 @@
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
   import { bumpFigRevision, figRevision } from "../../scholar/revisions";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
-  import { registerFlushable, flushById, isDirtyById } from "../../lifecycle";
-  import { evictMode } from "../../paneStore";
-  import { setStoreTenant } from "../../../lib/tenancy";
-  import { pushToast } from "../../../lib/toast";
+  import { registerFlushable } from "../../lifecycle";
+  import { pointerDrag } from "../../../lib/ui/pointerDrag";
+  import { initializeEditor } from "../../editorHandoff";
+  import { errMsg } from "../../../lib/toast";
 
   // Only handle figure shortcuts while this pane is focused, so they don't fire
   // while the user is typing in another (e.g. Write) pane.
@@ -49,10 +49,12 @@
   // shown) suspends the per-notify derived recompute in Canvas/Sidebar; the
   // scene DOM stays mounted (W16 warm-switch) and one recompute runs on
   // reactivation via the figureRev memo keys.
-  let { focused = true, active = true }: { focused?: boolean; active?: boolean } = $props();
+  let { focused = true, active = true, paneId = "" }: { focused?: boolean; active?: boolean; paneId?: string } = $props();
 
   const pm = get(projectModel); // the loaded Flux project (or null on web/demo)
-  let ready = false;
+  let ready = $state(false);
+  let loadError = $state<string | null>(null);
+  let alive = true;
   let unsubDirty: (() => void) | undefined;
   let unsubReveal: (() => void) | undefined;
   let unsubFigRev: (() => void) | undefined;
@@ -64,7 +66,7 @@
   const autosave = createAutosave({
     name: "figures",
     delay: 700,
-    isDirty: () => !!pm && get(figDirty),
+    isDirty: () => ready && !!pm && get(figDirty),
     save: async () => {
       if (!pm) return;
       try {
@@ -79,6 +81,8 @@
       }
     },
   });
+  const autosaveStatus = autosave.status;
+  const autosaveError = autosave.error;
 
   async function reloadFigures() {
     if (!pm) return;
@@ -112,19 +116,15 @@
   // text selection during the drag is blocked via body user-select instead.
   let bodyEl = $state<HTMLElement | null>(null);
   const railMax = (min: number) => Math.max(min, Math.round(window.innerWidth * 0.4));
+  let cancelRail: (() => void) | null = null;
   function railDrag(apply: (x: number, rect: DOMRect) => void) {
-    return () => {
-      document.body.style.userSelect = "none";
-      const move = (e: PointerEvent) => {
+    return (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      cancelRail?.();
+      const original = { ...get(figureLayout) };
+      cancelRail = pointerDrag(event, e => {
         if (bodyEl) apply(e.clientX, bodyEl.getBoundingClientRect());
-      };
-      const up = () => {
-        document.body.style.userSelect = "";
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
+      }, () => figureLayout.set(original), () => { cancelRail = null; });
     };
   }
   const startSbDrag = railDrag((x, rect) => {
@@ -139,7 +139,7 @@
   const resetInspW = () => figureLayout.update((s) => ({ ...s, inspectorW: FIGURE_LAYOUT_DEFAULTS.inspectorW }));
 
   $effect(() => {
-    if (!focused) return;
+    if (!focused || !ready) return;
     const onPaste = (e: ClipboardEvent) => handleEditorPaste(e, get(activeFigureId));
     window.addEventListener("keydown", handleKey);
     window.addEventListener("paste", onPaste);
@@ -149,26 +149,14 @@
     };
   });
 
-  onMount(async () => {
+  onMount(() => {
     figureModeMounts++;
-    // Slide-migration §3.2.1: figure and slide mode share the app-global
-    // figure store — slide mode may not stay resident (kept-alive) while this
-    // mode loads fig/ into it. Flush the deck first (its edits persist), evict
-    // the mode, claim the store, THEN load. The tenancy assert in
-    // slideBridge.saveDeckFrom backstops any regression here.
-    await flushById("slide");
-    if (isDirtyById("slide")) {
-      pushToast("error", "Unsaved slide changes could not be written", {
-        detail: "The deck changed on disk. Its unsaved edits were superseded by the on-disk version when Figure mode opened.",
-      });
-    }
-    evictMode("slide");
-    await tick(); // let the evicted SlideMode unmount (its onDestroy no-ops)
-    setStoreTenant("figure");
+    void initializeEditor("figure", paneId, () => alive, async () => {
     if (pm) {
       embeddedProjectRoot.set(pm.root);
       await loadFigInto(pm.root, pm.manifest.title);
     }
+    if (!alive) return;
     ready = true;
     // If the user clicked a @fig ref in the manuscript, jump to that figure.
     const pend = get(pendingRevealFigureId);
@@ -188,28 +176,34 @@
       if (first) { first = false; return; }
       void onFigRevision();
     });
+    }).catch(e => { if (alive) loadError = errMsg(e); });
   });
 
   // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
   const unregFlush = registerFlushable({
     id: "figure",
-    isDirty: () => !!pm && get(figDirty),
+    isDirty: () => ready && !!pm && get(figDirty),
     flush: () => autosave.flush(),
   });
 
   onDestroy(() => {
+    cancelRail?.();
+    alive = false;
     unsubDirty?.();
     unsubReveal?.();
     unsubFigRev?.();
-    void autosave.flush();
+    if (ready) void autosave.flush();
     autosave.dispose();
     unregFlush();
-    if (--figureModeMounts === 0) embeddedProjectRoot.set(null); // W16: last one out clears it
+    if (--figureModeMounts === 0 && ready) embeddedProjectRoot.set(null);
   });
 </script>
 
 <div class="figure-mode">
-  <Toolbar />
+  {#if !ready}
+    <div class="editor-loading" role="status">{loadError ?? "Opening figures…"}</div>
+  {:else}
+  <Toolbar saveStatus={$autosaveStatus} saveError={$autosaveError} retrySave={() => void autosave.flush()} />
   <div
     class="body"
     bind:this={bodyEl}
@@ -262,9 +256,11 @@
       <button class="ghost" onclick={overwriteFigures}>Overwrite with mine</button>
     </div>
   {/if}
+  {/if}
 </div>
 
 <style>
+  .editor-loading { margin: auto; padding: 24px; color: var(--c-tx-2); }
   .figure-mode {
     display: flex;
     flex-direction: column;

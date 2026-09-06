@@ -6,11 +6,9 @@
 //  - Esc rolls the run back and burns no entry;
 //  - with <2 tracks selected the same chord falls through to the ELEMENT
 //    cascade on the slide canvas;
-//  - beat-faithful law: an element cascade at beat 1 routes a GOVERNED
-//    element's delta into its transform's to.state (base untouched) while an
-//    ungoverned element's base moves — the display-sync interplay the design
-//    leaned on.
-import { launch, gotoApp, clickMode, realErrors, shot, waitFor } from "./lib/driver.mjs";
+//  - explicit Edit after step routes every element delta into that step,
+//    creating a transform when needed and preserving canonical initial state.
+import { launch, gotoApp, clickMode, realErrors, shot, waitFor, waitForFrame } from "./lib/driver.mjs";
 
 let fails = 0;
 function assert(cond, msg) {
@@ -45,9 +43,9 @@ try {
       s.beats.push({
         id: "cbeat",
         tracks: [
-          { id: "tA", target: "cr1", preset: "fade" },
-          { id: "tB", target: "cr2", preset: "fade" },
-          { id: "tC", target: "cr3", preset: "fade" },
+          { id: "tA", target: "cr1", preset: "fade", duration: 400 },
+          { id: "tB", target: "cr2", preset: "fade", duration: 400 },
+          { id: "tC", target: "cr3", preset: "fade", duration: 400 },
         ],
       });
     });
@@ -154,8 +152,8 @@ try {
   });
   await page.keyboard.press("Escape");
 
-  // ---- 4. beat-faithful routing: element cascade at beat 1 writes a GOVERNED
-  //         element's delta into its transform's to.state, not its base ---------------
+  // ---- 4. Explicit endpoint editing: every cascaded object writes step 1,
+  // including objects with no prior transform (the overhaul contract). --------
   await page.evaluate(() => {
     const f = window.__flux;
     const sid = f.get(f.fig.activeFigureId);
@@ -164,9 +162,12 @@ try {
       s.beats[1].tracks.push({ id: "tX", target: "cr1", preset: "transform", duration: 600, easing: "smooth", to: { state: {} } });
     });
     f.slide.activeBeat.set(1);
+    f.slide.editAfterBeat(1); // select the authored destination; beat navigation alone is display-only
   });
   await waitFor(page, () => window.__flux.get(window.__flux.slide.activeBeat) === 1, null, { label: "beat 1 active" });
-  await page.evaluate(() => window.__flux.fig.selection.set(new Set(["cr1", "cr2"])));
+  await page.evaluate(() => { window.__flux.slide.selTrackIds.set([]); window.__flux.fig.selection.set(new Set(["cr1", "cr2"])); });
+  await waitForFrame(page); // the animator follows a changed canvas selection
+  await page.evaluate(() => window.__flux.slide.selTrackIds.set([]));
   await chord();
   await waitFor(page, () => !!document.querySelector(".cascade-pop"), null, { label: "element popover open at beat 1" });
   await setNum(".cascade-pop input.delta", 30);
@@ -185,11 +186,12 @@ try {
       baseX1: s.elements.find((e) => e.id === "cr1")?.x,
       baseX2: s.elements.find((e) => e.id === "cr2")?.x,
       stateX: tX?.to?.state?.x,
+      stateX2: s.beats[1].tracks.find(t => t.target === "cr2" && t.preset === "transform")?.to?.state?.x,
     };
   });
   assert(routed.baseX1 === 100, `governed element's BASE stays put (got ${routed.baseX1})`);
   assert(routed.stateX === 130, `…its delta routed into the transform's to.state (got ${routed.stateX})`);
-  assert(routed.baseX2 === 360, `ungoverned element's base moves by its rank (got ${routed.baseX2})`);
+  assert(routed.baseX2 === 300 && routed.stateX2 === 360, `a new transform records the second object's endpoint; base stays put (${routed.baseX2} → ${routed.stateX2})`);
   await page.evaluate(() => window.__flux.fig.undo());
 
   // ---- 5. PLAYBACK honors cascaded transform starts (the runMorph delay fix):

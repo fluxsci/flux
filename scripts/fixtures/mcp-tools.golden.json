@@ -91,6 +91,7 @@
   "reorder_slides",
   "reorder_tracks",
   "rerun_plot",
+  "resize_figure_frame",
   "resolve_comment",
   "resolve_feedback",
   "restyle_part",

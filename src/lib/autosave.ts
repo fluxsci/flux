@@ -85,9 +85,11 @@ export function createAutosave(opts: {
       return;
     }
     setStatus("saving");
+    let saved = false;
     inflight = (async () => {
       try {
         await opts.save(force);
+        saved = true;
         failedOnce = false;
         error.set(null);
         if (toastId !== undefined) {
@@ -116,7 +118,11 @@ export function createAutosave(opts: {
       await inflight;
     } finally {
       inflight = null;
-      if (trailing) {
+      // A second edit can leave an already-true dirty store unchanged, so its
+      // subscribers never call schedule() again. A successful write that could
+      // not clear dirty still needs a trailing save. Failures retain the retry /
+      // conflict policy above; they must not become an unconditional retry loop.
+      if (trailing || (saved && opts.isDirty())) {
         trailing = false;
         if (!disposed) schedule();
       }

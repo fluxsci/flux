@@ -250,6 +250,8 @@ activeFigureId.subscribe(() => xrayRoot.set(null));
 // — so a frame can be moved/duplicated/nudged on the canvas (F8). Set by clicking
 // a figure's title label; cleared when elements are (re)selected.
 export const selectedFrameId = writable<Id | null>(null);
+// Transient boundary preview: Inspector reads it without a project notification.
+export const figureFramePreview = writable<{ id: Id; x: number; y: number; w: number; h: number } | null>(null);
 // The sidebar's Figures-LIST selection: which figure rows are picked for a
 // reorder (plain click = one, Shift+click = a range, Ctrl/Cmd+click = toggle).
 // Distinct from `selection` (elements) and `selectedFrameId` (the frame being
@@ -459,10 +461,46 @@ function markEdited() {
   dirty.set(true);
 }
 
-export function beginGesture() {
-  pushPast(snapshot(get(project)));
+export const historyAvailability = writable({ undo: false, redo: false });
+function publishHistory() {
+  const previous = get(historyAvailability);
+  if (previous.undo !== !!past.length || previous.redo !== !!future.length)
+    historyAvailability.set({ undo: !!past.length, redo: !!future.length });
+}
+let cleanEpoch = 0;
+let wasDirty = false;
+dirty.subscribe(value => {
+  if (wasDirty && !value) cleanEpoch++;
+  wasDirty = value;
+});
+
+/** Ownership of one pending edit. Cancellation must never consume a completed
+ * edit or a transaction opened by another control. Redo survives cancelled and
+ * no-op edits. If a preview was saved meanwhile, restoring it is a new edit. */
+export interface GestureCheckpoint {
+  readonly entry: HistEntry;
+  readonly redo: HistEntry[];
+  readonly dirty: boolean;
+  readonly cleanEpoch: number;
+}
+export function beginGesture(): GestureCheckpoint {
+  const token = { entry: snapshot(get(project)), redo: [...future], dirty: get(dirty), cleanEpoch };
+  pushPast(token.entry);
   clearFuture();
   markEdited();
+  publishHistory();
+  return token;
+}
+
+function sameCheckpoint(token: GestureCheckpoint): boolean {
+  const { colorGroups: _omit, ...current } = get(project);
+  const { colorGroups: _old, ...before } = token.entry.snap;
+  return JSON.stringify(current) === JSON.stringify(before)
+    && (!companion || JSON.stringify(companion.capture()) === JSON.stringify(token.entry.comp));
+}
+
+export function finishGesture(token: GestureCheckpoint | null): void {
+  if (token && past.at(-1) === token.entry && sameCheckpoint(token)) rollbackGesture(token);
 }
 
 export function commit(fn: (p: Project) => void) {
@@ -507,6 +545,7 @@ export function undo() {
   restore(e);
   pruneSelection();
   markEdited();
+  publishHistory();
 }
 
 export function redo() {
@@ -517,6 +556,7 @@ export function redo() {
   restore(e);
   pruneSelection();
   markEdited();
+  publishHistory();
 }
 
 // FIG-12: the mounted Canvas registers its in-flight-gesture abort here so the
@@ -526,17 +566,21 @@ export function redo() {
 // the gesture state lives inside the Canvas component.
 export const gestureCancelHook: { fn: (() => boolean) | null } = { fn: null };
 
-// Discard the most recent gesture: restore its captured pre-state and leave no
-// redo. Used to cancel a live, in-progress gesture (e.g. Esc out of Arrange
-// mode) whose pre-state was captured with beginGesture().
-export function rollbackGesture() {
-  if (!past.length) return;
+// Restore the caller-owned gesture and its prior redo/dirty state. Legacy
+// callers without a token discard the most recent entry without preserving redo.
+export function rollbackGesture(token?: GestureCheckpoint): boolean {
+  if (!past.length || (token && past.at(-1) !== token.entry)) return false;
   const e = past.pop()!;
   pastBytes -= e.bytes;
-  restore(e);
+  // A preview-only cancellation should not invalidate the entire scene.
+  if (!token || !sameCheckpoint(token)) restore(e);
   clearFuture();
+  if (token) for (const entry of token.redo) pushFuture(entry);
   pruneSelection();
-  markEdited();
+  editGen.n++;
+  dirty.set(token ? token.dirty || token.cleanEpoch !== cleanEpoch : true);
+  publishHistory();
+  return true;
 }
 
 export function resetHistory() {
@@ -544,6 +588,7 @@ export function resetHistory() {
   future.length = 0;
   pastBytes = 0;
   futureBytes = 0;
+  publishHistory();
 }
 
 // WS-5.5: test-only introspection for the byte budget (verify-undo-budget.ts).

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { editSession } from "./interact/editSession";
   import { project } from "./store";
   import { colorTarget, applyColor, addRecentColor } from "./colors";
   import { importPalette } from "./io";
@@ -15,8 +16,9 @@
   }
 
   function pick(hex: string) {
-    applyColor(hex);
-    addRecentColor(hex);
+    const session = editSession();
+    session.run(() => { applyColor(hex, undefined, true); addRecentColor(hex, true); });
+    session.finish();
   }
 </script>
 

@@ -52,17 +52,13 @@ try {
   });
   await waitForFrame(page);
 
-  // Match the row's NAME text node, not its textContent: since figure families
-  // landed (2026-08-04) a row also renders a dim nickname span inside the same
-  // button ("AlphaGrowth curves"), so an exact textContent match found nothing.
-  const clickFigure = (name) =>
-    page.evaluate((n) => {
-      const btn = [...document.querySelectorAll("button.item")].find(
-        (b) => (b.childNodes[0]?.textContent || "").trim() === n,
-      );
-      if (!btn) throw new Error(`no sidebar row named ${n}`);
-      btn.click();
-    }, name);
+  // Identity is stable; the human title may be the nickname instead of name.
+  const clickFigure = (name) => page.evaluate((name) => {
+    const F = window.__flux, figure = F.get(F.fig.project).figures.find(f => f.name === name);
+    const row = [...document.querySelectorAll('.figrow')].find(row => row.getAttribute('data-fig-id') === figure?.id);
+    if (!row) throw new Error(`no sidebar row for ${name}`);
+    row.querySelector('button.item').click();
+  }, name);
 
   /** Where does the figure's world-space centre land on screen, and where is the
    *  centre of the canvas's usable box? Equal ⇒ centred. */
@@ -173,9 +169,7 @@ try {
   const clean = await page.evaluate(async () => {
     const F = window.__flux;
     const before = F.get(F.fig.dirty);
-    const btn = [...document.querySelectorAll("button.item")].find(
-      (b) => (b.childNodes[0]?.textContent || "").trim() === "Beta",
-    );
+    const btn = document.querySelector('[data-fig-id="beta"] button.item');
     btn.click();
     await new Promise((r) => requestAnimationFrame(r));
     return { before, after: F.get(F.fig.dirty) };

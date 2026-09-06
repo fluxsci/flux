@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { panelLetters } from "../src/lib/captions";
+import { panelLetters, composeCaption } from "../src/lib/captions";
 import { withLock } from "./locks";
 import { CLIENT, j, stamp, journal } from "./journal";
 import { atomicWrite, fsyncDir } from "./fsx";
@@ -13,7 +13,8 @@ import type { Figure, Project, Asset, Canvas } from "../src/lib/types";
 import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../src/lib/migrate";
 import { kindForFamily } from "../src/lib/figfamily";
 import { ensureFigureReferenceKeys } from "../src/lib/project/figureIdentity";
-import { reconcileCaptionFiles, captionConflictMessage } from "../src/lib/project/captionReconcile";
+import { reconcileCaptionFiles, captionConflictMessage, type CaptionBaseline } from "../src/lib/project/captionReconcile";
+import { validateModel, sanitizeProjectGeometry } from "../src/lib/project/validate";
 import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "../src/lib/project/figureReferenceSync";
 import type { ProjectManifest, FigureEntry } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "../src/lib/project/types";
@@ -128,6 +129,8 @@ export async function readCanvasFiles(
         byId[f.id] = f;
         canvasOf[f.id] = cm.id;
       }
+    } else if (idx.figures.some(f => f.canvas === cm.id)) {
+      throw new Error(`Missing fig/canvases/${cm.id}.json. Restore it before editing figures.`);
     }
   }
   return { byId, canvasOf };
@@ -146,6 +149,7 @@ const emptyIndex = (): FigIndexFile => ({
   palette: [],
   colorGroups: [],
 });
+const acceptedCaptions = new WeakMap<Project, Map<string, CaptionBaseline>>();
 
 export async function loadFigModel(root: string): Promise<{ project: Project; index: FigIndexFile }> {
   // A missing fig/index.json is fine (fresh project) — but a missing
@@ -179,9 +183,12 @@ export async function loadFigModel(root: string): Promise<{ project: Project; in
   // loadFigInto, so both engines agree on identity before any mutation runs.
   migrateFigureFamilies(project, familyHintsFrom(index.figures));
   ensureFigureReferenceKeys(project, index);
+  const errors = validateModel(project);
+  if (errors.length) throw new Error(`Figure compositions failed validation: ${errors.slice(0, 5).join("; ")}`);
   const captionState = await reconcileCaptionFiles(project, index, async (rel) =>
-    fs.readFile(safeJoin(root, rel), "utf8").catch(() => null));
+    fs.readFile(safeJoin(root, rel), "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; }));
   if (captionState.conflicts.length) throw new Error(captionConflictMessage(captionState.conflicts));
+  acceptedCaptions.set(project, captionState.baselines);
   return { project, index };
 }
 
@@ -225,6 +232,12 @@ async function saveFigModelUnlocked(
   project: Project,
   index: FigIndexFile,
 ): Promise<void> {
+  const captions = await reconcileCaptionFiles(project, index, async rel =>
+    fs.readFile(safeJoin(root, rel), "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; }), acceptedCaptions.get(project));
+  if (captions.conflicts.length) throw new Error(captionConflictMessage(captions.conflicts));
+  sanitizeProjectGeometry(project);
+  const errors = validateModel(project);
+  if (errors.length) throw new Error(`Figure compositions could not be saved: ${errors.slice(0, 5).join("; ")}`);
   // WS-5.6: the write set (canvases + captions + index) comes from the ONE
   // persistence core shared with the GUI. `index` (the loaded, possibly
   // verb-mutated rollup) is the prev: labels/kinds persist through it. The
@@ -245,6 +258,7 @@ async function saveFigModelUnlocked(
   }); } catch (e) { releaseFigureReferenceUpdate(root, referenceUpdate); throw e; }
   await commitFigureReferenceUpdate(root, referenceUpdate, referenceSyncIO);
   await reindex(root);
+  acceptedCaptions.set(project, new Map(project.figures.map(f => [f.id, { model: composeCaption(f).trim(), sidecar: composeCaption(f) + "\n" }])));
 }
 
 // --------------------------------------------------------------------------

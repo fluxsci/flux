@@ -6,6 +6,8 @@
 // is the natural call), or on explicit ids.
 
 import { get } from "svelte/store";
+import { storeTenant } from "../tenancy";
+import { validateFrameBounds } from "../interact/frameResize";
 import * as store from "../store";
 import * as ops from "../ops";
 import { membersDeep } from "../groups";
@@ -47,6 +49,7 @@ export const ALLOWED_COMMANDS = [
   "select_matching",
   "delete",
   "set_figure_layout",
+  "resize_figure_frame",
   // figure families: structured identity (family · number · nickname).
   "set_figure_family",
   "duplicate_figure",
@@ -457,6 +460,16 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       store.commit((p) => ops.deleteElements(p, list));
       store.clearSelection();
       return { deleted: list.length };
+    }
+
+    case "resize_figure_frame": {
+      if (storeTenant() !== "figure") throw new Error("Individual slide frames share the deck stage size.");
+      const f = fig(c);
+      if (!f || !get(store.project).figures.some(fig => fig.id === f)) throw new Error("resize_figure_frame: figure not found");
+      const box = { x: Number(c.x), y: Number(c.y), w: Number(c.width), h: Number(c.height) };
+      validateFrameBounds(box); // rejected commands must not create history
+      store.commit(p => ops.resizeFigureFrame(p, f, box));
+      return { figureId: f };
     }
 
     case "set_figure_layout": {

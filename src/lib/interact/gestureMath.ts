@@ -9,28 +9,25 @@ import type { Handle } from "./handles";
 /** New selection box for dragging `h` to local point `lp`; `shift` keeps the
  *  original aspect (scaling about the anchored corner/edge). Sizes floor at 1. */
 export function computeResizeBox(ob: Rect, h: Handle, lp: { x: number; y: number }, shift: boolean): Rect {
-  let x = ob.x,
-    y = ob.y,
-    w = ob.w,
-    hh = ob.h;
+  const horizontal = h.includes("w") || h.includes("e");
+  const vertical = h.includes("n") || h.includes("s");
   const right = ob.x + ob.w;
   const bottom = ob.y + ob.h;
-  if (h.includes("w")) {
-    x = lp.x;
-    w = right - lp.x;
+  let w = h.includes("w") ? right - lp.x : h.includes("e") ? lp.x - ob.x : ob.w;
+  let height = h.includes("n") ? bottom - lp.y : h.includes("s") ? lp.y - ob.y : ob.h;
+  const keepAspect = shift && ob.w > 0 && ob.h > 0;
+  if (keepAspect) {
+    // A one-axis handle must be allowed to shrink. The inactive axis does not
+    // contribute a spurious ratio of 1. Corners retain the dominant-axis rule.
+    const ratio = horizontal && vertical ? Math.max(w / ob.w, height / ob.h)
+      : horizontal ? w / ob.w : height / ob.h;
+    const scale = Math.max(ratio, 1 / ob.w, 1 / ob.h);
+    w = ob.w * scale;
+    height = ob.h * scale;
+  } else {
+    w = Math.max(1, w);
+    height = Math.max(1, height);
   }
-  if (h.includes("e")) w = lp.x - ob.x;
-  if (h.includes("n")) {
-    y = lp.y;
-    hh = bottom - lp.y;
-  }
-  if (h.includes("s")) hh = lp.y - ob.y;
-  if (shift && ob.w > 0 && ob.h > 0) {
-    const s = Math.max(w / ob.w, hh / ob.h);
-    w = ob.w * s;
-    hh = ob.h * s;
-    if (h.includes("w")) x = right - w;
-    if (h.includes("n")) y = bottom - hh;
-  }
-  return { x, y, w: Math.max(1, w), h: Math.max(1, hh) };
+  return { x: h.includes("w") ? (!keepAspect && right - lp.x >= 1 ? lp.x : right - w) : ob.x,
+    y: h.includes("n") ? (!keepAspect && bottom - lp.y >= 1 ? lp.y : bottom - height) : ob.y, w, h: height };
 }

@@ -1,7 +1,18 @@
 <script lang="ts">
+  import { numericProperties, propertyValue, setNumericProperty, type NumericProperty } from "./interact/elementProperties";
+  import { editSession } from "./interact/editSession";
+  const textSession = editSession();
+  onDestroy(() => textSession.finish());
+  let textTarget: string | null = null;
+  const dimensionBaselines = new Map<string, { w: number; h: number }>();
+  function captureDimensions() {
+    dimensionBaselines.clear();
+    for (const el of sel) if ("width" in el && "height" in el) dimensionBaselines.set(el.id, { w: el.width, h: el.height });
+  }
+  import { selectionTargets } from "./interact/selectionTargets";
   import { get } from "svelte/store";
-  import { onMount, getContext } from "svelte";
-  import { project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog } from "./store";
+  import { onMount, onDestroy, getContext } from "svelte";
+  import { figureFramePreview, project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog } from "./store";
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextStyle } from "./types";
@@ -64,7 +75,10 @@
     return out;
   })();
   $: single = sel.length === 1 ? sel[0] : null;
-  $: fig = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
+  $: modelFigure = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
+  $: fig = modelFigure && $figureFramePreview?.id === modelFigure.id
+    ? { ...modelFigure, x: $figureFramePreview.x, y: $figureFramePreview.y, width: $figureFramePreview.w, height: $figureFramePreview.h }
+    : modelFigure;
 
   // Physical-size truth (canvas px are 96/inch): the mm readout under W/H, and a
   // reset back to an asset's true physical size after a manual/legacy rescale.
@@ -121,6 +135,14 @@
     commit((p) => ops.setCrop(p, id, null));
   }
 
+  $: editableSel = editableSelection(sel, $figureRev, $globalRev);
+  function editableSelection(elements: Element[], _revs: unknown, _global: number) {
+    const ids = new Set(elements.map(e => e.id));
+    return get(project).figures.flatMap(f => selectionTargets(f, ids, { editable: true }));
+  }
+  $: selectionReadOnly = sel.length > 0 && editableSel.length === 0;
+  $: if (textTarget !== (single?.id ?? null)) { textSession.finish(); textTarget = single?.id ?? null; }
+
   // Lock / hide state across the selection (F6): all-on drives the checkbox,
   // some-on shows the indeterminate dash.
   $: anyLocked = sel.some((e) => e.locked);
@@ -136,7 +158,7 @@
   // Proportional scale (Feature 5): one-shot "scale by %" of the selection.
   let scalePct = 100;
   function applyScale() {
-    const ids = [...$selection];
+    const ids = editableIds();
     if (!ids.length || !(scalePct > 0)) return;
     commit((p) => ops.scaleElements(p, ids, scalePct / 100));
   }
@@ -188,18 +210,21 @@
   }
 
   let dpi = 300;
-  // Export pending state: a journal TIFF at 600–1200 dpi runs getImageData + a
-  // synchronous encode on the UI thread for seconds. Disable all export buttons
+  // Capture once and encode in a worker. Disable all export buttons
   // while one runs (no double-submit) and label the running one "Exporting…".
   let exporting: string | null = null;
-  async function runExport(kind: string, fn: (f: Figure) => Promise<void>) {
+  let exportAbort: AbortController | null = null;
+  onDestroy(() => exportAbort?.abort());
+  async function runExport(kind: string, fn: (f: Figure, signal: AbortSignal) => Promise<void>) {
     const target = fig;
     if (!target || exporting) return;
     exporting = kind;
+    exportAbort = new AbortController();
     try {
-      await fn(target);
+      await fn(target, exportAbort.signal);
     } finally {
       exporting = null;
+      exportAbort = null;
     }
   }
   // 3.1 journal-spec export: physical width (mm) + dpi + transparency.
@@ -211,12 +236,15 @@
   $: selectedMm = widthPresetId === "custom" ? Math.max(1, customMm) : (ALL_WIDTHS.find((w) => w.id === widthPresetId)?.mm ?? 190);
   $: journalPlan = fig ? planExport(fig.width, fig.height, selectedMm, journalDpi) : null;
 
-  function updateSelected(fn: (e: Element, p: Project) => void) {
-    const ids = get(selection);
+  function editableIds() {
+    return get(project).figures.flatMap(f => selectionTargets(f, get(selection), { editable: true }).map(e => e.id));
+  }
+  function updateSelected(fn: (e: Element, p: Project) => void, editable = true) {
+    const ids = editable ? new Set(editableIds()) : get(selection);
+    if (!ids.size) return;
     commit((p) => {
       for (const f of p.figures)
-        for (const e of f.elements)
-          if (ids.has(e.id)) {
+        for (const e of selectionTargets(f, ids, { editable })) {
             fn(e, p);
             applyTextLayout(e);
           }
@@ -237,8 +265,7 @@
     const ids = get(selection);
     mutate((p) => {
       for (const f of p.figures)
-        for (const e of f.elements)
-          if (ids.has(e.id)) {
+        for (const e of selectionTargets(f, ids, { editable: true })) {
             fn(e, p);
             applyTextLayout(e);
           }
@@ -257,7 +284,7 @@
 
   // --- text styling (B/I/U, sizing mode, named styles) ---
   function toggleSelText(which: ops.TextToggle) {
-    const list = [...get(selection)];
+    const list = editableIds();
     if (!list.length) return;
     commit((p) => {
       ops.toggleTextStyle(p, list, which);
@@ -288,7 +315,7 @@
   }
   function onStyleSelect(e: { currentTarget: HTMLSelectElement }) {
     const v = e.currentTarget.value;
-    const ids = [...get(selection)];
+    const ids = editableIds();
     if (v === "__new__") {
       newStyleFromSelection();
       return;
@@ -329,7 +356,7 @@
     });
   }
   function styleApply(st: TextStyle) {
-    applyProjectStyle([...get(selection)], st.id);
+    applyProjectStyle(editableIds(), st.id);
   }
   function styleDelete(st: TextStyle) {
     commit((p) => ops.deleteTextStyle(p, st.id));
@@ -384,87 +411,6 @@
 </script>
 
 <aside class="inspector">
-  <!-- ALIGN -->
-  <section>
-    <h4>Align</h4>
-    {#if sel.length === 0}
-      <p class="note">Select elements to edit</p>
-    {/if}
-    <div class="grid6">
-      <button title="Left (Alt+A)" aria-label="Align left" disabled={sel.length < 2} on:click={() => doAlign("left")}>⊢</button>
-      <button title="Center H (Alt+H)" aria-label="Align horizontal centers" disabled={sel.length < 2} on:click={() => doAlign("centerH")}>↔</button>
-      <button title="Right (Alt+D)" aria-label="Align right" disabled={sel.length < 2} on:click={() => doAlign("right")}>⊣</button>
-      <button title="Top (Alt+W)" aria-label="Align top" disabled={sel.length < 2} on:click={() => doAlign("top")}>⊤</button>
-      <button title="Middle V (Alt+V)" aria-label="Align vertical middles" disabled={sel.length < 2} on:click={() => doAlign("centerV")}>↕</button>
-      <button title="Bottom (Alt+S)" aria-label="Align bottom" disabled={sel.length < 2} on:click={() => doAlign("bottom")}>⊥</button>
-    </div>
-    <div class="row">
-      <button disabled={sel.length < 2} on:click={() => doDistribute("h")}>Distribute H</button>
-      <button disabled={sel.length < 2} on:click={() => doDistribute("v")}>Distribute V</button>
-    </div>
-    <div class="row">
-      <button
-        title="Cascade a property across the selection — each object steps by a delta (Ctrl+Shift+C)"
-        disabled={sel.length < 2}
-        on:click={openCascade}>Cascade… <span class="hk">⌃⇧C</span></button>
-    </div>
-    {#if sel.length >= 2}
-      <div class="row gaprow">
-        <NumberField label="Gap" value={gapVal} min={0}
-          on:commit={(e) => (gapVal = e.detail)}
-          on:scrub={(e) => (gapVal = e.detail)} />
-        <button title="Exact gap horizontally" on:click={() => doDistribute("h", gapVal)}>Gap H</button>
-        <button title="Exact gap vertically" on:click={() => doDistribute("v", gapVal)}>Gap V</button>
-      </div>
-    {/if}
-    {#if sel.length >= 1}
-      <div class="row gaprow">
-        <NumberField label="Scale %" value={scalePct} min={1}
-          on:commit={(e) => (scalePct = e.detail)}
-          on:scrub={(e) => (scalePct = e.detail)} />
-        <button title="Scale proportionally (geometry + stroke/font) about the selection centre" on:click={applyScale}>Apply</button>
-      </div>
-    {/if}
-  </section>
-
-  <!-- SELECT SAME / STYLE (F9 + F10) -->
-  {#if sel.length >= 1}
-    <section>
-      <h4>Select &amp; style</h4>
-      {#if single}
-        <div class="row" style="flex-wrap:wrap;gap:4px;">
-          <span style="opacity:.6;font-size:11px;width:100%;">Select same…</span>
-          <button title="Select all with the same fill (Cmd/Ctrl+Alt+A)" on:click={() => selectMatching("fill")}>Fill</button>
-          <button title="Select all with the same stroke" on:click={() => selectMatching("stroke")}>Stroke</button>
-          <button title="Select all with the same font" on:click={() => selectMatching("font")}>Font</button>
-          <button title="Select all of the same type" on:click={() => selectMatching("type")}>Type</button>
-        </div>
-      {/if}
-      <div class="row">
-        <button title="Copy style (Cmd/Ctrl+Alt+C)" disabled={!single} on:click={copyStyle}>Copy style</button>
-        <button title="Paste style (Cmd/Ctrl+Alt+V)" on:click={pasteStyle}>Paste style</button>
-      </div>
-    </section>
-  {/if}
-
-  <!-- ARRANGE -->
-  {#if arrN >= 2}
-    <section>
-      <h4 style="display:flex;align-items:baseline;">Arrange <span class="hk">Alt+G</span></h4>
-      <div class="grid6">
-        <button title="Single row" on:click={() => arrangeToRows(1)}>Row</button>
-        <button title="Balanced grid" on:click={() => arrangeToRows(balancedRows(arrN))}>Grid</button>
-        <button title="Single column" on:click={() => arrangeToRows(arrN)}>Column</button>
-      </div>
-      <div class="row" style="align-items:center;gap:8px;">
-        <span style="opacity:.6;font-size:11px;">Rows</span>
-        <button title="Fewer rows" on:click={() => stepRows(-1)}>−</button>
-        <span style="min-width:18px;text-align:center;font-variant-numeric:tabular-nums;">{$lastArrangeRows}</span>
-        <button title="More rows" on:click={() => stepRows(1)}>+</button>
-      </div>
-    </section>
-  {/if}
-
   <!-- SELECTED PLOT PART -->
   {#if partInfo}
     <section class="part">
@@ -481,23 +427,26 @@
     </section>
   {/if}
 
+  {#if selectionReadOnly}<p class="note" role="status">Selection is locked or hidden. Unlock or show it in Layers to edit.</p>{/if}
+  <fieldset disabled={selectionReadOnly}>
   <!-- POSITION / SIZE -->
   {#if single}
     <section>
       <h4>{single.type}</h4>
       <div class="row">
         <NumberField label="X" value={single.x}
-          on:commit={(e) => updateSelected((el) => (el.x = e.detail))}
-          on:scrub={(e) => scrubSelected((el) => (el.x = e.detail))} />
+          on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "x", e.detail))}
+          on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "x", e.detail))} />
         <NumberField label="Y" value={single.y}
-          on:commit={(e) => updateSelected((el) => (el.y = e.detail))}
-          on:scrub={(e) => scrubSelected((el) => (el.y = e.detail))} />
+          on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "y", e.detail))}
+          on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "y", e.detail))} />
       </div>
       {#if "width" in single && ops.supportsBoxDim(single.type)}
         <div class="row wh">
           <NumberField label="W" value={single.width} min={1}
-            on:commit={(e) => updateSelected((el) => setDim(el, "w", e.detail))}
-            on:scrub={(e) => scrubSelected((el) => setDim(el, "w", e.detail))} />
+            on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "width", e.detail))}
+            on:scrubStart={captureDimensions}
+            on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "width", e.detail, dimensionBaselines.get(el.id)))} />
           <button
             class="ratio"
             class:on={single.lockAspect}
@@ -512,8 +461,9 @@
             {/if}
           </button>
           <NumberField label="H" value={single.height} min={1}
-            on:commit={(e) => updateSelected((el) => setDim(el, "h", e.detail))}
-            on:scrub={(e) => scrubSelected((el) => setDim(el, "h", e.detail))} />
+            on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "height", e.detail))}
+            on:scrubStart={captureDimensions}
+            on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "height", e.detail, dimensionBaselines.get(el.id)))} />
         </div>
         {#if !slideMode}
           <!-- Physical units stay hidden in slide mode: a slide shares the 96/in
@@ -560,17 +510,32 @@
       {/if}
       <div class="row">
         <NumberField label="Rotation°" value={single.rotation} step={1}
-          on:commit={(e) => updateSelected((el) => (el.rotation = e.detail))}
-          on:scrub={(e) => scrubSelected((el) => (el.rotation = e.detail))} />
+          on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "rotation", e.detail))}
+          on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "rotation", e.detail))} />
         <NumberField label="Opacity" value={single.opacity ?? 1} step={0.05} min={0} max={1}
-          on:commit={(e) => updateSelected((el) => (el.opacity = e.detail))}
-          on:scrub={(e) => scrubSelected((el) => (el.opacity = e.detail))} />
+          on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "opacity", e.detail))}
+          on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "opacity", e.detail))} />
       </div>
     </section>
   {:else if sel.length > 1}
-    <section><h4>{sel.length} selected</h4></section>
+    <section><h4>{sel.length} selected</h4>
+      {#each Object.entries(numericProperties) as [key, descriptor]}
+        {@const value = propertyValue(editableSel, key as NumericProperty)}
+        {#if value.count}
+          <div class="row">
+            <NumberField label={descriptor.shortLabel} value={value.value} mixed={value.mixed}
+              step={descriptor.step} min={descriptor.min ?? null} max={descriptor.max ?? null}
+              title={`Applies to ${value.count} of ${sel.length} selected objects; locked or hidden objects stay unchanged`}
+              on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, key as NumericProperty, e.detail))}
+              on:scrubStart={captureDimensions}
+              on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, key as NumericProperty, e.detail, dimensionBaselines.get(el.id)))} />
+          </div>
+        {/if}
+      {/each}
+    </section>
   {/if}
 
+  </fieldset>
   <!-- LOCK / HIDE (F6) -->
   {#if sel.length >= 1}
     <section>
@@ -580,7 +545,7 @@
             type="checkbox"
             checked={allLocked}
             indeterminate={anyLocked && !allLocked}
-            on:change={(e) => updateSelected((el) => (el.locked = e.currentTarget.checked))} />
+            on:change={(e) => updateSelected((el) => (el.locked = e.currentTarget.checked), false)} />
           Lock <span class="hk">⌘⇧L</span>
         </label>
         <label class="chk">
@@ -588,13 +553,14 @@
             type="checkbox"
             checked={allHidden}
             indeterminate={anyHidden && !allHidden}
-            on:change={(e) => updateSelected((el) => (el.hidden = e.currentTarget.checked))} />
+            on:change={(e) => updateSelected((el) => (el.hidden = e.currentTarget.checked), false)} />
           Hide
         </label>
       </div>
     </section>
   {/if}
 
+  <fieldset disabled={selectionReadOnly}>
   <!-- TYPE-SPECIFIC STYLE -->
   {#if single && single.type === "text"}
     <section>
@@ -602,7 +568,9 @@
       <textarea
         rows="3"
         value={single.text}
-        on:input={(e) => updateSelected((el) => { if (el.type === "text") el.text = e.currentTarget.value; })}
+        on:input={(e) => { const value = e.currentTarget.value; textSession.run(() => scrubSelected((el) => { if (el.type === "text") el.text = value; })); }}
+        on:blur={() => textSession.finish()}
+        on:keydown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); textSession.cancel(); e.currentTarget.blur(); } }}
       ></textarea>
       <label class="full">Style
         <span class="stylerow">
@@ -717,14 +685,14 @@
                ops.setElementStyle so the refit re-emits d; a direct field
                write would leave the rendered geometry sharp. -->
           <NumberField label="Radius" value={single.cornerRadius ?? 0} min={0}
-            on:commit={(e) => { const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }}
-            on:scrub={(e) => { const ids = [...$selection]; mutate((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }} />
+            on:commit={(e) => { const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }}
+            on:scrub={(e) => { const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }} />
         {/if}
       </div>
       {#if single.type === "line" || (single.type === "path" && !single.closed)}
         <div class="row">
           <label class="chk">Cap
-            <select value={single.cap ?? "round"} on:change={(e) => { const cap = e.currentTarget.value as "butt" | "round" | "square"; const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { cap })); }}>
+            <select value={single.cap ?? "round"} on:change={(e) => { const cap = e.currentTarget.value as "butt" | "round" | "square"; const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { cap })); }}>
               <option value="round">Round</option>
               <option value="butt">Flat</option>
               <option value="square">Square</option>
@@ -735,12 +703,14 @@
       <!-- Dash: [len, gap] in canvas px on any stroked primitive; unchecking
            returns to solid (property deleted via ops.setElementStyle's rules). -->
       <div class="row">
-        <label class="chk"><input type="checkbox" checked={!!single.dash?.length} on:change={(e) => { const on = e.currentTarget.checked; const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { dash: on ? [6, 4] : [] })); }} />Dashed</label>
+        <label class="chk"><input type="checkbox" checked={!!single.dash?.length} on:change={(e) => { const on = e.currentTarget.checked; const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { dash: on ? [6, 4] : [] })); }} />Dashed</label>
         {#if single.dash?.length}
           <NumberField label="Dash" value={single.dash[0] ?? 6} min={0.5} step={0.5}
-            on:commit={(e) => { const gap = single.dash?.[1] ?? 4; const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { dash: [e.detail, gap] })); }} />
+            on:commit={(e) => { const gap = single.dash?.[1] ?? 4; const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { dash: [e.detail, gap] })); }}
+            on:scrub={(e) => { const gap = single.dash?.[1] ?? 4; const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { dash: [e.detail, gap] })); }} />
           <NumberField label="Gap" value={single.dash[1] ?? 4} min={0.5} step={0.5}
-            on:commit={(e) => { const len = single.dash?.[0] ?? 6; const ids = [...$selection]; commit((p) => ops.setElementStyle(p, ids, { dash: [len, e.detail] })); }} />
+            on:commit={(e) => { const len = single.dash?.[0] ?? 6; const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { dash: [len, e.detail] })); }}
+            on:scrub={(e) => { const len = single.dash?.[0] ?? 6; const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { dash: [len, e.detail] })); }} />
         {/if}
       </div>
       {#if single.type === "line"}
@@ -767,19 +737,31 @@
     </section>
   {/if}
 
-  <!-- COLOR PALETTE -->
-  {#if slideMode}
-    <details class="slide-colors"><summary>Color palette</summary><ColorPalette /></details>
-  {:else}
-    <ColorPalette />
-  {/if}
-
   <!-- FIGURE (+ exports) — figure-only: slide name/background are edited in
        the Slide panel, the stage in the Deck panel, and a deck exports as a
        presentation (.html), never as a per-frame raster. -->
+  </fieldset>
   {#if fig && !slideMode}
     <section>
       <h4>Figure</h4>
+      <div class="row">
+        <NumberField label="X" value={fig.x}
+          on:commit={(e) => updateFigure((f) => (f.x = e.detail))}
+          on:scrub={(e) => scrubFigure((f) => (f.x = e.detail))} />
+        <NumberField label="Y" value={fig.y}
+          on:commit={(e) => updateFigure((f) => (f.y = e.detail))}
+          on:scrub={(e) => scrubFigure((f) => (f.y = e.detail))} />
+      </div>
+      <div class="row">
+        <NumberField label="W" value={fig.width} min={1}
+          on:commit={(e) => updateFigure((f) => (f.width = e.detail))}
+          on:scrub={(e) => scrubFigure((f) => (f.width = e.detail))} />
+        <NumberField label="H" value={fig.height} min={1}
+          on:commit={(e) => updateFigure((f) => (f.height = e.detail))}
+          on:scrub={(e) => scrubFigure((f) => (f.height = e.detail))} />
+      </div>
+      <p class="note">= {mmStr(fig.width)} × {mmStr(fig.height)} mm</p>
+
       <!-- Identity is family + number (figfamily.ts) — the name is derived, so
            the row opens the Figure Namer instead of editing text. The nickname
            stays inline-editable (it's free text). -->
@@ -803,23 +785,6 @@
           }} />
       </label>
       <button class="full figure-details" on:click={() => figureCatalog.set({ figureId: fig.id })}>Reference, sources &amp; used in…</button>
-      <div class="row">
-        <NumberField label="X" value={fig.x}
-          on:commit={(e) => updateFigure((f) => (f.x = e.detail))}
-          on:scrub={(e) => scrubFigure((f) => (f.x = e.detail))} />
-        <NumberField label="Y" value={fig.y}
-          on:commit={(e) => updateFigure((f) => (f.y = e.detail))}
-          on:scrub={(e) => scrubFigure((f) => (f.y = e.detail))} />
-      </div>
-      <div class="row">
-        <NumberField label="W" value={fig.width} min={1}
-          on:commit={(e) => updateFigure((f) => (f.width = e.detail))}
-          on:scrub={(e) => scrubFigure((f) => (f.width = e.detail))} />
-        <NumberField label="H" value={fig.height} min={1}
-          on:commit={(e) => updateFigure((f) => (f.height = e.detail))}
-          on:scrub={(e) => scrubFigure((f) => (f.height = e.detail))} />
-      </div>
-      <p class="note">= {mmStr(fig.width)} × {mmStr(fig.height)} mm</p>
       <label class="full">Background
         <input type="color" value={fig.background === "transparent" ? "#ffffff" : fig.background} on:change={(e) => updateFigure((f) => (f.background = e.currentTarget.value))} />
       </label>
@@ -841,16 +806,110 @@
       {/if}
     </section>
 
+  {/if}
+
+  <details class="advanced" open={sel.length >= 2}>
+    <summary>Align, arrange &amp; selection tools</summary>
+  <!-- ALIGN -->
+  <section>
+    <h4>Align</h4>
+    {#if sel.length === 0}
+      <p class="note">Select elements to edit</p>
+    {/if}
+    <div class="grid6">
+      <button title="Left (Alt+A)" aria-label="Align left" disabled={sel.length < 2} on:click={() => doAlign("left")}>⊢</button>
+      <button title="Center H (Alt+H)" aria-label="Align horizontal centers" disabled={sel.length < 2} on:click={() => doAlign("centerH")}>↔</button>
+      <button title="Right (Alt+D)" aria-label="Align right" disabled={sel.length < 2} on:click={() => doAlign("right")}>⊣</button>
+      <button title="Top (Alt+W)" aria-label="Align top" disabled={sel.length < 2} on:click={() => doAlign("top")}>⊤</button>
+      <button title="Middle V (Alt+V)" aria-label="Align vertical middles" disabled={sel.length < 2} on:click={() => doAlign("centerV")}>↕</button>
+      <button title="Bottom (Alt+S)" aria-label="Align bottom" disabled={sel.length < 2} on:click={() => doAlign("bottom")}>⊥</button>
+    </div>
+    <div class="row">
+      <button disabled={sel.length < 2} on:click={() => doDistribute("h")}>Distribute H</button>
+      <button disabled={sel.length < 2} on:click={() => doDistribute("v")}>Distribute V</button>
+    </div>
+    <div class="row">
+      <button
+        title="Cascade a property across the selection — each object steps by a delta (Ctrl+Shift+C)"
+        disabled={sel.length < 2}
+        on:click={openCascade}>Cascade… <span class="hk">⌃⇧C</span></button>
+    </div>
+    {#if sel.length >= 2}
+      <div class="row gaprow">
+        <NumberField history={false} label="Gap" value={gapVal} min={0}
+          on:commit={(e) => (gapVal = e.detail)}
+          on:scrub={(e) => (gapVal = e.detail)} />
+        <button title="Exact gap horizontally" on:click={() => doDistribute("h", gapVal)}>Gap H</button>
+        <button title="Exact gap vertically" on:click={() => doDistribute("v", gapVal)}>Gap V</button>
+      </div>
+    {/if}
+    {#if sel.length >= 1}
+      <div class="row gaprow">
+        <NumberField history={false} label="Scale %" value={scalePct} min={1}
+          on:commit={(e) => (scalePct = e.detail)}
+          on:scrub={(e) => (scalePct = e.detail)} />
+        <button title="Scale proportionally (geometry + stroke/font) about the selection centre" on:click={applyScale}>Apply</button>
+      </div>
+    {/if}
+  </section>
+
+  <!-- SELECT SAME / STYLE (F9 + F10) -->
+  {#if sel.length >= 1}
+    <section>
+      <h4>Select &amp; style</h4>
+      {#if single}
+        <div class="row" style="flex-wrap:wrap;gap:4px;">
+          <span style="opacity:.6;font-size:11px;width:100%;">Select same…</span>
+          <button title="Select all with the same fill (Cmd/Ctrl+Alt+A)" on:click={() => selectMatching("fill")}>Fill</button>
+          <button title="Select all with the same stroke" on:click={() => selectMatching("stroke")}>Stroke</button>
+          <button title="Select all with the same font" on:click={() => selectMatching("font")}>Font</button>
+          <button title="Select all of the same type" on:click={() => selectMatching("type")}>Type</button>
+        </div>
+      {/if}
+      <div class="row">
+        <button title="Copy style (Cmd/Ctrl+Alt+C)" disabled={!single} on:click={copyStyle}>Copy style</button>
+        <button title="Paste style (Cmd/Ctrl+Alt+V)" on:click={pasteStyle}>Paste style</button>
+      </div>
+    </section>
+  {/if}
+
+  <!-- ARRANGE -->
+  {#if arrN >= 2}
+    <section>
+      <h4 style="display:flex;align-items:baseline;">Arrange <span class="hk">Alt+G</span></h4>
+      <div class="grid6">
+        <button title="Single row" on:click={() => arrangeToRows(1)}>Row</button>
+        <button title="Balanced grid" on:click={() => arrangeToRows(balancedRows(arrN))}>Grid</button>
+        <button title="Single column" on:click={() => arrangeToRows(arrN)}>Column</button>
+      </div>
+      <div class="row" style="align-items:center;gap:8px;">
+        <span style="opacity:.6;font-size:11px;">Rows</span>
+        <button title="Fewer rows" on:click={() => stepRows(-1)}>−</button>
+        <span style="min-width:18px;text-align:center;font-variant-numeric:tabular-nums;">{$lastArrangeRows}</span>
+        <button title="More rows" on:click={() => stepRows(1)}>+</button>
+      </div>
+    </section>
+  {/if}
+
+  </details>
+
+  <!-- COLOR PALETTE -->
+  <details class="slide-colors"><summary>Color palette</summary><ColorPalette /></details>
+
+  {#if fig && !slideMode}
     <!-- EXPORT -->
     <section>
       <h4>Export “{fig.name}”</h4>
+      {#if exporting && ["png", "tiff", "jpng"].includes(exporting)}
+        <div class="row" role="status"><span>Preparing export…</span><button on:click={() => exportAbort?.abort()}>Cancel export</button></div>
+      {/if}
       <div class="row">
-        <button disabled={!!exporting} on:click={() => runExport("png", (f) => exportFigurePng(f, dpi / 96))} title="Quick PNG at {dpi} dpi (design px × {(dpi / 96).toFixed(1)})">{exporting === "png" ? "Exporting…" : "PNG"}</button>
+        <button disabled={!!exporting} on:click={() => runExport("png", (f, signal) => exportFigurePng(f, dpi / 96, signal))} title="Quick PNG at {dpi} dpi (design px × {(dpi / 96).toFixed(1)})">{exporting === "png" ? "Exporting…" : "PNG"}</button>
         <button disabled={!!exporting} on:click={() => runExport("svg", (f) => exportFigureSvg(f))} title="Vector SVG">{exporting === "svg" ? "Exporting…" : "SVG"}</button>
         <button disabled={!!exporting} on:click={() => runExport("pdf", (f) => exportFigurePdf(f))} title="Vector PDF">{exporting === "pdf" ? "Exporting…" : "PDF"}</button>
       </div>
 
-      <h4 class="sub">Journal-spec raster</h4>
+      <details class="journal-export"><summary>Journal-spec raster</summary>
       <label class="full">Width
         <select bind:value={widthPresetId}>
           {#each JOURNAL_PRESETS as g}
@@ -876,14 +935,20 @@
         <p class="sizeread">{describeSize(journalPlan.pxWidth, journalPlan.pxHeight, journalDpi)} · {journalPlan.pxWidth}×{journalPlan.pxHeight} px</p>
       {/if}
       <div class="row">
-        <button class="prim" disabled={!!exporting} on:click={() => runExport("tiff", (f) => exportFigureJournal(f, { format: "tiff", mm: selectedMm, dpi: journalDpi, transparent: transparentBg }))}>{exporting === "tiff" ? "Exporting…" : "TIFF"}</button>
-        <button class="prim" disabled={!!exporting} on:click={() => runExport("jpng", (f) => exportFigureJournal(f, { format: "png", mm: selectedMm, dpi: journalDpi, transparent: transparentBg }))}>{exporting === "jpng" ? "Exporting…" : "PNG"}</button>
+        <button class="prim" disabled={!!exporting} on:click={() => runExport("tiff", (f, signal) => exportFigureJournal(f, { signal, format: "tiff", mm: selectedMm, dpi: journalDpi, transparent: transparentBg }))}>{exporting === "tiff" ? "Exporting…" : "TIFF"}</button>
+        <button class="prim" disabled={!!exporting} on:click={() => runExport("jpng", (f, signal) => exportFigureJournal(f, { signal, format: "png", mm: selectedMm, dpi: journalDpi, transparent: transparentBg }))}>{exporting === "jpng" ? "Exporting…" : "PNG"}</button>
       </div>
+      </details>
     </section>
   {/if}
 </aside>
 
 <style>
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  fieldset:disabled { opacity: .55; }
+  .journal-export { margin-top: 12px; }
+  .journal-export > summary { cursor: pointer; color: var(--c-tx-2); margin-bottom: 8px; }
+  .advanced > summary { cursor: pointer; font-size: 11px; color: var(--c-tx-2); padding: 12px 0; }
   .slide-colors { margin: 8px; border-top: 1px solid var(--c-line); padding-top: 10px; }
   .slide-colors summary { cursor: pointer; color: var(--c-tx-2); font-size: var(--ts-xs); }
   .figure-details { font: inherit; padding: 7px; margin-top: 8px; color: var(--c-accent); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 5px; cursor: pointer; }
@@ -909,10 +974,6 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     opacity: 0.6;
-  }
-  h4.sub {
-    margin-top: 12px;
-    font-size: 10px;
   }
   .sizeread {
     margin: 2px 0 6px;

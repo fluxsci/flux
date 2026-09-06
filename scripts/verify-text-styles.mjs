@@ -33,7 +33,8 @@ try {
       g.y = 0;
       g.width = 900;
       g.height = 500;
-      g.elements = [];
+      // Keep the existing panel labels: saved manuscript refs still use them.
+      g.elements = g.elements.filter(e => e.type === "text" && e.panelLabel);
       const mk = (id, x, text, size) => ({
         type: "text", id, x, y: 60, width: 200, height: 24, rotation: 0,
         text, fontFamily: "Arial", fontSize: size, fontWeight: 400,

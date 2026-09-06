@@ -3,7 +3,8 @@
 // core (src/lib/interact/*). The ORACLES below are verbatim copies of the
 // Canvas.svelte implementations as they stood before extraction (SlideStage's
 // were verified byte-identical); every output must match EXACTLY over a
-// coordinate grid — resize feel is part of the locked editor character.
+// coordinate grid. Corrected edge-shrink and fixed-anchor clamping contracts
+// replace the old buggy outputs; every unaffected result stays byte-identical.
 //   npx tsx scripts/verify-interact-core.ts
 
 import { HANDLES, handlePos, cursorFor, type Handle } from "../src/lib/interact/handles";
@@ -116,12 +117,25 @@ for (const ob of boxes)
         n++;
         const a = oracleComputeResizeBox(ob, h, lp, shift);
         const b = computeResizeBox(ob, h, lp, shift);
-        if (!eq(a, b)) {
+        // The original implementation moved the fixed edge when crossing it,
+        // and compared an inactive axis to 1 under aspect lock. Pin invariants
+        // for those documented fixes; retain the old oracle elsewhere.
+        const horizontal = h.includes("w") || h.includes("e");
+        const vertical = h.includes("n") || h.includes("s");
+        const rw = h.includes("w") ? ob.x + ob.w - lp.x : h.includes("e") ? lp.x - ob.x : ob.w;
+        const rh = h.includes("n") ? ob.y + ob.h - lp.y : h.includes("s") ? lp.y - ob.y : ob.h;
+        const corrected = rw < 1 || rh < 1 || (shift && horizontal !== vertical);
+        const near = (x: number, y: number) => Math.abs(x-y) < 1e-8;
+        const fixedX = h.includes("w") ? near(b.x+b.w, ob.x+ob.w) : near(b.x,ob.x);
+        const fixedY = h.includes("n") ? near(b.y+b.h, ob.y+ob.h) : near(b.y,ob.y);
+        const aspect = !shift || ob.w <= 0 || ob.h <= 0 || near(b.w/b.h,ob.w/ob.h);
+        const valid = fixedX && fixedY && aspect && b.w >= 1 && b.h >= 1;
+        if (!(corrected ? valid : eq(a,b))) {
           bad++;
-          if (bad < 3) fail(`computeResizeBox mismatch ${JSON.stringify({ ob, h, lp, shift, a, b })}`);
+          if (bad < 3) fail(`computeResizeBox contract ${JSON.stringify({ ob, h, lp, shift, a, b })}`);
         }
       }
-assert(bad === 0, `computeResizeBox bit-for-bit over ${n} grid cases`);
+assert(bad === 0, `computeResizeBox fixed anchors, proportions and unchanged legacy cases across ${n} inputs`);
 
 {
   const edges = [[0], [10, 55, 100], [-3.5, 7.25]];

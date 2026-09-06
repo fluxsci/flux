@@ -199,7 +199,9 @@
    "verify-slide-ghost-browser.ts",
    "verify-slide-ghost-structure.ts",
    "verify-slide-ghost-api.ts",
-   "verify-slide-arrow-browser.ts"
+   "verify-slide-arrow-browser.ts",
+   "verify-figure-preservation.ts",
+   "verify-figure-editing.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -283,7 +285,11 @@
    "verify-figure-reference-sync.mjs",
    "verify-slide-source-sync-gui.mjs",
    "verify-slide-ghost-gui.mjs",
-   "verify-slide-marquee-gui.mjs"
+   "verify-slide-marquee-gui.mjs",
+   "verify-figure-preservation-gui.mjs",
+   "verify-figure-editing-gui.mjs",
+   "verify-figure-controls-gui.mjs",
+   "verify-figure-export-polish.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -346,7 +352,8 @@
    "verify-paste-image.mjs",
    "figenh-18-pathmodes.ts",
    "verify-cascade-tracks-gui.mjs",
-   "verify-capture-e2e.cjs"
+   "verify-capture-e2e.cjs",
+   "verify-figure-export-scale.mjs"
   ],
   "scale": [
    "verify-scale-library.mjs",
@@ -374,7 +381,8 @@
    "verify-netget.cjs",
    "verify-proxy-capture.cjs",
    "verify-writer-latency-inp.mjs",
-   "verify-source-sync-electron.cjs"
+   "verify-source-sync-electron.cjs",
+   "verify-figure-polish-electron.cjs"
   ],
   "presence": [
    "verify-electron-no-undef.ts",

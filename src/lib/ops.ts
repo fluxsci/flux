@@ -31,6 +31,7 @@ import type {
   VectorNode,
   PartOverride,
 } from "./types";
+import { resizeFrame } from "./interact/frameResize";
 import { newId } from "./ids";
 import { ensureFigureReferenceKeys, mintFigureReferenceKey } from "./project/figureIdentity";
 import {
@@ -773,7 +774,7 @@ export function cascadeElements(p: Project, figId: Id, ids: Id[], spec: CascadeS
       rotateAbout(u.els, { x: b.x + b.w / 2, y: b.y + b.h / 2 }, d);
     } else if (prop === "width" || prop === "height") {
       const el = u.els[0]; // unitAccepts pinned single-element units
-      if (!("width" in el) || !("height" in el)) return;
+      if (!("width" in el) || !("height" in el) || el.type === "path" || el.type === "line") return;
       const baseDims = { w: el.width, h: el.height };
       const cur = prop === "width" ? el.width : el.height;
       const target = clampElementValue(prop, cascadeValue(cur, eff, step));
@@ -1277,7 +1278,7 @@ export function reorderElement(p: Project, figId: Id, id: Id, toIndex: number): 
  *  FluxFig menu's on:input): without it, re-deriving the ratio from a
  *  half-typed value ("1", "14", "140") collapses it toward 1:1. */
 export function setBoxDim(el: Element, which: "w" | "h", v: number, base?: { w: number; h: number }): void {
-  if (!("width" in el) || !("height" in el)) return;
+  if (!("width" in el) || !("height" in el) || el.type === "path" || el.type === "line") return;
   v = Math.max(1, v);
   if (el.type === "text") {
     if (which === "h") el.sizing = "fixed";
@@ -1289,11 +1290,11 @@ export function setBoxDim(el: Element, which: "w" | "h", v: number, base?: { w: 
     if (which === "w") {
       const r = bw > 0 ? bh / bw : 1;
       el.width = v;
-      el.height = Math.max(1, Math.round(v * r));
+      el.height = Math.max(1, v * r);
     } else {
       const r = bh > 0 ? bw / bh : 1;
       el.height = v;
-      el.width = Math.max(1, Math.round(v * r));
+      el.width = Math.max(1, v * r);
     }
   } else if (which === "w") el.width = v;
   else el.height = v;
@@ -1770,3 +1771,10 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
 
 // Re-export so callers needing the panel inventory don't reach past ops.
 export { figurePanels };
+
+/** Resize a figure boundary without scaling or discarding its artwork. */
+export function resizeFigureFrame(p: Project, id: Id, box: { x: number; y: number; w: number; h: number }): void {
+  const figure = p.figures.find(f => f.id === id);
+  if (!figure) throw new Error(`Figure not found: ${id}`);
+  resizeFrame(figure, box);
+}

@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
+  import { editSession } from "./interact/editSession";
+  const session = editSession();
+  onDestroy(() => session.finish());
   import { project } from "./store";
   import { popIn } from "./motion/actions";
   import {
@@ -52,15 +55,22 @@
     );
   }
   function pick(hex: string) {
-    applyColor(hex, target);
-    addRecentColor(hex);
+    session.run(() => { applyColor(hex, target, true); addRecentColor(hex, true); });
+    session.finish();
     onDone();
   }
   function liveHex(hex: string) {
     if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
       hexVal = hex;
-      applyColor(hex, target);
+      session.run(() => applyColor(hex, target, true));
     }
+  }
+  function cancelKey(e: KeyboardEvent) {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    session.cancel();
+    onCancel();
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === "ArrowDown") {
@@ -78,6 +88,7 @@
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      session.cancel();
       onCancel();
     } else if (e.key === "Tab") {
       e.preventDefault();
@@ -86,7 +97,8 @@
   }
 </script>
 
-<div class="cs" in:popIn>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="cs" in:popIn on:keydown={cancelKey}>
   <div class="bar">
     <input
       bind:this={inputEl}
@@ -105,8 +117,8 @@
         <input type="color" value={hexVal} on:input={(e) => liveHex(e.currentTarget.value)} />
         <input class="hex" value={hexVal} spellcheck="false" on:input={(e) => liveHex(e.currentTarget.value)} on:keydown={(e) => { if (e.key === "Enter") pick(hexVal); }} />
       </div>
-      <label class="erow"><span>Opacity</span><input type="range" min="0" max="1" step="0.01" value="1" on:input={(e) => setOpacity(parseFloat(e.currentTarget.value))} /></label>
-      <label class="erow"><span>Stroke W</span><input type="number" min="0" step="0.5" value="2" on:change={(e) => setStrokeWidth(parseFloat(e.currentTarget.value))} /></label>
+      <label class="erow"><span>Opacity</span><input type="range" min="0" max="1" step="0.01" value="1" on:input={(e) => session.run(() => setOpacity(parseFloat(e.currentTarget.value), true))} /></label>
+      <label class="erow"><span>Stroke W</span><input type="number" min="0" step="0.5" value="2" on:change={(e) => session.run(() => setStrokeWidth(parseFloat(e.currentTarget.value), true))} /></label>
     </div>
   {/if}
 

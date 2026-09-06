@@ -1030,3 +1030,10 @@ export async function captionFor(root: string, figId: string): Promise<string> {
   const { byId } = await readCanvasFiles(root, index);
   return byId[figId] ? composeCaption(byId[figId]) : "";
 }
+
+/** Resize the figure's export boundary; preserve artwork at its world position. */
+export async function resizeFigureFrame(root: string, figId: string, box: { x: number; y: number; w: number; h: number }): Promise<void> {
+  await mutateFigModel(root, "resize_figure_frame", async ({ project }) => {
+    ops.resizeFigureFrame(project, figId, box);
+  });
+}

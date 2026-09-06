@@ -6,11 +6,16 @@
     undo,
     redo,
     dirty,
+    historyAvailability,
     projectDir,
     embeddedProjectRoot,
     type Tool,
   } from "./store";
   import { importAssets, openProject, saveProject } from "./io";
+  import type { AutosaveStatus } from "./autosave";
+  export let saveStatus: AutosaveStatus = "idle";
+  export let saveError: string | null = null;
+  export let retrySave: (() => void) | null = null;
   import { settingsOpen, settings } from "./settings";
 
   // Slide-migration: the same toolbar serves both editors; only the mode title
@@ -59,8 +64,8 @@
 
   <div class="sep"></div>
   <div class="group">
-    <button on:click={undo} title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
-    <button on:click={redo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+    <button disabled={!$historyAvailability.undo} on:click={undo} title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+    <button disabled={!$historyAvailability.redo} on:click={redo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
     <button
       class:active={$settings.showRulers}
       title="Rulers (Shift+R)"
@@ -70,7 +75,11 @@
 
   <span class="spacer"></span>
   {#if $embeddedProjectRoot}
-    <span class="path">{$dirty ? "saving…" : "saved to project"}</span>
+    {#if saveError}
+      <button class="save-error" title={saveError} on:click={() => retrySave?.()}>Unsaved · Retry</button>
+    {:else}
+      <span class="path" title={saveStatus === "saving" ? "Saving changes" : $dirty ? "Changes waiting to save" : "Saved to project"}>{saveStatus === "saving" ? "saving…" : $dirty ? "unsaved changes" : "saved to project"}</span>
+    {/if}
   {:else}
     <span class="path">{$projectDir ?? "unsaved"}</span>
   {/if}
@@ -91,7 +100,8 @@
     padding: 6px 10px;
     background: var(--c-bg-raised);
     border-bottom: 1px solid var(--c-line);
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    container-type: inline-size;
     color: var(--c-tx);
   }
   .brand {
@@ -104,6 +114,8 @@
     color: var(--c-accent);
     font-style: italic;
   }
+  .save-error { color: var(--c-danger, #c64745); font-size: 11px; }
+  button:disabled { opacity: 0.35; cursor: default; }
   .group {
     display: flex;
     gap: 4px;
@@ -114,7 +126,7 @@
     background: var(--c-line-strong);
   }
   .spacer {
-    flex: 1;
+    flex: 1 1 0;
   }
   .path {
     font-size: 11px;
@@ -123,7 +135,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    direction: rtl;
+    flex-shrink: 1;
   }
   .zoomval {
     font-variant-numeric: tabular-nums;
@@ -147,5 +159,11 @@
     background: var(--c-accent);
     border-color: var(--c-accent);
     color: var(--c-on-accent);
+  }
+  @media (max-width: 1100px) {
+    .toolbar { gap: 4px; padding: 5px 6px; }
+    .group { gap: 2px; }
+    .toolbar button { padding: 4px 6px; }
+    .path { max-width: 90px; }
   }
 </style>

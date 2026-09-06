@@ -117,6 +117,19 @@ try {
     assert(stable(cli.out) === stable(mcpText), "config_paths: identical payload (build stamp normalized)");
   }
   {
+    const { project } = await core.loadFigModel(TMP);
+    const fig = project.figures[0];
+    const box = { x: fig.x - 30, y: fig.y - 20, width: fig.width + 90, height: fig.height + 60 };
+    const cli = await runCli(['resize-figure-frame', fig.id, '--root', TMP, '--x', String(box.x), '--y', String(box.y), '--width', String(box.width), '--height', String(box.height)]);
+    const afterCli = (await core.loadFigModel(TMP)).project.figures[0];
+    const mcp = await client.callTool({name:'resize_figure_frame',arguments:{figureId:fig.id,...box}});
+    const afterMcp = (await core.loadFigModel(TMP)).project.figures[0];
+    assert(cli.code === 0 && !mcp.isError && JSON.stringify(afterCli) === JSON.stringify(afterMcp), 'CLI and MCP invoke the same idempotent frame resize');
+    assert(afterMcp.width === box.width && afterMcp.elements.every((e, i) => e.x + afterMcp.x === fig.elements[i].x + fig.x && e.y + afterMcp.y === fig.elements[i].y + fig.y), 'both frame surfaces preserve artwork world coordinates');
+    const invalid = await client.callTool({name:'resize_figure_frame',arguments:{figureId:fig.id,...box,width:0}});
+    assert(invalid.isError && JSON.stringify((await core.loadFigModel(TMP)).project.figures[0]) === JSON.stringify(afterMcp), 'invalid frame request leaves saved project untouched');
+  }
+  {
     // Both real surfaces expose Add separately from the legacy upsert behavior.
     const {deckId}=await core.createDeck(TMP,{id:"append-parity",title:"Animation insertion"});
     const deck=await core.loadDeck(TMP,deckId),slideId=deck.slides[0].id;

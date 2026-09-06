@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalFocus } from "./ui/modalFocus";
   import { tick } from "svelte";
   import { project, figureCatalog, activeFigureId, activeCanvasId, embeddedProjectRoot, commit, globalRev } from "./store";
   import { figureTitle } from "./project/figureIdentity";
@@ -70,8 +71,7 @@
     void $globalRev;
     const f = picked;
     const generation = ++work.preview;
-    preview = "";
-    if (!f) return;
+    if (!f) { preview = ""; return; }
     // Let selection paint first; preview construction is a navigation workload.
     const timer = setTimeout(() => {
       if (generation !== work.preview) return;
@@ -143,7 +143,7 @@
 {#if $figureCatalog}
   <div class="catalog-scrim">
     <button class="backdrop" aria-label="Close figure catalog" onclick={close}></button>
-    <div class="catalog" role="dialog" aria-modal="true" aria-label="Project figures" tabindex="-1" onkeydown={onKey}>
+    <div class="catalog" use:modalFocus role="dialog" aria-modal="true" aria-label="Project figures" tabindex="-1" onkeydown={onKey}>
       <header><div><h2>Project figures</h2><p>One figure, wherever you reference it.</p></div><button class="close" onclick={close} aria-label="Close">✕</button></header>
       <div class="catalog-body">
         <aside>
@@ -197,7 +197,7 @@
   button:hover { border-color: var(--c-accent); } button:disabled { opacity: .45; cursor: default; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
   .close { border: 0; background: transparent; }
-  .catalog-body { display: grid; grid-template-columns: minmax(200px, 32%) minmax(0, 1fr); flex: 1; min-height: 0; }
+  .catalog-body { display: grid; grid-template-columns: minmax(200px, 32%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; }
   aside { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--c-line); }
   input { font: inherit; color: var(--c-tx); background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: 5px; padding: 8px 10px; min-width: 0; }
   .search { margin: 12px; } nav { display: flex; gap: 4px; margin: 0 12px 8px; } nav button { flex: 1; } nav .on { color: var(--c-accent); border-color: var(--c-accent); }
@@ -208,14 +208,14 @@
   .row-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
   .figure-row small { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-2); font-size: 10px; }
   .badge { font-size: 11px; color: var(--c-accent); white-space: nowrap; } .count { margin: 0; padding: 10px 12px; color: var(--c-tx-faint); border-top: 1px solid var(--c-line); font-size: 11px; }
-  main { padding: 20px; overflow: auto; min-height: 0; } main section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--c-line); }
+  main { padding: 20px; overflow: auto; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; } main section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--c-line); }
   .figure-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; } .figure-head button { flex-shrink: 0; }
   .muted, .note { color: var(--c-tx-2); } .note { font-size: 11px; line-height: 1.55; margin: 8px 0; }
   .title-field { display: flex; flex-direction: column; gap: 6px; margin-top: 20px; }
   .reference { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; }
   code { display: block; margin-top: 5px; overflow-wrap: anywhere; font: 11px var(--font-mono, monospace); user-select: text; }
-  .preview { background: #fff; border: 1px solid var(--c-line); border-radius: 6px; min-height: 100px; max-height: 260px; margin-top: 16px; padding: 12px; display: flex; justify-content: center; color: #777; }
-  .preview img { display: block; width: 100%; max-height: 236px; object-fit: contain; }
+  .preview { background: #fff; border: 1px solid var(--c-line); border-radius: 6px; height: clamp(140px, 26vh, 260px); min-height: 140px; box-sizing: border-box; margin-top: 16px; padding: 12px; display: flex; justify-content: center; color: #777; }
+  .preview img { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; }
   .caption { white-space: pre-wrap; line-height: 1.6; font-size: 11px; }
   .section-head { display: flex; justify-content: space-between; align-items: center; } .section-head h4 { margin: 0; }
   .source { border: 1px solid var(--c-line); border-radius: 6px; padding: 10px; margin-top: 8px; } .source b { font-size: 11px; }

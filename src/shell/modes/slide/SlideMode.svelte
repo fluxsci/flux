@@ -31,7 +31,7 @@
     editDestination, setEditDestination, editAfterBeat, registerSlideEditAdapter, slideCanvasPresentation,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
-  import { animateElement, animatePart, suggestElementTrack, suggestTrack } from "../../../lib/slide/autobuild";
+  import { suggestElementTrack, suggestTrack } from "../../../lib/slide/autobuild";
   import {
     dirty as figDirty,
     activeFigureId,
@@ -72,9 +72,9 @@
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
-  import { registerFlushable, flushById, isDirtyById } from "../../lifecycle";
-  import { evictMode } from "../../paneStore";
-  import { setStoreTenant } from "../../../lib/tenancy";
+  import { registerFlushable } from "../../lifecycle";
+  import { pointerDrag } from "../../../lib/ui/pointerDrag";
+  import { initializeEditor } from "../../editorHandoff";
   import { deckRevision, figRevision, bumpFigRevision } from "../../scholar/revisions";
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import Toolbar from "../../../lib/Toolbar.svelte";
@@ -109,13 +109,14 @@
 
   // `active` (W16): false when this pane is kept-alive but hidden — pause the
   // build preview so its animation loop doesn't run off-screen.
-  let { focused = true, active = true }: { focused?: boolean; active?: boolean } = $props();
+  let { focused = true, active = true, paneId = "" }: { focused?: boolean; active?: boolean; paneId?: string } = $props();
 
   const pm = get(projectModel);
   let ready = $state(false);
   let loadError = $state<string | null>(null);
   let decks = $state<DeckListItem[]>([]);
   let alive = true;
+  let ownsEditor = false;
   let deckOpenEpoch = 0;
   let activeDeckId = $state<string | null>(null);
   let unsubDirty: (() => void) | undefined;
@@ -236,6 +237,8 @@
       decks = await listProjectDecks(pm.root);
     },
   });
+  const autosaveStatus = autosave.status;
+  const autosaveError = autosave.error;
   const saveErr = autosave.error;
 
   function surfaceDiagnostics(diags: DeckDiag[]) {
@@ -464,18 +467,18 @@
   // --- draggable filmstrip edge → left-rail width (the animator gutter, turned
   // vertical; persists via slideLayout like animatorH) ---------------------------
   let filmResize = $state(false);
+  let cancelFilmResize: (() => void) | null = null;
+  let cancelRailResize: (() => void) | null = null;
   let filmEl = $state<HTMLElement | null>(null);
   const FILM_DEFAULT_W = 172;
   const filmMaxW = () => Math.max(FILM_DEFAULT_W, Math.round(window.innerWidth * 0.5));
   function startFilmDrag(e: PointerEvent) {
-    // No preventDefault here: canceling pointerdown suppresses the derived
-    // dblclick, killing the double-click-to-reset affordance. Text selection
-    // during the drag is blocked via body user-select instead.
-    void e;
+    if (e.button !== 0) return;
+    cancelFilmResize?.();
+    const original = get(slideLayout).filmstripW;
     filmResize = true;
-    document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", moveFilmDrag);
-    window.addEventListener("pointerup", endFilmDrag);
+    cancelFilmResize = pointerDrag(e, moveFilmDrag,
+      () => slideLayout.update(s => ({ ...s, filmstripW: original })), endFilmDrag);
   }
   function moveFilmDrag(e: PointerEvent) {
     if (!filmResize || !filmEl) return;
@@ -484,9 +487,7 @@
   }
   function endFilmDrag() {
     filmResize = false;
-    document.body.style.userSelect = "";
-    window.removeEventListener("pointermove", moveFilmDrag);
-    window.removeEventListener("pointerup", endFilmDrag);
+    cancelFilmResize = null;
   }
   function resetFilmW() {
     slideLayout.update((s) => ({ ...s, filmstripW: FILM_DEFAULT_W }));
@@ -499,11 +500,12 @@
   const RAIL_DEFAULT_W = 248;
   const railMaxW = () => Math.max(RAIL_DEFAULT_W, Math.round(window.innerWidth * 0.4));
   function startRailDrag(e: PointerEvent) {
-    void e; // no preventDefault — it would kill the derived dblclick (reset)
+    if (e.button !== 0) return;
+    cancelRailResize?.();
+    const original = get(slideLayout).inspectorW;
     railResize = true;
-    document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", moveRailDrag);
-    window.addEventListener("pointerup", endRailDrag);
+    cancelRailResize = pointerDrag(e, moveRailDrag,
+      () => slideLayout.update(s => ({ ...s, inspectorW: original })), endRailDrag);
   }
   function moveRailDrag(e: PointerEvent) {
     if (!railResize || !slideBodyEl) return;
@@ -512,9 +514,7 @@
   }
   function endRailDrag() {
     railResize = false;
-    document.body.style.userSelect = "";
-    window.removeEventListener("pointermove", moveRailDrag);
-    window.removeEventListener("pointerup", endRailDrag);
+    cancelRailResize = null;
   }
   function resetRailW() {
     slideLayout.update((s) => ({ ...s, inspectorW: RAIL_DEFAULT_W }));
@@ -942,7 +942,7 @@
     handleKey(e);
   }
   $effect(() => {
-    if (!focused) return;
+    if (!focused || !ready) return;
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
@@ -951,25 +951,14 @@
   // (internal elements vs OS-clipboard image; images ride the figure drop
   // pipeline into the deck asset sink).
   function onPaste(e: ClipboardEvent) {
-    if (!focused || presentOpen) return;
+    if (!focused || !ready || presentOpen) return;
     handleEditorPaste(e, $activeFigureId);
   }
 
   // --- lifecycle ---------------------------------------------------------------------
-  onMount(async () => {
-    // Tenancy handoff (§3.2.1): flush + evict a resident FigureMode, claim the
-    // store, register the overlay's history companion, THEN load the deck.
-    await flushById("figure");
-    if(!alive)return;
-    if (isDirtyById("figure")) {
-      pushToast("error", "Unsaved figure changes could not be written", {
-        detail: "fig/ changed on disk. Resolve the conflict in Figure mode if those edits matter — opening Slide replaces the shared editing store.",
-      });
-    }
-    evictMode("figure");
-    await tick(); // let the evicted FigureMode unmount (its onDestroy no-ops)
-    if(!alive)return;
-    setStoreTenant("slide");
+  onMount(() => {
+    void initializeEditor("slide", paneId, () => alive, async () => {
+    ownsEditor = true;
     const history = overlayHistoryCompanion();
     unregCompanion = registerHistoryCompanion({
       capture: history.capture,
@@ -1022,6 +1011,7 @@
       if (firstDeck) { firstDeck = false; return; }
       void onDeckRevision();
     });
+    }).catch(e => { if (alive) loadError = errMsg(e); });
   });
 
   const unregFlush = registerFlushable({
@@ -1032,13 +1022,13 @@
 
   onDestroy(() => {
     alive=false;deckOpenEpoch++;
-    endFilmDrag();endRailDrag();
+    cancelFilmResize?.();endRailDrag();
     unsubDirty?.();
     unsubDeckRev?.();
     unsubFigRev?.();
     stopPreview();
-    clearBeatDisplay(); // unmount fully restores base states before the flush
-    void autosave.flush();
+    if (ownsEditor) clearBeatDisplay();
+    if (ready) void autosave.flush();
     autosave.dispose();
     unregFlush();
     unregCompanion?.();
@@ -1049,6 +1039,9 @@
 <svelte:window onpaste={onPaste} />
 
 <div class="slide-mode">
+  {#if !ready || loadError}
+    <div class="editor-loading" role="status">{loadError ?? "Opening slides…"}</div>
+  {:else}
   <header class="deckbar">
     <div class="left">
       {#if overlay}
@@ -1073,7 +1066,7 @@
   </header>
 
   <!-- the SHARED figure toolbar: tools, undo/redo, rulers, zoom -->
-  <Toolbar />
+  <Toolbar saveStatus={$autosaveStatus} saveError={$autosaveError} retrySave={() => void autosave.flush()} />
 
   <div class="body" bind:this={slideBodyEl} style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
     {#if $leftRailHidden}
@@ -1259,8 +1252,10 @@
       <button class="ghost" onclick={overwriteDeckMine}>Overwrite with mine</button>
     </div>
   {/if}
+  {/if}
 </div>
 
+{#if ready && !loadError}
 {#if presentOpen && presentDeck}
   <PresentOverlay
     deck={presentDeck}
@@ -1278,8 +1273,10 @@
 {#if ghostDialog && activeSlide}
   <GhostTransformDialog source={objectLabel(activeSlide, ghostDialog.sourceId)} step={`step ${ghostDialog.beatIndex} · ${activeSlide.beats[ghostDialog.beatIndex]?.label || "New step"}`} initialOriginal={ghostDialog.original} onCreate={createGhosts} onClose={() => ghostDialog = null}/>
 {/if}
+{/if}
 
 <style>
+  .editor-loading { margin: auto; padding: 24px; color: var(--c-tx-2); }
   .ghost-unborn{margin:12px;padding:12px;border:1px solid var(--c-line-strong);border-radius:7px;background:var(--c-bg-2);font-size:12px}
   .ghost-unborn p{color:var(--c-tx-2);line-height:1.5;margin:5px 0 10px}.ghost-unborn button{font:inherit;background:var(--c-bg);color:var(--c-tx);border:1px solid var(--c-line-strong);border-radius:5px;padding:6px 8px;cursor:pointer}
   .animation-issues {flex:0 0 auto;color:var(--c-warning,#da702c);padding:5px 12px;font-size:11px;max-height:110px;overflow:auto;border-bottom:1px solid var(--c-line);}

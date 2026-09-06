@@ -1796,17 +1796,18 @@ app.on("before-quit", () => {
   }
 });
 async function printHtmlToPdf(html, outPath, pdfOpts, tmpTag) {
-  const tmp = path.join(os.tmpdir(), `flux-${tmpTag}-${process.pid}-${Date.now()}.html`);
   return runPrintExclusive(async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `flux-${tmpTag}-`));
+    const tmp = path.join(dir, "print.html");
     const win = getPrintWin();
     try {
       await fs.promises.writeFile(tmp, html, "utf8");
       await win.loadFile(tmp);
       const data = await win.webContents.printToPDF(pdfOpts);
-      await fs.promises.writeFile(outPath, data);
+      await atomicWriteMain(outPath, data);
     } finally {
-      win.loadURL("about:blank").catch(() => {});
-      fs.promises.unlink(tmp).catch(() => {});
+      await win.loadURL("about:blank").catch(() => {});
+      await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
     return true;
   });
@@ -1814,19 +1815,22 @@ async function printHtmlToPdf(html, outPath, pdfOpts, tmpTag) {
 
 ipcMain.handle("export:pdf", async (e, { svg, outPath, w, h }) => {
   fsGuard(outPath, e.sender.id); // W12 (SHL-6): was an unguarded write of any path
+  if (![w, h].every(n => Number.isFinite(n) && n > 0)) throw new Error("PDF dimensions must be finite and positive.");
   // Defense-in-depth CSP: block scripts/plugins outright (the window also runs
   // javascript:false). Everything else stays permissive so embedded figure
   // assets (data:/blob: images, inline styles) still render.
   const csp = `<meta http-equiv="Content-Security-Policy" content="default-src * data: blob: 'unsafe-inline'; script-src 'none'; object-src 'none'">`;
   const html = `<!doctype html><html><head><meta charset="utf-8">${csp}<style>html,body{margin:0;padding:0}</style></head><body>${svg}</body></html>`;
-  const microns = (px) => Math.round((px / 96) * 25400);
+  // printToPDF custom sizes are INCHES (Electron PrintToPDFOptions), unlike
+  // webContents.print's microns. Passing microns creates an enormous page and
+  // Chromium's compositor fails even for an ordinary 320×240 figure.
   return printHtmlToPdf(
     html,
     outPath,
     {
       printBackground: true,
       margins: { top: 0, bottom: 0, left: 0, right: 0 },
-      pageSize: { width: microns(w), height: microns(h) },
+      pageSize: { width: w / 96, height: h / 96 },
     },
     "fig",
   );

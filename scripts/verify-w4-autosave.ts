@@ -134,6 +134,33 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   ctl2.dispose();
 }
 
+// A boolean dirty store does not notify again when it is already true.
+// The controller must catch an edit that lands during I/O even when schedule()
+// is therefore not called a second time.
+{
+  let dirty = true, generation = 0, persisted = -1, attempts = 0;
+  let release!: () => void, started!: () => void;
+  const began = new Promise<void>(r => started = r);
+  const gate = new Promise<void>(r => release = r);
+  const ctl = createAutosave({
+    name: "same-dirty-doc", delay: 10, isDirty: () => dirty,
+    save: async () => {
+      attempts++;
+      const captured = generation;
+      if (attempts === 1) { started(); await gate; }
+      persisted = captured;
+      if (captured === generation) dirty = false;
+    },
+  });
+  ctl.schedule(); await began;
+  generation++; // dirty remains true; there is no second subscription callback
+  release(); await sleep(80);
+  if (attempts === 2 && persisted === generation && !dirty && get(ctl.status) === "idle")
+    ok("mid-save edit is persisted without another dirty-store notification");
+  else fail(`unscheduled trailing save missing (attempts=${attempts}, persisted=${persisted}/${generation}, dirty=${dirty})`);
+  ctl.dispose();
+}
+
 // ------------------------------------------------ flush awaits in-flight then trailing
 {
   let dirty = true;

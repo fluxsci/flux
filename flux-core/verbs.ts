@@ -915,6 +915,22 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "resize_figure_frame",
+    cli: "resize-figure-frame",
+    cliRoot: "flags",
+    summary: "Resize a figure boundary while keeping artwork at its world position. Out-of-bounds content, guides, assets and references are preserved; artwork is never scaled. Coordinates and dimensions are canvas pixels.",
+    params: { figureId: z.string(), x: z.number(), y: z.number(), width: z.number().min(1), height: z.number().min(1) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "figureId", required: true },
+      { kind: "flag", at: "x", into: "x", as: "number" },
+      { kind: "flag", at: "y", into: "y", as: "number" },
+      { kind: "flag", at: "width", into: "width", as: "number" },
+      { kind: "flag", at: "height", into: "height", as: "number" },
+    ],
+    handler: (ctx, a) => core.resizeFigureFrame(ctx.root, s(a.figureId), { x: Number(a.x), y: Number(a.y), w: Number(a.width), h: Number(a.height) }),
+    render: { human: (_r, a) => ({ err: `✓ resized boundary on ${a.figureId}` }), mcp: (_r, a) => text(`resized boundary on ${a.figureId}`) },
+  },
+  {
     name: "set_figure_layout",
     cli: "set-figure-layout",
     cliRoot: "flags",

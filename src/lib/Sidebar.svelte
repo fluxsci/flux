@@ -1,19 +1,20 @@
 <script lang="ts">
+  import { onMount, tick } from "svelte";
+  import { editSession } from "./interact/editSession";
   import {
     project,
     activeFigureId,
     activeCanvasId,
     selection,
-    selectOnly,
+    partSelection,
+    selectedFrameId,
     commit,
     mutate,
     mutateFigure,
     figureRev,
     globalRev,
-    beginGesture,
     addCanvas,
     setActiveCanvas,
-    figuresOnCanvas,
     figureSelection,
     selectedFigureIds,
     figNamer,
@@ -23,7 +24,7 @@
   import { familyById, shortBadge } from "./figfamily";
   import type { Element, GroupDef } from "./types";
   import * as ops from "./ops";
-  import { membersDeep } from "./groups";
+  import { effectiveLocked, effectiveHidden } from "./groups";
   import { deriveLayerRows, type LayerRow } from "./figure/derived/layerRows";
   import { perfCounters } from "./dev/perfCounters";
   import VirtualFixedList from "./ui/VirtualFixedList.svelte";
@@ -85,6 +86,8 @@
     node.select();
   }
   function onRenameKey(e: KeyboardEvent) {
+    e.stopPropagation();
+    if (e.key === "Enter" || e.key === "Escape") e.preventDefault();
     if (e.key === "Enter") commitRename();
     else if (e.key === "Escape") cancelRename();
   }
@@ -173,6 +176,34 @@
   let figListEl: HTMLUListElement | undefined;
   let figDragIds: string[] = []; // rows being dragged (drives .dragging)
   let figDragFrom: { id: string; x: number; y: number } | null = null;
+  let sidebarEl: HTMLElement;
+  const reorderSession = editSession();
+  let capture: { node: HTMLElement; id: number } | null = null;
+  function capturePointer(e: PointerEvent) {
+    const node = sidebarEl;
+    try { node.setPointerCapture(e.pointerId); capture = { node, id: e.pointerId }; } catch { /* synthetic gate */ }
+  }
+  function releasePointer() {
+    const c = capture; capture = null;
+    try { if (c) c.node.releasePointerCapture(c.id); } catch { /* already lost */ }
+  }
+  function cancelReorder() {
+    const active = !!figDragFrom || !!dragKey;
+    if (!active) return false;
+    reorderSession.cancel();
+    figDragFrom = null; figDragIds = []; figDragMoved = true;
+    dragKey = null; dragBegan = false;
+    releasePointer();
+    return true;
+  }
+  onMount(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && cancelReorder()) { e.preventDefault(); e.stopImmediatePropagation(); }
+    };
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("blur", cancelReorder);
+    return () => { cancelReorder(); window.removeEventListener("keydown", key, true); window.removeEventListener("blur", cancelReorder); };
+  });
   let figDragMoved = false; // a drag happened → swallow its trailing click
 
   /** Index of the figure row under `y` (rows are keyed, so live reordering
@@ -206,10 +237,7 @@
       figDragIds = selectedFigureIds($project, $activeCanvasId);
       if (!figDragIds.length) return;
       figDragMoved = true;
-      beginGesture(); // one undo entry for the whole drag
-      try {
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      } catch {} // a synthetic pointer (headless gates) has nothing to capture
+      capturePointer(e);
     }
     // Where the block's first row should land: above the pointer row when
     // dragging up, and with its LAST row on the pointer row when dragging down
@@ -222,16 +250,13 @@
     if (first < 0 || over < 0) return;
     const at = over < first ? over : over - ids.length + 1;
     if (at === first) return;
-    mutate((p) => ops.reorderFigures(p, ids, at));
+    reorderSession.run(() => mutate((p) => ops.reorderFigures(p, ids, at)));
   }
-  function endFigDrag(e: PointerEvent) {
-    if (figDragIds.length) {
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {}
-    }
+  function endFigDrag(_e: PointerEvent) {
+    reorderSession.finish();
     figDragFrom = null;
-    figDragIds = []; // figDragMoved survives until the next pointerdown
+    figDragIds = [];
+    releasePointer();
   }
 
   // --- Layers = the derived group tree, flattened top-z first with depth
@@ -274,14 +299,6 @@
     return `${el.type} ${z + 1}`;
   }
 
-  // Select a group row = select its members deep (same as clicking it on canvas).
-  function selectGroup(gid: string) {
-    if (!activeFig) return;
-    const members = membersDeep(activeFig, gid).map((e) => e.id);
-    if (!members.length) return;
-    selectOnly(members[0]); // clears part/frame selection
-    selection.set(new Set(members));
-  }
   function groupSelected(row: LayerRow): boolean {
     if (row.kind !== "group") return false;
     return row.memberIds.length > 0 && row.memberIds.every((id) => $selection.has(id));
@@ -314,7 +331,7 @@
     e.stopPropagation();
     dragKey = row.key;
     dragBegan = false;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    capturePointer(e);
   }
   function onLayerDragMove(e: PointerEvent) {
     if (!dragKey || !vlist) return;
@@ -336,26 +353,79 @@
     // to the old `layers.length - 1 - to` mapping exactly.
     const target = to < cur ? anchor.zTop - k + 1 : anchor.zBottom;
     if (!dragBegan) {
-      beginGesture();
       dragBegan = true;
     }
     const fid = $activeFigureId;
     const id = moved.kind === "group" ? moved.def.id : moved.el.id;
     // WS-1 Fix 3c: scoped notify — the live reorder preview re-derives only
     // this figure's rows/culling, not the whole project per pointermove.
-    mutateFigure(fid!, (p) => ops.reorderElement(p, fid!, id, target));
+    reorderSession.run(() => mutateFigure(fid!, (p) => ops.reorderElement(p, fid!, id, target)));
   }
-  function endLayerDrag(e: PointerEvent) {
-    if (!dragKey) return;
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {}
+  function endLayerDrag(_e: PointerEvent) {
+    reorderSession.finish();
     dragKey = null;
     dragBegan = false;
+    releasePointer();
+  }
+  let layerAnchor: string | null = null;
+  const rowIds = (row: LayerRow) => row.kind === "group" ? row.memberIds : [row.el.id];
+  function selectLayer(e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }, row: LayerRow) {
+    const ids = rowIds(row);
+    if (!ids.length) return;
+    const additive = e.ctrlKey || e.metaKey;
+    const next = additive ? new Set($selection) : new Set<string>();
+    const anchor = rows.findIndex(r => r.key === layerAnchor);
+    const index = rows.findIndex(r => r.key === row.key);
+    if (e.shiftKey && anchor >= 0) {
+      for (const r of rows.slice(Math.min(anchor, index), Math.max(anchor, index) + 1))
+        for (const id of rowIds(r)) next.add(id);
+    } else {
+      const remove = additive && ids.every(id => next.has(id));
+      for (const id of ids) { if (remove) next.delete(id); else next.add(id); }
+      layerAnchor = row.key;
+    }
+    partSelection.set(null);
+    selectedFrameId.set(null);
+    selection.set(next);
+  }
+  async function onLayerKey(e: KeyboardEvent, row: LayerRow) {
+    const index = rows.findIndex(r => r.key === row.key);
+    let next = index;
+    if (e.key === "ArrowDown") next = Math.min(rows.length - 1, index + 1);
+    else if (e.key === "ArrowUp") next = Math.max(0, index - 1);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = rows.length - 1;
+    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && row.kind === "group") {
+      collapsed = { ...collapsed, [row.def.id]: e.key === "ArrowLeft" };
+    } else if (e.key === "F2") {
+      row.kind === "group" ? startRename("group", row.def.id, row.def.name) : startRename("layer", row.el.id, labelFor(row.el));
+    } else return;
+    e.preventDefault(); e.stopPropagation();
+    if (next !== index) {
+      const target = rows[next];
+      layerAnchor ??= row.key;
+      selectLayer(e, target);
+      vlist?.ensureVisible(next);
+      await tick();
+      document.querySelector<HTMLElement>(`[data-layer-key="${CSS.escape(target.key)}"] .item`)?.focus();
+    }
+  }
+  let lastSelected = "";
+  $: {
+    const id = $selection.values().next().value ?? "";
+    if (id !== lastSelected) {
+      lastSelected = id;
+      const index = rows.findIndex(row => rowIds(row).includes(id));
+      if (index >= 0 && !dragKey) vlist?.ensureVisible(index);
+    }
   }
 </script>
 
-<aside class="sidebar">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<aside class="sidebar" bind:this={sidebarEl}
+  on:pointermove={(e) => { if (figDragFrom) onFigDragMove(e); else onLayerDragMove(e); }}
+  on:pointerup={(e) => { if (figDragFrom) endFigDrag(e); else endLayerDrag(e); }}
+  on:pointercancel={cancelReorder} on:lostpointercapture={cancelReorder}>
   <section>
     <div class="head">
       <h4>Canvases</h4>
@@ -397,13 +467,11 @@
       {#each canvasFigures as fig (fig.id)}
         <li
           class="figrow"
+          data-fig-id={fig.id}
           class:active={$activeFigureId === fig.id}
           class:picked={$figureSelection.has(fig.id)}
           class:dragging={figDragIds.includes(fig.id)}
-          on:pointerdown={(e) => startFigDrag(e, fig.id)}
-          on:pointermove={onFigDragMove}
-          on:pointerup={endFigDrag}
-          on:pointercancel={endFigDrag}>
+          on:pointerdown={(e) => startFigDrag(e, fig.id)}>
           <span class="fnum" title={fig.name}>{shortBadge(familyById(fig.family, $project.figureFamilies), fig.number ?? 0)}</span>
           <button
             class="item"
@@ -437,6 +505,7 @@
         {#if row.kind === "group"}
           <li
             class="layer grp"
+            data-layer-key={row.key}
             data-gid={row.def.id}
             class:active={groupSelected(row)}
             class:dragging={dragKey === row.key}
@@ -448,9 +517,6 @@
               title="Drag to reorder the whole group"
               aria-label="Drag to reorder group"
               on:pointerdown={(e) => startLayerDrag(e, row)}
-              on:pointermove={onLayerDragMove}
-              on:pointerup={endLayerDrag}
-              on:pointercancel={endLayerDrag}
               on:click|preventDefault>⠿</button
             >
             <button
@@ -495,7 +561,8 @@
             {:else}
               <button
                 class="item gname"
-                on:click={() => selectGroup(row.def.id)}
+                on:click={(e) => selectLayer(e, row)}
+                on:keydown={(e) => onLayerKey(e, row)}
                 on:dblclick={() => startRename("group", row.def.id, row.def.name)}
                 title="Click to select the group · double-click to rename">
                 {row.def.name}
@@ -504,8 +571,11 @@
             <span class="gcount" title="Members (deep)">{row.memberIds.length}</span>
           </li>
         {:else}
+          {@const inheritedLock = !!activeFig && !row.el.locked && effectiveLocked(activeFig, row.el)}
+          {@const inheritedHide = !!activeFig && !row.el.hidden && effectiveHidden(activeFig, row.el)}
           <li
             class="layer"
+            data-layer-key={row.key}
             class:active={$selection.has(row.el.id)}
             class:dragging={dragKey === row.key}
             class:isHidden={row.dim}
@@ -516,19 +586,17 @@
               title="Drag to reorder z-position"
               aria-label="Drag to reorder"
               on:pointerdown={(e) => startLayerDrag(e, row)}
-              on:pointermove={onLayerDragMove}
-              on:pointerup={endLayerDrag}
-              on:pointercancel={endLayerDrag}
               on:click|preventDefault>⠿</button
             >
             <button
               class="tog"
               class:muted={row.el.hidden}
-              title={row.el.hidden ? "Show" : "Hide"}
+              disabled={inheritedHide}
+              title={inheritedHide ? "Hidden by a parent group — show that group first" : row.el.hidden ? "Show" : "Hide"}
               aria-label="Toggle visibility"
               on:click={() => toggleHidden(row.el)}
             >
-              {#if row.el.hidden}
+              {#if row.el.hidden || inheritedHide}
                 <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.1" /><line x1="3" y1="13" x2="13" y2="3" stroke="currentColor" stroke-width="1.2" /></svg>
               {:else}
                 <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" fill="none" stroke="currentColor" stroke-width="1.1" /><circle cx="8" cy="8" r="1.9" fill="currentColor" /></svg>
@@ -536,12 +604,13 @@
             </button>
             <button
               class="tog"
-              class:on={row.el.locked}
-              title={row.el.locked ? "Unlock" : "Lock"}
+              class:on={row.el.locked || inheritedLock}
+              disabled={inheritedLock}
+              title={inheritedLock ? "Locked by a parent group — unlock that group to edit" : row.el.locked ? "Unlock" : "Lock"}
               aria-label="Toggle lock"
               on:click={() => toggleLocked(row.el)}
             >
-              {#if row.el.locked}
+              {#if row.el.locked || inheritedLock}
                 <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1" fill="currentColor" /><path d="M5.3 7V5.3a2.7 2.7 0 0 1 5.4 0V7" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
               {:else}
                 <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.2" /><path d="M5.3 7V5.3a2.7 2.7 0 0 1 5.4 0" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
@@ -557,7 +626,8 @@
             {:else}
               <button
                 class="item"
-                on:click={() => selectOnly(row.el.id)}
+                on:click={(e) => selectLayer(e, row)}
+                on:keydown={(e) => onLayerKey(e, row)}
                 on:dblclick={() => startRename("layer", row.el.id, labelFor(row.el))}
                 title="Click to select · double-click to rename">
                 {labelFor(row.el)}
@@ -632,6 +702,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  button:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
+  li.active button:focus-visible { outline-color: var(--c-on-accent); }
   li:hover:not(.active) {
     background: var(--c-surface-2);
   }

@@ -127,7 +127,9 @@ const FIGURE_DEF = {
   properties: {
     id: { type: "string" },
     name: { type: "string" },
-    referenceKey: { type: "string", pattern: "^fig-.+" },
+    // New keys are minted with fig-. Legacy index labels were unrestricted;
+    // migration preserves them verbatim so existing prose keeps its identity.
+    referenceKey: { type: "string", pattern: "^[\\s\\S]+$" },
     family: { type: "string" },
     number: { type: "number" },
     nickname: { type: "string" },

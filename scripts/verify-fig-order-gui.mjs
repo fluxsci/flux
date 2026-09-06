@@ -51,9 +51,9 @@ const rowBox = async (i) =>
   );
 
 // Two more figures, so there is an order to rearrange (the demo ships one).
-await page.click(`${FIG} .mini`);
+await page.click(`${FIG} button[title="Add figure"]`);
 await sleep(200);
-await page.click(`${FIG} .mini`);
+await page.click(`${FIG} button[title="Add figure"]`);
 await sleep(300);
 const start = await model();
 h.eq(start.figures.length, 3, `three figures to order (${start.figures.map((f) => f.name).join(" · ")})`);

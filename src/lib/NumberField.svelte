@@ -2,11 +2,12 @@
   // A numeric field that accepts math expressions (Feature 8) and whose LABEL can
   // be dragged to scrub the value. Emits `commit` for a discrete typed edit (wrap
   // it in commit() for one undo entry) and `scrub` for each live drag step (wrap
-  // in mutate(); the scrub action already opened one history entry). Mirrors the
+  // in mutate(); this control owns the history entry). Mirrors the
   // Inspector's field markup/styling so it drops in beside the existing fields.
   import { createEventDispatcher } from "svelte";
   import { evalExpr, fmtNum } from "./num";
   import { scrub } from "./scrub";
+  import { editSession } from "./interact/editSession";
 
   export let value: number;
   export let label = "";
@@ -14,8 +15,13 @@
   export let min: number | null = null;
   export let max: number | null = null;
   export let title = "";
+  export let history = true;
+  export let mixed = false;
+  export let disabled = false;
+  const session = editSession();
+  let scrubBaseline = value;
 
-  const dispatch = createEventDispatcher<{ commit: number; scrub: number }>();
+  const dispatch = createEventDispatcher<{ commit: number; scrub: number; scrubStart: void }>();
   let inputEl: HTMLInputElement;
 
   $: display = fmtNum(value, step);
@@ -33,7 +39,7 @@
       return;
     }
     const v = clamp(parsed);
-    dispatch("commit", v);
+    if (mixed || v !== value) dispatch("commit", v);
     inputEl.value = fmtNum(v, step);
   }
 
@@ -43,6 +49,7 @@
       inputEl.blur(); // triggers change
     } else if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       inputEl.value = display;
       inputEl.blur();
     }
@@ -53,7 +60,12 @@
   {#if label}
     <span
       class="lb"
-      use:scrub={{ get: () => value, step, min, max, onStep: (v) => dispatch("scrub", v) }}
+      use:scrub={{ get: () => value, step, min, max, disabled,
+        onStart: () => { scrubBaseline = value; dispatch('scrubStart'); },
+        onStep: (v) => history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v),
+        onEnd: session.finish,
+        onCancel: () => { if (history) session.cancel(); else dispatch("scrub", scrubBaseline); }
+      }}
       >{label}</span
     >
   {/if}
@@ -62,7 +74,9 @@
     type="text"
     inputmode="decimal"
     spellcheck="false"
-    value={display}
+    {disabled}
+    placeholder={mixed ? "Mixed" : ""}
+    value={mixed ? "" : display}
     on:change={onChange}
     on:keydown={onKey}
     on:pointerdown|stopPropagation

@@ -1,4 +1,11 @@
 <script lang="ts">
+  import { editSession } from "./interact/editSession";
+  const textEdits = editSession();
+  import { transientSceneTransforms } from "./interact/sceneTransforms";
+  const sceneTransforms = transientSceneTransforms();
+  import { frameHandleRect } from "./interact/frameResize";
+  import { figureFramePreview } from "./store";
+  import { selectionTargets } from "./interact/selectionTargets";
   import {
     project,
     viewport as baseViewport,
@@ -15,6 +22,8 @@
     selectedFrameId,
     beginGesture,
     rollbackGesture,
+    finishGesture,
+    type GestureCheckpoint,
     gestureCancelHook,
     mutate,
     mutateFigure,
@@ -187,6 +196,7 @@
         bgClick: boolean;
       }
     | { kind: "draw"; figId: string; x0: number; y0: number }
+    | { kind: "figresize"; figId: string; handle: Handle; ob: Rect; sx: number; sy: number }
     | {
         kind: "rotate";
         figId: string;
@@ -250,6 +260,7 @@
   // plot, the part a ctrl-click would drill to is outlined (Figma's
   // deep-target hover). Cleared on modifier release / gesture start / leave.
   let partHover: { x: number; y: number; w: number; h: number } | null = null;
+  let frameDraft: Rect | null = null;
   let gNb: Rect | null = null;
   let liveBox: Rect | null = null;
   let marquee: Rect | null = null; // figure-local
@@ -266,9 +277,12 @@
   let cropRes: CropRemapResult | null = null;
   let cropChip: { x: number; y: number } | null = null;
 
+  let checkpoint: GestureCheckpoint | null = null;
+  let duplicateSelection: Set<string> | null = null;
+
   function ensureCommitted() {
     if (!committed) {
-      beginGesture();
+      checkpoint = beginGesture();
       committed = true;
     }
   }
@@ -356,7 +370,7 @@
     return $project.figures.find((f) => f.id === $activeFigureId) ?? null;
   }
   function selectedEls(fig: Figure): Element[] {
-    return fig.elements.filter((e) => $selection.has(e.id) && !unbornPresentationIds.has(e.id));
+    return selectionTargets(fig, $selection, { editable: true, excluded: unbornPresentationIds });
   }
 
   // Only the active canvas's figures are rendered / hit-tested.
@@ -489,12 +503,12 @@
   // skips re-reconciling untouched figures entirely. Non-numeric deps
   // (selection set, gesture object, dragging flag) fold in as identity
   // generations tracked in the non-reactive box (see effMemoBox note).
+  $: cullMovingFigureId = dragging && gesture?.kind === "figmove" ? gesture.figId : null;
   const visMemoBox = {
     map: new Map<string, { key: string; els: Element[] }>(),
     sel: null as Set<string> | null,
     selGen: 0,
-    ges: null as Gesture,
-    drag: false,
+    movingFigure: null as string | null,
     gesGen: 0,
     // cullRect is quantized (only re-assigned every CULL_STEP px of pan — the
     // F5 design above); its IDENTITY is the correct change signal. Do not key
@@ -511,9 +525,8 @@
       visMemoBox.sel = $selection;
       visMemoBox.selGen++;
     }
-    if (gesture !== visMemoBox.ges || dragging !== visMemoBox.drag) {
-      visMemoBox.ges = gesture;
-      visMemoBox.drag = dragging;
+    if (cullMovingFigureId !== visMemoBox.movingFigure) {
+      visMemoBox.movingFigure = cullMovingFigureId;
       visMemoBox.gesGen++;
     }
     if (cullRect !== visMemoBox.cullRef) {
@@ -542,7 +555,8 @@
     void unbornPresentationIds;
     const fig = $project.figures.find((f) => f.id === $activeFigureId);
     if (!fig) return null;
-    return selectionBBox(selectedEls(fig));
+    const editable = selectionTargets(fig, $selection, { editable: true, excluded: unbornPresentationIds });
+    return selectionBBox(editable.length ? editable : selectionTargets(fig, $selection, { visible: true, excluded: unbornPresentationIds }));
   })();
 
   // --- one repaint per zoom gesture + will-change lifecycle (figure-v1 P6) ---
@@ -772,11 +786,10 @@
       hostEl.setPointerCapture(e.pointerId);
     } else if ($activeTool === "text") {
       const el = createTextElement(lp, get(drawStyle));
-      beginGesture();
-      mutate((p) => p.figures.find((f) => f.id === fig.id)?.elements.push(el));
+      textEdits.run(() => mutate((p) => p.figures.find((f) => f.id === fig.id)?.elements.push(el)));
       selectOnly(el.id);
       activeTool.set("select");
-      startEdit(el, false);
+      startEdit(el);
     } else if (["rect", "ellipse", "line", "arrow"].includes($activeTool)) {
       gesture = { kind: "draw", figId: fig.id, x0: lp.x, y0: lp.y };
       gestureFig = fig;
@@ -966,7 +979,7 @@
   // --- node editing (double-click / Enter on a selected path) ---
   function enterNodeEdit(id: string) {
     const found = findElement($project, id);
-    if (!found || found.element.type !== "path") return;
+    if (!found || found.element.type !== "path" || effLocked(found.element) || effHidden(found.element)) return;
     const el = found.element;
     activeFigureId.set(found.figure.id);
     selectOnly(id);
@@ -1086,7 +1099,7 @@
     }
     if (editMode === "pen") return; // markers are passive in pen mode
     const found = findElement($project, editPathId ?? "");
-    if (!found || found.element.type !== "path") return;
+    if (!found || found.element.type !== "path" || effLocked(found.element) || effHidden(found.element)) return;
     // Plain click on an unselected node selects it now (the drag target set is
     // decided at grab). Shift-click's TOGGLE is deferred to pointer-up-without-
     // drag (finishNodeDrag) — shift held during a real drag means axis-
@@ -1118,7 +1131,7 @@
     const nd = nodeDrag;
     if (!nd || !editPathId) return;
     const found = findElement($project, editPathId);
-    if (!found || found.element.type !== "path") return;
+    if (!found || found.element.type !== "path" || effLocked(found.element) || effHidden(found.element)) return;
     const el = found.element;
     const lp = localPoint(e.clientX, e.clientY, found.figure);
     // element-local incl. rotation/flip (el.x/y stays fixed until commit)
@@ -1130,7 +1143,7 @@
       try {
         hostEl.setPointerCapture(e.pointerId); // now that it's a real drag
       } catch {}
-      beginGesture();
+      checkpoint = beginGesture();
     }
     if (nd.kind === "node") {
       let dx = ex - nd.sx;
@@ -1181,6 +1194,8 @@
       editSel = n;
     }
     nodeDrag = null;
+    finishGesture(checkpoint);
+    checkpoint = null;
     try {
       hostEl.releasePointerCapture(e.pointerId);
     } catch {}
@@ -1190,7 +1205,7 @@
   function onSegDown(e: PointerEvent, s: number) {
     if (!e.ctrlKey || !editPathId) return;
     const found = findElement($project, editPathId);
-    if (!found || found.element.type !== "path") return;
+    if (!found || found.element.type !== "path" || effLocked(found.element) || effHidden(found.element)) return;
     e.stopPropagation();
     const el = found.element;
     const lp = localPoint(e.clientX, e.clientY, found.figure);
@@ -1207,14 +1222,14 @@
     const bd = bendDrag;
     if (!bd || !editPathId) return;
     const found = findElement($project, editPathId);
-    if (!found || found.element.type !== "path") return;
+    if (!found || found.element.type !== "path" || effLocked(found.element) || effHidden(found.element)) return;
     const el = found.element;
     const lp = localPoint(e.clientX, e.clientY, found.figure);
     const { x: ex, y: ey } = elUnmapPoint(el, lp);
     if (!bd.started) {
       if (Math.hypot(ex - bd.sx, ey - bd.sy) < 2 / $viewport.zoom) return;
       bd.started = true;
-      beginGesture();
+      checkpoint = beginGesture();
     }
     editNodes = bendSegment(bd.orig, bd.s, editClosed, bd.t, ex - bd.sx, ey - bd.sy);
     // live preview rides nodeDragLive (same transient scene-slot mechanism)
@@ -1223,6 +1238,8 @@
   function finishBendDrag(e: PointerEvent) {
     if (bendDrag?.started) commitNodes();
     bendDrag = null;
+    finishGesture(checkpoint);
+    checkpoint = null;
     try {
       hostEl.releasePointerCapture(e.pointerId);
     } catch {}
@@ -1318,12 +1335,11 @@
   }
 
   // --- inline text editing ---
-  function startEdit(el: Element, snapshot: boolean) {
-    if (el.type !== "text") return;
+  function startEdit(el: Element) {
+    if (el.type !== "text" || effLocked(el) || effHidden(el)) return;
     const found = findElement($project, el.id);
     if (found) activeFigureId.set(found.figure.id);
     selectOnly(el.id);
-    if (snapshot) beginGesture();
     editingId = el.id;
     requestAnimationFrame(() => {
       taEl?.focus();
@@ -1334,13 +1350,13 @@
     if (!editingId) return;
     const val = (e.currentTarget as HTMLTextAreaElement).value;
     const id = editingId;
-    mutate((p) => {
+    textEdits.run(() => mutate((p) => {
       const f = findElement(p, id);
       if (f && f.element.type === "text") {
         f.element.text = val;
         applyTextLayout(f.element);
       }
-    });
+    }));
   }
   // Ctrl/Cmd+B/I/U inside the inline editor: toggle on the edited element via
   // mutate — the edit session already opened ONE beginGesture, so the whole
@@ -1348,22 +1364,23 @@
   function onTextEditToggle(which: "bold" | "italic" | "underline") {
     if (!editingId) return;
     const id = editingId;
-    mutate((p) => {
+    textEdits.run(() => mutate((p) => {
       ops.toggleTextStyle(p, [id], which);
       const f = findElement(p, id);
       if (f) applyTextLayout(f.element); // bold changes metrics → re-wrap
-    });
+    }));
   }
   function finishEdit() {
     if (!editingId) return;
     const f = findElement($project, editingId);
     if (f && f.element.type === "text" && f.element.text.trim() === "") {
       const id = editingId;
-      mutate((p) => {
+      textEdits.run(() => mutate((p) => {
         for (const fig of p.figures) fig.elements = fig.elements.filter((x) => x.id !== id);
-      });
+      }));
       clearSelection();
     }
+    textEdits.finish();
     editingId = null;
   }
   $: editingInfo = (() => {
@@ -1620,7 +1637,8 @@
     const g = gesture;
     if (!g || g.kind !== "move") return;
     altDupDone = true;
-    beginGesture(); // single history entry for duplicate + drag
+    duplicateSelection = new Set($selection);
+    checkpoint = beginGesture(); // single history entry for duplicate + drag
     committed = true;
     const originals = gestureEls;
     const newIds: string[] = [];
@@ -1678,6 +1696,18 @@
     dragging = false;
     fDX = 0;
     fDY = 0;
+    hostEl.setPointerCapture(e.pointerId);
+  }
+
+  function startFrameResize(e: PointerEvent, handle: Handle) {
+    if (frame || !af || $selectedFrameId !== af.id || $captionOpen || e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const ob = { x: af.x, y: af.y, w: af.width, h: af.height };
+    gesture = { kind: "figresize", figId: af.id, handle, ob, sx: e.clientX, sy: e.clientY };
+    gestureFig = af;
+    dragging = false;
+    committed = false;
     hostEl.setPointerCapture(e.pointerId);
   }
 
@@ -1767,7 +1797,7 @@
           beginGesture();
           mutateFigure(figId, (p) => ops.addGuide(p, figId, gd.axis, gd.pos));
         }
-      } else {
+      } else if (gd.pos !== gd.origPos) {
         // move existing (drag off the figure = delete)
         beginGesture();
         mutateFigure(figId, (p) => {
@@ -1931,6 +1961,19 @@
 
     const g = gesture;
     if (!g) return;
+
+    if (g.kind === "figresize") {
+      if (!dragging && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 2) return;
+      dragging = true;
+      // Preserve the grab offset within the generous edge hit area.
+      const [x, y] = handlePos(g.handle, g.ob);
+      frameDraft = computeResizeBox(g.ob, g.handle, {
+        x: x + (e.clientX - g.sx) / $viewport.zoom,
+        y: y + (e.clientY - g.sy) / $viewport.zoom,
+      }, e.shiftKey);
+      figureFramePreview.set({ id: g.figId, ...frameDraft });
+      return;
+    }
 
     if (g.kind === "pan") {
       viewport.update((v) => ({ ...v, panX: g.panX + (e.clientX - g.sx), panY: g.panY + (e.clientY - g.sy) }));
@@ -2152,7 +2195,13 @@
     const g = gesture;
     if (!g) return;
 
-    if (g.kind === "move") {
+    if (g.kind === "figresize" && frameDraft) {
+      const box = frameDraft;
+      if (box.x !== g.ob.x || box.y !== g.ob.y || box.w !== g.ob.w || box.h !== g.ob.h) {
+        ensureCommitted();
+        mutateFigure(g.figId, p => ops.resizeFigureFrame(p, g.figId, box));
+      }
+    } else if (g.kind === "move") {
       if (dragging && (gDX !== 0 || gDY !== 0)) {
         ensureCommitted();
         mutateFigure(g.figId, (p) => {
@@ -2281,6 +2330,7 @@
     }
 
     // Reset all transient state in one batch -> single clean scene render.
+    finishGesture(checkpoint);
     resetGestureTransients();
     try {
       hostEl.releasePointerCapture(e.pointerId);
@@ -2290,6 +2340,11 @@
   /** Drop every piece of in-flight gesture state (shared by pointer-up commit and
    *  Esc-cancel) — one batch → a single clean scene render. */
   function resetGestureTransients() {
+    frameDraft = null;
+    figureFramePreview.set(null);
+    checkpoint = null;
+    duplicateSelection = null;
+    committed = false;
     preview = null;
     marquee = null;
     guides = [];
@@ -2323,13 +2378,20 @@
    *  (one beginGesture entry) → roll that back. The eventual pointerup finds
    *  gesture === null and no-ops; capture releases implicitly with it. */
   function cancelGesture(): boolean {
-    if (!gesture) return false;
-    if (gestureAltDup) rollbackGesture(); // removes the copies minted at first move
+    if (!gesture && !guideDrag && !nodeDrag && !bendDrag && !penDrag) return false;
+    if (penDrag) resetPenState();
+    const nodeBaseline = nodeDrag?.orig ?? bendDrag?.orig;
+    if (checkpoint) rollbackGesture(checkpoint);
+    if (duplicateSelection) selection.set(duplicateSelection);
+    if (nodeBaseline) editNodes = nodeBaseline.map(cloneNode);
+    nodeDrag = null;
+    bendDrag = null;
+    guideDrag = null;
     // Endpoint pivot is transient (WS-1 Fix 2) — dropping lineEndLive IS the
     // cancel; the model was never touched.
-    if (gesture.kind === "draw") activeTool.set("select");
+    if (gesture?.kind === "draw") activeTool.set("select");
     // Part move mutated the live node's transform transiently — put it back.
-    if (gesture.kind === "partmove" && dragging) {
+    if (gesture?.kind === "partmove" && dragging) {
       if (gesture.baseTransform) gesture.node.setAttribute("transform", gesture.baseTransform);
       else gesture.node.removeAttribute("transform");
     }
@@ -2341,6 +2403,8 @@
   onMount(() => {
     gestureCancelHook.fn = cancelGesture;
     return () => {
+      cancelGesture();
+      textEdits.finish();
       if (gestureCancelHook.fn === cancelGesture) gestureCancelHook.fn = null;
     };
   });
@@ -2354,6 +2418,7 @@
     if (e.key === "Alt") altDown = true; // caliper (measure) mode
     if (e.key === "Control") ctrlDown = true; // bend affordance in node-edit
     if (typing) return;
+    if (e.key === "Escape" && cancelGesture()) { e.preventDefault(); return; }
 
     // Shift+R toggles the rulers (Feature 11).
     if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "KeyR") {
@@ -2429,7 +2494,7 @@
     if (e.key === "Enter" && $selection.size === 1) {
       const id = [...$selection][0];
       const f = findElement($project, id);
-      if (f && f.element.type === "path" && !f.element.locked) {
+      if (f && f.element.type === "path" && !effLocked(f.element)) {
         e.preventDefault();
         enterNodeEdit(id);
       }
@@ -2446,6 +2511,7 @@
     }
   }
   function onWinBlur() {
+    cancelGesture();
     spaceDown = false;
     altDown = false; // don't leave the caliper stuck on if focus leaves mid-hold
     ctrlDown = false;
@@ -2454,6 +2520,7 @@
 
   let prevTool = $activeTool;
   $: if ($activeTool !== prevTool) {
+    cancelGesture();
     if (prevTool === "pen" && penNodes.length >= 2) finishPen(false);
     else if (prevTool === "pen") resetPenState();
     // A toolbar tool pick while node-editing (keyboard can't — it yields)
@@ -2490,8 +2557,8 @@
     const ids = [...$selection];
     if (ids.length === 1) {
       const f = findElement($project, ids[0]);
-      if (f && f.element.type === "text") startEdit(f.element, true);
-      else if (f && f.element.type === "path" && !f.element.locked) enterNodeEdit(ids[0]);
+      if (f && f.element.type === "text") startEdit(f.element);
+      else if (f && f.element.type === "path" && !effLocked(f.element)) enterNodeEdit(ids[0]);
     }
   }
 
@@ -2521,7 +2588,7 @@
     }
     if (el.type === "text" && unit.groupId === null) {
       e.stopPropagation();
-      startEdit(el, true);
+      startEdit(el);
       return true;
     }
     // Double-click DESCENDS into a semantic plot (Figma enter-children): drill
@@ -3139,9 +3206,17 @@
       ? `translate(${gesture.cx}px, ${gesture.cy}px) rotate(${gRotDeg}deg) translate(${-gesture.cx}px, ${-gesture.cy}px)`
       : "";
 
+  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform);
+
   // F8 frame move: the figure being moved + its transient GPU transform, plus
   // smart-guide lines (world-absolute, drawn full-viewport in the overlay).
   $: figMoveId = dragging && gesture?.kind === "figmove" ? gesture.figId : (null as string | null);
+  $: frameBoxScreen = !frame && af && $selectedFrameId === af.id ? {
+    x: $viewport.panX + (frameDraft?.x ?? af.x) * $viewport.zoom,
+    y: $viewport.panY + (frameDraft?.y ?? af.y) * $viewport.zoom,
+    w: (frameDraft?.w ?? af.width) * $viewport.zoom,
+    h: (frameDraft?.h ?? af.height) * $viewport.zoom,
+  } : null;
   $: frameTransform = `translate3d(${fDX}px, ${fDY}px, 0)`;
   $: frameGuidesScreen =
     gesture?.kind === "figmove"
@@ -3175,7 +3250,8 @@
   on:pointerdown={onCanvasDown}
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
-  on:pointercancel={onPointerUp}
+  on:pointercancel={() => cancelGesture()}
+  on:lostpointercapture={() => cancelGesture()}
   on:pointerleave={() => {
     hoverId.set(null);
     partHover = null;
@@ -3200,27 +3276,30 @@
     <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg">
       <g transform={`scale(${renderZoom})`}>
         {#each visibleFigures as fig (fig.id)}
+          {@const bounds = gesture?.kind === "figresize" && gesture.figId === fig.id && frameDraft
+            ? { x: frameDraft.x - fig.x, y: frameDraft.y - fig.y, w: frameDraft.w, h: frameDraft.h }
+            : { x: 0, y: 0, w: fig.width, h: fig.height }}
           <g
             style:transform={figMoveId === fig.id ? frameTransform : null}
             style:will-change={figMoveId === fig.id ? "transform" : null}
           >
           <g transform={`translate(${fig.x} ${fig.y})`}>
-            <rect class="fig-shadow" x="3" y="4" width={fig.width} height={fig.height} />
+            <rect class="fig-shadow" x={bounds.x + 3} y={bounds.y + 4} width={bounds.w} height={bounds.h} />
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <rect
               class="figure-bg"
               class:active={$activeFigureId === fig.id}
               class:frame-selected={$selectedFrameId === fig.id}
               class:droptarget={dropFigId === fig.id}
-              x="0"
-              y="0"
-              width={fig.width}
-              height={fig.height}
+              x={bounds.x}
+              y={bounds.y}
+              width={bounds.w}
+              height={bounds.h}
               fill={fig.background}
               on:pointerdown={(e) => onFigureDown(e, fig)}
             />
             <clipPath id={`clip-${fig.id}`}>
-              <rect x="0" y="0" width={fig.width} height={fig.height} />
+              <rect x={bounds.x} y={bounds.y} width={bounds.w} height={bounds.h} />
             </clipPath>
             {#if gridD && fig.id === $activeFigureId}
               <path class="grid" d={gridD} clip-path={`url(#clip-${fig.id})`} />
@@ -3251,8 +3330,7 @@
                   style:pointer-events={hiddenPresentationIds.has(el.id) && !presentation?.ghostHidden ? "none" : null}
                   class:editing-hidden={editingId === el.id}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
-                  style:transform={moveIds?.has(el.id) ? moveTransform : rotIds?.has(el.id) ? rotTransform : null}
-                  style:will-change={moveIds?.has(el.id) || rotIds?.has(el.id) ? "transform" : null}
+                  use:sceneTransforms.register={el.id}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
                   on:pointerenter={() => {
                     if (($activeTool === "select" || $activeTool === "scale") && !$captionOpen) hoverId.set(el.id);
@@ -3280,13 +3358,13 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <rect
                 class="figure-titlebar"
-                x="0"
-                y={-22 / renderZoom}
+                x={bounds.x}
+                y={bounds.y - 22 / renderZoom}
                 width={Math.max(fig.width, 120 / renderZoom)}
                 height={18 / renderZoom}
                 on:pointerdown={(e) => startFigMove(e, fig)}
               />
-              <text class="figure-label" x="0" y={-8 / renderZoom} font-size={13 / renderZoom}>{fig.nickname ? `${fig.name} · ${fig.nickname}` : fig.name}</text>
+              <text class="figure-label" x={bounds.x} y={bounds.y - 8 / renderZoom} font-size={13 / renderZoom}>{fig.nickname ? `${fig.name} · ${fig.nickname}` : fig.name}</text>
             {/if}
           </g>
           </g>
@@ -3410,6 +3488,17 @@
       <rect class="measure-bg" x={m.mx - (m.label.length * 3.5 + 5)} y={m.my - 8} width={m.label.length * 7 + 10} height="16" rx="3" />
       <text class="measure-label" x={m.mx} y={m.my} text-anchor="middle" dominant-baseline="central">{m.label}</text>
     {/each}
+
+    {#if frameBoxScreen && !$captionOpen && ($activeTool === "select" || $activeTool === "scale")}
+      <rect class="sel-box" x={frameBoxScreen.x} y={frameBoxScreen.y} width={frameBoxScreen.w} height={frameBoxScreen.h} fill="none" />
+      {#each HANDLES as handle}
+        {@const hit = frameHandleRect(handle, frameBoxScreen)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <rect class="frame-resize-handle" class:corner={handle.length === 2} data-frame-handle={handle}
+          x={hit.x} y={hit.y} width={hit.w} height={hit.h} style:cursor={cursorFor[handle]}
+          on:pointerdown={(e) => startFrameResize(e, handle)}><title>Resize figure — Shift keeps proportions</title></rect>
+      {/each}
+    {/if}
 
     <!-- selection box + handles (hidden during node-edit — nodes stand in) -->
     {#if lineEndsScreen && !editingInfo && !editPathId}
@@ -3723,7 +3812,9 @@
       on:keydown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
-          finishEdit();
+          e.stopPropagation();
+          textEdits.cancel();
+          editingId = null;
           return;
         }
         if ((e.ctrlKey || e.metaKey) && !e.altKey) {
@@ -3740,6 +3831,10 @@
 </div>
 
 <style>
+  .frame-resize-handle { fill: transparent; pointer-events: all; }
+  .frame-resize-handle:hover { fill: var(--c-accent); fill-opacity: 0.25; }
+  .frame-resize-handle.corner { fill: var(--c-bg); stroke: var(--c-accent); stroke-width: 1.5; }
+
   .scene-clip { position: absolute; inset: 0; }
   .presentation-target { fill: color-mix(in srgb, var(--c-accent) 12%, transparent); stroke: var(--c-accent); stroke-width: 2; stroke-dasharray: 5 3; pointer-events: none; }
   .canvas-host {

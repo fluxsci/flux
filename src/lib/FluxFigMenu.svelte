@@ -1,12 +1,15 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+  import { selectionTargets } from "./interact/selectionTargets";
+  import { editSession } from "./interact/editSession";
+  import { numericProperties, propertyValue, setNumericProperty, type NumericProperty } from "./interact/elementProperties";
+  import { uniqueFieldKeys } from "./interact/propertyFields";
   import { fade } from "svelte/transition";
   import { get } from "svelte/store";
   import {
     project,
     selection,
     partSelection,
-    beginGesture,
-    commit,
     mutate,
     drawStyle,
     type PartSelection,
@@ -40,8 +43,13 @@
     options?: { value: string; label: string }[];
     target?: "fill" | "stroke";
     step?: number;
+    mixed?: boolean;
+    count?: number;
   }
 
+  const session = editSession();
+  onDestroy(() => session.finish());
+  let draft = "";
   let mode: "hotkey" | "field" | "color" | "search" = "hotkey";
   let activeKey: string | null = null;
   let colorField: Field | null = null;
@@ -58,7 +66,7 @@
 
   // (Re)build the field list whenever the selection / part selection or its
   // data changes (the global style library too — it feeds the 'y' field).
-  $: fields = $fluxFigMenuOpen ? buildFields($project, $selection, $partSelection, $plotManifests, $globalTextStyles) : [];
+  $: fields = $fluxFigMenuOpen ? uniqueFieldKeys(buildFields($project, $selection, $partSelection, $plotManifests, $globalTextStyles)) : [];
   $: groups = groupFields(fields);
   $: sQ = search.trim().toLowerCase();
   $: sResults = sQ
@@ -74,9 +82,11 @@
       reset();
       loadGlobalTextStyles();
     }
+    if (!$fluxFigMenuOpen && prevOpen) session.finish();
     prevOpen = $fluxFigMenuOpen;
   }
   function reset() {
+    session.finish();
     mode = "hotkey";
     activeKey = null;
     colorField = null;
@@ -103,9 +113,8 @@
   // equivalent native object: a tick label gets the text fields, a gridline
   // the stroke fields. Reads = effective values (override → live DOM →
   // pristine cache); writes = id-keyed overrides (survive regeneration).
-  // Number/text/select fields ride activate()'s beginGesture → apply via
-  // mutate (one undo per field activation); the visible toggle commits itself
-  // (activate() short-circuits toggles without opening a gesture).
+  // Every entry route uses the same edit session around mutate (one undo per
+  // committed field); toggles open and finish their own discrete session.
   const PART_FONTS = ["Lato", "Latin Modern Roman", "Arial", "Helvetica", "Georgia", "Times New Roman", "DejaVu Sans"];
 
   // Options for a named-style select: — None — + Project styles + the global
@@ -166,7 +175,7 @@
         kind: "toggle",
         get: () => !read().hidden,
         apply: () =>
-          commit((proj) =>
+          mutate((proj) =>
             ops.setPartOverride(proj, el.id, partId, { hidden: !Boolean(el.overrides?.[partId]?.hidden) }),
           ),
       });
@@ -191,7 +200,7 @@
         kind: "toggle",
         get: () => read().fontStyle === "italic",
         apply: () =>
-          commit((proj) =>
+          mutate((proj) =>
             ops.setPartOverride(proj, el.id, partId, {
               fontStyle: read().fontStyle === "italic" ? "normal" : "italic",
             }),
@@ -204,7 +213,7 @@
         kind: "toggle",
         get: () => read().textDecoration === "underline",
         apply: () =>
-          commit((proj) =>
+          mutate((proj) =>
             ops.setPartOverride(proj, el.id, partId, {
               textDecoration: read().textDecoration === "underline" ? "none" : "underline",
             }),
@@ -263,13 +272,14 @@
   ): Field[] {
     if (ps) {
       for (const f of p.figures)
-        for (const e of f.elements)
+        for (const e of selectionTargets(f, new Set([ps.elementId]), { editable: true }))
           if (e.id === ps.elementId && e.type === "plot")
             return buildPartFields(e, ps.partId, manifests[e.assetId], lib);
     }
     const els: Element[] = [];
     for (const f of p.figures)
-      for (const e of f.elements) if (sel.has(e.id)) els.push(e);
+      for (const e of selectionTargets(f, sel, { editable: true })) els.push(e);
+    sel = new Set(els.map(e => e.id));
     const primary = els[0];
     if (!primary) return [];
 
@@ -302,6 +312,14 @@
         apply: (v) => upd((e, proj) => a(e, Number(v), proj)),
       });
 
+    const property = (name: NumericProperty) => {
+      const d = numericProperties[name], value = propertyValue(els, name);
+      if (!value.count) return;
+      F.push({ key: d.key, label: d.label, group: d.group, kind: "number", step: d.step,
+        mixed: value.mixed, count: value.count, get: () => propertyValue(els, name).value,
+        apply: v => upd((e, p) => setNumericProperty(p, e, name, Number(v), dimBase?.get(e.id))) });
+    };
+
     // Union-by-presence (multi-type selections): a section renders when ANY
     // selected element is of that family. `get` reads from the FIRST matching
     // element; every applier stays type-guarded per element (mirrors
@@ -314,20 +332,20 @@
     const boxEl = els.find((e) => "width" in e && ops.supportsBoxDim(e.type));
 
     // Geometry (all element types; position reads the primary)
-    num("x", "x position", "Geometry", () => Math.round(primary.x), (e, v) => (e.x = v));
-    num("y", "y position", "Geometry", () => Math.round(primary.y), (e, v) => (e.y = v));
+    property("x");
+    property("y");
     if (boxEl) {
       // Aspect-lock-aware (ops.setBoxDim honors element.lockAspect — writing
       // width/height directly here was the "menu bypasses the chain toggle"
       // bug). dimBase carries the pre-edit dims captured at field activation:
       // these appliers run live per keystroke, and the lock ratio must come
       // from before the edit, not from a half-typed intermediate value.
-      num("w", "width", "Geometry", () => Math.round((boxEl as any).width), (e, v) => { if ("width" in e) ops.setBoxDim(e, "w", v, dimBase?.get(e.id)); });
-      num("h", "height", "Geometry", () => Math.round((boxEl as any).height), (e, v) => { if ("height" in e) ops.setBoxDim(e, "h", v, dimBase?.get(e.id)); });
-      F.push({ key: "8", label: "lock aspect ratio", group: "Geometry", kind: "toggle", get: () => !!(boxEl as any).lockAspect, apply: () => { const ids = [...sel]; const to = !(boxEl as any).lockAspect; commit((proj) => ops.setElementStyle(proj, ids, { lockAspect: to })); } });
+      property("width");
+      property("height");
+      F.push({ key: "8", label: "lock aspect ratio", group: "Geometry", kind: "toggle", get: () => !!(boxEl as any).lockAspect, apply: () => { const ids = [...sel]; const to = !(boxEl as any).lockAspect; mutate((proj) => ops.setElementStyle(proj, ids, { lockAspect: to })); } });
     }
-    num("r", "rotation", "Geometry", () => Math.round(primary.rotation), (e, v) => (e.rotation = v));
-    num("o", "opacity", "Geometry", () => primary.opacity ?? 1, (e, v) => (e.opacity = Math.min(1, Math.max(0, v))), 0.05);
+    property("rotation");
+    property("opacity");
 
     // Reset crop (P5): an action for cropped image/plot elements — one commit
     // through ops.setCrop(null): the box returns to the full content at its
@@ -341,7 +359,7 @@
         group: "Geometry",
         kind: "toggle",
         get: () => true,
-        apply: () => commit((proj) => ops.setCrop(proj, cid, null)),
+        apply: () => mutate((proj) => ops.setCrop(proj, cid, null)),
       });
     }
 
@@ -376,23 +394,19 @@
     // fillets; the setElementStyle route refits so d re-emits rounded).
     const radiusEl = els.find((e) => e.type === "rect" || e.type === "path");
     if (radiusEl) {
-      F.push({
-        key: "u", label: "corner radius", group: "Fill", kind: "number", step: 1,
-        get: () => (radiusEl as any).cornerRadius ?? 0,
-        apply: (v) => { const ids = [...sel]; mutate((proj) => ops.setElementStyle(proj, ids, { cornerRadius: Math.max(0, Number(v)) })); },
-      });
+      property("cornerRadius");
     }
 
     // Stroke
     if (strokeEl) {
       const se = strokeEl as Element & { dash?: number[] };
       F.push({ key: "k", label: "stroke color", group: "Stroke", kind: "color", target: "stroke", get: () => (strokeEl as any).stroke, apply: () => {} });
-      num("d", "stroke width", "Stroke", () => (strokeEl as any).strokeWidth, (e, v) => { if ("strokeWidth" in e) e.strokeWidth = Math.max(0, v); });
+      property("strokeWidth");
       F.push({ key: "9", label: "no stroke", group: "Stroke", kind: "toggle", get: () => (strokeEl as any).stroke === "none", apply: () => { const to = (strokeEl as any).stroke === "none" ? get(drawStyle).stroke : "none"; upd((e) => { if (e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line") e.stroke = to; }); } });
       // Dash pattern ([len, gap] canvas px) — the toggle swaps solid↔[6,4];
       // the two numbers appear while dashed (fields rebuild reactively). All
       // writes go through ops.setElementStyle so sanitizing lives in ONE place.
-      F.push({ key: "-", label: "dashed stroke", group: "Stroke", kind: "toggle", get: () => !!se.dash?.length, apply: () => { const ids = [...sel]; const on = !!se.dash?.length; commit((proj) => ops.setElementStyle(proj, ids, { dash: on ? [] : [6, 4] })); } });
+      F.push({ key: "-", label: "dashed stroke", group: "Stroke", kind: "toggle", get: () => !!se.dash?.length, apply: () => { const ids = [...sel]; const on = !!se.dash?.length; mutate((proj) => ops.setElementStyle(proj, ids, { dash: on ? [] : [6, 4] })); } });
       if (se.dash?.length) {
         F.push({ key: "[", label: "dash length", group: "Stroke", kind: "number", step: 0.5, get: () => se.dash?.[0] ?? 6, apply: (v) => { const ids = [...sel]; const gap = se.dash?.[1] ?? 4; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [Math.max(0.5, Number(v)), gap] })); } });
         F.push({ key: "]", label: "dash gap", group: "Stroke", kind: "number", step: 0.5, get: () => se.dash?.[1] ?? 4, apply: (v) => { const ids = [...sel]; const len = se.dash?.[0] ?? 6; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [len, Math.max(0.5, Number(v))] })); } });
@@ -406,7 +420,7 @@
     if (arrowEl) {
       const applyArrow = (patch: Partial<{ arrowStart: boolean; arrowEnd: boolean; arrowStyle: "filled" | "vee"; arrowSize: number }>) => {
         const ids = [...sel];
-        commit((proj) => ops.setElementStyle(proj, ids, patch));
+        mutate((proj) => ops.setElementStyle(proj, ids, patch));
       };
       F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowStart, apply: () => applyArrow({ arrowStart: !arrowEl.arrowStart }) });
       F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowEnd, apply: () => applyArrow({ arrowEnd: !arrowEl.arrowEnd }) });
@@ -447,13 +461,13 @@
       const tEl = textEl as Element & { type: "text" };
       F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => tEl.text, apply: (v) => upd((e) => { if (e.type === "text") { e.text = String(v); } }) });
       // Font size in POINTS (stored px × 0.75; see Inspector) — same unit as journal specs.
-      num("e", "font size (pt)", "Text", () => Math.round(tEl.fontSize * 0.75 * 10) / 10, (e, v, proj) => { if (e.type === "text") { e.fontSize = Math.max(1, v) * (4 / 3); ops.detachOnManualEdit(proj, e, ["fontSize"]); } }, 0.5);
+      property("fontSize");
       F.push({ key: "b", label: "weight", group: "Text", kind: "select", options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }], get: () => String(tEl.fontWeight), apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontWeight = Number(v); ops.detachOnManualEdit(proj, e, ["fontWeight"]); } }) });
       F.push({ key: "i", label: "italic", group: "Text", kind: "toggle", get: () => tEl.fontStyle === "italic", apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "italic"); reflowTexts(proj, list); }); } });
       F.push({ key: "j", label: "underline", group: "Text", kind: "toggle", get: () => !!tEl.underline, apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "underline"); reflowTexts(proj, list); }); } });
       F.push({ key: "m", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => tEl.fontFamily, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontFamily = String(v); ops.detachOnManualEdit(proj, e, ["fontFamily"]); } }) });
       F.push({ key: "a", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.align = v as "left" | "center" | "right"; ops.detachOnManualEdit(proj, e, ["align"]); } }) });
-      num("l", "line height", "Text", () => tEl.lineHeight ?? 1.2, (e, v, proj) => { if (e.type === "text") { e.lineHeight = Math.max(0.5, v); ops.detachOnManualEdit(proj, e, ["lineHeight"]); } }, 0.05);
+      property("lineHeight");
       F.push({
         key: "z",
         label: "sizing",
@@ -523,37 +537,53 @@
 
   // --- interaction ---
   function close() {
+    session.finish();
     fluxFigMenuOpen.set(false);
   }
   function focusPanel() {
     requestAnimationFrame(() => panelEl?.focus());
   }
 
+  function enterField(f: Field) {
+    if (mode === "field" && activeKey === f.key) return;
+    session.finish();
+    dimBase = new Map();
+    for (const fig of get(project).figures)
+      for (const e of selectionTargets(fig, get(selection), { editable: true }))
+        if ("width" in e && "height" in e) dimBase.set(e.id, { w: e.width, h: e.height });
+    activeKey = f.key;
+    draft = f.mixed ? "" : String(f.get());
+    mode = "field";
+  }
+  function applyField(f: Field, value: string | number | boolean) {
+    if (f.kind !== "toggle" && !f.mixed && String(value) === String(f.get())) return;
+    session.run(() => f.apply(value));
+  }
   function activate(f: Field) {
+    session.finish();
     if (f.kind === "color") {
       colorField = f;
       mode = "color";
       return;
     }
     if (f.kind === "toggle") {
-      f.apply(true);
-      return; // stays in hotkey mode
+      applyField(f, true);
+      session.finish();
+      return;
     }
-    if (f.key === "w" || f.key === "h") {
-      dimBase = new Map();
-      const s = get(selection);
-      for (const fig of get(project).figures)
-        for (const e of fig.elements)
-          if (s.has(e.id) && "width" in e && "height" in e) dimBase.set(e.id, { w: e.width, h: e.height });
-    }
-    beginGesture();
-    activeKey = f.key;
-    mode = "field";
+    enterField(f);
     requestAnimationFrame(() => {
       const el = inputs[f.key];
       el?.focus();
       if (el instanceof HTMLInputElement) el.select();
     });
+  }
+  function blurField(f: Field) {
+    if (activeKey !== f.key) return;
+    session.finish();
+    activeKey = null;
+    mode = "hotkey";
+    dimBase = null;
   }
 
   function enterSearch() {
@@ -562,6 +592,7 @@
   }
 
   function backToHotkey() {
+    session.finish();
     mode = "hotkey";
     activeKey = null;
     colorField = null;
@@ -570,7 +601,8 @@
   }
 
   function onWin(e: KeyboardEvent) {
-    if (!$fluxFigMenuOpen || mode !== "hotkey") return;
+    if (e.defaultPrevented || !$fluxFigMenuOpen || mode !== "hotkey") return;
+    if (e.target instanceof HTMLElement && (e.target.matches('input, textarea, select') || e.target.isContentEditable)) return;
     const k = e.key;
     // stopImmediatePropagation prevents the global shortcut handler from
     // re-processing the same key (e.g. re-opening on the closing "f").
@@ -597,6 +629,8 @@
   function onFieldKey(e: KeyboardEvent) {
     if (e.key === "Enter" || e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") session.cancel();
       backToHotkey();
     }
   }
@@ -702,7 +736,7 @@
               <div class="field" class:editing={activeKey === f.key}>
                 <span class="hk">{f.key}</span>
                 {#if f.kind === "number"}
-                  <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, onStep: (v) => f.apply(v) }}>{f.label}</span>
+                  <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
                 {:else}
                   <span class="label">{f.label}</span>
                 {/if}
@@ -714,14 +748,16 @@
                       <span class="cname">{cd.name}</span>
                     </button>
                   {:else if f.kind === "toggle"}
-                    <button class="toggle" class:on={Boolean(f.get())} on:click={() => f.apply(true)}>
+                    <button class="toggle" class:on={Boolean(f.get())} on:click={() => activate(f)}>
                       {f.get() ? "on" : "off"}
                     </button>
                   {:else if f.kind === "select"}
                     <select
                       bind:this={inputs[f.key]}
                       value={String(f.get())}
-                      on:change={(e) => { f.apply(e.currentTarget.value); backToHotkey(); }}
+                      on:focus={() => enterField(f)}
+                      on:blur={() => blurField(f)}
+                      on:change={(e) => { applyField(f, e.currentTarget.value); backToHotkey(); }}
                       on:keydown={(e) => onFieldKey(e)}
                     >
                       {#each f.options ?? [] as o}<option value={o.value}>{o.label}</option>{/each}
@@ -730,9 +766,11 @@
                     <input
                       bind:this={inputs[f.key]}
                       class="tin"
-                      value={String(f.get())}
+                      value={activeKey === f.key ? draft : String(f.get())}
                       spellcheck="false"
-                      on:input={(e) => f.apply(e.currentTarget.value)}
+                      on:focus={() => enterField(f)}
+                      on:blur={() => blurField(f)}
+                      on:input={(e) => { draft = e.currentTarget.value; applyField(f, draft); }}
                       on:keydown={(e) => onFieldKey(e)}
                     />
                   {:else}
@@ -742,8 +780,12 @@
                       type="text"
                       inputmode="decimal"
                       spellcheck="false"
-                      value={f.get()}
-                      on:input={(e) => { const v = evalExpr(e.currentTarget.value); if (v != null) f.apply(v); }}
+                      placeholder={f.mixed ? "Mixed" : ""}
+                      title={f.count && $selection.size > 1 ? `Applies to ${f.count} of ${$selection.size} selected objects` : f.label}
+                      value={activeKey === f.key ? draft : f.mixed ? "" : f.get()}
+                      on:focus={() => enterField(f)}
+                      on:blur={() => blurField(f)}
+                      on:input={(e) => { draft = e.currentTarget.value; const v = evalExpr(draft); if (v != null) applyField(f, v); }}
                       on:keydown={(e) => onFieldKey(e)}
                     />
                   {/if}

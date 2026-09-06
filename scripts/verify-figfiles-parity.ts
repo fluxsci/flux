@@ -37,6 +37,7 @@ const bridge = {
 const core = await import("../flux-core/index");
 const { loadFigInto, saveFigFrom } = await import("../src/lib/project/figbridge");
 const { project: figProject } = await import("../src/lib/store");
+const { resizeFigureFrame } = await import("../src/lib/ops");
 const { deriveLabel, planFigSave } = await import("../src/lib/project/figfiles");
 const { slugify } = await import("../src/lib/project/types");
 const { get } = await import("svelte/store");
@@ -63,7 +64,7 @@ async function writeFixture(root: string) {
           { id: "c1", name: "Page One", order: 1 },
         ],
         figures: [
-          { id: "figA", name: "Alpha", label: "fig-alpha-custom", order: 1, kind: "main", canvas: "c1", caption: "Alpha caption." },
+          { id: "figA", name: "Alpha", label: "legacy:Alpha_1", order: 1, kind: "main", canvas: "c1", caption: "Alpha caption." },
           { id: "fig_b_1", name: "Beta", label: "fig-beta", order: 2, kind: "supplementary", canvas: "c2", caption: "" },
         ],
         assets: [
@@ -86,7 +87,8 @@ async function writeFixture(root: string) {
     y: 20,
     width: 200,
     height: 150,
-    elements: [],
+    elements: [{ type: "image", id: `image-${id}`, assetId: "asset2", x: -20, y: 15, width: 80, height: 60, rotation: 32, locked: true, hidden: true, crop: { x: 10, y: 20, width: 100, height: 80 } }],
+    guides: { x: [-5, 40], y: [20] },
     ...(caption ? { captions: caption } : {}),
   });
   await fs.writeFile(
@@ -151,7 +153,7 @@ try {
 
   // ---- 2. save parity: same mutation through both engines → identical trees ----
   const mutate = (p: Project) => {
-    p.figures[0].x = 55; // geometry-only touch on figA
+    resizeFigureFrame(p, p.figures[0].id, { x: -35, y: -25, w: 310, h: 210 });
     p.figures.push({
       id: "added_1", // fixed id so both engines mint the same label
       canvasId: "c2",
@@ -192,11 +194,48 @@ try {
   }
   if (!diverged) ok("every fig/ file is BYTE-IDENTICAL across the two engines (index, .bak, canvases, captions)");
   const savedIdx = JSON.parse(treeA.get("fig/index.json")!);
-  assert(savedIdx.figures[0].label === "fig-alpha-custom", "agent-authored label preserved through both saves");
+  assert(savedIdx.figures[0].label === "legacy:Alpha_1", "agent-authored label preserved through both saves");
   assert(savedIdx.figures[1].kind === "supplementary", "agent-set kind preserved through both saves");
   assert(savedIdx.figures[2].label === "fig-gamma-figure", "fresh figure labeled from its NAME (generated-style id)");
   assert(savedIdx.figures[2].caption === "Gamma caption.", "index caption cache composed from the model (not stale-preserved)");
   assert(treeA.get("fig/captions/added_1.md") === "Gamma caption.\n", "caption .md emitted by the shared plan");
+
+  // Reopen, then save without an edit through both engines. Backups intentionally
+  // advance to the accepted index; authored files themselves must stay identical.
+  const reopened = await core.loadFigModel(rootA);
+  await loadFigInto(rootB, "");
+  assert(comparable(reopened.project) === comparable(get(figProject)), "resized frames reopen identically in GUI and headless");
+  const frame = reopened.project.figures[0];
+  assert(frame.x === -35 && frame.width === 310 && frame.elements[0].x + frame.x === -10,
+    "frame resize survives save/reopen with rotated cropped artwork pinned");
+  assert(frame.elements[0].locked && frame.elements[0].hidden && frame.guides?.x?.[0] === 40,
+    "locked/hidden content, crops and guides survive the frame round trip");
+  await core.saveFigModel(rootA, reopened.project, reopened.index);
+  await saveFigFrom(rootB);
+  const stableA = await figTree(rootA), stableB = await figTree(rootB);
+  for (const [key, value] of treeA) if (!key.endsWith('.bak')) {
+    assert(stableA.get(key) === value && stableB.get(key) === value, `no-edit reopen/save is byte-stable: ${key}`);
+  }
+
+  // A missing or malformed sibling must never turn a partial view into a save
+  // that silently drops it. Exercise actual GUI and headless persistence APIs.
+  for (const broken of ['missing', 'invalid'] as const) {
+    const root = path.join(work, broken);
+    await fs.cp(rootA, root, { recursive: true });
+    const file = path.join(root, 'fig/canvases/c2.json');
+    if (broken === 'missing') await fs.unlink(file); else await fs.writeFile(file, '{bad json');
+    const before = await figTree(root);
+    let rejected = false;
+    try { await core.loadFigModel(root); } catch { rejected = true; }
+    assert(rejected, `headless refuses a ${broken} referenced canvas`);
+    await loadFigInto(root, '');
+    assert(get(figProject).figures.some(f => f.id === 'figA'), `GUI keeps the healthy sibling visible (${broken})`);
+    rejected = false;
+    try { await saveFigFrom(root, { force: true }); } catch { rejected = true; }
+    assert(rejected, `even force-save cannot overwrite an incomplete load (${broken})`);
+    assert(JSON.stringify([...await figTree(root)]) === JSON.stringify([...before]), `partial load leaves every disk byte unchanged (${broken})`);
+  }
+  await loadFigInto(rootB, '');
 
   // ---- 3. label semantics: one function, pinned against BOTH old behaviors -----
   const oldFigbridge = (f: { id: string; name: string }) => `fig-${slugify(f.name || f.id)}`;

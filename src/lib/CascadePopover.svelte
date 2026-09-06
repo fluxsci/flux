@@ -12,15 +12,18 @@
   //   (one undo step) → Esc rolls it back. The editGen guard (the nudgeSession
   //   pattern) keeps a foreign mid-session edit from being mutated into or
   //   rolled back with our entry.
+  import { onDestroy } from "svelte";
+  import { editSession } from "./interact/editSession";
+  import { selectionTargets } from "./interact/selectionTargets";
+  const edits = editSession();
+  onDestroy(() => edits.finish());
   import { get } from "svelte/store";
   import {
     cascadeState,
     selection,
     activeFigureId,
     project,
-    beginGesture,
     mutate,
-    rollbackGesture,
     editGen,
   } from "./store";
   import type { Project, Element, Figure } from "./types";
@@ -112,6 +115,7 @@
     if (prev && sess.began) {
       // Closed by an external actor (mode switch/eviction) mid-session: the
       // previewed state simply stands as the one undo entry.
+      edits.finish();
       sess.began = false;
     }
     if ($cascadeState) startSession($cascadeState.kind);
@@ -132,7 +136,8 @@
     firstFixed = false;
     if (k === "elements") {
       sess.figId = get(activeFigureId) ?? "";
-      sess.targets = [...get(selection)];
+      const fig = get(project).figures.find(f => f.id === sess.figId);
+      sess.targets = fig ? selectionTargets(fig, get(selection), { editable: true }).map(e => e.id) : [];
       order = "selection";
       if (!ELEMENT_LABELS[prop as ElementCascadeProp]) prop = "x";
     } else {
@@ -212,7 +217,6 @@
     if (!sess.began && isNoop()) return;
     if (mode === "mul" && !(factor > 0)) return;
     if (!sess.began || editGen.n !== sess.gen) {
-      beginGesture();
       // A foreign edit landed since our last preview: the old entry stays a
       // valid undo point; rebase the baseline on the current model so the new
       // gesture previews against what the user now sees.
@@ -220,17 +224,18 @@
       sess.began = true;
     }
     const spec = buildElSpec();
-    mutate((p) => {
+    edits.run(() => mutate((p) => {
       ops.cascadeElements(p, sess.figId, sess.targets, spec, sess.baseline);
       reflowTexts(p, sess.targets);
-    });
+    }));
     sess.gen = editGen.n;
   }
 
   function apply() {
     if (!open) return;
     if (kind === "tracks") tracks?.commit();
-    // Elements: the gesture entry (if any) simply stands — ONE undo step.
+    else edits.finish();
+    // One undo step for the completed preview.
     sess.began = false;
     cascadeState.set(null);
   }
@@ -239,11 +244,7 @@
     if (!open) return;
     if (kind === "tracks") {
       tracks?.cancel();
-    } else if (sess.began && editGen.n === sess.gen) {
-      // Only roll back when nothing landed after our last preview — never eat
-      // a foreign entry (store.ts rollbackGesture pops unconditionally).
-      rollbackGesture();
-    }
+    } else edits.cancel();
     sess.began = false;
     cascadeState.set(null);
   }

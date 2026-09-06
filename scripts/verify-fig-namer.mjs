@@ -71,7 +71,7 @@ await page.keyboard.press("Enter"); // commit
 await sleep(350);
 const rows = await rowTexts();
 const badgesNow = await page.$$eval(`${FIG} .fnum`, (els) => els.map((e) => e.textContent.trim()));
-const movieOk = rows.some((t) => t.includes("Movie 1") && t.includes("teaser clip"));
+const movieOk = rows.some((t) => t.includes("M1") && t.includes("teaser clip"));
 const movieBadgeOk = badgesNow.includes("M1");
 
 // --- Ctrl+B / Ctrl+Shift+B rail toggles ------------------------------------------

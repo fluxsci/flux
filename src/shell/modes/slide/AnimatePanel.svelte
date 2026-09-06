@@ -8,6 +8,8 @@
   // visible by default (hide statically via the X-ray/Layers), and a track
   // exists only when an object animates — select an object anywhere and
   // press ⌃⇧A / ⌃⇧D / ⌃⇧T.
+  import { pointerDrag } from "../../../lib/ui/pointerDrag";
+  import { get } from "svelte/store";
   import { onDestroy, untrack } from "svelte";
   import { deckOverlay, activeBeat, commitDeckLive, selTrackIds, exitEndpointEdit } from "../../../lib/slide/store";
   import { selection, partSelection } from "../../../lib/store";
@@ -130,17 +132,17 @@
   // --- draggable top edge → the dock's max-height. Drag up = taller dock — all
   // the way to a near-full-window animator (the stage keeps an 80px sliver).
   let dockResize = $state(false);
+  let cancelDockResize: (() => void) | null = null;
   const DOCK_DEFAULT_H = 360;
   const dockMaxH = () => Math.max(150, window.innerHeight - 160);
   let lastBigH = 0;
   function startDockDrag(e: PointerEvent) {
-    // No preventDefault: canceling pointerdown suppresses the derived dblclick,
-    // which is the toggleDockSize affordance on this same gutter.
-    void e;
+    if (e.button !== 0) return;
+    cancelDockResize?.();
+    const original = get(slideLayout).animatorH;
     dockResize = true;
-    document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", moveDockDrag);
-    window.addEventListener("pointerup", endDockDrag);
+    cancelDockResize = pointerDrag(e, moveDockDrag,
+      () => slideLayout.update(s => ({ ...s, animatorH: original })), endDockDrag);
   }
   function moveDockDrag(e: PointerEvent) {
     if (!dockResize || !animEl) return;
@@ -158,12 +160,9 @@
   }
   function endDockDrag() {
     dockResize = false;
-    document.body.style.userSelect = "";
-    window.removeEventListener("pointermove", moveDockDrag);
-    window.removeEventListener("pointerup", endDockDrag);
+    cancelDockResize = null;
   }
-
-  onDestroy(endDockDrag);
+  onDestroy(() => cancelDockResize?.());
 
   // Canvas selection only identifies effects within the selected step.
   // Never jump to an earlier step just because a part was animated there.

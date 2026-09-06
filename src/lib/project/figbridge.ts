@@ -10,7 +10,6 @@ import type {
   Figure,
   Asset,
   ColorGroup,
-  TextStyle,
 } from "../types";
 import {
   project as figProject,
@@ -45,7 +44,7 @@ import { settings } from "../settings";
 import { panelLetters } from "../captions";
 import { composeCaption } from "../captions";
 import { ensureFigureReferenceKeys } from "./figureIdentity";
-import { reconcileCaptionFiles, captionConflictMessage } from "./captionReconcile";
+import { reconcileCaptionFiles, captionConflictMessage, type CaptionBaseline } from "./captionReconcile";
 import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "./figureReferenceSync";
 import { applyTextLayout } from "../text";
 import { fileBridge, joinPath } from "./types";
@@ -113,7 +112,7 @@ export async function figDiskDiverged(root: string): Promise<boolean> {
   if (await canvasesDiverged(fig, root)) return true;
   for (const [rel, baseline] of captionBaseline) {
     let text: string | null;
-    try { text = await fig.readText(joinPath(root, rel)); } catch { text = null; }
+    text = await fig.exists(joinPath(root, rel)) ? await fig.readText(joinPath(root, rel)) : null;
     if (text !== baseline) return true;
   }
   return false;
@@ -144,9 +143,10 @@ export async function loadFigInto(
   }
 
   figSubsystemLocked = false;
+  figLoadFailure = null;
   canvasBaseline.clear();
   captionBaseline.clear();
-  captionModelBaseline.clear();
+  acceptedCaptions.clear();
   let index: FigIndexFile | null = null;
   let indexText = "";
   try {
@@ -168,6 +168,7 @@ export async function loadFigInto(
       // never silently half-parsed.
       const errs = validateFigIndexFile(index);
       if (errs.length) {
+        figLoadFailure = "fig/index.json failed validation. Repair or restore the file before saving figures.";
         const q = await quarantineCopy(fig, p, indexText);
         pushToast("error", "fig/index.json failed validation — starting from defaults", {
           detail: `${errs.slice(0, 5).join("\n")}${q ? `\nOriginal preserved at ${q}` : ""}`,
@@ -177,6 +178,7 @@ export async function loadFigInto(
       }
     }
   } catch {
+    figLoadFailure = "Could not read fig/index.json. Restore access to the file before saving figures.";
     index = null;
   }
   figIndexBaseline = indexText; // W7: seed the conflict-guard baseline
@@ -221,6 +223,7 @@ export async function loadFigInto(
         healPlotSources(probe, root);
         const errs = validateModel(probe);
         if (errs.length) {
+          figLoadFailure = `Canvas "${cm.name}" could not be loaded. Repair or restore fig/canvases/${cm.id}.json before saving figures.`;
           const q = await quarantineCopy(fig, p, text);
           pushToast("error", `Canvas "${cm.name}" failed validation — skipped`, {
             detail: `${errs.slice(0, 5).join("\n")}${q ? `\nOriginal preserved at ${q}` : ""}`,
@@ -229,9 +232,11 @@ export async function loadFigInto(
         }
         for (const f of probe.figures) figures.push(f);
         canvasBaseline.set(cm.id, text); // WS-5.3: seed the skip-unchanged baseline
+      } else if (index?.figures.some(f => f.canvas === cm.id)) {
+        figLoadFailure = `Missing fig/canvases/${cm.id}.json. Restore it before saving figures.`;
       }
     } catch {
-      /* unreadable canvas file — skip */
+      figLoadFailure = `Could not read fig/canvases/${cm.id}.json. Restore access to the file before saving figures.`;
     }
   }
 
@@ -306,13 +311,13 @@ export async function loadFigInto(
   ensureFigureReferenceKeys(proj, index);
   const captions = await reconcileCaptionFiles(proj, index, async (rel) => {
     let text: string | null;
-    try { text = await fig.readText(joinPath(root, rel)); } catch { text = null; }
+    text = await fig.exists(joinPath(root, rel)) ? await fig.readText(joinPath(root, rel)) : null;
     captionBaseline.set(rel, text);
     return text;
   });
   if (captions.conflicts.length) pushToast("error", "Caption edits need reconciliation", { detail: captionConflictMessage(captions.conflicts) });
-  const conflictedCaptions = new Set(captions.conflicts.map((c) => c.figureId));
-  for (const f of proj.figures) if (!conflictedCaptions.has(f.id)) captionModelBaseline.set(f.id, composeCaption(f));
+  acceptedCaptions = captions.baselines;
+  if (figLoadFailure) pushToast("error", "Some figures could not be loaded", { detail: figLoadFailure + " Existing files will not be overwritten." });
   // Normalizes (incl. migrate) + dirty=false. Initial load resets history and
   // view; a reload preserves both (view kept, pre-state pushed as one undo).
   figLoad(proj, null, opts);
@@ -322,6 +327,7 @@ export async function loadFigInto(
 // WS-5.2: set when a load refused the subsystem (newer on-disk format) —
 // saving would downgrade files this build doesn't understand.
 let figSubsystemLocked = false;
+let figLoadFailure: string | null = null;
 
 // WS-5.3: last-written/loaded serialized text per canvas — the skip-unchanged
 // guard (and WS-5.4's divergence probe reads the same baseline).
@@ -329,7 +335,7 @@ const canvasBaseline = new Map<string, string>();
 const captionBaseline = new Map<string, string | null>();
 // Legacy indexes can have an empty/stale caption cache even when canvas and
 // Markdown agree. The accepted model at load is the honest three-way base.
-const captionModelBaseline = new Map<string, string>();
+let acceptedCaptions = new Map<string, CaptionBaseline>();
 
 /** Persist the figure-editor stores into the project's `fig/` subsystem. */
 let figureSaveQueue: Promise<void> = Promise.resolve();
@@ -350,6 +356,7 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
   if (figSubsystemLocked) {
     throw new Error("figure subsystem is read-only: its on-disk format is newer than this Flux");
   }
+  if (figLoadFailure) throw new Error(figLoadFailure);
   await recoverFigureReferenceUpdate(root, fig);
 
   // W7 conflict guard: if fig/index.json changed on disk since we loaded/saved
@@ -379,10 +386,9 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
   const p = structuredClone(get(figProject));
   const originalCaptions = new Map(p.figures.map((f) => [f.id, composeCaption(f)]));
   const previous = figIndexBaseline ? JSON.parse(figIndexBaseline) as FigIndexFile : null;
-  const captionIndex = previous ? { ...previous, figures: previous.figures.map((f) => ({ ...f, caption: captionModelBaseline.get(f.id) ?? f.caption })) } : null;
-  const captions = await reconcileCaptionFiles(p, captionIndex, async (rel) => {
-    try { return await fig.readText(joinPath(root, rel)); } catch { return null; }
-  });
+  const captions = await reconcileCaptionFiles(p, previous, async (rel) => {
+    return await fig.exists(joinPath(root, rel)) ? await fig.readText(joinPath(root, rel)) : null;
+  }, acceptedCaptions);
   if (captions.conflicts.length) throw new ConflictError(captionConflictMessage(captions.conflicts));
   if (captions.imported.length) {
     for (const id of captions.imported) {
@@ -402,6 +408,8 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
   {
     const fixed = sanitizeProjectGeometry(p);
     if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
+    const errors = validateModel(p);
+    if (errors.length) throw new Error(`Figures could not be saved: ${errors.slice(0, 5).join("; ")}`);
   }
   const data = get(assetData);
   const assetGenerations = new Map(p.assets.map((a) => [a.id, assetDirtyGeneration(a.id)]));
@@ -485,8 +493,7 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
   figIndexBaseline = plan.index.text; // W7: adopt what we just wrote as the new baseline
   captionBaseline.clear();
   for (const cap of plan.captions) captionBaseline.set(cap.path, cap.text);
-  captionModelBaseline.clear();
-  for (const f of p.figures) captionModelBaseline.set(f.id, composeCaption(f));
+  acceptedCaptions = new Map(p.figures.map(f => [f.id, { model: composeCaption(f).trim(), sidecar: composeCaption(f) + "\n" }]));
   await commitFigureReferenceUpdate(root, referenceUpdate, fig);
 
   // WS6: record the human's save in the provenance journal (Electron only; the
@@ -534,7 +541,13 @@ export interface FigSource {
   canvases: { id: string; name: string }[];
 }
 
+// Paper's read-only view also needs an accepted base for legacy indexes with
+// an empty caption cache. Bound this cache to the currently read project.
+let readCaptionRoot: string | null = null;
+let readCaptionBaselines = new Map<string, CaptionBaseline>();
+
 export async function readFigSource(root: string): Promise<FigSource> {
+  if (readCaptionRoot !== root) { readCaptionRoot = root; readCaptionBaselines.clear(); }
   const empty: FigSource = {
     indexFigures: [],
     families: [],
@@ -592,8 +605,13 @@ export async function readFigSource(root: string): Promise<FigSource> {
   migrateFigureFamilies(view, familyHintsFrom(index.figures));
   ensureFigureReferenceKeys(view, index);
   const captionState = await reconcileCaptionFiles(view, index, async (rel) => {
-    try { return await fig.readText(joinPath(root, rel)); } catch { return null; }
-  });
+    return await fig.exists(joinPath(root, rel)) ? await fig.readText(joinPath(root, rel)) : null;
+  }, readCaptionBaselines);
+  if (readCaptionRoot === root) {
+    for (const [id, baseline] of captionState.baselines) readCaptionBaselines.set(id, baseline);
+    const ids = new Set(view.figures.map(f => f.id));
+    for (const id of readCaptionBaselines.keys()) if (!ids.has(id)) readCaptionBaselines.delete(id);
+  }
   if (captionState.conflicts.length) console.warn(captionConflictMessage(captionState.conflicts));
 
   const assetData: Record<string, string> = {};

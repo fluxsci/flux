@@ -97,6 +97,7 @@ usage: flux <verb> [root] [args] [--flags]
                                        group eye/padlock (exports honor it)
   list-groups [--figure F] [--root R]  list groups (name/nesting/state/members)
   set-figure-layout <figId> [--x n --y n --width n --height n --background c --name N] [--root R]   set a figure's frame
+  resize-figure-frame <figId> --x n --y n --width n --height n [--root R]   resize boundary with artwork pinned
   set-z <figId> <front|back|forward|backward> --ids a,b,c [--root R]   change stacking order
   manuscript [--root R] [--doc rel]    print a manuscript document (.qmd)
   set-manuscript [--root R] [--doc rel] <text…|--file f>   overwrite a document

@@ -38,8 +38,7 @@ import { fileBridge, newerSchemaMessage, PROJECT_MODEL_VERSION } from "./project
 import { assetDisplaySize } from "./ops";
 import { annotationsToMarkdown, type AnnotationMdMeta } from "./references/annotationsMarkdown";
 import type { Annotation } from "./references/annotations";
-import { encodeTiff } from "./figure/tiff";
-import { injectPngDpi, readPngDpi } from "./figure/pngDpi";
+import { readPngDpi } from "./figure/pngDpi";
 import { captureSnipMeta, clearSnipMeta } from "./snipMeta";
 import { planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
@@ -690,63 +689,85 @@ export async function saveAnnotationsMarkdown(citekey: string, annotations: Anno
   }
 }
 
+interface FigureExportJob {
+  readonly svg: string;
+  readonly name: string;
+  readonly width: number;
+  readonly height: number;
+  readonly background: string | null;
+}
+/** Resolve plot DOM, asset bytes and overrides before the first async boundary.
+ * A later editor/source change cannot alter a job waiting in an OS dialog. */
+function captureFigureExport(fig: Figure, transparent = false): FigureExportJob {
+  return Object.freeze({ svg: buildSvg(transparent ? { ...fig, background: "transparent" } : fig),
+    name: fig.name, width: fig.width, height: fig.height,
+    background: transparent ? null : fig.background && fig.background !== "transparent" ? fig.background : "#ffffff" });
+}
 export async function exportFigureSvg(fig: Figure) {
-  const path = await window.fig.save(`${fig.name}.svg`, [{ name: "SVG", extensions: ["svg"] }]);
-  if (!path) return;
   try {
-    await window.fig.writeText(path, buildSvg(fig));
+    const job = captureFigureExport(fig);
+    const path = await window.fig.save(`${job.name}.svg`, [{ name: "SVG", extensions: ["svg"] }]);
+    if (!path) return;
+    await window.fig.writeText(path, job.svg);
     pushToast("success", `Exported ${basename(path)}`);
-  } catch (e) {
-    pushToast("error", "SVG export failed", { detail: errMsg(e) });
-  }
+  } catch (e) { pushToast("error", "SVG export failed", { detail: errMsg(e) }); }
 }
 
-// Rasterize a figure's SVG to an offscreen canvas at explicit pixel dimensions. When
-// `transparent`, the background rect is dropped and the canvas keeps its alpha; otherwise
-// it's flood-filled (the figure's background, or white) so the raster is opaque.
-async function rasterizeFigure(fig: Figure, pxW: number, pxH: number, transparent: boolean): Promise<HTMLCanvasElement> {
-  const svg = transparent ? buildSvg({ ...fig, background: "transparent" }) : buildSvg(fig);
-  const blob = new Blob([svg], { type: "image/svg+xml" });
-  const url = URL.createObjectURL(blob);
+async function renderExportJob(job: FigureExportJob, pxWidth: number, pxHeight: number, format: "png" | "tiff", dpi?: number, signal?: AbortSignal): Promise<Uint8Array> {
+  signal?.throwIfAborted();
+  const width = Math.round(pxWidth), height = Math.round(pxHeight);
+  // Chromium's maximum canvas edge plus a bounded allocation envelope. Never
+  // silently lower requested resolution: report the exact unsupported request.
+  if (![width, height].every(Number.isFinite) || width < 1 || height < 1 || width > 32767 || height > 32767 || width * height > 128 * 1024 * 1024)
+    throw new Error(`Export size ${width} × ${height} pixels exceeds the available canvas size. Choose a smaller physical width or DPI.`);
+  const url = URL.createObjectURL(new Blob([job.svg], { type: "image/svg+xml" }));
+  let worker: Worker | null = null;
+  let bitmap: ImageBitmap | null = null;
   try {
     const img = new Image();
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res();
-      img.onerror = () => rej(new Error("Failed to render SVG"));
-      img.src = url;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve(); img.onerror = () => reject(new Error("Failed to render SVG")); img.src = url;
     });
+    // Keep the established SVG rasterizer: rasterizing the image into a bitmap
+    // directly changes Chromium's rotated-edge/text antialiasing. The canvas
+    // draw retains those pixels; expensive readback/encoding happen in the worker.
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(pxW));
-    canvas.height = Math.max(1, Math.round(pxH));
-    const ctx = canvas.getContext("2d")!;
-    if (!transparent) {
-      ctx.fillStyle = fig.background && fig.background !== "transparent" ? fig.background : "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return canvas;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-async function canvasToPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
-  const out = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
-  if (!out) throw new Error("PNG encode failed");
-  return new Uint8Array(await out.arrayBuffer());
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not allocate an export canvas.");
+    ctx.drawImage(img, 0, 0, width, height);
+    signal?.throwIfAborted();
+    bitmap = await createImageBitmap(canvas);
+    canvas.width = canvas.height = 1;
+    signal?.throwIfAborted();
+    worker = new Worker(new URL("./figure/raster.worker.ts", import.meta.url), { type: "module" });
+    return await new Promise<Uint8Array>((resolve, reject) => {
+      const abort = () => { worker?.terminate(); reject(signal?.reason ?? new DOMException("Export cancelled", "AbortError")); };
+      signal?.addEventListener('abort', abort, { once: true });
+      const done = (bytes?: Uint8Array, error?: Error) => {
+        signal?.removeEventListener('abort', abort);
+        if (error) reject(error); else resolve(bytes!);
+      };
+      worker!.onmessage = (event: MessageEvent<{ bytes?: Uint8Array; error?: string }>) => {
+        if (event.data.bytes) done(event.data.bytes);
+        else done(undefined, new Error(event.data.error ?? "Export worker failed"));
+      };
+      worker!.onerror = (event) => done(undefined, new Error(event.message || "Export worker could not start"));
+      worker!.onmessageerror = () => done(undefined, new Error("Export worker returned unreadable pixels"));
+      worker!.postMessage({ bitmap, width, height, background: job.background, format, dpi, alpha: !job.background }, [bitmap!]);
+    });
+  } finally { bitmap?.close(); worker?.terminate(); URL.revokeObjectURL(url); }
 }
 
 // Quick PNG export (⌘K) — a plain pixel multiple, no physical sizing.
-export async function exportFigurePng(fig: Figure, scale = 4) {
-  const path = await window.fig.save(`${fig.name}.png`, [{ name: "PNG", extensions: ["png"] }]);
-  if (!path) return;
+export async function exportFigurePng(fig: Figure, scale = 4, signal?: AbortSignal) {
   try {
-    const canvas = await rasterizeFigure(fig, fig.width * scale, fig.height * scale, false);
-    await window.fig.writeFile(path, await canvasToPng(canvas));
+    const job = captureFigureExport(fig);
+    const path = await window.fig.save(`${job.name}.png`, [{ name: "PNG", extensions: ["png"] }]);
+    if (!path) return;
+    await window.fig.writeFile(path, await renderExportJob(job, job.width * scale, job.height * scale, "png", undefined, signal));
     pushToast("success", `Exported ${basename(path)}`);
-  } catch (e) {
-    pushToast("error", "PNG export failed", { detail: errMsg(e) });
-  }
+  } catch (e) { if (!signal?.aborted) pushToast("error", "PNG export failed", { detail: errMsg(e) }); }
 }
 
 export interface JournalExportOpts {
@@ -754,6 +775,7 @@ export interface JournalExportOpts {
   mm: number; // physical width
   dpi: number;
   transparent?: boolean;
+  signal?: AbortSignal;
 }
 
 // 3.1 Journal-spec raster: render at the physical width (mm) × dpi the publisher asks for,
@@ -761,37 +783,31 @@ export interface JournalExportOpts {
 // that column width. TIFF (uncompressed baseline) is the format most journals require. This
 // half produces the bytes (pure of any dialog/disk) so it's browser-testable directly.
 export async function renderFigureBytes(fig: Figure, opts: JournalExportOpts): Promise<Uint8Array> {
-  const plan = planExport(fig.width, fig.height, opts.mm, opts.dpi);
-  const canvas = await rasterizeFigure(fig, plan.pxWidth, plan.pxHeight, !!opts.transparent);
-  if (opts.format === "tiff") {
-    const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
-    return encodeTiff(data, canvas.width, canvas.height, { dpi: opts.dpi, alpha: !!opts.transparent });
-  }
-  return injectPngDpi(await canvasToPng(canvas), opts.dpi);
+  const job = captureFigureExport(fig, !!opts.transparent);
+  const plan = planExport(job.width, job.height, opts.mm, opts.dpi);
+  return renderExportJob(job, plan.pxWidth, plan.pxHeight, opts.format, opts.dpi, opts.signal);
 }
 
 export async function exportFigureJournal(fig: Figure, opts: JournalExportOpts) {
-  const ext = opts.format;
-  const path = await window.fig.save(`${fig.name}.${ext}`, [{ name: ext.toUpperCase(), extensions: [ext] }]);
-  if (!path) return;
+  const { format: ext, dpi } = opts;
   try {
-    const plan = planExport(fig.width, fig.height, opts.mm, opts.dpi);
-    const bytes = await renderFigureBytes(fig, opts);
+    const job = captureFigureExport(fig, !!opts.transparent);
+    const plan = planExport(job.width, job.height, opts.mm, dpi);
+    const path = await window.fig.save(`${job.name}.${ext}`, [{ name: ext.toUpperCase(), extensions: [ext] }]);
+    if (!path) return;
+    const bytes = await renderExportJob(job, plan.pxWidth, plan.pxHeight, ext, dpi, opts.signal);
     await window.fig.writeFile(path, bytes);
-    pushToast("success", `Exported ${basename(path)} · ${describeSize(plan.pxWidth, plan.pxHeight, opts.dpi)}`);
-  } catch (e) {
-    pushToast("error", `${ext.toUpperCase()} export failed`, { detail: errMsg(e) });
-  }
+    pushToast("success", `Exported ${basename(path)} · ${describeSize(plan.pxWidth, plan.pxHeight, dpi)}`);
+  } catch (e) { if (!opts.signal?.aborted) pushToast("error", `${ext.toUpperCase()} export failed`, { detail: errMsg(e) }); }
 }
 
 export async function exportFigurePdf(fig: Figure) {
-  const path = await window.fig.save(`${fig.name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
-  if (!path) return;
   try {
+    const job = captureFigureExport(fig);
+    const path = await window.fig.save(`${job.name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
+    if (!path) return;
     if (!window.fig.exportPdf) throw new Error("PDF export is unavailable in this build.");
-    await window.fig.exportPdf(buildSvg(fig), path, fig.width, fig.height);
+    await window.fig.exportPdf(job.svg, path, job.width, job.height);
     pushToast("success", `Exported ${basename(path)}`);
-  } catch (e) {
-    pushToast("error", "PDF export failed", { detail: errMsg(e) });
-  }
+  } catch (e) { pushToast("error", "PDF export failed", { detail: errMsg(e) }); }
 }

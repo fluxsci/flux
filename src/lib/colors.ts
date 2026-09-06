@@ -1,6 +1,7 @@
 import { writable, get } from "svelte/store";
 import type { ColorGroup, ColorSwatch, Id, PartOverride } from "./types";
-import { project, selection, partSelection, drawStyle, commit } from "./store";
+import { project, selection, partSelection, drawStyle, commit, mutate } from "./store";
+import { selectionTargets } from "./interact/selectionTargets";
 import * as ops from "./ops";
 
 // Whether palette clicks set fill or stroke.
@@ -12,15 +13,16 @@ export const colorTarget = writable<"fill" | "stroke">("fill");
 // Write a style override onto a specific plot PART or GROUP, keyed by its stable
 // semantic id (e.g. "control.line", or a group id like "axis.x.tick-labels").
 // Survives plot regeneration because the id is deterministic (spec §7). Undoable.
-export function applyPartStyleTo(elementId: Id, partId: string, patch: PartOverride) {
-  commit((p) => ops.setPartOverride(p, elementId, partId, patch));
+export function applyPartStyleTo(elementId: Id, partId: string, patch: PartOverride, preview = false) {
+  if (!get(project).figures.some(f => selectionTargets(f, new Set([elementId]), { editable: true }).length)) return;
+  (preview ? mutate : commit)((p) => ops.setPartOverride(p, elementId, partId, patch));
 }
 
 // Write a style override onto the currently selected plot PART (the canvas
 // drill-in selection). Used by the inspector + by ColorSearch via applyColor.
-export function applyPartStyle(patch: PartOverride) {
+export function applyPartStyle(patch: PartOverride, preview = false) {
   const ps = get(partSelection);
-  if (ps) applyPartStyleTo(ps.elementId, ps.partId, patch);
+  if (ps) applyPartStyleTo(ps.elementId, ps.partId, patch, preview);
 }
 
 // Apply a colour to the current selection (or to the draw style if nothing is
@@ -31,10 +33,10 @@ export function applyPartStyle(patch: PartOverride) {
 // fill/stroke, but guarded where it would only ever be a foot-gun — text colour
 // (invisible text) and a line's paint via the FILL target (lines have no fill;
 // only an explicit stroke-none may blank one).
-export function applyColor(hex: string, target = get(colorTarget)) {
+export function applyColor(hex: string, target = get(colorTarget), preview = false) {
   const none = hex === "none";
   if (get(partSelection)) {
-    applyPartStyle(target === "fill" ? { fill: hex } : { stroke: hex });
+    applyPartStyle(target === "fill" ? { fill: hex } : { stroke: hex }, preview);
     return;
   }
   const sel = get(selection);
@@ -46,10 +48,9 @@ export function applyColor(hex: string, target = get(colorTarget)) {
     );
     return;
   }
-  commit((p) => {
+  (preview ? mutate : commit)((p) => {
     for (const f of p.figures)
-      for (const e of f.elements) {
-        if (!sel.has(e.id)) continue;
+      for (const e of selectionTargets(f, sel, { editable: true })) {
         if (e.type === "text") {
           if (none) continue;
           e.color = hex;
@@ -67,30 +68,31 @@ export function applyColor(hex: string, target = get(colorTarget)) {
   });
 }
 
-export function addRecentColor(hex: string) {
-  commit((p) => {
+export function addRecentColor(hex: string, preview = false) {
+  if (get(project).palette[0] === hex) return;
+  (preview ? mutate : commit)((p) => {
     p.palette = [hex, ...p.palette.filter((c) => c !== hex)].slice(0, 12);
   });
 }
 
 // Set per-element opacity (0..1) across the selection.
-export function setOpacity(v: number) {
+export function setOpacity(v: number, preview = false) {
   const sel = get(selection);
   if (sel.size === 0) return;
-  commit((p) => {
+  (preview ? mutate : commit)((p) => {
     for (const f of p.figures)
-      for (const e of f.elements) if (sel.has(e.id)) e.opacity = v;
+      for (const e of selectionTargets(f, sel, { editable: true })) e.opacity = Math.max(0, Math.min(1, v));
   });
 }
 
 // Set stroke width across the selection (elements that support it).
-export function setStrokeWidth(v: number) {
+export function setStrokeWidth(v: number, preview = false) {
   const sel = get(selection);
   if (sel.size === 0) return;
-  commit((p) => {
+  (preview ? mutate : commit)((p) => {
     for (const f of p.figures)
-      for (const e of f.elements)
-        if (sel.has(e.id) && "strokeWidth" in e) e.strokeWidth = v;
+      for (const e of selectionTargets(f, sel, { editable: true }))
+        if ("strokeWidth" in e) e.strokeWidth = Math.max(0, v);
   });
 }
 

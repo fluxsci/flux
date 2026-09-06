@@ -1,3 +1,5 @@
+import { editSession } from "./interact/editSession";
+import { selectionTargets } from "./interact/selectionTargets";
 import { requestFigureDeletion, figureDeletion } from "./project/figureDeletion";
 import { get } from "svelte/store";
 import {
@@ -14,7 +16,6 @@ import {
   mutateFigure,
   editGen,
   clearSelection,
-  selectOnly,
   selectedFrameId,
   duplicateFigure,
   newId,
@@ -30,7 +31,6 @@ import {
   arrange,
   lastArrangeRows,
   cascadeState,
-  rollbackGesture,
   gestureCancelHook,
   xrayOpen,
   xrayRoot,
@@ -90,7 +90,7 @@ function toggleCaption() {
 // label becomes a caption block). If all selected texts are already labels, this
 // unmarks them; otherwise it marks them all.
 function togglePanelLabel() {
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   const texts = fig.elements.filter((e) => sel.has(e.id) && e.type === "text");
@@ -104,13 +104,18 @@ function togglePanelLabel() {
   });
 }
 
+function editableIds(): Set<string> {
+  const ids = get(selection);
+  return new Set(get(project).figures.flatMap(fig => selectionTargets(fig, ids, { editable: true }).map(e => e.id)));
+}
+
 function withSelected(fn: (els: Element[], figId: string) => void) {
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   commit((p) => {
     const f = p.figures.find((ff) => ff.id === fig.id)!;
-    const els = f.elements.filter((e) => sel.has(e.id));
+    const els = selectionTargets(f, sel, { editable: true });
     fn(els, f.id);
   });
 }
@@ -128,14 +133,15 @@ function doDistribute(axis: "h" | "v", gap?: number) {
 // tweak); Esc rolls it back. Each preview re-arranges from the baseline
 // geometry captured at entry, so the anchor and reading order stay stable.
 // ---------------------------------------------------------------------------
+const arrangeEdit = editSession();
 let arrangeBase: Map<string, { x: number; y: number }> | null = null;
 
 function applyArrange(rows: number) {
   const st = get(arrange);
   if (!st || !arrangeBase) return;
   const cols = Math.ceil(st.n / rows);
-  const sel = get(selection);
-  mutate((p) => {
+  const sel = editableIds();
+  arrangeEdit.run(() => mutate((p) => {
     const fig = getActiveFigure(p);
     if (!fig) return;
     const els = fig.elements.filter((e) => sel.has(e.id));
@@ -147,19 +153,18 @@ function applyArrange(rows: number) {
       }
     }
     arrangeGrid(els, cols);
-  });
+  }));
   arrange.set({ ...st, rows, cols });
   lastArrangeRows.set(rows);
 }
 
 export function enterArrange() {
   const fig = activeFig();
-  const sel = get(selection);
+  const sel = editableIds();
   if (!fig || sel.size < 2) return;
   const els = fig.elements.filter((e) => sel.has(e.id));
   const n = gridItemCount(els);
   if (n < 2) return;
-  beginGesture(); // single pre-state captured for the whole mode session
   arrangeBase = new Map(els.map((e) => [e.id, { x: e.x, y: e.y }]));
   const rows = balancedRows(n);
   arrange.set({ active: true, n, rows, cols: Math.ceil(n / rows) });
@@ -169,12 +174,13 @@ export function enterArrange() {
 export function commitArrange() {
   if (!get(arrange)) return;
   arrange.set(null);
-  arrangeBase = null; // history already holds the single pre-state
+  arrangeEdit.finish();
+  arrangeBase = null;
 }
 
 export function cancelArrange() {
   if (!get(arrange)) return;
-  rollbackGesture(); // restore original positions, leave no undo entry
+  arrangeEdit.cancel();
   arrange.set(null);
   arrangeBase = null;
 }
@@ -204,7 +210,7 @@ function arrangeGridMode() {
 export function openCascade() {
   const fig = activeFig();
   if (!fig) return;
-  if (cascadeUnits(fig, [...get(selection)]).length < 2) return;
+  if (cascadeUnits(fig, [...editableIds()]).length < 2) return;
   cascadeState.set({ kind: "elements" });
 }
 
@@ -230,16 +236,18 @@ export function arrangeToRows(rows: number) {
 // someone else's undo entry.
 const nudgeSession = { open: false, gen: -1, timer: null as ReturnType<typeof setTimeout> | null };
 function nudge(dx: number, dy: number) {
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
+  const targets = new Set(selectionTargets(fig, sel, { editable: true }).map(e => e.id));
+  if (!targets.size) return;
   if (!nudgeSession.open || editGen.n !== nudgeSession.gen) beginGesture();
   nudgeSession.open = true;
   mutateFigure(fig.id, (p) => {
     const f = p.figures.find((ff) => ff.id === fig.id);
     if (!f) return;
     for (const e of f.elements)
-      if (sel.has(e.id)) {
+      if (targets.has(e.id)) {
         e.x += dx;
         e.y += dy;
       }
@@ -256,6 +264,7 @@ function nudge(dx: number, dy: number) {
 function nudgePart(ddx: number, ddy: number): boolean {
   const ps = get(partSelection);
   if (!ps) return false;
+  if (!editableIds().has(ps.elementId)) return true;
   commit((p) => {
     for (const f of p.figures)
       for (const e of f.elements) {
@@ -277,6 +286,7 @@ function nudgePart(ddx: number, ddy: number): boolean {
 function toggleBIU(which: ops.TextToggle): boolean {
   const ps = get(partSelection);
   if (ps) {
+    if (!editableIds().has(ps.elementId)) return true;
     const p = get(project);
     let plot: Element | null = null;
     for (const f of p.figures)
@@ -297,7 +307,7 @@ function toggleBIU(which: ops.TextToggle): boolean {
       }
     }
   }
-  const sel = get(selection);
+  const sel = editableIds();
   if (sel.size === 0) return false;
   const p = get(project);
   let anyText = false;
@@ -338,16 +348,19 @@ function toggleHiddenX(): boolean {
 }
 
 function deleteSelected() {
-  const sel = get(selection);
+  const sel = editableIds();
   if (sel.size === 0) return;
   // WS-3.1: route through the pure op — identical filter PLUS gcGroups (the
   // hand-rolled version accumulated orphan GroupDefs until the next load heal).
-  commit((p) => ops.deleteElements(p, [...sel]));
-  clearSelection();
+  const p = get(project);
+  const targets = p.figures.flatMap(f => selectionTargets(f, sel, { editable: true }).map(e => e.id));
+  if (!targets.length) return;
+  commit((p) => ops.deleteElements(p, targets));
+  selection.set(new Set([...sel].filter(id => !targets.includes(id))));
 }
 
 function duplicateSelected() {
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   // Step by the last move / alt-drag-copy offset (Figma-style repeat), or a small
@@ -370,7 +383,7 @@ function flipSelected(axis: "h" | "v") {
 // oversized elements positioned to cover the frame). The rescue for imports
 // that land outside the frame at true physical size. One undo entry.
 function bringInsideSelected() {
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   commit((p) => ops.bringInside(p, fig.id, [...sel]));
@@ -531,7 +544,7 @@ export function handleEditorPaste(e: ClipboardEvent, figId: string | null) {
 // re-selects the new group's members deep (a partial selection pulls in its
 // whole group, so the selection must widen to match the model).
 function groupSelected() {
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   const keys = new Set<string>();
@@ -550,7 +563,7 @@ function groupSelected() {
 // ⌘⇧G — dissolve the selection's top-level groups via the shared ops.ungroup
 // (members → parent group or loose; child groups reparent; registry GC'd).
 function ungroupSelected() {
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   if (!fig.elements.some((e) => sel.has(e.id) && e.groupId)) return;
@@ -598,7 +611,7 @@ function copyStyle() {
 }
 function pasteStyle() {
   if (!styleClipboard) return;
-  const list = [...get(selection)];
+  const list = [...editableIds()];
   if (!list.length) return;
   const patch = styleClipboard;
   // GUI seam: setElementStyle is DOM-free (it only invalidates the wrap
@@ -613,7 +626,7 @@ function raise(toEnd: boolean) {
   // Move selected elements to the front (toEnd) or back of the z-order.
   // WS-3.1: routed through ops.setZOrder — group-aware (units move as intact
   // blocks; the old flat filter fragmented a group's contiguous run).
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   commit((p) => ops.setZOrder(p, fig.id, [...sel], toEnd ? "front" : "back"));
@@ -622,7 +635,7 @@ function raise(toEnd: boolean) {
 function bump(forward: boolean) {
   // WS-3.1: routed through ops.setZOrder — the flat adjacent swap could slide
   // a loose element INTO a foreign group's contiguous run; unit logic can't.
-  const sel = get(selection);
+  const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   commit((p) => ops.setZOrder(p, fig.id, [...sel], forward ? "forward" : "backward"));
