@@ -2,6 +2,7 @@
 // generating script + params) and capture the emitted SVG/manifest (split out
 // of index.ts; WS-6.2).
 
+import { recipeInvocation, completedRecipe } from "../src/lib/plot/recipeContract.mjs";
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { resolveSpawn } from "../electron/execResolve.cjs";
@@ -26,7 +27,7 @@ export interface RecipeRunResult {
 
 export async function runRecipe(
   recipePath: string,
-  paramOverrides: Record<string, string | number | boolean> = {},
+  paramOverrides: Record<string, unknown> = {},
   opts: { only?: string | true } = {},
 ): Promise<RecipeRunResult> {
   const recipe = await readJSON<{
@@ -47,9 +48,7 @@ export async function runRecipe(
   if (opts.only === true && !only)
     throw new Error("--only needs a plot name (this recipe has no `plot` field to default to)");
   const dir = path.dirname(recipePath);
-  const params = { ...(recipe.params ?? {}), ...paramOverrides };
-  const args = [...(recipe.args ?? [])];
-  for (const [k, v] of Object.entries(params)) args.push(`--${k}`, String(v));
+  const { params, args } = recipeInvocation(recipe, paramOverrides);
   const cwd = path.resolve(dir, recipe.cwd ?? ".");
 
   const { code, stdout, stderr } = await new Promise<{ code: number; stdout: string; stderr: string }>(
@@ -70,9 +69,12 @@ export async function runRecipe(
   );
 
   // Persist the merged params + last-run time back to the recipe (provenance).
-  recipe.params = params;
-  recipe.lastRun = stamp();
-  await writeText(recipePath, JSON.stringify(recipe, null, 2) + "\n");
+  if (code === 0) {
+    // save() may have regenerated provenance, input hashes and output paths.
+    // Preserve that new sidecar instead of writing the pre-run snapshot over it.
+    const emitted = await readJSON<typeof recipe>(recipePath);
+    await writeText(recipePath, JSON.stringify(completedRecipe(emitted, params, paramOverrides, stamp()), null, 2) + "\n");
+  }
 
   const out = recipe.output ? path.resolve(dir, recipe.output) : "";
   const root = await findProjectRoot(dir);

@@ -9,7 +9,8 @@ directories:
   buildResources: build
   output: release
 
-# Allowlist. src/, fluxplot/, brand/, notes/, *.md are excluded by omission.
+# Allowlist. The one shared recipe runtime below is the only shipped src file;
+# other src/, fluxplot/, brand/, notes/, *.md are excluded by omission.
 # node_modules is dropped EXCEPT the integrated-terminal native module
 # (@lydell/node-pty + its per-platform prebuilt binary): electron/main.cjs
 # requires it at runtime and Vite does not bundle the main process. Everything
@@ -17,6 +18,7 @@ directories:
 # fully bundled into dist/ by Vite.
 files:
   - electron/**/*
+  - src/lib/plot/recipeContract.mjs
   - dist/**/*
   - package.json
   - "!**/node_modules/**/*"

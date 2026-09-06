@@ -86,17 +86,24 @@ export function inferRole(id: string): string {
   if (/\.gridline\.\d+$/.test(id)) return "gridline";
   if (/\.tick\.\d+$/.test(id)) return "tick";
   if (/\.ticklabel\.\d+$/.test(id)) return "tick-label";
-  if (/\.title$/.test(id)) return id.startsWith("axis.") ? "axis-title" : "title";
+  if (/\.title$/.test(id)) return /(^|\.)axis\.[xyz]\.title$/.test(id) ? "axis-title" : "title";
   if (id.startsWith("subtitle")) return "subtitle";
   if (/\.spine(-\d+)?$/.test(id)) return "spine";
   if (/\.line$/.test(id)) return "line";
   if (/\.area$/.test(id)) return "area";
   if (/\.errorbar$/.test(id)) return "errorbar";
   if (/\.swatch$/.test(id)) return "legend-swatch";
-  if (/\.label$/.test(id)) return "legend-label";
+  if (/\.label$/.test(id) && !/(^|\.)colorbar\./.test(id)) return "legend-label";
   if (id.startsWith("significance-bracket")) return "significance-bracket";
   if (id.startsWith("reference-line")) return "reference-line";
   if (id.startsWith("annotation")) return "annotation";
+  if (/\.cell\.\d+\.\d+$/.test(id)) return "cell";
+  if (/\.level\.\d+$/.test(id)) return "contour-level";
+  if (/(^|\.)colorbar\./.test(id)) {
+    if (/\.tick-label\.\d+$/.test(id)) return "colorbar-tick-label";
+    if (/\.tick\.\d+$/.test(id)) return "colorbar-tick";
+    for (const role of ["solids", "outline", "label"]) if (id.endsWith("." + role)) return "colorbar-" + role;
+  }
   // custom plot kinds tag their drawn part `{series}.x-<kind>` (violin, heatmap-cell, …)
   const seg = id.split(".").pop() ?? "";
   if (seg.startsWith("x-")) return seg;
@@ -104,6 +111,12 @@ export function inferRole(id: string): string {
 }
 
 const LEAF_LABEL: Record<string, string> = {
+  "colorbar-label": "Colorbar label",
+  "colorbar-tick-label": "Colorbar tick label",
+  "colorbar-tick": "Colorbar tick",
+  "colorbar-outline": "Colorbar outline",
+  "colorbar-solids": "Color ramp",
+  "contour-level": "Contour level",
   line: "Line",
   area: "Area",
   errorbar: "Error bars",
@@ -134,9 +147,13 @@ function labelFor(node: PartNode, role: string): string {
     case "plot-area":
       return "Plot area";
     case "axis":
-      return (node.axis === "y" ? "Y" : "X") + " axis";
+      return (node.axis ?? "x").toUpperCase() + " axis";
     case "legend":
       return "Legend";
+    case "colorbar":
+      return "Colorbar: " + id.split(".").at(-1);
+    case "cell":
+      return "Cell " + id.split(".").slice(-2).join(", ");
     case "legend-entry":
       return "Entry " + lastIndex(id);
     case "series":

@@ -201,7 +201,9 @@
    "verify-slide-ghost-api.ts",
    "verify-slide-arrow-browser.ts",
    "verify-figure-preservation.ts",
-   "verify-figure-editing.ts"
+   "verify-figure-editing.ts",
+   "verify-fluxplot03.ts",
+   "verify-fluxplot-recipe-ipc.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -289,7 +291,8 @@
    "verify-figure-preservation-gui.mjs",
    "verify-figure-editing-gui.mjs",
    "verify-figure-controls-gui.mjs",
-   "verify-figure-export-polish.mjs"
+   "verify-figure-export-polish.mjs",
+   "verify-fluxplot03-gui.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",

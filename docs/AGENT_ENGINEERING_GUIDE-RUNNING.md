@@ -210,6 +210,19 @@ Persistence invariants (all machine-checked — do not weaken):
   relabeling does not invent an external edit. Preserve orphaned caption blocks. Both engines
   recheck actual sidecar edits before saving; Paper retains its own project-scoped accepted
   baseline. Unreadable sidecars are errors, never equivalent to missing files.
+- **Fluxplot 0.3 is a coordinated generator/consumer contract.** `src/lib/plot/contract.ts`
+  validates incoming SVG/manifest pairs and checks their original-byte checksum before legacy
+  coordinate repair. Existing stored projects retain their legacy reader; never bulk-regenerate
+  user outputs. New series carry `panelId`, exact nullable data, a component inventory and explicit
+  `capabilities.dataMorph`; `slide/player/morph.ts` resolves the owning axes and preserves line
+  gaps. Unsupported transforms/projections/raster parts use complete transitions. Match these
+  changes with `~/fluxplot`'s versioned generator and shared fixtures in `scripts/fixtures/fluxplot03`.
+  X-Ray color controls regenerate source fields and their keys, preserving authored overrides.
+  `src/lib/plot/recipeContract.mjs` is the ONE parameter/argv/provenance rule for Electron and CLI;
+  its explicit electron-builder allowlist entry is required because other src files are excluded.
+  Reserved `__fluxplot__` controls travel only in FLUX_PARAMS, and successful reruns retain the
+  freshly emitted provenance sidecar. Gates: `verify-fluxplot03.ts`,
+  `verify-fluxplot-recipe-ipc.ts`, `verify-fluxplot03-gui.mjs`, plus source-sync and slide gates.
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -946,7 +959,9 @@ in the owner's real 1669-entry library):
 **Bundle/startup:** a static import from any eager shell module (`Shell.svelte`, stores,
 `src/lib/references/*` used by Shell) into `src/shell/modes/**` drags an entire mode chunk into
 Home. Dynamic-import at the call site; `verify-startup.mjs` (800KB eager budget, no mode chunks
-at Home) is the gate. Mode warms belong in `requestIdleCallback`. Also: `npm run check` covers
+at Home) is the gate. Mode warms belong in `requestIdleCallback`. The gate queues idle callbacks
+until its eager snapshot, then releases them, so optional preloading cannot race the measurement;
+it launches Vite directly to clean up its own preview process. Also: `npm run check` covers
 `src/**` ONLY — `flux-core/**` and `scripts/**` are outside the type-checker, so a name missing
 from `flux-core/index.ts`'s explicit re-export lists is silently `undefined` at runtime with no
 static signal except esbuild's `import-is-undefined` warning during `npm run build`. Treat that
@@ -4160,3 +4175,27 @@ feature branch and prepared local main for the owner's push; corrected the stale
 status above to reflect the completed native Figure measurements. Fresh typecheck passed
 at 0 errors/0 warnings and the documentation gate passed 156 checks; application files are
 identical to the previously verified branch.
+
+### 2026-09-06 20:03 UTC — Fluxplot 0.3 scientific/panel/field integration
+
+Coordinated `~/fluxplot` generator changes with shared Flux ingress validation, nullable
+observations, per-panel data morphs, safe unsupported-transform fallback, and X-Ray color
+controls that regenerate the source field/key without dropping authored overrides. Consolidated
+Electron/CLI recipe parameter rules in `src/lib/plot/recipeContract.mjs`, preserved freshly
+emitted provenance, and made desktop reruns target their plot's save. Added its packaging
+allowlist entry and real IPC-body execution gate. Added shared generator fixtures and GUI tests;
+updated the semantic-plots user guide and body contract above. No user project outputs were
+regenerated in place; preexisting fluxplot uv.lock changes remain outside this work.
+
+Validation: fluxplot 151 passed/1 preexisting missing-gallery skip on both Python 3.9 +
+Matplotlib 3.7.5 and Python 3.13 + Matplotlib 3.11; 52/52 project examples regenerated in scratch
+and accepted by enhanced Flux validation. Flux 202/202 pure, 42/42 Paper, 19/19 Figure/Slides
+integration gates; new color-controls GUI, existing X-Ray, desktop recipe handler, and Figure/
+Slide scale gates pass. Slide playback p95 16.8 ms, scrub p95 17.1 ms. Svelte 0 errors/warnings;
+production renderer/runtime/CLI/MCP builds and 4/4 bundle/startup gates pass. Startup 652.9 KB vs
+unchanged 800 KB budget (starting revision 647.7 KB). Fixed the startup harness's idle-warm
+measurement race by holding idle callbacks until the eager snapshot and then releasing them;
+app scheduling and the budget are unchanged. Directly owning Vite also fixes preview-process
+cleanup. Surface cross-category depth on arbitrary
+folded meshes and exact 3D point correspondence remain explicitly unsupported capabilities;
+the generator retains visual/group editing without claiming a false data morph.

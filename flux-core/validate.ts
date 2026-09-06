@@ -8,6 +8,7 @@
 // `validate` VERB below (WS-6.2 extraction) shares the module.
 export * from "../src/lib/project/validate";
 
+import { plotContractErrors, validateIncomingPlot } from "../src/lib/plot/contract";
 import { textLayoutWarnings } from "./render";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -156,6 +157,8 @@ export async function validatePlot(svgPath: string): Promise<ValidateResult & { 
   }
   const svg = await fs.readFile(abs, "utf8");
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as FluxPlotManifest;
+  errors.push(...plotContractErrors(svg, manifest));
+  try { await validateIncomingPlot(svg, JSON.stringify(manifest)); } catch (error) { errors.push(String((error as Error).message)); }
   const ajv = new Ajv({ allErrors: true, strict: false });
   const v = ajv.compile(SCHEMAS.manifest);
   if (!v(manifest)) for (const e of v.errors ?? []) errors.push(`manifest: ${e.instancePath || "(root)"} ${e.message ?? "invalid"}`);

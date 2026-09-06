@@ -3,6 +3,9 @@
 // data values, coordinate mapping, and build order. See Flux_SemanticSVG_Spec.md.
 
 export interface FluxPlotAxis {
+  supported?: boolean;
+  units?: { kind: string; [key: string]: unknown };
+  ticks?: { value: number; label: string }[];
   scale: string; // linear | log | ...
   label?: string;
   base?: number; // for log scales
@@ -16,16 +19,23 @@ export interface FluxPlotSeries {
   kind?: string | null;
   roles?: string[];
   svg: { line?: string; points?: string; bars?: string[]; [k: string]: string | string[] | undefined };
-  data?: { x: number[]; y: number[] };
+  data?: { x: (number | null)[]; y: (number | null)[] };
+  panelId?: string;
+  rasterized?: boolean;
+  capabilities?: { dataMorph: boolean };
+  components?: { role: string; svgId: string; members?: string[] }[];
+  field?: FluxPlotField;
   label?: string;
   points?: { index: number; svgId: string; x: number; y: number }[];
 }
 
 export interface FluxPlotGuide {
   id: string;
-  svgId: string;
+  svgId?: string;
   role: string;
   axis?: string;
+  mappable?: string;
+  parts?: { svgId: string; role: string }[];
   entries?: { series: string }[];
 }
 
@@ -46,7 +56,9 @@ export interface FluxPlotManifest {
   plotType: string;
   svg: string;
   size: { width: number; height: number; unit: string };
-  axes: { id?: string; svgId?: string; x: FluxPlotAxis; y: FluxPlotAxis; pixelBox?: unknown }[];
+  artifact?: { svgSha256?: string };
+  panels?: { id: string; svgId: string; label?: string; index?: number }[];
+  axes: { id?: string; svgId?: string; panelId?: string; projection?: string; x: FluxPlotAxis; y: FluxPlotAxis; pixelBox?: unknown }[];
   series: FluxPlotSeries[];
   guides?: FluxPlotGuide[];
   overlays?: FluxPlotOverlay[];
@@ -89,4 +101,18 @@ export interface PartInfo {
   x?: number;
   y?: number;
   label?: string;
+}
+
+/** A field's source-data color contract. Raster color changes require regeneration. */
+export interface FluxPlotField {
+  kind: "heatmap" | "contour" | "contourf";
+  shape: number[];
+  controlKey: string;
+  cmap: string;
+  normalization: { kind: string; vmin: number | null; vmax: number | null; [key: string]: unknown };
+  maskedIndices?: number[];
+  values?: (number | null)[][];
+  levels?: number[];
+  extent?: number[];
+  grid?: { x: number[] | number[][]; y: number[] | number[][] };
 }

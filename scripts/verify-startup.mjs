@@ -16,15 +16,18 @@ const WORKER_RE = /worker|pdf\.worker|pdfjs/i;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Serve the built dist/ exactly as shipped.
-const preview = spawn("npx", ["vite", "preview", "--port", String(PORT), "--strictPort"], {
+const preview = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "preview", "--port", String(PORT), "--strictPort"], {
   cwd: process.cwd(),
-  stdio: "ignore",
+  stdio: ["ignore", "pipe", "pipe"],
 });
 process.on("exit", () => preview.kill("SIGKILL"));
+let previewReady = false;
+preview.stdout.on("data", (chunk) => { if (String(chunk).includes("Local:")) previewReady = true; });
 
 async function reachable() {
   for (let i = 0; i < 80; i++) {
     try {
+      if (!previewReady) { await sleep(150); continue; }
       const r = await fetch(URL);
       if (r.ok) return true;
     } catch {
@@ -45,18 +48,37 @@ try {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const page = await browser.newPage();
+  // Hold ONLY the browser's idle callbacks until the eager snapshot. Otherwise
+  // requestIdleCallback can warm Paper dependencies between Home's first paint
+  // and Puppeteer's observer, counting optional work as eager.
+  // App scheduling and the 800KB budget stay unchanged; release immediately
+  // after measuring Home and observe the real warm path below.
+  await page.evaluateOnNewDocument(() => {
+    const request = window.requestIdleCallback.bind(window);
+    const cancel = window.cancelIdleCallback.bind(window);
+    const pending = new Map();
+    let next = -1;
+    window.requestIdleCallback = (fn, options) => { const id = next--; pending.set(id, [fn, options]); return id; };
+    window.cancelIdleCallback = (id) => { if (id < 0) pending.delete(id); else cancel(id); };
+    window.__releaseStartupIdle = () => {
+      window.requestIdleCallback = request;
+      window.cancelIdleCallback = cancel;
+      for (const [fn, options] of pending.values()) request(fn, options);
+      pending.clear();
+    };
+  });
 
   // Record every JS response with its RAW (decompressed) byte length.
   const js = new Map(); // url → bytes
-  page.on("response", async (res) => {
+  const jsReads = new Set();
+  page.on("response", (res) => {
     const url = res.url();
     if (!url.endsWith(".js")) return;
-    try {
-      const buf = await res.buffer();
+    const read = res.buffer().then((buf) => {
       js.set(url.split("/").pop(), buf.byteLength);
-    } catch {
-      /* redirect / no body */
-    }
+    }).catch(() => { /* redirect / no body */ });
+    jsReads.add(read);
+    void read.finally(() => jsReads.delete(read));
   });
 
   await page.goto(URL, { waitUntil: "load", timeout: 30000 });
@@ -72,7 +94,9 @@ try {
     !servedCsp.includes("ws://localhost") &&
     !/script-src[^;]*'unsafe-inline'/.test(servedCsp);
   // Snapshot the eager set the instant Home is up (before idle-warm settles).
+  await Promise.all(jsReads); // include bodies whose response handlers are still settling
   const eagerFiles = [...js.entries()];
+  await page.evaluate(() => window.__releaseStartupIdle());
 
   const modeChunks = eagerFiles.filter(([f]) => MODE_RE.test(f));
   const workerChunks = eagerFiles.filter(([f]) => WORKER_RE.test(f));

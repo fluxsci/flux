@@ -1,5 +1,6 @@
 // One bundle/update policy for Figure, Paper and headless commands. IO is
 // injected; publication identity and manuscript order are never consulted.
+import { validateIncomingPlot } from "./contract";
 import type { Project, SemanticPlotElement } from "../types";
 import { unionRect, elementBBox } from "../geometry";
 import { plotSourceCandidates, plotSidecarCandidates, linkedSourceFiles, type LinkedSourceFiles } from "./source";
@@ -53,7 +54,8 @@ export function hasCompleteSvgStructure(text: string): boolean {
   }
   return roots === 1 && !stack.length && !text.slice(end).trim();
 }
-function normalizeBundle(bundle: PlotBundle, io: SourceIO): PlotBundle {
+async function normalizeBundle(bundle: PlotBundle, io: SourceIO): Promise<PlotBundle> {
+  await validateIncomingPlot(bundle.svgText, bundle.manifestText);
   if (!hasCompleteSvgStructure(bundle.svgText)) throw new Error("SVG is incomplete or malformed");
   if (io.validateSvg && !io.validateSvg(bundle.svgText)) throw new Error("SVG is malformed");
   const clean = scanAbsurdPathCoords(bundle.svgText, { clamp: true }).svg;
@@ -115,7 +117,7 @@ export async function planSourceUpdates(root: string, project: Project, io: Sour
       if (!fresh) {
         const first = await readFresh(), second = await readFresh();
         if (!samePlotBundle(first, second)) throw new Error("Source files changed while reading; the last saved version is retained. Reload after generation completes.");
-        fresh = normalizeBundle(second, { ...io, validateSvg: undefined });
+        fresh = await normalizeBundle(second, { ...io, validateSvg: undefined });
         freshByPath.set(bundleKey, fresh);
       }
       const previous: PlotBundle = {
