@@ -647,7 +647,9 @@ Persistence invariants (all machine-checked — do not weaken):
   external navigation. Admit its initial `will-navigate` event too: denying everything after
   `did-create-window` strands the new native window before its first load. Close the utility
   when its owner dies; disconnect style/theme observers on dock/close and release blob URLs
-  when the gallery closes.
+  when the gallery closes. Recreate list size observers in the destination window on pin
+  and dock: an observer created in a hidden opener stops delivering resizes, leaving the
+  pinned gallery's columns and virtual row count stale until the opener regains focus.
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search. Insert uses the shared IO pipeline and
@@ -870,6 +872,11 @@ chord or label changes, grep `docs/` for the old one.
   selection-only change and deselection against the painted overlay, without a no-op model
   mutation that would accidentally trigger recomputation. F03 is fixed and gated by
   `verify-figure-editing-gui.mjs`.
+
+- **Keep-alive modes can share accessible labels.** Scope browser controls to the editor
+  under test and check `elementFromPoint` before pointer gestures. An unscoped sidebar
+  selector in `verify-figure-controls-gui.mjs` found Paper's hidden handle and dragged the
+  visible Figure canvas at its coordinates, falsely reporting a broken Figure rail.
 
 **Svelte 5 legacy syntax:**
 
@@ -4324,3 +4331,13 @@ rail-resize GUI failure is unchanged. Details and caveats: `docs/PLOT_GALLERY_TE
 §4. Native window.open emits its first navigation after did-create-window; a blanket deny
 there creates a blank window. Gallery keyboard gates must scope selectors to the importer,
 not the Inspector's unrelated `.row` controls.
+
+### 2026-09-07 11:06 CDT — Linux main update and pinned gallery resize (Codex, `main`)
+
+**Work:** Fast-forwarded from `5f99b56` to `ae88849`, then fixed pinned-gallery grid
+resizing while its owner is hidden by recreating size observers in the current window;
+also corrected the Figure controls gate's hidden Paper-handle selection. Promoted both
+rules to the body and updated user docs and gallery evidence. Check 0/0, rebuilt renderer/
+extension/CLI/MCP, pure 203/203, Paper 44/44, bundle/startup 4/4, twelve targeted browser
+scripts across sweep/recheck, Figure controls and native gallery 17/17 pass; the 5,000-plot
+gallery paints search/scroll in 27.7/33.0ms, and the real bibliography checksum is unchanged.

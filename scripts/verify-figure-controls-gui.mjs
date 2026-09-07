@@ -61,7 +61,10 @@ try{
   const lockedBefore=await read();await page.keyboard.press('ArrowRight');assert.equal((await read()).elements.find(e=>e.id==='polish-rect').x,lockedBefore.elements.find(e=>e.id==='polish-rect').x);
   const layoutKey='flux.'+mode.toLowerCase()+'.layout';
   const layoutBefore=await page.evaluate(key=>localStorage.getItem(key),layoutKey),beforeRail=await read();
-  const rail=await page.$(mode==='Figure'?'[aria-label="Resize sidebar (double-click resets)"]':'[aria-label="Resize slide list"]'),rb=await rail.boundingBox();
+  // Paper remains mounted with the same sidebar label; target this editor's
+  // handle, then prove the actual pointer will hit it before testing the drag.
+  const rail=await page.$(mode==='Figure'?'.figure-mode [aria-label="Resize sidebar (double-click resets)"]':'.slide-mode [aria-label="Resize slide list"]'),rb=await rail.boundingBox();
+  assert.equal(await rail.evaluate(n=>{const b=n.getBoundingClientRect();return n.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2))}),true,mode+': rail is the visible pointer target');
   await page.mouse.move(rb.x+rb.width/2,rb.y+rb.height/2);await page.mouse.down();await page.mouse.move(rb.x+rb.width/2+50,rb.y+rb.height/2);
   assert.notEqual(await page.evaluate(key=>localStorage.getItem(key),layoutKey),layoutBefore,mode+': rail resizes live');
   await page.keyboard.press('Escape');await page.mouse.up();

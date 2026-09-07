@@ -26,7 +26,17 @@ async function main(){
  check(await js(child,"!window.fig && !window.__flux && !window.require"),'gallery has no preload bridge or independent project runtime');
  check(await js(child,"document.querySelector('.cur').textContent==='study'&&document.querySelector('.pickpill').textContent==='1 selected'"),'pin preserves folder and picks');
  child.setPosition(140,130);check(child.getPosition()[0]===140,'native gallery can move independently');
- for(const [width,height]of [[520,600],[1100,820]]){child.setSize(width,height);await wait(()=>js(child,`innerWidth>=${width-30}&&innerWidth<=${width}`),'window resized');check(await js(child,"(()=>{const b=document.querySelector('.insbtn').getBoundingClientRect();return b.right<=innerWidth&&b.bottom<=innerHeight})()"),`controls fit native ${width}px window`)}
+ // A pinned gallery must observe its own viewport even when the owning editor
+ // has no rendering frames. Its mounted Svelte state still belongs to that editor.
+ win.hide();child.focus();
+ await js(child,"(()=>{const n=document.querySelector('[aria-label=\"Preview size\"]');n.value='320';n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}))})()");
+ for(const [width,height,columns]of [[520,600,1],[1100,820,3]]){
+  child.setSize(width,height);await wait(()=>js(child,`innerWidth>=${width-30}&&innerWidth<=${width}`),'window resized');
+  check(await js(child,"(()=>{const b=document.querySelector('.insbtn').getBoundingClientRect();return b.right<=innerWidth&&b.bottom<=innerHeight})()"),`controls fit native ${width}px window`);
+  await wait(()=>js(child,`getComputedStyle(document.querySelector('.items')).gridTemplateColumns.split(' ').length===${columns}`),'grid reflows with hidden owner');
+  check(true,`native gallery reflows at ${width}px with hidden owner`);
+ }
+ win.show();
  await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[title=other]')"),'root navigation');await click(child,'.row[title=other]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='other'"),'other folder');await click(child,'.row[title="growth.svg"]');
  check(await js(child,"document.querySelector('.pickpill').textContent==='2 selected'"),'pinned gallery navigates entire plots tree');
  const before=saved().elements.length;

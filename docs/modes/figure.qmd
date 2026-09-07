@@ -97,7 +97,8 @@ slide copies retain the assets they need. A slide copy has its own layout and an
   and you can still browse the entire `plots/` tree. Insertions leave the window open and
   use the figure named in its footer. **Dock** returns the same gallery to the editor;
   **Alt+I** brings an already pinned gallery forward. **Refresh** reloads files and previews.
-  Closing the project also closes its gallery.
+  Preview columns adjust as you resize the pinned window, including while the editor is
+  minimized. Closing the project also closes its gallery.
 - **◆** marks semantic plots and **◇** marks plain images; **List** also shows semantic
   and paper-snip badges. The reserved [`_dissections/`](../concepts/dissections.qmd) and
   `_lighttable/` companion collections stay out of ordinary results. Type **`_`** to list

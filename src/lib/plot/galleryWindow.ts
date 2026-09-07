@@ -1,7 +1,7 @@
 /** Move the mounted view, retaining its Svelte state and the opener's store/IO.
  * The destination is an inert same-origin document with no application scripts.
  * All listeners/observers and the native window are owned by this one handle. */
-export function openGalleryWindow(node: HTMLElement, onClose: () => void) {
+export function openGalleryWindow(node: HTMLElement, onClose: () => void, onDocumentChange: () => void) {
   const owner = node.ownerDocument;
   const parent = node.parentNode!;
   const marker = owner.createComment("plot gallery");
@@ -34,6 +34,7 @@ export function openGalleryWindow(node: HTMLElement, onClose: () => void) {
     if (disposed || popup.closed) return;
     syncStyles();
     popup.document.body.appendChild(node);
+    onDocumentChange();
     popup.document.title = "Plot gallery";
     styles.observe(owner.head, { childList: true, subtree: true, characterData: true });
     theme.observe(owner.documentElement, { attributes: true });
@@ -55,6 +56,7 @@ export function openGalleryWindow(node: HTMLElement, onClose: () => void) {
     popup.removeEventListener("pagehide", closed);
     marker.parentNode?.insertBefore(node, marker);
     marker.remove();
+    onDocumentChange();
     if (!popup.closed) popup.close();
   }
   return { close: dispose, focus: () => popup.focus() };

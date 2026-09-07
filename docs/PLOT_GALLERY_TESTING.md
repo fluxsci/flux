@@ -33,10 +33,12 @@ reads. Search painted in **26.7 ms**, scrolling in **32.8 ms**, against the unch
 
 ## Caveats and failure evidence
 
-- `verify-figure-controls-gui.mjs` fails at its existing “Figure: rail resizes live”
-  assertion: `{sidebarW:200, inspectorW:248}` stays unchanged. This was reproduced
-  before the importer edits in Brave and afterwards in stock Chrome. The relevant
-  rail implementation was not changed by this work.
+- The original `verify-figure-controls-gui.mjs` failed at “Figure: rail resizes live”
+  because its unscoped selector found Paper's hidden sidebar handle, which shares
+  Figure's accessible label. The Linux follow-up on 2026-09-07 confirmed the visible
+  Figure handle changes the width from 200 to 251px and Escape restores 200px.
+  The gate now scopes handles to their editor and checks the pointer hit target;
+  the complete Figure/Slide controls gate passes without application changes.
 - One pure sweep concurrent with the Paper browser suite missed the unrelated
   slide trim animation's sample-count assertion (four distinct values). The final
   isolated full pure sweep passed all 203 scripts without changing that gate.
@@ -45,11 +47,18 @@ reads. Search painted in **26.7 ms**, scrolling in **32.8 ms**, against the unch
   the same gate verifies external navigation remains denied. Old folder-emoji and
   importer-call source probes were updated to the explicit folder type and guarded
   shared call respectively; batch behavior/placement checks remain intact.
-- Native verification was on macOS. Position and size changes were exercised through
+- Initial native verification was on macOS. Position and size changes were exercised through
   the real window; physically dragging between two monitors and installer packaging
   were not part of the automated run. Browser verification used Chrome for Testing
   152 (early checks also used Brave). Native config/projects are disposable; optional
   contextual-correction model setup is absent in that fixture.
+- Linux follow-up found the pinned grid retained its old column count while the opener
+  was backgrounded (still stale after two seconds; focusing the opener repaired it).
+  List size observation now belongs to the current window and reconnects on pin/dock.
+  The browser gate checks narrow and wide reflow; all 17 native checks pass on Linux
+  Electron/X11, including resizing while the opener is hidden. The corrected browser run
+  mounted 14 cards for 5,000 plots,
+  read 21 previews, and painted search/scroll in 27.7/33.0ms under the unchanged 100ms limit.
 - Preview caching is local to the gallery. **Refresh** reloads changed sources;
   oversized or unreadable preview files remain selectable with an unavailable-preview
   label. Search is capped at 20,000 files/20 folder levels; direct folder browsing

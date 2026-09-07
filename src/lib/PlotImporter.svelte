@@ -98,7 +98,7 @@
   function focusInput() { void tick().then(() => inputEl?.focus()); }
   function pin() {
     try {
-      popup = openGalleryWindow(wrapEl, close);
+      popup = openGalleryWindow(wrapEl, close, () => reconnectListSize());
       detached = true;
       importerDetached.set(true);
     } catch (e) { error = errMsg(e); }
@@ -125,6 +125,22 @@
   $: canInsert = active && !!destination;
   $: destinationName = destination?.nickname || destination?.name || "a figure";
   let listWidth = 800, listHeight = 400, scrollTop = 0;
+  let reconnectListSize = () => {};
+  function trackListSize(node: HTMLDivElement) {
+    let observer: ResizeObserver;
+    const measure = () => { listWidth = node.clientWidth; listHeight = node.clientHeight; };
+    reconnectListSize = () => {
+      observer?.disconnect();
+      // Resize delivery follows the observer's window. The opener may be hidden
+      // while this same mounted list lives in the pinned gallery (and vice versa).
+      const ownerWindow = node.ownerDocument.defaultView as Window & typeof globalThis;
+      observer = new ownerWindow.ResizeObserver(measure);
+      observer.observe(node);
+      measure();
+    };
+    reconnectListSize();
+    return { destroy() { observer.disconnect(); reconnectListSize = () => {}; } };
+  }
   $: columns = viewMode === "gallery" ? Math.max(1, Math.floor((listWidth - 32 + spacing) / (previewSize + spacing))) : 1;
   $: cellHeight = viewMode === "gallery" ? Math.round(previewSize * .72) + (labels ? 54 : 18) : 44;
   $: gap = viewMode === "gallery" ? spacing : 4;
@@ -546,7 +562,7 @@
         {/if}
         <span class="count">{fileCount} {fileCount === 1 ? "plot" : "plots"}</span>
       </div>
-      <div class="list" class:gallery={viewMode === "gallery"} class:without-labels={!labels} bind:this={listEl} bind:clientWidth={listWidth} bind:clientHeight={listHeight} on:scroll={() => scrollTop = listEl.scrollTop}>
+      <div class="list" class:gallery={viewMode === "gallery"} class:without-labels={!labels} bind:this={listEl} use:trackListSize on:scroll={() => scrollTop = listEl.scrollTop}>
         {#if !root}<div class="empty">Open a Flux project to browse its plots.</div>
         {:else if !fileBridge()?.readdir}<div class="empty">Folder browsing isn't available in this build.</div>
         {:else if !rows.length && !loading}<div class="empty"><strong>{q ? "No matching plots" : "A little space for your next result"}</strong><span>{q ? "Try another name or return to browsing." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>

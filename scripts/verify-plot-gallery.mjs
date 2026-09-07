@@ -37,6 +37,7 @@ try {
   const gallery=await popupEvent;
   console.log('popup ready');
   await gallery.waitForSelector('.detached .importer');
+  await gallery.bringToFront(); // The grid must resize while its opener is backgrounded.
   assert.equal(await page.$('.ibackdrop'),null,'pinned gallery leaves no backdrop');
   assert.equal(await gallery.$eval('.path .cur',n=>n.textContent),'study','folder preserved on pin');
   assert.equal(await gallery.$eval('.pickpill',n=>n.textContent),'1 selected','selection preserved on pin');
@@ -56,6 +57,7 @@ try {
   await gallery.$eval('[aria-label="Preview spacing"]',n=>{n.value='28';n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}))});
   await frame(gallery);assert.equal(await gallery.$eval('.items',n=>getComputedStyle(n).gap),'28px','spacing changes');
   await gallery.setViewport({width:1060,height:780});await frame(gallery);
+  assert.equal(await gallery.$eval('.items',n=>getComputedStyle(n).gridTemplateColumns.split(' ').length),3,'widening the pinned window reflows without focusing its opener');
   const before=await page.evaluate(()=>window.__flux.figures()[0].elements.length);
   await gallery.click('.insbtn');await gallery.waitForSelector('[role=status]');
   assert.equal(await page.evaluate(()=>window.__flux.figures()[0].elements.length),before+2,'pinned batch inserts into editor');
