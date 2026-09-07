@@ -295,7 +295,8 @@
    "verify-figure-export-polish.mjs",
    "verify-paper-files-gui.mjs",
    "verify-paper-sidebar-layout.mjs",
-   "verify-fluxplot03-gui.mjs"
+   "verify-fluxplot03-gui.mjs",
+   "verify-plot-gallery.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -388,7 +389,8 @@
    "verify-proxy-capture.cjs",
    "verify-writer-latency-inp.mjs",
    "verify-source-sync-electron.cjs",
-   "verify-figure-polish-electron.cjs"
+   "verify-figure-polish-electron.cjs",
+   "verify-plot-gallery-electron.cjs"
   ],
   "presence": [
    "verify-electron-no-undef.ts",
@@ -541,8 +543,9 @@
    ]
   },
   {
-   "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte}",
+   "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte,src/lib/plot/gallery*,src/lib/plot/GalleryPreview.svelte,public/plot-gallery.html}",
    "run": [
+    "verify-plot-gallery.mjs",
     "verify-plots-folders.ts",
     "verify-importer-reserved.mjs",
     "verify-importer-multi.mjs",

@@ -245,7 +245,7 @@
   </div>
   <FluxFigMenu />
   <Xray />
-  <PlotImporter />
+  <PlotImporter {active} />
   <DissectOverlay />
   <PresetPicker />
 

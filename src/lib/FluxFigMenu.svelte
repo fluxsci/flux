@@ -693,6 +693,10 @@
       <path class="fline" d={pathR} pathLength="100" />
     </svg>
     <div class="fcontent">
+    <header class="menu-head">
+      <div><span class="eyebrow">FLUX / FIGURE</span><h2>Properties</h2></div>
+      <div class="menu-context"><span>{$partSelection ? "Plot part" : $selection.size ? `${$selection.size} selected` : "Drawing defaults"}</span><button on:click={close} aria-label="Close properties">×</button></div>
+    </header>
     <!-- search bar -->
     <div class="search-row" class:active={mode === "search"}>
       <span class="hk">s</span>
@@ -706,7 +710,7 @@
           on:keydown={onSearchKey}
         />
       {:else}
-        <button class="search-fake" on:click={enterSearch}>Search bar…</button>
+        <button class="search-fake" on:click={enterSearch}>Search properties & actions…</button>
       {/if}
     </div>
 
@@ -808,6 +812,13 @@
 {/if}
 
 <style>
+  .menu-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px 2px; }
+  .eyebrow { color:var(--c-tx-muted); font:9px var(--font-mono); letter-spacing:1.6px; }
+  h2 { margin:4px 0 0; color:var(--c-tx-hi); font-size:24px; font-weight:400; letter-spacing:-.4px; }
+  .menu-context { display:flex; align-items:center; gap:14px; color:var(--c-tx-muted); font-size:11px; }
+  .menu-context button { padding:0 3px; background:none; border:0; color:inherit; font:24px var(--font-serif); cursor:pointer; }
+  .menu-context button:focus-visible { outline:2px solid var(--c-accent); outline-offset:2px; }
+
   .fbackdrop {
     position: fixed;
     inset: 0;
@@ -857,10 +868,9 @@
       color-mix(in oklab, var(--c-surface) calc(var(--fa, 0.94) * 100%), transparent);
     backdrop-filter: blur(16px) saturate(120%);
     -webkit-backdrop-filter: blur(16px) saturate(120%);
-    /* depth + a soft blue glow halo so the accent outline reads as distinct */
-    box-shadow:
-      var(--elev-3),
-      0 0 26px -6px var(--c-accent-glow);
+    /* Subtle depth keeps the accent reserved for the controls. */
+    box-shadow: var(--elev-3);
+    border: 1px solid var(--c-line-strong);
   }
 
   /* The drawn accent frame: a real SVG stroke that draws the rounded rectangle
@@ -877,14 +887,14 @@
   }
   .fline {
     fill: none;
-    stroke: var(--c-accent-bright);
-    stroke-width: 2;
+    stroke: var(--c-accent);
+    stroke-width: 1;
     stroke-linecap: round;
     vector-effect: non-scaling-stroke;
     stroke-dasharray: 100;
     stroke-dashoffset: calc((1 - var(--draw, 1)) * 100);
     /* the line glows as it draws — the inner halo reads as luminous ink */
-    filter: drop-shadow(0 0 2.5px var(--c-accent-glow));
+    opacity: .4;
   }
 
   /* Content rises in once the frame is set (--content 0..1; rest = 1). */
@@ -921,7 +931,7 @@
     background: none;
     border: none;
     color: var(--c-tx-muted);
-    font-size: 19px;
+    font-size: 14px;
     font-family: inherit;
     cursor: text;
   }
@@ -931,26 +941,26 @@
     border: none;
     outline: none;
     color: var(--c-tx);
-    font-size: 19px;
+    font-size: 14px;
     font-family: inherit;
   }
   .body {
     overflow-y: auto;
     padding: 0 12px;
   }
-  .group {
-    margin-bottom: 14px;
-  }
+  .group { margin-bottom: 14px; padding-top: 8px; border-top: 1px solid var(--c-line); }
+  .group:first-child { border-top: 0; padding-top: 0; }
   .gtitle {
-    font-size: 12px;
+    font-family: var(--font-mono);
+    font-size: 10px;
     letter-spacing: 0.4px;
-    opacity: 0.5;
+    color: var(--c-tx-muted);
     margin: 6px 2px 6px;
     text-transform: capitalize;
   }
   .field {
     display: grid;
-    grid-template-columns: 16px 1fr 130px;
+    grid-template-columns: 18px minmax(0, 1fr) minmax(90px, 130px);
     align-items: center;
     gap: 10px;
     padding: 5px 8px;
@@ -961,8 +971,8 @@
     box-shadow: inset 0 0 0 1px var(--c-accent);
   }
   .label {
-    font-style: italic;
-    font-size: 15px;
+    font-style: normal;
+    font-size: 13px;
   }
   .control {
     display: flex;
@@ -1005,7 +1015,7 @@
     border: 1px solid var(--c-line-strong);
   }
   .cname {
-    font-style: italic;
+    font-style: normal;
     font-size: 14px;
     color: var(--c-accent-bright);
   }
@@ -1017,7 +1027,7 @@
     padding: 4px 12px;
     cursor: pointer;
     font-family: inherit;
-    font-style: italic;
+    font-style: normal;
   }
   .toggle.on {
     background: var(--c-accent);
@@ -1028,8 +1038,8 @@
     padding: 6px 2px 14px;
   }
   .cm-head {
-    font-style: italic;
-    font-size: 15px;
+    font-style: normal;
+    font-size: 13px;
     margin-bottom: 10px;
   }
   .results {
@@ -1052,8 +1062,8 @@
     color: var(--c-on-accent);
   }
   .rlabel {
-    font-style: italic;
-    font-size: 15px;
+    font-style: normal;
+    font-size: 13px;
   }
   .rgrp {
     font-size: 12px;

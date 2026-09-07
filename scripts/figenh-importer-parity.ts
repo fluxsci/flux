@@ -177,8 +177,11 @@ try {
     const src = await fs.readFile(path.resolve("src/lib/bridge/commands.ts"), "utf8");
     const m = /case "import_plots": \{([\s\S]*?)\n    \}/.exec(src);
     assert(!!m && /importPlotsFromPaths\(paths\)/.test(m[1]), "bridge import_plots delegates to io.importPlotsFromPaths (source tripwire)");
+    // The gallery supplies a destination guard as a second argument; it still
+    // delegates preparation/placement to the shared importer. The UI/native
+    // gates exercise both batch output and changing-destination refusal.
     const imp = await fs.readFile(path.resolve("src/lib/PlotImporter.svelte"), "utf8");
-    assert(/importPlotsFromPaths\(picks\.map\(\(p\) => p\.abs\)\)/.test(imp), "GUI importer inserts via the SAME io.importPlotsFromPaths (source tripwire)");
+    assert(/importPlotsFromPaths\(picks\.map\(p => p\.abs\),/.test(imp), "GUI importer inserts via the SAME io.importPlotsFromPaths (source tripwire)");
   }
 
   console.log(fails === 0 ? "\nP0B IMPORTER PARITY ALL PASS" : `\nP0B IMPORTER PARITY ${fails} FAILURE(S)`);

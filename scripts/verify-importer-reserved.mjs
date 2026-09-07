@@ -38,7 +38,7 @@ const snap = () =>
       open: !!document.querySelector(".importer"),
       rows: [...document.querySelectorAll(".row .nm")].map((n) => n.textContent),
       dirs: [...document.querySelectorAll(".row")]
-        .filter((r) => r.querySelector(".ic")?.textContent?.trim() === "📁")
+        .filter((r) => r.dataset.kind === "dir")
         .map((r) => r.querySelector(".nm")?.textContent),
       cur: document.querySelector(".path .cur")?.textContent ?? "",
       search: document.querySelector(".search-in")?.value ?? "",

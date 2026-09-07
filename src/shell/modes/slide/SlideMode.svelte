@@ -1267,7 +1267,7 @@
 <!-- shared figure surfaces: X-ray, property cockpit, plots/ browser, presets -->
 <FluxFigMenu />
 <Xray />
-<PlotImporter rootOverride={pm?.root ?? ""} title={morphFor ? "Choose next plot data state" : "Insert plot onto slide"} onPick={morphFor ? acceptMorphTarget : undefined} />
+<PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? "Choose next plot data state" : "Plot gallery"} onPick={morphFor ? acceptMorphTarget : undefined} />
 <PresetPicker />
 
 {#if ghostDialog && activeSlide}

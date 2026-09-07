@@ -639,6 +639,22 @@ Persistence invariants (all machine-checked — do not weaken):
   (proxy-capture, print) never do, and the last app window's close quits on non-mac — *a
   window the user cannot see must never keep the app alive* (the quit-wedge fix). Gates:
   `verify-quit-policy.ts` (pure), `verify-multiwindow.cjs` (electron).
+- **The Plot gallery (Alt+I) is an editor-owned utility view.** Gallery/list, preview size,
+  spacing and names live in view preferences. The mounted Svelte subtree moves into an inert
+  `plot-gallery.html` window via `plot/galleryWindow.ts`, retaining the opener's stores and
+  file bridge; it must never boot a second project/editor or receive the app preload. The
+  Electron allowlist admits only that exact URL/frame name, with an empty preload and no
+  external navigation. Admit its initial `will-navigate` event too: denying everything after
+  `did-create-window` strands the new native window before its first load. Close the utility
+  when its owner dies; disconnect style/theme observers on dock/close and release blob URLs
+  when the gallery closes.
+  `importerDetached` releases the parent keyboard while the utility owns its own controls.
+  Pinning preserves folder/search/picks without narrowing navigation; reserved collections
+  retain their explicit `_` entry and scoped search. Insert uses the shared IO pipeline and
+  rechecks root, active editor and destination after async reads. Large folders window grid
+  rows and bound concurrent preview reads; thumbnails are images, never inline plot DOM.
+  Gates: `verify-plot-gallery.mjs`, `verify-plot-gallery-electron.cjs`, plus the existing batch,
+  reserved-folder and Slide import gates. Native tests verify actual persisted edits/Undo.
 - **Dual paper panes (2026-08-11): Paper left `SINGLETON_MODES`.** Every per-editor singleton
   is a per-instance factory now (selection bubble, cursor tracker, active-citation tracker,
   refReveal, margin pane stack) threaded via the MarginHost like WS-4.2 numbering; the
@@ -4294,3 +4310,17 @@ app scheduling and the budget are unchanged. Directly owning Vite also fixes pre
 cleanup. Surface cross-category depth on arbitrary
 folded meshes and exact 3D point correspondence remain explicitly unsupported capabilities;
 the generator retains visual/group editing without claiming a false data morph.
+
+### 2026-09-07 10:45 CDT — Plot gallery and pinned importer (Codex, `main`)
+
+**Work:** Merged and pushed current remote main with the local Fluxplot integration, then
+reworked Alt+I into a windowed gallery with adjustable previews and a native pinned window;
+refined the Figure Properties menu. Verified cross-folder picks, active-destination checks,
+repeated native insertion/save/Undo, window lifecycle and 5,000-plot input budgets. Check 0/0,
+pure 203/203, Paper 44/44, bundle/startup 4/4 and native 15/15 pass; the pre-existing Figure
+rail-resize GUI failure is unchanged. Details and caveats: `docs/PLOT_GALLERY_TESTING.md`.
+
+**Learnings:** Promoted the utility-view ownership and initial-navigation allowlist rule to
+§4. Native window.open emits its first navigation after did-create-window; a blanket deny
+there creates a blank window. Gallery keyboard gates must scope selectors to the importer,
+not the Inspector's unrelated `.row` controls.

@@ -291,8 +291,9 @@ export async function readIncomingPlot(absPath: string): Promise<Incoming> {
 // error toast listing each basename (no silent failures). All placements go
 // through a single placeIncoming call — one undo step, grid auto-arrange for
 // N>1, the physical-size contract, and select-all-new.
-export async function importPlotsFromPaths(absPaths: string[]) {
-  if (!window.fig || !absPaths.length) return;
+export async function importPlotsFromPaths(absPaths: string[], canPlace: () => boolean = () => true) {
+  if (!window.fig || !absPaths.length) return 0;
+  const targetId = get(activeFigureId);
   const incoming: Incoming[] = [];
   const failed: string[] = [];
   for (const absPath of absPaths) {
@@ -304,7 +305,8 @@ export async function importPlotsFromPaths(absPaths: string[]) {
       failed.push(`${basename(absPath)}: ${errMsg(e)}`);
     }
   }
-  placeIncoming(incoming);
+  if (!canPlace()) throw new Error("The insertion destination changed. Select a figure and insert again.");
+  placeIncoming(incoming, targetId ?? undefined);
   if (failed.length) {
     pushToast(
       "error",
@@ -312,6 +314,7 @@ export async function importPlotsFromPaths(absPaths: string[]) {
       { detail: failed.join("\n") },
     );
   }
+  return incoming.length;
 }
 
 // Import a single plot/asset by absolute path (the Plot Importer, Alt+I) — the

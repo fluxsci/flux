@@ -114,6 +114,10 @@ while **After** selects this step. The destination above the stage always identi
 edits will go. Chained changes compose across steps; colors blend perceptually and rewritten numbers
 digit-tween. Clear a captured property in the Animation inspector to let it inherit from earlier steps.
 
+**Alt+I** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
+Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gallery in a
+separate window for repeated insertion onto the active slide.
+
 For plots, choose **Data morph…** or **Choose data target from project…** in the Animation inspector.
 Choose one plot from the project's plot browser. It becomes the Change's data dependency, without
 placing a second object on the slide. Structurally compatible plots morph axes, series, and marks;

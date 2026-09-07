@@ -85,13 +85,23 @@ slide copies retain the assets they need. A slide copy has its own layout and an
 
 # Getting plots in
 
-- **Alt+I** opens the plot importer: it searches everything under the project's `plots/`
-  folder, marking **◆ semantic** plots (fluxplot-saved, with addressable parts) apart from
-  **◇ plain** images. **Space** picks several; **Ctrl+Enter** inserts them all.
-  Folders whose names start with `_` hold companion material rather than figure panels —
-  [`_dissections/`](../concepts/dissections.qmd) and `_lighttable/` — so they stay out of
-  ordinary results. Type **`_`** to list them, **Enter** to go in, and the search then works
-  *inside* that folder only.
+- **Alt+I** opens the **Plot gallery**, showing SVG and PNG previews in the current
+  folder. Choose **Gallery** or **List**; adjust **Size**, **Space**, and **Names** to make
+  the contact sheet comfortable. Flux remembers these display choices.
+- Click a plot, or press **Enter** or **Space** in an empty search box, to select it.
+  Picks survive folder changes and searches. **Ctrl+Enter**, the **Insert** button, or
+  a double-click inserts the selection. Search reaches ordinary folders throughout `plots/`;
+  **plots** returns to the root and **Up** or **Backspace** goes to the parent folder.
+- **Pin open** moves the gallery into its own resizable window. Move it to another screen
+  and keep arranging figures in the editor. The current folder and selection are preserved,
+  and you can still browse the entire `plots/` tree. Insertions leave the window open and
+  use the figure named in its footer. **Dock** returns the same gallery to the editor;
+  **Alt+I** brings an already pinned gallery forward. **Refresh** reloads files and previews.
+  Closing the project also closes its gallery.
+- **◆** marks semantic plots and **◇** marks plain images; **List** also shows semantic
+  and paper-snip badges. The reserved [`_dissections/`](../concepts/dissections.qmd) and
+  `_lighttable/` companion collections stay out of ordinary results. Type **`_`** to list
+  them and **Enter** to go in. Search then stays inside that collection until you leave it.
 - **Drag files in** from your file manager (an SVG with its `.fluxplot.json` sibling imports
   as a semantic plot), or **paste an image** straight from the clipboard. A pasted image has
   no file behind it, so Flux keeps the original for you in
@@ -113,7 +123,7 @@ Selection follows Figma's logic, tuned for plots:
 - Whatever part you've drilled stays plain-draggable, and **Escape** steps back out one level
   at a time.
 
-With a part selected, press **F** to restyle it — color, width, size, font, opacity, visibility,
+With a part selected, press **F** to open **Properties** and restyle it — color, width, size, font, opacity, visibility,
 even a positional nudge in the plot's own units. Part edits are stored as overrides keyed to
 the part's stable name, so **they survive regeneration** of the plot.
 

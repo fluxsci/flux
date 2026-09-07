@@ -35,6 +35,7 @@ import {
   xrayOpen,
   xrayRoot,
   importerOpen,
+  importerDetached,
   figNamer,
   figureCatalog,
   embeddedProjectRoot,
@@ -715,7 +716,7 @@ export function handleKey(e: KeyboardEvent) {
     get(settingsOpen) ||
     get(helpOpen) ||
     get(xrayOpen) ||
-    get(importerOpen) ||
+    (get(importerOpen) && !get(importerDetached)) ||
     get(cascadeState) ||
     get(figNamer) ||
     (get(figureCatalog) || get(figureDeletion)) ||
