@@ -113,7 +113,10 @@ assert(outTrack.preset === "fadeOut" && !outTrack.selector, "exit track fades th
 
 // --- morph authoring + gate ------------------------------------------------------
 const mkManifest = (series: { id: string; n: number }[]): FluxPlotManifest =>
-  ({ axes: [], series: series.map((s) => ({ id: s.id, points: Array.from({ length: s.n }, (_, i) => ({ x: i, y: i })) })) }) as unknown as FluxPlotManifest;
+  ({ axes: [{
+    x: { scale: "linear", domain: [0, 10], anchors: [{ data: 0, svg: 0 }, { data: 10, svg: 100 }] },
+    y: { scale: "linear", domain: [0, 10], anchors: [{ data: 0, svg: 100 }, { data: 10, svg: 0 }] },
+  }], series: series.map((s) => ({ id: s.id, svg: { points: s.id + ".points" }, points: Array.from({ length: s.n }, (_, i) => ({ index: i, svgId: s.id + ".point." + i, x: i, y: i })) })) }) as unknown as FluxPlotManifest;
 const A = mkManifest([{ id: "control", n: 5 }]);
 const B = mkManifest([{ id: "control", n: 5 }]);
 const C = mkManifest([{ id: "other", n: 5 }]);

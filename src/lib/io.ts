@@ -1,3 +1,4 @@
+import { validateIncomingPlot } from "./plot/contract";
 import { get } from "svelte/store";
 import type {
   Asset,
@@ -168,6 +169,7 @@ async function buildIncoming(
   sib: Siblings = {},
 ): Promise<Incoming> {
   const kind = kindOf(name);
+  if (kind === "svg") await validateIncomingPlot(new TextDecoder().decode(bytes), sib.manifestText);
   const dataUrl = bytesToDataUrl(bytes, mimeFor(kind));
   const { width: natW, height: natH } = await intrinsicSize(dataUrl);
   // Physical size in canvas px (96/inch) — the size the element is PLACED at.

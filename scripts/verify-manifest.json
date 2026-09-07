@@ -202,7 +202,9 @@
    "verify-slide-arrow-browser.ts",
    "verify-figure-preservation.ts",
    "verify-figure-editing.ts",
-   "verify-paper-files.ts"
+   "verify-paper-files.ts",
+   "verify-fluxplot03.ts",
+   "verify-fluxplot-recipe-ipc.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -292,7 +294,8 @@
    "verify-figure-controls-gui.mjs",
    "verify-figure-export-polish.mjs",
    "verify-paper-files-gui.mjs",
-   "verify-paper-sidebar-layout.mjs"
+   "verify-paper-sidebar-layout.mjs",
+   "verify-fluxplot03-gui.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",

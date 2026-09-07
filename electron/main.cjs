@@ -1645,15 +1645,14 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {} }) => {
     return { code: -1, stdout: "", stderr: "Recipe run cancelled — this project is not trusted to run commands." };
   }
   const dir = path.dirname(recipePath);
-  const merged = { ...(recipe.params || {}), ...params };
-  const args = [...(recipe.args || [])];
-  for (const [k, v] of Object.entries(merged)) args.push(`--${k}`, String(v));
+  const { recipeInvocation, completedRecipe } = await import("../src/lib/plot/recipeContract.mjs");
+  const { params: merged, args } = recipeInvocation(recipe, params);
   const cwd = path.resolve(dir, recipe.cwd || ".");
   const res = await new Promise((resolve) => {
     const rs = resolveSpawn(recipe.command, args);
     const child = spawn(rs.command, rs.args, {
       cwd,
-      env: { ...process.env, FLUX_PARAMS: JSON.stringify(merged) },
+      env: { ...process.env, FLUX_PARAMS: JSON.stringify(merged), ...(recipe.plot ? { FLUXPLOT_ONLY: recipe.plot } : {}) },
       windowsVerbatimArguments: rs.windowsVerbatimArguments,
     });
     let out = "";
@@ -1663,10 +1662,13 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {} }) => {
     child.on("error", (e2) => resolve({ code: -1, stdout: out, stderr: String(e2) }));
     child.on("close", (c) => resolve({ code: c ?? 0, stdout: out, stderr: err }));
   });
-  recipe.params = merged;
-  recipe.lastRun = new Date().toISOString();
-  noteWrite(recipePath);
-  await fs.promises.writeFile(recipePath, JSON.stringify(recipe, null, 2) + "\n");
+  let updatedRecipe = recipe;
+  if (res.code === 0) {
+    const emitted = JSON.parse(await fs.promises.readFile(recipePath, "utf8"));
+    updatedRecipe = completedRecipe(emitted, merged, params, new Date().toISOString());
+    noteWrite(recipePath);
+    await fs.promises.writeFile(recipePath, JSON.stringify(updatedRecipe, null, 2) + "\n");
+  }
   const outAbs = recipe.output ? path.resolve(dir, recipe.output) : null;
   if (outAbs) fsGuard(outAbs, e.sender.id); // W12: contain the plot output read to allowed roots
   let svgText = null;
@@ -1680,7 +1682,7 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {} }) => {
       manifestText = await fs.promises.readFile(manAbs, "utf8");
     }
   }
-  return { ...res, svgText, manifestText, recipeText: JSON.stringify(recipe) };
+  return { ...res, svgText, manifestText, recipeText: JSON.stringify(updatedRecipe) };
 });
 
 // W13: resolve the bundled CLI (dist/flux-cli.mjs — esbuild-built, self-contained).

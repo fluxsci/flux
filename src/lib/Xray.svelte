@@ -9,6 +9,8 @@
   // the root stack). Eye / 'x' dispatch per row kind: part → id-keyed override,
   // element → hidden flag, group → GroupDef eye. Regenerate stays, gated on a
   // recipe-backed plot root. Always dark — an x-ray screen by nature.
+  import ColorScaleControls from "./plot/ColorScaleControls.svelte";
+  import { validateIncomingPlot } from "./plot/contract";
   import { fade } from "svelte/transition";
   import { get } from "svelte/store";
   import {
@@ -66,7 +68,7 @@
   $: srcLabel = rootPlot?.source?.svgPath ? toProjectRelativeSource(projRoot, rootPlot.source.svgPath) : "";
   let regenBusy = false;
   let regenMsg = "";
-  async function regenerate() {
+  async function regenerate(parameters: Record<string, unknown> = recipe?.params ?? {}) {
     const fb = fileBridge();
     if (!rootPlot || !recipePath || !fb?.runRecipe) {
       regenMsg = "no recipe";
@@ -89,13 +91,14 @@
       if (!recipeAbs) {
         regenMsg = "recipe file not found";
       } else {
-        const res = await fb.runRecipe(recipeAbs, (recipe?.params ?? {}) as Record<string, unknown>);
+        const res = await fb.runRecipe(recipeAbs, parameters);
         // FIG-14: surface the REAL failure instead of a bare "error" — the recipe's stderr on a
         // non-zero exit, and the actual exception message if the output JSON won't parse.
         if (res.code !== 0) {
           const why = String(res.stderr ?? "").trim();
           regenMsg = "recipe failed" + (why ? `: ${why.slice(-200)}` : ` (exit ${res.code})`);
         } else if (res.svgText && res.manifestText) {
+          await validateIncomingPlot(res.svgText, res.manifestText);
           reimportPlot(
             rootPlot.assetId,
             res.svgText,
@@ -429,7 +432,7 @@
             {#if !crumbs.length}<span class="csub">no target</span>{/if}
           </span>
           {#if rootPlot && recipePath}
-            <button class="regen" on:click={regenerate} disabled={regenBusy} title={recipePath}>
+            <button class="regen" on:click={() => regenerate()} disabled={regenBusy} title={recipePath}>
               {regenBusy ? "Regenerating…" : regenMsg || "Regenerate"}
             </button>
           {/if}
@@ -455,6 +458,11 @@
           </div>
 
           <div class="tree">
+        {#if rootPlot && recipePath}
+          <ColorScaleControls manifest={$plotManifests[rootPlot.assetId]} params={recipe?.params ?? {}} busy={regenBusy}
+            on:regenerate={(event) => regenerate(event.detail)} />
+        {/if}
+
             {#each rows as r (r.node.id)}
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div

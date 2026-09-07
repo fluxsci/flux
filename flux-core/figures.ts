@@ -2,6 +2,7 @@
 // compose/create/arrange, captions, panel + plot import/sync, part overrides,
 // element styles + the text system, groups/z-order/layout, and scaffold.
 
+import { validateIncomingPlot } from "../src/lib/plot/contract";
 import * as fs from "node:fs/promises";
 import { figureSourceOwners } from "../src/lib/project/figureSourceOwners";
 import * as path from "node:path";
@@ -56,6 +57,7 @@ async function importPlotAsset(
   const manifest = base + ".fluxplot.json";
   const recipe = base + ".recipe.json";
   const manifestText = await fs.readFile(manifest, "utf8").catch(() => null);
+  await validateIncomingPlot(raw, manifestText);
   const warning = scan.clamped
     ? absurdCoordWarning(path.basename(abs), scan, manifestHasLogAxis(manifestText))
     : undefined;

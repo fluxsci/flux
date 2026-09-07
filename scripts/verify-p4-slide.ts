@@ -47,13 +47,17 @@ const S = (id: string, points: boolean, line: boolean): FluxPlotSeries => ({
 });
 const M = (series: FluxPlotSeries[]): FluxPlotManifest => ({
   spec: "fluxplot", schemaVersion: "1", plotType: "line", svg: "",
-  size: { width: 1, height: 1, unit: "px" }, axes: [], series,
+  size: { width: 1, height: 1, unit: "px" }, axes: [{
+    x: { scale: "linear", domain: [0, 2], anchors: [{data: 0, svg: 0}, {data: 2, svg: 100}] },
+    y: { scale: "linear", domain: [0, 2], anchors: [{data: 0, svg: 100}, {data: 2, svg: 0}] },
+  }], series,
 });
 console.log("SLD-8 — morph topology compatibility:");
 assert(morphCompatible(M([S("a", true, true)]), M([S("a", true, true)])), "shared series with points → compatible");
 assert(!morphCompatible(M([S("a", true, true)]), M([S("b", true, true)])), "disjoint series ids → incompatible");
 assert(!morphCompatible(M([S("a", true, true)]), M([S("a", false, false)])), "shared id but target has no points/line (bar-like) → incompatible");
 assert(!morphCompatible(M([]), M([S("a", true, true)])), "empty source series → incompatible");
+assert(!morphCompatible({ ...M([S("a", true, true)]), axes: [] }, M([S("a", true, true)])), "missing axes → incompatible");
 assert(!morphCompatible(undefined, M([S("a", true, true)])), "missing manifest → incompatible");
 
 // --- SLD-11: base camera transform ----------------------------------------------------------
