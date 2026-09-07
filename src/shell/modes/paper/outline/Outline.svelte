@@ -106,9 +106,11 @@
 
 <style>
   .outline {
-    flex: 0 0 224px;
-    width: 224px;
+    flex: 1 1 0;
+    width: 100%;
+    min-width: 0;
     height: 100%;
+    box-sizing: border-box;
     overflow: auto;
     border: 1.5px solid var(--c-edge);
     border-radius: var(--r-3);

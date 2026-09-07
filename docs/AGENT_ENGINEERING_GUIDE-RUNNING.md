@@ -305,7 +305,12 @@ Persistence invariants (all machine-checked — do not weaken):
   changes its claimed path before further saves, and refuses moves with another Paper pane
   open because incoming links may also change. Document code is never rewritten as a path.
   The sidebar is Files/Outline, initially 280px wide and split equally; each section can be
-  hidden. Its tree is indexed before flattening and large lists mount a window of rows.
+  hidden. Both children fill its width; Outline must not retain a fixed flex basis.
+  Width is bounded by the workspace and open right margin, reserving a 420px editor when
+  possible; window resizing only clamps the displayed width, preserving the user's preference.
+  Width drag previews locally and persists on release. Its tree is indexed before flattening
+  and large lists mount a window of rows. `verify-paper-sidebar-layout.mjs` checks actual
+  geometry, long headings, resizing, hide/show, persistence and pointer cancellation.
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
 - **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
   external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines
@@ -4241,3 +4246,12 @@ folder creation through `.flux-folder`. Updated the discovery contract above and
 docs; regressions first reproduced four failures and now pass 50 filesystem and 29 browser
 checks. Check 0/0, production build, pure 201/201, bundle/startup 4/4 and Paper 43/43 pass;
 evidence is in `docs/PAPER_FILES_TESTING.md`.
+
+### 2026-09-06 16:19 CDT — Paper sidebar width and outline fill (Codex, `main`)
+
+**Work:** Removed the outline's fixed 224px flex basis and replaced the sidebar's 420px
+drag ceiling with a workspace-dependent limit, preserving the preferred width across window
+resizes and persisting drag changes on release. Visually inspected narrow, wide and outline-only
+layouts with long headings; added a 17-check geometry/gesture regression and updated the
+discovery/sidebar contract above. Check 0/0, build, pure 201/201, bundle/startup 4/4 and
+Paper 44/44 pass; resize paint stayed within 33.4ms in the focused run.

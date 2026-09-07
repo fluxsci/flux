@@ -18,7 +18,9 @@ text stays honest.
   height. Drag their divider to resize them, or double-click it to restore the equal split.
   With the divider focused, **↑** / **↓** resize and **Home** resets. Click **Files** or
   **Outline** at the top to hide that section; the other takes the full height. Click again
-  to bring it back. Drag the sidebar's right edge to change its width.
+  to bring it back. Drag the sidebar's right edge to change its width; it can expand
+  with your window while preserving space for the document. Files and Outline both
+  use that full width. Double-click the edge to restore the default width.
 - **Documents** and **Context** are collapsible folders. Click a folder's arrow to expand or
   collapse it. Use its **+** to create a document inside it, or its folder-plus button to
   create a subfolder. Nest folders as deeply as you need. The bottom **+ New document** and

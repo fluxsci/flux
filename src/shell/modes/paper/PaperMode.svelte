@@ -1946,6 +1946,13 @@
   // Pane summoning lives in margin/marginPanes.ts (summonPane opens the margin
   // itself when needed); PaperMode only owns the show/hide toggle + resize.
   let workEl = $state<HTMLDivElement | undefined>(undefined);
+  let workWidth = $state(0);
+  let liveSidebarW = $state<number | null>(null);
+  // The desk has 32px horizontal padding and 14px gaps (the left resize seam
+  // occupies two gaps). Keep a 420px editor when space permits; no fixed rail cap.
+  const sidebarMaxW = $derived(Math.max(180, workWidth - 32 - 420 -
+    ($paperLayout.dynMarginOpen ? $paperLayout.dynMarginW + 42 : 28)));
+  const sidebarW = $derived(workWidth ? Math.min(liveSidebarW ?? $paperLayout.outlinerW, sidebarMaxW) : $paperLayout.outlinerW);
   let dmDragging = $state(false);
 
   // Ctrl/Cmd+Shift+B round-trip: hide returns focus to the editor only when focus was
@@ -1965,27 +1972,38 @@
     window.addEventListener("pointermove", dmMove);
     window.addEventListener("pointerup", dmEnd);
   }
-  // Outliner (left rail) drag — the dm-grip trio, mirrored to the left edge.
+  // Keep the pointer's initial offset so picking up the seam never jumps the
+  // rail. Preview locally during the drag; persist just once on release.
   let lrDragging = $state(false);
+  let lrStartX = 0, lrStartW = 0, lrUserSelect = '';
   function startLrDrag(e: PointerEvent) {
-    void e; // no preventDefault — it would suppress the dblclick reset
+    if (e.button !== 0) return;
+    // No preventDefault: retain the native double-click reset.
+    lrStartX = e.clientX; lrStartW = sidebarW;
+    lrUserSelect = document.body.style.userSelect;
     lrDragging = true;
     document.body.style.userSelect = "none";
     window.addEventListener("pointermove", lrMove);
     window.addEventListener("pointerup", lrEnd);
+    window.addEventListener("pointercancel", lrEnd);
+    window.addEventListener("blur", lrEnd);
   }
   function lrMove(e: PointerEvent) {
     if (!lrDragging || !workEl) return;
-    const r = workEl.getBoundingClientRect();
-    const w = Math.max(180, Math.min(420, e.clientX - r.left));
-    paperLayout.update((s) => ({ ...s, outlinerW: Math.round(w) }));
+    liveSidebarW = Math.round(Math.max(180, Math.min(sidebarMaxW, lrStartW + e.clientX - lrStartX)));
   }
   function lrEnd() {
+    if (!lrDragging) return;
+    if (liveSidebarW != null) paperLayout.update((s) => ({ ...s, outlinerW: liveSidebarW! }));
+    liveSidebarW = null;
     lrDragging = false;
-    document.body.style.userSelect = "";
+    document.body.style.userSelect = lrUserSelect;
     window.removeEventListener("pointermove", lrMove);
     window.removeEventListener("pointerup", lrEnd);
+    window.removeEventListener("pointercancel", lrEnd);
+    window.removeEventListener("blur", lrEnd);
   }
+  onDestroy(lrEnd);
   const resetLrW = () => paperLayout.update((s) => ({ ...s, outlinerW: 280 }));
   // The margin can grow until the editor column is down to ~420px — workspace-
   // relative, not a fixed cap (620 stays the ceiling only on small windows).
@@ -2296,9 +2314,9 @@
 </script>
 
 <section class="paper">
-  <div class="work" bind:this={workEl}>
+  <div class="work" bind:this={workEl} bind:clientWidth={workWidth}>
     {#if $paperLayout.outlinerOpen}
-      <div class="leftrail" inert={documentBusy} style={`flex-basis:${$paperLayout.outlinerW}px`}>
+      <div class="leftrail" inert={documentBusy} style={`flex-basis:${sidebarW}px`}>
         <PaperSidebar>
           {#snippet outlineContent()}
             <Outline items={outline} title={meta.title} {activeFrom} collapsed={collapsedSet} onJump={jump} onToggleCollapse={toggleCollapse} />
@@ -2317,7 +2335,7 @@
         class:active={lrDragging}
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize outliner (double-click resets)"
+        aria-label="Resize sidebar (double-click resets)"
         onpointerdown={startLrDrag}
         ondblclick={resetLrW}>
       </div>
@@ -2630,9 +2648,9 @@
     padding: 20px 16px 16px;
     background: var(--c-bg);
   }
-  /* F4: left rail = Outline (fills) + the document picker beneath it. */
+  /* Files and Outline share the full width of the adjustable left rail. */
   .leftrail {
-    flex: 0 0 280px; /* overridden inline by $paperLayout.outlinerW */
+    flex: 0 0 280px; /* preferred width, bounded by the available workspace */
     min-width: 0;
     height: 100%;
     display: flex;

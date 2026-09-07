@@ -291,7 +291,8 @@
    "verify-figure-editing-gui.mjs",
    "verify-figure-controls-gui.mjs",
    "verify-figure-export-polish.mjs",
-   "verify-paper-files-gui.mjs"
+   "verify-paper-files-gui.mjs",
+   "verify-paper-sidebar-layout.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -442,7 +443,8 @@
    "verify-figure-reference-sync.mjs",
    "verify-source-watch.ts",
    "verify-mode-cold-switch.mjs",
-   "verify-paper-files-gui.mjs"
+   "verify-paper-files-gui.mjs",
+   "verify-paper-sidebar-layout.mjs"
   ],
   "reader-gate": [
    "verify-r1-highlights.mjs",
