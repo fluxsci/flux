@@ -296,7 +296,8 @@
    "verify-paper-files-gui.mjs",
    "verify-paper-sidebar-layout.mjs",
    "verify-fluxplot03-gui.mjs",
-   "verify-plot-gallery.mjs"
+   "verify-plot-gallery.mjs",
+   "verify-plot-hit-area.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -763,6 +764,8 @@
    "run": [
     "tier:pure",
     "tier:scale",
+    "verify-plot-hit-area.mjs",
+    "figenh-15-partmove.mjs",
     "verify-lazy-save-safety.mjs",
     "verify-lazy-load-gui.mjs",
     "verify-lazy-export-overrides.mjs"

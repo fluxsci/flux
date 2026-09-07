@@ -369,6 +369,11 @@ Persistence invariants (all machine-checked — do not weaken):
   lock selection’s geometry/handles describe exactly its editable subset. `elementProperties.ts`
   shares numeric applicability, units, ranges and setters between Inspector/F menu; paths and
   lines do not accept a box width/height write without changing their geometry.
+  Plot placements own an invisible rectangular hit area behind their inline SVG artwork;
+  transparent whitespace selects/moves the whole plot without obscuring semantic part hits.
+  Keep it in `PlotElement.svelte`, outside the cached/exported SVG, under the same placement
+  transforms, and inherit scene pointer policy so hidden presentation objects cannot catch clicks.
+  `verify-plot-hit-area.mjs` covers transparent margins, crop/rotation, stacking, locks and export.
 - **Scene transforms:** `sceneTransforms.ts` updates only active drag/rotation wrappers. Culling
   depends on selection/model/viewport and a moving **figure**, not every element gesture phase;
   invalidating all keyed Elements on first drag costs a full scene update. Frame resize previews
@@ -4341,3 +4346,15 @@ rules to the body and updated user docs and gallery evidence. Check 0/0, rebuilt
 extension/CLI/MCP, pure 203/203, Paper 44/44, bundle/startup 4/4, twelve targeted browser
 scripts across sweep/recheck, Figure controls and native gallery 17/17 pass; the 5,000-plot
 gallery paints search/scroll in 27.7/33.0ms, and the real bibliography checksum is unchanged.
+
+### 2026-09-07 12:24 CDT — Select transparent plot whitespace (Codex, `main`)
+
+**Work:** Added a view-only rectangular hit area behind plot artwork so transparent SVG
+whitespace selects and drags the whole placement. The real-pointer regression fails on the
+previous code and passes with crop/rotation, part drilling, locks, stacking, one-step Undo
+and unchanged export transparency; selection paints within 34ms. Check 0/0, build, pure
+203/203, Figure scale, part movement, Figure editing, lazy loading/export and Slide canvas
+checks pass. Updated the selection contract and user guide.
+
+**Learnings:** Keep hit geometry behind semantic artwork and inherit the scene's pointer
+policy; explicit pointer-events overrides can make hidden presentation objects interactive.

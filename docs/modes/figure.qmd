@@ -116,7 +116,8 @@ slide copies retain the assets they need. A slide copy has its own layout and an
 Selection follows Figma's logic, tuned for plots:
 
 - A **plain click** (or drag) anywhere on a plot always takes the **whole plot** — you can
-  never accidentally drag one bar out of a chart.
+  use empty space inside its rectangular bounds even when the SVG background is transparent.
+  You can never accidentally drag one bar out of a chart.
 - **Ctrl+click** pierces to the exact **part** under the cursor — a series' line, one point, an
   axis label — even on an unselected plot. Hold **Ctrl** and hover to preview what you'd get.
 - **Double-click** descends a level: into a group, into a plot's parts, into text editing,

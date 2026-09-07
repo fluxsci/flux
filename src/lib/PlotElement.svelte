@@ -49,6 +49,12 @@
   });
 </script>
 
+<!-- Keep transparent SVG space selectable like the <image> fallback. Behind
+     the artwork so semantic parts still receive deep clicks; inherit pointer
+     policy from the scene so hidden presentation elements stay noninteractive.
+     Element.svelte supplies rotation/flips, and the placement box honors crop. -->
+<rect class="plot-hit-area" x={e.x} y={e.y} width={e.width} height={e.height} fill="transparent" />
+
 {#if inline}
   <g use:mountPlot={{ element: e, gen }}></g>
 {:else if $assetData[e.assetId]}
