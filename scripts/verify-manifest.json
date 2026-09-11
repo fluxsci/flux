@@ -185,6 +185,7 @@
    "verify-dissections.ts",
    "verify-plots-folders.ts",
    "verify-plot-source.ts",
+   "verify-plot-style-scope.ts",
    "verify-sync-conflicts.ts",
    "verify-library-pdffilter.ts",
    "verify-figure-reference-identity.ts",

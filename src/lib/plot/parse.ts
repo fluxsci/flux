@@ -28,7 +28,8 @@ function prefixOf(elementId: string): string {
   return elementId + SEP;
 }
 
-/** Rewrite every id and every internal id-reference under `root` with `prefix`. */
+/** Rewrite every id and every internal id-reference under `root` with `prefix`,
+ *  then scope the plot's <style> rules to `root` (see scopePlotStyles below). */
 export function prefixIds(root: Element, elementId: string): void {
   const p = prefixOf(elementId);
   const map = new Map<string, string>();
@@ -64,6 +65,102 @@ export function prefixIds(root: Element, elementId: string): void {
     const css = st.textContent;
     if (css && css.includes("url(#")) st.textContent = rewriteUrls(css);
   }
+  scopePlotStyles(root, elementId);
+}
+
+// --- <style> scoping --------------------------------------------------------
+//
+// An inlined plot shares the HOST document's cascade: an SVG <style> has no
+// scope inside an HTML document (nor inside a composed export SVG), so
+// matplotlib's preamble `*{stroke-linejoin: round; stroke-linecap: butt}`
+// restyled every Flux <line>/<path>/<rect> on the canvas the moment a plot was
+// mounted — round-capped lines drew FLAT until zooming in culled the plot out
+// of the DOM (2026-09-11 report). The same rule leaked across plots, into paper
+// embeds, and into exported SVGs (browsers and resvg honor it there too).
+// prefixIds therefore scopes every rule to the placement's own root: the root
+// is stamped `data-plot-scope="<elementId>"` and each selector becomes
+// `[data-plot-scope="<elementId>"] <selector>`. Specificity rises uniformly,
+// so the plot's OWN cascade (inline style > rules > presentation attributes) is
+// unchanged. The descendant form is deliberate: it is what resvg/usvg's CSS
+// supports (`@scope` is Chromium-only and resvg drops it — verified 2026-09-11).
+export const PLOT_SCOPE_ATTR = "data-plot-scope";
+
+/** Stamp `root` as the scope and rewrite every <style> under it. Style-less
+ *  plots are untouched (no attribute, byte-identical). */
+export function scopePlotStyles(root: Element, elementId: string): void {
+  const styles = Array.from(root.querySelectorAll("style"));
+  if (!styles.length) return;
+  root.setAttribute(PLOT_SCOPE_ATTR, elementId);
+  const scope = `[${PLOT_SCOPE_ATTR}="${elementId.replace(/[\\"]/g, (c) => "\\" + c)}"]`;
+  for (const st of styles) {
+    const css = st.textContent;
+    if (css && css.trim()) st.textContent = scopeCss(css, scope);
+  }
+}
+
+// Conditional group rules whose bodies hold ordinary rules — recurse into these.
+// Every other at-rule (@font-face, @keyframes, @page, …) passes through verbatim:
+// its body is declarations or keyframe selectors, never element selectors.
+const NESTED_AT_RULE = /^@(media|supports|container|layer|document|scope)\b/;
+
+/** Prefix every selector in `css` with `scope ` (descendant combinator).
+ *  Block-less statements (`@import …;`) and non-conditional at-rules pass
+ *  through; comments are dropped. Pure string work — no DOM, linkedom-safe. */
+export function scopeCss(css: string, scope: string): string {
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const open = src.indexOf("{", i);
+    if (open < 0) {
+      out += src.slice(i);
+      break;
+    }
+    const semi = src.indexOf(";", i);
+    if (semi >= 0 && semi < open) {
+      // a statement with no block (`@import url(x);`) — verbatim
+      out += src.slice(i, semi + 1);
+      i = semi + 1;
+      continue;
+    }
+    // matching close brace, nesting-aware (an unterminated block runs to the end)
+    let depth = 1;
+    let j = open + 1;
+    while (j < src.length && depth > 0) {
+      const c = src[j];
+      if (c === "{") depth++;
+      else if (c === "}") depth--;
+      j++;
+    }
+    const body = src.slice(open + 1, depth === 0 ? j - 1 : j);
+    const prelude = src.slice(i, open);
+    const lead = /^\s*/.exec(prelude)![0];
+    const sel = prelude.trim();
+    if (!sel) out += prelude + "{" + body + "}";
+    else if (sel.startsWith("@")) out += lead + sel + "{" + (NESTED_AT_RULE.test(sel) ? scopeCss(body, scope) : body) + "}";
+    else out += lead + splitSelectors(sel).map((s) => `${scope} ${s}`).join(", ") + "{" + body + "}";
+    i = j;
+  }
+  return out;
+}
+
+/** Split a selector list on top-level commas — commas inside `:is(a, b)` or
+ *  `[attr="a,b"]` belong to one selector. */
+function splitSelectors(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let k = 0; k < list.length; k++) {
+    const c = list[k];
+    if (c === "(" || c === "[") depth++;
+    else if (c === ")" || c === "]") depth = Math.max(0, depth - 1);
+    else if (c === "," && depth === 0) {
+      out.push(list.slice(start, k));
+      start = k + 1;
+    }
+  }
+  out.push(list.slice(start));
+  return out.map((s) => s.trim()).filter(Boolean);
 }
 
 /** Walk up from a clicked node to the nearest prefixed id → canonical semantic id. */

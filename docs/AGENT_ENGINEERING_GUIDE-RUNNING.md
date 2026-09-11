@@ -1176,6 +1176,22 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   scholar/figures.ts — the DISK render for fig/renders stays un-namespaced for flux-core byte
   parity), and ModeContent carries a hidden-clipPath guard rule as the second layer. Gate:
   `verify-clip-collision.mjs` (also pins the raw Chromium behavior so a future fix is visible).
+- **Inline SVG `<style>` is document-global too** (2026-09-11). Every matplotlib/fluxplot SVG
+  opens with `<style>*{stroke-linejoin: round; stroke-linecap: butt}</style>`; once a plot is
+  mounted inline that rule restyles EVERY Flux `<line>`/`<path>`/`<rect>` in the document (a
+  CSS rule beats a presentation attribute at any specificity), leaks across plots, into paper
+  embeds, and into exported SVGs — resvg and browsers honor it there as well. The symptom was
+  zoom-dependent only because culling mounts/unmounts the plot: round-capped lines drew FLAT
+  until zooming in dropped the plot from the DOM. `prefixIds` (the per-placement pass every
+  engine runs: mount, GUI export, `inlineMarkup`, slide player) now stamps the plot root
+  `data-plot-scope="<elementId>"` and rewrites each selector to
+  `[data-plot-scope="…"] <selector>` (`scopePlotStyles`/`scopeCss` in `plot/parse.ts`). The
+  descendant form is deliberate: `@scope` is Chromium-only and resvg drops it, while attribute
+  selectors + descendant combinators render everywhere (checked against `@resvg/resvg-js`).
+  Diagnosis lesson: a rendering bug that reproduces in the REAL app but not in a seeded fixture
+  is usually CONTENT, not the rasterizer — bisect the scene before bisecting GPU flags (this
+  one survived MSAA off and GPU raster off, and vanished when the plots were removed). Gates:
+  `verify-plot-style-scope.ts` (pure) + `verify-vanilla-inline.mjs` §2b (computed style).
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -4460,6 +4476,21 @@ checks pass. Updated the selection contract and user guide.
 
 **Learnings:** Keep hit geometry behind semantic artwork and inherit the scene's pointer
 policy; explicit pointer-events overrides can make hidden presentation objects interactive.
+
+### 2026-09-11 — Round caps vanish when a plot is in view: scope inline plot `<style>` (Claude Fable 5.1, `main`)
+
+**Work:** Owner report: a round-capped line drew flat at 651% zoom and round at 1336%. Reproduced
+in the real Electron app on a scratch copy of the project (never in seeded fixtures), then bisected:
+MSAA off and GPU rasterization off still flat; removing the plots fixed it. Cause: matplotlib's
+`<style>*{stroke-linejoin: round; stroke-linecap: butt}</style>` is document-global once a plot
+is inlined, and culling made it come and go with zoom. Fix: `prefixIds` scopes every plot
+stylesheet to its placement root (`scopePlotStyles`/`scopeCss`, ~60 lines, one shared module →
+editor, GUI export, paper embeds, flux-core renders, slide player all covered). New pure gate
+`verify-plot-style-scope.ts` (22 checks) + `verify-vanilla-inline.mjs` §2b (getComputedStyle
+of a Flux line beside inline plots); both proven to fail with the scoping call disabled. Check
+0/0; the real-app probe now paints round caps at 4/6.51/8/13.36×.
+**Learnings:** promoted to §9 (SVG rendering) — inline `<style>` is document-global like
+`url(#id)`; and "reproduces only in the real app" points at content, not the GPU.
 
 ### 2026-09-12 — Paper text size: a per-panel slider and Ctrl+/− (Claude Opus 5, `main`)
 

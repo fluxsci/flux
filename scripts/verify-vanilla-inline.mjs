@@ -152,6 +152,45 @@ try {
   assert(dom.sceneImages === 0, `NO <image> elements for svg assets in the scene (${dom.sceneImages})`);
   await shot(page, "vanilla-inline-side-by-side");
 
+  // ---- 2b. a plot's <style> stays SCOPED to the plot (2026-09-11 flat caps) ---
+  // matplotlib's preamble `*{stroke-linejoin: round; stroke-linecap: butt}` is
+  // document-global once inlined: it used to restyle every Flux line on the
+  // canvas (round caps drew flat until zooming culled the plot out of the DOM).
+  // Assert the CASCADE (getComputedStyle), not pixels: a round-capped Flux line
+  // beside two inline matplotlib plots computes `round`, while the plot's own
+  // content still receives the preamble's `butt`/`round` from the scoped rule.
+  await page.evaluate(() => {
+    const F = window.__flux;
+    F.fig.commit((p) => {
+      p.figures[0].elements.push({
+        type: "line", id: "capline", x: 40, y: 370, width: 0, height: 0, rotation: 0,
+        x1: 0, y1: 0, x2: 200, y2: 0, stroke: "#222222", strokeWidth: 2,
+        arrowStart: false, arrowEnd: false, cap: "round",
+      });
+    });
+    F.fig.selection.set(new Set());
+  });
+  await sleep(300);
+  const cascade = await page.evaluate(() => {
+    const line = document.querySelector('[data-editor-element-id="capline"] line[stroke-linecap]');
+    const inner = document.getElementById("vanilla1__figure_1");
+    const plotRoot = inner ? inner.closest("svg") : null;
+    const styles = [...document.querySelectorAll(".scene-svg style")].map((s) => (s.textContent || "").trim());
+    return {
+      lineCap: line ? getComputedStyle(line).strokeLinecap : null,
+      lineJoin: line ? getComputedStyle(line).strokeLinejoin : null,
+      plotScope: plotRoot ? plotRoot.getAttribute("data-plot-scope") : null,
+      innerCap: inner ? getComputedStyle(inner).strokeLinecap : null,
+      innerJoin: inner ? getComputedStyle(inner).strokeLinejoin : null,
+      styleCount: styles.length,
+      allScoped: styles.every((t) => t.startsWith('[data-plot-scope="')),
+    };
+  });
+  assert(cascade.lineCap === "round", `a round-capped Flux line beside inline matplotlib plots computes stroke-linecap: round (got ${cascade.lineCap})`);
+  assert(cascade.plotScope === "vanilla1", `the inlined plot root is stamped data-plot-scope (got ${cascade.plotScope})`);
+  assert(cascade.innerCap === "butt" && cascade.innerJoin === "round", `the scoped preamble still styles the plot's own content (cap ${cascade.innerCap}, join ${cascade.innerJoin})`);
+  assert(cascade.styleCount >= 2 && cascade.allScoped, `every inlined <style> in the scene is scoped (${cascade.styleCount} blocks)`);
+
   // ---- 3. part click-through: a REAL CTRL-click over a tick label drills -----
   // (Figma deep-select: a plain click always selects the whole plot; ctrl-click
   // pierces to the part — the derived manifest makes it addressable.)
