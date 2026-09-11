@@ -81,7 +81,7 @@
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
     border-radius: var(--radius-m);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+    box-shadow: var(--shadow-modal);
     display: flex;
     flex-direction: column;
     overflow: hidden;

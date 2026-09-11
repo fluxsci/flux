@@ -313,6 +313,53 @@ await p1.evaluate(() => {
 await p1.keyboard.press("Escape");
 await p1.click(".grid-viewport").catch(() => {});
 
+section("mock=default: light background (⋯ menu)");
+// Light mode exists for plots with a transparent background: image surfaces
+// must go WHITE, the document must carry data-theme, and the choice must be
+// the one thing the startup prefs load applies (covered on a fresh page).
+const lum = (rgb) => {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgb);
+  return m ? (0.2126 * +m[1] + 0.7152 * +m[2] + 0.0722 * +m[3]) / 255 : -1;
+};
+const themeProbe = () =>
+  p1.evaluate(() => ({
+    attr: document.documentElement.dataset.theme ?? null,
+    theme: window.__ltState.theme,
+    body: getComputedStyle(document.body).backgroundColor,
+    surface: getComputedStyle(document.querySelector("[data-cell] .surface")).backgroundColor,
+    scheme: getComputedStyle(document.documentElement).colorScheme,
+  }));
+const dark0 = await themeProbe();
+check("starts dark (no data-theme, dark body)", dark0.attr === null && dark0.theme === "dark" && lum(dark0.body) < 0.2);
+await p1.click(".overflow");
+await p1.waitForSelector("[data-theme-toggle]", { timeout: 3000 });
+check("menu offers “Light background” while dark", (await p1.$eval("[data-theme-toggle]", (b) => b.textContent.trim())) === "Light background");
+await p1.evaluate(() => document.querySelector("[data-theme-toggle]").click());
+await waitFor(async () => (await state(p1, "theme")) === "light", { desc: "theme flips to light" });
+const light = await themeProbe();
+check("document carries data-theme=light", light.attr === "light");
+check(`body background is light (${light.body})`, lum(light.body) > 0.85);
+check(`image surface is white (${light.surface})`, light.surface === "rgb(255, 255, 255)");
+check("color-scheme follows (light form controls/scrollbars)", light.scheme === "light");
+check("menu stays open and now offers “Dark background”", (await p1.$eval("[data-theme-toggle]", (b) => b.textContent.trim())) === "Dark background");
+await p1.evaluate(() => document.querySelector("[data-theme-toggle]").click());
+await waitFor(async () => (await state(p1, "theme")) === "dark", { desc: "theme flips back to dark" });
+const dark1 = await themeProbe();
+check("toggling back removes data-theme and restores the dark surfaces", dark1.attr === null && lum(dark1.body) < 0.2 && dark1.surface === dark0.surface);
+await p1.keyboard.press("Escape");
+await p1.click(".grid-viewport").catch(() => {});
+{
+  // Startup path: a persisted light preference applies before the user touches anything.
+  const p3 = await openPage("default&theme=light");
+  await waitFor(async () => (await p3.evaluate(() => window.__ltState.theme)) === "light", { desc: "persisted light theme applied at startup" });
+  const boot = await p3.evaluate(() => ({
+    attr: document.documentElement.dataset.theme ?? null,
+    surface: getComputedStyle(document.querySelector("[data-cell] .surface")).backgroundColor,
+  }));
+  check("persisted light pref → data-theme=light + white image surfaces at boot", boot.attr === "light" && boot.surface === "rgb(255, 255, 255)");
+  await p3.close();
+}
+
 section("mock=default: low column counts fill the cells");
 // At 1 column the ~1400px cell exceeds the largest thumb bucket: the grid
 // must request the ORIGINAL file (thumbPx 0) and the 128×96 mock image must

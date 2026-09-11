@@ -84,7 +84,10 @@ plain scroll pans ↑↓, **Shift+scroll** pans ↔, hold **Space** + drag = fre
 the backdrop beside a zoomed image returns to the grid. Top-left collection name: click =
 **sister folders** (directories beside the current collection — switch with one click);
 **Ctrl+click** = native folder picker. Grid H/V gaps are adjustable in the `⋯` menu
-(persisted).
+(persisted). The `⋯` menu also switches between the **dark** and **light** background
+(persisted): light puts every image surface on neutral white (detail/compare backdrops on a
+light grey), so plots saved with a transparent background — dark axes and text — read the way
+they will on a page.
 
 ## Architecture (short)
 

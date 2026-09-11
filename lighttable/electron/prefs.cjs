@@ -5,7 +5,8 @@ const fss = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 
-const DEFAULTS = { columns: 8, captions: true, hGap: 8, vGap: 8, recents: [] };
+const DEFAULTS = { columns: 8, captions: true, hGap: 8, vGap: 8, theme: "dark", recents: [] };
+const THEMES = new Set(["dark", "light"]);
 const MAX_RECENTS = 12;
 
 let prefsPath = null;
@@ -22,6 +23,7 @@ function initPrefs(dir) {
       captions: typeof j.captions === "boolean" ? j.captions : DEFAULTS.captions,
       hGap: clampGap(j.hGap) ?? DEFAULTS.hGap,
       vGap: clampGap(j.vGap) ?? DEFAULTS.vGap,
+      theme: THEMES.has(j.theme) ? j.theme : DEFAULTS.theme,
       recents: Array.isArray(j.recents) ? j.recents.filter((r) => typeof r === "string").slice(0, MAX_RECENTS) : [],
     };
   } catch {
@@ -39,7 +41,7 @@ function clampGap(n) {
 }
 
 function get() {
-  return { columns: cur.columns, captions: cur.captions, hGap: cur.hGap, vGap: cur.vGap, recents: [...cur.recents] };
+  return { columns: cur.columns, captions: cur.captions, hGap: cur.hGap, vGap: cur.vGap, theme: cur.theme, recents: [...cur.recents] };
 }
 
 // Validated partial merge — IPC input is untrusted.
@@ -52,6 +54,7 @@ function set(patch) {
   if (hg !== null) cur.hGap = hg;
   const vg = clampGap(patch.vGap);
   if (vg !== null) cur.vGap = vg;
+  if (THEMES.has(patch.theme)) cur.theme = patch.theme;
   scheduleWrite();
 }
 

@@ -82,7 +82,15 @@ export function installMock(kind: string): void {
     fullUrl: async (s, k) => (present(s, k) ? urlFor(s, k) : null),
     revealInFolder: async () => {},
     pathForFile: () => "",
-    prefsGet: async () => ({ columns: 8, captions: true, hGap: 8, vGap: 8, recents: [] }),
+    // `?mock=default&theme=light` lets the UI gate cover the startup path.
+    prefsGet: async () => ({
+      columns: 8,
+      captions: true,
+      hGap: 8,
+      vGap: 8,
+      theme: new URLSearchParams(location.search).get("theme") === "light" ? "light" : "dark",
+      recents: [],
+    }),
     prefsSet: async () => {},
     annotList: async () => [...annotClasses.keys()].sort(),
     annotCreate: async (name) => {

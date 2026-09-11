@@ -2,7 +2,7 @@
 // scan.cjs against a make-fixture temp collection, thumbs.cjs against a temp
 // cache dir (initThumbs injection). Hermetic; cleans up after itself.
 import { createRequire } from "node:module";
-import { mkdtempSync, rmSync, writeFileSync, utimesSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, utimesSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { makeFixture } from "./make-fixture.mjs";
@@ -12,6 +12,7 @@ const require = createRequire(import.meta.url);
 const { scanCollection, toManifest, listSiblings, LOOSE_SET_ID } = require("../electron/scan.cjs");
 const thumbs = require("../electron/thumbs.cjs");
 const annot = require("../electron/annotations.cjs");
+const prefs = require("../electron/prefs.cjs");
 const { loadImage } = require("@napi-rs/canvas");
 
 const base = mkdtempSync(path.join(os.tmpdir(), "lighttable-verify-"));
@@ -191,5 +192,28 @@ check("burst dedupes to one entry per source", readdirSync(cacheDir).length === 
 section("thumbs: sweep");
 await thumbs.sweepCache(1, 0); // force: everything is over a 1-byte budget
 check("sweep empties the cache under a tiny budget", readdirSync(cacheDir).length === 0);
+
+// ---- prefs.cjs: theme preference (validated, persisted, reloaded) -------------
+section("prefs: theme round-trip");
+{
+  const dir = path.join(base, "prefs");
+  prefs.initPrefs(dir);
+  check("default theme is dark", prefs.get().theme === "dark");
+  prefs.set({ theme: "light" });
+  check("set({theme:'light'}) applies", prefs.get().theme === "light");
+  prefs.set({ theme: "sepia" });
+  check("an unknown theme is rejected (IPC input is untrusted)", prefs.get().theme === "light");
+  prefs.set({ theme: 42 });
+  check("a non-string theme is rejected", prefs.get().theme === "light");
+  prefs.flushSync();
+  const onDisk = JSON.parse(readFileSync(path.join(dir, "prefs.json"), "utf8"));
+  check("theme is written to prefs.json", onDisk.theme === "light");
+  prefs.set({ theme: "dark" });
+  prefs.initPrefs(dir); // re-read from disk: the persisted value wins
+  check("initPrefs reloads the persisted theme", prefs.get().theme === "light");
+  writeFileSync(path.join(dir, "prefs.json"), JSON.stringify({ theme: "neon", columns: 8 }));
+  prefs.initPrefs(dir);
+  check("a corrupt persisted theme falls back to dark", prefs.get().theme === "dark");
+}
 
 finish("verify-node");

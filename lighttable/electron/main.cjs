@@ -194,7 +194,10 @@ function createWindow() {
     height: 900,
     minWidth: 720,
     minHeight: 480,
-    backgroundColor: "#100f0f",
+    // Match the persisted theme so a light-mode launch doesn't flash dark
+    // before the renderer applies its tokens (prefs are loaded before the
+    // first window is created).
+    backgroundColor: prefs.get().theme === "light" ? "#fffcf0" : "#100f0f",
     title: "Lighttable",
     autoHideMenuBar: true,
     webPreferences: {

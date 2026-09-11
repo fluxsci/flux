@@ -19,6 +19,7 @@
       store.captions = p.captions;
       store.hGap = p.hGap ?? 8;
       store.vGap = p.vGap ?? 8;
+      store.applyTheme(p.theme ?? "dark");
       await store.refreshRecents();
     })();
   });

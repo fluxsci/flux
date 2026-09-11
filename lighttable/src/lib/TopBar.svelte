@@ -95,6 +95,9 @@
         <button onclick={() => store.toggleCaptions()}>
           {store.captions ? "Hide captions" : "Show captions"}
         </button>
+        <button data-theme-toggle title="Light puts images on white — for plots with a transparent background" onclick={() => store.toggleTheme()}>
+          {store.theme === "light" ? "Dark background" : "Light background"}
+        </button>
         <button
           disabled={!store.selectedKey}
           onclick={() => {
@@ -233,7 +236,7 @@
     border: 1px solid var(--c-line-strong);
     border-radius: var(--radius-m);
     padding: 4px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-pop);
   }
   .menu > button {
     display: block;

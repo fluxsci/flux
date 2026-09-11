@@ -26,8 +26,11 @@ export type Manifest = {
   annotations?: { classes: string[]; active: AnnotData | null };
 };
 
+export type Theme = "dark" | "light";
 export type Prefs = {
   columns: number;
+  /** UI + image-surface theme; "light" exists for transparent-background plots. */
+  theme?: Theme;
   captions: boolean;
   hGap: number; // px between columns
   vGap: number; // px between rows

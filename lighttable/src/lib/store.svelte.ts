@@ -9,6 +9,7 @@ import type {
   Manifest,
   RecentEntry,
   SetInfo,
+  Theme,
 } from "./types";
 
 // Grid layout constants (shared with Grid.svelte and the verify gates).
@@ -51,6 +52,8 @@ class LtStore {
   captions = $state(true);
   hGap = $state(8);
   vGap = $state(8);
+  // "light" puts images on white so transparent-background plots are legible.
+  theme = $state<Theme>("dark");
   search = $state("");
   view = $state<"grid" | "detail" | "compare">("grid");
   selectedKey = $state<string | null>(null);
@@ -237,6 +240,22 @@ class LtStore {
     this.captions = !this.captions;
     void this.api?.prefsSet({ captions: this.captions });
   }
+  /** Apply the theme to the document (tokens.css keys off `data-theme`). The
+   *  prefs load calls this without persisting; user toggles persist. */
+  applyTheme(t: Theme): void {
+    this.theme = t === "light" ? "light" : "dark";
+    if (typeof document !== "undefined") {
+      if (this.theme === "light") document.documentElement.dataset.theme = "light";
+      else delete document.documentElement.dataset.theme;
+    }
+  }
+  setTheme(t: Theme): void {
+    this.applyTheme(t);
+    void this.api?.prefsSet({ theme: this.theme });
+  }
+  toggleTheme(): void {
+    this.setTheme(this.theme === "light" ? "dark" : "light");
+  }
   clearSearch(): void {
     this.search = "";
   }
@@ -346,6 +365,9 @@ if (import.meta.env.DEV) {
     },
     get vGap() {
       return store.vGap;
+    },
+    get theme() {
+      return store.theme;
     },
     get layoutAspect() {
       return store.layoutAspect;

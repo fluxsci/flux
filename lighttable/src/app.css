@@ -57,10 +57,10 @@ input {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--flx-base-800);
+  background: var(--c-scroll-thumb);
   border-radius: 5px;
   border: 2px solid var(--c-bg);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--flx-base-700);
+  background: var(--c-scroll-thumb-hover);
 }

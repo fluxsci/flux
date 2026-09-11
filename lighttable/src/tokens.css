@@ -14,9 +14,14 @@
   --flx-base-300: #b7b5ac;
   --flx-base-200: #cecdc3;
   --flx-paper: #fffcf0;
+  --flx-base-150: #dad8ce;
+  --flx-base-100: #e6e4d9;
+  --flx-base-50: #f2f0e5;
   --flx-blue-300: #66a0c8;
   --flx-blue-400: #4385be;
+  --flx-blue-500: #3171b2;
   --flx-blue-600: #205ea6;
+  --flx-blue-700: #1a4f8c;
 
   /* ---- Semantic surfaces ------------------------------------------------ */
   --c-bg: var(--flx-black);
@@ -55,10 +60,60 @@
   --c-image-surface: #232529;
   --c-detail-surface: #17181b;
 
+  /* ---- Chrome details that must flip with the theme --------------------- */
+  --c-scroll-thumb: var(--flx-base-800);
+  --c-scroll-thumb-hover: var(--flx-base-700);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.55);
+
   /* ---- Radii / motion ---------------------------------------------------- */
   --radius-s: 4px;
   --radius-m: 8px;
   --dur-fast: 80ms;
   --dur-med: 160ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ---- Light theme (⋯ menu → "Light background", persisted in prefs) ---------
+   Same semantic tokens over the Flexoki light ramp. The image surfaces are
+   NEUTRAL WHITE / light grey on purpose: this mode exists so plots with a
+   transparent background — dark axes, dark text — are legible, the way they
+   will sit on a printed page. Everything else is chrome and follows. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --c-bg: var(--flx-paper);
+  --c-bg-raised: var(--flx-base-50);
+  --c-surface: var(--flx-base-100);
+  --c-surface-2: var(--flx-base-150);
+  --c-ui-hover: var(--flx-base-200);
+
+  --c-line: color-mix(in oklab, var(--flx-base-300) 55%, transparent);
+  --c-line-strong: var(--flx-base-300);
+
+  --c-tx: var(--flx-base-900);
+  --c-tx-2: var(--flx-base-700);
+  --c-tx-muted: var(--flx-base-600);
+  --c-tx-faint: var(--flx-base-500);
+  --c-tx-hi: var(--flx-black);
+
+  --c-accent: var(--flx-blue-600);
+  --c-accent-bright: var(--flx-blue-500);
+  --c-accent-deep: var(--flx-blue-700);
+  --c-accent-tint: color-mix(in oklab, var(--flx-blue-600) 16%, transparent);
+  --c-accent-glow: color-mix(in oklab, var(--flx-blue-600) 42%, transparent);
+  --c-danger: #af3029;
+
+  --c-valid: #66800b;
+  --c-valid-tint: color-mix(in oklab, #66800b 22%, transparent);
+  --c-exclude: var(--c-danger);
+  --c-exclude-tint: color-mix(in oklab, #af3029 22%, transparent);
+
+  --c-image-surface: #ffffff;
+  --c-detail-surface: #ececee;
+
+  --c-scroll-thumb: var(--flx-base-300);
+  --c-scroll-thumb-hover: var(--flx-base-500);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.18);
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.25);
 }
