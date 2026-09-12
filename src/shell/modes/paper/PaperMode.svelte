@@ -963,9 +963,35 @@
           return;
         }
         if (renders.failed.length) {
-          pushToast("info", `${renders.failed.length} figure render(s) missing from the export`, {
-            detail: renders.failed.join(", "),
+          // Loud, not informational: a figure without a render does not appear in the
+          // document at all, and the export otherwise reports plain success.
+          pushToast("error", `${renders.failed.length} figure(s) will be MISSING from the export`, {
+            detail: `No render could be produced for: ${renders.failed.join(", ")}`,
           });
+        }
+        // Word paints nothing for an SVG picture that carries no raster fallback, and
+        // pandoc can only produce one when rsvg-convert is on PATH — which it is not on
+        // a stock machine. Splice the fallback in ourselves, or every figure is
+        // invisible while the export still reports success. See docxSvgFallback.ts.
+        if (r.outPath) {
+          try {
+            const { addSvgRasterFallbacks, domRasterizeSvg } = await import(
+              "../../../lib/references/docxSvgFallback"
+            );
+            const { bytes, report: svgReport } = await addSvgRasterFallbacks(
+              new Uint8Array(await fb.readFile(r.outPath)),
+              domRasterizeSvg(),
+            );
+            if (svgReport.added) await fb.writeFile(r.outPath, bytes);
+            if (svgReport.failed.length)
+              pushToast("error", `${svgReport.failed.length} figure(s) may not display in Word`, {
+                detail: `Could not rasterize: ${svgReport.failed.join(", ")}`,
+              });
+          } catch (e) {
+            pushToast("error", "Figures may not display in Word", {
+              detail: (e as Error).message,
+            });
+          }
         }
         // Live Zotero fields: citeproc baked the citations into text, which strips the
         // item identity Word needs. Rewrite them into the fields Zotero owns.

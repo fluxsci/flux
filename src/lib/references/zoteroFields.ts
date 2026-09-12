@@ -318,17 +318,45 @@ function markBareKeys(piece: string): string {
  *      renders into word/footnotes.xml, where fields are deliberately not written. A
  *      `[^1]:` definition is ordinary text to this pass, so ITS citations do get
  *      marked — the injector demotes those back to displayed text (demoteMarkedCitations).
- *    - `![…](…)` is an image; the export prep folds figure captions into that alt slot,
- *      so its INTERIOR is bare-marked — a caption's citation becomes a live field in
- *      the caption paragraph while the embed itself stays an embed.
+ *    - `![…](…)` is an image; the export prep folds figure captions into that alt slot.
+ *      The WHOLE construct is protected — see IMAGE_SPAN. Marking anywhere inside it
+ *      destroys the embed: a caption carrying a citation put the marker between the
+ *      `!` and the `[`, so pandoc stopped seeing an image and emitted a literal `!`
+ *      followed by a LINK to the render path. The figure vanished from the Word file
+ *      and the caption became link text — which is also where the field/hyperlink
+ *      straddle came from. Its citations therefore stay baked text, exactly as a
+ *      link's do (measured 2026-09-12 with the real captions through pandoc: cited
+ *      caption -> 0 drawings / 1 hyperlink; protected -> 1 drawing / 0 hyperlinks).
  *    - `[…](…)` / `[…][…]` / `[…]{…}` are links/spans — left whole; their citations
  *      stay baked text, because a Word field inside a hyperlink is not a document
  *      Zotero has been proven to accept.
  *
  *  Applied to the export copy only; the prep restores the sources afterwards. */
+/** A complete `![alt](target)` image, tolerating ONE level of brackets inside the alt
+ *  — captions routinely carry `[0.05, 0.56]` intervals and `[@a; @b]` citation groups.
+ *  The two inner branches are disjoint on their first character, so the nested
+ *  quantifier cannot backtrack catastrophically. A `![` with no `](…)` after it is
+ *  prose punctuation, not an image, and stays markable. */
+const IMAGE_SPAN = /!\[(?:[^[\]]|\[[^[\]]*\])*\]\([^)]*\)/.source;
+
+/** Splits on everything markCitations must leave verbatim. Built from regex LITERALS
+ *  joined through .source, never a quoted alternation: a quoted one needs doubled
+ *  escapes, and one lost backslash turns \s into a literal "s" that matches nothing. */
+const PROTECTED = new RegExp(
+  "(" +
+    [
+      /^---\n[\s\S]*?\n---\n/.source, // YAML header
+      /```[\s\S]*?```/.source, // fenced code
+      /`[^`\n]*`/.source, // inline code
+      IMAGE_SPAN,
+    ].join("|") +
+    ")",
+  "m",
+);
+
 export function markCitations(text: string): string {
-  // Never touch code (fenced or inline) or the YAML header.
-  const parts = text.split(/(^---\n[\s\S]*?\n---\n|```[\s\S]*?```|`[^`\n]*`)/m);
+  // Never touch code (fenced or inline), the YAML header, or an image construct.
+  const parts = text.split(PROTECTED);
   return parts
     .map((part, i) => {
       if (i % 2 === 1) return part; // a delimiter capture: header, fence or code span

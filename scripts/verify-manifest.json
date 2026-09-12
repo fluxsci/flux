@@ -76,6 +76,7 @@
    "verify-render-concurrency.ts",
    "verify-paper-commands.ts",
    "verify-paper-textscale.ts",
+   "verify-docx-svg-fallback.ts",
    "verify-loadgate.ts",
    "verify-fwdguard.ts",
    "verify-figsave-txn.ts",
@@ -881,9 +882,10 @@
    ]
   },
   {
-   "glob": "{src/lib/references/zoteroFields.ts,scripts/verify-zotero-fields.ts,src/lib/exportPrep.ts}",
+   "glob": "{src/lib/references/zoteroFields.ts,src/lib/references/docxSvgFallback.ts,scripts/verify-zotero-fields.ts,scripts/verify-docx-svg-fallback.ts,src/lib/exportPrep.ts}",
    "run": [
     "verify-zotero-fields.ts",
+    "verify-docx-svg-fallback.ts",
     "verify-export-prep.ts",
     "tier:pure"
    ]

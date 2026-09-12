@@ -109,12 +109,31 @@ const INDEX: ZoteroLibraryIndex = {
   assert(!fn.includes("⟦ZC"), "…and its interior is NOT marked (footnote citations stay citeproc text)");
 
   // The export prep folds figure captions into the alt slot, so a caption's citation
-  // sits inside `![…](…)` at marking time. The embed must survive; the citation inside
-  // it becomes a live field in the caption paragraph.
+  // sits inside `![…](…)` at marking time. SUPERSEDED CONTRACT (2026-09-12): this used
+  // to assert the alt's interior IS marked. Marking anywhere inside an image destroys
+  // it. With a caption whose citation group is not the LAST bracket in the alt — the
+  // ordinary case, since captions carry `[0.05, 0.56]` intervals — the group regex
+  // matched starting at the image's OWN `[`, so prev ended with `!` but next did not
+  // start with `(`, the image-alt branch never fired, and the marker was emitted
+  // BETWEEN the `!` and the `[`. Pandoc then saw a literal `!` followed by a link:
+  // measured on the user's real caption, 0 drawings / 1 hyperlink, the figure gone
+  // from the Word file and the caption turned into link text (which is also what the
+  // field/hyperlink straddle above was straddling). Protected, the same input gives
+  // 1 drawing / 0 hyperlinks. Captions' citations therefore stay baked text, exactly
+  // as a link's do.
   const img = markCitations("![**Fig. 1 |** As shown by @a_2020.](fig/renders/x.svg){#x-fig-x}");
-  assert(img.startsWith("![**Fig. 1 |** "), "an image keeps its ![ adjacency");
-  assert(img.includes("](fig/renders/x.svg){#x-fig-x}"), "…and its ](target){attrs} tail");
-  assert(img.includes("⟦ZC{a_2020}⟧"), "…while the caption's citation IS marked, inside the alt");
+  assert(img === "![**Fig. 1 |** As shown by @a_2020.](fig/renders/x.svg){#x-fig-x}",
+    "an image construct is left entirely whole — a marker inside it destroys the embed");
+
+  // The exact shape that shipped: a bracketed citation group followed by more alt text.
+  const realCap = markCitations(
+    "![Caption text, HDI95 [0.05, 0.56], as shown [@a_2020; @b_2021] and discussed.](fig/renders/fig-2.svg){#fig-2 width=100%}",
+  );
+  assert(!realCap.includes("⟦"), "…including when its citation group is mid-caption");
+  assert(realCap.startsWith("![Caption"), "…so the `![` adjacency that makes it an image survives");
+
+  // A bare `@key` in an alt is protected by the same rule.
+  assert(!markCitations("![See @a_2020 here.](x.svg)").includes("⟦"), "a bare key inside an alt is protected too");
 
   const link = markCitations("See [the review by @a_2020](https://x.test) here.");
   assert(link === "See [the review by @a_2020](https://x.test) here.",

@@ -1032,6 +1032,31 @@ real exports Word refused):
   That is how this was found; a schema-shaped guess would have blamed the SVG or the relationship
   target (both innocent — changing the target to a valid `https://` URL still failed).
 
+**Two more ways a Word export loses its figures** (both found 2026-09-12, both silent):
+
+- **A marker inside `![…](…)` destroys the embed.** `markCitations` used to bare-mark an
+  image's alt slot, where the export prep folds figure captions. When the caption's citation
+  group was not the last bracket in the alt — the ordinary case, since captions carry
+  `[0.05, 0.56]` intervals — the group regex matched from the image's OWN `[`, the
+  `prev.endsWith("!") && next.startsWith("(")` guard did not fire, and the marker landed
+  BETWEEN the `!` and the `[`. Pandoc then saw a literal `!` followed by a LINK: the figure
+  disappeared and the caption became link text (which is what the field straddle above was
+  straddling). The whole image construct is protected now (`IMAGE_SPAN`); its citations stay
+  baked text, as a link's already did.
+- **Word paints nothing for an SVG with no raster fallback.** A picture is `<a:blip r:embed>`
+  → a RASTER, with the vector riding alongside in `<asvg:svgBlip>`; Word's SVG support is that
+  extension, not a replacement. Pandoc emits the pair only when `rsvg-convert` is on PATH,
+  which it is not on a stock Windows/macOS box (Quarto does not bundle it) — so it writes a
+  blip with the extension and NO `r:embed`, and Word reserves the space and draws nothing.
+  `docxSvgFallback.ts` rasterizes and splices the PNG in after Quarto, keeping the svgBlip so a
+  capable Word still gets the vector. Rasterization is INJECTED: the OPC surgery gates
+  hermetically in Node, while the pixels need the renderer's canvas (no native deps), so
+  headless `compile` leaves such pictures alone rather than pretending.
+- Corollary for both: **"the export succeeded" is not evidence the figures are in it.** Check
+  `drawings` vs `hyperlinks` in `word/document.xml` and whether each `a:blip` carries an
+  `r:embed`; a pandoc run that warns `Could not convert image … rsvg-convert` has already lost
+  them.
+
 **Identifying a PDF from its own bytes** (`pdfIdentify.ts`; the 2026-08-06 inbox backlog):
 
 - **A PDF's `/Title` is production junk more often than it is a title.** Real values seen in one
@@ -4473,4 +4498,21 @@ both of the user's real files open in Word once the fix's outcome is applied.
 ` inside a non-raw string become a literal
   BACKSPACE and NEWLINE in the emitted TypeScript regex. One shipped a `<w:hyperlink^H[^>]*>`
   pattern that silently matched nothing. Use raw strings, and grep the result for control
-  characters before trusting a generated edit.
+  characters before trusting a generated edit. The same hazard bites a QUOTED regex
+  alternation in TypeScript itself — build those from regex literals joined through
+  `.source` (see `PROTECTED` in zoteroFields.ts), where no escape can be lost.
+
+### 2026-09-12 (later still) — The Word export was losing every figure (Claude Opus 5, `main`)
+
+**Work:** The user's export opened but contained no figures. Two independent causes, both
+silent, both now fixed and gated: a citation marker landing between `!` and `[` turned a
+captioned figure into a hyperlink (markCitations now protects the whole image construct), and
+pandoc's rsvg-less SVG output carries no raster fallback so Word paints nothing
+(`docxSvgFallback.ts` splices a PNG into each such blip after Quarto). Verified end to end on
+the user's real caption and real figure: 0 drawings/1 hyperlink → 1 drawing/0 hyperlinks, and
+the spliced 1120×1322 PNG is the actual figure. The "renders missing" toast was also promoted
+from info to error — a figure without a render simply is not in the document.
+**Learnings:** promoted both contracts to §9. Also: when a document-level artifact is wrong,
+bisect against the consuming application (Word over COM, pandoc directly), and re-measure after
+each hypothesis — three plausible causes were wrong here before the real ones surfaced, and two
+of them looked entirely sufficient on inspection.

@@ -355,4 +355,5 @@ pursues your typing with a lively, immediate feel) or *smooth* (a fixed soft gli
 | A journal-styled PDF fails but Word works | Missing LaTeX pieces → the error names the package; see [Installation](../installation.qmd) |
 | Journal Check flags a figure reference that is fine | It's advice, not a rule — dismiss it. References to another paper's figures are skipped automatically when an author name is next to them |
 | A figure embed shows no caption | The figure has no caption yet → write it in Figure mode (**Alt+C** there) |
+| A Word export says figures will be missing | No render could be produced for the named figures → open Figure mode so they load, then export again. A figure with no render is not in the document at all, so this is an error, not a warning |
 | A comment shows as *Detached* | Its anchored text was edited away — the thread is preserved; re-select and start a fresh one if needed |
