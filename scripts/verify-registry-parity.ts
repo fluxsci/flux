@@ -44,10 +44,16 @@ await core.scaffold(TMP, { title: "RegParity" });
 // --- CLI runner ------------------------------------------------------------------
 function runCli(args: string[], env: Record<string, string> = {}): Promise<{ out: string; err: string; code: number }> {
   return new Promise((res) => {
-    const c = spawn("npx", ["tsx", "flux-cli.ts", ...args], {
-      // win32 has no bare `npx` executable (only npx.cmd) — an unshelled spawn dies
-      // ENOENT, which surfaces as this whole gate failing for an environment reason.
-      shell: process.platform === "win32",
+    // Spawn the CLI on THIS process's runtime, exactly as run-verifies.mjs launches its
+    // children: `--import tsx` replaces the npx→tsx wrapper chain with one process.
+    // Going through `npx` instead costs three separate defects, all of which this gate
+    // suffered on win32: there is no bare `npx` executable so an unshelled spawn dies
+    // ENOENT; adding `shell: true` to fix that routes the argv through cmd.exe, which
+    // STRIPS the double quotes out of a JSON argument (`--states '[{"x":1}]'` arrives
+    // truncated and JSON.parse throws); and npx announces itself with `npm notice run …`
+    // on STDERR, which this gate compares byte-for-byte against the help golden and the
+    // CLI's success line. None of those are product behavior.
+    const c = spawn(process.execPath, ["--import", "tsx", "flux-cli.ts", ...args], {
       cwd: REPO,
       env: { ...process.env, FLUX_NO_MIGRATE: "1", ...env },
       stdio: ["ignore", "pipe", "pipe"],
@@ -62,8 +68,8 @@ function runCli(args: string[], env: Record<string, string> = {}): Promise<{ out
 
 // --- MCP client -------------------------------------------------------------------
 const transport = new StdioClientTransport({
-  command: "npx",
-  args: ["tsx", "flux-mcp.ts", TMP],
+  command: process.execPath,
+  args: ["--import", "tsx", "flux-mcp.ts", TMP],
   cwd: REPO,
   env: { ...(process.env as Record<string, string>), FLUX_NO_MIGRATE: "1" },
 });

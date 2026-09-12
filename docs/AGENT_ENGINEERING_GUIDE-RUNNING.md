@@ -810,6 +810,16 @@ that isn't in the manifest doesn't exist.** Tiers:
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
   never hardcode the default port.
 
+**Never spawn a gate's child through `npx`.** Use `process.execPath` with `--import tsx` — the
+same runtime, one process, and none of the three separate failures `npx` causes (all three hit
+verify-registry-parity on win32 at once, 2026-09-12): (1) win32 has no bare `npx` executable, so
+an unshelled spawn dies `ENOENT`; (2) `shell: true` fixes that but routes argv through cmd.exe,
+which STRIPS the double quotes out of a JSON argument — `--states '[{"x":1}]'` arrives truncated
+and `JSON.parse` throws; (3) npx announces itself with `npm notice run …` on STDERR, which any
+gate comparing a help golden or a CLI success line byte-for-byte will fail on. All three look
+like product bugs and none are. `spawn("npm", …)` for npm itself (audit, `run dev`) still needs
+`shell: true` on win32, and a win32 teardown needs `taskkill /T` — there are no process groups.
+
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
 why); child processes are owned by `TestProcessScope` (`scripts/lib/testProcess.mjs`). Node 22 is
@@ -4534,10 +4544,9 @@ so an agent- or CLI-driven Word export carries figures Word will actually paint.
   fallback is a checkout/CLI-with-node_modules capability. It reports `failed` rather than
   degrading silently — the same contract the renderer path has.
 - The same `spawn` defect was in `verify-registry-parity.ts`, `verify-w3-locks.ts` and
-  `release-check.mjs`; all four are fixed. **Unblocking them exposed real failures that the
-  ENOENT had been hiding** — w3-locks now PASSES, but registry-parity fails three genuine
-  assertions on win32 (`flux help matches the golden text`, the `reindex` CLI/MCP string, and
-  `ghost_transform succeeds on both actual surfaces`, which returns empty stdout). Confirmed
-  pre-existing: the identical three fail with the flux-core changes reverted. They are NOT
-  golden-regeneration candidates until someone establishes why the surfaces disagree — an
-  environment-masked gate is exactly how a stale golden survives unnoticed.
+  `release-check.mjs`. CORRECTION to the first version of this entry: unblocking them appeared
+  to expose three genuine product failures in registry-parity, and it did not — all three were
+  artifacts of the `npx` workaround itself, and the goldens were right the whole time. Spawning
+  the CLI/MCP on `process.execPath` with `--import tsx` (what run-verifies.mjs already does)
+  clears all three and the gate passes. Not regenerating the goldens on the first reading was
+  what saved it; see §7 for why `npx` is the wrong way to spawn a gate's child.

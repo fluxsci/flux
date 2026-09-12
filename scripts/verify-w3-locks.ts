@@ -31,9 +31,9 @@ const libUrl = pathToFileURL(path.resolve("flux-core/fluxlib.ts")).href;
 
 function run(script: string, args: string[]): Promise<{ code: number; err: string }> {
   return new Promise((res) => {
-    const c = spawn("npx", ["tsx", script, ...args], {
-      // win32 has no bare `npx` executable (only npx.cmd) — see verify-registry-parity.
-      shell: process.platform === "win32",
+    // This process's runtime, not npx — see verify-registry-parity's runCli for the
+    // three separate ways the npx wrapper chain breaks a spawned gate on win32.
+    const c = spawn(process.execPath, ["--import", "tsx", script, ...args], {
       stdio: ["ignore", "ignore", "pipe"],
       cwd: path.resolve("."),
     });

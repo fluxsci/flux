@@ -133,10 +133,9 @@ ok(
   "bundle verify tier passes (verify-w13-cli)",
 );
 ok(
-  spawnSync("npx", ["tsx", "scripts/verify-r3-agent.ts"], {
+  spawnSync(process.execPath, ["--import", "tsx", "scripts/verify-r3-agent.ts"], {
     stdio: "inherit",
-    cwd: root,
-    shell: process.platform === "win32",
+    cwd: root, // this runtime, not npx — see verify-registry-parity's runCli
   }).status === 0,
   "MCP handshake passes against dev + built bundle (verify-r3-agent)",
 );
