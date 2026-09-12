@@ -142,13 +142,9 @@
   --font-serif: Georgia, "Gelasio", "Times New Roman", Times, serif;
   --font-mono:  ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 
-  --ts-xs: 11px;
-  --ts-sm: 12.5px;
-  --ts-base: 14px;
-  --ts-md: 16px;
-  --ts-lg: 20px;
-  --ts-xl: 28px;
-  --ts-2xl: 40px;
+  /* Per-surface TEXT SCALE — see the `:root, .ts-scaled` block below. */
+  --ts-scale: 1;
+
   --ts-display: clamp(48px, 7vw, 74px);
 
   --lh-tight: 1.08;
@@ -195,6 +191,35 @@
 
   /* ---- Chrome metrics --------------------------------------------------- */
   --titlebar-h: 38px;
+}
+
+/* =============================================================================
+   THE TYPE SCALE — authored at --ts-scale: 1 and multiplied through it.
+
+   The selector list is the whole mechanism. A custom property's var()s are
+   substituted at computed-value time ON THE ELEMENT THAT DECLARES IT, so a
+   descendant setting --ts-scale can NOT retune tokens declared only on :root
+   (measured: it inherits the already-substituted calc(11px * 1)). Re-declaring
+   the identical block for .ts-scaled means any container carrying that class
+   re-derives the whole scale from its OWN --ts-scale — real type that re-wraps
+   and re-lays-out, never a transform.
+
+   Paper's three panels (editor column, left sidebar, dynamic margin) carry it
+   and set --ts-scale from the status-bar text-size slider; chrome nested inside
+   a scaled panel (the status bar itself, its popover) carries it too with
+   --ts-scale: 1 to opt back out. Everything else inherits :root's 1 and
+   computes exactly as it did before this block existed.
+   Gate: verify-paper-textscale.ts (§A) + verify-paper-textsize-gui.mjs.
+   ========================================================================== */
+:root,
+.ts-scaled {
+  --ts-xs: calc(11px * var(--ts-scale));
+  --ts-sm: calc(12.5px * var(--ts-scale));
+  --ts-base: calc(14px * var(--ts-scale));
+  --ts-md: calc(16px * var(--ts-scale));
+  --ts-lg: calc(20px * var(--ts-scale));
+  --ts-xl: calc(28px * var(--ts-scale));
+  --ts-2xl: calc(40px * var(--ts-scale));
 }
 
 /* =============================================================================

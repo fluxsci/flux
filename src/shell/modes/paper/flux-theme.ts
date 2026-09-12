@@ -20,7 +20,7 @@ export const fluxTheme = EditorView.theme(
       backgroundColor: "transparent",
       height: "100%",
       fontFamily: "var(--font-serif)",
-      fontSize: "17px",
+      fontSize: "calc(17px * var(--ts-scale, 1))",
     },
     ".cm-scroller": {
       overflow: "auto",
@@ -65,13 +65,13 @@ export const fluxTheme = EditorView.theme(
     /* YAML front-matter rendered as quiet metadata (livePreview.ts detects it) */
     ".cm-line.cm-frontmatter": {
       fontFamily: "var(--font-mono)",
-      fontSize: "12px",
+      fontSize: "calc(12px * var(--ts-scale, 1))",
       lineHeight: "1.65",
       color: "var(--c-tx-faint)",
     },
     ".cm-frontmatter *": {
       fontFamily: "var(--font-mono) !important",
-      fontSize: "12px !important",
+      fontSize: "calc(12px * var(--ts-scale, 1)) !important",
       fontWeight: "400 !important",
       fontStyle: "normal !important",
       color: "var(--c-tx-faint) !important",
@@ -83,13 +83,13 @@ export const fluxTheme = EditorView.theme(
        or not the caret is on the line — never a layout shift on navigation. */
     ".cm-line.cm-flux-embedsrc, .cm-line.cm-flux-tablesrc, .cm-line.cm-flux-mathsrc": {
       fontFamily: "var(--font-mono)",
-      fontSize: "12px",
+      fontSize: "calc(12px * var(--ts-scale, 1))",
       lineHeight: "1.65",
       color: "var(--c-tx-faint)",
     },
     ".cm-flux-embedsrc *, .cm-flux-tablesrc *, .cm-flux-mathsrc *": {
       fontFamily: "var(--font-mono) !important",
-      fontSize: "12px !important",
+      fontSize: "calc(12px * var(--ts-scale, 1)) !important",
       fontWeight: "400 !important",
       fontStyle: "normal !important",
       color: "var(--c-tx-faint) !important",
@@ -125,7 +125,7 @@ export const fluxTheme = EditorView.theme(
     ".flux-tablechip": {
       display: "inline",
       fontFamily: "var(--font-mono)",
-      fontSize: "12px",
+      fontSize: "calc(12px * var(--ts-scale, 1))",
       color: "var(--c-accent-bright)",
       background: "var(--c-accent-tint, color-mix(in srgb, var(--c-accent) 12%, transparent))",
       borderRadius: "var(--r-1)",
@@ -134,7 +134,7 @@ export const fluxTheme = EditorView.theme(
     },
     ".cm-flux-tablesrc .flux-tablechip": {
       color: "var(--c-accent-bright) !important",
-      fontSize: "12px !important",
+      fontSize: "calc(12px * var(--ts-scale, 1)) !important",
     },
     ".flux-tablechip.unnumbered": {
       color: "var(--c-tx-muted)",
@@ -165,7 +165,7 @@ export const fluxTheme = EditorView.theme(
     },
     ".flux-mathblock .mb-body.pending": {
       fontFamily: "var(--font-mono)",
-      fontSize: "12px",
+      fontSize: "calc(12px * var(--ts-scale, 1))",
       color: "var(--c-tx-faint)",
       whiteSpace: "pre-wrap",
     },
@@ -356,7 +356,7 @@ export const fluxTheme = EditorView.theme(
       right: "8px",
       bottom: "8px",
       fontFamily: "var(--font-mono)",
-      fontSize: "11px",
+      fontSize: "calc(11px * var(--ts-scale, 1))",
       color: "var(--c-tx-2)",
       background: "var(--c-surface)",
       border: "1px solid var(--c-line-strong)",

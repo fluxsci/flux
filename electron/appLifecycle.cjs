@@ -110,10 +110,13 @@ function appMenuTemplate({ isMac, isDev, onNewWindow }) {
           { type: "separator" },
         ]
       : []),
-    { role: "resetZoom" },
-    { role: "zoomIn" },
-    { role: "zoomOut" },
-    { type: "separator" },
+    // NO zoomIn/zoomOut/resetZoom roles. Their default accelerators are
+    // CmdOrCtrl+Plus/-/0, and a menu accelerator is consumed in the BROWSER
+    // process — the renderer never sees the keydown and cannot preventDefault
+    // it. Paper owns those chords for its text-size control (commands.ts
+    // text-bigger/smaller/reset), which resizes real type per panel instead of
+    // rescaling the whole window. Same reasoning as the reload/devTools
+    // remappings above. Pinned by verify-w6-flush.cjs §4.
     { role: "togglefullscreen" },
   ];
   if (!isMac) {

@@ -33,6 +33,19 @@
   import { makePaperSelectionWatcher } from "./paperContext";
   import { setPaperContextDoc, publishPaperSelection } from "../../../lib/project/paperSelectionStore";
   import { paperLayout } from "./view-mode/paperLayoutStore";
+  import { paperTextScale } from "./view-mode/paperTextScaleStore";
+  import {
+    panelScaleStyle,
+    representativeScale,
+    resetTargets,
+    setAllTargets,
+    setScale,
+    setTarget,
+    stepTargets,
+    PANEL_LABELS,
+    PAPER_PANELS,
+    type PaperPanelId,
+  } from "./view-mode/paperTextScale";
   import { createCursorTracking } from "./outline/activeHeading";
   import SelectionToolbar from "./toolbar/SelectionToolbar.svelte";
   import EmptyState from "./EmptyState.svelte";
@@ -236,10 +249,45 @@
   // ---- reader-adjustable editor margins ----------------------------------
   let colEl = $state<HTMLDivElement | undefined>(undefined);
   let dragSide = $state<null | "l" | "r">(null);
+  /** Height of the editor's horizontal scrollbar, 0 when there is none — the
+   *  status pill's bottom offset rides it (see watchHScrollbar below). */
+  let hScrollH = $state(0);
   const gutterStyle = $derived(
     ($paperLayout.gutterL != null ? `--gutter-l:${($paperLayout.gutterL * 100).toFixed(3)}%;` : "") +
-      ($paperLayout.gutterR != null ? `--gutter-r:${($paperLayout.gutterR * 100).toFixed(3)}%;` : ""),
+      ($paperLayout.gutterR != null ? `--gutter-r:${($paperLayout.gutterR * 100).toFixed(3)}%;` : "") +
+      `${panelScaleStyle($paperTextScale.scale.editor)};` +
+      `--hscroll-h:${hScrollH}px;`,
   );
+
+  // ---- text size (status-bar slider + Ctrl+/−) ---------------------------
+  // The scale lands as --ts-scale on each panel root (with .ts-scaled, which is
+  // what re-derives the --ts-* tokens there — tokens.css explains why). Real
+  // type, so the manuscript re-wraps and its 72ch measure widens with it.
+  function setTextScale(v: number) {
+    paperTextScale.update((s) => setScale(s, v));
+  }
+  function stepTextScale(dir: 1 | -1) {
+    paperTextScale.update((s) => stepTargets(s, dir));
+  }
+  function resetTextScale() {
+    paperTextScale.update((s) => resetTargets(s));
+  }
+  function setTextScaleTarget(panel: PaperPanelId, on: boolean) {
+    paperTextScale.update((s) => setTarget(s, panel, on));
+  }
+  function setTextScaleAllTargets() {
+    paperTextScale.update((s) => setAllTargets(s, true));
+  }
+  // CodeMirror caches line heights; a font-size change must invalidate them or
+  // the scroller keeps the old geometry until the next edit (scroll position
+  // and block-widget estimatedHeights both read stale).
+  let seenEditorScale = -1;
+  $effect(() => {
+    const s = $paperTextScale.scale.editor;
+    if (s === seenEditorScale) return;
+    seenEditorScale = s;
+    view?.requestMeasure();
+  });
   function seedGutters(r: DOMRect) {
     if (!colEl) return;
     const content = colEl.querySelector(".cm-content") as HTMLElement | null;
@@ -1447,8 +1495,30 @@
     refreshIdleNow(); // seed latestIdle + the TOC synchronously on mount
     void loadComments(v);
     normalizeEmbedAlts(); // figures may have loaded before the editor mounted
+    watchHScrollbar(v);
   }
   let untrackMath: (() => void) | null = null;
+
+  // The status pill sits low in the column, which puts it on top of the
+  // editor's HORIZONTAL scrollbar whenever one appears (a wide table). Lift it
+  // by exactly the scrollbar's height, and only while there is one — a fixed
+  // offset would either clip the scrollbar or waste the gap the rest of the
+  // time. content-box is the point: contentRect excludes the scrollbar, so the
+  // observer fires on the appear/disappear transition, which a border-box
+  // observation misses (offsetHeight does not change).
+  let hScrollRO: ResizeObserver | null = null;
+  function watchHScrollbar(v: EditorView) {
+    hScrollRO?.disconnect();
+    const el = v.scrollDOM;
+    const measure = () => {
+      const h = Math.max(0, Math.round(el.offsetHeight - el.clientHeight));
+      if (h !== hScrollH) hScrollH = h;
+    };
+    hScrollRO = new ResizeObserver(measure);
+    hScrollRO.observe(el, { box: "content-box" });
+    measure();
+  }
+  onDestroy(() => hScrollRO?.disconnect());
 
   // Focus flip → the feedback stamp follows: republish this pane's doc +
   // current selection into the app-global paperSelectionStore.
@@ -2130,6 +2200,13 @@
     widerMargin: () =>
       paperLayout.update((s) => ({ ...s, dynMarginOpen: true, dynMarginW: Math.min(dmMaxW(), s.dynMarginW + 40) })),
     narrowerMargin: () => paperLayout.update((s) => ({ ...s, dynMarginW: Math.max(260, s.dynMarginW - 40) })),
+    textScaleStep: (dir) => stepTextScale(dir),
+    textScaleReset: () => resetTextScale(),
+    textScalePercent: () => Math.round(representativeScale($paperTextScale) * 100),
+    textScaleScope: () =>
+      PAPER_PANELS.filter((p) => $paperTextScale.targets[p])
+        .map((p) => PANEL_LABELS[p].toLowerCase())
+        .join(" + "),
     rerollBgSeed,
     foldSection: () => {
       if (view) {
@@ -2316,7 +2393,10 @@
 <section class="paper">
   <div class="work" bind:this={workEl} bind:clientWidth={workWidth}>
     {#if $paperLayout.outlinerOpen}
-      <div class="leftrail" inert={documentBusy} style={`flex-basis:${sidebarW}px`}>
+      <div
+        class="leftrail ts-scaled"
+        inert={documentBusy}
+        style={`flex-basis:${sidebarW}px;${panelScaleStyle($paperTextScale.scale.sidebar)}`}>
         <PaperSidebar>
           {#snippet outlineContent()}
             <Outline items={outline} title={meta.title} {activeFrom} collapsed={collapsedSet} onJump={jump} onToggleCollapse={toggleCollapse} />
@@ -2340,7 +2420,7 @@
         ondblclick={resetLrW}>
       </div>
     {/if}
-    <div class="editor-col" inert={documentBusy} bind:this={colEl} style={gutterStyle}>
+    <div class="editor-col ts-scaled" inert={documentBusy} bind:this={colEl} style={gutterStyle}>
       {#if ready && blockedByTwin}
         <!-- Dual-paper B4: the project's only document is open in the other
              pane — no second live editor on one file. The document rail stays
@@ -2397,12 +2477,20 @@
             correctionStatus={localCorrectionStatus}
             onToggleCorrections={toggleLocalCorrections}
             onStats={() => summonPane("stats")}
-            onExport={openExportDialog} />
+            onExport={openExportDialog}
+            textScale={$paperTextScale}
+            onTextScale={setTextScale}
+            onTextScaleStep={stepTextScale}
+            onTextScaleReset={resetTextScale}
+            onTextScaleTarget={setTextScaleTarget}
+            onTextScaleAllTargets={setTextScaleAllTargets} />
         {/if}
       {/if}
     </div>
     {#if $paperLayout.dynMarginOpen}
-      <div class="dm-wrap" style="flex:0 0 {$paperLayout.dynMarginW}px">
+      <div
+        class="dm-wrap ts-scaled"
+        style="flex:0 0 {$paperLayout.dynMarginW}px;{panelScaleStyle($paperTextScale.scale.margin)}">
         <div
           class="dm-grip"
           class:active={dmDragging}

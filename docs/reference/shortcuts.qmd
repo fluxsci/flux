@@ -34,6 +34,8 @@ the editing engine.
 | **Alt+↑** / **Alt+↓** | Move a focused Documents row up / down the list (drag the row for the same thing; nothing is renamed and no file moves) |
 | **Delete** (on a focused Documents row) | Delete that document after a confirmation (the × on the row does the same; the file goes to the trash, figures and references stay) |
 | **Ctrl+Shift+B** | Show/hide the dynamic margin |
+| **Ctrl+=** / **Ctrl+-** | Bigger / smaller text (the status-bar slider does the same; click the percentage to pick which panels it applies to) |
+| **Ctrl+0** | Text size back to 100% |
 | **Alt+R** | Reference search pane |
 | **Alt+J** | Journal Check pane |
 | **Alt+E** | Export… (file format × journal style) |

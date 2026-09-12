@@ -126,6 +126,16 @@ async function main() {
     if (macHasEdit && macProdNoReload) ok("prod macOS → app/Edit/Window roles, no reload");
     else bad("prod macOS menu", `edit=${macHasEdit} noReload=${macProdNoReload}`);
 
+    // Paper owns Ctrl+/−/0 for its per-panel text size (commands.ts). A menu
+    // accelerator is consumed in the BROWSER process, so a zoom role here would
+    // make those chords unreachable from the renderer on every platform that
+    // gets a menu — and silently, since the renderer sees no keydown to fail on.
+    const zoomRoles = ["zoomIn", "zoomOut", "resetZoom"];
+    const zoomIn = (t) => zoomRoles.some((r) => JSON.stringify(t).includes(`"${r}"`));
+    if (![devLinux, prodMac, devMac].some(zoomIn))
+      ok("no zoom roles in any menu — the renderer owns Ctrl+/−/0 (Paper text size)");
+    else bad("zoom roles", "a zoomIn/zoomOut/resetZoom role would swallow Paper's text-size chords");
+
     try {
       Menu.buildFromTemplate(prodMac);
       Menu.buildFromTemplate(devMac);

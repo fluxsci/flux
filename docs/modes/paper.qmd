@@ -58,6 +58,23 @@ it is deleted; the GUI always exports the document you have open.
   (unfold: **Ctrl+Shift+]**). Spellcheck is on by default, and the word count in the status
   bar opens a full statistics pane.
 
+# Text size
+
+The status bar carries a text-size slider on its own row, just above **Local**, **Export**, and
+the word count. Drag it, use the **−** and **+** buttons beside it, or press **Ctrl+=** and **Ctrl+-** from
+anywhere in Paper; **Ctrl+0** goes back to 100%. The range is 50% to 250%.
+
+This changes the real type, not a zoom of the picture: the text redraws at the new size, the
+lines re-wrap, and the column of text widens or narrows with them. Nothing about the document
+on disk changes — text size is a reading preference for this device.
+
+Click the percentage to choose **which panels** it applies to. The small window that opens has
+a checkbox for **All panels together** and one each for the **Manuscript**, the **Left
+sidebar**, and the **Right margin** — tick any one, any combination, or all three. By default
+the slider resizes the manuscript only, so the sidebar and margin keep their size while you
+make your text bigger. Each panel remembers its own size, and both the sizes and your choice
+of panels come back the next time you open Flux. At least one panel always stays ticked.
+
 # Local corrections
 
 Paper quietly fixes only unmistakable typing slips as soon as you finish the word: transposed

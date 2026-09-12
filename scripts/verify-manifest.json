@@ -75,6 +75,7 @@
    "verify-frontmatter.ts",
    "verify-render-concurrency.ts",
    "verify-paper-commands.ts",
+   "verify-paper-textscale.ts",
    "verify-loadgate.ts",
    "verify-fwdguard.ts",
    "verify-figsave-txn.ts",
@@ -213,6 +214,7 @@
   ],
   "ui": [
    "verify-context-gui.mjs",
+   "verify-paper-textsize-gui.mjs",
    "verify-paper-nav.mjs",
    "verify-paper-vim.mjs",
    "verify-paper-keyboard.mjs",
@@ -450,7 +452,9 @@
    "verify-source-watch.ts",
    "verify-mode-cold-switch.mjs",
    "verify-paper-files-gui.mjs",
-   "verify-paper-sidebar-layout.mjs"
+   "verify-paper-sidebar-layout.mjs",
+   "verify-paper-textscale.ts",
+   "verify-paper-textsize-gui.mjs"
   ],
   "reader-gate": [
    "verify-r1-highlights.mjs",
@@ -636,6 +640,14 @@
    "run": [
     "group:paper-gate",
     "tier:pure"
+   ]
+  },
+  {
+   "$why": "tokens.css owns the `:root, .ts-scaled` type scale — Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
+   "glob": "src/styles/tokens.css",
+   "run": [
+    "verify-paper-textscale.ts",
+    "verify-paper-textsize-gui.mjs"
    ]
   },
   {

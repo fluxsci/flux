@@ -5,6 +5,8 @@
   import { parentDir, fileName } from '../../../../lib/project/documentFiles';
   import { documentTree, type DocumentTreeItem as Item } from './documentTree';
   import { CONTEXT_DOC_RELS } from '../../../../lib/project/contextTemplates';
+  import { paperTextScale } from '../view-mode/paperTextScaleStore';
+  import { clampScale } from '../view-mode/paperTextScale';
 
   let { docs, folders = [], root = 'paper', storageKey = '', activePath, onSelect, onNew, onFolder, onMove, onReorder, onDelete }: {
     docs: DocEntry[]; folders?: string[]; root?: string; storageKey?: string; activePath: string;
@@ -46,15 +48,20 @@
   const contextItems = $derived(documentTree(docs, folders, root, true, collapsed));
   let scrollY = $state(0);
   let scrollHeight = $state(500);
+  // Row height is the ONE number the virtual window and the CSS must agree on,
+  // and the sidebar's text size moves it (a 30px row clips 150% type). Both
+  // sides read this: the window arithmetic below, and --dp-row in the style
+  // block. The 8-row overscan absorbs the small drift in the header offsets.
+  const ROW_H = $derived(Math.round(30 * clampScale($paperTextScale.scale.sidebar)));
   // One shared scrollbar; only the visible rows mount for a large project.
-  function visible(items: Item[], offset: number) {
+  function visible(items: Item[], offset: number, rowH: number) {
     if (items.length < 250) return { rows: items, before: 0, after: 0 };
-    const first = Math.max(0, Math.min(items.length, Math.floor((scrollY - offset) / 30) - 8));
-    const last = Math.max(first, Math.min(items.length, Math.ceil((scrollY + scrollHeight - offset) / 30) + 8));
-    return { rows: items.slice(first,last), before: first * 30, after: (items.length-last) * 30 };
+    const first = Math.max(0, Math.min(items.length, Math.floor((scrollY - offset) / rowH) - 8));
+    const last = Math.max(first, Math.min(items.length, Math.ceil((scrollY + scrollHeight - offset) / rowH) + 8));
+    return { rows: items.slice(first,last), before: first * rowH, after: (items.length-last) * rowH };
   }
-  const docWindow = $derived(visible(docItems, 36));
-  const contextWindow = $derived(visible(contextItems, 74 + docItems.length * 30));
+  const docWindow = $derived(visible(docItems, 36, ROW_H));
+  const contextWindow = $derived(visible(contextItems, 74 + docItems.length * ROW_H, ROW_H));
   const targetFolder = $derived(selectedFolder || root);
 
   function startDrag(e: PointerEvent, path: string) {
@@ -167,7 +174,7 @@
 </aside>
 
 <style>
-  .docpicker { display:flex; flex-direction:column; min-height:0; height:100%; color:var(--c-tx); }
+  .docpicker { display:flex; flex-direction:column; min-height:0; height:100%; color:var(--c-tx); --dp-row: calc(30px * var(--ts-scale)); }
   .dp-scroll { flex:1; min-height:0; overflow:auto; padding:6px; }
   ul { list-style:none; padding:0; margin:0; }
   li { margin:0; }
@@ -177,7 +184,7 @@
   .dp-folder { display:flex; align-items:center; padding-left:calc(var(--depth) * 14px); border-radius:var(--r-1); }
   .dp-head { margin-top:8px; font-weight:600; font-size:var(--ts-sm); }
   .dp-head:first-child { margin-top:0; }
-  .folder-label { display:flex; gap:6px; align-items:center; flex:1; min-width:0; text-align:left; height:30px; padding:0 5px; }
+  .folder-label { display:flex; gap:6px; align-items:center; flex:1; min-width:0; text-align:left; height:var(--dp-row); padding:0 5px; }
   .folder-label span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .folder-label svg { flex:none; color:var(--c-tx-faint); }
   .folder-label svg:first-child.open { transform:rotate(90deg); }
@@ -186,7 +193,7 @@
   .dp-head .folder-action { opacity:1; }
   .drop-target { background:var(--c-ui-hover); box-shadow:inset 0 0 0 2px var(--c-accent); }
   .dp-row { display:flex; align-items:center; padding-left:calc(16px + var(--depth) * 14px); min-width:0; }
-  .dp-item { display:flex; align-items:center; flex:1; min-width:0; gap:7px; text-align:left; height:30px; padding:4px 6px; font-size:var(--ts-sm); }
+  .dp-item { display:flex; align-items:center; flex:1; min-width:0; gap:7px; text-align:left; height:var(--dp-row); padding:4px 6px; font-size:var(--ts-sm); }
   .doc-icon { flex:none; color:var(--c-tx-faint); }
   .dp-item.active { background:var(--c-ui-hover); color:var(--c-tx-hi); font-weight:600; }
   .dp-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

@@ -45,6 +45,14 @@ export interface PaperCmdCtx {
   closeAllPanes(): void;
   widerMargin(): void;
   narrowerMargin(): void;
+  /** Text size: step the scoped panels one rung of the ladder (+1 / −1). */
+  textScaleStep(dir: 1 | -1): void;
+  /** Text size: back to 100% for the scoped panels. */
+  textScaleReset(): void;
+  /** Current readout, for the palette row titles ("Bigger text (110%)"). */
+  textScalePercent(): number;
+  /** Human summary of the scoped panels, for the palette hint. */
+  textScaleScope(): string;
   rerollBgSeed(): void;
   foldSection(): void;
   unfoldSection(): void;
@@ -90,13 +98,15 @@ export function chordHint(chord: string): string {
   const mods = new Set(parts.slice(0, -1));
   const key = code.startsWith("Key")
     ? code.slice(3)
-    : code === "Backquote"
-      ? "`"
-      : code === "Minus"
-        ? "−"
-        : code === "Equal"
-          ? "="
-          : code;
+    : code.startsWith("Digit")
+      ? code.slice(5)
+      : code === "Backquote"
+        ? "`"
+        : code === "Minus" || code === "NumpadSubtract"
+          ? "−"
+          : code === "Equal" || code === "NumpadAdd"
+            ? "="
+            : code;
   if (mods.has("Mod")) return `${mods.has("Ctrl") ? "⌃" : ""}⌘${mods.has("Alt") ? "⌥" : ""}${mods.has("Shift") ? "⇧" : ""}${key}`;
   const prefix = `${mods.has("Ctrl") ? "⌃" : ""}${mods.has("Alt") ? "Alt+" : ""}${mods.has("Shift") ? "⇧" : ""}`;
   return `${prefix}${key}`;
@@ -262,6 +272,37 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
   { id: "table-align", title: () => "Table: cycle column alignment", hint: CM_HINTS.tableAlign, keywords: "table align left center right column", owner: "cm", run: (c) => c.tableCmd("align") },
   { id: "table-format", title: () => "Table: format (align the pipes)", hint: "Table", keywords: "table format tidy align pipes pretty", owner: "none", run: (c) => c.tableCmd("format") },
   { id: "paste-as-table", title: () => "Paste as table (TSV/CSV)", hint: "Table", keywords: "table paste csv tsv excel sheets convert clipboard", owner: "none", run: (c) => c.pasteAsTable() },
+  // ---- text size -------------------------------------------------------
+  // Ctrl+/− and Ctrl+0 are the universal "resize the text" chords, and Paper
+  // owns them: the Electron View menu's zoomIn/zoomOut/resetZoom roles were
+  // dropped (appLifecycle.cjs) because a menu accelerator fires in the browser
+  // process and the renderer never sees the key. Mod+Shift+Equal is the same
+  // physical key as Ctrl++ on US layouts; the Numpad pair covers keyboards that
+  // put +/− there. The scope (which panels) is the status-bar popover's job.
+  {
+    id: "text-bigger",
+    title: (c) => `Bigger text (${c.textScalePercent()}%)`,
+    keys: ["Mod+Equal", "Mod+Shift+Equal", "Mod+NumpadAdd"],
+    owner: "window",
+    keywords: "text size zoom font bigger larger increase scale",
+    run: (c) => c.textScaleStep(1),
+  },
+  {
+    id: "text-smaller",
+    title: (c) => `Smaller text (${c.textScalePercent()}%)`,
+    keys: ["Mod+Minus", "Mod+NumpadSubtract"],
+    owner: "window",
+    keywords: "text size zoom font smaller decrease shrink scale",
+    run: (c) => c.textScaleStep(-1),
+  },
+  {
+    id: "text-reset",
+    title: (c) => `Reset text size to 100% (${c.textScaleScope()})`,
+    keys: ["Mod+Digit0"],
+    owner: "window",
+    keywords: "text size zoom font reset default 100 scale",
+    run: (c) => c.textScaleReset(),
+  },
   { id: "margin-wider", title: () => "Wider side panel", hint: "Layout", keywords: "margin panel resize grow", owner: "none", run: (c) => c.widerMargin() },
   { id: "margin-narrower", title: () => "Narrower side panel", hint: "Layout", keywords: "margin panel resize shrink", owner: "none", run: (c) => c.narrowerMargin() },
   // One row instead of the old per-format trio: format and journal style are

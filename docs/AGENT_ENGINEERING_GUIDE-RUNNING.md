@@ -451,6 +451,24 @@ Persistence invariants (all machine-checked — do not weaken):
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
+  **Text size is REAL type, per panel** (2026-09-12): Paper's three panels (editor column,
+  left sidebar, dynamic margin) each carry a `--ts-scale` and the `.ts-scaled` class; the
+  status-bar slider (± buttons + a percentage readout that opens the scope popover) and
+  Ctrl+=/Ctrl+−/Ctrl+0 drive whichever panels the user ticked, persisted in
+  `flux.paper.textScale`. Arithmetic lives in the pure `view-mode/paperTextScale.ts`
+  (ladder, clamp, scope — the scope can never be emptied); the store beside it is
+  persistence only. Three things are load-bearing: the scale must never become a CSS
+  `transform` (the text has to re-wrap and the 72ch measure has to move with it), the
+  editor theme's px sizes ride `calc(<n>px * var(--ts-scale, 1))` so the manuscript's own
+  type follows, and a font-size change must `view.requestMeasure()` or CodeMirror keeps the
+  old line heights. Chrome nested inside a scaled panel (the status bar, its popover) opts
+  back out with `.ts-scaled` + `--ts-scale: 1`. Any fixed row height in a scaled panel has
+  to scale too — the Documents list's 30px row is `calc(30px * var(--ts-scale))` in CSS and
+  the same number in its virtual-window arithmetic. THE ELECTRON COROLLARY: the View menu
+  carries no `zoomIn`/`zoomOut`/`resetZoom` roles, because a menu accelerator is consumed in
+  the browser process and the renderer would never see Ctrl+/−/0 (verify-w6-flush §4 pins
+  it). Gates: `verify-paper-textscale.ts` (pure) + `verify-paper-textsize-gui.mjs` (ui,
+  paper-gate), and `src/styles/tokens.css` maps to both.
   **Local corrections** (2026-08-04, contextual lane 2026-08-05) live in
   `editing/localCorrections.ts`: an abbreviation-aware shared segmenter schedules a
   completed-word lane and a separate completed-sentence lane. Both lint through the dedicated
@@ -883,6 +901,20 @@ chord or label changes, grep `docs/` for the old one.
   selector in `verify-figure-controls-gui.mjs` found Paper's hidden handle and dragged the
   visible Figure canvas at its coordinates, falsely reporting a broken Figure rail.
 
+**CSS custom properties:**
+
+- **A custom property's `var()`s are substituted at computed-value time on the element that
+  DECLARES it, not where it is used.** So `:root { --s: 1; --ts-xs: calc(11px * var(--s)) }`
+  computes `--ts-xs` to `calc(11px * 1)` once, and a descendant setting `--s: 2` inherits that
+  frozen value — the "container-level multiplier" pattern silently does nothing (measured in
+  Chrome: 11px in both subtrees). The fix is to re-declare the derived tokens for the scaled
+  container too — one block, two selectors: `:root, .ts-scaled { --ts-xs: calc(11px * var(--ts-scale)); … }`
+  (tokens.css). Anything carrying `.ts-scaled` then re-derives the whole scale from its own
+  `--ts-scale`. Corollary for probes: `getComputedStyle(el).getPropertyValue("--ts-sm")` returns
+  the substituted TOKEN STREAM (`calc(12.5px * 2)`), never a resolved length — `parseFloat` it
+  and you get `NaN`, which CDP serializes to `null`. Measure a real element's `fontSize`
+  instead.
+
 **Svelte 5 legacy syntax:**
 
 - A `$:` block that reads **and** reassigns the same `let` is self-dependent — it re-runs until
@@ -939,6 +971,15 @@ days (probe geometry like `width` instead).
   (`process.platform === "darwin" ? "Meta" : "Control"`); the same applies to the several
   ui gates that press `Control` for Ctrl+Z etc. — those work only because keyboard.ts reads
   `metaKey || ctrlKey`.
+- **On Windows the runner cannot start its own dev server.** `run-verifies.mjs` spawns
+  `npm run dev` without `shell: true`, and Windows has no bare `npm` executable — the spawn
+  dies with `ENOENT (spawn npm)` and every browser gate in the run then fails for want of
+  :1420. The tell is an otherwise inexplicable wall of ui failures right after a run where the
+  port was free. Start `npm run dev` yourself first (the runner reuses a server that is
+  already listening, which is why the problem is invisible whenever one happens to be up).
+  A second Windows-only tell: restarting the dev server can leave a stale dep-optimizer cache,
+  and Paper then mounts to a blank pane with `504 (Outdated Optimize Dep)` in the console —
+  `rm -rf node_modules/.vite` and restart.
 - Delegated worktree agents fork from the **default branch**, not your branch. Give them an
   explicit `git reset --hard <sha>` as step one, and expect to reconcile your in-flight deltas
   when merging their result.
@@ -4358,3 +4399,30 @@ checks pass. Updated the selection contract and user guide.
 
 **Learnings:** Keep hit geometry behind semantic artwork and inherit the scene's pointer
 policy; explicit pointer-events overrides can make hidden presentation objects interactive.
+
+### 2026-09-12 — Paper text size: a per-panel slider and Ctrl+/− (Claude Opus 5, `main`)
+
+**Work:** Added a text-size control to Paper's status bar (− / slider / + / a percentage
+readout that opens a scope popover with a checkbox per panel) plus Ctrl+=, Ctrl+−, Ctrl+0,
+all scoped to whichever of the three panels the user ticked and persisted in
+`flux.paper.textScale`. The mechanism is `--ts-scale` + the `.ts-scaled` class over a
+re-declared type-scale block in tokens.css, so the type genuinely re-lays-out rather than
+being transform-scaled. Gates: `verify-paper-textscale.ts` (62 checks, pure) and
+`verify-paper-textsize-gui.mjs` (36 checks, ui/paper-gate, all measured as computed type and
+layout height). Check 0/0, production build, paper-gate 44/46 and pure 178/204 — every
+failure in both is pre-existing on this Windows box and reproduces identically on a clean
+tree (path-separator assertions, the absent packaged correction runtime, `vite preview` not
+coming up for verify-startup).
+**Learnings:**
+
+- Promoted the custom-property substitution trap to §9 — it is the whole reason the feature
+  needs a class rather than plain inheritance, and the broken version compiles, renders, and
+  looks correct until you measure it.
+- A menu accelerator in Electron is consumed in the browser process, so the renderer cannot
+  own a chord the menu also claims. Dropping the zoom roles is the only way Ctrl+/− reaches
+  Paper on macOS and in dev; §4 and verify-w6-flush now say so.
+- A checkbox whose change the model REFUSES keeps showing the refused value — nothing
+  re-renders, because nothing changed. Re-assert the truth on the element in the handler,
+  using the same pure function the parent will apply.
+- Scaling a panel exposes every fixed row height in it; a virtualized list needs the row
+  height in CSS and in its window arithmetic to move together.
