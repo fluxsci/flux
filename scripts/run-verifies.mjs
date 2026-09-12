@@ -139,17 +139,43 @@ async function ensureServer() {
     return;
   }
   console.log("· starting dev server (npm run dev)…");
-  ownedServer = spawn("npm", ["run", "dev"], { cwd: repoRoot, stdio: "ignore", detached: true });
+  // Windows has no bare `npm` executable — only npm.cmd — so an unshelled spawn dies
+  // with ENOENT and every browser gate in the run then fails for want of :1420, which
+  // reads as a mass regression rather than a missing server. `shell: true` resolves it
+  // through PATHEXT; the spawn error is also surfaced instead of being swallowed.
+  ownedServer = spawn("npm", ["run", "dev"], {
+    cwd: repoRoot,
+    stdio: "ignore",
+    detached: process.platform !== "win32",
+    shell: process.platform === "win32",
+  });
+  let spawnError = null;
+  ownedServer.on("error", (e) => {
+    spawnError = e;
+  });
   for (let i = 0; i < 120; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (await serving()) return;
+    if (spawnError) break;
     if (ownedServer.exitCode !== null) break;
   }
-  throw new Error(`dev server did not become reachable at ${APP_URL}`);
+  throw new Error(
+    `dev server did not become reachable at ${APP_URL}` +
+      (spawnError ? ` — could not start it: ${spawnError.message}. Start \`npm run dev\` yourself and re-run.` : ""),
+  );
 }
 
 function stopServer() {
   if (!ownedServer || ownedServer.exitCode !== null) return;
+  // win32 has no process groups and the shell wrapper is not the vite process, so a
+  // negative-pid signal throws and would leave :1420 held for the next run. taskkill
+  // /T walks the tree from the shell down to vite.
+  if (process.platform === "win32") {
+    try {
+      spawn("taskkill", ["/pid", String(ownedServer.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {}
+    return;
+  }
   try {
     process.kill(-ownedServer.pid, "SIGTERM");
   } catch {}

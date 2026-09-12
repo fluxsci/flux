@@ -131,4 +131,36 @@ const names = (b: Uint8Array) => Object.keys(unzipSync(b));
   h.ok(s3.width >= 1 && s3.height >= 1, "…and never collapses to zero");
 }
 
+// ---- the HEADLESS engine really can rasterize, and compile really wires it ------
+// flux-core has no canvas, so it rides the out-of-process resvg child that every other
+// headless rasterization uses. Hermetic: a local node_module and a child process, no
+// network and no machine state. If resvg is unavailable (packaged build, per its
+// shipping note in render.ts) the pass reports `failed` instead of corrupting anything,
+// which the stubbed section above already pins.
+{
+  const { rasterizeSvgToPng } = await import("../flux-core/render");
+  let png: Buffer | null = null;
+  try {
+    png = await rasterizeSvgToPng(SVG, 240);
+  } catch (e) {
+    h.ok(false, `the headless rasterizer runs (${(e as Error).message})`);
+  }
+  if (png) {
+    h.ok(png.length > 100, `it produces real PNG bytes (${png.length})`);
+    h.ok(png[0] === 0x89 && png[1] === 0x50 && png[2] === 0x4e && png[3] === 0x47, "…with a PNG signature");
+    const width = png.readUInt32BE(16);
+    const height = png.readUInt32BE(20);
+    h.ok(width === 240, `…at the exact width asked for (${width})`);
+    h.ok(height === 180, `…preserving the viewBox aspect ratio (${height})`);
+  }
+
+  const { readFileSync } = await import("node:fs");
+  const compile = readFileSync(new URL("../flux-core/manuscript.ts", import.meta.url), "utf8");
+  h.ok(
+    /addSvgRasterFallbacks/.test(compile) && /rasterizeSvgToPng/.test(compile),
+    "headless compile wires the same shared core, with its own rasterizer injected",
+  );
+  h.ok(/svgFallbacks/.test(compile), "…and reports what it did in the compile summary");
+}
+
 await h.done();

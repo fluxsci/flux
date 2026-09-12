@@ -45,6 +45,9 @@ await core.scaffold(TMP, { title: "RegParity" });
 function runCli(args: string[], env: Record<string, string> = {}): Promise<{ out: string; err: string; code: number }> {
   return new Promise((res) => {
     const c = spawn("npx", ["tsx", "flux-cli.ts", ...args], {
+      // win32 has no bare `npx` executable (only npx.cmd) — an unshelled spawn dies
+      // ENOENT, which surfaces as this whole gate failing for an environment reason.
+      shell: process.platform === "win32",
       cwd: REPO,
       env: { ...process.env, FLUX_NO_MIGRATE: "1", ...env },
       stdio: ["ignore", "pipe", "pipe"],

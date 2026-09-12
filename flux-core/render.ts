@@ -197,13 +197,16 @@ const req = createRequire(process.env.FLUX_RESVG_FROM);
 const { Resvg } = req("@resvg/resvg-js");
 const chunks = [];
 for await (const c of process.stdin) chunks.push(c);
+const width = Number(process.env.FLUX_RESVG_WIDTH) || 0;
 const r = new Resvg(Buffer.concat(chunks).toString("utf8"), {
-  fitTo: { mode: "zoom", value: Number(process.env.FLUX_RESVG_SCALE) || 1 },
+  fitTo: width
+    ? { mode: "width", value: width }
+    : { mode: "zoom", value: Number(process.env.FLUX_RESVG_SCALE) || 1 },
 });
 process.stdout.write(r.render().asPng());
 `;
 
-async function rasterizePng(svg: string, scale: number): Promise<Buffer> {
+async function rasterizePng(svg: string, scale: number, width = 0): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--input-type=module", "-e", RASTER_CHILD], {
       // Resolve @resvg/resvg-js from THIS module's location — works from the
@@ -211,7 +214,12 @@ async function rasterizePng(svg: string, scale: number): Promise<Buffer> {
       // is present. NOTE: resvg is deliberately NOT shipped/asarUnpacked in the
       // packaged app (native raster stays out of the app process), so render-figure
       // is a checkout/CLI-with-node_modules capability, not a packaged-binary one.
-      env: { ...process.env, FLUX_RESVG_FROM: import.meta.url, FLUX_RESVG_SCALE: String(scale) },
+      env: {
+        ...process.env,
+        FLUX_RESVG_FROM: import.meta.url,
+        FLUX_RESVG_SCALE: String(scale),
+        FLUX_RESVG_WIDTH: String(width),
+      },
       stdio: ["pipe", "pipe", "pipe"],
     });
     const out: Buffer[] = [];
@@ -234,6 +242,19 @@ async function rasterizePng(svg: string, scale: number): Promise<Buffer> {
     child.stdin.on("error", () => {}); // child died before reading — close() reports it
     child.stdin.end(svg);
   });
+}
+
+/** Rasterize arbitrary SVG text to PNG at an exact pixel width — the headless
+ *  counterpart of the renderer's canvas rasterizer, used to give a .docx's SVG
+ *  pictures the raster fallback Word requires (docxSvgFallback.ts).
+ *
+ *  Rides the same out-of-process resvg child as every other rasterization here, so a
+ *  pathological SVG cannot take the CLI down with it. NOTE the same shipping
+ *  constraint as renderFigurePng: resvg is deliberately not packed into the app
+ *  bundle, so this is a checkout / CLI-with-node_modules capability. Callers treat a
+ *  throw as "no fallback for this picture" and carry on. */
+export async function rasterizeSvgToPng(svg: string, width: number): Promise<Buffer> {
+  return rasterizePng(svg, 1, Math.max(1, Math.round(width)));
 }
 
 /** Best-effort bisect after a failed figure rasterization: re-render the figure

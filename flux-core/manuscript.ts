@@ -210,6 +210,11 @@ export interface CompileSummary {
   /** Present when live Zotero fields were requested and written. `notesPlain` counts
    *  footnote/endnote citations, which stay displayed text rather than live fields. */
   zotero?: { citations: number; bound: number; embedded: number; notesPlain: number; style: string };
+  /** docx only. Word paints nothing for an SVG picture with no raster fallback, which
+   *  is all pandoc can emit without rsvg-convert on PATH — so each one gets a PNG
+   *  spliced in. `failed` names pictures left as-is (no rasterizer available in a
+   *  packaged build, or an SVG resvg could not render). */
+  svgFallbacks?: { added: number; failed: string[] };
 }
 
 /** Citation keys used in a qmd (Quarto/pandoc `@key` syntax), excluding
@@ -386,6 +391,30 @@ export async function compile(
     resolved: used.filter((k) => bibKeys.has(k)).length,
     missing: used.filter((k) => !bibKeys.has(k)),
   };
+  // Word paints NOTHING for an SVG picture whose blip carries no raster fallback, and
+  // pandoc can only produce one with rsvg-convert on PATH — so a bare `quarto render`
+  // hands the reader a document whose figures are silently absent. Splice the raster
+  // in, exactly as the GUI export does; the shared core is the same module, with this
+  // engine's rasterizer injected. Never fatal: the .docx on disk is still the ordinary
+  // one, and `failed` says which pictures kept no fallback.
+  let svgFallbacks: CompileSummary["svgFallbacks"];
+  if (to === "docx" && output && code === 0) {
+    try {
+      const { addSvgRasterFallbacks } = await import("../src/lib/references/docxSvgFallback.js");
+      const { rasterizeSvgToPng } = await import("./render.js");
+      const { bytes, report } = await addSvgRasterFallbacks(
+        new Uint8Array(await fs.readFile(output)),
+        async (svg, width) => new Uint8Array(await rasterizeSvgToPng(svg, width)),
+      );
+      if (report.added) await fs.writeFile(output, bytes);
+      svgFallbacks = { added: report.added, failed: report.failed };
+      if (report.failed.length)
+        log += `\n⚠ ${report.failed.length} figure(s) may not display in Word (no raster fallback).`;
+    } catch (e) {
+      log += `\n⚠ Figures may not display in Word: ${(e as Error).message}`;
+    }
+  }
+
   // Live Zotero fields: rewrite the rendered .docx so its citations and reference list
   // are Word fields Zotero owns, rather than text citeproc baked in. The markers the
   // prep wrote name each citation's keys; without them there is nothing to identify.
@@ -425,5 +454,5 @@ export async function compile(
     }
   }
 
-  return { code, log: log + note, output, figures, citations, zotero };
+  return { code, log: log + note, output, figures, citations, zotero, svgFallbacks };
 }

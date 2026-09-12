@@ -971,12 +971,13 @@ days (probe geometry like `width` instead).
   (`process.platform === "darwin" ? "Meta" : "Control"`); the same applies to the several
   ui gates that press `Control` for Ctrl+Z etc. — those work only because keyboard.ts reads
   `metaKey || ctrlKey`.
-- **On Windows the runner cannot start its own dev server.** `run-verifies.mjs` spawns
-  `npm run dev` without `shell: true`, and Windows has no bare `npm` executable — the spawn
-  dies with `ENOENT (spawn npm)` and every browser gate in the run then fails for want of
-  :1420. The tell is an otherwise inexplicable wall of ui failures right after a run where the
-  port was free. Start `npm run dev` yourself first (the runner reuses a server that is
-  already listening, which is why the problem is invisible whenever one happens to be up).
+- **`spawn("npm", …)` needs `shell: true` on Windows** — there is no bare `npm` executable,
+  only `npm.cmd`, so an unshelled spawn dies with `ENOENT` (measured: unshelled ENOENT,
+  `shell: true` exit 0). `run-verifies.mjs` hit exactly this starting its own dev server: the
+  spawn error was swallowed, every browser gate then failed for want of :1420, and it read as
+  a mass regression rather than a missing server. Fixed 2026-09-12 — `shell` on win32,
+  `taskkill /T` to tear the tree down (win32 has no process groups, so a negative-pid signal
+  throws and would strand the port), and the spawn error now reaches the thrown message.
   A second Windows-only tell: restarting the dev server can leave a stale dep-optimizer cache,
   and Paper then mounts to a blank pane with `504 (Outdated Optimize Dep)` in the console —
   `rm -rf node_modules/.vite` and restart.
@@ -4516,3 +4517,27 @@ from info to error — a figure without a render simply is not in the document.
 bisect against the consuming application (Word over COM, pandoc directly), and re-measure after
 each hypothesis — three plausible causes were wrong here before the real ones surfaced, and two
 of them looked entirely sufficient on inspection.
+
+### 2026-09-12 (end) — Headless compile gets the raster fallback too (Claude Opus 5, `main`)
+
+**Work:** Closed the gap left by the previous entry: `compile` now applies the same
+`docxSvgFallback` core with flux-core's out-of-process resvg child injected as its rasterizer,
+so an agent- or CLI-driven Word export carries figures Word will actually paint. Also fixed
+`run-verifies.mjs`'s inability to start its own dev server on Windows.
+**Learnings:**
+
+- The twin-engine rule does not require both engines to have the same CAPABILITIES, only to
+  share the LOGIC. Here the OPC surgery is one shared module and the rasterizer is injected —
+  canvas in the renderer, the resvg child headless — which is why one pure gate can cover the
+  decision with a stub and still pin both engines' wiring.
+- resvg is deliberately not packed into the app bundle (render.ts says so), so the headless
+  fallback is a checkout/CLI-with-node_modules capability. It reports `failed` rather than
+  degrading silently — the same contract the renderer path has.
+- The same `spawn` defect was in `verify-registry-parity.ts`, `verify-w3-locks.ts` and
+  `release-check.mjs`; all four are fixed. **Unblocking them exposed real failures that the
+  ENOENT had been hiding** — w3-locks now PASSES, but registry-parity fails three genuine
+  assertions on win32 (`flux help matches the golden text`, the `reindex` CLI/MCP string, and
+  `ghost_transform succeeds on both actual surfaces`, which returns empty stdout). Confirmed
+  pre-existing: the identical three fail with the flux-core changes reverted. They are NOT
+  golden-regeneration candidates until someone establishes why the surfaces disagree — an
+  environment-masked gate is exactly how a stale golden survives unnoticed.

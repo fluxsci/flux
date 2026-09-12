@@ -69,7 +69,11 @@ for (const [label, cwd] of [
     ok(false, `${label}: package-lock.json present`);
     continue;
   }
-  const res = spawnSync("npm", ["audit", "--audit-level=high", "--json"], { encoding: "utf8", cwd });
+  const res = spawnSync("npm", ["audit", "--audit-level=high", "--json"], {
+    encoding: "utf8",
+    cwd,
+    shell: process.platform === "win32", // no bare npm executable there
+  });
   let counts = null;
   try {
     counts = JSON.parse(res.stdout || "{}").metadata?.vulnerabilities ?? null;
@@ -129,7 +133,11 @@ ok(
   "bundle verify tier passes (verify-w13-cli)",
 );
 ok(
-  spawnSync("npx", ["tsx", "scripts/verify-r3-agent.ts"], { stdio: "inherit", cwd: root }).status === 0,
+  spawnSync("npx", ["tsx", "scripts/verify-r3-agent.ts"], {
+    stdio: "inherit",
+    cwd: root,
+    shell: process.platform === "win32",
+  }).status === 0,
   "MCP handshake passes against dev + built bundle (verify-r3-agent)",
 );
 

@@ -32,6 +32,8 @@ const libUrl = pathToFileURL(path.resolve("flux-core/fluxlib.ts")).href;
 function run(script: string, args: string[]): Promise<{ code: number; err: string }> {
   return new Promise((res) => {
     const c = spawn("npx", ["tsx", script, ...args], {
+      // win32 has no bare `npx` executable (only npx.cmd) — see verify-registry-parity.
+      shell: process.platform === "win32",
       stdio: ["ignore", "ignore", "pipe"],
       cwd: path.resolve("."),
     });
