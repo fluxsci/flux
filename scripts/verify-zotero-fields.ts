@@ -14,6 +14,7 @@ import {
   matchUri,
   countMatches,
   stripZoteroMarkers,
+  spanCrossesElementBoundary,
   DEFAULT_STYLE,
   type CslRecord,
   type ZoteroLibraryIndex,
@@ -229,6 +230,47 @@ const INDEX: ZoteroLibraryIndex = {
   assert(!fnXml.includes("ADDIN"), "…as plain text, not a field (untested against real Zotero — deliberate)");
   assert(report.notesPlain === 1, "the demotion is reported (notesPlain)");
   assert(report.citations === 1, "body citations still become fields alongside a footnote demotion");
+}
+
+// ---- a field must never STRADDLE an element (the unopenable-docx bug) --------
+// Found 2026-09-12 from two real exports Word refused with its generic "experienced an
+// error" dialog. The markers are placed in MARKDOWN but the field is emitted against
+// pandoc's OUTPUT: a figure whose render was missing degraded from an image to a plain
+// link, so a caption pandoc had been folding into an image alt slot came back as
+// <w:hyperlink> link text — open marker outside it, close marker inside. The emitted
+// field's `end` then sat inside a hyperlink its `begin` sat outside of.
+//
+// The tell that makes this worth a gate: field characters still BALANCE globally in
+// such a file (72 begin / 72 separate / 72 end in the real one), every part is
+// well-formed XML, and the container is a valid zip — only the NESTING is wrong, and
+// Word names neither the part nor the position. Bisected against Word itself via COM.
+{
+  assert(!spanCrossesElementBoundary(`${RUN("a")}${RUN("b")}`), "plain sibling runs nest fine");
+  assert(!spanCrossesElementBoundary("<w:hyperlink><w:r><w:t>x</w:t></w:r></w:hyperlink>"), "a wholly-contained element nests fine");
+  assert(spanCrossesElementBoundary("<w:r><w:t>x</w:t></w:r><w:hyperlink><w:r><w:t>y</w:t></w:r>"), "an unclosed element is a straddle");
+  assert(spanCrossesElementBoundary("<w:r><w:t>x</w:t></w:r></w:hyperlink>"), "a stray close tag is a straddle");
+  assert(!spanCrossesElementBoundary('<w:r><w:br/><w:t>x</w:t></w:r>'), "self-closing tags do not unbalance a span");
+
+  // End to end: the close marker lands INSIDE a hyperlink the open marker precedes.
+  const straddle =
+    `<w:p>${RUN("See ")}${RUN("⟦ZC{bound_2005}⟧")}${RUN("Figure 1 | caption ")}` +
+    `<w:hyperlink r:id="rId9">${RUN("(Bound, 2005)")}${RUN("⟦ZE⟧")}${RUN(" tail")}</w:hyperlink></w:p>` +
+    bibParagraph(1, "b");
+  const { bytes, report } = injectZoteroFields(docx(straddle), { items: ITEMS, styleId: "http://x/apa", index: INDEX });
+  const xml = doc(bytes);
+  assert(report.straddlePlain === 1, "the straddling citation is demoted and reported (straddlePlain)");
+  assert(!xml.includes("⟦"), "no marker survives the demotion");
+  assert(xml.includes("(Bound, 2005)"), "its displayed text is preserved");
+
+  // The real assertion: no field character may sit inside the hyperlink while its
+  // partner sits outside. Checking counts alone would have passed the shipped bug.
+  const link = /<w:hyperlink[^>]*>([\s\S]*?)<\/w:hyperlink>/.exec(xml);
+  assert(!!link, "the hyperlink survives");
+  assert(!link![1].includes("w:fldChar"), "no field character is left stranded inside the hyperlink");
+  const begins = (xml.match(/fldCharType="begin"/g) ?? []).length;
+  const ends = (xml.match(/fldCharType="end"/g) ?? []).length;
+  assert(begins === ends, "field characters still balance");
+  assert(begins === 1, "only the bibliography field remains — the straddling one was not written");
 }
 
 // ---- markers never survive; unresolved citations stay text ------------------

@@ -72,6 +72,10 @@ export interface InjectReport {
    *  Word fields there are untested against real Zotero, so they are deliberately
    *  not written (a follow-up needs its own Word round trip). */
   notesPlain: number;
+  /** Citations whose marked span crossed an element boundary (a pandoc-rendered
+   *  hyperlink, most often) — demoted to displayed text rather than emitted as a
+   *  field that straddles that element. See spanCrossesElementBoundary. */
+  straddlePlain: number;
   missingFromItems: string[];
   bibliographyEntries: number;
   bookmarksRemoved: number;
@@ -417,6 +421,43 @@ function buildPayload(
   };
 }
 
+/** True when `xml` opens an element it does not close, or closes one it never opened
+ *  — i.e. the span STRADDLES an element boundary instead of nesting inside it.
+ *
+ *  This is the guard that keeps the export openable. A Word field is three runs
+ *  (begin / separate / end) wrapped around its displayed result, and those runs must
+ *  be SIBLINGS: a field whose `end` lands inside an element its `begin` sits outside
+ *  of is structurally invalid, and Word refuses the whole document with a generic
+ *  "Word experienced an error trying to open the file" — no indication of where.
+ *  Field characters still BALANCE globally in that file, so counting them finds
+ *  nothing; only the nesting is wrong.
+ *
+ *  It happens because the markers are placed in MARKDOWN (markCitations) but the
+ *  field is emitted against pandoc's OUTPUT, and the two do not always have the same
+ *  shape. The case that shipped: a figure whose render is missing degrades from an
+ *  image to a plain link, so the caption pandoc had been folding into an image alt
+ *  slot — bare-marked on purpose, see markCitations — comes back as `<w:hyperlink>`
+ *  link text, with the citation's open marker outside it and its close marker inside.
+ *  markCitations cannot see that; it is a property of the render, not the source.
+ *
+ *  Deliberately a whole-fragment balance check rather than a `<w:hyperlink>` one: any
+ *  paired inline container (`w:sdt`, `w:ins`, `w:smartTag`, a future one) breaks a
+ *  field the same way. Erring toward "imbalanced" is the safe direction — a false
+ *  positive leaves one citation as baked text, which is already the documented
+ *  outcome for citations inside links; a false negative ships a corrupt document. */
+export function spanCrossesElementBoundary(xml: string): boolean {
+  const stack: string[] = [];
+  for (const m of xml.matchAll(/<(\/?)([A-Za-z][\w:.-]*)[^>]*?(\/?)>/g)) {
+    if (m[3] === "/") continue; // self-closing
+    if (m[1] === "/") {
+      if (stack.pop() !== m[2]) return true; // closes something opened outside the span
+    } else {
+      stack.push(m[2]);
+    }
+  }
+  return stack.length > 0; // opens something closed outside the span
+}
+
 /** A Word field: begin, instruction, separate, the displayed result, end. */
 function fieldRuns(instruction: string, displayedRuns: string): string {
   return (
@@ -442,6 +483,14 @@ function wrapCitations(
     const keys = m[1].split(",").filter(Boolean);
     const middle = m[2];
     const displayed = xmlUnescape([...middle.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((t) => t[1]).join(""));
+    if (spanCrossesElementBoundary(middle)) {
+      // A field here would straddle that element and make the document unopenable.
+      // Demote to the displayed text, exactly as a citation inside a link already is.
+      report.straddlePlain++;
+      out.push(documentXml.slice(cursor, at), middle);
+      cursor = at + m[0].length;
+      continue;
+    }
     ordinal++;
     const { json, resolved } = buildPayload(keys, displayed, ordinal, opts, report);
     let preceding = documentXml.slice(cursor, at);
@@ -590,6 +639,7 @@ export function injectZoteroFields(
     embedded: 0,
     skipped: 0,
     notesPlain: 0,
+    straddlePlain: 0,
     missingFromItems: [],
     bibliographyEntries: 0,
     bookmarksRemoved: 0,

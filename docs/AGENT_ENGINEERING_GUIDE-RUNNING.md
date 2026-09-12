@@ -1007,6 +1007,31 @@ in the owner's real 1669-entry library):
 - A gate that only *prints* a boolean has no teeth. `verify-f1-core.ts` reports by exit code, so
   the containment check must `throw`. Prove any new gate fails by reverting the fix under it.
 
+**A Word field must never STRADDLE an element** (`zoteroFields.ts`, found 2026-09-12 from two
+real exports Word refused):
+
+- A field is three runs — `begin` / `separate` / `end` — around its displayed result, and they
+  must be SIBLINGS. A field whose `end` lands inside an element its `begin` sits outside of
+  makes the whole document unopenable, and Word says only *"Word experienced an error trying to
+  open the file"* — no part, no position. Everything cheap reads CLEAN in such a file: the zip
+  is valid, every part is well-formed XML, every content type and relationship resolves, and the
+  field characters still BALANCE globally (72/72/72 in the real one). Only the nesting is wrong.
+- The cause is structural, not a typo: citation markers are placed in MARKDOWN (`markCitations`)
+  but the field is emitted against pandoc's OUTPUT, and the two do not always have the same
+  shape. Here a figure whose render was missing degraded from an image to a plain link, so the
+  caption pandoc had been folding into an image alt slot — bare-marked on purpose — came back as
+  `<w:hyperlink>` link text with the open marker outside it and the close marker inside.
+  `markCitations` cannot see that; it is a property of the render. The guard therefore belongs in
+  the injector, which is the only place that sees the real structure:
+  `spanCrossesElementBoundary` demotes such a citation to displayed text (already the documented
+  outcome for citations inside links) instead of writing an invalid field.
+- **Word itself is an available oracle on Windows** and turns this class of bug from guesswork
+  into a bisect: drive `New-Object -ComObject Word.Application` with `Visible=$false`,
+  `DisplayAlerts=0`, and `Documents.Open` in a try/catch — it reports the exact dialog text per
+  file. Rebuild candidate variants of the failing document, ask Word which one opens, and narrow.
+  That is how this was found; a schema-shaped guess would have blamed the SVG or the relationship
+  target (both innocent — changing the target to a valid `https://` URL still failed).
+
 **Identifying a PDF from its own bytes** (`pdfIdentify.ts`; the 2026-08-06 inbox backlog):
 
 - **A PDF's `/Title` is production junk more often than it is a title.** Real values seen in one
@@ -4426,3 +4451,26 @@ coming up for verify-startup).
   using the same pure function the parent will apply.
 - Scaling a panel exposes every fixed row height in it; a virtualized list needs the row
   height in CSS and in its window arithmetic to move together.
+
+### 2026-09-12 (later) — Word refused every export: a field straddling a hyperlink (Claude Opus 5, `main`)
+
+**Work:** Two real `.docx` exports would not open in Word. Root cause: a Zotero citation field
+whose `begin`/`separate` sat outside a `<w:hyperlink>` and whose `end` sat inside it — the field
+overlapped the element instead of nesting in it. `spanCrossesElementBoundary` (zoteroFields.ts)
+now demotes such a citation to displayed text, which was already the documented outcome for
+citations inside links. Gated in verify-zotero-fields.ts (fails 3 assertions without the fix);
+both of the user's real files open in Word once the fix's outcome is applied.
+**Learnings:** promoted the contract and the Word-as-oracle technique to §9. Also:
+
+- The upstream trigger is still open: a figure whose render is missing at export time degrades
+  from an image to a plain link, and the export reports success with only an `info` toast. The
+  Word document silently loses the figure. Fix pending.
+- Two plausible theories were both wrong before the bisect found it — the SVG lacking a PNG
+  fallback, and the relationship target (repointing it at a valid `https://` URL still failed).
+  With a whole-document corruption, bisect against the real oracle; do not reason from the
+  schema and stop at the first defect that looks sufficient.
+- Writing patch scripts in Python: `` and `
+` inside a non-raw string become a literal
+  BACKSPACE and NEWLINE in the emitted TypeScript regex. One shipped a `<w:hyperlink^H[^>]*>`
+  pattern that silently matched nothing. Use raw strings, and grep the result for control
+  characters before trusting a generated edit.
