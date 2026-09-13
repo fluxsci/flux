@@ -47,3 +47,10 @@ extension/dist/
 # the previous), and verify-extension proves its contents match the current source.
 extension/signed/*
 !extension/signed/*.xpi
+
+# Throwaway Flux projects that gates scaffold into the repo root (verify-f1-core,
+# verify-f2-recipe, verify-f1-mcp, verify-registry-parity). They are regenerable
+# fixtures, never product, and a gate that THROWS never reaches its cleanup — so
+# they accumulate exactly when the suite is red. Ignored so a stray `git add -A`
+# cannot publish one.
+scratch-*/
