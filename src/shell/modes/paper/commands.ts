@@ -32,6 +32,7 @@ export interface PaperCmdCtx {
   toggleLocalWord(scope: "project" | "personal"): void;
   openLocalWordTools(): void;
   openFigurePicker(): void;
+  openSlidePicker?(): void;
   openFigRefPicker(): void;
   outlinerOpen(): boolean;
   toggleOutliner(): void;
@@ -208,6 +209,7 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
     owner: "cm",
     run: (c) => c.openLocalWordTools(),
   },
+  { id: "insert-slide", title: () => "Insert slide…", hint: "Insert", keywords: "deck presentation animation embed", owner: "none", run: c => c.openSlidePicker?.() },
   { id: "insert-figure", title: () => "Insert figure…", hint: "Insert", keywords: "image panel embed", owner: "none", run: (c) => c.openFigurePicker() },
   { id: "insert-figref", title: () => "Reference a figure…", hint: "@@", keywords: "crossref cross-reference cite figure panel fig", owner: "none", run: (c) => c.openFigRefPicker() },
   {

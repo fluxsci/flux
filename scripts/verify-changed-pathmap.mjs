@@ -31,13 +31,14 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
-  ["src/lib/Canvas.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure"]],
-  ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure"]],
-  ["src/lib/slide/player/player.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure"]],
-  ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure"]],
-  ["src/lib/figureReferences.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure"]],
-  ["src/lib/editorPresentation.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure"]],
-  ["src/lib/project/figureReferenceSync.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure"]],
+  ["src/lib/Canvas.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides"]],
+  ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides"]],
+  ["src/lib/slide/player/player.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides"]],
+  ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides"]],
+  ["src/lib/figureReferences.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides"]],
+  ["src/lib/editorPresentation.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides"]],
+  ["src/lib/project/figureReferenceSync.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides"]],
+  ["src/lib/project/documentExportLease.ts", ["verify-slide-embed-core.ts", "group:paper-gate"]],
   ["src/shell/ModeContent.svelte", ["verify-mode-cold-switch.mjs", "verify-keepalive.mjs", "verify-slide-tenancy-gui.mjs", "tier:pure"]],
   ["src/shell/modes/paper/PaperMode.svelte", ["group:paper-gate", "tier:pure"]],
   // The earlier paper rule must continue winning over the later documents rule.
@@ -61,6 +62,8 @@ const slideSelection = resolveChangedRuns(collectChangedRuns(["src/lib/slide/pla
 equal(slideSelection.scripts.includes("verify-slide-authoring-gui.mjs"), true, "slide changes select the authoring GUI gate");
 equal(slideSelection.scripts.includes("verify-slide-source-sync-gui.mjs"), true, "slide changes select the source synchronization GUI gate");
 equal(slideSelection.scripts.includes("verify-slide-ghost-gui.mjs"), true, "slide changes select the ghost authoring gate");
+equal(slideSelection.scripts.includes("verify-paper-slide-embeds.mjs"), true, "shared player changes select inline slide playback");
+equal(slideSelection.scripts.includes("verify-scale-paper-slide-embeds.mjs"), true, "shared player changes select inline slide performance");
 equal(slideSelection.diagnostics, [], "overhaul mapping has no unresolved references");
 
 // Isolate union/order/fallback from the real map, whose broad rules evolve.

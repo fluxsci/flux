@@ -52,7 +52,13 @@ function cspStrict(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [svelte(), pdfjsAssets(), cspStrict()],
+  plugins: [svelte(), pdfjsAssets(), cspStrict(), {
+    name: "flux-slide-embed-csp",
+    transformIndexHtml(html) {
+      const { csp } = JSON.parse(fs.readFileSync(path.resolve(".generated/slide-embed-assets.json"), "utf8"));
+      return html.replace("script-src 'self'", `script-src 'self' ${csp}`);
+    },
+  }],
 
   // Relative paths so the built bundle loads under Electron's file:// protocol.
   base: "./",

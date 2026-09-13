@@ -33,6 +33,9 @@ import type { FluxPlotManifest } from "../plot/types";
 import { ConflictError } from "../autosave";
 import { planSourceUpdates, writeSourceUpdates } from "../plot/sourceSync";
 import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "../slide/sourceSync";
+import { bumpSlideEmbeds } from "../../shell/scholar/revisions";
+import { readProjectDependencies, slideRemovalBlocker } from "./dependencies";
+import { readLiveFigureReferenceDocuments } from "./figureReferenceSync";
 import { syncProjectSources } from "./sourceBridge";
 
 export interface DeckListItem {
@@ -150,7 +153,8 @@ export async function readDeck(root: string, deckId: string): Promise<Deck | nul
         });
         return null;
       }
-      deckBaseline.set(joinPath(root, rel), text); // what we believe is on disk
+      bumpSlideEmbeds();
+  deckBaseline.set(joinPath(root, rel), text); // what we believe is on disk
       return deck;
     }
   } catch {
@@ -578,6 +582,7 @@ export async function saveDeckFrom(root: string, opts: { force?: boolean } = {})
   d.modified = stamp();
   const text = JSON.stringify(d, null, 2) + "\n";
   await fig.writeText(abs, text); // atomic via the fs:writeText IPC path
+  bumpSlideEmbeds();
   deckBaseline.set(abs, text); // adopt what we just wrote
   await registerDeck(root, d);
   // Provenance for the human's save (Electron only; mem/demo bridge no-ops).
@@ -673,15 +678,17 @@ export async function duplicateDeckInProject(root: string, srcId: string): Promi
 /** Remove a deck from the project registry (project.json.slides[]). The
  *  deck's files are left on disk — a safe, reversible "remove from project".
  *  No-op if it's the only deck. */
-export async function deleteDeckFromProject(root: string, deckId: string): Promise<boolean> {
+export async function deleteDeckFromProject(root: string, deckId: string, force = false): Promise<boolean> {
   const fig = fileBridge();
   const m = await readManifest(root);
   if (!fig || !m) return false;
+  if (!force) { const blocker = await embeddedSlideRemovalBlocker(root, deckId); if (blocker) throw new Error(blocker); }
   const slides = Array.isArray(m.slides) ? m.slides : [];
   if (slides.length <= 1) return false; // never remove the last deck
   m.slides = slides.filter((s) => s.id !== deckId);
   if (m.slides.length === slides.length) return false; // nothing removed
   await writeManifest(root, m);
+  bumpSlideEmbeds();
   return true;
 }
 
@@ -698,6 +705,7 @@ export async function writeDeckDirect(root: string, deck: Deck): Promise<void> {
   const rel = m?.slides?.find((s) => s.id === deck.id)?.path ?? deckRel(deck.id);
   const text = JSON.stringify(deck, null, 2) + "\n";
   await fig.writeText(joinPath(root, rel), text);
+  bumpSlideEmbeds();
   deckBaseline.set(joinPath(root, rel), text);
   await registerDeck(root, deck);
 }
@@ -705,4 +713,27 @@ export async function writeDeckDirect(root: string, deck: Deck): Promise<void> {
 /** Test seam: forget all divergence baselines (headless gates re-seed). */
 export function resetDeckBaselines(): void {
   deckBaseline.clear();
+}
+
+/** Includes every open unsaved Paper buffer, even in another pane. */
+export async function embeddedSlideRemovalBlocker(root: string, deck: string, slide?: string): Promise<string | null> {
+  const fb = fileBridge();
+  if (!fb) return "Document references could not be checked";
+  const live = await readLiveFigureReferenceDocuments(root);
+  return slideRemovalBlocker(await readProjectDependencies(root, fb, live), deck, slide);
+}
+
+/** Prepare an embed without borrowing the authoring stores. The open deck is
+ * refreshed through its existing edit-preserving service; closed decks use IO. */
+export async function prepareEmbeddedDeck(root: string, id: string): Promise<string[]> {
+  const fb = fileBridge();
+  if (!fb) return [];
+  if (storeTenant() === "slide" && get(embeddedProjectRoot) === root && currentDeck()?.id === id) {
+    await refreshDeckSources(root);
+    return [];
+  }
+  const { withIpcLock } = await import("../references/libLock");
+  const { syncEmbeddedDeckSources } = await import("../slide/embedSources");
+  return withIpcLock("project", "slides", () => syncEmbeddedDeckSources(root, id, fb,
+    () => !(storeTenant() === "slide" && get(embeddedProjectRoot) === root && currentDeck()?.id === id)));
 }

@@ -1,3 +1,5 @@
+import { prepareSlideDocument } from "../../../../lib/slide/embedDocument";
+import type { SlideRepository } from "../../../../lib/slide/embedRepository";
 // The shared manuscript renderer (Flux_Paper_Plan.md D1/D2): Quarto markdown →
 // journal HTML, used by both the in-app Preview and the PDF/HTML exports so what
 // you preview is what you ship. Front-matter via js-yaml; body via markdown-it
@@ -444,8 +446,10 @@ const LIVE_SCROLL = `(function(){var t;addEventListener("scroll",function(){clea
 
 export async function renderManuscript(
   src: string,
-  opts: { paginated?: boolean; live?: boolean } = {},
+  opts: { paginated?: boolean; live?: boolean; slides?: SlideRepository | null; documentKey?: string; print?: boolean; strict?: boolean; signal?: AbortSignal } = {},
 ): Promise<RenderResult> {
+  const slideDoc = await prepareSlideDocument(src, opts.slides, { interactive: !opts.print, live: opts.live, documentKey: opts.documentKey, strict: opts.strict, signal: opts.signal });
+  src = slideDoc.text;
   const md = await getMd();
   const yaml = await getYaml();
 
@@ -507,6 +511,7 @@ export async function renderManuscript(
     html = html.replace(/FLUXMATH(\d+)X/g, (_m: string, i: string) => katexHtml(ctx.math.stash[Number(i)] ?? "", false));
   }
 
+  for (const block of slideDoc.blocks) html = html.replace(`<p>${block.token}</p>`, block.html).replace(block.token, block.html);
   const inner = titleBlock(meta) + html + bibliographyHtml(ctx);
   const title = (meta.title && String(meta.title)) || "Manuscript";
   const bodyClass = opts.paginated ? "paginated" : "continuous";
@@ -522,7 +527,7 @@ export async function renderManuscript(
       : "";
   const full = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(
     title,
-  )}</title><style>${journalCss}</style>${katexStyle}</head><body class="${bodyClass}">${bodyInner}</body></html>`;
+  )}</title><style>${journalCss}</style>${katexStyle}${slideDoc.style}</head><body class="${bodyClass}">${bodyInner}${slideDoc.tail}</body></html>`;
 
   return { full, inner, title };
 }

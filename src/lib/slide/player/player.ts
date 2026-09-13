@@ -29,6 +29,8 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   /** assetId → its plot manifest (for role/series/index part targeting). */
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
   reducedMotion?: boolean;
+  /** Documents advance exactly one authored beat per explicit action. */
+  manualSteps?: boolean;
 }
 
 export { resolveEasing, resolveEasingFn } from "../easing";
@@ -178,7 +180,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         const driver = createTransform(wrap, preEl, endEl, {
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
           plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
-          plotManifest: opts.plotManifest, morphTo, contentHost: contentRoots.get(track.target),
+          plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, morphTo, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
@@ -500,6 +502,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   let runSpecs: Spec[] | null = null;
   function scheduleAuto(): void {
+    if (opts.manualSteps) return;
     const next = deck.slides[si]?.beats[bi + 1];
     if (next?.advance === "auto") {
       const stamp = generation;
@@ -559,22 +562,23 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     if (config.animate && !changed && beat > bi) { range = null; begin(beat, beat); return; }
     seek(index, beat, Infinity);
     const kind = deck.slides[si]?.transition ?? deck.defaults?.transition ?? "none";
-    if (changed && !reduced && kind !== "none" && typeof cameraLayer.animate === "function") {
+    if (!opts.manualSteps && changed && !reduced && kind !== "none" && typeof cameraLayer.animate === "function") {
       transition = kind === "fade" ? animate(cameraLayer, [{ opacity: 0 }, { opacity: 1 }], { duration: DUR.gentle, reduce: false }) : animate(mount, [{ transform: `translateX(${forward ? stage.width : -stage.width}px)` }, { transform: "translateX(0px)" }], { duration: DUR.gentle, reduce: false });
     }
     scheduleAuto();
   }
   function nextCue(): void {
     range = null;
-    if (bi >= beats() - 1) { nextSlide(); return; }
+    if (opts.manualSteps && playing) { seek(si, bi, Infinity); return; }
+    if (bi >= beats() - 1) { if (!opts.manualSteps) nextSlide(); return; }
     let end = bi + 1;
-    while (end + 1 < beats() && deck.slides[si].beats[end + 1].advance === "with-prev") end++;
+    while (!opts.manualSteps && end + 1 < beats() && deck.slides[si].beats[end + 1].advance === "with-prev") end++;
     begin(bi + 1, end);
   }
   function prev(): void {
-    if (bi <= 0) { prevSlide(); return; }
+    if (bi <= 0) { if (!opts.manualSteps) prevSlide(); return; }
     let start = bi;
-    while (start > 0 && deck.slides[si].beats[start]?.advance === "with-prev") start--;
+    while (!opts.manualSteps && start > 0 && deck.slides[si].beats[start]?.advance === "with-prev") start--;
     seek(si, Math.max(0, start - 1), Infinity);
   }
   function nextSlide(): void { if (si < deck.slides.length - 1) goTo(si + 1, 0); }

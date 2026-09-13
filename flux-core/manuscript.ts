@@ -8,6 +8,9 @@ import { resolveSpawn } from "../electron/execResolve.cjs";
 import { composeCaption, panelLetters } from "../src/lib/captions";
 import { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity, type CslRecord } from "../src/lib/references/zoteroFields.js";
 import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
+import { newSlideEmbed, serializeSlideEmbed, planSlideInsertion, scanSlideEmbeds } from "../src/lib/slide/embed";
+import { slideQuartoTransform } from "../src/lib/slide/embedQuarto";
+import { nodeSlideRepository } from "./slideEmbeds";
 import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
 import { resolveJournalStyle, styledFamilyDef } from "../src/lib/style/journalStyle";
@@ -141,6 +144,30 @@ export async function insertFigureRef(
   return { ref };
 }
 
+/** Insert one linked slide block under the document lock, after an optional unique line anchor. */
+export async function insertSlideEmbed(root: string, deck: string, slide: string, opts: { doc?: string; width?: string; caption?: string; anchor?: string } = {}) {
+  const m = await loadManifest(root), rel = manuRel(m, opts.doc), abs = safeJoin(root, rel);
+  const before = await fs.readFile(abs, "utf8");
+  let pos = before.length;
+  if (opts.anchor !== undefined) {
+    if (!opts.anchor || before.indexOf(opts.anchor) < 0 || before.indexOf(opts.anchor) !== before.lastIndexOf(opts.anchor))
+      throw new ValidationError("The insertion anchor must occur exactly once in the document");
+    pos = before.indexOf(opts.anchor) + opts.anchor.length;
+  }
+  const ref = newSlideEmbed(rel, deck, slide, opts), markdown = serializeSlideEmbed(ref);
+  const repository = await nodeSlideRepository(root);
+  try {
+    await repository.materialize(ref);
+    const edit = planSlideInsertion(before, pos, markdown);
+    await withLock(root, "manuscript", CLIENT, async () => {
+      if (await fs.readFile(abs, "utf8") !== before) throw new ValidationError("Document changed while preparing slide insertion; retry");
+      await writeText(abs, before.slice(0, edit.from) + edit.insert + before.slice(edit.to));
+    });
+  } finally { repository.dispose(); }
+  await journal(root, { action: "insert_slide_embed", target: rel, deck, slide, id: ref.id });
+  return { path: rel, id: ref.id, deck, slide, markdown };
+}
+
 /** compile the manuscript via Quarto (pdf|html|docx). Requires `quarto` on PATH. */
 
 /** Shipped journal assets (CSL styles, Word reference docs). Resolved from this
@@ -243,9 +270,11 @@ async function cslIdentity(root: string, docAbs: string, styleCsl?: string): Pro
 export async function compile(
   root: string,
   to = "pdf",
-  opts: { style?: string; zoteroFields?: boolean; zoteroLibraryDocs?: string[] } = {},
+  opts: { doc?: string; style?: string; zoteroFields?: boolean; zoteroLibraryDocs?: string[] } = {},
 ): Promise<CompileSummary> {
   const m = await loadManifest(root);
+  const document = manuRel(m, opts.doc);
+  safeJoin(root, document);
   // Journal style: the CLI flag wins, else the project's stored pointer, else
   // the house style (which is a genuine no-op — DEFAULT_JOURNAL_STYLE).
   const style = resolveJournalStyle(
@@ -254,8 +283,7 @@ export async function compile(
   );
   // Figures embed as ../fig/renders/<id>.svg — materialize them so a bare quarto
   // render (agent/CI, no app open) gets real images instead of broken links.
-  manuRel(m);
-  const renders = await materializeRenders(root, m.manuscript.path);
+  const renders = await materializeRenders(root, document);
 
   // Bare-quarto parity transform, applied IN PLACE and restored after the
   // render: family caption leads + composed model captions into empty embed
@@ -264,7 +292,7 @@ export async function compile(
   // figure families, so it no longer numbers figures at all (exportQmd.ts).
   // Sources are restored in `finally`; even an unrestored transform is a
   // valid readable manuscript.
-  const docAbs = path.resolve(root, m.manuscript.path);
+  const docAbs = path.resolve(root, document);
   const captions = new Map<string, string>();
   const figIdentity = new Map<string, { family: FigureFamilyDef; number: number; panels: string[] }>();
   const knownLabels = new Set<string>();
@@ -290,6 +318,8 @@ export async function compile(
   const ctx = { captions, figures: figIdentity, panels: style.figures.panels };
   // The shared prep owns the walk + transform + restore (src/lib/exportPrep.ts)
   // so the GUI runs byte-for-byte the same preparation.
+  const slideRepository = await nodeSlideRepository(root);
+  const slideTransform = slideQuartoTransform(root, slideRepository, to === "html");
   const prep = await prepareExport(
     { ...qmdTreeIO, writeText: atomicWrite },
     {
@@ -297,6 +327,7 @@ export async function compile(
       ctx,
       structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
       markCitations: !!opts.zoteroFields,
+      ...slideTransform,
     },
   );
   const expanded = prep.expanded;
@@ -304,8 +335,8 @@ export async function compile(
   // Journal assets + the ephemeral Quarto profile. Nothing here touches the
   // user's _quarto.yml or their front matter: the profile is a separate file
   // merged by `--profile`, removed again in the finally below.
-  const manuscriptDir = m.manuscript.path.includes("/")
-    ? m.manuscript.path.slice(0, m.manuscript.path.lastIndexOf("/"))
+  const manuscriptDir = document.includes("/")
+    ? document.slice(0, document.lastIndexOf("/"))
     : "";
   const profileAbs = path.resolve(root, manuscriptDir, EXPORT_PROFILE_FILE);
   let useProfile = false;
@@ -337,7 +368,7 @@ export async function compile(
   let log = "";
   try {
     ({ code, log } = await new Promise<{ code: number; log: string }>((resolve, reject) => {
-      const q = resolveSpawn("quarto", ["render", m.manuscript.path, "--to", to, ...(useProfile ? ["--profile", EXPORT_PROFILE] : [])]);
+      const q = resolveSpawn("quarto", ["render", document, "--to", to, ...(to === "html" && scanSlideEmbeds(expanded).length ? ["--embed-resources"] : []), ...(useProfile ? ["--profile", EXPORT_PROFILE] : [])]);
       const child = spawn(q.command, q.args, {
         cwd: root,
         windowsVerbatimArguments: q.windowsVerbatimArguments,
@@ -349,6 +380,7 @@ export async function compile(
       child.on("close", (c) => resolve({ code: c ?? 0, log: out }));
     }));
   } finally {
+    slideRepository.dispose();
     await prep.restore();
     if (useProfile) await fs.rm(profileAbs, { force: true }).catch(() => {});
   }

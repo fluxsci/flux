@@ -692,6 +692,45 @@ Persistence invariants (all machine-checked — do not weaken):
   is a different feature, deliberately out). Figure/slide stay gated (app-global store, F5.3).
   Gate: `verify-paper-split.mjs` (paper-gate).
 
+### Inline slides in Paper
+
+A `.flux-slide` Quarto image is a document reference by deck ID + slide ID; its `#slide-…`
+anchor identifies an occurrence. `src/lib/slide/embed.ts` owns the parser, protected-context
+scanner, serializer and insertion plan shared by Paper, export, dependency checks and CLI.
+Keep it separate from the `fig-` grammar and figure-caption normalization.
+
+`embedRepository.ts` owns project-scoped immutable, viewport-loaded snapshots. Metadata
+inspection is read-only. Before loading selected slide assets, `embedSources.ts` accepts
+linked source updates through injected IO, a slides lock and file-baseline checks. The open
+Slide editor uses its existing refresh service; embeds never borrow its global asset stores
+or seed its divergence baseline. Successful in-app deck writes publish `slideEmbedRevision`,
+which refreshes Paper without reloading Slide history. Generated `slides/*/renders/` changes
+are ignored by the slide watcher.
+
+`embedPlayer.ts` mounts the shared player with `manualSteps`, a scoped plot context and an
+occurrence namespace. Every beat requires an explicit advance; mid-flight Next settles the
+current beat. Do not change Present's default auto/with-prev behavior. Editor widgets retain
+transient beat IDs through prose edits, width changes and viewport disposal; full document
+loads reset them. `embedDocumentRuntime.ts` supplies the compact, isolated HTML host.
+`embedRender.ts` evaluates posters with `compileSlide` and the shared Figure SVG serializer.
+PDF/Word use step 0; the print window requires no script. Posters embed their fonts.
+
+Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this). Its
+runtime bytes and exact CSP hash are generated together; Vite and Electron consume that
+hash without adding unsafe script sources. The generated JSON is bundled into CLI/MCP;
+Electron's generated hash module ships via `electron/**/*`. Quarto preparation shares one
+payload/runtime bundle over all includes and restores only unchanged temporary source bytes.
+Never overwrite an edit that arrived during export, or swallow a failed restoration.
+Paper holds a per-document `documentExportLease` across Quarto's temporary rewrite and restore;
+autosave awaits it before taking its snapshot/baseline. Typing remains live, and the latest
+buffer saves after restoration without a false divergence conflict. Flush included live buffers
+before acquiring the lease and release it in `finally`.
+
+The `inline-slides` group covers core, editor, lifecycle and scale. Build-dependent
+`verify-slide-embed-export.mjs` renders actual Quarto HTML/PDF/Word and opens HTML offline;
+`verify-slide-embed-electron.cjs` checks the built app, native input, watchers and PDF IPC in
+an isolated scratch project. Their artifacts live under `test-results/inline-slide-*`.
+
 ## 5. Hard rules — do not do these
 
 1. **Never regress out of the instantaneous class (§6).** Responsiveness outranks every other
@@ -1061,8 +1100,10 @@ real exports Word refused):
   blip with the extension and NO `r:embed`, and Word reserves the space and draws nothing.
   `docxSvgFallback.ts` rasterizes and splices the PNG in after Quarto, keeping the svgBlip so a
   capable Word still gets the vector. Rasterization is INJECTED: the OPC surgery gates
-  hermetically in Node, while the pixels need the renderer's canvas (no native deps), so
-  headless `compile` leaves such pictures alone rather than pretending.
+  hermetically in Node; the GUI injects its canvas rasterizer and headless `compile`
+  injects flux-core's out-of-process resvg rasterizer. The latter requires the existing
+  checkout/CLI resvg dependency (it is not packaged into the app). Both paths report
+  failed raster fallbacks instead of treating an absent picture as verified output.
 - Corollary for both: **"the export succeeded" is not evidence the figures are in it.** Check
   `drawings` vs `hyperlinks` in `word/document.xml` and whether each `a:blip` carries an
   `r:embed`; a pandoc run that warns `Could not convert image … rsvg-convert` has already lost
@@ -4581,3 +4622,44 @@ so an agent- or CLI-driven Word export carries figures Word will actually paint.
   the CLI/MCP on `process.execPath` with `--import tsx` (what run-verifies.mjs already does)
   clears all three and the gate passes. Not regenerating the goldens on the first reading was
   what saved it; see §7 for why `npx` is the wrong way to spawn a gate's child.
+
+### 2026-09-13 16:35 CDT — Inline slide embed proposal (Codex, `main`)
+
+**Work:** Scoped deck-to-slide insertion, independent inline playback, reference lifecycle,
+and GUI/CLI export in `docs/INLINE_SLIDES_IMPLEMENTATION_PLAN.md`; implementation remains
+proposed. Existing slide-player and slide-timeline checks pass. Corrected the stale Word
+fallback paragraph above to match the already-shipped headless rasterizer injection.
+
+**Learnings:**
+
+- Inline players need explicit asset scopes and DOM namespaces: render/transform still read
+  shared plot caches, and authored element IDs alone collide across repeated slide instances.
+- Paper PDF's print window disables JavaScript, so slide stills must exist before printing.
+
+### 2026-09-13 17:57 CDT — Inline slide embeds implemented (Codex, `main`)
+
+**Work:** Delivered the approved deck-to-slide picker, independent manual inline playback,
+source refresh and reference protection, preview/offline HTML, step-0 PDF/Word, and registry
+CLI/MCP insertion plus selected-document compile. Shared scoped payload/poster/player services
+keep embeds out of authoring caches and history. Added export cancellation and restoration
+guards, generated exact-hash CSP assets, user/agent docs and manifest-registered gates.
+Implementation and evidence: `docs/INLINE_SLIDES_TESTING.md`.
+
+**Validation:** check 0/0; production build; all 207 pure scripts across the final suite and
+corrected path-map expectation rerun; Paper 49/49; bundle/startup 5/5; native built-app 7 checks;
+inline core/editor/lifecycle/scale/export 46/14/9/6/20 checks. Existing Slide tenancy, source-sync,
+authoring and ghost GUI gates passed. Inspected offline HTML, native PDF and Word rendered by
+LibreOffice. A 20k-line/100-embed fixture painted all 15 typing samples within 100 ms (max 16.6 ms);
+the 1,000-slide picker virtualizes and searches within budget. Linux validation only.
+
+**Learnings:**
+
+- A shared player needs both injected pristine plot roots/manifests and an occurrence ID
+  namespace; selecting only one slide does not isolate SVG definitions or authoring caches.
+- Quarto's temporary document rewrites must hold autosave until source restoration. Keep
+  typing responsive, snapshot the live buffer after the lease, and never overwrite newer bytes.
+- Native verification needs isolated capture paths as well as FluxConfig/library paths;
+  pointing a fixture at the checkout or default capture directory can create excessive watchers.
+- Verify exported painted endpoints and loaded thumbnails, not merely generated markup or
+  successful converter exit codes. Word SVG fallback was verified in actual document parts
+  and through LibreOffice rendering; Microsoft Word was not available on this Linux host.

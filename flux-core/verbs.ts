@@ -1460,6 +1460,21 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "insert_slide_embed", cli: "insert-slide-embed", cliRoot: "flags",
+    summary: "Insert an inline slide in a document. Deck and slide IDs are stable references; playback starts at step 0. Optional anchor must occur exactly once; otherwise append. Materializes the static SVG poster.",
+    params: { deckId: z.string(), slideId: z.string(), doc: z.string().optional(), width: z.string().optional(), caption: z.string().optional(), anchor: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "doc", into: "doc" }, { kind: "flag", at: "width", into: "width" },
+      { kind: "flag", at: "caption", into: "caption" }, { kind: "flag", at: "anchor", into: "anchor" },
+    ],
+    handler: (ctx, a) => core.insertSlideEmbed(ctx.root, s(a.deckId), s(a.slideId), { doc: a.doc as string | undefined, width: a.width as string | undefined, caption: a.caption as string | undefined, anchor: a.anchor as string | undefined }),
+    render: {
+      human: r => ({ err: `✓ inserted ${(r as { id: string }).id} in ${(r as { path: string }).path}` }),
+      mcp: r => text(JSON.stringify(r, null, 2)),
+    },
+  },
+  {
     name: "cite_doi",
     cli: "cite-doi",
     cliRoot: "flags",
@@ -2097,14 +2112,16 @@ export const VERBS: VerbDef[] = [
     cli: "compile",
     cliRoot: "flags",
     summary:
-      "Compile the manuscript via Quarto (pdf|html|docx). Requires quarto on PATH. --style applies a journal style (e.g. nature) to the OUTPUT only. --zotero-fields writes docx citations as live Zotero fields (editable in Word); --zotero-library takes .docx files already written with Zotero, so citations to the same works arrive linked to that library. Reports the output path and a figures/citations resolution summary.",
+      "Compile the chosen document (--doc, otherwise the default) via Quarto (pdf|html|docx). Requires quarto on PATH. --style applies a journal style (e.g. nature) to the OUTPUT only. --zotero-fields writes docx citations as live Zotero fields (editable in Word); --zotero-library takes .docx files already written with Zotero, so citations to the same works arrive linked to that library. Reports the output path and a figures/citations resolution summary.",
     params: {
       to: z.string().optional(),
+      doc: z.string().optional(),
       style: z.string().optional(),
       zoteroFields: z.boolean().optional(),
       zoteroLibrary: z.array(z.string()).optional(),
     },
     cliArgs: [
+      { kind: "flag", at: "doc", into: "doc" },
       { kind: "flag", at: "to", into: "to" },
       { kind: "flag", at: "style", into: "style" },
       { kind: "flag", at: "zotero-fields", into: "zoteroFields", as: "boolean" },
@@ -2112,6 +2129,7 @@ export const VERBS: VerbDef[] = [
     ],
     handler: (ctx, a) =>
       core.compile(ctx.root, (a.to as string | undefined) ?? "pdf", {
+        doc: a.doc as string | undefined,
         style: a.style as string | undefined,
         zoteroFields: a.zoteroFields as boolean | undefined,
         zoteroLibraryDocs: a.zoteroLibrary as string[] | undefined,
@@ -2334,13 +2352,14 @@ export const VERBS: VerbDef[] = [
     name: "delete_slide",
     cli: "delete-slide",
     cliRoot: "flags",
-    summary: "Delete a slide from a deck. Returns the id the GUI would select next.",
-    params: { deckId: z.string(), slideId: z.string() },
+    summary: "Delete a slide from a deck. Refuse referenced slides unless --force is given. Returns the id the GUI would select next.",
+    params: { deckId: z.string(), slideId: z.string(), force: z.boolean().optional() },
     cliArgs: [
+      { kind: "flag", at: "force", into: "force", as: "boolean" },
       { kind: "pos", at: 0, into: "deckId", required: true },
       { kind: "pos", at: 1, into: "slideId", required: true },
     ],
-    handler: (ctx, a) => core.deleteSlide(ctx.root, s(a.deckId), s(a.slideId)),
+    handler: (ctx, a) => core.deleteSlide(ctx.root, s(a.deckId), s(a.slideId), { force: a.force as boolean | undefined }),
     render: {
       human: (r, a) => {
         const next = (r as { nextActiveId?: string }).nextActiveId;

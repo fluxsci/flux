@@ -117,6 +117,7 @@ usage: flux <verb> [root] [args] [--flags]
   new-doc-folder <parent> <name…> [--root R]  create a document folder
   move-doc <path> <folder> [--root R]   move a document and its comments
   delete-doc <path> [--root R]         delete a document (legacy main + standard Context docs protected)
+  insert-slide-embed <deck> <slide> [--doc rel] [--width W] [--caption text] [--anchor text]   insert an inline slide
   ref <figId> [--root R] [--doc rel]   append a @fig cross-reference
   cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
   search <query…>                      search FluxLib (e.g. author:smith year:2020)
@@ -160,7 +161,7 @@ usage: flux <verb> [root] [args] [--flags]
   set-status <citekey> <status>        set reading status (unread|reading|read)
   collection <citekey> <name…> [--remove]  add/remove a paper from a collection
   add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
-  compile [--root R] [--to pdf|html|docx] [--style nature]   render the manuscript via Quarto
+  compile [--root R] [--doc rel] [--to pdf|html|docx] [--style nature]   render the manuscript via Quarto
             [--zotero-fields] [--zotero-library a.docx,b.docx]   docx: citations as live Zotero fields
   comments [--root R] [--doc rel] [--all]   list project-wide review comments (open by default; --doc targets one)
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   resolve a project-wide unique match (--doc targets one)
@@ -192,7 +193,7 @@ usage: flux <verb> [root] [args] [--flags]
   decks [--root R]                     list the project's slide decks (JSON)
   new-deck [--title T] [--theme T] [--root R]   create a new slide deck
   add-slide <deckId> [--name N] [--layout L] [--root R]   append a slide to a deck
-  delete-slide <deckId> <slideId>      delete a slide
+  delete-slide <deckId> <slideId> [--force]   delete an unreferenced slide (force overrides)
   duplicate-slide <deckId> <slideId>   deep-copy a slide (fresh ids)
   reorder-slides <deckId> --order a,b,c   set the slide order (exact permutation)
   set-slide <deckId> <slideId> [--name|--layout|--background|--transition|--notes|--notes-file|--camera-x/-y/-zoom]   patch a slide

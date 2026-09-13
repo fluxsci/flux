@@ -28,6 +28,7 @@ export interface ChipHandlers {
 // Slash-menu / toolbar insert actions that open Svelte-side pickers (B6).
 export interface SlashHandlers {
   onInsertFigure?: () => void;
+  onInsertSlide?: () => void;
   onInsertCitation?: () => void;
   /** Open the figure-REFERENCE picker (`@@` / "/cross-reference"): figure →
    *  panel selection → inserts `@fig-x[-panels]` at the caret. */

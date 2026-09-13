@@ -54,3 +54,7 @@ extension/signed/*
 # they accumulate exactly when the suite is red. Ignored so a stray `git add -A`
 # cannot publish one.
 scratch-*/
+
+# Rebuilt by gen-slide-embed-assets before dev/check/build.
+.generated/
+electron/slideEmbedCsp.gen.cjs

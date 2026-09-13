@@ -27,3 +27,7 @@ export function bumpDeckRevision() {
 export function bumpDissections() {
   dissectionsRevision.update((n) => n + 1);
 }
+
+// Successful in-app deck writes refresh documents without reloading Slide's own undo history.
+export const slideEmbedRevision = writable(0);
+export function bumpSlideEmbeds() { slideEmbedRevision.update(n => n + 1); }

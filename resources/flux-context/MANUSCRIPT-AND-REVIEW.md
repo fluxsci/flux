@@ -36,7 +36,12 @@ clobbers their work). For big rewrites of hand-edited prose, prefer proposing th
   carrying the figure's NAME — name figures well (`set-figure-layout <id> --name "Figure 3"`).
 - **Section IDs:** standard Quarto header attributes (`## Results {#sec-results}`) are fine —
   the editor hides the `{#…}` tail unless the caret is on the heading.
-- **Compile:** `compile --to pdf|html|docx` (needs `quarto` on PATH).
+- **Inline slides:** `insert-slide-embed <deck> <slide> --doc paper/report.qmd` inserts a
+  linked block with a generated step-0 SVG. Optional `--width`, `--caption`, and a unique
+  `--anchor` use the same document syntax as the picker. HTML advances one authored beat
+  per click; PDF/Word show step 0. Source IDs survive deck renames/reordering. Do not copy
+  speaker notes into the caption or use figure-reference normalization on `.flux-slide` blocks.
+- **Compile:** `compile --doc paper/report.qmd --to pdf|html|docx` (needs `quarto` on PATH).
 
 ## The review loop (read → address → resolve)
 

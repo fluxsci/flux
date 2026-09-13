@@ -109,6 +109,12 @@
   import { scienceMathBlocks, trackMathView } from "./science/math";
   import { registerPaperHandlers, type ChipTarget, type TableAction } from "./science/chipContext";
   import FigurePicker from "./scholar/FigurePicker.svelte";
+  import SlidePicker from "./scholar/SlidePicker.svelte";
+  import { createSlideRepository, type SlideRepository } from "../../../lib/slide/embedRepository";
+  import { newSlideEmbed, planSlideInsertion, serializeSlideEmbed, parseSlideEmbed, type SlideEmbedRef } from "../../../lib/slide/embed";
+  import { slideEmbeds, resetSlidePlayback } from "./science/slideEmbeds";
+  import { requestOpenSlide } from "../../command/commandBus";
+  import { setFocusedMode } from "../../paneStore";
   import FigRefPicker from "./scholar/FigRefPicker.svelte";
   import { figRefTrigger } from "./scholar/figRefTrigger";
   import type { FigureRef } from "./scholar/figures";
@@ -127,6 +133,7 @@
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
   import { registerFlushable } from "../../lifecycle";
+  import { holdDocumentExport, waitForDocumentExport } from "../../../lib/project/documentExportLease";
   import { registerLiveFigureReferenceDocument } from "../../../lib/project/figureReferenceSync";
   import { popIn } from "../../../lib/motion/actions";
   import {
@@ -152,7 +159,7 @@
   import { fluxLibRevision, fluxLibEntries } from "../../../lib/references/revision";
   import { scholarCompletion } from "./scholar/completions";
   import { doiPaste } from "./science/doiPaste";
-  import { figRevision, bibRevision } from "../../scholar/revisions";
+  import { figRevision, bibRevision, deckRevision, slideEmbedRevision } from "../../scholar/revisions";
   import { revealFigure, revealReader } from "../../scholar/nav";
   import HoverCard from "./scholar/HoverCard.svelte";
 
@@ -400,6 +407,7 @@
     isDirty: () => !!pm && !!activeDocPath && !saved,
     save: async () => {
       if (!pm) return;
+      await waitForDocumentExport(`${pm.root}/${activeDocPath}`);
       const snapshot = latest;
       // W7 conflict guard: if the file changed on disk since we last loaded/saved
       // (an agent/CLI wrote it) AND that change isn't what we're about to write,
@@ -421,6 +429,34 @@
   let hover = $state<{ target: ChipTarget; anchor: HTMLElement } | null>(null);
   let hoverHideTimer: ReturnType<typeof setTimeout> | undefined;
   let doiStatus = $state<"" | "fetching" | "error" | "added">("");
+  let slideRepo = $state<SlideRepository | null>(null);
+  let slidePickerOpen = $state(false), slidePickerN = $state(0);
+  let slideInsertTarget: { path: string; pos: number; replace: boolean; original?: SlideEmbedRef | null } | null = null;
+  function openSlidePicker(el?: HTMLElement) {
+    if (!slideRepo || !view) { pushToast("info", "Open a project to insert a slide"); return; }
+    slideInsertTarget = { path: activeDocPath, pos: el ? view.posAtDOM(el) : view.state.selection.main.head, replace: !!el, original: el ? parseSlideEmbed(view.state.doc.lineAt(view.posAtDOM(el)).text) : null };
+    slidePickerN++; slidePickerOpen = true;
+  }
+  async function insertSlide(deck: string, slide: string) {
+    const repo = slideRepo, target = slideInsertTarget, editor = view;
+    if (!repo || !target || !editor) return;
+    repo.invalidate();
+    await repo.materialize({ deck, slide });
+    if (repo !== slideRepo || editor !== view || target !== slideInsertTarget || target.path !== activeDocPath) return;
+    const line = editor.state.doc.lineAt(target.pos);
+    const old = target.replace ? parseSlideEmbed(line.text) : null;
+    if (target.replace && (!old || old.id !== target.original?.id || old.deck !== target.original?.deck || old.slide !== target.original?.slide)) throw new Error("The slide block changed while the picker was open");
+    const ref = newSlideEmbed(activeDocPath, deck, slide, old ? { id: old.id, width: old.width, caption: old.caption } : {});
+    const text = serializeSlideEmbed({ ...ref, extra: old?.extra ?? [] });
+    const edit = old ? { from: line.from, to: line.to, insert: text, anchor: line.from + text.length } : planSlideInsertion(editor.state.doc.toString(), target.pos, text);
+    slidePickerOpen = false; slideInsertTarget = null;
+    editor.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.insert }, selection: { anchor: edit.anchor }, userEvent: "input" });
+    editor.focus();
+  }
+  async function openEmbeddedSlide(ref: SlideEmbedRef) {
+    try { await autosave.flush(); if (!saved) throw new Error("Save the document before opening its slide"); requestOpenSlide(ref.deck, ref.slide); setFocusedMode("slide"); }
+    catch (e) { pushToast("error", "Couldn't open slide", { detail: String(e) }); }
+  }
   let pickerOpen = $state(false);
   let pickerOpenN = $state(0);
   let figRefPickerOpen = $state(false);
@@ -704,6 +740,8 @@
   let exportToken = $state("");
   let exportLogTail = $state("");
   let exportCancelled = $state(false);
+  let exportCancellable = $state(false);
+  let exportAbort: AbortController | undefined;
 
   const EXPORT_FORMATS: readonly ExportFormat[] = [
     { id: "pdf", label: "PDF", ext: "pdf" },
@@ -731,7 +769,14 @@
     markCitationsForZotero = false,
   ): Promise<() => Promise<void>> {
     if (!pm) return async () => {};
+    const { readQmdTree } = await import("../../../lib/exportQmd");
+    const { readLiveFigureReferenceDocuments, flushLiveReferenceDocuments } = await import("../../../lib/project/figureReferenceSync");
+    const live = new Map(readLiveFigureReferenceDocuments(pm.root).map(d => [`${pm!.root}/${d.path}`, d.text]));
+    const tree = await readQmdTree(`${pm.root}/${activeDocPath}`, { readText: async p => live.get(p) ?? await fb.readText(p) });
+    await flushLiveReferenceDocuments(pm.root, tree.files);
     const refs = get(figureRefs);
+    const release = holdDocumentExport(tree.files);
+    try {
     const prep = await prepareExport(
       {
         readText: (abs) => fb.readText(abs).catch(() => null),
@@ -739,6 +784,7 @@
       },
       {
         entry: `${pm.root}/${activeDocPath}`,
+        signal: exportAbort?.signal,
         ctx: {
           captions: new Map(refs.filter((r) => r.caption?.trim()).map((r) => [r.label, r.caption])),
           // THE editor's family numbering (figfamily.ts) — never embed-order.
@@ -748,9 +794,15 @@
         },
         structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
         markCitations: markCitationsForZotero,
+        transformSlides: async (text, file) => {
+          if (!slideRepo) return text;
+          const { prepareSlideQuarto } = await import("../../../lib/slide/embedQuarto");
+          return prepareSlideQuarto(text, file, pm!.root, slideRepo, false, undefined, exportAbort?.signal);
+        },
       },
     );
-    return () => prep.restore();
+    return async () => { try { await prep.restore(); } finally { release(); } };
+    } catch (error) { release(); throw error; }
   }
 
   /** The project's cited records (references/library.bib), keyed by citekey. */
@@ -898,6 +950,9 @@
     exportBusy = true;
     exportLogTail = "";
     exportCancelled = false;
+    exportCancellable = true;
+    exportAbort = new AbortController();
+    exportLogTail = "Preparing slides and document assets…";
     try {
       if (plan.format === "docx") {
         if (!pm || !fb.quartoRender) {
@@ -917,6 +972,7 @@
           }
           throw e;
         }
+        slideRepo?.invalidate();
         const renders = await materializeRenders(pm.root, latest);
         // Quarto reads DISK: the shared prep transforms in place (captions into
         // alts, refs literalized), renders, and restores — sources end byte-identical.
@@ -934,6 +990,7 @@
         });
         let r;
         try {
+          exportAbort?.signal.throwIfAborted();
           const useProfile = style.id !== "flux";
           r = await fb.quartoRender(pm.root, "docx", activeDocPath, {
             outPath: plan.outPath,
@@ -1042,7 +1099,19 @@
 
       // In-app engines (PDF via printToPDF, HTML written straight out). The
       // dialog already collected the destination, so there is no second prompt.
-      const { full } = await renderManuscript(latest, { paginated: viewMode === "paginated" });
+      slideRepo?.invalidate();
+      let exportText = latest;
+      if (pm) {
+        const { readQmdTree } = await import("../../../lib/exportQmd");
+        const entry = `${pm.root}/${activeDocPath}`;
+        const { readLiveFigureReferenceDocuments } = await import("../../../lib/project/figureReferenceSync");
+        const live = new Map(readLiveFigureReferenceDocuments(pm.root).map(d => [d.path.startsWith(pm!.root + "/") ? d.path : `${pm!.root}/${d.path}`, d.text]));
+        live.set(entry, latest);
+        exportText = (await readQmdTree(entry, { readText: async p => live.get(p) ?? await fb.readText(p) })).expanded;
+      }
+      const { full } = await renderManuscript(exportText, { paginated: viewMode === "paginated", slides: slideRepo, documentKey: activeDocPath, print: plan.format === "pdf", strict: true, signal: exportAbort?.signal });
+      exportAbort?.signal.throwIfAborted();
+      exportCancellable = false;
       const out = plan.outPath;
       if (plan.format === "pdf") {
         if (!fb.printPdf) {
@@ -1067,17 +1136,17 @@
         fb.revealPath ? { action: { label: "Reveal", run: () => void fb.revealPath!(out) } } : {},
       );
     } catch (e) {
-      console.error("[flux] export failed", e);
-      pushToast("error", "Export failed", { detail: errMsg(e) });
+      if (exportCancelled) pushToast("info", "Export cancelled");
+      else { console.error("[flux] export failed", e); pushToast("error", "Export failed", { detail: errMsg(e) }); }
       exportBusy = false;
     }
   }
 
   async function cancelExport() {
     const fb = fileBridge();
-    if (!exportToken || !fb?.quartoCancel) return;
     exportCancelled = true;
-    await fb.quartoCancel(exportToken).catch(() => false);
+    exportAbort?.abort();
+    if (exportToken && fb?.quartoCancel) await fb.quartoCancel(exportToken).catch(() => false);
   }
 
   function insertFigure(ref: FigureRef) {
@@ -1321,6 +1390,16 @@
     latest = initialDoc;
     latestIdle = initialDoc; // PAP-7: seed the debounced mirror so cited-keys are correct pre-mount
     diskBaseline = initialDoc; // W7: seed the conflict-guard baseline
+    const slideIO = fileBridge();
+    if (pm && slideIO) {
+      const root = pm.root;
+      slideRepo = createSlideRepository(root, { ...slideIO, prepareDeck: async id => {
+        const { prepareEmbeddedDeck } = await import("../../../lib/project/slideBridge");
+        return prepareEmbeddedDeck(root, id);
+      } });
+      const invalidateSlides = () => { slideRepo?.invalidate(); figRefsRev++; };
+      subs.push(deckRevision.subscribe(invalidateSlides), slideEmbedRevision.subscribe(invalidateSlides), figRevision.subscribe(invalidateSlides));
+    }
     ready = true;
     await Promise.all([loadFigures(pm?.root ?? null), loadBib(pm?.root ?? null)]);
     const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
@@ -1375,7 +1454,7 @@
         setEmbedWidth(view, view.posAtDOM(el), width);
       },
     },
-    slash: { onInsertFigure: openFigurePicker, onInsertFigRef: openFigRefPicker },
+    slash: { onInsertFigure: openFigurePicker, onInsertFigRef: openFigRefPicker, onInsertSlide: () => openSlidePicker() },
     table: {
       // Widget → source actions. The widget hands over its DOM element; the
       // position resolves fresh via posAtDOM (the embed-handlers contract).
@@ -1437,6 +1516,7 @@
         // chars). Without this, headings past the parsed prefix stay missing
         // from the TOC until the next keystroke.
         EditorView.updateListener.of((u) => {
+          if (u.docChanged && slideInsertTarget) slideInsertTarget.pos = u.changes.mapPos(slideInsertTarget.pos, 1);
           if (!u.docChanged && syntaxTree(u.state) !== syntaxTree(u.startState)) scheduleIdle();
         }),
         selBubble.watcher,
@@ -1498,6 +1578,7 @@
         citeNumberField, // before the chip plugin: ordinals publish first
         scienceChips,
         scienceEmbeds,
+        ...(slideRepo ? [slideEmbeds(slideRepo, ref => void openEmbeddedSlide(ref), el => openSlidePicker(el))] : []),
         scienceTables,
         scienceTableFold, // the pipe source collapses to a "Table N" pill off-caret
         scienceMathBlocks, // 2.1: $$ display math (block widget AFTER source lines)
@@ -1672,6 +1753,7 @@
   }
 
   async function loadDocument(path: string) {
+    slidePickerOpen = false; slideInsertTarget = null;
     if (!pm || (path === activeDocPath && !blockedByTwin)) return;
     // Dual-paper B4: a document open in the other pane is refused — focus the
     // pane that has it (the same rule the whole-mode gate used to apply).
@@ -1721,6 +1803,7 @@
     // Swap the editor content in place (preserve the extension set).
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: text },
+      effects: resetSlidePlayback.of(null),
       selection: { anchor: 0 },
     });
     latest = text;
@@ -2033,6 +2116,7 @@
     unregHandlers?.(); // dual-paper: this editor's widget handlers
     releaseDocClaim(paneId); // dual-paper: free the document for the other pane
     subs.forEach((u) => u());
+    slideRepo?.dispose();
     clearTimeout(hoverHideTimer);
     clearTimeout(idleTimer);
     activeCitation.reset();
@@ -2208,6 +2292,7 @@
       if (view) openLocalWordTools(view, true);
     },
     openFigurePicker,
+    openSlidePicker: () => openSlidePicker(),
     openFigRefPicker,
     outlinerOpen: () => $paperLayout.outlinerOpen,
     toggleOutliner,
@@ -2494,7 +2579,7 @@
           <EmptyState {title} onStart={startFrom} />
         {/if}
         {#if previewActive}
-          <PreviewPane src={latest} paginated={viewMode === "paginated"} rev={figRefsRev} />
+          <PreviewPane src={latest} paginated={viewMode === "paginated"} rev={figRefsRev} slides={slideRepo} documentKey={activeDocPath} />
         {:else if !(bodyEmpty && !dismissedEmpty)}
           <StatusBar
             words={statusWords}
@@ -2672,6 +2757,12 @@
     </div>
   {/if}
 
+  {#if slidePickerOpen && slideRepo}
+    {#key slidePickerN}
+      <SlidePicker repository={slideRepo} onSelect={insertSlide} onClose={() => { slidePickerOpen = false; slideInsertTarget = null; view?.focus(); }} />
+    {/key}
+  {/if}
+
   {#if pickerOpen}
     {#key pickerOpenN}
       <FigurePicker
@@ -2733,7 +2824,7 @@
     <div class="export-progress" role="status" aria-live="polite">
       <div class="export-progress-head">Exporting {EXPORT_FORMATS.find((f) => f.id === exportPlan.format)?.label ?? ""}…</div>
       {#if exportLogTail}<div class="export-progress-log">{exportLogTail}</div>{/if}
-      {#if exportToken}
+      {#if exportCancellable}
         <button class="export-cancel" disabled={exportCancelled} onclick={cancelExport}>
           {exportCancelled ? "Cancelling…" : "Cancel"}
         </button>

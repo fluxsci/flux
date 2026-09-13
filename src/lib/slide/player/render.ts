@@ -35,6 +35,9 @@ import { themeCssVars } from "../theme";
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 export interface SlideRenderCtx {
+  /** Pristine SVG/manifest lookup scoped to this rendering host. */
+  plotRoot?: (assetId: string) => SVGSVGElement | undefined;
+  plotManifest?: (assetId: string) => import("../../plot/types").FluxPlotManifest | undefined;
   theme: DeckTheme;
   /** asset id → URL or data: URI (images / plot fallbacks). */
   assetUrl?: (assetId: string) => string | undefined;
@@ -305,7 +308,7 @@ export function compileGhostPartOpacity(scope: ParentNode, el: FigElement, ctx: 
  *  rescales geometry while text/glyph/stroke sizes stay at true points (the
  *  stage's own fit-scale above this is uniform CSS — unaffected). */
 function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx: SlideRenderCtx): void {
-  const cached = plotDom.get(el.assetId);
+  const cached = (ctx.plotRoot ? ctx.plotRoot(el.assetId) : plotDom.get(el.assetId));
   if (!cached) {
     // <image> fallback (same as the canvas): the asset bytes render, parts
     // simply aren't addressable.
@@ -338,7 +341,7 @@ function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx
   }
   // applyOverrides needs the live manifest; `get` from svelte/store is framework-neutral.
   const ghostOpacity = compileGhostPartOpacity(inst, el, ctx);
-  applyOverrides(inst, el.overrides, el.id, get(plotManifests)[el.assetId]);
+  applyOverrides(inst, el.overrides, el.id, (ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId]));
   ghostOpacity?.(el);
   compensatePtTrue(inst, {
     elW: el.width,

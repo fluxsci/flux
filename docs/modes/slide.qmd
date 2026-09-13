@@ -183,6 +183,16 @@ same placement scale whether the deck stays open or is reopened later. An older 
 that baseline adopts the currently accepted size once; Flux cannot reconstruct dimensions
 that were never saved.
 
+# Embedding a slide in a document
+
+In [Paper](paper.qmd), choose **Insert slide…** or type **/slide**, then select this deck
+and a slide. The document keeps a live reference. Renaming, reordering, and saved edits
+update the linked block; playback begins at step 0 and advances one step per click.
+
+Deleting a referenced slide or removing its deck lists the affected documents, including
+open unsaved documents, before you can choose to proceed. Deleting a block in Paper does
+not delete the source. HTML exports retain manual playback; PDF and Word show step 0.
+
 # Troubleshooting
 
 | Symptom | Cause → fix |

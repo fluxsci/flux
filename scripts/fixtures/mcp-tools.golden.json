@@ -67,6 +67,7 @@
   "import_plots",
   "ingest_pdf",
   "insert_figure_ref",
+  "insert_slide_embed",
   "list_agents",
   "list_annotations",
   "list_comments",

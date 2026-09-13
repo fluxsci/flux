@@ -105,12 +105,12 @@ export function createTransform(
   }
   const intrinsic = (() => {
     if (!isPlot) return null;
-    const cached = plotDom.get((pre as SemanticPlotElement).assetId);
+    const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
     return cached ? svgIntrinsicPx(cached) : null;
   })();
   const naturalViewBox = (() => {
     if (!isPlot) return null;
-    const cached = plotDom.get((pre as SemanticPlotElement).assetId);
+    const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
     return cached?.getAttribute("viewBox") ?? null;
   })();
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
@@ -196,7 +196,7 @@ export function createTransform(
             inst.style.overflow = "visible";
           }
         }
-        applyOverrides(inst, p.overrides, p.id, ctx.plotManifest?.(p.assetId) ?? get(plotManifests)[p.assetId]);
+        applyOverrides(inst, p.overrides, p.id, (ctx.plotManifest ? ctx.plotManifest(p.assetId) : get(plotManifests)[p.assetId]));
         ghostOpacity?.(p);
         if (intrinsic) {
           compensatePtTrue(inst, {

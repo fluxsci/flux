@@ -207,7 +207,8 @@
    "verify-figure-editing.ts",
    "verify-paper-files.ts",
    "verify-fluxplot03.ts",
-   "verify-fluxplot-recipe-ipc.ts"
+   "verify-fluxplot-recipe-ipc.ts",
+   "verify-slide-embed-core.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -301,7 +302,9 @@
    "verify-paper-sidebar-layout.mjs",
    "verify-fluxplot03-gui.mjs",
    "verify-plot-gallery.mjs",
-   "verify-plot-hit-area.mjs"
+   "verify-plot-hit-area.mjs",
+   "verify-paper-slide-embeds.mjs",
+   "verify-slide-embed-lifecycle.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -375,12 +378,14 @@
    "verify-scale-fulltext.mjs",
    "verify-scale-slide.mjs",
    "verify-scale-lazy-assets.mjs",
-   "verify-scale-slide-dense.mjs"
+   "verify-scale-slide-dense.mjs",
+   "verify-scale-paper-slide-embeds.mjs"
   ],
   "bundle": [
    "verify-w13-cli.mjs",
    "verify-local-correction-bundle.mjs",
-   "verify-extension-build.ts"
+   "verify-extension-build.ts",
+   "verify-slide-embed-export.mjs"
   ],
   "startup": [
    "verify-startup.mjs"
@@ -395,7 +400,8 @@
    "verify-writer-latency-inp.mjs",
    "verify-source-sync-electron.cjs",
    "verify-figure-polish-electron.cjs",
-   "verify-plot-gallery-electron.cjs"
+   "verify-plot-gallery-electron.cjs",
+   "verify-slide-embed-electron.cjs"
   ],
   "presence": [
    "verify-electron-no-undef.ts",
@@ -456,7 +462,10 @@
    "verify-paper-files-gui.mjs",
    "verify-paper-sidebar-layout.mjs",
    "verify-paper-textscale.ts",
-   "verify-paper-textsize-gui.mjs"
+   "verify-paper-textsize-gui.mjs",
+   "verify-slide-embed-core.ts",
+   "verify-paper-slide-embeds.mjs",
+   "verify-slide-embed-lifecycle.mjs"
   ],
   "reader-gate": [
    "verify-r1-highlights.mjs",
@@ -505,10 +514,23 @@
    "verify-slide-ghost-api.ts",
    "verify-slide-ghost-gui.mjs",
    "verify-slide-arrow-browser.ts"
+  ],
+  "inline-slides": [
+   "verify-slide-embed-core.ts",
+   "verify-paper-slide-embeds.mjs",
+   "verify-slide-embed-lifecycle.mjs",
+   "verify-scale-paper-slide-embeds.mjs"
   ]
  },
  "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
  "pathMap": [
+  {
+   "glob": "src/lib/project/documentExportLease.ts",
+   "run": [
+    "verify-slide-embed-core.ts",
+    "group:paper-gate"
+   ]
+  },
   {
    "glob": "src/lib/project/documentFiles.ts",
    "run": [
@@ -521,7 +543,8 @@
    "run": [
     "group:figures-slides-overhaul",
     "group:slide-ghosts",
-    "tier:pure"
+    "tier:pure",
+    "group:inline-slides"
    ]
   },
   {
@@ -645,7 +668,7 @@
    ]
   },
   {
-   "$why": "tokens.css owns the `:root, .ts-scaled` type scale — Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
+   "$why": "tokens.css owns the `:root, .ts-scaled` type scale \u2014 Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
    "glob": "src/styles/tokens.css",
    "run": [
     "verify-paper-textscale.ts",
@@ -843,7 +866,8 @@
   {
    "glob": "src/lib/slide/**",
    "run": [
-    "tier:pure"
+    "tier:pure",
+    "group:inline-slides"
    ]
   },
   {

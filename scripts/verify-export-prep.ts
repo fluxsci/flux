@@ -185,7 +185,11 @@ try {
     },
     { entry: "/proj/manuscript/main.qmd", ctx },
   );
+  let reported = false;
+  try { await flakyPrep.restore(); } catch { reported = true; }
+  assert(reported, "restore failure is reported instead of silently claiming success");
   await flakyPrep.restore();
+  assert(flaky.get("/proj/manuscript/main.qmd") === SOURCES["manuscript/main.qmd"], "failed restoration can be retried safely");
   assert(failedOnce, "the simulated restore failure actually fired");
   assert(flaky.get("/proj/manuscript/sections/methods.qmd") === SOURCES["manuscript/sections/methods.qmd"],
     "a failed write on one file still restores the others");

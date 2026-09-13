@@ -50,7 +50,7 @@ if a project contains both folders, both are discoverable under Documents. Flux 
 an ordinary document as the default for command-line exports, replacing that pointer when
 it is deleted; the GUI always exports the document you have open.
 
-- Type **/** at the start of a line for the block palette: `/figure`, `/table`, `/equation`,
+- Type **/** at the start of a line for the block palette: `/figure`, `/slide`, `/table`, `/equation`,
   `/citation`, `/heading`, `/callout`, and friends.
 - **Ctrl+K** opens the command palette — everything in this guide is also in there by name.
 - **Ctrl+Shift+E** shows the full-width reading preview (**Escape** returns); the ⌘K palette
@@ -212,6 +212,38 @@ can also select specific panels (*Fig 3a,c*) and carries the same canvas dropdow
 insert picker, so you can narrow a multi-canvas project to one canvas before you search. **Double-click** any reference chip to jump to
 the thing it points to — a table or equation reference scrolls the editor to its source;
 **Ctrl+Enter** follows the reference under the caret.
+
+# Slides in documents
+
+Use **/slide** or **Ctrl+K → Insert slide…**, choose a deck, then choose a slide.
+The picker previews the completed slide. The block in your document starts at **step 0**.
+
+Click the artwork or **›** underneath it to advance one animation step. Tracks within a
+step play together with their authored timing. Automatic and “with previous” steps still
+wait for your next click here. Clicking during an animation finishes that step; the final
+step stops. **‹** goes back and **↺** resets to step 0.
+
+While the artwork has focus, **Right**, **Enter**, or **Space** advances, **Left** goes back,
+**Home** resets, and **Escape** returns to writing. The **Animation** toggle lets you snap
+between steps; your system's reduced-motion preference supplies its initial setting.
+Width buttons and the right-edge grip resize the display without changing the source slide.
+Use **↗** to open the original in Slide mode, or **Replace…** to choose another source.
+
+Each occurrence plays independently. Typing and scrolling retain its position; reopening
+a document starts again at step 0. Saved source edits appear in the block. If its deck or
+slide disappears, the block shows an unavailable message and retains its replacement control.
+Flux identifies the source by deck and slide IDs, so renaming or reordering it is safe.
+
+The editable source is an ordinary Quarto image with a generated SVG fallback:
+
+```markdown
+![Optional caption](../slides/talk/renders/results-step-0.svg){#slide-example .flux-slide deck="talk" slide="results" width=100%}
+```
+
+The caption belongs to this document. Speaker notes stay in the deck. Reading preview and
+exported HTML retain playback; PDF and Word show the **step-0 image**, regardless of the
+step currently visible in the editor. Word includes a raster fallback. Generated SVGs can
+be rebuilt by exporting or inserting the slide again.
 
 # Tables
 

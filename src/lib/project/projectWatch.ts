@@ -12,7 +12,7 @@
 // fires for genuine external (agent / analysis-script) edits.
 
 import { writable } from "svelte/store";
-import { bumpFigRevision, bumpBibRevision, bumpDeckRevision, bumpDissections } from "../../shell/scholar/revisions";
+import { bumpSlideEmbeds, bumpFigRevision, bumpBibRevision, bumpDeckRevision, bumpDissections } from "../../shell/scholar/revisions";
 import { bumpFluxLib, bumpAssignInbox, bumpZoteroBib } from "../references/revision";
 import { invalidateEnrichCache } from "../references/fluxlibBridge";
 import { refreshConflicts } from "./conflicts";
@@ -50,7 +50,8 @@ export function startProjectWatch(root: string | null): void {
       // A Figure caption/journal conflict must not disable an independent
       // deck's sources. Keep Figure-first ordering for shared figure assets.
       .then(async () => { if (generation === watchGeneration) await (await import("./slideBridge")).refreshDeckSources(root); })
-      .catch((e) => console.warn("Slide source update failed; last saved assets are retained", e));
+      .catch((e) => console.warn("Slide source update failed; last saved assets are retained", e))
+      .then(() => { if (generation === watchGeneration) bumpSlideEmbeds(); });
   };
   // Project-level catch-up is independent of which mode opens first.
   refreshSources();
@@ -63,7 +64,7 @@ export function startProjectWatch(root: string | null): void {
     else if (info.subsystem === "manuscript" || info.subsystem === "context")
       externalManuscriptChange.set({ ...info, n: ++mn });
     else if (info.subsystem === "feedback") feedbackRevision.update((n) => n + 1);
-    else if (info.subsystem === "slides") { bumpDeckRevision(); refreshSources(); } // W10 (SLD-1)
+    else if (info.subsystem === "slides" && !/[\/]renders[\/]/.test(info.path)) { bumpDeckRevision(); refreshSources(); } // W10 (SLD-1)
     else if (info.subsystem === "fluxlib") {
       // An external write to enrich.json (CLI hydrate, second window) must drop the
       // parse cache BEFORE consumers react to the revision bump (the mtime key would

@@ -36,6 +36,11 @@ export function registerLiveFigureReferenceDocument(adapter: LiveFigureReference
 export function readLiveFigureReferenceDocuments(root: string): { path: string; text: string }[] {
   return [...liveDocuments].filter((d) => d.root === root).map((d) => ({ path: d.path, text: d.getText() }));
 }
+/** Export only flushes buffers in its transitive include tree. */
+export async function flushLiveReferenceDocuments(root: string, paths: readonly string[]): Promise<void> {
+  const targets = new Set(paths.map(path => path.startsWith(root + "/") ? path.slice(root.length + 1) : path));
+  for (const doc of liveDocuments) if (doc.root === root && targets.has(doc.path)) await doc.flush();
+}
 export interface ReferenceSyncIO extends DependencyIO {
   exists(path: string): Promise<boolean>;
   writeText(path: string, text: string): Promise<void>;

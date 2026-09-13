@@ -32,6 +32,7 @@ export interface ExportPrepIO {
 export interface ExportPrepOpts {
   /** Absolute path of the entry document. */
   entry: string;
+  signal?: AbortSignal;
   /** Figure captions + family identity for the transform. */
   ctx: ExportQmdCtx;
   /** Venue section order + the alias table that assigns roles. Applied to the
@@ -42,6 +43,9 @@ export interface ExportPrepOpts {
    *  be post-processed into live Zotero fields (see references/zoteroFields.ts). Off by
    *  default: the markers are meaningless to any other consumer. */
   markCitations?: boolean;
+  /** Slide preparation shares its grammar/rendering with the document editor. */
+  transformSlides?: (text: string, file: string) => Promise<string>;
+  finishSlides?: (entryText: string) => Promise<string>;
 }
 
 export interface ExportPrepResult {
@@ -76,14 +80,30 @@ export async function prepareExport(
   io: ExportPrepIO,
   opts: ExportPrepOpts,
 ): Promise<ExportPrepResult> {
+  opts.signal?.throwIfAborted();
   const { files, texts, expanded } = await readQmdTree(opts.entry, io);
-  const originals = new Map<string, string>();
+  const originals = new Map<string, string>(), transformed = new Map<string, string>();
+  const written = new Set<string>();
+  async function restore() {
+    const failures: string[] = [];
+    for (const f of [...written]) {
+      try {
+        // An edit made during export always wins. Never restore stale source over it.
+        if (await io.readText(f) !== transformed.get(f)) { failures.push(`${f}: changed during export; newer content retained`); written.delete(f); continue; }
+        await io.writeText(f, originals.get(f)!);
+        written.delete(f);
+      } catch (error) { failures.push(`${f}: ${String(error)}`); }
+    }
+    if (failures.length) throw new Error(`Export source restoration: ${failures.join("; ")}`);
+  }
 
   let movedSections: string[] = [];
   for (const f of files) {
+    opts.signal?.throwIfAborted();
     const text = texts.get(f);
     if (text == null) continue;
     let next = transformQmdForExport(text, opts.ctx);
+    if (opts.transformSlides) next = await opts.transformSlides(next, f);
     if (opts.markCitations) next = markCitations(next);
     // Section order applies to the entry document only: an included fragment
     // has no top-level structure of its own to reorder.
@@ -94,27 +114,23 @@ export async function prepareExport(
     }
     if (next === text) continue;
     originals.set(f, text);
-    await io.writeText(f, next);
+    transformed.set(f, next);
   }
-
-  let restored = false;
-  return {
-    files,
-    expanded,
-    changed: [...originals.keys()],
-    movedSections,
-    async restore() {
-      if (restored) return;
-      restored = true;
-      // Restore every file even if one write fails — a partial restore is far
-      // worse than a failed one, so no single error may abort the loop.
-      for (const [f, text] of originals) {
-        try {
-          await io.writeText(f, text);
-        } catch {
-          /* best effort: keep restoring the rest */
-        }
-      }
-    },
-  };
+  if (opts.finishSlides) {
+    const original = texts.get(opts.entry);
+    if (original != null) {
+      const next = await opts.finishSlides(transformed.get(opts.entry) ?? original);
+      if (next !== original) { originals.set(opts.entry, original); transformed.set(opts.entry, next); }
+    }
+  }
+  // All source and asset validation completes before the first document write.
+  try {
+    for (const [f, next] of transformed) {
+      opts.signal?.throwIfAborted();
+      if (await io.readText(f) !== originals.get(f)) throw new Error(`${f} changed while preparing export; retry`);
+      await io.writeText(f, next);
+      written.add(f);
+    }
+  } catch (error) { await restore(); throw error; }
+  return { files, expanded, changed: [...transformed.keys()], movedSections, restore };
 }

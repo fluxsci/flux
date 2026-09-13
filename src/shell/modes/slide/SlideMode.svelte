@@ -51,6 +51,7 @@
     listProjectDecks,
     loadDeckInto,
     saveDeckFrom,
+    embeddedSlideRemovalBlocker,
     deckDiskDiverged, refreshDeckSources,
     createDeckInProject,
     duplicateDeckInProject as duplicateDeckBridge,
@@ -344,10 +345,15 @@
   }
   async function deleteDeck(id: string) {
     if (!pm || decks.length <= 1) return;
-    if (typeof window !== "undefined" && !window.confirm("Remove this deck from the project? Its file stays on disk.")) return;
+    let force = false;
+    try {
+      const blocker = await embeddedSlideRemovalBlocker(pm.root, id);
+      force = !!blocker;
+      if (!window.confirm(blocker ? `${blocker}\n\nRemove anyway? Its file stays on disk.` : "Remove this deck from the project? Its file stays on disk.")) return;
+    } catch (error) { pushToast("error", "Couldn't check deck references", { detail: errMsg(error) }); return; }
     const wasActive = id === activeDeckId;
     try {
-      const ok = await deleteDeckBridge(pm.root, id);
+      const ok = await deleteDeckBridge(pm.root, id, force);
       if (!ok) {
         pushToast("error", "Couldn't remove that deck.");
         return;
@@ -374,8 +380,14 @@
     });
     if (nid) selectSlide(nid);
   }
-  function onDeleteSlide(id: string) {
-    if ((overlay?.slides.length ?? 0) <= 1) return;
+  async function onDeleteSlide(id: string) {
+    if ((overlay?.slides.length ?? 0) <= 1 || !pm || !activeDeckId) return;
+    const deckId = activeDeckId;
+    try {
+      const blocker = await embeddedSlideRemovalBlocker(pm.root, deckId, id);
+      if (blocker && !window.confirm(`${blocker}\n\nDelete anyway?`)) return;
+    } catch (error) { pushToast("error", "Couldn't check slide references", { detail: errMsg(error) }); return; }
+    if (activeDeckId !== deckId) return;
     let next: string | null = null;
     commitDeckLive((d) => {
       next = slideOps.deleteSlide(d, id).nextActiveId;

@@ -153,6 +153,12 @@ function applyPickerCommand(name: string, pick: (s: SlashHandlers) => (() => voi
 
 const SLASH: Completion[] = [
   {
+    label: "/slide",
+    detail: "Embed a slide from a deck",
+    type: "figure",
+    apply: applyPickerCommand("/slide", s => s.onInsertSlide),
+  },
+  {
     label: "/figure",
     detail: "Embed a figure",
     type: "figure",

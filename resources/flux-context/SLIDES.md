@@ -214,3 +214,19 @@ reported, never invented.
 
 Related: `PROJECT-AND-FIGURES.md` (figures you copy in), `PLOTS-AND-STYLE.md`
 (semantic plots you morph), `CLI-REFERENCE.md` (running the verbs).
+
+## Inline slides in Paper
+
+`insert-slide-embed <deck> <slide> [--doc path.qmd] [--width 75%] [--caption "…"]`
+(MCP: `insert_slide_embed`) embeds one existing project slide. Optional `--anchor "…"`
+inserts after the containing line and must match exactly once; otherwise it appends.
+The source is `![caption](relative/poster.svg){#slide-<occurrence> .flux-slide deck="id" slide="id" width=100%}`.
+The IDs are authoritative; the poster is a rebuildable SVG of step 0. The document owns
+caption/width; the deck owns content/animations. Playback state is transient per occurrence.
+
+Paper and HTML use the shared player in manual step mode: auto/with-prev each require a
+click, concurrent tracks retain their timing, and the final step stops. PDF/Word show step 0.
+`compile --doc path.qmd --to html|pdf|docx` resolves includes and regenerates posters.
+The HTML export contains only referenced slides and their required assets, without speaker
+notes or local source paths. Deleting referenced slides fails unless `delete-slide --force`
+is explicit; inspect the listed documents before overriding.
