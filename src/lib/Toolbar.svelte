@@ -9,6 +9,7 @@
     historyAvailability,
     projectDir,
     embeddedProjectRoot,
+    importerOpen,
     type Tool,
   } from "./store";
   import { importAssets, openProject, saveProject } from "./io";
@@ -48,6 +49,7 @@
       <button on:click={saveProject} title="Save (Ctrl+S)">Save</button>
     {/if}
     <button on:click={importAssets} title="Import PNG/SVG (Ctrl+Shift+K)">Import</button>
+    {#if slideMode}<button on:click={() => importerOpen.set(true)} title="Browse project plots and MP4/MOV clips (Alt+I)">Plots &amp; videos</button>{/if}
   </div>
 
   <div class="sep"></div>

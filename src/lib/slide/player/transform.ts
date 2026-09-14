@@ -68,6 +68,9 @@ export function createTransform(
   ctx: TransformCtx,
 ): MorphController {
   const plan: ContentPlan = contentPlan(pre, end);
+  // A video is stretched by its retained element. Re-serializing width/height
+  // Changes would replace its decoder and restart playback every frame.
+  if (pre.type === "video" && end.type === "video") plan.contentDirty = false;
   if (pre.type === "plot" && end.type === "plot" && pre.assetId !== end.assetId && !ctx.morphTo) {
     plan.mode = "crossfade";
     plan.contentDirty = true;

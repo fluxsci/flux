@@ -217,6 +217,7 @@ Only Lighttable is genuinely optional — the rest are load-bearing for normal u
 | `npm run electron:dev` | Dev server **+ Electron**, live reload — main dev loop |
 | `npm run dev` | Vite dev server only (no Electron window) |
 | `npm run build` | Full production build → `dist/`: renderer **+** slide-export assets **+** the agent CLI bundles (`flux-cli.mjs`, `flux-mcp.mjs`). Not interchangeable with plain `vite build` |
+| `npm run fetch:video-encoder` | Fetch and verify the pinned encoder for Slide's **Video…** MP4 export in a source checkout; packaging runs this automatically |
 | `npm run pack` | Unpacked `Flux.app` → `release/` (fast) |
 | `npm run dist:mac` / `dist:linux` | Installer (`.dmg`+`.zip` / `AppImage`+`.deb`) → `release/` |
 | `npm run check` | Svelte / TypeScript type-check |

@@ -7,9 +7,16 @@ import { isNewerSchema } from "../project/types";
 import { DECK_SCHEMA_VERSION, type Deck } from "./types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { ExportPayload } from "./export/runtime";
+import { slideAssetIds } from "./deckProject";
+import type { Asset } from "../types";
 import { validEmbedId } from "./embed";
 export type { ExportPayload } from "./export/runtime";
-export interface SlidePayloadIO { readText(path: string): Promise<string>; readFile(path: string): Promise<Uint8Array | ArrayBuffer>; }
+export interface SlidePayloadIO {
+  readText(path: string): Promise<string>;
+  readFile(path: string): Promise<Uint8Array | ArrayBuffer>;
+  /** Authoring/capture hosts stream native files. Portable exports inline bytes. */
+  videoUrl?(path: string, asset: Asset): Promise<string>;
+}
 const join = (...parts: string[]) => parts.join("/");
 export function underRoot(root: string, rel: string): string {
   if (/^(?:[a-z]+:|[/\\])/i.test(rel)) throw new Error("Expected a project-relative path");
@@ -42,6 +49,7 @@ export async function readEmbedDeck(root: string, id: string, io: SlidePayloadIO
 export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO): Promise<{ payload: ExportPayload; warnings: string[] }> {
   const readJSON = async <T>(path: string): Promise<T> => JSON.parse(await io.readText(path)) as T;
   const assets: Record<string, string> = {};
+  const videos: Record<string, string> = {};
   const assetSizes: Record<string, { width: number; height: number }> = {};
   const plots: Record<string, { svg: string; manifest: FluxPlotManifest }> = {};
   const warnings: string[] = [];
@@ -63,12 +71,18 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
 
   // Raster/media bytes by id: deck-local first, then fig/ by id.
   const collectMedia = async (assetId: string): Promise<boolean> => {
-    if (assets[assetId]) return true;
+    if (assets[assetId] || videos[assetId]) return true;
     const da = deckAsset(assetId);
     if (da?.path) {
       try {
-        const buf = await io.readFile(underRoot(root, join("slides", deck.id, da.path)));
-        assets[assetId] = `data:${assetMime(da.kind)};base64,${base64(new Uint8Array(buf))}`;
+        const file = underRoot(root, join("slides", deck.id, da.path));
+        if (da.kind === "mp4") {
+          videos[assetId] = io.videoUrl ? await io.videoUrl(file, da)
+            : `data:video/mp4;base64,${base64(new Uint8Array(await io.readFile(file)))}`;
+        } else {
+          const buf = await io.readFile(file);
+          assets[assetId] = `data:${assetMime(da.kind)};base64,${base64(new Uint8Array(buf))}`;
+        }
         const ds = displaySize(da);
         if (ds) assetSizes[assetId] = ds;
         return true;
@@ -131,9 +145,10 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
     warnings.push(`plot "${assetId}" not found — it will be missing from the export`);
   };
 
-  // Deck-local media loads up front: a registered asset whose bytes vanished
-  // is a diagnostic even before any element references it.
-  for (const a of deck.assets ?? []) await collectMedia(a.id);
+  // Do not embed unplaced movie files retained in the asset registry for Undo.
+  // Raster/plot registry diagnostics retain their existing behavior.
+  const referenced = new Set(deck.slides.flatMap(slide => [...slideAssetIds(slide)]));
+  for (const a of deck.assets ?? []) if (a.kind !== "mp4" || referenced.has(a.id)) await collectMedia(a.id);
 
   for (const s of deck.slides) {
     for (const el of s.elements) {
@@ -143,6 +158,9 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
       } else if (el.type === "image") {
         if (!(await collectMedia(el.assetId)))
           warnings.push(`image asset "${el.assetId}" unresolvable — its element will show a placeholder`);
+      } else if (el.type === "video") {
+        if (!(await collectMedia(el.assetId))) warnings.push(`video asset "${el.assetId}" unresolvable — its element will show a placeholder`);
+        if (!(await collectMedia(el.posterAssetId))) warnings.push(`video poster "${el.posterAssetId}" unresolvable — its element will show a placeholder`);
       } else if (el.type === "text" && el.needsLayout) {
         warnings.push(
           `text element "${el.id}" on slide "${s.id}" was edited headlessly and awaits a GUI re-wrap (needsLayout) — its wrapping may differ until the deck is opened once in Flux`,
@@ -185,6 +203,7 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
       deck,
       plots,
       assets,
+      ...(Object.keys(videos).length ? { videos } : {}),
       ...(Object.keys(assetSizes).length ? { assetSizes } : {}),
     },
     warnings,
@@ -196,8 +215,7 @@ export async function gatherSlidePayload(root: string, deck: Deck, slideId: stri
   const slide = deck.slides.find(s => s.id === slideId);
   if (!slide) throw new Error("Slide is no longer in this deck");
   const selectedSlide = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: b.tracks.filter(t => !t.disabled) })) };
-  const ids = new Set(selectedSlide.elements.flatMap(e => "assetId" in e ? [e.assetId] : []));
-  for (const b of selectedSlide.beats) for (const t of b.tracks) if (t.to?.assetId) ids.add(t.to.assetId);
+  const ids = slideAssetIds(selectedSlide);
   const selected = { ...deck, slides: [selectedSlide], assets: deck.assets.filter(a => ids.has(a.id)) };
   const result = await gatherPayload(root, selected, io);
   const clean = structuredClone(result.payload);
@@ -208,7 +226,7 @@ export async function gatherSlidePayload(root: string, deck: Deck, slideId: stri
       for (const k of ["svgPath", "manifestPath", "recipePath", "external", "frozen"]) delete t.to[k];
     }
   }
-  clean.deck.assets = clean.deck.assets.map(a => ({ id: a.id, name: a.id, kind: a.kind, path: "", naturalWidth: a.naturalWidth, naturalHeight: a.naturalHeight, ...(a.dpi ? { dpi: a.dpi } : {}) }));
+  clean.deck.assets = clean.deck.assets.map(a => ({ id: a.id, name: a.id, kind: a.kind, path: "", naturalWidth: a.naturalWidth, naturalHeight: a.naturalHeight, ...(a.dpi ? { dpi: a.dpi } : {}), ...(a.durationMs ? { durationMs: a.durationMs } : {}), ...(a.hasAudio != null ? { hasAudio: a.hasAudio } : {}) }));
   // Serialized transform states can also carry authoring source metadata.
   const scrub = (value: unknown): void => {
     if (!value || typeof value !== "object") return;

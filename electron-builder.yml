@@ -49,6 +49,9 @@ asarUnpack:
   # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.
   - dist/flux-cli.mjs
   - dist/slide-export-assets.json
+  - electron/slideVideoWorker.cjs
+  - electron/videoMedia.cjs
+  - electron/entry.cjs
   # Same constraint for the MCP server: agent:mcpSpec hands `claude` this path
   # (Electron-as-Node child), so the packaged Reader "Ask Claude" needs it unpacked.
   - dist/flux-mcp.mjs
@@ -73,6 +76,8 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extraResources:
+    - from: build/video-encoder/darwin-${arch}/
+      to: video-encoder/
     - from: build/correction-runtime/darwin-${arch}/
       to: corrections/runtime/
     # Web capture ships with the app (platform blocks REPLACE the top-level extraResources
@@ -108,6 +113,8 @@ linux:
         Name: New Window
         Exec: /opt/Flux/flux --new-window %U
   extraResources:
+    - from: build/video-encoder/linux-${arch}/
+      to: video-encoder/
     - from: build/correction-runtime/linux-${arch}/
       to: corrections/runtime/
     # Web capture ships with the app (platform blocks REPLACE the top-level extraResources
@@ -120,6 +127,16 @@ linux:
   target:
     - AppImage
     - deb
+
+win:
+  extraResources:
+    - from: build/video-encoder/win32-${arch}/
+      to: video-encoder/
+    - from: extension/dist
+      to: extension/dist
+    - from: extension/signed
+      to: extension/signed
+      filter: ["**/*.xpi"]
 
 dmg:
   title: ${productName} ${version}

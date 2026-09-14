@@ -30,7 +30,10 @@ export const DECK_CANVAS_ID = "deck";
  * future content. Presets must embed these bytes as well as placed assets. */
 export function slideAssetIds(slide: Slide): Set<Id> {
   const ids = new Set<Id>();
-  for (const el of slide.elements) if ("assetId" in el) ids.add(el.assetId);
+  for (const el of slide.elements) {
+    if ("assetId" in el) ids.add(el.assetId);
+    if (el.type === "video") ids.add(el.posterAssetId);
+  }
   for (const beat of slide.beats) for (const track of beat.tracks) if (track.to?.assetId) ids.add(track.to.assetId);
   return ids;
 }

@@ -6,6 +6,7 @@ import type {
   ImageElement,
   Project,
   SemanticPlotElement,
+  VideoElement,
 } from "./types";
 import {
   project,
@@ -106,7 +107,9 @@ function kindOf(name: string): "png" | "svg" {
 // px (96/inch) — placement must never rescale them (see placeIncoming).
 export interface Incoming {
   asset: Asset;
-  el: ImageElement | SemanticPlotElement;
+  el: ImageElement | SemanticPlotElement | VideoElement;
+  /** Already-prepared dependent assets, e.g. a video's PNG poster. */
+  extraAssets?: Asset[];
 }
 
 // Sidecars discovered next to an imported `X.svg`: a FluxPlot manifest
@@ -280,6 +283,7 @@ export async function importAssets() {
 /** Read through the exact shared image/plot import pipeline, including sibling
  * manifests/recipes and physical size. The caller owns placement/undo. */
 export async function readIncomingPlot(absPath: string): Promise<Incoming> {
+  if (!/\.(png|svg)$/i.test(absPath)) throw new Error("Choose a PNG image or SVG plot. Video clips can be inserted from the Slide gallery.");
   const bytes = new Uint8Array(await window.fig.readFile(absPath));
   return buildIncoming(basename(absPath), bytes, await resolveSiblingsFromFs(absPath));
 }
@@ -291,17 +295,18 @@ export async function readIncomingPlot(absPath: string): Promise<Incoming> {
 // error toast listing each basename (no silent failures). All placements go
 // through a single placeIncoming call — one undo step, grid auto-arrange for
 // N>1, the physical-size contract, and select-all-new.
-export async function importPlotsFromPaths(absPaths: string[], canPlace: () => boolean = () => true) {
+export async function importPlotsFromPaths(absPaths: string[], canPlace: () => boolean = () => true,
+  read: (path: string) => Promise<Incoming> = readIncomingPlot) {
   if (!window.fig || !absPaths.length) return 0;
   const targetId = get(activeFigureId);
   const incoming: Incoming[] = [];
   const failed: string[] = [];
   for (const absPath of absPaths) {
     try {
-      const bytes = new Uint8Array(await window.fig.readFile(absPath));
-      const sib = await resolveSiblingsFromFs(absPath);
-      incoming.push(await buildIncoming(basename(absPath), bytes, sib));
+      if (!canPlace()) throw new Error("The insertion destination changed.");
+      incoming.push(await read(absPath));
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") throw e;
       failed.push(`${basename(absPath)}: ${errMsg(e)}`);
     }
   }
@@ -310,7 +315,7 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
   if (failed.length) {
     pushToast(
       "error",
-      failed.length === 1 ? "Plot import failed" : `${failed.length} of ${absPaths.length} plot imports failed`,
+      failed.length === 1 ? "Import failed" : `${failed.length} of ${absPaths.length} imports failed`,
       { detail: failed.join("\n") },
     );
   }
@@ -423,7 +428,7 @@ export async function importDroppedFiles(files: File[], figId: string) {
 // (The old 70%-fit rule silently rescaled each import by a different factor, so
 // same-pt fonts landed at different apparent sizes — the one thing a journal
 // figure tool must never do.)
-function placeIncoming(incoming: Incoming[], figId?: string) {
+export function placeIncoming(incoming: Incoming[], figId?: string) {
   if (!incoming.length) return;
   const p = get(project);
   const id = figId ?? get(activeFigureId) ?? p.figures[0]?.id;
@@ -454,7 +459,8 @@ function placeIncoming(incoming: Incoming[], figId?: string) {
     const f = proj.figures.find((ff) => ff.id === id);
     if (!f) return;
     for (const it of incoming) {
-      proj.assets.push(it.asset);
+      for (const asset of [it.asset, ...(it.extraAssets ?? [])])
+        if (!proj.assets.some(existing => existing.id === asset.id)) proj.assets.push(asset);
       f.elements.push(it.el);
     }
   });
@@ -626,6 +632,7 @@ export async function openProject() {
     const primedRecipes: Record<string, unknown> = {};
     for (const asset of p.assets) {
       if (!asset.path) continue;
+      if (asset.kind === "mp4") throw new Error("Video assets are only supported in slide decks.");
       const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
       fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
       if (asset.kind === "png") captureSnipMeta(asset.id, bytes);

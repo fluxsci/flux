@@ -11,7 +11,7 @@
     slidePresetThumb,
     type SlidePresetEntry,
   } from "../../../lib/slide/presetLib";
-  import { pushToast } from "../../../lib/toast";
+  import { pushToast, errMsg } from "../../../lib/toast";
 
   let {
     mode,
@@ -35,6 +35,7 @@
   // svelte-ignore state_referenced_locally -- the initial value IS the intent (a seed the user edits)
   let name = $state(suggestedName ?? "");
   let inputEl = $state<HTMLInputElement | null>(null);
+  let saving = $state(false);
 
   $effect(() => {
     void (async () => {
@@ -59,18 +60,22 @@
     onClose();
   }
   async function doSave() {
-    if (!slideId) return;
-    const res = await saveSlidePreset(name, slideId);
-    if (!res) {
-      pushToast("error", "Couldn't save the preset", { detail: "Give it a name (slashes create folders)." });
-      return;
-    }
-    pushToast("info", `Saved slide preset "${name}"`, {
-      detail: res.missingAssets.length
-        ? `${res.missingAssets.length} asset(s) had no loaded bytes and were not embedded.`
-        : undefined,
-    });
-    onClose();
+    if (!slideId || saving) return;
+    saving = true;
+    try {
+      const res = await saveSlidePreset(name, slideId);
+      if (!res) {
+        pushToast("error", "Couldn't save the preset", { detail: "Give it a name (slashes create folders)." });
+        return;
+      }
+      pushToast("info", `Saved slide preset "${name}"`, {
+        detail: res.missingAssets.length
+          ? `${res.missingAssets.length} asset(s) had no loaded bytes and were not embedded.`
+          : undefined,
+      });
+      onClose();
+    } catch (error) { pushToast("error", "Couldn't save the preset", { detail: errMsg(error) }); }
+    finally { saving = false; }
   }
   async function doDelete(entry: SlidePresetEntry, ev: MouseEvent) {
     ev.stopPropagation();
@@ -95,8 +100,8 @@
       <button class="x" onclick={onClose} aria-label="Close">×</button>
     </header>
     {#if mode === "save"}
-      <input bind:this={inputEl} bind:value={name} placeholder="name — e.g. titles/two-panel" spellcheck="false" onkeydown={onKey} />
-      <button class="primary" onclick={doSave} disabled={!name.trim()}>Save preset</button>
+      <input bind:this={inputEl} bind:value={name} disabled={saving} placeholder="name — e.g. titles/two-panel" spellcheck="false" onkeydown={onKey} />
+      <button class="primary" onclick={doSave} disabled={saving || !name.trim()}>{saving ? "Saving media…" : "Save preset"}</button>
       <div class="hint">Saved machine-wide to FluxConfig/presets/slides — animation, background and media travel with it.</div>
     {:else}
       <input bind:this={inputEl} bind:value={search} placeholder="search presets…" spellcheck="false" onkeydown={onKey} />

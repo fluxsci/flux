@@ -146,7 +146,7 @@ const STROKED = new Set(["line", "rect", "ellipse", "path"]);
  *  or a line's endpoints, so a W/H edit would desync the rendered geometry from
  *  its box. This is the ONE source of truth — the cascade, the Inspector W/H
  *  fields, and the FluxFig-menu W/H keys all gate on `supportsBoxDim`. */
-const BOX_DIM = new Set(["rect", "ellipse", "image", "plot", "text"]);
+const BOX_DIM = new Set(["rect", "ellipse", "image", "plot", "video", "text"]);
 export function supportsBoxDim(type: string): boolean {
   return BOX_DIM.has(type);
 }

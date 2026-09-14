@@ -16,9 +16,8 @@
 // Semantic plots mount as LIVE inline SVG with addressable, id-prefixed parts
 // so the player + morph can animate `control.line`, `control.point.k`, etc.
 //
-// VIDEO SEAM: when the slide-only video element returns, add its wrapper
-// branch here (a `<video>` fill keyed by a video-capable deck asset kind) and
-// its union member in slide/types.ts. Nothing ships now.
+// Video placements use their ordinary poster in static hosts, and one retained
+// decoder in a player. Appearance and geometry still belong to the same wrapper.
 // ---------------------------------------------------------------------------
 
 import { get } from "svelte/store";
@@ -48,6 +47,8 @@ export interface SlideRenderCtx {
   /** deck-level default slide background (falls back to the theme's). */
   deckBackground?: string;
   mode?: "edit" | "present" | "export";
+  /** Static hosts must never allocate a decoder for each thumbnail. */
+  videoPlayback?: boolean;
   /** Derived ghost styling; never written into the figure/deck model. */
   ghostPartFactors?: Record<string, Record<string, { opacity: number }>>;
 }
@@ -279,7 +280,27 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
  *  this entry so there is never a second renderer. */
 export function fillContent(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
   if (el.type === "plot") fillPlot(w, el, ctx);
+  else if (el.type === "video") fillVideo(w, el, ctx);
   else fillStatic(w, el, ctx);
+}
+
+function fillVideo(w: HTMLElement, el: Extract<FigElement, { type: "video" }>, ctx: SlideRenderCtx): void {
+  const poster = ctx.assetUrl?.(el.posterAssetId), source = ctx.assetUrl?.(el.assetId);
+  if (!ctx.videoPlayback || !source) {
+    if (poster) {
+      const image = document.createElement("img"); image.src = poster; image.alt = el.name ?? "Video clip"; image.draggable = false;
+      image.style.cssText = "display:block;width:100%;height:100%;object-fit:fill"; w.append(image);
+    } else { w.classList.add("sl-missing"); w.textContent = "Video unavailable"; }
+    return;
+  }
+  const video = document.createElement("video");
+  video.dataset.slideVideo = el.id;
+  video.preload = "auto"; video.playsInline = true; video.controls = false;
+  video.muted = !!el.muted; video.loop = !!el.loop; video.disablePictureInPicture = true;
+  video.setAttribute("aria-label", el.name ?? "Video clip");
+  if (poster) video.poster = poster;
+  video.style.cssText = "display:block;width:100%;height:100%;object-fit:fill";
+  video.src = source; w.append(video);
 }
 
 /** Bind inherited appearance factors once. The saved SVG's own opacity and

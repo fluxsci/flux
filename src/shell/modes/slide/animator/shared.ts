@@ -16,6 +16,7 @@ export const PRESET_COLOR: Record<string, string> = {
   transform: "#66800b", morph: "#66800b",
   // exits render in the muted red family — visually "this leaves the stage"
   fadeOut: "#af3029", popOut: "#af3029", drawOff: "#af3029", wipeOut: "#af3029", countUp: "#66800b",
+  videoStart: "#3aa99f", videoPause: "#d0a215", videoStop: "#af3029",
 };
 
 export const EDIT_PRESETS: PresetName[] = [
@@ -25,7 +26,7 @@ export const EDIT_PRESETS: PresetName[] = [
 export const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
 export function presetLabel(preset: string): string {
   return ({fade:"Fade in",fadeRise:"Rise in",popIn:"Pop in",drawOn:"Draw on",growBaseline:"Grow",stagger:"Stagger in",writeOn:"Wipe in",
-    fadeOut:"Fade out",popOut:"Pop out",drawOff:"Draw off",wipeOut:"Wipe out",highlight:"Highlight",dim:"Dim",countUp:"Count up",transform:"Change",morph:"Data morph",camera:"Camera"} as Record<string,string>)[preset] ?? preset;
+    fadeOut:"Fade out",popOut:"Pop out",drawOff:"Draw off",wipeOut:"Wipe out",highlight:"Highlight",dim:"Dim",countUp:"Count up",transform:"Change",morph:"Data morph",camera:"Camera",videoStart:"Start video",videoPause:"Pause video",videoStop:"Stop video"} as Record<string,string>)[preset] ?? preset;
 }
 export const INFLUENCE_PRESETS: { name: string; in: number; out: number }[] = [
   { name: "ease", in: 0, out: 0 },
@@ -38,7 +39,7 @@ export const INFLUENCE_PRESETS: { name: string; in: number; out: number }[] = [
 /** Element type → a compact glyph for tree rows / chip labels (the figure
  *  element union — slides-are-figures). */
 export const EL_GLYPH: Record<string, string> = {
-  plot: "▤", text: "¶", image: "▣", rect: "▭", ellipse: "◯", line: "╱", path: "〰",
+  plot: "▤", text: "¶", image: "▣", video: "▶", rect: "▭", ellipse: "◯", line: "╱", path: "〰",
 };
 
 /** A compact label for a track chip (prefixed with a P-tag when the slide has

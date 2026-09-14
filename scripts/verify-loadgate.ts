@@ -2,7 +2,7 @@
 // WS-5.1 (fortify plan) — the load-gate validator contract:
 //   · the element schema is a discriminated oneOf (legacy "svg" kind REMOVED —
 //     validation runs post-migration, and the drift test pins the branch list
-//     against the Element union);
+//     against the FigureElement union);
 //   · NaN geometry (JSON null) is REJECTED at load and REPAIRED at save
 //     (sanitizeProjectGeometry);
 //   · a legacy doc fails RAW but passes after migrateProject (the
@@ -14,7 +14,7 @@ import { validateModel, validateCanvasFile, validateDeckFile, sanitizeProjectGeo
 import { validateModel as coreValidateModel } from "../flux-core/validate";
 import { SCHEMAS } from "../src/lib/project/schemas";
 import { migrateProject } from "../src/lib/migrate";
-import type { Element, Project } from "../src/lib/types";
+import type { FigureElement, Project } from "../src/lib/types";
 
 let failures = 0;
 const ok = (m: string) => console.log("  ok:", m);
@@ -24,11 +24,11 @@ const fail = (m: string) => {
 };
 const assert = (c: unknown, m: string) => (c ? ok(m) : fail(m));
 
-// ---- drift gate: the schema's discriminant branches === Element["type"] ------
+// ---- drift gate: the schema's discriminant branches === FigureElement["type"] ------
 // The literal is pinned to the union at COMPILE time (satisfies + exhaustive
 // check under svelte-check/tsc); the runtime half pins the schema against it.
-const ALL_TYPES = ["image", "text", "rect", "ellipse", "line", "path", "plot"] as const satisfies readonly Element["type"][];
-type _Missing = Exclude<Element["type"], (typeof ALL_TYPES)[number]>;
+const ALL_TYPES = ["image", "text", "rect", "ellipse", "line", "path", "plot"] as const satisfies readonly FigureElement["type"][];
+type _Missing = Exclude<FigureElement["type"], (typeof ALL_TYPES)[number]>;
 const _exhaustive: _Missing extends never ? true : never = true;
 void _exhaustive;
 {
@@ -37,7 +37,7 @@ void _exhaustive;
   const branchTypes = oneOf.map((b) => b.properties.type.const).sort();
   assert(
     JSON.stringify(branchTypes) === JSON.stringify([...ALL_TYPES].sort()),
-    `schema element branches === Element union (${branchTypes.join(",")})`,
+    `schema element branches === FigureElement union (${branchTypes.join(",")})`,
   );
   assert(!branchTypes.includes("svg"), 'legacy "svg" kind removed from the schema');
 }

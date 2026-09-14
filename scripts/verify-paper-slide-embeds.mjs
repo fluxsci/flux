@@ -2,6 +2,7 @@ import { launch, gotoApp, clickMode, waitFor, APP_URL, realErrors, shot, sleep }
 import { harness } from './lib/harness.mjs';
 const h = harness('verify-paper-slide-embeds');
 const {browser,page} = await launch();
+const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
 const ROOT = '/demo/myc-growth-paper';
 try {
   await gotoApp(page,{url:`${APP_URL}?fixture=demo`,settle:600});
@@ -38,9 +39,9 @@ try {
   h.ok(true,'deck → slide picker inserts at step 0');
   const line = await page.evaluate(()=>window.__fluxView.state.doc.toString().split('\n').find(l=>l.includes('.flux-slide')));
   h.ok(line.includes('deck="talk"')&&line.includes('slide="results"'),'document contains stable source IDs');
-  await page.evaluate(()=>window.__fluxView.focus());await page.keyboard.down('Control');await page.keyboard.press('z');await page.keyboard.up('Control');
+  await page.evaluate(()=>window.__fluxView.focus());await page.keyboard.down(modifier);await page.keyboard.press('z');await page.keyboard.up(modifier);
   h.ok(await page.evaluate(()=>!window.__fluxView.state.doc.toString().includes('.flux-slide')),'one Undo removes the inserted block');
-  await page.keyboard.down('Control');await page.keyboard.press('y');await page.keyboard.up('Control');
+  await page.keyboard.down(modifier);await page.keyboard.down('Shift');await page.keyboard.press('z');await page.keyboard.up('Shift');await page.keyboard.up(modifier);
   await waitFor(page,()=>!!document.querySelector('.cm-editor .flux-slide-art'),null,{timeout:10000});
   const initial = await page.$('.cm-editor .flux-slide-art');
   await initial.click();await waitFor(page,()=>document.querySelector('.cm-editor .flux-slide-bar')?.textContent.includes('Step 1 / 2'),null,{timeout:5000});

@@ -24,7 +24,7 @@ export function embedPlayerOptions(payload: ExportPayload): PlayerOpts {
   }
   return { theme: resolveTheme(payload.deck.theme), mode: "export", manualSteps: true, reducedMotion: false,
     plotRoot: id => roots.get(id), plotManifest: id => payload.plots?.[id]?.manifest,
-    assetUrl: id => payload.assets?.[id], assetSize: id => payload.assetSizes?.[id] };
+    assetUrl: id => payload.videos?.[id] ?? payload.assets?.[id], assetSize: id => payload.assetSizes?.[id] };
 }
 /** Namespace an ephemeral rendering copy. Canonical IDs and bytes are untouched. */
 export function namespaceEmbedDeck(deck: Deck, prefix: string): Deck {

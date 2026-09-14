@@ -40,6 +40,17 @@
 <g {transform} opacity={e.opacity ?? 1}>
   {#if e.type === "plot"}
     <PlotElement element={e} />
+  {:else if e.type === "video"}
+    <!-- Authoring uses the prepared still: selection and direct manipulation
+         never start a decoder, playback or audio. The shared player owns that. -->
+    {#if $assetData[e.posterAssetId]}
+      <image x={e.x} y={e.y} width={e.width} height={e.height}
+        preserveAspectRatio="none" href={$assetData[e.posterAssetId]} />
+    {:else}
+      <rect x={e.x} y={e.y} width={e.width} height={e.height} fill="#202020" stroke="#777" />
+      <text x={e.x + e.width / 2} y={e.y + e.height / 2} text-anchor="middle" dominant-baseline="middle"
+        fill="#ddd" font-size={Math.max(10, Math.min(18, e.width / 15))}>Video preview unavailable</text>
+    {/if}
   {:else if e.type === "image"}
     {#if $assetData[e.assetId]}
       {#if e.crop && imgDisp}

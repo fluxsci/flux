@@ -48,6 +48,8 @@
   const curTrack = $derived(selTracks.length ? selTracks[selTracks.length - 1] : null);
   const curFamily = $derived(curTrack ? familyOf(curTrack) : null);
   const anyGhost = $derived(selTracks.some(t => !!t.ghostFrom));
+  const anyMedia = $derived(selTracks.some(t => familyOf(t) === "media"));
+  const allMedia = $derived(selTracks.length > 0 && selTracks.every(t => familyOf(t) === "media"));
   const groupLabel = $derived.by(() => {
     if (!curTrack?.groupId) return null;
     for (const b of slide.beats) {
@@ -69,6 +71,7 @@
 
   const patchTrack = (p: Partial<Track>) => {
     if (anyGhost && ["target", "ghostFrom", "preset", "part", "selector"].some(key => key in p)) return;
+    if (anyMedia && !allMedia && ["preset", "part", "selector", "target"].some(key => key in p)) return;
     withSelectedTracks((t) => Object.assign(t, p));
   };
   function timing(field: "start" | "duration", value: string) {
@@ -221,7 +224,7 @@
       {#if curFamily === "transform"}
         <span class="chip">{curTrack.ghostFrom ? "ghost transform" : "transform"}</span>
       {:else if selTracks.length === 1}
-        <span class="chip">{curTrack.preset ?? "fade"}</span>
+        <span class="chip">{presetLabel(curTrack.preset ?? "fade")}</span>
       {/if}
       {#if anyMixed}<span class="mx" title="Selected tracks differ on some fields — editing a field sets it on ALL of them">mixed</span>{/if}
     </div>
@@ -233,11 +236,12 @@
     {#if anyGhost && selTracks.length > 1}
       <div class="note ghost-mixed-note">This selection includes ghost births. Timing and easing apply to all selected effects. Select one effect to edit its destination.</div>
     {/if}
-    {#if curTrack.target !== "@camera" && !anyGhost}
+    {#if anyMedia && !allMedia}<div class="note">This selection includes video controls. Start offsets apply to all selected effects; select a video control to edit its action.</div>{/if}
+    {#if curTrack.target !== "@camera" && !anyGhost && (!anyMedia || allMedia)}
       <label class="f">Object
         <select aria-label="Animation target" value={curTrack.target} onchange={e => retarget(e.currentTarget.value)}>
           {#if !curTargetEl}<option value={curTrack.target}>Missing object</option>{/if}
-          {#each slide.elements as e (e.id)}<option value={e.id}>{e.name || (e.type === "text" ? e.text.slice(0, 36) : e.type)}</option>{/each}
+          {#each slide.elements.filter(e => !allMedia || e.type === "video") as e (e.id)}<option value={e.id}>{e.name || (e.type === "text" ? e.text.slice(0, 36) : e.type)}</option>{/each}
         </select>
       </label>
       {#if curTargetEl?.type === "plot" && curFamily !== "transform"}
@@ -288,7 +292,15 @@
         <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)}>Choose data target from project…</button>
         {#if curTrack.to?.assetId}<div class="note">Data target: {curTrack.to.svgPath?.split("/").pop() || curTrack.to.assetId}</div>{/if}
       {/if}
-    {:else if curFamily === "appearance" && !anyGhost}
+    {:else if allMedia}
+      <label class="f">Action<kbd class="kc" title="shortcut: p">p</kbd>
+        <select data-fld="p" aria-label="Video action" value={curTrack.preset}
+          onchange={event => patchTrack({ preset: event.currentTarget.value as PresetName, duration: 0 })}>
+          <option value="videoStart">Start video</option><option value="videoPause">Pause video</option><option value="videoStop">Stop video</option>
+        </select>
+      </label>
+      <div class="note">{curTrack.preset === "videoStart" ? "Starts from the first frame. Playback continues across steps until the clip ends or a Pause/Stop action runs." : curTrack.preset === "videoPause" ? "Freezes the current frame. A later Start action plays again from the beginning." : "Stops playback and returns to the first frame."} Appearance is controlled separately.</div>
+    {:else if curFamily === "appearance" && !anyGhost && !anyMedia}
       <label class="f">Effect<kbd class="kc" title="shortcut: p">p</kbd>
         <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
           {#each EDIT_PRESETS as p (p)}<option value={p}>{presetLabel(p)}</option>{/each}
@@ -299,10 +311,10 @@
     <label class="f">start<kbd class="kc" title="shortcut: t">t</kbd>
       <span class="unit"><input data-fld="t" type="number" min="0" step="50" placeholder="Mixed" value={mixed(t => t.start ?? 0) ? "" : curTrack.start ?? 0} onchange={(e) => timing("start", e.currentTarget.value)} /><small>ms</small></span>
     </label>
-    <label class="f">duration<kbd class="kc" title="shortcut: d">d</kbd>
+    {#if !anyMedia}<label class="f">duration<kbd class="kc" title="shortcut: d">d</kbd>
       <span class="unit"><input data-fld="d" type="number" min="1" step="50" placeholder="Mixed" value={mixed(t => trackDuration(t)) ? "" : trackDuration(curTrack)} onchange={(e) => timing("duration", e.currentTarget.value)} /><small>ms</small></span>
-    </label>
-    {#if curFamily === "appearance" && !anyGhost}
+    </label>{/if}
+    {#if curFamily === "appearance" && !anyGhost && !anyMedia}
       <label class="f">stagger<kbd class="kc" title="shortcut: g">g</kbd>
         <span class="unit"><input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></span>
       </label>
@@ -385,7 +397,7 @@
         </div>
       </div>
     {/if}
-    <label class="f">easing<kbd class="kc" title="shortcut: e">e</kbd>
+    {#if !anyMedia}<label class="f">easing<kbd class="kc" title="shortcut: e">e</kbd>
       <select data-fld="e" value={curTrack.easing ?? (curFamily === "transform" ? "smooth" : "standard")} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"], influence: undefined })}>
         {#each EASINGS as ee (ee)}<option value={ee}>{ee}</option>{/each}
       </select>
@@ -403,9 +415,9 @@
         {/each}
       </span>
     </div>
-    </details>
+    </details>{/if}
 
-    {#if selTracks.length === 1}
+    {#if selTracks.length === 1 && !anyMedia}
       {#if savingPreset}
         <div class="psave">
           <!-- svelte-ignore a11y_autofocus -->

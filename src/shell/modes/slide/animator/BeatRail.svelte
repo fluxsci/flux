@@ -113,11 +113,11 @@
   type Drag={x:number;y:number;dx:number;kind:"start"|"duration";orig:{id:string;start:number;duration:number}[];primary:string;over:number|null;row:number|null;copy:boolean;moving:boolean;magnets:number[]};
   let drag=$state<Drag|null>(null);
   function down(e:PointerEvent,t:Track,kind:"start"|"duration") {
-    if(e.button!==0||!t.id)return;
+    if(e.button!==0||!t.id||kind==="duration"&&familyOf(t)==="media")return;
     e.preventDefault();e.stopPropagation();
     if(e.shiftKey||e.metaKey||e.ctrlKey){chooseTrack(t,true);return;}
     if(!$selTrackIds.includes(t.id))chooseTrack(t); else onFocusDock();
-    const selected=beat.tracks.filter(t=>t.id&&$selTrackIds.includes(t.id));
+    const selected=beat.tracks.filter(t=>t.id&&$selTrackIds.includes(t.id)&&(kind!=="duration"||familyOf(t)!=="media"));
     drag={x:e.clientX,y:e.clientY,dx:0,kind,primary:t.id,orig:selected.map(t=>({id:t.id!,start:t.start??0,duration:trackDuration(t)})),over:null,row:null,copy:e.altKey,moving:false,
       magnets:beat.tracks.filter(t=>!t.id||!$selTrackIds.includes(t.id)).flatMap(t=>[t.start??0,(t.start??0)+trackDuration(t)])};
     window.addEventListener("pointermove",move);window.addEventListener("pointerup",up);window.addEventListener("pointercancel",cancel);
@@ -329,8 +329,8 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div class="trk" class:tx class:sel={!!t.id&&highlightedIds.has(t.id)} style={`left:${drawStart(t)}px;width:${drawWidth(t)}px`} title={`${fmt(t.start??0)} → ${fmt((t.start??0)+trackDuration(t))} · drag to retime; vertical drag reorders; drag onto a step to move (Alt copies)`} onpointerdown={e=>down(e,t,"start")}>
                 {#if tail(t)>0}<span class="tail" style={`width:${tail(t)}px`}></span>{/if}
-                <span class="bar-time">{fmt(trackDuration(t))}</span>
-                <!-- svelte-ignore a11y_no_static_element_interactions --><span class="edge" onpointerdown={e=>down(e,t,"duration")}></span>
+                <span class="bar-time">{familyOf(t)==="media" ? "◆" : fmt(trackDuration(t))}</span>
+                {#if familyOf(t)!=="media"}<!-- svelte-ignore a11y_no_static_element_interactions --><span class="edge" onpointerdown={e=>down(e,t,"duration")}></span>{/if}
               </div>
             </div>
           </div>

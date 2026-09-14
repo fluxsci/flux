@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "electron/main.cjs",
-  "description": "Flux \u2014 a local app for joining plots into figures, figures into papers, and slides",
+  "main": "electron/entry.cjs",
+  "description": "Flux — a local app for joining plots into figures, figures into papers, and slides",
   "author": {
     "name": "Kort Driessen",
     "email": "sleepanimal@gmail.com"
@@ -33,17 +33,18 @@
     "flux:mcp": "tsx flux-mcp.ts",
     "electron:dev": "concurrently -k -n vite,electron \"npm run dev\" \"wait-on tcp:127.0.0.1:1420 && node scripts/electron-dev.mjs\"",
     "electron:build": "npm run build && electron .",
-    "dist": "npm run build && npm run fetch:correction-runtime && electron-builder",
-    "dist:mac": "npm run build && node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64 && electron-builder --mac",
-    "dist:linux": "npm run build && node scripts/fetch-correction-runtime.mjs --platform linux --arches x64 && electron-builder --linux",
-    "pack": "npm run build && npm run fetch:correction-runtime && electron-builder --dir",
+    "dist": "npm run build && npm run fetch:correction-runtime && node scripts/fetch-video-encoder.mjs && electron-builder",
+    "dist:mac": "npm run build && node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64 && node scripts/fetch-video-encoder.mjs --platform darwin --arches arm64,x64 && electron-builder --mac",
+    "dist:linux": "npm run build && node scripts/fetch-correction-runtime.mjs --platform linux --arches x64 && node scripts/fetch-video-encoder.mjs --platform linux --arches x64 && electron-builder --linux",
+    "pack": "npm run build && npm run fetch:correction-runtime && node scripts/fetch-video-encoder.mjs && electron-builder --dir",
     "install:desktop-entry": "node scripts/install-desktop-entry.mjs",
     "build:extension": "node scripts/build-extension.mjs",
     "sign:extension": "node scripts/sign-extension.mjs",
     "predev": "node scripts/gen-slide-embed-assets.mjs",
     "prebuild": "node scripts/gen-slide-embed-assets.mjs",
     "prebuild:cli": "node scripts/gen-slide-embed-assets.mjs",
-    "precheck": "node scripts/gen-slide-embed-assets.mjs"
+    "precheck": "node scripts/gen-slide-embed-assets.mjs",
+    "fetch:video-encoder": "node scripts/fetch-video-encoder.mjs"
   },
   "dependencies": {
     "@citation-js/core": "^0.7.21",

@@ -1,3 +1,4 @@
+import { pushToast } from "./toast";
 import { editSession } from "./interact/editSession";
 import { selectionTargets } from "./interact/selectionTargets";
 import { requestFigureDeletion, figureDeletion } from "./project/figureDeletion";
@@ -482,6 +483,13 @@ function paste() {
   if (!clipboard.length) return;
   const fig = activeFig();
   if (!fig) return;
+  const videos = clipboard.filter(e => e.type === "video");
+  if (videos.length && storeTenant() !== "slide") {
+    pushToast("info", "Video clips can only be pasted into slides."); return;
+  }
+  if (videos.some(e => !get(project).assets.some(a => a.id === e.assetId) || !get(project).assets.some(a => a.id === e.posterAssetId))) {
+    pushToast("info", "Import this video from Plots into the destination deck first."); return;
+  }
   const newIds: string[] = [];
   // FIG-3 → P7: cloneGroupsFor remaps group identity so pasted copies form NEW
   // groups (same names/nesting) instead of staying linked to the originals

@@ -30,7 +30,7 @@ import { pathD, pathToNodes, resampleNodes } from "../path";
 const NEVER_CAPTURED = new Set([
   "id", "type", "name", "groupId", "locked", "hidden", "lockAspect",
   "assetId", "styleId", "panelLabel", "lines", "needsLayout",
-  "source", "manifestRef",
+  "source", "manifestRef", "posterAssetId", "durationMs", "muted", "loop",
 ]);
 
 /** Scalar-lerp props (rotation is special-cased for shortest arc). */

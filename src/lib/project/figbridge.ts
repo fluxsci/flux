@@ -257,6 +257,7 @@ export async function loadFigInto(
   clearPlots();
   clearSnipMeta(); // project-load boundary — snip provenance re-derives from the bytes below
   for (const a of assets) {
+    if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
     if (!a.path) continue;
     try {
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
@@ -617,6 +618,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
   const assetData: Record<string, string> = {};
   const assetManifests: Record<string, FluxPlotManifest> = {};
   for (const a of srcAssets) {
+    if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
     if (!a.path) continue;
     try {
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));

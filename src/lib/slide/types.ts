@@ -7,33 +7,18 @@
 // JSON-friendly (no class instances, functions, or DOM) so the on-disk format
 // stays open and inspectable, exactly like `src/lib/types.ts`.
 //
-// A SLIDE IS A FIGURE (slide-migration, 2026-07): `Slide.elements` is the
-// figure `Element` union VERBATIM — there are no slide-only element types.
-// A slide is a figure's worth of elements (+ the figure group registry and
-// guides, so group/ungroup and the group-aware X-ray work identically) plus a
-// presentation overlay: background, transition, notes, camera, and the
-// beat/track build timeline. The Slide module edits slides with the figure
-// editor operating on the same element model; this file owns only the
-// presentation-side shapes.
-//
-// The beat/track model is the build timeline: a beat is one "advance" step; a
-// track is one animation within it. The track shape is forward-compatible with
-// full per-property keyframing — `keyframes[]` is purely additive.
-//
-// VIDEO SEAM: video returns later as a purpose-built slide-only element type
-// (with a video-capable asset kind). When it lands, it extends the element
-// union here (a discriminated addition next to the figure `Element` union) and
-// adds a render branch in player/render.ts. Nothing ships now.
+// Slides reuse the shared figure editor scene and add a slide-only video
+// element. Canonical Figure files keep their original element union.
+// The beat/track timeline controls appearance, transforms, and independent
+// video playback commands; a visible clip rests on its poster until started.
 // ---------------------------------------------------------------------------
 
 import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../types";
 
-// 0.x → the MINOR slot is the breaking slot (repo convention). 0.3.0 is the
-// animation-rework format; 0.4.0 adds ghost births. Older players must refuse
-// that format instead of showing copies before they exist. 0.2/0.3 decks
-// migrate in place by stamping their unchanged compatible data. 0.1.x remains a clean break (no
-// migration — they fail validation and quarantine like any invalid file).
-export const DECK_SCHEMA_VERSION = "0.4.0";
+// The 0.x minor slot is breaking. 0.5 adds video elements and media commands;
+// older apps must refuse it. 0.2–0.4 migrate without rewriting content.
+export const DECK_SCHEMA_VERSION = "0.5.0";
+export type { VideoElement } from "./mediaTypes";
 
 // ---------------------------------------------------------------------------
 // Deck
@@ -99,11 +84,11 @@ export interface Deck {
   colorGroups?: ColorGroup[];
   textStyles?: TextStyle[];
   /** Deck-local imported media, using the FIGURE `Asset` shape verbatim
-   *  ({id,name,kind:"png"|"svg",path,naturalWidth,naturalHeight,dpi?}), with
+   *  ({id,name,kind:"png"|"svg"|"mp4",path,naturalWidth,naturalHeight,dpi?}), with
    *  `path` relative to `slides/<deckId>/` (e.g. "assets/photo.png").
    *  Project-owned content (plots, figure-derived elements) is resolved BY ID
-   *  against the project at load — never copied in here. (A video-capable
-   *  asset kind returns with the future video element — see the seam note.) */
+   *  against the project at load — never copied in here. Video playback copies
+   *  and posters are deck-owned; the original clip remains under plots/_videos. */
   assets: Asset[];
   /** Last accepted intrinsic dimensions for linked project/raw assets. Keeps
    * physical plot scale consistent when a source changes while this deck is
@@ -141,7 +126,7 @@ export interface Slide {
   layout?: LayoutId;
 
   // ── static content: a figure ──────────────────────────────────────────────
-  /** The SAME element union the figure editor edits. No slide-only types. */
+  /** Shared editor elements, including slide-only video clips. */
   elements: Element[];
   /** Figure group semantics, verbatim (group/ungroup, X-ray, presets). */
   groups?: Record<Id, GroupDef>;
@@ -166,11 +151,11 @@ export interface Slide {
 // ---------------------------------------------------------------------------
 
 /** The preset catalog. Each compiles a track → WAAPI keyframes (or a bespoke
- *  driver for `transform`/`morph`/`countUp`). Two authoring families (see
+ *  driver for `transform`/`morph`/`countUp`). Authoring families (see
  *  family.ts): APPEARANCES (enters hidden before their beat; exits hidden
  *  after — fadeOut/popOut/drawOff/wipeOut; emphasis) and TRANSFORMS (an
  *  element tweens into a different version of itself — `transform`, plus the
- *  legacy data-space `morph` it subsumes). `camera` is its own family. */
+ *  legacy data-space `morph` it subsumes), MEDIA (video commands), and camera. */
 export type PresetName =
   | "fade"
   | "fadeRise"
@@ -191,7 +176,10 @@ export type PresetName =
   | "camera"
   | "countUp"
   | "morph"
-  | "transform";
+  | "transform"
+  | "videoStart"
+  | "videoPause"
+  | "videoStop";
 
 /** Select a *set* of animation targets within a plot element — by
  *  role/series/index over the plot's part index. */

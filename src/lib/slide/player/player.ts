@@ -37,6 +37,9 @@ export { resolveEasing, resolveEasingFn } from "../easing";
 import { resolveEasing, resolveEasingFn } from "../easing";
 import { compileSlide, type AnimationIssue } from "../compile";
 import { staggerRanks } from "../stagger";
+import { cueEnd } from "../video";
+import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
+import { createVideoController } from "./media";
 
 // --- target resolution -------------------------------------------------------
 /** A node's spatial coordinate for stagger ordering: the data-space value the
@@ -159,7 +162,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     for (const track of beat.tracks) {
       // A disabled track keeps its authored timing in the deck but is invisible
       // to play/static/export — the non-destructive Mask/Show substrate.
-      if (track.disabled || track.keyframes || track.preset && !(track.preset in PRESETS) && !["transform", "morph", "countUp"].includes(track.preset)) continue;
+      if (track.disabled || track.keyframes || isVideoCommand(track) || track.preset && !(track.preset in PRESETS) && !["transform", "morph", "countUp"].includes(track.preset)) continue;
       const key = `${track.target}|${track.part ?? ""}|${JSON.stringify(track.selector ?? null)}`;
       // transform — the state tween (rework §4). Pre = fold of earlier
       // transforms; end = pre ⊕ to.state. Plots may ALSO carry a content
@@ -180,6 +183,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         const driver = createTransform(wrap, preEl, endEl, {
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
           plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
+          videoPlayback: opts.videoPlayback,
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, morphTo, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors,
         });
@@ -437,18 +441,26 @@ export interface PlayerState {
   time: number;
   duration: number;
   playing: boolean;
+  /** Native clips continue while the presenter waits between animation steps. */
+  mediaPlaying: boolean;
+  mediaPaused: boolean;
   issues: AnimationIssue[];
 }
 type Ev = "change" | "beatStart" | "beatEnd" | "frame";
 export interface PlayRange { slide: number; fromBeat?: number; toBeat?: number; loop?: boolean }
 export interface Player {
   goTo(slide: number, beat: number, opts?: { animate?: boolean }): void;
-  seek(slide: number, beat: number, timeMs: number): void;
+  /** Capture samples its absolute media clock separately, avoiding two decoder
+   * seeks (static beat time followed by output time) for the same frame. */
+  seek(slide: number, beat: number, timeMs: number, fromBeat?: number, sampleMedia?: boolean): void;
+  beatDurations(): number[];
+  readyMedia(): Promise<unknown>;
+  captureMedia(events: readonly VideoEvent[], timeMs: number): Promise<void>;
   play(range: PlayRange): void;
   pause(): void;
   resume(): void;
   stop(): void;
-  next(): void;
+  next(opts?: { animate?: boolean }): void;
   prev(): void;
   nextSlide(): void;
   prevSlide(): void;
@@ -470,12 +482,13 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set(), frame: new Set() };
   let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0;
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
+  let media: ReturnType<typeof createVideoController> | undefined;
   let auto: ReturnType<typeof setTimeout> | undefined;
   let range: PlayRange | null = null;
   let transition: Animation | null = null;
-  const ctx: SlideRenderCtx = { ...opts, deckBackground: deck.background };
+  const ctx: SlideRenderCtx = { ...opts, deckBackground: deck.background, videoPlayback: true };
   const beats = () => Math.max(1, deck.slides[si]?.beats.length ?? 0);
-  function state(): PlayerState { return { slide: si, beat: bi, totalBeats: beats(), totalSlides: deck.slides.length, time, duration, playing, issues }; }
+  function state(): PlayerState { return { slide: si, beat: bi, totalBeats: beats(), totalSlides: deck.slides.length, time, duration, playing, issues, ...(media?.state() ?? { mediaPlaying: false, mediaPaused: false }) }; }
   const emit = (event: Ev) => { const value = state(); for (const listener of listeners[event]) listener(value); };
   function cancelClock(): void {
     generation++; if (raf) cancelAnimationFrame(raf); raf = 0;
@@ -484,7 +497,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function build(index: number): void {
     if (index === si) return;
+    selectRun(-1, -1);
     disposeSlideAnims(specs);
+    media?.destroy(); media = undefined;
     si = index;
     const slide = deck.slides[si];
     if (!slide) { specs = []; durations = [0]; return; }
@@ -493,14 +508,27 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
-    specs = computeSlideAnims(slide, rendered, cameraLayer, stage, opts, compiled);
-    durations = Array.from({ length: beats() }, (_, beat) => Math.max(0, ...specs.filter((s) => s.beatIndex === beat).map((s) => s.delay + s.duration)));
+    specs = computeSlideAnims(slide, rendered, cameraLayer, stage, { ...opts, videoPlayback: true }, compiled);
+    durations = Array.from({ length: beats() }, (_, beat) => Math.max(0, compiled.cues[beat]?.duration ?? 0, ...specs.filter((s) => s.beatIndex === beat).map((s) => s.delay + s.duration)));
+    media = createVideoController(cameraLayer, compiled.resolvedSlide, durations, !!opts.manualSteps, () => emit("change"), (target, reason) => {
+      if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
+      emit("change");
+    });
   }
   function paint(native = false): void {
     applyAt(runSpecs ?? specs, bi, time, native);
+    if (playing) media?.tick(time);
     emit("frame");
   }
   let runSpecs: Spec[] | null = null;
+  let runKey = "";
+  function selectRun(from: number, to: number): void {
+    const key = from < to ? `${si}:${from}:${to}` : "";
+    if (key === runKey) return;
+    if (runSpecs) { disposeSlideAnims(runSpecs); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; }
+    runKey = key;
+    runSpecs = from < to ? specs.map((s) => s.beatIndex >= from && s.beatIndex <= to ? { ...s, beatIndex: to } : s) : null;
+  }
   function scheduleAuto(): void {
     if (opts.manualSteps) return;
     const next = deck.slides[si]?.beats[bi + 1];
@@ -511,13 +539,14 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function finish(): void {
     const session = generation;
+    media?.tick(duration);
     playing = false; raf = 0; time = duration; paint(); emit("beatEnd"); emit("change");
     if (session !== generation) return; // a listener stopped/started another run
     if (range) {
       const last = Math.min(beats() - 1, range.toBeat ?? beats() - 1);
       if (bi < last) { begin(bi + 1, bi + 1); return; }
       const first = Math.max(0, Math.min(beats() - 1, range.fromBeat ?? Math.min(1, beats() - 1)));
-      if (range.loop && durations.slice(first, last + 1).some((d) => d > 0)) { begin(first, first); return; }
+      if (range.loop && durations.slice(first, last + 1).some((d) => d > 0)) { media?.seek(first - 1, Infinity); begin(first, first); return; }
       range = null;
     } else scheduleAuto();
   }
@@ -534,27 +563,29 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const session = generation;
     raf = requestAnimationFrame((timestamp) => { if (session === generation) tick(timestamp); });
   }
-  function begin(from: number, to: number): void {
+  function begin(from: number, to: number, instant = false): void {
     cancelClock();
     const session = generation;
-    if (runSpecs) { disposeSlideAnims(runSpecs); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; }
     bi = Math.max(0, Math.min(beats() - 1, to));
-    runSpecs = from < bi ? specs.map((s) => s.beatIndex >= from && s.beatIndex <= bi ? { ...s, beatIndex: bi } : s) : null;
+    selectRun(from, bi);
     duration = Math.max(0, ...durations.slice(from, bi + 1));
     time = 0;
     playing = true;
+    media?.begin(from, bi);
     paint(); emit("beatStart"); emit("change");
     if (session !== generation) return;
-    if (reduced || !duration) { finish(); return; }
+    if (reduced || instant || !duration) { finish(); return; }
     origin = performance.now();
     queueFrame();
   }
-  function seek(index: number, beat: number, ms: number): void {
+  function seek(index: number, beat: number, ms: number, fromBeat = beat, sampleMedia = true): void {
     cancelClock(); range = null;
-    if (runSpecs) { disposeSlideAnims(runSpecs); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; } runSpecs = null;
     build(Math.max(0, Math.min(deck.slides.length - 1, index)));
     bi = Math.max(0, Math.min(beats() - 1, beat));
-    duration = durations[bi] ?? 0; time = Math.max(0, Math.min(duration, ms));
+    const from = Math.max(0, Math.min(bi, fromBeat));
+    selectRun(from, bi);
+    duration = Math.max(0, ...durations.slice(from, bi + 1)); time = Math.max(0, Math.min(duration, ms));
+    if (sampleMedia) media?.seek(bi, ms, from);
     paint(); emit("change");
   }
   function goTo(index: number, beat: number, config: { animate?: boolean } = {}): void {
@@ -567,13 +598,13 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     }
     scheduleAuto();
   }
-  function nextCue(): void {
+  function nextCue(config: { animate?: boolean } = {}): void {
     range = null;
     if (opts.manualSteps && playing) { seek(si, bi, Infinity); return; }
     if (bi >= beats() - 1) { if (!opts.manualSteps) nextSlide(); return; }
     let end = bi + 1;
-    while (!opts.manualSteps && end + 1 < beats() && deck.slides[si].beats[end + 1].advance === "with-prev") end++;
-    begin(bi + 1, end);
+    if (!opts.manualSteps) end = cueEnd(deck.slides[si], end);
+    begin(bi + 1, end, config.animate === false);
   }
   function prev(): void {
     if (bi <= 0) { if (!opts.manualSteps) prevSlide(); return; }
@@ -587,25 +618,27 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     cancelClock(); build(Math.max(0, Math.min(deck.slides.length - 1, request.slide)));
     range = { ...request };
     const from = Math.max(0, Math.min(beats() - 1, request.fromBeat ?? Math.min(1, beats() - 1)));
+    media?.seek(from - 1, Infinity);
     begin(from, from);
   }
-  function pause(): void { cancelClock(); paint(); emit("change"); }
+  function pause(): void { cancelClock(); media?.pause(true); paint(); emit("change"); }
   function resume(): void {
+    media?.pause(false);
     if (playing || time >= duration) return;
     clearTimeout(auto); playing = true; origin = performance.now() - time;
     const session = generation;
     emit("change"); if (session === generation) queueFrame();
   }
-  function stop(): void { seek(si, bi, 0); }
+  function stop(): void { seek(si, bi, 0); media?.stop(); emit("change"); }
   function setMediaPaused(paused: boolean): void {
-    for (const video of Array.from(cameraLayer.querySelectorAll("video"))) {
-      if (paused) video.pause?.(); else if (video.dataset.autoplay === "1") void video.play?.();
-    }
+    media?.pause(paused, "host");
   }
   function on(event: Ev, listener: (s: PlayerState) => void): () => void { listeners[event].add(listener); return () => listeners[event].delete(listener); }
-  function destroy(): void { cancelClock(); disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs); mount.replaceChildren(); for (const set of Object.values(listeners)) set.clear(); }
+  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
+  const visibility = () => media?.pause(document.hidden, "document");
+  document.addEventListener("visibilitychange", visibility);
   if (deck.slides.length) goTo(0, 0);
-  return { goTo, seek, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
+  return { goTo, seek, beatDurations: () => [...durations], readyMedia: () => media?.ready() ?? Promise.resolve(), captureMedia: (events, ms) => media?.capture(events, ms) ?? Promise.resolve(), play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** The same evaluated endpoint as live playback; camera included. */

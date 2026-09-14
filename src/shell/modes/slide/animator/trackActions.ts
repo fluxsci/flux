@@ -8,6 +8,7 @@ import { activeBeat, selTrackIds, commitDeckLive, deckOverlay } from "../../../.
 import { activeFigureId, selection, partSelection } from "../../../../lib/store";
 import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks } from "../../../../lib/slide/ops";
 import type { Track } from "../../../../lib/slide/types";
+import { familyOf } from "../../../../lib/slide/family";
 
 function ctx(): { sid: string; ids: string[] } | null {
   const sid = get(activeFigureId); // slide id === projected figure id
@@ -27,6 +28,7 @@ export function withSelectedTracks(fn: (t: Track) => void, coalesce?: string): v
       const birth = t.ghostFrom ? {target:t.target, ghostFrom:t.ghostFrom, preset:t.preset} : null;
       fn(t);
       if (birth) { Object.assign(t, birth); delete t.part; delete t.selector; }
+      if (familyOf(t) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; }
     }
   }, coalesce ? { coalesce } : undefined);
 }
@@ -76,7 +78,7 @@ export function toggleSelectedDisabled(): void {
 export function nudgeSelected(field: "start" | "duration", deltaMs: number): void {
   withSelectedTracks((t) => {
     if (field === "start") t.start = Math.max(0, (t.start ?? 0) + deltaMs);
-    else t.duration = Math.max(50, trackDuration(t) + deltaMs);
+    else if (familyOf(t) !== "media") t.duration = Math.max(50, trackDuration(t) + deltaMs);
   }, `nudge:${field}`);
 }
 

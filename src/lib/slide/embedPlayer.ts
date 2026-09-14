@@ -21,10 +21,11 @@ export function mountSlideEmbed(host: HTMLElement, payload: ExportPayload, optio
   const button = (text: string, label: string, action: () => void) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.title = label; b.setAttribute("aria-label", label); b.addEventListener("click", e => { e.stopPropagation(); action(); }); bar.append(b); return b; };
   let reduced = options.state?.reduced ?? prefersReducedMotion();
   const player = createPlayer(fit, deck, embedPlayerOptions(payload));
-  const advance = () => { if (reduced) player.goTo(0, Math.min(slide.beats.length - 1, player.state().beat + 1)); else player.next(); };
+  const advance = () => player.next({ animate: !reduced });
   const back = button("‹", "Previous animation step", () => player.prev());
   const status = document.createElement("span"); status.setAttribute("aria-live", "polite"); bar.append(status);
   const next = button("›", "Next animation step", advance);
+  const media = button("Pause video", "Pause or resume video clips", () => { if (player.state().mediaPlaying) player.pause(); else player.resume(); });
   const reset = button("↺", "Reset to step 0", () => player.goTo(0, 0));
   const motion = button("Animation", "Toggle animation", () => { reduced = !reduced; if (player.state().playing) player.goTo(0, player.state().beat); update(); });
   if (options.onOpen) button("↗", "Open in Slide", options.onOpen);
@@ -34,6 +35,8 @@ export function mountSlideEmbed(host: HTMLElement, payload: ExportPayload, optio
     const s = player.state(), count = Math.max(0, slide.beats.length - 1);
     back.disabled = reset.disabled = s.beat === 0;
     next.disabled = s.beat >= count && !s.playing;
+    media.hidden = !s.mediaPlaying && !s.mediaPaused;
+    media.textContent = s.mediaPlaying ? "Pause video" : "Resume video";
     motion.setAttribute("aria-pressed", String(!reduced));
     if (!s.playing) status.textContent = `Step ${s.beat} / ${count}`;
     for (const el of [back, next, reset, motion, status]) el.hidden = count === 0;
@@ -52,5 +55,5 @@ export function mountSlideEmbed(host: HTMLElement, payload: ExportPayload, optio
   }; host.addEventListener("keydown", key);
   const resize = () => { fit.style.transform = `scale(${art.clientWidth / deck.stage.width})`; };
   const ro = new ResizeObserver(resize); ro.observe(art); resize();
-  return { player, pauseOffscreen: () => { if (player.state().playing) player.goTo(0, player.state().beat); }, destroy: () => { ro.disconnect(); host.removeEventListener("keydown", key); art.removeEventListener("click", click); player.destroy(); host.replaceChildren(); } };
+  return { player, pauseOffscreen: () => player.pause(), destroy: () => { ro.disconnect(); host.removeEventListener("keydown", key); art.removeEventListener("click", click); player.destroy(); host.replaceChildren(); } };
 }

@@ -13,6 +13,7 @@
 //   • flux-core:  reads deck.json, calls the op, writes it back
 // ---------------------------------------------------------------------------
 
+import { makeVideoElement } from "./mediaTypes";
 import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { gcGroups } from "../groups";
@@ -304,11 +305,14 @@ export function insertSlideSnapshot(
     if (deck.assets.some((a) => a.id === aid)) continue; // same source asset, already here
     const nid = newId("asset");
     assetRemap.set(aid, nid);
-    deck.assets.push({ ...structuredClone(entry.asset), id: nid, path: `assets/${nid}.${entry.asset.kind}` });
+    const asset = { ...structuredClone(entry.asset), id: nid, path: `assets/${nid}.${entry.asset.kind}` };
+    if (asset.kind === "mp4") delete asset.sourcePath;
+    deck.assets.push(asset);
   }
   const { elements, groups, idRemap } = cloneContentWithFreshIds(snap.slide.elements, snap.slide.groups);
   for (const el of elements) {
     const withAsset = el as { assetId?: Id };
+    if (el.type === "video" && assetRemap.has(el.posterAssetId)) el.posterAssetId = assetRemap.get(el.posterAssetId)!;
     if (el.type === "plot" && embeddedIds.has(el.assetId)) delete el.source;
     if (withAsset.assetId && assetRemap.has(withAsset.assetId)) {
       withAsset.assetId = assetRemap.get(withAsset.assetId)!;
@@ -428,6 +432,34 @@ export function addPlotToSlide(
 /** Drop an image (by asset id) on a slide. */
 export function addImageToSlide(deck: Deck, slideId: Id, opts: { assetId: Id } & Box): Id | null {
   return addElement(deck, slideId, makeImagePanel(opts.assetId, opts));
+}
+
+/** Place a prepared video using the same geometry as ordinary images. */
+export function addVideoToSlide(deck: Deck, slideId: Id, opts: {
+  assetId: Id; posterAssetId: Id; durationMs: number; x?: number; y?: number;
+  width?: number; height?: number; muted?: boolean; loop?: boolean; name?: string;
+}): Id | null {
+  const asset = deck.assets.find(a => a.id === opts.assetId);
+  if (!asset || asset.kind !== "mp4" || !deck.assets.some(a => a.id === opts.posterAssetId && a.kind === "png")) return null;
+  if (!Number.isFinite(opts.durationMs) || opts.durationMs <= 0) return null;
+  return addElement(deck, slideId, makeVideoElement({ ...asset, durationMs: opts.durationMs }, opts.posterAssetId, deck.stage, opts));
+}
+
+/** Media commands coexist with appearance and Change on the same step. */
+export function setVideoTrack(deck: Deck, slideId: Id, beatId: Id, target: Id,
+  action: "start" | "pause" | "stop", opts: { start?: number } = {}): boolean {
+  if (slideById(deck, slideId)?.elements.find(e => e.id === target)?.type !== "video") return false;
+  const preset = { start: "videoStart", pause: "videoPause", stop: "videoStop" } as const;
+  if (!preset[action] || opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) return false;
+  return setAnimation(deck, slideId, beatId, { target, preset: preset[action], duration: 0, start: opts.start ?? 0 });
+}
+
+export function setVideoSettings(deck: Deck, slideId: Id, target: Id, opts: { muted?: boolean; loop?: boolean }): boolean {
+  const el = slideById(deck, slideId)?.elements.find(e => e.id === target);
+  if (el?.type !== "video") return false;
+  if (opts.muted != null) el.muted = opts.muted;
+  if (opts.loop != null) el.loop = opts.loop;
+  return true;
 }
 
 /** The headless "Send to deck onto an existing slide" (the repurposed
@@ -761,6 +793,7 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
   const slide = slideById(deck, slideId), bi = slide?.beats.findIndex(b => b.id === beatId) ?? -1;
   const source = slide?.elements.find(e => e.id === sourceId);
   if (!slide || !source || bi < 1) return null;
+  if (source.type === "video") throw new Error("Duplicate the video clip to create an independent copy; Ghost transforms do not support video.");
   const beat = slide.beats[bi];
   const whole = beat.tracks.filter(t => t.target === sourceId && !t.part && !t.selector && !t.disabled);
   const changes = whole.filter(t => familyOf(t) === "transform");
@@ -884,7 +917,7 @@ function tracksMatch(a: Track, b: Track): boolean {
   if (a.target !== b.target) return false;
   const fam = familyOf(a);
   if (fam !== familyOf(b)) return false;
-  if (fam === "transform") return true;
+  if (fam === "transform" || fam === "media") return true;
   if ((a.part ?? "") !== (b.part ?? "")) return false;
   return JSON.stringify(a.selector ?? null) === JSON.stringify(b.selector ?? null);
 }
@@ -894,6 +927,7 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b) return false;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || track.part || track.selector || track.stagger || track.keyframes)) return false;
   const i = b.tracks.findIndex((t) => tracksMatch(t, track));
   // Every track carries a stable id; replacing a matched track keeps its id so
   // editor selection survives the edit, a brand-new track gets a fresh one.
@@ -918,6 +952,7 @@ export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Trac
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b) return null;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || track.part || track.selector || track.stagger || track.keyframes)) return null;
   const added = { ...structuredClone(track), id: newId("track") };
   b.tracks.push(added);
   return added;
@@ -1034,7 +1069,7 @@ export function cascadeTracks(
     if (b0.stagger === undefined) delete t.stagger;
     else t.stagger = { ...b0.stagger };
   }
-  let list = found.filter(({ t }) => (spec.property === "stagger.perMs" ? !!t.stagger : true));
+  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!t.stagger : true));
   if (spec.order === "list") {
     const pos = new Map(trackIds.map((id, i) => [id, i] as const));
     list.sort((a, b) => (pos.get(a.t.id!) ?? 0) - (pos.get(b.t.id!) ?? 0));
@@ -1177,20 +1212,20 @@ export function ensureTrackIds(deck: Deck): Deck {
   return deck;
 }
 
-/** 0.2/0.3 → 0.4: a pure stamp — ghostFrom is optional and absent means the
- *  existing element/timeline behavior, with no content or identity rewrite.
+/** 0.2/0.3/0.4 → 0.5: a pure stamp — older decks contain no video additions.
+ *  Existing element/timeline behavior is preserved without identity rewrites.
  *  Anything else (0.1.x, garbage) passes through untouched and fails
  *  validation downstream exactly as before. Mutates + returns. */
 export function migrateDeck(deck: Deck): Deck {
-  if (typeof deck?.schemaVersion === "string" && /^0\.[23]\./.test(deck.schemaVersion)) {
+  if (typeof deck?.schemaVersion === "string" && /^0\.[234]\./.test(deck.schemaVersion)) {
     deck.schemaVersion = DECK_SCHEMA_VERSION;
   }
   return deck;
 }
 
 /** THE deck-load chokepoint — every seam that reads a deck from disk (GUI
- *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2/0.3 →
- *  0.4 stamp) then id normalization. A 0.1.x deck is untouched here and
+ *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2/0.3/0.4 →
+ *  0.5 stamp) then id normalization. A 0.1.x deck is untouched here and
  *  fails validation downstream (quarantine — the sanctioned clean break);
  *  newer-than-ours files are refused earlier by the forward-version guard. */
 export function normalizeDeck(deck: Deck): Deck {
@@ -1219,12 +1254,15 @@ export function danglingTrackTargets(deck: Deck): { slideId: Id; beatId: Id; tra
 export interface AddAssetOpts {
   id?: Id;
   name?: string;
-  kind: "png" | "svg";
+  kind: Asset["kind"];
   /** Deck-relative path, e.g. "assets/photo.png". */
   path: string;
   naturalWidth: number;
   naturalHeight: number;
   dpi?: number;
+  durationMs?: number;
+  hasAudio?: boolean;
+  sourcePath?: string;
 }
 
 export function addAsset(deck: Deck, opts: AddAssetOpts): Id {
@@ -1237,6 +1275,9 @@ export function addAsset(deck: Deck, opts: AddAssetOpts): Id {
     naturalWidth: opts.naturalWidth,
     naturalHeight: opts.naturalHeight,
     ...(opts.dpi != null ? { dpi: opts.dpi } : {}),
+    ...(opts.durationMs != null ? { durationMs: opts.durationMs } : {}),
+    ...(opts.hasAudio != null ? { hasAudio: opts.hasAudio } : {}),
+    ...(opts.sourcePath != null ? { sourcePath: opts.sourcePath } : {}),
   });
   return id;
 }

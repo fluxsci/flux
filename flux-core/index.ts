@@ -94,6 +94,7 @@ export { listDissections, listDissectionsFor, listAllDissections } from "./disse
 // in ./slides (which reuses safeJoin/journal/loadManifest/getClient above) and
 // re-exported here so the CLI + MCP reach them through one flux-core surface.
 // --------------------------------------------------------------------------
+export { exportSlideVideo } from "./slideVideo";
 export {
   loadDeck,
   saveDeck,
@@ -110,6 +111,9 @@ export {
   setSlide,
   setDeckTheme,
   addTextToSlide,
+  addVideoToSlide,
+  setVideoTrack,
+  setVideoSettings,
   addFigureToSlide,
   addBeat,
   setAnimation,

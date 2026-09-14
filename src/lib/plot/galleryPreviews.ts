@@ -24,6 +24,14 @@ export function createGalleryPreviews() {
         try {
           const fb = fileBridge();
           if (!fb) throw new Error("No file bridge");
+          if (/\.(mp4|mov)$/i.test(path)) {
+            if (!fb.videoPreview) throw new Error("Video previews require the desktop app");
+            const preview = await fb.videoPreview(path);
+            if (disposed) return;
+            entry.url = preview.poster;
+            entry.bytes = preview.poster.length;
+            return;
+          }
           const stat = await fb.stat?.(path);
           if (stat && stat.size > 24 * 1024 * 1024) throw new Error("Preview too large");
           const bytes = await fb.readFile(path);

@@ -14,10 +14,11 @@
 // too (Vite serves a source .cjs verbatim, so `module.exports` never runs in a browser).
 // Renderer/flux-core import through the typed wrapper `src/lib/project/plotsFolders.ts`.
 //
-// Two reserved names today, both `_`-prefixed (the user's own folders are not):
+// Reserved names are `_`-prefixed:
 //   _dissections — per-plot companion material; see dissectRules.js and the Dissect viewer.
 //   _lighttable  — collections for the Lighttable image-set viewer: exploratory sweeps, often
 //                  thousands of images, not one of which is a figure panel.
+//   _videos      — slide clips, visible normally only in the Slide gallery.
 //
 // "Reserved" means hidden, NOT unreachable: typing "_" in the Plot Importer surfaces them as
 // enterable rows, and entering one scopes the search to that folder — so the material is
@@ -29,12 +30,15 @@ import { DISSECT_DIRNAME } from "./dissectRules.js";
 export const LIGHTTABLE_DIRNAME = "_lighttable";
 /** Project-relative root of all Lighttable material. */
 export const LIGHTTABLE_REL = "plots/_lighttable";
+/** Slide-only clips are ordinary browse content in the Slide gallery. */
+export const VIDEO_DIRNAME = "_videos";
 
 /** The reserved folders, in the order the importer offers them. `hint` is the one-line
  *  description shown beside the row when the user types "_". */
 export const RESERVED_PLOT_FOLDERS = [
   { name: DISSECT_DIRNAME, hint: "per-plot companion material" },
   { name: LIGHTTABLE_DIRNAME, hint: "exploratory image sets" },
+  { name: VIDEO_DIRNAME, hint: "video clips for slides" },
 ];
 
 /** Just the names. */

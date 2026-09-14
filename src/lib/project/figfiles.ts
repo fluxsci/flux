@@ -183,6 +183,8 @@ function canvasesForSave(
  *  from it (they anchor @fig-… references in manuscripts); names, family
  *  identity, kind, captions and order are derived fresh from the model. */
 export function planFigSave(model: Project, prev: FigIndexFile | null): FigSavePlan {
+  if (model.assets.some(a => a.kind === "mp4") || model.figures.some(f => f.elements.some(e => e.type === "video")))
+    throw new Error("Video clips belong to slide decks and cannot be saved as Figure content");
   // Keep the planner pure while stamping canonical keys into canvas files.
   model = { ...model, figures: model.figures.map((f) => ({ ...f })) };
   ensureFigureReferenceKeys(model, prev);
@@ -256,7 +258,7 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
         caption: captionById.get(f.id) ?? "",
       };
     }),
-    assets: model.assets.map((a) => ({
+    assets: model.assets.filter((a): a is typeof a & { kind: "png" | "svg" } => a.kind !== "mp4").map((a) => ({
       id: a.id,
       kind: a.kind,
       path: a.path,

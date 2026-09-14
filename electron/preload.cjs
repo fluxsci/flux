@@ -141,6 +141,24 @@ contextBridge.exposeInMainWorld("fig", {
   // (esbuild + fs run in main, via the flux-cli verb). Returns { ok, path } |
   // { ok:false, error }. The renderer gates its Export button on this existing.
   exportDeck: (root, deckId) => ipcRenderer.invoke("slides:exportDeck", { root, deckId }),
+  exportSlideVideo: (request) => ipcRenderer.invoke("slides:exportVideo", request),
+  cancelSlideVideo: (jobId) => ipcRenderer.invoke("slides:cancelVideo", jobId),
+  prepareSlideVideo: (request) => ipcRenderer.invoke("slides:prepareVideo", request),
+  videoPreview: (path) => ipcRenderer.invoke("slides:videoPreview", path),
+  videoMediaUrl: (request) => ipcRenderer.invoke("slides:videoMediaUrl", request),
+  copySlideVideoAssets: (request) => ipcRenderer.invoke("slides:copyVideoAssets", request),
+  cancelVideoImport: (jobId) => ipcRenderer.invoke("slides:cancelVideoImport", jobId),
+  discardVideoImport: (request) => ipcRenderer.invoke("slides:discardVideoImport", request),
+  onVideoImportProgress: (cb) => {
+    const handler = (_event, value) => cb(value);
+    ipcRenderer.on("slides:videoImportProgress", handler);
+    return () => ipcRenderer.removeListener("slides:videoImportProgress", handler);
+  },
+  onSlideVideoProgress: (cb) => {
+    const handler = (_event, value) => cb(value);
+    ipcRenderer.on("slides:videoProgress", handler);
+    return () => ipcRenderer.removeListener("slides:videoProgress", handler);
+  },
   // 2.3 Full-text search: scan every stored PDF's extracted text (items/*/fulltext.txt)
   // in the main process (spawns the bundled `flux search-text --json`, W13 pattern) so
   // the renderer never blocks on disk I/O. Returns the FulltextResult JSON | { error }.

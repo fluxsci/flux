@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import type { ExportPayload } from "./runtime";
+import { videoOptions, type SlideVideoOptions } from "../video";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../../..");
@@ -27,6 +28,7 @@ const runtimeEntry = path.join(here, "runtime.ts");
 
 export interface ExportAssets {
   runtime: string;
+  videoRuntime?: string;
   gelasio: string;
   /** Repo-relative source files the runtime bundle was built from (staleness guard). */
   sources?: string[];
@@ -38,13 +40,13 @@ export interface ExportAssets {
 /** Bundle the export runtime (player + render + morph + presets + motion + KaTeX)
  *  into a single minified IIFE exposing `FluxSlideRuntime`. esbuild is imported
  *  dynamically so it stays out of the shipped CLI bundle (dev-only path). */
-async function computeRuntime(): Promise<{ text: string; sources: string[] }> {
+async function computeRuntime(entry = runtimeEntry, globalName = "FluxSlideRuntime"): Promise<{ text: string; sources: string[] }> {
   const { build } = await import("esbuild");
   const out = await build({
-    entryPoints: [runtimeEntry],
+    entryPoints: [entry],
     bundle: true,
     format: "iife",
-    globalName: "FluxSlideRuntime",
+    globalName,
     platform: "browser",
     target: "es2020",
     minify: true,
@@ -98,12 +100,13 @@ async function computeGelasio(): Promise<string> {
  *  (KaTeX inlining left with the math element — slide text is the figure
  *  text element now; a future math element re-adds its CSS here.) */
 export async function computeExportAssets(): Promise<ExportAssets> {
-  const [rt, gelasio] = await Promise.all([computeRuntime(), computeGelasio()]);
+  const [rt, video, gelasio] = await Promise.all([computeRuntime(), computeRuntime(path.join(here, "videoRuntime.ts"), "FluxVideoRuntime"), computeGelasio()]);
+  const sources = [...new Set([...rt.sources, ...video.sources])].sort();
   let sourcesHash = "";
-  try { sourcesHash = await hashSources(rt.sources); } catch { /* best-effort */ }
+  try { sourcesHash = await hashSources(sources); } catch { /* best-effort */ }
   return {
-    runtime: rt.text, gelasio,
-    sources: rt.sources, sourcesHash, generatedAt: new Date().toISOString(),
+    runtime: rt.text, videoRuntime: video.text, gelasio,
+    sources, sourcesHash, generatedAt: new Date().toISOString(),
   };
 }
 
@@ -166,6 +169,16 @@ export interface ExportResult {
   warnings: string[];
 }
 
+/** Script-hashed standalone capture document, also usable by native gates. */
+export async function exportSlideVideoHtml(payload: ExportPayload, input: Partial<SlideVideoOptions> = {}): Promise<string> {
+  const options = videoOptions(input), assets = await loadExportAssets();
+  if (!assets.videoRuntime) throw new Error("Video runtime is missing. Rebuild Flux before exporting video.");
+  const json = JSON.stringify({ payload, options }).replace(/</g, "\\u003c");
+  const boot = `window.fluxVideoReady=(async()=>{const p=JSON.parse(document.getElementById('payload').textContent);window.fluxVideo=await FluxVideoRuntime.boot(p.payload,p.options);return window.fluxVideo.info;})();window.fluxVideoReady.catch(()=>{});`;
+  const hashes = [assets.videoRuntime, boot].map(s => `'sha256-${createHash("sha256").update(s).digest("base64")}'`).join(" ");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${hashes}; style-src 'unsafe-inline'; img-src data: blob:; media-src file: data: blob:; font-src data:; connect-src 'none'"><style>*{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000}${assets.gelasio}</style></head><body><script type="application/json" id="payload">${json}</script><script>${assets.videoRuntime}</script><script>${boot}</script></body></html>`;
+}
+
 /** Build the self-contained HTML from a fully-gathered payload (deck + inlined
  *  plots/figures/assets). `warnThreshold` (bytes) flags video-heavy decks (§7.2). */
 export async function exportDeckHtml(payload: ExportPayload, opts: { warnThreshold?: number } = {}): Promise<ExportResult> {
@@ -208,6 +221,6 @@ ${gelasio}
 
   const bytes = Buffer.byteLength(html, "utf8");
   const threshold = opts.warnThreshold ?? 25 * 1024 * 1024;
-  if (bytes > threshold) warnings.push(`Exported file is ${(bytes / 1048576).toFixed(1)} MB (> ${(threshold / 1048576).toFixed(0)} MB) — consider a folder export for video-heavy decks.`);
+  if (bytes > threshold) warnings.push(`Exported file is ${(bytes / 1048576).toFixed(1)} MB (> ${(threshold / 1048576).toFixed(0)} MB) — embedded clips increase file size; shorter source clips make the portable file smaller.`);
   return { html, bytes, warnings };
 }

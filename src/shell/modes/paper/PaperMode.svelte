@@ -1393,7 +1393,9 @@
     const slideIO = fileBridge();
     if (pm && slideIO) {
       const root = pm.root;
-      slideRepo = createSlideRepository(root, { ...slideIO, prepareDeck: async id => {
+      slideRepo = createSlideRepository(root, { ...slideIO,
+        ...(slideIO.videoMediaUrl ? { videoUrl: (path: string) => slideIO.videoMediaUrl!({ root, path: path.replace(/\\/g, "/").slice(root.replace(/\\/g, "/").replace(/\/$/, "").length + 1) }) } : {}),
+        prepareDeck: async id => {
         const { prepareEmbeddedDeck } = await import("../../../lib/project/slideBridge");
         return prepareEmbeddedDeck(root, id);
       } });

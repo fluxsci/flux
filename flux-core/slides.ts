@@ -20,6 +20,7 @@ import { safeJoin, journal, loadManifest, getClient, ensureDom } from "./index";
 import { externalDeckAssetMetadata as sharedExternalDeckAssetMetadata } from "../src/lib/slide/embedSources";
 const externalDeckAssetMetadata = (root: string, deck: Deck) => sharedExternalDeckAssetMetadata(root, deck, { exists, readText: p => fs.readFile(p, "utf8") });
 import { readProjectDependencies, slideRemovalBlocker } from "../src/lib/project/dependencies";
+import { prepareVideo, cleanupPrepared } from "./videoMedia";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
 import { SCHEMAS } from "./schemas";
@@ -33,6 +34,7 @@ import { svgIntrinsicSize } from "../src/lib/plot/svgGeometry";
 import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "../src/lib/slide/sourceSync";
 import { plotSourceCandidates } from "../src/lib/plot/source";
 import { animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
+import { slideAssetIds } from "../src/lib/slide/deckProject";
 import { gatherPayload } from "../src/lib/slide/payload";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
@@ -105,7 +107,7 @@ export async function listDecks(root: string): Promise<DeckSummary[]> {
 }
 
 /** loadDeck: read slides/<deckId>/deck.json. Forward-version guard first;
- *  then normalizeDeck migrates (0.2.0 → 0.3.0 stamp) + backfills track ids.
+ *  then normalizeDeck migrates (0.2–0.4 → 0.5 stamp) + backfills track ids.
  *  A pre-0.2.0 deck remains the sanctioned clean break — no migration (it
  *  fails schema validation via validate_deck; here it loads as-is and the
  *  first structural miss surfaces at op time — the GUI additionally
@@ -261,6 +263,50 @@ export async function addTextToSlide(
     const id = slideOps.addSlideText(deck, slideId, opts);
     if (!id) throw new Error(`could not add text to ${slideId}`);
     return { elementId: id };
+  });
+}
+
+/** Native preparation runs outside the deck lock; publication is one atomic
+ * shared-model mutation. Source files remain untouched. */
+export async function addVideoToSlide(root: string, deckId: string, slideId: string, opts: {
+  sourcePath: string; x?: number; y?: number; width?: number; height?: number;
+  muted?: boolean; loop?: boolean; signal?: AbortSignal;
+  onProgress?: (value: { phase: string; percent: number }) => void;
+}): Promise<{ elementId: string; assetId: string }> {
+  mustSlide(await loadDeck(root, deckId), slideId);
+  const prepared = await prepareVideo({ root, deckId, sourcePath: opts.sourcePath, signal: opts.signal, onProgress: opts.onProgress });
+  try {
+    if (opts.signal?.aborted) throw new Error("Video import cancelled");
+    return await mutateDeck(root, deckId, "add_slide_video", deck => {
+      mustSlide(deck, slideId);
+      deck.assets.push(prepared.asset, prepared.posterAsset);
+      const elementId = slideOps.addVideoToSlide(deck, slideId, {
+        assetId: prepared.asset.id, posterAssetId: prepared.posterAsset.id,
+        durationMs: prepared.asset.durationMs!,
+        x: opts.x, y: opts.y, width: opts.width, height: opts.height, muted: opts.muted, loop: opts.loop,
+      });
+      if (!elementId) throw new Error("Unable to place the prepared video clip");
+      return { elementId, assetId: prepared.asset.id };
+    });
+  } catch (error) {
+    // A post-publication journal failure must never delete a referenced clip.
+    const live = await loadDeck(root, deckId).catch(() => null);
+    if (live && !live.assets.some(a => a.id === prepared.asset.id)) await cleanupPrepared(root, deckId, prepared);
+    throw error;
+  }
+}
+
+export async function setVideoTrack(root: string, deckId: string, slideId: string, beatId: string,
+  target: string, action: "start" | "pause" | "stop", opts: { start?: number } = {}): Promise<void> {
+  await mutateDeck(root, deckId, "set_video_track", deck => {
+    if (!slideOps.setVideoTrack(deck, slideId, beatId, target, action, opts)) throw new Error("Video target, step, or command timing is invalid");
+  });
+}
+
+export async function setVideoSettings(root: string, deckId: string, slideId: string, target: string,
+  opts: { muted?: boolean; loop?: boolean }): Promise<void> {
+  await mutateDeck(root, deckId, "set_video_settings", deck => {
+    if (!slideOps.setVideoSettings(deck, slideId, target, opts)) throw new Error("Video clip not found on this slide");
   });
 }
 
@@ -753,13 +799,15 @@ function assetMime(kind: string): string {
 export async function gatherDeckPayload(
   root: string,
   deckId: string,
+  slideId?: string,
+  opts: { refreshSources?: boolean; videoUrl?: import("../src/lib/slide/payload").SlidePayloadIO["videoUrl"] } = {},
 ): Promise<{ payload: ExportPayload; warnings: string[] }> {
   const sourceWarnings: string[] = [];
-  if (await exists(safeJoin(root, "fig/index.json"))) {
+  if (opts.refreshSources !== false && await exists(safeJoin(root, "fig/index.json"))) {
     const synced = await syncFigureAssets(root);
     sourceWarnings.push(...synced.warnings, ...synced.missing.map((p) => `${p}: source is missing; the last accepted Figure asset was retained`));
   }
-  const deck = await withLock(root, "slides", getClient(), async () => {
+  const deck = opts.refreshSources === false ? await loadDeck(root, deckId) : await withLock(root, "slides", getClient(), async () => {
     const loaded = await loadDeck(root, deckId);
     const externalChanged = reconcileDeckExternalAssetSizes(loaded, await externalDeckAssetMetadata(root, loaded));
     const model = deckSourceProject(loaded);
@@ -776,7 +824,14 @@ export async function gatherDeckPayload(
     return loaded;
   });
   await ensureDom();
-  const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p) });
+  if (slideId) {
+    const slide = deck.slides.find(s => s.id === slideId);
+    if (!slide) throw new Error(`Slide not found: ${slideId}`);
+    deck.slides = [slide];
+    const used = slideAssetIds(slide);
+    deck.assets = deck.assets.filter(asset => used.has(asset.id));
+  }
+  const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), videoUrl: opts.videoUrl });
   return { ...result, warnings: [...sourceWarnings, ...result.warnings] };
 }
 

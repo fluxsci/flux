@@ -8,6 +8,7 @@ export interface ReservedPlotFolder {
 
 export const LIGHTTABLE_DIRNAME: string;
 export const LIGHTTABLE_REL: string;
+export const VIDEO_DIRNAME: string;
 export const RESERVED_PLOT_FOLDERS: ReservedPlotFolder[];
 export const RESERVED_PLOT_DIRNAMES: string[];
 /** Name-exact: is this directory entry one of the reserved folders? */

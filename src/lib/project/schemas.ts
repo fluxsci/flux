@@ -374,19 +374,13 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     $id: "flux/deck.schema.json",
     title: "Flux Slide deck (slides/<id>/deck.json)",
     type: "object",
-    // Slides-are-figures (0.2.0) + animation rework (0.3.0): a slide's
-    // `elements` is the FIGURE element union, validated by the same shared
-    // ELEMENT_DEF the canvas schema uses. Lenient (additionalProperties
-    // allowed so the format can grow), strict on the load-bearing fields.
-    // 0.4 adds ghost births; 0.2/0.3 remain valid input and migrate by stamp.
-    // Older apps refuse 0.4 rather than showing unborn copies as ordinary
-    // initial content. The 0.1 format is a deliberate
-    // clean break — an old deck fails validation and quarantines
-    // (newer-than-ours files are refused earlier by the forward-version
-    // guard, before validation).
+    // 0.5 extends the shared figure scene with slide-only video. Figure
+    // schemas retain ELEMENT_DEF; only this deck definition adds the branch.
+    // 0.2–0.4 input migrates by stamp. Older apps refuse 0.5 before validation;
+    // 0.1 remains the sanctioned clean break.
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.[234]\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[2345]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
@@ -410,11 +404,14 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
           properties: {
             id: { type: "string" },
             name: { type: "string" },
-            kind: { type: "string", enum: ["png", "svg"] },
+            kind: { type: "string", enum: ["png", "svg", "mp4"] },
             path: { type: "string" },
             naturalWidth: { type: "number" },
             naturalHeight: { type: "number" },
             dpi: { type: "number" },
+            durationMs: { type: "number", exclusiveMinimum: 0 },
+            hasAudio: { type: "boolean" },
+            sourcePath: { type: "string" },
           },
         },
       },
@@ -504,7 +501,10 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       },
     },
     definitions: {
-      element: ELEMENT_DEF,
+      element: { oneOf: [...ELEMENT_DEF.oneOf, elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
+        assetId: { type: "string", pattern: "[\\s\\S]" }, posterAssetId: { type: "string", pattern: "[\\s\\S]" },
+        durationMs: { type: "number", exclusiveMinimum: 0 }, muted: { type: "boolean" }, loop: { type: "boolean" },
+      })] },
     },
   },
 

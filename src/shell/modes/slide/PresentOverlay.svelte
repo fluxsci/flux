@@ -31,7 +31,7 @@
   let vw = $state(0);
   let vh = $state(0);
   let player: Player | undefined;
-  let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1, time: 0, duration: 0, playing: false, issues: [] });
+  let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1, time: 0, duration: 0, playing: false, mediaPlaying: false, mediaPaused: false, issues: [] });
   let blank = $state<"" | "black" | "white">("");
   let showNotes = $state(false);
   let elapsed = $state(0);
@@ -73,6 +73,7 @@
     player?.destroy();
     player = createPlayer(mount, deck, playerOpts());
     player.on("change", (s) => { st = s; renderNext(); });
+    player.on("frame", (s) => { st = s; });
     player.goTo(at.slide, at.beat);
     st = player.state();
     renderNext();
@@ -218,6 +219,11 @@
   <div class="hud">
     <span>{hud.counter}</span>
     <span class="beats">{#each hud.dots as on, i (i)}<span class="dot" class:on={on}></span>{/each}</span>
+    {#if st.mediaPlaying || st.mediaPaused}
+      <button class="x" onclick={event => { event.stopPropagation(); st.mediaPlaying ? player?.pause() : player?.resume(); }}>
+        {st.mediaPlaying ? "Pause playback" : "Resume playback"}
+      </button>
+    {/if}
     <button class="x" onclick={(e) => { e.stopPropagation(); onClose(); }} title="Exit (Esc)">Esc</button>
   </div>
 </div>

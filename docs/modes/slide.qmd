@@ -165,12 +165,63 @@ slide, **B**/**W** blank to black/white, **S** shows presenter notes, **F** togg
 fullscreen, **R** resets the timer, **Escape** leaves. Click zones work too: left quarter
 back, elsewhere forward.
 
+# Video clips
+
+Keep **`.mp4` and `.mov`** files in **`plots/_videos`**. Open **Plots & videos** in Slide mode (or press **Alt+I**),
+choose a clip by its poster thumbnail, and import it onto the current slide. Drag, resize,
+rotate, group, and duplicate it with the same tools used for images. The inspector includes
+**Muted** and **Loop** options. Imported clips keep their originals; the deck stores a
+compatible MP4 playback copy and a poster frame. Longer imports show progress and can be cancelled.
+
+A clip starts on its poster frame. **Appear** reveals it, and **Start video** begins playback.
+These are separate actions: put Appear on step 1 and Start video on step 2 to show the poster
+first, then start the clip on the next advance. They can also share a step. Playback continues
+while the presenter waits between steps. **Pause video** holds the current frame;
+**Stop video** returns to the poster. **Start video** always restarts from the beginning.
+The command's start offset controls when it runs within its step.
+
+Preview and Present support pausing video after a step's animations finish. Leaving a slide,
+blanking the presentation, or hiding the player pauses its media. Portable HTML includes the
+clips and audio; a browser that requires a gesture for sound shows a **Play video** button.
+Continuous MP4 export includes moving clip frames and mixes unmuted audio. The last active
+clip finishes before the final hold; looping clips end with the export's configured timeline.
+Video clips belong to Slide mode; Figure canvases continue to support static content.
+
 # Export
 
 **Export** writes the deck to **one self-contained `.html`** in the project's `exports/` —
 every slide, beat, animation, morph, and font, playing in any web browser with the same keys
 as Present mode. No Flux on the presenting machine, no network, nothing to install: open the
 file, give the talk.
+
+**Video…** exports the **current slide** and all of its animation steps as one continuous
+`.mp4`. Set **Delay between steps**, **Hold at start**, and **Hold at end**, then choose
+where to save. Defaults are a 0.5-second step delay, a 1-second start hold, a 2-second end
+hold, and **1080p at 60 fps**. Settings are remembered for the next export.
+
+The start hold sets when the first animation begins. Later manual steps use your chosen
+delay; **with previous** steps play together, and **automatic** steps keep their authored
+delay. Animation durations, easing, plot morphs, ghost copies, text changes and camera
+motion come from the same player used by Present. The video begins from the slide's
+initial design regardless of the step you are editing.
+
+Choose 720p, 1080p or 2160p, and 30 or 60 fps. The slide's aspect ratio is preserved
+(portrait slides work too); the displayed pixel dimensions show the exact output size.
+MP4s use H.264 with AAC audio from unmuted clips. Individual timing holds can be 0–60 seconds; a
+single-slide video can be up to 30 minutes long. Static slides export as a still video.
+
+Flux saves the slide before export and renders a snapshot in the background. You can keep
+editing while progress is shown, or **Cancel export**. An existing MP4 is replaced only
+after its replacement finishes successfully. **Show in folder** reveals the completed file.
+Export warnings identify missing assets or animation issues that also need attention in
+the slide. Video export is available in the desktop app.
+
+The CLI uses the same exporter (timings here are milliseconds):
+
+```bash
+flux export-slide-video <deck-id> <slide-id> --out slide.mp4 \
+  --step-delay 500 --start-hold 1000 --end-hold 2000 --height 1080 --fps 60
+```
 
 # Between figures and slides
 

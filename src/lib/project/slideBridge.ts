@@ -234,6 +234,17 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
   for (const a of deck.assets ?? []) {
     if (!a.path) continue;
     try {
+      if (a.kind === "mp4") {
+        // Native range streaming keeps large clips out of renderer memory. A
+        // browser-only fixture may use its injected bridge and small data URLs.
+        if (fig.videoMediaUrl) data[a.id] = await fig.videoMediaUrl({ root, path: `slides/${deck.id}/${a.path}` });
+        else {
+          const bytes = new Uint8Array(await fig.readFile(joinPath(root, "slides", deck.id, a.path)));
+          data[a.id] = bytesToDataUrl(bytes, "video/mp4");
+        }
+        assets.push({ ...a });
+        continue;
+      }
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, "slides", deck.id, a.path)));
       if (isCurrent() && a.kind === "svg" && !isAssetDirty(a.id)) {
         const manifest = await readManifestFile(`slides/${deck.id}/assets/${a.id}.fluxplot.json`);
@@ -559,8 +570,14 @@ export async function saveDeckFrom(root: string, opts: { force?: boolean } = {})
   const manifests = get(plotManifests);
   for (const a of d.assets) {
     const url = dataUrls[a.id];
-    if (!url) continue;
     if (!a.path) a.path = `assets/${a.id}.${a.kind}`;
+    if (a.kind === "mp4") {
+      // The native importer already published the immutable clip. A capability
+      // URL is not an encoded byte buffer and must never pass dataUrlToBytes.
+      if (await fig.exists(joinPath(root, "slides", d.id, a.path))) { clearAssetDirty(a.id); continue; }
+      if (!url?.startsWith("data:video/")) throw new Error(`Video clip is missing: ${a.name}`);
+    }
+    if (!url) continue;
     if (!isAssetDirty(a.id) && (await fig.exists(joinPath(root, "slides", d.id, a.path)))) continue;
     await fig.writeFile(joinPath(root, "slides", d.id, a.path), dataUrlToBytes(url));
     const man = manifests[a.id];
@@ -655,8 +672,22 @@ export async function duplicateDeckInProject(root: string, srcId: string): Promi
   dupe.modified = stamp();
   await fig.mkdir(joinPath(root, "slides", dupe.id));
   await fig.mkdir(joinPath(root, "slides", dupe.id, "assets"));
+  const requiredMediaIds = new Set(dupe.assets.filter(a => a.kind === "mp4").map(a => a.id));
+  for (const slide of dupe.slides) for (const element of slide.elements) if (element.type === "video") {
+    requiredMediaIds.add(element.assetId); requiredMediaIds.add(element.posterAssetId);
+  }
+  const requiredMedia = dupe.assets.filter(a => requiredMediaIds.has(a.id));
+  const missingMedia = [...requiredMediaIds].filter(id => !dupe.assets.some(a => a.id === id));
+  if (missingMedia.length) throw new Error(`Video asset metadata is missing: ${missingMedia.join(", ")}`);
+  if (requiredMedia.length) {
+    if (!fig.copySlideVideoAssets) throw new Error("Duplicating a deck with video requires the Flux desktop app.");
+    // The native batch copies movies and their posters directly on disk. It
+    // rolls back its new files on failure, before this deck can be published.
+    await fig.copySlideVideoAssets({ root, sourceDeckId: srcId, deckId: dupe.id, paths: requiredMedia.map(a => a.path) });
+  }
   // copy each deck-local asset file (paths are deck-relative, same names)
   for (const a of dupe.assets ?? []) {
+    if (requiredMediaIds.has(a.id)) continue;
     try {
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, "slides", srcId, a.path)));
       await fig.writeFile(joinPath(root, "slides", dupe.id, a.path), bytes);

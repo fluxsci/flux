@@ -13,6 +13,7 @@ import { activeFigureId, editGen, rollbackGesture, cascadeState } from "../../..
 import { selTrackIds, commitDeckLive, sealHistory, deckOverlay } from "../../../../lib/slide/store";
 import { slideById, cascadeTracks, type TrackCascadeBaseline } from "../../../../lib/slide/ops";
 import { TRACK_CASCADE_PROPS, type TrackCascadeAdapter, type TrackCascadeProp, type TrackCascadeSpec } from "../../../../lib/cascade";
+import { familyOf } from "../../../../lib/slide/family";
 
 let seq = 0;
 const sess = {
@@ -30,7 +31,7 @@ export const trackCascadeAdapter: TrackCascadeAdapter = {
     const s = d && slideById(d, sess.sid);
     const all = s?.beats.flatMap((b) => b.tracks).filter((t) => t.id && sess.ids.includes(t.id)) ?? [];
     const applies = Object.fromEntries(
-      TRACK_CASCADE_PROPS.map((p) => [p, p === "stagger.perMs" ? all.filter((t) => t.stagger).length : all.length]),
+      TRACK_CASCADE_PROPS.map((p) => [p, all.filter(t => (p === "start" || familyOf(t) !== "media") && (p !== "stagger.perMs" || t.stagger)).length]),
     ) as Record<TrackCascadeProp, number>;
     return { total: all.length, applies };
   },

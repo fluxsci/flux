@@ -87,7 +87,8 @@
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter, { type PlotPick } from "../../../lib/PlotImporter.svelte";
-  import { readIncomingPlot } from "../../../lib/io";
+  import { readIncomingPlot, importPlotsFromPaths, type Incoming } from "../../../lib/io";
+  import { readIncomingVideo, discardIncomingVideo } from "../../../lib/slide/importVideo";
   import { compileSlide, semanticTargets, trackDuration } from "../../../lib/slide/compile";
   import { staggerSpan } from "../../../lib/slide/stagger";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
@@ -101,6 +102,10 @@
   import SlidePresetMenu from "./SlidePresetMenu.svelte";
   import PresentOverlay from "./PresentOverlay.svelte";
   import SlideThumb from "./SlideThumb.svelte";
+  import SlideVideoDialog from "./SlideVideoDialog.svelte";
+  import { fileBridge } from "../../../lib/project/types";
+  import type { SlideVideoOptions } from "../../../lib/slide/video";
+  import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
   import { slideLayout } from "./slideLayoutStore";
   import { pushToast, errMsg } from "../../../lib/toast";
 
@@ -634,7 +639,7 @@
       player=createPlayer(previewHost,deck,playerOpts(deck));
       unsubscribeFrame=player.on("frame",()=>{
         if(!player)return;
-        const state=player.state();previewTime=state.time;previewPlaying=state.playing;
+        const state=player.state();previewTime=state.time;previewPlaying=state.playing || state.mediaPlaying;
         if(state.beat!==get(activeBeat))activeBeat.set(state.beat);
       });
       return player;
@@ -646,14 +651,14 @@
     const p=await ensurePreview();if(!p)return;
     const from=Math.max(1,startBeat); previewStartBeat=startBeat;previewRange=range;
     p.play({slide:previewSlideIndex,fromBeat:from,...(range === "step" ? {toBeat:from} : {}),loop:previewLoop});
-    previewPlaying=p.state().playing;
+    previewPlaying=p.state().playing || p.state().mediaPlaying;
   }
   async function seekPreview(beat:number,time:number) {
     const p=await ensurePreview();if(!p)return;
     p.pause();p.seek(previewSlideIndex,beat,time);previewTime=p.state().time;previewPlaying=false;
   }
   function pausePreview(){player?.pause();previewPlaying=false;}
-  function resumePreview(){if(!player)return;const state=player.state();if(state.time>=state.duration){void startPreview(previewStartBeat,previewRange);return;}player.resume();previewPlaying=player.state().playing;}
+  function resumePreview(){if(!player)return;const state=player.state();if(state.time>=state.duration && !state.mediaPaused){void startPreview(previewStartBeat,previewRange);return;}player.resume();previewPlaying=player.state().playing || player.state().mediaPlaying;}
   function stopPreview() {
     previewGeneration++;unsubscribeFrame?.();unsubscribeFrame=undefined;
     player?.destroy();player=undefined;previewing=false;previewPlaying=false;previewTime=0;
@@ -704,6 +709,55 @@
   }
   $effect(()=>{if(!$importerOpen)morphFor=null;});
 
+  let videoImportStatus = $state("");
+  let videoImport = $state<{ id: string; root: string; deckId: string; slideId: string; cancelled: boolean } | null>(null);
+  function cancelClipImport() {
+    const job = videoImport;
+    if (!job || job.cancelled) return;
+    job.cancelled = true;
+    videoImportStatus = "Cancelling…";
+    void fileBridge()?.cancelVideoImport?.(job.id);
+  }
+  $effect(() => {
+    const job = videoImport;
+    if (job && (!active || !$importerOpen || pm?.root !== job.root || activeDeckId !== job.deckId || $activeFigureId !== job.slideId)) cancelClipImport();
+  });
+  onDestroy(cancelClipImport);
+  async function importSlideItems(picks: PlotPick[], canPlace: () => boolean): Promise<number> {
+    const deck = currentDeck(), root = pm?.root, slideId = $activeFigureId;
+    if (!deck || !root || !slideId) throw new Error("Select a slide before importing.");
+    const job = { id: crypto.randomUUID(), root, deckId: deck.id, slideId, cancelled: false };
+    const prepared: Incoming[] = [];
+    videoImport = job;
+    const ensureDestination = () => {
+      if (videoImport?.cancelled || !canPlace() || pm?.root !== root || activeDeckId !== deck.id || $activeFigureId !== slideId)
+        throw new DOMException("Import cancelled because the destination changed.", "AbortError");
+    };
+    const unsubscribe = fileBridge()?.onVideoImportProgress?.(progress => {
+      if (progress.jobId !== job.id) return;
+      videoImportStatus = `${progress.phase === "encoding" ? "Preparing compatible video" : progress.phase === "finalizing" ? "Finishing video" : "Reading video"}… ${Math.round(progress.percent)}%`;
+    });
+    try {
+      return await importPlotsFromPaths(picks.map(pick => pick.abs), () => { ensureDestination(); return true; }, async path => {
+        ensureDestination();
+        if (!/\.(mp4|mov)$/i.test(path)) return readIncomingPlot(path);
+        videoImportStatus = `Preparing ${path.split(/[\\/]/).pop()}…`;
+        try {
+          const incoming = await readIncomingVideo(path, { root, deckId: deck.id, jobId: job.id, width: deck.stage.width, height: deck.stage.height });
+          prepared.push(incoming);
+          ensureDestination();
+          return incoming;
+        } catch (error) { ensureDestination(); throw error; }
+      });
+    } catch (error) {
+      const cleanup = await Promise.allSettled(prepared.map(incoming => discardIncomingVideo(incoming, root, deck.id)));
+      if (cleanup.some(result => result.status === "rejected")) pushToast("error", "Some unused imported video files could not be removed.");
+      throw error;
+    } finally {
+      unsubscribe?.(); videoImport = null; videoImportStatus = "";
+    }
+  }
+
   // --- present mode ---------------------------------------------------------------
   let presentOpen = $state(false);
   // $state.raw, NOT $state: a deep $state proxy would ride into the player,
@@ -726,6 +780,27 @@
 
   // --- export ----------------------------------------------------------------------
   let canExport = $state(false);
+  const canExportVideo = !!fileBridge()?.exportSlideVideo;
+  let videoDialog = $state.raw<{ deck: Deck; slideId: string; durations: number[]; root: string } | null>(null);
+  function openVideoExport() {
+    if (!pm || $slideVideoJob?.running) return;
+    const deck = currentDeck(), slide = deck?.slides.find(s => s.id === $activeFigureId);
+    if (!deck || !slide) return;
+    videoDialog = { deck, slideId: slide.id, root: pm.root,
+      durations: compileSlide(slide, deck.stage, { plotManifest: id => get(plotManifests)[id] }).cues.map(c => c.duration) };
+  }
+  function exportVideo(options: SlideVideoOptions) {
+    const picked = videoDialog; videoDialog = null;
+    if (!picked) return;
+    void startSlideVideo({ root: picked.root, deckId: picked.deck.id, slideId: picked.slideId, name: picked.deck.slides.find(s => s.id === picked.slideId)?.name || "Slide", options }, async () => {
+      if (pm?.root !== picked.root || activeDeckId !== picked.deck.id) throw new Error("The deck changed before export started");
+      sealHistory();
+      await refreshDeckSources(picked.root);
+      await autosave.flush();
+      if ($figDirty || $saveErr) throw new Error("Save the slide successfully before exporting video");
+      if (pm?.root !== picked.root || activeDeckId !== picked.deck.id) throw new Error("The deck changed before export started");
+    }).catch(error => flashExport(false, errMsg(error)));
+  }
   let exporting = $state(false);
   let exportMsg = $state<{ ok: boolean; text: string } | null>(null);
   let exportMsgTimer: ReturnType<typeof setTimeout> | undefined;
@@ -784,11 +859,34 @@
     });
     activeBeat.set(bi);selTrackIds.set(created);inspectorTab="animation";
   }
-  function animationAction(action:"appear"|"change"|"ghost"|"emphasize"|"disappear") {
+  function animationAction(action:"appear"|"change"|"ghost"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop") {
     stopPreview();
-    if(action==="ghost")openGhostDialog();
+    if(action==="videoStart" || action==="videoPause" || action==="videoStop")addVideoAction(action);
+    else if(action==="ghost")openGhostDialog();
     else if(action==="change")addOrToggleTransform();
     else addAppearance(action==="disappear",action==="emphasize");
+  }
+  function addVideoAction(preset: "videoStart" | "videoPause" | "videoStop") {
+    const sid = $activeFigureId, selected = new Set(selectionTargets());
+    if (!sid || !activeSlide) return;
+    let bi = Math.max(1, $activeBeat);
+    const created: string[] = [];
+    commitDeckLive(deck => {
+      const slide = slideOps.slideById(deck, sid);
+      if (!slide) return;
+      if (slide.beats.length < 2) slideOps.addBeat(deck, sid, { label: "Step 1", advance: "click" });
+      bi = Math.min(bi, slide.beats.length - 1);
+      const beat = slide.beats[bi];
+      for (const element of slide.elements) {
+        if (element.type !== "video" || !selected.has(element.id)) continue;
+        const action = preset === "videoStart" ? "start" : preset === "videoPause" ? "pause" : "stop";
+        if (slideOps.setVideoTrack(deck, sid, beat.id, element.id, action)) {
+          const track = beat.tracks.find(track => track.target === element.id && track.preset === preset);
+          if (track?.id) created.push(track.id);
+        }
+      }
+    });
+    activeBeat.set(bi); selTrackIds.set(created); inspectorTab = "animation";
   }
   function openGhostDialog() {
     const ids = selectionTargets(), s = activeSlide;
@@ -1050,6 +1148,26 @@
 
 <svelte:window onpaste={onPaste} />
 
+{#if videoDialog}
+  <SlideVideoDialog slide={videoDialog.deck.slides.find(s => s.id === videoDialog!.slideId)!} stage={videoDialog.deck.stage} durations={videoDialog.durations} onExport={exportVideo} onClose={() => videoDialog = null} />
+{/if}
+
+{#if $slideVideoJob}
+  <aside class="video-job" aria-label="Slide video export">
+    <strong>{$slideVideoJob.name} · {$slideVideoJob.running ? "Exporting MP4" : $slideVideoJob.result?.ok ? "MP4 ready" : $slideVideoJob.result?.cancelled ? "Export cancelled" : "Export failed"}</strong>
+    {#if $slideVideoJob.running}
+      <div role="status">{$slideVideoJob.cancelling ? "Cancelling…" : $slideVideoJob.progress.phase === "preparing" ? "Preparing slide…" : $slideVideoJob.progress.phase === "encoding" ? "Finishing MP4…" : `Rendering · ${Math.floor($slideVideoJob.progress.frame / $slideVideoJob.progress.total * 100)}%`}</div>
+      {#if $slideVideoJob.progress.total}<progress aria-label="Video export progress" value={$slideVideoJob.progress.frame} max={$slideVideoJob.progress.total}></progress>{/if}
+      <button onclick={() => void cancelSlideVideo()} disabled={$slideVideoJob.cancelling}>Cancel export</button>
+    {:else}
+      {#if $slideVideoJob.result?.error}<p role="alert">{$slideVideoJob.result.error}</p>{/if}
+      {#if $slideVideoJob.result?.warnings?.length}<p>{$slideVideoJob.result.warnings.join(" · ")}</p>{/if}
+      {#if $slideVideoJob.result?.path}<button onclick={() => void fileBridge()?.revealPath?.($slideVideoJob!.result!.path!)}>Show in folder</button>{/if}
+      <button onclick={() => slideVideoJob.set(null)}>Dismiss</button>
+    {/if}
+  </aside>
+{/if}
+
 <div class="slide-mode">
   {#if !ready || loadError}
     <div class="editor-loading" role="status">{loadError ?? "Opening slides…"}</div>
@@ -1069,6 +1187,8 @@
         title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
         {exporting ? "Exporting…" : "Export"}
       </button>
+      <button class="btn ghost video-export" onclick={openVideoExport} disabled={!activeSlide || !canExportVideo || $slideVideoJob?.running}
+        aria-label="Export current slide as MP4" title={canExportVideo ? "Export the current slide and its animations as an MP4 video" : "Video export is available in the desktop app"}>Video…</button>
       {#if $saveErr}
         <button class="saveerr" title={`Autosave failed — ${$saveErr}. Your edits are still in memory; it will retry on the next change.`} onclick={() => void autosave.flush()}>⚠ unsaved</button>
       {:else}
@@ -1279,7 +1399,9 @@
 <!-- shared figure surfaces: X-ray, property cockpit, plots/ browser, presets -->
 <FluxFigMenu />
 <Xray />
-<PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? "Choose next plot data state" : "Plot gallery"} onPick={morphFor ? acceptMorphTarget : undefined} />
+<PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? "Choose next plot data state" : "Plot and video gallery"}
+  allowVideos={!morphFor} importItems={importSlideItems} importStatus={videoImportStatus} cancelImport={videoImport ? cancelClipImport : undefined}
+  onPick={morphFor ? acceptMorphTarget : undefined} />
 <PresetPicker />
 
 {#if ghostDialog && activeSlide}
@@ -1288,6 +1410,8 @@
 {/if}
 
 <style>
+  .video-job{position:fixed;right:22px;bottom:22px;z-index:950;width:300px;max-width:calc(100vw - 44px);padding:16px;border:1px solid var(--c-line-strong);border-radius:10px;background:var(--c-bg);color:var(--c-tx);box-shadow:0 8px 32px #0004;font-size:13px;display:flex;flex-wrap:wrap;gap:10px}
+  .video-job strong,.video-job div,.video-job progress,.video-job p{width:100%;margin:0;overflow-wrap:anywhere}.video-job div,.video-job p{color:var(--c-tx-2);font-size:12px}.video-job button{font:inherit;padding:5px 9px;border:1px solid var(--c-line-strong);border-radius:5px;background:var(--c-bg-2);color:var(--c-tx);cursor:pointer}.video-job button:disabled{opacity:.5}.video-job progress{accent-color:var(--c-accent);height:5px}
   .editor-loading { margin: auto; padding: 24px; color: var(--c-tx-2); }
   .ghost-unborn{margin:12px;padding:12px;border:1px solid var(--c-line-strong);border-radius:7px;background:var(--c-bg-2);font-size:12px}
   .ghost-unborn p{color:var(--c-tx-2);line-height:1.5;margin:5px 0 10px}.ghost-unborn button{font:inherit;background:var(--c-bg);color:var(--c-tx);border:1px solid var(--c-line-strong);border-radius:5px;padding:6px 8px;cursor:pointer}

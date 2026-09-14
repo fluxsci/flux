@@ -23,6 +23,9 @@ export interface ExportPayload {
   plots?: Record<string, { svg: string; manifest: FluxPlotManifest }>;
   /** assetId → data: URI (raster images; plot <image> fallbacks). */
   assets?: Record<string, string>;
+  /** Video sources are separate from static images (portable data URLs or a
+   * capture worker's private file URLs). */
+  videos?: Record<string, string>;
   /** assetId → intrinsic display size (crop rendering of raster elements). */
   assetSizes?: Record<string, { width: number; height: number }>;
 }
@@ -53,6 +56,10 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   mount.appendChild(hud);
   mount.addEventListener("mousemove", () => { hud.style.opacity = "1"; clearTimeout(hudT); hudT = setTimeout(() => (hud.style.opacity = "0"), 1800); });
   let hudT: ReturnType<typeof setTimeout>;
+  const mediaTransport = document.createElement("button"); mediaTransport.type = "button"; mediaTransport.hidden = true;
+  mediaTransport.style.cssText = "position:absolute;right:14px;bottom:14px;z-index:4;padding:6px 10px;border:1px solid #fff5;border-radius:5px;background:#111c;color:#fff;font:12px system-ui;cursor:pointer";
+  mediaTransport.addEventListener("click", event => { event.stopPropagation(); if (player.state().mediaPlaying) player.pause(); else player.resume(); });
+  mount.append(mediaTransport);
 
   // Presenter panel (S): timer + position + next-slide preview + notes — the same
   // speaker support the app's present mode has, now inside the portable file (C1).
@@ -75,7 +82,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
     player = createPlayer(host, deck, {
       mode: "export",
       theme,
-      assetUrl: (id) => payload.assets?.[id],
+      assetUrl: (id) => payload.videos?.[id] ?? payload.assets?.[id],
       assetSize: (id) => payload.assetSizes?.[id],
       plotManifest: (id) => get(plotManifests)[id],
       reducedMotion, // default OFF: a talk is meant to animate regardless of OS setting (C15)
@@ -93,6 +100,8 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   function renderHud() {
     // WS-3.3: view-model from present/core; this host string-templates it.
     const m = hudModel(player.state());
+    const state = player.state(); mediaTransport.hidden = !state.mediaPlaying && !state.mediaPaused;
+    mediaTransport.textContent = state.mediaPlaying ? "Pause video" : "Resume video";
     let dots = "";
     for (const on of m.dots) dots += `<span style="width:7px;height:7px;border-radius:50%;display:inline-block;margin:0 2px;background:${on ? theme.accent : "rgba(255,255,255,.22)"}"></span>`;
     hud.innerHTML = `<span>${m.counter}</span><span>${dots}</span>`;
@@ -148,6 +157,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   // survives modifier keys, matching the app overlay.)
   let blank: HTMLElement | null = null;
   function applyBlank(want: PresentState["blank"]) {
+    player.setMediaPaused(!!want);
     blank?.remove();
     blank = null;
     if (!want) return;
@@ -205,6 +215,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       resume: () => player.resume(),
       stop: () => player.stop(),
       state: () => player.state(),
+      readyMedia: () => player.readyMedia(),
       slideCount: deck.slides.length,
       beatsOf: (s: number) => deck.slides[s]?.beats.length ?? 0,
     };

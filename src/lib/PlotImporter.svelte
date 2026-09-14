@@ -33,6 +33,7 @@
   import { pushToast, errMsg } from "./toast";
   import {
     RESERVED_PLOT_FOLDERS,
+    VIDEO_DIRNAME,
     isReservedPlotDirName,
     reservedRootOfPlotsRel,
     type ReservedPlotFolder,
@@ -44,6 +45,11 @@
   // the active figure. Single-plot inserts arrive as a one-element array. `title`
   // lets a host relabel the header. Defaults preserve figure-import behavior.
   export let onPick: ((picks: PlotPick[]) => void | Promise<void>) | undefined = undefined;
+  /** Slide-owned imports preserve the gallery's pinned/batch interaction. */
+  export let importItems: ((picks: PlotPick[], canPlace: () => boolean) => Promise<number>) | undefined = undefined;
+  export let allowVideos = false;
+  export let importStatus = "";
+  export let cancelImport: (() => void) | undefined = undefined;
   export let title = "Plot gallery";
   export let active = true;
   // Host can pin the project root (Slide mode passes its own pm.root so the
@@ -58,6 +64,7 @@
     semantic: boolean;
     /** A paper snip: a PNG with an `X.snip.json` provenance sidecar. */
     snip?: boolean;
+    video?: boolean;
   }
   interface Row {
     kind: "up" | "dir" | "file";
@@ -66,6 +73,7 @@
     rel?: string;
     semantic?: boolean;
     snip?: boolean;
+    video?: boolean;
     /** A reserved-folder row, surfaced by typing "_" (carries its own abs — it is
      *  always a child of plots/, never of the folder currently being browsed). */
     hint?: string;
@@ -236,14 +244,14 @@
     // The plots/ root is where the reserved folders live — remember which are present so
     // "_" can offer exactly those.
     if (dir === plotsRoot)
-      rootReserved = RESERVED_PLOT_FOLDERS.filter((f) => es.some((e) => e.dir && e.name === f.name));
+      rootReserved = RESERVED_PLOT_FOLDERS.filter((f) => !(allowVideos && f.name === VIDEO_DIRNAME) && es.some((e) => e.dir && e.name === f.name));
     // dirs first, then files, each alphabetical; show dirs + .svg plots + .png rasters (snips).
     // Reserved folders (_dissections, _lighttable) are companion material, not plots to
     // insert — they never appear here or in search (shared rule, see project/plotsFolders).
     // INSIDE one, though, everything is listed: getting in is the deliberate act.
     const inReserved = !!reservedRootOf(dir);
     entries = es
-      .filter((e) => (e.dir ? inReserved || !isReservedPlotDirName(e.name) : /\.(svg|png)$/i.test(e.name)))
+      .filter((e) => (e.dir ? inReserved || !isReservedPlotDirName(e.name) || allowVideos && e.name === VIDEO_DIRNAME : /\.(svg|png)$/i.test(e.name) || allowVideos && /\.(mp4|mov)$/i.test(e.name)))
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
     loading = false;
   }
@@ -279,12 +287,14 @@
         const abs = joinPath(dir, e.name);
         const r = rel ? `${rel}/${e.name}` : e.name;
         if (e.dir) {
-          if (scopeRel || !isReservedPlotDirName(e.name)) await visit(abs, r, depth + 1);
+          if (scopeRel || !isReservedPlotDirName(e.name) || allowVideos && e.name === VIDEO_DIRNAME) await visit(abs, r, depth + 1);
         }
         else if (/\.svg$/i.test(e.name))
           out.push({ abs, rel: r, name: e.name, semantic: names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")) });
         else if (/\.png$/i.test(e.name))
           out.push({ abs, rel: r, name: e.name, semantic: false, snip: names.has(e.name.replace(/\.png$/i, ".snip.json")) });
+        else if (allowVideos && /\.(mp4|mov)$/i.test(e.name))
+          out.push({ abs, rel: r, name: e.name, semantic: false, video: true });
       }
     };
     try { await visit(scopeRel ? joinPath(plotsRoot, scopeRel) : plotsRoot, scopeRel, 0); }
@@ -317,7 +327,7 @@
         ...all
           .filter((p) => `${p.rel} ${p.name}`.toLowerCase().includes(q))
           .sort((a, b) => rank(a, q) - rank(b, q))
-          .map((p): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip })),
+          .map((p): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video })),
       );
       return out;
     }
@@ -335,6 +345,7 @@
           // sidecar names (a browse row was NEVER semantic before).
           semantic: manifestNames.has(e.name.replace(/\.svg$/i, ".fluxplot.json")),
           snip: /\.png$/i.test(e.name) && snipNames.has(e.name.replace(/\.png$/i, ".snip.json")),
+          video: /\.(mp4|mov)$/i.test(e.name),
         });
     }
     return out;
@@ -414,16 +425,17 @@
     inserting = true;
     try {
       const target = $activeFigureId, sourceRoot = root;
-      const count = onPick ? (await onPick(picks), picks.length) : await importPlotsFromPaths(picks.map(p => p.abs),
-        () => get(importerOpen) && active && root === sourceRoot && get(activeFigureId) === target);
+      const canPlace = () => get(importerOpen) && active && root === sourceRoot && get(activeFigureId) === target;
+      const count = onPick ? (await onPick(picks), picks.length) : importItems ? await importItems(picks, canPlace) : await importPlotsFromPaths(picks.map(p => p.abs), canPlace);
       if (detached && !onPick) {
-        error = count < picks.length ? `${picks.length - count} plots could not be read. Check their source files; ${count} were inserted.` : "";
-        status = `Inserted ${count} ${count === 1 ? "plot" : "plots"} into ${destinationName}`;
+        error = count < picks.length ? `${picks.length - count} files could not be read. Check their source files; ${count} were inserted.` : "";
+        status = `Inserted ${count} ${count === 1 ? "item" : "items"} into ${destinationName}`;
         focusInput();
       } else importerOpen.set(false);
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") { status = "Import cancelled"; return; }
       error = errMsg(e);
-      if (!detached) pushToast("error", "Could not use that plot", { detail: error });
+      if (!detached) pushToast("error", "Could not import the selection", { detail: error });
     } finally { inserting = false; }
   }
 
@@ -530,7 +542,7 @@
   <div class="iwrap" class:detached bind:this={wrapEl} on:keydown={onKey}>
     <div class="importer" role="dialog" aria-modal={!detached} aria-label={title} tabindex="-1">
       <header class="ihead">
-        <div class="heading"><span class="eyebrow">FLUX / FIGURE</span><h2 class="ttl">{title}</h2></div>
+        <div class="heading"><span class="eyebrow">FLUX / {allowVideos ? "SLIDE" : "FIGURE"}</span><h2 class="ttl">{title}</h2></div>
         <div class="head-actions">
           {#if detached}<button class="pinbtn" on:click={dock} title="Return this gallery to the editor">↙ Dock</button>
           {:else if !onPick}<button class="pinbtn" on:click={pin} title="Keep open in a movable, resizable window">↗ Pin open</button>{/if}
@@ -560,12 +572,12 @@
           <label class="slider">Space <input type="range" aria-label="Preview spacing" min="4" max="32" step="2" bind:value={spacing} on:change={rememberView} /></label>
           <label class="labels"><input type="checkbox" bind:checked={labels} on:change={rememberView} /> Names</label>
         {/if}
-        <span class="count">{fileCount} {fileCount === 1 ? "plot" : "plots"}</span>
+        <span class="count">{fileCount} {allowVideos ? (fileCount === 1 ? "item" : "items") : (fileCount === 1 ? "plot" : "plots")}</span>
       </div>
       <div class="list" class:gallery={viewMode === "gallery"} class:without-labels={!labels} bind:this={listEl} use:trackListSize on:scroll={() => scrollTop = listEl.scrollTop}>
         {#if !root}<div class="empty">Open a Flux project to browse its plots.</div>
         {:else if !fileBridge()?.readdir}<div class="empty">Folder browsing isn't available in this build.</div>
-        {:else if !rows.length && !loading}<div class="empty"><strong>{q ? "No matching plots" : "A little space for your next result"}</strong><span>{q ? "Try another name or return to browsing." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
+        {:else if !rows.length && !loading}<div class="empty"><strong>{q ? "No matching files" : "A little space for your next result"}</strong><span>{q ? "Try another name or return to browsing." : allowVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
         {:else}
           <div style={`height:${Math.floor(start / columns) * stride}px`} aria-hidden="true"></div>
           <div class="items" style={`--columns:${columns}; --cell-height:${cellHeight}px; --gap:${gap}px`}>
@@ -580,10 +592,11 @@
                   </span>
                 {/if}
                 <span class="row-meta">
-                  <span class="ic">{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.semantic ? "◆" : "◇"}</span>
-                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if q && r.rel && r.rel !== r.name}<span class="rel">{r.rel.replace(/\/[^/]+$/, "")}</span>{/if}</span>
+                  <span class="ic">{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶" : r.semantic ? "◆" : "◇"}</span>
+                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if q && r.rel && r.rel !== r.name}<span class="rel">{r.rel.replace(/\/[^/]+$/, "")}</span>{/if}</span>
                   {#if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
                   {#if r.snip}<span class="badge">snip</span>{/if}
+                  {#if r.video}<span class="badge">video</span>{/if}
                 </span>
                 {#if viewMode === "gallery" && selected}<span class="pick-mark" aria-hidden="true">✓</span>{/if}
               </button>
@@ -595,13 +608,14 @@
       </div>
       {#if !q && cwd === plotsRoot && rootReserved.length}<div class="note reserved" data-reserved-hint>Companion collections · Type <b>_</b> to browse {rootReserved.map(f => f.name).join(" and ")}.</div>{/if}
       {#if error}<div class="message error" role="alert">{error}</div>{:else if status}<div class="message" role="status">{status}</div>{/if}
+      {#if inserting && importStatus}<div class="message import-progress" role="status">{importStatus}{#if cancelImport}<button on:click={cancelImport}>Cancel import</button>{/if}</div>{/if}
       <footer class="foot">
         <div class="selection-info">
-          {#if pickedCount > 0}<span class="pickpill">{pickedCount} selected</span><button class="clear-picks" on:click={() => picked = new Map()}>Clear</button>{:else}<span>Choose plots to place</span>{/if}
+          {#if pickedCount > 0}<span class="pickpill">{pickedCount} selected</span><button class="clear-picks" on:click={() => picked = new Map()}>Clear</button>{:else}<span>{allowVideos ? "Choose plots or clips to place" : "Choose plots to place"}</span>{/if}
           <span class="destination" title={destinationName}>{canInsert ? `Into ${destinationName}` : "Return to the editor to insert"}</span>
         </div>
         <span class="keyhint">↵ select · {typeof navigator !== "undefined" && /Mac/.test(navigator.platform) ? "⌘" : "Ctrl"}↵ insert</span>
-        <button class="insbtn" disabled={inserting || !canInsert || (!pickedCount && rows[index]?.kind !== "file")} on:click={() => void insertPicked()}>{inserting ? "Inserting…" : `Insert${pickedCount ? ` ${pickedCount}` : " plot"}`}<span aria-hidden="true"> ↗</span></button>
+        <button class="insbtn" disabled={inserting || !canInsert || (!pickedCount && rows[index]?.kind !== "file")} on:click={() => void insertPicked()}>{inserting ? "Inserting…" : `Insert${pickedCount ? ` ${pickedCount}` : rows[index]?.video ? " video" : rows[index]?.kind === "file" || !allowVideos ? " plot" : ""}`}<span aria-hidden="true"> ↗</span></button>
       </footer>
     </div>
   </div>
@@ -674,6 +688,8 @@
   .reserved { padding:9px 24px; border-top:1px solid var(--c-line); }
   .message { padding:9px 24px; color:var(--c-accent-bright); font-size:12px; border-top:1px solid var(--c-line); }
   .message.error { color:var(--c-danger); }
+  .import-progress { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .import-progress button { background:none; border:1px solid var(--c-line-strong); border-radius:4px; padding:4px 8px; }
   .foot { display:flex; align-items:center; gap:16px; padding:14px 24px; border-top:1px solid var(--c-line); font-size:12px; color:var(--c-tx-muted); }
   .selection-info { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; min-width:0; flex:1; }
   .pickpill { color:var(--c-accent-bright); white-space:nowrap; }

@@ -89,6 +89,8 @@ export function elementToSvg(
   assetSize?: AssetSizeFn,
 ): string {
   switch (e.type) {
+    case "video":
+      return elementToSvg({ ...e, type: "image", assetId: e.posterAssetId }, assetUrl, plotMarkup, assetSize);
     case "plot": {
       // Inline the semantic subtree (overrides applied, ids prefixed) so the
       // exported figure stays addressable/editable. Fall back to <image>.

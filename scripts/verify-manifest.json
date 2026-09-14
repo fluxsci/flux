@@ -208,7 +208,12 @@
    "verify-paper-files.ts",
    "verify-fluxplot03.ts",
    "verify-fluxplot-recipe-ipc.ts",
-   "verify-slide-embed-core.ts"
+   "verify-slide-embed-core.ts",
+   "verify-slide-video.ts",
+   "verify-slide-video-model.ts",
+   "verify-slide-media.ts",
+   "verify-slide-media-browser.ts",
+   "verify-slide-video-media.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -304,7 +309,8 @@
    "verify-plot-gallery.mjs",
    "verify-plot-hit-area.mjs",
    "verify-paper-slide-embeds.mjs",
-   "verify-slide-embed-lifecycle.mjs"
+   "verify-slide-embed-lifecycle.mjs",
+   "verify-slide-video-clips-gui.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -401,7 +407,11 @@
    "verify-source-sync-electron.cjs",
    "verify-figure-polish-electron.cjs",
    "verify-plot-gallery-electron.cjs",
-   "verify-slide-embed-electron.cjs"
+   "verify-slide-embed-electron.cjs",
+   "verify-slide-video-electron.cjs",
+   "verify-slide-media-export.ts",
+   "verify-slide-video-media-electron.cjs",
+   "verify-slide-video-clips-electron.cjs"
   ],
   "presence": [
    "verify-electron-no-undef.ts",
@@ -520,10 +530,41 @@
    "verify-paper-slide-embeds.mjs",
    "verify-slide-embed-lifecycle.mjs",
    "verify-scale-paper-slide-embeds.mjs"
+  ],
+  "slide-video": [
+   "verify-slide-video.ts",
+   "verify-slide-timeline.ts",
+   "verify-slide-playback.ts",
+   "verify-slide-timeline-browser.ts",
+   "verify-slide-video-electron.cjs"
+  ],
+  "slide-clips": [
+   "verify-slide-video-model.ts",
+   "verify-slide-media.ts",
+   "verify-slide-media-browser.ts",
+   "verify-slide-video-media.ts",
+   "verify-slide-video-clips-gui.mjs",
+   "verify-slide-media-export.ts",
+   "verify-slide-video-media-electron.cjs",
+   "verify-slide-video-clips-electron.cjs"
   ]
  },
  "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
  "pathMap": [
+  {
+   "glob": "{src/lib/slide/media*.ts,src/lib/slide/importVideo.ts,src/lib/slide/player/media.ts,electron/videoMedia.cjs,electron/ipc/videoMedia.cjs,flux-core/videoMedia.ts,scripts/fixtures/slide-video-clips/**}",
+   "run": [
+    "group:slide-clips",
+    "verify-ipc-contract.ts"
+   ]
+  },
+  {
+   "glob": "{src/lib/slide/video*.ts,src/lib/slide/export/videoRuntime.ts,flux-core/slideVideo.ts,electron/entry.cjs,electron/slideVideoWorker.cjs,electron/ipc/slideVideo.cjs,src/shell/modes/slide/SlideVideoDialog.svelte,scripts/lib/slideVideo*,scripts/fetch-video-encoder.mjs,build/video-encoder.json}",
+   "run": [
+    "group:slide-video",
+    "verify-ipc-contract.ts"
+   ]
+  },
   {
    "glob": "src/lib/project/documentExportLease.ts",
    "run": [
@@ -956,6 +997,9 @@
   "verify-scale-slide.mjs": 180000,
   "verify-slide-export-transform.ts": 300000,
   "verify-scale-lazy-assets.mjs": 180000,
-  "verify-scale-slide-dense.mjs": 180000
+  "verify-scale-slide-dense.mjs": 180000,
+  "verify-slide-video-electron.cjs": 480000,
+  "verify-slide-media-export.ts": 300000,
+  "verify-slide-video-clips-electron.cjs": 180000
  }
 }

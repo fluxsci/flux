@@ -24,6 +24,7 @@ import { harness } from "./lib/harness.mjs";
 import {
   LIGHTTABLE_DIRNAME,
   LIGHTTABLE_REL,
+  VIDEO_DIRNAME,
   RESERVED_PLOT_FOLDERS,
   RESERVED_PLOT_DIRNAMES,
   isReservedPlotDirName,
@@ -37,7 +38,7 @@ const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 h.section("the reserved set");
 h.eq(LIGHTTABLE_REL, `plots/${LIGHTTABLE_DIRNAME}`, "the project-relative root derives from the one dirname constant");
-h.eq(RESERVED_PLOT_DIRNAMES, [DISSECT_DIRNAME, LIGHTTABLE_DIRNAME], "both reserved folders, dissections first");
+h.eq(RESERVED_PLOT_DIRNAMES, [DISSECT_DIRNAME, LIGHTTABLE_DIRNAME, VIDEO_DIRNAME], "companion folders and slide-only video folder, dissections first");
 h.ok(
   RESERVED_PLOT_FOLDERS.every((f) => typeof f.hint === "string" && f.hint.length > 0),
   "every reserved folder carries the one-line hint the importer shows beside its row",
@@ -48,7 +49,7 @@ h.ok(
 );
 
 h.section("name-exactness: only the real folders are reserved");
-for (const n of [DISSECT_DIRNAME, LIGHTTABLE_DIRNAME]) h.ok(isReservedPlotDirName(n), `reserved: ${n}`);
+for (const n of [DISSECT_DIRNAME, LIGHTTABLE_DIRNAME, VIDEO_DIRNAME]) h.ok(isReservedPlotDirName(n), `reserved: ${n}`);
 for (const n of ["_lighttableX", "lighttable", "_light_table", "_LIGHTTABLE", "my_lighttable", "", "_"])
   h.ok(!isReservedPlotDirName(n), `NOT reserved: ${JSON.stringify(n)}`);
 
@@ -78,6 +79,7 @@ h.section("the scope rule: which reserved folder a plots/-relative path sits und
 h.eq(reservedRootOfPlotsRel("_lighttable/sweep/cell_007.png"), LIGHTTABLE_DIRNAME, "inside lighttable");
 h.eq(reservedRootOfPlotsRel("_lighttable"), LIGHTTABLE_DIRNAME, "the folder itself");
 h.eq(reservedRootOfPlotsRel("_dissections/growth"), DISSECT_DIRNAME, "inside dissections");
+h.eq(reservedRootOfPlotsRel("_videos/experiment.mov"), "_videos", "inside slide-only clips");
 h.eq(reservedRootOfPlotsRel(""), "", "the plots/ root is not scoped");
 h.eq(reservedRootOfPlotsRel("sub/charlie.svg"), "", "an ordinary subfolder is not scoped");
 h.eq(reservedRootOfPlotsRel("sub/_lighttable/x.png"), "", "the scope rule reads the FIRST segment only — a nested lookalike does not scope");

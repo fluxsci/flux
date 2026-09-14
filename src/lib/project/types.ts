@@ -157,6 +157,16 @@ export interface LiveBridge {
 
 // --- the file bridge (window.fig, from the Electron preload) -----------------
 export interface FileBridge {
+  prepareSlideVideo?(request: { root: string; deckId: string; path: string; jobId: string }): Promise<{ asset: import("../types").Asset; posterAsset: import("../types").Asset; url: string; poster: string }>;
+  videoPreview?(path: string): Promise<{ poster: string; width: number; height: number; durationMs: number; hasAudio: boolean }>;
+  videoMediaUrl?(request: { root: string; path: string }): Promise<string>;
+  copySlideVideoAssets?(request: { root: string; sourceDeckId: string; deckId: string; paths: string[] }): Promise<void>;
+  cancelVideoImport?(jobId: string): Promise<void>;
+  discardVideoImport?(request: { root: string; deckId: string; assetId: string }): Promise<void>;
+  onVideoImportProgress?(cb: (value: { jobId: string; phase: "preparing" | "encoding" | "finalizing"; percent: number }) => void): () => void;
+  exportSlideVideo?(request: { root: string; deckId: string; slideId: string; jobId: string; options: import("../slide/video").SlideVideoOptions }): Promise<import("../slide/video").SlideVideoResult>;
+  cancelSlideVideo?(jobId: string): Promise<void>;
+  onSlideVideoProgress?(cb: (value: import("../slide/video").SlideVideoProgress) => void): () => void;
   mkdir(p: string): Promise<void>;
   writeText(p: string, text: string, options?: { createOnly?: boolean }): Promise<void>;
   readText(p: string): Promise<string>;

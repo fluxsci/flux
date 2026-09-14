@@ -30,7 +30,7 @@ export interface AnimPreset {
   kind: "anim";
   name: string;
   savedAt?: string;
-  family: "appearance" | "transform";
+  family: "appearance" | "transform" | "media";
   track: PresetTrack;
 }
 
@@ -56,7 +56,7 @@ export interface AnimTemplate {
 export function parseAnimPreset(v: unknown): AnimPreset | null {
   const p = v as AnimPreset;
   if (!p || p.fluxPreset !== 1 || p.kind !== "anim" || typeof p.name !== "string") return null;
-  if (p.family !== "appearance" && p.family !== "transform") return null;
+  if (p.family !== "appearance" && p.family !== "transform" && p.family !== "media") return null;
   if (!p.track || typeof p.track !== "object") return null;
   return p;
 }
@@ -94,7 +94,7 @@ export function makeAnimPreset(name: string, t: Track): AnimPreset {
     kind: "anim",
     name,
     savedAt: new Date().toISOString(),
-    family: familyOf(t) === "transform" ? "transform" : "appearance",
+    family: familyOf(t) === "camera" ? "appearance" : familyOf(t) as AnimPreset["family"],
     track: presetTrackOf(t),
   };
 }

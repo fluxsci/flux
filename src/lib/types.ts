@@ -136,7 +136,7 @@ export interface Figure {
 export interface Asset {
   id: Id;
   name: string;
-  kind: "png" | "svg";
+  kind: "png" | "svg" | "mp4";
   // Relative path inside the project dir, e.g. "assets/plot1.svg".
   path: string;
   // Intrinsic dimensions in px (used to seed placement size / aspect ratio).
@@ -148,6 +148,10 @@ export interface Asset {
   // import. Physical size in canvas px = natural × 96/dpi. Absent for SVG (already
   // physical) and for rasters that declare nothing (screenshots: 1 px = 1 canvas px).
   dpi?: number;
+  /** Prepared slide video metadata; original source remains untouched. */
+  durationMs?: number;
+  hasAudio?: boolean;
+  sourcePath?: string;
 }
 
 // Common transform/style fields shared by every element. Exported so the Flux
@@ -377,7 +381,7 @@ export interface PartOverride {
   [prop: string]: string | number | boolean | undefined;
 }
 
-export type Element =
+export type FigureElement =
   | ImageElement
   | TextElement
   | RectElement
@@ -386,6 +390,9 @@ export type Element =
   | PathElement
   | SemanticPlotElement;
 
+/** Shared editor scene; canonical Figure files accept FigureElement only. */
+export type Element = FigureElement | import("./slide/mediaTypes").VideoElement;
+export type { VideoElement } from "./slide/mediaTypes";
 export type ElementType = Element["type"];
 
 // ---------------------------------------------------------------------------

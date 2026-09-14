@@ -117,13 +117,12 @@ twins, comments sidecars derive beside them, watcher subsystem "context" rides t
 manuscript reload chain; `Transcripts/`+`Dispatches/` are archives, not documents;
 pre-Context projects heal on open via contextHeal.ts / `flux context-init`),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
-`slides/<deckId>/deck.json` (0.4.0, **slides-are-figures** + the animation
-rework: a slide's `elements` is the figure `Element` union verbatim + a
-presentation overlay of beats/transition/notes/camera; tracks animate in two
-FAMILIES — appearances and transforms (`to.state` = a sparse t2 patch folded
+`slides/<deckId>/deck.json` (0.5.0: shared figure editor elements plus slide-only video
+and a presentation overlay of beats/transition/notes/camera; tracks animate in independent
+FAMILIES — appearances, media commands, and transforms (`to.state` = a sparse t2 patch folded
 left-to-right across beats; `Beat.groups` = collapsible animator lanes);
 deck-local media under `slides/<id>/assets/`, figure `Asset` shape; project
-plots/fig media resolved BY ID, never copied in; `0.2/0.3` decks migrate via a
+plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4` decks migrate via a
 pure stamp at the normalizeDeck chokepoint; `0.4` adds ghost births so old players
 refuse instead of showing unborn copies as initial content; `0.1.x` decks remain a sanctioned
 clean break — they fail validation and quarantine, no migration),
@@ -601,6 +600,39 @@ Persistence invariants (all machine-checked — do not weaken):
   scrolling runs only during a gesture. `verify-slide-marquee-gui.mjs` gates this contract.
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
+  **Video clips (0.5):** MP4/MOV sources live in `plots/_videos`; `mediaTypes.ts` owns
+  the shared constructor and `ops.ts` the independent zero-duration media commands.
+  `electron/videoMedia.cjs` prepares H.264/AAC MP4 + PNG poster, called by both IPC and
+  flux-core; originals stay untouched. Native authoring uses project/window-scoped range
+  capabilities, never whole movie bytes in renderer stores. Whole-deck duplication copies
+  required movie/poster files in a native staged batch; any missing dependency aborts
+  publication and the batch rolls back only newly created files. The canvas uses only posters.
+  Appearance and playback are separate: Start restarts, Pause freezes, Stop resets; commands
+  belong after Design. Native media runs while the animation clock rests; navigation,
+  blanking, offscreen/hidden embeds and teardown pause/release it. `mediaTimeline.ts` supplies
+  capture timestamps and audio segments; export seeks decoded frames before capture and
+  mixes unmuted audio. Capture performs one decoder seek per frame: ordinary visual
+  seeks must skip media sampling, which would otherwise reset clips and flash the poster.
+  Round rational source timestamps upward to microseconds for Chromium, then await
+  decoder readiness; 30/60 fps gates compare every decoded output frame to its source.
+  Capture scratch copies enter a strict worker file allowlist.
+  Figure schemas/save planners exclude videos; clipboard and Send-to-canvas respect that boundary.
+  Portable HTML/slide presets explicitly inline media. `group:slide-clips` gates models,
+  real MP4/MOV conversion, range/seek/playback, editor edits/history/save and frame/audio export.
+  **Single-slide MP4 export:** `slide/video.ts` owns timing/with-previous grouping for
+  GUI and CLI. `export/videoRuntime.ts` seeks the same player at exact frame timestamps;
+  `electron/slideVideoWorker.cjs` captures in a separate Electron process and streams one
+  frame at a time to the pinned standalone encoder (no native addon). `electron/entry.cjs`
+  dispatches worker startup before editor config/locks: packaged Electron always starts
+  package.main, regardless of a script argument. GUI refreshes sources and flushes autosave
+  first, then gathers read-only saved bytes; acquiring headless mutation locks here collides
+  with the human's active editor lease. CLI refreshes through its normal source-sync path.
+  Output publishes by atomic rename only after the encoder finishes; pipe cancellation
+  works on Windows too. `npm run fetch:video-encoder` prepares a source checkout; installer
+  scripts bundle the checksum-pinned executable and upstream notices. Build then run
+  `verify-slide-video-electron.cjs`: real native input during 1080p/60 capture, every decoded
+  frame/timestamp, cancellation/error cleanup, dense morphs/ghosts/draw-on/camera, portrait,
+  4K and source-free packaged startup. Evidence is in `test-results/slide-video/`.
   Gates include beat-display, slide-authoring, slide-canvas-presentation, timeline logic and
   standalone browser export; single-effect interpolation is not sufficient evidence. Compiled
   static-content bindings must also restore attributes constant within a later track when
@@ -828,7 +860,9 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **ui / ui-extra** — puppeteer against the dev server on :1420 (`scripts/lib/driver.mjs`;
   fixtures via `?fixture=demo`, dev handles `window.__flux`, `__fluxView`, `__fluxSeed*`). ui is
   the curated stable suite, ui-extra the full sweep. Consoles must be **clean** —
-  there is no tolerated-404 filter anymore.
+  there is no tolerated-404 filter anymore. Freeze source and generated-runtime changes
+  during acceptance: a Vite reload can replace an in-memory fixture document mid-test and
+  mimic unrelated editor regressions.
 - **scale** — the perf budgets (figure/paper/library/reader/fulltext). These are the standing
   60fps/scale contracts from the polish mandate.
 - **presence** — the source-shape/static scripts (main-process/build config that headless
@@ -865,7 +899,7 @@ why); child processes are owned by `TestProcessScope` (`scripts/lib/testProcess.
 required — verify `node --version` in the current shell; the original Linux workstation's
 Node 22 installation is under `~/.local/node22/bin`, while other machines may use nvm.
 Browser probes use `FLUX_CHROME` or default to `/usr/bin/google-chrome`; on macOS/Windows,
-set `FLUX_CHROME` to an installed Chrome executable. Three slide scripts in the `pure`
+set `FLUX_CHROME` to an installed Chrome executable. Several slide scripts in the `pure`
 tier also use this driver to inspect exported HTML, so they need that executable even
 though they do not need the dev server. Stock Chrome for Testing is also supported. During the
 Figure polish run, Brave's idle and playing rAF p95 both read 17.7ms; stock Chrome measured
@@ -949,6 +983,9 @@ chord or label changes, grep `docs/` for the old one.
   under test and check `elementFromPoint` before pointer gestures. An unscoped sidebar
   selector in `verify-figure-controls-gui.mjs` found Paper's hidden handle and dragged the
   visible Figure canvas at its coordinates, falsely reporting a broken Figure rail.
+  Native macOS probes must also activate the app before each gesture (`app.focus`
+  with `steal: true`), await window/document focus, and hit-test the intended control;
+  `BrowserWindow.focus()` alone can leave the app inactive after an asynchronous wait.
 
 **CSS custom properties:**
 
@@ -1262,9 +1299,8 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `verify-proxy-capture.cjs` + `verify-netget.cjs`.
 - **Slide deferrals (slide-migration, owner-scoped §8):** rich text boxes /
   bullets and math are OUT — slide text is the figure `text` element; KaTeX
-  left the deck export bundle entirely. **Video** returns later as a
-  purpose-built slide-only element (commented seams in `slide/types.ts` +
-  `player/render.ts`; the player's media plumbing was kept). Live-linked
+  left the deck export bundle entirely. MP4/MOV video is implemented as a slide-only
+  element (see the clip contract above). Live-linked
   embedded figures (the old `embedFigure`) were removed — design fresh if
   wanted. Theme fonts bind at layout-starter creation (no live restyle). A
   fluxplot "presentation" render style (bigger labels for projection) is a
@@ -4663,3 +4699,31 @@ the 1,000-slide picker virtualizes and searches within budget. Linux validation 
 - Verify exported painted endpoints and loaded thumbnails, not merely generated markup or
   successful converter exit codes. Word SVG fallback was verified in actual document parts
   and through LibreOffice rendering; Microsoft Word was not available on this Linux host.
+
+### 2026-09-13 22:21 CDT — Continuous single-slide MP4 export (Codex, `main`)
+
+**Work:** Added desktop Video export with simple timing/quality settings, progress and
+cancellation, plus the shared CLI/MCP verb. Exact player seeks feed an isolated Electron
+capture process and pinned encoder; native acceptance verifies every encoded frame,
+complex animations, source-free packaged launch, failure cleanup and editing at 33.8 ms
+p95 during capture. Pure suite 208/208, related regressions, build/type checks, dense scale,
+bundled CLI and startup pass. The normal live-preview 17 ms gate reads 17.5 ms here and
+17.6 ms on original HEAD; recorded unchanged in `docs/for_agents/slide-video-verification.md`.
+
+**Learnings:**
+- Promoted packaged entry dispatch, saved GUI export versus mutation leases, and pipe
+  cancellation into the slide architecture section. Export timing must be sampled, not
+  inferred from capture wall-clock speed; decode the resulting MP4 to verify it.
+
+### 2026-09-13 23:30 CDT — Slide video clips (Codex, `main`)
+
+**Work:** Added MP4/MOV gallery import from `plots/_videos`, ordinary geometry editing,
+independent appearance/playback steps, native streaming, portable presets/HTML and
+synchronized MP4 frame/audio export through shared GUI/CLI/MCP operations. Hardened deck
+copying to keep movies native and roll back incomplete media batches. Build/type checks,
+212 pure scripts, 49 Paper gates, native editor/media/export and bundle/startup pass;
+reproducible evidence is in `docs/for_agents/slide-video-clips-verification.md`.
+
+**Learnings:**
+- Promoted single decoder seeks, microsecond timestamp rounding, native media copies,
+  stable-source UI acceptance and macOS application-focus requirements into the body.

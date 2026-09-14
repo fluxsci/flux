@@ -104,6 +104,8 @@ export async function sendSlideToCanvas(
   const fig = fileBridge();
   if (!fig) throw new Error("no file bridge");
 
+  if (slide.elements.some(e => e.type === "video")) throw new Error("Video clips belong to slides. Remove the clips before sending this slide to a Figure canvas.");
+
   // 1. Load the full fig/ model (all canvases) locally — never via the live
   // figure store (slide mode owns it right now).
   let index: FigIndexFile | null = null;

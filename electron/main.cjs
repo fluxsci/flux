@@ -1,4 +1,7 @@
-const { app, BrowserWindow, Menu, ipcMain: rawIpcMain, dialog, shell, session, safeStorage, net } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain: rawIpcMain, dialog, shell, session, safeStorage, net, protocol } = require("electron");
+// Range-streamed video capabilities work in both Vite and packaged file pages.
+// The handler permits only an approved project asset token, never arbitrary URLs.
+protocol.registerSchemesAsPrivileged([{ scheme: "flux-media", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }]);
 // WS-9.4: every registration goes through the channel contract — an undeclared
 // or kind-mismatched channel throws at startup, and assertAllRegistered() (in
 // whenReady) catches declared-but-orphaned ones. verify-ipc-contract.ts checks
@@ -730,7 +733,7 @@ app.whenReady().then(async () => {
     const { session } = require("electron");
     const DEV_CSP =
       "default-src 'self'; script-src 'self' " + require("./slideEmbedCsp.gen.cjs") + " 'wasm-unsafe-eval' 'sha256-Q5r/0YfmAtc2/to6EHsX0PaBtKO7BSpnAkNsqnhWKas=' 'sha256-8Yu/cmPzQpyhF7nWdsKoaj4FeP+hooq1bXRxlVz1CLE=' 'sha256-F6i5nGBIqfoaCOZiZzX7PEXC7HagpdnrdJHeF3PJ3rU='; style-src 'self' 'unsafe-inline'; " +
-      "img-src 'self' data: blob:; font-src 'self' data:; " +
+      "img-src 'self' data: blob:; media-src 'self' data: blob: flux-media:; font-src 'self' data:; " +
       "connect-src 'self' ws://localhost:1420 ws://127.0.0.1:1420 http://localhost:1420 http://127.0.0.1:1420; " +
       "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'self'; form-action 'none'";
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -1720,6 +1723,14 @@ function fluxCliArgs() {
   if (fs.existsSync(bundled)) return { appRoot, argv: [bundled] };
   return { appRoot, argv: ["--import", "tsx", "flux-cli.ts"] }; // dev, unbuilt
 }
+
+// Video jobs belong to their requesting window and cancel when it closes.
+const slideVideoCore = require("./ipc/slideVideo.cjs").createSlideVideoCore({ app, dialog, BrowserWindow, rootFor, fluxCliArgs, fsGuard, approveDir, noteWrite });
+slideVideoCore.registerHandlers(ipcMain);
+app.on("before-quit", () => slideVideoCore.cancelAll());
+const videoMediaCore = require("./ipc/videoMedia.cjs").createVideoMediaCore({ app, protocol, rootFor, fsReadGuard: fileCore.fsReadGuard, noteWrite });
+videoMediaCore.registerHandlers(ipcMain);
+app.on("before-quit", () => videoMediaCore.cancelAll());
 
 // Slide export (E): emit a self-contained offline .html for a deck. The engine is
 // Node-only (prebaked runtime + inlined assets), so we run the `flux export-deck`

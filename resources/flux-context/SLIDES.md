@@ -1,10 +1,10 @@
 # Flux Slide — build & animate a scientific talk (the 4th pillar)
 
 Flux Slide is a **figure-first talk creator and animator** — "PowerPoint meets 3blue1brown."
-A **slide IS a figure** (deck `0.4.0`): its `elements` are the figure element union verbatim
-(`text`, `rect`, `ellipse`, `line`, `path`, `image`, `plot`) plus a presentation overlay of
-beats/transition/notes/camera. You animate with **two families** — (dis)Appearances and
-**Transforms** (the signature: any object tweens into a different version of itself) — and
+A slide (deck `0.5.0`) reuses the figure editor and its elements
+(`text`, `rect`, `ellipse`, `line`, `path`, `image`, `plot`), adds a slide-only `video` element,
+and carries a presentation overlay of beats/transition/notes/camera. Appearance,
+transform, and video playback commands are independent. You can
 export **one self-contained `.html`** that presents offline on any browser. Agents are
 first-class authors: every mutation is a pure op surfaced through flux-core **and the CLI
 *and* MCP**, so you can build a whole animated talk from files, app open or closed.
@@ -12,7 +12,7 @@ first-class authors: every mutation is a pure op surfaced through flux-core **an
 **The file is the API.** A deck is plain JSON at `slides/<deckId>/deck.json`, registered in
 `project.json.slides[]`. Edit it through the verbs (which lock + journal) or, for bulk
 authoring, through the pure ops — never hand-wave the schema; run `validate-deck` after.
-(`0.2` and `0.3` decks auto-migrate on load; `0.1.x` is a sanctioned clean break.)
+(`0.2`–`0.4` decks auto-migrate on load; `0.1.x` is a sanctioned clean break.)
 
 ## The one rule that matters: ops-core-first
 
@@ -41,6 +41,11 @@ flux set-theme <deck> <theme>                  # (set_deck_theme)  flux-dark|lig
 # content (returns the new element id on stdout)
 flux add-text <deck> <slideId> "text…" [--x --y --width --height --align --color --size-pt --weight --sizing]   # (add_slide_text)
 flux add-figure <deck> <slideId> <figureId> [--x --y]   # (add_slide_figure)  COPY a project figure's content (fresh ids, native size)
+
+# video clips (MP4/MOV sources; source files remain unchanged)
+flux add-video <deck> <slideId> plots/_videos/clip.mov [--x N --y N --width N --height N --muted --loop]
+flux set-video-track <deck> <slideId> <beatId> <elId> start [--start ms]   # start|pause|stop; a playback step after Design
+flux set-video-settings <deck> <slideId> <elId> [--muted true|false --loop true|false]
 
 # animation — (dis)appearances
 flux add-beat <deck> <slideId> [--label L]     # (add_beat)     append a build/advance step
@@ -191,6 +196,22 @@ reported, never invented.
 - **P6 Reduced-motion collapses to cuts** — honored automatically by the player; don't fight it.
 - **P7 Look** — Flexoki dark, serif body (Gelasio), a single blue accent. 1–2 themes; make/reuse a
   custom theme rather than reaching for a library of presets. `ops.setTheme` / `setStageSize`.
+
+## Video clips
+
+`video` has ordinary element geometry plus `assetId`, `posterAssetId`, `durationMs`,
+`muted?` (default false), and `loop?` (default false). Import through `add-video` so the
+shared native preparation creates a portable H.264/AAC MP4 and PNG poster under the deck's
+`assets/`; originals stay in `plots/_videos`. The canvas edits the poster without a decoder.
+Use normal appearance tracks to reveal/hide it. A `videoStart`, `videoPause`, or `videoStop`
+track controls playback independently, has zero duration and an optional start offset, and
+must target a whole video element on a step after Design. Start restarts at zero, Pause
+freezes, Stop resets. Playback continues across manual waits; navigation/blanking pauses it.
+Clip media/settings cannot be changed through a sparse transform patch. Ordinary video
+copies have independent playback commands; Ghost transforms are unavailable for video.
+Portable HTML includes video/audio. `export-slide-video` includes decoded moving frames
+and unmuted audio, waits for the final active non-looping clip, and bounds loops to the
+export timeline. For another deck import the clip again or use a portable whole-slide preset.
 
 ## Present + export
 

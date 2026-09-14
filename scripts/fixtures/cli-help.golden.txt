@@ -190,6 +190,9 @@ usage: flux <verb> [root] [args] [--flags]
   add-text <deckId> <slideId> "text…" [--x --y --width --height --align --color --size-pt|--font-size --weight --sizing]   add a figure text element
   add-figure <deckId> <slideId> <figureId> [--x --y]   COPY a project figure's content onto a slide (fresh ids, native size)
   add-beat <deckId> <slideId> [--label L]   append a build/advance step
+  add-video <deckId> <slideId> <plots/_videos/clip.mp4|.mov> [--x N --y N --width N --height N --muted --loop] [--root R]   import a video clip
+  set-video-track <deckId> <slideId> <beatId> <target> <start|pause|stop> [--start ms] [--root R]   control clip playback
+  set-video-settings <deckId> <slideId> <target> [--muted true|false --loop true|false] [--root R]   clip options
   set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>' --append]   animate (append preserves existing effects)
   set-transform <deckId> <slideId> <beatId> <elementId> [--state '<json patch>' --replace-state --start ms --duration ms --easing e --to-asset id]   the t1→t2 state tween (one per element per beat)
   ghost-transform <deckId> <slideId> <beatId> <sourceId> [--count 3 --original stay|disappear|transform --states '<json array>' --original-state '<json patch>' --duration ms --start ms --easing e]   spawn independent copies from the source's current state
@@ -210,5 +213,6 @@ usage: flux <verb> [root] [args] [--flags]
   set-morph <deckId> <slideId> <beatId> <elementId> <toAssetId> [--duration ms --force]   data-space morph to any project plot
   validate-deck [deckId] [--root R]    validate a deck (or all decks)
   export-deck <deckId> [--out F] [--root R]   export a self-contained offline .html (default exports/<deckId>.html)
+  export-slide-video <deckId> <slideId> [--out F] [--root R]   export one slide as MP4; --step-delay/--start-hold/--end-hold in ms, --height 720|1080|2160, --fps 30|60
   help                                 this message
 

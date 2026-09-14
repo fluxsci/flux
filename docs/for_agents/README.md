@@ -18,6 +18,8 @@ exhaustive where a user page must be short.
 |---|---|
 | [`claude-install-flux-mac.md`](claude-install-flux-mac.md) | Takes a Mac from a bare clone to a verified, fully capable Flux install. The executable counterpart to the human-facing `../installation.qmd`. Invoked by the user saying *"read `docs/for_agents/claude-install-flux-mac.md` and set up Flux on this Mac."* |
 | [`cross-machine-sync.md`](cross-machine-sync.md) | Builds continuous folder sync between two of the user's own computers (Syncthing over a mesh VPN), including the application-side changes that make a folder safe to sync at all. Generic — not Flux-specific. |
+| [`slide-video-verification.md`](slide-video-verification.md) | Reproduces continuous single-slide MP4 acceptance, including decoded frames, cancellation, packaged launch, and responsiveness. |
+| [`slide-video-clips-verification.md`](slide-video-clips-verification.md) | Reproduces MP4/MOV import, independent playback steps, persistence, native copying, and frame/audio export acceptance. |
 
 ## Writing another one
 

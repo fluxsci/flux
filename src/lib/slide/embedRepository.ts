@@ -60,14 +60,26 @@ export function createSlideRepository(root: string, io: SlideRepositoryIO) {
     try { const result = await p; if (disposed) throw new Error("Slide repository closed"); if (stamp !== generation) { if (pending.get(key) === p) pending.delete(key); return load(ref); } return result; }
     finally { if (pending.get(key) === p && stamp !== generation) pending.delete(key); }
   }
-  async function materialize(ref: Pick<SlideEmbedRef, "deck" | "slide">): Promise<SlideSnapshot> {
-    const snapshot = await load(ref);
+  async function materialize(ref: Pick<SlideEmbedRef, "deck" | "slide">, options: { portable?: boolean } = {}): Promise<SlideSnapshot> {
+    let snapshot = await load(ref);
     if (disposed) throw new Error("Slide repository closed");
     if (snapshot.warnings.some(w => /its element will show a placeholder|missing from the export|no parts tree/.test(w))) throw new Error(snapshot.warnings.join("\n"));
     if (io.writeText) {
       const rel = posterPath(ref.deck, ref.slide), path = underRoot(root, rel);
       const prior = io.exists && await io.exists(path) ? await io.readText(path) : null;
       if (prior !== snapshot.poster) { await io.mkdir?.(path.slice(0, path.lastIndexOf("/"))); await io.writeText(path, snapshot.poster); }
+    }
+    if (options.portable && Object.values(snapshot.payload.videos ?? {}).some(url => !url.startsWith("data:video/"))) {
+      const stamp = generation, d = await preparedDeck(ref.deck);
+      // Native authoring capabilities expire with their project/window. HTML
+      // exports gather real bytes into an export-only snapshot; keep the live
+      // repository cache streamed, and keep static exports poster-only.
+      const portable = await gatherSlidePayload(root, d, ref.slide, { ...io, videoUrl: undefined });
+      portable.warnings.unshift(...sourceWarnings.get(ref.deck) ?? []);
+      if (disposed) throw new Error("Slide repository closed");
+      if (stamp !== generation) return materialize(ref, options);
+      if (portable.warnings.some(w => /its element will show a placeholder|missing from the export|no parts tree/.test(w))) throw new Error(portable.warnings.join("\n"));
+      snapshot = { ...portable, poster: snapshot.poster, signature: JSON.stringify(portable) };
     }
     return snapshot;
   }

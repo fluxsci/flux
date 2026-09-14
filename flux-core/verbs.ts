@@ -2482,6 +2482,45 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "add_slide_video", cli: "add-video", cliRoot: "flags",
+    summary: "Import an MP4 or MOV from plots/_videos into a slide. Preserves the source and prepares a portable MP4 plus poster. Starts paused; add a separate videoStart command to begin playback. Returns elementId and assetId.",
+    params: { deckId: z.string(), slideId: z.string(), sourcePath: z.string(),
+      x: z.number().optional(), y: z.number().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(),
+      muted: z.boolean().optional(), loop: z.boolean().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "sourcePath", required: true },
+      ...["x", "y", "width", "height"].map(at => ({ kind: "flag" as const, at, into: at, as: "number" as const })),
+      { kind: "flag", at: "muted", into: "muted", as: "boolean" }, { kind: "flag", at: "loop", into: "loop", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.addVideoToSlide(ctx.root, s(a.deckId), s(a.slideId), { sourcePath: s(a.sourcePath), ...pick(a, ["x", "y", "width", "height", "muted", "loop"]) }),
+    render: { human: r => ({ out: (r as { elementId: string }).elementId }), mcp: r => text(JSON.stringify(r)) },
+  },
+  {
+    name: "set_video_track", cli: "set-video-track", cliRoot: "flags",
+    summary: "Start, pause, or stop a video clip on a slide step independently of its appearance. Start restarts from the beginning; pause holds the current frame; stop resets to the poster. start is the command offset in milliseconds within the step.",
+    params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), target: z.string(), action: z.enum(["start", "pause", "stop"]), start: z.number().nonnegative().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true }, { kind: "pos", at: 3, into: "target", required: true },
+      { kind: "pos", at: 4, into: "action", required: true }, { kind: "flag", at: "start", into: "start", as: "number" },
+    ],
+    handler: (ctx, a) => core.setVideoTrack(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.target), a.action as "start" | "pause" | "stop", pick(a, ["start"])),
+    render: { human: () => ({ err: "✓ video command saved" }), mcp: () => text("video command saved") },
+  },
+  {
+    name: "set_video_settings", cli: "set-video-settings", cliRoot: "flags",
+    summary: "Set a slide clip's muted and loop options. These are clip properties, independent of appearance and playback commands.",
+    params: { deckId: z.string(), slideId: z.string(), target: z.string(), muted: z.boolean().optional(), loop: z.boolean().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "target", required: true }, { kind: "flag", at: "muted", into: "muted", as: "boolean" },
+      { kind: "flag", at: "loop", into: "loop", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.setVideoSettings(ctx.root, s(a.deckId), s(a.slideId), s(a.target), pick(a, ["muted", "loop"])),
+    render: { human: () => ({ err: "✓ video settings saved" }), mcp: () => text("video settings saved") },
+  },
+  {
     name: "add_slide_figure",
     cli: "add-figure",
     cliRoot: "flags",
@@ -3039,6 +3078,32 @@ export const VERBS: VerbDef[] = [
         const warn = c.warnings.length ? "\n" + c.warnings.map((w) => `⚠ ${w}`).join("\n") : "";
         return text((c.ok ? `valid deck(s) (${c.checked} checked)` : `INVALID (${c.errors.length}):\n` + c.errors.join("\n")) + warn);
       },
+    },
+  },
+  {
+    name: "export_slide_video",
+    cli: "export-slide-video",
+    cliRoot: "flags",
+    summary: "Export one slide, its animations and video clips to a smooth MP4, including unmuted clip audio. Timing values are milliseconds; simultaneous and automatic steps retain authored timing. Requires the desktop Electron runtime and bundled video encoder.",
+    params: {
+      deckId: z.string(), slideId: z.string(), out: z.string().optional(),
+      stepDelayMs: z.number().min(0).max(60000).optional(), startHoldMs: z.number().min(0).max(60000).optional(), endHoldMs: z.number().min(0).max(60000).optional(),
+      height: z.union([z.literal(720), z.literal(1080), z.literal(2160)]).optional(), fps: z.union([z.literal(30), z.literal(60)]).optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "out", into: "out" },
+      { kind: "flag", at: "step-delay", into: "stepDelayMs", as: "number" }, { kind: "flag", at: "start-hold", into: "startHoldMs", as: "number" }, { kind: "flag", at: "end-hold", into: "endHoldMs", as: "number" },
+      { kind: "flag", at: "height", into: "height", as: "number" }, { kind: "flag", at: "fps", into: "fps", as: "number" },
+    ],
+    handler: (ctx, a) => core.exportSlideVideo(ctx.root, s(a.deckId), s(a.slideId), {
+      ...pick(a, ["out", "stepDelayMs", "startHoldMs", "endHoldMs", "height", "fps"]),
+      refreshSources: process.env.FLUX_VIDEO_SAVED === "1" ? false : undefined,
+      onProgress: process.env.FLUX_VIDEO_PROGRESS === "1" ? value => process.stderr.write(`FLUX_VIDEO ${JSON.stringify(value)}\n`) : undefined,
+    }),
+    render: {
+      human: r => { const c = r as { path: string; frames: number; durationMs: number; warnings: string[] }; return { out: JSON.stringify(c), err: `Exported MP4 → ${c.path} (${(c.durationMs / 1000).toFixed(2)} s, ${c.frames} frames)${c.warnings.length ? "\n" + c.warnings.join("\n") : ""}` }; },
+      mcp: r => text(JSON.stringify(r)),
     },
   },
   {

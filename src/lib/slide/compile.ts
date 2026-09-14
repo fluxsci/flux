@@ -11,6 +11,7 @@ import { countUpText } from "./player/countup";
 import { morphCompatible } from "./player/morph";
 import { staggerRanks, staggerSpan } from "./stagger";
 import { resolveGhosts, copyFrameSource, type GhostBirth, type ResolvedGhosts } from "./ghost";
+import { familyOf } from "./family";
 export { ghostTargetIds } from "./ghost";
 
 export interface AnimationIssue { trackId?: string; target: string; reason: string }
@@ -42,8 +43,9 @@ export interface CompiledSlide {
 }
 const enters = new Set(["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn"]);
 const exits = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"]);
-const known = new Set([...enters, ...exits, "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "morph", "transform"]);
+const known = new Set([...enters, ...exits, "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "morph", "transform", "videoStart", "videoPause", "videoStop"]);
 export function trackDuration(track: Track): number {
+  if (familyOf(track) === "media") return 0;
   return Math.max(0, track.duration ?? (track.preset === "transform" ? 600 : track.preset === "morph" ? 1200 : track.preset === "countUp" ? 800 : 320));
 }
 export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions, beatIndex = slide.beats.findIndex((b) => b.tracks.some((t) => t === track || !!track.id && t.id === track.id))): string[] {
@@ -68,6 +70,9 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       if (track.keyframes) reason = "Custom keyframes are unsupported. Choose an effect or Change instead.";
       else if (!known.has(track.preset ?? "fade")) reason = `Unknown effect: ${track.preset}`;
       else if (!track.target.startsWith("@") && !slide.elements.some((e) => e.id === track.target)) reason = "Target object is missing. Retarget or remove this effect.";
+      else if (familyOf(track) === "media" && bi === 0) reason = "Add video commands to a playback step after Design.";
+      else if (familyOf(track) === "media" && slide.elements.find(e => e.id === track.target)?.type !== "video") reason = "Video commands require a video clip target.";
+      else if (familyOf(track) === "media" && (track.part || track.selector || track.stagger)) reason = "Video commands apply to the whole clip.";
       if (reason) { issues.push({ trackId: track.id, target: track.target, reason }); continue; }
       if ((track.preset === "transform" || track.preset === "morph") && track.to?.assetId && opts.plotManifest) {
         const pre = transformPreState(slide, track.target, bi);
@@ -89,7 +94,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     // silent replacement. Different channels (e.g. Change + Fade) compose.
     for (let i = 0; i < tracks.length; i++) for (let j = i + 1; j < tracks.length; j++) {
       const a = tracks[i], b = tracks[j];
-      const family = (t: Track) => t.preset === "transform" || t.preset === "morph" ? "change" : t.preset === "camera" ? "camera" : "effect";
+      const family = familyOf;
       if (a.track.target === b.track.target && (a.track.part ?? "") === (b.track.part ?? "") && JSON.stringify(a.track.selector ?? null) === JSON.stringify(b.track.selector ?? null) && family(a.track) === family(b.track) && a.start < b.end && b.start < a.end) {
         issues.push({ trackId: b.track.id, target: b.track.target, reason: "Effects overlap on the same target. Later effects take precedence; move their timing to play sequentially." });
       }
@@ -113,11 +118,13 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         if (el?.type === "text" && !firstCount.has(el.id)) { firstCount.add(el.id); el.text = countUpText(el.text, ct.track)(0); }
         continue;
       }
+      if (familyOf(ct.track) === "media") continue;
       if (ct.track.preset === "transform" || ct.track.preset === "morph" || ct.track.preset === "camera") continue;
       for (const key of targetsFor(ct)) if (!first.has(key)) { first.add(key); appearance.set(key, { opacity: enters.has(ct.track.preset ?? "fade") ? 0 : 1, visible: !enters.has(ct.track.preset ?? "fade") }); }
     }
     for (let bi = 0; bi <= Math.min(beatIndex, cues.length - 1); bi++) for (const ct of cues[bi].tracks) {
       const track = ct.track, preset = track.preset ?? "fade";
+      if (familyOf(track) === "media") continue;
       const local = bi < beatIndex ? Infinity : timeMs;
       if (local < ct.start) continue;
       const raw = ct.duration > 0 ? clamp((local - ct.start) / ct.duration) : 1;

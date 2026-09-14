@@ -46,6 +46,9 @@ const EXTERNAL = [
   "@xterm/headless",
   // Dev-only fresh-compute fallback in exportDeck.ts; never reached packaged.
   "esbuild",
+  // Video jobs use the installed Electron executable, supplied explicitly by
+  // the desktop app; a source checkout resolves this pure-JS launcher lazily.
+  "electron",
   // Native module (.node), lazily imported only by the render-figure-PNG verb
   // (flux-core/index.ts). Can't be bundled; not on the slide-export path.
   "@resvg/resvg-js",

@@ -39,6 +39,8 @@
   import { dissectionsRevision } from "../shell/scholar/revisions";
   import ColorPalette from "./ColorPalette.svelte";
   import NumberField from "./NumberField.svelte";
+  import { commitDeckLive } from "./slide/store";
+  import { setVideoSettings } from "./slide/ops";
 
   onMount(() => {
     loadGlobalTextStyles(); // machine-global style library (best-effort)
@@ -50,6 +52,11 @@
   // background/stage live in the Slide/Deck panels instead. Strictly additive:
   // without the context (figure mode) this renders byte-identically.
   const slideMode = (getContext<"figure" | "slide" | undefined>("flux-editor-mode") ?? "figure") === "slide";
+  function updateVideoSettings(settings: { muted?: boolean; loop?: boolean }) {
+    if (!slideMode || single?.type !== "video" || !modelFigure || selectionReadOnly) return;
+    const id = single.id, slideId = modelFigure.id;
+    commitDeckLive(deck => setVideoSettings(deck, slideId, id, settings));
+  }
 
   // Reactive view of the current selection / active figure. Selections CAN
   // span figures (keyboard selectMatching "project" scope), so the scan stays
@@ -532,6 +539,22 @@
           </div>
         {/if}
       {/each}
+    </section>
+  {/if}
+
+  {#if slideMode && single?.type === "video"}
+    {@const videoAsset = $project.assets.find(asset => asset.id === single.assetId)}
+    <section class="video-properties">
+      <h4>Video clip</h4>
+      <p class="note" title={videoAsset?.sourcePath ?? videoAsset?.name}>{videoAsset?.sourcePath ?? videoAsset?.name ?? "Video"}</p>
+      <p class="note">{(single.durationMs / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} seconds{videoAsset?.hasAudio ? " · includes audio" : " · no audio"}</p>
+      <div class="row" style="gap:14px;">
+        <label class="chk"><input type="checkbox" aria-label="Mute video" checked={single.muted ?? false}
+          on:change={event => updateVideoSettings({ muted: event.currentTarget.checked })} />Mute</label>
+        <label class="chk"><input type="checkbox" aria-label="Loop video" checked={single.loop ?? false}
+          on:change={event => updateVideoSettings({ loop: event.currentTarget.checked })} />Loop</label>
+      </div>
+      <p class="note">Select a step in Animate, then choose <b>Start video</b>. <b>Appear</b> reveals the first frame separately.</p>
     </section>
   {/if}
 
@@ -1050,6 +1073,7 @@
     line-height: 1.4;
     opacity: 0.5;
   }
+  .video-properties .note { overflow-wrap: anywhere; }
   .part-id {
     font-family: var(--font-mono);
     font-size: 12px;

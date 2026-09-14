@@ -17,8 +17,8 @@
 import { get } from "svelte/store";
 import type { Id } from "../types";
 import { fileBridge } from "../project/types";
-import { project } from "../store";
-import { getAssetData, setAssetData, markAssetDirty, dataUrlToBytes } from "../assets";
+import { project, embeddedProjectRoot } from "../store";
+import { getAssetData, setAssetData, markAssetDirty, dataUrlToBytes, bytesToDataUrl } from "../assets";
 import { plotManifests, plotRecipes, cachePlot } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
 import type { FluxPlotManifest } from "../plot/types";
@@ -27,6 +27,7 @@ import { presetRel } from "../presets";
 import * as slideOps from "./ops";
 import type { SlidePresetSnapshot, SlidePresetAssetEntry } from "./ops";
 import { commitDeckLive, currentDeck, selectSlide } from "./store";
+import { underRoot } from "./payload";
 import { slideAssetIds, slideDefaultBackground } from "./deckProject";
 
 export interface SlidePresetEntry {
@@ -72,14 +73,23 @@ export async function saveSlidePreset(
   const deck = currentDeck();
   const slide = deck?.slides.find((s) => s.id === slideId);
   if (!rel || !deck || !slide) return null;
-  const proj = get(project);
+  const metadata = structuredClone(get(project).assets);
+  const root = get(embeddedProjectRoot), bridge = fileBridge();
+  const referenced = slideAssetIds(slide);
+  const resident = new Map([...referenced].map(id => [id, getAssetData(id)]));
   const manifests = get(plotManifests);
   const recipes = get(plotRecipes);
   const assets: SlidePresetAssetEntry[] = [];
   const missingAssets: Id[] = [];
-  for (const aid of slideAssetIds(slide)) {
-    const meta = proj.assets.find((a) => a.id === aid);
-    const data = getAssetData(aid);
+  for (const aid of referenced) {
+    const meta = metadata.find((a) => a.id === aid);
+    let data = resident.get(aid);
+    // A native stream capability expires with its project/window. Portable
+    // preset saves explicitly embed bytes; ordinary authoring never does.
+    if (meta?.kind === "mp4" && data && !data.startsWith("data:video/")) {
+      if (!root || !bridge || !meta.path) throw new Error("Open the source deck before saving a video slide preset");
+      data = bytesToDataUrl(new Uint8Array(await bridge.readFile(underRoot(root, `slides/${deck.id}/${meta.path}`))), "video/mp4");
+    }
     if (!meta || !data) {
       missingAssets.push(aid);
       continue;
