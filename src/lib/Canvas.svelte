@@ -49,7 +49,7 @@
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
   import { onMount, tick } from "svelte";
-  import { presentationViewport, basePresentationViewport, type EditorCanvasPresentation } from "./editorPresentation";
+  import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
   import { applyTextLayout, lineH, visualLines } from "./text";
   import {
@@ -105,20 +105,22 @@
   };
   $: presentationState.set(frame ? presentation : null);
   $: hiddenPresentationIds = new Set(presentation?.hiddenElementIds ?? []);
-  $: unbornPresentationKey = (presentation?.unbornElementIds ?? []).join("\0");
-  $: unbornPresentationIds = new Set(presentation?.unbornElementIds ?? []);
+  $: stashedPresentationParts = editorStashedParts(presentation, $project.figures.find(f => f.id === $activeFigureId)?.elements, $plotManifests);
+  $: absentPresentationIds = new Set([...(presentation?.unbornElementIds ?? []), ...editorStashedElements(presentation)]);
+  $: absentPresentationKey = [...absentPresentationIds].join("\0");
   $: cameraClip = frame && presentation?.camera && presentation.stage
     ? `inset(${$baseViewport.panY}px ${hostW - $baseViewport.panX - presentation.stage.width * $baseViewport.zoom}px ${hostH - $baseViewport.panY - presentation.stage.height * $baseViewport.zoom}px ${$baseViewport.panX}px)`
     : undefined;
   let presentationHighlight: { x: number; y: number; w: number; h: number } | null = null;
   const highlightWork = { generation: 0 };
-  $: schedulePresentationHighlight(presentation?.highlight, $viewport, $globalRev);
-  async function schedulePresentationHighlight(target: EditorCanvasPresentation["highlight"], _viewport: unknown, _revision: number) {
+  $: schedulePresentationHighlight(presentation?.highlight, $viewport, $globalRev, absentPresentationIds, stashedPresentationParts);
+  async function schedulePresentationHighlight(target: EditorCanvasPresentation["highlight"], _viewport: unknown, _revision: number, absent: ReadonlySet<string>, stashedParts: ReadonlyMap<string, ReadonlySet<string>>) {
     const generation = ++highlightWork.generation;
-    if (!target) { presentationHighlight = null; return; }
+    if (!target || absent.has(target.elementId)) { presentationHighlight = null; return; }
     await tick();
     if (generation !== highlightWork.generation || !hostEl) return;
-    const parts = target.partIds;
+    const parts = target.partIds?.filter(id => !stashedParts.get(target.elementId)?.has(id));
+    if (target.partIds?.length && !parts?.length) { presentationHighlight = null; return; }
     const nodes = parts?.length && parts.length <= 256
       ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(`${target.elementId}__${id}`)}"]`)).filter((n): n is globalThis.Element => !!n)
       : [hostEl.querySelector(`[data-editor-element-id="${CSS.escape(target.elementId)}"]`)].filter((n): n is globalThis.Element => !!n);
@@ -370,7 +372,7 @@
     return $project.figures.find((f) => f.id === $activeFigureId) ?? null;
   }
   function selectedEls(fig: Figure): Element[] {
-    return selectionTargets(fig, $selection, { editable: true, excluded: unbornPresentationIds });
+    return selectionTargets(fig, $selection, { editable: true, excluded: absentPresentationIds });
   }
 
   // Only the active canvas's figures are rendered / hit-tested.
@@ -419,8 +421,8 @@
     effMemoBox.val = m;
     return m;
   })();
-  const effHidden = (el: Element) => unbornPresentationIds.has(el.id) || (effState.get(el.id)?.hidden ?? !!el.hidden);
-  const effLocked = (el: Element) => unbornPresentationIds.has(el.id) || (effState.get(el.id)?.locked ?? !!el.locked);
+  const effHidden = (el: Element) => absentPresentationIds.has(el.id) || (effState.get(el.id)?.hidden ?? !!el.hidden);
+  const effLocked = (el: Element) => absentPresentationIds.has(el.id) || (effState.get(el.id)?.locked ?? !!el.locked);
 
   // P7: a live commit can delete/dissolve the ENTERED group (⌘⇧G, bridge verb,
   // member delete) — store.pruneSelection only covers undo/redo paths. Drop the
@@ -536,7 +538,7 @@
     const next = new Map<string, { key: string; els: Element[] }>();
     const m = new Map<string, Element[]>();
     for (const f of visibleFigures) {
-      const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${unbornPresentationKey}`;
+      const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${absentPresentationKey}`;
       let mm = visMemoBox.map.get(f.id);
       if (!mm || mm.key !== key) {
         perfCounters.visRecomputes++;
@@ -552,11 +554,11 @@
 
   // selection bbox in active-figure-local coords
   $: overlayBox = (() => {
-    void unbornPresentationIds;
+    void absentPresentationIds;
     const fig = $project.figures.find((f) => f.id === $activeFigureId);
     if (!fig) return null;
-    const editable = selectionTargets(fig, $selection, { editable: true, excluded: unbornPresentationIds });
-    return selectionBBox(editable.length ? editable : selectionTargets(fig, $selection, { visible: true, excluded: unbornPresentationIds }));
+    const editable = selectionTargets(fig, $selection, { editable: true, excluded: absentPresentationIds });
+    return selectionBBox(editable.length ? editable : selectionTargets(fig, $selection, { visible: true, excluded: absentPresentationIds }));
   })();
 
   // --- one repaint per zoom gesture + will-change lifecycle (figure-v1 P6) ---
@@ -1383,6 +1385,13 @@
     textEdits.finish();
     editingId = null;
   }
+  // A step change or stash action may remove the current edit target without
+  // a canvas click. Retire its local editing overlays as well as its scene.
+  $: if (editingId && absentPresentationIds.has(editingId)) {
+    textEdits.finish();
+    editingId = null;
+  }
+  $: if (editPathId && absentPresentationIds.has(editPathId)) exitNodeEdit();
   $: editingInfo = (() => {
     if (!editingId) return null;
     const f = findElement($project, editingId);
@@ -1526,7 +1535,7 @@
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
     const ob = selectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
-    const { xs, ys } = boxSnapTargets(fig.elements.filter(el => !unbornPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
+    const { xs, ys } = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
     gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, origs, ob, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
@@ -1551,7 +1560,7 @@
     let pid = resolvePartId(man, ev.target as unknown as globalThis.Element, el.id);
     if (!pid)
       pid = resolvePartId(man, document.elementFromPoint(ev.clientX, ev.clientY) as globalThis.Element | null, el.id);
-    return pid;
+    return pid && !stashedPresentationParts.get(el.id)?.has(pid) ? pid : null;
   }
 
   // Screen-px box of the deep-select target under the pointer (the hovered
@@ -1576,7 +1585,7 @@
   // then falls through to the normal whole-plot move.
   function beginPartMove(e: PointerEvent, fig: Figure, elementId: string, partId: string): boolean {
     const found = findElement($project, elementId);
-    if (!found || found.element.type !== "plot") return false;
+    if (!found || found.element.type !== "plot" || effHidden(found.element) || stashedPresentationParts.get(elementId)?.has(partId)) return false;
     const node = document.getElementById(`${elementId}__${partId}`) as unknown as SVGGraphicsElement | null;
     if (!node || typeof node.getScreenCTM !== "function") return false;
     // The override translate is PREPENDED to the node's transform list, so it
@@ -1669,7 +1678,7 @@
     const origs = new Map<string, Element>();
     for (const el of copies) origs.set(el.id, structuredClone(el));
     g.origs = origs;
-    const t = boxSnapTargets(fig.elements.filter(el => !unbornPresentationIds.has(el.id)), new Set(newIds), { w: fig.width, h: fig.height }, fig.guides);
+    const t = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(newIds), { w: fig.width, h: fig.height }, fig.guides);
     g.xs = t.xs;
     g.ys = t.ys;
   }
@@ -2052,7 +2061,7 @@
         const sY = snap([my, my + g.ob.h / 2, my + g.ob.h], g.ys, thr);
         // sibling bboxes for equal-spacing (F7) — excludes the moving set + hidden
         const movedIds = new Set(gestureEls.map((el) => el.id));
-        const sibs = fig.elements.filter((el) => !movedIds.has(el.id) && !el.hidden).map(elementBBox);
+        const sibs = fig.elements.filter((el) => !movedIds.has(el.id) && !el.hidden && !absentPresentationIds.has(el.id)).map(elementBBox);
         if (sX.line != null && lockAxis !== "y") {
           dx += sX.off;
           nextGuides.push({ x: sX.line });
@@ -2654,7 +2663,7 @@
   $: selLocked = (() => {
     if (!af) return false;
     void effState;
-    void unbornPresentationIds;
+    void absentPresentationIds;
     const els = af.elements.filter((e) => $selection.has(e.id));
     return els.length > 0 && els.every((e) => effLocked(e));
   })();
@@ -2702,10 +2711,11 @@
     // Don't preview-outline a locked/hidden element (own flag OR an ancestor
     // group's, P7) — a click won't select it.
     void effState;
+    void absentPresentationIds;
     if (effLocked(found.element) || effHidden(found.element)) return null;
     // P7: preview the unit a click would select — bounded by the entered scope.
     const grp = expandGroups($project, new Set([$hoverId]), $enteredGroupId);
-    const b = selectionBBox(found.figure.elements.filter((e) => grp.has(e.id)));
+    const b = selectionBBox(found.figure.elements.filter((e) => grp.has(e.id) && !absentPresentationIds.has(e.id)));
     if (!b) return null;
     // Outset ~1.5px (screen) so the outline sits just outside the element's own
     // border and stays visible even on a same-hue shape (Figma-style).
@@ -2957,13 +2967,13 @@
   // Alt-disable-snap keep working.
   $: measure = (() => {
     if (!altDown || !af || gesture || dragging || editPathId || $captionOpen || $activeTool !== "select") return null;
-    const sel = af.elements.filter((e) => $selection.has(e.id));
+    const sel = af.elements.filter((e) => $selection.has(e.id) && !absentPresentationIds.has(e.id));
     if (!sel.length) return null;
     const S = selectionBBox(sel);
     if (!S) return null;
     const r = (v: number) => `${Math.round(v)}`;
     const lines: { x1: number; y1: number; x2: number; y2: number; label: string }[] = [];
-    const tgt = $hoverId && !$selection.has($hoverId) ? af.elements.find((e) => e.id === $hoverId && !e.hidden) : null;
+    const tgt = $hoverId && !$selection.has($hoverId) ? af.elements.find((e) => e.id === $hoverId && !e.hidden && !absentPresentationIds.has(e.id)) : null;
     if (tgt) {
       const T = elementBBox(tgt);
       const g = gapBetween(S, T);
@@ -3327,7 +3337,7 @@
                   data-editor-element-id={el.id}
                   use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : 0 }}
                   opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
-                  style:pointer-events={hiddenPresentationIds.has(el.id) && !presentation?.ghostHidden ? "none" : null}
+                  style:pointer-events={absentPresentationIds.has(el.id) ? "none" : null}
                   class:editing-hidden={editingId === el.id}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
                   use:sceneTransforms.register={el.id}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { nativeScroll } from "../ui/nativeEvents";
   // The dissection grid — the lighttable pattern re-grown in Flux (patterns ported, never
   // imported: the sidecar boundary is a hard rule). Fixed columns make windowing O(1)
   // integer math; cells are sized to the MEASURED image aspect (median of the first 64
@@ -37,7 +38,7 @@
   function onScroll() {
     if (rafPending) return;
     rafPending = true;
-    requestAnimationFrame(() => {
+    (viewport?.ownerDocument.defaultView ?? window).requestAnimationFrame(() => {
       rafPending = false;
       if (viewport) scrollTop = viewport.scrollTop;
     });
@@ -46,7 +47,8 @@
   $effect(() => {
     const el = viewport;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
+    const view = el.ownerDocument.defaultView as Window & typeof globalThis;
+    const ro = new view.ResizeObserver(() => {
       vw = el.clientWidth;
       vh = el.clientHeight;
     });
@@ -92,7 +94,7 @@
   });
 </script>
 
-<div class="grid-viewport" data-dissect-grid bind:this={viewport} onscroll={onScroll}>
+<div class="grid-viewport" data-dissect-grid bind:this={viewport} use:nativeScroll={onScroll}>
   <div class="spacer" style:height={`${totalH}px`}>
     <div
       class="window"

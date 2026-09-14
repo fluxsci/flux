@@ -119,8 +119,9 @@ export function assetDisplaySize(p: Project, assetId: Id): { width: number; heig
  *  to whole groups (mirrors the GUI, which group-expands before arrange/align).
  *  Group-aware (P7): a member id pulls in its TOP-level group's members deep;
  *  elements sharing a dangling groupId (no registry def) still co-expand. */
-function targetEls(fig: Figure, ids?: Id[]): Element[] {
-  const base = ids && ids.length ? fig.elements.filter((e) => ids.includes(e.id)) : fig.elements;
+function targetEls(fig: Figure, ids?: Id[], excludedIds?: ReadonlySet<Id>): Element[] {
+  const available = excludedIds?.size ? fig.elements.filter(e => !excludedIds.has(e.id)) : fig.elements;
+  const base = ids && ids.length ? available.filter((e) => ids.includes(e.id)) : available;
   const defs = groupDefs(fig);
   const tops = new Set<Id>();
   const dangling = new Set<Id>();
@@ -132,7 +133,7 @@ function targetEls(fig: Figure, ids?: Id[]): Element[] {
   }
   if (!tops.size && !dangling.size) return base;
   const out = new Set(base);
-  for (const e of fig.elements) {
+  for (const e of available) {
     if (!e.groupId) continue;
     if (dangling.has(e.groupId)) out.add(e);
     else if (ancestorsOf(fig, e.groupId).some((g) => tops.has(g))) out.add(e);
@@ -684,11 +685,11 @@ const insideDelta = (pos: number, size: number, frame: number): number => {
  *  (physical size is the contract). An element larger than the frame is
  *  positioned to fully cover it instead. The rescue for imports that land
  *  outside the frame at true physical size. */
-export function bringInside(p: Project, figId: Id, ids?: Id[]): void {
+export function bringInside(p: Project, figId: Id, ids?: Id[], excludedIds?: ReadonlySet<Id>): void {
   const f = figById(p, figId);
   if (!f) return;
   const units = new Map<string, Element[]>();
-  for (const e of targetEls(f, ids)) {
+  for (const e of targetEls(f, ids, excludedIds)) {
     // Unit key: the TOP-level group (dangling groupIds — no registry def —
     // still co-move, mirroring targetEls' co-expansion), else the element.
     const top = e.groupId ? (topGroupOf(f, e.groupId) ?? e.groupId) : null;

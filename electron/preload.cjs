@@ -146,6 +146,8 @@ contextBridge.exposeInMainWorld("fig", {
   prepareSlideVideo: (request) => ipcRenderer.invoke("slides:prepareVideo", request),
   videoPreview: (path) => ipcRenderer.invoke("slides:videoPreview", path),
   videoMediaUrl: (request) => ipcRenderer.invoke("slides:videoMediaUrl", request),
+  videoGalleryUrl: (request) => ipcRenderer.invoke("gallery:videoUrl", request),
+  releaseVideoGalleryUrl: (url) => ipcRenderer.invoke("gallery:releaseVideoUrl", url),
   copySlideVideoAssets: (request) => ipcRenderer.invoke("slides:copyVideoAssets", request),
   cancelVideoImport: (jobId) => ipcRenderer.invoke("slides:cancelVideoImport", jobId),
   discardVideoImport: (request) => ipcRenderer.invoke("slides:discardVideoImport", request),

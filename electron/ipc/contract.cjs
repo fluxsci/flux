@@ -154,6 +154,8 @@ const CHANNELS = [
   { channel: "slides:prepareVideo", kind: "invoke", scope: "spawn" },
   { channel: "slides:videoPreview", kind: "invoke", scope: "spawn" },
   { channel: "slides:videoMediaUrl", kind: "invoke", scope: "read" },
+  { channel: "gallery:videoUrl", kind: "invoke", scope: "read" },
+  { channel: "gallery:releaseVideoUrl", kind: "invoke", scope: "read" },
   { channel: "slides:copyVideoAssets", kind: "invoke", scope: "write" },
   { channel: "slides:cancelVideoImport", kind: "invoke", scope: "spawn" },
   { channel: "slides:discardVideoImport", kind: "invoke", scope: "write" },

@@ -160,6 +160,8 @@ export interface FileBridge {
   prepareSlideVideo?(request: { root: string; deckId: string; path: string; jobId: string }): Promise<{ asset: import("../types").Asset; posterAsset: import("../types").Asset; url: string; poster: string }>;
   videoPreview?(path: string): Promise<{ poster: string; width: number; height: number; durationMs: number; hasAudio: boolean }>;
   videoMediaUrl?(request: { root: string; path: string }): Promise<string>;
+  videoGalleryUrl?(request: { root: string; path: string }): Promise<string>;
+  releaseVideoGalleryUrl?(url: string): Promise<void>;
   copySlideVideoAssets?(request: { root: string; sourceDeckId: string; deckId: string; paths: string[] }): Promise<void>;
   cancelVideoImport?(jobId: string): Promise<void>;
   discardVideoImport?(request: { root: string; deckId: string; assetId: string }): Promise<void>;

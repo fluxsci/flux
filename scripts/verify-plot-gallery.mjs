@@ -8,7 +8,8 @@ const metrics = {};
 const frame = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
 const open = async () => { await page.keyboard.down('Alt'); await page.keyboard.press('KeyI'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer'); };
 const query = async (p, value) => { await p.$eval('.search-in', (n, value) => { n.value = value; n.dispatchEvent(new Event('input', { bubbles:true })); }, value); await frame(p); };
-const pick = async (p, name) => { const button = await p.evaluateHandle(name => [...document.querySelectorAll('.row')].find(n => n.querySelector('.nm')?.textContent === name), name); await button.click(); await frame(p); };
+const pick = async (p, name) => { const button = await p.evaluateHandle(name => [...document.querySelectorAll('.importer .list .row')].find(n => n.querySelector('.nm')?.textContent === name), name); await button.click(); await frame(p); };
+const repickBatch = async p => { await query(p,'result-00'); await pick(p,'result-00'); await query(p,'control'); await pick(p,'control'); await query(p,''); };
 try {
   await gotoApp(page, { url: new URL('?fixture=demo', APP_URL).href });
   await clickMode(page, 'Figure');
@@ -50,6 +51,7 @@ try {
   await gallery.waitForFunction(()=>document.querySelector('.path .cur')?.textContent==='_lighttable');
   await query(gallery,'control');assert.equal(await gallery.$('.row'),null,'reserved scope remains isolated');
   await gallery.click('.rootbtn');
+  if (await gallery.$('[aria-label="Toggle folder sidebar"][aria-expanded="true"]')) { await gallery.click('[aria-label="Toggle folder sidebar"]'); await frame(gallery); }
   await gallery.setViewport({width:520,height:620});await frame(gallery);
   assert(await gallery.evaluate(()=>{const b=document.querySelector('.insbtn').getBoundingClientRect();return b.right<=innerWidth&&b.bottom<=innerHeight}), 'controls fit narrow window');
   await gallery.$eval('[aria-label="Preview size"]',n=>{n.value='320';n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}))});
@@ -62,25 +64,26 @@ try {
   await gallery.click('.insbtn');await gallery.waitForSelector('[role=status]');
   assert.equal(await page.evaluate(()=>window.__flux.figures()[0].elements.length),before+2,'pinned batch inserts into editor');
   assert(await gallery.$('.importer'),'gallery stays open after insert');
+  assert.equal(await gallery.$('.pickpill'),null,'successful pinned insertion clears the picked set');
   // The actual parent keyboard remains usable; no fixture mutation assists it.
   await page.bringToFront();await page.keyboard.press('ArrowRight');
   await page.keyboard.press('f');await page.waitForSelector('.fluxFigMenu');
   await page.waitForFunction(()=>getComputedStyle(document.querySelector('.fluxFigMenu .fcontent')).opacity==='1');
   await page.screenshot({path:'test-results/figure-properties.png'});
   await page.keyboard.press('Escape');
-  await gallery.bringToFront();await gallery.click('.insbtn');
+  await gallery.bringToFront();await repickBatch(gallery);await gallery.click('.insbtn');
   await page.waitForFunction(n=>window.__flux.figures()[0].elements.length===n,{},before+4).catch(async()=>{assert.equal(await page.evaluate(()=>window.__flux.figures()[0].elements.length),before+4)});
   // Change the destination through the editor, then hold an actual file read
   // across a second destination change: it must not place into either figure.
   const other = await page.evaluate(() => { const F=window.__flux; F.fig.duplicateFigure(F.figures()[0].id); return {id:F.get(F.fig.activeFigureId), count:F.figures().at(-1).elements.length}; });
-  await frame(gallery);await gallery.click('.insbtn');
+  await frame(gallery);await repickBatch(gallery);await gallery.click('.insbtn');
   await page.waitForFunction(({id,count})=>window.__flux.figures().find(f=>f.id===id)?.elements.length===count+2,{},other);
   assert.equal(await page.evaluate(()=>window.__flux.figures()[0].elements.length),before+4,'new insertion follows the active figure');
   await page.evaluate(()=>{
     const read=window.fig.readFile.bind(window.fig);let held=false;
     window.fig.readFile=async path=>{if(!held && path.endsWith('/study/result-00.svg')){held=true;window.__galleryReadBlocked=true;await new Promise(resolve=>window.__resumeGalleryRead=resolve)}return read(path)};
   });
-  await gallery.click('.insbtn');await page.waitForFunction(()=>window.__galleryReadBlocked);
+  await repickBatch(gallery);await gallery.click('.insbtn');await page.waitForFunction(()=>window.__galleryReadBlocked);
   const originalId=await page.evaluate(()=>window.__flux.figures()[0].id);
   await page.bringToFront();await page.click(`.figrow[data-fig-id="${originalId}"] .item`);
   await page.evaluate(()=>{window.__resumeGalleryRead();});
@@ -111,8 +114,14 @@ try {
   await page.focus('.importer .row');await page.keyboard.press('End');await frame(page);
 
   await page.waitForFunction(()=>document.activeElement?.querySelector('.nm')?.textContent==='plot-4999');
-  await page.keyboard.press('ArrowLeft');
-  await page.waitForFunction(()=>document.activeElement?.querySelector('.nm')?.textContent==='plot-4998');
+  // Virtual scrolling can move another tile beneath a stationary pointer.
+  // Deliberately create that focus/hover split: arrows must follow keyboard focus.
+  const hoverPoint = await page.$eval('.importer .list .row[data-i="4998"]', node => { const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.mouse.move(hoverPoint.x, hoverPoint.y); await frame(page);
+  assert.equal(await page.$eval('.row.sel .nm', n => n.textContent), 'plot-4997', 'fixture independently hovers another visible tile');
+  assert.equal(await page.evaluate(() => document.activeElement?.querySelector('.nm')?.textContent), 'plot-4999', 'pointer hover preserves keyboard focus');
+  await page.keyboard.press('ArrowLeft'); await frame(page);
+  await page.waitForFunction(()=>document.activeElement?.querySelector('.nm')?.textContent==='plot-4998', { timeout: 5000 });
   await page.keyboard.press('Home');await frame(page);
   metrics.scrollPaint=await page.evaluate(()=>new Promise(resolve=>{const n=document.querySelector('.list');const t=performance.now();n.scrollTop=n.scrollHeight;n.dispatchEvent(new Event('scroll'));requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(performance.now()-t)))}));
   assert(metrics.scrollPaint<=100,'5000 plot scroll paints within 100ms');

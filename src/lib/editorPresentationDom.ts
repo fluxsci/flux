@@ -12,11 +12,12 @@ interface PartDisplay {
 export function presentEditorParts(host: SVGGElement, initial: PartDisplay) {
   let params = initial;
   let generation = 0;
-  const originals = new Map<SVGElement, { opacity: string; pointerEvents: string }>();
+  const originals = new Map<SVGElement, { opacity: string; pointerEvents: string; display: string }>();
   function restore() {
     for (const [node, style] of originals) {
       node.style.opacity = style.opacity;
       node.style.pointerEvents = style.pointerEvents;
+      node.style.display = style.display;
     }
     originals.clear();
   }
@@ -28,11 +29,16 @@ export function presentEditorParts(host: SVGGElement, initial: PartDisplay) {
     for (const [partId, state] of Object.entries(params.states ?? {})) {
       const node = host.querySelector<SVGElement>(`[id="${CSS.escape(`${params.elementId}__${partId}`)}"]`);
       if (!node) continue;
-      originals.set(node, { opacity: node.style.opacity, pointerEvents: node.style.pointerEvents });
+      originals.set(node, { opacity: node.style.opacity, pointerEvents: node.style.pointerEvents, display: node.style.display });
       const hidden = state.visible === false || state.opacity === 0;
       const authored = node.style.opacity ? Number(node.style.opacity) : Number(node.getAttribute("opacity") ?? 1);
       node.style.opacity = String(hidden && params.ghost ? 0.25 : (hidden ? 0 : state.opacity ?? 1) * (Number.isFinite(authored) ? authored : 1));
-      if (hidden && !params.ghost) node.style.pointerEvents = "none";
+      if (hidden && !params.ghost) {
+        node.style.pointerEvents = "none";
+        // display:none also removes descendant hit areas that explicitly opt
+        // into pointer events, and makes this part absent from measured bounds.
+        node.style.display = "none";
+      }
     }
   }
   void apply();

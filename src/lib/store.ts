@@ -113,7 +113,22 @@ export function normalizeProject(p: Project, opts: { figureIdentity?: boolean } 
 
 export const project = writable<Project>(blankProject());
 export const viewport = writable<Viewport>({ panX: 140, panY: 80, zoom: 0.6 });
-export const selection = writable<Set<Id>>(new Set());
+let excludedEditorIds: ReadonlySet<Id> = new Set();
+let excludedEditorParts: ReadonlyMap<Id, ReadonlySet<string>> = new Map();
+const editorExclusions = writable<ReadonlySet<Id>>(excludedEditorIds);
+export const editorSelectionExclusions = { subscribe: editorExclusions.subscribe };
+const selectionStore = writable<Set<Id>>(new Set());
+function selectableIds(ids: Set<Id>): Set<Id> {
+  if (!excludedEditorIds.size || ![...ids].some(id => excludedEditorIds.has(id))) return ids;
+  return new Set([...ids].filter(id => !excludedEditorIds.has(id)));
+}
+/** Every selection route, including Layers and group expansion, observes the
+ * embedded editor's transient stash before publishing to mutation consumers. */
+export const selection = {
+  subscribe: selectionStore.subscribe,
+  set(ids: Set<Id>) { selectionStore.set(selectableIds(ids)); },
+  update(fn: (ids: Set<Id>) => Set<Id>) { selectionStore.update(ids => selectableIds(fn(ids))); },
+};
 
 /**
  * The canvas's usable content box in host pixels, published by Canvas.svelte
@@ -211,7 +226,37 @@ export interface PartSelection {
   elementId: Id;
   partId: string;
 }
-export const partSelection = writable<PartSelection | null>(null);
+const partSelectionStore = writable<PartSelection | null>(null);
+function selectablePart(part: PartSelection | null): PartSelection | null {
+  return part && isEditorTargetExcluded(part.elementId, part.partId) ? null : part;
+}
+export function isEditorTargetExcluded(elementId: Id, partId?: string): boolean {
+  return excludedEditorIds.has(elementId) || !!(partId && excludedEditorParts.get(elementId)?.has(partId));
+}
+export const partSelection = {
+  subscribe: partSelectionStore.subscribe,
+  set(part: PartSelection | null) { partSelectionStore.set(selectablePart(part)); },
+  update(fn: (part: PartSelection | null) => PartSelection | null) { partSelectionStore.update(part => selectablePart(fn(part))); },
+};
+
+/** Slide owns this policy and clears it on deactivation. It never changes the
+ * document, history, or ordinary Figure hidden/locked selection behavior. */
+export function setEditorSelectionExclusions(ids: ReadonlySet<Id>, parts: ReadonlyMap<Id, ReadonlySet<string>> = new Map()) {
+  const sameIds = ids.size === excludedEditorIds.size && [...ids].every(id => excludedEditorIds.has(id));
+  const sameParts = parts.size === excludedEditorParts.size && [...parts].every(([id, values]) => {
+    const previous = excludedEditorParts.get(id);
+    return previous?.size === values.size && [...values].every(value => previous.has(value));
+  });
+  if (sameIds && sameParts) return;
+  excludedEditorIds = new Set(ids);
+  excludedEditorParts = new Map([...parts].map(([id, values]) => [id, new Set(values)]));
+  editorExclusions.set(excludedEditorIds);
+  const selected = get(selectionStore), filtered = selectableIds(selected);
+  if (filtered !== selected) selectionStore.set(filtered);
+  const part = get(partSelectionStore), filteredPart = selectablePart(part);
+  if (filteredPart !== part) partSelectionStore.set(filteredPart);
+  if (excludedEditorIds.has(get(hoverId) ?? "")) hoverId.set(null);
+}
 
 // The group the user has ENTERED (figure-v1 P7; the double-click UX lands with
 // the Canvas wave). While set, clicks select child units OF this group
@@ -726,6 +771,7 @@ export function findElement(
 // Elements sharing a DANGLING groupId (no registry def — e.g. alt-drag copies
 // until the Canvas wave adopts cloneGroupsFor) still co-expand by raw id.
 export function expandGroups(p: Project, ids: Set<Id>, scope?: Id | null): Set<Id> {
+  ids = selectableIds(ids);
   const out = new Set(ids);
   for (const f of p.figures) {
     if (!f.elements.some((e) => ids.has(e.id))) continue;
@@ -741,7 +787,7 @@ export function expandGroups(p: Project, ids: Set<Id>, scope?: Id | null): Set<I
     for (const gid of units) for (const m of membersDeep(f, gid)) out.add(m.id);
     if (dangling) for (const e of f.elements) if (e.groupId && dangling.has(e.groupId)) out.add(e.id);
   }
-  return out;
+  return selectableIds(out);
 }
 
 export function selectedElements(p: Project, sel: Set<Id>): Element[] {

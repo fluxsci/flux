@@ -17,6 +17,8 @@
     project,
     selection,
     partSelection,
+    editorSelectionExclusions,
+    isEditorTargetExcluded,
     xrayOpen,
     xrayRoot,
     selectOnly,
@@ -218,7 +220,29 @@
   }
 
   // --- row → canvas selection ----------------------------------------------
+  function rowBlocked(n: XRow, _exclusions: unknown): boolean {
+    if (n.elementId) return isEditorTargetExcluded(n.elementId, n.partId);
+    if (n.groupId && root) {
+      const fig = get(project).figures.find(f => f.id === root.figId);
+      const members = fig ? membersDeep(fig, n.groupId) : [];
+      return members.length > 0 && members.every(e => isEditorTargetExcluded(e.id));
+    }
+    return false;
+  }
+  function hideBlocked(n: XRow, exclusions: unknown): boolean {
+    if (rowBlocked(n, exclusions)) return true;
+    if (n.groupId && root) {
+      const fig = get(project).figures.find(f => f.id === root.figId);
+      return !!fig && membersDeep(fig, n.groupId).some(e => isEditorTargetExcluded(e.id));
+    }
+    return false;
+  }
   function applySelection(n: XRow) {
+    if (rowBlocked(n, get(editorSelectionExclusions))) {
+      selection.set(new Set());
+      partSelection.set(null);
+      return;
+    }
     if (n.kind === "part" && n.elementId && n.partId) {
       selectOnly(n.elementId);
       partSelection.set({ elementId: n.elementId, partId: n.partId });
@@ -241,7 +265,7 @@
 
   // --- Show Properties: selection per row kind → FluxFig Menu ON TOP --------
   function showProperties(n: XRow | null) {
-    if (!n) return;
+    if (!n || rowBlocked(n, get(editorSelectionExclusions))) return;
     selectedId = n.id;
     applySelection(n);
     if (n.kind === "group" && get(selection).size === 0) return; // empty group: nothing to edit
@@ -298,6 +322,7 @@
 
   // --- eye / 'x': per-row-kind hide dispatch ---------------------------------
   function toggleHidden(n: XRow) {
+    if (hideBlocked(n, get(editorSelectionExclusions))) return;
     if (n.kind === "part" && n.elementId && n.partId) {
       applyPartStyleTo(n.elementId, n.partId, { hidden: !n.hidden });
     } else if (n.kind === "element" && n.elementId) {
@@ -484,7 +509,8 @@
                 <button
                   class="eye"
                   class:off={r.node.hidden}
-                  title="Show / hide (x)"
+                  disabled={hideBlocked(r.node, $editorSelectionExclusions)}
+                  title={hideBlocked(r.node, $editorSelectionExclusions) ? "Enable Show hidden to edit this target" : "Show / hide (x)"}
                   on:click|stopPropagation={() => toggleHidden(r.node)}>{r.node.hidden ? "○" : "◉"}</button
                 >
                 <span class="rlabel" class:dim={r.node.hidden}>{r.node.label}</span>
@@ -495,7 +521,7 @@
           </div>
 
           <div class="actions">
-            <button class="showprops" disabled={!selRow} on:click={() => showProperties(selRow)}>
+            <button class="showprops" disabled={!selRow || rowBlocked(selRow, $editorSelectionExclusions)} on:click={() => showProperties(selRow)}>
               Show Properties <span class="hk">↵</span>
             </button>
           </div>

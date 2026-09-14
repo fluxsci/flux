@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { nativeClick, nativePointerDown, nativePointerMove, nativePointerUp } from "../ui/nativeEvents";
   // The expanded view of one dissection file. Images get the lighttable viewer feel (ported,
   // not imported): "fit" is pure CSS object-fit; user zoom renders at natural size inside a
   // translated+scaled wrapper. Ctrl/⌘+scroll zooms at the cursor (trackpad pinch arrives as
@@ -13,12 +14,15 @@
     count,
     groupName,
     onClose,
+    keyboardTarget,
   }: {
     file: DissectFile;
     pos: number;
     count: number;
     groupName: string;
     onClose: () => void;
+    /** Expanded gallery previews scope hand-tool keys to their own modal. */
+    keyboardTarget?: HTMLElement;
   } = $props();
 
   let stage = $state<HTMLDivElement | null>(null);
@@ -35,12 +39,15 @@
   let ty = $state(0);
   let gen = 0;
 
-  const fitScale = $derived(natW && natH && sw && sh ? Math.min(sw / natW, sh / natH, 1) : 1);
+  // Match img.fit's object-fit:contain content box, including its 16px padding
+  // and upscaling, so the first zoom starts from the size already on screen.
+  const fitScale = $derived(natW && natH && sw && sh ? Math.min(Math.max(1, sw - 32) / natW, Math.max(1, sh - 32) / natH) : 1);
 
   $effect(() => {
     const el = stage;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
+    const view = el.ownerDocument.defaultView as Window & typeof globalThis;
+    const ro = new view.ResizeObserver(() => {
       sw = el.clientWidth;
       sh = el.clientHeight;
     });
@@ -100,7 +107,7 @@
   export function zoomBy(f: number, cx = 0, cy = 0) {
     if (!natW || !natH) return;
     const oldZ = userZoomed ? z : fitScale;
-    const newZ = Math.min(8, Math.max(fitScale * 0.25, oldZ * f));
+    const newZ = Math.min(Math.max(8, fitScale * 8), Math.max(fitScale * 0.25, oldZ * f));
     if (!userZoomed) {
       userZoomed = true;
       tx = 0;
@@ -159,8 +166,13 @@
   let moved = false;
 
   $effect(() => {
+    const view = stage?.ownerDocument.defaultView;
+    if (!view) return;
+    const keyHost = keyboardTarget ?? view;
     const down = (e: KeyboardEvent) => {
       if (e.code !== "Space") return;
+      const target = e.target as HTMLElement | null;
+      if (keyboardTarget && (target?.isContentEditable || target?.closest?.("button,input,textarea,select,video,a[href],[role='button']"))) return;
       spaceHeld = true;
       e.preventDefault();
     };
@@ -171,13 +183,13 @@
       spaceHeld = false;
       dragging = false;
     };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    window.addEventListener("blur", clear);
+    keyHost.addEventListener("keydown", down as EventListener);
+    keyHost.addEventListener("keyup", up as EventListener);
+    view.addEventListener("blur", clear);
     return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", clear);
+      keyHost.removeEventListener("keydown", down as EventListener);
+      keyHost.removeEventListener("keyup", up as EventListener);
+      view.removeEventListener("blur", clear);
     };
   });
 
@@ -221,10 +233,10 @@
       class:panready={spaceHeld && userZoomed}
       class:dragging
       bind:this={stage}
-      onclick={onStageClick}
-      onpointerdown={onPointerDown}
-      onpointermove={onPointerMove}
-      onpointerup={onPointerUp}
+      use:nativeClick={onStageClick}
+      use:nativePointerDown={onPointerDown}
+      use:nativePointerMove={onPointerMove}
+      use:nativePointerUp={onPointerUp}
       role="presentation"
     >
       {#if failed}

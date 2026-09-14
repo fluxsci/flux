@@ -13,6 +13,12 @@ objects. **Edit after step** records sparse Change destinations against the
 compiled state before that step. Scrubbing and playback inspect the scene
 without authoring changes. `store.ts` owns this boundary and the edit destination.
 
+With **Show hidden** off, `editorPresentation.ts` derives the excluded object/part sets
+shared by Canvas and Slide's selection policy. Hidden objects unmount and leave selection,
+group expansion and snapping; hidden part subtrees leave hit testing. Shared selection setters
+reject excluded targets synchronously, and Slide releases the policy on deactivation. Turning
+Show hidden back on restores the existing ghost-editing behavior, with no document/history changes.
+
 `AnimatePanel.svelte` contains a step list, the selected step's timing lanes, a
 transport, and an Inspector. `animator/BeatRail.svelte` owns lane selection and
 timing gestures; `PropertiesPane.svelte` exposes timing, easing, presets, and

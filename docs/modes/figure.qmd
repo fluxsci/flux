@@ -87,22 +87,32 @@ slide copies retain the assets they need. A slide copy has its own layout and an
 
 - **Alt+I** opens the **Plot gallery**, showing SVG and PNG previews in the current
   folder. Choose **Gallery** or **List**; adjust **Size**, **Space**, and **Names** to make
-  the contact sheet comfortable. Flux remembers these display choices.
+  the contact sheet comfortable. Size reaches **800 px** for large previews. **Folders**
+  shows or collapses a directory tree; expand its branches to browse files without losing
+  your picks. Flux remembers these display choices.
 - Click a plot, or press **Enter** or **Space** in an empty search box, to select it.
   Picks survive folder changes and searches. **Ctrl+Enter**, the **Insert** button, or
   a double-click inserts the selection. Search reaches ordinary folders throughout `plots/`;
   **plots** returns to the root and **Up** or **Backspace** goes to the parent folder.
+- **Ctrl-click** (Mac: **⌘-click**) a plot, or use **Preview** / **F4**, for a full-window
+  view. Arrow keys browse adjacent plots; **Escape** returns to the gallery. Open
+  **Dissections** or press **D** to inspect the plot's companion groups and panels.
+  **Similar names** finds filename variants across the current search scope, without
+  selecting them. Clear that filter to return to normal browsing.
 - **Pin open** moves the gallery into its own resizable window. Move it to another screen
   and keep arranging figures in the editor. The current folder and selection are preserved,
   and you can still browse the entire `plots/` tree. Insertions leave the window open and
-  use the figure named in its footer. **Dock** returns the same gallery to the editor;
+  use the figure named in its footer. Successful insertions clear the submitted picks,
+  ready for the next batch. **Dock** returns the same gallery to the editor;
   **Alt+I** brings an already pinned gallery forward. **Refresh** reloads files and previews.
   Preview columns adjust as you resize the pinned window, including while the editor is
   minimized. Closing the project also closes its gallery.
 - **◆** marks semantic plots and **◇** marks plain images; **List** also shows semantic
   and paper-snip badges. The reserved [`_dissections/`](../concepts/dissections.qmd) and
   `_lighttable/` companion collections stay out of ordinary results. Type **`_`** to list
-  them and **Enter** to go in. Search then stays inside that collection until you leave it.
+  them and **Enter** to go in, or open them in **Folders**. Search then stays inside that
+  collection until you leave it. The Slide gallery also previews MP4/MOV clips: select
+  **Play video** to play, pause, seek, or mute a clip in the full-window view.
 - **Drag files in** from your file manager (an SVG with its `.fluxplot.json` sibling imports
   as a semantic plot), or **paste an image** straight from the clipboard. A pasted image has
   no file behind it, so Flux keeps the original for you in

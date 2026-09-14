@@ -61,7 +61,7 @@ try{
  state=await read();const persisted=state.deck.slides[0].elements;
  check(persisted.every(e=>!e.hidden)&&persisted.find(e=>e.id==='camera-box').opacity===.7&&!JSON.stringify(persisted).includes('0.25'),'ghost opacity and visibility never enter saved model');
  await page.click('.ghost-toggle input');await paint();
- check(+(await geom('camera-box')).opacity===0,'Show hidden off removes ghost appearance');
+ check(await page.$('[data-editor-element-id="camera-box"]')===null,'Show hidden off removes the object from the editable scene');
  check(realErrors(page).length===0,'clean console: '+realErrors(page).join('; '));
  await page.screenshot({path:'test-results/slide-canvas-presentation.png'});
  console.log(`##VERIFY## ${JSON.stringify({name:'slide-canvas-presentation-gui',passed,failed:0})}`);

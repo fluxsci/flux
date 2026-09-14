@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { nativeClick, nativeScroll } from "../ui/nativeEvents";
   // CSV/TSV as a table: sticky header, windowed body rows (all N rows in the DOM is never
   // acceptable — same discipline as the sidebar/library windows), numeric columns right-
   // aligned, click a header to sort (asc → desc → file order; numeric-aware). The window is
@@ -67,7 +68,7 @@
   function onScroll() {
     if (rafPending) return;
     rafPending = true;
-    requestAnimationFrame(() => {
+    (viewport?.ownerDocument.defaultView ?? window).requestAnimationFrame(() => {
       rafPending = false;
       if (viewport) scrollTop = viewport.scrollTop;
     });
@@ -75,7 +76,8 @@
   $effect(() => {
     const el = viewport;
     if (!el) return;
-    const ro = new ResizeObserver(() => (vh = el.clientHeight));
+    const view = el.ownerDocument.defaultView as Window & typeof globalThis;
+    const ro = new view.ResizeObserver(() => (vh = el.clientHeight));
     ro.observe(el);
     vh = el.clientHeight;
     return () => ro.disconnect();
@@ -92,7 +94,7 @@
   };
 </script>
 
-<div class="tbl" data-dissect-table bind:this={viewport} onscroll={onScroll}>
+<div class="tbl" data-dissect-table bind:this={viewport} use:nativeScroll={onScroll}>
   <div class="hdr" style:grid-template-columns={gridCols} style:width={`${totalW}px`}>
     {#each table.header as hcell, c}
       <button
@@ -100,7 +102,7 @@
         class:num={numeric[c]}
         class:sorted={sortCol === c}
         title={hcell}
-        onclick={() => clickHeader(c)}
+        use:nativeClick={() => clickHeader(c)}
       >
         <span class="ht">{hcell}</span>{#if sortCol === c}<span class="arrow">{sortDir === 1 ? "▲" : "▼"}</span>{/if}
       </button>

@@ -41,6 +41,18 @@ function createVideoMediaCore({ app, protocol, rootFor, fsReadGuard, noteWrite }
     const token = randomBytes(24).toString("hex"); tokens.set(token, { owner: current, root, relative, absolute });
     return `flux-media://video/${token}`;
   }
+  async function galleryUrl(e, root, absolutePath) {
+    if (!root || rootFor(e) !== root || typeof absolutePath !== "string" || !/\.(mp4|mov)$/i.test(absolutePath) || !media.contained(path.join(root, "plots"), absolutePath)) throw new Error("Choose a video inside this project's plots folder");
+    fsReadGuard(absolutePath, e.sender.id);
+    const relative = path.relative(root, absolutePath).split(path.sep).join("/");
+    const absolute = await media.projectFile(root, relative);
+    // Every opened preview owns one disposable capability. Releasing one preview
+    // can never revoke the same source in another live preview or a saved slide.
+    const current = owner(e), token = randomBytes(24).toString("hex");
+    if (current.root() !== root) throw new Error("The project changed while opening the video");
+    tokens.set(token, { owner: current, root, relative, absolute, gallery: true, mime: /\.mov$/i.test(absolutePath) ? "video/quicktime" : "video/mp4" });
+    return `flux-media://video/${token}`;
+  }
   app.whenReady().then(() => protocol.handle("flux-media", async request => {
     try {
       const url = new URL(request.url), item = tokens.get(url.pathname.slice(1));
@@ -53,7 +65,7 @@ function createVideoMediaCore({ app, protocol, rootFor, fsReadGuard, noteWrite }
       const stat = await fs.promises.stat(absolute);
       if (!stat.isFile()) return new Response(null, { status: 404 });
       const range = media.byteRange(request.headers.get("range"), stat.size);
-      const headers = { "Content-Type": "video/mp4", "Access-Control-Allow-Origin": "*", "Accept-Ranges": "bytes", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
+      const headers = { "Content-Type": item.mime || "video/mp4", "Access-Control-Allow-Origin": "*", "Accept-Ranges": "bytes", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
       if (!range) return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${stat.size}` } });
       headers["Content-Length"] = String(range.end - range.start + 1);
       if (range.partial) headers["Content-Range"] = `bytes ${range.start}-${range.end}/${stat.size}`;
@@ -72,6 +84,12 @@ function createVideoMediaCore({ app, protocol, rootFor, fsReadGuard, noteWrite }
       for (const relative of request.paths) noteWrite(path.join(root, "slides", request.deckId, relative));
     });
     ipcMain.handle("slides:videoMediaUrl", (e, request) => localUrl(e, request?.root, request?.path));
+    ipcMain.handle("gallery:videoUrl", (e, request) => galleryUrl(e, request?.root, request?.path));
+    ipcMain.handle("gallery:releaseVideoUrl", (e, url) => {
+      if (typeof url !== "string" || !/^flux-media:\/\/video\/[a-f0-9]{48}$/.test(url)) return;
+      const token = url.slice(url.lastIndexOf("/") + 1), item = tokens.get(token);
+      if (item?.gallery && item.owner === owner(e)) tokens.delete(token);
+    });
     ipcMain.handle("slides:videoPreview", async (e, absolute) => {
       const root = rootFor(e);
       if (!root || typeof absolute !== "string" || !media.contained(path.join(root, "plots"), absolute)) throw new Error("Choose a video inside this project's plots folder");

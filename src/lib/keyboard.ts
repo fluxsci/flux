@@ -6,6 +6,7 @@ import { get } from "svelte/store";
 import {
   project,
   selection,
+  editorSelectionExclusions,
   partSelection,
   activeFigureId,
   activeTool,
@@ -108,7 +109,8 @@ function togglePanelLabel() {
 
 function editableIds(): Set<string> {
   const ids = get(selection);
-  return new Set(get(project).figures.flatMap(fig => selectionTargets(fig, ids, { editable: true }).map(e => e.id)));
+  const excluded = get(editorSelectionExclusions);
+  return new Set(get(project).figures.flatMap(fig => selectionTargets(fig, ids, { editable: true, excluded }).map(e => e.id)));
 }
 
 function withSelected(fn: (els: Element[], figId: string) => void) {
@@ -388,7 +390,7 @@ function bringInsideSelected() {
   const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
-  commit((p) => ops.bringInside(p, fig.id, [...sel]));
+  commit((p) => ops.bringInside(p, fig.id, [...sel], get(editorSelectionExclusions)));
 }
 
 // Cmd/Ctrl+Shift+L: toggle the lock flag across the selection (F6). Locks if any

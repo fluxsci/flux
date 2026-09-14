@@ -20,12 +20,16 @@
   // absent from browse rows and from the search cache, so a plain search can never
   // surface a per-subject panel or one of ten thousand sweep images. Hidden is not
   // unreachable — typing "_" offers them as enterable rows, and entering one
-  // RE-SCOPES the search cache to that folder, so from then on you are searching
+  // or browsing the explicit folder tree RE-SCOPES the search cache, so you search
   // inside it and nowhere else. Leaving restores the ordinary plots/ scope.
   import { onDestroy, tick } from "svelte";
   import { get } from "svelte/store";
   import GalleryPreview from "./plot/GalleryPreview.svelte";
+  import GalleryTree from "./plot/GalleryTree.svelte";
+  import GalleryExpandedPreview from "./plot/GalleryExpandedPreview.svelte";
   import { createGalleryPreviews } from "./plot/galleryPreviews";
+  import { galleryNameSimilarity } from "./plot/galleryNames";
+  import { clearDissectCache } from "./dissect/loader";
   import { openGalleryWindow } from "./plot/galleryWindow";
   import { importerOpen, importerDetached, embeddedProjectRoot, projectDir, activeFigureId, project } from "./store";
   import { fileBridge, joinPath } from "./project/types";
@@ -93,20 +97,26 @@
   let previewSize = 200;
   let spacing = 16;
   let labels = true;
+  let sidebar = true;
+  let tree: GalleryTree | undefined;
+  let treeRevision = 0;
+  let expanded: PlotRec | undefined;
+  let similarTo: string = "";
   try {
     const saved = JSON.parse(localStorage.getItem("flux-plot-gallery") ?? "{}");
     if (saved.view === "list") viewMode = "list";
-    if (Number.isFinite(saved.size)) previewSize = Math.max(120, Math.min(360, saved.size));
+    if (Number.isFinite(saved.size)) previewSize = Math.max(120, Math.min(800, saved.size));
     if (Number.isFinite(saved.spacing)) spacing = Math.max(4, Math.min(32, saved.spacing));
     if (typeof saved.labels === "boolean") labels = saved.labels;
+    if (typeof saved.sidebar === "boolean") sidebar = saved.sidebar;
   } catch { /* Invalid preferences fall back to the gallery defaults. */ }
   function rememberView() {
-    try { localStorage.setItem("flux-plot-gallery", JSON.stringify({ view: viewMode, size: previewSize, spacing, labels })); } catch {}
+    try { localStorage.setItem("flux-plot-gallery", JSON.stringify({ view: viewMode, size: previewSize, spacing, labels, sidebar })); } catch {}
   }
   function focusInput() { void tick().then(() => inputEl?.focus()); }
   function pin() {
     try {
-      popup = openGalleryWindow(wrapEl, close, () => reconnectListSize());
+      popup = openGalleryWindow(wrapEl, close, () => { reconnectListSize(); tree?.reconnect(); });
       detached = true;
       importerDetached.set(true);
     } catch (e) { error = errMsg(e); }
@@ -114,12 +124,14 @@
   function dock() {
     popup?.close(); popup = undefined;
     detached = false; importerDetached.set(false);
+    expanded = undefined;
     focusInput();
   }
   function resetPreviews() {
     previews.dispose(); previews = createGalleryPreviews(); previewRevision++;
   }
   function teardown() {
+    expanded = undefined;
     popup?.close(); popup = undefined;
     detached = false; importerDetached.set(false);
     dirGeneration++; scanGeneration++;
@@ -150,7 +162,7 @@
     return { destroy() { observer.disconnect(); reconnectListSize = () => {}; } };
   }
   $: columns = viewMode === "gallery" ? Math.max(1, Math.floor((listWidth - 32 + spacing) / (previewSize + spacing))) : 1;
-  $: cellHeight = viewMode === "gallery" ? Math.round(previewSize * .72) + (labels ? 54 : 18) : 44;
+  $: cellHeight = viewMode === "gallery" ? Math.round(Math.min(previewSize, Math.max(120, listWidth - 32)) * .72) + (labels ? 54 : 18) : 44;
   $: gap = viewMode === "gallery" ? spacing : 4;
   $: stride = cellHeight + gap;
   $: start = Math.max(0, Math.min(Math.ceil(rows.length / columns) - 1, Math.floor(scrollTop / stride) - 2)) * columns;
@@ -158,7 +170,7 @@
   $: shown = rows.slice(start, end);
   $: fileCount = rows.filter(r => r.kind === "file").length;
   function resetScroll() { scrollTop = 0; if (listEl) listEl.scrollTop = 0; }
-  $: { search; viewMode; previewSize; spacing; labels; resetScroll(); }
+  $: { search; similarTo; viewMode; previewSize; spacing; labels; resetScroll(); }
 
   let openedRoot = "";
   $: if ($importerOpen && openedRoot && root !== openedRoot) close();
@@ -196,6 +208,7 @@
   async function open() {
     openedRoot = root;
     search = "";
+    similarTo = "";
     index = 0;
     status = ""; error = "";
     picked = new Map();
@@ -220,15 +233,23 @@
   // and paper snips (.snip.json). Search rows get the same flags from scan().
   let manifestNames = new Set<string>();
   let snipNames = new Set<string>();
+  let listedDirectory = "";
   let dirGeneration = 0;
   let scanGeneration = 0;
   async function loadDir(dir: string) {
     const generation = ++dirGeneration;
+    // cwd changes immediately. Old names must not become paths in the new
+    // directory while its asynchronous listing is still arriving.
+    if (listedDirectory !== dir) {
+      listedDirectory = dir;
+      entries = []; manifestNames = new Set(); snipNames = new Set();
+    }
     const fig = fileBridge();
     if (!fig?.readdir || !dir) {
       entries = [];
       manifestNames = new Set();
       snipNames = new Set();
+      loading = false;
       return;
     }
     loading = true;
@@ -314,21 +335,20 @@
   $: q = search.trim().toLowerCase();
   // Search mode when typing; otherwise the current-folder browse listing.
   $: rows = ((): Row[] => {
-    if (q) {
+    if (q || similarTo) {
       const out: Row[] = [];
-      // The one way in: a query that STARTS with "_" offers the reserved folders whose
-      // names match it ("_" both, "_light" one). Nothing else surfaces them, and once
+      // A query that STARTS with "_" also offers the reserved folders whose
+      // names match it ("_" both, "_light" one). As with tree navigation, once
       // you are inside one the search below is already scoped to it.
-      if (!scanScope && q.startsWith("_"))
+      if (!scanScope && !similarTo && q.startsWith("_"))
         for (const f of rootReserved)
           if (f.name.includes(q))
             out.push({ kind: "dir", name: f.name, abs: joinPath(plotsRoot, f.name), hint: f.hint });
-      out.push(
-        ...all
-          .filter((p) => `${p.rel} ${p.name}`.toLowerCase().includes(q))
-          .sort((a, b) => rank(a, q) - rank(b, q))
-          .map((p): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video })),
-      );
+      const matches = all.filter(p => `${p.rel} ${p.name}`.toLowerCase().includes(q))
+        .map(p => ({ p, score: similarTo ? galleryNameSimilarity(similarTo, p.name) : 0 }))
+        .filter(({ score }) => !similarTo || score > 0)
+        .sort((a, b) => b.score - a.score || rank(a.p, q) - rank(b.p, q) || a.p.rel.localeCompare(b.p.rel));
+      out.push(...matches.map(({ p }): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video })));
       return out;
     }
     const out: Row[] = [];
@@ -378,12 +398,12 @@
     if (focusRow) { await tick(); listEl.querySelector<HTMLButtonElement>(`[data-i="${targetIndex}"]`)?.focus(); }
   }
   async function refresh() {
-    error = ""; status = ""; resetPreviews();
+    error = ""; status = ""; resetPreviews(); clearDissectCache(); treeRevision++;
     await loadDir(cwd);
     void scanFor(reservedRootOf(cwd));
   }
   async function goRoot() {
-    cwd = plotsRoot; search = ""; index = 0; resetScroll();
+    cwd = plotsRoot; search = ""; similarTo = ""; index = 0; resetScroll();
     await loadDir(cwd); syncScanScope(); focusInput();
   }
 
@@ -398,20 +418,21 @@
   /** Toggle a file row in/out of the picked set (no close, no insert). */
   function toggle(r: Row) {
     if (r.kind !== "file" || !r.abs) return;
+    status = "";
     if (picked.has(r.abs)) picked.delete(r.abs);
     else picked.set(r.abs, { abs: r.abs, rel: relFor(r), semantic: !!r.semantic });
     picked = picked; // Map mutation → invalidate
   }
 
   /** Descend into a dir row (or ascend on the ".." row). Selection survives.
-   *  A reserved-folder row carries its own absolute path (it hangs off plots/, not off
-   *  whatever folder is being browsed) and can only be reached from a "_" search, so the
-   *  search box is cleared: you land in the folder's listing, scoped for the next query. */
+   * Tree entries and reserved-folder search rows carry their own absolute path.
+   * Clear the search and scope the next query to the chosen collection. */
   async function descend(r: Row) {
     if (r.kind === "up") return up();
     if (r.kind !== "dir") return;
     cwd = r.abs ?? joinPath(cwd, r.name);
     search = "";
+    similarTo = "";
     index = 0;
     resetScroll();
     await loadDir(cwd);
@@ -427,6 +448,13 @@
       const target = $activeFigureId, sourceRoot = root;
       const canPlace = () => get(importerOpen) && active && root === sourceRoot && get(activeFigureId) === target;
       const count = onPick ? (await onPick(picks), picks.length) : importItems ? await importItems(picks, canPlace) : await importPlotsFromPaths(picks.map(p => p.abs), canPlace);
+      if (count > 0) {
+        // Preserve files newly picked while the asynchronous import was running.
+        // A failed batch retains picks; a completed placement starts a fresh batch.
+        for (const pick of picks) if (picked.get(pick.abs) === pick) picked.delete(pick.abs);
+        picked = new Map(picked);
+        index = -1;
+      }
       if (detached && !onPick) {
         error = count < picks.length ? `${picks.length - count} files could not be read. Check their source files; ${count} were inserted.` : "";
         status = `Inserted ${count} ${count === 1 ? "item" : "items"} into ${destinationName}`;
@@ -456,6 +484,7 @@
   async function up() {
     if (!cwd || cwd === plotsRoot) return;
     cwd = cwd.replace(/\/[^/]+$/, "");
+    search = ""; similarTo = "";
     index = 0;
     resetScroll();
     await loadDir(cwd);
@@ -472,6 +501,7 @@
   // doesn't toggle the file back off (files) or hit a row in the freshly-loaded
   // listing (dirs).
   function onRowClick(e: MouseEvent, r: Row) {
+    if ((e.ctrlKey || e.metaKey) && r.kind === "file") { e.preventDefault(); previewRow(r); return; }
     if (e.detail > 1) return;
     if (r.kind === "file") toggle(r);
     else void descend(r);
@@ -480,7 +510,8 @@
 
   // Double-click a file = insert the selection plus that file (just that file
   // when nothing else is picked — the single click already toggled it in).
-  async function onRowDblClick(r: Row) {
+  async function onRowDblClick(e: MouseEvent, r: Row) {
+    if (e.ctrlKey || e.metaKey) return;
     if (r.kind !== "file" || !r.abs) return;
     const picks = [...picked.values()];
     if (!picked.has(r.abs)) picks.push({ abs: r.abs, rel: relFor(r), semantic: !!r.semantic });
@@ -488,12 +519,22 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (expanded || e.defaultPrevented) return;
     const target = e.target as HTMLElement;
+    // Virtual scrolling can move another tile beneath a stationary pointer.
+    // Keyboard navigation starts at the focused row, independently of hover.
+    if (target !== inputEl) {
+      const focusedIndex = Number(target.closest<HTMLElement>(".row")?.dataset.i);
+      if (Number.isInteger(focusedIndex)) index = focusedIndex;
+    }
     if (e.key === "Escape" && target !== inputEl) { e.preventDefault(); close(); return; }
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void insertPicked(); return; }
     if (target.matches('input[type="range"], input[type="checkbox"], select')) return;
     if (target !== inputEl && !target.closest(".row")) return;
     const step = target === inputEl ? 1 : columns;
-    if (e.key === "ArrowDown") {
+    if (e.key === "F4") {
+      e.preventDefault(); previewRow(rows[index]);
+    } else if (e.key === "ArrowDown") {
       e.preventDefault();
       index = Math.min(rows.length - 1, index + step);
       void ensureVisible(target !== inputEl);
@@ -505,9 +546,6 @@
       e.preventDefault(); index = e.key === "Home" ? 0 : rows.length - 1; void ensureVisible(true);
     } else if (target !== inputEl && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       e.preventDefault(); index = Math.max(0, Math.min(rows.length - 1, index + (e.key === "ArrowRight" ? 1 : -1))); void ensureVisible(true);
-    } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      void insertPicked();
     } else if (e.key === "Enter") {
       e.preventDefault();
       const r = rows[index];
@@ -522,11 +560,56 @@
       if (r) toggle(r);
     } else if (e.key === "Escape") {
       e.preventDefault();
-      if (q) search = "";
+      if (q || similarTo) { search = ""; similarTo = ""; }
       else close();
     } else if (e.key === "Backspace" && !search && !q) {
       e.preventDefault();
       void up();
+    }
+  }
+
+  function previewRow(row: Row | undefined) {
+    if (row?.kind !== "file" || !row.abs) return;
+    expanded = { abs: row.abs, rel: relFor(row), name: row.name, semantic: !!row.semantic, video: row.video, snip: row.snip };
+  }
+  $: previewFiles = rows.filter((r): r is Row & { abs: string } => r.kind === "file" && !!r.abs);
+  $: previewIndex = expanded ? previewFiles.findIndex(r => r.abs === expanded?.abs) : -1;
+  function stepPreview(direction: number) {
+    const next = previewFiles[previewIndex + direction];
+    if (next) { index = rows.indexOf(next); previewRow(next); }
+  }
+  function closePreview() {
+    expanded = undefined;
+    void ensureVisible();
+    focusInput();
+  }
+  function summonSimilar(file: { name: string }) {
+    similarTo = file.name; search = ""; index = 0;
+    closePreview();
+  }
+  async function navigateTree(path: string) {
+    await descend({ kind: "dir", name: path.split("/").pop() || "plots", abs: path });
+  }
+  async function selectTreeFile(file: PlotRec) {
+    const folder = file.abs.replace(/\/[^/]+$/, "");
+    const generation = dirGeneration + 1;
+    await navigateTree(folder);
+    // The directory read invalidates rows in the next Svelte flush.
+    await tick();
+    if (!get(importerOpen) || cwd !== folder || dirGeneration !== generation) return false;
+    index = rows.findIndex(r => r.abs === file.abs);
+    void ensureVisible();
+    return true;
+  }
+  async function previewTreeFile(file: PlotRec) {
+    const selected = await selectTreeFile(file);
+    if (selected && get(importerOpen) && rows[index]?.abs === file.abs) previewRow(rows[index]);
+  }
+  async function insertTreeFile(file: PlotRec) {
+    if (picked.size) { await insertPicked(); return; }
+    if (await selectTreeFile(file)) {
+      const row = rows[index];
+      if (row?.abs === file.abs) await insertOne(row);
     }
   }
 </script>
@@ -540,7 +623,7 @@
   {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="iwrap" class:detached bind:this={wrapEl} on:keydown={onKey}>
-    <div class="importer" role="dialog" aria-modal={!detached} aria-label={title} tabindex="-1">
+    <div class="importer" inert={!!expanded} role="dialog" aria-modal={!detached} aria-label={title} tabindex="-1">
       <header class="ihead">
         <div class="heading"><span class="eyebrow">FLUX / {allowVideos ? "SLIDE" : "FIGURE"}</span><h2 class="ttl">{title}</h2></div>
         <div class="head-actions">
@@ -563,28 +646,32 @@
         {#if search}<button class="clear-search" on:click={() => { search = ""; index = 0; focusInput(); }} aria-label="Clear search">×</button>{/if}
       </div>
       <div class="viewbar">
+        <button class="tree-toggle" class:chosen={sidebar} aria-label="Toggle folder sidebar" aria-expanded={sidebar} on:click={() => { sidebar = !sidebar; rememberView(); }}>☷ Folders</button>
         <div class="view-switch" aria-label="Gallery view">
           <button class:chosen={viewMode === "gallery"} aria-pressed={viewMode === "gallery"} on:click={() => { viewMode = "gallery"; rememberView(); }} aria-label="Gallery view">▦ Gallery</button>
           <button class:chosen={viewMode === "list"} aria-pressed={viewMode === "list"} on:click={() => { viewMode = "list"; rememberView(); }} aria-label="List view">☰ List</button>
         </div>
         {#if viewMode === "gallery"}
-          <label class="slider">Size <input type="range" aria-label="Preview size" min="120" max="360" step="10" bind:value={previewSize} on:change={rememberView} /></label>
+          <label class="slider">Size <input type="range" aria-label="Preview size" min="120" max="800" step="10" bind:value={previewSize} on:change={rememberView} /><output>{previewSize}</output></label>
           <label class="slider">Space <input type="range" aria-label="Preview spacing" min="4" max="32" step="2" bind:value={spacing} on:change={rememberView} /></label>
           <label class="labels"><input type="checkbox" bind:checked={labels} on:change={rememberView} /> Names</label>
         {/if}
         <span class="count">{fileCount} {allowVideos ? (fileCount === 1 ? "item" : "items") : (fileCount === 1 ? "plot" : "plots")}</span>
       </div>
+      {#if similarTo}<div class="similar-filter"><span>Names similar to <strong>{similarTo}</strong>{#if !scanned} · Scanning…{/if}</span><button aria-label="Clear similar names" on:click={() => { similarTo = ""; index = 0; focusInput(); }}>× Clear</button></div>{/if}
+      <div class="gallery-body">
+      {#if sidebar}<aside class="folder-sidebar"><GalleryTree bind:this={tree} root={plotsRoot} currentDirectory={cwd} selectedPath={rows[index]?.abs || ""} {allowVideos} refreshKey={treeRevision} onNavigate={navigateTree} onSelectFile={selectTreeFile} onPreviewFile={previewTreeFile} onInsertFile={insertTreeFile} /></aside>{/if}
       <div class="list" class:gallery={viewMode === "gallery"} class:without-labels={!labels} bind:this={listEl} use:trackListSize on:scroll={() => scrollTop = listEl.scrollTop}>
         {#if !root}<div class="empty">Open a Flux project to browse its plots.</div>
         {:else if !fileBridge()?.readdir}<div class="empty">Folder browsing isn't available in this build.</div>
-        {:else if !rows.length && !loading}<div class="empty"><strong>{q ? "No matching files" : "A little space for your next result"}</strong><span>{q ? "Try another name or return to browsing." : allowVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
+        {:else if !rows.length && !loading}<div class="empty"><strong>{q || similarTo ? "No matching files" : "A little space for your next result"}</strong><span>{q || similarTo ? "Try another name or return to browsing." : allowVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
         {:else}
           <div style={`height:${Math.floor(start / columns) * stride}px`} aria-hidden="true"></div>
           <div class="items" style={`--columns:${columns}; --cell-height:${cellHeight}px; --gap:${gap}px`}>
             {#each shown as r, offset (r.kind + (r.abs ?? r.name) + previewRevision)}
               {@const i = start + offset}
               {@const selected = r.kind === "file" && !!r.abs && picked.has(r.abs)}
-              <button class="row" class:sel={i === index} class:picked={selected} class:folder={r.kind !== "file"} data-i={i} data-kind={r.kind} aria-pressed={r.kind === "file" ? selected : undefined} title={r.hint || r.rel || r.name} on:focus={() => index = i} on:pointerenter={() => index = i} on:click={e => onRowClick(e, r)} on:dblclick={() => onRowDblClick(r)}>
+              <button class="row" class:sel={i === index} class:picked={selected} class:folder={r.kind !== "file"} data-i={i} data-kind={r.kind} data-path={r.abs} aria-pressed={r.kind === "file" ? selected : undefined} title={r.hint || (r.kind === "file" ? `${relFor(r)} · Ctrl/⌘-click to preview` : r.name)} on:focus={() => index = i} on:pointerenter={() => index = i} on:click={e => onRowClick(e, r)} on:dblclick={e => onRowDblClick(e, r)}>
                 {#if viewMode === "gallery"}
                   <span class="tile-preview">
                     {#if r.kind === "file" && r.abs}<GalleryPreview path={r.abs} {previews} />
@@ -593,7 +680,7 @@
                 {/if}
                 <span class="row-meta">
                   <span class="ic">{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶" : r.semantic ? "◆" : "◇"}</span>
-                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if q && r.rel && r.rel !== r.name}<span class="rel">{r.rel.replace(/\/[^/]+$/, "")}</span>{/if}</span>
+                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.rel && r.rel !== r.name}<span class="rel">{r.rel.replace(/\/[^/]+$/, "")}</span>{/if}</span>
                   {#if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
                   {#if r.snip}<span class="badge">snip</span>{/if}
                   {#if r.video}<span class="badge">video</span>{/if}
@@ -606,7 +693,8 @@
           {#if truncated}<div class="note">Search covers the first 20,000 plots and 20 folder levels. Browse a folder to see all of its images.</div>{/if}
         {/if}
       </div>
-      {#if !q && cwd === plotsRoot && rootReserved.length}<div class="note reserved" data-reserved-hint>Companion collections · Type <b>_</b> to browse {rootReserved.map(f => f.name).join(" and ")}.</div>{/if}
+      </div>
+      {#if !q && !similarTo && cwd === plotsRoot && rootReserved.length}<div class="note reserved" data-reserved-hint>Companion collections · Browse via <b>Folders</b> or type <b>_</b> for {rootReserved.map(f => f.name).join(" and ")}.</div>{/if}
       {#if error}<div class="message error" role="alert">{error}</div>{:else if status}<div class="message" role="status">{status}</div>{/if}
       {#if inserting && importStatus}<div class="message import-progress" role="status">{importStatus}{#if cancelImport}<button on:click={cancelImport}>Cancel import</button>{/if}</div>{/if}
       <footer class="foot">
@@ -614,17 +702,23 @@
           {#if pickedCount > 0}<span class="pickpill">{pickedCount} selected</span><button class="clear-picks" on:click={() => picked = new Map()}>Clear</button>{:else}<span>{allowVideos ? "Choose plots or clips to place" : "Choose plots to place"}</span>{/if}
           <span class="destination" title={destinationName}>{canInsert ? `Into ${destinationName}` : "Return to the editor to insert"}</span>
         </div>
-        <span class="keyhint">↵ select · {typeof navigator !== "undefined" && /Mac/.test(navigator.platform) ? "⌘" : "Ctrl"}↵ insert</span>
+        <span class="keyhint">Ctrl/⌘-click preview · ↵ select</span>
+        <button class="previewbtn" disabled={rows[index]?.kind !== "file"} title="Full-window preview (Ctrl/⌘-click or F4)" on:click={() => previewRow(rows[index])}>{rows[index]?.video ? "▶ Play video" : "⤢ Preview"}</button>
         <button class="insbtn" disabled={inserting || !canInsert || (!pickedCount && rows[index]?.kind !== "file")} on:click={() => void insertPicked()}>{inserting ? "Inserting…" : `Insert${pickedCount ? ` ${pickedCount}` : rows[index]?.video ? " video" : rows[index]?.kind === "file" || !allowVideos ? " plot" : ""}`}<span aria-hidden="true"> ↗</span></button>
       </footer>
     </div>
+    {#if expanded}
+      {#key expanded.abs + ":" + detached}
+        <GalleryExpandedPreview file={expanded} {root} refreshKey={previewRevision} initialAutoplay={!!expanded.video} onClose={closePreview} onSimilar={summonSimilar} onPrevious={previewIndex > 0 ? () => stepPreview(-1) : undefined} onNext={previewIndex >= 0 && previewIndex < previewFiles.length - 1 ? () => stepPreview(1) : undefined} />
+      {/key}
+    {/if}
   </div>
 {/if}
 
 <style>
   .ibackdrop { position:fixed; inset:0; background:rgb(0 0 0 / .28); z-index:320; }
   .iwrap { position:fixed; inset:0; z-index:321; display:flex; align-items:center; justify-content:center; padding:28px; pointer-events:none; }
-  .importer { pointer-events:auto; width:980px; height:740px; max-width:100%; max-height:100%; display:flex; flex-direction:column; border-radius:12px; color:var(--c-tx); font-family:var(--font-serif); overflow:hidden; background:var(--c-bg-raised); border:1px solid var(--c-line-strong); box-shadow:var(--elev-3); outline:none; }
+  .importer { pointer-events:auto; width:1280px; height:880px; max-width:100%; max-height:100%; display:flex; flex-direction:column; border-radius:12px; color:var(--c-tx); font-family:var(--font-serif); overflow:hidden; background:var(--c-bg-raised); border:1px solid var(--c-line-strong); box-shadow:var(--elev-3); outline:none; }
   .detached { padding:0; }
   .detached .importer { width:100%; height:100%; border:0; border-radius:0; box-shadow:none; }
   button { font-family:inherit; color:inherit; cursor:pointer; }
@@ -652,6 +746,14 @@
   .search-in::placeholder { color:var(--c-tx-muted); }
   .clear-search { border:0; background:none; font-size:18px; line-height:1; }
   .viewbar { display:flex; align-items:center; flex-wrap:wrap; gap:18px; padding:0 24px 14px; font-size:11px; color:var(--c-tx-muted); border-bottom:1px solid var(--c-line); }
+  .tree-toggle, .previewbtn { background:var(--c-surface); border:1px solid var(--c-line-strong); border-radius:5px; padding:6px 9px; font-size:11px; white-space:nowrap; }
+  .tree-toggle.chosen { background:var(--c-accent-tint); border-color:var(--c-accent); color:var(--c-tx-hi); }
+  .gallery-body { display:flex; flex:1; min-height:0; overflow:hidden; position:relative; }
+  .folder-sidebar { flex:0 0 auto; width:240px; min-width:150px; max-width:40%; border-right:1px solid var(--c-line); background:var(--c-bg-raised); resize:horizontal; overflow:auto; }
+  .similar-filter { display:flex; gap:12px; align-items:center; justify-content:space-between; padding:8px 24px; background:var(--c-accent-tint); font-size:12px; }
+  .similar-filter span { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .similar-filter button { border:0; background:none; white-space:nowrap; }
+  .slider output { min-width:3ch; font-variant-numeric:tabular-nums; }
   .view-switch { display:flex; gap:2px; border:1px solid var(--c-line); border-radius:6px; padding:2px; }
   .view-switch button { border:0; background:none; padding:5px 9px; border-radius:4px; font-size:11px; }
   .view-switch .chosen { background:var(--c-surface-2); color:var(--c-tx-hi); }
@@ -660,7 +762,7 @@
   .labels { display:flex; align-items:center; gap:5px; }
   input[type="checkbox"] { accent-color:var(--c-accent); margin:0; }
   .count { margin-left:auto; white-space:nowrap; font-variant-numeric:tabular-nums; }
-  .list { flex:1; min-height:0; overflow:auto; padding:16px; background:var(--c-bg); scrollbar-gutter:stable; }
+  .list { flex:1; min-width:0; min-height:0; overflow:auto; padding:16px; background:var(--c-bg); scrollbar-gutter:stable; }
   .items { display:grid; grid-template-columns:repeat(var(--columns), minmax(0,1fr)); gap:var(--gap); grid-auto-rows:var(--cell-height); }
   .row { position:relative; display:flex; min-width:0; padding:5px 10px; border:1px solid transparent; border-radius:6px; background:transparent; text-align:left; overflow:hidden; }
   .row.sel { border-color:var(--c-line-strong); background:var(--c-surface); }
@@ -697,5 +799,5 @@
   .keyhint { font-size:10px; white-space:nowrap; }
   .insbtn { background:var(--c-accent); color:var(--c-on-accent); border:1px solid var(--c-accent); border-radius:6px; padding:9px 15px; font-size:13px; white-space:nowrap; }
   .insbtn:hover:not(:disabled) { background:var(--c-accent-bright); }
-  @media (max-width:640px) { .iwrap:not(.detached) { padding:12px; } .ihead { padding:16px; } .navigation, .viewbar { padding-left:16px; padding-right:16px; } .search-row { margin-left:16px; margin-right:16px; } .viewbar { gap:10px; } .foot { padding:12px 16px; } .keyhint { display:none; } h2 { font-size:22px; } }
+  @media (max-width:640px) { .iwrap:not(.detached) { padding:12px; } .ihead { padding:16px; } .navigation, .viewbar { padding-left:16px; padding-right:16px; } .search-row { margin-left:16px; margin-right:16px; } .viewbar { gap:10px; } .foot { padding:12px 16px; } .keyhint { display:none; } .folder-sidebar { width:180px; } .foot { gap:8px; } h2 { font-size:22px; } }
 </style>

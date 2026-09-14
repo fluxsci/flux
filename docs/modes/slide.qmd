@@ -40,8 +40,11 @@ The bar above the stage states where your edits go:
 
 Selecting a different step browses its effects; it does not silently change the editing destination.
 Choose **Edit after step N** when you want to shape the newly selected step. **Show hidden** displays
-objects and plot parts that have disappeared as faint, selectable ghosts. Ghosts never appear in
-presentation or export. **Fit** keeps the whole stage visible as you resize the dock and rails;
+objects and plot parts that have disappeared as faint, selectable ghosts. Turn **Show hidden**
+off to remove them completely from the editing canvas, selection, and snapping, so you can work
+on objects underneath them. Turn it back on whenever you need to edit a hidden object or add
+an **Appear** effect at a later step. This changes only your editing view; it does not delete
+objects or change presentation/export. **Fit** keeps the whole stage visible as you resize the dock and rails;
 manual zoom or pan preserves your chosen view instead.
 
 # The Animator

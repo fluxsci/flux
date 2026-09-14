@@ -21,10 +21,11 @@ async function main(){
  await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.figure-mode .canvas-host')"),'Figure');
  await click(win,'.figrow[data-fig-id="native-5"] .item');await wait(()=>js(win,"!!document.querySelector('[data-editor-element-id=\"e5-0\"]')"),'small figure visible');key(win,'i',['alt']);await wait(()=>js(win,"!!document.querySelector('.importer')"),'gallery');
  await click(win,'.row[title=study]');await wait(()=>js(win,"!!document.querySelector('.preview img')?.naturalWidth"),'SVG thumbnail');
- await click(win,'.row[title="growth.svg"]');await pin();
+ await click(win,'.list .row[data-kind="file"][data-path$="/growth.svg"]');await pin();
  check(child.isResizable(),'native child is resizable');
  check(await js(child,"!window.fig && !window.__flux && !window.require"),'gallery has no preload bridge or independent project runtime');
  check(await js(child,"document.querySelector('.cur').textContent==='study'&&document.querySelector('.pickpill').textContent==='1 selected'"),'pin preserves folder and picks');
+ if(await js(child,"document.querySelector('[aria-label=\"Toggle folder sidebar\"]')?.getAttribute('aria-expanded')==='true'"))await click(child,'[aria-label="Toggle folder sidebar"]');
  child.setPosition(140,130);check(child.getPosition()[0]===140,'native gallery can move independently');
  // A pinned gallery must observe its own viewport even when the owning editor
  // has no rendering frames. Its mounted Svelte state still belongs to that editor.
@@ -37,17 +38,21 @@ async function main(){
   check(true,`native gallery reflows at ${width}px with hidden owner`);
  }
  win.show();
- await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[title=other]')"),'root navigation');await click(child,'.row[title=other]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='other'"),'other folder');await click(child,'.row[title="growth.svg"]');
+ await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[title=other]')"),'root navigation');await click(child,'.row[title=other]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='other'"),'other folder');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
  check(await js(child,"document.querySelector('.pickpill').textContent==='2 selected'"),'pinned gallery navigates entire plots tree');
  const before=saved().elements.length;
  await click(child,'.insbtn');await wait(()=>saved().elements.length===before+2,'insert persisted');
  check(!child.isDestroyed()&&await js(child,"!!document.querySelector('.importer')"),'native gallery remains open after insert');
+ check(await js(child,"!document.querySelector('.pickpill')"),'successful native insertion clears the picked set');
  const added=saved().elements.slice(-2);check(added.every(e=>e.width===96&&e.height===64),'native import retains physical dimensions');
  // Real editor key event while the native utility stays open; check saved bytes.
  win.focus();key(win,'Right');await wait(()=>saved().elements.at(-1).x===added[1].x+1,'parent keyboard persisted');check(true,'parent editing stays live while gallery is pinned');
  key(win,'z',[process.platform==='darwin'?'meta':'control']);await wait(()=>saved().elements.at(-1).x===added[1].x,'nudge undo');
  key(win,'z',[process.platform==='darwin'?'meta':'control']);await wait(()=>saved().elements.length===before,'import undo');check(true,'batch is one durable undo step');
- child.focus();await click(child,'.insbtn');await wait(()=>saved().elements.length===before+2,'repeat insertion');
+ check(await js(child,"!document.querySelector('.pickpill')"),'canvas Undo does not restore gallery batch picks');
+ child.focus();await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[title=study]')"),'root before repick');await click(child,'.row[title=study]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='study'"),'study before repick');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
+ await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[title=other]')"),'other before repick');await click(child,'.row[title=other]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='other'"),'other repick');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
+ await click(child,'.insbtn');await wait(()=>saved().elements.length===before+2,'repeat insertion after explicit repick');
  fs.writeFileSync(path.resolve(__dirname,'../../test-results/plot-gallery-native.png'),(await child.webContents.capturePage()).toPNG());
  // Navigation has no route to turn this utility into an external/privileged page.
  await js(child,"location.href='https://example.com';void 0");await new Promise(r=>setTimeout(r,100));

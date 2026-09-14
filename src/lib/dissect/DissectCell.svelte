@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { nativeClick, nativeDoubleClick } from "../ui/nativeEvents";
   // One grid cell. Images are lazy: the data URL is requested only while the cell is in the
   // window, and DECODED off-DOM before src swaps in — the previous paint holds until the new
   // one is ready (never a blank frame); a generation counter drops stale responses. Tables
@@ -68,8 +69,8 @@
   style:width={`${cellW}px`}
   tabindex="-1"
   title={file.name}
-  onclick={onSelect}
-  ondblclick={onOpen}
+  use:nativeClick={onSelect}
+  use:nativeDoubleClick={onOpen}
 >
   <div class="surface" style:height={`${cellH}px`}>
     {#if file.kind === "image"}

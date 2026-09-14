@@ -202,6 +202,7 @@
    "verify-slide-ghost-browser.ts",
    "verify-slide-ghost-structure.ts",
    "verify-slide-ghost-api.ts",
+   "verify-slide-stash.ts",
    "verify-slide-arrow-browser.ts",
    "verify-figure-preservation.ts",
    "verify-figure-editing.ts",
@@ -213,7 +214,10 @@
    "verify-slide-video-model.ts",
    "verify-slide-media.ts",
    "verify-slide-media-browser.ts",
-   "verify-slide-video-media.ts"
+   "verify-slide-video-media.ts",
+   "verify-gallery-names.ts",
+   "verify-gallery-tree.ts",
+   "verify-gallery-video-capability.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -294,6 +298,7 @@
    "verify-figure-source-sync.mjs",
    "verify-slide-authoring-gui.mjs",
    "verify-slide-canvas-presentation-gui.mjs",
+   "verify-slide-stash-gui.mjs",
    "verify-figure-catalog-gui.mjs",
    "verify-figure-reference-sync.mjs",
    "verify-slide-source-sync-gui.mjs",
@@ -310,7 +315,8 @@
    "verify-plot-hit-area.mjs",
    "verify-paper-slide-embeds.mjs",
    "verify-slide-embed-lifecycle.mjs",
-   "verify-slide-video-clips-gui.mjs"
+   "verify-slide-video-clips-gui.mjs",
+   "verify-gallery-workflow.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -411,7 +417,9 @@
    "verify-slide-video-electron.cjs",
    "verify-slide-media-export.ts",
    "verify-slide-video-media-electron.cjs",
-   "verify-slide-video-clips-electron.cjs"
+   "verify-slide-video-clips-electron.cjs",
+   "verify-slide-stash-electron.cjs",
+   "verify-gallery-preview-electron.cjs"
   ],
   "presence": [
    "verify-electron-no-undef.ts",
@@ -525,6 +533,13 @@
    "verify-slide-ghost-gui.mjs",
    "verify-slide-arrow-browser.ts"
   ],
+  "slide-stash": [
+   "verify-slide-stash.ts",
+   "verify-slide-stash-gui.mjs",
+   "verify-slide-stash-electron.cjs",
+   "verify-slide-canvas-presentation-gui.mjs",
+   "verify-slide-ghost-gui.mjs"
+  ],
   "inline-slides": [
    "verify-slide-embed-core.ts",
    "verify-paper-slide-embeds.mjs",
@@ -547,13 +562,42 @@
    "verify-slide-media-export.ts",
    "verify-slide-video-media-electron.cjs",
    "verify-slide-video-clips-electron.cjs"
+  ],
+  "plot-gallery": [
+   "verify-gallery-names.ts",
+   "verify-gallery-tree.ts",
+   "verify-gallery-video-capability.ts",
+   "verify-plot-gallery.mjs",
+   "verify-gallery-workflow.mjs",
+   "verify-plots-folders.ts",
+   "verify-importer-reserved.mjs",
+   "verify-importer-multi.mjs",
+   "verify-dissect-gui.mjs"
+  ],
+  "plot-gallery-native": [
+   "verify-plot-gallery-electron.cjs",
+   "verify-gallery-preview-electron.cjs"
   ]
  },
  "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
  "pathMap": [
   {
+   "glob": "src/lib/{store.ts,ops.ts,Xray.svelte,XrayNode.svelte}",
+   "run": [
+    "group:slide-stash",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "scripts/lib/slideStash*",
+   "run": [
+    "group:slide-stash"
+   ]
+  },
+  {
    "glob": "{src/lib/slide/media*.ts,src/lib/slide/importVideo.ts,src/lib/slide/player/media.ts,electron/videoMedia.cjs,electron/ipc/videoMedia.cjs,flux-core/videoMedia.ts,scripts/fixtures/slide-video-clips/**}",
    "run": [
+    "verify-gallery-video-capability.ts",
     "group:slide-clips",
     "verify-ipc-contract.ts"
    ]
@@ -585,7 +629,8 @@
     "group:figures-slides-overhaul",
     "group:slide-ghosts",
     "tier:pure",
-    "group:inline-slides"
+    "group:inline-slides",
+    "group:slide-stash"
    ]
   },
   {
@@ -610,16 +655,14 @@
    "run": [
     "verify-dissections.ts",
     "verify-dissect-gui.mjs",
+    "verify-gallery-workflow.mjs",
     "tier:pure"
    ]
   },
   {
-   "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte,src/lib/plot/gallery*,src/lib/plot/GalleryPreview.svelte,public/plot-gallery.html}",
+   "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte,src/lib/plot/gallery*,src/lib/plot/Gallery*.svelte,public/plot-gallery.html,src/lib/ui/nativeEvents.ts}",
    "run": [
-    "verify-plot-gallery.mjs",
-    "verify-plots-folders.ts",
-    "verify-importer-reserved.mjs",
-    "verify-importer-multi.mjs",
+    "group:plot-gallery",
     "tier:pure"
    ]
   },
@@ -901,6 +944,7 @@
    "run": [
     "verify-fig-order-gui.mjs",
     "verify-fig-namer.mjs",
+    "group:slide-stash",
     "tier:pure"
    ]
   },

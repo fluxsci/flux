@@ -36,6 +36,7 @@
     dirty as figDirty,
     activeFigureId,
     selection,
+    setEditorSelectionExclusions,
     selectedFrameId,
     partSelection,
     viewport,
@@ -103,6 +104,7 @@
   import PresentOverlay from "./PresentOverlay.svelte";
   import SlideThumb from "./SlideThumb.svelte";
   import SlideVideoDialog from "./SlideVideoDialog.svelte";
+  import { editorStashedElements, editorStashedParts } from "../../../lib/editorPresentation";
   import { fileBridge } from "../../../lib/project/types";
   import type { SlideVideoOptions } from "../../../lib/slide/video";
   import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
@@ -194,6 +196,11 @@
     const selected = $selection.size === 1 ? [...$selection][0] : undefined;
     const ghostDrag = selected && (ghostBirth(activeSlide, selected) || activeSlide?.beats[$activeBeat]?.tracks.some(track => track.ghostFrom === selected));
     return { ...$slideCanvasPresentation, stage, ...(ghostDrag ? {preferredDragTargetId: selected} : {}), ...(t && !t.target.startsWith("@") ? { highlight: { elementId:t.target, ...(activeSlide && (t.part || t.selector) ? {partIds:semanticTargets(t,activeSlide,{plotManifest:id=>$plotManifests[id]})} : {}) } } : {}), ghostHidden };
+  });
+  $effect(() => {
+    const view = canvasPresentation;
+    if (!ownsEditor) return;
+    setEditorSelectionExclusions(active ? editorStashedElements(view) : new Set(), active ? editorStashedParts(view, activeSlide?.elements, $plotManifests) : new Map());
   });
   // What the Background swatch shows: the slide's own override, else the color
   // it actually rests at (deck default → theme) — never a hardcoded dark.
@@ -1137,7 +1144,7 @@
     unsubDeckRev?.();
     unsubFigRev?.();
     stopPreview();
-    if (ownsEditor) clearBeatDisplay();
+    if (ownsEditor) { setEditorSelectionExclusions(new Set()); clearBeatDisplay(); }
     if (ready) void autosave.flush();
     autosave.dispose();
     unregFlush();
@@ -1251,7 +1258,7 @@
         </div>
         <span class="edit-label">{previewing ? `Inspecting step ${$activeBeat} · ${(previewTime/1000).toFixed(2)}s` : editLabel}</span>
         <button class="fit-button" class:chosen={fitted} onclick={fitViewport}>Fit</button>
-        <label class="ghost-toggle"><input type="checkbox" bind:checked={ghostHidden}/> Show hidden</label>
+        <label class="ghost-toggle" title="Show hidden animation targets as editable ghosts. Turn off to remove them from the canvas, selection, and snapping."><input type="checkbox" bind:checked={ghostHidden}/> Show hidden</label>
       </div>
       {#if animationIssues.length}<details class="animation-issues"><summary>⚠ {animationIssues.length} animation {animationIssues.length===1?"issue":"issues"}</summary>{#each animationIssues as issue}<button onclick={()=>inspectIssue(issue.trackId)}>{issue.reason}</button>{/each}</details>{/if}
       <div class="canvas-wrap" bind:this={canvasWrapEl}>

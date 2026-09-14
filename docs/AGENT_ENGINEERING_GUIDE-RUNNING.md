@@ -589,6 +589,18 @@ Persistence invariants (all machine-checked — do not weaken):
   `compileSlide/evaluateSlideState` supplies inspected content, visibility, part states and
   camera; Canvas receives derived presentation props. Camera display and hit tests share
   `editorPresentation.ts`; ghost-hidden objects/parts and hover outlines are view-only.
+  With **Show hidden** off, `editorStashedElements/Parts` supplies Canvas and the synchronous
+  shared selection exclusion policy. Hidden objects unmount and stay out of marquee, group
+  expansion, geometry bounds and snapping; hidden plot subtrees use `display:none` to defeat
+  descendant pointer overrides. Manifest ancestors that would modify hidden leaves are blocked
+  in X-Ray. Unborn identities retain their separate existing policy. Slide releases exclusions
+  on deactivation/eviction; Figure has none. Turning Show hidden back on restores the existing
+  ghost-editing behavior. No new controls, view persistence, restoration registry or deck state
+  are needed. Whole-plot whitespace selection remains intact when only a plot part is hidden.
+  `group:slide-stash` covers the exclusion policy, browser interaction and native production/
+  persistence. Native acceptance supports a separately staged app via `FLUX_STASH_APP_ROOT`,
+  with scratch project/config/capture paths and a private Xvfb display (`FLUX_XVFB` selects its
+  executable), so an active user build remains undisturbed.
   Navigation/display reconciliation uses `mutateDisplay`, never sets dirty, and skips no-op
   writes. `commitDeckLive({history:false})` is reserved for accepted source refreshes, whose
   durable bytes cannot be undone as an ordinary model edit. Deck saves skip content-identical
@@ -694,8 +706,10 @@ Persistence invariants (all machine-checked — do not weaken):
   (proxy-capture, print) never do, and the last app window's close quits on non-mac — *a
   window the user cannot see must never keep the app alive* (the quit-wedge fix). Gates:
   `verify-quit-policy.ts` (pure), `verify-multiwindow.cjs` (electron).
-- **The Plot gallery (Alt+I) is an editor-owned utility view.** Gallery/list, preview size,
-  spacing and names live in view preferences. The mounted Svelte subtree moves into an inert
+- **The Plot gallery (Alt+I) is an editor-owned utility view.** Gallery/list, preview size
+  (120–800 px), spacing, names and the collapsible folder sidebar live in view preferences.
+  `GalleryTree` reads only expanded directories, windows its rows and includes explicit
+  companion collection entries. The mounted Svelte subtree moves into an inert
   `plot-gallery.html` window via `plot/galleryWindow.ts`, retaining the opener's stores and
   file bridge; it must never boot a second project/editor or receive the app preload. The
   Electron allowlist admits only that exact URL/frame name, with an empty preload and no
@@ -707,11 +721,24 @@ Persistence invariants (all machine-checked — do not weaken):
   pinned gallery's columns and virtual row count stale until the opener regains focus.
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
-  retain their explicit `_` entry and scoped search. Insert uses the shared IO pipeline and
-  rechecks root, active editor and destination after async reads. Large folders window grid
+  retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
+  the shared IO pipeline, rechecks root, active editor and destination after async reads,
+  and clears submitted picks after a successful placement; picks made during that read
+  survive. Ctrl/Cmd-click or F4 opens `GalleryExpandedPreview`, reusing the read-only
+  Dissect viewers; D switches to companion groups. Similar names filters filename variants
+  without picking or inserting them. Gallery video playback has a disposable, window-owned
+  `gallery:videoUrl` capability constrained to the current project's plots/ tree. It uses the
+  existing byte-range media protocol, releases on close/tab/navigation and never imports a
+  movie to preview it. The inert utility's CSP must explicitly admit `flux-media:` in
+  `media-src`; the opener's policy does not transfer with its DOM. Refocus the preview
+  host when replacing a clicked dissection cell or tab, so Escape retains its target.
+  Components in the moved subtree use native DOM event listeners;
+  Svelte's delegated opener-root handlers cannot receive clicks in the inert utility window.
+  Keyboard actions use the focused row's index; virtual scrolling may change the hover
+  row beneath a stationary pointer. Large folders window grid
   rows and bound concurrent preview reads; thumbnails are images, never inline plot DOM.
-  Gates: `verify-plot-gallery.mjs`, `verify-plot-gallery-electron.cjs`, plus the existing batch,
-  reserved-folder and Slide import gates. Native tests verify actual persisted edits/Undo.
+  Gates: `group:plot-gallery`, `verify-plot-gallery-electron.cjs`, plus the Slide import gates.
+  Native tests verify actual persisted edits/Undo.
 - **Dual paper panes (2026-08-11): Paper left `SINGLETON_MODES`.** Every per-editor singleton
   is a per-instance factory now (selection bubble, cursor tracker, active-citation tracker,
   refReveal, margin pane stack) threaded via the MarginHost like WS-4.2 numbering; the
@@ -4727,3 +4754,28 @@ reproducible evidence is in `docs/for_agents/slide-video-clips-verification.md`.
 **Learnings:**
 - Promoted single decoder seeks, microsecond timestamp rounding, native media copies,
   stable-source UI acceptance and macOS application-focus requirements into the body.
+
+### 2026-09-14 12:31 CDT — Show hidden excludes disappeared slide content (Codex, `main`)
+
+**Work:** Strengthened the existing Show hidden checkbox so unchecked content is absent from Canvas, selection, snapping and indirect X-Ray edits, without adding controls, persistence or deck state. Build/check 0/0, pure 213/213, checkbox browser 31/31 and native 30/30 pass; native key-to-paint p95 33.5ms. The 2,000-part exclusion helper takes about 2.3ms after replacing repeated tree indexing. Evidence: `test-results/slide-stash-build/verification.md`; isolated fixtures/private display leave all 411 active-build files byte-identical.
+
+**Learnings:**
+- Promoted shared transient targeting and isolated production verification to the Slide architecture section. A hidden wrapper alone cannot exclude selection, snapping or descendant pointer overrides.
+- Deck tenancy tests should assert the canonical schema-version constant; the old 0.4 regex/0.3 label lagged the already-shipped 0.5 format. Quarto gates need a writable isolated XDG cache under restricted execution; default Sass KV access can fail independently of product behavior.
+
+### 2026-09-14 13:58 CDT — Plot gallery navigation and expanded previews (Codex, `main`)
+
+**Work:** Added 800px previews, a lazy/windowed directory tree, Ctrl/Cmd-click and F4 full-window viewing, playable native video, Dissections/D, related-name filtering and cleared successful insertion batches. Reused the existing dissection viewers and native range streamer; fixed focus, fit-zoom and focused-row keyboard behavior. Final typecheck 0/0, build, pure 216/216, workflow 41/41, existing 5k gallery and importer/dissection regressions pass. Native preview 11/11 and gallery 19/19 pass on isolated Linux fixtures/private display; original 411 build files unchanged. Evidence: `test-results/gallery-build/verification.md`.
+
+**Learnings:**
+- Promoted utility CSP/event ownership, preview focus restoration and focused-row keyboard targeting into the gallery architecture section. A popup uses its own CSP even when its UI came from another document.
+- Puppeteer 25 double-clicks use `{count:2}`; the old `clickCount` option silently sends one click. Adopted popup nodes can confuse ElementHandle.click; measure and hit-test actual mouse coordinates. Fresh native staging must create its artifact directory and include the already-built native encoder.
+
+### 2026-09-14 18:11 CDT — Pre-Swap main and archived experiment (Codex, `main`)
+
+**Work:** Reconstructed the saved pre-Swap baseline, retaining the gallery improvements and
+Show hidden editing fixes. Preserved the complete later experiment on
+`codex/slide-swap-archive`, directly above this baseline; Swap presentations should be built
+from that branch, with no deck downgrade. Production build, typecheck (0/0), all 216 pure
+checks and 60 native gallery/hidden-content checks passed on isolated Linux fixtures.
+The source split was checked against saved patches and file hashes before changing main.
