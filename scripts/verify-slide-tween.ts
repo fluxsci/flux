@@ -314,6 +314,73 @@ function build(slide: Slide) {
   assert(wrap.style.left === "100px" && !/translate/.test(wrap.style.transform), "…and the endpoint restores the classic layout box (no composite residue)");
 }
 
+// The placement law (render.ts): a wrapper's LAYOUT box is whole stage pixels
+// and the exact box is realized by a residual composite transform — at rest
+// as well as mid-flight — so a fractional endpoint never snaps on settle. A
+// whole-pixel rest keeps the classic (transform-free, centre-origin) form.
+{
+  const slide: Slide = {
+    id: "s6",
+    elements: [rect({ id: "r1", x: 10.4, y: 20, width: 100, height: 50 })],
+    beats: [
+      { id: "b0", tracks: [] },
+      { id: "b1", tracks: [{ id: "tr", target: "r1", preset: "transform", easing: "linear", to: { state: { x: 300.25, y: 60.5, width: 120.5 } } }] },
+      { id: "b2", tracks: [{ id: "tr2", target: "r1", preset: "transform", to: { state: { x: 400, y: 60, width: 120 } } }] },
+    ],
+  };
+  const { rendered, specs } = build(slide);
+  const wrap = rendered.elements.get("r1")!;
+  applyStatic(specs, 0);
+  assert(wrap.style.left === "10px" && wrap.style.transform === "translate(0.4px, 0px)" && wrap.style.transformOrigin === "0 0",
+    "a fractional REST position is a whole-pixel layout box plus a residual translate (never a fractional left)");
+  applyStatic(specs, 1);
+  assert(wrap.style.left === "300px" && wrap.style.top === "61px" && wrap.style.width === "121px",
+    "a fractional endpoint rests on the ROUNDED layout box");
+  assert(wrap.style.transform === "translate(0.25px, -0.5px) scale(0.995868, 1)",
+    "…with the residual translate + scale realizing the exact box (the same composite form mid-flight frames use; micro-pixel precision)");
+  const ctrl = specs.find((s) => (s as { trackId?: string }).trackId === "tr") as unknown as { morph: { seek(t: number): void } };
+  ctrl.morph.seek(0.999);
+  assert(wrap.style.left === "10px" && wrap.style.top === "20px" && wrap.style.width === "100px",
+    "mid-flight the layout box is FROZEN at the rounded pre box");
+  const tx = /translate\(([-0-9.]+)px, ([-0-9.]+)px\)/.exec(wrap.style.transform)!;
+  assert(near(parseFloat(tx[1]), 0.4 + 0.999 * (300.25 - 10.4), 0.001) && near(parseFloat(tx[2]), 0.999 * 40.5, 0.001),
+    "…and the composite translate carries the exact fraction, continuous into the endpoint");
+  applyStatic(specs, 2);
+  assert(wrap.style.left === "400px" && wrap.style.top === "60px" && wrap.style.width === "120px" && wrap.style.transform === "" && wrap.style.transformOrigin === "center center",
+    "a whole-pixel rest keeps the classic form (no transform, centre origin)");
+}
+
+// Layer hygiene (render.ts): a PURE MOVE rides its own compositor layer for
+// the flight (will-change: transform — text glides instead of stepping a
+// device pixel at a time; heavy content moves without repainting) and is
+// demoted at either endpoint. A flight that scales (or rotates) never is.
+{
+  const slide: Slide = {
+    id: "s7",
+    elements: [rect({ id: "mv" }), rect({ id: "grow", x: 300 }), rect({ id: "spin", x: 500 })],
+    beats: [
+      { id: "b0", tracks: [] },
+      { id: "b1", tracks: [
+        { id: "a", target: "mv", preset: "transform", to: { state: { x: 200, y: 80, fill: "#00ff00" } } },
+        { id: "b", target: "grow", preset: "transform", to: { state: { x: 350, width: 150 } } },
+        { id: "c", target: "spin", preset: "transform", to: { state: { rotation: 45 } } },
+      ] },
+    ],
+  };
+  const { rendered, specs } = build(slide);
+  const mv = rendered.elements.get("mv")!, grow = rendered.elements.get("grow")!, spin = rendered.elements.get("spin")!;
+  const ctrl = (id: string) => (specs.find((s) => (s as { trackId?: string }).trackId === id) as unknown as { morph: { seek(t: number): void } }).morph;
+  applyStatic(specs, 0);
+  assert(!mv.style.willChange && !grow.style.willChange, "at rest nothing is promoted");
+  ctrl("a").seek(0.5); ctrl("b").seek(0.5); ctrl("c").seek(0.5);
+  assert(mv.style.willChange === "transform", "mid-flight a pure move (even one that recolors) rides its own layer");
+  assert(!grow.style.willChange && !spin.style.willChange, "a scaling or rotating flight paints in place every frame (no resampled raster, no sharpen pop on settle)");
+  ctrl("a").seek(1);
+  assert(!mv.style.willChange && mv.style.left === "200px", "the endpoint demotes the wrapper (crisp at rest)");
+  ctrl("a").seek(0.25); ctrl("a").seek(0);
+  assert(!mv.style.willChange && mv.style.left === "10px", "…and so does a seek back to the start");
+}
+
 // dangling transform target: tolerated no-op
 {
   const slide: Slide = {

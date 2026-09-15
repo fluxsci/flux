@@ -39,7 +39,7 @@ import { pathRender } from "../../path";
 import { lerpElement, contentPlan, type ContentPlan } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
 import { createMorph, type MorphController } from "./morph";
-import { applyWrapperBox, applyWrapperBoxComposite, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -103,8 +103,15 @@ export function createTransform(
   // t≤0 endpoint writes). When a same-beat appearance owns the wrapper
   // transform (skipTransform), composite motion is impossible — those rare
   // overlaps keep the classic per-frame layout path.
-  const baseBB = elementBBox({ ...pre, rotation: 0 });
-  const baseBox = { x: baseBB.x, y: baseBB.y, w: baseBB.w, h: baseBB.h };
+  // Whole stage pixels, like every resting layout box (render.layoutBoxOf):
+  // the composite translate then carries the exact fraction, so frames and
+  // endpoints agree to the sub-pixel and nothing snaps at either end.
+  const baseBox = layoutBoxOf(elementBBox({ ...pre, rotation: 0 }));
+  // A pure move rides its own compositor layer for the flight (render.ts,
+  // layer hygiene): rasterized once, moved at float precision — text glides
+  // instead of stepping, heavy content moves without repainting. Demoted at
+  // the endpoints, so rest is always painted in place.
+  const glide = !boxOpts.skipTransform && pureMove(pre, end);
 
   // --- plot half: in-place frame/override updates + optional content morph --
   const isPlot = pre.type === "plot" && end.type === "plot";
@@ -276,8 +283,10 @@ export function createTransform(
     if (el.type === "text" && el.needsLayout) applyTextLayout(el);
     if (t > 0 && t < 1 && !boxOpts.skipTransform) {
       applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
+      if (glide) promoteMovingWrapper(wrap);
     } else {
       applyWrapperBox(wrap, el, boxOpts);
+      if (glide) settleWrapper(wrap);
     }
 
     if (morphPlan) {

@@ -13,7 +13,7 @@ import { animate, prefersReducedMotion } from "../../motion/motion";
 import { buildPartIndex } from "../../plot/parse";
 import { resolveTargets } from "../../plot/tree";
 import type { FluxPlotManifest } from "../../plot/types";
-import { renderSlide, fillContent, applyWrapperBox, type SlideRenderCtx, type RenderedSlide } from "./render";
+import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { morphCompatible, type MorphController } from "./morph";
 import { createCountUp } from "./countup";
@@ -265,6 +265,17 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
 }
 
 const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin"] as const;
+const SVG_NS = "http://www.w3.org/2000/svg";
+/** How a keyframed spec moves its node: a flight whose keyframes differ only
+ *  in translate() rides a compositor layer while it plays (render.ts layer
+ *  hygiene — the camera pan, `move`, fadeRise's lift); one that scales or
+ *  rotates paints in place. */
+function transformFlight(keyframes: Keyframe[]): "none" | "translate" | "other" {
+  const frames = keyframes.filter((k) => "transform" in k);
+  if (!frames.length) return "none";
+  const rest = frames.map((k) => [...String(k.transform).matchAll(/([\w-]+)\(([^)]*)\)/g)].filter((m) => !m[1].startsWith("translate")).map((m) => m[0]).join(" "));
+  return rest.every((r) => r === rest[0]) ? "translate" : "other";
+}
 function clearAnimStyles(node: TargetNode, properties: readonly string[]) {
   const s = (node as HTMLElement).style;
   for (const p of properties) s.removeProperty(p.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()));
@@ -307,7 +318,7 @@ export function baseCameraTransform(slide: Slide, stage: StageSize): string {
 }
 
 // Compiled DOM binding state. No selectors or scene reconstruction in sampling.
-interface BoundNode { node: TargetNode; keyframed: Spec[]; properties: string[]; blockers: Map<Spec, Spec[]>; controllers: Spec[]; lastController: number }
+interface BoundNode { node: TargetNode; keyframed: Spec[]; properties: string[]; blockers: Map<Spec, Spec[]>; controllers: Spec[]; lastController: number; flights: Map<Spec, "translate" | "other"> }
 interface BoundPlan { nodes: BoundNode[]; natives: Map<Spec, Animation>; samplers: Map<Spec, (t: number) => Keyframe> }
 const bindings = new WeakMap<Spec[], BoundPlan>();
 function numericSampler(a: unknown, b: unknown): (t: number) => string | number {
@@ -349,7 +360,9 @@ function boundPlan(specs: Spec[]): BoundPlan {
     const blockers = new Map(keyframed.map((s, i) => [s, keyframed.filter((_, j) => j > i && [...channels[i]].some((p) => channels[j].has(p)))]));
     if (properties.has("strokeDashoffset")) { properties.add("strokeDasharray"); properties.add("strokeLinecap"); }
     if (properties.has("transform")) properties.add("transformOrigin");
-    return { node, keyframed, properties: [...properties], blockers, controllers: list.filter((s) => s.morph), lastController: -2 };
+    const flights = new Map<Spec, "translate" | "other">();
+    for (const s of keyframed) { const kind = transformFlight(s.keyframes); if (kind !== "none") flights.set(s, kind); }
+    return { node, keyframed, properties: [...properties], blockers, controllers: list.filter((s) => s.morph), lastController: -2, flights };
   }), natives: new Map(), samplers: new Map() };
   // Materialize content layers in story order before a first random seek.
   // Otherwise seeking directly to a late text change could nest its layer
@@ -381,7 +394,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
   };
   const activeNatives = new Set<Spec>();
   for (const group of plan.nodes) {
-    const { node, keyframed, properties, controllers } = group;
+    const { node, keyframed, properties, controllers, flights } = group;
     if (controllers.length) {
       let selected = -1;
       for (let i = 0; i < controllers.length; i++) if (progressAt(controllers[i], beat, time) >= 0) selected = i;
@@ -402,6 +415,9 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     const base = keyframed[0].baseStyle;
     if (base) for (const key of properties) if (base[key]) (node.style as unknown as Record<string, string>)[key] = base[key];
     const applied: Spec[] = [];
+    // transform flights in progress on this node: all translation-only → the
+    // node rides its own layer this frame (render.ts layer hygiene)
+    let moving = 0, pureMoves = 0;
     for (const spec of keyframed) {
       const p = progressAt(spec, beat, time);
       if (superseded(spec)) continue;
@@ -412,6 +428,8 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       }
       const frame = plan.samplers.get(spec)!(p);
       applied.push({ ...spec, keyframes: [frame] });
+      const flight = p > 0 && p < 1 ? flights.get(spec) : undefined;
+      if (flight) { moving++; if (flight === "translate") pureMoves++; }
       // Use native effects for active frames when available. Their time is
       // explicitly controlled; no independent WAAPI clock can drift from data.
       if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0)) {
@@ -427,6 +445,10 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       }
     }
     if (applied.length) applyAccumulated(node, applied);
+    if (node.namespaceURI !== SVG_NS) {
+      if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
+      else settleWrapper(node as HTMLElement);
+    }
   }
   for (const [spec, animation] of plan.natives) if (!activeNatives.has(spec)) { animation.cancel(); plan.natives.delete(spec); }
 }

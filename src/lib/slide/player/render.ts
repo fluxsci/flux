@@ -64,27 +64,30 @@ export interface RenderedSlide {
 // transform on the wrapper (same pivot — the bbox centre — as the canvas and
 // the export's `rot()`), so the markup inside renders rotation-free.
 function wrapper(el: FigElement): HTMLDivElement {
-  const bb = elementBBox({ ...el, rotation: 0 });
   const w = document.createElement("div");
   w.className = "sl-el";
   w.dataset.elId = el.id;
   w.dataset.elType = el.type;
   const s = w.style;
   s.position = "absolute";
-  s.left = `${bb.x}px`;
-  s.top = `${bb.y}px`;
-  s.width = `${Math.max(bb.w, 1)}px`;
-  s.height = `${Math.max(bb.h, 1)}px`;
   s.boxSizing = "border-box";
-  const t: string[] = [];
-  if (el.rotation) t.push(`rotate(${el.rotation}deg)`);
-  if (el.flipX) t.push("scaleX(-1)");
-  if (el.flipY) t.push("scaleY(-1)");
-  if (t.length) s.transform = t.join(" ");
-  s.transformOrigin = "center center";
-  if (el.opacity != null) s.opacity = String(el.opacity);
+  applyWrapperBox(w, el);
   return w;
 }
+
+/** The LAYOUT box a wrapper rests in: whole stage pixels. The element's exact
+ *  box is realized on top of it by a residual transform (below), because a
+ *  layout box is pixel-SNAPPED when painted while a transform is not — a
+ *  fractional `left` used to land up to half a stage pixel (several device
+ *  pixels under the present/export fit-scale) away from where the same box
+ *  painted mid-flight, so every transform ended with a visible jump as it
+ *  settled. Rest and motion now share one placement law and the endpoint is
+ *  the limit of the frames before it. */
+export function layoutBoxOf(bb: { x: number; y: number; w: number; h: number }): { x: number; y: number; w: number; h: number } {
+  return { x: Math.round(bb.x), y: Math.round(bb.y), w: Math.max(1, Math.round(bb.w)), h: Math.max(1, Math.round(bb.h)) };
+}
+
+const RESIDUAL_EPS = 1e-4;
 
 /** Static markup fill: the element serialized by the ONE figure serializer
  *  (rotation/flips/opacity stripped — the wrapper owns them), viewBoxed to the
@@ -421,25 +424,111 @@ export function renderSlide(
   return { elements, sourceSlide: slide };
 }
 
-/** The wrapper box/transform/opacity for an element state — exported so the
- *  transform driver applies EXACTLY the math renderSlide's wrapper() uses. */
+/** The wrapper box/transform/opacity for an element state at REST — exported
+ *  so the transform driver's endpoints apply EXACTLY the math renderSlide's
+ *  wrapper() uses. The layout box is the element's box rounded to whole stage
+ *  pixels (layoutBoxOf); when the exact box differs (a fractional position or
+ *  size) the difference rides a residual transform in the same composite form
+ *  mid-flight frames use, so settling into place never snaps. An element on
+ *  whole pixels gets the classic `rotate()`/flip transform about its centre. */
 export function applyWrapperBox(w: HTMLElement, el: FigElement, opts: { skipOpacity?: boolean; skipTransform?: boolean } = {}): void {
   const bb = elementBBox({ ...el, rotation: 0 });
+  const base = layoutBoxOf(bb);
   const s = w.style;
-  s.left = `${bb.x}px`;
-  s.top = `${bb.y}px`;
-  s.width = `${Math.max(bb.w, 1)}px`;
-  s.height = `${Math.max(bb.h, 1)}px`;
+  const bx = `${base.x}px`, by = `${base.y}px`, bw = `${base.w}px`, bh = `${base.h}px`;
+  if (s.left !== bx) s.left = bx;
+  if (s.top !== by) s.top = by;
+  if (s.width !== bw) s.width = bw;
+  if (s.height !== bh) s.height = bh;
   if (!opts.skipTransform) {
-    const t: string[] = [];
-    if (el.rotation) t.push(`rotate(${el.rotation}deg)`);
-    if (el.flipX) t.push("scaleX(-1)");
-    if (el.flipY) t.push("scaleY(-1)");
-    s.transform = t.length ? t.join(" ") : "";
-    // composite frames pin the origin to 0 0 — restore the classic pivot
-    s.transformOrigin = "center center";
+    const cw = Math.max(bb.w, 1), ch = Math.max(bb.h, 1);
+    const residual = Math.abs(bb.x - base.x) > RESIDUAL_EPS || Math.abs(bb.y - base.y) > RESIDUAL_EPS ||
+      Math.abs(cw - base.w) > RESIDUAL_EPS || Math.abs(ch - base.h) > RESIDUAL_EPS;
+    if (residual) {
+      s.transform = compositeTransform(el, bb, base);
+      s.transformOrigin = "0 0";
+    } else {
+      const t: string[] = [];
+      if (el.rotation) t.push(`rotate(${el.rotation}deg)`);
+      if (el.flipX) t.push("scaleX(-1)");
+      if (el.flipY) t.push("scaleY(-1)");
+      s.transform = t.length ? t.join(" ") : "";
+      // composite frames pin the origin to 0 0 — restore the classic pivot
+      s.transformOrigin = "center center";
+    }
   }
   if (!opts.skipOpacity) s.opacity = el.opacity != null ? String(el.opacity) : "";
+}
+
+/** The composite transform that realizes exact box `bb` on layout box `base`:
+ *  translate + (rotation/flips conjugated about the current box centre) +
+ *  scale, origin 0 0. ONE formula for mid-flight frames and fractional rest. */
+function compositeTransform(el: FigElement, bb: { x: number; y: number; w: number; h: number }, base: { x: number; y: number; w: number; h: number }): string {
+  const cw = Math.max(bb.w, 1), ch = Math.max(bb.h, 1);
+  const sx = cw / Math.max(base.w, 1), sy = ch / Math.max(base.h, 1);
+  // micro-pixel precision, free of float dust (10.4 − 10 = 0.40000000000000036)
+  const n = (v: number) => Math.round(v * 1e6) / 1e6;
+  const parts: string[] = [`translate(${n(bb.x - base.x)}px, ${n(bb.y - base.y)}px)`];
+  const spin: string[] = [];
+  if (el.rotation) spin.push(`rotate(${el.rotation}deg)`);
+  if (el.flipX) spin.push("scaleX(-1)");
+  if (el.flipY) spin.push("scaleY(-1)");
+  if (spin.length) {
+    // about the CURRENT box centre (the classic pivot), conjugated because the
+    // origin is pinned at 0 0 for the scale math
+    parts.push(`translate(${n(cw / 2)}px, ${n(ch / 2)}px)`, ...spin, `translate(${n(-cw / 2)}px, ${n(-ch / 2)}px)`);
+  }
+  if (sx !== 1 || sy !== 1) parts.push(`scale(${n(sx)}, ${n(sy)})`);
+  return parts.join(" ");
+}
+
+// --- layer hygiene for pure moves ------------------------------------------
+// A wrapper that only TRANSLATES during its flight is promoted to its own
+// compositor layer for exactly that flight (`will-change: transform`) and
+// demoted the moment it rests. Promoted, the browser rasterizes the element
+// once and moves the raster at float precision — the only way moving TEXT
+// glides: glyphs painted in place snap their baseline to whole device pixels
+// (Skia positions axis-aligned text sub-pixel in x only), so a text element
+// re-painted per frame steps down the screen one device pixel at a time while
+// a shape beside it slides (measured: Δy per ms 0 / 0.445 stage px vs 0.06
+// uniform, compositor-probe). It is also what makes a heavy element (a plot
+// with a thousand marks) move for free: no repaint per frame, only the layer's
+// transform. Demotion at rest is the crisp-at-rest rule (Canvas.svelte P6):
+// a promoted layer keeps a resampled raster, and sits at a fractional offset
+// slightly soft; painting in place at rest is exact. Scaling or rotating
+// flights are never promoted — a fixed raster would be resampled every frame
+// (soft while growing, then a sharpen pop on settle); those keep painting
+// exactly, and text inside them is re-laid-out per frame anyway.
+// A scrub that parks mid-flight is demoted after LAYER_COOL_MS of quiet, so
+// nothing rests promoted. One timer serves every hot wrapper (never a frame
+// callback: playback owns the single animation clock).
+const LAYER_COOL_MS = 250;
+const hotWrappers = new Map<HTMLElement, number>();
+let coolTimer: ReturnType<typeof setTimeout> | null = null;
+function coolCheck(): void {
+  coolTimer = null;
+  const now = performance.now();
+  for (const [w, at] of hotWrappers) {
+    if (now - at > LAYER_COOL_MS) { w.style.willChange = ""; hotWrappers.delete(w); }
+  }
+  if (hotWrappers.size) coolTimer = setTimeout(coolCheck, LAYER_COOL_MS);
+}
+/** Mid-flight frame of a pure move: keep the wrapper on its own layer. */
+export function promoteMovingWrapper(w: HTMLElement): void {
+  if (!hotWrappers.has(w)) w.style.willChange = "transform";
+  hotWrappers.set(w, performance.now());
+  if (!coolTimer) coolTimer = setTimeout(coolCheck, LAYER_COOL_MS);
+}
+/** Endpoint frame: back to painting in place (crisp at rest). */
+export function settleWrapper(w: HTMLElement): void {
+  if (hotWrappers.delete(w)) w.style.willChange = "";
+}
+/** Whether a flight from `pre` to `end` is a pure move — same box size, no
+ *  rotation or flips at either end — the only flights that ride a layer. */
+export function pureMove(pre: FigElement, end: FigElement): boolean {
+  if (pre.rotation || end.rotation || pre.flipX || end.flipX || pre.flipY || end.flipY) return false;
+  const a = elementBBox({ ...pre, rotation: 0 }), b = elementBBox({ ...end, rotation: 0 });
+  return Math.abs(a.w - b.w) < 1e-6 && Math.abs(a.h - b.h) < 1e-6;
 }
 
 /** MID-FLIGHT wrapper application for morph frames (the glide fix): the
@@ -472,20 +561,7 @@ export function applyWrapperBoxComposite(
   if (s.top !== by) s.top = by;
   if (s.width !== bw) s.width = bw;
   if (s.height !== bh) s.height = bh;
-  const cw = Math.max(bb.w, 1), ch = Math.max(bb.h, 1);
-  const sx = cw / Math.max(base.w, 1), sy = ch / Math.max(base.h, 1);
-  const parts: string[] = [`translate(${bb.x - base.x}px, ${bb.y - base.y}px)`];
-  const spin: string[] = [];
-  if (el.rotation) spin.push(`rotate(${el.rotation}deg)`);
-  if (el.flipX) spin.push("scaleX(-1)");
-  if (el.flipY) spin.push("scaleY(-1)");
-  if (spin.length) {
-    // about the CURRENT box centre (the classic pivot), conjugated because the
-    // origin is pinned at 0 0 for the scale math
-    parts.push(`translate(${cw / 2}px, ${ch / 2}px)`, ...spin, `translate(${-cw / 2}px, ${-ch / 2}px)`);
-  }
-  if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`);
   s.transformOrigin = "0 0";
-  s.transform = parts.join(" ");
+  s.transform = compositeTransform(el, bb, base);
   if (!opts.skipOpacity) s.opacity = el.opacity != null ? String(el.opacity) : "";
 }

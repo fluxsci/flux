@@ -86,11 +86,15 @@ synthetic **path** element for `0 < t < 1` (endpoints stay verbatim clones):
 - every drawn kind has an **outline** (`slide/outline.ts`): rect → 4 corners (+ corner radius
   fillets through `pathD`), ellipse → 4 smooth bezier nodes, line → 2 nodes (open), path → its
   nodes. Flips are baked into the outline so the intermediate carries none.
-- both outlines are arc-length resampled to a common node count (`path.resampleNodes`, geometry
-  preserving) and put into correspondence in their unit frames: closed↔closed aligns winding and
-  picks the start offset minimizing summed squared distance; open↔open picks the direction;
-  closed↔open **cuts** the ring at the point nearest the open path's ends, so an ellipse opens
-  and its two ends travel to the line's ends (and the reverse closes seamlessly).
+- both outlines are split by arc length to a common station set with boundary-preserving
+  de Casteljau splits (`splitOutline` — every original corner survives, so a rect stays a rect
+  until it must bend) and put into correspondence in their unit frames: closed↔closed aligns
+  winding and picks the seam minimizing summed squared distance; open↔open picks the direction;
+  closed↔open has two strategies (`RingStrategy`): when the ring side is **filled** the stroke
+  **inflates** — it doubles back on itself as a degenerate ring that swells into the shape (no
+  wedge; the stroke's own heads ride along as `fixedHeads` and melt away) — and when the ring
+  is stroke-only it **cuts** open where it is nearest both of the stroke's ends and unrolls
+  into it (the reverse closes seamlessly).
 - the intermediate box is the lerped box; nodes are lerped in unit coordinates and mapped into
   it, so zero-height lines and full shapes interpolate without singularities.
 - style: fill/stroke blend in OKLab (`none` is the alpha-0 endpoint), stroke width and dash lerp,
@@ -106,7 +110,7 @@ rendered once through the one serializer (shown at t = 1; later tracks bind to i
 
 ## 5. UI
 
-- Animator bar: **Transform ▾** → *Change* (⌃⇧T), *Ghost…*, *Become…* (⌃⇧B). The old separate
+- Animator bar: **Transform ▾** → *Change* (⌃⇧T), *Ghost…*, *Become…* (⌃⇧E). The old separate
   **Change** / **Ghost transform…** / **Data morph…** buttons fold into it.
 - **Become…** enters a pick mode with a bar above the stage: "Select the object it becomes — draw
   one, click one, or pick a plot from the gallery". Selecting exactly one eligible object other
@@ -126,3 +130,39 @@ rendered once through the one serializer (shown at t = 1; later tracks bind to i
   player — mid-flight geometry, endpoint parity, no console errors.
 - `verify-slide-become-gui.mjs` (ui): the pick flow in the editor.
 - Existing gates updated where they encoded the superseded `morph` preset.
+
+## 7. The smoothness pass — measured, not felt
+
+The complaint was jitter "especially as the transforming object is settling". Two mechanisms,
+both measured on painted pixels (an rAF sampler shows perfect pacing throughout — this was
+never jank):
+
+1. **The settle snap.** Endpoints were written as a layout box (`left: 400.37px`), which
+   Chromium pixel-snaps when painting, while the frame before it rode an exact composite
+   transform: `scripts/perf/slide-settle-probe.mts` read Δcx −0.37 / Δcy +0.39 stage px between
+   t = 999 and t = 1000 — about a device pixel at the fit scale, a visible click at the end of
+   every move to a fractional position. **Fix:** the layout box is whole stage pixels always
+   (`layoutBoxOf`), and the fraction rides a residual composite transform at rest as well as in
+   flight — one formula (`compositeTransform`). After: Δ 0.000 across the endpoint for a rect,
+   an ellipse and a text run.
+2. **Text steps; shapes glide.** `scripts/perf/slide-motion-probe.mts` (1 ms seeks, linear
+   easing, centroid per frame): a rect moved 0.300 ± 0.003 stage px/ms; text moved in y by 0 or
+   0.445 — one device pixel at a time — because glyphs painted in place snap their baseline to
+   the device grid. Only a compositor-moved raster is sub-pixel in both axes. **Fix (layer
+   hygiene):** flights that only translate — the transform driver's pure moves, camera pans,
+   `move`, fadeRise's lift — promote their node with `will-change: transform` for the flight and
+   demote it at either endpoint (or 250 ms after a scrub parks). After: text Δy per ms 0.060
+   ± 0.010, uniform, in every mode; a heavy plot moves without repainting. Scaling or rotating
+   flights are never promoted (a fixed raster would be resampled — soft while growing, then a
+   sharpen pop on settle); they keep painting exactly.
+
+Frame pacing in the editor preview (`scripts/perf/slide-playback-profile.mjs`): 89 consecutive
+16.7 ms frames, zero drops, on the normal fixture before and after; the dense fixture (1,200-mark
+data morph + 120 part fades) is bound by native rasterization in this 2-vCPU container on both
+main and the branch.
+
+Verification of the whole branch: `npm run check` 0/0; pure tier 218/219 (the one failure,
+`verify-slide-media-browser.ts`, is the container's H.264-less Chromium and fails on main too);
+`group:slide-transforms` + `group:slide-ghosts` 14/14; slide UI gates 14/17 (the three failures —
+`verify-paper-slide-embeds`, `verify-slide-embed-lifecycle`, `verify-slide-video-clips-gui` — time
+out identically on main in this environment); docs gate 158/158; registry parity PASS.
