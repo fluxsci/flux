@@ -4804,3 +4804,10 @@ the prior insertion's autosave before its preview snapshot; no product code chan
 
 **Learnings:** Promoted the autosave/snapshot rule into §7. Evidence and verification limits
 are recorded in `test-results/slides-sync-review/review.md`.
+
+### 2026-09-14 19:23 CDT — Public README refresh (Codex, `main`)
+
+**Work:** Reworked the root README around the public website, two hosted screenshots,
+current features, source installation, and links to detailed docs. Verified local and
+public links, image loading, npm script names, and desktop/mobile Markdown previews;
+the documentation gate passed 158/158.
