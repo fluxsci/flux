@@ -67,7 +67,7 @@ try {
     window.__galleryDirReads = [];
     window.fig.readdir = async path => { window.__galleryDirReads.push(path); return readdir(path); };
   }, { root: ROOT, movie, poster });
-  await page.keyboard.down('Alt'); await page.keyboard.press('KeyI'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer');
+  await page.keyboard.down('Alt'); await page.keyboard.press('KeyG'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer');
   await page.waitForSelector(treeRow(PLOTS + '/study'));
   check(await page.$eval(treeRow(PLOTS + '/study'), el => el.getAttribute('aria-expanded') === 'false'), 'folder sidebar starts with nested folders collapsed');
   check(!(await page.$(treeRow(PLOTS + '/study/deep'))), 'collapsed descendants are absent from the tree');
@@ -108,9 +108,13 @@ try {
   const full = await page.$eval(previewSelector, el => { const r = el.getBoundingClientRect(); return { w: r.width / innerWidth, h: r.height / innerHeight }; });
   check(full.w > .9 && full.h > .9, 'expanded preview uses the whole application window');
   const fitImageWidth = await page.$eval('[data-gallery-preview-media] img', el => Math.min(el.clientWidth / el.naturalWidth, el.clientHeight / el.naturalHeight) * el.naturalWidth);
-  await page.click('[aria-label="Zoom in"]'); await frame(page);
+  // The preview's own zoom control: the Slide toolbar underneath the fixed
+  // preview also carries a "Zoom in" button (first in DOM order), and since the
+  // 2026-09-15 surface redesign the preview's compact nav no longer happens to
+  // overlap it — an unscoped selector would click the covered toolbar button.
+  await page.click(previewSelector + ' [aria-label="Zoom in"]'); await frame(page);
   check(await page.$eval('[data-gallery-preview-media] img', el => el.getBoundingClientRect().width) > fitImageWidth * 1.1, 'Zoom in enlarges the fitted image instead of shrinking it');
-  await page.click('[aria-label="Fit preview"]'); await frame(page);
+  await page.click(previewSelector + ' [aria-label="Fit preview"]'); await frame(page);
   await page.screenshot({ path: 'test-results/gallery-expanded-preview.png' });
   await page.keyboard.press('KeyD');
   await waitFor(page, () => document.querySelector('[data-dissect-cell][data-name="overview.svg"] img')?.naturalWidth > 0);

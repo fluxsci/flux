@@ -67,7 +67,7 @@ try {
   await page.evaluate((part) => window.__flux.fig.partSelection.set({ elementId: "plot1", partId: part }), PART);
   await sleep(250);
 
-  // ---- Inspector: label + breadcrumb + Show properties, NO colour input ----
+  // ---- Inspector: label + breadcrumb + Show properties + the menu's own fields ----
   const insp = await page.evaluate(() => {
     const sec = document.querySelector(".inspector section.part");
     if (!sec) return null;
@@ -82,7 +82,9 @@ try {
   assert(insp && /Tick label 2/.test(insp.text), `part LABEL is humanized (${insp?.text.slice(0, 60)}…)`);
   assert(insp && /X axis\s*›\s*Tick labels/.test(insp.text), "hierarchy BREADCRUMB present (… › X axis › Tick labels › …)");
   assert(insp && insp.showProps, "Show properties button present");
-  assert(insp && insp.colorInputs === 0 && insp.inputs === 0, "NO colour (or any) input in the plot-part section");
+  // 2026-09-15: the rail carries every part property (the same field model as
+  // the menu) — native colour inputs stay out (the palette picker is the route).
+  assert(insp && insp.colorInputs === 0 && insp.inputs > 0, "the plot-part section carries the menu's fields (no native colour input)");
   await shot(page, "figenh14-01-inspector");
 
   // The button opens the FluxFig Menu

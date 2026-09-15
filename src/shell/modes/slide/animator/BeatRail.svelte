@@ -8,7 +8,7 @@
   import { slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks } from "../../../../lib/slide/ops";
   import type { Slide, Track, Beat, TrackGroup } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
-  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, trackEndMs, snapMs, isDanglingTrack, trackKindLabel } from "./shared";
+  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, trackEndMs, snapMs, isDanglingTrack, trackKindLabel, minorTicks } from "./shared";
   import { hoverTrackId, timelinePxPerMs } from "./animatorState";
   import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
@@ -36,6 +36,9 @@
   const scale = $derived($timelinePxPerMs ?? Math.max(.015, Math.min(.6, (timelineWidth - 240) / duration)));
   const tickStep = $derived(scale > .3 ? 250 : scale > .12 ? 500 : scale > .05 ? 1000 : 2000);
   const ticks = $derived(Array.from({length:Math.floor(duration/tickStep)+1},(_,i)=>i*tickStep));
+  // The vertical time grid under the lanes: every ruler tick is a major line,
+  // with fainter minor lines between them (one element per line, see .grid-layer).
+  const minors = $derived(minorTicks(duration, tickStep, scale));
   const timeWidth = $derived(Math.max(timelineWidth-230, duration*scale+32));
   const fmt = (ms:number) => `${(ms/1000).toFixed(ms % 1000 ? 2 : 0)}s`;
   type Row = {group:TrackGroup; tracks:Track[]} | {track:Track};
@@ -164,6 +167,26 @@
   }
   function drawStart(t:Track){const o=drag?.orig.find(o=>o.id===t.id);return Math.max(0,(o&&drag?.kind==="start"&&!drag.moving?o.start+drag.dx:t.start??0))*scale;}
   function drawWidth(t:Track){const o=drag?.orig.find(o=>o.id===t.id);return o&&drag?.kind==="duration"?Math.max(6,(o.duration+drag.dx)*scale):width(t);}
+  // Alignment guides. While a bar/edge drags, the moving edge (its start for a
+  // retime, its end for a resize) is a full-height line; when the snapped value
+  // — the same snapMs result the drag already applies — lands on a magnet
+  // (another track's start/end) or a 50ms grid line, that line lights too, so
+  // the snap is SEEN. At rest, one selected track shows its start and end.
+  const dragGuide = $derived.by(() => {
+    const d = drag; if (!d || d.moving) return null;
+    const o = d.orig.find(o => o.id === d.primary); if (!o) return null;
+    const edge = d.kind === "start" ? Math.max(0, o.start + d.dx) : o.start + Math.max(1, o.duration + d.dx);
+    const magnet = d.magnets.find(m => Math.abs(m - edge) <= .5);
+    const grid = Math.round(edge / 50) * 50;
+    const snap = magnet ?? (Math.abs(grid - edge) <= .5 ? grid : null);
+    return { edge, snap };
+  });
+  const selGuide = $derived.by(() => {
+    if (drag || $selTrackIds.length !== 1) return null;
+    const t = beat?.tracks.find(t => t.id === $selTrackIds[0]); if (!t) return null;
+    const start = t.start ?? 0;
+    return { start, end: start + trackDuration(t) };
+  });
   // Selection is local while sweeping: publishing it on every move would
   // change the Selected objects filter and the Inspector under the pointer.
   type Marquee = { pointer:number; anchor:{x:number;y:number}; client:{x:number;y:number};
@@ -309,8 +332,16 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="ruler" onpointerdown={scrub} title="Drag to inspect any frame">
           {#each ticks as t}<span class="tick" style={`left:${t*scale}px`}>{fmt(t)}</span>{/each}
+          {#if dragGuide?.snap != null}<span class="snap-mark" style={`left:${dragGuide.snap*scale}px`}></span>{/if}
           <span class="ruler-head" style={`transform:translateX(${time*scale}px)`}></span>
         </div>
+      </div>
+      <!-- The time grid: ONE absolutely positioned layer (left = the label column),
+           one element per line, under the bars; it lives inside .timeline so it
+           scrolls with the content. Never hit-tested, never a marquee candidate. -->
+      <div class="grid-layer" aria-hidden="true">
+        {#each ticks as t (t)}<span class="gl major" style={`left:${t*scale}px`}></span>{/each}
+        {#each minors as t (t)}<span class="gl minor" style={`left:${t*scale}px`}></span>{/each}
       </div>
       {#if !rows.length}<div class="empty">{$activeBeat===0?"Select an object, then choose Appear, Transform, Emphasize, or Disappear.":"No effects in this step. Select an object or plot part and add an effect above."}</div>{/if}
       {#each rows as row,ri ("group"in row?row.group.id:row.track.id??ri)}
@@ -339,6 +370,17 @@
       <!-- One compositor line spans every lane; playback must not rewrite a
            layout property in every track on every frame. -->
       <span class="playhead" style={`transform:translateX(${time*scale}px)`}></span>
+      {#if dragGuide || selGuide}
+        <div class="guide-layer" aria-hidden="true">
+          {#if dragGuide}
+            <span class="guide" style={`left:${dragGuide.edge*scale}px`}></span>
+            {#if dragGuide.snap != null}<span class="guide snap" style={`left:${dragGuide.snap*scale}px`}></span>{/if}
+          {:else if selGuide}
+            <span class="guide sel" style={`left:${selGuide.start*scale}px`}></span>
+            <span class="guide sel" style={`left:${selGuide.end*scale}px`}></span>
+          {/if}
+        </div>
+      {/if}
       {#if marqueeBox}<div class="timeline-marquee" aria-hidden="true" style={`left:${marqueeBox.x}px;top:${marqueeBox.y}px;width:${marqueeBox.width}px;height:${marqueeBox.height}px`}></div>{/if}
     </div>
   </div>
@@ -348,20 +390,127 @@
 {#if menu}<TimelineMenu x={menu.x} y={menu.y} items={menu.items} onClose={()=>menu=null}/>{/if}
 
 <style>
-  .timeline-scroll{user-select:none}
-  .timeline{min-height:100%;padding-bottom:24px;box-sizing:border-box}
-  .timeline-marquee{position:absolute;pointer-events:none;z-index:2;box-sizing:border-box;border:1px solid var(--c-accent);background:color-mix(in oklab,var(--c-accent) 14%,transparent)}
-  .group-span.sel{background:var(--c-accent);outline:2px solid var(--c-accent);outline-offset:1px}
-  .group-title{width:160px;min-width:0;background:var(--c-bg);color:var(--c-tx);border:1px solid var(--c-line);font:inherit;padding:3px 5px;}
-.beatrail{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1;gap:8px;position:relative;font-size:12px}
-.step-strip{display:flex;gap:5px;overflow-x:auto;flex:0 0 auto;padding:2px 1px 6px}
-button,input,select{font:inherit;color:var(--c-tx);background:var(--c-bg-2);border:1px solid var(--c-line-strong);border-radius:5px}
-button{cursor:pointer}button:hover{border-color:var(--c-accent)}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--c-accent);outline-offset:1px}
-.step{display:flex;gap:8px;align-items:center;flex:0 0 auto;text-align:left;padding:7px 10px;min-width:115px;max-width:220px}
-.step small{display:block;color:var(--c-tx-3);font-size:10px;margin-top:3px}.step.active{border-color:var(--c-accent);background:color-mix(in oklab,var(--c-accent) 13%,var(--c-bg))}.step.drop{outline:2px dashed var(--c-accent)}
-.step-num{font:600 12px var(--font-mono);color:var(--c-accent)}.count{margin-left:auto;color:var(--c-tx-3);font-size:10px}.new-step{padding:7px 12px;white-space:nowrap}
-.step-controls{display:flex;align-items:center;gap:8px;min-height:28px;flex-wrap:wrap}.step-controls button,.step-controls select{padding:4px 7px}.step-title{font-weight:600;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.step-name{width:170px;padding:4px}.duration{font:11px var(--font-mono);color:var(--c-tx-2)}.delay-label{font-size:11px}.delay-label input{width:60px;padding:3px}.filter{margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--c-tx-2)}.filter input{margin:0}.start-note{color:var(--c-tx-2);font-size:11px}
-.timeline-scroll{overflow:auto;min-height:55px;flex:1;border:1px solid var(--c-line);border-radius:6px}.timeline{width:max-content;min-width:100%;position:relative}.ruler-row,.lane-row{display:grid;grid-template-columns:220px var(--time-w)}.ruler-row{position:sticky;top:0;z-index:5;background:var(--c-bg-2);height:25px;border-bottom:1px solid var(--c-line)}.label-head{position:sticky;left:0;z-index:6;background:var(--c-bg-2);padding:5px 9px;font-size:11px;color:var(--c-tx-2);border-right:1px solid var(--c-line)}.ruler{position:relative;cursor:crosshair}.tick{position:absolute;top:3px;border-left:1px solid var(--c-line);padding-left:3px;font:10px var(--font-mono);color:var(--c-tx-2);height:20px}.ruler-head{position:absolute;bottom:0;left:-5px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid var(--c-accent);}
-.lane-row{height:var(--row);border-bottom:1px solid color-mix(in oklab,var(--c-line) 65%,transparent)}.lane-row.selected{background:color-mix(in oklab,var(--c-accent) 8%,transparent)}.lane-row.disabled{opacity:.5}.target-label{position:sticky;left:0;z-index:3;background:var(--c-bg);border:0;border-right:1px solid var(--c-line);border-radius:0;padding:3px 9px;display:flex;align-items:center;gap:7px;min-width:0}.track-label{text-align:left;display:block}.target-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.track-label small{display:block;font-size:9px;color:var(--c-tx-3);line-height:11px}.selected .target-label{background:color-mix(in oklab,var(--c-accent) 14%,var(--c-bg))}.missing .target-name{color:var(--c-warning)}.time-cell{position:relative}.group .target-label{background:var(--c-bg-2)}.group-name,.chevron{border:0;background:none;text-align:left;font-weight:600;padding:0}.group-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.group-name small{font-weight:400;color:var(--c-tx-3)}.group-span{position:absolute;top:13px;height:3px;background:var(--c-tx-3);border-radius:2px}
-.trk{position:absolute;top:6px;height:18px;min-width:6px;border:1px solid var(--pc);background:color-mix(in oklab,var(--pc) 28%,var(--c-bg-2));border-radius:4px;cursor:grab;user-select:none;box-sizing:border-box}.trk.sel{outline:2px solid var(--pc);outline-offset:1px}.trk.tx{background:color-mix(in oklab,var(--pc) 16%,var(--c-bg-2))}.bar-time{display:block;overflow:hidden;white-space:nowrap;font:9px/16px var(--font-mono);padding:0 5px;color:var(--c-tx)}.edge{position:absolute;right:-4px;width:9px;top:-3px;bottom:-3px;cursor:ew-resize}.tail{position:absolute;left:100%;top:6px;height:5px;pointer-events:none;background:repeating-linear-gradient(-45deg,var(--pc) 0 2px,transparent 2px 5px)}.playhead{position:absolute;top:25px;bottom:0;left:220px;width:1px;background:var(--c-accent);pointer-events:none;opacity:.7}.empty{width:min(600px,90vw);padding:18px;color:var(--c-tx-2);font-size:12px;line-height:1.6}.drag-status{position:absolute;bottom:0;right:10px;padding:5px 10px;background:var(--c-bg);border:1px solid var(--c-accent);border-radius:5px;z-index:10;font:11px var(--font-mono)}
+  .beatrail {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; gap: 0; position: relative;
+    font: 12px/1.35 var(--font-ui); -webkit-font-smoothing: antialiased; color: var(--c-tx);
+  }
+  /* controls: square, hairline-bordered, 24px; values in mono */
+  button, input, select {
+    font: 12px var(--font-ui); color: var(--c-tx); background: transparent;
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); height: 24px; padding: 2px 8px;
+  }
+  input, select { background: var(--c-bg); padding: 2px 6px; }
+  input { font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
+  input:focus, select:focus { border-color: var(--c-accent); outline: none; }
+  button:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 1px; }
+
+  /* --- the step strip: flat tabs with shared borders on the raised surface ---------- */
+  .step-strip { display: flex; gap: 0; overflow-x: auto; flex: 0 0 auto; padding: 0; }
+  .step {
+    display: flex; gap: 8px; align-items: center; flex: 0 0 auto; text-align: left;
+    height: auto; padding: 5px 10px; min-width: 115px; max-width: 220px; line-height: 1.2;
+    background: var(--c-bg-raised); border: 1px solid var(--c-line-strong); border-radius: var(--r-0); color: var(--c-tx-2);
+  }
+  .step + .step, .step + .new-step { margin-left: -1px; }
+  .step:hover { color: var(--c-tx-hi); border-color: var(--c-line-strong); background: var(--c-surface-2); }
+  .step small { display: block; color: var(--c-tx-muted); font-size: 10px; margin-top: 2px; }
+  .step.active { position: relative; z-index: 1; background: var(--c-accent-tint); color: var(--c-tx-hi); box-shadow: inset 0 -2px 0 var(--c-accent); }
+  .step.active small { color: var(--c-tx-2); }
+  .step.drop { outline: 1px dashed var(--c-accent); outline-offset: -2px; }
+  .step-num { font: 600 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-muted); }
+  .step.active .step-num { color: var(--c-accent); }
+  .count { margin-left: auto; font: 10px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-muted); }
+  .new-step {
+    height: auto; align-self: stretch; padding: 5px 12px; white-space: nowrap;
+    background: transparent; border: 1px dashed var(--c-line-strong); border-radius: var(--r-0); color: var(--c-tx-muted);
+  }
+  .new-step:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
+
+  /* --- the step controls row: 28px, hairline below ------------------------------------ */
+  .step-controls {
+    display: flex; align-items: center; gap: 6px; min-height: 28px; flex: 0 0 auto; flex-wrap: wrap;
+    padding: 2px 0; margin-bottom: 6px; border-bottom: 1px solid var(--c-line);
+  }
+  .step-controls button, .step-controls select { height: 22px; padding: 1px 7px; }
+  .step-title { font-weight: 600; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-color: transparent; }
+  .step-title:hover { border-color: var(--c-line-strong); }
+  .step-name { width: 170px; height: 22px; font: 12px var(--font-ui); }
+  .duration { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2); }
+  .delay-label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--c-tx-2); }
+  .delay-label input { width: 60px; height: 22px; padding: 1px 5px; }
+  .filter { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--c-tx-2); }
+  .filter input { margin: 0; height: auto; accent-color: var(--c-accent); }
+  .start-note { color: var(--c-tx-muted); font-size: 11px; }
+
+  /* --- the timeline ------------------------------------------------------------------- */
+  .timeline-scroll { overflow: auto; min-height: 55px; flex: 1; border: 1px solid var(--c-line); border-radius: var(--r-0); background: var(--c-bg); user-select: none; }
+  .timeline { width: max-content; min-width: 100%; min-height: 100%; position: relative; padding-bottom: 24px; box-sizing: border-box; }
+  .ruler-row, .lane-row { display: grid; grid-template-columns: 220px var(--time-w); }
+  .ruler-row { position: sticky; top: 0; z-index: 5; height: 25px; background: var(--c-bg-raised); border-bottom: 1px solid var(--c-line); }
+  .label-head {
+    position: sticky; left: 0; z-index: 6; display: flex; align-items: center; padding: 0 9px;
+    background: var(--c-bg-raised); border-right: 1px solid var(--c-line);
+    font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--c-tx-muted);
+  }
+  .ruler { position: relative; cursor: crosshair; }
+  .tick {
+    position: absolute; top: 3px; height: 20px; padding-left: 3px;
+    border-left: 1px solid color-mix(in oklab, var(--c-line-strong) 70%, transparent);
+    font: 10px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-muted);
+  }
+  .ruler-head { position: absolute; bottom: 0; left: -5px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--c-accent); }
+  /* the snap marker crosses the ruler strip: a snapped drag reads as one line from the ruler down */
+  .snap-mark { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--c-accent); pointer-events: none; }
+  /* the time grid + the alignment guides: layers inside .timeline (so they scroll with
+     the content), left = the 220px label column; below / above the bars respectively */
+  .grid-layer, .guide-layer { position: absolute; top: 25px; bottom: 0; left: 220px; width: var(--time-w); pointer-events: none; }
+  .grid-layer { z-index: 0; }
+  .guide-layer { z-index: 2; }
+  .gl, .guide { position: absolute; top: 0; bottom: 0; width: 1px; }
+  .gl.major { background: color-mix(in oklab, var(--c-line-strong) 70%, transparent); }
+  .gl.minor { background: var(--c-line); }
+  .guide { background: var(--c-accent); }
+  .guide.sel { background: color-mix(in oklab, var(--c-accent) 45%, transparent); }
+  .lane-row { height: var(--row); border-bottom: 1px solid var(--c-line); }
+  .lane-row.selected { background: var(--c-accent-tint); }
+  .lane-row.disabled { opacity: .5; }
+  .target-label {
+    position: sticky; left: 0; z-index: 3; height: auto; min-width: 0; padding: 3px 9px;
+    display: flex; align-items: center; gap: 7px; color: var(--c-tx);
+    background: var(--c-bg-raised); border: 0; border-right: 1px solid var(--c-line); border-radius: 0;
+  }
+  .group .target-label { background: var(--c-surface); }
+  .selected .target-label { background: color-mix(in oklab, var(--c-accent) 16%, var(--c-bg-raised)); box-shadow: inset 2px 0 0 var(--c-accent); color: var(--c-tx-hi); }
+  .track-label { text-align: left; display: block; cursor: pointer; }
+  .track-label:hover { color: var(--c-tx-hi); border-right-color: var(--c-line); }
+  .target-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+  .track-label small { display: block; font-size: 9px; color: var(--c-tx-muted); line-height: 11px; }
+  .missing .target-name { color: var(--c-warning); }
+  .time-cell { position: relative; }
+  .group-name, .chevron { border: 0; background: none; text-align: left; font-weight: 600; padding: 0; height: auto; }
+  .chevron { width: 12px; color: var(--c-tx-muted); }
+  .group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group-name small { font-weight: 400; color: var(--c-tx-muted); }
+  .group-title { width: 160px; min-width: 0; height: 22px; padding: 1px 5px; font: 12px var(--font-ui); }
+  .group-span { position: absolute; top: 13px; height: 3px; background: var(--c-tx-muted); border-radius: 0; }
+  .group-span.sel { background: var(--c-accent); outline: 1px solid var(--c-tx-hi); outline-offset: 1px; }
+  .trk {
+    position: absolute; top: 6px; height: 18px; min-width: 6px; box-sizing: border-box; cursor: grab; user-select: none;
+    border: 1px solid var(--pc); background: color-mix(in oklab, var(--pc) 22%, var(--c-bg)); border-radius: var(--r-0);
+  }
+  .trk.sel { outline: 1px solid var(--c-tx-hi); outline-offset: 0; }
+  .trk.tx { background: color-mix(in oklab, var(--pc) 12%, var(--c-bg)); }
+  .bar-time { display: block; overflow: hidden; white-space: nowrap; padding: 0 5px; font: 10px/16px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx); }
+  .edge { position: absolute; right: -4px; width: 9px; top: -3px; bottom: -3px; cursor: ew-resize; }
+  .tail { position: absolute; left: 100%; top: 6px; height: 5px; pointer-events: none; background: repeating-linear-gradient(-45deg, var(--pc) 0 2px, transparent 2px 5px); }
+  .playhead { position: absolute; top: 25px; bottom: 0; left: 220px; width: 1px; background: var(--c-accent); pointer-events: none; }
+  .timeline-marquee { position: absolute; pointer-events: none; z-index: 2; box-sizing: border-box; border: 1px solid var(--c-accent); background: color-mix(in oklab, var(--c-accent) 14%, transparent); }
+  .empty { position: relative; z-index: 1; width: min(600px, 90vw); padding: 18px; color: var(--c-tx-muted); font-size: 12px; line-height: 1.6; }
+  .drag-status {
+    position: absolute; bottom: 0; right: 10px; z-index: 10; padding: 4px 8px;
+    background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui);
+    font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx);
+  }
 </style>

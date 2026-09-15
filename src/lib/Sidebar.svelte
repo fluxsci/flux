@@ -644,33 +644,51 @@
 </aside>
 
 <style>
+  /* The Figure rail (2026-09-15 surface redesign): a raised strip with three
+     hairline-separated sections; rows are square, hover is a quiet surface
+     lift, and the active row is an accent tint with a 2px rail — never a
+     solid fill. DOM structure and every class/aria the gates pin are kept. */
   .sidebar {
     /* Width var set by the host mode (FigureMode drag-resize); the fallback
        keeps standalone/demo mounts at the shipped width. */
     width: var(--sb-w, 200px);
     flex: 0 0 var(--sb-w, 200px);
-    background: var(--c-surface);
+    background: var(--c-bg-raised);
     border-right: 1px solid var(--c-line);
     overflow-y: auto;
-    padding: 4px 8px;
-    font-size: 13px;
+    padding: 0 0 12px;
+    font: 12px var(--font-ui);
+    -webkit-font-smoothing: antialiased;
     color: var(--c-tx);
   }
   section {
-    padding: 8px 0;
+    padding: 0 0 6px;
     border-bottom: 1px solid var(--c-line);
   }
   .head {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    height: 28px;
+    padding: 0 4px 0 10px;
+    border-bottom: 1px solid var(--c-line);
+    margin-bottom: 3px;
   }
   h4 {
-    font-size: 11px;
+    flex: 1;
+    margin: 0;
+    font: 600 10.5px var(--font-mono);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.6;
-    margin: 4px 0 8px;
+    letter-spacing: 0.08em;
+    color: var(--c-tx-muted);
+  }
+  section.layers > h4 {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--c-line);
+    margin-bottom: 3px;
   }
   ul {
     list-style: none;
@@ -680,30 +698,32 @@
   li {
     display: flex;
     align-items: center;
-    border-radius: 5px;
+    border-radius: var(--r-0);
+    min-height: 24px;
   }
   li.active {
-    background: var(--c-accent);
+    background: var(--c-accent-tint);
+    box-shadow: inset 2px 0 0 var(--c-accent);
   }
   li.active .item {
-    color: var(--c-on-accent);
+    color: var(--c-tx-hi);
   }
   .item {
     flex: 1;
     text-align: left;
     background: transparent;
     border: none;
-    color: inherit;
-    padding: 5px 8px;
-    font-size: 13px;
+    color: var(--c-tx-2);
+    padding: 3px 8px;
+    font: 12px var(--font-ui);
     cursor: pointer;
-    border-radius: 5px;
+    border-radius: var(--r-0);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  button:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
-  li.active button:focus-visible { outline-color: var(--c-on-accent); }
+  li:hover .item { color: var(--c-tx-hi); }
+  button:focus-visible { outline: 1px solid var(--c-accent); outline-offset: -1px; }
   li:hover:not(.active) {
     background: var(--c-surface-2);
   }
@@ -715,7 +735,7 @@
   /* Picked for a reorder (multi-select): visible without stealing the
      active-figure accent, which means something else. */
   .figrow.picked:not(.active) {
-    background: var(--c-accent-tint);
+    background: var(--c-accent-tint-2);
   }
   .figrow.dragging {
     cursor: grabbing;
@@ -727,30 +747,28 @@
   /* M14: order-derived figure number (always reflects position, never stale). */
   .fnum {
     flex: 0 0 auto;
-    min-width: 18px; /* family badges run wider: "S2" / "ED3" / "M1" */
+    min-width: 20px; /* family badges run wider: "S2" / "ED3" / "M1" */
     text-align: right;
-    margin-left: 4px;
-    font-size: 10px;
+    margin-left: 6px;
+    font: 10px var(--font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--c-tx-muted);
-    opacity: 0.7;
   }
   li.active .fnum {
-    color: var(--c-on-accent);
-    opacity: 0.85;
+    color: var(--c-accent);
   }
   /* M11: inline rename input. */
   .rename {
     flex: 1;
     min-width: 0;
     margin: 0 4px;
-    padding: 4px 6px;
-    font: inherit;
-    font-size: 13px;
+    height: 22px;
+    padding: 0 6px;
+    font: 12px var(--font-ui);
     color: var(--c-tx);
-    background: var(--c-bg-raised, var(--c-surface));
+    background: var(--c-bg);
     border: 1px solid var(--c-accent);
-    border-radius: 5px;
+    border-radius: var(--r-ui);
     outline: none;
   }
   .del,
@@ -759,18 +777,21 @@
     border: none;
     color: var(--c-tx-muted);
     cursor: pointer;
-    font-size: 15px;
-    padding: 2px 6px;
-    border-radius: 4px;
+    font: 13px var(--font-ui);
+    height: 22px;
+    padding: 0 6px;
+    border-radius: var(--r-ui);
   }
+  .del { opacity: 0; }
+  li:hover .del, li.active .del { opacity: 1; }
   .del:hover,
   .mini:hover {
-    background: var(--c-ui-hover);
+    background: var(--c-surface-2);
     color: var(--c-tx-hi);
   }
   .empty {
-    opacity: 0.4;
-    padding: 5px 8px;
+    color: var(--c-tx-faint);
+    padding: 5px 10px;
     font-size: 12px;
   }
   /* F6 Layers: grip + eye/lock toggles per row */
@@ -779,6 +800,7 @@
     /* WS-1 Fix 6b: the windowing grid needs a FIXED row height (spacer math +
        logical drag targeting). 25px = the measured natural height pre-virtualization. */
     height: var(--vrow-h, 25px);
+    min-height: 0;
     box-sizing: border-box;
     overflow: hidden;
   }
@@ -794,16 +816,15 @@
     flex: 0 0 auto;
     background: transparent;
     border: none;
-    color: var(--c-tx-muted);
+    color: var(--c-tx-faint);
     cursor: grab;
-    padding: 4px 2px 4px 3px;
-    font-size: 12px;
+    padding: 4px 2px 4px 5px;
+    font-size: 11px;
     line-height: 1;
-    opacity: 0.55;
     touch-action: none;
   }
   .grip:hover {
-    opacity: 1;
+    color: var(--c-tx-2);
   }
   .layer.dragging .grip {
     cursor: grabbing;
@@ -818,11 +839,11 @@
     color: var(--c-tx-muted);
     cursor: pointer;
     padding: 3px;
-    border-radius: 4px;
+    border-radius: var(--r-ui);
     opacity: 0.7;
   }
   .tog:hover {
-    background: var(--c-ui-hover);
+    background: var(--c-surface-2);
     color: var(--c-tx-hi);
     opacity: 1;
   }
@@ -833,25 +854,21 @@
     color: var(--c-accent);
     opacity: 1;
   }
+  .tog:disabled { opacity: 0.35; cursor: default; }
   li.active .grip,
   li.active .tog {
-    color: var(--c-on-accent);
+    color: var(--c-tx-2);
   }
+  li.active .tog.on { color: var(--c-accent); }
   .plabel {
     flex: none;
     margin-right: 6px;
-    font-size: 9px;
-    font-weight: 700;
+    font: 700 9px var(--font-mono);
     line-height: 1;
     padding: 2px 4px;
     border: 1px solid var(--c-accent);
     color: var(--c-accent);
-    border-radius: 4px;
-    font-family: var(--font-mono);
-  }
-  li.active .plabel {
-    border-color: var(--c-on-accent);
-    color: var(--c-on-accent);
+    border-radius: var(--r-ui);
   }
   /* P7 group rows: collapse caret, bold name, member count badge. */
   .caret {
@@ -861,7 +878,7 @@
     color: var(--c-tx-muted);
     cursor: pointer;
     padding: 2px 1px;
-    font-size: 10px;
+    font-size: 9px;
     line-height: 1;
     width: 14px;
   }
@@ -874,17 +891,17 @@
   .gcount {
     flex: none;
     margin-right: 6px;
-    font-size: 9px;
+    font: 9.5px var(--font-mono);
     line-height: 1;
     padding: 2px 4px;
-    border-radius: 4px;
+    border-radius: var(--r-ui);
     background: var(--c-surface-2);
     color: var(--c-tx-muted);
     font-variant-numeric: tabular-nums;
   }
   li.active .gcount {
     background: transparent;
-    color: var(--c-on-accent);
+    color: var(--c-accent);
   }
   li.grp.isHidden .gname {
     opacity: 0.5;

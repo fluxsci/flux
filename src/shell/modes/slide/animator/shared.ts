@@ -114,6 +114,23 @@ export function autoPxPerMs(maxEndMs: number): number {
   return Math.max(0.04, Math.min(0.35, 260 / Math.max(1, maxEndMs)));
 }
 
+/** The minor grid step between two ruler ticks: half a tick, a quarter once
+ *  the timeline is zoomed in past .3 px/ms (a 250ms tick then subdivides to
+ *  62.5ms lines that still sit ≥18px apart). */
+export function minorTickStep(tickStep: number, pxPerMs: number): number {
+  return tickStep / (pxPerMs > 0.3 ? 4 : 2);
+}
+
+/** The minor grid lines of a beat: every subdivision of the ruler ticks that
+ *  is NOT itself a tick (the timeline draws ticks as major lines). */
+export function minorTicks(durationMs: number, tickStep: number, pxPerMs: number): number[] {
+  const step = minorTickStep(tickStep, pxPerMs);
+  const per = Math.round(tickStep / step);
+  const out: number[] = [];
+  for (let i = 1; i * step <= durationMs; i++) if (i % per) out.push(i * step);
+  return out;
+}
+
 /** Snap a ms value: magnet-snap to other tracks' boundaries + the nearest 50ms
  *  grid line within an 8-screen-px threshold; otherwise quantize to 10ms so
  *  drags land on round numbers. Alt disables via `enabled:false`. */

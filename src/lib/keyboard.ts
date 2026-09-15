@@ -8,6 +8,7 @@ import {
   selection,
   editorSelectionExclusions,
   partSelection,
+  partSelections,
   activeFigureId,
   activeTool,
   undo,
@@ -132,7 +133,7 @@ function doDistribute(axis: "h" | "v", gap?: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Arrange mode (Alt+G): live-reflow the selection into a grid via the home row.
+// Arrange mode (Alt+T): live-reflow the selection into a grid via the home row.
 // The whole session is one undo entry (beginGesture on enter, mutate per
 // tweak); Esc rolls it back. Each preview re-arranges from the baseline
 // geometry captured at entry, so the anchor and reading order stay stable.
@@ -266,18 +267,21 @@ function nudge(dx: number, dy: number) {
 // SVG's own coordinate space), not canvas px — the same units a part-move drag
 // commits, so nudges and drags compose. One undo entry per keypress.
 function nudgePart(ddx: number, ddy: number): boolean {
-  const ps = get(partSelection);
-  if (!ps) return false;
-  if (!editableIds().has(ps.elementId)) return true;
+  const parts = get(partSelections);
+  if (!parts.length) return false;
+  const editable = editableIds();
+  const list = parts.filter((ps) => editable.has(ps.elementId));
+  if (!list.length) return true;
   commit((p) => {
-    for (const f of p.figures)
-      for (const e of f.elements) {
-        if (e.id !== ps.elementId || e.type !== "plot") continue;
-        const ov = e.overrides?.[ps.partId];
-        const dx = (Number(ov?.dx ?? 0) || 0) + ddx;
-        const dy = (Number(ov?.dy ?? 0) || 0) + ddy;
-        ops.setPartOverride(p, ps.elementId, ps.partId, { dx, dy });
-      }
+    for (const ps of list)
+      for (const f of p.figures)
+        for (const e of f.elements) {
+          if (e.id !== ps.elementId || e.type !== "plot") continue;
+          const ov = e.overrides?.[ps.partId];
+          const dx = (Number(ov?.dx ?? 0) || 0) + ddx;
+          const dy = (Number(ov?.dy ?? 0) || 0) + ddy;
+          ops.setPartOverride(p, ps.elementId, ps.partId, { dx, dy });
+        }
   });
   return true;
 }
@@ -306,7 +310,10 @@ function toggleBIU(which: ops.TextToggle): boolean {
             : which === "italic"
               ? { fontStyle: (cur.fontStyle === "italic" ? "normal" : "italic") as "normal" | "italic" }
               : { textDecoration: cur.textDecoration === "underline" ? "none" : "underline" };
-        commit((p2) => ops.setPartOverride(p2, ps.elementId, ps.partId, patch));
+        const parts = get(partSelections);
+        commit((p2) => {
+          for (const q of parts) ops.setPartOverride(p2, q.elementId, q.partId, patch);
+        });
         return true;
       }
     }
@@ -329,15 +336,20 @@ function toggleBIU(which: ops.TextToggle): boolean {
 // 'x': toggle hidden. A drilled part toggles its override; else the selected
 // elements toggle together (all-visible → hide all; any-hidden → show all).
 function toggleHiddenX(): boolean {
-  const ps = get(partSelection);
-  if (ps) {
+  const parts = get(partSelections);
+  if (parts.length) {
+    // Any shown → hide all; every one hidden → show all (the Layers rule).
+    const p0 = get(project);
+    const isHidden = (ps: { elementId: string; partId: string }) =>
+      p0.figures.some((f) => f.elements.some((e) => e.id === ps.elementId && e.type === "plot" && Boolean(e.overrides?.[ps.partId]?.hidden)));
+    const hide = parts.some((ps) => !isHidden(ps));
     commit((p) => {
-      for (const f of p.figures)
-        for (const e of f.elements) {
-          if (e.id !== ps.elementId || e.type !== "plot") continue;
-          const cur = Boolean(e.overrides?.[ps.partId]?.hidden);
-          ops.setPartOverride(p, ps.elementId, ps.partId, { hidden: !cur });
-        }
+      for (const ps of parts)
+        for (const f of p.figures)
+          for (const e of f.elements) {
+            if (e.id !== ps.elementId || e.type !== "plot") continue;
+            ops.setPartOverride(p, ps.elementId, ps.partId, { hidden: hide });
+          }
     });
     return true;
   }
@@ -668,7 +680,7 @@ const TOOL_KEYS: Record<string, Tool> = {
 //   1. a drilled part → its OWNING PLOT element;
 //   2. a single selected plot element → that element;
 //   3. a selection entirely under ONE group unit (respecting the entered-group
-//      scope) → that group — covers "click a group, Alt+P" (members expand to
+//      scope) → that group — covers "click a group, Alt+R" (members expand to
 //      the whole set) and any member subset of a single group.
 // Loose non-plot selections keep today's no-op (nothing x-rayable).
 function openXray() {
@@ -694,12 +706,19 @@ function openXray() {
     xrayOpen.set(true);
     return;
   }
+  // Several plots selected → ONE multi-plot x-ray: each plot's tree side by
+  // side, plus the parts they all share (hide the x-axis of four plots at once).
+  if (els.length > 1 && els.every((e) => e.type === "plot")) {
+    xrayRoot.set({ kind: "elements", figId: fig.id, elementIds: els.map((e) => e.id) });
+    xrayOpen.set(true);
+    return;
+  }
   const scope = get(enteredGroupId);
   let gid: string | null = null;
   for (const e of els) {
     // Unit at the current scope; a DIRECT member of the entered group is its
     // own unit (groupId null) — those root on the entered group itself, so
-    // Alt+P inside a group still x-rays "the group I'm standing in".
+    // Alt+R inside a group still x-rays "the group I'm standing in".
     const u = unitOf(fig, e, scope);
     const g = u.groupId ?? (scope && ancestorsOf(fig, e.groupId).includes(scope) ? scope : null);
     if (!g) return; // a loose element in the mix — nothing to root on
@@ -741,7 +760,7 @@ export function handleKey(e: KeyboardEvent) {
 
   const mod = e.metaKey || e.ctrlKey;
 
-  // Arrange mode (Alt+G) owns the keyboard while active: home-row tweaks, Enter
+  // Arrange mode (Alt+T) owns the keyboard while active: home-row tweaks, Enter
   // to apply, Esc to cancel; everything else is swallowed.
   if (get(arrange)?.active) {
     if (e.key === "Escape") return e.preventDefault(), cancelArrange();
@@ -801,22 +820,25 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Alt+G: enter Arrange mode (snap the selection into a grid).
-  if (e.altKey && !mod && e.code === "KeyG") {
+  // The editor's chords live on the LEFT hand (2026-09-15): the right hand
+  // stays on the mouse. All three read e.code — on macOS Option+letter puts a
+  // special character in e.key, so a key-based match silently never fires.
+  // Alt+T: enter Arrange mode ("tidy" the selection into a row/grid).
+  if (e.altKey && !mod && e.code === "KeyT") {
     e.preventDefault();
     enterArrange();
     return;
   }
 
-  // Alt+P: open the X-Ray for the selected plot / group / drilled part.
-  if (e.altKey && !mod && e.code === "KeyP") {
+  // Alt+R: open the X-Ray for the selected plot(s) / group / drilled part.
+  if (e.altKey && !mod && e.code === "KeyR") {
     e.preventDefault();
     openXray();
     return;
   }
 
-  // Alt+I: open the Plot Importer (search/browse the project's plots/ dir).
-  if (e.altKey && !mod && e.code === "KeyI") {
+  // Alt+G: open the Plot Gallery (search/browse the project's plots/ dir).
+  if (e.altKey && !mod && e.code === "KeyG") {
     e.preventDefault();
     if (get(embeddedProjectRoot) || get(projectDir)) importerOpen.set(true);
     return;
@@ -854,20 +876,21 @@ export function handleKey(e: KeyboardEvent) {
     }
   }
 
-  // Alignment: Alt + A/W/S/D (+ centre on H/V).
+  // Alignment: Alt + A/W/S/D (+ centre on H/V). Matched on e.code: on macOS
+  // Option+A arrives as "å" in e.key and the chord was dead there.
   if (e.altKey && !mod) {
-    const k = e.key.toLowerCase();
     const map: Record<string, AlignKind | undefined> = {
-      a: "left",
-      d: "right",
-      w: "top",
-      s: "bottom",
-      h: "centerH",
-      v: "centerV",
+      KeyA: "left",
+      KeyD: "right",
+      KeyW: "top",
+      KeyS: "bottom",
+      KeyH: "centerH",
+      KeyV: "centerV",
     };
-    if (map[k]) {
+    const kind = map[e.code];
+    if (kind) {
       e.preventDefault();
-      doAlign(map[k]!);
+      doAlign(kind);
       return;
     }
   }
@@ -901,9 +924,9 @@ export function handleKey(e: KeyboardEvent) {
     const k = e.key.toLowerCase();
     // Alt-modified: F9 select-same-fill (Shift = whole project), F10 copy/paste style.
     if (e.altKey) {
-      if (k === "a") { e.preventDefault(); selectMatching("fill", e.shiftKey ? "project" : "figure"); return; }
-      if (k === "c") { e.preventDefault(); copyStyle(); return; }
-      if (k === "v") { e.preventDefault(); pasteStyle(); return; }
+      if (e.code === "KeyA") { e.preventDefault(); selectMatching("fill", e.shiftKey ? "project" : "figure"); return; }
+      if (e.code === "KeyC") { e.preventDefault(); copyStyle(); return; }
+      if (e.code === "KeyV") { e.preventDefault(); pasteStyle(); return; }
     }
     // Ctrl/Cmd+B/I/U: bold / italic / underline (text elements or a drilled
     // text-kind plot part). NOTE ctrl+I no longer imports — import moved to

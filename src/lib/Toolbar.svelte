@@ -40,6 +40,9 @@
   }
 </script>
 
+<!-- The editor's top strip (2026-09-15 surface redesign): one flat 34px bar on
+     the raised surface, groups separated by hairlines, square controls, the
+     active tool as a quiet accent tint. -->
 <header class="toolbar">
   <span class="brand" class:slide={slideMode}>{slideMode ? "Slide" : "Figure"}{$dirty ? " •" : ""}</span>
 
@@ -49,7 +52,7 @@
       <button on:click={saveProject} title="Save (Ctrl+S)">Save</button>
     {/if}
     <button on:click={importAssets} title="Import PNG/SVG (Ctrl+Shift+K)">Import</button>
-    {#if slideMode}<button on:click={() => importerOpen.set(true)} title="Browse project plots and MP4/MOV clips (Alt+I)">Plots &amp; videos</button>{/if}
+    <button on:click={() => importerOpen.set(true)} title={slideMode ? "Browse project plots and MP4/MOV clips (Alt+G)" : "Plot gallery (Alt+G)"}>{slideMode ? "Plots & videos" : "Gallery"}</button>
   </div>
 
   <div class="sep"></div>
@@ -59,7 +62,7 @@
       <button
         class:active={$activeTool === t.id}
         title={`${t.label} (${t.key})`}
-        on:click={() => activeTool.set(t.id)}>{t.label}</button
+        on:click={() => activeTool.set(t.id)}>{t.label}<kbd>{t.key}</kbd></button
       >
     {/each}
   </div>
@@ -98,41 +101,51 @@
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
+    gap: 6px;
+    min-height: 34px;
+    padding: 3px 8px;
     background: var(--c-bg-raised);
     border-bottom: 1px solid var(--c-line);
     flex-wrap: wrap;
     container-type: inline-size;
     color: var(--c-tx);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    -webkit-font-smoothing: antialiased;
   }
   .brand {
-    font-family: var(--font-serif);
-    font-weight: 600;
+    font: 600 12px var(--font-ui);
+    letter-spacing: 0.02em;
     margin-right: 4px;
     color: var(--c-tx-hi);
   }
   .brand.slide {
-    color: var(--c-accent);
-    font-style: italic;
+    color: var(--c-accent-bright);
   }
-  .save-error { color: var(--c-danger, #c64745); font-size: 11px; }
+  .save-error { color: var(--c-danger); font-size: 11px; }
   button:disabled { opacity: 0.35; cursor: default; }
   .group {
     display: flex;
-    gap: 4px;
+    gap: 2px;
   }
+  /* Tools form ONE joined segment (shared hairlines, outer radius only). */
+  .group.tools { gap: 0; }
+  .group.tools button { border-radius: 0; margin-left: -1px; }
+  .group.tools button:first-child { border-radius: var(--r-ui) 0 0 var(--r-ui); margin-left: 0; }
+  .group.tools button:last-child { border-radius: 0 var(--r-ui) var(--r-ui) 0; }
+  .group.tools button.active { position: relative; z-index: 1; }
   .sep {
     width: 1px;
-    height: 22px;
+    height: 18px;
     background: var(--c-line-strong);
+    margin: 0 2px;
   }
   .spacer {
     flex: 1 1 0;
   }
   .path {
-    font-size: 11px;
-    opacity: 0.5;
+    font: 11px var(--font-mono);
+    color: var(--c-tx-muted);
     max-width: 240px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -140,32 +153,45 @@
     flex-shrink: 1;
   }
   .zoomval {
+    font: 11px var(--font-mono);
     font-variant-numeric: tabular-nums;
     min-width: 42px;
     text-align: center;
-    font-size: 12px;
+    color: var(--c-tx-2);
   }
   button {
-    background: var(--c-ui);
-    color: var(--c-tx);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    background: transparent;
+    color: var(--c-tx-2);
     border: 1px solid var(--c-line-strong);
-    border-radius: 5px;
-    padding: 4px 9px;
-    font-size: 12px;
+    border-radius: var(--r-ui);
+    padding: 0 8px;
+    font: 12px var(--font-ui);
     cursor: pointer;
   }
-  button:hover {
-    background: var(--c-ui-hover);
+  button:hover:not(:disabled) {
+    border-color: var(--c-tx-muted);
+    color: var(--c-tx-hi);
   }
   button.active {
-    background: var(--c-accent);
+    background: var(--c-accent-tint);
     border-color: var(--c-accent);
-    color: var(--c-on-accent);
+    color: var(--c-tx-hi);
   }
+  kbd {
+    font: 600 9.5px var(--font-mono);
+    color: var(--c-tx-muted);
+    text-transform: uppercase;
+  }
+  button.active kbd { color: var(--c-accent); }
+  .gear { padding: 0 6px; font-size: 13px; }
   @media (max-width: 1100px) {
-    .toolbar { gap: 4px; padding: 5px 6px; }
-    .group { gap: 2px; }
-    .toolbar button { padding: 4px 6px; }
+    .toolbar { gap: 4px; padding: 3px 6px; }
+    .toolbar button { padding: 0 6px; }
+    kbd { display: none; }
     .path { max-width: 90px; }
   }
 </style>

@@ -1,6 +1,6 @@
 # Plot gallery verification — 2026-09-07
 
-Alt+I defaults to a gallery of SVG/PNG previews. Display choices persist locally;
+Alt+G defaults to a gallery of SVG/PNG previews. Display choices persist locally;
 folder navigation, whole-project ordinary search, reserved collection scopes and
 cross-folder picks work both in the dialog and in the pinned window. The utility
 shares the opener's authoring store and existing import pipeline, has no file

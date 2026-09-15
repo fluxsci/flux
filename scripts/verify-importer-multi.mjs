@@ -1,4 +1,4 @@
-// figure-v1 P0b gate (browser) — the Alt+I Plot Importer's multi-select in FIGURE
+// figure-v1 P0b gate (browser) — the Alt+G Plot Importer's multi-select in FIGURE
 // mode, end-to-end against the demo fixture: Enter TOGGLES a plot into the picked
 // set (✓ + count pill, no close), Enter on a dir descends, Space toggles only
 // while the search box is empty (else it types — filenames contain spaces), the
@@ -68,7 +68,7 @@ const snap = () =>
 
 const altI = async () => {
   await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyI");
+  await page.keyboard.press("KeyG");
   await page.keyboard.up("Alt");
   await sleep(450); // open() + rAF focus + background scan
 };
@@ -84,7 +84,7 @@ const base = (await snap()).els.length;
 // ---- open + toggle mechanics ---------------------------------------------------
 await altI();
 let s = await snap();
-ok(s.open, "Alt+I opens the importer");
+ok(s.open, "Alt+G opens the importer");
 ok(s.inputFocused, "search input holds keyboard focus on open");
 
 // ---- plots/_dissections/ is invisible (Dissect companion material) --------------

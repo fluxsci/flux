@@ -3327,7 +3327,7 @@
                   font-size={12 / renderZoom}
                 >
                   <tspan x={fig.width / 2} dy={-5 / renderZoom}>Drop PNG/SVG plots here</tspan>
-                  <tspan x={fig.width / 2} dy={18 / renderZoom}>Ctrl+Shift+K import · Alt+I plot importer</tspan>
+                  <tspan x={fig.width / 2} dy={18 / renderZoom}>Ctrl+Shift+K import · Alt+G plot gallery</tspan>
                 </text>
               {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}

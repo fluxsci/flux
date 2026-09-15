@@ -60,7 +60,7 @@ export const ALLOWED_COMMANDS = [
   "add_image",
   "flip",
   "set_caption",
-  // figure-v1 P0b: batch-import plots by path (the GUI Alt+I multi-insert).
+  // figure-v1 P0b: batch-import plots by path (the GUI Alt+G gallery multi-insert).
   "import_plots",
   // figure-v1 P5: set/clear an image/plot crop window (content-pinned).
   "set_crop",
@@ -606,7 +606,7 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
 
     case "import_plots": {
       // Batch-import plots into the active figure by absolute path — the same
-      // io.importPlotsFromPaths the GUI's Alt+I multi-insert runs (sidecar
+      // io.importPlotsFromPaths the GUI's Alt+G gallery multi-insert runs (sidecar
       // resolution, physical-size placement, grid auto-arrange, ONE undo step,
       // per-file failure toast). Dynamically imported: io.ts is a GUI-runtime
       // module (browser Image/window.fig), and a static import would drag it

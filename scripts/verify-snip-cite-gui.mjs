@@ -1,6 +1,6 @@
 // Paper snips — provenance → "copy citation", end-to-end against :1420
 // (?fixture=demo): capture a snip in the reader, import it in FIGURE mode via
-// the Alt+I Plot Importer (which now lists .png with a "snip" badge), press F
+// the Alt+G Plot Importer (which now lists .png with a "snip" badge), press F
 // → the FluxFig menu offers "copy citation" (from the PNG's flux-snip tEXt
 // chunk via the buildIncoming seam), activate it → the citation reaches the
 // clipboard. Then SLIDE mode: paste the same PNG bytes (window paste event →
@@ -64,7 +64,7 @@ try {
     .then(() => true, () => false);
   ok("snip captured and saved from the reader", saved);
 
-  // --- 2. figure mode: Alt+I lists the snip, imports it -----------------------------
+  // --- 2. figure mode: Alt+G lists the snip, imports it -----------------------------
   await clickMode(page, "Figure", { settle: 1200 });
   // Clipboard spy: records what the copy-citation field writes while still
   // calling through — headless-Chrome clipboard permissions are flaky, the API
@@ -78,10 +78,10 @@ try {
     };
   });
   await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyI");
+  await page.keyboard.press("KeyG");
   await page.keyboard.up("Alt");
   await sleep(600); // open + rAF focus + background scan
-  ok("Alt+I opens the importer", !!(await page.$(".importer")));
+  ok("Alt+G opens the importer", !!(await page.$(".importer")));
   await page.keyboard.type(KEY); // search across plots/ finds paper_snips/<key>-p1.png
   await sleep(400);
   const row = await page.evaluate(() => {

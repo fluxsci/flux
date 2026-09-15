@@ -16,7 +16,7 @@
   let el = $state<HTMLDivElement | null>(null);
   // keep the menu on-screen (flip up/left near edges)
   const pos = $derived.by(() => {
-    const w = 190, h = items.reduce((sum, it) => sum + (it.divider ? 7 : it.hint ? 40 : 26), 10);
+    const w = 190, h = items.reduce((sum, it) => sum + (it.divider ? 7 : it.hint ? 40 : 25), 8);
     const px = Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 9999) - w - 8);
     const py = Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 9999) - h - 8);
     return { x: Math.max(4, px), y: Math.max(4, py) };
@@ -47,21 +47,22 @@
 
 <style>
   .menu {
-    position: fixed; z-index: 80; min-width: 172px;
-    background: var(--c-bg-2, #1c1b1a); border: 1px solid var(--c-line-strong, #343331);
-    border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); padding: 4px;
-    display: flex; flex-direction: column; gap: 1px;
+    position: fixed; z-index: 80; min-width: 172px; padding: 3px;
+    background: var(--c-surface); border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-panel); box-shadow: var(--elev-2);
+    display: flex; flex-direction: column; gap: 1px; outline: none;
+    font: 12px/1.35 var(--font-ui); -webkit-font-smoothing: antialiased;
   }
   .menu button {
-    text-align: left; border: none; background: none; color: var(--c-tx-2, #b7b5ac);
-    border-radius: 4px; padding: 4px 9px; cursor: pointer; font-size: 11.5px;
+    text-align: left; border: 0; background: none; color: var(--c-tx-2);
+    border-radius: var(--r-0); min-height: 24px; padding: 3px 9px; cursor: pointer; font: 12px var(--font-ui);
   }
-  .menu button:hover:not(:disabled) { background: color-mix(in oklab, var(--c-accent, #4385be) 18%, transparent); color: var(--c-tx-hi, #fff); }
-  .menu button:disabled { color: var(--c-tx-faint, #6f6e69); cursor: default; }
-  .menu button.hinted { display: flex; flex-direction: column; gap: 1px; padding-block: 5px; }
-  .menu button small { font-size: 10px; color: var(--c-tx-3, #878580); white-space: nowrap; }
-  .menu button:hover:not(:disabled) small { color: var(--c-tx-2, #b7b5ac); }
-  .menu button.danger { color: var(--c-danger, #d14d41); }
-  .menu button.danger:hover { background: color-mix(in oklab, var(--c-danger, #d14d41) 16%, transparent); }
-  .div { height: 1px; background: var(--c-line, #282726); margin: 3px 4px; }
+  .menu button:hover:not(:disabled) { background: var(--c-accent-tint); color: var(--c-tx-hi); }
+  .menu button:disabled { color: var(--c-tx-faint); cursor: default; }
+  .menu button.hinted { display: flex; flex-direction: column; gap: 1px; padding-block: 4px; }
+  .menu button small { font-size: 10.5px; color: var(--c-tx-muted); white-space: nowrap; }
+  .menu button:hover:not(:disabled) small { color: var(--c-tx-2); }
+  .menu button.danger { color: var(--c-danger); }
+  .menu button.danger:hover:not(:disabled) { background: color-mix(in oklab, var(--c-danger) 14%, transparent); }
+  .div { height: 1px; background: var(--c-line); margin: 3px 4px; }
 </style>

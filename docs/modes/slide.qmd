@@ -77,7 +77,16 @@ reorder. Drag onto a step to move it; hold **Alt** to copy between steps. Shift 
 selects several lanes; **Ctrl/Cmd+A** selects this step's effects. **Ctrl/Cmd+G** groups the selection,
 **Ctrl/Cmd+Shift+G** ungroups it, and **Ctrl/Cmd+D** duplicates it. Groups can collapse without changing
 timing. Double-click a group name to rename it; drag its span to retime or move the whole group. Right-click a lane for these actions and moves to named steps. Ctrl/Cmd-wheel zooms timing;
-**fit ⟲** restores automatic scaling.
+**fit ⟲** restores automatic scaling. Vertical grid lines run through every lane at the
+ruler's ticks; while you drag, a guide follows the edge you are moving and runs the full
+height of the ruler when it snaps to another effect's edge or to the 50 ms grid, and a single
+selected effect shows its start and end across all lanes so alignment reads at a glance.
+
+The **X-ray** (**Alt+R**) animates too: select one plot — or several — press **Alt+R**, pick
+the rows you want (**Shift+click** a run, **Ctrl/Cmd+click** to toggle, **Ctrl/Cmd+A** for all;
+a multi-plot X-ray lists the parts every plot shares), then press **A** and choose
+**Appear**, **Emphasize**, **Disappear** or **Change**. Every picked part lands on the current
+step as its own effect, ready to retime in the timeline.
 
 The **Animation** inspector edits the selected effects' target, part, effect, start, duration,
 easing, stagger, and relevant specialized controls. Mixed timing values are blank until you set
@@ -187,7 +196,7 @@ The Animation inspector's **Destination** row states what the object becomes at 
 ("Becomes an ellipse", "Data becomes growth-b.svg") and offers **Become an object…** to point an
 existing transform somewhere else.
 
-**Alt+I** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
+**Alt+G** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
 Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gallery in a
 separate window for repeated insertion onto the active slide.
 
@@ -211,7 +220,7 @@ back, elsewhere forward.
 
 # Video clips
 
-Keep **`.mp4` and `.mov`** files in **`plots/_videos`**. Open **Plots & videos** in Slide mode (or press **Alt+I**),
+Keep **`.mp4` and `.mov`** files in **`plots/_videos`**. Open **Plots & videos** in Slide mode (or press **Alt+G**),
 choose a clip by its poster thumbnail, and import it onto the current slide. Drag, resize,
 rotate, group, and duplicate it with the same tools used for images. The inspector includes
 **Muted** and **Loop** options. Imported clips keep their originals; the deck stores a

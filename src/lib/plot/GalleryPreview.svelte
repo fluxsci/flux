@@ -16,7 +16,7 @@
 </span>
 
 <style>
-  .preview { display:flex; align-items:center; justify-content:center; width:100%; height:100%; overflow:hidden; background:var(--flx-paper); border-radius:4px; }
-  img { display:block; width:100%; height:100%; object-fit:contain; padding:8px; }
-  .preview > span { color:var(--c-tx-muted); font-size:11px; }
+  .preview { display:flex; align-items:center; justify-content:center; width:100%; height:100%; overflow:hidden; background:var(--flx-paper); border-radius:var(--r-0); }
+  img { display:block; width:100%; height:100%; object-fit:contain; padding:6px; }
+  .preview > span { color:var(--c-tx-muted); font:11px var(--font-ui); }
 </style>

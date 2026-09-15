@@ -227,6 +227,15 @@ export interface PartSelection {
   partId: string;
 }
 const partSelectionStore = writable<PartSelection | null>(null);
+// The PLURAL part selection (2026-09-15 surface redesign): the X-ray can pick
+// several parts at once — five series of one plot, or the x-axis of four
+// plots — and every part editor (property menu, Inspector, colour writes,
+// hide, nudge, animate) applies to all of them. `partSelection` (singular)
+// stays the primary/anchor part and is what every existing consumer reads;
+// the plural list is a strict superset that always contains it. A plain
+// `partSelection.set(p)` collapses the plural to [p]; `setPartSelections`
+// publishes a list. Both stores publish new identities, never mutate.
+const partSelectionsStore = writable<PartSelection[]>([]);
 function selectablePart(part: PartSelection | null): PartSelection | null {
   return part && isEditorTargetExcluded(part.elementId, part.partId) ? null : part;
 }
@@ -235,9 +244,43 @@ export function isEditorTargetExcluded(elementId: Id, partId?: string): boolean 
 }
 export const partSelection = {
   subscribe: partSelectionStore.subscribe,
-  set(part: PartSelection | null) { partSelectionStore.set(selectablePart(part)); },
-  update(fn: (part: PartSelection | null) => PartSelection | null) { partSelectionStore.update(part => selectablePart(fn(part))); },
+  set(part: PartSelection | null) {
+    const p = selectablePart(part);
+    partSelectionStore.set(p);
+    partSelectionsStore.set(p ? [p] : []);
+  },
+  update(fn: (part: PartSelection | null) => PartSelection | null) {
+    partSelection.set(fn(get(partSelectionStore)));
+  },
 };
+export const partSelections = { subscribe: partSelectionsStore.subscribe };
+// A part drill only lives INSIDE the element selection: when the selection
+// moves elsewhere (a gallery insert, a Layers click, a marquee, Escape) the
+// parts of elements no longer selected go with it — the Inspector and the
+// property menu must never keep editing a plot the user has left. Publishing
+// a pick sets the elements first and the parts second, so a fresh pick is
+// never pruned by its own selection write.
+selectionStore.subscribe((sel) => {
+  const picked = get(partSelectionsStore);
+  if (!picked.length || picked.every((pt) => sel.has(pt.elementId))) return;
+  setPartSelections(picked.filter((pt) => sel.has(pt.elementId)));
+});
+/** Publish a multi-part selection; the first entry becomes the primary part.
+ *  Duplicates and excluded (stashed) parts are dropped. */
+export function setPartSelections(parts: PartSelection[]) {
+  const seen = new Set<string>();
+  const list: PartSelection[] = [];
+  for (const part of parts) {
+    const p = selectablePart(part);
+    if (!p) continue;
+    const key = p.elementId + "\0" + p.partId;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push(p);
+  }
+  partSelectionStore.set(list[0] ?? null);
+  partSelectionsStore.set(list);
+}
 
 /** Slide owns this policy and clears it on deactivation. It never changes the
  * document, history, or ordinary Figure hidden/locked selection behavior. */
@@ -255,6 +298,8 @@ export function setEditorSelectionExclusions(ids: ReadonlySet<Id>, parts: Readon
   if (filtered !== selected) selectionStore.set(filtered);
   const part = get(partSelectionStore), filteredPart = selectablePart(part);
   if (filteredPart !== part) partSelectionStore.set(filteredPart);
+  const picked = get(partSelectionsStore);
+  if (picked.some((pt) => selectablePart(pt) !== pt)) partSelectionsStore.set(picked.filter((pt) => selectablePart(pt) === pt));
   if (excludedEditorIds.has(get(hoverId) ?? "")) hoverId.set(null);
 }
 
@@ -264,7 +309,7 @@ export function setEditorSelectionExclusions(ids: ReadonlySet<Id>, parts: Readon
 // selection; pruned when the group disappears (undo/delete/ungroup).
 export const enteredGroupId = writable<Id | null>(null);
 
-// X-Ray viewer (Alt+P): a floating radiograph listing the structure of a plot
+// X-Ray viewer (Alt+R): a floating radiograph listing the structure of a plot
 // element OR a group (figure-v1 P8), with per-row show/hide + Show Properties.
 export const xrayOpen = writable<boolean>(false);
 
@@ -274,7 +319,7 @@ export const xrayOpen = writable<boolean>(false);
 // figure switch. Type lives in xray/buildXrayTree.ts (the pure tree builder).
 export const xrayRoot = writable<XrayTarget | null>(null);
 
-// Plot Importer (Alt+I): a quick-open window to search/browse the project's
+// Plot gallery (Alt+G): a quick-open window to search/browse the project's
 // plots/ dir and import a FluxPlot plot.
 export const importerOpen = writable<boolean>(false);
 // The detached gallery owns only its own keys; the authoring canvas stays live.
@@ -335,7 +380,7 @@ export const hoverId = writable<Id | null>(null);
 // the global shortcut handler yields, like it does for the caption editor.
 export const nodeEditId = writable<Id | null>(null);
 
-// Keyboard-driven grid arrangement ("Arrange mode", Alt+G). While `active`, the
+// Keyboard-driven grid arrangement ("Arrange mode", Alt+T). While `active`, the
 // selection is being live-reflowed into a grid; `rows`/`cols` are the current
 // shape and `n` the number of layout cells (a group counts once). The HUD reads
 // this; `null` when the mode is off. `lastArrangeRows` drives the Inspector's
@@ -720,7 +765,10 @@ function pruneSelection() {
     for (const id of s) if (live.has(id)) n.add(id);
     return n;
   });
-  partSelection.update((ps) => (ps && live.has(ps.elementId) ? ps : null));
+  {
+    const parts = get(partSelectionsStore).filter((ps) => live.has(ps.elementId));
+    if (parts.length !== get(partSelectionsStore).length) setPartSelections(parts);
+  }
   // FIG-13: a frame (figure) selection can also dangle after undo removes its figure —
   // clear it so the frame HUD / resize handles don't render against a gone figure.
   selectedFrameId.update((id) => (id && p.figures.some((f) => f.id === id) ? id : null));
@@ -740,6 +788,14 @@ function pruneSelection() {
     const f = p.figures.find((ff) => ff.id === r.figId);
     if (!f) return null;
     if (r.kind === "element") return f.elements.some((e) => e.id === r.elementId) ? r : null;
+    if (r.kind === "elements") {
+      // A multi-plot root survives while at least one of its plots does; a
+      // single survivor collapses to the ordinary element root.
+      const ids = r.elementIds.filter((id) => f.elements.some((e) => e.id === id));
+      if (!ids.length) return null;
+      if (ids.length === 1) return { kind: "element", figId: r.figId, elementId: ids[0] };
+      return ids.length === r.elementIds.length ? r : { ...r, elementIds: ids };
+    }
     return f.groups?.[r.groupId] ? r : null;
   });
 }

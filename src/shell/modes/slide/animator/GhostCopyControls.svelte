@@ -58,8 +58,26 @@
     </section>
   {/if}
 <style>
-  .ghost-copies{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--c-line-strong);border-radius:6px;margin:12px;font-size:12px}
-  .ghost-copies small{color:var(--c-tx-2);font-size:11px}.ghost-copies label{display:flex;gap:8px;align-items:center}.ghost-copies select,.ghost-copies input{min-width:0;flex:1;padding:5px}
-  .copy-actions{display:flex;flex-wrap:wrap;gap:5px}.copy-actions button{padding:4px 7px;font-size:11px}
-  button,select,input{font:inherit;color:var(--c-tx);background:var(--c-bg-2);border:1px solid var(--c-line-strong);border-radius:4px}button{cursor:pointer}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}
+  /* a rail section: hairline below, no box-in-box */
+  .ghost-copies {
+    display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; margin: 0;
+    border: 0; border-bottom: 1px solid var(--c-line); border-radius: 0;
+    font: 12px/1.35 var(--font-ui); -webkit-font-smoothing: antialiased; color: var(--c-tx);
+  }
+  .ghost-copies strong { font-weight: 600; color: var(--c-tx); }
+  .ghost-copies small { color: var(--c-tx-muted); font-size: 11px; margin-top: -4px; }
+  .ghost-copies label { display: flex; gap: 8px; align-items: center; justify-content: space-between; min-height: 24px; color: var(--c-tx-muted); }
+  .ghost-copies select, .ghost-copies input { min-width: 0; flex: 1; max-width: 170px; }
+  .copy-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+  button, select, input {
+    height: 24px; font: 12px var(--font-ui); color: var(--c-tx); background: transparent;
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); padding: 2px 8px;
+  }
+  select, input { background: var(--c-bg); padding: 2px 6px; }
+  input { font: 12px var(--font-mono); }
+  button { cursor: pointer; color: var(--c-tx-2); }
+  button:hover:not(:disabled) { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
+  button:disabled { opacity: .4; cursor: default; }
+  select:focus, input:focus { border-color: var(--c-accent); outline: none; }
+  button:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 1px; }
 </style>

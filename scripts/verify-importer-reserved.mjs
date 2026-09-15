@@ -50,7 +50,7 @@ const snap = () =>
 
 const altI = async () => {
   await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyI");
+  await page.keyboard.press("KeyG");
   await page.keyboard.up("Alt");
   await sleep(500); // open() + rAF focus + background scan
 };

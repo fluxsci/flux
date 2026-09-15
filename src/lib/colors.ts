@@ -1,6 +1,6 @@
 import { writable, get } from "svelte/store";
 import type { ColorGroup, ColorSwatch, Id, PartOverride } from "./types";
-import { project, selection, partSelection, drawStyle, commit, mutate } from "./store";
+import { project, selection, partSelection, partSelections, drawStyle, commit, mutate } from "./store";
 import { selectionTargets } from "./interact/selectionTargets";
 import * as ops from "./ops";
 
@@ -18,11 +18,19 @@ export function applyPartStyleTo(elementId: Id, partId: string, patch: PartOverr
   (preview ? mutate : commit)((p) => ops.setPartOverride(p, elementId, partId, patch));
 }
 
-// Write a style override onto the currently selected plot PART (the canvas
-// drill-in selection). Used by the inspector + by ColorSearch via applyColor.
+// Write a style override onto EVERY selected plot part (the canvas drill-in
+// selection, or the X-ray's multi-pick — store.partSelections). Used by the
+// inspector + by the palette picker via applyColor. One transaction.
 export function applyPartStyle(patch: PartOverride, preview = false) {
-  const ps = get(partSelection);
-  if (ps) applyPartStyleTo(ps.elementId, ps.partId, patch, preview);
+  const parts = get(partSelections);
+  if (!parts.length) return;
+  const editable = parts.filter((ps) =>
+    get(project).figures.some((f) => selectionTargets(f, new Set([ps.elementId]), { editable: true }).length),
+  );
+  if (!editable.length) return;
+  (preview ? mutate : commit)((p) => {
+    for (const ps of editable) ops.setPartOverride(p, ps.elementId, ps.partId, patch);
+  });
 }
 
 // Apply a colour to the current selection (or to the draw style if nothing is
@@ -101,6 +109,15 @@ export function setStrokeWidth(v: number, preview = false) {
 export function currentColor(target: "fill" | "stroke"): string {
   const sel = get(selection);
   const p = get(project);
+  const ps = get(partSelection);
+  if (ps) {
+    for (const f of p.figures)
+      for (const e of f.elements)
+        if (e.id === ps.elementId && e.type === "plot") {
+          const v = e.overrides?.[ps.partId]?.[target];
+          if (typeof v === "string") return v;
+        }
+  }
   for (const f of p.figures)
     for (const e of f.elements) {
       if (!sel.has(e.id)) continue;

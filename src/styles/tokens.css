@@ -141,6 +141,11 @@
      install regardless (web fonts resolve async, fallback renders instantly). */
   --font-serif: Georgia, "Gelasio", "Times New Roman", Times, serif;
   --font-mono:  ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  /* The editor SURFACE face (Figure/Slide chrome: rails, inspector, property
+     menu, X-ray, gallery, animator, settings). A sans UI face keeps 11–13px
+     chrome text crisp and reads as one technical surface; the manuscript and
+     the wordmark stay serif. (2026-09-15 surface redesign.) */
+  --font-ui:    ui-sans-serif, -apple-system, "Segoe UI", Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
 
   /* Per-surface TEXT SCALE — see the `:root, .ts-scaled` block below. */
   --ts-scale: 1;
@@ -166,6 +171,12 @@
   --sp-9: 96px;
 
   /* ---- Radii ------------------------------------------------------------ */
+  /* Editor-surface radii (2026-09-15): controls are barely rounded, floating
+     panels a hair more, rows/tiles/bars square. The larger --r-* steps below
+     stay for the paper module and Home. */
+  --r-0: 0px;
+  --r-ui: 2px;
+  --r-panel: 3px;
   --r-1: 6px;
   --r-2: 10px;
   --r-3: 14px;

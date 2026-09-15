@@ -1,572 +1,199 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
-  import { selectionTargets } from "./interact/selectionTargets";
-  import { editSession } from "./interact/editSession";
-  import { numericProperties, propertyValue, setNumericProperty, type NumericProperty } from "./interact/elementProperties";
-  import { uniqueFieldKeys } from "./interact/propertyFields";
-  import { fade } from "svelte/transition";
+  // The property menu — `f` (2026-09-15 surface redesign). The principal way
+  // of editing object properties without the right rail: left hand on the
+  // keyboard, right hand on the mouse, and neither ever has to leave.
+  //
+  //   · It opens INSTANTLY beside the selection (ui/anchor.ts — right of the
+  //     selection box, else left/below/above, never covering it), aligned to
+  //     the pointer, and lays its groups out in COLUMNS so it never scrolls.
+  //   · Every property has a left-hand hotkey (the letter on its row). Pressing
+  //     it ARMS the row: a number then follows the mouse WHEEL (speed-scaled:
+  //     a flick moves fast, a slow roll moves one step; Shift ×10, Alt ×0.1)
+  //     or the arrow keys, typed digits replace it, and Space / Enter confirm;
+  //     a choice expands its options inline (wheel / w·a·s·d / 1–9 / click);
+  //     a colour opens the palette picker (hover previews, click commits);
+  //     a toggle flips at once. Escape reverts the armed edit, Escape again
+  //     (or f) closes. Hovering any numeric row and rolling the wheel edits it
+  //     directly — the whole menu is usable with the mouse alone as well.
+  //   · Every armed edit is ONE undo entry (editSession), previewed live.
+  //
+  // The field model (labels, hotkeys, readers, live appliers, ranges) lives in
+  // interact/propertyMenu.ts, shared with the Inspector's part section.
+  import { onDestroy, tick } from "svelte";
   import { get } from "svelte/store";
-  import {
-    project,
-    selection,
-    partSelection,
-    mutate,
-    drawStyle,
-    type PartSelection,
-  } from "./store";
-  import type { Element, PartOverride, Project, SemanticPlotElement, TextStyle } from "./types";
-  import type { FluxPlotManifest } from "./plot/types";
+  import { editSession } from "./interact/editSession";
+  import { selectionTargets } from "./interact/selectionTargets";
+  import { buildMenuFields, groupFields, fieldRange, setDimensionBase, type Field } from "./interact/propertyMenu";
+  import { anchorPanel, reclampPanel, unionRects, type Rect } from "./ui/anchor";
+  import { WheelStepper, wheelDelta, wheelMultiplier } from "./interact/wheelLaw";
+  import { project, selection, partSelection, partSelections } from "./store";
   import { plotManifests } from "./plot/store";
-  import { partKind, partNode, readPartStyle } from "./plot/partStyle";
-  import * as ops from "./ops";
-  import { applyTextLayout, reflowTexts } from "./text";
-  import { globalTextStyles, loadGlobalTextStyles, applyTextStyleToPart, libraryOnly } from "./textStyles";
-  import { evalExpr } from "./num";
+  import { globalTextStyles, loadGlobalTextStyles } from "./textStyles";
+  import { evalExpr, fmtNum } from "./num";
   import { scrub } from "./scrub";
   import { nameForHex } from "./colors";
-  import { presetPicker, presetableSelection } from "./presets";
-  import { fluxFigMenuOpen, settings, popupLayout } from "./settings";
-  import { getSnipMeta } from "./snipMeta";
-  import { pushToast } from "./toast";
-  import { halfFrame, drawForge } from "./motion/selfDraw";
-  import { prefersReducedMotion } from "./motion/motion";
-  import ColorSearch from "./ColorSearch.svelte";
+  import { fluxFigMenuOpen } from "./settings";
+  import ColorPicker from "./ColorPicker.svelte";
 
-  type Kind = "number" | "text" | "select" | "toggle" | "color";
-  interface Field {
-    key: string;
-    label: string;
-    group: string;
-    kind: Kind;
-    get: () => string | number | boolean;
-    apply: (v: string | number | boolean) => void;
-    options?: { value: string; label: string }[];
-    target?: "fill" | "stroke";
-    step?: number;
-    mixed?: boolean;
-    count?: number;
-  }
+  type Mode = "hotkey" | "field" | "option" | "color" | "search";
 
   const session = editSession();
   onDestroy(() => session.finish());
-  let draft = "";
-  let mode: "hotkey" | "field" | "color" | "search" = "hotkey";
+
+  let mode: Mode = "hotkey";
   let activeKey: string | null = null;
   let colorField: Field | null = null;
-  // Pre-edit W/H per selected element, captured when the w/h field activates —
-  // the base the aspect lock scales from (see the geometry appliers).
-  let dimBase: Map<string, { w: number; h: number }> | null = null;
+  let draft = "";
+  let optIndex = 0;
   let search = "";
   let sIndex = 0;
   let panelEl: HTMLDivElement;
-  let inputs: Record<string, any> = {};
   let searchEl: HTMLInputElement;
-  let frameW = 0; // measured panel box, for the self-drawing outline
-  let frameH = 0;
+  let inputs: Record<string, HTMLInputElement | undefined> = {};
 
   // (Re)build the field list whenever the selection / part selection or its
-  // data changes (the global style library too — it feeds the 'y' field).
-  $: fields = $fluxFigMenuOpen ? uniqueFieldKeys(buildFields($project, $selection, $partSelection, $plotManifests, $globalTextStyles)) : [];
+  // data changes (the global style library too — it feeds the style fields).
+  $: fields = $fluxFigMenuOpen ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles) : [];
   $: groups = groupFields(fields);
+  $: cols = fields.length > 18 ? 3 : fields.length > 8 ? 2 : 1;
+  $: width = cols === 3 ? 900 : cols === 2 ? 616 : 328;
   $: sQ = search.trim().toLowerCase();
-  $: sResults = sQ
-    ? fields.filter((f) => `${f.label} ${f.group} ${f.key}`.toLowerCase().includes(sQ))
-    : fields;
+  $: sResults = sQ ? fields.filter((f) => `${f.label} ${f.group} ${f.key}`.toLowerCase().includes(sQ)) : fields;
   $: if (sIndex >= sResults.length) sIndex = Math.max(0, sResults.length - 1);
+  $: active = activeKey ? (fields.find((f) => f.key === activeKey) ?? null) : null;
+  $: context = describe($selection, $partSelections, $project);
 
-  // Reset state each time the FluxFig Menu opens (+ refresh the global style
-  // library so the 'y' style field lists current definitions).
+  function describe(sel: Set<string>, parts: { elementId: string; partId: string }[], p: typeof $project): string {
+    if (parts.length > 1) return `${parts.length} plot parts`;
+    if (parts.length === 1) return "Plot part";
+    if (!sel.size) return "Drawing defaults";
+    const kinds = new Map<string, number>();
+    for (const f of p.figures) for (const e of f.elements) if (sel.has(e.id)) kinds.set(e.type, (kinds.get(e.type) ?? 0) + 1);
+    const list = [...kinds].map(([k, n]) => (n > 1 ? `${n} ${k}s` : k)).join(", ");
+    return sel.size === 1 ? list : `${sel.size} selected · ${list}`;
+  }
+
+  // --- pointer + placement -----------------------------------------------------
+  // The last pointer position is the anchor's second input; tracking it costs
+  // one assignment per move (no reactivity).
+  const pointer = { x: -1, y: -1 };
+  function onPointerMove(e: PointerEvent) {
+    pointer.x = e.clientX;
+    pointer.y = e.clientY;
+  }
+  let pos = { x: 0, y: 0 };
+  let placed = false;
+  let sizeObs: ResizeObserver | null = null;
+
+  /** The screen box the panel must not cover: the canvas's selection box(es),
+   *  else the selected elements' own DOM boxes. */
+  function avoidRect(): Rect | null {
+    const rects: Rect[] = [];
+    for (const n of document.querySelectorAll<Element>(".canvas-host .sel-box")) {
+      const r = n.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    }
+    if (!rects.length) {
+      for (const id of get(selection)) {
+        const n = document.querySelector<Element>(`.canvas-host [data-editor-element-id="${CSS.escape(id)}"]`);
+        const r = n?.getBoundingClientRect();
+        if (r && r.width > 0) rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+      }
+    }
+    // Opened from the X-ray (Show Properties): land beside the X-ray too, so
+    // the tree stays readable while its rows are being edited.
+    const xr = document.querySelector<Element>(".xray")?.getBoundingClientRect();
+    if (xr && xr.width > 0) rects.push({ x: xr.left, y: xr.top, w: xr.width, h: xr.height });
+    return unionRects(rects);
+  }
+  async function place() {
+    placed = false;
+    await tick();
+    const el = panelEl;
+    if (!el) return;
+    const size = { w: el.offsetWidth, h: el.offsetHeight };
+    const vp = { w: window.innerWidth, h: window.innerHeight };
+    const pt = pointer.x >= 0 ? { x: pointer.x, y: pointer.y } : null;
+    const r = anchorPanel({ avoid: avoidRect(), point: pt, size, viewport: vp });
+    pos = { x: r.x, y: r.y };
+    placed = true;
+    sizeObs?.disconnect();
+    sizeObs = new ResizeObserver(() => {
+      // A mode switch (the palette, an expanded choice) changes the height:
+      // keep the origin, stay on screen.
+      const p = reclampPanel(pos, { w: el.offsetWidth, h: el.offsetHeight }, { w: window.innerWidth, h: window.innerHeight });
+      if (p.x !== pos.x || p.y !== pos.y) pos = p;
+    });
+    sizeObs.observe(el);
+  }
+
+  // Reset state each time the menu opens (+ refresh the global style library
+  // so the style fields list current definitions).
   let prevOpen = false;
   $: {
     if ($fluxFigMenuOpen && !prevOpen) {
       reset();
       loadGlobalTextStyles();
+      void place();
     }
-    if (!$fluxFigMenuOpen && prevOpen) session.finish();
+    if (!$fluxFigMenuOpen && prevOpen) {
+      session.finish();
+      sizeObs?.disconnect();
+      sizeObs = null;
+    }
     prevOpen = $fluxFigMenuOpen;
   }
+  onDestroy(() => sizeObs?.disconnect());
   function reset() {
     session.finish();
+    setDimensionBase(null);
     mode = "hotkey";
     activeKey = null;
     colorField = null;
     search = "";
     sIndex = 0;
-    requestAnimationFrame(() => panelEl?.focus());
+    wheel.reset();
+    requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
   }
 
-  function groupFields(fs: Field[]) {
-    const out: { name: string; fields: Field[] }[] = [];
-    for (const f of fs) {
-      let g = out.find((o) => o.name === f.group);
-      if (!g) {
-        g = { name: f.group, fields: [] };
-        out.push(g);
-      }
-      g.fields.push(f);
-    }
-    return out;
-  }
-
-  // --- Plot-part fields -------------------------------------------------
-  // When a part is drilled (partSelection), the menu edits THAT part like the
-  // equivalent native object: a tick label gets the text fields, a gridline
-  // the stroke fields. Reads = effective values (override → live DOM →
-  // pristine cache); writes = id-keyed overrides (survive regeneration).
-  // Every entry route uses the same edit session around mutate (one undo per
-  // committed field); toggles open and finish their own discrete session.
-  const PART_FONTS = ["Lato", "Latin Modern Roman", "Arial", "Helvetica", "Georgia", "Times New Roman", "DejaVu Sans"];
-
-  // Options for a named-style select: — None — + Project styles + the global
-  // Library (minus definitions the project already carries — project wins).
-  function styleOptions(p: Project, lib: TextStyle[]): { value: string; label: string }[] {
-    const out: { value: string; label: string }[] = [{ value: "", label: "— None —" }];
-    for (const st of p.textStyles ?? []) out.push({ value: st.id, label: st.name });
-    for (const st of libraryOnly(p.textStyles, lib)) out.push({ value: "lib:" + st.id, label: `${st.name} (library)` });
-    return out;
-  }
-  function resolveStyle(p: Project, lib: TextStyle[], v: string): { st: TextStyle; fromLibrary: boolean } | null {
-    if (v.startsWith("lib:")) {
-      const st = lib.find((s) => s.id === v.slice(4));
-      return st ? { st, fromLibrary: true } : null;
-    }
-    const st = p.textStyles?.find((s) => s.id === v);
-    return st ? { st, fromLibrary: false } : null;
-  }
-
-  function buildPartFields(
-    el: SemanticPlotElement,
-    partId: string,
-    manifest: FluxPlotManifest | undefined,
-    lib: TextStyle[],
-  ): Field[] {
-    const kind = partKind(manifest, partId, partNode(el, partId));
-    const read = () => readPartStyle(el, partId, manifest);
-    const patch = (q: PartOverride) => mutate((proj) => ops.setPartOverride(proj, el.id, partId, q));
-    const F: Field[] = [];
-    const G = "Plot part";
-    const pnum = (key: string, label: string, prop: string, step = 1, clamp?: (n: number) => number) =>
-      F.push({
-        key,
-        label,
-        group: G,
-        kind: "number",
-        step,
-        get: () => {
-          const v = read()[prop];
-          return typeof v === "number" ? Math.round(v * 100) / 100 : 0;
-        },
-        apply: (v) => {
-          let n = Number(v);
-          if (!Number.isFinite(n)) return;
-          if (clamp) n = clamp(n);
-          patch({ [prop]: n });
-        },
-      });
-    const color = (key: string, label: string, target: "fill" | "stroke") =>
-      // ColorSearch retargets to the part itself (colors.ts applyColor routes
-      // through applyPartStyle while partSelection is set) — apply is a no-op.
-      F.push({ key, label, group: G, kind: "color", target, get: () => String(read()[target] ?? "#000000"), apply: () => {} });
-    const visible = () =>
-      F.push({
-        key: "v",
-        label: "visible",
-        group: G,
-        kind: "toggle",
-        get: () => !read().hidden,
-        apply: () =>
-          mutate((proj) =>
-            ops.setPartOverride(proj, el.id, partId, { hidden: !Boolean(el.overrides?.[partId]?.hidden) }),
-          ),
-      });
-
-    if (kind === "container") visible();
-    if (kind === "text") {
-      // Part font size is in PLOT UNITS (the SVG's own user units), not pt.
-      pnum("e", "size", "fontSize", 0.5, (n) => Math.max(0.5, n));
-      F.push({
-        key: "b",
-        label: "weight",
-        group: G,
-        kind: "select",
-        options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }],
-        get: () => String(read().fontWeight ?? 400),
-        apply: (v) => patch({ fontWeight: Number(v) }),
-      });
-      F.push({
-        key: "i",
-        label: "italic",
-        group: G,
-        kind: "toggle",
-        get: () => read().fontStyle === "italic",
-        apply: () =>
-          mutate((proj) =>
-            ops.setPartOverride(proj, el.id, partId, {
-              fontStyle: read().fontStyle === "italic" ? "normal" : "italic",
-            }),
-          ),
-      });
-      F.push({
-        key: "u",
-        label: "underline",
-        group: G,
-        kind: "toggle",
-        get: () => read().textDecoration === "underline",
-        apply: () =>
-          mutate((proj) =>
-            ops.setPartOverride(proj, el.id, partId, {
-              textDecoration: read().textDecoration === "underline" ? "none" : "underline",
-            }),
-          ),
-      });
-      F.push({
-        key: "m",
-        label: "font",
-        group: G,
-        kind: "select",
-        options: (() => {
-          const cur = String(read().fontFamily ?? "");
-          const list = cur && !PART_FONTS.includes(cur) ? [cur, ...PART_FONTS] : PART_FONTS;
-          return list.map((x) => ({ value: x, label: x }));
-        })(),
-        get: () => String(read().fontFamily ?? ""),
-        apply: (v) => patch({ fontFamily: String(v) }),
-      });
-      color("c", "text colour", "fill");
-      // Named text style → part override (fontSize converted canvas px → plot
-      // units in applyTextStyleToPart; no styleId persisted on parts). Key 't':
-      // 'y' is this branch's dy nudge (plan's 'y' collides — see notes).
-      F.push({
-        key: "t",
-        label: "text style",
-        group: G,
-        kind: "select",
-        options: styleOptions(get(project), lib).filter((o) => o.value !== ""),
-        get: () => "",
-        apply: (v) => {
-          const r = resolveStyle(get(project), lib, String(v));
-          if (r) applyTextStyleToPart(el.id, partId, r.st);
-        },
-      });
-    } else if (kind === "line") {
-      color("k", "stroke colour", "stroke");
-      pnum("d", "stroke width", "strokeWidth", 0.25, (n) => Math.max(0, n));
-    } else if (kind === "shape") {
-      color("c", "fill colour", "fill");
-      color("k", "stroke colour", "stroke");
-      pnum("d", "stroke width", "strokeWidth", 0.25, (n) => Math.max(0, n));
-    }
-    pnum("o", "opacity", "opacity", 0.05, (n) => Math.min(1, Math.max(0, n)));
-    pnum("x", "dx (plot units)", "dx", 1);
-    pnum("y", "dy (plot units)", "dy", 1);
-    if (kind !== "container") visible();
-    return F;
-  }
-
-  function buildFields(
-    p: Project,
-    sel: Set<string>,
-    ps: PartSelection | null,
-    manifests: Record<string, FluxPlotManifest>,
-    lib: TextStyle[],
-  ): Field[] {
-    if (ps) {
-      for (const f of p.figures)
-        for (const e of selectionTargets(f, new Set([ps.elementId]), { editable: true }))
-          if (e.id === ps.elementId && e.type === "plot")
-            return buildPartFields(e, ps.partId, manifests[e.assetId], lib);
-    }
-    const els: Element[] = [];
-    for (const f of p.figures)
-      for (const e of selectionTargets(f, sel, { editable: true })) els.push(e);
-    sel = new Set(els.map(e => e.id));
-    const primary = els[0];
-    if (!primary) return [];
-
-    const upd = (fn: (e: Element, proj: Project) => void) =>
-      mutate((proj) => {
-        for (const f of proj.figures)
-          for (const e of f.elements)
-            if (sel.has(e.id)) {
-              fn(e, proj);
-              applyTextLayout(e);
-            }
-      });
-
-    const F: Field[] = [];
-    const num = (
-      key: string,
-      label: string,
-      group: string,
-      g: () => number,
-      a: (e: Element, v: number, proj: Project) => void,
-      step = 1,
-    ) =>
-      F.push({
-        key,
-        label,
-        group,
-        kind: "number",
-        step,
-        get: g,
-        apply: (v) => upd((e, proj) => a(e, Number(v), proj)),
-      });
-
-    const property = (name: NumericProperty) => {
-      const d = numericProperties[name], value = propertyValue(els, name);
-      if (!value.count) return;
-      F.push({ key: d.key, label: d.label, group: d.group, kind: "number", step: d.step,
-        mixed: value.mixed, count: value.count, get: () => propertyValue(els, name).value,
-        apply: v => upd((e, p) => setNumericProperty(p, e, name, Number(v), dimBase?.get(e.id))) });
-    };
-
-    // Union-by-presence (multi-type selections): a section renders when ANY
-    // selected element is of that family. `get` reads from the FIRST matching
-    // element; every applier stays type-guarded per element (mirrors
-    // ops.setElementStyle), so a mixed apply only touches valid targets.
-    const textEl = els.find((e) => e.type === "text");
-    const shapeEl = els.find((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path");
-    const strokeEl = els.find(
-      (e) => e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line",
-    );
-    const boxEl = els.find((e) => "width" in e && ops.supportsBoxDim(e.type));
-
-    // Geometry (all element types; position reads the primary)
-    property("x");
-    property("y");
-    if (boxEl) {
-      // Aspect-lock-aware (ops.setBoxDim honors element.lockAspect — writing
-      // width/height directly here was the "menu bypasses the chain toggle"
-      // bug). dimBase carries the pre-edit dims captured at field activation:
-      // these appliers run live per keystroke, and the lock ratio must come
-      // from before the edit, not from a half-typed intermediate value.
-      property("width");
-      property("height");
-      F.push({ key: "8", label: "lock aspect ratio", group: "Geometry", kind: "toggle", get: () => !!(boxEl as any).lockAspect, apply: () => { const ids = [...sel]; const to = !(boxEl as any).lockAspect; mutate((proj) => ops.setElementStyle(proj, ids, { lockAspect: to })); } });
-    }
-    property("rotation");
-    property("opacity");
-
-    // Reset crop (P5): an action for cropped image/plot elements — one commit
-    // through ops.setCrop(null): the box returns to the full content at its
-    // current scale (content pinned), and this field disappears with the crop.
-    const croppedEl = els.find((e) => (e.type === "image" || e.type === "plot") && e.crop);
-    if (croppedEl) {
-      const cid = croppedEl.id;
-      F.push({
-        key: "v",
-        label: "reset crop (show full content)",
-        group: "Geometry",
-        kind: "toggle",
-        get: () => true,
-        apply: () => mutate((proj) => ops.setCrop(proj, cid, null)),
-      });
-    }
-
-    // Paper snips: an image whose PNG carries flux-snip provenance (tEXt chunk /
-    // sidecar, captured at every asset decode seam) offers its source citation.
-    // Action-as-toggle like "reset crop"; shared menu ⇒ slide mode gets it too.
-    const snipEl = els.find((e) => e.type === "image" && getSnipMeta(e.assetId));
-    if (snipEl && snipEl.type === "image") {
-      const meta = getSnipMeta(snipEl.assetId)!;
-      F.push({
-        key: "n",
-        label: `copy citation — ${meta.citation}`,
-        group: "Source",
-        kind: "toggle",
-        get: () => true,
-        apply: () => {
-          void navigator.clipboard
-            .writeText(meta.citation)
-            .then(() => pushToast("info", "Citation copied", { detail: meta.citation }))
-            .catch(() => pushToast("error", "Copy failed"));
-        },
-      });
-    }
-
-    // Fill
-    if (shapeEl) {
-      F.push({ key: "c", label: "fill color", group: "Fill", kind: "color", target: "fill", get: () => (shapeEl as any).fill, apply: () => {} });
-      // "none" as a first-class state: toggling back restores the draw-style fill.
-      F.push({ key: "0", label: "no fill (outline only)", group: "Fill", kind: "toggle", get: () => (shapeEl as any).fill === "none", apply: () => { const to = (shapeEl as any).fill === "none" ? get(drawStyle).fill : "none"; upd((e) => { if (e.type === "rect" || e.type === "ellipse" || e.type === "path") e.fill = to; }); } });
-    }
-    // Corner radius — rects AND paths (paths get Figma-style geometric
-    // fillets; the setElementStyle route refits so d re-emits rounded).
-    const radiusEl = els.find((e) => e.type === "rect" || e.type === "path");
-    if (radiusEl) {
-      property("cornerRadius");
-    }
-
-    // Stroke
-    if (strokeEl) {
-      const se = strokeEl as Element & { dash?: number[] };
-      F.push({ key: "k", label: "stroke color", group: "Stroke", kind: "color", target: "stroke", get: () => (strokeEl as any).stroke, apply: () => {} });
-      property("strokeWidth");
-      F.push({ key: "9", label: "no stroke", group: "Stroke", kind: "toggle", get: () => (strokeEl as any).stroke === "none", apply: () => { const to = (strokeEl as any).stroke === "none" ? get(drawStyle).stroke : "none"; upd((e) => { if (e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line") e.stroke = to; }); } });
-      // Dash pattern ([len, gap] canvas px) — the toggle swaps solid↔[6,4];
-      // the two numbers appear while dashed (fields rebuild reactively). All
-      // writes go through ops.setElementStyle so sanitizing lives in ONE place.
-      F.push({ key: "-", label: "dashed stroke", group: "Stroke", kind: "toggle", get: () => !!se.dash?.length, apply: () => { const ids = [...sel]; const on = !!se.dash?.length; mutate((proj) => ops.setElementStyle(proj, ids, { dash: on ? [] : [6, 4] })); } });
-      if (se.dash?.length) {
-        F.push({ key: "[", label: "dash length", group: "Stroke", kind: "number", step: 0.5, get: () => se.dash?.[0] ?? 6, apply: (v) => { const ids = [...sel]; const gap = se.dash?.[1] ?? 4; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [Math.max(0.5, Number(v)), gap] })); } });
-        F.push({ key: "]", label: "dash gap", group: "Stroke", kind: "number", step: 0.5, get: () => se.dash?.[1] ?? 4, apply: (v) => { const ids = [...sel]; const len = se.dash?.[0] ?? 6; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [len, Math.max(0.5, Number(v))] })); } });
-      }
-    }
-    // Arrowheads — lines AND open paths share the flags (ops.setElementStyle
-    // applies them per-type).
-    const arrowEl = els.find((e) => e.type === "line" || (e.type === "path" && !e.closed)) as
-      | (Element & { arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: string; arrowSize?: number })
-      | undefined;
-    if (arrowEl) {
-      const applyArrow = (patch: Partial<{ arrowStart: boolean; arrowEnd: boolean; arrowStyle: "filled" | "vee"; arrowSize: number }>) => {
-        const ids = [...sel];
-        mutate((proj) => ops.setElementStyle(proj, ids, patch));
-      };
-      F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowStart, apply: () => applyArrow({ arrowStart: !arrowEl.arrowStart }) });
-      F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowEnd, apply: () => applyArrow({ arrowEnd: !arrowEl.arrowEnd }) });
-      if (arrowEl.arrowStart || arrowEl.arrowEnd) {
-        F.push({ key: "z", label: "arrowhead", group: "Stroke", kind: "select", options: [{ value: "filled", label: "Filled" }, { value: "vee", label: "V-line" }], get: () => arrowEl.arrowStyle ?? "filled", apply: (v) => applyArrow({ arrowStyle: v as "filled" | "vee" }) });
-        num("e", "arrowhead size (× width)", "Stroke", () => arrowEl.arrowSize ?? 4, (e, v) => { if (e.type === "line" || e.type === "path") (e as any).arrowSize = Math.max(1, v); }, 0.5);
-      }
-    }
-    // Cap — lines AND open paths (ops.setElementStyle applies per-type).
-    const capEl = els.find((e) => e.type === "line" || (e.type === "path" && !e.closed));
-    if (capEl) {
-      F.push({ key: "l", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => (capEl as any).cap ?? "round", apply: (v) => { const ids = [...sel]; mutate((proj) => ops.setElementStyle(proj, ids, { cap: v as "butt" | "round" | "square" })); } });
-    }
-
-    // Presets — save a SINGLE primitive, or a GROUP of primitives + text, to
-    // the machine-global design library (<FluxConfig>/presets/designs).
-    // Insert side lives on Ctrl+P.
-    if (presetableSelection(els)) {
-      const pids = els.map((e) => e.id);
-      F.push({
-        key: "p",
-        label: els.length > 1 ? `save group as preset… (${els.length} items)` : "save as preset…",
-        group: "Presets",
-        kind: "toggle",
-        get: () => false,
-        apply: () => {
-          fluxFigMenuOpen.set(false);
-          presetPicker.set({ mode: "save", elementIds: pids });
-        },
-      });
-    }
-
-    // Text
-    if (textEl) {
-      // 'c' stays text colour for text-only selections (muscle memory); it
-      // yields to the Fill section's fill colour in mixed selections.
-      const tcKey = shapeEl ? "n" : "c";
-      const tEl = textEl as Element & { type: "text" };
-      F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => tEl.text, apply: (v) => upd((e) => { if (e.type === "text") { e.text = String(v); } }) });
-      // Font size in POINTS (stored px × 0.75; see Inspector) — same unit as journal specs.
-      property("fontSize");
-      F.push({ key: "b", label: "weight", group: "Text", kind: "select", options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }], get: () => String(tEl.fontWeight), apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontWeight = Number(v); ops.detachOnManualEdit(proj, e, ["fontWeight"]); } }) });
-      F.push({ key: "i", label: "italic", group: "Text", kind: "toggle", get: () => tEl.fontStyle === "italic", apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "italic"); reflowTexts(proj, list); }); } });
-      F.push({ key: "j", label: "underline", group: "Text", kind: "toggle", get: () => !!tEl.underline, apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "underline"); reflowTexts(proj, list); }); } });
-      F.push({ key: "m", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => tEl.fontFamily, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontFamily = String(v); ops.detachOnManualEdit(proj, e, ["fontFamily"]); } }) });
-      F.push({ key: "a", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.align = v as "left" | "center" | "right"; ops.detachOnManualEdit(proj, e, ["align"]); } }) });
-      property("lineHeight");
-      F.push({
-        key: "z",
-        label: "sizing",
-        group: "Text",
-        kind: "select",
-        options: [{ value: "auto", label: "Auto (hug)" }, { value: "auto-h", label: "Auto H (wrap)" }, { value: "fixed", label: "Fixed" }],
-        get: () => tEl.sizing ?? "auto",
-        apply: (v) => upd((e) => { if (e.type === "text") e.sizing = v as "auto" | "auto-h" | "fixed"; }),
-      });
-      // Named text style ('p' — the plan's 'y' collides with the ever-present
-      // geometry "y position" field; see IMPLEMENTATION_NOTES).
-      F.push({
-        key: "p",
-        label: "text style",
-        group: "Text",
-        kind: "select",
-        options: styleOptions(p, lib),
-        get: () => tEl.styleId ?? "",
-        apply: (v) => {
-          const val = String(v);
-          const list = [...sel];
-          if (val === "") {
-            upd((e) => { if (e.type === "text") delete e.styleId; });
-            return;
-          }
-          const r = resolveStyle(get(project), lib, val);
-          if (!r) return;
-          mutate((proj) => {
-            if (r.fromLibrary && !proj.textStyles?.some((s) => s.id === r.st.id)) {
-              ops.createTextStyle(proj, structuredClone(r.st)); // copy-on-apply
-            }
-            ops.applyTextStyle(proj, list, r.st.id);
-            reflowTexts(proj, list);
-          });
-        },
-      });
-      F.push({ key: tcKey, label: "text color", group: "Text", kind: "color", target: "fill", get: () => tEl.color, apply: () => {} });
-    }
-
-    return F;
-  }
-
-  // The signature entrance: the panel's accent frame DRAWS ITSELF — two luminous
-  // lines start at the top-centre, race down both sides and seal at the bottom
-  // (manim's rate_func=smooth IS the 5th-order smoothstep), a glowing pen-tip
-  // leading each one; then the content materialises. One bidirectional
-  // transition so pressing `f` mid-draw catches the state and reverses (P4);
-  // only opacity/scale + cheap registered custom props animate (P5); collapses
-  // to instant under reduced motion (P6).
-  // The frame geometry + the signature "draw" open are shared with the Plot
-  // X-Ray (see selfDraw.ts), so they never drift. Only the menu-only "quick-fade"
-  // alternative lives here.
-  $: pathR = halfFrame(frameW, frameH, true);
-  $: pathL = halfFrame(frameW, frameH, false);
-
-  function forge(node: HTMLElement) {
-    if (prefersReducedMotion()) return { duration: 0 };
-    if (get(settings).fluxFigMenuAnim === "fade") {
-      // the whole panel (frame already drawn at rest) fades in/out, very fast.
-      return {
-        duration: 105,
-        css: (t: number) => `opacity:${t}; transform: scale(${0.985 + 0.015 * t});`,
-      };
-    }
-    return drawForge(node);
-  }
-
-  // --- interaction ---
+  // --- interaction ---------------------------------------------------------------
   function close() {
     session.finish();
     fluxFigMenuOpen.set(false);
   }
   function focusPanel() {
-    requestAnimationFrame(() => panelEl?.focus());
+    requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
   }
-
-  function enterField(f: Field) {
-    if (mode === "field" && activeKey === f.key) return;
-    session.finish();
-    dimBase = new Map();
+  function captureDimBase() {
+    const base = new Map<string, { w: number; h: number }>();
     for (const fig of get(project).figures)
       for (const e of selectionTargets(fig, get(selection), { editable: true }))
-        if ("width" in e && "height" in e) dimBase.set(e.id, { w: e.width, h: e.height });
+        if ("width" in e && "height" in e) base.set(e.id, { w: e.width, h: e.height });
+    setDimensionBase(base);
+  }
+  function enterField(f: Field) {
+    if ((mode === "field" || mode === "option") && activeKey === f.key) return;
+    session.finish();
+    captureDimBase();
     activeKey = f.key;
     draft = f.mixed ? "" : String(f.get());
-    mode = "field";
+    mode = f.kind === "select" ? "option" : "field";
+    if (f.kind === "select") optIndex = Math.max(0, (f.options ?? []).findIndex((o) => o.value === String(f.get())));
+    wheel.reset();
   }
   function applyField(f: Field, value: string | number | boolean) {
-    if (f.kind !== "toggle" && !f.mixed && String(value) === String(f.get())) return;
+    if (f.kind !== "toggle" && f.kind !== "action" && !f.mixed && String(value) === String(f.get())) return;
     session.run(() => f.apply(value));
   }
   function activate(f: Field) {
     session.finish();
     if (f.kind === "color") {
       colorField = f;
+      activeKey = f.key;
       mode = "color";
       return;
     }
-    if (f.kind === "toggle") {
+    if (f.kind === "toggle" || f.kind === "action") {
       applyField(f, true);
       session.finish();
       return;
@@ -574,513 +201,408 @@
     enterField(f);
     requestAnimationFrame(() => {
       const el = inputs[f.key];
+      if (f.kind === "select") {
+        panelEl?.focus({ preventScroll: true });
+        return;
+      }
       el?.focus();
       if (el instanceof HTMLInputElement) el.select();
     });
   }
-  function blurField(f: Field) {
-    if (activeKey !== f.key) return;
+  /** Confirm the armed field and return to hotkey mode. */
+  function confirmField() {
     session.finish();
     activeKey = null;
     mode = "hotkey";
-    dimBase = null;
+    setDimensionBase(null);
+    focusPanel();
   }
-
+  /** Revert the armed field and return to hotkey mode. */
+  function cancelField() {
+    session.cancel();
+    activeKey = null;
+    mode = "hotkey";
+    setDimensionBase(null);
+    focusPanel();
+  }
+  function blurField(f: Field) {
+    if (activeKey !== f.key || mode !== "field") return;
+    session.finish();
+    activeKey = null;
+    mode = "hotkey";
+    setDimensionBase(null);
+  }
   function enterSearch() {
     mode = "search";
     requestAnimationFrame(() => searchEl?.focus());
   }
-
   function backToHotkey() {
     session.finish();
     mode = "hotkey";
     activeKey = null;
     colorField = null;
-    dimBase = null;
+    setDimensionBase(null);
     focusPanel();
   }
 
+  // --- numeric stepping: keys + wheel ------------------------------------------------
+  const precisionOf = (step: number) => (step < 1 ? Math.min(6, Math.ceil(-Math.log10(step))) : 0);
+  function stepValue(f: Field, steps: number, mult = 1) {
+    const step = (f.step ?? 1) * mult;
+    const cur = f.mixed && draft === "" ? Number(f.get()) : (evalExpr(draft) ?? Number(f.get()));
+    let v = (Number.isFinite(cur) ? cur : 0) + steps * step;
+    if (f.min != null) v = Math.max(f.min, v);
+    if (f.max != null) v = Math.min(f.max, v);
+    v = +v.toFixed(Math.max(precisionOf(step), precisionOf(f.step ?? 1)));
+    draft = fmtNum(v, f.step ?? 1);
+    applyField(f, v);
+  }
+  // The wheel follows the ONE law in interact/wheelLaw.ts: a notch is a step
+  // in every dialect (Windows 100px, a slow macOS mouse's 4px, a trackpad's
+  // stream), a spin moves further, a flick doubles, Shift ×10, Alt ×0.1.
+  const wheel = new WheelStepper();
+  function onWheel(e: WheelEvent) {
+    if (mode === "color" || mode === "search") return;
+    let f: Field | null = null;
+    if ((mode === "field" || mode === "option") && active) f = active;
+    else {
+      const row = (e.target as HTMLElement | null)?.closest<HTMLElement>(".field[data-key]");
+      const key = row?.dataset.key;
+      const hover = key ? (fields.find((x) => x.key === key) ?? null) : null;
+      if (hover && (hover.kind === "number" || hover.kind === "select")) {
+        f = hover;
+        enterField(hover); // arms it — the whole menu is mouse-only editable
+        if (hover.kind === "number") requestAnimationFrame(() => { const el = inputs[hover.key]; el?.focus({ preventScroll: true }); el?.select(); });
+      }
+    }
+    if (!f) return; // nothing armed under the pointer: let the body scroll
+    e.preventDefault();
+    e.stopPropagation();
+    const steps = wheel.steps({ deltaY: wheelDelta(e), deltaMode: e.deltaMode, time: performance.now() });
+    if (!steps) return;
+    if (f.kind === "number") stepValue(f, steps, wheelMultiplier(e)); // wheel up = increase
+    else if (f.kind === "select") moveOption(f, steps > 0 ? -1 : 1);
+  }
+
+  // --- option strips ------------------------------------------------------------------
+  function moveOption(f: Field, d: number) {
+    const opts = f.options ?? [];
+    if (!opts.length) return;
+    optIndex = Math.max(0, Math.min(opts.length - 1, optIndex + d));
+    applyField(f, opts[optIndex].value);
+  }
+  function previewOption(f: Field, i: number) {
+    optIndex = i;
+    applyField(f, (f.options ?? [])[i]?.value ?? "");
+  }
+  function pickOption(f: Field, i: number) {
+    previewOption(f, i);
+    confirmField();
+  }
+
+  // --- keyboard ---------------------------------------------------------------------------
   function onWin(e: KeyboardEvent) {
-    if (e.defaultPrevented || !$fluxFigMenuOpen || mode !== "hotkey") return;
-    if (e.target instanceof HTMLElement && (e.target.matches('input, textarea, select') || e.target.isContentEditable)) return;
+    if (e.defaultPrevented || !$fluxFigMenuOpen) return;
+    const t = e.target as HTMLElement | null;
+    const typing = !!t && (t.matches("input, textarea, select") || t.isContentEditable);
     const k = e.key;
-    // stopImmediatePropagation prevents the global shortcut handler from
-    // re-processing the same key (e.g. re-opening on the closing "f").
-    if (k === "Escape" || k.toLowerCase() === "f") {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      close();
-      return;
-    }
-    if (k.toLowerCase() === "s") {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      enterSearch();
-      return;
-    }
-    const f = fields.find((fl) => fl.key === k.toLowerCase());
-    if (f) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      activate(f);
-    }
-  }
-
-  function onFieldKey(e: KeyboardEvent) {
-    if (e.key === "Enter" || e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.key === "Escape") session.cancel();
-      backToHotkey();
-    }
-  }
-
-  function onSearchKey(e: KeyboardEvent) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      sIndex = Math.min(sResults.length - 1, sIndex + 1);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      sIndex = Math.max(0, sIndex - 1);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const f = sResults[sIndex];
+    const lk = k.toLowerCase();
+    if (mode === "hotkey") {
+      if (typing) return;
+      if (k === "Escape" || lk === "f") {
+        // stopImmediatePropagation prevents the global shortcut handler from
+        // re-processing the same key (e.g. re-opening on the closing "f").
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        close();
+        return;
+      }
+      if (lk === "s") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        enterSearch();
+        return;
+      }
+      const f = fields.find((fl) => fl.key === lk);
       if (f) {
-        mode = "hotkey";
+        e.preventDefault();
+        e.stopImmediatePropagation();
         activate(f);
       }
-    } else if (e.key === "Escape") {
+      return;
+    }
+    if (mode === "option" && active) {
+      const f = active;
+      e.stopImmediatePropagation();
+      if (k === "Escape") { e.preventDefault(); cancelField(); return; }
+      if (k === "Enter" || k === " ") { e.preventDefault(); confirmField(); return; }
+      if (k === "ArrowDown" || k === "ArrowRight" || lk === "s" || lk === "d") { e.preventDefault(); moveOption(f, 1); return; }
+      if (k === "ArrowUp" || k === "ArrowLeft" || lk === "w" || lk === "a") { e.preventDefault(); moveOption(f, -1); return; }
+      if (/^[1-9]$/.test(k)) {
+        const i = Number(k) - 1;
+        if (i < (f.options ?? []).length) { e.preventDefault(); pickOption(f, i); }
+        return;
+      }
+      if (lk === "f") { e.preventDefault(); confirmField(); close(); }
+      return;
+    }
+    // field / color / search modes: the focused control owns the keys.
+  }
+  function onFieldKey(e: KeyboardEvent, f: Field) {
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); cancelField(); return; }
+    if (e.key === "Enter" || (e.key === " " && f.kind === "number")) { e.preventDefault(); confirmField(); return; }
+    if (f.kind === "number" && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
-      backToHotkey();
+      stepValue(f, e.key === "ArrowUp" ? 1 : -1, e.shiftKey ? 10 : e.altKey ? 0.1 : 1);
     }
   }
-
-  // panel geometry from settings (shared with the X-ray — popupLayout keeps
-  // the pair docked). Placement lives on the wrapper (NOT a transform on the
-  // panel) so it can never fight the scale transition.
-  $: layout = popupLayout($settings);
-  $: width = layout.width;
-  $: wrapStyle = layout.menuWrap;
-  $: bgAlpha = $settings.fluxFigMenuOpacity;
+  function onSearchKey(e: KeyboardEvent) {
+    e.stopPropagation();
+    if (e.key === "ArrowDown") { e.preventDefault(); sIndex = Math.min(sResults.length - 1, sIndex + 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); sIndex = Math.max(0, sIndex - 1); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      const f = sResults[sIndex];
+      if (f) { mode = "hotkey"; activate(f); }
+    } else if (e.key === "Escape") { e.preventDefault(); backToHotkey(); }
+  }
 
   function colorDisplay(f: Field): { hex: string; name: string } {
     const hex = String(f.get());
-    return { hex, name: nameForHex(hex) ?? hex };
+    return { hex, name: hex === "none" ? "none" : (nameForHex(hex) ?? hex) };
   }
+  const pct = (f: Field): number => {
+    const r = fieldRange(f);
+    if (!r) return 0;
+    const v = Number(f.get());
+    return Math.max(0, Math.min(100, ((v - r.min) / (r.max - r.min)) * 100));
+  };
 </script>
 
-<svelte:window on:keydown={onWin} />
+<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} />
 
 {#if $fluxFigMenuOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fbackdrop" transition:fade={{ duration: 110 }} on:pointerdown={close}></div>
-  <div class="fwrap" style={wrapStyle}>
+  <div class="fbackdrop" on:pointerdown={close}></div>
+  <div class="fwrap">
     <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_static_element_interactions -->
     <div
       class="fluxFigMenu"
+      class:placed
       bind:this={panelEl}
-      bind:clientWidth={frameW}
-      bind:clientHeight={frameH}
       tabindex="-1"
-      style={`width:${width}px; --fa:${bgAlpha}; max-height:${layout.menuMax};`}
-      transition:forge
+      role="dialog"
+      aria-label="Properties"
+      style={`left:${pos.x}px; top:${pos.y}px; width:${width}px;`}
       on:pointerdown|stopPropagation
+      on:wheel|nonpassive={onWheel}
     >
-    <!-- the accent frame that draws itself in: two luminous strokes descend from
-         the top-centre and seal at the bottom (manim's Create), then content rises. -->
-    <svg class="frame" viewBox={`0 0 ${frameW || 1} ${frameH || 1}`} preserveAspectRatio="none" aria-hidden="true">
-      <path class="fline" d={pathL} pathLength="100" />
-      <path class="fline" d={pathR} pathLength="100" />
-    </svg>
-    <div class="fcontent">
-    <header class="menu-head">
-      <div><span class="eyebrow">FLUX / FIGURE</span><h2>Properties</h2></div>
-      <div class="menu-context"><span>{$partSelection ? "Plot part" : $selection.size ? `${$selection.size} selected` : "Drawing defaults"}</span><button on:click={close} aria-label="Close properties">×</button></div>
-    </header>
-    <!-- search bar -->
-    <div class="search-row" class:active={mode === "search"}>
-      <span class="hk">s</span>
-      {#if mode === "search"}
-        <input
-          bind:this={searchEl}
-          bind:value={search}
-          class="search-in"
-          placeholder="Search properties & actions…"
-          spellcheck="false"
-          on:keydown={onSearchKey}
-        />
-      {:else}
-        <button class="search-fake" on:click={enterSearch}>Search properties & actions…</button>
-      {/if}
-    </div>
+      <div class="fcontent">
+        <header class="menu-head">
+          <span class="ttl">Properties</span>
+          <span class="ctx">{context}</span>
+          <button class="xbtn" on:click={close} aria-label="Close properties">×</button>
+        </header>
+        <div class="search-row" class:active={mode === "search"}>
+          <span class="hk">s</span>
+          {#if mode === "search"}
+            <input bind:this={searchEl} bind:value={search} class="search-in" placeholder="Search properties & actions…" spellcheck="false" on:keydown={onSearchKey} />
+          {:else}
+            <button class="search-fake" on:click={enterSearch}>Search properties & actions…</button>
+          {/if}
+        </div>
 
-    <div class="body">
-      {#if mode === "color" && colorField}
-        <div class="color-mode">
-          <div class="cm-head"><span class="hk">{colorField.key}</span> {colorField.label}</div>
-          <ColorSearch target={colorField.target ?? "fill"} onDone={backToHotkey} onCancel={backToHotkey} />
-        </div>
-      {:else if mode === "search"}
-        <div class="results">
-          {#each sResults as f, i (f.group + f.key)}
-            <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-            <div class="res" class:active={i === sIndex} on:pointerenter={() => (sIndex = i)} on:click={() => { mode = "hotkey"; activate(f); }}>
-              <span class="hk">{f.key}</span>
-              <span class="rlabel">{f.label}</span>
-              <span class="rgrp">{f.group}</span>
+        <div class="body" class:cols2={cols === 2} class:cols3={cols === 3}>
+          {#if mode === "color" && colorField}
+            <div class="color-mode">
+              <div class="cm-head"><span class="hk">{colorField.key}</span> {colorField.label}</div>
+              <ColorPicker target={colorField.target ?? "fill"} allowNone={colorField.label !== "text color" && colorField.label !== "text colour"} onDone={backToHotkey} onCancel={backToHotkey} />
             </div>
-          {/each}
-          {#if sResults.length === 0}<div class="empty">No matching property</div>{/if}
-        </div>
-      {:else}
-        {#each groups as grp}
-          <div class="group">
-            <div class="gtitle">{grp.name}</div>
-            {#each grp.fields as f (f.key)}
-              <div class="field" class:editing={activeKey === f.key}>
-                <span class="hk">{f.key}</span>
-                {#if f.kind === "number"}
-                  <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
-                {:else}
-                  <span class="label">{f.label}</span>
-                {/if}
-                <span class="control">
-                  {#if f.kind === "color"}
-                    {@const cd = colorDisplay(f)}
-                    <button class="colorbtn" on:click={() => activate(f)}>
-                      <span class="dot" style={`background:${cd.hex}`}></span>
-                      <span class="cname">{cd.name}</span>
-                    </button>
-                  {:else if f.kind === "toggle"}
-                    <button class="toggle" class:on={Boolean(f.get())} on:click={() => activate(f)}>
-                      {f.get() ? "on" : "off"}
-                    </button>
-                  {:else if f.kind === "select"}
-                    <select
-                      bind:this={inputs[f.key]}
-                      value={String(f.get())}
-                      on:focus={() => enterField(f)}
-                      on:blur={() => blurField(f)}
-                      on:change={(e) => { applyField(f, e.currentTarget.value); backToHotkey(); }}
-                      on:keydown={(e) => onFieldKey(e)}
-                    >
-                      {#each f.options ?? [] as o}<option value={o.value}>{o.label}</option>{/each}
-                    </select>
-                  {:else if f.kind === "text"}
-                    <input
-                      bind:this={inputs[f.key]}
-                      class="tin"
-                      value={activeKey === f.key ? draft : String(f.get())}
-                      spellcheck="false"
-                      on:focus={() => enterField(f)}
-                      on:blur={() => blurField(f)}
-                      on:input={(e) => { draft = e.currentTarget.value; applyField(f, draft); }}
-                      on:keydown={(e) => onFieldKey(e)}
-                    />
-                  {:else}
-                    <input
-                      bind:this={inputs[f.key]}
-                      class="nin"
-                      type="text"
-                      inputmode="decimal"
-                      spellcheck="false"
-                      placeholder={f.mixed ? "Mixed" : ""}
-                      title={f.count && $selection.size > 1 ? `Applies to ${f.count} of ${$selection.size} selected objects` : f.label}
-                      value={activeKey === f.key ? draft : f.mixed ? "" : f.get()}
-                      on:focus={() => enterField(f)}
-                      on:blur={() => blurField(f)}
-                      on:input={(e) => { draft = e.currentTarget.value; const v = evalExpr(draft); if (v != null) applyField(f, v); }}
-                      on:keydown={(e) => onFieldKey(e)}
-                    />
-                  {/if}
-                </span>
+          {:else if mode === "search"}
+            <div class="results">
+              {#each sResults as f, i (f.group + f.key)}
+                <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+                <div class="res" class:active={i === sIndex} on:pointerenter={() => (sIndex = i)} on:click={() => { mode = "hotkey"; activate(f); }}>
+                  <span class="hk">{f.key}</span>
+                  <span class="rlabel">{f.label}</span>
+                  <span class="rgrp">{f.group}</span>
+                </div>
+              {/each}
+              {#if sResults.length === 0}<div class="empty">No matching property</div>{/if}
+            </div>
+          {:else}
+            {#each groups as grp (grp.name)}
+              <div class="group">
+                <div class="gtitle">{grp.name}</div>
+                {#each grp.fields as f (f.key)}
+                  {@const armed = activeKey === f.key && mode !== "hotkey"}
+                  {@const range = fieldRange(f)}
+                  <div class="field" class:editing={armed} class:opts-open={armed && f.kind === "select"} data-key={f.key}>
+                    <span class="hk">{f.key}</span>
+                    {#if f.kind === "number"}
+                      <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, min: f.min ?? null, max: f.max ?? null, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
+                    {:else}
+                      <span class="label">{f.label}</span>
+                    {/if}
+                    <span class="control">
+                      {#if f.kind === "color"}
+                        {@const cd = colorDisplay(f)}
+                        <button class="colorbtn" on:click={() => activate(f)} title="Palette (hover previews, click applies)">
+                          <span class="dot" class:isnone={cd.hex === "none"} style={cd.hex === "none" ? "" : `background:${cd.hex}`}></span>
+                          <span class="cname">{cd.name}</span>
+                        </button>
+                      {:else if f.kind === "toggle"}
+                        <button class="toggle" class:on={Boolean(f.get())} on:click={() => activate(f)}>{f.get() ? "on" : "off"}</button>
+                      {:else if f.kind === "action"}
+                        <button class="actbtn" on:click={() => activate(f)}>run</button>
+                      {:else if f.kind === "select"}
+                        {@const opts = f.options ?? []}
+                        {@const cur = String(f.get())}
+                        {#if armed}
+                          <span class="opts" role="listbox" aria-label={f.label}>
+                            {#each opts as o, i (o.value)}
+                              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                              <span class="opt" class:cur={i === optIndex} role="option" tabindex="-1" aria-selected={i === optIndex}
+                                on:pointerenter={() => previewOption(f, i)} on:click={() => pickOption(f, i)}>
+                                {#if i < 9}<span class="ok">{i + 1}</span>{/if}{o.label}
+                              </span>
+                            {/each}
+                          </span>
+                        {:else}
+                          <button class="selbtn" on:click={() => activate(f)} title="Choose (wheel, w·a·s·d, 1–9)">{opts.find((o) => o.value === cur)?.label ?? (cur || "—")}<span class="chev">▾</span></button>
+                        {/if}
+                      {:else if f.kind === "text"}
+                        <input
+                          bind:this={inputs[f.key]}
+                          class="tin"
+                          value={activeKey === f.key ? draft : String(f.get())}
+                          spellcheck="false"
+                          on:focus={() => enterField(f)}
+                          on:blur={() => blurField(f)}
+                          on:input={(e) => { draft = e.currentTarget.value; applyField(f, draft); }}
+                          on:keydown={(e) => onFieldKey(e, f)}
+                        />
+                      {:else}
+                        <span class="numwrap" class:ranged={!!range}>
+                          <input
+                            bind:this={inputs[f.key]}
+                            class="nin"
+                            type="text"
+                            inputmode="decimal"
+                            spellcheck="false"
+                            placeholder={f.mixed ? "Mixed" : ""}
+                            title={f.count && $selection.size > 1 ? `Applies to ${f.count} of ${$selection.size} selected objects` : f.label}
+                            value={activeKey === f.key ? draft : f.mixed ? "" : fmtNum(Number(f.get()), f.step ?? 1)}
+                            on:focus={() => enterField(f)}
+                            on:blur={() => blurField(f)}
+                            on:input={(e) => { draft = e.currentTarget.value; const v = evalExpr(draft); if (v != null) applyField(f, v); }}
+                            on:keydown={(e) => onFieldKey(e, f)}
+                          />
+                          {#if range}<span class="track" aria-hidden="true"><span class="fill" style={`width:${pct(f)}%`}></span></span>{/if}
+                        </span>
+                      {/if}
+                    </span>
+                  </div>
+                {/each}
               </div>
             {/each}
-          </div>
-        {/each}
-      {/if}
-    </div>
+          {/if}
+        </div>
 
-    <div class="foot">
-      <span><b class="hk">s</b> search</span>
-      <span><b class="hk">f</b>/esc close</span>
-      <span>hotkeys jump to a property</span>
-    </div>
-    </div>
+        <div class="foot">
+          <span><b class="hk">s</b> search</span>
+          <span><b class="hk">f</b>/esc close</span>
+          <span><b class="hk">↕</b> wheel adjusts</span>
+          <span><b class="hk">␣</b> applies</span>
+        </div>
+      </div>
     </div>
   </div>
 {/if}
 
 <style>
-  .menu-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px 2px; }
-  .eyebrow { color:var(--c-tx-muted); font:9px var(--font-mono); letter-spacing:1.6px; }
-  h2 { margin:4px 0 0; color:var(--c-tx-hi); font-size:24px; font-weight:400; letter-spacing:-.4px; }
-  .menu-context { display:flex; align-items:center; gap:14px; color:var(--c-tx-muted); font-size:11px; }
-  .menu-context button { padding:0 3px; background:none; border:0; color:inherit; font:24px var(--font-serif); cursor:pointer; }
-  .menu-context button:focus-visible { outline:2px solid var(--c-accent); outline-offset:2px; }
-
-  .fbackdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.28);
-    z-index: 300;
-  }
-  .fwrap {
-    position: fixed;
-    inset: 0;
-    z-index: 301;
-    display: flex;
-    pointer-events: none;
-  }
-  /* Animatable custom properties (Chromium @property = smooth interpolation).
-     Inherited so the panel's entrance transition can drive the frame + content
-     children. Both rest at 1 (fully drawn / fully shown). */
-  @property --draw {
-    syntax: "<number>";
-    inherits: true;
-    initial-value: 1;
-  }
-  @property --content {
-    syntax: "<number>";
-    inherits: true;
-    initial-value: 1;
-  }
-
+  /* Transparent catcher: a surface, not a modal — clicking elsewhere closes. */
+  .fbackdrop { position: fixed; inset: 0; background: transparent; z-index: 300; }
+  .fwrap { position: fixed; inset: 0; z-index: 301; pointer-events: none; }
   .fluxFigMenu {
     pointer-events: auto;
-    position: relative;
-    border-radius: var(--r-3);
+    position: absolute;
+    visibility: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 16px);
     color: var(--c-tx);
-    font-family: var(--font-serif);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    background: var(--c-surface);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-panel);
+    box-shadow: var(--elev-2);
     outline: none;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    max-height: 78vh;
-    will-change: transform, opacity;
-    /* Quiet glass: surface tint (opacity from settings) + a faint top sheen. */
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in oklab, var(--c-tx-hi) 6%, transparent),
-        transparent 42%
-      ),
-      color-mix(in oklab, var(--c-surface) calc(var(--fa, 0.94) * 100%), transparent);
-    backdrop-filter: blur(16px) saturate(120%);
-    -webkit-backdrop-filter: blur(16px) saturate(120%);
-    /* Subtle depth keeps the accent reserved for the controls. */
-    box-shadow: var(--elev-3);
-    border: 1px solid var(--c-line-strong);
   }
-
-  /* The drawn accent frame: a real SVG stroke that draws the rounded rectangle
-     (two mirrored half-paths sealing at the bottom), driven by --draw (0..1) via
-     stroke-dashoffset. At rest --draw = 1 → fully drawn (it IS the border). */
-  .frame {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 3;
-    pointer-events: none;
-    overflow: visible;
-  }
-  .fline {
-    fill: none;
-    stroke: var(--c-accent);
-    stroke-width: 1;
-    stroke-linecap: round;
-    vector-effect: non-scaling-stroke;
-    stroke-dasharray: 100;
-    stroke-dashoffset: calc((1 - var(--draw, 1)) * 100);
-    /* the line glows as it draws — the inner halo reads as luminous ink */
-    opacity: .4;
-  }
-
-  /* Content rises in once the frame is set (--content 0..1; rest = 1). */
-  .fcontent {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 auto;
-    min-height: 0;
-    opacity: var(--content, 1);
-    transform: translateY(calc((1 - var(--content, 1)) * 6px));
-  }
+  .fluxFigMenu.placed { visibility: visible; animation: fm-in 70ms var(--ease-standard) 1; }
+  @media (prefers-reduced-motion: reduce) { .fluxFigMenu.placed { animation: none; } }
+  @keyframes fm-in { from { opacity: 0; } to { opacity: 1; } }
+  .fcontent { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; opacity: 1; }
+  .menu-head { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--c-line); background: var(--c-bg-raised); }
+  .ttl { font-weight: 600; color: var(--c-tx-hi); }
+  .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font-size: 11px; }
+  .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--c-tx-muted); font-size: 16px; cursor: pointer; border-radius: var(--r-ui); }
+  .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   .hk {
-    color: var(--c-accent-bright);
-    font-weight: 700;
-    font-family: var(--font-serif);
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 16px; height: 16px; padding: 0 3px;
+    font: 600 10.5px var(--font-mono); color: var(--c-accent);
+    background: var(--c-accent-tint); border-radius: var(--r-ui);
   }
-  .search-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 12px;
-    padding: 10px 14px;
-    background: color-mix(in oklab, var(--c-tx-hi) 4%, transparent);
-    border: 1px solid var(--c-line);
-    border-radius: 9px;
-  }
-  .search-row.active {
-    border-color: var(--c-accent);
-    box-shadow: 0 0 0 2px var(--c-accent-tint);
-  }
-  .search-fake {
-    flex: 1;
-    text-align: left;
-    background: none;
-    border: none;
-    color: var(--c-tx-muted);
-    font-size: 14px;
-    font-family: inherit;
-    cursor: text;
-  }
-  .search-in {
-    flex: 1;
-    background: none;
-    border: none;
-    outline: none;
-    color: var(--c-tx);
-    font-size: 14px;
-    font-family: inherit;
-  }
-  .body {
-    overflow-y: auto;
-    padding: 0 12px;
-  }
-  .group { margin-bottom: 14px; padding-top: 8px; border-top: 1px solid var(--c-line); }
-  .group:first-child { border-top: 0; padding-top: 0; }
-  .gtitle {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.4px;
-    color: var(--c-tx-muted);
-    margin: 6px 2px 6px;
-    text-transform: capitalize;
-  }
-  .field {
-    display: grid;
-    grid-template-columns: 18px minmax(0, 1fr) minmax(90px, 130px);
-    align-items: center;
-    gap: 10px;
-    padding: 5px 8px;
-    border-radius: 7px;
-  }
-  .field.editing {
-    background: var(--c-accent-tint);
-    box-shadow: inset 0 0 0 1px var(--c-accent);
-  }
-  .label {
-    font-style: normal;
-    font-size: 13px;
-  }
-  .control {
-    display: flex;
-    justify-content: flex-end;
-  }
-  .nin,
-  .tin,
-  select {
-    width: 100%;
-    background: var(--c-bg-raised);
-    border: 1px solid var(--c-line-strong);
-    border-radius: 6px;
-    color: var(--c-tx);
-    padding: 5px 8px;
-    font-size: 14px;
-    font-family: inherit;
-    outline: none;
-  }
-  .nin:focus,
-  .tin:focus,
-  select:focus {
-    border-color: var(--c-accent);
-  }
-  .colorbtn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    justify-content: flex-end;
-    width: 100%;
-    background: none;
-    border: none;
-    color: var(--c-tx);
-    cursor: pointer;
-    font-family: inherit;
-  }
-  .dot {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    border: 1px solid var(--c-line-strong);
-  }
-  .cname {
-    font-style: normal;
-    font-size: 14px;
-    color: var(--c-accent-bright);
-  }
-  .toggle {
-    background: var(--c-bg-raised);
-    border: 1px solid var(--c-line-strong);
-    border-radius: 6px;
-    color: var(--c-tx);
-    padding: 4px 12px;
-    cursor: pointer;
-    font-family: inherit;
-    font-style: normal;
-  }
-  .toggle.on {
-    background: var(--c-accent);
-    border-color: var(--c-accent);
-    color: var(--c-on-accent);
-  }
-  .color-mode {
-    padding: 6px 2px 14px;
-  }
-  .cm-head {
-    font-style: normal;
-    font-size: 13px;
-    margin-bottom: 10px;
-  }
-  .results {
-    padding: 4px 0 10px;
-  }
-  .res {
-    display: grid;
-    grid-template-columns: 16px 1fr auto;
-    gap: 10px;
-    align-items: center;
-    padding: 7px 8px;
-    border-radius: 7px;
-    cursor: pointer;
-  }
-  .res.active {
-    background: var(--c-accent);
-    color: var(--c-on-accent);
-  }
-  .res.active .hk {
-    color: var(--c-on-accent);
-  }
-  .rlabel {
-    font-style: normal;
-    font-size: 13px;
-  }
-  .rgrp {
-    font-size: 12px;
-    opacity: 0.55;
-    text-transform: capitalize;
-  }
-  .empty {
-    opacity: 0.45;
-    padding: 14px;
-    text-align: center;
-  }
-  .foot {
-    display: flex;
-    gap: 16px;
-    padding: 9px 16px;
-    border-top: 1px solid var(--c-line);
-    font-size: 12px;
-    color: var(--c-tx-muted);
-  }
+  .search-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--c-line); }
+  .search-row.active { box-shadow: inset 0 -1px 0 var(--c-accent); }
+  .search-fake { flex: 1; text-align: left; background: none; border: none; color: var(--c-tx-muted); font: 12px var(--font-ui); cursor: text; padding: 0; }
+  .search-in { flex: 1; background: none; border: none; outline: none; color: var(--c-tx); font: 12px var(--font-ui); padding: 0; }
+  .body { overflow-y: auto; padding: 6px 8px 8px; }
+  .body.cols2 { columns: 2; column-gap: 8px; }
+  .body.cols3 { columns: 3; column-gap: 8px; }
+  .group { break-inside: avoid; padding: 4px 0 6px; }
+  .gtitle { font: 600 10px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-muted); padding: 6px 4px 3px; border-bottom: 1px solid var(--c-line); margin-bottom: 3px; }
+  .field { display: grid; grid-template-columns: 18px minmax(0, 1fr) minmax(92px, 118px); align-items: center; gap: 8px; min-height: 26px; padding: 1px 4px; border-radius: var(--r-0); }
+  .field.editing { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
+  .field.opts-open { grid-template-columns: 18px minmax(0, 1fr); }
+  .field.opts-open .control { grid-column: 1 / -1; justify-content: flex-start; padding: 2px 0 4px 26px; }
+  .label { font-size: 12px; color: var(--c-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scrubbable { cursor: ew-resize; }
+  .control { display: flex; justify-content: flex-end; min-width: 0; }
+  .numwrap { position: relative; width: 100%; }
+  .nin, .tin { width: 100%; height: 22px; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx); padding: 0 6px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; outline: none; box-sizing: border-box; text-align: right; }
+  .tin { font-family: var(--font-ui); text-align: left; }
+  .nin:focus, .tin:focus { border-color: var(--c-accent); }
+  .track { position: absolute; left: 4px; right: 4px; bottom: 2px; height: 2px; background: color-mix(in oklab, var(--c-line-strong) 70%, transparent); pointer-events: none; }
+  .track .fill { display: block; height: 100%; background: var(--c-tx-muted); }
+  .field.editing .track .fill { background: var(--c-accent); }
+  .colorbtn { display: flex; align-items: center; gap: 6px; justify-content: flex-end; width: 100%; height: 22px; background: none; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx); cursor: pointer; font: 12px var(--font-ui); padding: 0 4px; }
+  .colorbtn:hover { border-color: var(--c-line-strong); }
+  .dot { width: 14px; height: 14px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 14%, transparent); flex: none; }
+  .dot.isnone { background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--c-line-strong) 3px 4px); }
+  .cname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-2); font-family: var(--font-mono); font-size: 11px; }
+  .toggle, .actbtn, .selbtn { height: 22px; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); padding: 0 8px; cursor: pointer; font: 12px var(--font-ui); }
+  .toggle:hover, .actbtn:hover, .selbtn:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
+  .toggle { min-width: 44px; }
+  .toggle.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .selbtn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; overflow: hidden; white-space: nowrap; }
+  .selbtn .chev { color: var(--c-tx-muted); font-size: 9px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 3px; }
+  .opt { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px 0 4px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx-2); cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .opt .ok { font: 600 9.5px var(--font-mono); color: var(--c-tx-muted); min-width: 10px; }
+  .opt.cur { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .opt.cur .ok { color: var(--c-accent); }
+  .color-mode { padding: 6px 4px 8px; }
+  .cm-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--c-tx); margin-bottom: 8px; }
+  .results { padding: 2px 0 6px; }
+  .res { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; height: 26px; padding: 0 6px; cursor: pointer; }
+  .res.active { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); color: var(--c-tx-hi); }
+  .rlabel { font-size: 12px; }
+  .rgrp { font: 10px var(--font-mono); color: var(--c-tx-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .empty { color: var(--c-tx-muted); padding: 12px; text-align: center; }
+  .foot { display: flex; gap: 14px; height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font-size: 11px; color: var(--c-tx-muted); background: var(--c-bg-raised); }
 </style>

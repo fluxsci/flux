@@ -329,49 +329,60 @@
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    border-top: 1px solid var(--c-line, #282726);
-    padding: 8px 10px 10px;
-    background: var(--c-bg, #100f0f);
+    gap: 0;
+    border-top: 1px solid var(--c-line);
+    padding: 0;
+    background: var(--c-bg);
     /* FIXED height (not max): dragging the gutter up must actually GIVE the
        animator that space — the tree/timeline/editor stretch into it (flex) —
        all the way to a near-full-window editor. */
     height: min(var(--anim-h, 300px), calc(100vh - 160px));
     outline: none;
     position: relative;
+    font: 12px/1.35 var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    color: var(--c-tx);
   }
-  .animator:focus-within { box-shadow: inset 0 2px 0 0 var(--c-accent, #4385be); }
-  .animator:focus-within .keyhint { color: var(--c-tx-2, #878580); }
+  /* dock focus (the keyboard cockpit is armed): the selected-rail idiom on the top edge */
+  .animator:focus-within { box-shadow: inset 0 2px 0 0 var(--c-accent); }
+  .animator:focus-within .keyhint { color: var(--c-tx-2); }
   .dock-gutter {
     position: absolute; top: -3px; left: 0; right: 0; height: 7px;
     cursor: row-resize; z-index: 6; display: flex; align-items: center; justify-content: center;
   }
-  .dock-gutter .grip { width: 100%; height: 1px; background: transparent; transition: background 0.12s; }
-  .dock-gutter:hover .grip, .dock-gutter.active .grip { background: var(--c-accent, #4385be); height: 2px; }
-  .bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .dock-gutter .grip { width: 100%; height: 1px; background: transparent; }
+  .dock-gutter:hover .grip, .dock-gutter.active .grip { background: var(--c-accent); height: 2px; }
+  /* the header: one 32px strip on the raised surface, hairline below */
+  .bar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    min-height: 32px; padding: 0 8px; background: var(--c-bg-raised);
+    border-bottom: 1px solid var(--c-line);
+  }
   .actions, .transport { display: flex; gap: 3px; align-items: center; }
   .transport { margin-left: auto; }
-  .b:disabled { opacity: .4; cursor: default; }
-  .ttl { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-3, #878580); }
+  .ttl {
+    font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: .08em;
+    color: var(--c-tx-muted); margin-right: 4px;
+  }
   .spacer { flex: 1; }
-  .magic {
-    font-size: 12px; font-weight: 600;
-    color: var(--c-bg, #100f0f); background: var(--c-accent, #4385be);
-    border: none; border-radius: 5px; padding: 5px 11px; cursor: pointer;
+  .b, .magic {
+    height: 24px; padding: 3px 8px; font: 12px var(--font-ui); line-height: 1;
+    color: var(--c-tx-2); background: transparent; border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui); cursor: pointer; white-space: nowrap;
   }
-  .magic:hover:not(:disabled) { background: var(--c-accent-bright, #5a96c9); }
-  .magic:disabled { opacity: 0.4; cursor: default; }
-  .b {
-    font-size: 12px; color: var(--c-tx-2, #b7b5ac);
-    background: var(--c-bg-2, #1c1b1a); border: 1px solid var(--c-line-strong, #343331);
-    border-radius: 5px; padding: 5px 10px; cursor: pointer;
-  }
-  .b:hover { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
+  .b:hover:not(:disabled), .magic:hover:not(:disabled) { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
+  .b:disabled, .magic:disabled { opacity: .4; cursor: default; }
+  .b.active { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
+  /* Auto-animate reads as a toggled button, not a solid pill */
+  .magic { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .magic:hover:not(:disabled) { border-color: var(--c-accent-bright); }
+  /* Play is the ONE primary action on this surface */
+  .b.play { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); }
+  .b.play:hover:not(:disabled) { background: var(--c-accent-bright); border-color: var(--c-accent-bright); color: var(--c-on-accent); }
   .lib-wrap, .tf-wrap { position: relative; display: inline-flex; }
-  .b.tf { color: #a3b955; border-color: color-mix(in oklab, #66800b 60%, transparent); }
-  .b.tf:hover:not(:disabled), .b.tf.active { border-color: #879a39; color: var(--c-tx-hi, #fff); }
-  .b.active { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
-  .dock-body { display: flex; gap: 10px; min-height: 0; flex: 1; }
-  .keyhint { font-size: 10px; color: var(--c-tx-3, #6f6e69); white-space: nowrap; }
-
+  /* Transform keeps its olive hue as text + border only */
+  .b.tf { color: var(--c-success); border-color: color-mix(in oklab, var(--flx-olive-600) 70%, transparent); }
+  .b.tf:hover:not(:disabled), .b.tf.active { border-color: var(--c-success); color: var(--c-tx-hi); background: transparent; }
+  .dock-body { display: flex; gap: 0; min-height: 0; flex: 1; padding: 6px 8px 8px; }
+  .keyhint { font: 10px var(--font-mono); color: var(--c-tx-muted); white-space: nowrap; }
 </style>

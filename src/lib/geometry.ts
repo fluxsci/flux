@@ -474,7 +474,7 @@ export function distributeElements(els: Element[], axis: "h" | "v", gap?: number
 
 // ---------------------------------------------------------------------------
 // Grid arrangement — reflow a multi-selection into `cols` columns (rows auto =
-// ceil(items / cols)). Used by the keyboard "Arrange mode" (Alt+G) and the
+// ceil(items / cols)). Used by the keyboard "Arrange mode" (Alt+T) and the
 // Inspector's Arrange buttons. Like align/distribute it mutates `x`/`y` in
 // place and never resizes; cells size to content (per-column width / per-row
 // height) and each item is centred in its cell. A whole group counts as ONE

@@ -85,7 +85,7 @@ slide copies retain the assets they need. A slide copy has its own layout and an
 
 # Getting plots in
 
-- **Alt+I** opens the **Plot gallery**, showing SVG and PNG previews in the current
+- **Alt+G** opens the **Plot gallery**, showing SVG and PNG previews in the current
   folder. Choose **Gallery** or **List**; adjust **Size**, **Space**, and **Names** to make
   the contact sheet comfortable. Size reaches **800 px** for large previews. **Folders**
   shows or collapses a directory tree; expand its branches to browse files without losing
@@ -104,7 +104,7 @@ slide copies retain the assets they need. A slide copy has its own layout and an
   and you can still browse the entire `plots/` tree. Insertions leave the window open and
   use the figure named in its footer. Successful insertions clear the submitted picks,
   ready for the next batch. **Dock** returns the same gallery to the editor;
-  **Alt+I** brings an already pinned gallery forward. **Refresh** reloads files and previews.
+  **Alt+G** brings an already pinned gallery forward. **Refresh** reloads files and previews.
   Preview columns adjust as you resize the pinned window, including while the editor is
   minimized. Closing the project also closes its gallery.
 - **◆** marks semantic plots and **◇** marks plain images; **List** also shows semantic
@@ -136,13 +136,20 @@ Selection follows Figma's logic, tuned for plots:
   at a time.
 
 With a part selected, press **F** to open **Properties** and restyle it — color, width, size, font, opacity, visibility,
-even a positional nudge in the plot's own units. Part edits are stored as overrides keyed to
-the part's stable name, so **they survive regeneration** of the plot.
+even a positional nudge in the plot's own units. The same fields sit in the right rail's
+**Plot part** section. Part edits are stored as overrides keyed to the part's stable name, so
+**they survive regeneration** of the plot.
 
-**Alt+P** opens the **X-ray**: the anatomy of the selected plot (or group) as a tree. Walk it
-with the arrow keys, hide/show any part with **x**, press **Enter** to select a part and open
-its properties, and — for recipe-backed plots — hit **Regenerate** to re-run the script that
-made it, right from the panel.
+**Alt+R** opens the **X-ray**: the anatomy of the selected plot (or group) as a tree, placed
+beside the selection. Walk it with the arrow keys, hide/show any part with **x**, press
+**Enter** to select the picked parts and open their properties, and — for recipe-backed
+plots — hit **Regenerate** to re-run the script that made it, right from the panel. Rows
+**multi-select**: **Shift+click** picks a run, **Ctrl+click** (Mac **⌘+click**) toggles one,
+**Ctrl+A** picks everything, and **x**, **Enter** and the property menu then act on all of
+them — hide five series at once, or restyle them together. Select **several plots** before
+pressing **Alt+R** and the X-ray shows each plot's tree plus a **Common parts** list of
+what they all share, so hiding the x-axis of four plots is one row and one keypress.
+**Double-click** a row (or **Ctrl+Enter**) to re-root the X-ray on it.
 
 # Dissecting a plot
 
@@ -169,12 +176,22 @@ ungroups), **]** brings to front and **[** sends to back (with **Ctrl** they mov
 **Shift+H** / **Shift+V** flip, **Delete** removes, **Escape** cancels whatever you're midway
 through. The Inspector's Align row lines selections up, distributes them, and sets exact gaps.
 
-Press **F** with anything selected for the **property menu** — the fastest way to edit. Every
-field has a hotkey letter, numbers scrub like Figma's, and **s** searches the properties. It
-carries the essentials (position, size with **aspect lock**, rotation, opacity) plus the deep
-cuts: dashed strokes with dash/gap control, **arrowheads** on lines *and* open paths (filled or
-V-line, sized, with round/flat/square caps), **corner radius** on rectangles *and* paths,
-no-fill/no-stroke, text styling — and **save as preset** for anything you want to reuse.
+Press **F** with anything selected for the **property menu** — the fastest way to edit, built
+for one hand on the keyboard and one on the mouse. It opens **beside the selection**, never on
+top of it, and lays its groups out in columns so nothing scrolls. Every row has a hotkey
+letter: press it to **arm** the row, then roll the **mouse wheel** to adjust a number (a slow roll
+moves one step per notch, a flick moves fast, a trackpad scrubs; **Shift** ×10, **Alt** ×0.1;
+**↑/↓** step too, typed digits replace), and press **Space** or **Enter** to apply — **Escape** reverts. A choice such
+as font or alignment expands its options inline (wheel, **w/a/s/d**, **1–9**, or click); a
+colour opens the **palette** — hovering a swatch previews it live, a click applies it, and a
+hex can still be typed. Hovering any numeric row and rolling the wheel edits it directly, so
+the menu works with the mouse alone as well; **s** searches the properties. It carries the
+essentials (position, size with **aspect lock**, rotation, opacity) plus the deep cuts: dashed
+strokes with dash/gap control, **arrowheads** on lines *and* open paths (filled or V-line,
+sized, with round/flat/square caps), **corner radius** on rectangles *and* paths,
+no-fill/no-stroke, text styling — and **save as preset** for anything you want to reuse. The
+right rail carries the same properties (fill, stroke and text colours with their palette
+names, sizes, stroke widths, arrowheads), so the menu is a choice, not a requirement.
 
 Numeric fields accept expressions such as `240/2`. Drag a field’s label to scrub, or click
 its input and type. A scrub or a continuous text/property edit is one undo step; **Escape**
@@ -238,7 +255,7 @@ one gesture.
   [manuscript](paper.qmd) and exports automatically. Each block grows to fit whatever you
   type, so a caption is never hidden behind a scrollbar; when the blocks outgrow the page,
   scroll the page itself. Set the typing size in **Settings → Caption editor**.
-- **Alt+G** enters **arrange**: reflow a messy selection into a tidy row, column, or grid from
+- **Alt+T** enters **arrange**: reflow a messy selection into a tidy row, column, or grid from
   the keyboard, live, as one undo step.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.
 

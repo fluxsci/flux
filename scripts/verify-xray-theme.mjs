@@ -1,15 +1,18 @@
-// figure-v1 P8 gate (browser) — the RADIOGRAPH theme, asserted on computed
-// styles (the vibe is CSS-only; the machinery must stay cheap):
-//   · NO backdrop-filter anywhere in the panel (the blur(16px) layer is gone)
-//   · mono type on the tree rows + header
-//   · the ::after CRT layer exists: static scanlines (repeating-linear-gradient)
-//     + vignette, and the panel field is the phosphor gradient stack
-//   · one-shot CRT boot flicker: present right after open, FINISHED and gone
-//     from document.getAnimations() after 600ms (nothing animates at rest)
-//   · prefers-reduced-motion: reduce disables the boot entirely
-//   · evidence screenshot → flux_figure_upgrades_fixes/evidence-xray.png
+// figure-v1 P8 gate (browser) — the X-ray SURFACE, asserted on computed styles
+// (2026-09-15 surface redesign supersedes the CRT radiograph contract: same
+// always-dark phosphor identity, but FLAT — the panel is a surface that opens
+// beside the selection, not a show):
+//   · NO backdrop-filter, NO gradient field, NO ::after scanline/vignette layer
+//   · no text glow (text-shadow none on rows and header)
+//   · mono type on the tree rows + header; uppercase letterspaced header
+//   · selection = translucent phosphor tint (never a solid fill); the primary
+//     row of a pick carries an inset 2px rail
+//   · nothing animates at rest (document.getAnimations() empty ≥ 200ms after
+//     open) and prefers-reduced-motion opens with no entrance animation at all
+//   · it opens beside the selection: the panel never covers the selection box
+//   · Alt+R opens it (the chord moved to the left hand)
 //   Run (dev server on :1420): node scripts/verify-xray-theme.mjs
-import { readFileSync, copyFileSync, mkdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { launch, gotoApp, clickMode, shot, sleep, realErrors } from "./lib/driver.mjs";
 
 let fails = 0;
@@ -24,7 +27,7 @@ try {
   await clickMode(page, "Figure");
   await sleep(700);
 
-  // Seed one real fluxplot, centered-ish so the radiograph reads over the scene.
+  // Seed one real fluxplot, left of centre so the panel has room on its right.
   await page.evaluate(
     (svg, manifest) => {
       const F = window.__flux.fig;
@@ -37,7 +40,7 @@ try {
         g.height = 620;
         g.elements = [
           {
-            type: "plot", id: "plot1", x: 40, y: 40, width: 604, height: 432, rotation: 0,
+            type: "plot", id: "plot1", x: 40, y: 40, width: 504, height: 360, rotation: 0,
             assetId: "theme-asset", overrides: {},
             source: { svgPath: "plots/scatter_regression.svg" },
           },
@@ -52,24 +55,16 @@ try {
     MANIFEST,
   );
   await sleep(400);
+  await page.mouse.move(300, 300);
 
-  // --- open + catch the one-shot boot mid-flight -----------------------------
+  // --- open with the left-hand chord -------------------------------------------
   await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyP");
+  await page.keyboard.press("KeyR");
   await page.keyboard.up("Alt");
-  await sleep(120); // boot runs 340ms — sample it live
-  const boot = await page.evaluate(() =>
-    document.getAnimations().map((a) => ({
-      name: a.animationName ?? "",
-      pseudo: a.effect?.pseudoElement ?? null,
-    })),
-  );
-  ok(boot.some((a) => /xr-boot/.test(a.name) && a.pseudo === "::after"),
-    `one-shot CRT boot flicker runs on ::after at open (${boot.map((a) => a.name).join(", ")})`);
-
-  await sleep(700); // > 340ms boot + 180ms forge + slack
+  await sleep(300);
+  ok(await page.evaluate(() => !!document.querySelector(".xray")), "Alt+R opens the X-ray");
   const rest = await page.evaluate(() => document.getAnimations().length);
-  ok(rest === 0, `document.getAnimations().length === 0 after 600ms (${rest}) — nothing animates at rest`);
+  ok(rest === 0, `document.getAnimations().length === 0 after open (${rest}) — nothing animates at rest`);
 
   // --- computed-style contract -----------------------------------------------
   const styles = await page.evaluate(() => {
@@ -82,31 +77,33 @@ try {
     const after = getComputedStyle(panel, "::after");
     const row = document.querySelector(".xray .row");
     const ttl = document.querySelector(".xray .ttl");
+    const sel = document.querySelector(".canvas-host .sel-box")?.getBoundingClientRect();
+    const pr = panel.getBoundingClientRect();
     return {
       backdropFiltered: bf,
-      afterBg: after.backgroundImage,
-      afterEvents: after.pointerEvents,
-      panelBg: getComputedStyle(panel).backgroundImage,
+      afterContent: after.content,
+      panelBgImage: getComputedStyle(panel).backgroundImage,
       panelFont: getComputedStyle(panel).fontFamily,
       rowFont: row ? getComputedStyle(row).fontFamily : "",
+      rowShadow: row ? getComputedStyle(row).textShadow : "",
       ttlTransform: ttl ? getComputedStyle(ttl).textTransform : "",
       ttlSpacing: ttl ? parseFloat(getComputedStyle(ttl).letterSpacing) : 0,
-      selBg: null,
+      ttlShadow: ttl ? getComputedStyle(ttl).textShadow : "",
+      overlaps: sel ? !(pr.right <= sel.left || pr.left >= sel.right || pr.bottom <= sel.top || pr.top >= sel.bottom) : null,
+      inViewport: pr.left >= 0 && pr.top >= 0 && pr.right <= innerWidth && pr.bottom <= innerHeight,
     };
   });
-  ok(styles.backdropFiltered === 0, "NO backdrop-filter anywhere in the panel (blur layer deleted)");
-  ok(/repeating-linear-gradient/.test(styles.afterBg), "::after carries the static scanline layer");
-  ok(/radial-gradient/.test(styles.afterBg), "…plus the vignette");
-  ok(styles.afterEvents === "none", "the CRT glass never eats pointer events");
-  ok(/radial-gradient/.test(styles.panelBg) && /linear-gradient/.test(styles.panelBg),
-    "panel field = phosphor wash over the near-black tube");
+  ok(styles.backdropFiltered === 0, "NO backdrop-filter anywhere in the panel");
+  ok(styles.afterContent === "none" || styles.afterContent === "" || styles.afterContent === "normal", `no ::after CRT layer (content: ${styles.afterContent})`);
+  ok(styles.panelBgImage === "none", `flat panel field — no gradient (${styles.panelBgImage})`);
   ok(/mono/i.test(styles.rowFont), `mono type on tree rows (${styles.rowFont.split(",")[0]})`);
-  ok(styles.ttlTransform === "uppercase" && styles.ttlSpacing > 1,
-    `mono uppercase letterspaced header (${styles.ttlTransform}, ${styles.ttlSpacing}px)`);
+  ok(styles.rowShadow === "none", "no text glow on rows");
+  ok(styles.ttlTransform === "uppercase" && styles.ttlSpacing > 1 && styles.ttlShadow === "none",
+    `mono uppercase letterspaced header, no glow (${styles.ttlTransform}, ${styles.ttlSpacing}px)`);
+  ok(styles.overlaps === false, "the panel opens BESIDE the selection (never covers the selection box)");
+  ok(styles.inViewport, "…and inside the viewport");
 
-  // Selection = phosphor tint + inset rail, NOT the solid accent fill.
-  // (Default seeding already expands depth<2 — "Plot area" is open; drill one
-  // level further into "X axis", then select its "Tick labels" group row.)
+  // Selection = phosphor tint + inset rail on the primary row — NOT a solid accent fill.
   await page.evaluate(() => {
     [...document.querySelectorAll(".xray .row")]
       .find((r) => (r.querySelector(".rlabel")?.textContent ?? "").trim() === "X axis")
@@ -123,16 +120,14 @@ try {
     const r = document.querySelector(".xray .row.sel");
     if (!r) return null;
     const cs = getComputedStyle(r);
-    return { bg: cs.backgroundColor, shadow: cs.boxShadow, glow: cs.textShadow };
+    return { bg: cs.backgroundColor, shadow: cs.boxShadow, glow: cs.textShadow, primary: r.classList.contains("primary") };
   });
   ok(!!sel, "a selected row exists");
-  // Translucent tint (alpha ≪ 1), whatever color space Chrome serializes
-  // (oklab from color-mix) — NEVER the old solid accent fill.
   const alphaM = sel && (sel.bg.match(/\/\s*([\d.]+)\s*\)/) || sel.bg.match(/rgba\([^)]+,\s*([\d.]+)\)/));
   const alpha = alphaM ? parseFloat(alphaM[1]) : 1;
   ok(sel && alpha > 0 && alpha < 0.5, `.sel = translucent phosphor tint, not a solid fill (alpha ${alpha}: ${sel?.bg})`);
-  ok(sel && /inset/.test(sel.shadow), "…with the inset phosphor rail");
-  ok(sel && sel.glow !== "none", "…and a text glow");
+  ok(sel && sel.primary && /inset/.test(sel.shadow), "…the primary row carries the inset rail");
+  ok(sel && sel.glow === "none", "…and no text glow");
 
   // Dim a row's eye for the screenshot (shows the off state) + evidence shot.
   await page.evaluate(() => {
@@ -141,31 +136,21 @@ try {
       ?.querySelector("button.eye")?.click();
   });
   await sleep(300);
-  const clip = await page.evaluate(() => {
-    const r = document.querySelector(".xray").getBoundingClientRect();
-    return { x: Math.max(0, r.x - 120), y: Math.max(0, r.y - 24), width: Math.min(1500, r.width + 160), height: Math.min(950, r.height + 48) };
-  });
-  const outPath = `${process.env.FLUX_OUT || "test-results/out"}/xray-theme.png`;
-  await page.screenshot({ path: outPath, clip });
-  mkdirSync("flux_figure_upgrades_fixes", { recursive: true }); // local evidence dir — not tracked
-  copyFileSync(outPath, "flux_figure_upgrades_fixes/evidence-xray.png");
-  console.log("  evidence → flux_figure_upgrades_fixes/evidence-xray.png");
   await shot(page, "xray-theme-full");
 
-  // --- reduced motion kills the boot -----------------------------------------
+  // --- reduced motion: no entrance animation at all --------------------------
   await page.keyboard.press("Escape");
   await sleep(300);
   await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
   await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyP");
+  await page.keyboard.press("KeyR");
   await page.keyboard.up("Alt");
-  await sleep(150);
+  await sleep(60);
   const reduced = await page.evaluate(() => ({
-    anim: getComputedStyle(document.querySelector(".xray"), "::after").animationName,
-    running: document.getAnimations().filter((a) => /xr-boot/.test(a.animationName ?? "")).length,
+    anim: getComputedStyle(document.querySelector(".xray")).animationName,
+    running: document.getAnimations().length,
   }));
-  ok(reduced.anim === "none" && reduced.running === 0,
-    `prefers-reduced-motion disables the boot flicker (animation: ${reduced.anim})`);
+  ok(reduced.anim === "none" && reduced.running === 0, `prefers-reduced-motion opens with no animation (animation: ${reduced.anim})`);
 
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);

@@ -4,7 +4,7 @@
 //      pointer gestures; inspector edits (dash checkbox) hit the same model;
 //      the slide-accented chrome (darker backdrop, "Slide" brand) is present
 //      and the figure-only inspector sections are hidden.
-//   2. plot X-ray on a slide: seed a semantic plot, Alt+P opens the SHARED
+//   2. plot X-ray on a slide: seed a semantic plot, Alt+R opens the SHARED
 //      figure X-ray, part rows list, an override lands via the part write path.
 //   3. selection/arrange: select-all, align, group/ungroup, z-order, nudge —
 //      through the ONE figure keymap — and the unified history interleaves
@@ -142,7 +142,7 @@ try {
   });
   await sleep(400);
   await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyP");
+  await page.keyboard.press("KeyR");
   await page.keyboard.up("Alt");
   await sleep(600);
   const xray = await page.evaluate(() => {
@@ -153,7 +153,7 @@ try {
       rows: document.querySelectorAll("[class*=xray] [class*=row], .xray .row").length,
     };
   });
-  ok(xray.open && xray.panel, `Alt+P opens the SHARED figure X-ray on a slide plot (rows: ${xray.rows})`);
+  ok(xray.open && xray.panel, `Alt+R opens the SHARED figure X-ray on a slide plot (rows: ${xray.rows})`);
   // part override via the shared write path (the X-ray's model op)
   const partWrite = await page.evaluate(async () => {
     const f = window.__flux;

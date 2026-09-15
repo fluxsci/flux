@@ -2,7 +2,7 @@
 
 For agents verifying this implementation; the user-facing workflow is in
 [`docs/modes/slide.qmd`](../modes/slide.qmd). Implemented September 13, 2026. Put `.mp4` or `.mov` clips in `plots/_videos`,
-then open **Plots & videos** in Slide mode (`Alt+I`).
+then open **Plots & videos** in Slide mode (`Alt+G`).
 
 ## Behavior
 

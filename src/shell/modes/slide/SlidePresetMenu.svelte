@@ -128,50 +128,51 @@
 </div>
 
 <style>
+  /* a modal picker keeps the light scrim */
   .scrim {
-    position: absolute; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.35);
+    position: absolute; inset: 0; z-index: 60; background: rgba(0, 0, 0, .35);
     display: flex; align-items: center; justify-content: center;
   }
   .menu {
     width: min(560px, 86vw); max-height: min(520px, 82vh); overflow: hidden;
-    display: flex; flex-direction: column; gap: 8px; padding: 12px;
-    background: var(--c-bg-raised); border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-2); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
-    font-size: 12px; color: var(--c-tx);
+    display: flex; flex-direction: column; gap: 0; padding: 0;
+    background: var(--c-surface); border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-panel); box-shadow: var(--elev-2);
+    font: 12px/1.35 var(--font-ui); -webkit-font-smoothing: antialiased; color: var(--c-tx);
   }
-  header { display: flex; align-items: center; justify-content: space-between; }
-  header strong { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--c-tx-2); }
-  .x { border: none; background: transparent; color: var(--c-tx-muted); font-size: 15px; cursor: pointer; }
-  .x:hover { color: var(--c-tx-hi); }
+  header { display: flex; align-items: center; justify-content: space-between; height: 30px; flex: 0 0 auto; padding: 0 6px 0 12px; border-bottom: 1px solid var(--c-line); }
+  header strong { font: 600 12px var(--font-ui); color: var(--c-tx); }
+  .x { width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-ui); background: transparent; color: var(--c-tx-muted); font-size: 13px; cursor: pointer; }
+  .x:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   input {
-    background: var(--c-bg); border: 1px solid var(--c-line-strong); color: var(--c-tx);
-    border-radius: 4px; padding: 5px 8px; font-size: 12px; width: 100%;
+    margin: 8px 10px 0; height: 24px; background: var(--c-bg); border: 1px solid var(--c-line-strong); color: var(--c-tx);
+    border-radius: var(--r-ui); padding: 2px 6px; font: 12px var(--font-mono);
   }
+  input:focus { border-color: var(--c-accent); outline: none; }
+  /* Save preset is the panel's one primary */
   .primary {
-    background: var(--c-accent); color: var(--c-on-accent, #100f0f); border: none;
-    border-radius: 5px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+    margin: 6px 10px 0; align-self: flex-start; height: 24px; padding: 3px 10px; font: 600 12px var(--font-ui);
+    background: var(--c-accent); color: var(--c-on-accent); border: 1px solid var(--c-accent); border-radius: var(--r-ui); cursor: pointer;
   }
-  .primary:disabled { opacity: 0.5; cursor: default; }
-  .hint { color: var(--c-tx-muted); font-size: 11px; }
-  .grid {
-    overflow-y: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-    padding: 2px;
-  }
-  .none { grid-column: 1 / -1; color: var(--c-tx-faint); font-style: italic; padding: 18px 6px; text-align: center; }
+  .primary:hover:not(:disabled) { background: var(--c-accent-bright); border-color: var(--c-accent-bright); }
+  .primary:disabled { opacity: .4; cursor: default; }
+  .hint { color: var(--c-tx-muted); font-size: 11px; line-height: 1.5; padding: 6px 10px 0; }
+  .grid { overflow-y: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px 10px 10px; }
+  .none { grid-column: 1 / -1; color: var(--c-tx-faint); padding: 18px 6px; text-align: center; }
   .card {
     position: relative; display: flex; flex-direction: column; gap: 3px;
-    border: 1px solid var(--c-line); border-radius: var(--r-2); padding: 5px;
+    border: 1px solid var(--c-line); border-radius: var(--r-0); padding: 4px; background: var(--c-bg-raised);
   }
   .card.pickable { cursor: pointer; }
   .card.pickable:hover { border-color: var(--c-accent); background: var(--c-accent-tint-2); }
-  .shot { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: 3px; background: var(--c-bg); border: 1px solid var(--c-line); }
+  .shot { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: 0; background: var(--c-bg); border: 1px solid var(--c-line); }
   .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-2); }
-  .dir { color: var(--c-tx-faint); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dir { color: var(--c-tx-faint); font: 10px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .del {
-    position: absolute; top: 7px; right: 7px; width: 17px; height: 17px; line-height: 15px;
-    border: none; border-radius: 3px; background: color-mix(in oklab, var(--c-bg, #100f0f) 72%, transparent);
-    color: var(--c-tx-muted); cursor: pointer; font-size: 12px; opacity: 0;
+    position: absolute; top: 6px; right: 6px; width: 16px; height: 16px; line-height: 14px; padding: 0;
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-surface);
+    color: var(--c-tx-muted); cursor: pointer; font-size: 11px; opacity: 0;
   }
   .card:hover .del { opacity: 1; }
-  .del:hover { color: var(--c-danger, #d14d41); }
+  .del:hover { color: var(--c-danger); border-color: var(--c-danger); }
 </style>

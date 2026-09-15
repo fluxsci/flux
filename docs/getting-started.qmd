@@ -97,13 +97,13 @@ recipe to regenerate it. The two `series=` names are the handles everything down
 
 # Build the figure
 
-Open **Figure** mode and press **Alt+I** — the importer lists `growth.svg` with a **◆
+Open **Figure** mode and press **Alt+G** — the gallery lists `growth.svg` with a **◆
 semantic** badge. Insert it: it lands at its true printed size (6.4 × 4.8 inches, exactly).
 
 Now the trick that makes Flux Flux: **Ctrl+click** the control series' line. You've selected
 one *part* of the plot. Press **F** and change its stroke color. That restyle is keyed to the
 series name, so re-running `make_growth.py` later — different data, more points — updates the
-plot in place *and keeps your styling*. Try **Alt+P** too: the X-ray shows the plot's whole
+plot in place *and keeps your styling*. Try **Alt+R** too: the X-ray shows the plot's whole
 anatomy, and can regenerate it from its recipe.
 
 Finish with a caption: **Alt+C** opens the caption editor beside the figure — write one

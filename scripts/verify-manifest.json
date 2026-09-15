@@ -220,7 +220,11 @@
    "verify-slide-video-media.ts",
    "verify-gallery-names.ts",
    "verify-gallery-tree.ts",
-   "verify-gallery-video-capability.ts"
+   "verify-gallery-video-capability.ts",
+   "verify-surface-anchor.ts",
+   "verify-xray-multi.ts",
+   "verify-animate-selection.ts",
+   "verify-wheel-law.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -320,7 +324,9 @@
    "verify-paper-slide-embeds.mjs",
    "verify-slide-embed-lifecycle.mjs",
    "verify-slide-video-clips-gui.mjs",
-   "verify-gallery-workflow.mjs"
+   "verify-gallery-workflow.mjs",
+   "verify-fmenu-surface.mjs",
+   "verify-xray-multi-gui.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -1022,6 +1028,26 @@
     "verify-docx-svg-fallback.ts",
     "verify-export-prep.ts",
     "tier:pure"
+   ]
+  },
+  {
+   "$why": "2026-09-15 surface redesign \u2014 the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
+   "glob": "{src/lib/FluxFigMenu.svelte,src/lib/ColorPicker.svelte,src/lib/NumberField.svelte,src/lib/Xray.svelte,src/lib/xray/**,src/lib/ui/anchor.ts,src/lib/interact/propertyMenu.ts,src/lib/interact/wheelLaw.ts,src/lib/interact/elementProperties.ts,src/lib/slide/animateSelection.ts,src/lib/Inspector.svelte}",
+   "run": [
+    "verify-surface-anchor.ts",
+    "verify-wheel-law.ts",
+    "verify-xray-multi.ts",
+    "verify-animate-selection.ts",
+    "verify-wheel-law.ts",
+    "verify-xray-tree.ts",
+    "verify-fmenu-surface.mjs",
+    "verify-xray-multi-gui.mjs",
+    "verify-xray-theme.mjs",
+    "figenh-18-xray.mjs",
+    "figenh-14-partui.mjs",
+    "verify-figure-editing-gui.mjs",
+    "verify-figure-controls-gui.mjs",
+    "verify-menu.mjs"
    ]
   }
  ],

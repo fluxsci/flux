@@ -1,26 +1,15 @@
 import { writable } from "svelte/store";
 
-export type FluxFigMenuSize = "sm" | "md" | "lg";
 // Paper caret motion model (src/shell/modes/paper/editing/caretFeel.ts):
 // "chase" = exponential pursuit (default); "smooth" = fixed-duration
 // monkeytype-style tween. Owner decision 2026-07-21 out of the caret-feel lab
 // (classic CSS glide and chase-trail were cut; soft blink is built-in).
 export type PaperCaretFeel = "chase" | "smooth";
-export type FluxFigMenuPos = "center" | "top" | "left" | "right"; // "top" is legacy → treated as center
-export type FluxFigMenuAnim = "draw" | "fade"; // self-drawing line vs. quick fade
-export type XrayPos = "above" | "below"; // which side of the FluxFig menu the X-ray docks to
 export type CorrectionProvider = "flux" | "ollama" | "openai";
 export type CorrectionDialect = "american" | "british" | "canadian" | "australian";
 export type CorrectionAggressiveness = "standard" | "aggressive" | "really-aggressive";
 
 export interface Settings {
-  fluxFigMenuSize: FluxFigMenuSize;
-  fluxFigMenuPos: FluxFigMenuPos;
-  fluxFigMenuDx: number; // px nudge from the preset position (+ = right)
-  fluxFigMenuDy: number; // px nudge from the preset position (+ = down)
-  fluxFigMenuAnim: FluxFigMenuAnim;
-  fluxFigMenuOpacity: number; // 0.6 .. 1
-  xrayPos: XrayPos; // the X-ray docks above/below the FluxFig menu's spot
   flexokiDefault: boolean; // ship the Flexoki palette in new projects
   // Feature 11 — rulers / guides / grid.
   showRulers: boolean; // H/V rulers along the canvas edges (Shift+R)
@@ -48,13 +37,6 @@ export interface Settings {
 
 const KEY = "flux.settings";
 const DEFAULTS: Settings = {
-  fluxFigMenuSize: "md",
-  fluxFigMenuPos: "center",
-  fluxFigMenuDx: 0,
-  fluxFigMenuDy: 0,
-  fluxFigMenuAnim: "draw",
-  fluxFigMenuOpacity: 0.94,
-  xrayPos: "above",
   flexokiDefault: true,
   showRulers: false,
   showGrid: false,
@@ -76,27 +58,19 @@ const DEFAULTS: Settings = {
   updateCheck: true,
 };
 
-// Migrate legacy "forgery*" keys (the FluxFig Menu was formerly "The Forgery", M6)
-// to the current "fluxFigMenu*" keys, so persisted preferences survive the rename.
+// Migrate persisted preferences forward. The property menu (once "The
+// Forgery", then the docked FluxFig Menu) had size / position / nudge / opacity
+// / entrance / X-ray-dock settings; since the 2026-09-15 surface redesign both
+// panels anchor themselves beside the selection and open instantly, so every
+// one of those keys — legacy "forgery*" spellings included — is simply dropped.
+const RETIRED_KEYS = [
+  "forgerySize", "forgeryPos", "forgeryAnim", "forgeryOpacity",
+  "fluxFigMenuSize", "fluxFigMenuPos", "fluxFigMenuDx", "fluxFigMenuDy",
+  "fluxFigMenuAnim", "fluxFigMenuOpacity", "xrayPos", "xrayDx", "xrayDy",
+];
 function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...raw };
-  const renames: Record<string, keyof Settings> = {
-    forgerySize: "fluxFigMenuSize",
-    forgeryPos: "fluxFigMenuPos",
-    forgeryAnim: "fluxFigMenuAnim",
-    forgeryOpacity: "fluxFigMenuOpacity",
-  };
-  for (const [legacy, current] of Object.entries(renames)) {
-    if (legacy in out && !(current in out)) out[current] = out[legacy];
-    delete out[legacy];
-  }
-  // figure-v1: the X-ray docks above/below the FluxFig menu now (it briefly had
-  // its own preset + nudge), and the "top" menu preset folded into "center"
-  // (vertical placement is the Y-nudge's job).
-  if (out.xrayPos !== "above" && out.xrayPos !== "below") delete out.xrayPos;
-  delete out.xrayDx;
-  delete out.xrayDy;
-  if (out.fluxFigMenuPos === "top") out.fluxFigMenuPos = "center";
+  for (const k of RETIRED_KEYS) delete out[k];
   // caret-feel (2026-07-21): the lab collapsed to chase|smooth — "monkeytype"
   // was renamed "smooth"; "classic"/"chase-trail" and the soft-blink /
   // line-scroll / glide-ms settings were retired (soft blink is built-in).
@@ -168,49 +142,6 @@ leftRailHidden.subscribe((v) => {
     localStorage.setItem(LEFTRAIL_KEY, v ? "1" : "0");
   } catch {}
 });
-
-// ---------------------------------------------------------------------------
-// Popup layout: the FluxFig menu is placed by preset (horizontal) + px nudge,
-// and the X-ray docks to it across a fixed horizontal boundary line (above by
-// default). Growth is deterministic — each panel expands AWAY from the
-// boundary (X-ray above grows upward, the menu grows downward) — so a
-// user-tuned position never shifts as content expands. Both panels consume
-// this one helper; keep them in lockstep.
-export const FLUXFIG_WIDTHS: Record<FluxFigMenuSize, number> = { sm: 420, md: 560, lg: 720 };
-const POPUP_GAP = 6; // px each panel keeps from the boundary line
-
-export function popupLayout(s: Settings): {
-  width: number; // shared panel width (px)
-  menuWrap: string; // style for the FluxFig menu's fixed full-screen wrapper
-  menuMax: string; // max-height for the menu panel
-  xrayWrap: string; // style for the X-ray's fixed full-screen wrapper
-  xrayMax: string; // max-height for the X-ray panel
-} {
-  const dx = s.fluxFigMenuDx || 0;
-  const dy = s.fluxFigMenuDy || 0;
-  const width = FLUXFIG_WIDTHS[s.fluxFigMenuSize];
-  const xAlign =
-    s.fluxFigMenuPos === "left"
-      ? "justify-content:flex-start; padding-left:28px;"
-      : s.fluxFigMenuPos === "right"
-        ? "justify-content:flex-end; padding-right:28px;"
-        : "justify-content:center;";
-  // The boundary line the two panels stack around (a CSS length expression).
-  const A = `calc(50vh + ${dy}px)`;
-  const shift = ` transform:translate3d(${dx}px, 0, 0);`;
-  const below = `align-items:flex-start; padding-top:max(8px, calc(${A} + ${POPUP_GAP}px));`;
-  const above = `align-items:flex-end; padding-bottom:max(8px, calc(100vh - ${A} + ${POPUP_GAP}px));`;
-  const belowMax = `calc(100vh - ${A} - ${POPUP_GAP + 8}px)`;
-  const aboveMax = `calc(${A} - ${POPUP_GAP + 8}px)`;
-  const xrayAbove = s.xrayPos !== "below";
-  return {
-    width,
-    menuWrap: xAlign + (xrayAbove ? below : above) + shift,
-    menuMax: `min(78vh, ${xrayAbove ? belowMax : aboveMax})`,
-    xrayWrap: xAlign + (xrayAbove ? above : below) + shift,
-    xrayMax: `min(82vh, ${xrayAbove ? aboveMax : belowMax})`,
-  };
-}
 
 // Transient UI state.
 export const settingsOpen = writable(false);

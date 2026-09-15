@@ -260,13 +260,15 @@
 </div>
 
 <style>
-  .editor-loading { margin: auto; padding: 24px; color: var(--c-tx-2); }
+  .editor-loading { margin: auto; padding: 24px; color: var(--c-tx-2); font-family: var(--font-ui); }
   .figure-mode {
     display: flex;
     flex-direction: column;
     height: 100%;
     overflow: hidden;
     position: relative;
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
   }
   .disk-toast {
     position: absolute;
@@ -274,32 +276,32 @@
     left: 50%;
     transform: translateX(-50%);
     display: flex;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
-    padding: 10px 14px;
-    background: var(--c-bg-1, #1c1b1a);
-    color: var(--c-tx, #cecdc3);
-    border: 1px solid var(--c-ui, #403e3c);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    font-size: 13px;
+    padding: 8px 12px;
+    background: var(--c-surface);
+    color: var(--c-tx);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-panel);
+    box-shadow: var(--elev-2);
+    font-size: 12px;
     z-index: 50;
   }
   .disk-toast button {
-    border: 1px solid var(--c-ui, #403e3c);
-    background: var(--c-bg-2, #282726);
-    color: var(--c-tx, #cecdc3);
-    border-radius: 6px;
-    padding: 4px 10px;
+    border: 1px solid var(--c-line-strong);
+    background: transparent;
+    color: var(--c-tx-hi);
+    border-radius: var(--r-ui);
+    height: 24px;
+    padding: 0 9px;
     cursor: pointer;
-    font-size: 12px;
+    font: 12px var(--font-ui);
   }
   .disk-toast button:hover {
-    background: var(--c-ui, #403e3c);
+    border-color: var(--c-tx-muted);
   }
   .disk-toast button.ghost {
-    background: transparent;
-    color: var(--c-tx-2, #878580);
+    color: var(--c-tx-2);
   }
   .body {
     display: flex;
@@ -321,7 +323,7 @@
     background: transparent;
   }
   .rail-gutter:hover {
-    background: color-mix(in srgb, var(--c-accent, #4385be) 35%, transparent);
+    background: color-mix(in oklab, var(--c-accent) 35%, transparent);
   }
   /* Slim hover-revealed reopen affordance for a hidden rail. */
   .edgetab {
@@ -332,7 +334,7 @@
     border: none;
     padding: 0;
     background: transparent;
-    color: var(--c-tx-2, #878580);
+    color: var(--c-tx-muted);
     font-size: 14px;
     cursor: pointer;
     opacity: 0.25;
@@ -340,7 +342,7 @@
   }
   .edgetab:hover {
     opacity: 1;
-    background: color-mix(in srgb, var(--c-accent, #4385be) 18%, transparent);
+    background: var(--c-accent-tint);
   }
   .edgetab.left {
     left: 0;

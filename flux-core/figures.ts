@@ -152,7 +152,7 @@ export async function addPanel(
 }
 
 /** import-plots: batch-import N SVG plots onto an EXISTING figure — the headless
- *  mirror of the GUI's Alt+I multi-insert (Ctrl+Enter in the Plot Importer). Each
+ *  mirror of the GUI's Alt+G multi-insert (Ctrl+Enter in the Plot Importer). Each
  *  file resolves its FluxPlot sidecars (semantic when X.fluxplot.json exists) and
  *  lands at TRUE physical size (never fit-scaled). Placement mirrors the GUI's
  *  io.placeIncoming exactly: one plot centers in the frame; several pack at real

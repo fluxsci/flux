@@ -1,36 +1,83 @@
 <script lang="ts">
-  import { fade, scale } from "svelte/transition";
-  import { onDestroy } from "svelte";
-  import { settings, settingsOpen, type Settings, type FluxFigMenuSize, type FluxFigMenuPos, type FluxFigMenuAnim, type XrayPos } from "./settings";
+  // Shell-global Settings dialog (title-bar gear / the `settingsOpen` store).
+  // A tabbed surface — General · Figure · Paper · Corrections — in the editor
+  // chrome language (2026-09-15 surface redesign): one flat panel, hairline
+  // dividers, square controls, opacity-only open/close. Every pane stays in
+  // the DOM (inactive ones are `hidden`) so the dialog's text and controls are
+  // reachable whichever tab was chosen last — the shell and correction gates
+  // read them without switching tabs.
+  import { fade } from "svelte/transition";
+  import { onDestroy, untrack } from "svelte";
+  import { settings, settingsOpen, type Settings } from "./settings";
   import { fileBridge } from "./project/types";
   import {
     clearLocalCorrectionLearning,
     LOCAL_CORRECTION_RESET_EVENT,
   } from "../shell/modes/paper/editing/localCorrectionProfile";
 
+  // --- Tabs ------------------------------------------------------------------
+  type TabId = "general" | "figure" | "paper" | "corrections";
+  const TABS: { id: TabId; label: string }[] = [
+    { id: "general", label: "General" },
+    { id: "figure", label: "Figure" },
+    { id: "paper", label: "Paper" },
+    { id: "corrections", label: "Corrections" },
+  ];
+  const TAB_KEY = "flux.ui.settingsTab";
+  function loadTab(): TabId {
+    try {
+      const v = localStorage.getItem(TAB_KEY);
+      if (TABS.some((t) => t.id === v)) return v as TabId;
+    } catch {}
+    return "general";
+  }
+  let tab = $state<TabId>(loadTab());
+  function selectTab(id: TabId) {
+    tab = id;
+    try {
+      localStorage.setItem(TAB_KEY, id);
+    } catch {}
+  }
+  // Vertical tablist keyboard model: ↑/↓ (Home/End) move selection and focus.
+  function onTabKey(e: KeyboardEvent) {
+    const i = TABS.findIndex((t) => t.id === tab);
+    let next = -1;
+    if (e.key === "ArrowDown") next = (i + 1) % TABS.length;
+    else if (e.key === "ArrowUp") next = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    selectTab(TABS[next].id);
+    document.getElementById(`settings-tab-${TABS[next].id}`)?.focus();
+  }
+
   // --- FluxConfig location (desktop app only) --------------------------------
   // ONE user-facing folder for all user-level Flux state (FluxLib, Guidelines).
   // Moving it moves everything; the folder is always named exactly "FluxConfig"
   // (the user picks its PARENT). FluxLib is derived: <FluxConfig>/FluxLib.
-  let cfgPath = "";
-  let libPath = "";
-  let libNotice = "";
-  let libBusy = false;
-  let correctionLearningReset = false;
-  let correctionProviderStatus = "Checking…";
-  let correctionModels: string[] = [];
-  let correctionCloudKey = "";
-  let correctionCloudConfigured = false;
-  let correctionCloudCost = 0;
+  let cfgPath = $state("");
+  let libPath = $state("");
+  let libNotice = $state("");
+  let libBusy = $state(false);
+  let correctionLearningReset = $state(false);
+  let correctionProviderStatus = $state("Checking…");
+  let correctionModels = $state<string[]>([]);
+  let correctionCloudKey = $state("");
+  let correctionCloudConfigured = $state(false);
+  let correctionCloudCost = $state(0);
   let correctionPersonalProfile: Record<string, unknown> = { words: [], aliases: [], guidance: "" };
   let correctionProjectProfile: Record<string, unknown> = { words: [], aliases: [], blockedPairs: [], guidance: "" };
-  let correctionProjectGuidance = "";
-  let correctionVetoes: string[] = [];
-  let correctionModelStatus: { available: boolean; installed: boolean; updateRequired?: boolean; running: boolean; ready?: boolean; downloading: boolean; model: { id: string; displayName: string; bytes: number; license: string }; runtime?: string | null; acceleration?: "metal" | "vulkan" | "cpu"; contextPerSlot?: number; parallelSlots?: number; error?: string } | null = null;
-  let correctionModelProgress: { received: number; total: number; verifying?: boolean; complete?: boolean } | null = null;
-  let correctionModelBusy = false;
+  let correctionProjectGuidance = $state("");
+  let correctionVetoes = $state<string[]>([]);
+  type ManagedModelStatus = { available: boolean; installed: boolean; updateRequired?: boolean; running: boolean; ready?: boolean; downloading: boolean; model: { id: string; displayName: string; bytes: number; license: string }; runtime?: string | null; acceleration?: "metal" | "vulkan" | "cpu"; contextPerSlot?: number; parallelSlots?: number; error?: string };
+  type ManagedModelProgress = { received: number; total: number; verifying?: boolean; complete?: boolean };
+  let correctionModelStatus = $state<ManagedModelStatus | null>(null);
+  let correctionModelProgress = $state<ManagedModelProgress | null>(null);
+  let correctionModelBusy = $state(false);
   let stopCorrectionProgress: (() => void) | null = null;
-  let modalEl: HTMLDivElement | null = null;
+  let modalEl = $state<HTMLDivElement | null>(null);
+  let prevFocus: HTMLElement | null = null;
 
   async function loadLib() {
     try {
@@ -191,7 +238,7 @@
 
   async function removeCorrectionVeto(pair: string) {
     correctionVetoes = correctionVetoes.filter((value) => value !== pair);
-    correctionProjectProfile = { ...correctionProjectProfile, blockedPairs: correctionVetoes };
+    correctionProjectProfile = { ...correctionProjectProfile, blockedPairs: [...correctionVetoes] };
     await fileBridge()?.correctionProfileSet?.({ projectRoot: "", scope: "project", data: correctionProjectProfile });
     window.dispatchEvent(new CustomEvent("flux:local-language-changed", { detail: { scope: "project" } }));
   }
@@ -224,14 +271,22 @@
     }
   }
 
-  // Refresh the displayed path and move focus in whenever the panel opens; clear
-  // the transient notice on close.
-  $: if ($settingsOpen) {
-    void loadLib();
-    queueMicrotask(() => modalEl?.focus());
-  } else {
-    libNotice = "";
-  }
+  // Open: refresh the displayed path / provider state and move focus into the
+  // dialog. Close: clear the transient notice and hand focus back to wherever
+  // it was.
+  $effect(() => {
+    if ($settingsOpen) {
+      prevFocus = document.activeElement as HTMLElement | null;
+      untrack(() => void loadLib());
+      queueMicrotask(() => modalEl?.focus());
+    } else {
+      libNotice = "";
+      if (prevFocus) {
+        prevFocus.focus?.();
+        prevFocus = null;
+      }
+    }
+  });
 
   function onKey(e: KeyboardEvent) {
     if ($settingsOpen && e.key === "Escape") {
@@ -247,29 +302,10 @@
     window.setTimeout(() => (correctionLearningReset = false), 1800);
   }
 
-  const sizes: { v: FluxFigMenuSize; l: string }[] = [
-    { v: "sm", l: "Small" },
-    { v: "md", l: "Medium" },
-    { v: "lg", l: "Large" },
-  ];
-  const positions: { v: FluxFigMenuPos; l: string }[] = [
-    { v: "center", l: "Center" },
-    { v: "left", l: "Left" },
-    { v: "right", l: "Right" },
-  ];
-  const xrayPositions: { v: XrayPos; l: string }[] = [
-    { v: "above", l: "Above the menu" },
-    { v: "below", l: "Below the menu" },
-  ];
-  const anims: { v: FluxFigMenuAnim; l: string }[] = [
-    { v: "draw", l: "Draw-in" },
-    { v: "fade", l: "Quick fade" },
-  ];
+  // Open/close is opacity only, ≤ 90 ms — and nothing under reduced motion.
+  const fadeMs = () =>
+    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 80;
 
-  function setNum(key: "fluxFigMenuDx" | "fluxFigMenuDy", raw: string) {
-    const n = parseFloat(raw);
-    settings.update((v) => ({ ...v, [key]: Number.isFinite(n) ? Math.round(n) : 0 }));
-  }
   // Paper caret motion — see editing/caretFeel.ts.
   const caretFeels: { v: Settings["paperCaretFeel"]; l: string }[] = [
     { v: "chase", l: "Chase" },
@@ -284,12 +320,12 @@
   ];
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window onkeydown={onKey} />
 
 {#if $settingsOpen}
-  <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-  <div class="bk" transition:fade={{ duration: 120 }} on:click={() => settingsOpen.set(false)}>
-    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+  <div class="bk" transition:fade={{ duration: fadeMs() }} onclick={() => settingsOpen.set(false)}>
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
     <div
       class="modal"
       role="dialog"
@@ -297,480 +333,643 @@
       aria-label="Settings"
       tabindex="-1"
       bind:this={modalEl}
-      transition:scale={{ duration: 150, start: 0.96 }}
-      on:click|stopPropagation>
-      <h2>Settings</h2>
-
-      <h3>FluxConfig folder</h3>
-      <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
-      <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), the agent Context folders, and agents.json.</p>
-      <div class="libbtns">
-        <button class="ghost" on:click={revealCfg} disabled={!cfgPath}>Reveal</button>
-        <button class="ghost" on:click={moveCfg} disabled={libBusy}>{libBusy ? "Moving…" : "Move…"}</button>
-      </div>
-      {#if libNotice}<p class="hint">{libNotice}</p>{/if}
-
-      <h3>Updates</h3>
-      <label class="chk">
-        <input
-          type="checkbox"
-          checked={$settings.updateCheck}
-          on:change={(e) => settings.update((v) => ({ ...v, updateCheck: e.currentTarget.checked }))}
-        />
-        Check for a newer version on launch (desktop app)
-      </label>
-
-      <h3>FluxFig Menu — size</h3>
-      <div class="seg">
-        {#each sizes as s}
-          <button class:on={$settings.fluxFigMenuSize === s.v} on:click={() => settings.update((v) => ({ ...v, fluxFigMenuSize: s.v }))}>{s.l}</button>
-        {/each}
+      onclick={(e) => e.stopPropagation()}>
+      <div class="head">
+        <span class="title">Settings</span>
+        <button class="x" aria-label="Close" title="Close (Esc)" onclick={() => settingsOpen.set(false)}>×</button>
       </div>
 
-      <h3>FluxFig Menu — position</h3>
-      <div class="seg">
-        {#each positions as p}
-          <button class:on={$settings.fluxFigMenuPos === p.v} on:click={() => settings.update((v) => ({ ...v, fluxFigMenuPos: p.v }))}>{p.l}</button>
-        {/each}
-      </div>
-      <div class="nudge">
-        <label class="chk num">
-          Nudge X
-          <input type="number" step="5" value={$settings.fluxFigMenuDx} on:input={(e) => setNum("fluxFigMenuDx", e.currentTarget.value)} />
-          px
-        </label>
-        <label class="chk num">
-          Nudge Y
-          <input type="number" step="5" value={$settings.fluxFigMenuDy} on:input={(e) => setNum("fluxFigMenuDy", e.currentTarget.value)} />
-          px
-        </label>
-        {#if $settings.fluxFigMenuDx || $settings.fluxFigMenuDy}
-          <button class="ghost" on:click={() => settings.update((v) => ({ ...v, fluxFigMenuDx: 0, fluxFigMenuDy: 0 }))}>Reset</button>
-        {/if}
-      </div>
-      <p class="hint">Fine-tune the spot: +X moves right, +Y moves down. Type an exact value or use the arrows (steps of 5).</p>
+      <div class="body">
+        <div class="tabs" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+          {#each TABS as t (t.id)}
+            <button
+              class="tab"
+              class:on={tab === t.id}
+              role="tab"
+              id={`settings-tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls={`settings-pane-${t.id}`}
+              tabindex={tab === t.id ? 0 : -1}
+              onclick={() => selectTab(t.id)}
+              onkeydown={onTabKey}>{t.label}</button>
+          {/each}
+        </div>
 
-      <h3>X-Ray — position</h3>
-      <div class="seg">
-        {#each xrayPositions as p}
-          <button class:on={$settings.xrayPos === p.v} on:click={() => settings.update((v) => ({ ...v, xrayPos: p.v }))}>{p.l}</button>
-        {/each}
-      </div>
-      <p class="hint">The X-ray docks to the FluxFig menu's spot at the same width. Above: the X-ray grows upward and the menu downward from that spot (and vice&nbsp;versa).</p>
+        <div class="content">
+          <!-- ---------------------------------------------------------- General -->
+          <div class="pane" role="tabpanel" id="settings-pane-general" aria-labelledby="settings-tab-general" hidden={tab !== "general"}>
+            <h3>FluxConfig folder</h3>
+            <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
+            <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), the agent Context folders, and agents.json.</p>
+            <div class="libbtns">
+              <button class="ghost" onclick={revealCfg} disabled={!cfgPath}>Reveal</button>
+              <button class="ghost" onclick={moveCfg} disabled={libBusy}>{libBusy ? "Moving…" : "Move…"}</button>
+            </div>
+            {#if libNotice}<p class="hint">{libNotice}</p>{/if}
 
-      <h3>FluxFig Menu — appearance</h3>
-      <div class="seg">
-        {#each anims as a}
-          <button class:on={$settings.fluxFigMenuAnim === a.v} on:click={() => settings.update((v) => ({ ...v, fluxFigMenuAnim: a.v }))}>{a.l}</button>
-        {/each}
-      </div>
-      <p class="hint">{$settings.fluxFigMenuAnim === "draw" ? "The accent frame draws itself, then the controls rise in." : "The whole menu fades in at once — fastest."}</p>
+            <h3>Updates</h3>
+            <label class="chk">
+              <input
+                type="checkbox"
+                checked={$settings.updateCheck}
+                onchange={(e) => settings.update((v) => ({ ...v, updateCheck: e.currentTarget.checked }))}
+              />
+              Check for a newer version on launch (desktop app)
+            </label>
 
-      <h3>FluxFig Menu — opacity ({Math.round($settings.fluxFigMenuOpacity * 100)}%)</h3>
-      <input
-        type="range"
-        min="0.6"
-        max="1"
-        step="0.01"
-        value={$settings.fluxFigMenuOpacity}
-        on:input={(e) => settings.update((v) => ({ ...v, fluxFigMenuOpacity: parseFloat(e.currentTarget.value) }))}
-      />
+            <h3>Palette</h3>
+            <label class="chk">
+              <input
+                type="checkbox"
+                checked={$settings.flexokiDefault}
+                onchange={(e) => settings.update((v) => ({ ...v, flexokiDefault: e.currentTarget.checked }))}
+              />
+              Include the Flexoki palette in new projects
+            </label>
+          </div>
 
-      <h3>Palette</h3>
-      <label class="chk">
-        <input
-          type="checkbox"
-          checked={$settings.flexokiDefault}
-          on:change={(e) => settings.update((v) => ({ ...v, flexokiDefault: e.currentTarget.checked }))}
-        />
-        Include the Flexoki palette in new projects
-      </label>
+          <!-- ----------------------------------------------------------- Figure -->
+          <div class="pane" role="tabpanel" id="settings-pane-figure" aria-labelledby="settings-tab-figure" hidden={tab !== "figure"}>
+            <h3>Rulers &amp; grid</h3>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.showRulers} onchange={(e) => settings.update((v) => ({ ...v, showRulers: e.currentTarget.checked }))} />
+              Show rulers (<b>Shift+R</b>) — drag from a ruler to place a guide
+            </label>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.showGrid} onchange={(e) => settings.update((v) => ({ ...v, showGrid: e.currentTarget.checked }))} />
+              Show background grid (<b>Shift+G</b>) — while visible, the pen places nodes on its vertices
+            </label>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.snapGrid} onchange={(e) => settings.update((v) => ({ ...v, snapGrid: e.currentTarget.checked }))} />
+              Snap to grid
+            </label>
+            <label class="chk num">
+              Grid size
+              <input type="number" min="1" step="1" value={$settings.gridSize} onchange={(e) => settings.update((v) => ({ ...v, gridSize: Math.max(1, parseFloat(e.currentTarget.value) || 1) }))} />
+              px
+            </label>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.snapPixel} onchange={(e) => settings.update((v) => ({ ...v, snapPixel: e.currentTarget.checked }))} />
+              Snap to pixel (round coords on commit — crisp export)
+            </label>
 
-      <h3>Rulers &amp; grid</h3>
-      <label class="chk">
-        <input type="checkbox" checked={$settings.showRulers} on:change={(e) => settings.update((v) => ({ ...v, showRulers: e.currentTarget.checked }))} />
-        Show rulers (<b>Shift+R</b>) — drag from a ruler to place a guide
-      </label>
-      <label class="chk">
-        <input type="checkbox" checked={$settings.showGrid} on:change={(e) => settings.update((v) => ({ ...v, showGrid: e.currentTarget.checked }))} />
-        Show background grid (<b>Shift+G</b>) — while visible, the pen places nodes on its vertices
-      </label>
-      <label class="chk">
-        <input type="checkbox" checked={$settings.snapGrid} on:change={(e) => settings.update((v) => ({ ...v, snapGrid: e.currentTarget.checked }))} />
-        Snap to grid
-      </label>
-      <label class="chk num">
-        Grid size
-        <input type="number" min="1" step="1" value={$settings.gridSize} on:change={(e) => settings.update((v) => ({ ...v, gridSize: Math.max(1, parseFloat(e.currentTarget.value) || 1) }))} />
-        px
-      </label>
-      <label class="chk">
-        <input type="checkbox" checked={$settings.snapPixel} on:change={(e) => settings.update((v) => ({ ...v, snapPixel: e.currentTarget.checked }))} />
-        Snap to pixel (round coords on commit — crisp export)
-      </label>
+            <h3>Caption editor</h3>
+            <label class="chk num">
+              Font size
+              <input
+                type="number"
+                min="9"
+                max="28"
+                step="1"
+                value={$settings.captionFontSize}
+                onchange={(e) => settings.update((v) => ({ ...v, captionFontSize: Math.min(28, Math.max(9, Math.round(parseFloat(e.currentTarget.value) || 13))) }))}
+              />
+              px
+            </label>
+            <p class="hint">The size captions are typed at in the caption page (<b>Alt+C</b>). World px, so it scales with the canvas zoom just like the figure. Every caption grows to fit its text — the page scrolls between them, the boxes never do.</p>
 
-      <h3>Caption editor</h3>
-      <label class="chk num">
-        Font size
-        <input
-          type="number"
-          min="9"
-          max="28"
-          step="1"
-          value={$settings.captionFontSize}
-          on:change={(e) => settings.update((v) => ({ ...v, captionFontSize: Math.min(28, Math.max(9, Math.round(parseFloat(e.currentTarget.value) || 13))) }))}
-        />
-        px
-      </label>
-      <p class="hint">The size captions are typed at in the caption page (<b>Alt+C</b>). World px, so it scales with the canvas zoom just like the figure. Every caption grows to fit its text — the page scrolls between them, the boxes never do.</p>
+            <h3>Property menu</h3>
+            <p class="hint">Press F with objects selected. The menu opens beside the selection; every property has a left-hand key, and the mouse wheel adjusts the armed value.</p>
+          </div>
 
-      <h3>Paper — dynamic margin background</h3>
-      <div class="seg scenes">
-        {#each marginScenes as m}
-          <button class:on={$settings.paperMarginScene === m.v} on:click={() => settings.update((v) => ({ ...v, paperMarginScene: m.v }))}>{m.l}</button>
-        {/each}
-      </div>
+          <!-- ------------------------------------------------------------ Paper -->
+          <div class="pane" role="tabpanel" id="settings-pane-paper" aria-labelledby="settings-tab-paper" hidden={tab !== "paper"}>
+            <h3>Dynamic margin background</h3>
+            <div class="seg scenes">
+              {#each marginScenes as m}
+                <button class:on={$settings.paperMarginScene === m.v} onclick={() => settings.update((v) => ({ ...v, paperMarginScene: m.v }))}>{m.l}</button>
+              {/each}
+            </div>
 
-      <h3>Paper — dynamic panes</h3>
-      <label class="chk num">
-        Max panes open at once
-        <input
-          type="number"
-          min="1"
-          max="6"
-          step="1"
-          value={$settings.paperMaxMarginPanes}
-          on:change={(e) => settings.update((v) => ({ ...v, paperMaxMarginPanes: Math.min(6, Math.max(1, Math.round(parseFloat(e.currentTarget.value) || 4))) }))}
-        />
-      </label>
-      <label class="chk">
-        <input
-          type="checkbox"
-          checked={$settings.paperCleanMargin}
-          on:change={(e) => settings.update((v) => ({ ...v, paperCleanMargin: e.currentTarget.checked }))}
-        />
-        Clean dynamic margin — close all panes when focus returns to the editor
-      </label>
+            <h3>Dynamic panes</h3>
+            <label class="chk num">
+              Max panes open at once
+              <input
+                type="number"
+                min="1"
+                max="6"
+                step="1"
+                value={$settings.paperMaxMarginPanes}
+                onchange={(e) => settings.update((v) => ({ ...v, paperMaxMarginPanes: Math.min(6, Math.max(1, Math.round(parseFloat(e.currentTarget.value) || 4))) }))}
+              />
+            </label>
+            <label class="chk">
+              <input
+                type="checkbox"
+                checked={$settings.paperCleanMargin}
+                onchange={(e) => settings.update((v) => ({ ...v, paperCleanMargin: e.currentTarget.checked }))}
+              />
+              Clean dynamic margin — close all panes when focus returns to the editor
+            </label>
 
-      <h3>Paper — caret motion</h3>
-      <div class="seg">
-        {#each caretFeels as f}
-          <button class:on={$settings.paperCaretFeel === f.v} on:click={() => settings.update((v) => ({ ...v, paperCaretFeel: f.v }))}>{f.l}</button>
-        {/each}
-      </div>
-      <p class="hint">Chase — the caret pursues its target, arriving fast and settling softly. Smooth — a constant-pace 90&nbsp;ms glide.</p>
+            <h3>Caret motion</h3>
+            <div class="seg">
+              {#each caretFeels as f}
+                <button class:on={$settings.paperCaretFeel === f.v} onclick={() => settings.update((v) => ({ ...v, paperCaretFeel: f.v }))}>{f.l}</button>
+              {/each}
+            </div>
+            <p class="hint">Chase — the caret pursues its target, arriving fast and settling softly. Smooth — a constant-pace 90&nbsp;ms glide.</p>
+          </div>
 
-      <h3>Paper — local corrections</h3>
-      <label class="chk">
-        <input
-          type="checkbox"
-          checked={$settings.paperLocalCorrections}
-          on:change={(e) => settings.update((v) => ({ ...v, paperLocalCorrections: e.currentTarget.checked }))}
-        />
-        Correct clear typing and spacing errors as I write
-      </label>
-      <p class="hint">Runs entirely on this device. A blue pulse marks each correction; click it for details or press Undo to restore the original. Reverting teaches this project what to leave alone. Resetting these lessons keeps explicit dictionaries and aliases.</p>
-      <button class="ghost learning-reset" on:click={resetCorrectionLearning}>
-        {correctionLearningReset ? "Learning reset" : "Reset correction learning"}
-      </button>
+          <!-- ------------------------------------------------------ Corrections -->
+          <div class="pane" role="tabpanel" id="settings-pane-corrections" aria-labelledby="settings-tab-corrections" hidden={tab !== "corrections"}>
+            <h3>Local corrections</h3>
+            <label class="chk">
+              <input
+                type="checkbox"
+                checked={$settings.paperLocalCorrections}
+                onchange={(e) => settings.update((v) => ({ ...v, paperLocalCorrections: e.currentTarget.checked }))}
+              />
+              Correct clear typing and spacing errors as I write
+            </label>
+            <p class="hint">Runs entirely on this device. A blue pulse marks each correction; click it for details or press Undo to restore the original. Reverting teaches this project what to leave alone. Resetting these lessons keeps explicit dictionaries and aliases.</p>
+            <button class="ghost learning-reset" onclick={resetCorrectionLearning}>
+              {correctionLearningReset ? "Learning reset" : "Reset correction learning"}
+            </button>
 
-      <label class="chk">
-        <input
-          type="checkbox"
-          checked={$settings.paperContextualCorrections}
-          on:change={(e) => {
-            const checked = e.currentTarget.checked;
-            settings.update((v) => ({ ...v, paperContextualCorrections: checked }));
-            if (checked) void activateCorrectionProvider($settings.paperCorrectionProvider);
-          }}
-        />
-        Judge unresolved corrections with sentence context
-      </label>
-      <p class="hint">The model judges exact Harper-flagged spans. It may keep the text, choose a nearby candidate, or propose one bounded spelling repair; it cannot rewrite the sentence. Local inference is the default, and cloud is never used as a fallback.</p>
+            <h3>Sentence judgment</h3>
+            <label class="chk">
+              <input
+                type="checkbox"
+                checked={$settings.paperContextualCorrections}
+                onchange={(e) => {
+                  const checked = e.currentTarget.checked;
+                  settings.update((v) => ({ ...v, paperContextualCorrections: checked }));
+                  if (checked) void activateCorrectionProvider($settings.paperCorrectionProvider);
+                }}
+              />
+              Judge unresolved corrections with sentence context
+            </label>
+            <p class="hint">The model judges exact Harper-flagged spans. It may keep the text, choose a nearby candidate, or propose one bounded spelling repair; it cannot rewrite the sentence. Local inference is the default, and cloud is never used as a fallback.</p>
 
-      <div class="correction-grid">
-        <label>
-          Provider
-          <select value={$settings.paperCorrectionProvider} on:change={(e) => void activateCorrectionProvider(e.currentTarget.value as Settings["paperCorrectionProvider"])}>
-            <option value="flux">Local · Flux managed</option>
-            <option value="ollama">Local · Ollama</option>
-            <option value="openai">Cloud · GPT-5.6 Luna</option>
-          </select>
-        </label>
-        <label>
-          Dialect
-          <select value={$settings.paperCorrectionDialect} on:change={(e) => settings.update((v) => ({ ...v, paperCorrectionDialect: e.currentTarget.value as Settings["paperCorrectionDialect"] }))}>
-            <option value="american">US English</option>
-            <option value="british">British English</option>
-            <option value="canadian">Canadian English</option>
-            <option value="australian">Australian English</option>
-          </select>
-        </label>
-        <label>
-          Judgment
-          <select
-            value={$settings.paperCorrectionAggressiveness}
-            on:change={(e) => settings.update((v) => ({
-              ...v,
-              paperCorrectionAggressiveness: e.currentTarget.value as Settings["paperCorrectionAggressiveness"],
-            }))}
-          >
-            <option value="standard">Standard</option>
-            <option value="aggressive">Aggressive</option>
-            <option value="really-aggressive">Really aggressive</option>
-          </select>
-        </label>
-      </div>
-      <p class="hint">Aggressive tries harder on genuine spelling flags and permits three edits from nine letters. Really aggressive examines every bounded flag, permits three edits from seven letters and four from ten. Both retain the same no-rewrite, scientific-term, syntax, dictionary, and final lexical safety checks.</p>
+            <div class="correction-grid">
+              <label>
+                Provider
+                <select value={$settings.paperCorrectionProvider} onchange={(e) => void activateCorrectionProvider(e.currentTarget.value as Settings["paperCorrectionProvider"])}>
+                  <option value="flux">Local · Flux managed</option>
+                  <option value="ollama">Local · Ollama</option>
+                  <option value="openai">Cloud · GPT-5.6 Luna</option>
+                </select>
+              </label>
+              <label>
+                Dialect
+                <select value={$settings.paperCorrectionDialect} onchange={(e) => settings.update((v) => ({ ...v, paperCorrectionDialect: e.currentTarget.value as Settings["paperCorrectionDialect"] }))}>
+                  <option value="american">US English</option>
+                  <option value="british">British English</option>
+                  <option value="canadian">Canadian English</option>
+                  <option value="australian">Australian English</option>
+                </select>
+              </label>
+              <label>
+                Judgment
+                <select
+                  value={$settings.paperCorrectionAggressiveness}
+                  onchange={(e) => settings.update((v) => ({
+                    ...v,
+                    paperCorrectionAggressiveness: e.currentTarget.value as Settings["paperCorrectionAggressiveness"],
+                  }))}
+                >
+                  <option value="standard">Standard</option>
+                  <option value="aggressive">Aggressive</option>
+                  <option value="really-aggressive">Really aggressive</option>
+                </select>
+              </label>
+            </div>
+            <p class="hint">Aggressive tries harder on genuine spelling flags and permits three edits from nine letters. Really aggressive examines every bounded flag, permits three edits from seven letters and four from ten. Both retain the same no-rewrite, scientific-term, syntax, dictionary, and final lexical safety checks.</p>
 
-      {#if $settings.paperCorrectionProvider === "flux"}
-        <div class="managed-model">
-          <strong>{correctionModelStatus?.model.displayName ?? "Qwen3 4B Instruct 2507 · Q4_K_M"}</strong>
-          <span>{correctionModelStatus?.model.bytes ? sizeLabel(correctionModelStatus.model.bytes) : "2.33 GB"} · {correctionModelStatus?.model.license ?? "Apache-2.0"} · {accelerationLabel(correctionModelStatus?.acceleration)}</span>
-          {#if correctionModelProgress && correctionModelBusy}
-            <progress max={correctionModelProgress.total || 1} value={correctionModelProgress.received}></progress>
-            <small>{correctionModelProgress.verifying ? "Verifying SHA-256…" : `${Math.round(correctionModelProgress.received / Math.max(1, correctionModelProgress.total) * 100)}% downloaded`}</small>
-          {/if}
-          <div class="key-row">
-            {#if correctionModelStatus?.installed}
-              <button class="ghost" on:click={() => void fileBridge()?.correctionModelUnload?.()}>Unload</button>
-              <button class="ghost danger" on:click={() => void removeCorrectionModel()}>Remove model</button>
-            {:else if correctionModelBusy}
-              <button class="ghost" disabled={correctionModelProgress?.complete} on:click={() => void cancelCorrectionModel()}>{correctionModelProgress?.complete ? "Loading model…" : "Cancel download"}</button>
+            {#if $settings.paperCorrectionProvider === "flux"}
+              <div class="managed-model">
+                <strong>{correctionModelStatus?.model.displayName ?? "Qwen3 4B Instruct 2507 · Q4_K_M"}</strong>
+                <span>{correctionModelStatus?.model.bytes ? sizeLabel(correctionModelStatus.model.bytes) : "2.33 GB"} · {correctionModelStatus?.model.license ?? "Apache-2.0"} · {accelerationLabel(correctionModelStatus?.acceleration)}</span>
+                {#if correctionModelProgress && correctionModelBusy}
+                  <progress max={correctionModelProgress.total || 1} value={correctionModelProgress.received}></progress>
+                  <small>{correctionModelProgress.verifying ? "Verifying SHA-256…" : `${Math.round(correctionModelProgress.received / Math.max(1, correctionModelProgress.total) * 100)}% downloaded`}</small>
+                {/if}
+                <div class="key-row">
+                  {#if correctionModelStatus?.installed}
+                    <button class="ghost" onclick={() => void fileBridge()?.correctionModelUnload?.()}>Unload</button>
+                    <button class="ghost danger" onclick={() => void removeCorrectionModel()}>Remove model</button>
+                  {:else if correctionModelBusy}
+                    <button class="ghost" disabled={correctionModelProgress?.complete} onclick={() => void cancelCorrectionModel()}>{correctionModelProgress?.complete ? "Loading model…" : "Cancel download"}</button>
+                  {:else}
+                    <button class="ghost" onclick={() => void installCorrectionModel()}>{correctionModelStatus?.updateRequired ? "Update local model" : "Install local model"}</button>
+                  {/if}
+                </div>
+                <p class="hint">{correctionModelStatus?.updateRequired ? "This replaces the older Qwen3 hybrid artifact with the held-out-selected Instruct 2507 model. " : ""}Downloaded only when you ask, resumable and SHA-256 verified under FluxConfig. It stays local and can be removed here.</p>
+              </div>
+            {:else if $settings.paperCorrectionProvider === "ollama"}
+              <label class="field-label">
+                Local model
+                <input
+                  list="flux-correction-models"
+                  value={$settings.paperCorrectionModel}
+                  maxlength="120"
+                  onchange={(e) => void activateCorrectionModel(e.currentTarget.value)}
+                />
+              </label>
+              <datalist id="flux-correction-models">
+                {#each correctionModels as model}<option value={model}></option>{/each}
+              </datalist>
             {:else}
-              <button class="ghost" on:click={() => void installCorrectionModel()}>{correctionModelStatus?.updateRequired ? "Update local model" : "Install local model"}</button>
+              <label class="field-label">
+                OpenAI API key {correctionCloudConfigured ? "· configured" : ""}
+                <div class="key-row">
+                  <input type="password" bind:value={correctionCloudKey} autocomplete="off" placeholder={correctionCloudConfigured ? "Replace encrypted key" : "sk-…"} />
+                  <button class="ghost" disabled={!correctionCloudKey.trim()} onclick={saveCorrectionCloudKey}>Save</button>
+                  {#if correctionCloudConfigured}<button class="ghost" onclick={() => { correctionCloudKey = ""; void saveCorrectionCloudKey(); }}>Clear</button>{/if}
+                </div>
+              </label>
+              <p class="hint cloud-disclosure">Cloud mode sends the completed sentence, bounded nearby context, candidates, and configured project guidance to OpenAI with <code>store: false</code>. It is opt-in and never activated by a local failure.</p>
+              <p class="hint">This-session API estimate: ${correctionCloudCost.toFixed(4)} at GPT-5.6 Luna’s current $1/M input and $6/M output rates.</p>
+            {/if}
+            <p class="provider-status">{correctionProviderStatus}</p>
+
+            <h3>Guidance</h3>
+            <label class="field-label">
+              Personal correction guidance
+              <textarea
+                rows="2"
+                maxlength="500"
+                value={$settings.paperCorrectionGuidance}
+                oninput={(e) => settings.update((v) => ({ ...v, paperCorrectionGuidance: e.currentTarget.value.slice(0, 500) }))}
+                onchange={() => void saveCorrectionGuidance("personal")}
+              ></textarea>
+            </label>
+            <label class="field-label">
+              Project correction guidance
+              <textarea rows="2" maxlength="500" bind:value={correctionProjectGuidance} onchange={() => void saveCorrectionGuidance("project")}></textarea>
+            </label>
+            {#if correctionVetoes.length}
+              <details class="veto-list">
+                <summary>Learned “leave alone” corrections ({correctionVetoes.length})</summary>
+                {#each correctionVetoes as pair}
+                  <div class="veto-row">
+                    <code>{pair.replace("\u0000", " → ")}</code>
+                    <button class="ghost" onclick={() => void removeCorrectionVeto(pair)}>Remove</button>
+                  </div>
+                {/each}
+              </details>
             {/if}
           </div>
-          <p class="hint">{correctionModelStatus?.updateRequired ? "This replaces the older Qwen3 hybrid artifact with the held-out-selected Instruct 2507 model. " : ""}Downloaded only when you ask, resumable and SHA-256 verified under FluxConfig. It stays local and can be removed here.</p>
         </div>
-      {:else if $settings.paperCorrectionProvider === "ollama"}
-        <label class="field-label">
-          Local model
-          <input
-            list="flux-correction-models"
-            value={$settings.paperCorrectionModel}
-            maxlength="120"
-            on:change={(e) => void activateCorrectionModel(e.currentTarget.value)}
-          />
-        </label>
-        <datalist id="flux-correction-models">
-          {#each correctionModels as model}<option value={model}></option>{/each}
-        </datalist>
-      {:else}
-        <label class="field-label">
-          OpenAI API key {correctionCloudConfigured ? "· configured" : ""}
-          <div class="key-row">
-            <input type="password" bind:value={correctionCloudKey} autocomplete="off" placeholder={correctionCloudConfigured ? "Replace encrypted key" : "sk-…"} />
-            <button class="ghost" disabled={!correctionCloudKey.trim()} on:click={saveCorrectionCloudKey}>Save</button>
-            {#if correctionCloudConfigured}<button class="ghost" on:click={() => { correctionCloudKey = ""; void saveCorrectionCloudKey(); }}>Clear</button>{/if}
-          </div>
-        </label>
-        <p class="hint cloud-disclosure">Cloud mode sends the completed sentence, bounded nearby context, candidates, and configured project guidance to OpenAI with <code>store: false</code>. It is opt-in and never activated by a local failure.</p>
-        <p class="hint">This-session API estimate: ${correctionCloudCost.toFixed(4)} at GPT-5.6 Luna’s current $1/M input and $6/M output rates.</p>
-      {/if}
+      </div>
 
-      <label class="field-label">
-        Personal correction guidance
-        <textarea
-          rows="2"
-          maxlength="500"
-          value={$settings.paperCorrectionGuidance}
-          on:input={(e) => settings.update((v) => ({ ...v, paperCorrectionGuidance: e.currentTarget.value.slice(0, 500) }))}
-          on:change={() => void saveCorrectionGuidance("personal")}
-        ></textarea>
-      </label>
-      <label class="field-label">
-        Project correction guidance
-        <textarea rows="2" maxlength="500" bind:value={correctionProjectGuidance} on:change={() => void saveCorrectionGuidance("project")}></textarea>
-      </label>
-      {#if correctionVetoes.length}
-        <details class="veto-list">
-          <summary>Learned “leave alone” corrections ({correctionVetoes.length})</summary>
-          {#each correctionVetoes as pair}
-            <div class="veto-row">
-              <code>{pair.replace("\u0000", " → ")}</code>
-              <button class="ghost" on:click={() => void removeCorrectionVeto(pair)}>Remove</button>
-            </div>
-          {/each}
-        </details>
-      {/if}
-      <p class="provider-status">{correctionProviderStatus}</p>
-
-      <p class="tip">Open the FluxFig Menu with <b>F</b> while objects are selected.</p>
-      <button class="close" on:click={() => settingsOpen.set(false)}>Done</button>
+      <div class="foot">
+        <button class="close" onclick={() => settingsOpen.set(false)}>Done</button>
+      </div>
     </div>
   </div>
 {/if}
 
 <style>
+  /* ---- scrim + panel ------------------------------------------------------ */
   .bk {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    z-index: 400;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 400;
+    background: rgba(0, 0, 0, 0.35);
   }
   .modal {
+    display: flex;
+    flex-direction: column;
+    width: min(780px, calc(100vw - 40px));
+    height: min(600px, calc(100vh - 40px));
+    overflow: hidden;
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
-    border-radius: 12px;
-    padding: 22px 26px;
-    width: 380px;
+    border-radius: var(--r-panel);
+    box-shadow: var(--elev-2);
     color: var(--c-tx);
-    box-shadow: var(--elev-3);
-    font-family: var(--font-serif);
-    max-height: min(820px, calc(100vh - 40px));
-    overflow-y: auto;
+    font: 12px/1.35 var(--font-ui);
+    -webkit-font-smoothing: antialiased;
   }
-  h2 {
-    margin: 0 0 16px;
-    font-size: 17px;
+  .modal:focus {
+    outline: none;
+  }
+
+  /* ---- header · body · footer, hairline-separated -------------------------- */
+  .head {
+    flex: 0 0 36px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 6px 0 12px;
+    border-bottom: 1px solid var(--c-line);
+  }
+  .title {
+    font: 600 13px var(--font-ui);
+    color: var(--c-tx-hi);
+  }
+  .x {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--r-ui);
+    color: var(--c-tx-muted);
+    font: 16px/1 var(--font-ui);
+    cursor: pointer;
+  }
+  .x:hover {
+    background: var(--c-surface-2);
+    color: var(--c-tx-hi);
+  }
+  .body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+  }
+  .foot {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: flex-end;
+    padding: 8px 12px;
+    border-top: 1px solid var(--c-line);
+  }
+
+  /* ---- tab column ---------------------------------------------------------- */
+  .tabs {
+    flex: 0 0 170px;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 0;
+    background: var(--c-bg-raised);
+    border-right: 1px solid var(--c-line);
+  }
+  .tab {
+    height: 26px;
+    padding: 0 12px;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: var(--r-0);
+    color: var(--c-tx-2);
+    font: 12px var(--font-ui);
+    cursor: pointer;
+  }
+  .tab:hover {
+    background: var(--c-surface-2);
+    color: var(--c-tx);
+  }
+  .tab.on {
+    background: var(--c-accent-tint);
+    box-shadow: inset 2px 0 0 var(--c-accent);
+    color: var(--c-tx-hi);
+  }
+
+  /* ---- content pane -------------------------------------------------------- */
+  .content {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 0 18px 18px;
+  }
+  .pane[hidden] {
+    display: none;
   }
   h3 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    opacity: 0.55;
-    margin: 16px 0 7px;
-  }
-  .seg {
     display: flex;
-    gap: 6px;
+    align-items: flex-end;
+    height: 28px;
+    margin: 14px 0 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--c-line);
+    font: 600 10.5px var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--c-tx-muted);
+  }
+  .pane > h3:first-child {
+    margin-top: 8px;
+  }
+  .hint {
+    margin: 6px 0 0;
+    font: 11px/1.4 var(--font-ui);
+    color: var(--c-tx-muted);
+  }
+  /* hotkey glyphs inside labels/hints */
+  b {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    vertical-align: -3px;
+    background: var(--c-accent-tint);
+    border-radius: var(--r-ui);
+    color: var(--c-accent);
+    font: 600 11px var(--font-mono);
+  }
+
+  /* ---- controls ------------------------------------------------------------ */
+  .ghost {
+    height: 24px;
+    padding: 3px 8px;
+    background: transparent;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    color: var(--c-tx);
+    font: 12px var(--font-ui);
+    cursor: pointer;
+  }
+  .ghost:hover:not(:disabled) {
+    border-color: var(--c-tx-muted);
+    color: var(--c-tx-hi);
+  }
+  .ghost:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .danger {
+    color: var(--c-danger);
+  }
+  .close {
+    height: 24px;
+    padding: 3px 14px;
+    background: var(--c-accent);
+    border: 1px solid var(--c-accent);
+    border-radius: var(--r-ui);
+    color: var(--c-on-accent);
+    font: 600 12px var(--font-ui);
+    cursor: pointer;
+  }
+  .close:hover {
+    background: var(--c-accent-bright);
+    border-color: var(--c-accent-bright);
+  }
+
+  /* segmented group: joined buttons, shared 1px borders, outer radius only */
+  .seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
   }
   .seg button {
-    flex: 1;
-    background: var(--c-ui);
+    position: relative;
+    height: 24px;
+    margin-left: -1px;
+    padding: 3px 10px;
+    background: transparent;
     border: 1px solid var(--c-line-strong);
+    border-radius: 0;
     color: var(--c-tx);
-    border-radius: 6px;
-    padding: 7px;
+    font: 12px var(--font-ui);
     cursor: pointer;
-    font-family: inherit;
-    font-size: 13px;
+  }
+  .seg button:first-child {
+    margin-left: 0;
+    border-radius: var(--r-ui) 0 0 var(--r-ui);
+  }
+  .seg button:last-child {
+    border-radius: 0 var(--r-ui) var(--r-ui) 0;
+  }
+  .seg button:hover {
+    z-index: 1;
+    border-color: var(--c-tx-muted);
+    color: var(--c-tx-hi);
   }
   .seg button.on {
-    background: var(--c-accent);
+    z-index: 2;
+    background: var(--c-accent-tint);
     border-color: var(--c-accent);
-    color: var(--c-on-accent);
+    color: var(--c-tx-hi);
   }
-  .seg.scenes {
-    flex-wrap: wrap;
-  }
-  .seg.scenes button {
-    flex: 1 1 30%;
-    font-size: 12px;
-    padding: 6px 4px;
-  }
-  input[type="range"] {
-    width: 100%;
-  }
+
   .chk {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    min-height: 24px;
+    margin: 2px 0;
+    font: 12px/1.35 var(--font-ui);
+    color: var(--c-tx);
     cursor: pointer;
   }
-  .chk input {
-    width: auto;
+  .chk input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    accent-color: var(--c-accent);
   }
-  .chk.num input {
+  .chk.num input[type="number"] {
     width: 64px;
   }
-  .nudge {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-top: 7px;
+  input[type="number"],
+  .field-label input,
+  .correction-grid select,
+  .field-label textarea {
+    min-width: 0;
+    height: 24px;
+    padding: 2px 6px;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    color: var(--c-tx);
+    font: 12px var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
+  .correction-grid select {
+    width: 100%;
+    font-family: var(--font-ui);
+  }
+  .field-label input,
+  .field-label textarea {
+    width: 100%;
+  }
+  .field-label textarea {
+    height: auto;
+    min-height: 48px;
+    resize: vertical;
+    font-family: var(--font-ui);
+    line-height: 1.35;
+  }
+  input:not([type="checkbox"]):focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--c-accent);
+  }
+  button:focus-visible,
+  summary:focus-visible,
+  input[type="checkbox"]:focus-visible {
+    outline: 1px solid var(--c-accent);
+    outline-offset: 1px;
+    border-radius: var(--r-ui);
+  }
+
+  /* ---- General ------------------------------------------------------------- */
   .libpath {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--c-tx-muted);
-    background: var(--c-bg-raised);
-    border: 1px solid var(--c-line);
-    border-radius: 6px;
-    padding: 6px 8px;
     overflow: hidden;
+    padding: 4px 8px;
+    background: var(--c-bg);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    color: var(--c-tx-2);
+    font: 11px/1.4 var(--font-mono);
     text-overflow: ellipsis;
     white-space: nowrap;
+    user-select: text;
   }
   .libbtns {
     display: flex;
     gap: 6px;
-    margin-top: 7px;
+    margin-top: 8px;
   }
-  .ghost {
-    background: var(--c-ui);
-    border: 1px solid var(--c-line-strong);
-    color: var(--c-tx);
-    border-radius: 6px;
-    padding: 6px 12px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 12px;
-  }
-  .ghost:hover:not(:disabled) {
-    background: var(--c-ui-hover);
-  }
-  .ghost:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+
+  /* ---- Corrections --------------------------------------------------------- */
   .learning-reset {
     margin-top: 8px;
-    margin-bottom: 12px;
   }
   .correction-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
     margin-top: 10px;
   }
   .correction-grid label,
   .field-label {
     display: grid;
     gap: 4px;
-    margin-top: 9px;
+    margin-top: 8px;
     color: var(--c-tx-muted);
-    font-size: 11px;
+    font: 11px var(--font-ui);
   }
-  .correction-grid label:last-child {
-    grid-column: 1 / -1;
-  }
-  .correction-grid select,
-  .field-label input,
-  .field-label textarea {
-    min-width: 0;
-    box-sizing: border-box;
-    width: 100%;
-    border: 1px solid var(--c-line-strong);
-    border-radius: 6px;
-    background: var(--c-bg-raised);
-    color: var(--c-tx);
-    padding: 7px 8px;
-    font: 12px var(--font-serif);
+  .correction-grid label {
+    margin-top: 0;
   }
   .managed-model {
     display: grid;
-    gap: 7px;
-    padding: 12px;
-    border: 1px solid var(--c-line);
-    border-radius: 10px;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 8px 10px;
     background: var(--c-bg-raised);
+    border-radius: var(--r-ui);
   }
-  .managed-model > span, .managed-model small { color: var(--c-tx-muted); font-size: 12px; }
-  .managed-model progress { width: 100%; accent-color: var(--c-accent); }
-  .danger { color: var(--c-danger); }
-  .field-label textarea {
-    resize: vertical;
-    line-height: 1.35;
+  .managed-model strong {
+    color: var(--c-tx-hi);
+    font-weight: 600;
+  }
+  .managed-model > span,
+  .managed-model small {
+    color: var(--c-tx-muted);
+    font-size: 11px;
+  }
+  .managed-model progress {
+    width: 100%;
+    height: 4px;
+    accent-color: var(--c-accent);
   }
   .key-row {
     display: flex;
-    gap: 5px;
+    gap: 6px;
   }
   .key-row input {
     flex: 1;
@@ -779,7 +978,7 @@
     flex: 0 0 auto;
   }
   .provider-status {
-    margin: 6px 0 0;
+    margin: 8px 0 0;
     color: var(--c-tx-muted);
     font: 11px var(--font-mono);
   }
@@ -800,35 +999,11 @@
   }
   .veto-row code {
     overflow: hidden;
+    color: var(--c-tx);
+    font: 11px var(--font-mono);
     text-overflow: ellipsis;
-    font-family: var(--font-mono);
   }
   .cloud-disclosure code {
     font-family: var(--font-mono);
-  }
-  .modal:focus {
-    outline: none;
-  }
-  .tip {
-    font-size: 12px;
-    opacity: 0.6;
-    margin: 18px 0 14px;
-  }
-  .hint {
-    font-size: 11px;
-    opacity: 0.5;
-    margin: 6px 0 0;
-    line-height: 1.4;
-  }
-  .close {
-    width: 100%;
-    background: var(--c-accent);
-    color: var(--c-on-accent);
-    border: none;
-    border-radius: 7px;
-    padding: 9px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 14px;
   }
 </style>

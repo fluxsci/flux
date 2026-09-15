@@ -26,7 +26,7 @@ usage: flux <verb> [root] [args] [--flags]
   add-reference [root] <bibtex…|--file f>   append a BibTeX entry to library.bib
   add-panel [root] <id> <svg> [--x --y --width --height]   import an SVG panel
   import-plots <figId> <plot.svg…> [--root R]   batch-import plots onto an EXISTING
-                                       figure (GUI Alt+I multi-insert parity: true
+                                       figure (GUI Alt+G multi-insert parity: true
                                        physical size, grid-packed; one plot centers)
   create-figure [--root R] [--id slug] [--name N] [--canvas C] [--width --height]
                 [--family f --number n --nickname N]   add a blank figure

@@ -10,9 +10,10 @@
     for (const el of sel) if ("width" in el && "height" in el) dimensionBaselines.set(el.id, { w: el.width, h: el.height });
   }
   import { selectionTargets } from "./interact/selectionTargets";
+  import { buildMenuFields, fieldRange, type Field } from "./interact/propertyMenu";
   import { get } from "svelte/store";
   import { onMount, onDestroy, getContext } from "svelte";
-  import { figureFramePreview, project, selection, partSelection, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog } from "./store";
+  import { figureFramePreview, project, selection, partSelection, partSelections, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog } from "./store";
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextStyle } from "./types";
@@ -34,10 +35,12 @@
   import { buildPartIndex } from "./plot/parse";
   import { partBreadcrumb } from "./plot/partStyle";
   import { fluxFigMenuOpen } from "./settings";
+  import { nameForHex } from "./colors";
   import { dissectKeyForElement, openDissectForSelection, dissectRoot } from "./dissect/state";
   import { countDissections } from "./dissect/loader";
   import { dissectionsRevision } from "../shell/scholar/revisions";
   import ColorPalette from "./ColorPalette.svelte";
+  import ColorPicker from "./ColorPicker.svelte";
   import NumberField from "./NumberField.svelte";
   import { commitDeckLive } from "./slide/store";
   import { setVideoSettings } from "./slide/ops";
@@ -157,7 +160,7 @@
   $: anyHidden = sel.some((e) => e.hidden);
   $: allHidden = sel.length > 0 && sel.every((e) => e.hidden);
 
-  // Arrange controls (mouse equivalents of the Alt+G grid mode). `arrN` is the
+  // Arrange controls (mouse equivalents of the Alt+T grid mode). `arrN` is the
   // number of layout cells (a group counts once); the section hides below 2.
   $: arrN = sel.length >= 2 ? gridItemCount(sel) : 0;
   // Exact-gap distribute (Feature 7): the gutter applied by the Gap H/V buttons.
@@ -176,7 +179,7 @@
     arrangeToRows(v[Math.max(0, Math.min(v.length - 1, i + d))]);
   }
 
-  // --- selected plot part (role/identity from the manifest) ---
+  // --- selected plot part(s) (role/identity from the manifest) ---
   $: plotEl = (() => {
     const ps = $partSelection;
     if (!ps) return null;
@@ -204,6 +207,29 @@
     plotEl && plotEl.type === "plot" && $partSelection
       ? partBreadcrumb($plotManifests[plotEl.assetId], $partSelection.partId).join(" › ")
       : "";
+  // The part FIELDS — the same list the property menu shows (one field model,
+  // interact/propertyMenu.ts), applied to every selected part. The letter on
+  // each row is its hotkey in the menu (F).
+  $: partFields = partInfo ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles) : [];
+  $: partCount = $partSelections.length;
+  function runField(f: Field, v: string | number | boolean) {
+    const s = editSession();
+    s.run(() => f.apply(v));
+    s.finish();
+  }
+
+  // --- appearance: fill / stroke / text colour with the palette picker ---
+  // One inline picker at a time; it closes on apply/cancel or a selection change.
+  let colorPop: "fill" | "stroke" | "text" | null = null;
+  let colorPopKey = "";
+  $: {
+    const key = [...$selection].join(",") + "|" + $partSelections.map((p) => p.partId).join(",");
+    if (key !== colorPopKey) { colorPopKey = key; colorPop = null; }
+  }
+  $: fillEl = sel.find((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path");
+  $: strokeEl = sel.find((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line");
+  $: textEl = sel.find((e) => e.type === "text");
+  const swatchName = (hex: string) => (hex === "none" ? "none" : (nameForHex(hex) ?? hex));
 
   // Panel-label (caption) state across the selected text elements.
   $: textSel = sel.filter((e) => e.type === "text");
@@ -285,9 +311,6 @@
       if (f) fn(f);
     });
   }
-
-  // Aspect-lock-aware W/H setter (shared with the FluxFig menu) — ops.setBoxDim.
-  const setDim = ops.setBoxDim;
 
   // --- text styling (B/I/U, sizing mode, named styles) ---
   function toggleSelText(which: ops.TextToggle) {
@@ -415,31 +438,74 @@
       if (el.type === "plot") delete el.contentScale;
     });
   }
+  const arrowOf = (e: Element | undefined) => (e && (e.type === "line" || (e.type === "path" && !e.closed)) ? (e as Element & { arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: "filled" | "vee"; arrowSize?: number }) : null);
+  function setArrow(patch: Partial<{ arrowStart: boolean; arrowEnd: boolean; arrowStyle: "filled" | "vee"; arrowSize: number }>) {
+    const ids = editableIds();
+    commit((p) => ops.setElementStyle(p, ids, patch));
+  }
 </script>
 
 <aside class="inspector">
-  <!-- SELECTED PLOT PART -->
+  <!-- SELECTED PLOT PART(S): the same fields the property menu shows, applied
+       to every picked part (five series, or the x-axis of four plots). -->
   {#if partInfo}
     <section class="part">
-      <h4>Plot part</h4>
-      <div class="part-id">{partLabel}</div>
-      {#if partCrumb}
-        <p class="crumb">{partCrumb}</p>
-      {/if}
-      {#if partInfo.x !== undefined && partInfo.y !== undefined}
-        <p class="note">data: x = {partInfo.x}, y = {partInfo.y}</p>
-      {/if}
-      <button class="fig-act" title="Open the property menu for this part (f)" on:click={() => fluxFigMenuOpen.set(true)}>Show properties</button>
-      <p class="note">edits write override <code>{partInfo.id}</code> — they survive regeneration</p>
+      <h4>Plot part{partCount > 1 ? `s · ${partCount}` : ""}</h4>
+      <div class="secbody">
+        <div class="part-id">{partLabel}{#if partCount > 1}<span class="more">+{partCount - 1} more</span>{/if}</div>
+        {#if partCrumb}
+          <p class="crumb">{partCrumb}</p>
+        {/if}
+        {#if partInfo.x !== undefined && partInfo.y !== undefined}
+          <p class="note">data: x = {partInfo.x}, y = {partInfo.y}</p>
+        {/if}
+        <div class="pfields">
+          {#each partFields as f (f.key)}
+            {@const range = fieldRange(f)}
+            <div class="pf" data-key={f.key}>
+              <span class="pk" title="hotkey in the property menu (F)">{f.key}</span>
+              <span class="pl">{f.label}</span>
+              <span class="pc">
+                {#if f.kind === "number"}
+                  <NumberField value={Number(f.get())} step={f.step ?? 1} min={f.min ?? null} max={f.max ?? null} mixed={!!f.mixed}
+                    title={range ? `${f.label} (${range.min}–${range.max})` : f.label}
+                    on:commit={(e) => runField(f, e.detail)}
+                    on:scrub={(e) => f.apply(e.detail)} />
+                {:else if f.kind === "select"}
+                  <select value={String(f.get())} aria-label={f.label} on:change={(e) => runField(f, e.currentTarget.value)}>
+                    {#each f.options ?? [] as o}<option value={o.value}>{o.label}</option>{/each}
+                  </select>
+                {:else if f.kind === "toggle"}
+                  <button class="tgl" class:on={Boolean(f.get())} on:click={() => runField(f, true)}>{f.get() ? "on" : "off"}</button>
+                {:else if f.kind === "color"}
+                  {@const hex = String(f.get())}
+                  <button class="swrow" on:click={() => (colorPop = colorPop === (f.target === "stroke" ? "stroke" : "fill") ? null : f.target === "stroke" ? "stroke" : "fill")} title="Pick from the palette">
+                    <span class="sw" style={hex === "none" ? "" : `background:${hex}`}></span>
+                    <span class="swname">{swatchName(hex)}</span>
+                  </button>
+                {:else}
+                  <button class="tgl" on:click={() => runField(f, true)}>run</button>
+                {/if}
+              </span>
+            </div>
+          {/each}
+        </div>
+        {#if colorPop && (colorPop === "fill" || colorPop === "stroke")}
+          <div class="pop"><ColorPicker target={colorPop} allowNone={false} autofocus={false} onDone={() => (colorPop = null)} onCancel={() => (colorPop = null)} /></div>
+        {/if}
+        <button class="fig-act" title="Open the property menu for this part (f)" on:click={() => fluxFigMenuOpen.set(true)}>Show properties</button>
+        <p class="note">edits write override <code>{partInfo.id}</code> — they survive regeneration</p>
+      </div>
     </section>
   {/if}
 
-  {#if selectionReadOnly}<p class="note" role="status">Selection is locked or hidden. Unlock or show it in Layers to edit.</p>{/if}
+  {#if selectionReadOnly}<p class="note banner" role="status">Selection is locked or hidden. Unlock or show it in Layers to edit.</p>{/if}
   <fieldset disabled={selectionReadOnly}>
   <!-- POSITION / SIZE -->
   {#if single}
     <section>
       <h4>{single.type}</h4>
+      <div class="secbody">
       <div class="row">
         <NumberField label="X" value={single.x}
           on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "x", e.detail))}
@@ -523,9 +589,11 @@
           on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "opacity", e.detail))}
           on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "opacity", e.detail))} />
       </div>
+      </div>
     </section>
   {:else if sel.length > 1}
     <section><h4>{sel.length} selected</h4>
+      <div class="secbody">
       {#each Object.entries(numericProperties) as [key, descriptor]}
         {@const value = propertyValue(editableSel, key as NumericProperty)}
         {#if value.count}
@@ -539,6 +607,50 @@
           </div>
         {/if}
       {/each}
+      </div>
+    </section>
+  {/if}
+
+  <!-- APPEARANCE: the paints, always visible for anything that has them —
+       swatch + palette name; click a swatch for the palette picker inline. -->
+  {#if !partInfo && (fillEl || strokeEl || textEl)}
+    <section class="appearance">
+      <h4>Appearance</h4>
+      <div class="secbody">
+        {#if fillEl && (fillEl.type === "rect" || fillEl.type === "ellipse" || fillEl.type === "path")}
+          <div class="arow">
+            <span class="al">Fill</span>
+            <button class="swrow" class:open={colorPop === "fill"} on:click={() => (colorPop = colorPop === "fill" ? null : "fill")} title="Fill colour — pick from the palette (F, then c)">
+              <span class="sw" class:isnone={fillEl.fill === "none"} style={fillEl.fill === "none" ? "" : `background:${fillEl.fill}`}></span>
+              <span class="swname">{swatchName(fillEl.fill)}</span>
+              <span class="swhex">{fillEl.fill === "none" ? "" : fillEl.fill}</span>
+            </button>
+          </div>
+          {#if colorPop === "fill"}<div class="pop"><ColorPicker target="fill" autofocus={false} onDone={() => (colorPop = null)} onCancel={() => (colorPop = null)} /></div>{/if}
+        {/if}
+        {#if strokeEl && "stroke" in strokeEl}
+          <div class="arow">
+            <span class="al">Stroke</span>
+            <button class="swrow" class:open={colorPop === "stroke"} on:click={() => (colorPop = colorPop === "stroke" ? null : "stroke")} title="Stroke colour — pick from the palette (F, then k)">
+              <span class="sw" class:isnone={strokeEl.stroke === "none"} style={strokeEl.stroke === "none" ? "" : `background:${strokeEl.stroke}`}></span>
+              <span class="swname">{swatchName(strokeEl.stroke)}</span>
+              <span class="swhex">{strokeEl.stroke === "none" ? "" : strokeEl.stroke}</span>
+            </button>
+          </div>
+          {#if colorPop === "stroke"}<div class="pop"><ColorPicker target="stroke" autofocus={false} onDone={() => (colorPop = null)} onCancel={() => (colorPop = null)} /></div>{/if}
+        {/if}
+        {#if textEl && textEl.type === "text"}
+          <div class="arow">
+            <span class="al">Text</span>
+            <button class="swrow" class:open={colorPop === "text"} on:click={() => (colorPop = colorPop === "text" ? null : "text")} title="Text colour — pick from the palette">
+              <span class="sw" style={`background:${textEl.color}`}></span>
+              <span class="swname">{swatchName(textEl.color)}</span>
+              <span class="swhex">{textEl.color}</span>
+            </button>
+          </div>
+          {#if colorPop === "text"}<div class="pop"><ColorPicker target="fill" allowNone={false} autofocus={false} onDone={() => (colorPop = null)} onCancel={() => (colorPop = null)} /></div>{/if}
+        {/if}
+      </div>
     </section>
   {/if}
 
@@ -546,6 +658,7 @@
     {@const videoAsset = $project.assets.find(asset => asset.id === single.assetId)}
     <section class="video-properties">
       <h4>Video clip</h4>
+      <div class="secbody">
       <p class="note" title={videoAsset?.sourcePath ?? videoAsset?.name}>{videoAsset?.sourcePath ?? videoAsset?.name ?? "Video"}</p>
       <p class="note">{(single.durationMs / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} seconds{videoAsset?.hasAudio ? " · includes audio" : " · no audio"}</p>
       <div class="row" style="gap:14px;">
@@ -555,13 +668,15 @@
           on:change={event => updateVideoSettings({ loop: event.currentTarget.checked })} />Loop</label>
       </div>
       <p class="note">Select a step in Animate, then choose <b>Start video</b>. <b>Appear</b> reveals the first frame separately.</p>
+      </div>
     </section>
   {/if}
 
   </fieldset>
   <!-- LOCK / HIDE (F6) -->
   {#if sel.length >= 1}
-    <section>
+    <section class="state">
+      <div class="secbody">
       <div class="row" style="gap:14px;">
         <label class="chk">
           <input
@@ -577,8 +692,9 @@
             checked={allHidden}
             indeterminate={anyHidden && !allHidden}
             on:change={(e) => updateSelected((el) => (el.hidden = e.currentTarget.checked), false)} />
-          Hide
+          Hide <span class="hk">x</span>
         </label>
+      </div>
       </div>
     </section>
   {/if}
@@ -588,6 +704,7 @@
   {#if single && single.type === "text"}
     <section>
       <h4>Text</h4>
+      <div class="secbody">
       <textarea
         rows="3"
         value={single.text}
@@ -672,6 +789,7 @@
         <button class:on={single.sizing === "auto-h"} title="Wrap at the box width; height hugs" on:click={() => setSizing("auto-h")}>Auto H</button>
         <button class:on={single.sizing === "fixed"} title="Fixed box (overflow renders unclipped)" on:click={() => setSizing("fixed")}>Fixed</button>
       </div>
+      </div>
     </section>
   {/if}
 
@@ -679,6 +797,7 @@
   {#if textSel.length > 0 && !slideMode}
     <section>
       <h4>Caption</h4>
+      <div class="secbody">
       <label class="chk">
         <input
           type="checkbox"
@@ -689,12 +808,15 @@
         Panel label <span class="hk">Alt+L</span>
       </label>
       <p class="note">Marked text becomes a block in the caption editor (Alt+C).</p>
+      </div>
     </section>
   {/if}
 
   {#if single && (single.type === "rect" || single.type === "ellipse" || single.type === "line" || single.type === "path")}
+    {@const arrow = arrowOf(single)}
     <section>
       <h4>Stroke / fill</h4>
+      <div class="secbody">
       <div class="row">
         <NumberField label="Stroke W" value={single.strokeWidth} min={0} step={0.5}
           on:commit={(e) => updateSelected((el) => { if ("strokeWidth" in el) el.strokeWidth = e.detail; })}
@@ -736,11 +858,24 @@
             on:scrub={(e) => { const len = single.dash?.[0] ?? 6; const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { dash: [len, e.detail] })); }} />
         {/if}
       </div>
-      {#if single.type === "line"}
+      {#if arrow}
         <div class="row">
-          <label class="chk"><input type="checkbox" checked={single.arrowStart} on:change={(e) => updateSelected((el) => { if (el.type === "line") el.arrowStart = e.currentTarget.checked; })} />Arrow start</label>
-          <label class="chk"><input type="checkbox" checked={single.arrowEnd} on:change={(e) => updateSelected((el) => { if (el.type === "line") el.arrowEnd = e.currentTarget.checked; })} />Arrow end</label>
+          <label class="chk"><input type="checkbox" checked={!!arrow.arrowStart} on:change={(e) => setArrow({ arrowStart: e.currentTarget.checked })} />Arrow start</label>
+          <label class="chk"><input type="checkbox" checked={!!arrow.arrowEnd} on:change={(e) => setArrow({ arrowEnd: e.currentTarget.checked })} />Arrow end</label>
         </div>
+        {#if arrow.arrowStart || arrow.arrowEnd}
+          <div class="row">
+            <label>Arrowhead
+              <select value={arrow.arrowStyle ?? "filled"} on:change={(e) => setArrow({ arrowStyle: e.currentTarget.value as "filled" | "vee" })}>
+                <option value="filled">Filled</option>
+                <option value="vee">V-line</option>
+              </select>
+            </label>
+            <NumberField label="Head size" value={arrow.arrowSize ?? 4} min={1} step={0.5} title="Arrowhead size as a multiple of the stroke width"
+              on:commit={(e) => setArrow({ arrowSize: Math.max(1, e.detail) })}
+              on:scrub={(e) => { const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { arrowSize: Math.max(1, e.detail) })); }} />
+          </div>
+        {/if}
       {/if}
       {#if single.type === "path"}
         <!-- Close/open after the fact (pen-time closing = clicking the first
@@ -749,14 +884,8 @@
         <div class="row">
           <label class="chk"><input type="checkbox" checked={single.closed} on:change={(e) => { const closed = e.currentTarget.checked; const id = single.id; commit((p) => ops.updatePath(p, id, { closed })); }} />Closed path</label>
         </div>
-        {#if !single.closed}
-          <!-- Arrowheads on open paths — same semantics as lines. -->
-          <div class="row">
-            <label class="chk"><input type="checkbox" checked={!!single.arrowStart} on:change={(e) => updateSelected((el) => { if (el.type === "path") el.arrowStart = e.currentTarget.checked; })} />Arrow start</label>
-            <label class="chk"><input type="checkbox" checked={!!single.arrowEnd} on:change={(e) => updateSelected((el) => { if (el.type === "path") el.arrowEnd = e.currentTarget.checked; })} />Arrow end</label>
-          </div>
-        {/if}
       {/if}
+      </div>
     </section>
   {/if}
 
@@ -767,6 +896,7 @@
   {#if fig && !slideMode}
     <section>
       <h4>Figure</h4>
+      <div class="secbody">
       <div class="row">
         <NumberField label="X" value={fig.x}
           on:commit={(e) => updateFigure((f) => (f.x = e.detail))}
@@ -783,7 +913,7 @@
           on:commit={(e) => updateFigure((f) => (f.height = e.detail))}
           on:scrub={(e) => scrubFigure((f) => (f.height = e.detail))} />
       </div>
-      <p class="note">= {mmStr(fig.width)} × {mmStr(fig.height)} mm</p>
+      <p class="note mono">= {mmStr(fig.width)} × {mmStr(fig.height)} mm</p>
 
       <!-- Identity is family + number (figfamily.ts) — the name is derived, so
            the row opens the Figure Namer instead of editing text. The nickname
@@ -827,6 +957,7 @@
           </div>
         {/if}
       {/if}
+      </div>
     </section>
 
   {/if}
@@ -836,6 +967,7 @@
   <!-- ALIGN -->
   <section>
     <h4>Align</h4>
+    <div class="secbody">
     {#if sel.length === 0}
       <p class="note">Select elements to edit</p>
     {/if}
@@ -874,15 +1006,17 @@
         <button title="Scale proportionally (geometry + stroke/font) about the selection centre" on:click={applyScale}>Apply</button>
       </div>
     {/if}
+    </div>
   </section>
 
   <!-- SELECT SAME / STYLE (F9 + F10) -->
   {#if sel.length >= 1}
     <section>
       <h4>Select &amp; style</h4>
+      <div class="secbody">
       {#if single}
         <div class="row" style="flex-wrap:wrap;gap:4px;">
-          <span style="opacity:.6;font-size:11px;width:100%;">Select same…</span>
+          <span class="rowlbl">Select same…</span>
           <button title="Select all with the same fill (Cmd/Ctrl+Alt+A)" on:click={() => selectMatching("fill")}>Fill</button>
           <button title="Select all with the same stroke" on:click={() => selectMatching("stroke")}>Stroke</button>
           <button title="Select all with the same font" on:click={() => selectMatching("font")}>Font</button>
@@ -893,23 +1027,26 @@
         <button title="Copy style (Cmd/Ctrl+Alt+C)" disabled={!single} on:click={copyStyle}>Copy style</button>
         <button title="Paste style (Cmd/Ctrl+Alt+V)" on:click={pasteStyle}>Paste style</button>
       </div>
+      </div>
     </section>
   {/if}
 
   <!-- ARRANGE -->
   {#if arrN >= 2}
     <section>
-      <h4 style="display:flex;align-items:baseline;">Arrange <span class="hk">Alt+G</span></h4>
+      <h4>Arrange <span class="hk">Alt+T</span></h4>
+      <div class="secbody">
       <div class="grid6">
         <button title="Single row" on:click={() => arrangeToRows(1)}>Row</button>
         <button title="Balanced grid" on:click={() => arrangeToRows(balancedRows(arrN))}>Grid</button>
         <button title="Single column" on:click={() => arrangeToRows(arrN)}>Column</button>
       </div>
       <div class="row" style="align-items:center;gap:8px;">
-        <span style="opacity:.6;font-size:11px;">Rows</span>
+        <span class="rowlbl">Rows</span>
         <button title="Fewer rows" on:click={() => stepRows(-1)}>−</button>
-        <span style="min-width:18px;text-align:center;font-variant-numeric:tabular-nums;">{$lastArrangeRows}</span>
+        <span class="rowsval">{$lastArrangeRows}</span>
         <button title="More rows" on:click={() => stepRows(1)}>+</button>
+      </div>
       </div>
     </section>
   {/if}
@@ -917,12 +1054,13 @@
   </details>
 
   <!-- COLOR PALETTE -->
-  <details class="slide-colors"><summary>Color palette</summary><ColorPalette /></details>
+  <details class="slide-colors"><summary>Color palette</summary><div class="secbody"><ColorPalette /></div></details>
 
   {#if fig && !slideMode}
     <!-- EXPORT -->
     <section>
       <h4>Export “{fig.name}”</h4>
+      <div class="secbody">
       {#if exporting && ["png", "tiff", "jpng"].includes(exporting)}
         <div class="row" role="status"><span>Preparing export…</span><button on:click={() => exportAbort?.abort()}>Cancel export</button></div>
       {/if}
@@ -962,47 +1100,62 @@
         <button class="prim" disabled={!!exporting} on:click={() => runExport("jpng", (f, signal) => exportFigureJournal(f, { signal, format: "png", mm: selectedMm, dpi: journalDpi, transparent: transparentBg }))}>{exporting === "jpng" ? "Exporting…" : "PNG"}</button>
       </div>
       </details>
+      </div>
     </section>
   {/if}
 </aside>
 
 <style>
+  /* The right rail (2026-09-15 surface redesign): a raised strip of
+     hairline-separated sections, each a 28px mono eyebrow over dense
+     label/value rows; mono values, square controls, quiet tints. Every class,
+     aria-label, data attribute and text label the gates pin is unchanged. */
   fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
   fieldset:disabled { opacity: .55; }
-  .journal-export { margin-top: 12px; }
-  .journal-export > summary { cursor: pointer; color: var(--c-tx-2); margin-bottom: 8px; }
-  .advanced > summary { cursor: pointer; font-size: 11px; color: var(--c-tx-2); padding: 12px 0; }
-  .slide-colors { margin: 8px; border-top: 1px solid var(--c-line); padding-top: 10px; }
-  .slide-colors summary { cursor: pointer; color: var(--c-tx-2); font-size: var(--ts-xs); }
-  .figure-details { font: inherit; padding: 7px; margin-top: 8px; color: var(--c-accent); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: 5px; cursor: pointer; }
+  .journal-export { margin-top: 8px; }
+  .journal-export > summary { cursor: pointer; color: var(--c-tx-2); margin-bottom: 6px; font-size: 11px; }
+  .advanced > summary { cursor: pointer; font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); height: 28px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--c-line); }
+  .advanced > summary::marker { color: var(--c-tx-faint); }
+  .slide-colors { border-top: 1px solid var(--c-line); border-bottom: 1px solid var(--c-line); }
+  .slide-colors summary { cursor: pointer; font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); height: 28px; display: flex; align-items: center; padding: 0 10px; }
+  .figure-details { font: 12px var(--font-ui); height: 24px; margin-top: 6px; color: var(--c-accent-bright); background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); cursor: pointer; }
+  .figure-details:hover { border-color: var(--c-accent); }
   .inspector {
     /* Width var set by the host mode (FigureMode drag-resize). SlideMode's
        `.rail :global(.inspector){width:100%}` override still wins there. */
     width: var(--insp-w, 248px);
     flex: 0 0 var(--insp-w, 248px);
-    background: var(--c-surface);
+    background: var(--c-bg-raised);
     border-left: 1px solid var(--c-line);
     overflow-y: auto;
-    padding: 4px 10px 24px;
-    font-size: 12px;
+    padding: 0 0 24px;
+    font: 12px var(--font-ui);
+    -webkit-font-smoothing: antialiased;
     color: var(--c-tx);
   }
   section {
-    padding: 10px 0;
     border-bottom: 1px solid var(--c-line);
   }
+  section.state { border-bottom: 1px solid var(--c-line); }
+  .secbody { padding: 8px 10px 10px; }
   h4 {
-    margin: 0 0 8px;
-    font-size: 11px;
+    margin: 0;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    font: 600 10.5px var(--font-mono);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.6;
+    letter-spacing: 0.08em;
+    color: var(--c-tx-muted);
+    border-bottom: 1px solid var(--c-line);
   }
+  .banner { padding: 8px 10px; margin: 0; border-bottom: 1px solid var(--c-line); }
   .sizeread {
     margin: 2px 0 6px;
-    font-size: 10px;
-    font-family: var(--font-mono);
-    opacity: 0.6;
+    font: 10px var(--font-mono);
+    color: var(--c-tx-muted);
   }
   button.prim {
     background: var(--c-accent);
@@ -1014,128 +1167,153 @@
     gap: 6px;
     margin-bottom: 6px;
   }
+  .row:last-child { margin-bottom: 0; }
   .row.wh {
     align-items: flex-end;
   }
+  .rowlbl { color: var(--c-tx-muted); font-size: 11px; width: 100%; }
+  .rowsval { min-width: 18px; text-align: center; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
   .ratio {
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 5px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
     color: var(--c-tx-muted);
     line-height: 1;
   }
   .ratio.on {
-    color: var(--c-on-accent);
-    background: var(--c-accent);
+    color: var(--c-tx-hi);
+    background: var(--c-accent-tint);
     border-color: var(--c-accent);
   }
   label {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
     flex: 1;
-    opacity: 0.85;
+    font: 10.5px var(--font-ui);
+    color: var(--c-tx-muted);
+    letter-spacing: 0.02em;
   }
   label.full {
     width: 100%;
+    margin-top: 6px;
   }
   label.chk {
     flex-direction: row;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--c-tx);
   }
   .hk {
     margin-left: auto;
-    font-size: 10px;
-    font-family: var(--font-mono);
-    opacity: 0.5;
+    font: 10px var(--font-mono);
+    color: var(--c-tx-faint);
   }
+  h4 .hk { margin-left: 0; }
   .note.phys {
     display: flex;
     align-items: center;
     gap: 6px;
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
   .note.phys .off-phys {
-    color: var(--warn, #c77d00);
-    opacity: 0.9;
+    color: var(--c-warning);
   }
   .note.phys .true-size {
     margin-left: auto;
+    height: 20px;
     font-size: 11px;
-    padding: 1px 7px;
+    padding: 0 7px;
   }
   .note {
     margin: 6px 0 0;
     font-size: 11px;
     line-height: 1.4;
-    opacity: 0.5;
+    color: var(--c-tx-muted);
   }
+  .note.mono { font-family: var(--font-mono); }
   .video-properties .note { overflow-wrap: anywhere; }
   .part-id {
-    font-family: var(--font-mono);
-    font-size: 12px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font: 12px var(--font-mono);
     color: var(--c-accent-bright);
     margin-bottom: 4px;
     word-break: break-all;
   }
+  .part-id .more { font-size: 10.5px; color: var(--c-tx-muted); }
   .crumb {
     margin: 0 0 6px;
     font-size: 11px;
     line-height: 1.5;
-    opacity: 0.65;
+    color: var(--c-tx-muted);
   }
   code {
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font: 10px var(--font-mono);
   }
   input,
   select,
   textarea {
-    background: var(--c-bg-raised);
+    background: var(--c-bg);
     border: 1px solid var(--c-line-strong);
     color: var(--c-tx);
-    border-radius: 4px;
-    padding: 4px 6px;
-    font-size: 12px;
+    border-radius: var(--r-ui);
+    height: 24px;
+    padding: 0 6px;
+    font: 12px var(--font-ui);
     width: 100%;
+    box-sizing: border-box;
   }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--c-accent); }
   input[type="checkbox"] {
     width: auto;
+    height: auto;
+    margin: 0;
+    accent-color: var(--c-accent);
   }
+  input[type="color"] { padding: 1px 2px; }
   textarea {
     resize: vertical;
-    font-family: inherit;
+    height: auto;
+    padding: 4px 6px;
+    line-height: 1.4;
+    font-family: var(--font-ui);
   }
   .grid6 {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
+    gap: 3px;
     margin-bottom: 6px;
   }
   button {
-    background: var(--c-ui);
-    color: var(--c-tx);
+    height: 24px;
+    background: transparent;
+    color: var(--c-tx-2);
     border: 1px solid var(--c-line-strong);
-    border-radius: 5px;
-    padding: 5px 8px;
-    font-size: 12px;
+    border-radius: var(--r-ui);
+    padding: 0 8px;
+    font: 12px var(--font-ui);
     cursor: pointer;
   }
-  button:hover {
-    background: var(--c-ui-hover);
+  button:hover:not(:disabled) {
+    border-color: var(--c-tx-muted);
+    color: var(--c-tx-hi);
   }
   button:disabled {
-    opacity: 0.45;
+    opacity: 0.4;
     cursor: default;
   }
-  button:disabled:hover {
-    background: var(--c-ui);
-  }
-  button.prim:disabled:hover {
-    background: var(--c-accent);
+  button.prim:hover:not(:disabled) {
+    background: var(--c-accent-bright);
+    border-color: var(--c-accent-bright);
+    color: var(--c-on-accent);
   }
   .fig-act {
     width: 100%;
@@ -1145,11 +1323,11 @@
      the create-folder empty state). */
   .dcount {
     margin-left: 6px;
-    font-size: 10px;
+    font: 10px var(--font-mono);
     color: var(--c-accent-bright);
     border: 1px solid var(--c-accent-tint);
-    border-radius: 999px;
-    padding: 0 6px;
+    border-radius: var(--r-ui);
+    padding: 0 5px;
   }
   /* Figure identity row — opens the Figure Namer (Ctrl+R). */
   .identity {
@@ -1159,12 +1337,14 @@
     width: 100%;
     text-align: left;
     background: var(--c-bg);
-    border: 1px solid var(--c-line);
-    border-radius: var(--r-1, 4px);
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
     color: var(--c-tx);
-    font: inherit;
-    padding: 5px 7px;
+    font: 12px var(--font-ui);
+    height: 26px;
+    padding: 0 8px;
     cursor: pointer;
+    margin-top: 6px;
   }
   .identity:hover {
     border-color: var(--c-accent);
@@ -1178,7 +1358,7 @@
   .identity .id-ref {
     margin-left: auto;
     color: var(--c-accent);
-    font-size: 11px;
+    font: 11px var(--font-mono);
     flex: 0 0 auto;
   }
   /* B/I/U toggles */
@@ -1188,13 +1368,13 @@
   .biu {
     flex: 0 0 auto;
     min-width: 26px;
-    padding: 4px 7px;
+    padding: 0 7px;
     line-height: 1;
   }
   .biu[aria-pressed="true"] {
-    background: var(--c-accent);
+    background: var(--c-accent-tint);
     border-color: var(--c-accent);
-    color: var(--c-on-accent);
+    color: var(--c-tx-hi);
   }
   /* 3-way sizing segmented control */
   .seg {
@@ -1208,16 +1388,16 @@
     border-right-width: 0;
   }
   .seg button:first-child {
-    border-radius: 5px 0 0 5px;
+    border-radius: var(--r-ui) 0 0 var(--r-ui);
   }
   .seg button:last-child {
-    border-radius: 0 5px 5px 0;
+    border-radius: 0 var(--r-ui) var(--r-ui) 0;
     border-right-width: 1px;
   }
   .seg button.on {
-    background: var(--c-accent);
+    background: var(--c-accent-tint);
     border-color: var(--c-accent);
-    color: var(--c-on-accent);
+    color: var(--c-tx-hi);
   }
   /* named-style picker + manage popover */
   .stylerow {
@@ -1227,20 +1407,20 @@
   }
   .gear {
     flex: 0 0 auto;
-    padding: 4px 7px;
+    padding: 0 7px;
   }
   .style-pop {
     margin: 6px 0;
-    padding: 6px;
+    padding: 4px;
     border: 1px solid var(--c-line-strong);
-    border-radius: 6px;
-    background: var(--c-bg-raised);
+    border-radius: var(--r-panel);
+    background: var(--c-surface);
   }
   .style-row {
     display: flex;
     gap: 3px;
     align-items: center;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   .style-row .sname {
     flex: 1 1 60px;
@@ -1248,7 +1428,29 @@
   }
   .style-row button {
     flex: 0 0 auto;
-    padding: 3px 6px;
+    padding: 0 6px;
     font-size: 11px;
+    height: 22px;
   }
+  /* appearance rows: label · swatch · palette name · hex */
+  .arow { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+  .al { width: 42px; flex: none; font-size: 11px; color: var(--c-tx-muted); }
+  .swrow { flex: 1; display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 6px; background: transparent; border: 1px solid transparent; text-align: left; min-width: 0; }
+  .swrow:hover, .swrow.open { border-color: var(--c-line-strong); }
+  .sw { width: 14px; height: 14px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 14%, transparent); flex: none; }
+  .sw.isnone { background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--c-line-strong) 3px 4px); }
+  .swname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx); }
+  .swhex { font: 10.5px var(--font-mono); color: var(--c-tx-muted); }
+  .pop { margin: 4px 0 8px; padding: 8px; border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); background: var(--c-surface); }
+  /* the part fields: menu-letter · label · control */
+  .pfields { display: flex; flex-direction: column; gap: 3px; margin: 6px 0; }
+  .pf { display: grid; grid-template-columns: 16px minmax(0, 1fr) 96px; align-items: center; gap: 6px; min-height: 24px; }
+  .pk { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; font: 600 10px var(--font-mono); color: var(--c-accent); background: var(--c-accent-tint); border-radius: var(--r-ui); }
+  .pl { font-size: 11.5px; color: var(--c-tx-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pc { display: flex; justify-content: flex-end; min-width: 0; }
+  .pc :global(.nf) { flex: 1; }
+  .pc :global(.nf .lb) { display: none; }
+  .tgl { min-width: 44px; }
+  .tgl.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .pf .swrow { width: 100%; }
 </style>

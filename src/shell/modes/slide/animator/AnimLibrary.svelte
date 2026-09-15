@@ -226,40 +226,47 @@
 
 <style>
   .animlib {
-    position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; width: 250px;
-    display: flex; flex-direction: column; gap: 6px;
-    background: var(--c-bg-2, #1c1b1a); border: 1px solid var(--c-line-strong, #343331);
-    border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); padding: 8px;
-    font-size: 11px;
+    position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 30; width: 260px;
+    display: flex; flex-direction: column; gap: 0; padding: 0;
+    background: var(--c-surface); border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-panel); box-shadow: var(--elev-2);
+    font: 12px/1.35 var(--font-ui); -webkit-font-smoothing: antialiased; color: var(--c-tx);
   }
-  .tabs { display: flex; gap: 4px; align-items: center; }
+  /* header: the two tabs on one 30px line, hairline below */
+  .tabs { display: flex; align-items: center; height: 30px; padding: 0 4px 0 2px; border-bottom: 1px solid var(--c-line); }
   .tab {
-    font-size: 11px; color: var(--c-tx-3, #878580); background: none;
-    border: 1px solid var(--c-line, #403e3c); border-radius: 4px; padding: 2px 9px; cursor: pointer;
+    height: 30px; padding: 0 10px; font: 12px var(--font-ui); color: var(--c-tx-muted);
+    background: none; border: 0; border-radius: 0; cursor: pointer;
   }
-  .tab.on { color: var(--c-tx-hi, #fff); border-color: var(--c-accent, #4385be); background: color-mix(in oklab, var(--c-accent, #4385be) 16%, transparent); }
-  .x { margin-left: auto; border: none; background: none; color: var(--c-tx-3, #6f6e69); cursor: pointer; }
-  .empty { color: var(--c-tx-3, #878580); font-size: 10.5px; line-height: 1.5; padding: 2px 2px 4px; }
-  .list { display: flex; flex-direction: column; gap: 2px; max-height: 210px; overflow-y: auto; }
-  .row { display: flex; align-items: center; gap: 2px; }
+  .tab:hover { color: var(--c-tx-hi); }
+  .tab.on { color: var(--c-tx-hi); box-shadow: inset 0 -2px 0 var(--c-accent); }
+  .x {
+    margin-left: auto; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-ui);
+    background: none; color: var(--c-tx-muted); cursor: pointer; font-size: 11px;
+  }
+  .x:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
+  .empty { color: var(--c-tx-muted); font-size: 11px; line-height: 1.5; padding: 8px 10px 4px; }
+  .list { display: flex; flex-direction: column; gap: 0; max-height: 210px; overflow-y: auto; padding: 4px 0; }
+  .row { display: flex; align-items: center; gap: 0; }
   .apply {
-    flex: 1; display: flex; align-items: center; gap: 6px; text-align: left;
-    border: none; background: none; color: var(--c-tx, #cecdc3); border-radius: 4px;
-    padding: 4px 6px; cursor: pointer; font-size: 11px;
+    flex: 1; display: flex; align-items: center; gap: 6px; text-align: left; height: 24px; min-width: 0;
+    border: 0; border-radius: 0; background: none; color: var(--c-tx); padding: 0 10px; cursor: pointer;
+    font: 12px var(--font-ui);
   }
-  .apply:hover { background: color-mix(in oklab, var(--pc) 16%, transparent); }
-  .apply .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--pc); flex: 0 0 auto; }
-  .apply small { margin-left: auto; color: var(--c-tx-3, #6f6e69); font-size: 9.5px; }
-  .del { border: none; background: none; color: var(--c-tx-faint, #575653); cursor: pointer; font-size: 9px; padding: 2px 4px; }
-  .del:hover { color: var(--c-danger, #d14d41); }
-  .save { display: flex; gap: 4px; border-top: 1px solid var(--c-line, #282726); padding-top: 7px; }
+  .apply:hover { background: var(--c-surface-2); color: var(--c-tx-hi); }
+  .apply .dot { width: 7px; height: 7px; border-radius: 1px; background: var(--pc); flex: 0 0 auto; }
+  .apply small { margin-left: auto; color: var(--c-tx-muted); font: 10px var(--font-mono); }
+  .del { border: 0; background: none; color: var(--c-tx-faint); cursor: pointer; font-size: 9px; height: 24px; padding: 0 8px; }
+  .del:hover { color: var(--c-danger); }
+  .save { display: flex; gap: 4px; border-top: 1px solid var(--c-line); padding: 6px; }
   .save input {
-    flex: 1; font-size: 11px; color: var(--c-tx, #cecdc3); background: var(--c-bg, #100f0f);
-    border: 1px solid var(--c-line-strong, #343331); border-radius: 4px; padding: 3px 6px;
+    flex: 1; min-width: 0; height: 24px; font: 12px var(--font-mono); color: var(--c-tx); background: var(--c-bg);
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); padding: 2px 6px;
   }
+  .save input:focus { border-color: var(--c-accent); outline: none; }
   .save button {
-    font-size: 10.5px; color: var(--c-tx-2, #b7b5ac); background: var(--c-bg, #100f0f);
-    border: 1px solid var(--c-line-strong, #343331); border-radius: 4px; padding: 3px 8px; cursor: pointer;
+    height: 24px; font: 12px var(--font-ui); color: var(--c-tx-2); background: transparent;
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); padding: 3px 8px; cursor: pointer; white-space: nowrap;
   }
-  .save button:hover { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
+  .save button:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
 </style>

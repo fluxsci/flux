@@ -1,5 +1,5 @@
 // figure-v1 P8 gate (browser) — the UNIFIED X-ray, driven for real:
-//   · grouped content incl. a fluxplot; select the group; Alt+P → GROUP tree:
+//   · grouped content incl. a fluxplot; select the group; Alt+R → GROUP tree:
 //     nested child-group row (by name) + the plot expanding under its own
 //     figure root ("Plot area" et al.) next to sibling shapes
 //   · eye on a group row removes its members from the LIVE scene DOM
@@ -96,12 +96,13 @@ try {
     await waitForFrame(page);
     return true;
   };
-  // real ctrl-click needs the ctrlKey ON the synthesized event:
+  // Re-root is a DOUBLE-CLICK now (2026-09-15: Ctrl/⌘+click became the
+  // multi-pick toggle); Ctrl+Enter keeps the keyboard route.
   const ctrlClickRow = async (label) => {
     const h = await rowByLabel(label);
     const found = await page.evaluate((el) => !!el, h);
     if (!found) return false;
-    await page.evaluate((el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true })), h);
+    await page.evaluate((el) => el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), h);
     await waitForFrame(page);
     return true;
   };
@@ -126,17 +127,17 @@ try {
   const regenPresent = () => page.evaluate(() => !!document.querySelector(".xray .regen"));
 
   // === open on the GROUP =====================================================
-  console.log("Group x-ray (Alt+P):");
+  console.log("Group x-ray (Alt+R):");
   await page.evaluate(() => window.__flux.fig.selection.set(new Set(["rA", "rB", "px", "rC"])));
   await waitForFrame(page);
   await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyP");
+  await page.keyboard.press("KeyR");
   await page.keyboard.up("Alt");
   await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, {
     label: "x-ray open with rows",
   }).catch(() => {});
 
-  ok(await page.evaluate(() => !!document.querySelector(".xray")), "Alt+P over a group selection opens the X-ray");
+  ok(await page.evaluate(() => !!document.querySelector(".xray")), "Alt+R over a group selection opens the X-ray");
   let rows = await rowLabels();
   ok(rows[0]?.label === "Both Panels" && rows[0]?.kind === "group", `root row = the group, by NAME (${rows[0]?.label})`);
   ok(rows.some((r) => r.label === "Panel A" && r.kind === "group"), "nested child group row present (by name)");
@@ -250,11 +251,11 @@ try {
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu").catch(() => {});
 
-  // === ctrl-click re-root + Backspace pop ====================================
+  // === double-click re-root + Backspace pop ==================================
   console.log("Re-root:");
   let cr = await crumbs();
   ok(cr.length === 1 && cr[0] === "Both Panels", `breadcrumb shows the root (${cr.join(" › ")})`);
-  ok(await ctrlClickRow("Tick labels"), "ctrl-click on the part row dispatched");
+  ok(await ctrlClickRow("Tick labels"), "double-click on the part row dispatched");
   await waitFor(page, () => document.querySelectorAll(".xray .crumb").length === 2, null, {
     label: "re-rooted (breadcrumb grew)",
   }).catch(() => {});
@@ -263,7 +264,7 @@ try {
   ok(rows[0]?.label === "scatter" && rows[0]?.kind === "element", "re-rooted to the plot ALONE (root row = the plot)");
   ok(!rows.some((r) => r.kind === "group"), "…group rows gone — as if x-rayed alone");
   ok(cr.length === 2 && cr[0] === "Both Panels" && cr[1] === "scatter", `breadcrumb grew (${cr.join(" › ")})`);
-  ok(rows.some((r) => r.label === "Tick labels" && r.sel), "the ctrl-clicked part landed pre-expanded + selected");
+  ok(rows.some((r) => r.label === "Tick labels" && r.sel), "the double-clicked part landed pre-expanded + selected");
   ok(await regenPresent(), "Regenerate PRESENT for the recipe-backed plot root");
   await shot(page, "figenh18-03-rerooted");
 
@@ -276,8 +277,8 @@ try {
   ok(rows[0]?.label === "Both Panels" && cr.length === 1, "Backspace pops the root stack back to the group");
   ok(!(await regenPresent()), "…and Regenerate disappears with the plot root");
 
-  // === scope-aware openXray: inside an entered group, Alt+P roots on it ======
-  console.log("Entered-scope Alt+P:");
+  // === scope-aware openXray: inside an entered group, Alt+R roots on it ======
+  console.log("Entered-scope Alt+R:");
   await page.keyboard.press("Escape"); // close the x-ray
   await waitForGone(page, ".xray").catch(() => {});
   await page.evaluate(() => {
@@ -288,14 +289,14 @@ try {
   });
   await waitForFrame(page);
   await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyP");
+  await page.keyboard.press("KeyR");
   await page.keyboard.up("Alt");
   await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, {
     label: "x-ray reopened at the entered scope",
   }).catch(() => {});
   rows = await rowLabels();
   ok(rows[0]?.label === "Panel A" && rows[0]?.kind === "group",
-    `Alt+P inside the entered group roots on THAT group (${rows[0]?.label})`);
+    `Alt+R inside the entered group roots on THAT group (${rows[0]?.label})`);
   await page.keyboard.press("Escape");
   await waitForGone(page, ".xray").catch(() => {});
 

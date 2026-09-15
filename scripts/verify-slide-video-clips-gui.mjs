@@ -15,7 +15,7 @@ const clickText = async (selector, text) => {
   const element = await page.evaluateHandle(({ selector, text }) => [...document.querySelectorAll(selector)].find(node => node.textContent.trim() === text), { selector, text });
   assert.ok(await element.asElement(), `button ${text}`); await element.click(); await paint();
 };
-const openGallery = async () => { await page.keyboard.down('Alt'); await page.keyboard.press('KeyI'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer'); };
+const openGallery = async () => { await page.keyboard.down('Alt'); await page.keyboard.press('KeyG'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer'); };
 const query = async value => { await page.$eval('.search-in', (node, value) => { node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); }, value); await paint(); };
 const read = () => page.evaluate(() => { const f = window.__flux; return f.slide.composedSlide(f.get(f.fig.activeFigureId)); });
 try {

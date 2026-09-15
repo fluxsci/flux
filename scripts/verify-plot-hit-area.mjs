@@ -36,11 +36,18 @@ const state = () => page.evaluate(() => {
   return { el: structuredClone(F.figures()[0].elements[0]), selection: [...F.get(s.selection)],
     part: F.get(s.partSelection), history: s.historyStats() };
 });
+// The pointer lands on a whole pixel: getScreenCTM() is float32 inside
+// Chromium, so the projected point carries ~1e-5 px of noise (389.0000089,
+// 252.0000083). The editor's own pointer → model conversion rounds through
+// the same float32 CTM, and that noise survives or vanishes depending on the
+// point's float32 spacing — the 2026-09-15 toolbar (34px, was 38) moved the
+// probe from y=256 (exact) to y=252 (rounds up), turning +20 into +19.99998.
+// Rounding keeps the exact-equality assertions below honest about the model.
 const point = (dx = 10, dy = 10) => page.evaluate(([dx, dy]) => {
   const e = window.__flux.figures()[0].elements[0];
   const g = document.querySelector('[data-editor-element-id="transparent-plot"] > g');
   const p = new DOMPoint(e.x + dx, e.y + dy).matrixTransform(g.getScreenCTM());
-  return { x: p.x, y: p.y };
+  return { x: Math.round(p.x), y: Math.round(p.y) };
 }, [dx, dy]);
 async function click(p) {
   await page.evaluate(() => {

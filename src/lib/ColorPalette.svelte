@@ -15,9 +15,13 @@
     }
   }
 
-  function pick(hex: string) {
+  // Every swatch click is one edit session (one undo), recents included.
+  function pick(hex: string, recent = true) {
     const session = editSession();
-    session.run(() => { applyColor(hex, undefined, true); addRecentColor(hex, true); });
+    session.run(() => {
+      applyColor(hex, undefined, true);
+      if (recent) addRecentColor(hex, true);
+    });
     session.finish();
   }
 </script>
@@ -38,7 +42,7 @@
       class="sw none-sw"
       title={$colorTarget === "fill" ? "Remove fill (outline only)" : "Remove stroke (no outline)"}
       aria-label={`No ${$colorTarget}`}
-      on:click={() => applyColor("none")}
+      on:click={() => pick("none", false)}
     >
       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><line x1="3.5" y1="12.5" x2="12.5" y2="3.5" stroke="#d14d41" stroke-width="1.8" stroke-linecap="round" /></svg>
     </button>
@@ -48,7 +52,7 @@
   {#if $project.palette.length}
     <div class="recent">
       {#each $project.palette as c}
-        <button class="sw" style={`background:${c}`} title={c} on:click={() => applyColor(c)} aria-label={c}></button>
+        <button class="sw" style={`background:${c}`} title={c} on:click={() => pick(c)} aria-label={c}></button>
       {/each}
     </div>
   {/if}
@@ -88,8 +92,8 @@
 
 <style>
   section {
-    padding: 10px 0;
-    border-bottom: 1px solid var(--c-line);
+    padding: 8px 0 10px;
+    font-family: var(--font-ui);
   }
   .head {
     display: flex;
@@ -99,33 +103,34 @@
   }
   h4 {
     margin: 0;
-    font-size: 11px;
+    font: 600 10.5px var(--font-mono);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.6;
+    letter-spacing: 0.08em;
+    color: var(--c-tx-muted);
   }
   .seg {
     display: flex;
   }
   .seg button {
-    background: var(--c-ui);
-    color: var(--c-tx);
+    height: 22px;
+    background: transparent;
+    color: var(--c-tx-2);
     border: 1px solid var(--c-line-strong);
-    padding: 2px 8px;
-    font-size: 11px;
+    padding: 0 8px;
+    font: 11px var(--font-ui);
     cursor: pointer;
   }
   .seg button:first-child {
-    border-radius: 5px 0 0 5px;
+    border-radius: var(--r-ui) 0 0 var(--r-ui);
   }
   .seg button:last-child {
-    border-radius: 0 5px 5px 0;
+    border-radius: 0 var(--r-ui) var(--r-ui) 0;
     border-left: none;
   }
   .seg button.on {
-    background: var(--c-accent);
+    background: var(--c-accent-tint);
     border-color: var(--c-accent);
-    color: var(--c-on-accent);
+    color: var(--c-tx-hi);
   }
   .nonerow {
     display: flex;
@@ -134,23 +139,22 @@
     margin-bottom: 8px;
   }
   .none-sw {
-    background: #fff;
+    background: var(--c-surface-2);
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 4px;
+    width: 20px;
+    height: 20px;
   }
   .nonelbl {
     font-size: 11px;
-    opacity: 0.55;
+    color: var(--c-tx-muted);
   }
   .recent {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
-    margin-bottom: 10px;
+    gap: 3px;
+    margin-bottom: 8px;
   }
   .groups {
     max-height: 260px;
@@ -158,12 +162,13 @@
     padding-right: 2px;
   }
   .group {
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
   .glabel {
-    font-size: 10px;
-    opacity: 0.5;
-    text-transform: capitalize;
+    font: 9.5px var(--font-mono);
+    color: var(--c-tx-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     margin-bottom: 3px;
   }
   .shades {
@@ -174,54 +179,54 @@
   .sw {
     width: 16px;
     height: 16px;
-    border-radius: 3px;
-    border: 1px solid #00000044;
+    border-radius: var(--r-ui);
+    border: 1px solid color-mix(in oklab, var(--c-tx-hi) 12%, transparent);
     padding: 0;
     cursor: pointer;
-    transition: transform 0.06s;
   }
   .recent .sw {
-    width: 22px;
-    height: 22px;
-    border-radius: 4px;
+    width: 20px;
+    height: 20px;
   }
   .sw:hover {
-    transform: scale(1.18);
-    border-color: var(--c-tx-hi);
+    outline: 2px solid var(--c-accent);
+    outline-offset: 1px;
     z-index: 1;
   }
   .actions {
     display: flex;
-    gap: 6px;
-    margin-top: 10px;
+    gap: 4px;
+    margin-top: 8px;
     align-items: stretch;
   }
   .import {
     flex: 1;
-    background: var(--c-ui);
-    color: var(--c-tx);
+    height: 24px;
+    background: transparent;
+    color: var(--c-tx-2);
     border: 1px solid var(--c-line-strong);
-    border-radius: 5px;
-    padding: 6px;
-    font-size: 12px;
+    border-radius: var(--r-ui);
+    font: 12px var(--font-ui);
     cursor: pointer;
   }
   .import:hover {
-    background: var(--c-ui-hover);
+    border-color: var(--c-tx-muted);
+    color: var(--c-tx-hi);
   }
   .add {
     position: relative;
-    width: 30px;
+    width: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--c-ui);
+    background: transparent;
     border: 1px solid var(--c-line-strong);
-    border-radius: 5px;
+    border-radius: var(--r-ui);
     color: var(--c-tx-muted);
-    font-size: 16px;
+    font-size: 14px;
     cursor: pointer;
   }
+  .add:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   .add input {
     position: absolute;
     inset: 0;
@@ -230,11 +235,11 @@
   }
   .hint {
     font-size: 11px;
-    opacity: 0.45;
+    color: var(--c-tx-muted);
     margin: 4px 0;
   }
   .err {
-    color: #f89a8a; /* flexoki red-200 */
+    color: var(--c-danger);
     font-size: 11px;
     margin: 6px 0 0;
   }

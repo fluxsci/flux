@@ -27,23 +27,34 @@ import type { FluxPlotManifest } from "../plot/types";
 import { buildPartTree, type XrayNode } from "../plot/tree";
 import { buildRenderTree, groupDefs, membersDeep, type RenderNode } from "../groups";
 
-/** What the X-ray is rooted on (store.xrayRoot). */
+/** What the X-ray is rooted on (store.xrayRoot). `elements` (2026-09-15) is
+ *  a MULTI-PLOT root: several plots x-rayed together, each expanding under a
+ *  synthetic "N plots" row, plus the COMMON part rows they share (below). */
 export type XrayTarget =
   | { kind: "element"; figId: Id; elementId: Id }
+  | { kind: "elements"; figId: Id; elementIds: Id[] }
   | { kind: "group"; figId: Id; groupId: Id };
 
 /** One row of the unified X-ray tree. */
 export interface XRow {
-  /** Stable unique row key: "el:<id>" | "grp:<id>" | "part:<elId>__<partId>". */
+  /** Stable unique row key: "el:<id>" | "grp:<id>" | "part:<elId>__<partId>" |
+   *  "set:<figId>" (multi-plot root) | "common:<partId>" (a part shared by
+   *  every plot of a multi-plot root). */
   id: string;
-  kind: "element" | "part" | "group";
+  kind: "element" | "part" | "group" | "set" | "common";
   label: string;
   /** part role, element type ("figure" for plots — the row IS the part root), or "group". */
   role: string;
   /** element rows + part rows (the part's owning plot). */
   elementId?: Id;
-  /** part rows only — the override key. */
+  /** part rows only — the override key. `common` rows carry it too, with the
+   *  plots it applies to in `elementIds`. */
   partId?: string;
+  /** `common` rows: every plot of the multi-plot root that has this part. */
+  elementIds?: Id[];
+  /** `common` rows: how many of those plots currently hide the part
+   *  (0 = shown everywhere, elementIds.length = hidden everywhere). */
+  hiddenCount?: number;
   /** group rows only. */
   groupId?: Id;
   /** The row's OWN hidden state (element flag / GroupDef eye / override.hidden). */
@@ -94,6 +105,10 @@ export function targetLabel(
   const fig = figOf(p, target.figId);
   if (!fig) return "—";
   if (target.kind === "group") return groupDefs(fig)[target.groupId]?.name ?? "group";
+  if (target.kind === "elements") {
+    const n = target.elementIds.filter((id) => fig.elements.some((e) => e.id === id)).length;
+    return `${n} plots`;
+  }
   const el = fig.elements.find((e) => e.id === target.elementId);
   return el ? elementLabel(fig, el, manifests) : "—";
 }
@@ -187,6 +202,64 @@ function groupRow(
   };
 }
 
+// --- multi-plot roots: the plots side by side + the parts they share -------
+/** Part ids present in EVERY given plot's manifest tree (id AND role must
+ *  agree — ids are deterministic per generator, so equal-recipe plots share
+ *  them exactly; a coincidental id with a different role is not "common").
+ *  Order follows the first plot's tree (depth-first), and containers are kept
+ *  so hiding "X axis" everywhere is one row. */
+export function commonPartIds(
+  plots: SemanticPlotElement[],
+  manifests: Record<string, FluxPlotManifest>,
+): { id: string; label: string; role: string; isGroup: boolean }[] {
+  if (plots.length < 2) return [];
+  const trees = plots.map((pl) => buildPartTree(manifests[pl.assetId]));
+  if (trees.some((t) => !t)) return [];
+  const index = (root: XrayNode) => {
+    const m = new Map<string, XrayNode>();
+    const walk = (n: XrayNode) => {
+      for (const c of n.children) {
+        m.set(c.id, c);
+        walk(c);
+      }
+    };
+    walk(root);
+    return m;
+  };
+  const maps = trees.map((t) => index(t!));
+  const out: { id: string; label: string; role: string; isGroup: boolean }[] = [];
+  for (const [id, n] of maps[0]) {
+    if (maps.every((m) => m.get(id)?.role === n.role)) out.push({ id, label: n.label, role: n.role, isGroup: n.isGroup });
+  }
+  return out;
+}
+
+/** The `common:` rows for a multi-plot root: one row per shared part, flat
+ *  (containers first-come, as the first plot's tree orders them), each carrying
+ *  the plots it applies to and how many of them hide it. */
+export function commonPartRows(
+  plots: SemanticPlotElement[],
+  manifests: Record<string, FluxPlotManifest>,
+): XRow[] {
+  return commonPartIds(plots, manifests).map((c) => {
+    const ids = plots.map((pl) => pl.id);
+    const hiddenCount = plots.filter((pl) => Boolean(pl.overrides?.[c.id]?.hidden)).length;
+    return {
+      id: "common:" + c.id,
+      kind: "common",
+      label: c.label,
+      role: c.role,
+      partId: c.id,
+      elementIds: ids,
+      hidden: hiddenCount === ids.length,
+      hiddenCount,
+      isGroup: false,
+      count: ids.length,
+      children: [],
+    };
+  });
+}
+
 /** Build the unified X-ray tree for a target, or null when the target no
  *  longer resolves (deleted element / dissolved group / gone figure). */
 export function buildXrayTree(
@@ -200,6 +273,24 @@ export function buildXrayTree(
   if (target.kind === "element") {
     const el = fig.elements.find((e) => e.id === target.elementId);
     return el ? elementRow(fig, el, manifests) : null;
+  }
+  if (target.kind === "elements") {
+    const els = target.elementIds
+      .map((id) => fig.elements.find((e) => e.id === id))
+      .filter((e): e is Element => !!e);
+    if (!els.length) return null;
+    if (els.length === 1) return elementRow(fig, els[0], manifests);
+    // Top-z first, like every other multi-row listing.
+    const ordered = [...els].sort((a, b) => fig.elements.indexOf(b) - fig.elements.indexOf(a));
+    return {
+      id: "set:" + fig.id,
+      kind: "set",
+      label: `${els.length} plots`,
+      role: "set",
+      isGroup: true,
+      count: els.length,
+      children: ordered.map((e) => elementRow(fig, e, manifests)),
+    };
   }
   if (!groupDefs(fig)[target.groupId]) return null;
   const node = findGroupNode(buildRenderTree(fig), target.groupId);

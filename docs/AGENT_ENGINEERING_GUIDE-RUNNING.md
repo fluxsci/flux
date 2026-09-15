@@ -757,7 +757,7 @@ Persistence invariants (all machine-checked — do not weaken):
   (proxy-capture, print) never do, and the last app window's close quits on non-mac — *a
   window the user cannot see must never keep the app alive* (the quit-wedge fix). Gates:
   `verify-quit-policy.ts` (pure), `verify-multiwindow.cjs` (electron).
-- **The Plot gallery (Alt+I) is an editor-owned utility view.** Gallery/list, preview size
+- **The Plot gallery (Alt+G) is an editor-owned utility view.** Gallery/list, preview size
   (120–800 px), spacing, names and the collapsible folder sidebar live in view preferences.
   `GalleryTree` reads only expanded directories, windows its rows and includes explicit
   companion collection entries. The mounted Svelte subtree moves into an inert
@@ -770,6 +770,51 @@ Persistence invariants (all machine-checked — do not weaken):
   when the gallery closes. Recreate list size observers in the destination window on pin
   and dock: an observer created in a hidden opener stops delivering resizes, leaving the
   pinned gallery's columns and virtual row count stale until the opener regains focus.
+- **The 2026-09-15 editing surface (Figure + Slide): one style, one property model, one wheel.**
+  Chrome follows the surface contract pinned by `verify-xray-theme.mjs` / `verify-fmenu-surface.mjs`:
+  sans chrome (`--font-ui`), mono values and eyebrows, `--r-ui` 2px / `--r-panel` 3px radii,
+  hairline dividers, accent-tint selection with an inset rail (never solid accent fills), no
+  blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
+  motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
+  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G plot gallery, Alt+T arrange,
+  Alt+C caption; the align chords are `e.code` too. Settings is a tabbed dialog (General /
+  Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
+  `flux.ui.settingsTab`).
+  - **Property menu (F) = `FluxFigMenu.svelte` + `interact/propertyMenu.ts`.** One `Field` model
+    (`buildMenuFields`: element fields + part fields with `mixed`/`count`) feeds the menu AND
+    the Inspector's part section, so a property exists once. The menu is a hotkey surface: a
+    letter ARMS a row (`.field.editing`), the wheel / ArrowUp / ArrowDown step it, Space or
+    Enter apply, Escape reverts through `editSession.cancel` (one undo entry per armed edit);
+    selects expand inline (`.opts .opt`; wheel, w·a·s·d, 1–9), `c` opens `ColorPicker.svelte`
+    (palette rows + recent, hover previews through the session, click commits), `s` searches.
+    Columns (1/2/3 by field count) replace vertical scroll.
+  - **Anchoring law = `ui/anchor.ts` (pure, `verify-surface-anchor.ts`).** Every popover that
+    opens "at the selection" (menu, X-ray) avoids the selection's union rect: right → left →
+    below → above → pointer → centre, aligned to the pointer on the free axis, re-clamped on
+    resize. Never place by saved settings again — the `fluxFigMenu*` / `xrayPos` keys are
+    retired and `settings.migrate()` deletes them.
+  - **Wheel law = `interact/wheelLaw.ts` (pure, `verify-wheel-law.ts`).** Shared by the menu,
+    `NumberField` and the colour picker: lines/pages are notches; pixel deltas ≥ 40 are discrete
+    notches (`round(|dy|/100)` steps, a flick under 45 ms doubles); smaller deltas are a slow
+    macOS mouse notch (first event after ≥ 30 ms of rest = one step) or a trackpad /
+    smooth-scroll stream (40 px per step). Wheel up = increase; Shift ×10, Alt ×0.1 per gesture.
+    Chromium on macOS reports 4–30 px for a slow mouse notch, so a fixed 100 px notch never
+    moves there — read the device from the event stream, never assume Windows deltas.
+  - **Plural part selection.** `partSelections` (store.ts) is the pick, `partSelection` stays
+    the primary; `setPartSelections(list)` publishes, `partSelection.set(p)` collapses to [p],
+    and a `selection` change prunes parts whose element left the selection (a gallery insert
+    or a Layers click must not leave the Inspector editing the old plot). Every part editor —
+    `applyPartStyle`, hide (`x`), nudge, B/I/U, the menu, the Inspector, Animate — fans out
+    over the list in ONE commit.
+  - **X-ray (`Xray.svelte` + `xray/buildXrayTree.ts`).** Rows multi-select (click, Ctrl/⌘,
+    Shift-range, Ctrl+A, Shift+↑/↓); double-click or Ctrl+Enter re-roots; `x` hides the whole
+    pick (any shown → hide all); `r`, Escape or the Alt+R chord close. Several selected plots
+    open ONE x-ray rooted at `{kind:"elements"}`: `commonPartRows` lists parts whose id AND
+    role agree across every plot (`common:<partId>` rows fan out to all of them), then each
+    plot's tree. Slide registers `xrayAnimate` (`xray/animateHook.ts`) so **Animate selected**
+    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change) routes every picked row through the
+    shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
+    Disappear buttons use; Figure leaves the hook null and the button disabled.
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
@@ -1386,6 +1431,29 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   one survived MSAA off and GPU raster off, and vanished when the plots were removed). Gates:
   `verify-plot-style-scope.ts` (pure) + `verify-vanilla-inline.mjs` §2b (computed style).
 
+- **Computer-use `Escape` never reaches the Electron renderer** (2026-09-15, macOS): a
+  window-capture logger sees Alt / KeyR / KeyX / KeyF from the tool but nothing for Escape,
+  while a synthetic `KeyboardEvent("keydown", {key:"Escape"})` from DevTools closes the X-ray
+  as designed. Drive close paths with `r` / `f` / × in the desktop app and let the Playwright
+  gates own Escape; there is nothing to fix in the app.
+- **`getScreenCTM()` is float32 noise in a gate.** Projecting a model point through it yields
+  389.0000089-style pixels; the editor's pointer → model path rounds through the same CTM, so
+  whether +20 comes back as 20 or 19.99998 depends on the point's float32 spacing (a 4 px
+  toolbar change flipped `verify-plot-hit-area.mjs`). Round probe pixels before clicking and
+  keep the exact model assertions.
+- **Duplicate `aria-label`s across stacked surfaces.** `[aria-label="Zoom in"]` matches the
+  Slide toolbar's zoom button (first in DOM order) and the expanded gallery preview's; the old
+  preview header happened to overlap the toolbar button, so the unscoped click worked by
+  accident. Scope gate selectors to the surface under test.
+- **Svelte 5 delegation hides keydown owners, and window listeners run in mount order.**
+  `onkeydown` on elements is delegated to one root listener, so `getEventListeners(el)` shows
+  nothing on the element; `<svelte:window on:keydown>` handlers fire in mount order
+  (FluxFigMenu before Xray in FigureMode), so a handler that `stopImmediatePropagation()`s
+  must guard on its own open state (`$fluxFigMenuOpen`).
+- **Editing sources while the ui tier runs** produces `PAGEERR <Identifier> is not defined`
+  in whichever gate is mid-flight (a half-swapped module). Freeze sources, then rerun the
+  failed gate alone before believing it.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **Figure polish (2026-09-06):** implemented preservation, selection/history, shared properties,
@@ -1440,6 +1508,18 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   AGGREGATE budget, not a per-plot guard.
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
+
+- **Gates that fail on `main` today (2026-09-15; evidence: a detached worktree of `b242c41`
+  served on :1421 fails identically):** `verify-paper-export.mjs` (its regex expects
+  `materializeRenders(root, m.manuscript.path)` while `flux-core/manuscript.ts` passes
+  `document`), `verify-context-gui.mjs` ("picker shows the Context group" — the demo fixture's
+  `.docpicker` renders no Context head) and `verify-lib-actions.mjs` (Ctrl+click "detail strip
+  open" times out). None is touched by the surface redesign; fix each at its source in its own
+  session, never by loosening the gate.
+- **The demo fixture cannot hand a re-imported asset from Figure to Slide:** the tenancy handoff
+  refuses to evict a figure whose autosave failed, and the in-memory bridge cannot persist
+  `reimportPlot` assets, so a gate that needs both legs boots a fresh page for the slide leg
+  (`verify-xray-multi-gui.mjs`) instead of switching modes.
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
@@ -4938,3 +5018,45 @@ noisy measurement is first a suspect fixture; (b) a gate that counts scheduled f
 not a frame callback, because of it; (c) headless software compositing is fine for
 "does the raster move sub-pixel" but not for "how soft is a scaled layer" — the design
 avoids the question (never scale a promoted layer) rather than depending on a cc heuristic.
+
+## Session entry — 2026-09-15 17:10 — the editing surface: F-menu, X-ray, wheel, Zed-style chrome
+
+**Work:** Owner ask: rework the Figure/Slide UI into one technical, calm, Zed-like surface
+(square corners, hairline dividers, no "bunch of buttons"), put every major property in the
+right rail, rebuild the F-menu as the principal editing surface (left hand on the keys, right
+hand on the wheel, a palette picker, the menu beside the selection, columns instead of
+scroll), move the chords to the left hand (Alt+R X-ray, Alt+G gallery, Alt+T arrange) and give
+the X-ray multi-select, multi-plot common parts and Animate selected. Built: `tokens.css`
+(`--font-ui`, `--r-0` / `--r-ui` / `--r-panel`), the surface restyle of Toolbar / Sidebar /
+Inspector / Settings (tabs) / Gallery / Animator (timeline major + minor guide lines, snap
+guides, square clips), `ui/anchor.ts`, `interact/propertyMenu.ts` + a rewritten `FluxFigMenu`,
+`ColorPicker.svelte`, `interact/wheelLaw.ts` (shared by the menu, `NumberField` and the
+picker), plural `partSelections` with selection-change pruning, `xray/buildXrayTree.ts`
+elements roots + `commonPartRows`, a rewritten `Xray.svelte`, `slide/animateSelection.ts` +
+`xray/animateHook.ts`, chords on `e.code`. Retired the `fluxFigMenu*` / `xrayPos` settings
+(migrated away), `ColorSearch.svelte` and `motion/selfDraw.ts`. Docs: figure / slide /
+shortcuts / getting-started / dissections / lighttable pages, the gallery testing notes, the
+CLI help golden (Alt+G).
+
+**Verified:** check 0/0 (819 files); new pure gates `verify-surface-anchor`, `verify-xray-multi`,
+`verify-animate-selection`, `verify-wheel-law` PASS; new ui gates `verify-fmenu-surface` and
+`verify-xray-multi-gui` ALL PASS; the rewritten `verify-xray-theme` (flat contract) ALL PASS;
+`figenh-18-xray`, `figenh-14-partui`, figure-editing / figure-controls, menu, slide editor /
+animator, cascade-tracks, importer-reserved, gallery-workflow (41), plot-hit-area, registry
+parity and docs 158/158 PASS; the ui tier ran 88/95 and the seven failures were triaged:
+importer-reserved and figure-export-polish were my own mid-run edits (green alone),
+plot-hit-area and gallery-workflow were gate artefacts fixed with evidence (§9), and
+paper-export / context-gui / lib-actions fail on `main` (§10). The Electron desktop app was
+driven through computer-use: the figure surface, F-menu anchoring + wheel (two notches →
+0.95) + palette pick, X-ray single / multi / common-parts hide across two plots, a gallery
+insert, the Settings tabs, the slide timeline and X-ray Animate → two tracks. The tool cannot
+deliver Escape to the renderer (§9), so close paths were exercised with `r` / `f`.
+
+**Learnings:** promoted to §4 (surface contract, property menu, anchoring, wheel, plural parts,
+X-ray, Settings), §9 (tool Escape, float32 CTM, duplicate aria-labels, delegated keydown and
+mount-order window handlers, mid-run edits) and §10 (main's failing gates, the demo-fixture
+handoff). The wheel was the real trap: a 100 px notch is right for Windows Chromium and dead on
+a slow macOS mouse (4 px per notch); the law has to read the device from the event stream, and
+the pure gate now pins every dialect. Meta-lesson: a "failing gate" after a chrome restyle is
+as likely to be the gate's own geometry assumption (float32 CTM, a selector that only worked
+because two surfaces overlapped) as a regression — measure on `main` before touching either.

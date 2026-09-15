@@ -1,5 +1,5 @@
 <script lang="ts">
-  // On-canvas heads-up display for the keyboard "Arrange mode" (Alt+G). Shows
+  // On-canvas heads-up display for the keyboard "Arrange mode" (Alt+T). Shows
   // the current grid shape and the home-row keys while the mode is active.
   // Driven entirely by the `arrange` store; pointer-transparent so a click on
   // the canvas underneath still commits the arrangement.

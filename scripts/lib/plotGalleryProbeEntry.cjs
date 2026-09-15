@@ -19,7 +19,7 @@ async function main(){
  check(app.getPath('userData').startsWith(scratch+path.sep),'isolated native config');
  check(win.webContents.getURL().startsWith('file:')&&await js(win,'!window.__flux'),'production file renderer');
  await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.figure-mode .canvas-host')"),'Figure');
- await click(win,'.figrow[data-fig-id="native-5"] .item');await wait(()=>js(win,"!!document.querySelector('[data-editor-element-id=\"e5-0\"]')"),'small figure visible');key(win,'i',['alt']);await wait(()=>js(win,"!!document.querySelector('.importer')"),'gallery');
+ await click(win,'.figrow[data-fig-id="native-5"] .item');await wait(()=>js(win,"!!document.querySelector('[data-editor-element-id=\"e5-0\"]')"),'small figure visible');key(win,'g',['alt']);await wait(()=>js(win,"!!document.querySelector('.importer')"),'gallery');
  await click(win,'.row[title=study]');await wait(()=>js(win,"!!document.querySelector('.preview img')?.naturalWidth"),'SVG thumbnail');
  await click(win,'.list .row[data-kind="file"][data-path$="/growth.svg"]');await pin();
  check(child.isResizable(),'native child is resizable');
@@ -57,7 +57,7 @@ async function main(){
  // Navigation has no route to turn this utility into an external/privileged page.
  await js(child,"location.href='https://example.com';void 0");await new Promise(r=>setTimeout(r,100));
  check(child.webContents.getURL().endsWith('/plot-gallery.html'),'utility navigation denied');
- child.close();await wait(()=>child.isDestroyed(),'native close');win.focus();key(win,'i',['alt']);await wait(()=>js(win,"!!document.querySelector('.importer')"),'reopen after native close');
+ child.close();await wait(()=>child.isDestroyed(),'native close');win.focus();key(win,'g',['alt']);await wait(()=>js(win,"!!document.querySelector('.importer')"),'reopen after native close');
  await pin();win.destroy();await wait(()=>child.isDestroyed(),'owner closes child');check(true,'closing project owner closes utility');
  fs.writeFileSync(path.resolve(__dirname,'../../test-results/plot-gallery-native.json'),JSON.stringify(checks,null,2));
 }

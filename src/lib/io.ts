@@ -322,7 +322,7 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
   return incoming.length;
 }
 
-// Import a single plot/asset by absolute path (the Plot Importer, Alt+I) — the
+// Import a single plot/asset by absolute path (the Plot gallery, Alt+G) — the
 // one-file case of the batch importer above.
 export async function importPlotFromPath(absPath: string) {
   return importPlotsFromPaths([absPath]);

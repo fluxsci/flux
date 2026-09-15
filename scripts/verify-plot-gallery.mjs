@@ -6,7 +6,7 @@ import { launch, gotoApp, clickMode, APP_URL, realErrors } from './lib/driver.mj
 const { browser, page } = await launch();
 const metrics = {};
 const frame = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
-const open = async () => { await page.keyboard.down('Alt'); await page.keyboard.press('KeyI'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer'); };
+const open = async () => { await page.keyboard.down('Alt'); await page.keyboard.press('KeyG'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer'); };
 const query = async (p, value) => { await p.$eval('.search-in', (n, value) => { n.value = value; n.dispatchEvent(new Event('input', { bubbles:true })); }, value); await frame(p); };
 const pick = async (p, name) => { const button = await p.evaluateHandle(name => [...document.querySelectorAll('.importer .list .row')].find(n => n.querySelector('.nm')?.textContent === name), name); await button.click(); await frame(p); };
 const repickBatch = async p => { await query(p,'result-00'); await pick(p,'result-00'); await query(p,'control'); await pick(p,'control'); await query(p,''); };
@@ -96,7 +96,7 @@ try {
   assert.equal(await page.$eval('.pickpill',n=>n.textContent),'2 selected','dock preserves picks');
   await page.click('.closebtn');
   // A fresh open retains display preferences, and closing the native window
-  // clears modal ownership so the next Alt+I works normally.
+  // clears modal ownership so the next Alt+G works normally.
   await open();assert.equal(await page.$eval('[aria-label="Preview size"]',n=>n.value),'320');
   const secondEvent=new Promise(resolve=>page.once('popup',resolve));await page.click('.pinbtn');const second=await secondEvent;
   await second.waitForSelector('.importer');await second.close();await page.waitForFunction(()=>!document.querySelector('.importer'));

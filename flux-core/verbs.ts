@@ -1244,7 +1244,7 @@ export const VERBS: VerbDef[] = [
     cli: "import-plots",
     cliRoot: "flags",
     summary:
-      "Batch-import multiple SVG plots onto an EXISTING figure (the headless mirror of the GUI's Alt+I multi-insert): each plot resolves its FluxPlot sidecars (semantic when a .fluxplot.json sits next to it), lands at TRUE physical size, and the batch grid-packs into the figure's largest empty region (a single plot centers). Use compose_figure to build a NEW figure instead.",
+      "Batch-import multiple SVG plots onto an EXISTING figure (the headless mirror of the GUI's Alt+G multi-insert): each plot resolves its FluxPlot sidecars (semantic when a .fluxplot.json sits next to it), lands at TRUE physical size, and the batch grid-packs into the figure's largest empty region (a single plot centers). Use compose_figure to build a NEW figure instead.",
     params: {
       id: z.string(),
       plotPaths: z.array(z.string()),
