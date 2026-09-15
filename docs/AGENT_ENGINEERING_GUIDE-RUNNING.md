@@ -890,6 +890,9 @@ that isn't in the manifest doesn't exist.** Tiers:
   there is no tolerated-404 filter anymore. Freeze source and generated-runtime changes
   during acceptance: a Vite reload can replace an in-memory fixture document mid-test and
   mimic unrelated editor regressions.
+  Before a view-only before/after snapshot that includes dirty state, await autosave for
+  preceding edits. Otherwise a legitimate true → false dirty transition can falsely blame
+  the preview or navigation being tested; retain the full state-preservation assertion.
 - **scale** — the perf budgets (figure/paper/library/reader/fulltext). These are the standing
   60fps/scale contracts from the polish mandate.
 - **presence** — the source-shape/static scripts (main-process/build config that headless
@@ -4742,6 +4745,16 @@ bundled CLI and startup pass. The normal live-preview 17 ms gate reads 17.5 ms h
   cancellation into the slide architecture section. Export timing must be sampled, not
   inferred from capture wall-clock speed; decode the resulting MP4 to verify it.
 
+### 2026-09-13 23:03 CDT — Test-project data morph showcase (Codex, `main`)
+
+**Work:** Added a separate two-slide native deck to the owner's test project, with six
+new reproducible Fluxplot states, stable curve/point identities, accepted deck-local
+assets and relative source links. Used the shared authoring/persistence/export APIs;
+all six plots validate and offline browser checks verify actual data interpolation,
+opaque intermediate frames, chained/reverse seeking and clean playback. No application
+implementation changed.
+
+
 ### 2026-09-13 23:30 CDT — Slide video clips (Codex, `main`)
 
 **Work:** Added MP4/MOV gallery import from `plots/_videos`, ordinary geometry editing,
@@ -4779,3 +4792,15 @@ Show hidden editing fixes. Preserved the complete later experiment on
 from that branch, with no deck downgrade. Production build, typecheck (0/0), all 216 pure
 checks and 60 native gallery/hidden-content checks passed on isolated Linux fixtures.
 The source split was checked against saved patches and file hashes before changing main.
+
+### 2026-09-14 18:43 CDT — Main sync and Slides readiness review (Codex, `main`)
+
+**Work:** Fast-forwarded `c332805` to `244e6d1`, preserving local website documentation.
+Reviewed slide editing/playback, inline embeds, video export and the new gallery/hidden-content
+paths. Check 0/0, production build, 216 pure scripts, 16 Slide UI scripts, all nine gallery
+scripts across the initial run and corrected workflow rerun, native media/frame/audio export,
+startup and bundled CLI pass; screenshots inspected. Fixed one gallery test race by awaiting
+the prior insertion's autosave before its preview snapshot; no product code changed.
+
+**Learnings:** Promoted the autosave/snapshot rule into §7. Evidence and verification limits
+are recorded in `test-results/slides-sync-review/review.md`.

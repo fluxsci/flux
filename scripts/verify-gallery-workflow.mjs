@@ -157,6 +157,9 @@ try {
   await waitFor(page, count => window.__flux.slide.composedSlide(window.__flux.get(window.__flux.fig.activeFigureId)).elements.length === count + 2, beforeInsert.count);
   await waitFor(gallery, () => !document.querySelector('.pickpill'));
   check(!!(await gallery.$('.importer')) && await picks(gallery) === '0 selected', 'successful pinned insertion keeps the gallery open and clears its batch selection');
+  // The inserted batch legitimately clears dirty when autosave completes.
+  // Settle that write before testing that subsequent previews leave state alone.
+  await waitFor(page, () => !window.__flux.get(window.__flux.fig.dirty), null, { label: 'inserted batch autosaved before preview' });
   // Preview ownership follows the moved subtree into its utility window.
   await query(gallery, 'rate_NREM_subject01'); await clickTile(gallery, 'rate_NREM_subject01', true); await waitPreview(gallery);
   check(await picks(gallery) === '0 selected', 'Ctrl/Cmd-preview also works in a pinned gallery without selecting an item');
