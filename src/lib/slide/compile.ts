@@ -5,7 +5,7 @@ import type { FluxPlotManifest } from "../plot/types";
 import { resolveTargets } from "../plot/tree";
 import { buildPartIndex } from "../plot/parse";
 import type { Slide, StageSize, Track, Camera } from "./types";
-import { applyState, lerpElement, transformPreState } from "./tween";
+import { lerpElement, transformEndState, transformPreState } from "./tween";
 import { resolveEasingFn } from "./easing";
 import { countUpText } from "./player/countup";
 import { morphCompatible } from "./player/morph";
@@ -43,10 +43,10 @@ export interface CompiledSlide {
 }
 const enters = new Set(["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn"]);
 const exits = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"]);
-const known = new Set([...enters, ...exits, "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "morph", "transform", "videoStart", "videoPause", "videoStop"]);
+const known = new Set([...enters, ...exits, "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "transform", "videoStart", "videoPause", "videoStop"]);
 export function trackDuration(track: Track): number {
   if (familyOf(track) === "media") return 0;
-  return Math.max(0, track.duration ?? (track.preset === "transform" ? 600 : track.preset === "morph" ? 1200 : track.preset === "countUp" ? 800 : 320));
+  return Math.max(0, track.duration ?? (track.preset === "transform" ? 600 : track.preset === "countUp" ? 800 : 320));
 }
 export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions, beatIndex = slide.beats.findIndex((b) => b.tracks.some((t) => t === track || !!track.id && t.id === track.id))): string[] {
   const el = transformPreState(slide, track.target, Math.max(0, beatIndex));
@@ -74,11 +74,11 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       else if (familyOf(track) === "media" && slide.elements.find(e => e.id === track.target)?.type !== "video") reason = "Video commands require a video clip target.";
       else if (familyOf(track) === "media" && (track.part || track.selector || track.stagger)) reason = "Video commands apply to the whole clip.";
       if (reason) { issues.push({ trackId: track.id, target: track.target, reason }); continue; }
-      if ((track.preset === "transform" || track.preset === "morph") && track.to?.assetId && opts.plotManifest) {
+      if (track.preset === "transform" && track.to?.assetId && opts.plotManifest) {
         const pre = transformPreState(slide, track.target, bi);
         if (pre?.type === "plot") {
           const a = opts.plotManifest(pre.assetId), b = opts.plotManifest(track.to.assetId);
-          if (a && b && !morphCompatible(a, b)) issues.push({ trackId: track.id, target: track.target, reason: "Plot structures differ; this Change crossfades the complete source and destination." });
+          if (a && b && !morphCompatible(a, b)) issues.push({ trackId: track.id, target: track.target, reason: "Plot structures differ; this transform crossfades the complete source and destination." });
         }
       }
       const parts = semanticTargets(track, slide, opts, bi);
@@ -88,7 +88,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const by = track.stagger?.by;
       const coordinates = by === "x" || by === "y" ? new Map((manifest?.series ?? []).flatMap((s) => (s.points ?? []).map((p) => [p.svgId, p[by]] as const))) : undefined;
       const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates ? parts.map((id) => coordinates.get(id) ?? null) : undefined);
-      tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, ease: resolveEasingFn(track.easing ?? (track.preset === "transform" || track.preset === "morph" ? "smooth" : undefined), track.influence) });
+      tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, ease: resolveEasingFn(track.easing ?? (track.preset === "transform" ? "smooth" : undefined), track.influence) });
     }
     // Same target/property concurrent effects are visible diagnostics, never a
     // silent replacement. Different channels (e.g. Change + Fade) compose.
@@ -119,7 +119,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         continue;
       }
       if (familyOf(ct.track) === "media") continue;
-      if (ct.track.preset === "transform" || ct.track.preset === "morph" || ct.track.preset === "camera") continue;
+      if (ct.track.preset === "transform" || ct.track.preset === "camera") continue;
       for (const key of targetsFor(ct)) if (!first.has(key)) { first.add(key); appearance.set(key, { opacity: enters.has(ct.track.preset ?? "fade") ? 0 : 1, visible: !enters.has(ct.track.preset ?? "fade") }); }
     }
     for (let bi = 0; bi <= Math.min(beatIndex, cues.length - 1); bi++) for (const ct of cues[bi].tracks) {
@@ -130,10 +130,9 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const raw = ct.duration > 0 ? clamp((local - ct.start) / ct.duration) : 1;
       const t = ct.ease(raw);
       const el = byId.get(track.target);
-      if ((preset === "transform" || preset === "morph") && el) {
+      if (preset === "transform" && el) {
         const pre = transformPreState(slide, track.target, bi) ?? el;
-        const end = applyState(pre, track.to?.state);
-        if (end.type === "plot" && track.to?.assetId) end.assetId = track.to.assetId;
+        const end = transformEndState(pre, track);
         const sampled = lerpElement(pre, end, t);
         for (const key of Object.keys(el)) if (!(key in sampled)) delete (el as unknown as Record<string, unknown>)[key];
         Object.assign(el, sampled);

@@ -121,11 +121,13 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
   assert(closed.length === 8 && near(closed[0].x, 0) && near(closed[0].y, 0), "closed resample keeps the seam at node 0");
   assert(near(closed[1].x, 50) && near(closed[1].y, 0), "…and walks the perimeter (400/8=50 per station)");
 
-  // topology change → crossfade plan + step
+  // topology change → the outline morph (Become): one path whose ends travel,
+  // never a crossfade or a step (superseded 2026-09-15 — see verify-slide-outline)
   const open = pathEl(nodes([[0, 0], [100, 0], [100, 100]]), false);
   const shut = pathEl(nodes([[0, 0], [100, 0], [100, 100]]), true);
-  assert(contentPlan(open, shut).mode === "crossfade", "closed≠open topology crossfades");
-  assert((lerpElement(open, shut, 0.6) as PathElement).closed === true, "…and the model steps at t=.5");
+  assert(contentPlan(open, shut).mode === "morph", "closed≠open topology morphs through the outline");
+  const topo = lerpElement(open, shut, 0.6) as PathElement;
+  assert(topo.type === "path" && topo.nodes!.length > 3 && topo.nodes!.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)), "…and the model samples a finite intermediate path");
 
   // cornerRadius lerps and the frame's d embeds the interpolated fillets;
   // cap (a string) steps at t=.5 like other discrete props.
@@ -203,7 +205,7 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 
-const { computeSlideAnims, applyStatic, transformPreState } = await import("../src/lib/slide/player/player");
+const { computeSlideAnims, applyStatic, disposeSlideAnims, transformPreState } = await import("../src/lib/slide/player/player");
 const { renderSlide } = await import("../src/lib/slide/player/render");
 const { FLUX_DARK } = await import("../src/lib/slide/theme");
 type Slide = import("../src/lib/slide/types").Slide;
@@ -310,6 +312,89 @@ function build(slide: Slide) {
   assert(lb.textContent?.includes("after"), "the B layer renders the end content");
   ctrl.morph.seek(1);
   assert(wrap.style.left === "100px" && !/translate/.test(wrap.style.transform), "…and the endpoint restores the classic layout box (no composite residue)");
+}
+
+// The placement law (render.ts): a wrapper's LAYOUT box is whole stage pixels
+// and the exact box is realized by a residual composite transform — at rest
+// as well as mid-flight — so a fractional endpoint never snaps on settle. A
+// whole-pixel rest keeps the classic (transform-free, centre-origin) form.
+{
+  const slide: Slide = {
+    id: "s6",
+    elements: [rect({ id: "r1", x: 10.4, y: 20, width: 100, height: 50 })],
+    beats: [
+      { id: "b0", tracks: [] },
+      { id: "b1", tracks: [{ id: "tr", target: "r1", preset: "transform", easing: "linear", to: { state: { x: 300.25, y: 60.5, width: 120.5 } } }] },
+      { id: "b2", tracks: [{ id: "tr2", target: "r1", preset: "transform", to: { state: { x: 400, y: 60, width: 120 } } }] },
+    ],
+  };
+  const { rendered, specs } = build(slide);
+  const wrap = rendered.elements.get("r1")!;
+  applyStatic(specs, 0);
+  assert(wrap.style.left === "10px" && wrap.style.transform === "translate(0.4px, 0px)" && wrap.style.transformOrigin === "0 0",
+    "a fractional REST position is a whole-pixel layout box plus a residual translate (never a fractional left)");
+  applyStatic(specs, 1);
+  assert(wrap.style.left === "300px" && wrap.style.top === "61px" && wrap.style.width === "121px",
+    "a fractional endpoint rests on the ROUNDED layout box");
+  assert(wrap.style.transform === "translate(0.25px, -0.5px) scale(0.995868, 1)",
+    "…with the residual translate + scale realizing the exact box (the same composite form mid-flight frames use; micro-pixel precision)");
+  const ctrl = specs.find((s) => (s as { trackId?: string }).trackId === "tr") as unknown as { morph: { seek(t: number): void } };
+  ctrl.morph.seek(0.999);
+  assert(wrap.style.left === "10px" && wrap.style.top === "20px" && wrap.style.width === "100px",
+    "mid-flight the layout box is FROZEN at the rounded pre box");
+  const tx = /translate\(([-0-9.]+)px, ([-0-9.]+)px\)/.exec(wrap.style.transform)!;
+  assert(near(parseFloat(tx[1]), 0.4 + 0.999 * (300.25 - 10.4), 0.001) && near(parseFloat(tx[2]), 0.999 * 40.5, 0.001),
+    "…and the composite translate carries the exact fraction, continuous into the endpoint");
+  applyStatic(specs, 2);
+  assert(wrap.style.left === "400px" && wrap.style.top === "60px" && wrap.style.width === "120px" && wrap.style.transform === "" && wrap.style.transformOrigin === "center center",
+    "a whole-pixel rest keeps the classic form (no transform, centre origin)");
+}
+
+// Layer hygiene (render.ts): a PURE MOVE rides its own compositor layer for
+// the flight (will-change: transform — text glides instead of stepping a
+// device pixel at a time; heavy content moves without repainting) and is
+// demoted at either endpoint. A flight that scales (or rotates) never is.
+{
+  const slide: Slide = {
+    id: "s7",
+    elements: [rect({ id: "mv" }), rect({ id: "grow", x: 300 }), rect({ id: "spin", x: 500 })],
+    beats: [
+      { id: "b0", tracks: [] },
+      { id: "b1", tracks: [
+        { id: "a", target: "mv", preset: "transform", to: { state: { x: 200, y: 80, fill: "#00ff00" } } },
+        { id: "b", target: "grow", preset: "transform", to: { state: { x: 350, width: 150 } } },
+        { id: "c", target: "spin", preset: "transform", to: { state: { rotation: 45 } } },
+      ] },
+    ],
+  };
+  const { rendered, specs } = build(slide);
+  const mv = rendered.elements.get("mv")!, grow = rendered.elements.get("grow")!, spin = rendered.elements.get("spin")!;
+  // linkedom has no Web Animations: stub `animate` to observe the flight MARK —
+  // the paused, additive, no-op transform animation that tells the compositor
+  // the transform is animating (without it a promoted node that also repaints
+  // per frame bakes its fractional offset into every raster and steps again)
+  const marks: { node: HTMLElement; frames: Keyframe[]; opts: KeyframeAnimationOptions; paused: boolean; cancelled: boolean }[] = [];
+  (Object.getPrototypeOf(mv) as { animate?: unknown }).animate = function (this: HTMLElement, frames: Keyframe[], opts: KeyframeAnimationOptions) {
+    const m = { node: this, frames, opts, paused: false, cancelled: false };
+    marks.push(m);
+    return { pause: () => { m.paused = true; }, cancel: () => { m.cancelled = true; }, finished: Promise.resolve() };
+  };
+  const ctrl = (id: string) => (specs.find((s) => (s as { trackId?: string }).trackId === id) as unknown as { morph: { seek(t: number): void } }).morph;
+  applyStatic(specs, 0);
+  assert(!mv.style.willChange && !grow.style.willChange, "at rest nothing is promoted");
+  assert(marks.length === 1 && marks[0].node === mv && marks[0].paused && marks[0].opts.composite === "add" && marks[0].frames.every((f) => f.transform === "translate(0px, 0px)"),
+    "…but the pure mover is ARMED at rest: one paused additive no-op transform animation (a scaling/rotating flight gets none)");
+  ctrl("a").seek(0.5); ctrl("b").seek(0.5); ctrl("c").seek(0.5);
+  assert(mv.style.willChange === "transform", "mid-flight a pure move (even one that recolors) rides its own layer");
+  assert(!grow.style.willChange && !spin.style.willChange, "a scaling or rotating flight paints in place every frame (no resampled raster, no sharpen pop on settle)");
+  ctrl("a").seek(1);
+  assert(!mv.style.willChange && mv.style.left === "200px", "the endpoint demotes the wrapper (crisp at rest)");
+  ctrl("a").seek(0.25); ctrl("a").seek(0);
+  assert(!mv.style.willChange && mv.style.left === "10px", "…and so does a seek back to the start");
+  assert(marks.length === 1 && !marks[0].cancelled, "the mark outlives the flight (armed once per node, inert at rest, ready for the next flight)");
+  disposeSlideAnims(specs);
+  assert(marks[0].cancelled, "tearing the slide down cancels the mark (a paused animation would pin its detached node alive)");
+  delete (Object.getPrototypeOf(mv) as { animate?: unknown }).animate;
 }
 
 // dangling transform target: tolerated no-op

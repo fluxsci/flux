@@ -98,9 +98,15 @@ try {
   });
   await page.evaluate(()=>{if(!document.querySelector('.animator'))[...document.querySelectorAll('.deckbar button')].find(b=>/Animate/.test(b.textContent))?.click();});
   await sleep(150);
-  await page.evaluate(()=>[...document.querySelectorAll('.animator .bar button')].find(b=>b.textContent.trim()==='Data morph…')?.click());
+  // Transform ▸ Become… arms the pick; a plot source offers the gallery as the data-only form
+  await page.evaluate(()=>[...document.querySelectorAll('.animator .actions button')].find(b=>b.textContent.trim()==='Transform ▾')?.click());
+  await waitFor(page,()=>!!document.querySelector('.menu button[role="menuitem"]'),null,{timeout:3000,label:'transform menu'});
+  await page.evaluate(()=>[...document.querySelectorAll('.menu button[role="menuitem"]')].find(b=>b.textContent.trim().startsWith('Become…'))?.click());
+  await waitFor(page,()=>!!document.querySelector('.become-bar'),null,{timeout:3000,label:'become pick armed'});
+  ok(!!await page.$('.become-bar'),'Become arms a pick bar above the stage for the plot source');
+  await page.evaluate(()=>[...document.querySelectorAll('.become-bar button')].find(b=>b.textContent.trim()==='From gallery…')?.click());
   await waitFor(page,()=>!!document.querySelector('.importer'),null,{timeout:3000,label:'morph target browser'});
-  ok(await page.$eval('.importer .ttl',e=>e.textContent)==='Choose next plot data state','morph action opens a project plot picker with its explicit purpose');
+  ok(await page.$eval('.importer .ttl',e=>e.textContent)==='Become — choose the plot whose data it becomes','the gallery opens in Become mode with its explicit purpose');
   await waitFor(page,()=>[...document.querySelectorAll('.importer .row')].some(e=>e.textContent.includes('morph-choice')),null,{timeout:3000,label:'project morph target'});
   await page.evaluate(()=>[...document.querySelectorAll('.importer .row')].find(e=>e.textContent.includes('morph-choice')).dispatchEvent(new MouseEvent('dblclick',{bubbles:true})));
   await waitFor(page,()=>!document.querySelector('.importer'),null,{timeout:4000,label:'morph target accepted'});
@@ -108,8 +114,8 @@ try {
     const f=window.__flux,s=f.slide.composedSlide(f.get(f.fig.activeFigureId)),t=s.beats.flatMap(b=>b.tracks).find(t=>t.target===targetId&&t.to?.assetId);
     return {count:s.elements.length,expected:count,track:t,asset:f.slide.currentDeck().assets.find(a=>a.id===t?.to?.assetId),destination:f.get(f.slide.editDestination)};
   },morphSetup);
-  ok(morph.count===morph.expected&&!!morph.track&&!!morph.asset,'choosing data adds a Change asset dependency and leaves stage object count unchanged');
-  ok(morph.track.to.svgPath==='plots/morph-choice.svg'&&morph.destination.kind==='after','morph retains project-relative source and selects its explicit After-step destination');
+  ok(morph.count===morph.expected&&!!morph.track&&!!morph.asset,'choosing data adds a transform content dependency and leaves stage object count unchanged');
+  ok(morph.track.to.svgPath==='plots/morph-choice.svg'&&morph.destination.kind==='after'&&!(await page.$('.become-bar')),'the data Become retains project-relative source, selects its explicit After-step destination and disarms the pick');
   await page.evaluate(()=>window.__flux.lifecycle.flushById('slide'));
   const morphSaved=await page.evaluate(async()=>{const f=window.__flux,root=f.get(f.shell.projectModel).root,d=f.slide.currentDeck();const disk=JSON.parse(await window.fig.readText(`${root}/slides/${d.id}/deck.json`));return disk.slides.flatMap(s=>s.beats).flatMap(b=>b.tracks).some(t=>t.to?.svgPath==='plots/morph-choice.svg'&&disk.assets.some(a=>a.id===t.to.assetId));});
   ok(morphSaved,'morph-only asset and explicit source persist through normal slide save');

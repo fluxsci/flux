@@ -21,23 +21,30 @@
 
   import BeatRail from "./animator/BeatRail.svelte";
   import AnimLibrary from "./animator/AnimLibrary.svelte";
+  import TimelineMenu, { type MenuItem } from "./animator/TimelineMenu.svelte";
   import { timelinePxPerMs } from "./animator/animatorState";
   import {
     deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled,
     nudgeSelected, moveSelectedToAdjacentBeat,
   } from "./animator/trackActions";
 
-  let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, onChooseMorph, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
+  let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
     slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
-    onAction?: (action: "appear" | "change" | "ghost" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop") => void;
+    onAction?: (action: "appear" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop") => void;
     onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
     onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
-    onChooseMorph?: (targetId: string, trackId?: string) => void;
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
   } = $props();
 
   let railRef = $state<{ groupSelection(): void; ungroupSelection(): void; cascadeSelection(): void } | null>(null);
   let libOpen = $state(false);
+  // ONE class of action — Transform — three ways: Change · Ghost · Become.
+  let transformMenu = $state<{ x: number; y: number } | null>(null);
+  function openTransformMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    transformMenu = transformMenu ? null : { x: r.left, y: r.bottom + 4 };
+  }
+
 
   const deck = $derived($deckOverlay); // stage/meta only — slide comes composed
   const sel = $derived([...$selection]);
@@ -49,6 +56,11 @@
     return el && el.type === "plot" ? el : null;
   });
   const selManifest = $derived(selPlot ? manifests[selPlot.assetId] : undefined);
+  const transformItems = $derived<MenuItem[]>([
+    { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+T", disabled: !sel.length, action: () => onAction?.("change") },
+    { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
+    { label: "Become…", hint: selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("become") },
+  ]);
   // When a slide carries >1 plot, tag each plot element P1/P2/… (in slide order)
   // so the timeline stays legible; single-plot slides get no tags.
   const plotTags = $derived.by(() => {
@@ -258,8 +270,11 @@
       <strong class="ttl">Animate</strong>
       <div class="actions" aria-label="Add animation">
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("appear")} title="Add an entrance · Cmd/Ctrl+Shift+A">Appear</button>
-        <button class="b" disabled={!sel.length} onclick={() => onAction?.("change")} title="Edit a change at this step · Cmd/Ctrl+Shift+T">Change</button>
-        <button class="b" disabled={sel.length !== 1 || selectedVideos.length > 0} onclick={() => onAction?.("ghost")} title={selectedVideos.length ? "Duplicate a video to give each copy independent playback" : "Create copies which start together and transform independently"}>Ghost transform…</button>
+        <span class="tf-wrap">
+          <button class="b tf" class:active={!!transformMenu} disabled={!sel.length} onclick={openTransformMenu} aria-haspopup="menu" aria-expanded={!!transformMenu}
+            title="Transform the selection at this step — Change (edit it), Ghost (copies), or Become (turn into another object)">Transform ▾</button>
+          {#if transformMenu}<TimelineMenu x={transformMenu.x} y={transformMenu.y} items={transformItems} onClose={() => (transformMenu = null)} />{/if}
+        </span>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("emphasize")} title="Highlight the selection">Emphasize</button>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("disappear")} title="Add an exit · Cmd/Ctrl+Shift+D">Disappear</button>
         {#if selectedVideos.length}
@@ -278,9 +293,6 @@
       {/if}
       {#if slide.beats.length > 1}
         <button class="b" onclick={() => addCameraMove("reset")} title="Camera: pull back to the full slide">⤢ Reset</button>
-      {/if}
-      {#if selPlot}
-        <button class="b" onclick={() => onChooseMorph?.(selPlot!.id)} title="Choose the plot's next data state from the project">Data morph…</button>
       {/if}
       {#if onPreview && slide.beats.length > 1}
         <div class="transport" aria-label="Playback controls">
@@ -302,7 +314,7 @@
         <button class="b" onclick={() => timelinePxPerMs.set(null)} title="Reset the timeline zoom to auto-fit">fit ⟲</button>
       {/if}
       <button class="b" onclick={toggleDockSize} title="Toggle animator size (or double-click the top edge)">⇕</button>
-      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Space plays/pauses.">Keyboard ⌨</span>
+      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change · +E become. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Space plays/pauses.">Keyboard ⌨</span>
     </div>
 
     <div class="dock-body">
@@ -355,7 +367,9 @@
     border-radius: 5px; padding: 5px 10px; cursor: pointer;
   }
   .b:hover { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
-  .lib-wrap { position: relative; display: inline-flex; }
+  .lib-wrap, .tf-wrap { position: relative; display: inline-flex; }
+  .b.tf { color: #a3b955; border-color: color-mix(in oklab, #66800b 60%, transparent); }
+  .b.tf:hover:not(:disabled), .b.tf.active { border-color: #879a39; color: var(--c-tx-hi, #fff); }
   .b.active { border-color: var(--c-accent, #4385be); color: var(--c-tx-hi, #fff); }
   .dock-body { display: flex; gap: 10px; min-height: 0; flex: 1; }
   .keyhint { font-size: 10px; color: var(--c-tx-3, #6f6e69); white-space: nowrap; }

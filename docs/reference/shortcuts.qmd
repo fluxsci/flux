@@ -135,7 +135,8 @@ Everything in the Figure table works on the stage. Additionally:
 | **Ctrl+B** (nothing text-like selected) | Hide/show the filmstrip |
 | **Ctrl+Shift+A** | Add appearance for the selection *(animator open)* |
 | **Ctrl+Shift+D** | Add disappearance *(animator open)* |
-| **Ctrl+Shift+T** | Add transform, or toggle t₁ ↔ t₂ *(animator open)* |
+| **Ctrl+Shift+T** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
+| **Ctrl+Shift+E** | Transform ▸ Become: pick the object the selection turns into *(animator open)* |
 | **Ctrl+Shift+C** | Cascade across selected tracks (falls back to element cascade) |
 | **Escape** | Leave a t₁/t₂ endpoint checkout, then the usual ladder |
 

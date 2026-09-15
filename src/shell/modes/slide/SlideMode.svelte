@@ -47,6 +47,7 @@
     gestureCancelHook, importerOpen,
     cascadeState,
     undo, redo,
+    activeTool,
   } from "../../../lib/store";
   import {
     listProjectDecks,
@@ -135,6 +136,9 @@
   let inspectorTab = $state<"object"|"animation"|"slide"|"deck">("object");
   let ghostHidden = $state(true);
   let ghostDialog = $state<{sourceId: string; beatIndex: number; original: "stay" | "disappear" | "transform"} | null>(null);
+  // Transform ▸ Become: a PICK mode — the next single object selected (drawn,
+  // clicked, or placed from the gallery) is what the source becomes.
+  let becomePick = $state<{ sourceId: string; beatIndex: number } | null>(null);
   let openingRequest = $state(0);
   let consumingOpenRequest = $state(false);
   $effect(() => {
@@ -712,7 +716,8 @@
       const t=slideOps.setTransform(d,s.id,beat.id,request.targetId,{toAssetId:incoming.asset.id,svgPath:source?.svgPath,manifestPath:source?.manifestPath});
       addedId=t?.id;selectedBeat=s.beats.indexOf(beat);
     });
-    if(addedId){activeBeat.set(selectedBeat);selTrackIds.set([addedId]);editAfterBeat(selectedBeat);}
+    becomePick = null;
+    if(addedId){activeBeat.set(selectedBeat);selTrackIds.set([addedId]);enterEndpointEdit([addedId],"t2");inspectorTab="animation";}
   }
   $effect(()=>{if(!$importerOpen)morphFor=null;});
 
@@ -866,13 +871,74 @@
     });
     activeBeat.set(bi);selTrackIds.set(created);inspectorTab="animation";
   }
-  function animationAction(action:"appear"|"change"|"ghost"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop") {
+  function animationAction(action:"appear"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop") {
     stopPreview();
+    if(action!=="become")cancelBecome();
     if(action==="videoStart" || action==="videoPause" || action==="videoStop")addVideoAction(action);
     else if(action==="ghost")openGhostDialog();
     else if(action==="change")addOrToggleTransform();
+    else if(action==="become")startBecome();
     else addAppearance(action==="disappear",action==="emphasize");
   }
+  /** Transform ▸ Become: arm the pick. The step is the active one (a first
+   *  step is created when the slide has none), checked out After it so the
+   *  target is drawn in context; the next single selection performs it. */
+  function startBecome() {
+    const ids = selectionTargets(), s = activeSlide, sid = $activeFigureId;
+    if (!s || !sid || ids.length !== 1) return;
+    const sourceId = ids[0], el = s.elements.find(e => e.id === sourceId);
+    if (!el) return;
+    if (el.type === "video") { pushToast("info", "Video clips cannot become another object", { detail: "Use Change for a clip's geometry, or Duplicate it." }); return; }
+    let bi = $activeBeat > 0 ? $activeBeat : Math.max(1, s.beats.length - 1);
+    const birth = ghostBirth(s, sourceId);
+    if (birth && birth.beatIndex > bi) { pushToast("info", "Choose the ghost's birth step or a later one", { detail: "A ghost can become something once it exists." }); return; }
+    commitDeckLive(d => {
+      const sl = slideOps.slideById(d, sid); if (!sl) return;
+      if (sl.beats.length <= 1) slideOps.addBeat(d, sid, { label: "Beat 1", advance: "click" });
+      bi = Math.min(bi, sl.beats.length - 1);
+    });
+    activeBeat.set(bi);
+    editAfterBeat(bi);
+    becomePick = { sourceId, beatIndex: bi };
+    inspectorTab = "animation";
+  }
+  function cancelBecome() { if (becomePick) becomePick = null; }
+  function performBecome(pick: { sourceId: string; beatIndex: number }, targetId: string) {
+    const s = activeSlide;
+    if (!s) return;
+    becomePick = null;
+    try {
+      const compiled = compileSlide(s, stage, { plotManifest: id => get(plotManifests)[id] });
+      const result = commitDeckLive(d => {
+        const sl = slideOps.slideById(d, s.id);
+        const beat = sl?.beats[pick.beatIndex];
+        if (!sl || !beat) throw new Error("The step no longer exists.");
+        return slideOps.becomeTransform(d, s.id, beat.id, pick.sourceId, targetId, { compiled });
+      });
+      if (!result) return;
+      activeBeat.set(pick.beatIndex);
+      selTrackIds.set([result.trackId]);
+      enterEndpointEdit([result.trackId], "t2");
+      inspectorTab = "animation";
+    } catch (error) {
+      // stay armed: the user picks again or cancels
+      becomePick = pick;
+      selection.set(new Set([pick.sourceId]));
+      pushToast("error", "Could not become that object", { detail: errMsg(error) });
+    }
+  }
+  // The pick: exactly one OTHER object selected with the Select tool active
+  // (a freshly drawn shape/path is selected the moment its tool finishes).
+  $effect(() => {
+    const pick = becomePick;
+    const ids = [...$selection], tool = $activeTool;
+    if (!pick || tool !== "select" || ids.length !== 1 || ids[0] === pick.sourceId) return;
+    const targetId = ids[0];
+    untrack(() => performBecome(pick, targetId));
+  });
+  $effect(() => { const sid = $activeFigureId; if (becomePick && sid !== lastPickSlide) cancelBecome(); lastPickSlide = sid; });
+  let lastPickSlide: string | null = null;
+  const becomeSourceIsPlot = $derived(!!becomePick && activeSlide?.elements.find(e => e.id === becomePick!.sourceId)?.type === "plot");
   function addVideoAction(preset: "videoStart" | "videoPause" | "videoStop") {
     const sid = $activeFigureId, selected = new Set(selectionTargets());
     if (!sid || !activeSlide) return;
@@ -991,8 +1057,8 @@
     const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
     if (inAnimation) {
       const mod=e.metaKey||e.ctrlKey;
-      if(mod&&e.shiftKey&&["a","d","t"].includes(e.key.toLowerCase())&&!typing) {
-        e.preventDefault();animationAction(e.key.toLowerCase()==="a"?"appear":e.key.toLowerCase()==="d"?"disappear":"change");
+      if(mod&&e.shiftKey&&["a","d","t","e"].includes(e.key.toLowerCase())&&!typing) {
+        e.preventDefault();const k=e.key.toLowerCase();animationAction(k==="a"?"appear":k==="d"?"disappear":k==="e"?"become":"change");
       }
       return;
     }
@@ -1019,7 +1085,8 @@
         const k = e.key.toLowerCase();
         if (k === "a") { e.preventDefault(); addAppearance(false); return; }
         if (k === "d") { e.preventDefault(); addAppearance(true); return; }
-        if (k === "t") { e.preventDefault(); addOrToggleTransform(); return; }
+        if (k === "t") { e.preventDefault(); cancelBecome(); addOrToggleTransform(); return; }
+        if (k === "e") { e.preventDefault(); animationAction("become"); return; }
         // ⌃⇧C with ≥2 tracks selected = TRACK cascade; with fewer it falls
         // through to the figure keymap, which opens the ELEMENT cascade.
         if (k === "c" && get(selTrackIds).length >= 2) { e.preventDefault(); openTrackCascade(); return; }
@@ -1027,6 +1094,12 @@
       // Esc: an in-flight canvas gesture aborts first (FIG-12); then an
       // active endpoint checkout exits (restoring the base state); then the
       // figure keymap's normal Esc ladder.
+      if (e.key === "Escape" && becomePick) {
+        if (gestureCancelHook.fn?.()) { e.preventDefault(); return; }
+        e.preventDefault();
+        cancelBecome();
+        return;
+      }
       if (e.key === "Escape" && $endpointEdit) {
         if (gestureCancelHook.fn?.()) {
           e.preventDefault();
@@ -1256,7 +1329,16 @@
           <button class:chosen={$editDestination.kind === "design"} onclick={()=>{stopPreview();setEditDestination({kind:"design"});}} title="Edit original object properties, before animation">Design</button>
           <button class:chosen={$editDestination.kind === "after" && $editDestination.beatId===activeSlide?.beats[$activeBeat]?.id} disabled={$activeBeat===0} onclick={()=>{stopPreview();editAfterBeat();}} title="Create or update changes only at the selected step">Edit after step {$activeBeat || "…"}</button>
         </div>
-        <span class="edit-label">{previewing ? `Inspecting step ${$activeBeat} · ${(previewTime/1000).toFixed(2)}s` : editLabel}</span>
+        {#if becomePick && activeSlide}
+          <span class="become-bar" role="status" aria-label="Become pick">
+            <strong>Become</strong>
+            <span class="become-msg">{objectLabel(activeSlide, becomePick.sourceId)} turns into the next object you select — draw one, click one{becomeSourceIsPlot ? ", or pick a plot" : ""}.</span>
+            {#if becomeSourceIsPlot}<button class="become-btn" onclick={() => chooseMorph(becomePick!.sourceId)} title="Keep the frame; the plot's data becomes another project plot's">From gallery…</button>{/if}
+            <button class="become-btn" onclick={cancelBecome} title="Escape">Cancel</button>
+          </span>
+        {:else}
+          <span class="edit-label">{previewing ? `Inspecting step ${$activeBeat} · ${(previewTime/1000).toFixed(2)}s` : editLabel}</span>
+        {/if}
         <button class="fit-button" class:chosen={fitted} onclick={fitViewport}>Fit</button>
         <label class="ghost-toggle" title="Show hidden animation targets as editable ghosts. Turn off to remove them from the canvas, selection, and snapping."><input type="checkbox" bind:checked={ghostHidden}/> Show hidden</label>
       </div>
@@ -1283,7 +1365,7 @@
       {#if animatorOpen && overlay}
         <AnimatePanel slide={activeSlide} onPreview={startPreview} onAction={animationAction}
           onSeek={seekPreview} onPause={pausePreview} onStop={stopPreview} onResume={resumePreview}
-          onUndo={undo} onRedo={redo} onSave={()=>void autosave.flush()} onChooseMorph={chooseMorph}
+          onUndo={undo} onRedo={redo} onSave={()=>void autosave.flush()}
           time={previewTime} playing={previewPlaying} {previewing} loop={previewLoop} onLoop={toggleLoop} />
       {/if}
     </main>
@@ -1310,7 +1392,7 @@
         </section>
       {/if}
       {#if inspectorTab==="object" && !selectedUnbornGhosts.length}<Inspector />{/if}
-      {#if inspectorTab==="animation" && activeSlide}<PropertiesPane slide={activeSlide} {plotTags} onChooseMorph={chooseMorph}/>{/if}
+      {#if inspectorTab==="animation" && activeSlide}<PropertiesPane slide={activeSlide} {plotTags} onChooseMorph={chooseMorph} onBecome={(targetId, beatIndex) => { stopPreview(); selection.set(new Set([targetId])); activeBeat.set(beatIndex); startBecome(); }}/>{/if}
       {#if overlay && activeSlide}
         <section class="panel" hidden={inspectorTab!=="slide"}>
           <h4>Slide</h4>
@@ -1406,7 +1488,7 @@
 <!-- shared figure surfaces: X-ray, property cockpit, plots/ browser, presets -->
 <FluxFigMenu />
 <Xray />
-<PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? "Choose next plot data state" : "Plot and video gallery"}
+<PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? "Become — choose the plot whose data it becomes" : "Plot and video gallery"}
   allowVideos={!morphFor} importItems={importSlideItems} importStatus={videoImportStatus} cancelImport={videoImport ? cancelClipImport : undefined}
   onPick={morphFor ? acceptMorphTarget : undefined} />
 <PresetPicker />
@@ -1432,6 +1514,11 @@
   .edit-statebar button:disabled { opacity:.4;cursor:default; }
   .edit-label { color:var(--c-tx-2);font-size:10px;flex:1; }
   .ghost-toggle { display:flex;align-items:center;gap:4px;white-space:nowrap;color:var(--c-tx-2); }
+  .become-bar { display:flex;align-items:center;gap:8px;min-width:0;flex:1;padding:2px 8px;border:1px solid color-mix(in oklab, #66800b 60%, transparent);border-radius:6px;background:color-mix(in oklab, #66800b 14%, transparent);color:var(--c-tx);font-size:12px; }
+  .become-bar strong { color:#a3b955;font-size:11px;letter-spacing:.06em;text-transform:uppercase; }
+  .become-msg { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--c-tx-2); }
+  .become-btn { font:inherit;font-size:11px;color:var(--c-tx);background:var(--c-bg);border:1px solid var(--c-line-strong);border-radius:4px;padding:2px 8px;cursor:pointer; }
+  .become-btn:hover { border-color:#879a39;color:var(--c-tx-hi); }
   .inspector-tabs { display:flex;gap:3px;padding:8px 6px;position:sticky;top:0;background:var(--c-bg);z-index:5;font-size:11px; }
   .inspector-tabs button { flex:1;padding:5px 4px; }
   .panel[hidden] { display:none; }

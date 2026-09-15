@@ -61,7 +61,7 @@ try {
               {
                 id: "t-morph",
                 target: "p1",
-                preset: "morph",
+                preset: "transform",
                 // authored EXPLICIT path (nested — the legacy guess would miss it)
                 to: { assetId: "real-target", svgPath: "plots/nested/real-target.svg" },
                 duration: 1200,
@@ -70,7 +70,7 @@ try {
               {
                 id: "t-morph-2",
                 target: "p1",
-                preset: "morph",
+                preset: "transform",
                 to: { assetId: "ghost-target" }, // no authored path, no file → warning
                 duration: 1200,
                 easing: "smooth",

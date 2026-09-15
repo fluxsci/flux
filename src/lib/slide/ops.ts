@@ -23,6 +23,8 @@ import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
 import { familyOf } from "./family";
 import { compileSlide, trackDuration } from "./compile";
+import { diffState } from "./tween";
+import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
 import {
   DECK_SCHEMA_VERSION,
@@ -872,41 +874,6 @@ export function setTrackEnabled(deck: Deck, slideId: Id, trackId: Id, enabled: b
   return false;
 }
 
-/** Author a data-space morph: plot element `plotElId` tweens into project plot
- *  `toAssetId` on beat `beatId`. Pure model write — the caller gates
- *  compatibility (see autobuild.listMorphCandidates); the player additionally
- *  holds at A for incompatible pairs at play time. */
-export function setMorphTrack(
-  deck: Deck,
-  slideId: Id,
-  beatId: Id,
-  plotElId: Id,
-  toAssetId: Id,
-  opts: {
-    duration?: number;
-    easing?: import("./types").EasingToken;
-    start?: number;
-    /** Explicit target source paths (project-relative) — persisted on the
-     *  track so load/export resolvers don't fall back to path guessing. */
-    svgPath?: string;
-    manifestPath?: string;
-  } = {},
-): boolean {
-  return setAnimation(deck, slideId, beatId, {
-    id: newId("track"),
-    target: plotElId,
-    preset: "morph",
-    to: {
-      assetId: toAssetId,
-      ...(opts.svgPath ? { svgPath: opts.svgPath } : {}),
-      ...(opts.manifestPath ? { manifestPath: opts.manifestPath } : {}),
-    },
-    duration: opts.duration ?? 1200,
-    easing: opts.easing ?? "smooth",
-    ...(opts.start != null ? { start: opts.start } : {}),
-  });
-}
-
 /** Two tracks "match" (and thus replace, rather than stack) when they animate
  *  in the same FAMILY (family.ts) on the same target with the same part/
  *  selector signature — so an appearance and a transform coexist on one
@@ -976,10 +943,12 @@ export function setTransform(
     duration?: number;
     easing?: import("./types").EasingToken;
     influence?: import("./types").Influence;
-    /** plot content half: morph target asset (+ explicit source paths). */
+    /** content half: the asset the element's content becomes (+ explicit
+     *  source paths; `source` carries the full bundle of a placed plot). */
     toAssetId?: Id;
     svgPath?: string;
     manifestPath?: string;
+    source?: SemanticPlotElement["source"] | null;
   } = {},
 ): Track | null {
   const s = slideById(deck, slideId);
@@ -989,9 +958,6 @@ export function setTransform(
   if (!t) {
     t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: "smooth", to: { state: {} } };
     b.tracks.push(t);
-  } else if (t.preset === "morph") {
-    // Adopt a legacy morph into the transform form (same family, richer patch).
-    t.preset = "transform";
   }
   t.to = t.to ?? {};
   if (opts.replaceState) t.to.state = structuredClone(opts.state ?? {});
@@ -1004,6 +970,17 @@ export function setTransform(
     t.to.state = cur;
   }
   if (opts.toAssetId != null) t.to.assetId = opts.toAssetId;
+  if (opts.source !== undefined) {
+    // a placed plot's whole source bundle travels with the content target
+    for (const key of ["svgPath", "manifestPath", "recipePath", "frozen", "external"]) delete t.to[key];
+    if (opts.source) {
+      t.to.svgPath = opts.source.svgPath;
+      if (opts.source.manifestPath != null) t.to.manifestPath = opts.source.manifestPath;
+      if (opts.source.recipePath != null) t.to.recipePath = opts.source.recipePath;
+      if (opts.source.frozen != null) t.to.frozen = opts.source.frozen;
+      if (opts.source.external != null) t.to.external = opts.source.external;
+    }
+  }
   if (opts.svgPath != null) t.to.svgPath = opts.svgPath;
   if (opts.manifestPath != null) t.to.manifestPath = opts.manifestPath;
   if (opts.start != null) t.start = opts.start;
@@ -1011,6 +988,82 @@ export function setTransform(
   if (opts.easing != null) t.easing = opts.easing;
   if (opts.influence != null) t.influence = opts.influence;
   return t;
+}
+
+/** Drop the content half of a transform (the object keeps its own content). */
+export function clearTransformContent(track: Track): void {
+  if (!track.to) return;
+  for (const key of ["assetId", "svgPath", "manifestPath", "recipePath", "frozen", "external"]) delete track.to[key];
+}
+
+export interface BecomeOptions {
+  start?: number;
+  duration?: number;
+  easing?: import("./types").EasingToken;
+  /** GUI may supply the compiler's manifest-aware evaluation of the slide. */
+  compiled?: ReturnType<typeof compileSlide>;
+}
+export interface BecomeResult {
+  trackId: Id;
+  /** The consumed target's id (it is no longer on the slide). */
+  targetId: Id;
+  /** The endpoint patch written to the track. */
+  state: Record<string, unknown>;
+}
+
+/** Ways of transforming, way 3 — BECOME: `sourceId` turns into `targetId` at
+ *  the step. The target's evaluated state at the end of the step becomes the
+ *  source's transform endpoint (`type` included when the kinds differ; for
+ *  plots the content half + source bundle too), then the target is consumed —
+ *  removed with every effect that referenced it — in this ONE mutation.
+ *  Nothing new is invented: the record is exactly what a Change to the same
+ *  endpoint would have stored, so chaining, checkout, ghosts, presets and
+ *  export all apply unchanged. Refusals throw with a user-facing reason. */
+export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: Id, targetId: Id, opts: BecomeOptions = {}): BecomeResult | null {
+  const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
+  if (!slide || bi < 0) return null;
+  if (bi < 1) throw new Error("Become needs a build step after Design. Choose or add a step first.");
+  if (sourceId === targetId) throw new Error("Choose a different object for the source to become.");
+  const source = slide.elements.find((e) => e.id === sourceId), target = slide.elements.find((e) => e.id === targetId);
+  if (!source) throw new Error("The source object is missing from this slide.");
+  if (!target) throw new Error("The object to become is missing from this slide.");
+  if (source.type === "video" || target.type === "video") throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
+  if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
+  if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
+  const compiled = opts.compiled ?? compileSlide(slide, deck.stage);
+  if (compiled.births.some((b) => b.target === targetId)) throw new Error("A ghost copy cannot be a Become target. Duplicate it into an ordinary object first.");
+  const frame = compiled.sample(bi);
+  if (frame.presentation.unbornElementIds?.includes(sourceId)) throw new Error("The source is not yet born at this step. Choose a later step.");
+  const pre = compiled.preState(sourceId, bi);
+  if (!pre) throw new Error("The source has no state before this step.");
+  // the target as it stands at the END of this step, wearing the source's identity
+  const evaluated = frame.elements.find((e) => e.id === targetId) ?? target;
+  const endEl = withGhostIdentity(sourceAt(compiled.resolvedSlide, targetId, bi + 1, evaluated), source);
+  const state = diffState(pre, endEl) ?? {};
+  const existing = slide.beats[bi].tracks.find((t) => t.target === sourceId && familyOf(t) === "transform");
+  const track = setTransform(deck, slideId, beatId, sourceId, {
+    state, replaceState: true,
+    ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
+    ...(opts.duration != null ? { duration: opts.duration } : {}),
+    ...(opts.easing != null ? { easing: opts.easing } : {}),
+    ...(opts.start != null ? { start: opts.start } : {}),
+  })!;
+  delete track.disabled;
+  if (endEl.type === "plot" || endEl.type === "image") {
+    track.to = track.to ?? {};
+    track.to.assetId = endEl.assetId;
+    setTransform(deck, slideId, beatId, sourceId, { source: endEl.type === "plot" ? endEl.source ?? null : null });
+  } else clearTransformContent(track);
+  // consume the target: its element, every effect on it, and its group slots
+  // (ghost copies born FROM the target keep their saved fallback and report
+  // the missing source, exactly as when a source is deleted by hand)
+  for (const beat of slide.beats) {
+    beat.tracks = beat.tracks.filter((t) => t.target !== targetId);
+    gcTrackGroups(beat);
+  }
+  slide.elements = slide.elements.filter((e) => e.id !== targetId);
+  gcGroups(slide as unknown as Figure);
+  return { trackId: track.id!, targetId, state };
 }
 
 /** The cascade-editable timing fields of one track at session start. */
@@ -1219,6 +1272,17 @@ export function ensureTrackIds(deck: Deck): Deck {
 export function migrateDeck(deck: Deck): Deck {
   if (typeof deck?.schemaVersion === "string" && /^0\.[234]\./.test(deck.schemaVersion)) {
     deck.schemaVersion = DECK_SCHEMA_VERSION;
+  }
+  // The legacy data-space `morph` preset IS a transform (Become, content
+  // half only). Normalize the name; keep the authored timing (its old default
+  // duration was 1200 ms) so playback is byte-for-byte the same motion.
+  for (const s of deck?.slides ?? []) for (const b of s.beats ?? []) for (const t of b.tracks ?? []) {
+    if ((t.preset as string) === "morph") {
+      t.preset = "transform";
+      if (t.duration == null) t.duration = 1200;
+      t.to = t.to ?? {};
+      if (!t.to.state) t.to.state = {};
+    }
   }
   return deck;
 }

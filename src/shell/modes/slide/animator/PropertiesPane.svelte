@@ -17,7 +17,8 @@
   import { morphCompatible } from "../../../../lib/slide/player/morph";
   import { plotManifests } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
-  import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, presetLabel } from "./shared";
+  import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
+  import { clearTransformContent } from "../../../../lib/slide/ops";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
@@ -25,7 +26,13 @@
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
   import { pushToast } from "../../../../lib/toast";
 
-  let { slide, plotTags, onChooseMorph }: { slide: Slide; plotTags: Map<string, string>; onChooseMorph?: (targetId: string, trackId?: string) => void } = $props();
+  let { slide, plotTags, onChooseMorph, onBecome }: {
+    slide: Slide; plotTags: Map<string, string>;
+    /** Plot data-only Become: pick the content target from the project gallery. */
+    onChooseMorph?: (targetId: string, trackId?: string) => void;
+    /** Arm the Become pick for this track's target at its step. */
+    onBecome?: (targetId: string, beatIndex: number) => void;
+  } = $props();
 
   // "Save as preset" (the mockup's pink button): name inline, Enter saves.
   let savingPreset = $state(false);
@@ -47,6 +54,19 @@
   });
   const curTrack = $derived(selTracks.length ? selTracks[selTracks.length - 1] : null);
   const curFamily = $derived(curTrack ? familyOf(curTrack) : null);
+  const curWay = $derived(curTrack && curFamily === "transform" ? transformWay(curTrack) : null);
+  const curBeatIndex = $derived(curTrack ? slide.beats.findIndex((b) => b.tracks.some((t) => t.id === curTrack.id)) : -1);
+  /** What the object becomes at this step, for the Destination row. */
+  const destinationLabel = $derived.by(() => {
+    if (!curTrack || curFamily !== "transform") return "";
+    const st = (curTrack.to?.state ?? {}) as Record<string, unknown>;
+    const kind = typeof st.type === "string" ? st.type : null;
+    const data = curTrack.to?.assetId ? (curTrack.to.svgPath?.split("/").pop() || curTrack.to.assetId) : null;
+    if (kind && data) return `Becomes a ${kind} showing ${data}`;
+    if (kind) return `Becomes ${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}`;
+    if (data) return `Data becomes ${data}`;
+    return curWay === "ghost" ? "Its own destination after this step" : "The object's own state after this step";
+  });
   const anyGhost = $derived(selTracks.some(t => !!t.ghostFrom));
   const anyMedia = $derived(selTracks.some(t => familyOf(t) === "media"));
   const allMedia = $derived(selTracks.length > 0 && selTracks.every(t => familyOf(t) === "media"));
@@ -156,26 +176,14 @@
     if (anyGhost) return;
     withSelectedTracks(t => { if (part) t.part = part; else delete t.part; delete t.selector; });
   }
-  const morphTargets = $derived.by(() => {
-    if (curTargetEl?.type !== "plot" || curFamily !== "transform") return [];
+  /** A plot Become's data half: compatible structures tween, others crossfade. */
+  const dataCompatible = $derived.by(() => {
+    if (curTargetEl?.type !== "plot" || !curTrack?.to?.assetId) return null;
     const m = $plotManifests;
-    const A = m[curTargetEl.assetId];
-    return slide.elements
-      .filter((e,i,all) => e.type === "plot" && e.id !== curTargetEl.id && all.findIndex(a=>a.type==="plot" && a.assetId===e.assetId)===i)
-      .map((e) => {
-        const assetId = (e as { assetId: string }).assetId;
-        return { assetId, label: [plotTags.get(e.id), m[assetId]?.plotType].filter(Boolean).join(" · ") || assetId, compatible: morphCompatible(A, m[assetId]) };
-      });
+    return morphCompatible(m[curTargetEl.assetId], m[curTrack.to.assetId]);
   });
-  function setMorphTarget(assetId: string) {
-    withCurTrack((t) => {
-      t.to = { ...(t.to ?? {}) };
-      if (!assetId) {
-        delete t.to.assetId;
-        delete t.to.svgPath;
-        delete t.to.manifestPath;
-      } else t.to.assetId = assetId;
-    });
+  function keepOwnContent() {
+    withCurTrack((t) => clearTransformContent(t));
   }
 
   // --- trim-path params (drawOn/drawOff — rework §5) -------------------------
@@ -222,7 +230,7 @@
         {#if selTracks.length > 1}{selTracks.length} tracks{:else}{groupLabel ? `${groupLabel} › ` : ""}{chipLabel(curTrack, slide, plotTags)}{/if}
       </span>
       {#if curFamily === "transform"}
-        <span class="chip">{curTrack.ghostFrom ? "ghost transform" : "transform"}</span>
+        <span class="chip">transform · {WAY_LABEL[curWay ?? "change"]}</span>
       {:else if selTracks.length === 1}
         <span class="chip">{presetLabel(curTrack.preset ?? "fade")}</span>
       {/if}
@@ -277,21 +285,23 @@
           <button class="dclear" title="Reset t₂ to equal t₁ (drop every change)" onclick={clearT2}>clear t₂</button>
         </div>
       {/if}
-      {#if morphTargets.length}
-        <label class="f">data morph
-          <select value={curTrack.to?.assetId ?? ""} title="Also morph the plot's DATA into another plot on the slide (same-structure plots only) while the frame transforms"
-            onchange={(e) => setMorphTarget(e.currentTarget.value)}>
-            <option value="">none</option>
-            {#each morphTargets as m (m.assetId)}
-              <option value={m.assetId}>{m.label}{m.compatible ? "" : " (crossfade)"}</option>
-            {/each}
-          </select>
-        </label>
-      {/if}
-      {#if curTargetEl?.type === "plot"}
-        <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)}>Choose data target from project…</button>
-        {#if curTrack.to?.assetId}<div class="note">Data target: {curTrack.to.svgPath?.split("/").pop() || curTrack.to.assetId}</div>{/if}
-      {/if}
+      <!-- the DESTINATION: what this object becomes at the step, and the two
+           ways to point it somewhere else (Become another object · plot data) -->
+      <div class="dest" aria-label="Transform destination">
+        <div class="dl">Destination</div>
+        <div class="dv">{destinationLabel}{#if dataCompatible === false} <span class="warn" title="The two plots have different structures — the frame tweens and the plots crossfade">· crossfade</span>{/if}</div>
+        {#if curTargetEl && curBeatIndex > 0}
+          <div class="dacts">
+            <button class="pick-morph" onclick={() => onBecome?.(curTargetEl.id, curBeatIndex)} title="Pick another object on the slide (or draw one): this object turns into it at this step">Become an object…</button>
+            {#if curTargetEl.type === "plot"}
+              <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)} title="Keep the frame; the plot's data becomes another project plot's">Data from gallery…</button>
+            {/if}
+            {#if curTrack.to?.assetId}
+              <button class="pick-morph" onclick={keepOwnContent} title="Drop the data target — the plot keeps its own content">Keep own data</button>
+            {/if}
+          </div>
+        {/if}
+      </div>
     {:else if allMedia}
       <label class="f">Action<kbd class="kc" title="shortcut: p">p</kbd>
         <select data-fld="p" aria-label="Video action" value={curTrack.preset}
@@ -456,7 +466,13 @@
   .target-warning { color: var(--c-warning); font-size: 12px; line-height: 1.5; }
   .advanced { border-top: 1px solid var(--c-line); padding-top: 9px; }
   .advanced summary { cursor: pointer; color: var(--c-tx-2); margin-bottom: 8px; }
-  .pick-morph { border:1px solid var(--c-line-strong);background:var(--c-bg-2);color:var(--c-tx);padding:7px 9px;font:inherit;border-radius:5px;cursor:pointer;text-align:left; }
+  .pick-morph { border:1px solid var(--c-line-strong);background:var(--c-bg-2);color:var(--c-tx);padding:5px 8px;font:inherit;font-size:11px;border-radius:5px;cursor:pointer;text-align:left; }
+  .pick-morph:hover { border-color:#879a39;color:var(--c-tx-hi); }
+  .dest { display:flex;flex-direction:column;gap:5px;border:1px solid color-mix(in oklab, #66800b 40%, transparent);border-radius:6px;padding:6px 8px; }
+  .dest .dl { font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#879a39; }
+  .dest .dv { font-size:11px;color:var(--c-tx);line-height:1.4; }
+  .dest .warn { color:var(--c-warning, #d0a215); }
+  .dacts { display:flex;flex-wrap:wrap;gap:4px; }
   .ttl {
     font-size: 12px; font-style: italic; font-weight: 600; color: var(--c-tx-2, #b7b5ac);
     letter-spacing: 0.02em; margin-bottom: -1px;

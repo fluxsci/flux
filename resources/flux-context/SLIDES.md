@@ -55,13 +55,16 @@ flux set-animation <deck> <slideId> <beatId> --target <elId|@camera|@stage> [--p
 flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
 
-# animation — transforms (the signature family)
+# animation — transforms (the signature family: ONE track kind, three ways of authoring it)
 flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state]
-     [--start ms] [--duration ms] [--easing e] [--to-asset id]                        # (set_transform)
-flux set-morph <deck> <slideId> <beatId> <elId> <toAssetId> [--duration ms]           # (set_morph)  legacy data-space form
+     [--start ms] [--duration ms] [--easing e] [--to-asset id]                        # (set_transform)  CHANGE: edit the object's own endpoint
 flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      --original stay --states '[{"x":200,"y":60},{"x":300,"y":160},{"x":400,"y":260}]'
-     [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)
+     [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)  GHOST: copies that transform independently
+flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                     # (become)  BECOME: the source turns into that object
+     [--start ms --duration ms --easing e]                                         #   (kind included — line→ellipse, bracket→arrow, rect→plot); the target is consumed
+flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]         #   plot data-only form: the frame stays, the content becomes that
+                                                                                   #   project plot's (compatible structures tween data; others crossfade)
 
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
@@ -82,7 +85,7 @@ flux export-deck <deck> [--out F]              # (export_deck)   → self-contai
 
 `add-figure` is the primary way to put composed figures into a deck: it copies a project
 figure's elements (same 96 px/inch ruler → native size) and keeps plot **panels addressable**,
-so you can stagger their parts or morph them. `export-deck` gathers everything off disk and
+so you can stagger their parts or make them become another plot. `export-deck` gathers everything off disk and
 emits ONE file with the player + fonts inlined. No network, no install to present.
 
 ## The two families
@@ -104,18 +107,31 @@ to place multiple appearance effects on the same object in one step.
   (`smooth|standard|enter|exit|linear`), `influence` ({in, out} 0–100, the AE velocity
   profile), `stagger` ({perMs, by: index|x|y, from: start|end|center|edges}).
 
-**2. Transforms** — the object BECOMES a different version of itself: position, size, shape
-geometry, colors (blended in OKLab), opacity, dash, text (a pure numeric change digit-tweens;
-a rewrite crossfades — moving all the while), plot part styles, and (for plots) the data-space
-morph in one track. `set-transform` stores a **sparse patch** (`to.state`) against the
-track's pre-state; **chaining composes**: t1 of a later transform = the earlier one's end.
-Max ONE transform per element per beat — chain across beats. Never hand-compose states; pass
-the patch and let the engine fold. `--to-asset` adds the same-structure plot-data morph half.
+**2. Transforms** — ONE track kind (`preset: "transform"`, at most one per element per
+beat — chain across beats) authored three ways:
+
+- **Change** (`set-transform`): the object becomes a different version of itself — position,
+  size, shape geometry, colors (blended in OKLab), opacity, dash, text (a pure numeric change
+  digit-tweens; a rewrite crossfades — moving all the while), plot part styles. Stores a
+  **sparse patch** (`to.state`) against the track's pre-state; **chaining composes**: t1 of a
+  later transform = the earlier one's end. Never hand-compose states; pass the patch and let
+  the engine fold. `--to-asset` sets the plot content half (see Become).
+- **Ghost** (`ghost-transform`): copies that start where the source is and transform
+  independently (below).
+- **Become** (`become`): the object turns into ANOTHER object. `--target <elId>` consumes that
+  object and writes its evaluated state as the endpoint — `to.state.type` when the kind differs
+  (a line becomes an ellipse, a bracket an arrow, a rect a plot; drawn kinds morph through one
+  outline, other kinds crossfade while the box tweens). `--asset <assetId>` is the plot
+  data-only form: the frame stays and the content becomes that project plot's (`to.assetId` +
+  explicit source paths). Structurally compatible plots (same series ids and point counts, same
+  axis scales) tween their data through blended axes; others crossfade. There is no separate
+  "data morph" — it is a Become.
 
 ```
 flux set-transform talk s1 b2 el_rect --state '{"x": 420, "width": 220, "stroke": "#d14d41"}' --duration 700
 flux set-transform talk s1 b3 el_rect --state '{"opacity": 0.3}'        # chains: t1 = b2's end
-flux set-transform talk s1 b2 el_plot --state '{"width": 500}' --to-asset growthB   # frame + data morph
+flux become talk s1 b2 el_line --target el_ellipse                        # the line becomes the ellipse (consumed)
+flux become talk s1 b2 el_plot --asset growthB                            # the plot's data becomes growthB's
 ```
 
 **Camera** is its own small family: `--target @camera --preset camera --to-x --to-y --to-zoom`.
@@ -228,7 +244,7 @@ export timeline. For another deck import the clip again or use a portable whole-
 
 - `flux validate-deck <id>` — schema-check the deck.
 - Headless ops/player/tween/trim/export tests:
-  `npx tsx scripts/verify-slide-{track-ops,player,tween,morph,export-transform}.ts` and
+  `npx tsx scripts/verify-slide-{track-ops,player,tween,morph,become,outline,export-transform}.ts` and
   `npx tsx scripts/verify-trim.ts`.
 - The real test for a talk: export it and **open the `.html` offline** — title, builds, trims,
   transforms, and morphs must all play with arrow keys and a clicker, no network.

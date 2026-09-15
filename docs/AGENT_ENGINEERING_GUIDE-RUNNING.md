@@ -663,6 +663,57 @@ Persistence invariants (all machine-checked — do not weaken):
   or appearance presets; mutation helpers preserve birth identity defensively.
   Plot copies retain ordinary source/dependency ownership; data-morphed source paths must
   follow the copied asset, and presets gather assets referenced only by Change targets too.
+  **Transforms are ONE class of action with three ways (0.6, `docs/SLIDE_TRANSFORMS.md`):**
+  Change (edit the object's After state), Ghost (a copy is born and transforms) and Become
+  (the object morphs into ANOTHER object the author places — a shape, a pen path, a line, or a
+  fluxplot "axes and all"; for plots also data-only through the gallery). The record is always
+  the same `preset:"transform"` track: `to.state` is the property half and, for plot/image,
+  `to.assetId` the content half — the old `morph` preset and "Data morph" are gone, a data
+  morph IS a Become whose target shares the source's box (`migrateDeck` folds legacy records).
+  `becomeTransform` (ops.ts; CLI/MCP `become`) diffs the source's step pre-state against the
+  target (`diffState` is retype-aware: type + every non-base prop), writes the track, consumes
+  the target and gc's groups as ONE op (one Undo restores both); it refuses the Design step,
+  self, videos, ghost copies and unborn sources. The retype law: `applyState` with
+  `state.type` keeps only BASE_PROPS and completes the new kind's required props
+  (`completeRetyped`). Cross-kind flights run the OUTLINE MORPH (`slide/outline.ts`, pure):
+  `elementOutline` renders any drawn kind (rect + fillets, ellipse as 4 KAPPA arcs, line,
+  path; flips baked) as one node ring/chain; `planOutlines` splits both by arc length with
+  boundary-preserving de Casteljau splits so every original corner survives, aligns ring
+  seams/winding, and chooses `inflate` (the ring side is FILLED: the stroke doubles back on
+  itself as a degenerate ring that swells into the shape — no wedge) or `cut` (a stroke-only
+  ring opens where it is nearest both of the stroke's ends and unrolls into it);
+  `sampleElementMorph` lerps nodes/box/OKLab colours/stroke and
+  the driver draws three layers — A the original nodes (t=0), M one live `<path>` written
+  per frame with no serialization, B the end markup from the ONE serializer (t=1, later
+  tracks bind here). Heads that only one side draws fade (`fixedHeadOpacity`/`arrowFade`);
+  the body is never trimmed under a fading head. **The placement law (render.ts):** a
+  wrapper's layout box is WHOLE stage pixels (`layoutBoxOf`) at rest and in flight, and the
+  exact box rides a residual composite transform (translate + centre-conjugated rotation/flips
+  + scale, origin 0 0, micro-pixel precision) — one formula (`compositeTransform`) for
+  mid-flight frames and fractional rest, so the endpoint is the limit of the frames before it
+  (a fractional `left` pixel-snaps when painted; a transform never does — the settle jump).
+  **Layer hygiene:** a flight that only translates rides its own compositor layer for exactly
+  that flight (`promoteMovingWrapper`/`settleWrapper`, `will-change: transform`; the
+  transform driver via `pureMove`, keyframed specs via `transformFlight` — camera pans,
+  `move`, fadeRise's lift) and is demoted at either endpoint or after 250 ms parked; a flight
+  that scales or rotates paints in place every frame. Promoted, the browser rasterizes once
+  and moves the raster at float precision — the only way moving TEXT glides (in-place glyphs
+  snap their baseline to device pixels) and heavy plots move without repainting; demoted at
+  rest, everything is crisp. Two measured refinements: a gliding node is ARMED at rest with a
+  paused, additive, no-op transform animation (`armFlightMark`, kept across flights, cancelled
+  when the slide is disposed) — Chromium bakes a layer's fractional offset into every raster
+  unless it considers the transform animating, so without the mark a promoted element that
+  also repaints per frame (a recolour, a data morph) stepped again; the mark must exist
+  BEFORE the promotion (attached in the same frame as a transform change it does nothing).
+  And frame-by-frame capture (the video runtime) HOLDS flight layers (`holdFlightLayers`):
+  a fresh layer bakes the offset of its first frame, so with an encoder's worth of wall time
+  between frames every frame would be a fresh layer. Measure paint, not timing:
+  `scripts/perf/slide-settle-probe.mts` (centroid across the endpoint),
+  `slide-motion-probe.mts` (Δ per ms; MODE=transform|recolor|camera|rise|move, GAP/KEEPALIVE
+  for slow stepping), `slide-video-frames-probe.mts` (the capture document stepped slowly) and
+  `slide-playback-profile.mjs` (frame pacing + CPU profile of the editor preview). Gates:
+  `group:slide-transforms` (outline, become, become-browser, become-gui) plus the
+  tween/timeline/export-transform/transform-gui/ghost pins of both laws and the mark.
   When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
@@ -1270,10 +1321,44 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   "jitter" at slow ease tails. Frame timing can be perfect (zero drops) and it still stutters:
   it's paint quantization, not jank. Mid-flight morph frames therefore FREEZE layout at the t1
   box and ride a compositor transform (translate+scale, rotation/flips conjugated about the
-  current centre, origin 0 0 — `applyWrapperBoxComposite`); endpoints restore classic layout.
-  Equivalence holds because content svgs are `100%`+`preserveAspectRatio:none`: stretching the
-  frozen box by (w/w0, h/h0) IS the viewBox→box mapping. Gates read effective x = frozen left
-  - translate-x.
+  current centre, origin 0 0 — `applyWrapperBoxComposite`). Equivalence holds because content
+  svgs are `100%`+`preserveAspectRatio:none`: stretching the frozen box by (w/w0, h/h0) IS the
+  viewBox→box mapping. Gates read effective x = frozen left + translate-x.
+  **The same snap lives at REST** (2026-09-15): an endpoint written as a fractional layout box
+  (`left: 400.37px`) paints snapped while the frame before it painted exact — every transform
+  to a fractional position ended with a ~half-stage-px jump (several device px under the fit
+  scale) exactly as it settled. The layout box is now ALWAYS whole pixels (`layoutBoxOf`) and
+  the fraction rides the residual transform at rest too (`applyWrapperBox` → `compositeTransform`,
+  the one formula); the base box a flight freezes is that rounded box. Never write a fractional
+  left/top/width/height on a wrapper. Measured with `scripts/perf/slide-settle-probe.mts`:
+  Δ 0.000 across t=999→1000 for a rect, ellipse and text.
+- **Text painted in place never glides** — Skia positions axis-aligned glyphs sub-pixel in x
+  only; the baseline rounds to whole DEVICE pixels, so a moving text element steps down the
+  screen one device pixel at a time while the rect beside it slides (`slide-motion-probe`:
+  Δy per ms 0 / 0.445 stage px vs 0.06 uniform). `text-rendering` and friends don't change
+  this; only a compositor-moved raster does. Hence layer hygiene (§4): pure translations are
+  promoted with `will-change: transform` for the flight and demoted at rest — the browser
+  rasterizes once and moves the raster at float precision (text Δy sd 0.010 after). Two
+  corollaries: (1) a promoted layer that SCALES is a resampled raster (soft while growing,
+  then a sharpen pop on settle) — scaling/rotating flights stay un-promoted and paint in
+  place; (2) nothing may REST promoted (a fractional offset stays slightly soft and text loses
+  LCD AA) — endpoints demote synchronously and a parked scrub cools after 250 ms. The cool-down
+  is a single `setTimeout`, never a frame callback: playback owns the ONE animation clock
+  (`verify-slide-timeline` counts scheduled frames). (3) Chromium's "raster translation": a
+  layer it does not consider animating is rastered with its fractional offset baked in — at
+  layer creation and on every repaint — so a promoted element that also repaints per frame
+  stepped again, and a layer re-created per frame (slow frame stepping) steps every frame.
+  A paused additive no-op transform animation on the node (`armFlightMark`) counts as
+  animating and stops the re-baking, but ONLY if it already exists when the layer is
+  created — created in the same frame as the transform change it is inert (three variants
+  measured: same frame, one frame ahead, unpaused; only "armed at rest" works). A paused
+  animation is "current" and keeps its detached target alive, so marks are cancelled on
+  dispose and a still (`renderStaticAt`) disposes what it armed. Probe hygiene: a
+  measurement that screenshots a full stage per step is slower than the cool-down and
+  demotes the layer between steps — capture small clips fast, decode later; never let two
+  probed flights cross (a channel measure under another element's colour is garbage, not
+  jitter); and pick per-frame steps that are FRACTIONAL device pixels, or quantization is
+  invisible by construction.
 - **Inline SVG copies + `url(#id)` are document-global.** Chromium resolves `url(#clipPath-id)`
   to the FIRST matching id anywhere in the document, and composes clip geometry from RENDERED
   children only — a duplicate-id copy inside a `visibility:hidden` subtree (ModeContent
@@ -4811,3 +4896,45 @@ are recorded in `test-results/slides-sync-review/review.md`.
 current features, source installation, and links to detailed docs. Verified local and
 public links, image loading, npm script names, and desktop/mobile Markdown previews;
 the documentation gate passed 158/158.
+
+### 2026-09-15 — Transforms unified: Change · Ghost · Become, plus the smoothness pass (Claude Fable 5.1, `slides-transforms`)
+
+**Work:** Owner ask: one class of action called *transform* with three ways — Change (as is),
+Ghost (as is) and the new **Become**: the author places another object (shape, pen path, line, or
+a fluxplot "axes and all"), picks it, and the original morphs into it; for plots also data-only
+via the gallery. Assessed independently whether "Data morph" survives as a fourth kind: no — a
+data morph is a Become whose target shares the source's box; the `morph` preset is gone
+(`migrateDeck` folds legacy records), `to.assetId` is simply the content half of the one
+`transform` record (`docs/SLIDE_TRANSFORMS.md` §2 has the four-point evidence). Built the pure
+outline-morph core (`slide/outline.ts`: outlines for every drawn kind, boundary-preserving
+arc-length splits, seam/winding alignment, cut vs inflate, OKLab style lerps, fading heads), the
+retype law in `tween.ts` (`applyState` with `type` keeps BASE_PROPS + completes the kind;
+`diffState` retype-aware), the `becomeTransform` op (one op: track written, target consumed,
+groups gc'd; one Undo restores both; refuses Design/self/video/ghost-copy/unborn), the
+three-layer driver (A original nodes / M one live path / B end markup), CLI/MCP `become`,
+the Transform ▾ menu + pick bar (⌃⇧E) + Properties Destination row, user docs and shortcuts.
+Then the **smoothness pass**, measurement-first (painted centroids at 1 ms seeks, never
+timing): (1) the settle snap — endpoints written as fractional layout boxes pixel-snapped while
+the frame before painted exact (Δ ≈ 1 device px at t=999→1000); fixed by the placement law —
+whole-pixel layout boxes always, the fraction on a residual composite transform at rest as
+well as in flight (`layoutBoxOf`, `compositeTransform`); (2) text stepping — glyphs painted in
+place snap their baseline to device pixels (Δy per ms 0/0.445 vs a rect's uniform 0.06);
+fixed by layer hygiene — translation-only flights ride a `will-change: transform` layer and
+demote at rest (transform driver `pureMove`; keyframed `transformFlight` covers camera pans,
+`move`, fadeRise). Both laws pinned in `verify-slide-tween`; probes in `scripts/perf/slide-*`.
+Verified: check 0/0; pure 218/219 (media-browser = the container's H.264-less Chromium, fails
+on main too); `group:slide-transforms` + `slide-ghosts` 14/14; slide UI 14/17 (the three
+embed/video-clip timeouts reproduce on main here); docs 158/158; registry parity PASS.
+
+**Learnings:** promoted to §4 (transforms, the placement law, layer hygiene with the flight
+mark and the capture hold, the probes) and §9 (the rest-position snap; text never glides
+painted in place; a promoted layer must never scale or rest; Chromium re-bakes a layer's
+fractional offset on repaint unless the transform counts as animating — the paused additive
+mark, armed at rest; probe hygiene: capture fast or the cool-down demotes under your
+measurement, never let probed flights cross, and step by fractional device pixels). Meta-lessons: (a) two probes disagreed about text
+"jitter" for an hour because their fixtures differed in one way — the flights crossed — so a
+noisy measurement is first a suspect fixture; (b) a gate that counts scheduled frames
+("one playback clock") is a real design constraint — the layer cool-down became a timer,
+not a frame callback, because of it; (c) headless software compositing is fine for
+"does the raster move sub-pixel" but not for "how soft is a scaled layer" — the design
+avoids the question (never scale a promoted layer) rather than depending on a cc heuristic.
