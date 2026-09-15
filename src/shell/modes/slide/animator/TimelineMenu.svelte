@@ -3,6 +3,8 @@
   // headers). Closes on outside pointerdown, Esc, or after an action.
   export interface MenuItem {
     label: string;
+    /** A dimmer second line (what the item does / its chord). */
+    hint?: string;
     action?: () => void;
     danger?: boolean;
     disabled?: boolean;
@@ -14,11 +16,14 @@
   let el = $state<HTMLDivElement | null>(null);
   // keep the menu on-screen (flip up/left near edges)
   const pos = $derived.by(() => {
-    const w = 190, h = items.length * 26 + 10;
+    const w = 190, h = items.reduce((sum, it) => sum + (it.divider ? 7 : it.hint ? 40 : 26), 10);
     const px = Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 9999) - w - 8);
     const py = Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 9999) - h - 8);
     return { x: Math.max(4, px), y: Math.max(4, py) };
   });
+  // Own the keyboard while open: focus lands on the menu so Escape closes it
+  // here instead of reaching the editor's Esc ladder (which would deselect).
+  $effect(() => { el?.focus({ preventScroll: true }); });
   function onWin(e: PointerEvent) {
     if (el && !el.contains(e.target as Node)) onClose();
   }
@@ -27,14 +32,15 @@
   }
 </script>
 
-<svelte:window onpointerdown={onWin} onkeydown={onKey} />
+<!-- capture phase: a canvas gesture may stop propagation, but the menu must still close -->
+<svelte:window onpointerdowncapture={onWin} onkeydown={onKey} />
 <div class="menu" bind:this={el} style={`left:${pos.x}px; top:${pos.y}px`} role="menu" tabindex="-1">
   {#each items as it, i (i)}
     {#if it.divider}
       <div class="div"></div>
     {:else}
-      <button role="menuitem" class:danger={it.danger} disabled={it.disabled}
-        onclick={() => { it.action?.(); onClose(); }}>{it.label}</button>
+      <button role="menuitem" class:danger={it.danger} class:hinted={!!it.hint} disabled={it.disabled}
+        onclick={() => { it.action?.(); onClose(); }}>{it.label}{#if it.hint}<small>{it.hint}</small>{/if}</button>
     {/if}
   {/each}
 </div>
@@ -52,6 +58,9 @@
   }
   .menu button:hover:not(:disabled) { background: color-mix(in oklab, var(--c-accent, #4385be) 18%, transparent); color: var(--c-tx-hi, #fff); }
   .menu button:disabled { color: var(--c-tx-faint, #6f6e69); cursor: default; }
+  .menu button.hinted { display: flex; flex-direction: column; gap: 1px; padding-block: 5px; }
+  .menu button small { font-size: 10px; color: var(--c-tx-3, #878580); white-space: nowrap; }
+  .menu button:hover:not(:disabled) small { color: var(--c-tx-2, #b7b5ac); }
   .menu button.danger { color: var(--c-danger, #d14d41); }
   .menu button.danger:hover { background: color-mix(in oklab, var(--c-danger, #d14d41) 16%, transparent); }
   .div { height: 1px; background: var(--c-line, #282726); margin: 3px 4px; }

@@ -26,7 +26,7 @@ export function sourceAt(slide: Slide, sourceId: string, beforeBeat: number, sam
   const result = structuredClone(sampled);
   if (result.type !== "plot") return result;
   for (let bi = 0; bi < Math.min(beforeBeat, slide.beats.length); bi++) for (const track of slide.beats[bi].tracks) {
-    if (track.disabled || track.target !== sourceId || !["transform", "morph"].includes(track.preset ?? "") || !track.to?.assetId) continue;
+    if (track.disabled || track.target !== sourceId || track.preset !== "transform" || !track.to?.assetId) continue;
     const to = track.to;
     if (typeof to.svgPath === "string") result.source = {
       svgPath: to.svgPath,

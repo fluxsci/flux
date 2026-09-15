@@ -196,6 +196,7 @@ usage: flux <verb> [root] [args] [--flags]
   set-animation <deckId> <slideId> <beatId> --target <elId|@camera> [--preset P --part id --start ms --duration ms --easing e --to-asset id --to-x/-y/-zoom] [--track '<json>' --append]   animate (append preserves existing effects)
   set-transform <deckId> <slideId> <beatId> <elementId> [--state '<json patch>' --replace-state --start ms --duration ms --easing e --to-asset id]   the t1→t2 state tween (one per element per beat)
   ghost-transform <deckId> <slideId> <beatId> <sourceId> [--count 3 --original stay|disappear|transform --states '<json array>' --original-state '<json patch>' --duration ms --start ms --easing e]   spawn independent copies from the source's current state
+  become <deckId> <slideId> <beatId> <sourceId> (--target <elementId> | --asset <assetId>) [--start ms --duration ms --easing e --force]   the source turns into another object (consumed) or, for a plot, another project plot's data
   group-tracks <deckId> <slideId> <beatId> t1,t2… [--label L]   bundle lanes under a collapsible TrackGroup
   ungroup-tracks <deckId> <slideId> <beatId> t1,t2…   dissolve the lanes' groups
   cascade-tracks <deckId> <slideId> <start|duration|influence.in|influence.out|stagger.perMs> t1,t2… [--delta n | --factor n] [--order timeline|list] [--reverse] [--first-fixed]   stepped timing delta across tracks (rank k gets value+delta·step)
@@ -210,7 +211,6 @@ usage: flux <verb> [root] [args] [--flags]
   set-part-style <deckId> <elementId> <part> --patch '<json>'   per-part style override (stroke/fill/…)
   animate-part <deckId> <slideId> <elementId> <part> [--beat-index n]   default reveal for a plot part
   animate-element <deckId> <slideId> <elementId> [--exit --preset P --beat-index n --part <plotPartId>]   enter/exit for text/shape/image/plot
-  set-morph <deckId> <slideId> <beatId> <elementId> <toAssetId> [--duration ms --force]   data-space morph to any project plot
   validate-deck [deckId] [--root R]    validate a deck (or all decks)
   export-deck <deckId> [--out F] [--root R]   export a self-contained offline .html (default exports/<deckId>.html)
   export-slide-video <deckId> <slideId> [--out F] [--root R]   export one slide as MP4; --step-delay/--start-hold/--end-hold in ms, --height 720|1080|2160, --fps 30|60

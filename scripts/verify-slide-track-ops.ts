@@ -128,9 +128,20 @@ const cands = listMorphCandidates(A, [
 assert(cands.find((x) => x.assetId === "b")!.compatible, "shared tweenable series → compatible");
 assert(!cands.find((x) => x.assetId === "c")!.compatible, "disjoint series ids → incompatible");
 assert(!cands.find((x) => x.assetId === "none")!.compatible, "missing manifest → incompatible");
-assert(ops.setMorphTrack(deck, sid, b2.id, plotId, "demo/other", { duration: 900 }), "setMorphTrack authors on the beat");
-const morphT = b2.tracks.find((t) => t.preset === "morph")!;
-assert(morphT.to?.assetId === "demo/other" && morphT.duration === 900 && morphT.easing === "smooth", "morph track shape (to.assetId, duration, smooth default)");
+// the data-only Become (once "set-morph"): the ONE transform track carries the content half
+assert(ops.setTransform(deck, sid, b2.id, plotId, { toAssetId: "demo/other", duration: 900 }), "setTransform authors the data-only Become on the beat");
+const morphT = b2.tracks.find((t) => t.preset === "transform" && t.target === plotId)!;
+assert(morphT.to?.assetId === "demo/other" && morphT.duration === 900 && morphT.easing === "smooth", "data-only Become track shape (to.assetId, duration, smooth default)");
+// a legacy deck still carrying preset "morph" normalizes to the transform track at load
+{
+  const legacy = structuredClone(deck);
+  const ls = legacy.slides.find((sl) => sl.id === sid)!;
+  const lt = ls.beats.find((b) => b.id === b2.id)!.tracks.find((t) => t.id === morphT.id)!;
+  (lt as unknown as { preset: string }).preset = "morph"; delete lt.duration; delete lt.to!.state;
+  ops.normalizeDeck(legacy);
+  const nt = ls.beats.find((b) => b.id === b2.id)!.tracks.find((t) => t.id === morphT.id)!;
+  assert(nt.preset === "transform" && nt.duration === 1200 && nt.to?.assetId === "demo/other" && nt.to?.state && !Object.keys(nt.to.state).length, "normalizeDeck folds a legacy morph into a transform (its 1200 ms default kept, empty state)");
+}
 
 // --- 0.3.0 family law: appearance + transform coexist; one transform/target/beat
 {
@@ -144,8 +155,8 @@ assert(morphT.to?.assetId === "demo/other" && morphT.duration === 900 && morphT.
   assert(beat.tracks.length === 2 && beat.tracks.some((t) => t.preset === "drawOn"), "a second appearance REPLACES the first (within-family match)");
   ops.setAnimation(d, s, beat.id, { target: "el-1", preset: "transform", to: { state: { y: 9 } } });
   assert(beat.tracks.filter((t) => t.preset === "transform").length === 1, "max ONE transform per target per beat (family match replaces)");
-  ops.setAnimation(d, s, beat.id, { target: "el-1", preset: "morph", to: { assetId: "p2" } });
-  assert(beat.tracks.filter((t) => t.preset === "morph" || t.preset === "transform").length === 1, "legacy morph and transform share the family — still one track");
+  ops.setAnimation(d, s, beat.id, { target: "el-1", preset: "transform", to: { assetId: "p2" } });
+  assert(beat.tracks.filter((t) => t.preset === "transform").length === 1, "a data-only Become (content half) is the same family — still one track");
 
   // setTransform: the ergonomic merge form
   const t1 = ops.setTransform(d, s, beat.id, "el-2", { state: { x: 10, fill: "#ff0000" }, duration: 800 })!;

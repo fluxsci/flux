@@ -57,7 +57,9 @@ plot parts. Selecting an object identifies its effects in the current step.
 To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plot part), then use:
 
 - **Appear** / **Ctrl+Shift+A** — add an entrance.
-- **Change** / **Ctrl+Shift+T** — shape a new state at this step.
+- **Transform ▾** — one action, three ways: **Change** (**Ctrl+Shift+T**) shapes a new state of the
+  object at this step; **Ghost…** creates copies that transform independently; **Become…**
+  (**Ctrl+Shift+E**) turns the object into another one. See [Transforms](#transforms).
 - **Emphasize** — add a highlight.
 - **Disappear** / **Ctrl+Shift+D** — add an exit.
 
@@ -108,38 +110,35 @@ tweens a number in a text element ("n = 1,247" counts up in place). Draw-on/off 
 **trim path** control (direction, anchor, single/both-ends/middle-out, partial windows), and
 wipes pick their direction.
 
-## Transforms and morphs
+## Transforms {#transforms}
 
-A **Change** track tweens an element into a different version of itself. Add one and its **After**
-state appears on the canvas. Use the ordinary editor tools to shape it; the animator records a sparse
-property change. **Before** selects the immediately previous step (or Design for the first change),
-while **After** selects this step. The destination above the stage always identifies where subsequent
-edits will go. Chained changes compose across steps; colors blend perceptually and rewritten numbers
-digit-tween. Clear a captured property in the Animation inspector to let it inherit from earlier steps.
+Every object can be **transformed** at a step in exactly three ways. They share one lane kind in
+the timeline (**Transform · Change**, **Transform · Ghost**, **Transform · Become**), one set of
+timing and easing controls, and the same rules: one transform per object per step, chained across
+steps, with the **Before** / **After** buttons choosing which endpoint you edit.
 
-**Alt+I** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
-Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gallery in a
-separate window for repeated insertion onto the active slide.
+### Change
 
-For plots, choose **Data morph…** or **Choose data target from project…** in the Animation inspector.
-Choose one plot from the project's plot browser. It becomes the Change's data dependency, without
-placing a second object on the slide. Structurally compatible plots morph axes, series, and marks;
-incompatible targets use a crossfade fallback. The source path is retained so linked data can update.
+A **Change** tweens an object into a different version of itself. Choose **Transform ▸ Change**
+(or **Ctrl+Shift+T**) and its **After** state appears on the canvas. Use the ordinary editor tools
+to shape it; the animator records a sparse property change. **Before** selects the immediately
+previous step (or Design for the first change), while **After** selects this step. The destination
+above the stage always identifies where subsequent edits will go. Chained changes compose across
+steps; colors blend perceptually and rewritten numbers digit-tween. Drop a captured property in the
+Animation inspector's **Δ** row to let it inherit from earlier steps.
 
-**Zoom** adds a camera move toward the selected object; **Reset** pulls back to the full slide.
-After-step editing uses the same camera mapping, so selection, dragging, and highlights stay aligned.
+### Ghost
 
-## Ghost transforms
-
-A **Ghost transform…** creates independent copies that move out from an object. For example,
+**Transform ▸ Ghost…** creates independent copies that move out from an object. For example,
 one arrow can split into three arrows pointing to three new results.
 
 1. Select the source object and the step where the copies should appear, then choose
-   **Ghost transform…** in the animation pane.
+   **Transform ▸ Ghost…**.
 2. Choose the number of copies (1–32; initially 3) and whether the original should **Stay**,
    **Disappear**, or **Transform** too.
 3. Create the ghosts. Flux selects the first copy in **Edit after step**. Move, resize,
-   rotate, restyle, or edit it with the ordinary tools to set its destination.
+   rotate, restyle, or edit it with the ordinary tools to set its destination — or make it
+   **Become** something else (below).
 4. Use the copy selector and Previous/Next controls to edit the other copies, even while
    they overlap. **Add copy** adds another destination; **Select original** returns to the source.
 5. Play the step. Each copy begins at the original's state at the end of the preceding step
@@ -152,6 +151,48 @@ in the same step runs independently. The copies remain available for further ani
 Before their creation step, ghosts are absent, including with **Show hidden** enabled. Use
 **Edit destination** to return to the step where a selected ghost can be edited. Deleting a
 ghost's creation lane removes that copy and its later effects; Undo restores them together.
+
+### Become
+
+**Transform ▸ Become…** (or **Ctrl+Shift+E**) turns an object into another object. You do not
+edit the original: you point at what it should turn into.
+
+1. Select the source object and the step, then choose **Transform ▸ Become…**. A bar above the
+   stage says the source is waiting for its target; the step is checked out **After** so you see
+   the context.
+2. Select the object it becomes — draw a new one with the Rect, Ellipse, Line, Arrow or Pen tools
+   (it is picked the moment the tool finishes), or click an object already on the slide.
+3. That object is consumed: it disappears from the slide and its appearance becomes the source's
+   **After** state, exactly as if you had sculpted the source into it. The source keeps its name,
+   group and layer. One Undo brings the target back.
+
+Anything drawn with the pen, line and shape tools can become anything else drawn with them — a
+line becomes an ellipse, a bracket becomes an arrow, a rounded rectangle becomes a curve. The
+morph is continuous: outlines are put into correspondence and glide into each other, strokes
+inflate into filled shapes (or shapes deflate into strokes), colors blend, widths and dashes tween,
+and arrowheads fade rather than pop. Text, images and video have no outline to morph, so they
+crossfade while their box, rotation and opacity still tween. A Become at a step that already has a
+Change replaces that Change's endpoint; a ghost copy can Become something at its birth step.
+
+**Plots become other plots** in two ways. Click another plot placed on the slide and the source
+turns into it, axes and all. Or, with a plot source, choose **From gallery…** in the bar (or
+**Data from gallery…** in the Animation inspector) and pick a plot from the project: the frame
+stays where it is and only the plot's content becomes the picked plot's. Structurally compatible
+plots — the same series with the same number of points, same axis scales — tween their data
+through smoothly interpolated axes; other pairs crossfade while the frame still moves. The source
+path is retained so linked data can update, and **Keep own data** drops the data target again.
+There is no separate "data morph": it is a Become.
+
+The Animation inspector's **Destination** row states what the object becomes at the step
+("Becomes an ellipse", "Data becomes growth-b.svg") and offers **Become an object…** to point an
+existing transform somewhere else.
+
+**Alt+I** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
+Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gallery in a
+separate window for repeated insertion onto the active slide.
+
+**Zoom** adds a camera move toward the selected object; **Reset** pulls back to the full slide.
+After-step editing uses the same camera mapping, so selection, dragging, and highlights stay aligned.
 
 ## Cascading tracks
 
@@ -193,7 +234,7 @@ Video clips belong to Slide mode; Figure canvases continue to support static con
 # Export
 
 **Export** writes the deck to **one self-contained `.html`** in the project's `exports/` —
-every slide, beat, animation, morph, and font, playing in any web browser with the same keys
+every slide, beat, animation, transform, and font, playing in any web browser with the same keys
 as Present mode. No Flux on the presenting machine, no network, nothing to install: open the
 file, give the talk.
 
@@ -204,7 +245,7 @@ hold, and **1080p at 60 fps**. Settings are remembered for the next export.
 
 The start hold sets when the first animation begins. Later manual steps use your chosen
 delay; **with previous** steps play together, and **automatic** steps keep their authored
-delay. Animation durations, easing, plot morphs, ghost copies, text changes and camera
+delay. Animation durations, easing, Becomes, ghost copies, text changes and camera
 motion come from the same player used by Present. The video begins from the slide's
 initial design regardless of the step you are editing.
 
@@ -252,6 +293,6 @@ not delete the source. HTML exports retain manual playback; PDF and Word show st
 | Symptom | Cause → fix |
 |---|---|
 | The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
-| A data change crossfades instead of morphing | The plots have incompatible structures → use matching series/axes for continuous geometry morphing |
+| A plot Become crossfades instead of morphing its data | The plots have incompatible structures → use matching series ids, point counts and axis scales for continuous data morphing |
 | An animation issue appears | Select the issue to inspect the effect, then retarget missing objects/parts or adjust overlapping timing |
 | Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |

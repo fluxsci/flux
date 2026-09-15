@@ -202,6 +202,9 @@
    "verify-slide-ghost-browser.ts",
    "verify-slide-ghost-structure.ts",
    "verify-slide-ghost-api.ts",
+   "verify-slide-outline.ts",
+   "verify-slide-become.ts",
+   "verify-slide-become-browser.ts",
    "verify-slide-stash.ts",
    "verify-slide-arrow-browser.ts",
    "verify-figure-preservation.ts",
@@ -303,6 +306,7 @@
    "verify-figure-reference-sync.mjs",
    "verify-slide-source-sync-gui.mjs",
    "verify-slide-ghost-gui.mjs",
+   "verify-slide-become-gui.mjs",
    "verify-slide-marquee-gui.mjs",
    "verify-figure-preservation-gui.mjs",
    "verify-figure-editing-gui.mjs",
@@ -577,10 +581,30 @@
   "plot-gallery-native": [
    "verify-plot-gallery-electron.cjs",
    "verify-gallery-preview-electron.cjs"
+  ],
+  "slide-transforms": [
+   "verify-slide-tween.ts",
+   "verify-slide-outline.ts",
+   "verify-slide-become.ts",
+   "verify-slide-become-browser.ts",
+   "verify-slide-track-ops.ts",
+   "verify-slide-ghost-runtime.ts",
+   "verify-slide-ghost-browser.ts",
+   "verify-slide-arrow-browser.ts",
+   "verify-slide-become-gui.mjs",
+   "verify-slide-ghost-gui.mjs",
+   "verify-slide-import-gui.mjs",
+   "verify-slide-animator-gui.mjs"
   ]
  },
  "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
  "pathMap": [
+  {
+   "glob": "{src/lib/slide/outline.ts,src/lib/slide/tween.ts,src/lib/slide/player/transform.ts,src/lib/slide/ops.ts,src/shell/modes/slide/AnimatePanel.svelte,src/shell/modes/slide/animator/PropertiesPane.svelte,src/shell/modes/slide/animator/TimelineMenu.svelte}",
+   "run": [
+    "group:slide-transforms"
+   ]
+  },
   {
    "glob": "src/lib/{store.ts,ops.ts,Xray.svelte,XrayNode.svelte}",
    "run": [

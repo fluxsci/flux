@@ -34,10 +34,14 @@ import { applyOverrides } from "../../plot/parse";
 import { compensatePtTrue, restorePtTrue, compilePtTrueBindings, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
-import { elementBBox } from "../../geometry";
+import { elementBBox, dashAttr } from "../../geometry";
+import { pathRender } from "../../path";
 import { lerpElement, contentPlan, type ContentPlan } from "../tween";
+import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
 import { createMorph, type MorphController } from "./morph";
 import { applyWrapperBox, applyWrapperBoxComposite, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 export interface TransformCtx extends SlideRenderCtx {
   /** Effective source content after earlier cues (may be a crossfade layer). */
@@ -75,12 +79,21 @@ export function createTransform(
     plan.mode = "crossfade";
     plan.contentDirty = true;
   }
+  // an image whose picture changes crossfades (a stepped href would pop)
+  if (pre.type === "image" && end.type === "image" && pre.assetId !== end.assetId) {
+    plan.mode = "crossfade";
+    plan.contentDirty = true;
+  }
+  // BECOME between drawn kinds: the outline morph (one live path between the
+  // real start and end markup). No plan (degenerate geometry) → crossfade.
+  const morphPlan: ElementMorphPlan | null = plan.mode === "morph" ? planElementMorph(pre, end) : null;
+  if (plan.mode === "morph" && !morphPlan) plan.mode = "crossfade";
   const contentHost = ctx.contentHost ?? (wrap as HTMLElement & { __slideEffects?: HTMLElement }).__slideEffects ?? wrap;
-  const staticUpdate = pre.type !== "plot" && plan.contentDirty && plan.mode !== "crossfade"
+  const staticUpdate = pre.type !== "plot" && plan.contentDirty && plan.mode === "tween"
     ? compileStaticContent(contentHost, pre, end, ctx) : null;
   // Text wrapping can change node topology as metrics change. Keep that
   // deliberate fallback; shape topology changes use prebuilt crossfade layers.
-  if (pre.type !== "plot" && pre.type !== "text" && plan.contentDirty && !staticUpdate) plan.mode = "crossfade";
+  if (pre.type !== "plot" && pre.type !== "text" && plan.contentDirty && !staticUpdate && plan.mode === "tween") plan.mode = "crossfade";
   const skip = ctx.skipProps;
   const boxOpts = {
     skipOpacity: skip?.has("opacity") ?? false,
@@ -147,9 +160,117 @@ export function createTransform(
 
   let clearedDash = false;
 
+  // --- the outline-morph layers (Become between drawn kinds) ----------------
+  // A = the ORIGINAL nodes, moved (never cloned) so earlier inner-node
+  //     animations stay attached; shown only at t = 0.
+  // M = one live <path> (+ arrowhead nodes) written per frame from the pure
+  //     sampler — no serialization, parsing or selectors on the frame path.
+  // B = the end markup through the ONE serializer; shown at t = 1 and the
+  //     root later tracks bind to.
+  let morphLayers: { A: HTMLElement; M: HTMLElement; B: HTMLElement; svg: SVGSVGElement; body: SVGPathElement;
+    heads: { start: { poly: SVGPolygonElement; vee: SVGPolylineElement } | null; end: { poly: SVGPolygonElement; vee: SVGPolylineElement } | null };
+    fixed: (SVGPolygonElement | SVGPolylineElement)[] } | null = null;
+  function ensureMorphLayers(): NonNullable<typeof morphLayers> {
+    if (morphLayers) return morphLayers;
+    const mk = (): HTMLElement => {
+      const d = document.createElement("div");
+      d.style.cssText = "position:absolute;inset:0;";
+      return d;
+    };
+    const A = mk(), M = mk(), B = mk();
+    while (contentHost.firstChild) A.appendChild(contentHost.firstChild);
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.style.overflow = "visible";
+    svg.style.display = "block";
+    const body = document.createElementNS(SVG_NS, "path");
+    body.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(body);
+    const head = (): { poly: SVGPolygonElement; vee: SVGPolylineElement } => {
+      const poly = document.createElementNS(SVG_NS, "polygon");
+      const vee = document.createElementNS(SVG_NS, "polyline");
+      vee.setAttribute("fill", "none");
+      vee.setAttribute("stroke-linecap", "round");
+      vee.setAttribute("stroke-linejoin", "round");
+      svg.appendChild(poly);
+      svg.appendChild(vee);
+      return { poly, vee };
+    };
+    const heads = { start: morphPlan!.arrowStart ? head() : null, end: morphPlan!.arrowEnd ? head() : null };
+    // inflate: the stroke side's heads ride along mapped into the box and fade
+    const fixed = morphPlan!.fixedHeads.map((h) => {
+      const node = document.createElementNS(SVG_NS, h.filled ? "polygon" : "polyline");
+      if (!h.filled) { node.setAttribute("fill", "none"); node.setAttribute("stroke-linecap", "round"); node.setAttribute("stroke-linejoin", "round"); }
+      svg.appendChild(node);
+      return node;
+    });
+    M.appendChild(svg);
+    fillContent(B, end, ctx);
+    contentHost.appendChild(A);
+    contentHost.appendChild(M);
+    contentHost.appendChild(B);
+    morphLayers = { A, M, B, svg, body, heads, fixed };
+    return morphLayers;
+  }
+  function showMorphLayer(t: number): void {
+    const L = ensureMorphLayers();
+    L.A.style.visibility = t <= 0 ? "" : "hidden";
+    L.M.style.visibility = t > 0 && t < 1 ? "" : "hidden";
+    L.B.style.visibility = t >= 1 ? "" : "hidden";
+  }
+  function writeMorphFrame(el: FigElement, t: number): void {
+    const L = ensureMorphLayers();
+    if (el.type !== "path") return;
+    const set = (n: Element, name: string, value: string) => { if (n.getAttribute(name) !== value) n.setAttribute(name, value); };
+    set(L.svg, "viewBox", `0 0 ${Math.max(el.width, 1)} ${Math.max(el.height, 1)}`);
+    // Heads that only one side draws FADE; the body is never trimmed under a
+    // fading head (a trimmed body would leave a gap once the head is gone).
+    const both = { start: morphPlan!.preStyle.arrowStart && morphPlan!.endStyle.arrowStart, end: morphPlan!.preStyle.arrowEnd && morphPlan!.endStyle.arrowEnd };
+    const bodyGeom = pathRender({ ...el, arrowStart: both.start, arrowEnd: both.end });
+    const headGeom = !el.closed && (L.heads.start || L.heads.end) ? pathRender(el) : null;
+    set(L.body, "d", bodyGeom.d);
+    set(L.body, "fill", el.fill);
+    set(L.body, "stroke", el.stroke);
+    set(L.body, "stroke-width", String(el.strokeWidth));
+    set(L.body, "stroke-linecap", el.closed ? "butt" : (el.cap ?? "round"));
+    const dash = dashAttr(el);
+    if (dash) set(L.body, "stroke-dasharray", dash); else L.body.removeAttribute("stroke-dasharray");
+    for (let i = 0; i < L.fixed.length; i++) {
+      const h = morphPlan!.fixedHeads[i], node = L.fixed[i];
+      const w = Math.max(el.width, 1e-6), hh = Math.max(el.height, 1e-6);
+      const side = h.side === "pre" ? morphPlan!.preStyle : morphPlan!.endStyle;
+      set(node, "points", h.pts.map(([u, v]) => `${u * w},${v * hh}`).join(" "));
+      set(node, h.filled ? "fill" : "stroke", side.stroke);
+      if (!h.filled) set(node, "stroke-width", String(side.strokeWidth));
+      set(node, "opacity", String(fixedHeadOpacity(h, t)));
+    }
+    if (headGeom) {
+      const filled = (el.arrowStyle ?? "filled") === "filled";
+      const geoms = filled ? headGeom.polys : headGeom.vees;
+      // pathRender lists the END head first, then the START head
+      let gi = 0;
+      for (const which of ["end", "start"] as const) {
+        const node = L.heads[which];
+        if (!node || !(which === "end" ? el.arrowEnd : el.arrowStart)) continue;
+        const pts = geoms[gi++];
+        const opacity = String(arrowFade(morphPlan!, which, t));
+        const points = pts ? pts.map(([px, py]) => `${px},${py}`).join(" ") : "";
+        if (filled) {
+          set(node.poly, "points", points); set(node.poly, "fill", el.stroke); set(node.poly, "opacity", opacity);
+          node.vee.setAttribute("points", "");
+        } else {
+          set(node.vee, "points", points); set(node.vee, "stroke", el.stroke); set(node.vee, "stroke-width", String(el.strokeWidth)); set(node.vee, "opacity", opacity);
+          node.poly.setAttribute("points", "");
+        }
+      }
+    }
+  }
+
   function seek(raw: number): void {
     const t = clamp01(raw);
-    const el = lerpElement(pre, end, t);
+    const el = morphPlan ? (t <= 0 ? pre : t >= 1 ? end : sampleElementMorph(morphPlan, t)) : lerpElement(pre, end, t);
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
     if (el.type === "text" && el.needsLayout) applyTextLayout(el);
@@ -157,6 +278,12 @@ export function createTransform(
       applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
     } else {
       applyWrapperBox(wrap, el, boxOpts);
+    }
+
+    if (morphPlan) {
+      if (t > 0 && t < 1) writeMorphFrame(el, t);
+      showMorphLayer(t);
+      return;
     }
 
     if (plan.mode === "crossfade") {
@@ -222,5 +349,6 @@ export function createTransform(
   // Build in story order, before later tracks resolve their targets. A B-only
   // semantic part after A→B must bind B's nodes even on the first random seek.
   if (plan.mode === "crossfade") { ensureLayers(); layerB!.style.opacity = "0"; }
+  if (morphPlan) { showMorphLayer(0); return { seek, targetRoot: ensureMorphLayers().B }; }
   return { seek, targetRoot: layerB ?? contentHost };
 }

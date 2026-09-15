@@ -121,11 +121,13 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
   assert(closed.length === 8 && near(closed[0].x, 0) && near(closed[0].y, 0), "closed resample keeps the seam at node 0");
   assert(near(closed[1].x, 50) && near(closed[1].y, 0), "…and walks the perimeter (400/8=50 per station)");
 
-  // topology change → crossfade plan + step
+  // topology change → the outline morph (Become): one path whose ends travel,
+  // never a crossfade or a step (superseded 2026-09-15 — see verify-slide-outline)
   const open = pathEl(nodes([[0, 0], [100, 0], [100, 100]]), false);
   const shut = pathEl(nodes([[0, 0], [100, 0], [100, 100]]), true);
-  assert(contentPlan(open, shut).mode === "crossfade", "closed≠open topology crossfades");
-  assert((lerpElement(open, shut, 0.6) as PathElement).closed === true, "…and the model steps at t=.5");
+  assert(contentPlan(open, shut).mode === "morph", "closed≠open topology morphs through the outline");
+  const topo = lerpElement(open, shut, 0.6) as PathElement;
+  assert(topo.type === "path" && topo.nodes!.length > 3 && topo.nodes!.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)), "…and the model samples a finite intermediate path");
 
   // cornerRadius lerps and the frame's d embeds the interpolated fillets;
   // cap (a string) steps at t=.5 like other discrete props.

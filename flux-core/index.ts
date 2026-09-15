@@ -128,7 +128,7 @@ export {
   setPartStyle,
   animatePartVerb,
   animateElementVerb,
-  setMorph,
+  become,
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
   addGhostTransform,

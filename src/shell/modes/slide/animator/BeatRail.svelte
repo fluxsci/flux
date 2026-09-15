@@ -8,7 +8,7 @@
   import { slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks } from "../../../../lib/slide/ops";
   import type { Slide, Track, Beat, TrackGroup } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
-  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, trackEndMs, snapMs, isDanglingTrack, presetLabel } from "./shared";
+  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, trackEndMs, snapMs, isDanglingTrack, trackKindLabel } from "./shared";
   import { hoverTrackId, timelinePxPerMs } from "./animatorState";
   import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
@@ -312,7 +312,7 @@
           <span class="ruler-head" style={`transform:translateX(${time*scale}px)`}></span>
         </div>
       </div>
-      {#if !rows.length}<div class="empty">{$activeBeat===0?"Select an object, then choose Appear, Change, Emphasize, or Disappear.":"No effects in this step. Select an object or plot part and add an effect above."}</div>{/if}
+      {#if !rows.length}<div class="empty">{$activeBeat===0?"Select an object, then choose Appear, Transform, Emphasize, or Disappear.":"No effects in this step. Select an object or plot part and add an effect above."}</div>{/if}
       {#each rows as row,ri ("group"in row?row.group.id:row.track.id??ri)}
         {#if "group"in row}
           <div class="lane-row group" class:selected={row.tracks.every(t=>!!t.id&&highlightedIds.has(t.id))} data-row-index={ri} data-group-id={row.group.id}>
@@ -322,8 +322,8 @@
         {:else}{@const t=row.track}{@const tx=familyOf(t)==="transform"}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="lane-row" class:selected={!!t.id&&highlightedIds.has(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
-            <button class="target-label track-label" onclick={e=>chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${presetLabel(t.preset??"fade")}`}>
-              <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{t.ghostFrom ? "Ghost transform" : presetLabel(t.preset??"fade")}{t.disabled?" · disabled":""}</small>
+            <button class="target-label track-label" onclick={e=>chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${trackKindLabel(t)}`}>
+              <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{trackKindLabel(t)}{t.disabled?" · disabled":""}</small>
             </button>
             <div class="time-cell">
               <!-- svelte-ignore a11y_no_static_element_interactions -->

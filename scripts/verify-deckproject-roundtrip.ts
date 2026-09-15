@@ -64,7 +64,7 @@ const deck: Deck = {
           tracks: [
             { id: "t1", target: "e-text", preset: "fadeRise", start: 0, duration: 320, easing: "smooth" },
             { id: "t2", target: "e-plot", part: "fit.line", preset: "drawOn", duration: 600, stagger: { perMs: 40, by: "x", from: "start" }, influence: { in: 30, out: 10 } },
-            { id: "t3", target: "e-plot", preset: "morph", to: { assetId: "other-plot", svgPath: "plots/o.svg" }, duration: 1200 },
+            { id: "t3", target: "e-plot", preset: "transform", to: { assetId: "other-plot", svgPath: "plots/o.svg", state: {} }, duration: 1200 },
             { id: "t4", target: "gone-element", preset: "fade" }, // DANGLING — must survive untouched
           ],
         },

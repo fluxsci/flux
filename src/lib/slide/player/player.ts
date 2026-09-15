@@ -18,7 +18,7 @@ import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "
 import { morphCompatible, type MorphController } from "./morph";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
-import { applyState, transformPreState } from "../tween";
+import { transformEndState, transformPreState } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
 import type { Deck, Slide, Track, StageSize, DeckTheme } from "../types";
 
@@ -162,17 +162,16 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     for (const track of beat.tracks) {
       // A disabled track keeps its authored timing in the deck but is invisible
       // to play/static/export — the non-destructive Mask/Show substrate.
-      if (track.disabled || track.keyframes || isVideoCommand(track) || track.preset && !(track.preset in PRESETS) && !["transform", "morph", "countUp"].includes(track.preset)) continue;
+      if (track.disabled || track.keyframes || isVideoCommand(track) || track.preset && !(track.preset in PRESETS) && !["transform", "countUp"].includes(track.preset)) continue;
       const key = `${track.target}|${track.part ?? ""}|${JSON.stringify(track.selector ?? null)}`;
       // transform — the state tween (rework §4). Pre = fold of earlier
       // transforms; end = pre ⊕ to.state. Plots may ALSO carry a content
       // morph target (to.assetId) — one track, both halves.
-      if (track.preset === "transform" || track.preset === "morph") {
+      if (track.preset === "transform") {
         const wrap = rendered.elements.get(track.target);
         const preEl = transformPreState(slide, track.target, bi);
         if (!wrap || !preEl) continue; // dangling target — tolerated no-op
-        const endEl = applyState(preEl, track.to?.state as Record<string, unknown> | undefined);
-        if (endEl.type === "plot" && track.to?.assetId) endEl.assetId = track.to.assetId;
+        const endEl = transformEndState(preEl, track);
         let morphTo: { A: import("../../plot/types").FluxPlotManifest; B: import("../../plot/types").FluxPlotManifest } | undefined;
         const el = slide.elements.find((e) => e.id === track.target);
         if (el && el.type === "plot" && track.to?.assetId) {
@@ -190,7 +189,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
         specs.push({
           node: wrap, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
-          delay: track.start ?? 0, duration: track.duration ?? (track.preset === "morph" ? 1200 : 600),
+          delay: track.start ?? 0, duration: track.duration ?? 600,
           easing: resolveEasing(track.easing ?? "smooth", track.influence),
           morph: driver,
           morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence),

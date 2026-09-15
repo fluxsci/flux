@@ -10,10 +10,10 @@ export const PRESET_COLOR: Record<string, string> = {
   drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
   growBaseline: "#d0a215", popIn: "#8b7ec8", writeOn: "#3aa99f", highlight: "#d0a215",
   dim: "#6f6e69", move: "#4385be", scale: "#4385be", rotate: "#4385be", camera: "#a02f6f",
-  // the TRANSFORM family reads GREEN (the mockups' t1—t2 lanes); legacy morph
-  // is the same family, same color. (Distinct from fade's lighter green;
-  // the full family palette lands with the Phase-3 animator.)
-  transform: "#66800b", morph: "#66800b",
+  // the TRANSFORM family reads GREEN (the mockups' t1—t2 lanes) — one color
+  // for all three ways (Change · Ghost · Become). (Distinct from fade's
+  // lighter green; the full family palette lands with the Phase-3 animator.)
+  transform: "#66800b",
   // exits render in the muted red family — visually "this leaves the stage"
   fadeOut: "#af3029", popOut: "#af3029", drawOff: "#af3029", wipeOut: "#af3029", countUp: "#66800b",
   videoStart: "#3aa99f", videoPause: "#d0a215", videoStop: "#af3029",
@@ -26,7 +26,25 @@ export const EDIT_PRESETS: PresetName[] = [
 export const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
 export function presetLabel(preset: string): string {
   return ({fade:"Fade in",fadeRise:"Rise in",popIn:"Pop in",drawOn:"Draw on",growBaseline:"Grow",stagger:"Stagger in",writeOn:"Wipe in",
-    fadeOut:"Fade out",popOut:"Pop out",drawOff:"Draw off",wipeOut:"Wipe out",highlight:"Highlight",dim:"Dim",countUp:"Count up",transform:"Change",morph:"Data morph",camera:"Camera",videoStart:"Start video",videoPause:"Pause video",videoStop:"Stop video"} as Record<string,string>)[preset] ?? preset;
+    fadeOut:"Fade out",popOut:"Pop out",drawOff:"Draw off",wipeOut:"Wipe out",highlight:"Highlight",dim:"Dim",countUp:"Count up",transform:"Transform",camera:"Camera",videoStart:"Start video",videoPause:"Pause video",videoStop:"Stop video"} as Record<string,string>)[preset] ?? preset;
+}
+
+/** The three WAYS of transforming, read off the one transform track: a birth
+ *  (`ghostFrom`) is a Ghost; an endpoint that names another kind (`state.type`)
+ *  or another content asset (`to.assetId`) is a Become; anything else is a
+ *  Change. Purely a label — playback never distinguishes them. */
+export type TransformWay = "change" | "ghost" | "become";
+export function transformWay(t: Track): TransformWay {
+  if (t.ghostFrom) return "ghost";
+  const st = t.to?.state as Record<string, unknown> | undefined;
+  if ((st && typeof st.type === "string") || t.to?.assetId) return "become";
+  return "change";
+}
+export const WAY_LABEL: Record<TransformWay, string> = { change: "Change", ghost: "Ghost", become: "Become" };
+/** The lane sub-label: "Transform · Become", "Fade in", … */
+export function trackKindLabel(t: Track): string {
+  if (t.preset === "transform") return `Transform · ${WAY_LABEL[transformWay(t)]}`;
+  return presetLabel(t.preset ?? "fade");
 }
 export const INFLUENCE_PRESETS: { name: string; in: number; out: number }[] = [
   { name: "ease", in: 0, out: 0 },

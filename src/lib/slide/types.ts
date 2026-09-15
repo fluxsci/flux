@@ -151,11 +151,13 @@ export interface Slide {
 // ---------------------------------------------------------------------------
 
 /** The preset catalog. Each compiles a track → WAAPI keyframes (or a bespoke
- *  driver for `transform`/`morph`/`countUp`). Authoring families (see
+ *  driver for `transform`/`countUp`). Authoring families (see
  *  family.ts): APPEARANCES (enters hidden before their beat; exits hidden
- *  after — fadeOut/popOut/drawOff/wipeOut; emphasis) and TRANSFORMS (an
- *  element tweens into a different version of itself — `transform`, plus the
- *  legacy data-space `morph` it subsumes), MEDIA (video commands), and camera. */
+ *  after — fadeOut/popOut/drawOff/wipeOut; emphasis) and TRANSFORMS (one
+ *  `transform` preset: an element tweens into a different version of itself
+ *  (Change), spawns copies that do (Ghost), or turns into another object
+ *  (Become); decks still carrying the legacy `morph` preset normalize to it),
+ *  MEDIA (video commands), and camera. */
 export type PresetName =
   | "fade"
   | "fadeRise"
@@ -175,7 +177,6 @@ export type PresetName =
   | "rotate"
   | "camera"
   | "countUp"
-  | "morph"
   | "transform"
   | "videoStart"
   | "videoPause"
@@ -204,14 +205,16 @@ export interface Stagger {
   from?: "start" | "end" | "center" | "edges";
 }
 
-/** The destination of a `transform` (a sparse element-state patch), a `morph`
- *  (a second same-structure plot asset) or a `camera` move (a stage pose). */
+/** The destination of a `transform` (a sparse element-state patch plus, for
+ *  plots, the content half) or a `camera` move (a stage pose). */
 export interface TrackTarget {
-  /** transform (plot content half) / morph: a second semantic-plot asset id
-   *  (same generator/series ⇒ same ids). */
+  /** transform, content half: the asset the element's content becomes — a
+   *  second semantic-plot asset id (same generator/series ⇒ the data tweens;
+   *  otherwise the plots crossfade). Written by Change (data target) and by
+   *  every plot Become. */
   assetId?: Id;
-  /** morph/transform: explicit PROJECT-relative source paths for the target
-   *  plot — authored by ops.setMorphTrack so resolvers stop guessing. */
+  /** Explicit PROJECT-relative source paths for the content target —
+   *  authored with `assetId` so resolvers never guess. */
   svgPath?: string;
   manifestPath?: string;
   /** camera: the pose to move to. */
@@ -224,8 +227,10 @@ export interface TrackTarget {
    *  opacity, fill, stroke, strokeWidth, text, fontSize, d, nodes, x1..y2,
    *  cornerRadius, dash, crop, contentScale, overrides, …). Absent key =
    *  unchanged; `null` = the prop is deleted at t2; `overrides` patches merge
-   *  per part-id (a part key of `null` deletes that part's override). Applied
-   *  by tween.applyState — never hand-compose. */
+   *  per part-id (a part key of `null` deletes that part's override). `type`
+   *  names the KIND the object becomes (a Become): the patch then carries the
+   *  new kind's complete properties and applyState retypes. Applied by
+   *  tween.applyState — never hand-compose. */
   state?: Record<string, unknown>;
   /** move/scale/rotate deltas ride the index signature (preset-specific). */
   [prop: string]: unknown;
@@ -278,7 +283,7 @@ export interface Track {
    *  when set: maps to cubic-bezier(out/100, 0, 1 − in/100, 1). */
   influence?: Influence;
   stagger?: Stagger;
-  /** transform/morph/camera/move destination. */
+  /** transform/camera/move destination. */
   to?: TrackTarget;
   /** Forward-compat full keyframes (preset optional when present). */
   keyframes?: Keyframe[];

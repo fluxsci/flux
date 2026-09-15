@@ -136,7 +136,7 @@ const nodeZ = z.object({
 export const SLIDE_PRESETS = [
   "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
   "fadeOut", "popOut", "drawOff", "wipeOut",
-  "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "morph",
+  "highlight", "dim", "move", "scale", "rotate", "camera", "countUp",
   "transform",
 ] as const;
 export const SLIDE_LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
@@ -3025,37 +3025,50 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "set_morph",
-    cli: "set-morph",
+    name: "become",
+    cli: "become",
     cliRoot: "flags",
     summary:
-      "Author the data-space morph: a plot element tweens into ANY project plot (by asset id) on a beat. Refuses structurally-incompatible pairs (no shared tweenable series) unless force.",
+      "Transform, way three — BECOME: an object turns into another one at a build step. `target` names another object on the slide: its evaluated state at the end of the step becomes the source's transform endpoint (kind included — a line can become an ellipse, a bracket an arrow, a rect a plot) and the target is consumed. For a plot source, `asset` names another project plot instead (data-only: the frame stays, the content becomes that plot's; structurally compatible plots tween their data, others crossfade and are refused unless force). Writes the same one transform track a Change would.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
       beatId: z.string(),
-      elementId: z.string(),
-      toAssetId: z.string(),
-      duration: z.number().optional(),
+      sourceId: z.string(),
+      target: z.string().optional(),
+      asset: z.string().optional(),
+      start: z.number().min(0).optional(),
+      duration: z.number().min(0).optional(),
+      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
       force: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
       { kind: "pos", at: 1, into: "slideId", required: true },
       { kind: "pos", at: 2, into: "beatId", required: true },
-      { kind: "pos", at: 3, into: "elementId", required: true },
-      { kind: "pos", at: 4, into: "toAssetId", required: true },
+      { kind: "pos", at: 3, into: "sourceId", required: true },
+      { kind: "flag", at: "target", into: "target" },
+      { kind: "flag", at: "asset", into: "asset" },
+      { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
+      { kind: "flag", at: "easing", into: "easing" },
       { kind: "flag", at: "force", into: "force", as: "boolean" },
     ],
     handler: (ctx, a) =>
-      core.setMorph(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.elementId), s(a.toAssetId), {
-        duration: a.duration as number | undefined,
-        force: a.force as boolean | undefined,
+      core.become(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.sourceId), {
+        ...(a.target != null ? { targetId: s(a.target) } : {}),
+        ...(a.asset != null ? { assetId: s(a.asset) } : {}),
+        ...(a.start != null ? { start: a.start as number } : {}),
+        ...(a.duration != null ? { duration: a.duration as number } : {}),
+        ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
+        ...(a.force ? { force: true } : {}),
       }),
     render: {
-      human: (_r, a) => ({ err: `✓ morph ${a.elementId} → ${a.toAssetId} on beat ${a.beatId}` }),
-      mcp: (_r, a) => text(`morph ${a.elementId} → ${a.toAssetId} on beat ${a.beatId}`),
+      human: (r, a) => ({
+        out: (r as { trackId: string }).trackId,
+        err: `✓ ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})`,
+      }),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})`),
     },
   },
   {

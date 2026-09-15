@@ -397,21 +397,8 @@ export async function setTransformTrack(
 ): Promise<{ trackId: string }> {
   return mutateDeck(root, deckId, "set_transform", async (deck) => {
     mustSlide(deck, slideId);
-    // fig-derived morph targets need explicit paths (the setMorph lesson —
-    // resolvers must not guess): probe the conventional locations.
-    let svgPath: string | undefined;
-    let manifestPath: string | undefined;
-    if (opts.toAssetId) {
-      for (const sp of [j("plots", `${opts.toAssetId}.svg`), j("fig", "assets", `${opts.toAssetId}.svg`)]) {
-        try {
-          await fs.access(safeJoin(root, sp));
-          svgPath = sp;
-          const mp = sp.replace(/\.svg$/i, ".fluxplot.json");
-          try { await fs.access(safeJoin(root, mp)); manifestPath = mp; } catch { /* svg only */ }
-          break;
-        } catch { /* next */ }
-      }
-    }
+    // a content target needs explicit paths (resolvers must not guess)
+    const paths = opts.toAssetId ? await resolveAssetSource(root, opts.toAssetId) : {};
     const t = slideOps.setTransform(deck, slideId, beatId, targetId, {
       ...(opts.state ? { state: opts.state } : {}),
       ...(opts.replaceState ? { replaceState: true } : {}),
@@ -419,8 +406,7 @@ export async function setTransformTrack(
       ...(opts.duration != null ? { duration: opts.duration } : {}),
       ...(opts.easing != null ? { easing: opts.easing } : {}),
       ...(opts.toAssetId != null ? { toAssetId: opts.toAssetId } : {}),
-      ...(svgPath ? { svgPath } : {}),
-      ...(manifestPath ? { manifestPath } : {}),
+      ...paths,
     });
     if (!t?.id) throw new Error(`beat not found: ${beatId} on ${slideId}`);
     return { trackId: t.id };
@@ -727,54 +713,74 @@ export async function animateElementVerb(
   });
 }
 
-/** set-morph: author a data-space morph from a plot element to any project plot.
- *  Refuses structurally-incompatible pairs (same gate the GUI + player use). */
-export async function setMorph(
+/** Resolve the explicit PROJECT-relative source paths of a project plot asset
+ *  (the project manifest's plots index first, then the conventional
+ *  locations). A content target lives only in the track's `to`, never as an
+ *  element, so a bare assetId left the GUI preview unable to resolve
+ *  figure-derived targets — resolvers must never guess. */
+async function resolveAssetSource(root: string, assetId: string): Promise<{ svgPath?: string; manifestPath?: string }> {
+  const man = (await loadManifest(root).catch(() => null)) as unknown as {
+    plots?: { id: string; path?: string; svgPath?: string; manifestPath?: string }[];
+  } | null;
+  const entry = man?.plots?.find((p) => p.id === assetId);
+  let svgPath = entry?.svgPath ?? entry?.path;
+  let manifestPath = entry?.manifestPath;
+  if (!svgPath) {
+    for (const sp of [j("plots", `${assetId}.svg`), j("fig", "assets", `${assetId}.svg`)]) {
+      try { await fs.access(safeJoin(root, sp)); svgPath = sp; break; } catch { /* next candidate */ }
+    }
+  }
+  if (svgPath && !manifestPath) {
+    const mp = svgPath.replace(/\.svg$/i, ".fluxplot.json");
+    try { await fs.access(safeJoin(root, mp)); manifestPath = mp; } catch { /* no sibling manifest */ }
+  }
+  return { ...(svgPath ? { svgPath } : {}), ...(manifestPath ? { manifestPath } : {}) };
+}
+
+/** become: the third way of transforming. `sourceId` turns into either another
+ *  object on the slide (`targetId` — consumed, its evaluated state becomes the
+ *  source's endpoint, kind included) or, for a plot, another project plot
+ *  (`assetId` — the data-only form: the frame stays, the content becomes the
+ *  other plot's; structurally incompatible pairs crossfade and are refused
+ *  unless `force`). Twin of the GUI's Become pick. */
+export async function become(
   root: string,
   deckId: string,
   slideId: string,
   beatId: string,
-  elementId: string,
-  toAssetId: string,
-  opts: { duration?: number; force?: boolean } = {},
-): Promise<void> {
-  await mutateDeck(root, deckId, "set_morph", async (deck) => {
+  sourceId: string,
+  opts: { targetId?: string; assetId?: string; duration?: number; start?: number; easing?: import("../src/lib/slide/types").EasingToken; force?: boolean } = {},
+): Promise<{ trackId: string; targetId?: string; assetId?: string }> {
+  if (!!opts.targetId === !!opts.assetId) throw new Error("become needs exactly one of --target <elementId> or --asset <assetId>");
+  return mutateDeck(root, deckId, "become", async (deck) => {
     mustSlide(deck, slideId);
-    const found = slideOps.findElement(deck, elementId);
-    if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
+    if (opts.targetId) {
+      const result = slideOps.becomeTransform(deck, slideId, beatId, sourceId, opts.targetId, {
+        ...(opts.duration != null ? { duration: opts.duration } : {}),
+        ...(opts.start != null ? { start: opts.start } : {}),
+        ...(opts.easing != null ? { easing: opts.easing } : {}),
+      });
+      if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
+      return { trackId: result.trackId, targetId: result.targetId };
+    }
+    const assetId = opts.assetId!;
+    const found = slideOps.findElement(deck, sourceId);
+    if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${sourceId} (the data-only form needs a plot source)`);
     if (!opts.force) {
       const A = await readPlotManifest(root, found.el);
-      const B = await readPlotManifest(root, { assetId: toAssetId });
-      const [cand] = listMorphCandidates(A, [{ assetId: toAssetId, manifest: B }]);
-      if (!cand?.compatible) throw new Error(`morph ${found.el.assetId} → ${toAssetId}: structurally incompatible (no shared tweenable series). Pass force to author anyway.`);
+      const B = await readPlotManifest(root, { assetId });
+      const [cand] = listMorphCandidates(A, [{ assetId, manifest: B }]);
+      if (!cand?.compatible) throw new Error(`become ${found.el.assetId} → ${assetId}: structurally incompatible (no shared tweenable series) — playback would crossfade. Pass force to author anyway.`);
     }
-    // Persist explicit target paths so later loads/exports never guess. The
-    // project manifest's plots index is authoritative when it knows the asset;
-    // otherwise PROBE the conventional locations (plots/<id>.svg, then the
-    // figure-derived fig/assets/<id>.svg) — a morph target lives only in the
-    // track's `to`, never as an element, so a bare assetId left the GUI
-    // preview unable to resolve figure-derived targets (morph held at A).
-    const man = (await loadManifest(root).catch(() => null)) as unknown as {
-      plots?: { id: string; path?: string; svgPath?: string; manifestPath?: string }[];
-    } | null;
-    const entry = man?.plots?.find((p) => p.id === toAssetId);
-    let svgPath = entry?.svgPath ?? entry?.path;
-    let manifestPath = entry?.manifestPath;
-    if (!svgPath) {
-      for (const sp of [j("plots", `${toAssetId}.svg`), j("fig", "assets", `${toAssetId}.svg`)]) {
-        try { await fs.access(safeJoin(root, sp)); svgPath = sp; break; } catch { /* next candidate */ }
-      }
-    }
-    if (svgPath && !manifestPath) {
-      const mp = svgPath.replace(/\.svg$/i, ".fluxplot.json");
-      try { await fs.access(safeJoin(root, mp)); manifestPath = mp; } catch { /* no sibling manifest */ }
-    }
-    const ok = slideOps.setMorphTrack(deck, slideId, beatId, elementId, toAssetId, {
-      duration: opts.duration,
-      ...(svgPath ? { svgPath } : {}),
-      ...(manifestPath ? { manifestPath } : {}),
+    const paths = await resolveAssetSource(root, assetId);
+    const t = slideOps.setTransform(deck, slideId, beatId, sourceId, {
+      toAssetId: assetId, ...paths,
+      ...(opts.duration != null ? { duration: opts.duration } : {}),
+      ...(opts.start != null ? { start: opts.start } : {}),
+      ...(opts.easing != null ? { easing: opts.easing } : {}),
     });
-    if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
+    if (!t?.id) throw new Error(`beat not found: ${beatId} on ${slideId}`);
+    return { trackId: t.id, assetId };
   });
 }
 

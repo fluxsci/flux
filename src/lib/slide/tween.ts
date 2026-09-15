@@ -20,18 +20,55 @@ import type { Element, PartOverride, VectorNode } from "../types";
 import type { Slide } from "./types";
 import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
+import { elementBBox } from "../geometry";
 import { pathD, pathToNodes, resampleNodes } from "../path";
+import { outlineMorphable, planElementMorph, sampleElementMorph } from "./outline";
 
 // --- the property law --------------------------------------------------------
 
 /** Props never captured into a transform state (identity/bookkeeping/derived).
  *  `assetId` is here too: a plot's content target lives in `to.assetId` (the
- *  morph half), never in the state patch. */
+ *  content half), never in the state patch. `type` IS captured: a Become
+ *  records the kind the object turns into (applyState retypes — below). */
 const NEVER_CAPTURED = new Set([
-  "id", "type", "name", "groupId", "locked", "hidden", "lockAspect",
+  "id", "name", "groupId", "locked", "hidden", "lockAspect",
   "assetId", "styleId", "panelLabel", "lines", "needsLayout",
   "source", "manifestRef", "posterAssetId", "durationMs", "muted", "loop",
 ]);
+
+/** The props every kind shares — what survives a RETYPE (a patch whose `type`
+ *  differs from the element's). Everything else of the old kind is dropped so
+ *  a line that became an ellipse carries no stray endpoints. */
+const BASE_PROPS = new Set([
+  "id", "name", "groupId", "locked", "hidden", "lockAspect",
+  "x", "y", "width", "height", "rotation", "flipX", "flipY", "opacity",
+]);
+
+/** Minimum props a retyped element needs to render/edit when the patch left
+ *  them out (agent-authored `{type}`-only patches); a GUI Become always
+ *  supplies the target's complete state. */
+function completeRetyped(el: Record<string, unknown>): void {
+  const def = (k: string, v: unknown) => { if (el[k] === undefined) el[k] = v; };
+  switch (el.type) {
+    case "rect": def("fill", "none"); def("stroke", "#000000"); def("strokeWidth", 1); def("cornerRadius", 0); break;
+    case "ellipse": def("fill", "none"); def("stroke", "#000000"); def("strokeWidth", 1); break;
+    case "line":
+      def("x1", 0); def("y1", 0); def("x2", el.width ?? 0); def("y2", el.height ?? 0);
+      def("stroke", "#000000"); def("strokeWidth", 1); def("arrowStart", false); def("arrowEnd", false);
+      break;
+    case "path": {
+      def("fill", "none"); def("stroke", "#000000"); def("strokeWidth", 1); def("closed", false);
+      const nodes = el.nodes as VectorNode[] | undefined;
+      if (typeof el.d !== "string") el.d = nodes?.length ? pathD(nodes, Boolean(el.closed), el.cornerRadius as number | undefined) : "";
+      break;
+    }
+    case "text":
+      def("text", ""); def("fontFamily", "sans-serif"); def("fontSize", 16); def("fontWeight", 400);
+      def("fontStyle", "normal"); def("align", "left"); def("color", "#000000"); def("sizing", "auto");
+      break;
+    case "plot": case "image": def("assetId", ""); break; // the content half (to.assetId) names the asset
+  }
+}
 
 /** Scalar-lerp props (rotation is special-cased for shortest arc). */
 const NUM_PROPS = new Set([
@@ -63,11 +100,20 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object
  *  input is never mutated. Text whose metric props changed drops its derived
  *  wrap cache and flags `needsLayout` (the GUI reflows; headless warns). */
 export function applyState(el: Element, state: Record<string, unknown> | undefined | null): Element {
-  const out = structuredClone(el) as unknown as Record<string, unknown>;
+  let out = structuredClone(el) as unknown as Record<string, unknown>;
   if (!state) return out as unknown as Element;
+  // A patch naming another KIND retypes: keep the shared base props, take
+  // the rest from the patch (nothing of the old kind lingers).
+  const retype = typeof state.type === "string" && state.type !== el.type;
+  if (retype) {
+    const kept: Record<string, unknown> = {};
+    for (const k of BASE_PROPS) if (k in out) kept[k] = out[k];
+    out = kept;
+  }
   let metrics = false;
   for (const [k, v] of Object.entries(state)) {
     if (NEVER_CAPTURED.has(k)) continue;
+    if (k === "type") { if (retype) out.type = v; continue; }
     if (k === "overrides") {
       const merged: Record<string, PartOverride> = { ...((out.overrides as Record<string, PartOverride>) ?? {}) };
       if (isObj(v)) {
@@ -84,6 +130,7 @@ export function applyState(el: Element, state: Record<string, unknown> | undefin
     else out[k] = structuredClone(v);
     if (METRIC_PROPS.has(k)) metrics = true;
   }
+  if (retype) completeRetyped(out);
   if (metrics && (out.type === "text")) {
     delete out.lines;
     out.needsLayout = true;
@@ -114,8 +161,11 @@ export function diffState(pre: Element, cur: Element): Record<string, unknown> |
   const b = cur as unknown as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  // across kinds the retype already drops the old kind's props — no nulls needed
+  const retype = pre.type !== cur.type;
   for (const k of keys) {
     if (NEVER_CAPTURED.has(k)) continue;
+    if (k === "type") { if (retype) out.type = cur.type; continue; }
     if (k === "overrides") {
       const ova = (a.overrides as Record<string, PartOverride>) ?? {};
       const ovb = (b.overrides as Record<string, PartOverride>) ?? {};
@@ -128,8 +178,8 @@ export function diffState(pre: Element, cur: Element): Record<string, unknown> |
       continue;
     }
     if (!(k in b)) {
-      if (k in a) out[k] = null;
-    } else if (!eq(a[k], b[k])) {
+      if (k in a && !retype) out[k] = null;
+    } else if (!eq(a[k], b[k]) || (retype && !BASE_PROPS.has(k))) {
       out[k] = structuredClone(b[k]);
     }
   }
@@ -235,12 +285,13 @@ export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: nu
 
 // --- the content plan (what the driver renders) -------------------------------
 
-export type ContentMode = "tween" | "crossfade";
+export type ContentMode = "tween" | "crossfade" | "morph";
 
 export interface ContentPlan {
   /** How the CONTENT layer animates ("tween": one re-rendered layer;
    *  "crossfade": two stacked layers, opacity cross-lerped — geometry still
-   *  moves via the lerped box). */
+   *  moves via the lerped box; "morph": one live outline path between two
+   *  drawn kinds — see outline.ts). */
   mode: ContentMode;
   /** Text digit-tween sampler when the text change is a pure numeric diff. */
   textTween?: (t: number) => string;
@@ -271,9 +322,11 @@ export function contentPlan(pre: Element, end: Element): ContentPlan {
     if (sampler) textTween = sampler;
     else mode = "crossfade";
   }
-  if (pre.type === "path" && end.type === "path" && Boolean(pre.closed) !== Boolean(end.closed)) {
-    mode = "crossfade"; // topology change — not interpolable
-  }
+  // Across kinds: drawn kinds morph through one outline (a path whose
+  // closedness changes is the same topology change); everything else
+  // (text, images, plots, video) crossfades while the box still tweens.
+  if (outlineMorphable(pre, end)) mode = "morph";
+  else if (pre.type !== end.type) mode = "crossfade";
   return { mode, ...(textTween ? { textTween } : {}), contentDirty, geometryDirty };
 }
 
@@ -285,6 +338,14 @@ export function contentPlan(pre: Element, end: Element): ContentPlan {
 export function lerpElement(pre: Element, end: Element, t: number): Element {
   if (t <= 0) return structuredClone(pre);
   if (t >= 1) return structuredClone(end);
+  // Across kinds (or a path changing closedness): the outline morph — one
+  // synthetic path mid-flight. Kinds without an outline step their content
+  // at t = 0.5 while box/rotation/opacity still tween (the driver crossfades).
+  if (outlineMorphable(pre, end)) {
+    const plan = planElementMorph(pre, end);
+    if (plan) return sampleElementMorph(plan, t);
+  }
+  if (pre.type !== end.type) return lerpAcrossKinds(pre, end, t);
   const a = pre as unknown as Record<string, unknown>;
   const b = end as unknown as Record<string, unknown>;
   const out = structuredClone(b); // end's shape; every differing prop overwritten below
@@ -338,27 +399,41 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
       else out[k] = structuredClone(v);
     }
   }
-  // path geometry, wholesale
+  // path geometry, wholesale (same closedness — a closedness change morphed above)
   if (pre.type === "path" && end.type === "path") {
-    const closedA = Boolean(pre.closed), closedB = Boolean(end.closed);
-    if (closedA === closedB && (pre.d !== end.d || JSON.stringify(pre.nodes) !== JSON.stringify(end.nodes))) {
+    const closedB = Boolean(end.closed);
+    if (pre.d !== end.d || JSON.stringify(pre.nodes) !== JSON.stringify(end.nodes)) {
       const nodes = lerpNodes(nodesOf(pre), nodesOf(end), closedB, t);
       (out as unknown as { nodes: VectorNode[]; d: string; closed: boolean }).nodes = nodes;
       // cornerRadius was already lerped above (NUM_PROPS) — the frame's d
       // fillets with the interpolated radius over the interpolated skeleton.
       (out as unknown as { d: string }).d = pathD(nodes, closedB, (out as { cornerRadius?: number }).cornerRadius);
-    } else if (closedA !== closedB) {
-      // topology step (the driver crossfades; the model steps at 0.5)
-      const src = t < 0.5 ? pre : end;
-      (out as unknown as { closed: boolean; d: string }).closed = Boolean(src.closed);
-      (out as unknown as { d: string }).d = src.d;
-      if (src.nodes) (out as unknown as { nodes?: VectorNode[] }).nodes = structuredClone(src.nodes);
-      else delete (out as unknown as { nodes?: VectorNode[] }).nodes;
     }
   }
   if (metrics && out.type === "text") {
     delete (out as unknown as { lines?: string[] }).lines;
     (out as unknown as { needsLayout?: true }).needsLayout = true;
+  }
+  return out as unknown as Element;
+}
+
+/** Two kinds with no shared outline (a text becoming a plot, an image becoming
+ *  a rect…): the content steps at t = 0.5, the shared base tweens. The driver
+ *  renders this as a crossfade over the lerped box. */
+function lerpAcrossKinds(pre: Element, end: Element, t: number): Element {
+  const src = t < 0.5 ? pre : end;
+  const out = structuredClone(src) as unknown as Record<string, unknown>;
+  const ba = elementBBox({ ...pre, rotation: 0 }), bb = elementBBox({ ...end, rotation: 0 });
+  const w = lerp(ba.w, bb.w, t), h = lerp(ba.h, bb.h, t);
+  out.x = lerp(ba.x, bb.x, t); out.y = lerp(ba.y, bb.y, t); out.width = w; out.height = h;
+  out.rotation = lerpRot(pre.rotation ?? 0, end.rotation ?? 0, t);
+  const oa = pre.opacity ?? 1, ob = end.opacity ?? 1;
+  if (oa !== 1 || ob !== 1) out.opacity = lerp(oa, ob, t); else delete out.opacity;
+  if (src.type === "line") {
+    // a line's box IS its endpoints — keep them consistent with the lerped box
+    const sx = src.x1 <= src.x2 ? 1 : -1, sy = src.y1 <= src.y2 ? 1 : -1;
+    out.x1 = sx > 0 ? 0 : w; out.x2 = sx > 0 ? w : 0;
+    out.y1 = sy > 0 ? 0 : h; out.y2 = sy > 0 ? h : 0;
   }
   return out as unknown as Element;
 }
@@ -449,7 +524,7 @@ export function transformPreState(slide: Slide, target: string, beatIndex: numbe
   const out = foldPreState(docEl, earlierTransformStates(slide.beats, target, beatIndex));
   // Content identity is a separate authored channel, but is still part of a
   // transform's effective source. A→B→C must start the second move at B.
-  if (out.type === "plot") {
+  if (out.type === "plot" || out.type === "image") {
     for (let i = 0; i < Math.min(beatIndex, slide.beats.length); i++) {
       for (const track of slide.beats[i].tracks) {
         if (!track.disabled && track.target === target && familyOf(track) === "transform" && track.to?.assetId) out.assetId = track.to.assetId;
@@ -457,4 +532,13 @@ export function transformPreState(slide: Slide, target: string, beatIndex: numbe
     }
   }
   return out;
+}
+
+/** The end state of a transform track: pre ⊕ state, plus the content half
+ *  (`to.assetId`) for element kinds that carry an asset. ONE definition — the
+ *  compiler, the player and the endpoint checkout all call it. */
+export function transformEndState(pre: Element, track: { to?: { state?: Record<string, unknown>; assetId?: string } }): Element {
+  const end = applyState(pre, track.to?.state);
+  if (track.to?.assetId && (end.type === "plot" || end.type === "image")) end.assetId = track.to.assetId;
+  return end;
 }
