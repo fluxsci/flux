@@ -13,7 +13,7 @@ import { animate, prefersReducedMotion } from "../../motion/motion";
 import { buildPartIndex } from "../../plot/parse";
 import { resolveTargets } from "../../plot/tree";
 import type { FluxPlotManifest } from "../../plot/types";
-import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, type SlideRenderCtx, type RenderedSlide } from "./render";
+import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { morphCompatible, type MorphController } from "./morph";
 import { createCountUp } from "./countup";
@@ -318,7 +318,7 @@ export function baseCameraTransform(slide: Slide, stage: StageSize): string {
 }
 
 // Compiled DOM binding state. No selectors or scene reconstruction in sampling.
-interface BoundNode { node: TargetNode; keyframed: Spec[]; properties: string[]; blockers: Map<Spec, Spec[]>; controllers: Spec[]; lastController: number; flights: Map<Spec, "translate" | "other"> }
+interface BoundNode { node: TargetNode; keyframed: Spec[]; properties: string[]; blockers: Map<Spec, Spec[]>; controllers: Spec[]; lastController: number; flights: Map<Spec, "translate" | "other">; glides: boolean }
 interface BoundPlan { nodes: BoundNode[]; natives: Map<Spec, Animation>; samplers: Map<Spec, (t: number) => Keyframe> }
 const bindings = new WeakMap<Spec[], BoundPlan>();
 function numericSampler(a: unknown, b: unknown): (t: number) => string | number {
@@ -362,7 +362,7 @@ function boundPlan(specs: Spec[]): BoundPlan {
     if (properties.has("transform")) properties.add("transformOrigin");
     const flights = new Map<Spec, "translate" | "other">();
     for (const s of keyframed) { const kind = transformFlight(s.keyframes); if (kind !== "none") flights.set(s, kind); }
-    return { node, keyframed, properties: [...properties], blockers, controllers: list.filter((s) => s.morph), lastController: -2, flights };
+    return { node, keyframed, properties: [...properties], blockers, controllers: list.filter((s) => s.morph), lastController: -2, flights, glides: [...flights.values()].includes("translate") };
   }), natives: new Map(), samplers: new Map() };
   // Materialize content layers in story order before a first random seek.
   // Otherwise seeking directly to a late text change could nest its layer
@@ -374,7 +374,11 @@ function boundPlan(specs: Spec[]): BoundPlan {
 }
 export function disposeSlideAnims(specs: Spec[]): void {
   const plan = bindings.get(specs);
-  if (plan) for (const animation of plan.natives.values()) { try { animation.cancel(); } catch { /* detached */ } }
+  if (plan) {
+    for (const animation of plan.natives.values()) { try { animation.cancel(); } catch { /* detached */ } }
+    // a slide torn down mid-flight leaves no promoted node behind
+    for (const group of plan.nodes) if (group.node.namespaceURI !== SVG_NS) releaseFlightMark(group.node as HTMLElement);
+  }
   bindings.delete(specs);
 }
 function progressAt(spec: Spec, beat: number, time: number): number {
@@ -394,7 +398,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
   };
   const activeNatives = new Set<Spec>();
   for (const group of plan.nodes) {
-    const { node, keyframed, properties, controllers, flights } = group;
+    const { node, keyframed, properties, controllers, flights, glides } = group;
     if (controllers.length) {
       let selected = -1;
       for (let i = 0; i < controllers.length; i++) if (progressAt(controllers[i], beat, time) >= 0) selected = i;
@@ -447,7 +451,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     if (applied.length) applyAccumulated(node, applied);
     if (node.namespaceURI !== SVG_NS) {
       if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
-      else settleWrapper(node as HTMLElement);
+      else { settleWrapper(node as HTMLElement); if (glides) armFlightMark(node as HTMLElement); }
     }
   }
   for (const [spec, animation] of plan.natives) if (!activeNatives.has(spec)) { animation.cancel(); plan.natives.delete(spec); }
@@ -676,5 +680,6 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   camera.style.transform = baseCameraTransform(slide, stage);
   const specs = computeSlideAnims(slide, rendered, camera, stage, opts, compiled);
   applyStatic(specs, beat);
+  disposeSlideAnims(specs); // a still: nothing armed or bound outlives it
   return rendered;
 }

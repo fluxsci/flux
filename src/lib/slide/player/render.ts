@@ -491,37 +491,76 @@ function compositeTransform(el: FigElement, bb: { x: number; y: number; w: numbe
 // (Skia positions axis-aligned text sub-pixel in x only), so a text element
 // re-painted per frame steps down the screen one device pixel at a time while
 // a shape beside it slides (measured: Δy per ms 0 / 0.445 stage px vs 0.06
-// uniform, compositor-probe). It is also what makes a heavy element (a plot
-// with a thousand marks) move for free: no repaint per frame, only the layer's
-// transform. Demotion at rest is the crisp-at-rest rule (Canvas.svelte P6):
-// a promoted layer keeps a resampled raster, and sits at a fractional offset
-// slightly soft; painting in place at rest is exact. Scaling or rotating
-// flights are never promoted — a fixed raster would be resampled every frame
-// (soft while growing, then a sharpen pop on settle); those keep painting
-// exactly, and text inside them is re-laid-out per frame anyway.
+// uniform, scripts/perf/slide-motion-probe). It is also what makes a heavy
+// element (a plot with a thousand marks) move for free: no repaint per frame,
+// only the layer's transform. Demotion at rest is the crisp-at-rest rule
+// (Canvas.svelte P6): a promoted layer keeps a resampled raster, and sits at a
+// fractional offset slightly soft; painting in place at rest is exact. Scaling
+// or rotating flights are never promoted — a fixed raster would be resampled
+// every frame (soft while growing, then a sharpen pop on settle); those keep
+// painting exactly, and text inside them is re-laid-out per frame anyway.
+//
+// Two refinements, both measured (the probe's MODE=recolor and GAP=400 runs):
+//  • Chromium bakes a layer's fractional offset into its raster ("raster
+//    translation") whenever it (re)rasters a layer whose transform it does not
+//    consider animating — so a promoted element that also REPAINTS per frame
+//    (a colour lerp, a data morph) stepped again. A paused, additive, no-op
+//    transform animation ARMED AT REST (armFlightMark — it must precede the
+//    promotion) marks the transform as animating for the compositor and costs
+//    nothing; with it the repainting text glides too.
+//  • A FRESH layer likewise bakes the offset of its first frame. That is fine
+//    in play (one layer per flight), but frame-by-frame capture with seconds
+//    of encoding between frames would demote and re-promote every frame; the
+//    video runtime therefore HOLDS flight layers (holdFlightLayers) so every
+//    frame is the same raster moved.
 // A scrub that parks mid-flight is demoted after LAYER_COOL_MS of quiet, so
 // nothing rests promoted. One timer serves every hot wrapper (never a frame
 // callback: playback owns the single animation clock).
 const LAYER_COOL_MS = 250;
 const hotWrappers = new Map<HTMLElement, number>();
+const animatingMarks = new WeakMap<HTMLElement, Animation>();
 let coolTimer: ReturnType<typeof setTimeout> | null = null;
+let holdLayers = false;
 function coolCheck(): void {
   coolTimer = null;
+  if (holdLayers) return;
   const now = performance.now();
-  for (const [w, at] of hotWrappers) {
-    if (now - at > LAYER_COOL_MS) { w.style.willChange = ""; hotWrappers.delete(w); }
-  }
+  for (const [w, at] of hotWrappers) if (now - at > LAYER_COOL_MS) settleWrapper(w);
   if (hotWrappers.size) coolTimer = setTimeout(coolCheck, LAYER_COOL_MS);
+}
+/** Rest frame of a node that will fly: mark its transform as animating for the
+ *  compositor with a paused, additive, no-op animation. Inert at rest (no
+ *  layer, painted in place), it must exist BEFORE the flight's promotion —
+ *  attached in the same frame as a transform change the browser runs it on
+ *  the main thread and the mark does nothing (measured). */
+export function armFlightMark(w: HTMLElement): void {
+  if (animatingMarks.has(w) || typeof w.animate !== "function") return;
+  const mark = w.animate([{ transform: "translate(0px, 0px)" }, { transform: "translate(0px, 0px)" }], { duration: 1e7, composite: "add" });
+  mark.pause();
+  mark.finished.catch(() => { /* cancelled with the node */ });
+  animatingMarks.set(w, mark);
 }
 /** Mid-flight frame of a pure move: keep the wrapper on its own layer. */
 export function promoteMovingWrapper(w: HTMLElement): void {
   if (!hotWrappers.has(w)) w.style.willChange = "transform";
   hotWrappers.set(w, performance.now());
-  if (!coolTimer) coolTimer = setTimeout(coolCheck, LAYER_COOL_MS);
+  if (!coolTimer && !holdLayers) coolTimer = setTimeout(coolCheck, LAYER_COOL_MS);
 }
 /** Endpoint frame: back to painting in place (crisp at rest). */
 export function settleWrapper(w: HTMLElement): void {
   if (hotWrappers.delete(w)) w.style.willChange = "";
+}
+/** A node leaving the player (slide torn down): drop its mark. */
+export function releaseFlightMark(w: HTMLElement): void {
+  settleWrapper(w);
+  const mark = animatingMarks.get(w);
+  if (mark) { mark.cancel(); animatingMarks.delete(w); }
+}
+/** Frame-by-frame capture: keep flight layers alive between frames however
+ *  long a frame takes. Endpoints still demote; releasing the hold cools. */
+export function holdFlightLayers(on: boolean): void {
+  holdLayers = on;
+  if (!on && hotWrappers.size && !coolTimer) coolTimer = setTimeout(coolCheck, LAYER_COOL_MS);
 }
 /** Whether a flight from `pre` to `end` is a pure move — same box size, no
  *  rotation or flips at either end — the only flights that ride a layer. */

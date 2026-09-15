@@ -39,7 +39,7 @@ import { pathRender } from "../../path";
 import { lerpElement, contentPlan, type ContentPlan } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
 import { createMorph, type MorphController } from "./morph";
-import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -286,7 +286,7 @@ export function createTransform(
       if (glide) promoteMovingWrapper(wrap);
     } else {
       applyWrapperBox(wrap, el, boxOpts);
-      if (glide) settleWrapper(wrap);
+      if (glide) { settleWrapper(wrap); armFlightMark(wrap); }
     }
 
     if (morphPlan) {

@@ -699,11 +699,21 @@ Persistence invariants (all machine-checked — do not weaken):
   that scales or rotates paints in place every frame. Promoted, the browser rasterizes once
   and moves the raster at float precision — the only way moving TEXT glides (in-place glyphs
   snap their baseline to device pixels) and heavy plots move without repainting; demoted at
-  rest, everything is crisp. Measure paint, not timing: `scripts/perf/slide-settle-probe.mts`
-  (centroid across the endpoint), `slide-motion-probe.mts` (Δ per ms; MODE=transform|camera|
-  rise|move) and `slide-playback-profile.mjs` (frame pacing + CPU profile of the editor
-  preview). Gates: `group:slide-transforms` (outline, become, become-browser, become-gui) plus
-  the tween/timeline/export-transform/transform-gui/ghost pins of both laws.
+  rest, everything is crisp. Two measured refinements: a gliding node is ARMED at rest with a
+  paused, additive, no-op transform animation (`armFlightMark`, kept across flights, cancelled
+  when the slide is disposed) — Chromium bakes a layer's fractional offset into every raster
+  unless it considers the transform animating, so without the mark a promoted element that
+  also repaints per frame (a recolour, a data morph) stepped again; the mark must exist
+  BEFORE the promotion (attached in the same frame as a transform change it does nothing).
+  And frame-by-frame capture (the video runtime) HOLDS flight layers (`holdFlightLayers`):
+  a fresh layer bakes the offset of its first frame, so with an encoder's worth of wall time
+  between frames every frame would be a fresh layer. Measure paint, not timing:
+  `scripts/perf/slide-settle-probe.mts` (centroid across the endpoint),
+  `slide-motion-probe.mts` (Δ per ms; MODE=transform|recolor|camera|rise|move, GAP/KEEPALIVE
+  for slow stepping), `slide-video-frames-probe.mts` (the capture document stepped slowly) and
+  `slide-playback-profile.mjs` (frame pacing + CPU profile of the editor preview). Gates:
+  `group:slide-transforms` (outline, become, become-browser, become-gui) plus the
+  tween/timeline/export-transform/transform-gui/ghost pins of both laws and the mark.
   When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
@@ -1334,10 +1344,21 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   place; (2) nothing may REST promoted (a fractional offset stays slightly soft and text loses
   LCD AA) — endpoints demote synchronously and a parked scrub cools after 250 ms. The cool-down
   is a single `setTimeout`, never a frame callback: playback owns the ONE animation clock
-  (`verify-slide-timeline` counts scheduled frames). Probe hygiene: a measurement that
-  screenshots a full stage per step is slower than the cool-down and demotes the layer
-  between steps — capture small clips fast, decode later; and never let two probed flights
-  cross (a channel measure under another element's colour is garbage, not jitter).
+  (`verify-slide-timeline` counts scheduled frames). (3) Chromium's "raster translation": a
+  layer it does not consider animating is rastered with its fractional offset baked in — at
+  layer creation and on every repaint — so a promoted element that also repaints per frame
+  stepped again, and a layer re-created per frame (slow frame stepping) steps every frame.
+  A paused additive no-op transform animation on the node (`armFlightMark`) counts as
+  animating and stops the re-baking, but ONLY if it already exists when the layer is
+  created — created in the same frame as the transform change it is inert (three variants
+  measured: same frame, one frame ahead, unpaused; only "armed at rest" works). A paused
+  animation is "current" and keeps its detached target alive, so marks are cancelled on
+  dispose and a still (`renderStaticAt`) disposes what it armed. Probe hygiene: a
+  measurement that screenshots a full stage per step is slower than the cool-down and
+  demotes the layer between steps — capture small clips fast, decode later; never let two
+  probed flights cross (a channel measure under another element's colour is garbage, not
+  jitter); and pick per-frame steps that are FRACTIONAL device pixels, or quantization is
+  invisible by construction.
 - **Inline SVG copies + `url(#id)` are document-global.** Chromium resolves `url(#clipPath-id)`
   to the FIRST matching id anywhere in the document, and composes clip geometry from RENDERED
   children only — a duplicate-id copy inside a `visibility:hidden` subtree (ModeContent
@@ -4905,10 +4926,12 @@ Verified: check 0/0; pure 218/219 (media-browser = the container's H.264-less Ch
 on main too); `group:slide-transforms` + `slide-ghosts` 14/14; slide UI 14/17 (the three
 embed/video-clip timeouts reproduce on main here); docs 158/158; registry parity PASS.
 
-**Learnings:** promoted to §4 (transforms, the placement law, layer hygiene, the probes) and §9
-(the rest-position snap; text never glides painted in place; a promoted layer must never
-scale or rest; probe hygiene: capture fast or the cool-down demotes under your measurement,
-and never let probed flights cross). Meta-lessons: (a) two probes disagreed about text
+**Learnings:** promoted to §4 (transforms, the placement law, layer hygiene with the flight
+mark and the capture hold, the probes) and §9 (the rest-position snap; text never glides
+painted in place; a promoted layer must never scale or rest; Chromium re-bakes a layer's
+fractional offset on repaint unless the transform counts as animating — the paused additive
+mark, armed at rest; probe hygiene: capture fast or the cool-down demotes under your
+measurement, never let probed flights cross, and step by fractional device pixels). Meta-lessons: (a) two probes disagreed about text
 "jitter" for an hour because their fixtures differed in one way — the flights crossed — so a
 noisy measurement is first a suspect fixture; (b) a gate that counts scheduled frames
 ("one playback clock") is a real design constraint — the layer cool-down became a timer,

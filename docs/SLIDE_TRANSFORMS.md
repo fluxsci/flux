@@ -154,7 +154,16 @@ never jank):
    demote it at either endpoint (or 250 ms after a scrub parks). After: text Δy per ms 0.060
    ± 0.010, uniform, in every mode; a heavy plot moves without repainting. Scaling or rotating
    flights are never promoted (a fixed raster would be resampled — soft while growing, then a
-   sharpen pop on settle); they keep painting exactly.
+   sharpen pop on settle); they keep painting exactly. Two refinements the probes forced:
+   Chromium bakes a layer's fractional offset into its raster whenever it does not consider the
+   transform animating, so a promoted element that also repaints per frame (MODE=recolor: a
+   colour lerp, likewise a data morph) stepped again — a paused, additive, no-op transform
+   animation armed at rest (`armFlightMark`) marks the transform as animating and the
+   repainting text glides (Δy sd 0.135 → 0.010); and the video capture runtime holds flight
+   layers across frames (`holdFlightLayers`), since a fresh layer bakes its first frame's
+   offset and an encoder's worth of wall time between frames would otherwise mean a fresh
+   layer per frame (`slide-video-frames-probe`: 400 ms between frames, text Δy per frame
+   1.017 ± 0.015 stage px — sub-pixel).
 
 Frame pacing in the editor preview (`scripts/perf/slide-playback-profile.mjs`): 89 consecutive
 16.7 ms frames, zero drops, on the normal fixture before and after; the dense fixture (1,200-mark

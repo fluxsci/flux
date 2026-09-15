@@ -205,7 +205,7 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 
-const { computeSlideAnims, applyStatic, transformPreState } = await import("../src/lib/slide/player/player");
+const { computeSlideAnims, applyStatic, disposeSlideAnims, transformPreState } = await import("../src/lib/slide/player/player");
 const { renderSlide } = await import("../src/lib/slide/player/render");
 const { FLUX_DARK } = await import("../src/lib/slide/theme");
 type Slide = import("../src/lib/slide/types").Slide;
@@ -369,9 +369,21 @@ function build(slide: Slide) {
   };
   const { rendered, specs } = build(slide);
   const mv = rendered.elements.get("mv")!, grow = rendered.elements.get("grow")!, spin = rendered.elements.get("spin")!;
+  // linkedom has no Web Animations: stub `animate` to observe the flight MARK —
+  // the paused, additive, no-op transform animation that tells the compositor
+  // the transform is animating (without it a promoted node that also repaints
+  // per frame bakes its fractional offset into every raster and steps again)
+  const marks: { node: HTMLElement; frames: Keyframe[]; opts: KeyframeAnimationOptions; paused: boolean; cancelled: boolean }[] = [];
+  (Object.getPrototypeOf(mv) as { animate?: unknown }).animate = function (this: HTMLElement, frames: Keyframe[], opts: KeyframeAnimationOptions) {
+    const m = { node: this, frames, opts, paused: false, cancelled: false };
+    marks.push(m);
+    return { pause: () => { m.paused = true; }, cancel: () => { m.cancelled = true; }, finished: Promise.resolve() };
+  };
   const ctrl = (id: string) => (specs.find((s) => (s as { trackId?: string }).trackId === id) as unknown as { morph: { seek(t: number): void } }).morph;
   applyStatic(specs, 0);
   assert(!mv.style.willChange && !grow.style.willChange, "at rest nothing is promoted");
+  assert(marks.length === 1 && marks[0].node === mv && marks[0].paused && marks[0].opts.composite === "add" && marks[0].frames.every((f) => f.transform === "translate(0px, 0px)"),
+    "…but the pure mover is ARMED at rest: one paused additive no-op transform animation (a scaling/rotating flight gets none)");
   ctrl("a").seek(0.5); ctrl("b").seek(0.5); ctrl("c").seek(0.5);
   assert(mv.style.willChange === "transform", "mid-flight a pure move (even one that recolors) rides its own layer");
   assert(!grow.style.willChange && !spin.style.willChange, "a scaling or rotating flight paints in place every frame (no resampled raster, no sharpen pop on settle)");
@@ -379,6 +391,10 @@ function build(slide: Slide) {
   assert(!mv.style.willChange && mv.style.left === "200px", "the endpoint demotes the wrapper (crisp at rest)");
   ctrl("a").seek(0.25); ctrl("a").seek(0);
   assert(!mv.style.willChange && mv.style.left === "10px", "…and so does a seek back to the start");
+  assert(marks.length === 1 && !marks[0].cancelled, "the mark outlives the flight (armed once per node, inert at rest, ready for the next flight)");
+  disposeSlideAnims(specs);
+  assert(marks[0].cancelled, "tearing the slide down cancels the mark (a paused animation would pin its detached node alive)");
+  delete (Object.getPrototypeOf(mv) as { animate?: unknown }).animate;
 }
 
 // dangling transform target: tolerated no-op

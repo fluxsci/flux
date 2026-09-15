@@ -1,4 +1,5 @@
 import { createPlayer } from "../player/player";
+import { holdFlightLayers } from "../player/render";
 import { embedPlayerOptions } from "../embedRender";
 import { planSlideVideo, videoFrame, videoOptions, videoSize, type SlideVideoOptions } from "../video";
 import type { ExportPayload } from "./runtime";
@@ -27,6 +28,10 @@ export async function boot(payload: ExportPayload, input: Partial<SlideVideoOpti
   }
   const playerOptions = embedPlayerOptions(payload);
   document.body.style.background = deck.slides[0].background ?? deck.background ?? playerOptions.theme.background;
+  // Frames are captured with arbitrary wall time between them: hold every
+  // flight layer so a moving element is ONE raster moved across frames, not a
+  // fresh layer per frame (which bakes its fractional offset in and steps).
+  holdFlightLayers(true);
   const player = createPlayer(host, deck, playerOptions);
   await player.readyMedia();
   const plan = planSlideVideo(deck.slides[0], player.beatDurations(), options);

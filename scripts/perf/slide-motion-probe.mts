@@ -2,9 +2,11 @@
 // easing, ~0.3 stage px/ms): uniform centroid deltas mean sub-pixel motion;
 // steps of ~1 px mean the paint is quantized to the pixel grid.
 //   MODE=transform (default) — a Change moves both
+//   MODE=recolor            — a Change moves AND recolours both (repaints per frame)
 //   MODE=camera             — a camera pan moves the stage under both
 //   MODE=rise               — fadeRise lifts both in (opacity + translateY)
 //   MODE=move               — the legacy `move` emphasis preset
+//   GAP=300                 — idle between steps (fresh flight layer per step)
 //   node --import tsx scripts/perf/slide-motion-probe.mts
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -24,6 +26,10 @@ const b1 = addBeat(deck, slide.id, { id: "b1" })!;
 if (MODE === "transform") {
   setTransform(deck, slide.id, b1.id, "t", { state: { x: 400, y: 120 }, duration: 1000, easing: "linear" });
   setTransform(deck, slide.id, b1.id, "r", { state: { x: 400, y: 260 }, duration: 1000, easing: "linear" });
+} else if (MODE === "recolor") {
+  // a pure move that ALSO repaints every frame (colour lerp → content-dirty)
+  setTransform(deck, slide.id, b1.id, "t", { state: { x: 400, y: 120, color: "#ff4000" }, duration: 1000, easing: "linear" });
+  setTransform(deck, slide.id, b1.id, "r", { state: { x: 400, y: 260, fill: "#40ff00" }, duration: 1000, easing: "linear" });
 } else if (MODE === "camera") {
   // pan the stage centre by (-300, -60) stage px → content moves +300, +60
   setAnimation(deck, slide.id, b1.id, { id: "cam", target: "@camera", preset: "camera", duration: 1000, easing: "linear", to: { x: 320 - 300, y: 180 - 60, zoom: 1 } });
@@ -56,9 +62,25 @@ try {
     for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) { const i = (y * img.width + x) * 4; const v = chan === "r" ? d[i] - Math.max(d[i + 1], d[i + 2]) : d[i + 1] - Math.max(d[i], d[i + 2]); if (v > 8) { sum += v; sx += v * x; sy += v * y; } }
     return { cx: sx / sum / scale, cy: sy / sum / scale, mass: sum / 255 / (scale * scale) };
   };
+  // GAP=<ms>: idle after each capture — past LAYER_COOL_MS the node demotes, so
+  // every step then starts a FRESH flight layer (the frame-by-frame capture case)
+  const GAP = Number(process.env.GAP ?? "0");
+  // DUMMY=1: experiment — attach a PAUSED additive no-op transform animation to
+  // the moving wrappers so the compositor treats the transform as animating
+  if (process.env.DUMMY === "1") {
+    await page.evaluate(`window.fluxDeck.seek(0, 1, 499)`);
+    const ct = process.env.DUMMY_CT ?? "50";
+    await page.evaluate(`(function(){ for (var el of document.querySelectorAll('${process.env.DUMMY_SEL ?? ".sl-el, .sl-camera, .sl-effects"}')) { var a = el.animate([{ transform: 'translate(0px, 0px)' }, { transform: 'translate(0px, 0px)' }], { duration: 100000, composite: 'add' }); a.pause(); if (${ct} >= 0) a.currentTime = ${ct}; } })()`);
+  }
   const t0 = performance.now();
   const shots: Buffer[] = [];
-  for (let ms = 500; ms <= 530; ms++) shots.push(await capture(ms));
+  // KEEPALIVE=1 with GAP: re-seek the same frame during the gap so the flight
+  // layer persists (what holdFlightLayers gives frame-by-frame capture)
+  for (let ms = 500; ms <= 530; ms++) {
+    shots.push(await capture(ms));
+    if (GAP && process.env.KEEPALIVE === "1") for (let waited = 0; waited < GAP; waited += 150) { await new Promise((r) => setTimeout(r, 150)); await page.evaluate((t) => (window as unknown as { fluxDeck: { seek: (s: number, b: number, ms: number) => void } }).fluxDeck.seek(0, 1, t), ms); }
+    else if (GAP) await new Promise((r) => setTimeout(r, GAP));
+  }
   console.log(`MODE=${MODE} capture: ${((performance.now() - t0) / shots.length).toFixed(0)} ms per step`);
   const promoted = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".sl-camera, .sl-el, .sl-effects")].filter((e) => e.style.willChange).map((e) => e.className).join(","));
   console.log(`promoted mid-flight: ${promoted || "nothing"}`);
