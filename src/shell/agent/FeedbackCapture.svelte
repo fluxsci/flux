@@ -5,8 +5,8 @@
   // to .meta/feedback.ndjson; Send marks the review-pass boundary.
   import { popIn } from "../../lib/motion/actions";
   import { describeStamp, type FeedbackStamp } from "../../lib/project/feedback";
-  import { feedbackCaptureOpen } from "../command/commandBus";
-  import { addFeedbackNote, captureStamp, feedbackState, sendFeedback } from "./feedbackStore";
+  import { feedbackCaptureOpen, annotateCaptureOpen } from "../command/commandBus";
+  import { addFeedbackNote, captureStamp, clearPendingSnapshot, feedbackState, pendingSnapshot, sendFeedback } from "./feedbackStore";
 
   let text = $state("");
   let stamp = $state<FeedbackStamp | null>(null);
@@ -25,6 +25,13 @@
   function close() {
     feedbackCaptureOpen.set(false);
     text = "";
+    clearPendingSnapshot(); // a cancelled note drops its snapshot (nothing was written)
+  }
+  /** Hand off to Snapshot & annotate: the popover hides, the draft text survives,
+   *  and the overlay reopens the popover with the crop attached. */
+  function annotate() {
+    feedbackCaptureOpen.set(false);
+    annotateCaptureOpen.set(true);
   }
 
   async function add(thenSend: boolean) {
@@ -59,6 +66,15 @@
       <span class="fc-title">Note to agent</span>
       {#if stamp}<span class="fc-stamp" title="Captured with the note">{describeStamp(stamp)}</span>{/if}
     </div>
+    {#if $pendingSnapshot}
+      <div class="fc-cap" title="Attached to this note">
+        {#if $pendingSnapshot.preview}<img class="fc-cap-img" src={$pendingSnapshot.preview} alt="Snapshot preview" />{/if}
+        <span class="fc-cap-txt">
+          snapshot · {$pendingSnapshot.info.marks.length} mark{$pendingSnapshot.info.marks.length === 1 ? "" : "s"}{$pendingSnapshot.png ? "" : " · no screenshot in the browser build"}
+        </span>
+        <button class="fc-cap-x" type="button" aria-label="Remove snapshot" onclick={clearPendingSnapshot}>×</button>
+      </div>
+    {/if}
     <textarea
       bind:this={inputEl}
       bind:value={text}
@@ -69,6 +85,9 @@
     <div class="fc-foot">
       <span class="fc-open">{openCount} open note{openCount === 1 ? "" : "s"}</span>
       <div class="fc-btns">
+        <button class="ghost fc-annot" disabled={busy} onclick={annotate} title="Freeze the window and draw on it (Ctrl+Shift+A)">
+          Snapshot &amp; annotate
+        </button>
         <button class="ghost" disabled={busy || openCount === 0} onclick={() => void sendFeedback().then(close)}>
           Send {openCount || ""}
         </button>
@@ -138,6 +157,39 @@
   }
   textarea:focus {
     border-color: var(--c-accent);
+  }
+  .fc-cap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-1);
+    background: var(--c-bg-raised);
+  }
+  .fc-cap-img {
+    max-width: 120px;
+    max-height: 72px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+  }
+  .fc-cap-txt {
+    flex: 1;
+    min-width: 0;
+    font: 11px var(--font-mono);
+    color: var(--c-tx-2);
+  }
+  .fc-cap-x {
+    background: none;
+    border: 0;
+    color: var(--c-tx-muted);
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+  }
+  .fc-cap-x:hover {
+    color: var(--c-tx-hi);
   }
   .fc-foot {
     display: flex;

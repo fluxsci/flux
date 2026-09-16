@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("fig", {
   readText: (p) => ipcRenderer.invoke("fs:readText", p),
   writeText: (p, text, options) => ipcRenderer.invoke("fs:writeText", p, text, options),
   feedbackAppend: (p, line) => ipcRenderer.invoke("feedback:append", p, line),
+  // Snapshot & annotate: this window's pixels (device px), optionally one CSS-px rect.
+  captureWindow: (rect) => ipcRenderer.invoke("win:capture", rect),
   fsyncDir: (p) => ipcRenderer.invoke("fs:fsyncDir", p),
   mkdir: (p) => ipcRenderer.invoke("fs:mkdir", p),
   exists: (p) => ipcRenderer.invoke("fs:exists", p),

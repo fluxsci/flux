@@ -6,7 +6,8 @@
   import CommandPalette from "./command/CommandPalette.svelte";
   import FeedbackCapture from "./agent/FeedbackCapture.svelte";
   import { contextCommands } from "./command/globalCommands";
-  import { requestPaperPalette, feedbackCaptureOpen } from "./command/commandBus";
+  import { requestPaperPalette, feedbackCaptureOpen, annotateCaptureOpen } from "./command/commandBus";
+  import AnnotateCapture from "./agent/AnnotateCapture.svelte";
   import { initFeedbackStore } from "./agent/feedbackStore";
   import { focusedMode, setFocusedMode } from "./paneStore";
   import type { ModeId } from "./shellStore";
@@ -39,6 +40,10 @@
       } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyM") {
         e.preventDefault();
         feedbackCaptureOpen.update((v) => !v);
+      } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyA") {
+        // Snapshot & annotate: freeze the window, draw, then write the note.
+        e.preventDefault();
+        annotateCaptureOpen.update((v) => !v);
       } else if (mod && !e.altKey && !e.shiftKey && /^Digit[1-5]$/.test(e.code)) {
         // Mode switching by number — mirrors the title-bar strip left to right.
         e.preventDefault();
@@ -61,6 +66,7 @@
     </div>
   {/if}
   <FeedbackCapture />
+  <AnnotateCapture />
 </div>
 
 <style>

@@ -815,6 +815,21 @@ Persistence invariants (all machine-checked — do not weaken):
     (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change) routes every picked row through the
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
+  - **Snapshot & annotate (Ctrl+Shift+A) = `shell/agent/AnnotateCapture.svelte` +
+    `project/feedbackCapture.ts` (pure).** The "point at it" half of Note to agent: the
+    overlay captures the window FIRST (`win:capture` → `webContents.capturePage` on the
+    sender, read scope, Electron only) and draws on the frozen picture, so the tool strip is
+    never in the crop; marks are arrows / boxes / pen strokes with number badges, each
+    anchored to the element under its tip (`anchorPathOf`: up to four named ancestors,
+    Svelte hashes and bare wrappers skipped, plus short text). Enter composes the crop
+    (`snapshotCrop`: mark bounds + 48 px, ≥ 240×160, clamped; whole window with no marks)
+    into a PNG held in `pendingSnapshot`; **Add** writes `.meta/feedback/<noteId>.png` and
+    appends the note whose stamp carries `snapshot` (image path, rect, window, marks) —
+    never the other order, so a cancelled note leaves no file. `describeStamp` prints
+    `snapshot ×N (1 → button.tool "Gallery", …)` for the popover header and `flux feedback`
+    alike. A browser build has no capture: marks + anchors still land, `image` is null.
+    Gates: `verify-feedback-snapshot.ts` (pure), `verify-annotate-gui.mjs` (ui),
+    `verify-ipc-contract.ts` (the channel).
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
@@ -5060,3 +5075,26 @@ a slow macOS mouse (4 px per notch); the law has to read the device from the eve
 the pure gate now pins every dialect. Meta-lesson: a "failing gate" after a chrome restyle is
 as likely to be the gate's own geometry assumption (float32 CTM, a selector that only worked
 because two surfaces overlapped) as a regression — measure on `main` before touching either.
+
+## Session entry — 2026-09-15 20:20 — Snapshot & annotate: point at it, in the queue
+
+**Work:** Owner ask, on seeing the new surface: a way to freeze part of the GUI, comment on it
+with arrows, and queue it for the agent. The queue existed (Ctrl+Shift+M notes with a selection
+stamp, `flux feedback` / `resolve-feedback`); built the visual half on the same ledger:
+`AnnotateCapture.svelte` (freeze → draw numbered arrows / boxes / pen → Enter), the
+`win:capture` IPC (contract + main + preload + bridge type), `pendingSnapshot` in
+`feedbackStore` (PNG bytes in memory until Add writes `.meta/feedback/<id>.png`), the stamp's
+`snapshot` field + `describeStamp`, the pure `feedbackCapture.ts` (crop law, badge / target
+points, DOM anchor paths, description), the popover chip + "Snapshot & annotate" button, the
+Ctrl+Shift+A chord and the ⌘K command; docs (collaboration §sec-annotate, shortcuts).
+
+**Verified:** check 0/0 (821 files); `verify-feedback-snapshot` PASS (21 checks);
+`verify-annotate-gui` PASS (22 checks: chord, drag = anchored arrow #1, `b` box, Backspace,
+Enter → popover chip + stamp line naming the Gallery button, ONE ledger line with the
+snapshot, no PNG without a capture, Escape cancels and keeps the draft, palette route, clean
+console); `verify-ipc-contract` PASS; docs 158/158.
+
+**Learnings:** promoted to §4 (the snapshot contract). Design note: capture-then-draw (not
+draw-then-capture) is what keeps the overlay out of the picture and freezes hover states; the
+DOM anchor under each mark is what makes a screenshot note greppable — the agent gets both
+the pixels and the selector.

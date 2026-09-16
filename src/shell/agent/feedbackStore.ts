@@ -16,6 +16,7 @@ import {
   type FeedbackStamp,
   type FeedbackState,
 } from "../../lib/project/feedback";
+import { SNAPSHOT_DIR_REL, type FeedbackSnapshot } from "../../lib/project/feedbackCapture";
 import { paperSelection } from "../../lib/project/paperSelectionStore";
 import { feedbackRevision } from "../../lib/project/projectWatch";
 import { getAppContext } from "../../lib/bridge/appContext";
@@ -24,6 +25,23 @@ import { currentProject } from "../shellStore";
 import { focusedMode } from "../paneStore";
 
 export const feedbackState = writable<FeedbackState | null>(null);
+
+/** A snapshot drawn but not yet attached to a note (Snapshot & annotate → Add).
+ *  The PNG bytes stay in memory until Add writes them beside the ledger, so a
+ *  cancelled note never leaves a stray file behind. */
+export interface PendingSnapshot {
+  info: FeedbackSnapshot;
+  png: Uint8Array | null;
+  /** Small data-URL thumbnail for the popover chip (null in a browser build). */
+  preview: string | null;
+}
+export const pendingSnapshot = writable<PendingSnapshot | null>(null);
+export function setPendingSnapshot(s: PendingSnapshot | null): void {
+  pendingSnapshot.set(s);
+}
+export function clearPendingSnapshot(): void {
+  pendingSnapshot.set(null);
+}
 
 let root: string | null = null;
 let seenResolved = new Set<string>();
@@ -86,6 +104,7 @@ export async function captureStamp(): Promise<FeedbackStamp> {
     viewport: app.viewport,
     doc: null,
     slide: null,
+    snapshot: get(pendingSnapshot)?.info ?? null,
   };
   if (surface === "paper") {
     const ps = get(paperSelection);
@@ -124,7 +143,24 @@ export async function addFeedbackNote(text: string): Promise<void> {
   const body = text.trim();
   if (!body) return;
   const ev = makeNote(body, await captureStamp(), "human");
+  // A drawn snapshot lands beside the ledger under the NOTE's id — written
+  // before the ledger line, so a note never points at a file that failed.
+  const pending = get(pendingSnapshot);
+  if (pending && ev.context?.snapshot) {
+    let image: string | null = null;
+    if (pending.png && root) {
+      const fb = fileBridge();
+      if (fb) {
+        const rel = `${SNAPSHOT_DIR_REL}/${ev.id}.png`;
+        await fb.mkdir(joinPath(root, SNAPSHOT_DIR_REL)).catch(() => undefined);
+        await fb.writeFile(joinPath(root, rel), pending.png);
+        image = rel;
+      }
+    }
+    ev.context = { ...ev.context, snapshot: { ...ev.context.snapshot, image } };
+  }
   await append(serializeEvent(ev));
+  pendingSnapshot.set(null);
   await refresh(false);
 }
 

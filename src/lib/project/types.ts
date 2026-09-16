@@ -301,6 +301,9 @@ export interface FileBridge {
   openDocs?(): Promise<{ ok: boolean; error?: string }>;
   /** Append one NDJSON line to the feedback ledger (O_APPEND — never rewrites). */
   feedbackAppend?(p: string, line: string): Promise<boolean>;
+  /** Snapshot & annotate: a PNG of this window (device pixels), optionally one
+   *  CSS-px rect. Electron only — a browser build has no window capture. */
+  captureWindow?(rect?: { x: number; y: number; width: number; height: number }): Promise<{ png: Uint8Array; width: number; height: number }>;
   // 2.3 Full-text search across every stored PDF's extracted text. Runs the streaming
   // scan in the bundled CLI (main process) so the renderer never blocks; returns the
   // FulltextResult, or { error }. Electron only. `opts.keys` restricts the scan scope.

@@ -4,7 +4,7 @@
 
 import { get } from "svelte/store";
 import type { Command } from "./commands";
-import { requestOpenDoc, feedbackCaptureOpen } from "./commandBus";
+import { requestOpenDoc, feedbackCaptureOpen, annotateCaptureOpen } from "./commandBus";
 import { setFocusedMode } from "../paneStore";
 import { currentProject } from "../shellStore";
 import { fileBridge } from "../../lib/project/types";
@@ -63,6 +63,7 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
   if (hasProject) {
     cmds.push(
       { id: "agent-note", title: "Note to agent", hint: "Agent", keywords: "feedback capture tell", run: () => feedbackCaptureOpen.set(true) },
+      { id: "agent-annotate", title: "Snapshot & annotate for agent", hint: "Agent", keywords: "feedback screenshot arrow point mark draw", run: () => annotateCaptureOpen.set(true) },
       {
         id: "agent-copy-prompt",
         title: "Copy principal prompt",

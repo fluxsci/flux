@@ -5,6 +5,8 @@
 // Pure module (no Svelte, no DOM, no Node) — shared by the GUI, flux-core, and
 // the attend watcher (twin-engine rule).
 
+import { describeSnapshot, type FeedbackSnapshot } from "./feedbackCapture";
+
 export const FEEDBACK_REL = ".meta/feedback.ndjson";
 
 /** What the user was looking at when they wrote the note. */
@@ -20,6 +22,8 @@ export interface FeedbackStamp {
   /** Slide mode: which slide/beat the user was on. */
   slide?: { deckId: string; slideIndex: number; beat: number } | null;
   viewport?: { panX: number; panY: number; zoom: number } | null;
+  /** Snapshot & annotate: a crop of the frozen window with numbered, anchored marks. */
+  snapshot?: FeedbackSnapshot | null;
 }
 
 export interface FeedbackNoteEvent {
@@ -166,5 +170,6 @@ export function describeStamp(c: FeedbackStamp | null | undefined): string {
   if (c.partSelection) bits.push(`part:${c.partSelection.partId}`);
   else if (c.selection?.length) bits.push(`sel:${c.selection.length}`);
   if (c.slide) bits.push(`slide ${c.slide.slideIndex + 1} beat ${c.slide.beat}`);
+  if (c.snapshot) bits.push(describeSnapshot(c.snapshot));
   return bits.join(" · ");
 }

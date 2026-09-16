@@ -104,7 +104,9 @@ attend state) lives in `.meta/` and takes care of itself.
 - **Ctrl+Shift+M** anywhere — "Note to agent": one line, automatically **stamped with
   what you're looking at** (figure/element/plot part, document + selected text, slide +
   beat). **Add** queues notes; **Send** marks the boundary: everything open becomes the
-  work order. The buttons in detail: @sec-note-popover.
+  work order. The buttons in detail: @sec-note-popover. When words aren't enough,
+  **Ctrl+Shift+A** freezes the window so you can draw numbered arrows on it and the note
+  arrives with the picture: @sec-annotate.
 - The principal drains both queues (`flux feedback`, `flux comments`), fixes each item,
   and resolves it with a note — threads close live in your margin. When unsure, it asks
   *you* via a margin comment instead of guessing.
@@ -151,6 +153,28 @@ What a send *triggers* depends on who is listening:
   and the send mark are durably recorded, and the next `flux attend` (or principal
   session) picks up the outstanding send the moment it starts. You never need to
   re-send.
+
+## Point at it: snapshot & annotate {#sec-annotate}
+
+Some feedback is about *pixels* — a gap, an alignment, a control you can't select — and a
+selection stamp can't carry it. **Ctrl+Shift+A** (or the **Snapshot & annotate** button in
+the note popover, or the ⌘K command) freezes the window under a drawing surface:
+
+- **Drag** draws the current tool — **a** arrow (a plain click drops a short arrow at the
+  spot), **b** box, **p** freehand pen. Every mark gets a **number badge**, so the note can
+  say *"1 is too big, 2 should align with 3"*. **Backspace** undoes the last mark.
+- **Enter** hands the picture to the note popover: a thumbnail chip shows what is attached,
+  your draft text is kept, and **Add** / **Add & send** work as usual. **Escape** cancels
+  the overlay and attaches nothing.
+- The picture is a **crop** around your marks (the whole window if you drew none), saved
+  beside the ledger as `.meta/feedback/<note id>.png` when the note is added — never
+  before, so a cancelled note leaves no file. Each mark also remembers the **element under
+  its tip** (`header.toolbar > button "Gallery"`), so `flux feedback` prints where every
+  number points even before the image is opened.
+
+In a browser build there is no window capture; the overlay still records the marks and
+their anchors, and the note says *no screenshot*.
+
 
 # The roster — `agents.json` {#sec-roster}
 

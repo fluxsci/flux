@@ -224,7 +224,8 @@
    "verify-surface-anchor.ts",
    "verify-xray-multi.ts",
    "verify-animate-selection.ts",
-   "verify-wheel-law.ts"
+   "verify-wheel-law.ts",
+   "verify-feedback-snapshot.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -233,6 +234,7 @@
   ],
   "ui": [
    "verify-context-gui.mjs",
+   "verify-annotate-gui.mjs",
    "verify-paper-textsize-gui.mjs",
    "verify-paper-nav.mjs",
    "verify-paper-vim.mjs",
@@ -905,8 +907,13 @@
    ]
   },
   {
-   "glob": "src/shell/agent/**",
+   "$why": "2026-09-15 Snapshot & annotate \u2014 the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay \u2192 popover \u2192 ledger); the IPC contract pins the win:capture channel.",
+   "glob": "{src/shell/agent/**,src/lib/project/feedback.ts,src/lib/project/feedbackCapture.ts}",
    "run": [
+    "verify-feedback-snapshot.ts",
+    "verify-annotate-gui.mjs",
+    "verify-context-gui.mjs",
+    "verify-ipc-contract.ts",
     "tier:pure"
    ]
   },

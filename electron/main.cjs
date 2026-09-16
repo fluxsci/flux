@@ -832,6 +832,24 @@ ipcMain.handle("win:maximizeToggle", (e) => {
 ipcMain.handle("win:close", (e) =>
   BrowserWindow.fromWebContents(e.sender)?.close(),
 );
+// Snapshot & annotate (Note to agent): a PNG of the calling window — its own
+// pixels only (capturePage on the sender), optionally one CSS-px rect. Read
+// scope: nothing touches the filesystem here; the renderer composes the crop and
+// writes it into the project's .meta/feedback/ through the guarded fs:writeFile.
+ipcMain.handle("win:capture", async (e, rect) => {
+  const r =
+    rect && Number.isFinite(rect.width) && Number.isFinite(rect.height)
+      ? {
+          x: Math.max(0, Math.round(rect.x || 0)),
+          y: Math.max(0, Math.round(rect.y || 0)),
+          width: Math.max(1, Math.round(rect.width)),
+          height: Math.max(1, Math.round(rect.height)),
+        }
+      : undefined;
+  const img = await e.sender.capturePage(r);
+  const size = img.getSize();
+  return { png: img.toPNG(), width: size.width, height: size.height };
+});
 ipcMain.handle(
   "win:isMaximized",
   (e) => BrowserWindow.fromWebContents(e.sender)?.isMaximized() ?? false,
