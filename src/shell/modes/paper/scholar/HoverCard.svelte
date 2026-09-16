@@ -3,7 +3,7 @@
   import { popIn } from "../../../../lib/motion/actions";
   import { fileBridge } from "../../../../lib/project/types";
   import type { ChipTarget } from "../science/chipContext";
-  import { resolveFigure, renderFigureSvg, figureRefs } from "./figures";
+  import { resolveFigure, figureRefs, figureImage } from "./figures";
   import { bibEntry, bibEntries, type BibEntry } from "./bib";
   import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../../../lib/references/pdfPresence";
 
@@ -49,7 +49,6 @@
   const tblCaption = $derived(
     inlineKind === "tbl" ? (nums?.tblMeta.get(target.kind === "figref" ? target.label : "")?.caption ?? null) : null,
   );
-  const figSvg = $derived(fig && !inlineKind && fig.ref.id ? renderFigureSvg(fig.ref.id) : undefined);
   const cites = $derived(
     target.kind === "cite" && $bibEntries
       ? (target.keys.map((k) => bibEntry(k)).filter(Boolean) as BibEntry[])
@@ -69,7 +68,7 @@
   $effect(() => {
     // re-place when target or content changes
     void target;
-    void figSvg;
+    void fig;
     void cites;
     place();
   });
@@ -108,9 +107,8 @@
         {#if fig.ref.nickname}<span class="hc-name">{fig.ref.nickname}</span>{/if}
       </div>
       <div class="hc-fig">
-        {#if figSvg}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          {@html figSvg}
+        {#if fig.ref.id && !inlineKind}
+          <img class="hc-img" use:figureImage={fig.ref.id} alt="" draggable="false" />
         {:else}
           <div class="hc-empty">No preview yet</div>
         {/if}
@@ -196,7 +194,7 @@
     padding: 6px;
     overflow: hidden;
   }
-  .hc-fig :global(svg) {
+  .hc-fig img {
     display: block;
     width: 100%;
     height: auto;

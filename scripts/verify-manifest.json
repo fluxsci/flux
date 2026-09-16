@@ -186,6 +186,7 @@
    "verify-plots-folders.ts",
    "verify-plot-source.ts",
    "verify-plot-style-scope.ts",
+   "verify-plot-style-bake.ts",
    "verify-sync-conflicts.ts",
    "verify-library-pdffilter.ts",
    "verify-figure-reference-identity.ts",
@@ -241,6 +242,8 @@
    "verify-context-gui.mjs",
    "verify-annotate-gui.mjs",
    "verify-cursor-gui.mjs",
+   "verify-figure-input-hygiene.mjs",
+   "verify-zoom-proxy.mjs",
    "verify-paper-textsize-gui.mjs",
    "verify-paper-nav.mjs",
    "verify-paper-vim.mjs",
@@ -676,10 +679,12 @@
   },
   {
    "$why": "2026-09-15 the crosshair cursor family \u2014 Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
-   "glob": "{src/styles/cursors.css,src/app.css,src/lib/Canvas.svelte}",
+   "glob": "{src/styles/cursors.css,src/app.css,src/lib/Canvas.svelte,src/lib/interact/compositorDrive.ts,src/lib/interact/zoomProxy.ts}",
    "run": [
     "verify-cursor-policy.ts",
     "verify-cursor-gui.mjs",
+    "verify-figure-input-hygiene.mjs",
+    "verify-zoom-proxy.mjs",
     "group:figures-slides-overhaul",
     "group:slide-ghosts",
     "tier:pure",
@@ -701,6 +706,7 @@
    "glob": "src/shell/{ModeContent.svelte,modeRegistry.ts,paneStore.ts}",
    "run": [
     "verify-mode-cold-switch.mjs",
+    "verify-figure-input-hygiene.mjs",
     "verify-keepalive.mjs",
     "verify-slide-tenancy-gui.mjs",
     "tier:pure"

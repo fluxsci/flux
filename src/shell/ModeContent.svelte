@@ -54,6 +54,30 @@
     visited = next;
   });
 
+  // A DOM selection left inside a pane that just went hidden is not "preserved
+  // state" — it is a per-frame tax on whichever mode is now visible: Blink
+  // re-canonicalizes the selection after every style/layout update
+  // (VisibleUnits::canonicalPosition walking forward past the hidden pane into
+  // the next visible candidate — 8 ms per pass through a 15k-node figure scene,
+  // twice per wheel tick, measured 2026-09-16 after typing in Paper and panning
+  // in Figure). CodeMirror keeps the caret in its own EditorState and restores
+  // the DOM selection when it regains focus, so dropping the range costs nothing.
+  $effect(() => {
+    void mode;
+    if (typeof document === "undefined") return;
+    const sel = document.getSelection();
+    const anchor = sel?.anchorNode;
+    if (!sel || !anchor || sel.rangeCount === 0) return;
+    const el = anchor instanceof Element ? anchor : anchor.parentElement;
+    if (el?.closest(".mc.hidden")) sel.removeAllRanges();
+  });
+  // Tell deferred work (the paper's idle figure renders, scholar/figures.ts)
+  // that a pane is visible again.
+  $effect(() => {
+    void mode;
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("flux:pane-shown"));
+  });
+
   // Slide-migration §3.2.1: explicit eviction — figure and slide mode share
   // the app-global figure store, so entering one force-unmounts a kept-alive
   // other (its autosave was flushed by the requester first; the onDestroy

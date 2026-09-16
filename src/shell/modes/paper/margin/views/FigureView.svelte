@@ -1,13 +1,12 @@
 <script lang="ts">
   import type { MarginHost, MarginApi } from "../types";
-  import { renderFigureSvg } from "../../scholar/figures";
+  import { figureImage } from "../../scholar/figures";
 
   let { host }: { host: MarginHost; margin: MarginApi } = $props();
 
   let selId = $state<string | null>(null);
   const figures = $derived(host.figures);
   const current = $derived(figures.find((f) => f.id === selId) ?? figures[0]);
-  const svg = $derived(current ? renderFigureSvg(current.id) : undefined);
 
   // Zoom/pan on the selected figure (wheel = zoom toward the cursor, drag =
   // pan, double-click = reset) — pure transforms on the stage content, no
@@ -79,9 +78,8 @@
       onpointercancel={onPointerUp}
       ondblclick={resetView}>
       <div class="zoomer" style="transform: translate3d({panX}px, {panY}px, 0) scale({zoom})">
-        {#if svg}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          {@html svg}
+        {#if current}
+          <img use:figureImage={current.id} alt="" draggable="false" />
         {:else}
           <div class="noprev">No preview</div>
         {/if}
@@ -108,7 +106,7 @@
           class:sel={f.id === current?.id}
           title={f.nickname ? `${f.name} — ${f.nickname}` : f.name}
           onclick={() => (selId = f.id)}>
-          <div class="art">{@html renderFigureSvg(f.id) ?? ""}</div>
+          <div class="art"><img use:figureImage={f.id} alt="" draggable="false" /></div>
           <span class="tn">{f.display}</span>
         </button>
       {/each}
@@ -156,7 +154,7 @@
     transform-origin: 0 0;
     will-change: transform;
   }
-  .stage :global(svg) {
+  .stage img {
     max-width: 100%;
     max-height: 100%;
     height: auto;
@@ -250,7 +248,7 @@
     align-items: center;
     justify-content: center;
   }
-  .thumb :global(svg) {
+  .thumb img {
     max-width: 100%;
     max-height: 100%;
     height: auto;

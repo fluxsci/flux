@@ -40,13 +40,36 @@ function serializeSvg(el: object): string {
  *  (sanitize / shared-<use> inlining / id stamping) + orphan augmentation —
  *  so group-keyed overrides (`unclassified`, derived groups) resolve
  *  identically everywhere, and the same crop + pt-true compensation. */
+// Prepared roots by source text: a figure render prepares every placed plot,
+// and the paper re-renders figures after each edit — re-parsing the same 1 MB
+// of SVG each time was ~100 ms of XMLDocumentParser per refresh (2026-09-16).
+// The cache hands out a deep clone, so prefixIds/overrides never touch the
+// cached node; output is byte-identical to a fresh parse. Small and LRU-ish:
+// a project's plots, not its history.
+const PREPARED_CACHE_MAX = 64;
+const preparedCache = new Map<string, { root: SVGSVGElement; manifest?: FluxPlotManifest }>();
+function preparePlotCached(svgText: string, manifest: FluxPlotManifest | undefined) {
+  const key = (manifest ? "m:" : "d:") + svgText;
+  const hit = preparedCache.get(key);
+  if (hit) {
+    preparedCache.delete(key);
+    preparedCache.set(key, hit); // refresh recency
+    return { root: hit.root.cloneNode(true) as SVGSVGElement, manifest: hit.manifest };
+  }
+  const prepared = preparePlot(svgText, manifest);
+  if (!prepared.root) return prepared;
+  preparedCache.set(key, { root: prepared.root, manifest: prepared.manifest });
+  if (preparedCache.size > PREPARED_CACHE_MAX) preparedCache.delete(preparedCache.keys().next().value!);
+  return { root: prepared.root.cloneNode(true) as SVGSVGElement, manifest: prepared.manifest };
+}
+
 export function buildPlotMarkup(
   svgText: string,
   el: PlacedPlotFrame,
   overrides: Record<string, unknown> | undefined,
   manifest: FluxPlotManifest | undefined,
 ): string | null {
-  const prepared = preparePlot(svgText, manifest);
+  const prepared = preparePlotCached(svgText, manifest);
   const rootEl = prepared.root;
   if (!rootEl) return null;
   const intrinsic = svgIntrinsicPx(rootEl as unknown as globalThis.Element);

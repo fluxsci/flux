@@ -285,7 +285,12 @@ try {
       if (!window.__crispSampling) return;
       const cs = getComputedStyle(scene);
       const m = /matrix\(([-\d.e]+)/.exec(cs.transform);
-      window.__crisp.samples.push({ wc: cs.willChange, s: m ? Number(m[1]) : 1 });
+      // 2026-09-16: a zoom burst may ride the zoom PROXY (Canvas: a raster of the
+      // scene scaled by the compositor while the live scene is frozen) — then the
+      // wrapper residual stays 1 and the proxy's scale carries the gesture.
+      const proxy = document.querySelector(".zoom-proxy.live");
+      const pm = proxy ? /matrix\(([-\d.e]+)/.exec(getComputedStyle(proxy).transform) : null;
+      window.__crisp.samples.push({ wc: cs.willChange, s: m ? Number(m[1]) : 1, proxy: !!proxy, ps: pm ? Number(pm[1]) : null, sceneOpacity: cs.opacity });
       requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
@@ -305,7 +310,10 @@ try {
   const zNow = await zoomOf(page);
   const hotSamples = burst.samples.filter((s) => s.wc === "transform");
   const residualSamples = burst.samples.filter((s) => Math.abs(s.s - 1) > 1e-6);
-  info(`burst: ${burst.mut} zoom-g mutation(s), ${burst.samples.length} rAF samples (${hotSamples.length} hot, ${residualSamples.length} residual!=1)`);
+  const proxySamples = burst.samples.filter((s) => s.proxy);
+  const proxyScaled = proxySamples.filter((s) => s.ps !== null && Math.abs(s.ps - 1) > 1e-6);
+  const frozenUnderProxy = proxySamples.every((s) => Math.abs(s.s - 1) < 1e-9 && s.sceneOpacity === "0");
+  info(`burst: ${burst.mut} zoom-g mutation(s), ${burst.samples.length} rAF samples (${hotSamples.length} hot, ${residualSamples.length} residual!=1, ${proxySamples.length} on the zoom proxy, ${proxyScaled.length} proxy-scaled)`);
   info(`rest: will-change="${rest.willChange}" residual=${rest.residual} gScale=${rest.gScale} zoom=${zNow}`);
   if (!BASELINE) {
     assert(burst.mut === 1, `20-tick ctrl-wheel burst mutates the scene zoom <g> transform EXACTLY once (got ${burst.mut})`);
@@ -313,7 +321,14 @@ try {
     assert(rest.residual !== null && Math.abs(rest.residual - 1) < 1e-9, `at rest the wrapper residual scale is exactly 1 (got ${rest.residual})`);
     assert(rest.gScale !== null && rest.gScale === zNow, `at rest the <g> scale equals viewport.zoom (${rest.gScale} == ${zNow})`);
     assert(hotSamples.length > 0, `mid-burst the .scene will-change was "transform" in ${hotSamples.length} sample(s) (compositor path active)`);
-    assert(residualSamples.length > 0, `mid-burst the wrapper residual scale left 1 in ${residualSamples.length} sample(s)`);
+    // The gesture is compositor-only either way: on the live path the wrapper's
+    // residual scale moves; on the proxy path the proxy image's scale moves while
+    // the live scene is frozen at residual 1 and hidden.
+    assert(
+      residualSamples.length > 0 || proxyScaled.length > 0,
+      `mid-burst the zoom rode the compositor: wrapper residual left 1 in ${residualSamples.length} sample(s), the zoom proxy scaled in ${proxyScaled.length}`,
+    );
+    if (proxySamples.length) assert(frozenUnderProxy, `under the zoom proxy the live scene is frozen at residual 1 and hidden (${proxySamples.length} sample(s))`);
   }
 
   // ---- (3) sharpness: settled vs will-change-demoted reference at zoom ~3.3 --

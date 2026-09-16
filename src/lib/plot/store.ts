@@ -20,7 +20,7 @@
 import { get, writable } from "svelte/store";
 import type { Id } from "../types";
 import type { FluxPlotManifest } from "./types";
-import { preparePlot } from "./parse";
+import { preparePlot, bakePlotStyles, hoistPlotClips } from "./parse";
 import { getAssetData, dataUrlToBytes } from "../assets";
 import { isDerivedManifest } from "./derive";
 import { storeTenant } from "../tenancy";
@@ -50,7 +50,7 @@ export const sigCalls = { n: 0 };
 const plotLru = new Map<Id, number>(); // insertion order = recency (touch re-inserts)
 const lruSeq = { n: 0 };
 const plotNodeCount = new Map<Id, number>(); // element nodes per cached root
-const mountedPlots = new Map<Id, number>(); // live PlotElement refcounts — never evicted
+export const mountedPlots = new Map<Id, number>(); // live PlotElement refcounts — never evicted (exported for the residency gates)
 const parseFailed = new Set<Id>(); // malformed svgs — don't retry-loop the parser
 const pendingParse = new Set<Id>();
 const drainState = { scheduled: false };
@@ -66,6 +66,9 @@ export const plotResidency = {
   totalNodes: 0,
   parses: 0,
   evictions: 0,
+  bakedSheets: 0, // <style> rules baked into attributes at parse (mounts insert no stylesheet)
+  keptSheets: 0, // residual <style> elements that could not be baked (scoped as before)
+  hoistedClips: 0, // clip-path attributes folded into shared clipped groups (paint-chunk diet)
   get entries(): number {
     return plotDom.size;
   },
@@ -137,6 +140,16 @@ export function cachePlot(
   const prepared = preparePlot(svgText, manifest);
   if (!prepared.root) return false; // retain the complete last-good cache
   if (prepared.root) {
+    // Editor-only: bake the plot's <style> rules into presentation attributes so
+    // a mount never inserts a stylesheet (plot/parse.ts, the baking rationale).
+    // Exports and flux-core keep the <style> — this cache never feeds them.
+    const bake = bakePlotStyles(prepared.root as unknown as Element);
+    plotResidency.bakedSheets += bake.baked;
+    plotResidency.keptSheets += bake.kept;
+    // Editor-only: one clipped <g> per run of same-clip siblings, so the scene
+    // has hundreds of paint chunks instead of thousands (parse.ts, the hoisting
+    // rationale). Exports serialize pristinePlotRoot() instead.
+    plotResidency.hoistedClips += hoistPlotClips(prepared.root as unknown as Element).hoisted;
     const prev = plotNodeCount.get(assetId);
     if (prev != null) plotResidency.totalNodes -= prev;
     const count = prepared.root.querySelectorAll("*").length + 1;
@@ -193,6 +206,19 @@ export function ensurePlotDom(assetId: Id): boolean {
   const ok = cachePlot(assetId, new TextDecoder().decode(dataUrlToBytes(url)), real, get(plotRecipes)[assetId]);
   if (!ok) parseFailed.add(assetId);
   return ok;
+}
+
+/** A PRISTINE parse of a plot for serialization (GUI exports, plotToSvgMarkup):
+ *  the same preparePlot seam flux-core runs, with none of the editor-only
+ *  optimizations the cached DOM carries (baked styles, hoisted clips) — so a
+ *  GUI export stays byte-identical to the headless one. Uncached; exports are
+ *  rare and this costs a few ms per plot. */
+export function pristinePlotRoot(assetId: Id): SVGSVGElement | null {
+  const url = getAssetData(assetId);
+  if (!url || !url.startsWith("data:image/svg")) return null;
+  const stored = get(plotManifests)[assetId];
+  const real = stored && !isDerivedManifest(stored) ? stored : undefined;
+  return preparePlot(new TextDecoder().decode(dataUrlToBytes(url)), real).root;
 }
 
 /** Queue a plot for on-demand parsing (PlotElement mount / cull-entry). The

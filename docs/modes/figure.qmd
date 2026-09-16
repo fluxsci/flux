@@ -175,8 +175,7 @@ folder.
 Everywhere in Flux the pointer is a **crosshair** built to stay visible on any background — a
 white halo under a dark core, with a small gap at the centre so the exact pixel you are
 pointing at is never covered. Over anything you can click or select — a button, a layer, a
-swatch, an object — it gains an accent dot, it tightens while you press, and a click on the
-canvas leaves a brief ring where it landed (off when your system prefers reduced motion).
+swatch, an object — it gains an accent dot, and it tightens while you press.
 Text fields keep the I-beam; handles keep their resize arrows and pan keeps the hand.
 
 Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to
@@ -190,7 +189,8 @@ for one hand on the keyboard and one on the mouse. It opens **beside the selecti
 top of it (when nothing fits, it takes the side that covers the least), and lays its groups
 out in narrow columns — each row is a key and a name over its control — so nothing scrolls.
 Opening a larger picker repositions the menu when needed to keep the selection clear.
-Every hotkey is a **left-hand key** (`1`–`6`, `q w e r t`, `a d g`, `z x c v b`), so the right
+Every hotkey is a **left-hand key** (`1`–`6`, `q w e r t`, `a d g`, `z x c v b`; `h` for a
+plot's **content scale**, the same factor the Inspector shows), so the right
 hand never leaves the wheel: press the key to **arm** the row, then roll the **mouse wheel**
 anywhere on the screen to adjust it (a slow roll moves one step per notch, a flick moves fast,
 a trackpad scrubs; **Shift** ×10, **Alt** ×0.1; **↑/↓** step too, typed digits replace), and

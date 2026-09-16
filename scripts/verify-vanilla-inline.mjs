@@ -152,13 +152,17 @@ try {
   assert(dom.sceneImages === 0, `NO <image> elements for svg assets in the scene (${dom.sceneImages})`);
   await shot(page, "vanilla-inline-side-by-side");
 
-  // ---- 2b. a plot's <style> stays SCOPED to the plot (2026-09-11 flat caps) ---
-  // matplotlib's preamble `*{stroke-linejoin: round; stroke-linecap: butt}` is
-  // document-global once inlined: it used to restyle every Flux line on the
-  // canvas (round caps drew flat until zooming culled the plot out of the DOM).
+  // ---- 2b. a plot's <style> never reaches the scene (2026-09-11 flat caps →
+  // 2026-09-16 baked). matplotlib's preamble `*{stroke-linejoin: round;
+  // stroke-linecap: butt}` is document-global once inlined: it used to restyle
+  // every Flux line on the canvas (round caps drew flat until zooming culled the
+  // plot out of the DOM), and even scoped, every mounted <style> is a stylesheet
+  // whose insertion re-invalidates the whole document (10–50 ms per plot mount).
+  // The editor's cache now BAKES the rules into presentation attributes
+  // (plot/parse.ts bakePlotStyles), so the scene holds zero plot stylesheets.
   // Assert the CASCADE (getComputedStyle), not pixels: a round-capped Flux line
   // beside two inline matplotlib plots computes `round`, while the plot's own
-  // content still receives the preamble's `butt`/`round` from the scoped rule.
+  // content still receives the preamble's `butt`/`round` — from attributes now.
   await page.evaluate(() => {
     const F = window.__flux;
     F.fig.commit((p) => {
@@ -187,9 +191,9 @@ try {
     };
   });
   assert(cascade.lineCap === "round", `a round-capped Flux line beside inline matplotlib plots computes stroke-linecap: round (got ${cascade.lineCap})`);
-  assert(cascade.plotScope === "vanilla1", `the inlined plot root is stamped data-plot-scope (got ${cascade.plotScope})`);
-  assert(cascade.innerCap === "butt" && cascade.innerJoin === "round", `the scoped preamble still styles the plot's own content (cap ${cascade.innerCap}, join ${cascade.innerJoin})`);
-  assert(cascade.styleCount >= 2 && cascade.allScoped, `every inlined <style> in the scene is scoped (${cascade.styleCount} blocks)`);
+  assert(cascade.innerCap === "butt" && cascade.innerJoin === "round", `the baked preamble still styles the plot's own content (cap ${cascade.innerCap}, join ${cascade.innerJoin})`);
+  assert(cascade.styleCount === 0, `the scene holds ZERO plot stylesheets — rules are baked into attributes at parse (${cascade.styleCount} <style> blocks found)`);
+  assert(cascade.plotScope === null, `a style-less mounted plot carries no data-plot-scope (got ${cascade.plotScope})`);
 
   // ---- 3. part click-through: a REAL CTRL-click over a tick label drills -----
   // (Figma deep-select: a plain click always selects the whole plot; ctrl-click

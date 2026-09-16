@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
-  import { renderFigureSvg, resolveFigure, figRefText, type FigureRef } from "./figures";
+  import { resolveFigure, figRefText, type FigureRef, figureImage } from "./figures";
 
   let {
     figures,
@@ -205,8 +205,7 @@
       {#if filtered.length}
         <div class="grid" id="figref-grid" bind:this={gridEl} role="listbox" aria-label="Figures">
           {#each filtered as f, i (f.id)}
-            {@const svg = renderFigureSvg(f.id)}
-            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
             <div
               class="cell"
               class:sel={i === sel}
@@ -216,9 +215,8 @@
               aria-selected={i === sel}
               onclick={() => choose(f)}>
               <div class="thumb">
-                {#if svg}
-                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                  {@html svg}
+                {#if f.id}
+                  <img use:figureImage={f.id} alt="" draggable="false" />
                 {:else}
                   <span class="ph">no preview</span>
                 {/if}
@@ -249,9 +247,8 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div class="panelstage" bind:this={panelsEl} tabindex="-1">
         <div class="pv">
-          {#if renderFigureSvg(fig.id)}
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            {@html renderFigureSvg(fig.id)}
+          {#if fig.id}
+            <img use:figureImage={fig.id} alt="" draggable="false" />
           {:else}
             <span class="ph">no preview</span>
           {/if}
@@ -404,7 +401,7 @@
     overflow: hidden;
     padding: 8px;
   }
-  .thumb :global(svg) {
+  .thumb img {
     max-width: 100%;
     max-height: 100%;
     height: auto;
@@ -465,7 +462,7 @@
     padding: var(--sp-3);
     max-height: 320px;
   }
-  .pv :global(svg) {
+  .pv img {
     max-width: 100%;
     max-height: 290px;
     height: auto;

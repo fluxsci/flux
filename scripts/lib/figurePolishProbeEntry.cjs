@@ -37,6 +37,7 @@ async function main(){
   const times=await js("window.removeEventListener('keydown',window.__nativeKey,true);window.__nativeTimes");
   check(await js("Number([...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='X')?.querySelector('input')?.value)")===beforeX+18,`${n}: measured key events actually moved the selected object`);
   check(times.length===18,`${n}: actual native keyboard events measured`);metrics[n]={nudgeP95:p95(times),mounted:await js("document.querySelectorAll('[data-editor-element-id]').length"),layers:await js("document.querySelectorAll('.sidebar .layer').length")};
+  console.log('PROBE metrics='+JSON.stringify({figure:n,...metrics[n]}));
   check(metrics[n].nudgeP95<=100,`${n}: native key-to-paint p95 ${metrics[n].nudgeP95.toFixed(1)}ms ≤100ms`);
   check(metrics[n].layers<=150,`${n}: virtualized Layers remain bounded`);
  }

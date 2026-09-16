@@ -102,17 +102,22 @@ try {
       changes: { from: view.state.doc.length, insert: "\n\n![](../fig/renders/clipfig.svg){#fig-clipfig}\n" },
     });
   });
-  await waitForSelector(page, ".flux-embed svg", { timeout: 8000, label: "embed svg mounted" });
-  await sleep(400); // widget/paint settle
-  const ids = await page.evaluate(() => {
-    const svg = document.querySelector(".flux-embed svg");
-    svg.scrollIntoView({ block: "center" }); // the paint check screenshots the viewport
-    return [...svg.querySelectorAll("[id]")].map((el) => el.id);
+  // 2026-09-16: the embed's art is an <img> over the render's blob URL — the
+  // svg never enters the editor DOM, so a clip-path collision is impossible by
+  // construction; the namespaced ids are asserted on the render TEXT instead.
+  await waitForSelector(page, ".flux-embed img", { timeout: 8000, label: "embed image mounted" });
+  await waitFor(page, () => { const i = document.querySelector(".flux-embed img"); return !!i && i.complete && i.naturalWidth > 0; }, null, { timeout: 8000, label: "embed image decoded" });
+  // (The render TEXT's `pap__` namespace is pinned by verify-paper-render-overrides.ts,
+  // the pure twin; a blob: URL cannot be fetched under the app's connect-src.)
+  const embed = await page.evaluate(() => {
+    const img = document.querySelector(".flux-embed img");
+    img.scrollIntoView({ block: "center" }); // the paint check screenshots the viewport
+    return { inlineSvgs: document.querySelectorAll(".flux-embed svg").length, blob: img.src.startsWith("blob:") };
   });
   await sleep(300); // scroll + repaint settle before the pixel capture
-  h.ok(ids.some((i) => i.startsWith("pap__plot_clip_el__")), "embed inline ids carry the paper namespace");
-  h.ok(!ids.some((i) => i.startsWith("plot_clip_el__")), "no embed id uses the figure editor's bare element prefix");
-  const embedGreen = await greenPixels(".flux-embed svg");
+  h.ok(embed.inlineSvgs === 0, "the embed inlines NO svg into the editor document (an <img> shows the render)");
+  h.ok(embed.blob, "the embed's picture is the render's blob URL");
+  const embedGreen = await greenPixels(".flux-embed img");
   h.ok(embedGreen > 200, `embed's clipped data marks actually paint (${embedGreen} px)`);
 
   const errs = realErrors(page);

@@ -140,12 +140,19 @@ try {
     return {
       activeResident: ids.every((id) => P.plotDom.has(id)),
       plotDom: P.plotDom.size,
+      mounted: P.mountedPlots.size,
       totalNodes: P.plotResidency.totalNodes,
       evictions: P.plotResidency.evictions,
     };
   }, fx.assetsByFig[fx.figIds[0]]);
   h.ok(tiny.activeResident, `mounted plots never evicted (soft cap): active figure resident under nodeCap=1000 (totalNodes=${tiny.totalNodes})`);
-  h.ok(tiny.plotDom === 14, `tiny cap evicts every unmounted plot: plotDom=${tiny.plotDom} (expected exactly the mounted figure)`);
+  // Under a tiny cap the resident set IS the mounted set: every unmounted plot is
+  // evicted, every mounted one kept. Culling hysteresis (Canvas, 2026-09-16) keeps
+  // content mounted for one viewport past the margin, so the mounted set is the
+  // active figure plus its partially-near neighbours — a bounded neighbourhood,
+  // never the whole tour.
+  h.ok(tiny.plotDom === tiny.mounted, `tiny cap evicts every unmounted plot: plotDom=${tiny.plotDom} === mounted=${tiny.mounted}`);
+  h.ok(tiny.plotDom >= 14 && tiny.plotDom < FIGURES * 14, `the mounted set is the active figure's neighbourhood, not the tour (plotDom=${tiny.plotDom} of ${FIGURES * 14})`);
   await page.evaluate(() => {
     window.__flux.plot.plotResidency.nodeCap = 150_000;
   });

@@ -68,6 +68,218 @@ export function prefixIds(root: Element, elementId: string): void {
   scopePlotStyles(root, elementId);
 }
 
+// --- <style> baking (the editor's mounted DOM) ------------------------------
+//
+// A mounted plot's <style> is a live STYLESHEET in the host document. Blink
+// rebuilds rule-set invalidation data for the whole document every time one is
+// inserted or removed (StyleEngine::scheduleInvalidationsForRuleSets, measured
+// 10–50 ms per plot mount on 2026-09-16) and keeps every plot's rules in the
+// cascade for every later recalc. Presentation attributes cost nothing: they are
+// per-element and shared. So the editor's cached DOM (plot/store.ts cachePlot)
+// bakes each rule into attributes on the elements it matches and drops the
+// <style>. The cascade is preserved exactly: a rule beats a presentation
+// attribute (so an existing attribute is overwritten) but loses to an inline
+// `style` declaration (so those are left alone); rules apply in ascending
+// specificity, then source order, so the strongest wins as before. Anything a
+// presentation attribute cannot express — pseudo-classes/-elements, !important,
+// at-rules, properties outside the SVG presentation set — stays in a residual
+// <style> that scopePlotStyles then scopes as before. Exports and flux-core
+// never see this pass (they serialize the <style>, byte-parity intact).
+
+/** SVG presentation attributes (the properties a rule may be baked into). */
+const PRESENTATION_ATTRS = new Set([
+  "alignment-baseline", "baseline-shift", "clip-path", "clip-rule", "color", "color-interpolation",
+  "color-interpolation-filters", "color-rendering", "cursor", "direction", "display", "dominant-baseline",
+  "fill", "fill-opacity", "fill-rule", "filter", "flood-color", "flood-opacity", "font-family", "font-size",
+  "font-size-adjust", "font-stretch", "font-style", "font-variant", "font-weight", "glyph-orientation-horizontal",
+  "glyph-orientation-vertical", "image-rendering", "letter-spacing", "lighting-color", "marker-end", "marker-mid",
+  "marker-start", "mask", "opacity", "overflow", "paint-order", "pointer-events", "shape-rendering", "stop-color",
+  "stop-opacity", "stroke", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin",
+  "stroke-miterlimit", "stroke-opacity", "stroke-width", "text-anchor", "text-decoration", "text-rendering",
+  "transform-origin", "unicode-bidi", "vector-effect", "visibility", "word-spacing", "writing-mode",
+]);
+
+interface BakeRule {
+  selector: string;
+  decls: [string, string][];
+  specificity: number; // a·1e6 + b·1e3 + c
+  order: number;
+}
+
+/** CSS specificity (a,b,c) folded into one comparable number — ids, then
+ *  classes/attributes/pseudo-classes, then types. `*` and combinators count 0. */
+function specificityOf(selector: string): number {
+  let a = 0;
+  let b = 0;
+  let c = 0;
+  const s = selector.replace(/\[[^\]]*\]/g, (m) => {
+    b++;
+    return m.replace(/[^\[\]]/g, "x"); // attribute contents must not be re-counted below
+  });
+  a += (s.match(/#[\w-]+/g) ?? []).length;
+  b += (s.match(/\.[\w-]+/g) ?? []).length;
+  b += (s.match(/:(?!:)[\w-]+/g) ?? []).length;
+  c += (s.match(/(^|[\s>+~(,])[a-zA-Z][\w-]*/g) ?? []).length;
+  return a * 1e6 + b * 1e3 + c;
+}
+
+/** Split `css` into plain rules (selector + declarations) and the residual text
+ *  that must stay a stylesheet. Pure string work — no DOM. */
+export function splitPlotCss(css: string): { rules: BakeRule[]; residual: string } {
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules: BakeRule[] = [];
+  let residual = "";
+  let i = 0;
+  let order = 0;
+  while (i < src.length) {
+    const open = src.indexOf("{", i);
+    if (open < 0) {
+      residual += src.slice(i);
+      break;
+    }
+    const semi = src.indexOf(";", i);
+    if (semi >= 0 && semi < open) {
+      residual += src.slice(i, semi + 1); // block-less statement (`@import …;`)
+      i = semi + 1;
+      continue;
+    }
+    let depth = 1;
+    let j = open + 1;
+    while (j < src.length && depth > 0) {
+      const ch = src[j];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      j++;
+    }
+    const body = src.slice(open + 1, depth === 0 ? j - 1 : j);
+    const prelude = src.slice(i, open).trim();
+    i = j;
+    if (!prelude || prelude.startsWith("@") || /::?[\w-]/.test(prelude) || /!\s*important/i.test(body)) {
+      residual += (prelude ? prelude : "") + "{" + body + "}";
+      continue;
+    }
+    const decls: [string, string][] = [];
+    const rest: string[] = [];
+    for (const part of body.split(";")) {
+      const m = /^\s*([a-zA-Z-]+)\s*:\s*([^]*?)\s*$/.exec(part);
+      if (!m) continue;
+      const prop = m[1].toLowerCase();
+      if (PRESENTATION_ATTRS.has(prop)) decls.push([prop, m[2]]);
+      else rest.push(`${prop}:${m[2]}`);
+    }
+    if (rest.length) residual += prelude + "{" + rest.join(";") + "}";
+    if (!decls.length) continue;
+    for (const selector of splitSelectors(prelude)) {
+      const sel = selector.trim();
+      if (sel) rules.push({ selector: sel, decls, specificity: specificityOf(sel), order: order++ });
+    }
+  }
+  return { rules, residual };
+}
+
+/** Does the element's inline `style` declare `prop`? (An inline declaration
+ *  beats any rule, so a baked attribute must never shadow one.) */
+function inlineDeclares(el: Element, prop: string): boolean {
+  const style = el.getAttribute("style");
+  if (!style) return false;
+  return new RegExp(`(^|;)\\s*${prop.replace(/[-]/g, "\\-")}\\s*:`, "i").test(style);
+}
+
+/** Bake every bakeable rule of every <style> under `root` into presentation
+ *  attributes and drop the sheets (a residual sheet stays when something could
+ *  not be baked). Returns what happened, for the gates. */
+export function bakePlotStyles(root: Element): { baked: number; kept: number; attrs: number } {
+  const styles = Array.from(root.querySelectorAll("style"));
+  let baked = 0;
+  let kept = 0;
+  let attrs = 0;
+  for (const st of styles) {
+    const css = st.textContent ?? "";
+    if (!css.trim()) {
+      st.remove();
+      continue;
+    }
+    const { rules, residual } = splitPlotCss(css);
+    rules.sort((x, y) => x.specificity - y.specificity || x.order - y.order);
+    for (const rule of rules) {
+      let matched: Element[];
+      try {
+        matched = Array.from(root.querySelectorAll(rule.selector));
+        if (root.matches(rule.selector)) matched.unshift(root);
+      } catch {
+        kept++;
+        continue; // an unparsable selector cannot be baked; it stays live below
+      }
+      for (const el of matched) {
+        for (const [prop, value] of rule.decls) {
+          if (inlineDeclares(el, prop)) continue;
+          el.setAttribute(prop, value);
+          attrs++;
+        }
+      }
+      baked++;
+    }
+    const keep = residual.trim();
+    if (keep) {
+      st.textContent = keep;
+      kept++;
+    } else st.remove();
+  }
+  return { baked, kept, attrs };
+}
+
+// --- clip-path hoisting (the editor's mounted DOM) ----------------------------
+//
+// matplotlib stamps the SAME `clip-path="url(#p…)"` on nearly every artist of an
+// axes (4,038 of 4,163 elements in one dense fluxplot). In Chromium every
+// clipped element is its own paint chunk, and layerization
+// (PaintArtifactCompositor::Update) walks every chunk on every hover outline,
+// selection change or overlay repaint — 4 ms per dense plot, ~10 ms per click
+// on a 21-plot figure (2026-09-16). Wrapping each run of consecutive siblings
+// that share a clip in ONE clipped <g> is exactly equivalent (a clip on a group
+// clips its children identically, in the same user space) and collapses the
+// chunk count 200× (scripts/perf/layerize-lab.mjs: 4.06 → 0.02 ms). A child
+// with its own `transform` keeps its own clip: its clip is evaluated in its
+// transformed user space and cannot move to an untransformed wrapper. Editor
+// cache only — exports serialize the pristine parse.
+
+/** Wrap runs of ≥2 consecutive element siblings sharing a clip-path (and
+ *  carrying no transform) in one clipped <g>. Returns counts for the gates. */
+export function hoistPlotClips(root: Element): { groups: number; hoisted: number } {
+  let groups = 0;
+  let hoisted = 0;
+  const hasTransform = (el: Element) => el.hasAttribute("transform") || /(^|;)\s*transform\s*:/.test(el.getAttribute("style") ?? "");
+  const parents = [root, ...Array.from(root.querySelectorAll("g, svg, a"))];
+  for (const parent of parents) {
+    if (parent.localName === "clipPath" || parent.localName === "defs") continue;
+    const kids = Array.from(parent.children);
+    let i = 0;
+    while (i < kids.length) {
+      const cp = kids[i].getAttribute("clip-path");
+      if (!cp || hasTransform(kids[i])) {
+        i++;
+        continue;
+      }
+      let j = i + 1;
+      while (j < kids.length && kids[j].getAttribute("clip-path") === cp && !hasTransform(kids[j])) j++;
+      if (j - i >= 2) {
+        const doc = parent.ownerDocument ?? document;
+        const g = doc.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("clip-path", cp);
+        parent.insertBefore(g, kids[i]);
+        for (let k = i; k < j; k++) {
+          kids[k].removeAttribute("clip-path");
+          g.appendChild(kids[k]);
+        }
+        groups++;
+        hoisted += j - i;
+      }
+      i = j;
+    }
+  }
+  return { groups, hoisted };
+}
+
 // --- <style> scoping --------------------------------------------------------
 //
 // An inlined plot shares the HOST document's cascade: an SVG <style> has no

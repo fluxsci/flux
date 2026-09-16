@@ -349,6 +349,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
   }
   property("rotation");
   property("opacity");
+  property("contentScale"); // plots only (read() is undefined elsewhere → the row does not render)
 
   // Reset crop: an action for cropped image/plot elements — one commit
   // through ops.setCrop(null): the box returns to the full content at its

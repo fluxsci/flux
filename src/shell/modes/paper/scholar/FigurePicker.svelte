@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
-  import { renderFigureSvg, type FigureRef } from "./figures";
+  import { type FigureRef, figureImage } from "./figures";
 
   let {
     figures,
@@ -120,7 +120,6 @@
     {#if filtered.length}
       <div class="grid" id="figpicker-grid" bind:this={gridEl} role="listbox" aria-label="Figures">
         {#each filtered as f, i (f.id)}
-          {@const svg = renderFigureSvg(f.id)}
           <!-- Focus stays in the search input (aria-activedescendant pattern):
                options are highlighted, not focused. -->
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
@@ -133,9 +132,8 @@
             aria-selected={i === sel}
             onclick={() => onSelect(f)}>
             <div class="thumb">
-              {#if svg}
-                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                {@html svg}
+              {#if f.id}
+                <img use:figureImage={f.id} alt="" draggable="false" />
               {:else}
                 <span class="ph">no preview</span>
               {/if}
@@ -264,7 +262,7 @@
     overflow: hidden;
     padding: 8px;
   }
-  .thumb :global(svg) {
+  .thumb img {
     max-width: 100%;
     max-height: 100%;
     height: auto;

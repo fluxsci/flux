@@ -43,7 +43,10 @@ const actualCases = [
   ["src/lib/keyboard.ts", ["verify-fig-order-gui.mjs", "verify-fig-namer.mjs", "group:slide-stash", "tier:pure"]],
   ["scripts/lib/slideStashNativeEntry.cjs", ["group:slide-stash"]],
   // 2026-09-15: the crosshair cursor family owns Canvas.svelte first (its own pathMap entry).
-  ["src/lib/Canvas.svelte", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  ["src/lib/Canvas.svelte", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  // 2026-09-16: the compositor drive and the zoom proxy ride the same entry as the canvas they move.
+  ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/slide/player/player.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
@@ -51,7 +54,7 @@ const actualCases = [
   ["src/lib/editorPresentation.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/project/figureReferenceSync.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/project/documentExportLease.ts", ["verify-slide-embed-core.ts", "group:paper-gate"]],
-  ["src/shell/ModeContent.svelte", ["verify-mode-cold-switch.mjs", "verify-keepalive.mjs", "verify-slide-tenancy-gui.mjs", "tier:pure"]],
+  ["src/shell/ModeContent.svelte", ["verify-mode-cold-switch.mjs", "verify-figure-input-hygiene.mjs", "verify-keepalive.mjs", "verify-slide-tenancy-gui.mjs", "tier:pure"]],
   ["src/shell/modes/paper/PaperMode.svelte", ["group:paper-gate", "tier:pure"]],
   // The earlier paper rule must continue winning over the later documents rule.
   ["src/shell/modes/paper/documents/DocumentList.svelte", ["group:paper-gate", "tier:pure"]],

@@ -64,6 +64,39 @@ let familyDefs: FigureFamilyDef[] = [];
 // cache as undefined so one broken figure costs one warning, not one per
 // keystroke of picker/embed rebuilds.
 const renderCache = new Map<string, string | undefined>();
+// Blob URLs of the display renders, for <img> consumers (embeds, hover cards,
+// pickers, the margin view). An <img> is the cheap way to SHOW a figure: zero
+// DOM nodes in the editor, no live stylesheet per plot, one raster cached by
+// Chromium per size — where an inlined 5k-node SVG re-parsed, re-invalidated
+// rule sets and restyled on every CodeMirror viewport re-entry (2026-09-16:
+// 60–130 ms long tasks while scrolling a 34-line manuscript). Same revision
+// lifetime as renderCache; revoked together.
+const imageUrlCache = new Map<string, string | undefined>();
+// The PREVIOUS revision's URLs, kept alive until a fresh render replaces each
+// one: an embed shows the last picture instantly after a figure edit and swaps
+// when the new render lands (revoking here would blank every embed for the
+// duration of the re-render).
+const staleImageUrls = new Map<string, string | undefined>();
+// Bumped on every figure reload; widgets compare it instead of render strings.
+let figuresRev = 0;
+export function getFiguresRev(): number {
+  return figuresRev;
+}
+function revokeImageUrls(): void {
+  figuresRev++;
+  for (const [id, url] of imageUrlCache) {
+    const prev = staleImageUrls.get(id);
+    if (prev && prev !== url) URL.revokeObjectURL(prev);
+    staleImageUrls.set(id, url);
+  }
+  imageUrlCache.clear();
+}
+/** Figure box in canvas px from the MODEL (no render needed) — what an embed
+ *  reserves before its picture is ready. */
+export function figureDims(id: string): { w: number; h: number } | undefined {
+  const fig = figuresById[id];
+  return fig ? { w: fig.width, h: fig.height } : undefined;
+}
 
 export async function loadFigures(root: string | null): Promise<void> {
   if (!root) return; // demo / no project — leave whatever was seeded
@@ -74,6 +107,7 @@ export async function loadFigures(root: string | null): Promise<void> {
   assetMeta = src.assets;
   familyDefs = src.families;
   renderCache.clear();
+  revokeImageUrls();
   figureCanvases.set(src.canvases);
   // Flux-figure is the source of truth: identity is (family, number) —
   // structured fields healed by the loader, never parsed out of the name —
@@ -242,6 +276,143 @@ export function renderFigureSvg(id: string): string | undefined {
   return svg;
 }
 
+/** The display render as an <img> source (blob URL; cached per figure per
+ *  fig-revision alongside renderFigureSvg). Consumers that only SHOW a figure
+ *  use this — never inline the svg string into the editor document. */
+export function renderFigureImageUrl(id: string): string | undefined {
+  if (imageUrlCache.has(id)) return imageUrlCache.get(id);
+  const svg = renderFigureSvg(id);
+  let url: string | undefined;
+  if (svg) {
+    try {
+      url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    } catch {
+      url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`; // no Blob (tests) → data URL
+    }
+  }
+  imageUrlCache.set(id, url);
+  const stale = staleImageUrls.get(id);
+  if (stale && stale !== url) {
+    if (stale.startsWith("blob:")) URL.revokeObjectURL(stale);
+    staleImageUrls.delete(id);
+  }
+  return url;
+}
+
+/** The picture an <img> can show RIGHT NOW without rendering: the current
+ *  revision's URL if it exists, else the previous revision's. */
+export function cachedFigureImageUrl(id: string): string | undefined {
+  return imageUrlCache.get(id) ?? staleImageUrls.get(id);
+}
+
+// ---- the idle render queue -------------------------------------------------
+// A figure render is 20–50 ms of main thread (parse every plot, bake overrides,
+// serialize). After a figure edit the paper's chips refresh and every embed,
+// picker and hover card would re-render synchronously inside the IPC reply —
+// 170 ms for a two-figure manuscript (2026-09-16), while the user was still
+// panning in Figure. Renders now queue: one figure per idle slice, listeners
+// swap their <img> when it lands. Nothing renders that nobody is looking at.
+const renderWaiters = new Map<string, Set<(url: string | undefined) => void>>();
+// Each waiter may name the element it feeds; a figure whose every waiter sits in
+// a hidden pane (ModeContent keep-alive: `.mc.hidden`, visibility:hidden) is not
+// rendered until that pane is shown again — an edit made in Figure must not
+// re-render the hidden Paper's embeds behind the user's next pan. ModeContent
+// dispatches `flux:pane-shown` on reveal; the queue drains then.
+const waiterEl = new WeakMap<(url: string | undefined) => void, globalThis.Element>(); // DOM Element — `Element` here is the figure model type
+function waiterVisible(cb: (url: string | undefined) => void): boolean {
+  const el = waiterEl.get(cb);
+  if (!el) return true; // no element → a plain request, render it
+  if (!el.isConnected) return false; // a detached <img> wants nothing
+  return !el.closest(".mc.hidden");
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("flux:pane-shown", () => {
+    if (renderWaiters.size) scheduleRenderDrain();
+  });
+}
+let renderScheduled = false;
+function scheduleRenderDrain(): void {
+  if (renderScheduled) return;
+  renderScheduled = true;
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  if (ric) ric(drainRenderQueue, { timeout: 250 });
+  else setTimeout(drainRenderQueue, 16);
+}
+function drainRenderQueue(): void {
+  renderScheduled = false;
+  let pending = false;
+  for (const [id, waiters] of renderWaiters) {
+    // Drop waiters whose element is gone; skip figures nobody visible wants.
+    for (const w of waiters) if (waiterEl.has(w) && !waiterEl.get(w)!.isConnected) waiters.delete(w);
+    if (!waiters.size) {
+      renderWaiters.delete(id);
+      continue;
+    }
+    if (![...waiters].some(waiterVisible)) {
+      pending = true; // hidden pane — wait for flux:pane-shown
+      continue;
+    }
+    renderWaiters.delete(id);
+    const url = renderFigureImageUrl(id); // ONE figure per slice
+    for (const w of waiters) w(url);
+    break;
+  }
+  if ([...renderWaiters.values()].some((set) => [...set].some(waiterVisible))) scheduleRenderDrain();
+  void pending;
+}
+/** Resolve to the current revision's URL, rendering in an idle slice if needed.
+ *  `el` (the <img> being fed) lets the queue defer while its pane is hidden. */
+export function requestFigureImageUrl(id: string, cb: (url: string | undefined) => void, el?: globalThis.Element): () => void {
+  if (imageUrlCache.has(id)) {
+    cb(imageUrlCache.get(id));
+    return () => {};
+  }
+  if (el) waiterEl.set(cb, el);
+  let set = renderWaiters.get(id);
+  if (!set) renderWaiters.set(id, (set = new Set()));
+  set.add(cb);
+  scheduleRenderDrain();
+  return () => {
+    set!.delete(cb);
+    if (!set!.size) renderWaiters.delete(id);
+  };
+}
+
+/** Bind an <img> to a figure: shows the cached or previous picture at once,
+ *  reserves the model box (no layout shift), and swaps in the fresh render when
+ *  the idle queue delivers it. Returns a cancel. */
+export function bindFigureImage(img: HTMLImageElement, id: string): () => void {
+  const dims = figureDims(id);
+  if (dims) {
+    img.width = Math.round(dims.w);
+    img.height = Math.round(dims.h);
+  }
+  const now = cachedFigureImageUrl(id);
+  if (now && img.src !== now) img.src = now;
+  return requestFigureImageUrl(
+    id,
+    (url) => {
+      if (url && img.src !== url) img.src = url;
+      else if (!url && !now) img.removeAttribute("src");
+    },
+    img,
+  );
+}
+
+/** Svelte action form of bindFigureImage: `<img use:figureImage={figId} />`. */
+export function figureImage(node: HTMLImageElement, id: string): { update(id: string): void; destroy(): void } {
+  let cancel = bindFigureImage(node, id);
+  return {
+    update(next: string) {
+      cancel();
+      cancel = bindFigureImage(node, next);
+    },
+    destroy() {
+      cancel();
+    },
+  };
+}
+
 /** The DISK render (materializeRenders → fig/renders/<id>.svg for Quarto/DOCX):
  *  UN-namespaced and uncached, byte-identical to flux-core's renderFigureSvg
  *  for the same on-disk figure (verify-paper-render-overrides pins it). A file
@@ -332,6 +503,7 @@ export function __seedFigures(
   assetMeta = assets;
   familyDefs = families;
   renderCache.clear();
+  revokeImageUrls();
   figureCanvases.set(canvases);
   figureRefs.set(refs);
 }

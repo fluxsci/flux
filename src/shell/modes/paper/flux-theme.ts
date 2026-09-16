@@ -318,10 +318,13 @@ export const fluxTheme = EditorView.theme(
       alignItems: "center",
       overflow: "hidden",
     },
-    ".flux-embed-art svg": {
+    ".flux-embed-art img": {
+      display: "block",
       maxWidth: "100%",
+      width: "auto",
       height: "auto",
       maxHeight: "440px",
+      userSelect: "none",
     },
     /* Explicit width attr ({#fig-x width=60%}): the card is a fraction of the
        text column, the svg fills it, and the 440px cap yields to user intent. */
@@ -329,7 +332,7 @@ export const fluxTheme = EditorView.theme(
       width: "var(--embed-w)",
       margin: "0 auto",
     },
-    ".flux-embed.sized .flux-embed-art svg": {
+    ".flux-embed.sized .flux-embed-art img": {
       width: "100%",
       height: "auto",
       maxHeight: "none",

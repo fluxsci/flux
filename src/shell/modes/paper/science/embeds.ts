@@ -16,7 +16,7 @@
 
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { StateField, type EditorState, type Range } from "@codemirror/state";
-import { resolveFigure, renderFigureSvg } from "../scholar/figures";
+import { resolveFigure, getFiguresRev, figureDims, bindFigureImage } from "../scholar/figures";
 import { handlersForEl } from "./chipContext";
 import { refreshChips } from "./chips";
 import { EMBED_RE, parseEmbedAttrs, widthFraction, cssWidth, unescapeEmbedCaption } from "./figureAttrs";
@@ -48,8 +48,10 @@ interface EmbedDomState {
   label: string;
   caption: string;
   captionLabel: string | null;
-  svg: string | undefined;
+  figId: string | undefined;
+  rev: number;
   width: string | null;
+  cancel: () => void; // the pending idle render, if any
 }
 const domState = new WeakMap<HTMLElement, EmbedDomState>();
 
@@ -65,8 +67,13 @@ function applyWidth(wrap: HTMLElement, width: string | null): void {
 
 class FigureEmbedWidget extends WidgetType {
   readonly captionLabel: string | null;
-  readonly svg: string | undefined;
   readonly figId: string | undefined;
+  // Figure revision at construction: a chips refresh after a figure edit builds
+  // new widgets that differ only here — updateDOM keeps the DOM and swaps the
+  // picture when the idle render lands. NO render happens in this constructor
+  // (widgets are built for the whole document on every refresh, not just the
+  // viewport; the picture is requested by the DOM that shows it).
+  readonly rev: number;
   readonly width: string | null;
   readonly caption: string;
   private readonly estH: number;
@@ -86,11 +93,11 @@ class FigureEmbedWidget extends WidgetType {
     // EMPTY alt (insertFigure/normalize); Quarto exports get the caption
     // injected at compile time (src/lib/exportQmd.ts).
     this.caption = (r?.ref.caption?.trim() || altCaption).trim();
-    this.svg = this.figId ? renderFigureSvg(this.figId) : undefined;
-    const dims = this.svg && /width="([\d.]+)" height="([\d.]+)"/.exec(this.svg);
+    this.rev = getFiguresRev();
+    const dims = this.figId ? figureDims(this.figId) : undefined;
     if (dims) {
-      const w = parseFloat(dims[1]);
-      const h = parseFloat(dims[2]);
+      const w = dims.w;
+      const h = dims.h;
       const frac = widthFraction(this.width);
       // Sized: the card is frac×column and the svg fills it (no 440 cap).
       // Auto: intrinsic size, shrunk to the column, capped at 440px tall.
@@ -110,7 +117,8 @@ class FigureEmbedWidget extends WidgetType {
       o.label === this.label &&
       o.caption === this.caption &&
       o.captionLabel === this.captionLabel &&
-      o.svg === this.svg &&
+      o.figId === this.figId &&
+      o.rev === this.rev &&
       o.width === this.width
     );
   }
@@ -122,15 +130,26 @@ class FigureEmbedWidget extends WidgetType {
 
     const fig = document.createElement("div");
     fig.className = "flux-embed-art";
-    if (this.svg) {
-      fig.innerHTML = this.svg;
+    // The art is an <img> over the render's blob URL, never the inlined svg:
+    // CodeMirror re-creates block widgets as they re-enter its viewport, and an
+    // inlined 5k-node SVG made every re-entry a 60–130 ms task (HTML re-parse,
+    // a fresh stylesheet per plot, a full restyle). An image is one node,
+    // decoded once and cached by the browser (renderFigureImageUrl).
+    let cancel = () => {};
+    if (this.figId && figureDims(this.figId)) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.draggable = false;
+      img.decoding = "async";
+      cancel = bindFigureImage(img, this.figId); // cached/previous picture now, fresh render from the idle queue
+      fig.appendChild(img);
     } else {
       fig.classList.add("missing");
       fig.textContent = `Unknown figure @${this.label}`;
     }
     wrap.appendChild(fig);
 
-    if (this.svg) fig.appendChild(this.makeGrip(wrap));
+    if (this.figId) fig.appendChild(this.makeGrip(wrap));
 
     const cap = document.createElement("div");
     cap.className = "flux-embed-cap";
@@ -181,10 +200,15 @@ class FigureEmbedWidget extends WidgetType {
       label: this.label,
       caption: this.caption,
       captionLabel: this.captionLabel,
-      svg: this.svg,
+      figId: this.figId,
+      rev: this.rev,
       width: this.width,
+      cancel,
     });
     return wrap;
+  }
+  destroy(dom: HTMLElement) {
+    domState.get(dom)?.cancel();
   }
   // Resize commits are a one-attr text edit → the field rebuilds → a new widget
   // that differs ONLY in width. Patch the CSS var on the live DOM instead of
@@ -196,12 +220,20 @@ class FigureEmbedWidget extends WidgetType {
       prev.label !== this.label ||
       prev.caption !== this.caption ||
       prev.captionLabel !== this.captionLabel ||
-      prev.svg !== this.svg
+      prev.figId !== this.figId
     )
       return false;
     if (prev.width !== this.width) {
       applyWidth(dom, this.width);
       prev.width = this.width;
+    }
+    if (prev.rev !== this.rev && this.figId) {
+      // The figure changed: keep the DOM (no re-parse, no scroll jump), show the
+      // previous picture, swap when the idle render lands.
+      prev.cancel();
+      const img = dom.querySelector(".flux-embed-art img") as HTMLImageElement | null;
+      prev.cancel = img ? bindFigureImage(img, this.figId) : () => {};
+      prev.rev = this.rev;
     }
     return true;
   }

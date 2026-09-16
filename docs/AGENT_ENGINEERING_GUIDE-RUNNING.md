@@ -854,13 +854,117 @@ Persistence invariants (all machine-checked — do not weaken):
     `verify-annotate-gui.mjs`.
   - **The crosshair cursor family = `styles/cursors.css` + `Canvas.svelte hostCursor`** (owner
     note, 2026-09-15): three hardware `cursor: url()` SVGs (24 px, hotspot 12 12; white halo
-    under a dark core, a 3 px centre gap for precision) — plain, hover (accent dot, when
-    `hoverId` is set under the select/scale tools) and press (contracted arms, while a gesture
-    is live) — switched by STATE, never per frame. `.el { cursor: inherit }` so objects take
-    the family instead of `move`; handles keep their resize arrows, pan keeps grab/grabbing,
-    text keeps the I-beam, rulers keep the platform crosshair. The click "feel" is one
-    `.click-ring` circle in the overlay svg per primary press (300 ms CSS scale/opacity,
-    removed after; hidden under reduced motion). Gate: `verify-cursor-gui.mjs` (ui).
+    under a dark core, a 3 px centre gap for precision) — plain, hover (accent dot) and press
+    (contracted arms). **Two levels, load-bearing (2026-09-16):** the HOST value flips only
+    for pan (grab/grabbing), tool (text I-beam) and press (`gesture || pressing`); every
+    element wrapper `.el` carries the hover variant as an EXPLICIT constant, so the dot needs
+    no JS (the pointer over an object hits the wrapper's subtree) and — the point — the
+    wrapper is a firewall: `cursor` inherits, and a host flip would otherwise restyle every
+    mounted plot node (~120 ms per hover boundary at 15k nodes — the Linux "laggy Figure"
+    regression, §9). The press variant still shows over objects because element presses
+    capture the pointer on the host and Chromium takes the cursor from the capture target.
+    Never feed `$hoverId` into `hostCursor`, never write `.el { cursor: inherit }`. Handles
+    keep their resize arrows, rulers keep the platform crosshair, text keeps the I-beam. There
+    is NO click ring (it shipped 2026-09-15, measured cost-free, and was retired 2026-09-16 at
+    the owner's request as distracting — the press feel is the cursor alone; nothing else may
+    bloom at a press, `verify-cursor-gui` pins it). Gate:
+    `verify-cursor-gui.mjs` (ui) — family behavior plus the firewall leg on the dense
+    lazy-assets fixture (30k plot nodes: RecalcStyleDuration per pointer transition < 8 ms,
+    no long task, one computed cursor on a plot's inner nodes across rest / hover / press;
+    the pre-fix code reads 89 ms and 36 long tasks there).
+  - **The scene pans on the compositor drive** (`interact/compositorDrive.ts`, 2026-09-16).
+    Chromium re-layerizes the whole page (`PaintArtifactCompositor::Update`, O(paint chunks))
+    after EVERY inline-style transform write, will-change or not — 4–7 ms per frame over a
+    dense scene, i.e. the entire budget of a "compositor-only" pan spent on the main thread.
+    While `sceneHot`, `.scene`'s transform is carried by ONE paused Web Animation whose
+    keyframes are replaced per change (the compositor owns the value; one layerization per
+    gesture, `scripts/perf/layerize-lab.mjs` proves it standalone), and the inline style is
+    written alongside so probes and at-rest gates read the truth. `cool()` cancels the
+    animation in the same frame the style holds the value — no flash, no permanent promotion,
+    the P6 crisp-at-rest lifecycle unchanged. Reuse the drive for any per-frame transform on a
+    heavy subtree; never go back to `style.transform` per tick.
+  - **A zoom burst rides the zoom proxy** (`interact/zoomProxy.ts` + Canvas, 2026-09-16). Blink
+    relayouts and repaints every SVG `<text>` when an ancestor's scale changes, so a live
+    ctrl-wheel zoom over a dense figure cost ~20 ms of main thread per tick (30 fps, blur→sharp
+    pops at every mid-gesture fold). Now, once the scene has been QUIET for 1.5 s and the
+    event loop is idle, the MOUNTED scene is serialized in WORLD units over the visible box
+    plus half a host per side (`snapshotRegion`), at its own raster scale (`snapshotScale`:
+    the baked zoom, capped to 4096 px / 3 MP), then rasterized ONCE through a canvas into a
+    PNG at device resolution — the snapshot, a BITMAP (an SVG-backed `<img>` is redrawn as
+    vector content whenever its area repaints: ~20 ms per nudge at 1,600 elements), keyed by
+    scene content only (`sceneKey`: revisions, mounted-set generation, plot DOM generation,
+    presentation — never the viewport or the baked zoom, so folds keep it and pans keep it
+    while the view stays inside its box, `snapshotCovers`), kept warm as a promoted
+    `<img class="zoom-proxy">` at opacity 0.01 whose tiles already exist. Scenes above
+    `SNAPSHOT_MAX_NODES` (20k) get no snapshot and zoom live as before. The first tick of a burst with a fresh
+    snapshot flips it live: the image takes the gesture on its own compositor drive with the
+    exact viewport mapping (`proxyTransform`), the live scene is FROZEN (its drive stores
+    the pending transform) and hidden (`opacity: 0`, compositor-only). The fold DEMOTES the
+    scene first (drive cool, will-change off), then applies the pending transform, the baked
+    `<g>` scale, the scene's return and the proxy's retreat in one flush — a non-animating
+    layer's tiles are required for activation, so the swap is atomic
+    (`scripts/perf/layer-swap-lab.cjs` pins that no blank or stale frame is presented across
+    promotion, folds and demotion). No fresh snapshot → the gesture runs live as before. The
+    proxy's transform is written ONLY while it is live (a per-tick write on its promoted
+    layer at rest would re-layerize every frame). Delayed sharpness after a burst is the
+    accepted trade: the fold's one repaint (55–90 ms over 21 plots) lands once, after the
+    pointer stops. Fast zoom: 150–230 ms of main thread per 1.6 s burst at 16.7 ms p95 frames
+    with the live scene frozen for every frame (was 931 ms at 33 ms). Gates:
+    `verify-zoom-proxy.mjs` (ui, 8-panel fixture), crisp's burst sampling accepts the proxy
+    path, scale-lazy-assets pins that a cold settle hosts no snapshot, the native figure gate
+    pins key-to-paint (a snapshot landing between two nudges was a 40–150 ms outlier before
+    the 1.5 s quiet rule). The idle snapshot after a scene change or a >2× zoom drift is one
+    ~50 ms task on the owner's figure; if it ever reads as a hitch, it is the place to slice.
+  - **No hover outline while a burst is live.** `hoverInfo` is null while `sceneHot`: content
+    sweeping under a still pointer flipped the outline every frame during pans and zooms —
+    flicker, not feedback. The hover-dot cursor (a constant on `.el`) is unaffected.
+  - **The property menu's `h` row is a plot's content scale** (`numericProperties.contentScale`,
+    the K tool's persisted factor; step .05, min .05, soft max 4; reset to 1 deletes the
+    field, as the Inspector does). `read()` is undefined for non-plots, so the row only
+    renders when a plot is selected.
+  - **Culling has hysteresis and freezes while hot.** `CULL_MARGIN` (600 px) is where content
+    MOUNTS; mounted content UNMOUNTS only one viewport farther (`cullMarginOut()` = 600 px +
+    the larger host dimension — a function of the viewport, not a constant, so the resident set
+    stays bounded at any zoom: mounted plots pin their parsed DOM), so a screen's worth of
+    scrolling away and back never re-pays a plot mount; and the cull key is not recomputed
+    while `sceneHot` (a wheel burst, a drag) — the cool-down re-culls once. Re-culls mid-burst
+    were the 50–450 ms "scroll storms" (a 9-plot figure re-entering the old margin).
+    `mountedFigs` / `mountedEls` are the non-reactive hysteresis memory.
+  - **The editor's plot cache is OPTIMIZED; exports serialize a pristine parse.** `cachePlot`
+    runs two editor-only passes after `preparePlot`: `bakePlotStyles` (every bakeable `<style>`
+    rule becomes presentation attributes on the elements it matches, cascade preserved exactly,
+    the sheet is dropped — a mounted `<style>` is a live stylesheet whose insertion
+    re-invalidates rule sets for the whole document) and `hoistPlotClips` (each run of
+    same-clip, untransformed siblings is wrapped in ONE clipped `<g>`: matplotlib stamps the
+    same clip on ~97% of elements, every clipped element is a paint chunk, and layerization is
+    O(chunks) — 200× fewer chunks, 4.06 → 0.02 ms per update in the lab). Anything that
+    SERIALIZES a plot for a file (`plotToSvgMarkup`, i.e. GUI SVG/PNG/PDF and deck exports)
+    takes `pristinePlotRoot()` — a fresh `preparePlot` of the asset bytes — so exports stay
+    byte-identical to flux-core. Gates: `verify-plot-style-bake.ts` (pure), vanilla-inline §2b
+    (zero plot stylesheets in the scene, computed caps still right), the lazy/export gates.
+  - **Paper shows figures as IMAGES from an idle render queue** (`scholar/figures.ts`,
+    2026-09-16). Embeds, hover cards, the pickers and the margin view all use
+    `<img use:figureImage={id}>` / `bindFigureImage` over `renderFigureImageUrl` (a blob URL
+    of the display render, cached per figure per fig-revision). Never inline a figure's svg
+    string into the editor document again: CodeMirror re-creates block widgets as they re-enter
+    its viewport, and a 5k-node inline SVG made each re-entry a 60–130 ms task (re-parse, a
+    fresh stylesheet per plot, a full restyle), while its paint chunks taxed every keystroke's
+    layerization. Renders are LAZY: `FigureEmbedWidget` reserves the model box (`figureDims`)
+    and renders nothing in its constructor; the DOM that shows a figure requests it, the
+    queue renders ONE figure per idle slice, shows the previous revision's picture until the
+    new one lands (stale URLs are revoked only when replaced), and defers figures whose
+    `<img>` sits in a hidden pane (`.mc.hidden`) until ModeContent dispatches
+    `flux:pane-shown`. `inlineMarkup.ts` also caches prepared roots by source text (clone per
+    use) so a render never re-parses the same plot. Before: every figure edit re-rendered
+    every embed synchronously inside the autosave's IPC reply — 170 ms, with Paper hidden.
+  - **A hidden pane keeps no DOM selection.** A caret left in the hidden Paper pane made Blink
+    re-canonicalize the selection after every style update in Figure — a walk through the
+    whole scene, twice per wheel tick (16 ms/frame). ModeContent drops a selection anchored in
+    a pane it just hid; `Canvas.keepSceneHot` drops one anchored outside the canvas at the
+    first tick of a burst. Gate: `verify-figure-input-hygiene.mjs` (ui) — the drive's
+    animation present while hot / absent at rest, no selection in a hidden pane, no
+    mount/unmount during a burst, no long task, TaskDuration per wheel tick < 12 ms on the
+    dense fixture (pre-fix 56 ms; now 2.4).
   - **The property menu header names the thing:** the Flux mark, a hairline, then
     `elementLabel` (the Layers name — custom name, a plot's file name, `rect 1`), for a part
     `plot › part`; `.ctx` keeps the kind / plural count (`2 plot parts`, pinned by
@@ -1061,7 +1165,16 @@ library first-keystroke 177ms (the 150ms debounce above). Figure was remeasured 
 the production harness gates actual key-to-paint at 31.9ms p95 for 1,600 mounted objects and
 34.8ms in the 5,000-object fixture (3,760 visible elements mounted, 47 Layers rows). Transient
 Figure drag measured 5.4ms p95 in the dev scale gate; dev commit tracing remains distinct from
-production latency. Reader open / project open / whole-doc find are 1s-class navigations and
+production latency. Figure and Paper were remeasured 2026-09-16 on the neural-populations
+example (21 plots, 14.8k mounted plot nodes, production bundle, `scripts/perf/input-probe.cjs`,
+Paper visited first then Figure): trackpad pan 50–110 ms of main-thread time per 1.6 s burst
+with zero long tasks (was 630 ms and 47% busy), hover sweep 55 ms (was 510), twelve rapid
+clicks 190–260 ms total with click-to-paint p95 24–31 ms (was 875–1094 ms and 2–4 s
+backlogs), a drag 100 ms (was 445), the three idle seconds after an edit hitch-free (was a
+170 ms task), ctrl-wheel zoom on the zoom proxy 110–230 ms per burst at 16.7 ms p95 frames
+with the live scene frozen (was 780–930 ms at 33 ms; the settle fold is one 55–90 ms repaint); Paper scrolling and typing 110–200 ms per
+phase with zero long tasks (scrolling was 60–130 ms tasks). Slide mode measures the same as
+Figure. The native Electron key-to-paint gate stays the production oracle for edits. Reader open / project open / whole-doc find are 1s-class navigations and
 within budget. Update these measurements when the corresponding workflow is changed.
 
 ## 7. The verification system (how you prove your work)
@@ -1165,8 +1278,14 @@ migration in `src/lib/migrate.ts` (legacy-lenient) → shapes/plan in `figfiles.
 schema version ONLY for breaking changes (minor slot) → extend `verify-loadgate` /
 `verify-figfiles-parity` / `verify-fwdguard`.
 
-**Perf investigation:** reproduce via a scale gate or a throwaway probe against the dev server;
-read §9's measurement traps first; prefer structural fixes (window, gate, scope, cache-by-rev)
+**Perf investigation:** reproduce via a scale gate or a throwaway probe against the dev server
+(for input latency in a REAL project, `node scripts/perf/input-probe.cjs <project>
+--surface=figure|paper|slide|both` drives the production bundle in a real Electron with isolated
+config — sweeps, hover flips, click bursts, drags, idle-after-edit, wheel pans, zoom, paper
+scroll and typing, each with long tasks / input-to-paint / CDP style-layout-script-task
+deltas / the browser-side cursor oracle, `--trace` for Chrome traces and
+`scripts/perf/trace-summary.mjs` to read them; `scripts/perf/layerize-lab.mjs` isolates a
+Chromium layerization question on a bare page); read §9's measurement traps first; prefer structural fixes (window, gate, scope, cache-by-rev)
 and structural budgets; record before/after in the commit.
 
 **Update the user docs** (`docs/` is a Quarto website — the V0.1 user documentation, distinct
@@ -1555,8 +1674,108 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   in whichever gate is mid-flight (a half-swapped module). Freeze sources, then rerun the
   failed gate alone before believing it.
 
+- **An inherited CSS property is O(subtree) to flip — and the scene subtree IS the plot DOM**
+  (2026-09-16, the Linux "laggy Figure" report: clicks painting 2–4 s late, one mouse move
+  delivered per 120 ms, the click ring unable to keep up). `cursor` inherits; the crosshair
+  commit bound the host's `cursor` to hover state and gave `.el` `cursor: inherit`, so every
+  hover boundary and every press/release recomputed the style of all ~15k mounted plot nodes
+  (`Document::recalcStyle`, `elementsStyled: 14957`, 110–135 ms) synchronously inside the
+  mouse-move hit test (`EventHandler::handleMouseMoveEvent → HitTest → UpdateStyleAndLayout`).
+  It looked platform-specific only because the owner's Mac session had less mounted content.
+  Rules: (1) never bind a STATE-dependent inherited property (`cursor`, `visibility`,
+  `pointer-events`, `color` / `font-*`, any `--custom-property`) on an ancestor of mounted
+  plot content — put state on leaves, or firewall it with an explicit constant on the element
+  wrappers (the `.el` cursor); (2) Blink's independent-inheritance fast path is not a plan — an
+  explicit `inherit` anywhere below disables it and it is still O(n); (3) an injected
+  `!important` override that leaves computed values unchanged costs nothing, which is what
+  makes CSS injection a clean bisect knob. Diagnosis recipe: `node
+  scripts/perf/input-probe.cjs <project>` (a REAL project in a real Electron: long
+  tasks, input-to-paint, the browser-side `cursor-changed` oracle, CSS scenarios, optional
+  trace), then `node scripts/perf/trace-summary.mjs <trace.json>` — a long task whose self
+  time is all `Document::recalcStyle` with `elementCount ≈ plot nodes` is this trap. Probe
+  hygiene: a window on the owner's live desktop gets occluded (rAF stops, input is dropped,
+  `moves: 0`, rAF-based waits hang) — measure renderer cost on `--ozone-platform=headless`
+  and treat a Wayland run as the smoke test, not the number.
+
+- **A per-frame `style.transform` write re-layerizes the page** (2026-09-16). Chromium runs
+  `PaintArtifactCompositor::Update` — O(paint chunks) — after every inline transform change,
+  even on a `will-change: transform` layer; over a dense scene that is 4–7 ms per frame with
+  nothing else changing (a trace frame that is one element's recalcStyle plus a 6 ms
+  `Layerize`). A paused Web Animation driven by `setKeyframes`/`currentTime`, or a native
+  scroll offset, layerizes ONCE per gesture. `interact/compositorDrive.ts` is the shared
+  answer; `scripts/perf/layerize-lab.mjs` reproduces both behaviours standalone.
+- **Paint chunks are the unit of layerization cost, and clip-paths make chunks.** matplotlib
+  puts the same `clip-path` on nearly every element; each is a chunk; a 21-plot figure is
+  thousands of chunks, so every overlay repaint (hover outline, selection box) paid ~10 ms of
+  layerization. Hoisting same-clip sibling runs into one clipped `<g>` (editor cache only,
+  `hoistPlotClips`) is exactly equivalent and 200× cheaper. Before blaming Paint, count
+  chunks: strip clip-paths in the lab and watch the update time.
+- **A DOM selection left in a hidden pane taxes the visible one.** With a caret in the hidden
+  Paper editor, every style/layout update in Figure ran `VisibleUnits::canonicalPosition →
+  EditingUtility::nextCandidateAlgorithm` — 8 ms walking the scene for a caret candidate,
+  twice per frame. `inert` blurs the element but keeps the range. Drop the range when a pane
+  hides (ModeContent) and at the first tick of a canvas burst; CodeMirror restores its own
+  caret from EditorState on focus. Probe tell: `moves` fine, `taskMs` ≈ wall time, no style
+  or layout cost — the work hides under `RunStyleAndLayoutLifecyclePhases`.
+- **Never inline a figure's svg into the Paper document, and never render synchronously in
+  an IPC reply.** CodeMirror destroys and re-creates block widgets as they leave and re-enter
+  its rendered range (~1000 px margin): an inlined 5k-node SVG re-parsed (`ParseHTML`,
+  `XMLDocumentParser`), re-inserted a stylesheet (`scheduleInvalidationsForRuleSets`) and
+  restyled on every re-entry — 60–130 ms tasks while scrolling a 34-line manuscript — and its
+  chunks made every keystroke's layerization 6 ms. Widgets built on a chips refresh are built
+  for the WHOLE document, not the viewport: a render in a widget constructor runs for every
+  embed on every figure edit, inside the autosave's reply (170 ms). Figures in Paper are
+  `<img>`s fed by the idle render queue; widget constructors compute nothing heavier than the
+  model box.
+- **Blink relayouts SVG text whenever an ancestor scale changes.** Each residual zoom tick
+  restyles/relayouts every `<text>` (≈300 per tick here) and repaints the scene — ~20 ms per
+  tick over 21 plots, independent of the compositor drive; `text-rendering:
+  geometricPrecision` removes the layout half but changes glyph rendering and not the paint.
+  The zoom proxy (§4) is the remedy: a zoom gesture must never change the live scene's scale.
+- **Repaint a promoted, animating layer and cc may activate before its tiles are ready.**
+  Chromium's checkerboard tolerance is for animating layers; a non-animating layer's visible
+  tiles are required for activation. So any content repaint that must be seamless (the
+  zoom fold, the proxy → scene swap) DEMOTES first — cancel the drive's animation and drop
+  `will-change` — in the same flush as the repaint. Measured clean either way on this
+  machine (`layer-swap-lab.cjs`, screencast of every presented frame), but the ordering is
+  the guarantee, not the luck.
+- **A transform write per frame on ANY promoted layer re-layerizes the page**, including an
+  invisible one: the zoom proxy's `<img>` sits at opacity 0.01 with `will-change`; writing
+  its transform per pan tick at rest cost 3 ms per frame (panSmall 100 → 330 ms) until the
+  writes were gated to its live phase. Corollary: every `use:` drive on a promoted element
+  must know when it is allowed to write.
+- **An SVG-backed `<img>` is not a bitmap.** Chromium keeps the SVG as a paint record and
+  redraws it as vector content whenever its area repaints — composited or not (the dev nudge
+  ratio read 4.5× with the SVG proxy over the scene, 4.0× = HEAD with a PNG one). A picture
+  that only has to LOOK right (the zoom proxy) is rasterized once through a canvas.
+- **The native figure gate's 5,000-element key-to-paint is a noise band on this box**
+  (2026-09-16): 91–122 ms across runs for HEAD's canvas and for the working tree alike
+  (1,600 is a stable ~50 ms). The September review's 62.7 ms did not reproduce on either. A
+  single red run there is not evidence of a regression — rerun alone, and compare the
+  `PROBE metrics=` lines it now prints (p95, mounted, layers) against the same build's twin.
+- **Synthetic ctrl+wheel needs the Control KEY down.** Electron's `sendInputEvent({type:
+  "mouseWheel", modifiers: ["control"]})` alone let the first ~20 events of a burst latch as
+  a plain scroll; the probe holds `keyDown Control` around zoom bursts. A probe phase that
+  pans when it meant to zoom reads as a "reversal" in a frame oracle — check the
+  renderer-side transform log (`xform-*.json`) before believing a presented-frame anomaly.
+  Frame oracles built on `Page.startScreencast` also drop frames when the renderer is busy
+  and can hand back an impossible geometry for one frame; anything they flag must be
+  confirmed against the renderer log or the lab.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
+- **Display-level flicker on Wayland is not observable from inside the renderer
+  (2026-09-16):** the owner sees occasional flicker of the canvas, sometimes the whole
+  window, during very fast zooms/pans on GNOME Wayland + NVIDIA 595 + fractional scaling
+  (`scale-monitor-framebuffer`). Every in-renderer oracle came back clean — presented-frame
+  screencasts, the frame reporter (no checkerboard / missing content), the layer-swap lab —
+  and the in-app candidates (per-tick relayout, mid-gesture folds, hover-outline flapping,
+  transform writes on promoted layers) are gone. What remains is the compositor/driver
+  path: Chromium logs `'--ozone-platform=wayland' is not compatible with Vulkan` at every
+  start and no switch tried (`--disable-features=Vulkan…`, `--use-vulkan=none`) turned the
+  Vulkan status off. `grim`/GNOME's screenshot D-Bus are refused on this desktop, so the real
+  display cannot be sampled from a script. The A/B the owner can run: `OZONE=x11 electron .`
+  (XWayland) and, separately, fractional scaling off. Not a Flux bug to "fix" blind.
 - **Figure polish (2026-09-06):** implemented preservation, selection/history, shared properties,
   frame resizing, layout/focus, raster-worker and native PDF fixes. Review/evidence and remaining
   validation limits live in `docs/FIGURE_POLISH_REVIEW.md`. Preserve the existing gates.
@@ -5334,3 +5553,79 @@ were not changed. Exact controls are recorded in
 **Deferred:** A semantic hierarchy for very large X-ray Common parts lists could improve
 browsing, but changes navigation conventions and needs a separate design decision. Existing
 gallery and timeline layouts held up under review; no speculative restyling was added.
+
+### 2026-09-16 11:10 — The "laggy Figure" on Linux: the cursor firewall (Claude Fable 5.1, `main`)
+
+**Work:** The owner pulled the redesign onto the Linux workstation and Figure felt laggy on
+the neural-populations example — scrolling, selecting, and a click ring that could not keep
+up with rapid clicks. Measured with a new native probe (`scripts/perf/figure-input-probe.cjs`:
+production bundle, real Electron input, a copy of the real project, isolated config): every
+hover boundary and every press/release ran one 110–135 ms `Document::recalcStyle` over the
+14,957 mounted plot nodes, inside the mouse-move hit test; 12 rapid clicks painted 2–4 s late,
+mouse moves were delivered once per 120 ms. Cause: `cursor` is inherited, the crosshair commit
+made the host's cursor follow `hoverId`/press and set `.el { cursor: inherit }` — the old
+`.el { cursor: move }` firewall was gone. Fix: the host flips only for pan / tool / press, `.el`
+carries the hover variant as an explicit constant (the dot needs no JS; press over objects
+rides the existing pointer capture). `verify-cursor-gui` gained the firewall leg on the dense
+fixture (fails 4/17 on the old code, passes 17/17 now). Probe on the rebuilt bundle: zero long
+tasks, 0.24 ms recalc per flip, click-to-paint p95 39 ms. Guide §4/§6/§8/§9 updated.
+**Learnings:**
+- Promoted to §9: an inherited CSS property is O(subtree) to flip, and on the Figure canvas
+  the subtree is the plot DOM. State goes on leaves or behind an explicit-constant firewall.
+- A "Mac fine / Linux laggy" report is not evidence of a platform bug — bisect the CONTENT
+  and the interaction first (CSS `!important` injection is a free bisect knob), and prove the
+  cause with a trace whose long tasks name the mechanism.
+- Probe hygiene: windows on the owner's live desktop get occluded mid-run (rAF stops, input
+  drops, rAF-waits hang); the renderer-cost measurement belongs on the headless Ozone
+  platform, the Wayland run is only a smoke test.
+
+### 2026-09-16 (later) — Responsiveness sweep: Figure pan/hover/click, Paper scroll/typing (Claude Fable 5.1, `main`)
+
+**Work:** Owner: still laggy after the cursor firewall — scrolling in Figure and Paper most of
+all; also retire the click ring. Measured everything on the neural-populations example in a real
+Electron (`scripts/perf/input-probe.cjs`, new; `layerize-lab.mjs`, new) and fixed six
+mechanisms: (1) the scene's per-tick `style.transform` write re-layerized the page every frame
+(6.7 ms) → paused-animation compositor drive; (2) re-culls mid-burst mounted/unmounted plots
+(50–450 ms) → hysteresis + frozen while hot; (3) every plot mount inserted a `<style>` sheet and
+every clipped element was a paint chunk → editor cache bakes rules into attributes and hoists
+same-clip runs into one group (exports keep a pristine parse); (4) Paper inlined 5k-node figure
+SVGs into CodeMirror → `<img>` over cached blob URLs, rendered lazily one figure per idle slice,
+deferred while the pane is hidden (a figure edit used to re-render every embed inside the
+autosave reply, 170 ms); (5) a caret left in the hidden Paper pane made Figure re-canonicalize
+the selection through the scene twice per frame → dropped on pane hide and burst start; (6) the
+click ring removed. Numbers in §6. New gates: `verify-figure-input-hygiene.mjs`,
+`verify-plot-style-bake.ts`; updated: cursor-gui, vanilla-inline §2b, clip-collision,
+changed-pathmap (new routing), scale-lazy-assets (the tiny-cap probe now asserts resident ==
+mounted, since hysteresis keeps a neighbour mounted). `--changed` 278/282 plus the native
+figure-polish gate: the two reds are pre-existing on this box — `verify-paper-slide-embeds`
+fails on HEAD, `verify-slide-stash-electron` wants `FLUX_XVFB` (passes with it).
+**Learnings:**
+- Promoted to §4/§9: the compositor drive rule, paint chunks as the cost unit, the hidden-pane
+  selection tax, the "figures in Paper are images, rendered lazily" rule, the SVG-text zoom
+  relayout (deferred in §10).
+- Method: CSS `!important` injection and a bare-page lab isolate a Chromium mechanism in
+  minutes; `TaskDuration` per phase with tiny style/layout/script numbers means the cost is
+  hiding in Blink lifecycle work — read the trace's self time by event name, not the JS.
+- Probe order matters: visit Paper before Figure in a probe, as a user would — the
+  stale-selection tax only shows up in that flow.
+
+### 2026-09-16 (evening) — Flicker hunt: the zoom proxy, frame oracles, the layer-swap lab (Claude Fable 5.1, `main`)
+
+**Work:** Owner: fast zooms/pans flicker (canvas, sometimes the whole window); also remove the
+click ring (done in the sweep) and put content scale in the F-menu. Built three oracles: a
+presented-frame screencast sampler with a renderer-side transform log in the input probe, a
+frame-reporter reader over Chrome traces (checkerboard / missing-content / dropped / partial
+flags), and `scripts/perf/layer-swap-lab.cjs` (every presented frame across promotion, folds
+while animating vs demoted, live zoom). All clean in-renderer; the anomalies the sampler
+flagged were the probe's own direction changes, a missing Control key on synthetic
+ctrl+wheel, and one impossible-geometry JPEG. Made the remaining in-app suspects structurally
+impossible: zoom gestures now ride a world-space raster proxy (60 fps, live scene frozen, one
+fold after the pointer stops, fold on a demoted layer), no hover outline during bursts, no
+transform writes on the idle proxy. Display-level causes (Wayland+NVIDIA+fractional scaling,
+Chromium's Vulkan-on-Wayland warning) documented in §10 with the A/B for the owner. Added the
+`h` content-scale row. Gates: `verify-zoom-proxy.mjs` (new), crisp burst sampling widened to
+the proxy path, cursor/hygiene/fmenu/f5-cull green.
+**Learnings:** promoted to §4/§9/§10 — demote before a seamless repaint; a drive on a promoted
+element must know its live phase; hold the Control key for synthetic ctrl+wheel; confirm a
+frame-oracle anomaly against the renderer's own log before chasing it; display-level flicker
+needs a display-level capture, which this desktop refuses to scripts.

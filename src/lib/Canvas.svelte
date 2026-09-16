@@ -43,12 +43,14 @@
   import { perfCounters } from "./dev/perfCounters";
   // WS-3.2: shared interaction core (Canvas + SlideStage) — math only.
   import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
+  import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
+  import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
   import { commitArrange } from "./keyboard";
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, onDestroy } from "svelte";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
   import { applyTextLayout, lineH, visualLines } from "./text";
@@ -449,9 +451,19 @@
     const inset = $settings.showRulers ? RULER : 0;
     canvasBox.set({ x: inset, y: inset, w: hostW - inset, h: hostH - inset });
   }
-  const CULL_MARGIN = 600; // screen-px buffer around the viewport
+  const CULL_MARGIN = 600; // screen-px buffer around the viewport: content within it MOUNTS
+  // Hysteresis (2026-09-16): content that is mounted stays mounted until it is
+  // one VIEWPORT farther than that — so scrolling a screen away and back never
+  // re-pays a plot mount (a 5k-node plot costs ~30–50 ms to mount even
+  // style-free; a figure of them re-entering the old 600 px margin was the
+  // 100–450 ms "scroll storm"). One viewport, not a fixed constant, so the
+  // resident set stays bounded at any zoom (mounted plots are never evicted
+  // from the parse cache — plot/store.ts).
+  const cullMarginOut = () => CULL_MARGIN + Math.max(hostW, hostH);
   const CULL_STEP = 400; // re-cull granularity (must be < CULL_MARGIN to avoid popping)
-  let cullRect: Rect = { x: -1e9, y: -1e9, w: 2e9, h: 2e9 };
+  const ALL_RECT: Rect = { x: -1e9, y: -1e9, w: 2e9, h: 2e9 };
+  let cullRect: Rect = ALL_RECT; // the MOUNT rect
+  let cullRectOut: Rect = ALL_RECT; // the UNMOUNT rect (hysteresis)
   let cullKey = "";
   $: {
     // P6: the cull keys off renderZoom (the scale baked into the scene), not the
@@ -464,24 +476,41 @@
     const qy = ready ? Math.round($viewport.panY / CULL_STEP) * CULL_STEP : 0;
     const key = ready ? `${hostW}x${hostH}@${z}:${qx},${qy}` : "all";
     if (!zoomUnsettled && key !== cullKey) {
-      cullKey = key;
-      cullRect = ready
-        ? {
-            x: (-qx - CULL_MARGIN) / z,
-            y: (-qy - CULL_MARGIN) / z,
-            w: (hostW + 2 * CULL_MARGIN) / z,
-            h: (hostH + 2 * CULL_MARGIN) / z,
-          }
-        : { x: -1e9, y: -1e9, w: 2e9, h: 2e9 };
+      // Frozen while an interaction is live too (sceneHot: a wheel burst, a
+      // drag): mounting or unmounting content mid-gesture is exactly the work
+      // that made pans stutter. The cool-down re-runs this block and re-culls
+      // once, with the pointer already at rest.
+      if (!sceneHot) {
+        cullKey = key;
+        const rect = (m: number): Rect => ({
+          x: (-qx - m) / z,
+          y: (-qy - m) / z,
+          w: (hostW + 2 * m) / z,
+          h: (hostH + 2 * m) / z,
+        });
+        cullRect = ready ? rect(CULL_MARGIN) : ALL_RECT;
+        cullRectOut = ready ? rect(cullMarginOut()) : ALL_RECT;
+      }
     }
   }
+  // Hysteresis memory (non-reactive): which figures / which elements per figure
+  // are currently mounted, so the OUT rect can keep them.
+  const mountedFigs = new Set<string>();
+  const mountedEls = new Map<string, Set<string>>();
+  const figRect = (f: Figure): Rect => ({ x: f.x, y: f.y, w: f.width, h: f.height });
   $: visibleFigures = frame
     ? canvasFigures.filter((f) => f.id === $activeFigureId)
-    : canvasFigures.filter(
-        (f) =>
-          f.id === $activeFigureId ||
-          rectsIntersect({ x: f.x, y: f.y, w: f.width, h: f.height }, cullRect),
-      );
+    : (() => {
+        const next = canvasFigures.filter(
+          (f) =>
+            f.id === $activeFigureId ||
+            rectsIntersect(figRect(f), cullRect) ||
+            (mountedFigs.has(f.id) && rectsIntersect(figRect(f), cullRectOut)),
+        );
+        mountedFigs.clear();
+        for (const f of next) mountedFigs.add(f.id);
+        return next;
+      })();
   function visibleEls(fig: Figure): Element[] {
     // The frame being moved renders all its elements: its world position is stale
     // until commit, so culling by the stale bbox would drop elements as it travels.
@@ -490,12 +519,22 @@
     if (dragging && gesture?.kind === "figmove" && gesture.figId === fig.id)
       return fig.elements.filter((el) => !effHidden(el));
     const lr: Rect = { x: cullRect.x - fig.x, y: cullRect.y - fig.y, w: cullRect.w, h: cullRect.h };
+    const lrOut: Rect = { x: cullRectOut.x - fig.x, y: cullRectOut.y - fig.y, w: cullRectOut.w, h: cullRectOut.h };
+    const was = mountedEls.get(fig.id);
     // FIG-4: cull by the ROTATED bounds — a tilted element near the viewport edge must
     // not vanish while its spun corners are still visible (unrotated = same fast path).
-    return fig.elements.filter(
-      (el) => !effHidden(el) && ($selection.has(el.id) || rectsIntersect(rotatedAABB(el), lr)),
-    );
+    const els = fig.elements.filter((el) => {
+      if (effHidden(el)) return false;
+      if ($selection.has(el.id)) return true;
+      const box = rotatedAABB(el);
+      return rectsIntersect(box, lr) || (was?.has(el.id) === true && rectsIntersect(box, lrOut));
+    });
+    const ids = new Set(els.map((el) => el.id));
+    if (!was || was.size !== ids.size || [...ids].some((id) => !was.has(id))) mountedGen++; // the mounted set changed (snapshot key)
+    mountedEls.set(fig.id, ids);
+    return els;
   }
+  let mountedGen = 0;
   // Precompute the per-figure visible element lists keyed off the (stable-within-a-
   // pan-step) cull rect + selection, so the template's {#each} only re-diffs when
   // the cull region/selection/project actually change — not on every pan frame.
@@ -547,6 +586,7 @@
       next.set(f.id, mm);
       m.set(f.id, mm.els);
     }
+    for (const id of Array.from(mountedEls.keys())) if (!next.has(id)) mountedEls.delete(id); // a figure that left starts fresh
     visMemoBox.map = next;
     visMemoBox.frozen = m;
     return m;
@@ -613,8 +653,20 @@
   /** Promote the scene layer NOW (same event turn as the interaction start);
    *  demote SCENE_COOL_MS after the last call once nothing is live. One timer,
    *  coalesced — long interactions stay hot via the re-check loop. */
+  /** A DOM selection anchored OUTSIDE the canvas (a caret left in a hidden
+   *  Paper pane, a swipe over sidebar text) makes Blink re-canonicalize it after
+   *  every style update — a walk through the whole scene, twice per frame. The
+   *  canvas owns the interaction now; the range is stale by definition. */
+  function dropStaleSelection() {
+    const sel = document.getSelection();
+    const anchor = sel?.anchorNode;
+    if (!sel || !anchor || sel.rangeCount === 0 || !hostEl) return;
+    if (!hostEl.contains(anchor)) sel.removeAllRanges();
+  }
   function keepSceneHot() {
+    if (!sceneHot) dropStaleSelection(); // once per burst, at the first tick
     sceneHot = true;
+    sceneDriveRef?.hot(); // the compositor owns the pan/zoom transform for the whole burst
     if (sceneCoolTimer) clearTimeout(sceneCoolTimer);
     sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS);
   }
@@ -624,12 +676,43 @@
       sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS); // still busy — re-check
     } else {
       sceneHot = false; // idle demotion → full-quality re-raster + tile release
+      sceneDriveRef?.cool(); // same frame as the demotion: the plain style holds the value
     }
+  }
+
+  // The scene wrapper's transform reaches the DOM through the compositor drive
+  // (interact/compositorDrive.ts): a plain style write per wheel tick made
+  // Chromium re-layerize the whole scene every frame (6.7 ms/frame over 15k
+  // plot nodes, 2026-09-16); while sceneHot a paused Web Animation carries the
+  // value instead and the frame costs nothing on the main thread. The inline
+  // style is still written every time (truth at rest, probes read it live).
+  $: sceneTransform = `translate3d(${$viewport.panX}px, ${$viewport.panY}px, 0) scale(${$viewport.zoom / renderZoom})`;
+  let sceneDriveRef: TransformDrive | null = null;
+  function sceneDrive(node: HTMLElement, transform: string) {
+    const d = createTransformDrive(node);
+    d.set(transform);
+    sceneDriveRef = d;
+    if (sceneHot) d.hot();
+    return {
+      update(t: string) {
+        if (proxyActive) {
+          scenePending = t; // frozen: the proxy carries the gesture; the fold's flush applies the truth
+          return;
+        }
+        scenePending = null;
+        d.set(t);
+      },
+      destroy() {
+        d.destroy();
+        if (sceneDriveRef === d) sceneDriveRef = null;
+      },
+    };
   }
 
   /** Arm/refresh the settle fold — runs (reactively) on every zoom change, from
    *  any writer: wheel, Toolbar zoom buttons, scripts' viewport.set. */
   function scheduleZoomFold() {
+    if (!zoomUnsettled) beginZoomProxy(); // the burst starts: the raster takes over the gesture
     zoomUnsettled = true;
     keepSceneHot();
     if (zoomSettleTimer) clearTimeout(zoomSettleTimer);
@@ -642,6 +725,7 @@
       zoomSettleTimer = setTimeout(foldZoom, ZOOM_SETTLE_MS);
       return;
     }
+    endZoomProxy();
     zoomUnsettled = false;
     renderZoom = get(viewport).zoom; // THE one content repaint of the gesture
   }
@@ -655,10 +739,221 @@
       zoomSettleTimer = null;
     }
     if (zoomUnsettled || renderZoom !== get(viewport).zoom) {
+      endZoomProxy();
       zoomUnsettled = false;
       renderZoom = get(viewport).zoom;
     }
   }
+
+  // --- the zoom proxy (interact/zoomProxy.ts) ------------------------------
+  //
+  // A live zoom relayouts every SVG <text> per tick (Blink: ancestor scale
+  // change → text metrics), ~20 ms of main thread per wheel notch over a
+  // 21-plot figure — 30 fps motion plus blur→sharp pops at every mid-gesture
+  // fold. The proxy makes the GESTURE compositor-only: at rest, an idle
+  // callback serializes the mounted scene into a standalone SVG image in WORLD
+  // units at its own raster scale (the "snapshot": the view plus half a host
+  // per side, ≤3 MP — independent of the baked zoom, so folds never invalidate
+  // it and pans inside its box keep it; kept warm as a promoted <img> at
+  // opacity 0.01 so its tiles exist before they are needed). When a
+  // zoom burst starts and a fresh snapshot exists, the image takes the
+  // gesture: it rides its own compositor drive with the exact viewport
+  // mapping, the live scene is FROZEN (no transform writes) and hidden
+  // (opacity 0 — a compositor-only property). At the settle fold the scene
+  // layer is demoted first, then the fold's repaint, the scene's return and
+  // the proxy's retreat land in ONE commit — a non-animating layer's tiles are
+  // required for activation, so the swap is atomic (scripts/perf/
+  // layer-swap-lab.cjs). No snapshot (edited since, mid-resnapshot) → the
+  // gesture runs live exactly as before. Delayed sharpness is the accepted
+  // trade (the owner's words: the movement must be instantaneous).
+  let sceneSvgEl: SVGSVGElement | null = null;
+  let zoomSnap: ZoomSnapshot | null = null;
+  let proxyActive = false;
+  let snapScheduled = false;
+  let snapGen = 0; // bumps on every scheduling — a stale async snapshot is dropped
+  // Everything that changes what the MOUNTED scene looks like. Not the viewport,
+  // not the baked zoom: the snapshot is drawn in world units at its own raster
+  // scale, so pans and folds never invalidate it (only content does).
+  $: sceneKey = [
+    $globalRev,
+    canvasFigures.map((f) => `${f.id}:${$figureRev[f.id] ?? 0}`).join(","),
+    $activeFigureId,
+    $activeCanvasId,
+    absentPresentationKey,
+    editingId,
+    (void visibleByFig, mountedGen), // bumped by visibleEls when the mounted set changes
+    JSON.stringify($plotGen),
+    frame ? 1 : 0,
+  ].join("|");
+  // Wanted: none yet, the scene changed, the rest zoom drifted more than 2× from
+  // the snapshot's raster scale (the proxy would start too soft), or a pan took
+  // the viewport outside the snapshot's box (it covers the view plus half a
+  // host per side — cheap arithmetic per tick, a re-snapshot only once quiet).
+  let sceneBox: { bx: number; by: number; bw: number; bh: number } | null = null; // the last measured mounted-scene box
+  $: snapWanted =
+    !zoomSnap ||
+    zoomSnap.sceneKey !== sceneKey ||
+    (!zoomUnsettled &&
+      (Math.abs(Math.log($viewport.zoom / zoomSnap.S)) > Math.LN2 ||
+        (sceneBox !== null && !snapshotCovers(zoomSnap, sceneBox, { panX: $viewport.panX, panY: $viewport.panY, zoom: $viewport.zoom, hostW, hostH }))));
+  // A snapshot costs main thread in proportion to the scene: serialize (~2 ms per
+  // 1k nodes) plus Blink's parse of the image (~7 ms per 1k nodes). So it waits
+  // for the scene to be QUIET (no content change for SNAPSHOT_QUIET_MS — a
+  // cold figure's plots arrive one by one and must not trigger one each; a run
+  // of nudges must not host one between two keys), runs in a real idle slot (no
+  // forced timeout), and is skipped altogether above SNAPSHOT_MAX_NODES — that
+  // scene zooms live, as before. verify-scale-lazy-assets pins that a cold settle
+  // stays free of snapshot tasks; the native figure gate pins key-to-paint.
+  // Quiet must outlast a working rhythm (nudge, nudge, nudge…): a snapshot that
+  // lands between two edits is a 40–150 ms key-to-paint outlier (the production
+  // gate caught exactly that at 600 ms). A zoom that starts sooner runs live.
+  const SNAPSHOT_QUIET_MS = 1500;
+  // ~7 ms of parse per 1k nodes: 20k ≈ 140 ms at idle is the most this may cost.
+  const SNAPSHOT_MAX_NODES = 20_000;
+  let snapQuietTimer: ReturnType<typeof setTimeout> | null = null;
+  $: if (snapWanted && sceneSvgEl && hostW > 0 && !proxyActive) scheduleSnapshot();
+  function scheduleSnapshot() {
+    snapGen++; // anything in flight for an older scene is dropped when it lands
+    if (snapQuietTimer) clearTimeout(snapQuietTimer);
+    snapQuietTimer = setTimeout(() => {
+      snapQuietTimer = null;
+      if (snapScheduled) return;
+      snapScheduled = true;
+      const gen = snapGen;
+      const ric = (globalThis as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+      const run = () => void takeSnapshot(gen);
+      if (ric) ric(run);
+      else setTimeout(run, 250);
+    }, SNAPSHOT_QUIET_MS);
+  }
+  async function takeSnapshot(gen: number) {
+    snapScheduled = false;
+    if (gen !== snapGen) return;
+    if (!sceneSvgEl || hostW <= 0 || hostH <= 0) return;
+    if (sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
+      scheduleSnapshot(); // still moving — try again once quiet
+      return;
+    }
+    if (sceneSvgEl.getElementsByTagName("*").length > SNAPSHOT_MAX_NODES) return; // too dense to raster cheaply: live zoom
+    const key = sceneKey;
+    const v = get(viewport);
+    if (v.zoom !== renderZoom) return; // unfolded residual — the fold will re-key and reschedule
+    const root = sceneSvgEl.firstElementChild as SVGGraphicsElement | null;
+    if (!root || typeof root.getBBox !== "function") return;
+    let scene: { bx: number; by: number; bw: number; bh: number };
+    try {
+      const b = root.getBBox(); // the <g>'s own user space = world units
+      scene = { bx: b.x - 4, by: b.y - 4, bw: b.width + 8, bh: b.height + 8 };
+    } catch {
+      return;
+    }
+    sceneBox = scene;
+    const box = snapshotRegion(scene, { panX: v.panX, panY: v.panY, zoom: v.zoom, hostW, hostH });
+    if (!box) return; // the scene is out of view — nothing to proxy
+    const S = snapshotScale(box, renderZoom);
+    if (S === null) return; // a box no image could hold — the gesture runs live
+    let ser: ReturnType<typeof serializeSceneSnapshot>;
+    try {
+      ser = serializeSceneSnapshot(sceneSvgEl, box, S);
+    } catch {
+      return; // a scene we cannot serialize simply has no proxy
+    }
+    const fontCss = await snapshotFontCss(ser.svg);
+    if (gen !== snapGen || key !== sceneKey) return;
+    const svg = fontCss ? ser.svg.replace(">", `><style>${fontCss}</style>`) : ser.svg;
+    // The proxy must be a BITMAP, not an SVG image: Chromium draws an SVG-backed
+    // <img> as vector content every time its area repaints, and the resting proxy
+    // covers the scene — that cost ~20 ms per nudge at 1,600 elements even when
+    // the image sat on its own composited layer (2026-09-16). So the image is
+    // rasterized ONCE here, at device resolution, and the <img> shows a PNG whose
+    // tiles are a plain blit. PNG encode and decode run off the main thread.
+    const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    const svgImg = new Image();
+    svgImg.src = svgUrl;
+    let pngUrl: string | undefined;
+    try {
+      await svgImg.decode();
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const cw = Math.max(1, Math.round(ser.w * dpr));
+      const ch = Math.max(1, Math.round(ser.h * dpr));
+      const canvas = document.createElement("canvas");
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("no 2d context");
+      ctx.drawImage(svgImg, 0, 0, cw, ch);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("toBlob failed");
+      pngUrl = URL.createObjectURL(blob);
+      const png = new Image();
+      png.src = pngUrl;
+      await png.decode();
+    } catch {
+      if (pngUrl) URL.revokeObjectURL(pngUrl);
+      URL.revokeObjectURL(svgUrl);
+      return;
+    }
+    URL.revokeObjectURL(svgUrl);
+    if (gen !== snapGen || key !== sceneKey || proxyActive) {
+      URL.revokeObjectURL(pngUrl);
+      return;
+    }
+    const prev = zoomSnap;
+    zoomSnap = { sceneKey: key, url: pngUrl, bx: box.bx, by: box.by, bw: box.bw, bh: box.bh, S, w: ser.w, h: ser.h };
+    if (prev) URL.revokeObjectURL(prev.url);
+  }
+  function beginZoomProxy() {
+    if (!zoomSnap || proxyActive) return;
+    if (zoomSnap.sceneKey !== sceneKey) return; // stale content — this gesture runs live
+    proxyActive = true;
+    // Place it for THIS viewport before it shows (its rest transform is stale by design), then promote.
+    proxyDriveRef?.set(zoomProxyTransform(zoomSnap, $viewport.panX, $viewport.panY, $viewport.zoom));
+    proxyDriveRef?.hot();
+  }
+  function endZoomProxy() {
+    if (!proxyActive) return;
+    // Demote the scene BEFORE the fold's repaint: a non-animating layer waits
+    // for its tiles, so the frame that brings the live scene back is complete.
+    sceneDriveRef?.cool();
+    sceneHot = false;
+    if (sceneCoolTimer) {
+      clearTimeout(sceneCoolTimer);
+      sceneCoolTimer = null;
+    }
+    proxyDriveRef?.cool();
+    proxyActive = false;
+  }
+  // The frozen scene catches up the moment the proxy retreats (same flush as the fold).
+  let scenePending: string | null = null;
+  $: if (!proxyActive && scenePending !== null && sceneDriveRef) {
+    sceneDriveRef.set(scenePending);
+    scenePending = null;
+  }
+  $: proxyTransform = zoomSnap ? zoomProxyTransform(zoomSnap, $viewport.panX, $viewport.panY, $viewport.zoom) : "";
+  let proxyDriveRef: TransformDrive | null = null;
+  function proxyDrive(node: HTMLElement, transform: string) {
+    const d = createTransformDrive(node);
+    d.set(transform);
+    proxyDriveRef = d;
+    if (proxyActive) d.hot();
+    return {
+      update(t: string) {
+        // Only while it carries the gesture: at rest the proxy is invisible, and a
+        // transform write per pan tick on its promoted layer would re-layerize the
+        // page every frame — exactly what the scene drive exists to avoid.
+        if (proxyActive) d.set(t);
+      },
+      destroy() {
+        d.destroy();
+        if (proxyDriveRef === d) proxyDriveRef = null;
+      },
+    };
+  }
+  onDestroy(() => {
+    snapGen++;
+    if (snapQuietTimer) clearTimeout(snapQuietTimer);
+    if (zoomSnap) URL.revokeObjectURL(zoomSnap.url);
+  });
   $: if ($viewport.zoom !== renderZoom) scheduleZoomFold();
   // Gesture starts promote in the same event turn their pointerdown runs
   // (Svelte flushes this before the frame paints); guide/node drags reassign
@@ -2697,6 +2992,7 @@
   $: hoverInfo = (() => {
     if (
       !$hoverId ||
+      sceneHot || // a pan/zoom burst: content sweeps under a still pointer — an outline that flaps per frame is flicker, not feedback
       gesture ||
       dragging ||
       editingId ||
@@ -3126,6 +3422,26 @@
   // under it adds the dot; a pressed gesture contracts the arms. Hardware
   // cursors switched by state — nothing per frame. Pan keeps grab/grabbing,
   // the text tool keeps the I-beam.
+  //
+  // TWO LEVELS, BY DESIGN (2026-09-16): `cursor` is an INHERITED property, so
+  // every flip of this host value restyles every descendant whose computed
+  // cursor changes — with mounted plots that is the whole plot DOM (~15k nodes
+  // in a 21-plot figure = a 120 ms synchronous style recalc inside the input
+  // pipeline, per hover boundary and per press/release; measured 2026-09-16,
+  // the "laggy Figure" regression). Hence:
+  //   · the HOST carries only pan / tool / press state (a few flips per
+  //     gesture, never per hover);
+  //   · every element wrapper `.el` carries an EXPLICIT constant cursor (the
+  //     hover-dot variant, CSS below) — the firewall. A host flip recalcs the
+  //     ~40 scene nodes above the wrappers and stops there; the hover dot
+  //     needs no JS at all (the pointer over an object hits the wrapper's
+  //     subtree, which inherits the constant);
+  //   · the press variant still shows over objects because every element
+  //     press captures the pointer on the host (onElementDown) and Chromium
+  //     takes the cursor from the capture target while captured.
+  // Never route `$hoverId` back into this value, and never give `.el`
+  // `cursor: inherit` — verify-cursor-gui pins the recalc cost on a dense
+  // plot fixture.
   $: hostCursor =
     gesture?.kind === "pan"
       ? "grabbing"
@@ -3135,30 +3451,19 @@
           ? "text"
           : gesture || pressing
             ? "var(--cursor-cross-press)"
-            : $hoverId && ($activeTool === "select" || $activeTool === "scale")
-              ? "var(--cursor-cross-hover)"
-              : "var(--cursor-cross)";
+            : "var(--cursor-cross)";
 
-  // The click "feel": one accent ring blooms at every primary press on the
-  // canvas (300 ms, CSS-animated, removed after) — off under reduced motion.
-  let ripples: { id: number; x: number; y: number }[] = [];
-  let rippleSeq = 0;
   // The primary button is down somewhere on the canvas — the press variant
   // shows for the whole press, gesture or not (a plain click on empty space
-  // starts no gesture but should still "feel" pressed).
+  // starts no gesture but should still "feel" pressed). The click ring that
+  // used to bloom here was retired 2026-09-16 (owner: distracting) — the press
+  // feel is the cursor alone.
   let pressing = false;
   function endPress() {
     pressing = false;
   }
-  function spawnRipple(e: PointerEvent) {
-    if (e.button !== 0 || !hostEl) return;
-    pressing = true;
-    if ((e.target as globalThis.Element | null)?.closest?.(".ruler")) return;
-    if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const r = hostEl.getBoundingClientRect();
-    const id = ++rippleSeq;
-    ripples = [...ripples, { id, x: e.clientX - r.left, y: e.clientY - r.top }];
-    setTimeout(() => (ripples = ripples.filter((p) => p.id !== id)), 340);
+  function beginPress(e: PointerEvent) {
+    if (e.button === 0) pressing = true;
   }
 
   // draw-preview group transform (screen space), references $viewport directly.
@@ -3288,7 +3593,7 @@
   aria-label="Figure canvas"
   on:wheel={onWheel}
   on:pointerdown|capture={foldZoomNow}
-  on:pointerdown|capture={spawnRipple}
+  on:pointerdown|capture={beginPress}
   on:pointerdown={onCanvasDown}
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
@@ -3312,10 +3617,11 @@
   <div class="scene-clip" style:clip-path={cameraClip}>
   <div
     class="scene"
-    style={`transform: translate3d(${$viewport.panX}px, ${$viewport.panY}px, 0) scale(${$viewport.zoom / renderZoom});`}
+    use:sceneDrive={sceneTransform}
     style:will-change={sceneHot ? "transform" : null}
+    style:opacity={proxyActive ? 0 : null}
   >
-    <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg">
+    <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg" bind:this={sceneSvgEl}>
       <g transform={`scale(${renderZoom})`}>
         {#each visibleFigures as fig (fig.id)}
           {@const bounds = gesture?.kind === "figresize" && gesture.figId === fig.id && frameDraft
@@ -3416,11 +3722,23 @@
   </div>
   </div>
 
+  <!-- ZOOM PROXY: the scene's raster at rest, warm at opacity 0.01; it carries a
+       zoom burst on the compositor while the live scene above is frozen and
+       hidden (rationale in the script). -->
+  {#if zoomSnap}
+    <img
+      class="zoom-proxy"
+      class:live={proxyActive}
+      src={zoomSnap.url}
+      alt=""
+      draggable="false"
+      style:width={`${zoomSnap.w}px`}
+      style:height={`${zoomSnap.h}px`}
+      use:proxyDrive={proxyTransform}
+    />
+  {/if}
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
   <svg class="overlay-svg" xmlns="http://www.w3.org/2000/svg">
-    {#each ripples as rp (rp.id)}
-      <circle class="click-ring" cx={rp.x} cy={rp.y} r="7" />
-    {/each}
     {#if presentationHighlight}
       <rect class="presentation-target" x={presentationHighlight.x} y={presentationHighlight.y} width={presentationHighlight.w} height={presentationHighlight.h} rx="3" />
     {/if}
@@ -3909,6 +4227,19 @@
        block in the script). `contain: paint` is likewise FORBIDDEN: it clips
        panned content outside the host box. */
   }
+  .zoom-proxy {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    transform-origin: 0 0;
+    opacity: 0.01; /* drawn (so its tiles exist) but invisible; .live flips it on */
+    will-change: transform; /* its own fixed-size layer: promoted for the gesture, never grows with zoom */
+    user-select: none;
+  }
+  .zoom-proxy.live {
+    opacity: 1;
+  }
   .scene-svg {
     position: absolute;
     inset: 0;
@@ -3979,23 +4310,13 @@
     pointer-events: none;
   }
   .el {
-    cursor: inherit; /* the host's crosshair family (hover dot / press) applies over objects too */
-  }
-  .click-ring {
-    fill: none;
-    stroke: var(--c-accent);
-    stroke-width: 1.5;
-    pointer-events: none;
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: click-ring 300ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
-  }
-  @keyframes click-ring {
-    from { transform: scale(0.35); opacity: 0.7; }
-    to { transform: scale(1.9); opacity: 0; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .click-ring { display: none; }
+    /* The cursor FIREWALL (see the hostCursor rationale in the script): an
+       explicit constant on every element wrapper, so host cursor flips stop
+       here instead of restyling the mounted plot DOM beneath. The constant is
+       the hover-dot variant — hovering an object shows the dot with no JS. The
+       press variant over objects comes from the host's pointer capture. Never
+       `inherit` here. */
+    cursor: var(--cursor-cross-hover);
   }
   .sel-box {
     stroke: var(--c-accent);
